@@ -11,7 +11,30 @@ import { fileList, prConflicts, questionsWord, saidLine, type TaskRow } from './
 
 export const endSentence = (text: string): string => text.trim().replace(/([^.!?…])$/, '$1.');
 
-export type NoticeKind = 'waiting' | 'stopped' | 'review' | 'passed' | 'rework' | 'blocked' | 'ci-failed' | 'changes' | 'conflicts' | 'merged' | 'analysis-ready' | 'analysis-questions' | 'analysis-split' | 'analysis-back' | 'autopilot';
+export const NOTICE_KINDS = ['waiting', 'stopped', 'review', 'passed', 'rework', 'blocked', 'ci-failed', 'changes', 'conflicts', 'merged', 'analysis-ready', 'analysis-questions', 'analysis-split', 'analysis-back', 'autopilot'] as const;
+export type NoticeKind = (typeof NOTICE_KINDS)[number];
+
+/**
+ * What a burst's summary calls each kind, for one and for more (D-???). Kinds with the same words count
+ * together: "2 need you" holds a builder waiting on its prompt and a blocked task.
+ */
+export const NOTICE_WORDS: Record<NoticeKind, [one: string, many: string]> = {
+  waiting: ['needs you', 'need you'],
+  stopped: ['builder stopped', 'builders stopped'],
+  review: ['ready for review', 'ready for review'],
+  passed: ['review passed', 'reviews passed'],
+  rework: ['sent back for changes', 'sent back for changes'],
+  blocked: ['needs you', 'need you'],
+  'ci-failed': ['pull request failed its checks', 'pull requests failed their checks'],
+  changes: ['pull request with changes asked for', 'pull requests with changes asked for'],
+  conflicts: ['pull request conflicts', 'pull requests conflict'],
+  merged: ['merged', 'merged'],
+  'analysis-ready': ['analysis ready', 'analyses ready'],
+  'analysis-questions': ['analysis with questions for you', 'analyses with questions for you'],
+  'analysis-split': ['too big for one task', 'too big for one task'],
+  'analysis-back': ['analysis back', 'analyses back'],
+  autopilot: ['autopilot step', 'autopilot steps'],
+};
 
 export interface TaskNotice {
   kind: NoticeKind;
@@ -95,4 +118,47 @@ export function noticeActions(n: TaskNotice): [label: string, command: string][]
   const a = first[n.kind];
   if (a?.[1] === 'acc.task.show') return [a];
   return [...(a ? [a] : []), ['Show', 'acc.task.show']];
+}
+
+// ---------------------------------------------------------------- a burst said as one (D-???)
+
+/** More notices than this in one reload show as one summary. */
+export const BURST_AT = 3;
+
+/** What the summary's Show runs: the Command Center's Overview. */
+export const OVERVIEW_COMMAND = 'acc.open.home';
+
+/** A notice from one project, as a reload found it. */
+export interface ProjectNotice { root: string; notice: TaskNotice }
+
+/** One notification to show: a task's buttons run against its task; with no task, Show opens the Overview. */
+export interface Said {
+  text: string;
+  urgent: boolean;
+  actions: [label: string, command: string][];
+  /** The task its buttons act on, or null for the Overview. */
+  task: { root: string; task: string } | null;
+}
+
+/**
+ * Every notice of one reload, from every project, as the notifications to show (D-044, D-???). Up to
+ * BURST_AT, each is its own. More is a burst, after a person was away: one summary that counts them by
+ * kind, the kinds that need you first, urgent if any is. A burst about one task keeps that task's buttons
+ * (those of its newest notice); any other opens the Overview.
+ */
+export function noticeBurst(all: ProjectNotice[]): Said[] {
+  const one = ({ root, notice: n }: ProjectNotice): Said => ({ text: n.text, urgent: n.urgent, actions: noticeActions(n), task: { root, task: n.task } });
+  if (all.length <= BURST_AT) return all.map(one);
+  const counts = new Map<string, { words: [string, string]; n: number; urgent: boolean; at: number }>();
+  for (const { notice: n } of all) {
+    const words = NOTICE_WORDS[n.kind];
+    const c = counts.get(words[1]) ?? { words, n: 0, urgent: false, at: NOTICE_KINDS.indexOf(n.kind) };
+    counts.set(words[1], { ...c, n: c.n + 1, urgent: c.urgent || n.urgent });
+  }
+  const parts = [...counts.values()].sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.at - b.at).map((c) => `${c.n} ${c.words[c.n === 1 ? 0 : 1]}`);
+  const urgent = all.some(({ notice: n }) => n.urgent);
+  const first = all[0]!;
+  const sameTask = all.every((p) => p.root === first.root && p.notice.task === first.notice.task);
+  if (sameTask) return [{ text: `Since you last looked, ${first.notice.task}: ${parts.join(', ')}.`, urgent, actions: noticeActions(all.at(-1)!.notice), task: { root: first.root, task: first.notice.task } }];
+  return [{ text: `Since you last looked: ${parts.join(', ')}.`, urgent, actions: [['Show', OVERVIEW_COMMAND]], task: null }];
 }

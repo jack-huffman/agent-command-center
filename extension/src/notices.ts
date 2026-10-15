@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import type { Hub } from './hub.ts';
 import { combinedStatus, type StatusParts } from './logic/status.ts';
-import { noticeActions, type TaskNotice } from './logic/notices.ts';
+import { noticeBurst, type ProjectNotice, type Said } from './logic/notices.ts';
 import type { Ref } from './model/shared.ts';
 import { News, type NewsInput } from './news.ts';
 import type { SlackSink } from './slack.ts';
@@ -70,19 +70,24 @@ export class Notices implements vscode.Disposable {
     this.needsYou = needsYou;
     this.draw();
     const speak = () => !this.quiet() && vscode.workspace.getConfiguration('agentCommandCenter').get<boolean>('notifications', true);
+    // Every project's notices first, so a burst after a person was away is one notification (D-???).
+    const all: ProjectNotice[] = [];
     for (const p of this.hub.projects) {
       const { notices, slack } = this.news.look(this.input(p));
-      if (notices.length && speak()) for (const n of notices) void this.say(p.root, n);
+      all.push(...notices.map((notice) => ({ root: p.root, notice })));
       for (const ev of slack) this.slack?.offer(ev);
     }
+    if (all.length && speak()) for (const s of noticeBurst(all)) void this.say(s);
   }
 
-  private async say(root: string, n: TaskNotice): Promise<void> {
-    const actions = noticeActions(n);
-    const show = n.urgent ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
-    const pick = await show(n.text, ...actions.map(([label]) => label));
-    const chosen = actions.find(([label]) => label === pick);
-    if (chosen) void this.resolve(chosen[1], { project: root, task: n.task });
+  private async say(s: Said): Promise<void> {
+    const show = s.urgent ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
+    const pick = await show(s.text, ...s.actions.map(([label]) => label));
+    const chosen = s.actions.find(([label]) => label === pick);
+    if (!chosen) return;
+    // A burst across tasks has no task: its Show opens the Overview.
+    if (s.task) void this.resolve(chosen[1], { project: s.task.root, task: s.task.task });
+    else void vscode.commands.executeCommand(chosen[1], 'overview');
   }
 }
 
