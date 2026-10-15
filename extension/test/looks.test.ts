@@ -9,6 +9,7 @@ import test from 'node:test';
 import type { AutopilotRecord } from '../../packages/core/src/autopilot-log.ts';
 import { AUTOPILOT_STEPS, DISPLAY, QUEUE_PHASES, type SessionTie } from '../../packages/core/src/ledger.ts';
 import { GATE_STATUSES } from '../../packages/core/src/receipts.ts';
+import { escapeRegExp } from '../../packages/core/src/text.ts';
 import { agentLook } from '../src/logic/agents.ts';
 import { type AgentSession, TASK_GROUPS, type TaskRow, type Tone } from '../src/logic/shared.ts';
 import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/about.ts';
@@ -458,7 +459,6 @@ function callArgs(text: string, at: number): { args: string[]; end: number } {
   return { args, end: text.length };
 }
 
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Each LOOK(label, icon, tone) a source writes, by its line: its label as a pattern (a template's ${…}, or a
@@ -469,8 +469,8 @@ export function writtenLooks(text: string): { line: number; label: RegExp; icon:
   return [...text.matchAll(/\bLOOK\(/g)].map((m) => {
     const [label = '', icon, tone] = callArgs(text, m.index! + m[0].length).args;
     const literal = word(label);
-    const pattern = literal !== null ? escapeRe(literal)
-      : label.startsWith('`') ? label.slice(1, -1).split(/\$\{(?:[^{}]|\{[^{}]*\})*\}/).map((p) => escapeRe(p.replace(/\\(.)/g, '$1'))).join('.+')
+    const pattern = literal !== null ? escapeRegExp(literal)
+      : label.startsWith('`') ? label.slice(1, -1).split(/\$\{(?:[^{}]|\{[^{}]*\})*\}/).map((p) => escapeRegExp(p.replace(/\\(.)/g, '$1'))).join('.+')
         : '.+';
     return { line: text.slice(0, m.index).split('\n').length, label: new RegExp(`^${pattern}$`), icon: word(icon), tone: word(tone) };
   });

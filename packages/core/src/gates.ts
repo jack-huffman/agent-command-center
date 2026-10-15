@@ -12,7 +12,7 @@ import type { RepoPaths } from './paths.ts';
 import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, relaxesFor, withRaises, writeFloors } from './ratchets.ts';
 import { earlierCounts, type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
-import { plural } from './text.ts';
+import { escapeRegExp, plural } from './text.ts';
 import { apexCounts, countsLine, newlySkipped, NO_COUNTS, readTestCounts, type TestCounts } from './test-counts.ts';
 import { strayFilesGate } from './stray-files.ts';
 
@@ -152,8 +152,6 @@ function packageOf(path: string, tracked: Set<string>): string {
   return parts.slice(0, -1).join('/');
 }
 
-const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** Code an import can name. The folder rule (GH-95) only follows these. */
 const CODE = /\.[cm]?[jt]sx?$/;
 const withoutExt = (path: string): string => path.replace(CODE, '');
@@ -197,9 +195,9 @@ export function nearTests(changed: string[], tracked: string[], read: (path: str
     const stem = base.replace(/\.[^.]+$/, '');
     if (!stem || stem === base) return [];
     const pkg = packageOf(f, files);
-    const named = new RegExp(`(^|/)(${escape(stem)}[._](test|spec)\\.\\w+|test_${escape(stem)}\\.\\w+)$`);
+    const named = new RegExp(`(^|/)(${escapeRegExp(stem)}[._](test|spec)\\.\\w+|test_${escapeRegExp(stem)}\\.\\w+)$`);
     // An import or require that names the file: '../src/merge.ts', './merge', "pkg/merge.js".
-    const imports = new RegExp(`['"\`][^'"\`\\n]*\\/${escape(stem)}(\\.[cm]?[jt]sx?)?['"\`]`);
+    const imports = new RegExp(`['"\`][^'"\`\\n]*\\/${escapeRegExp(stem)}(\\.[cm]?[jt]sx?)?['"\`]`);
     return tests.filter((t) => (!pkg || t.startsWith(`${pkg}/`)) && (named.test(t) || (loads ? loads(t) : imports.test(text(t)))));
   };
   // A file named index is named for its folder, and many folders have one, so its tests are those that load it

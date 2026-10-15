@@ -19,6 +19,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AGENT_ROLES, CONFIG_KEYS, type ConfigPath, UNREAD_KEYS, VALIDATOR_ONLY } from '../packages/core/src/config.ts';
+import { escapeRegExp } from '../packages/core/src/text.ts';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -166,7 +167,6 @@ const DESIGN = 'docs/DESIGN.md';
 const README = 'README.md';
 const PACKAGE = 'extension/package.json';
 const SECTION = 'agentCommandCenter';
-const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A source file's lines with comments taken out: what a comment names isn't read. */
 const codeLines = (text: string): string[] =>
@@ -183,7 +183,7 @@ interface Source { file: string; code: string[]; bare: string[] }
 function blank(s: Source, names: string[]): string[] {
   const left: string[] = [];
   for (const name of names) {
-    const start = new RegExp(`^(export )?(async )?(function|const|let) ${esc(name)}\\b`);
+    const start = new RegExp(`^(export )?(async )?(function|const|let) ${escapeRegExp(name)}\\b`);
     const starts = s.bare.flatMap((l, i) => (start.test(l) ? [i] : []));
     if (!starts.length) left.push(name);
     for (const from of starts) {
@@ -245,10 +245,10 @@ const throughVariable = (key: string): boolean => parentOf(key).includes('[]');
 /** `<parent>.leaf`, `<parent>?.leaf` or `<parent>!.leaf`; a top-level key's parent is the config. */
 const qualified = (key: string): RegExp => {
   const parent = parentOf(key) ? leafOf(parentOf(key)) : 'config';
-  return new RegExp(`\\b${esc(parent)}[?!]?\\.${esc(leafOf(key))}\\b`);
+  return new RegExp(`\\b${escapeRegExp(parent)}[?!]?\\.${escapeRegExp(leafOf(key))}\\b`);
 };
 /** `.leaf` on anything: a read through a variable, such as t.team. */
-const anyRead = (key: string): RegExp => new RegExp(`[\\w$)\\]][?!]?\\.${esc(leafOf(key))}\\b`);
+const anyRead = (key: string): RegExp => new RegExp(`[\\w$)\\]][?!]?\\.${escapeRegExp(leafOf(key))}\\b`);
 
 const fileOf = (p: ReadPlace): string => (typeof p === 'string' ? p : p.file);
 /** What a place's read looks like: `.leaf`, or the read it pins, tested a line at a time, so never global. */
@@ -373,7 +373,7 @@ export function checkSettings(over: Partial<SettingsInputs> = {}): SettingsResul
     if (!got.has(name)) {
       findings.push({ key, missing: 'read', where: `is contributed in ${PACKAGE}, but nothing in extension/src reads it with getConfiguration('${SECTION}').get('${name}')`, fix: `Read it, or take it out of contributes.configuration in ${PACKAGE}: VSCode's Settings can't hide one that does nothing.` });
     }
-    if (!new RegExp(`\\b${esc(key)}\\b`).test(readme)) {
+    if (!new RegExp(`\\b${escapeRegExp(key)}\\b`).test(readme)) {
       findings.push({ key, missing: 'readme', where: `isn't described in ${README}`, fix: `Say what \`${key}\` does in ${README}'s Settings part.` });
     }
   }
