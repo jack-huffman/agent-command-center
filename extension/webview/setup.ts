@@ -77,6 +77,9 @@ export function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
   if (m.total) {
     const bar = el('div', 'progress');
     bar.setAttribute('role', 'progressbar');
+    // Named, and read as the summary over it says it (T-59).
+    bar.setAttribute('aria-label', 'Setup steps done');
+    bar.setAttribute('aria-valuetext', `${m.done} of ${m.total}`);
     bar.setAttribute('aria-valuenow', String(m.done));
     bar.setAttribute('aria-valuemax', String(m.total));
     const fill = el('div', 'progress-fill');

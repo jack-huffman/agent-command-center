@@ -21,9 +21,11 @@
 .setup-section > summary .done-count { background: none; color: var(--vscode-descriptionForeground); display: inline-flex; align-items: center; gap: 3px; }
 .setup-section > summary .count.tone-orange { background: none; color: var(--orange); border: 1px solid var(--orange); }
 .setup-section > .steps { padding: 2px 0 4px 22px; }
-.step.done { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-color: transparent; background: none; margin-bottom: 0; opacity: 0.6; }
-.step.done:hover, .step.done:focus-within { opacity: 0.9; }
+/* A done step reads as done by its icon and label, in the theme's muted colour, not faded below its contrast (T-59). */
+.step.done { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-color: transparent; background: none; margin-bottom: 0; }
 .step.done .status, .step.done .strong { flex: none; font-weight: 400; }
+.step.done .strong { color: var(--vscode-descriptionForeground); }
+.step.done:hover .strong, .step.done:focus-within .strong { color: var(--vscode-foreground); }
 .step.done .status { color: var(--vscode-descriptionForeground); }
 .step.done .status .codicon { color: inherit; }
 .step.done .step-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
