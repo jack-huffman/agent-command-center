@@ -8,6 +8,7 @@ import { guardCommitted } from './cloud-guard.ts';
 import { environmentProtection, protectionWarnings } from './protection.ts';
 import { PUSH_TIMEOUT_MS } from './land.ts';
 import { fetchBranches } from './sync.ts';
+import { readList } from './gates.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
 import { type RepoPaths, samePath } from './paths.ts';
@@ -187,11 +188,6 @@ function excludeEverywhere(run: Runner, main: string, pattern: string): void {
   if (text.split('\n').some((l) => l.trim() === pattern)) return;
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}# Added by acc: worktrees link node_modules from the main checkout.\n${pattern}\n`);
-}
-
-function readList(wt: string, rel: string | null): string[] {
-  if (!rel || !existsSync(join(wt, rel))) return [];
-  return readFileSync(join(wt, rel), 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
 }
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
