@@ -203,7 +203,7 @@ const REACHED: { rule: string; node: { selector: string; text: string; colour?: 
   // A themed avatar on a tracker card: the faded cards' selector reaches it too, but the theme's colour excuses it first.
   { rule: 'color-contrast', node: { selector: 'article[data-key="ACME-12"] > .tcard-top > .avatar[title="Jordan Kim"][aria-label="Jordan Kim"]', text: 'JK', colour: '#4daafc on #313d48, 4.47:1, --vscode-textLink-activeForeground --vscode-textLink-foreground' }, first: 'contrast: --vscode-textLink-foreground' },
   { rule: 'color-contrast', node: { selector: '.setup-section[open=""]:nth-child(2) > ul > .done:nth-child(1) > .step-line.muted[title="Looks right."]', text: 'Looks right.', colour: '#a9a9a9 on #ffffff, 2.35:1, no theme colour' }, first: 'contrast: Setup\'s done steps' },
-  { rule: 'color-contrast', node: { selector: '.done > .card-id > .chip', text: 'ACME-9', colour: '#909090 on #fcfcfc, 3.11:1, no theme colour' }, first: 'contrast: faded task cards' },
+  { rule: 'color-contrast', node: { selector: '.done > .card-foot > .card-meta > .mono.card-where[data-work="branch"]', text: 'task/ACME-9', colour: '#909090 on #fcfcfc, 3.11:1, no theme colour' }, first: 'contrast: faded task cards' },
   { rule: 'color-contrast', node: { selector: 'button[title="Clean up"]', text: 'Clean up', colour: '#fcfcfc on #3d84c7, 3.84:1, no theme colour' }, first: 'contrast: faded task cards' },
   { rule: 'color-contrast', node: { selector: 'article[data-key="ACME-8"] > .tcard-top > .tcard-key', text: 'ACME-8', colour: '#7b7b7b on #ffffff, 4.23:1, no theme colour' }, first: 'contrast: faded task cards' },
   { rule: 'label-content-name-mismatch', node: { selector: 'button[title="14 need you"]', text: 'Tasks 14' }, first: 'name: the rail\'s tabs' },
