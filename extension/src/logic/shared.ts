@@ -49,6 +49,8 @@ export interface TaskRow {
   effort?: string | null;
   /** Its agent's question is waiting in the Command Center (D-030), not in the agent's own terminal. */
   asking?: boolean;
+  /** That question's id, which a card's Answer opens in Needs you, as the Agents tab's does (T-39). */
+  question?: string | null;
   /** Its newest review (D-032): current when it's for the branch's latest commit. When it was made, so Slack can tell one from the next. */
   review?: { verdict: 'pass' | 'changes'; summary: string; current: boolean; at?: string } | null;
   /** A review under way, to watch, and its reviewer's name (D-087). */

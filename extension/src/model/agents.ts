@@ -174,7 +174,7 @@ export interface RepoGroup {
   tasks: TaskGroup[];
   /** Its sessions whose work is over (D-095), newest first: one Finished group, closed by default. */
   finished: AgentLine[];
-  /** How many of them Stop all would stop: background sessions Claude Code still holds (D-095). */
+  /** How many of them Stop finished would stop: background sessions Claude Code still holds (D-095). */
   stopFinished: number;
 }
 

@@ -47,6 +47,8 @@ export interface Action {
   danger?: boolean;
   /** Why it can't be used now (GH-69): shown disabled, with the reason, never left to do nothing. */
   disabled?: string;
+  /** The question an Answer opens in Needs you, on the Overview, as the Agents tab's does (T-39). */
+  question?: string;
 }
 
 export interface Look {

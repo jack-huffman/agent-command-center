@@ -58,10 +58,15 @@ export function toolbarButton(command: string, label: string, iconName: string, 
 }
 
 export function header(title: string, summary: string, ...tools: Child[]): HTMLElement {
+  return pageHeader(title, summary, ...tools, refreshButton());
+}
+
+/** A header's Refresh: the extension reads again what the section shows. */
+export function refreshButton(): HTMLElement {
   const refresh = el('button', 'btn ghost', icon('refresh'), 'Refresh') as HTMLButtonElement;
   refresh.type = 'button';
   refresh.addEventListener('click', () => refreshPage());
-  return pageHeader(title, summary, ...tools, refresh);
+  return refresh;
 }
 
 /** A page's header with only the tools it's given: the Overview's puts Refresh in its ⋯ menu (T-36). */

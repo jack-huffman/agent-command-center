@@ -530,10 +530,10 @@ test('the Agents page draws repos, task lines and agent lines, with no Kind colu
   // A repo with no agents is one quiet line; another window's says so.
   assert.match(page, /' · no agents right now'/);
   assert.match(page, /'another window'/);
-  // A task's line opens its page; finished sessions fold, closed unless opened, with Stop all for the repo's.
+  // A task's line opens its page; finished sessions fold, closed unless opened, with Stop finished for the repo's.
   assert.match(page, /openable\(line, \{ type: 'run', command: 'acc\.task\.show', ref: \{ project: t\.project, task: key \} \}\)/);
   assert.match(page, /const open = memory\(\)\.opened\.includes\(key\);/);
-  assert.match(page, /argButton\('acc\.agents\.stopFinished', 'Stop all', 'debug-stop', r\.key\)/);
+  assert.match(page, /argButton\('acc\.agents\.stopFinished', 'Stop finished', 'debug-stop', r\.key\)/);
   // While it needs you: Answer finds its question on the Overview; Watch and Open in Claude Code run its commands.
   assert.match(page, /go\('overview'\); answerHere\(a\.question!\);/);
   assert.match(page, /run\('acc\.agent\.watch'\)/);
@@ -542,7 +542,7 @@ test('the Agents page draws repos, task lines and agent lines, with no Kind colu
   assert.match(page, /`\$\{plural\(c\.sessions, 'session'\)\}: \$\{c\.working\} working, \$\{c\.needsYou\} need\$\{c\.needsYou === 1 \? 's' : ''\} you, \$\{c\.finished\} finished\.`/);
 });
 
-test('Stop all stops one repo\'s finished sessions: the command takes the repo the page groups them by (GH-119)', () => {
+test('A repo\'s Stop finished stops one repo\'s finished sessions: the command takes the repo the page groups them by (GH-119)', () => {
   const src = readFileSync(join(root, 'src', 'agents.ts'), 'utf8');
   assert.match(src, /return folders \? all\.filter\(\(s\) => folders\.get\(s\.cwd\)\?\.repo\?\.path === repo\) : all;/);
   // The repo a session is in is the same rule's on the page and in the command.
@@ -572,4 +572,32 @@ test('a node command gets a node of the right shape, its own string, or nothing 
   for (const junk of [null, {}, [], { kind: 'task' }, { kind: 'task', project }, { kind: 'task', project: '/repo', task: { id: 'T-1' } }, { kind: 'agent', session: null }, { kind: 'env', project, env: {} }, { kind: 'worktree', project: {}, worktree: { path: '/w' } }, { kind: 'nope', project }, { root: '/outside' }]) {
     assert.equal(nodeArg(junk), undefined, JSON.stringify(junk));
   }
+});
+
+test('Agents names both stops Stop finished, through one command, and puts Settings last, after the page\'s own actions (T-39)', () => {
+  const page = pageSource('agents.ts');
+  // The header's and each repo's fold's: one name, one command; the fold's takes its repo.
+  const stops = [...page.matchAll(/(?:toolbarButton|argButton)\('acc\.agents\.stopFinished', ([^,]+),/g)].map((m) => m[1]);
+  assert.deepEqual(stops, ['`Stop finished (${m.stopFinished})`', '\'Stop finished\''], 'the header\'s with its count, the fold\'s without');
+  assert.doesNotMatch(page, /'Stop all'/);
+  // The header: Stop finished, Start a background agent (outlined), Refresh, then Settings.
+  assert.match(page, /pageHeader\('Agents', summary, stop, start, refreshButton\(\), settings\)/);
+  assert.doesNotMatch(page, /header\('Agents'/, 'not header(), which puts Refresh last');
+  // Edge: with nothing finished there's no Stop finished, and Settings is still last.
+  assert.match(page, /const stop = m\.stopFinished \? toolbarButton\([^;]*\) : null;/);
+});
+
+test('the Running column fits beside the sticky actions at every width: State and Model wrap where there\'s no room (T-39)', () => {
+  const page = pageSource('agents.ts');
+  // A Model cell breaks between the model and its effort, never inside either.
+  assert.match(page, /el\('td', 'mono muted model', el\('span', 'unbroken', [^;]*' ' : null, a\.model && a\.effort \? el\('span', 'unbroken', `· \$\{a\.effort\}`\) : null\)/);
+  assert.doesNotMatch(page, /'nowrap mono muted model'/);
+  const css = readFileSync(join(root, 'webview', 'agents.css'), 'utf8');
+  // The State cell wraps at every width, not only in a narrow tab: outside any @media block.
+  const top = css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, '');
+  assert.match(top, /\.agents-grid td\.state \.status \{ white-space: normal; min-width: 10em; \}/);
+  assert.match(css, /@media \(max-width: 660px\) \{[^@]*\.agents-grid td\.state \.status \{ min-width: 8em; \}/);
+  // Edge: the 560 px rule still hides Model, and nothing hides Running.
+  assert.match(css, /@media \(max-width: 560px\) \{ \.agents-grid \.model \{ display: none; \}/);
+  assert.doesNotMatch(css, /\.ran[^{]*\{[^}]*display: none/);
 });

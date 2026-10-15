@@ -1,7 +1,7 @@
 // The Agents section: sessions by repo, then by task (GH-119), and what they bill. How agents run is in Settings (GH-110).
 
 import type { AgentLine, AgentsModel, RepoGroup, TaskGroup, WhereView } from '../src/model/agents.ts';
-import { argButton, button, el, empty, header, icon, menuButton, openable, plural, segmented, since, span, status, titled, toolbarButton, withMenu, wrap } from './dom.ts';
+import { argButton, button, el, empty, icon, menuButton, openable, pageHeader, plural, refreshButton, segmented, since, span, status, titled, toolbarButton, withMenu, wrap } from './dom.ts';
 import { answerHere } from './progress.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
@@ -53,7 +53,9 @@ export function renderAgents(m: AgentsModel): Node[] {
   // Sessions whose work is over (D-095): counted apart from what needs you, and stopped together.
   const stop = m.stopFinished ? toolbarButton('acc.agents.stopFinished', `Stop finished (${m.stopFinished})`, 'debug-stop') : null;
   const summary = m.error ?? (c.sessions ? `${plural(c.sessions, 'session')}: ${c.working} working, ${c.needsYou} need${c.needsYou === 1 ? 's' : ''} you, ${c.finished} finished.` : 'No sessions on this machine.');
-  const out: Node[] = [header('Agents', summary, settings, stop, toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.repos.find((r) => r.window === 'this')?.key ?? undefined, true))];
+  // The page's own actions first, outlined as nothing here needs you (T-39); Settings goes last, as it leaves the page.
+  const start = toolbarButton('acc.agent.new', 'Start a background agent', 'add', m.repos.find((r) => r.window === 'this')?.key ?? undefined);
+  const out: Node[] = [pageHeader('Agents', summary, stop, start, refreshButton(), settings)];
   // Per-token billing shows here as well as in Settings: it costs money while nobody looks (D-036, D-089).
   if (m.billing?.tone === 'orange') out.push(el('div', 'setting-billing', status(m.billing)));
   if (!c.sessions) {
@@ -100,8 +102,8 @@ function repoBody(r: RepoGroup, view: WhereView): HTMLElement {
     toggle.setAttribute('aria-expanded', String(open));
     toggle.dataset.keep = key;
     toggle.insertBefore(icon('check'), toggle.lastChild);
-    // Stop all: this repo's finished background sessions, through the same command as the header's (D-095).
-    const stopAll = r.stopFinished && r.key ? titled(argButton('acc.agents.stopFinished', 'Stop all', 'debug-stop', r.key), `Stop ${plural(r.stopFinished, 'finished background session')} here. Transcripts and worktrees are kept.`) : null;
+    // This repo's finished background sessions, through the same command as the header's, by the same name (D-095, T-39).
+    const stopAll = r.stopFinished && r.key ? titled(argButton('acc.agents.stopFinished', 'Stop finished', 'debug-stop', r.key), `Stop ${plural(r.stopFinished, 'finished background session')} here. Transcripts and worktrees are kept.`) : null;
     body.append(el('tr', 'fold', span(el('td', '', el('div', 'fold-line', toggle, stopAll)), COLUMNS)));
     if (open) for (const a of r.finished) body.append(agentRow(a, view));
   }
@@ -149,7 +151,7 @@ function agentRow(a: AgentLine, view: WhereView): HTMLElement {
   const row = el('tr', `agent${a.needsYou ? ' attention' : ''}${a.finished ? ' finished' : ''}`, ...cells,
     // The model it runs with (D-086), short, with its full name on hover; a dash until it's known. A builder's
     // effort beside it when it isn't the model's default (D-128).
-    Object.assign(el('td', 'nowrap mono muted model', a.model ? shortModel(a.model) : '—', a.model && a.effort ? ` · ${a.effort}` : ''), { title: a.model ? `${a.model}${a.effort ? `, ${a.effort} effort` : ''}` : 'Not known until it first answers' }),
+    Object.assign(el('td', 'mono muted model', el('span', 'unbroken', a.model ? shortModel(a.model) : '—'), a.model && a.effort ? ' ' : null, a.model && a.effort ? el('span', 'unbroken', `· ${a.effort}`) : null), { title: a.model ? `${a.model}${a.effort ? `, ${a.effort} effort` : ''}` : 'Not known until it first answers' }),
     Object.assign(el('td', 'nowrap muted ran', ran(a.startedAt)), { title: `Started ${since(a.startedAt)}` }),
     el('td', 'actions', ...(a.needsYou ? needsYouButtons(a) : []), menuButton(a.name)));
   return withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background });

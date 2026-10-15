@@ -383,7 +383,7 @@ test('the Overview\'s header has one button, Add task, and a ⋯ menu that reach
   assert.equal((page.match(/toolbarButton\(/g) ?? []).length, 2, 'Add task, or Onboard this project where there is none');
   assert.ok(page.includes('pageHeader(\'Overview\', summary, ...tools)'), 'the header without the Refresh button header() adds');
   const dom = readFileSync(join(root, 'webview', 'dom.ts'), 'utf8');
-  assert.ok(dom.includes("export const refreshPage = (): void => api.postMessage({ type: 'refresh' });") && dom.includes('return pageHeader(title, summary, ...tools, refresh);'));
+  assert.ok(dom.includes("export const refreshPage = (): void => api.postMessage({ type: 'refresh' });") && dom.includes('return pageHeader(title, summary, ...tools, refreshButton());'));
   // Both commands are ones the extension runs from the page.
   for (const c of ['acc.agent.new', 'acc.trackers.add']) assert.ok(manifest.contributes.commands.some((x: { command: string }) => x.command === c), c);
   // A card's accessible name holds its count; the behaviour run reads it on the drawn page.

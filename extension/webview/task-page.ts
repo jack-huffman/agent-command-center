@@ -187,7 +187,7 @@ export function renderTicket(m: TicketModel): Node[] {
       track.replaceChildren(icon(on ? 'sync~spin' : 'add'), on ? 'Tracking…' : 'Track in acc');
       track.disabled = on;
     };
-    const track = el('button', 'btn primary ticket-track') as HTMLButtonElement;
+    const track = el('button', 'btn ticket-track') as HTMLButtonElement;
     track.type = 'button';
     show(m.tracking);
     track.addEventListener('click', () => {
