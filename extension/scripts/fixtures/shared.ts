@@ -33,6 +33,7 @@ export const N44 = named('ACME-44', 'Round-robin new leads across the inside sal
 export const N10 = named('ACME-10', 'Add a CHANGELOG');
 // ACME-12's first builder, before the rework that dispatched its second.
 export const N12a = named('ACME-12', 'Case escalation rules for the premium tier');
+export const R19 = sessionName({ project: 'Acme Service', key: 'ACME-19', title: 'Fix the flow that double-sends welcome emails', role: 'review' });
 export const R20 = sessionName({ project: 'Acme Service', key: 'ACME-20', title: 'Show the renewal date on the Account page', role: 'review' });
 export const N38 = named('ACME-38', 'Merge the support queues');
 // In ~/clients/Acme Service, open in another window (GH-119): a task in review, its builder and its reviewer.

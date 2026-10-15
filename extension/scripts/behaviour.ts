@@ -3,7 +3,8 @@
  * Overview's detail modal (D-131) were checked by hand: Escape and the backdrop closing them, focus going
  * back to what opened them, a redraw under them leaving them as they were, a fold redrawing them, Show all
  * and the suggested rules' Previous and Next. One case reads a task page as drawn: ACME-21's wording list
- * (T-12, T-13), a line for each finding. One reads Settings as drawn (T-40): a guide link for each part, and
+ * (T-12, T-13), a line for each finding; another, ACME-19's review (T-53), its findings in order and the
+ * message a click on a file and line sends. One reads Settings as drawn (T-40): a guide link for each part, and
  * a closed What this means for each long explanation, which stays open once opened. Each case here opens the built page from its fixture in
  * headless Chrome, posts what the extension would post and dispatches what a person's keys and clicks
  * would, then checks the DOM, and writes what it found into a JSON script element Chrome's --dump-dom
@@ -86,6 +87,11 @@ export interface BehaviourData {
   /** The wording findings ACME-21's page lists (T-12), in its order: where each is, why, and its line. */
   wording: { place: string; message: string; text: string }[];
   /**
+   * ACME-19's review (T-53), from its model: each finding's state and message, in the page's order, and what
+   * a click on the first file and line that opens sends.
+   */
+  review: { findings: { label: string; message: string }[]; click: Record<string, unknown> };
+  /**
    * The Overview's cards (T-36), in its order: each one's list, its name as read out, and what it opens:
    * the list's title and every line, or History.
    */
@@ -109,17 +115,17 @@ export interface BehaviourData {
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'ticket-questions' | 'settings-agents' | 'connect-start' | 'agent';
+  page: 'tasks' | 'overview-landing' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, ACME-21's task page, Settings with two projects, the Connect page, and an agent's page. */
-export interface CaseModels { tasks: Model; overview: Model; ticket: Model; settings: Model; connect: Model; agent: Model }
+/** The pages the cases open: the Tasks board, the Overview, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, and an agent's page. */
+export interface CaseModels { tasks: Model; overview: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -523,6 +529,29 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task page: a review lists its findings, must-fix first, each with its lines, and a click on a file and line asks to open it there',
+    page: 'ticket-review',
+    async run(t) {
+      const box = t.find('.side-review');
+      const items = t.all('.rv-finding', box);
+      const want = t.data.review.findings;
+      t.check('a finding for each in the model', items.length === want.length && items.length > 0, { shown: items.length, expected: want.length });
+      const shown = items.map((li) => ({ label: t.find('.status', li).textContent ?? '', message: t.find('.rv-message', li).textContent ?? '' }));
+      // The order itself, not only the model's: no Must fix after a Worth a look.
+      const firstWorth = shown.findIndex((s) => s.label === 'Worth a look');
+      t.check('must-fix findings come first', firstWorth > 0 && shown.slice(firstWorth).every((s) => s.label !== 'Must fix'), shown.map((s) => s.label));
+      for (const [i, f] of want.entries()) t.check(`finding ${i + 1} shows its state and message, in the model's order`, shown[i]?.label === f.label && shown[i]?.message === f.message, shown[i]);
+      t.check('an added and a removed line each name their mark', !!box.querySelector('.rv-add .rv-sign[aria-label="added"]') && !!box.querySelector('.rv-del .rv-sign[aria-label="removed"]'));
+      t.check('the finding\'s own line is marked', t.all('.rv-at', box).length >= 1);
+      const link = t.all<HTMLButtonElement>('button.rv-place', box).find((b) => !b.disabled);
+      if (!link) throw new Error('not found: a file and line that opens');
+      await t.click(link);
+      const sent = t.sent('review-file').at(-1);
+      const click = t.data.review.click;
+      t.check('a click on the file and line sends its path and line, for its task', !!sent && ['project', 'task', 'file', 'line'].every((k) => sent[k] === click[k]), sent);
+    },
+  },
+  {
     name: 'settings: a link for each part opens its heading, and each long explanation is a closed What this means that stays open once opened',
     page: 'settings-agents',
     async run(t) {
@@ -647,6 +676,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'a model that still holds an accepted rule brings it back', file: 'rules.ts', find: 'for (const k of [...settled]) if (!live.has(k)) settled.delete(k);', replace: 'settled.clear();', kills: [caseNamed('detail modal: a rule acc accepted leaves')] },
   { name: 'the task page shows no wording list', file: 'analysis.ts', find: 'if (a.wording) {', replace: 'if (a.wording && !a.wording) {', kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'the wording list leaves out where each finding is', file: 'analysis.ts', find: "el('strong', '', `${f.place}: `)", replace: "el('strong', '', '')", kills: [caseNamed('task page: an analysis with wording findings')] },
+  { name: 'the review lists its findings in the reviewer\'s order', file: 'review.ts', find: 'r.findings.map(finding)', replace: '[...r.findings].reverse().map(finding)', kills: [caseNamed('task page: a review lists its findings')] },
+  { name: 'a finding\'s file and line sends nothing', file: 'review.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'review-file', ...opens }));", replace: "b.addEventListener('click', () => void opens);", kills: [caseNamed('task page: a review lists its findings')] },
   { name: 'a guide link goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });", replace: "a.addEventListener('click', (e) => { e.preventDefault(); });", kills: [caseNamed('settings: a link for each part')] },
   { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
   { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
@@ -709,7 +740,16 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     settings: settingsData(models.settings),
     connect: connectData(models.connect),
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
+    review: reviewData(models.review),
   };
+}
+
+/** What the review case expects (T-53): from the model, each finding's state and message, and the first link's message. */
+function reviewData(model: Model): BehaviourData['review'] {
+  const r = model.kind === 'ticket' ? model.review : null;
+  const opens = r?.findings.find((f) => f.opens)?.opens;
+  if (!r || !opens) throw new Error('The review case needs a task page whose review has a file and line that opens.');
+  return { findings: r.findings.map((f) => ({ label: f.look.label, message: f.message })), click: { type: 'review-file', ...opens } };
 }
 
 /** What a case found, as the page wrote it. */
