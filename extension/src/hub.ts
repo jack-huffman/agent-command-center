@@ -337,7 +337,7 @@ export class Hub implements vscode.Disposable {
     const ledger = this.ledger(root);
     if (!p || !ledger) return null;
     // A branch merged in git counts, with or without a pull request (as `acc tidy` counts it), asked once a branch.
-    const inEnvironment = rememberInEnvironment(branchInEnvironment(runSync, p.root), this.tasks.get(p.root)?.inEnvironment ?? new Map());
+    const inEnvironment = rememberInEnvironment(branchInEnvironment(runSync, p.root, join(dirname(p.ledgerPath), 'reviews')), this.tasks.get(p.root)?.inEnvironment ?? new Map());
     return { ...tidyDue(ledger, p.config, this.repoTidy.get(p.ledgerPath) ?? null, inEnvironment), ledger: p.ledgerPath };
   }
 

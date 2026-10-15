@@ -12,6 +12,7 @@ import { AccError, type Runner, run as gitRun } from './exec.ts';
 import { listed, readList } from './gates.ts';
 import { type Ledger, mutate, type Task, upsertTasks, writeAtomic } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
+import { readVerdicts } from './review.ts';
 import { fetchBranches } from './sync.ts';
 
 /** The label a tidy-up task carries, so its own merge never counts toward the next one. */
@@ -69,23 +70,25 @@ export interface TidyStatus {
 export type InEnvironment = (t: Task) => boolean;
 
 /**
- * Reads git: the task's branch is an ancestor of its environment's branch (origin's copy when there is one,
- * else the local one), as after a merge a person made. The branch is the local one, or origin's copy once
- * the local one is deleted, as it often is after a merge, as tidyScope reads it.
+ * Reads git: the task's work is an ancestor of its environment's branch (origin's copy when there is one,
+ * else the local one), as after a merge a person made. Its work is its branch, the local one or origin's
+ * copy, or, once both are gone (acc cleanup deletes a branch that never left the machine), a commit its
+ * reviews read in `reviews`, newest first: a reviewed commit is in the environment only once it merged.
  */
-export function branchInEnvironment(run: Runner, root: string): InEnvironment {
+export function branchInEnvironment(run: Runner, root: string, reviews?: string): InEnvironment {
   return (t) => {
     const branch = t.run?.branch;
-    if (!branch) return false;
+    const reviewed = reviews ? readVerdicts({ reviews }, t.id).map((v) => v.sha).reverse() : [];
+    const tips = [...(branch ? [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`] : []), ...reviewed];
     const inRef = (tip: string, ref: string) => run('git', ['merge-base', '--is-ancestor', tip, ref], { cwd: root }).code === 0;
-    return [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`].some((tip) => inRef(tip, `refs/remotes/origin/${t.environment}`) || inRef(tip, `refs/heads/${t.environment}`));
+    return tips.some((tip) => inRef(tip, `refs/remotes/origin/${t.environment}`) || inRef(tip, `refs/heads/${t.environment}`));
   };
 }
 
 /** An InEnvironment that asks git once for each branch and environment, and keeps the answers in `known` (the caller drops them when the ledger is read again). */
 export function rememberInEnvironment(ask: InEnvironment, known: Map<string, boolean>): InEnvironment {
   return (t) => {
-    const key = `${t.run?.branch}\0${t.environment}`;
+    const key = `${t.id}\0${t.run?.branch}\0${t.environment}`;
     let merged = known.get(key);
     if (merged === undefined) known.set(key, (merged = ask(t)));
     return merged;
@@ -116,8 +119,8 @@ export function tidyDue(ledger: Pick<Ledger, 'tasks'>, config: Pick<Config, 'tid
 }
 
 /** What a repo's ledger and its record say now. */
-export function tidyStatus(paths: Pick<RepoPaths, 'ledger' | 'stateDir' | 'root'>, config: Pick<Config, 'tidy'>, ledger: Pick<Ledger, 'tasks'>, run: Runner = gitRun): TidyStatus {
-  return tidyDue(ledger, config, readTidy(paths), branchInEnvironment(run, paths.root));
+export function tidyStatus(paths: Pick<RepoPaths, 'ledger' | 'stateDir' | 'root'> & Partial<Pick<RepoPaths, 'reviews'>>, config: Pick<Config, 'tidy'>, ledger: Pick<Ledger, 'tasks'>, run: Runner = gitRun): TidyStatus {
+  return tidyDue(ledger, config, readTidy(paths), branchInEnvironment(run, paths.root, paths.reviews));
 }
 
 // ---------------------------------------------------------------- the files they touched
@@ -160,7 +163,7 @@ function branchRange(run: Runner, root: string, tip: string, ref: string): [stri
  * Append-only files (autopilot.appendOnly), environment-specific ones and .acc/ are left out. A task whose
  * files can't be found is listed as unknown, never dropped quietly.
  */
-export function tidyScope(run: Runner, root: string, config: Config, tasks: Pick<MergedTask, 'id' | 'mergeSha' | 'branch'>[], env: NodeJS.ProcessEnv = process.env): TidyScope {
+export function tidyScope(run: Runner, root: string, config: Config, tasks: Pick<MergedTask, 'id' | 'mergeSha' | 'branch'>[], env: NodeJS.ProcessEnv = process.env, reviews?: string): TidyScope {
   const branch = defaultEnvironment(config).branch;
   const hasOrigin = git(run, root, ['remote', 'get-url', 'origin']).code === 0;
   // Unattended, so git never stops to ask for a password.
@@ -184,6 +187,14 @@ export function tidyScope(run: Runner, root: string, config: Config, tasks: Pick
       const d = range ? git(run, root, ['diff', '--name-only', '--no-renames', '-z', ...range]) : null;
       if (d?.code === 0) files = names(d.stdout);
       else why = t.branch ? `acc didn't record its merge commit, and its branch ${t.branch} is gone` : 'acc didn\'t record its merge commit or its branch';
+    }
+    // Merged in git and cleaned up (D-152): the merge commit that first brought in a commit its review read.
+    if (!files && !t.mergeSha && reviews) {
+      const merge = readVerdicts({ reviews }, t.id).map((v) => v.sha).reverse().filter(verify)
+        .map((sha) => git(run, root, ['rev-list', '--merges', '--ancestry-path', '--reverse', `${sha}..${tip}`]).stdout.split('\n')[0]?.trim())
+        .find((m) => !!m);
+      const d = merge ? git(run, root, ['diff', '--name-only', '--no-renames', '-z', `${merge}^1`, merge]) : null;
+      if (d?.code === 0) files = names(d.stdout);
     }
     if (files) files.forEach((f) => changed.add(f));
     else unknown.push({ task: t.id, why });

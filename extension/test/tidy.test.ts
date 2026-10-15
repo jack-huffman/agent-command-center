@@ -40,6 +40,6 @@ test('two projects on one repo\'s ledger get one offer between them; two repos g
 
 test('the hub asks git for a done task\'s branch, so a task merged in git with no pull request brings up the offer, and keeps the answers until the ledger is read again', () => {
   const src = readFileSync(join(root, 'src/hub.ts'), 'utf8');
-  assert.match(src, /const inEnvironment = rememberInEnvironment\(branchInEnvironment\(runSync, p\.root\), this\.tasks\.get\(p\.root\)\?\.inEnvironment \?\? new Map\(\)\);\n\s+return \{ \.\.\.tidyDue\(ledger, p\.config, this\.repoTidy\.get\(p\.ledgerPath\) \?\? null, inEnvironment\)/);
+  assert.match(src, /const inEnvironment = rememberInEnvironment\(branchInEnvironment\(runSync, p\.root, join\(dirname\(p\.ledgerPath\), 'reviews'\)\), this\.tasks\.get\(p\.root\)\?\.inEnvironment \?\? new Map\(\)\);\n\s+return \{ \.\.\.tidyDue\(ledger, p\.config, this\.repoTidy\.get\(p\.ledgerPath\) \?\? null, inEnvironment\)/);
   assert.match(src, /this\.tasks\.set\(p\.root, \{ stamp, ledger, rows, inEnvironment: new Map\(\) \}\)/, 'a fresh read of the ledger drops the answers');
 });

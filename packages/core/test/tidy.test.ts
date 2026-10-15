@@ -1,7 +1,7 @@
 // The tidy-up after a burst of parallel work (GH-104): counted from the ledger, scoped to the files those
 // merges touched, drafted for a person, and never added on its own.
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { autopilotPass } from '../src/autopilot.ts';
@@ -116,6 +116,15 @@ test('a task merged in git whose local branch was deleted counts through origin\
   const task = (branch: string): Task => merged('T-6', 6, { pr: null, run: { branch, worktree: '/gone' } });
   assert.equal(inEnv(task('task/T-6')), true, 'the local branch is gone; origin\'s copy is in main');
   assert.equal(inEnv(task('task/T-7')), false, 'no branch here or on origin');
+  // Merged in git, then cleaned up: no branch here or on origin, but its review read a commit that is in main.
+  const reviews = join(dir, '.reviews');
+  mkdirSync(reviews, { recursive: true });
+  const sha = gitIn(dir, 'rev-parse', 'refs/remotes/origin/task/T-6').trim();
+  writeFileSync(join(reviews, `T-8-${sha}.json`), JSON.stringify({ task: 'T-8', sha, at: '2026-10-14T10:00:00Z', findings: [] }));
+  const reviewed = (id: string): Task => merged(id, 8, { pr: null, run: { branch: `task/${id}-gone`, worktree: '/gone' } });
+  assert.equal(branchInEnvironment(run, dir, reviews)(reviewed('T-8')), true, 'its reviewed commit is in main');
+  assert.equal(branchInEnvironment(run, dir, reviews)(reviewed('T-9')), false, 'a task with no review and no branch does not count');
+  assert.equal(inEnv(reviewed('T-8')), false, 'without its reviews to read, it does not count');
 });
 
 test('rememberInEnvironment asks git once for each branch, and for each environment of one (edge case: asked again)', () => {
@@ -195,6 +204,29 @@ test('the scope is exactly the files the window\'s merges changed that are still
   const gone = tidyScope(run, dir, config, status.tasks);
   assert.deepEqual(gone.unknown.map((u) => [u.task, u.why]), [['T-4', 'acc didn\'t record its merge commit or its branch'], ['T-5', 'acc didn\'t record its merge commit, and its branch task/T-5 is gone']]);
   assert.deepEqual(gone.files, ['src/a.ts', 'src/b.ts']);
+});
+
+test('a task merged in git and cleaned up is scoped by the merge that brought in its reviewed commit; with no review it is unknown (edge case: branch gone, D-152)', () => {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), 'src/keep.ts': 'export const k = 1;\n' });
+  const config = CONFIG;
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-6', 'main');
+  writeFileSync(join(dir, 'src/six.ts'), 'export const six = 6;\n');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'T-6: change');
+  const sha = gitIn(dir, 'rev-parse', 'HEAD').trim();
+  gitIn(dir, 'checkout', '-q', 'main');
+  writeFileSync(join(dir, 'src/main-only.ts'), 'export const m = 1;\n');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'main moves on');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-6', 'task/T-6');
+  gitIn(dir, 'branch', '-q', '-D', 'task/T-6');
+  const reviews = join(dir, '.reviews');
+  mkdirSync(reviews, { recursive: true });
+  writeFileSync(join(reviews, `T-6-${sha}.json`), JSON.stringify({ task: 'T-6', sha, at: '2026-10-14T10:00:00Z', findings: [] }));
+  const tasks = [{ id: 'T-6', mergeSha: null, branch: 'task/T-6' }, { id: 'T-7', mergeSha: null, branch: 'task/T-7' }];
+  const scope = tidyScope(run, dir, config, tasks, process.env, reviews);
+  assert.deepEqual(scope.files, ['src/six.ts'], 'only what its merge brought in, not main-only.ts');
+  assert.deepEqual(scope.unknown.map((u) => u.task), ['T-7'], 'no branch and no review: listed as unknown');
 });
 
 test('a merge commit this clone doesn\'t have is unknown, and a failed fetch says so', () => {

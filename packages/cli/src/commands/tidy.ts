@@ -9,7 +9,7 @@ import { personOnlyUpdate } from './updates.ts';
 function current() {
   const { paths, config } = project(process.cwd());
   const status = tidyStatus(paths, config, readLedger(paths.ledger));
-  const scope: TidyScope | null = status.count ? tidyScope(run, paths.root, config, status.tasks) : null;
+  const scope: TidyScope | null = status.count ? tidyScope(run, paths.root, config, status.tasks, process.env, paths.reviews) : null;
   const draft: TidyDraft | null = scope ? draftTidy(status, scope) : null;
   return { paths, config, status, scope, draft };
 }
