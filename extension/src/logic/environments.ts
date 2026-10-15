@@ -10,7 +10,7 @@ export const ENV_ICON: Record<string, string> = {
 export const githubBranchUrl = (repo: string, branch: string): string => `https://github.com/${repo}/tree/${encodeURIComponent(branch)}`;
 
 /** An environment type in plain words, for a card's chip: "partial" reads "Partial copy sandbox". */
-export const ENV_TYPE_WORDS: Record<string, string> = {
+const ENV_TYPE_WORDS: Record<string, string> = {
   production: 'Production', full: 'Full copy sandbox', partial: 'Partial copy sandbox', developer: 'Developer sandbox', developer_pro: 'Developer Pro sandbox', none: 'Branch',
 };
 
