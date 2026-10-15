@@ -27,7 +27,9 @@
 .column > p { margin: 6px 0 0; font-size: 0.92em; }
 .card { background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius); padding: 9px 10px; margin-top: 8px; }
 .card:hover { border-color: var(--vscode-focusBorder); }
-.card.done { opacity: 0.75; }
+/* A done card sits flat in its lane, with no fill or lift; its text keeps its contrast (T-59). Its lane's
+   heading says Done, with its icon. */
+.card.done, .column.done-col .card { background: transparent; box-shadow: none; }
 .card-id { font-family: var(--vscode-editor-font-family); font-size: 0.88em; color: var(--vscode-descriptionForeground); display: flex; align-items: center; }
 .card-title { margin: 3px 0 6px; font-weight: 500; word-break: break-word; }
 .card-note { display: flex; align-items: center; gap: 4px; font-size: 0.9em; color: var(--orange); margin-bottom: 6px; }
@@ -61,7 +63,6 @@
 .left-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .left-text ul { margin: 0; padding-left: 18px; }
 
-.column.done-col { opacity: 0.92; }
 .column.drop-target { outline: 2px dashed var(--vscode-focusBorder); outline-offset: -2px; }
 /* While a task is dragged, the lanes it can't go to dim, so the ones it can stand out. */
 .board.dragging-task .column:not(.can-drop) { opacity: 0.45; }

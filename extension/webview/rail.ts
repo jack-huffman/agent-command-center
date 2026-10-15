@@ -1,7 +1,7 @@
 // The Command Center's rail: its mark, the sections with their counts, and the GitHub accounts.
 
 import type { HomeSection } from '../src/model/shared.ts';
-import type { HomeModel } from '../src/model/home.ts';
+import type { HomeModel, NavItem } from '../src/model/home.ts';
 import { el, icon } from './dom.ts';
 import { paletteButton } from './palette.ts';
 import { api, go } from './state.ts';
@@ -23,19 +23,30 @@ function logo(): HTMLElement {
   return wrap;
 }
 
+/**
+ * A tab's name (T-59): the words it shows, its label and its count, then its hint, without the count said
+ * twice: "Tasks 14, need you". A screen reader hears what a sighted person reads first.
+ */
+export function tabName(n: Pick<NavItem, 'label' | 'count' | 'hint'>): string {
+  if (n.count === null) return `${n.label}, ${n.hint}`;
+  const rest = n.hint.startsWith(`${n.count} `) ? n.hint.slice(`${n.count} `.length) : n.hint;
+  return `${n.label} ${n.count}, ${rest}`;
+}
+
 export function renderNav(m: HomeModel, current: HomeSection): HTMLElement {
   const list = el('div', 'nav-list');
   list.setAttribute('role', 'tablist');
   list.setAttribute('aria-orientation', 'vertical');
   for (const n of m.nav) {
     const on = n.section === current;
+    // The space between the label and the count draws nothing in the flex row, and keeps them two words to a screen reader.
     const b = el('button', `nav-item${on ? ' on' : ''}`, icon(n.icon), el('span', 'nav-label', n.label),
-      n.count !== null ? el('span', `nav-count${n.attention ? ' attention' : ''}`, String(n.count)) : n.attention ? el('span', 'nav-count attention', icon('warning')) : null) as HTMLButtonElement;
+      n.count !== null ? ' ' : null, n.count !== null ? el('span', `nav-count${n.attention ? ' attention' : ''}`, String(n.count)) : n.attention ? el('span', 'nav-count attention', icon('warning')) : null) as HTMLButtonElement;
     b.type = 'button';
     b.title = n.hint;
     b.setAttribute('role', 'tab');
     b.setAttribute('aria-selected', String(on));
-    b.setAttribute('aria-label', `${n.label}: ${n.hint}`);
+    b.setAttribute('aria-label', tabName(n));
     b.tabIndex = on ? 0 : -1;
     b.addEventListener('click', () => go(n.section));
     list.append(b);

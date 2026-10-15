@@ -147,11 +147,11 @@ function pluginRow(f: AboutFacts): AboutRow {
   }
   if (!p.value) return row(LOOK('Not installed in Claude Code', 'warning', 'orange'), 'Its hooks keep each builder in its own worktree. Setup\'s A4 installs it.', fixA4('Install', 'Install the acc plugin, as Setup\'s A4 does'));
   const v = p.value.version ?? 'unknown version';
-  if (!p.value.enabled) return row(LOOK(`${v}, turned off`, 'warning', 'orange'), 'Setup\'s A4 turns it on.', fixA4('Turn on', 'Turn the acc plugin on, as Setup\'s A4 does'));
+  if (!p.value.enabled) return row(LOOK(`${v}, turned off`, 'warning', 'orange'), 'Setup\'s A4 turns it on.', fixA4('Turn on', 'Turn on the acc plugin, as Setup\'s A4 does'));
   if (pluginBehind(p.value.version, f.extension)) {
     return row(LOOK(`${v}, older than the extension's ${f.extension}`, 'arrow-circle-down', 'orange'),
       'Its hooks may not know what this acc asks of builders. Setup\'s A4 updates it; sessions already running keep the old one.',
-      fixA4('Update the plugin', `Update the acc plugin to ${f.extension}, as Setup's A4 does`));
+      fixA4('Update the plugin', `Update the plugin to ${f.extension}: the acc plugin, as Setup's A4 does`));
   }
   return row(p.value.version === f.extension ? LOOK(`${v}, the same as the extension`, 'pass', 'blue') : LOOK(`${v}, for every Claude Code session`, 'pass', 'blue'), null);
 }

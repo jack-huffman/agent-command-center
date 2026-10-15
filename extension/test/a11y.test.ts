@@ -200,25 +200,32 @@ const REACHED: { rule: string; node: { selector: string; text: string; colour?: 
   { rule: 'color-contrast', node: { selector: '.settings-now > .status.tone-blue', text: 'Connected', colour: '#3794ff on #2d2d2d, 4.48:1, --vscode-charts-blue' }, first: 'contrast: --vscode-charts-blue' },
   { rule: 'color-contrast', node: { selector: 'button[title="14 need you"] > .attention.nav-count', text: '14', colour: '#d18616 on #f8f8f8, 2.77:1, --vscode-charts-orange' }, first: 'contrast: --vscode-charts-orange' },
   { rule: 'color-contrast', node: { selector: '.side-details > dl > dt:nth-child(3)', text: 'Branch', colour: '#9d9d9d on #393939, 4.25:1, --vscode-descriptionForeground' }, first: 'contrast: --vscode-descriptionForeground' },
-  // A themed avatar on a tracker card: the faded cards' selector reaches it too, but the theme's colour excuses it first.
   { rule: 'color-contrast', node: { selector: 'article[data-key="ACME-12"] > .tcard-top > .avatar[title="Jordan Kim"][aria-label="Jordan Kim"]', text: 'JK', colour: '#4daafc on #313d48, 4.47:1, --vscode-textLink-activeForeground --vscode-textLink-foreground' }, first: 'contrast: --vscode-textLink-foreground' },
-  { rule: 'color-contrast', node: { selector: '.setup-section[open=""]:nth-child(2) > ul > .done:nth-child(1) > .step-line.muted[title="Looks right."]', text: 'Looks right.', colour: '#a9a9a9 on #ffffff, 2.35:1, no theme colour' }, first: 'contrast: Setup\'s done steps' },
-  { rule: 'color-contrast', node: { selector: '.done > .card-foot > .card-meta > .mono.card-where[data-work="branch"]', text: 'task/ACME-9', colour: '#909090 on #fcfcfc, 3.11:1, no theme colour' }, first: 'contrast: faded task cards' },
-  { rule: 'color-contrast', node: { selector: 'button[title="Clean up"]', text: 'Clean up', colour: '#fcfcfc on #3d84c7, 3.84:1, no theme colour' }, first: 'contrast: faded task cards' },
-  { rule: 'color-contrast', node: { selector: 'article[data-key="ACME-8"] > .tcard-top > .tcard-key', text: 'ACME-8', colour: '#7b7b7b on #ffffff, 4.23:1, no theme colour' }, first: 'contrast: faded task cards' },
-  { rule: 'label-content-name-mismatch', node: { selector: 'button[title="14 need you"]', text: 'Tasks 14' }, first: 'name: the rail\'s tabs' },
-  { rule: 'label-content-name-mismatch', node: { selector: '.on', text: 'Overview 21' }, first: 'name: the rail\'s tabs' },
-  { rule: 'label-content-name-mismatch', node: { selector: 'article[data-key="ACME-12"]', text: 'ACME-12 JK Case escalation rules for the premium tier' }, first: 'name: task cards' },
-  { rule: 'label-content-name-mismatch', node: { selector: '.acc-hover', text: 'ACME-16 Add a field history report for Opportunity stage' }, first: 'name: task cards' },
-  { rule: 'label-content-name-mismatch', node: { selector: '.held', text: 'Moving ACME-16 Add a field history report for Opportunity stage reporting Ready' }, first: 'name: task cards' },
-  { rule: 'label-content-name-mismatch', node: { selector: 'button[data-overview-card="ready"]', text: 'Ready for an agent 3 ACME-16 next' }, first: 'name: the Overview\'s rows and cards' },
-  { rule: 'label-content-name-mismatch', node: { selector: 'ol[data-overview-group="detail:needs-you"] > .openable[role="link"]:nth-child(2)', text: 'Asks a question ACME-12' }, first: 'name: the Overview\'s rows and cards' },
-  { rule: 'label-content-name-mismatch', node: { selector: 'li:nth-child(2)', text: 'Asks permission ACME-14' }, first: 'name: the Overview\'s rows and cards' },
-  { rule: 'label-content-name-mismatch', node: { selector: '.tone-row-blue:nth-child(3)', text: 'Ready ACME-37 Tidy the Case page layout dev Dispatch' }, first: 'name: the Overview\'s rows and cards' },
-  { rule: 'label-content-name-mismatch', node: { selector: '.settings-tracker-head > .settings-tracker-actions.actions > .btn:nth-child(3)', text: 'Change place…' }, first: 'name: Settings\' action buttons' },
-  { rule: 'label-content-name-mismatch', node: { selector: 'div[data-about="plugin"] > .primary.btn', text: 'Update the plugin' }, first: 'name: Settings\' action buttons' },
-  { rule: 'list', node: { selector: 'ol[aria-label="In progress"]', text: 'Waiting on you ACME-44' }, first: 'list: the Overview\'s lists' },
-  { rule: 'aria-progressbar-name', node: { selector: '.progress', text: '' }, first: 'progressbar: Setup\'s progress' },
+];
+
+/**
+ * Nodes the full run found before T-59, which the eight follow-up exceptions excused: the rail's tabs, task
+ * cards, faded task cards, the Overview's rows, cards and lists, Settings' action buttons, and Setup's
+ * progress and done steps. Each page now draws them so the check passes, and no exception reaches them.
+ */
+const FIXED: { rule: string; node: { selector: string; text: string; colour?: string } }[] = [
+  { rule: 'color-contrast', node: { selector: '.setup-section[open=""]:nth-child(2) > ul > .done:nth-child(1) > .step-line.muted[title="Looks right."]', text: 'Looks right.', colour: '#a9a9a9 on #ffffff, 2.35:1, no theme colour' } },
+  { rule: 'color-contrast', node: { selector: '.done > .card-foot > .card-meta > .mono.card-where[data-work="branch"]', text: 'task/ACME-9', colour: '#909090 on #fcfcfc, 3.11:1, no theme colour' } },
+  { rule: 'color-contrast', node: { selector: 'button[title="Clean up"]', text: 'Clean up', colour: '#fcfcfc on #3d84c7, 3.84:1, no theme colour' } },
+  { rule: 'color-contrast', node: { selector: 'article[data-key="ACME-8"] > .tcard-top > .tcard-key', text: 'ACME-8', colour: '#7b7b7b on #ffffff, 4.23:1, no theme colour' } },
+  { rule: 'label-content-name-mismatch', node: { selector: 'button[title="14 need you"]', text: 'Tasks 14' } },
+  { rule: 'label-content-name-mismatch', node: { selector: '.on', text: 'Overview 21' } },
+  { rule: 'label-content-name-mismatch', node: { selector: 'article[data-key="ACME-12"]', text: 'ACME-12 JK Case escalation rules for the premium tier' } },
+  { rule: 'label-content-name-mismatch', node: { selector: '.acc-hover', text: 'ACME-16 Add a field history report for Opportunity stage' } },
+  { rule: 'label-content-name-mismatch', node: { selector: '.held', text: 'Moving ACME-16 Add a field history report for Opportunity stage reporting Ready' } },
+  { rule: 'label-content-name-mismatch', node: { selector: 'button[data-overview-card="ready"]', text: 'Ready for an agent 3 ACME-16 next' } },
+  { rule: 'label-content-name-mismatch', node: { selector: 'ol[data-overview-group="detail:needs-you"] > .openable[role="link"]:nth-child(2)', text: 'Asks a question ACME-12' } },
+  { rule: 'label-content-name-mismatch', node: { selector: 'li:nth-child(2)', text: 'Asks permission ACME-14' } },
+  { rule: 'label-content-name-mismatch', node: { selector: '.tone-row-blue:nth-child(3)', text: 'Ready ACME-37 Tidy the Case page layout dev Dispatch' } },
+  { rule: 'label-content-name-mismatch', node: { selector: '.settings-tracker-head > .settings-tracker-actions.actions > .btn:nth-child(3)', text: 'Change place…' } },
+  { rule: 'label-content-name-mismatch', node: { selector: 'div[data-about="plugin"] > .primary.btn', text: 'Update the plugin' } },
+  { rule: 'list', node: { selector: 'ol[aria-label="In progress"]', text: 'Waiting on you ACME-44' } },
+  { rule: 'aria-progressbar-name', node: { selector: '.progress', text: '' } },
 ];
 
 /** Nodes just past an exception's edge: another colour, rule, element or selector. None is excused. */
@@ -236,11 +243,19 @@ const BEYOND: { rule: string; node: { selector: string; text: string; colour?: s
 ];
 
 test('each exception in A11Y_EXCEPTIONS reaches as far as it says and no further: the nodes it excuses, pinned, and none just past its edge (T-55)', () => {
-  // How many of the run's nodes each exception matches, in A11Y_EXCEPTIONS' order; the faded cards' reaches a themed avatar too.
-  assert.deepEqual(A11Y_EXCEPTIONS.map((e) => REACHED.filter((r) => excuses(e, r.rule, r.node)).length), [1, 1, 1, 1, 1, 4, 2, 3, 4, 2, 1, 1]);
+  // How many of the run's nodes each exception matches, in A11Y_EXCEPTIONS' order.
+  assert.deepEqual(A11Y_EXCEPTIONS.map((e) => REACHED.filter((r) => excuses(e, r.rule, r.node)).length), [1, 1, 1, 1]);
   assert.deepEqual(REACHED.map((r) => A11Y_EXCEPTIONS.find((e) => excuses(e, r.rule, r.node))?.name), REACHED.map((r) => r.first), 'the first that matches is the one meant');
   assert.deepEqual(BEYOND.filter((b) => A11Y_EXCEPTIONS.some((e) => excuses(e, b.rule, b.node))), [], 'nothing past an edge is excused');
   for (const e of A11Y_EXCEPTIONS) assert.ok(REACHED.some((r) => r.first === e.name), `${e.name} has a node the run found`);
-  // Each contrast exception for a theme colour names its --vscode-* variable; every other is a follow-up.
-  for (const e of A11Y_EXCEPTIONS) assert.ok(/^contrast: --vscode-/.test(e.name) ? e.reason.includes(e.name.slice('contrast: '.length)) : e.reason.startsWith('follow-up: '), `${e.name}: ${e.reason}`);
+  // Each is a contrast exception for a theme colour, and its reason names its --vscode-* variable.
+  for (const e of A11Y_EXCEPTIONS) assert.ok(/^contrast: --vscode-/.test(e.name) && e.reason.includes(e.name.slice('contrast: '.length)), `${e.name}: ${e.reason}`);
+});
+
+test('A11Y_EXCEPTIONS holds only the four theme colours, and none of the nodes the eight follow-ups excused is excused now (T-59)', () => {
+  assert.deepEqual(A11Y_EXCEPTIONS.map((e) => e.name), ['contrast: --vscode-charts-blue', 'contrast: --vscode-charts-orange', 'contrast: --vscode-descriptionForeground', 'contrast: --vscode-textLink-foreground']);
+  assert.equal(FIXED.length, 17, 'every node T-55 pinned for a follow-up');
+  assert.deepEqual(new Set(FIXED.map((f) => f.rule)), new Set(['color-contrast', 'label-content-name-mismatch', 'list', 'aria-progressbar-name']), 'each of their rules');
+  // Edge case: a faded node in no theme colour, which no theme exception may reach.
+  assert.deepEqual(FIXED.filter((f) => A11Y_EXCEPTIONS.some((e) => excuses(e, f.rule, f.node))), []);
 });

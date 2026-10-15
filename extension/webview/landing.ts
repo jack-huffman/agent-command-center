@@ -47,7 +47,8 @@ export function landingRow(r: LandingRow, calm = false): HTMLElement {
   state.title = r.look.label;
   const facts: Child[] = calm ? [] : r.facts.map((f) => Object.assign(el('span', 'lp-fact', f.text), { title: f.text }));
   const caret = r.menu ? menuButton(r.id ? `${r.id} ${r.title}` : r.title) : null;
-  const row = el('li', `lp-row tone-row-${r.look.tone}`, state, r.id ? el('span', 'tcard-key lp-key', r.id) : null, el('span', 'lp-title', r.title), ...facts,
+  const title = el('span', 'lp-title', r.title);
+  const row = el('li', `lp-row tone-row-${r.look.tone}`, state, r.id ? el('span', 'tcard-key lp-key', r.id) : null, title, ...facts,
     el('span', 'lp-do', r.action ? rowButton(r.action) : null, caret));
   row.dataset.overviewRow = '';
   row.title = [r.tip?.includes(r.title) ? r.tip : [r.id ? `${r.id} ${r.title}` : r.title, r.tip].filter(Boolean).join('\n'), ...(calm ? r.facts.map((f) => f.text) : [])].join('\n');
@@ -58,23 +59,31 @@ export function landingRow(r: LandingRow, calm = false): HTMLElement {
   }
   const open = r.open;
   if (open) {
+    // The line stays a list item (T-59): its title is the link in it, which takes focus, and a click anywhere
+    // on the line opens it too.
     row.classList.add('openable');
-    row.tabIndex = 0;
-    row.setAttribute('role', 'link');
-    row.setAttribute('aria-label', `${r.look.label}: ${r.id ? `${r.id} ` : ''}${r.title}`);
+    title.tabIndex = 0;
+    title.setAttribute('role', 'link');
+    title.setAttribute('aria-label', lineName(r));
     // Focus comes back here when what it opened closes: the task modal finds it by data-peek.
-    if (open.kind === 'task') row.dataset.peek = peekKey(open.project, open.key);
-    if (open.kind === 'detail') row.dataset.opens = opensKey(open.detail);
+    if (open.kind === 'task') title.dataset.peek = peekKey(open.project, open.key);
+    if (open.kind === 'detail') title.dataset.opens = opensKey(open.detail);
     const go = (e: Event) => {
       if ((e.target as HTMLElement).closest('button, a.ext')) return;
       e.preventDefault();
       runDo(open);
     };
     row.addEventListener('click', go);
-    row.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target === row) go(e); });
+    title.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(e); });
   }
   return row;
 }
+
+/**
+ * The name of a line's link (T-59): its title, which is what the link shows, then its state and its task's
+ * key, which the line shows beside it. A screen reader on the link hears the title first, as it reads.
+ */
+export const lineName = (r: Pick<LandingRow, 'title' | 'id' | 'look'>): string => `${r.title}, ${r.look.label}${r.id ? `, ${r.id}` : ''}`;
 
 /** A list of lines, as a detail shows it, or calm, as the Overview does. */
 export function landingRows(rows: LandingRow[], label: string, calm = false): HTMLElement {
@@ -118,8 +127,9 @@ export function landingGroup(g: LandingGroup): HTMLElement {
  * opens it in full over the page; focus comes back to it when that closes. Its name says its count.
  */
 export function landingCard(c: OverviewCard): HTMLElement {
-  const b = el('button', 'lp-card', el('span', 'lp-card-top', icon(c.icon, c.tone), el('span', 'lp-card-title', c.title), el('span', 'count', String(c.count))),
-    el('span', 'lp-card-line', c.line)) as HTMLButtonElement;
+  // The spaces draw nothing in its flex rows, and keep its title, count and line apart as words (T-59).
+  const b = el('button', 'lp-card', el('span', 'lp-card-top', icon(c.icon, c.tone), el('span', 'lp-card-title', c.title), ' ', el('span', 'count', String(c.count))),
+    ' ', el('span', 'lp-card-line', c.line)) as HTMLButtonElement;
   b.type = 'button';
   b.dataset.overviewCard = c.key;
   b.dataset.opens = opensKey(c.opens);

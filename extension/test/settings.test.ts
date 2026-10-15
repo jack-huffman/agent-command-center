@@ -506,7 +506,7 @@ test('each tracker\'s buttons are commands the page may ask for, with its tracke
   ]);
   // Each takes its tracker as the commands parse it: the project's root and its place in the list.
   for (const a of t.actions) assert.deepEqual(JSON.parse(a.arg!), { root: '/r', index: 1 });
-  assert.deepEqual(t.actions.map((a) => a.name), ['Sign in again to Jira · ACME, in Acme', 'Sign out of Jira · ACME, in Acme', 'Change where Jira · ACME, in Acme gets its tickets, and its board']);
+  assert.deepEqual(t.actions.map((a) => a.name), ['Sign in again to Jira · ACME, in Acme', 'Sign out of Jira · ACME, in Acme', 'Change place: where Jira · ACME, in Acme gets its tickets, and its board']);
   // Not signed in: Sign in leads, and Sign out can't be used, and says why.
   const none = trackerSetting(tracked(0, 'jira', 'Jira · ACME', { error: 'Sign in to Jira (acme.atlassian.net) for this repo to see its board and tickets.', connect: wantsSignIn }), ACME);
   assert.deepEqual(none.actions.map((a) => [a.label, a.primary, a.disabled]), [['Sign in', true, null], ['Sign out', false, 'It isn\'t signed in, so there\'s nothing to sign out of.'], ['Change place…', false, null]]);

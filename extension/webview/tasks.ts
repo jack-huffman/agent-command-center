@@ -151,7 +151,9 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
   );
   card.dataset.key = c.key;
   card.draggable = true;
-  card.setAttribute('aria-label', `${c.key}: ${c.title}. ${c.status}. Press Enter to open, or drag it or press Space to move it to another column.`);
+  // No aria-label (T-59): what the card shows names it, its labels, people and Moving badge too. Its status,
+  // which its column may share with others, is its description, before the board's keys add theirs.
+  card.setAttribute('aria-description', `${c.status}.`);
   card.addEventListener('dragstart', (e) => {
     e.dataTransfer?.setData('text/x-acc-card', c.key);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
