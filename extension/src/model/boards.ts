@@ -8,6 +8,7 @@ import { conflictLine, failedChecksLine, waitsForFiles, whileFirst } from '../lo
 import { taskNames, type TaskRow, type Tone } from '../logic/shared.ts';
 import { signInScope } from '../logic/connect.ts';
 import { inProcessWords } from '../logic/processes.ts';
+import { movedOut } from '../logic/moved-out.ts';
 import { exampleLink, type PasteState, pasteHint, type SlackPlace } from '../logic/slack-link.ts';
 import { type Action, displayLook, KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
 import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, filesLook, stoppedLook } from './cards.ts';
@@ -137,6 +138,8 @@ export interface TrackerBoard {
    * still on the agent board, for a person to finish or set aside.
    */
   left: string[];
+  /** The warning for `left` in plain words, "Moved out of epic ACME-3 after work started: ACME-18.", or null (T-42). */
+  movedOut: string | null;
   columns: TrackerColumn[];
   /**
    * A Slack tracker's box for a thread's link, in place of a board (T-31): which channel the thread must be
@@ -207,7 +210,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
     index: b.index, kind: b.kind, title, tab: BOARD_WORD[b.kind] ?? title, source: b.board?.source ?? null, url: b.board?.url ?? null,
     notice: b.board?.notice ? inProcessWords(b.board.notice) : null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
     signIn: b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null,
-    place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], columns,
+    place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], movedOut: movedOut(b.place ?? null, b.left ?? []), columns,
     paste: b.paste && !b.error ? { hint: pasteHint(b.paste), example: exampleLink(b.paste), link: b.paste.link, busy: b.paste.busy, error: b.paste.error ? inProcessWords(b.paste.error) : null, tracked: b.paste.tracked } : null,
   };
 }

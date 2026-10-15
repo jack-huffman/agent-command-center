@@ -71,6 +71,8 @@ export interface GeoSnapshot {
    * holds, for the screenshots gate (T-5, looked.ts): a class a branch adds must be drawn in some shot.
    */
   drawn?: string[];
+  /** Where the first column of a tracker's board starts, in CSS pixels down the page (T-42). Null where no tracker board is drawn. */
+  boardTop?: number | null;
   /** How many fonts the page loaded before it was sent its model (T-21, steady.ts): none means nothing waited on them. */
   fonts?: number;
 }
@@ -141,6 +143,8 @@ export interface Verdict {
   excused: Record<string, number>;
   /** How many strings each work-data region held, by its name (GH-163). */
   held: Record<string, number>;
+  /** Where the first column of a tracker's board starts (T-42), or null where none is drawn. */
+  boardTop: number | null;
 }
 
 /** The two boxes overlap by more than a pixel each way. */
@@ -208,8 +212,15 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   if (home && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
   if (s.overview && !examined.overview) violations.push({ check: 'overview', what: 'the page', detail: 'is the Overview, and examined no lines or cards on it' });
   if (!examined.words) violations.push({ check: 'words', what: 'the page', detail: 'gathered no words' });
-  return { examined, violations, excused, held: said.held };
+  return { examined, violations, excused, held: said.held, boardTop: s.boardTop ?? null };
 }
+
+/**
+ * The most a tracker board's first column may start down the page at 1000 px wide (T-42): the header above
+ * it is the toolbar, the board's name with its buttons, one source line and the warning. It was about 330 with
+ * four rows and a warning, and is 283 now; the run fails when the column starts lower than this.
+ */
+export const BOARD_TOP = { page: 'tasks', width: 1000, max: 283 } as const;
 
 /** One drawing's verdict: its page, theme and width. */
 export interface Render { page: string; theme: string; width: number; verdict: Verdict }
@@ -227,6 +238,11 @@ export const RUN_FLOOR: Record<Check, number> = { overlap: 13600, clipped: 41700
 export function runFailures(renders: Render[], full: boolean, exceptions = GEOMETRY_EXCEPTIONS, floor = RUN_FLOOR, regions = WORK_DATA): string[] {
   const out = renders.flatMap((r) => r.verdict.violations.map((v) => `${r.page} ${r.theme} ${r.width}px: ${v.check}: ${v.what}: ${v.detail}`));
   if (!renders.length) out.push('No page was drawn.');
+  for (const r of renders) {
+    if (r.page !== BOARD_TOP.page || r.width !== BOARD_TOP.width) continue;
+    if (r.verdict.boardTop === null) out.push(`${r.page} ${r.theme} ${r.width}px: board: no tracker board's first column was measured`);
+    else if (r.verdict.boardTop > BOARD_TOP.max) out.push(`${r.page} ${r.theme} ${r.width}px: board: the first column starts ${r.verdict.boardTop} px down, below ${BOARD_TOP.max}`);
+  }
   // The Overview pages drew lines, and none of them gave a button to check (T-25).
   const drewLines = renders.some((r) => r.verdict.examined.overview > 0);
   if (drewLines && !renders.some((r) => r.verdict.examined.buttons > 0)) out.push('The Overview pages gave no row button to check.');
@@ -357,9 +373,12 @@ function collectGeometry() {
     if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) continue;
     for (const c of e.classList) drawn.add(c);
   }
+  // Where a tracker's first column starts (T-42).
+  const firstCol = document.querySelector('.tracker .board:not(.agent-board) .column');
+  const boardTop = firstCol && visible(firstCol) ? Math.round(firstCol.getBoundingClientRect().top + window.scrollY) : null;
   const out = document.createElement('script');
   out.type = 'application/json';
   out.id = 'acc-geometry';
-  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], fonts: window.accFontsFirst ?? 0 }).replace(/</g, '\\\\u003c');
+  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, fonts: window.accFontsFirst ?? 0 }).replace(/</g, '\\\\u003c');
   document.body.append(out);
 }`;

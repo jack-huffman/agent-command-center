@@ -2,7 +2,7 @@
 // that stopped looking can't pass. The run itself measures the real pages in Chrome: npm run screenshot.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeButtons, judgeCards, OVERVIEW_LINES, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeButtons, judgeCards, OVERVIEW_LINES, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
 const control = (what: string, x: number, y: number, o: Partial<GeoControl> = {}): GeoControl => ({ what, text: what, box: { x, y, w: 80, h: 24 }, inside: [], layer: null, ...o });
@@ -150,7 +150,7 @@ test('the run fails when the Overview pages give no button to check, and counts 
   assert.deepEqual(runFailures(none, false), ['The Overview pages gave no row button to check.']);
   const some: Render[] = [{ page: 'overview', theme: 'dark', width: 1000, verdict: judge({ ...overview, buttons: [{ row: 'a', label: 'Open' }] }, true, []) }];
   assert.deepEqual(runFailures(some, false), []);
-  assert.deepEqual(runFailures([{ page: 'tasks', theme: 'dark', width: 1000, verdict: judge(fine(), true, []) }], false), [], 'a page that isn\'t the Overview has no buttons to find');
+  assert.deepEqual(runFailures([{ page: 'tasks', theme: 'dark', width: 1000, verdict: judge(fine({ boardTop: BOARD_TOP.max }), true, []) }], false), [], 'a page that isn\'t the Overview has no buttons to find');
   assert.ok(RUN_FLOOR.buttons > 0, 'a full run checks buttons');
 });
 
@@ -159,4 +159,14 @@ test('the sample Overview models name a button for the rows that have one (T-25)
   assert.ok(expected && expected.length > 0 && expected.every((e) => e.row.trim() && e.label.trim()), 'a label for each');
   assert.equal(expectedButtons(sampleModel('ticket')), null, 'a page that isn\'t a section has none');
   assert.ok(COLLECT_GEOMETRY.includes('.lp-btn') && COLLECT_GEOMETRY.includes("getAttribute('aria-label')"), 'the page reports each button\'s aria-label');
+});
+
+test('the Tasks board\'s first column may start no lower than it does now at 1000 px, and an unmeasured board fails (T-42)', () => {
+  const at = (boardTop: number | null, page = 'tasks', width = 1000): Render[] => [{ page, theme: 'light', width, verdict: judge(fine({ boardTop }), true, []) }];
+  assert.deepEqual(runFailures(at(BOARD_TOP.max), false), [], 'at the ceiling it passes');
+  assert.deepEqual(runFailures(at(BOARD_TOP.max + 1), false), [`tasks light 1000px: board: the first column starts ${BOARD_TOP.max + 1} px down, below ${BOARD_TOP.max}`]);
+  assert.deepEqual(runFailures(at(null), false), ['tasks light 1000px: board: no tracker board\'s first column was measured'], 'nothing drawn is no pass');
+  assert.deepEqual(runFailures(at(BOARD_TOP.max + 100, 'tasks', 620), false), [], 'only the 1000 px drawing is held to it');
+  assert.ok(BOARD_TOP.max < 330, 'lower than the four rows and a warning it replaces');
+  assert.ok(COLLECT_GEOMETRY.includes('boardTop'), 'the page measures it');
 });
