@@ -29,7 +29,7 @@ class AgentCommands extends Sidebar {
     reg('acc.agent.stop', (n: AgentNode) => this.stopAgent(n));
     reg('acc.agent.openFolder', (n: AgentNode) => n?.kind === 'agent' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.session.cwd), { forceNewWindow: true }));
     reg('acc.agents.refresh', () => this.hub.loadAgents());
-    // With a repo's folder, as a repo's Stop all on the Agents page sends it, only that repo's (GH-119).
+    // With a repo's folder, as a repo's Stop finished on the Agents page sends it, only that repo's (GH-119).
     reg('acc.agents.stopFinished', (repo?: unknown) => this.stopFinished(typeof repo === 'string' ? repo : null));
     reg('acc.agents.configure', (arg?: unknown) => this.configureAgents(arg));
     reg('acc.agents.autonomy', (arg?: unknown) => this.configureAutonomy(arg));

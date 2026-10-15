@@ -41,6 +41,9 @@
 .where-text { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .unbroken { white-space: nowrap; }
 /* A state keeps to one line while there's room; a narrow tab wraps it, two lines at most. */
+/* The State and Model cells wrap when there's no room, so the table fits its frame at every width. A table
+   wider than its frame scrolls under the sticky actions, and those then cover the Running column (T-39). */
+.agents-grid td.state .status { white-space: normal; min-width: 10em; }
 .agents-grid td.state .status .codicon { align-self: flex-start; margin-top: 2px; }
 .agents-grid th.ran, .agents-grid td.ran { text-align: right; }
 
@@ -51,7 +54,7 @@
 @media (max-width: 1279px) { .agents-grid .line-btn.ghost .btn-text { display: none; } }
 @media (max-width: 659px) { .agents-grid .line-btn .btn-text { display: none; } }
 
-/* A repo's finished sessions, folded into one line, with Stop all (D-095). */
+/* A repo's finished sessions, folded into one line, with Stop finished (D-095, T-39). */
 .agents-grid tr.fold td { padding: 4px 8px 4px 20px; }
 .fold-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
 .agents-grid .btn.fold-toggle { color: var(--vscode-descriptionForeground); }
@@ -68,9 +71,9 @@
 @media (max-width: 660px) {
   .agents-grid th.wide { width: auto; }
   .agents-grid td.agent { padding-left: 16px; }
-  .agents-grid td.state .status { white-space: normal; min-width: 10em; }
+  .agents-grid td.state .status { min-width: 8em; }
 }
-@media (max-width: 560px) { .agents-grid .model { display: none; } .agents-grid td, .agents-grid th { padding-left: 6px; padding-right: 6px; } .agents-grid td.state .status { min-width: 8em; } }
+@media (max-width: 560px) { .agents-grid .model { display: none; } .agents-grid td, .agents-grid th { padding-left: 6px; padding-right: 6px; } }
 
 /* Per-token billing (D-036): above the sessions, as well as in Settings' How agents run (GH-110). */
 .setting-billing { margin: 0 0 12px; }
