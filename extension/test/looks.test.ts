@@ -32,6 +32,7 @@ import { worktreeLook } from '../src/model/worktrees.ts';
 import { loadWord, taskLook } from '../src/progress.ts';
 import { SLACK_KIND_WORDS, SLACK_KINDS, slackCard } from '../src/slack.ts';
 import { PANEL, panelLook } from '../webview/looks.ts';
+import { MOVE_LOOK } from '../webview/board-keys.ts';
 import { sampleAbout } from '../scripts/fixtures/about.ts';
 import { cssRules, PALETTE_THEMES, type PaletteTheme, pageStyles, palettes } from '../scripts/styles.ts';
 import { root, row } from './support.ts';
@@ -158,6 +159,8 @@ export const TABLES: Table[] = [
     ] as const).map(([k, state, display, f]): [string, Shown] => [k, filesLook({ state, display, files: f, analyzing: null })!]),
   },
   { name: 'a worktree', sources: ['extension/src/model/worktrees.ts#worktreeLook'], states: () => [[false, 0], [false, -1], [false, 3], [true, 0]].map(([prunable, changed]): [string, Shown] => [`${prunable ? 'missing' : changed}`, worktreeLook({ prunable: prunable as boolean, changed: changed as number })]) },
+  // A card moved by keys (T-54): held, dropped, put down, or one that can't move, on the card and the board's live line.
+  { name: 'a card moved by keys', sources: ['extension/webview/board-keys.ts#MOVE_LOOK'], states: () => Object.entries(MOVE_LOOK) },
   { name: 'a Jira panel', sources: ['extension/webview/looks.ts#PANEL', 'extension/webview/looks.ts#panelLook'], states: () => [...Object.keys(PANEL), 'Custom'].map((k) => [k, { label: k, ...panelLook(k) }]) },
   { name: 'a kind of Slack message', sources: ['extension/src/slack.ts#SLACK_KIND_WORDS'], states: () => SLACK_KINDS.map((k) => [k, SLACK_KIND_WORDS[k]]) },
   {
