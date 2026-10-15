@@ -31,6 +31,8 @@ import type { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { JIRA } from '../../packages/core/src/trackers/connect.ts';
+import { blankConnect, connectModel, type ConnectModel } from '../src/model/connect.ts';
 import type { HomeModel, Model } from '../src/model/home.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { isFromWebview } from '../src/model/messages.ts';
@@ -97,8 +99,11 @@ export interface BehaviourData {
    * the key the tab remembers it by; and how many stay in view.
    */
   settings: { parts: string[]; folds: { id: string; key: string }[]; kept: number };
-  /** The Connect page before it's signed in (T-45): Save's label, and the reason its model gives for it being off. */
-  connect: { save: string; why: string };
+  /**
+ * The Connect page before it's signed in (T-45): Save's label, and the reason its model gives for it being off.
+ * `none` is the same page with no project chosen, where Test connection is off too: its model, and the reason it gives.
+ */
+  connect: { save: string; why: string; none: { model: ConnectModel; testWhy: string } };
 }
 
 /** One case: its name, the page it opens, and what it does there. */
@@ -541,6 +546,23 @@ export const CASES: Case[] = [
       t.check('Test connection is on, with nothing to explain', !test.disabled && test.title === '' && t.all('.connect-test .status').length === 0, { title: test.title });
     },
   },
+  {
+    name: 'connect: with no project chosen, Test connection is off and gives its reason in its title and in a status line beside it',
+    page: 'connect-start',
+    async run(t) {
+      const none = t.data.connect.none;
+      const home = structuredClone(t.model) as HomeModel;
+      home.connect = none.model;
+      await t.post({ type: 'state', model: home });
+      const test = t.all<HTMLButtonElement>('.connect-test button').find((b) => b.textContent?.trim() === 'Test connection');
+      if (!test) throw new Error('not found: the Test connection button');
+      t.check('Test connection is off', test.disabled);
+      t.check('its title is the reason', test.title === none.testWhy, test.title);
+      const line = t.find('.connect-test .status');
+      t.check('a status line beside it says the same', line.textContent?.trim() === none.testWhy, line.textContent);
+      t.check('with an icon, never colour alone', !!line.querySelector('.codicon, svg, [class*="codicon"]'), line.innerHTML.slice(0, 120));
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -584,6 +606,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
   { name: 'the Connect page draws no status line beside Save', file: 'connect.ts', find: '(m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null', replace: 'm.save.look ? status(m.save.look) : null', kills: [caseNamed('connect: a button that is off')] },
   { name: 'the Connect page leaves Save\'s title empty', file: 'connect.ts', find: 'if (m.save.why) save.title = m.save.why.label;', replace: '', kills: [caseNamed('connect: a button that is off')] },
+  { name: 'the Connect page draws no status line beside Test connection', file: 'connect.ts', find: 'm.signIn.why ? status(m.signIn.why) : null', replace: 'null', kills: [caseNamed('connect: with no project chosen')] },
+  { name: 'the Connect page leaves Test connection\'s title empty', file: 'connect.ts', find: 'if (m.signIn.why) testButton.title = m.signIn.why.label;', replace: '', kills: [caseNamed('connect: with no project chosen')] },
   { name: 'a page holding only the loading screen isn\'t fresh', file: 'main.ts', find: "const fresh = !app.hasChildNodes() || !!app.querySelector(':scope > .opening');", replace: 'const fresh = !app.hasChildNodes();', kills: [caseNamed('loading screen: a tab rebuilt')] },
 ];
 
@@ -595,7 +619,9 @@ export const occurrences = (source: string, find: string): number => (find ? sou
 /** What the Connect case expects (T-45): the reason Save is off, from the model the page is drawn from. */
 function connectData(model: Model): BehaviourData['connect'] {
   if (model.kind !== 'home' || !model.connect?.save.why) throw new Error('The Connect case needs a home model whose Save is off with a reason.');
-  return { save: model.connect.save.label, why: model.connect.save.why.label };
+  const none = connectModel(blankConnect(JIRA, { id: 'c-none', root: null, projectName: '', ownRepo: null, ghAccount: null, from: 'tasks' }));
+  if (!none.signIn.why) throw new Error('The Connect case needs a page with no project whose Test connection is off with a reason.');
+  return { save: model.connect.save.label, why: model.connect.save.why.label, none: { model: none, testWhy: none.signIn.why.label } };
 }
 
 /** What Settings' case expects (T-40): from the model, each part's heading and each explanation, folded or kept. */

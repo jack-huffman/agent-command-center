@@ -47,11 +47,14 @@ test('a Connect page with no project, and a test in flight, give the right reaso
 });
 
 test('the page draws the reason in the button\'s title and in a status line: a browser case reads the drawn page, and mutants that drop either fail it', () => {
-  const c = CASES.find((x) => x.page === 'connect-start');
+  const c = CASES.find((x) => x.name.startsWith('connect: a button that is off'));
   assert.ok(c, 'a behaviour case opens the Connect page');
   assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 2, 'one mutant draws no status line, another no title');
+  const n = CASES.find((x) => x.name.startsWith('connect: with no project chosen'));
+  assert.ok(n, 'a behaviour case reads Test connection\'s drawn reason with no project (edge case)');
+  assert.equal(MUTANTS.filter((x) => x.kills.includes(n.name)).length, 2, 'one mutant draws no status line beside Test connection, another no title');
   const d = behaviourData({ tasks: sampleModel('tasks', 0, 'dark'), overview: sampleModel('overview-landing', 0, 'dark'), ticket: sampleModel('ticket-questions', 0, 'dark'), settings: sampleModel('settings-agents', 0, 'dark'), connect: sampleModel('connect-start', 0, 'dark') }, 0);
-  assert.deepEqual(d.connect, { save: 'Connect Jira', why: 'Sign in and choose a project first.' });
+  assert.deepEqual([d.connect.save, d.connect.why, d.connect.none.testWhy], ['Connect Jira', 'Sign in and choose a project first.', 'Choose a project first.']);
 });
 
 test('Save names a required list that is hidden with no choice, and says to wait only while a list loads (T-45)', () => {
