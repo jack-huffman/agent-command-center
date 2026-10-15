@@ -209,6 +209,8 @@ export async function slackChannels(token: string, f: typeof fetch = fetch): Pro
 
 export class SlackClient implements TrackerClient {
   readonly kind = 'slack' as const;
+  /** A thread has no status, no people to assign and no labels (D-145), so the task page hides those controls. */
+  readonly fields = [] as const;
   readonly title: string;
   readonly place: string;
   readonly prefix: string;
