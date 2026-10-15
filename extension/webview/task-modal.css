@@ -21,6 +21,22 @@ html[data-theme="light"] body, html[data-theme="vscode"] body.vscode-light, html
   box-shadow: var(--lift), 0 12px 40px var(--vscode-widget-shadow, transparent);
 }
 .task-modal[open] { display: flex; flex-direction: column; }
+/* It opens from its card and closes back to it (T-47): a short scale and fade, ease-out, no bounce. The
+   origin is the card's centre, which task-modal.ts sets as --origin; the Overview's detail has none, so
+   it grows from its centre. Closing uses the same two properties, kept on screen by display and overlay. */
+.task-modal {
+  transform-origin: var(--origin, 50% 50%);
+  opacity: 0;
+  scale: 0.9;
+  transition: opacity 150ms ease-in, scale 150ms ease-in, overlay 150ms allow-discrete, display 150ms allow-discrete;
+}
+.task-modal[open] { opacity: 1; scale: 1; transition-duration: 200ms; transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); }
+@starting-style { .task-modal[open] { opacity: 0; scale: 0.9; } }
+/* Under reduced motion it only fades: its size never changes. */
+@media (prefers-reduced-motion: reduce) {
+  .task-modal, .task-modal[open] { scale: 1; }
+  @starting-style { .task-modal[open] { scale: 1; } }
+}
 .task-modal::backdrop { background: var(--backdrop); }
 /* Open as tab and Close, in its top-right corner, above the page, which scrolls under them. */
 .task-modal-bar { flex: none; display: flex; justify-content: flex-end; align-items: center; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--edge); }

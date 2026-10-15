@@ -285,6 +285,9 @@ function collectColours() {
   document.body.append(out);
 }`;
 
+/** A modal's open fades from opacity 0 (T-47), and the geometry check skips what is transparent: a measured page opens its modal at once. */
+const NO_MODAL_FADE = '<style>dialog { transition: none !important; }</style>';
+
 /**
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
  * Screenshots can't hover, so each :hover rule is copied to a class put on the first row or card.
@@ -313,6 +316,7 @@ export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: The
 <style>${vscodeDefaults()}</style>
 <link rel="stylesheet" href="webview/codicons/codicon.css">
 <link rel="stylesheet" href="webview/styles.css">
+${measure ? NO_MODAL_FADE : ''}
 <script>
 const MODEL = ${json};
 const AFTER = ${then};
@@ -447,7 +451,7 @@ async function behaviourRun(chrome: string): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, run: (c, args) => chromeRun(c, args, true), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

@@ -248,3 +248,30 @@ test('a primary button with no reason fails, one whose place matches twice fails
   assert.deepEqual(primaries({ 'a.ts': "toolbarButton('acc.x', 'Open', 'globe', root);\nbutton('Go', 'go', go, 'ghost');" }, places), [], 'outlined, nothing found');
   assert.deepEqual(primaries({}), [], 'no files, nothing found');
 });
+
+/** The selectors of each rule outside reduced motion whose transition scales or translates (T-47; a chevron turning in place is neither), with no reduced-motion rule that pins them: what the animation walk above can't see. */
+function movingTransitions(css: string): string[] {
+  const text = takeBlocks(css.replace(/\/\*[\s\S]*?\*\//g, ''), /@keyframes[^{]*/).rest;
+  const { inner, rest } = takeBlocks(text, /@media[^{]*prefers-reduced-motion:\s*reduce[^{]*/);
+  const pinned = inner.flatMap((b) => cssRules(b)).filter((r) => r.declarations.some((d) => ['scale', 'transform', 'translate'].includes(d.name))).flatMap((r) => selectors(r.selector)).map(parts);
+  return cssRules(rest).filter((r) => r.declarations.some((d) => d.name === 'transition' && /\b(scale|translate)\b/.test(d.value)))
+    .flatMap((r) => selectors(r.selector)).filter((selector) => {
+      const has = new Set(parts(selector));
+      return !pinned.some((p) => p.length > 0 && p.every((x) => has.has(x)));
+    });
+}
+
+test('a transition that scales or moves has a reduced-motion rule that pins its scale, and the task modal\'s starting style too (T-47)', () => {
+  assert.deepEqual(movingTransitions(pageStyles()), [], 'each of these transitions scale or translate with no prefers-reduced-motion rule that pins it');
+  const modal = takeBlocks(styleFile('task-modal.css'), /@media[^{]*prefers-reduced-motion:\s*reduce[^{]*/).inner.join('\n');
+  assert.match(modal, /\.task-modal\[open\][^{]*\{[^}]*scale:\s*1/, 'the open modal keeps its size under reduced motion');
+  assert.match(modal, /@starting-style\s*\{[^{]*\{[^}]*scale:\s*1/, 'and so does the style it starts from: it only fades');
+});
+
+test('edge case: a scaling transition with no reduced-motion rule, or with one for another selector, is found', () => {
+  assert.deepEqual(movingTransitions('.a { transition: scale 1s; }'), ['.a']);
+  assert.deepEqual(movingTransitions('.a { transition: opacity 1s; }'), [], 'a fade alone isn\'t motion');
+  assert.deepEqual(movingTransitions('.a { transition: translate 1s; } @media (prefers-reduced-motion: reduce) { .b { translate: none; } }'), ['.a']);
+  assert.deepEqual(movingTransitions('.a { transition: translate 1s; } @media (prefers-reduced-motion: reduce) { .a { translate: none; } }'), []);
+  assert.deepEqual(movingTransitions('.a { transition: transform 1s; }'), [], 'a turn in place, such as a chevron\'s, isn\'t travel');
+});

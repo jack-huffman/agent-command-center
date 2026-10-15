@@ -37,9 +37,24 @@ function make(): HTMLDialogElement {
   return m.dialog;
 }
 
+/** The board's card for a task, found again: the board may have redrawn since the modal opened. */
+const cardOf = (m: { project: string; key: string }): HTMLElement | null =>
+  document.querySelector<HTMLElement>(`[data-peek="${CSS.escape(peekKey(m.project, m.key))}"]`);
+
+/**
+ * Points the modal's scale at its card (transform-origin), so it grows from the card on opening and shrinks
+ * back into it on closing. With no card on the page, such as a task opened from a link, it stays at its
+ * centre. The dialog's offsets ignore its transform, so a half-grown modal gives the same answer.
+ */
+function aim(d: HTMLDialogElement, m: { project: string; key: string }): void {
+  const r = cardOf(m)?.getBoundingClientRect();
+  d.style.setProperty('--origin', r ? `${r.left + r.width / 2 - d.offsetLeft}px ${r.top + r.height / 2 - d.offsetTop}px` : '50% 50%');
+}
+
 /** Closes the modal, whichever way it was asked to. */
 function shut(): void {
   if (!dialog?.open) return;
+  if (state.modal) aim(dialog, state.modal);
   dialog.close();
   closed();
 }
@@ -53,7 +68,7 @@ function closed(): void {
   if (!m) return;
   api.postMessage({ type: 'task-modal-close', project: m.project, key: m.key });
   // Found again: the board may have redrawn since, with new cards.
-  document.querySelector<HTMLElement>(`[data-peek="${CSS.escape(peekKey(m.project, m.key))}"]`)?.focus();
+  cardOf(m)?.focus();
 }
 
 /** Draws the task's page in the modal, where it was scrolled to, and keeps the focus where it was. */
@@ -88,6 +103,7 @@ function show(msg: { model?: TicketModel; tab?: Record<string, unknown> }): void
   draw();
   if (!dialog.open) {
     dialog.showModal();
+    aim(dialog, msg.model);
     body?.focus({ preventScroll: true });
   }
   // A task just opened starts at its top: the browser would bring back where the last one was left.

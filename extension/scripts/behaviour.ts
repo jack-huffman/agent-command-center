@@ -109,17 +109,17 @@ export interface BehaviourData {
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'ticket-questions' | 'settings-agents' | 'connect-start';
+  page: 'tasks' | 'overview-landing' | 'ticket-questions' | 'settings-agents' | 'connect-start' | 'agent';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, ACME-21's task page, Settings with two projects, and the Connect page. */
-export interface CaseModels { tasks: Model; overview: Model; ticket: Model; settings: Model; connect: Model }
+/** The pages the cases open: the Tasks board, the Overview, ACME-21's task page, Settings with two projects, the Connect page, and an agent's page. */
+export interface CaseModels { tasks: Model; overview: Model; ticket: Model; settings: Model; connect: Model; agent: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -192,6 +192,24 @@ export const CASES: Case[] = [
       // Edge: Escape with it already closed does nothing more.
       await t.escape(dialog);
       t.check('a second Escape sends no second close', t.sent('task-modal-close').length === 1, t.sent('task-modal-close').length);
+    },
+  },
+  {
+    name: 'task modal: it opens from its card, and closes back to it',
+    page: 'tasks',
+    async run(t) {
+      const { dialog, card } = await openTask(t);
+      const at = (): { x: number; y: number } => { const [x, y] = getComputedStyle(dialog).transformOrigin.split(' ').map(parseFloat); return { x: x!, y: y! }; };
+      const want = (c: HTMLElement): { x: number; y: number } => { const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2 - dialog.offsetLeft, y: r.top + r.height / 2 - dialog.offsetTop }; };
+      const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => Math.abs(a.x - b.x) < 1.5 && Math.abs(a.y - b.y) < 1.5;
+      t.check('it scales from its card\'s centre', near(at(), want(card)), JSON.stringify([at(), want(card)]));
+      // Edge: a card at the dialog's own centre would pass with no origin set, so it must be somewhere else.
+      t.check('that is not the modal\'s own centre, the default', !near(at(), { x: dialog.offsetWidth / 2, y: dialog.offsetHeight / 2 }), JSON.stringify(at()));
+      // Edge: the board redrew under it, so the card is a new element: closing aims at that one.
+      await t.post({ type: 'state', model: t.model });
+      const again = t.find(`[data-peek="${CSS.escape(t.data.task.peek)}"]`);
+      await t.click(t.find('.task-modal-close', dialog));
+      t.check('it closes toward the card for its task now on the board', near(at(), want(again)), JSON.stringify([at(), want(again)]));
     },
   },
   {
@@ -563,6 +581,33 @@ export const CASES: Case[] = [
       t.check('with an icon, never colour alone', !!line.querySelector('.codicon, svg, [class*="codicon"]'), line.innerHTML.slice(0, 120));
     },
   },
+  {
+    name: 'agent page: Stop stands apart from the header\'s other buttons, and the question card keeps In the terminal but not In Claude Code, unless the header has none',
+    page: 'agent',
+    async run(t) {
+      const text = (b: Element) => b.textContent?.trim() ?? '';
+      const bar = t.find('.agent-head .ticket-bar');
+      const apart = t.all<HTMLButtonElement>('.actions-stop button', bar).map(text);
+      t.check('Stop is alone in its own group, and keeps its name', apart.length === 1 && apart[0] === 'Stop', apart);
+      const rest = t.all<HTMLButtonElement>('.actions:not(.actions-stop) button', bar).map(text);
+      t.check('the buttons that only open things are in the other group, with no Stop among them', rest.includes('Open in Claude Code') && rest.includes('Attach in terminal') && !rest.includes('Stop'), rest);
+      const card = t.find('.agent-asks article.question');
+      const labels = () => t.all<HTMLButtonElement>('button', card).map(text);
+      t.check('the card leaves out In Claude Code, which the header has', !labels().includes('In Claude Code'), labels());
+      t.check('the card keeps In the terminal: it hands the question back, which Attach in terminal doesn\'t', labels().includes('In the terminal'), labels());
+      // Edge: a header with no Open in Claude Code leaves the card as the only way there.
+      const bare = structuredClone(t.model) as unknown as { actions: { command: string }[] };
+      bare.actions = bare.actions.filter((a) => a.command !== 'acc.agent.openInClaude');
+      await t.post({ type: 'state', model: bare });
+      t.check('with no Open in Claude Code in the header, the card shows In Claude Code', t.all<HTMLButtonElement>('.agent-asks article.question button').map(text).includes('In Claude Code'));
+      await t.post({ type: 'state', model: t.model });
+      const term = t.all<HTMLButtonElement>('.agent-asks article.question button').find((b) => text(b) === 'In the terminal');
+      if (!term) throw new Error('not found: In the terminal on the card');
+      await t.click(term);
+      const answer = t.sent('answer').at(-1);
+      t.check('In the terminal sends the answer that releases the waiting hook', answer?.decision === 'terminal', answer);
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -580,7 +625,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'Escape does nothing', file: 'modal.ts', find: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); shut(); });", replace: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); });", kills: [caseNamed('task modal: Escape'), caseNamed('detail modal: Escape')] },
   { name: 'a backdrop click does nothing', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (downOnBackdrop && onBackdrop(dialog, e)) { /* stub */ }', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
   { name: 'a drag out of it closes it', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (onBackdrop(dialog, e)) shut();', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
-  { name: 'the task modal leaves focus where it falls', file: 'task-modal.ts', find: 'document.querySelector<HTMLElement>(`[data-peek="${CSS.escape(peekKey(m.project, m.key))}"]`)?.focus();', replace: '', kills: [caseNamed('task modal: Close sends focus back')] },
+  { name: 'the task modal leaves focus where it falls', file: 'task-modal.ts', find: 'cardOf(m)?.focus();', replace: '', kills: [caseNamed('task modal: Close sends focus back')] },
+  { name: 'the task modal has no origin to grow from', file: 'task-modal.ts', find: "d.style.setProperty('--origin',", replace: "void ('--origin',", kills: [caseNamed('task modal: it opens from its card')] },
   { name: 'the detail leaves focus where it falls', file: 'detail.ts', find: '(openers.find((e) => e.tagName === openedBy) ?? openers[0])?.focus();', replace: '', kills: [caseNamed('detail modal: a new model under it')] },
   { name: 'a detail opened from a card\'s list sends focus nowhere', file: 'detail.ts', find: 'CSS.escape(from ?? opensKey(d))', replace: 'CSS.escape(opensKey(d))', kills: [caseNamed('detail modal: a new model under it')] },
   { name: 'the detail sends focus to the first thing that opens it', file: 'detail.ts', find: '(openers.find((e) => e.tagName === openedBy) ?? openers[0])?.focus();', replace: 'openers[0]?.focus();', kills: [caseNamed('detail modal: Escape')] },
@@ -608,6 +654,10 @@ export const MUTANTS: Mutant[] = [
   { name: 'the Connect page leaves Save\'s title empty', file: 'connect.ts', find: 'if (m.save.why) save.title = m.save.why.label;', replace: '', kills: [caseNamed('connect: a button that is off')] },
   { name: 'the Connect page draws no status line beside Test connection', file: 'connect.ts', find: 'm.signIn.why ? status(m.signIn.why) : null', replace: 'null', kills: [caseNamed('connect: with no project chosen')] },
   { name: 'the Connect page leaves Test connection\'s title empty', file: 'connect.ts', find: 'if (m.signIn.why) testButton.title = m.signIn.why.label;', replace: '', kills: [caseNamed('connect: with no project chosen')] },
+  { name: 'Stop sits with the other header buttons', file: 'agent-page.ts', find: '.filter((a) => a !== stop)', replace: '.filter(() => true)', kills: [caseNamed('agent page: Stop stands apart')] },
+  { name: 'every question card on the agent page repeats In Claude Code', file: 'agent-page.ts', find: "const claudeInHeader = m.actions.some((a) => a.command === 'acc.agent.openInClaude');", replace: 'const claudeInHeader = false;', kills: [caseNamed('agent page: Stop stands apart')] },
+  { name: 'no question card on the agent page offers In Claude Code', file: 'agent-page.ts', find: "const claudeInHeader = m.actions.some((a) => a.command === 'acc.agent.openInClaude');", replace: 'const claudeInHeader = true;', kills: [caseNamed('agent page: Stop stands apart')] },
+  { name: 'the card drops In the terminal', file: 'questions.ts', find: "const terminal = el('span', 'q-aside-group', inClaude, inTerminal);", replace: "const terminal = el('span', 'q-aside-group', inClaude);", kills: [caseNamed('agent page: Stop stands apart')] },
   { name: 'a page holding only the loading screen isn\'t fresh', file: 'main.ts', find: "const fresh = !app.hasChildNodes() || !!app.querySelector(':scope > .opening');", replace: 'const fresh = !app.hasChildNodes();', kills: [caseNamed('loading screen: a tab rebuilt')] },
 ];
 
@@ -811,7 +861,7 @@ const MODEL = ${JSON.stringify(model).replace(/</g, '\\u003c')};
 ${harness(c, data, model)}
 </script>
 </head>
-<body class="vscode-light" data-view="${model.kind === 'ticket' ? 'ticket' : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app">${c.opening ? loadingScreen(model.kind === 'ticket' ? 'ticket' : 'home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : ''}</main><script src="${script}"></script></body></html>
+<body class="vscode-light" data-view="${model.kind === 'ticket' || model.kind === 'agent' ? model.kind : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app">${c.opening ? loadingScreen(model.kind === 'ticket' ? 'ticket' : 'home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : ''}</main><script src="${script}"></script></body></html>
 `;
 }
 

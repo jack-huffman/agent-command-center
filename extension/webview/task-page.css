@@ -39,7 +39,8 @@ body[data-view="ticket"] { padding-top: 18px; }
   /* One column, in the order a person needs it: the Agent panel (what waits on them), the conflict and
      analysis, the main column, then Details last. The side column's panels join the grid as its items. */
   .ticket-side { display: contents; }
-  .side-panel + .side-panel { margin-top: 0; }
+  /* The grid's gap spaces the panels. The base rule for a panel after a panel comes later in this file, so this names the grid to win: without it, the Agent panel, second in the DOM, kept 14px above it (T-47). */
+  .ticket-grid .side-panel + .side-panel { margin-top: 0; }
   .side-agent { order: -2; }
   .ticket-top { order: -1; }
   .side-details { order: 1; }
