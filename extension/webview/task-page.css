@@ -15,7 +15,7 @@ body[data-view="ticket"] { padding-top: 18px; }
 .openable.crumb-name { color: var(--vscode-textLink-foreground); cursor: pointer; }
 .ticket-title { font-size: 1.65em; line-height: 1.25; margin: 0 0 10px; word-break: break-word; letter-spacing: -0.01em; }
 .ticket-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pill { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.8; border: 1px solid var(--line); background: var(--card); color: var(--vscode-foreground); }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600; line-height: 1.8; border: 1px solid var(--line); background: var(--card); color: var(--vscode-foreground); }
 .pill.tone-blue { border-color: var(--blue); color: var(--blue); }
 .pill.tone-orange { border-color: var(--orange); color: var(--orange); }
 .pill .codicon { font-size: 13px; }
@@ -36,9 +36,13 @@ body[data-view="ticket"] { padding-top: 18px; }
   .ticket-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; gap: 24px; }
   .ticket-top, .ticket-main, .ticket-side { grid-column: 1; grid-row: auto; }
   .ticket-top { margin-bottom: 0; }
-  .ticket-side { order: -1; }
-  /* An analysis waiting on you is the next step, so it comes before everything else. */
-  .ticket-top.attention { order: -2; }
+  /* One column, in the order a person needs it: the Agent panel (what waits on them), the conflict and
+     analysis, the main column, then Details last. The side column's panels join the grid as its items. */
+  .ticket-side { display: contents; }
+  .side-panel + .side-panel { margin-top: 0; }
+  .side-agent { order: -2; }
+  .ticket-top { order: -1; }
+  .side-details { order: 1; }
 }
 .ticket-main h2, .side-panel h2, .analysis h2 { font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
 .ticket-main h3 { font-size: 0.95em; margin: 18px 0 8px; color: var(--vscode-foreground); }

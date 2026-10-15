@@ -70,7 +70,8 @@ export function renderTicket(m: TicketModel): Node[] {
   // A field its tracker lacks gets one muted line in place of its control (T-28).
   const lack = (f: 'status' | 'assignee' | 'labels') => m.lacks.find((l) => l.field === f);
   const statusEl = m.status && !lack('status') ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : null;
-  let statusCtl: Child = statusEl;
+  // A tracker that can't give a status says so where the pill would be, now Details no longer has the row.
+  let statusCtl: Child = statusEl ?? (lack('status') ? el('span', 'muted', lack('status')!.line) : null);
   if (statusEl && m.can.status) {
     const b = el('button', 'btn status-btn', statusEl, icon('chevron-down')) as HTMLButtonElement;
     b.type = 'button';
@@ -140,7 +141,6 @@ export function renderTicket(m: TicketModel): Node[] {
   // The side column: the ticket's fields, then acc's side of it.
   const people = (list: PersonChip[]) => (list.length ? el('span', 'people', ...list.map((p) => el('span', 'person', avatar(p), p.name))) : el('span', 'muted', 'Unassigned'));
   const details = el('dl', 'fields',
-    ...field('Status', lack('status') ? el('span', 'muted', lack('status')!.line) : m.status ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : el('span', 'muted', '—')),
     ...field(m.assignees.length > 1 ? 'Assignees' : 'Assignee', lack('assignee') ? el('span', 'muted', lack('assignee')!.line) : people(m.assignees), m.can.assign ? editButton('Change', 'assign') : null),
     ...(m.reporter ? field('Reporter', el('span', 'person', avatar(m.reporter), m.reporter.name)) : []),
     ...field('Labels', lack('labels') ? el('span', 'muted', lack('labels')!.line) : m.labels.length ? el('span', 'labels', ...m.labels.map(labelChip)) : el('span', 'muted', 'None'), m.can.labels ? editButton('Edit', 'labels') : null),
@@ -149,10 +149,10 @@ export function renderTicket(m: TicketModel): Node[] {
     ...field('Created', when(m.created)),
     ...field('Updated', when(m.updated)),
   );
-  const side = el('aside', 'ticket-side', el('section', 'side-panel', el('h2', '', 'Details'), details));
+  const side = el('aside', 'ticket-side', el('section', 'side-panel side-details', el('h2', '', 'Details'), details));
   if (m.acc) {
     const a = m.acc;
-    side.append(el('section', `side-panel${a.look.tone === 'orange' ? ' attention' : ''}`, el('h2', '', icon('hubot'), 'Agent'),
+    side.append(el('section', `side-panel side-agent${a.look.tone === 'orange' ? ' attention' : ''}`, el('h2', '', icon('hubot'), 'Agent'),
       el('dl', 'fields',
         ...field('State', status(a.look)),
         ...field('Environment', el('span', 'mono', a.environment)),
@@ -195,7 +195,7 @@ export function renderTicket(m: TicketModel): Node[] {
       show(true);
       ticketAction('track');
     });
-    side.append(el('section', 'side-panel', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'acc isn\'t keeping this ticket yet. Track it to dispatch an agent to it. The ticket itself isn\'t changed.'), el('div', 'actions', track)));
+    side.append(el('section', 'side-panel side-agent', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'acc isn\'t keeping this ticket yet. Track it to dispatch an agent to it. The ticket itself isn\'t changed.'), el('div', 'actions', track)));
   }
   out.push(el('div', 'ticket-grid', top.childElementCount ? top : null, main, side));
   return out;
