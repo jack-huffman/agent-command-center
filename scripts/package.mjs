@@ -3,6 +3,7 @@
 // when the scan is clean (D-042).
 import { spawnSync } from 'node:child_process';
 import { join, relative } from 'node:path';
+import { decideCheck, readReceipt, treeState } from './check-receipt.ts';
 import { defaultTermDeps, packageRelease, personalTerms, ROOT } from './packaging.ts';
 import { shipCli } from './ship-cli.mjs';
 
@@ -12,6 +13,7 @@ const r = packageRelease({
   root: ROOT,
   log: (line) => console.log(line),
   check: () => step('npm', ['run', 'check']),
+  decideCheck: () => decideCheck(readReceipt(ROOT), treeState(ROOT), new Date(), process.argv.includes('--check')),
   vsce: (out) => step(join(ROOT, 'node_modules', '.bin', 'vsce'), ['package', '--no-dependencies', '--skip-license', '-o', out], join(ROOT, 'extension')),
   shipPlugin: () => shipCli(ROOT, join(ROOT, 'plugin', 'bin')),
   terms: () => personalTerms(defaultTermDeps(ROOT)),

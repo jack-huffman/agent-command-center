@@ -7,7 +7,8 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { run, type Runner, type RunOptions, type RunResult } from '../../packages/core/src/exec.ts';
-import { bad, ok, tempDir } from '../../packages/core/test/support.ts';
+import { bad, gitIn, makeRepo, ok, tempDir } from '../../packages/core/test/support.ts';
+import { type CheckDecision, decideCheck, readReceipt, RECEIPT_FILE, RECEIPT_MAX_AGE_MS, type Receipt, treeState, writeReceipt } from '../check-receipt.ts';
 import {
   changelogEntry, changelogProblems, CHANGELOG, matcher, NO_TERMS, packageRelease, parseSignIn, personalTerms, PLACEHOLDERS, readVersions, release, ROOT,
   scanFiles, scanLine, scanVsix, setVersion, type Terms, VERSION_PLACES, versionProblems, vsixName, filesIn,
@@ -247,14 +248,15 @@ test('the packager\'s words come from git, gh, their name and VSCode\'s sign-in 
 
 // ---------------------------------------------------------------- npm run package
 
-interface Steps { calls: string[]; shipped: boolean }
+interface Steps { calls: string[]; logs: string[]; shipped: boolean }
 
-function packageWith(dir: string, bundle: string) {
-  const s: Steps = { calls: [], shipped: false };
+function packageWith(dir: string, bundle: string, decide?: () => CheckDecision) {
+  const s: Steps = { calls: [], logs: [], shipped: false };
   const r = packageRelease({
     root: dir,
-    log: () => {},
+    log: (line) => s.logs.push(line),
     check: () => { s.calls.push('check'); return true; },
+    ...(decide ? { decideCheck: decide } : {}),
     vsce: (out) => { s.calls.push('vsce'); zip(out, { 'extension/dist/extension.js': bundle, 'extension/package.json': `{"version":"${VERSION}"}\n` }); return true; },
     shipPlugin: () => { s.shipped = true; },
     terms: () => ({ terms: PAT, notes: [] }),
@@ -302,6 +304,70 @@ test('a package with personal data in it is deleted, and plugin/bin is left alon
   assert.deepEqual(r.r, { ok: true, vsix });
   assert.deepEqual(r.calls, ['check', 'vsce']);
   assert.equal(r.shipped, true, 'a clean package refreshes plugin/bin, last');
+});
+
+// ---------------------------------------------------------------- the check's receipt (T-56)
+
+const NOW = new Date('2026-10-15T12:00:00Z');
+
+/** A repo with a receipt for its HEAD (from the real writer), and a package run that reads it. */
+function receipted(opts: { mutate?: (repo: string) => void; receipt?: boolean; at?: Date; force?: boolean } = {}) {
+  const repo = makeRepo({ '.gitignore': 'dist/\n' });
+  if (opts.receipt !== false) writeReceipt(repo, treeState(repo), opts.at ?? NOW);
+  opts.mutate?.(repo);
+  const p = packageWith(packagable(), '// clean\n', () => decideCheck(readReceipt(repo), treeState(repo), NOW, opts.force ?? false));
+  return { repo, ...p };
+}
+
+test('package skips the check for a receipt of this tree on a clean tree, and says the commit and time', () => {
+  const p = receipted();
+  assert.equal(p.r.ok, true);
+  assert.deepEqual(p.calls, ['vsce'], 'the check did not run');
+  const said = p.logs.filter((l) => l.startsWith('Skipping npm run check'));
+  assert.equal(said.length, 1);
+  assert.ok(said[0]!.includes(gitIn(p.repo, 'rev-parse', 'HEAD').slice(0, 7)), said[0]!);
+  assert.ok(said[0]!.includes(NOW.toISOString()), said[0]!);
+  assert.deepEqual(JSON.parse(readFileSync(join(p.repo, RECEIPT_FILE), 'utf8')), { tree: gitIn(p.repo, 'rev-parse', 'HEAD^{tree}'), clean: true, at: NOW.toISOString() });
+  assert.match(gitIn(p.repo, 'status', '--porcelain', '--ignored'), /!! dist\//, 'git ignores the receipt');
+});
+
+test('package runs the check on a dirty tree: an edit, or a file git does not know', () => {
+  for (const mutate of [(r: string) => writeFileSync(join(r, 'README.md'), '# changed\n'), (r: string) => writeFileSync(join(r, 'new.txt'), 'x')]) {
+    assert.deepEqual(receipted({ mutate }).calls, ['check', 'vsce'], 'the check ran');
+  }
+});
+
+test('package runs the check when HEAD is another commit than the receipt\'s', () => {
+  const p = receipted({ mutate: (r) => { writeFileSync(join(r, 'b.txt'), 'b'); gitIn(r, 'add', '-A'); gitIn(r, 'commit', '-q', '-m', 'next'); } });
+  assert.deepEqual(p.calls, ['check', 'vsce']);
+});
+
+test('package runs the check when there is no receipt, or one that is not JSON', () => {
+  assert.deepEqual(receipted({ receipt: false }).calls, ['check', 'vsce']);
+  const junk = receipted({ receipt: false, mutate: (r) => { mkdirSync(join(r, 'dist'), { recursive: true }); writeFileSync(join(r, RECEIPT_FILE), '{nope'); } });
+  assert.deepEqual(junk.calls, ['check', 'vsce']);
+  assert.equal(readReceipt(junk.repo), null);
+});
+
+test('package runs the check for a receipt 24 hours old, and skips one a minute younger', () => {
+  assert.deepEqual(receipted({ at: new Date(NOW.getTime() - RECEIPT_MAX_AGE_MS) }).calls, ['check', 'vsce']);
+  assert.deepEqual(receipted({ at: new Date(NOW.getTime() - RECEIPT_MAX_AGE_MS + 60_000) }).calls, ['vsce']);
+});
+
+test('package with --check runs the check even for a receipt that matches', () => {
+  const p = receipted({ force: true });
+  assert.deepEqual(p.calls, ['check', 'vsce']);
+  assert.deepEqual(p.logs.filter((l) => l.startsWith('Skipping')), []);
+});
+
+test('a receipt written from a dirty tree says so and never lets package skip; no git state writes none', () => {
+  const repo = makeRepo();
+  writeFileSync(join(repo, 'README.md'), '# changed\n');
+  const r = writeReceipt(repo, treeState(repo), NOW) as Receipt;
+  assert.equal(r.clean, false);
+  gitIn(repo, 'checkout', '--', 'README.md');
+  assert.equal(decideCheck(readReceipt(repo), treeState(repo), NOW, false).run, true);
+  assert.equal(writeReceipt(repo, null, NOW), null);
 });
 
 // ---------------------------------------------------------------- npm run release

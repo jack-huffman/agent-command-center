@@ -1,5 +1,7 @@
 {
   "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "dist/tsbuildinfo/root.tsbuildinfo",
     "target": "es2023",
     "module": "nodenext",
     "moduleResolution": "nodenext",
