@@ -308,7 +308,8 @@ export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: The
   const send = still(kind) ? '' : `window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); for (const m of AFTER) window.postMessage(m, '*'); `;
   // The loading screen fades in (T-16), and a fade at opacity 0 reads as unseen. Headless Chrome's virtual time
   // doesn't move animations, so a still page ends its fades itself before it's measured, as they'd have ended.
-  const faded = still(kind) ? 'document.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).forEach((a) => a.finish()); ' : '';
+  // The loading screen's fade, and the task modal's open (T-47), run to their end first: the geometry check skips what is still transparent.
+  const faded = still(kind) || kind === 'tasks-modal' ?'document.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).forEach((a) => a.finish()); ' : '';
   const opening = still(kind) ? loadingScreen('home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : '';
   return `<!DOCTYPE html>
 <html lang="en" data-theme="${theme}" style="${vars.replace(/"/g, '&quot;')}"><head><meta charset="UTF-8">
