@@ -115,7 +115,7 @@ async function inFolder(files: Record<string, string>, machine: DoctorItem['stat
   const wait: Wait = (what, cond) => until(cond, Math.max(0, end - Date.now()), what);
   const settle: Settle = async (what, p) => {
     let done = false;
-    const ended = p.finally(() => { done = true; });
+    const ended = Promise.resolve(p).finally(() => { done = true; });
     // Out of budget, the wait throws; p may still fail later, after nobody listens.
     ended.catch(() => {});
     await wait(what, () => done);
@@ -177,7 +177,7 @@ const walkthroughs = (fake: Started['fake']) => fake.calls.executed.filter(([id]
 const lastState = (tab: { posted: unknown[] }) => (tab.posted as Posted[]).filter((x) => x.model).at(-1)!;
 
 test('a Salesforce folder that isn\'t set up opens nothing, and the Command Center\'s first open there lands on Setup, once', IN_FOLDER, async () => {
-  await inFolder({ 'sfdx-project.json': '{"packageDirectories":[{"path":"force-app","default":true}]}\n' }, 'pass', 'none', async ({ fake, started }) => {
+  await inFolder({ 'sfdx-project.json': '{"packageDirectories":[{"path":"force-app","default":true}]}\n' }, 'pass', 'none', async ({ fake, started, settle }) => {
     const { calls, panels } = fake;
     const { ctx } = started;
     // Opening the folder: no walkthrough tab, no Command Center, no notification.
@@ -187,14 +187,14 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
     assert.equal(ctx.workspaceState.get(FIRST_OPEN_STATE), undefined);
 
     // Sent somewhere, such as Tasks by Connect a tracker, it goes there, and that isn't its first open.
-    await calls.commands.get('acc.open.tasks')!();
+    await settle('the Command Center to open on Tasks', calls.commands.get('acc.open.tasks')!() as Promise<void>);
     const sent = panels[0]!;
     sent.receive!({ type: 'ready' });
     assert.equal(lastState(sent).model!.section, 'tasks');
     assert.equal(ctx.workspaceState.get(FIRST_OPEN_STATE), undefined);
     sent.close!();
     // And a section picked in the sidebar's list, which names it.
-    await calls.commands.get('acc.open.home')!('worktrees');
+    await settle('the Command Center to open on Worktrees', calls.commands.get('acc.open.home')!('worktrees') as Promise<void>);
     const picked = panels.at(-1)!;
     picked.receive!({ type: 'ready' });
     assert.equal(lastState(picked).model!.section, 'worktrees');
@@ -202,7 +202,7 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
     picked.close!();
 
     // Opened by a person, from the activity bar, the status bar or a command: Setup, at what kind of project it is.
-    await calls.commands.get('acc.open.home')!();
+    await settle('the Command Center\'s first open', calls.commands.get('acc.open.home')!() as Promise<void>);
     const first = panels.at(-1)!;
     first.receive!({ type: 'ready' });
     const landed = lastState(first);
@@ -215,14 +215,14 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
     first.receive!({ type: 'toolbar', command: COMMANDS.machine });
     first.receive!({ type: 'toolbar', command: COMMANDS.project });
     assert.deepEqual(calls.executed.slice(ran).map(([id]) => id), [COMMANDS.machine, COMMANDS.project], 'the page may ask for both');
-    await calls.commands.get(COMMANDS.machine)!();
-    await calls.commands.get(COMMANDS.project)!();
+    await settle('the machine walkthrough to open', calls.commands.get(COMMANDS.machine)!() as Promise<void>);
+    await settle('the project walkthrough to open', calls.commands.get(COMMANDS.project)!() as Promise<void>);
     assert.deepEqual(walkthroughs(fake).map(([, args]) => args), [[`${EXTENSION_ID}#${WALKTHROUGHS.machine.id}`, false], [`${EXTENSION_ID}#${WALKTHROUGHS.project.id}`, false]]);
 
     // Left at Agents, the next open is where it was left, not Setup.
     first.receive!({ type: 'nav', section: 'agents' });
     first.close!();
-    await calls.commands.get('acc.open.home')!();
+    await settle('the Command Center\'s second open', calls.commands.get('acc.open.home')!() as Promise<void>);
     const second = panels.at(-1)!;
     second.receive!({ type: 'ready' });
     const again = lastState(second);
@@ -234,10 +234,10 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
 
 test('on a machine with steps still to do, the first open in a folder of any kind lands on Setup\'s machine part', IN_FOLDER, async () => {
   // No sfdx-project.json: a folder of no profile yet gets the same first open.
-  await inFolder({ 'README.md': '# A repo\n' }, 'fail', 'none', async ({ fake }) => {
+  await inFolder({ 'README.md': '# A repo\n' }, 'fail', 'none', async ({ fake, settle }) => {
     assert.deepEqual(walkthroughs(fake), []);
     assert.equal(fake.panels.length, 0);
-    await fake.calls.commands.get('acc.open.home')!();
+    await settle('the Command Center\'s first open', fake.calls.commands.get('acc.open.home')!() as Promise<void>);
     const tab = fake.panels[0]!;
     tab.receive!({ type: 'ready' });
     const landed = lastState(tab);
@@ -248,9 +248,9 @@ test('on a machine with steps still to do, the first open in a folder of any kin
 
 test('a folder that\'s set up opens as it did: the section it was left at, never Setup on its own', IN_FOLDER, async () => {
   const config = JSON.stringify({ schema: 1, project: 'Tool', profile: 'generic', environments: [{ name: 'main', default: true }], trackers: [{ kind: 'github' }] });
-  await inFolder({ '.acc/config.json': config, '.gitignore': '.claude/worktrees/\n' }, 'pass', 'generic', async ({ fake, started }) => {
+  await inFolder({ '.acc/config.json': config, '.gitignore': '.claude/worktrees/\n' }, 'pass', 'generic', async ({ fake, started, settle }) => {
     assert.deepEqual(walkthroughs(fake), []);
-    await fake.calls.commands.get('acc.open.home')!();
+    await settle('the Command Center to open', fake.calls.commands.get('acc.open.home')!() as Promise<void>);
     const tab = fake.panels[0]!;
     tab.receive!({ type: 'ready' });
     const opened = lastState(tab);
@@ -264,14 +264,14 @@ const sfdx = { 'sfdx-project.json': '{"packageDirectories":[{"path":"force-app",
 const OPEN_ITEM = '$(home) Open the Command Center';
 
 test('the status bar menu\'s Open the Command Center is a first open too: it lands on Setup', IN_FOLDER, async () => {
-  await inFolder(sfdx, 'pass', 'none', async ({ fake, started }) => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started, settle }) => {
     const offered: string[] = [];
     fake.calls.pick = (items) => {
       const all = items as unknown as { label: string }[];
       offered.push(...all.map((i) => i.label));
       return all.find((i) => i.label === OPEN_ITEM);
     };
-    await fake.calls.commands.get('acc.status.menu')!();
+    await settle('the status bar menu to open the Command Center', fake.calls.commands.get('acc.status.menu')!() as Promise<void>);
     assert.ok(offered.includes(OPEN_ITEM), 'the menu offers it');
     assert.equal(fake.panels.length, 1);
     const tab = fake.panels[0]!;
@@ -367,6 +367,15 @@ test('a check slower than the test\'s budget fails naming what it waited for, an
   // Failed at its budget's end, not at the test's timeout, after which node:test would leave it running.
   assert.ok(Date.now() - began < 20_000, `failed after ${Date.now() - began} ms`);
   assert.deepEqual({ home: process.env.HOME, path: process.env.PATH, timer: globalThis.setTimeout }, before, 'this process\'s HOME, PATH and timers are its own again');
+});
+
+test('an open that never ends fails at the budget\'s end naming the open, not with a cancel of the file (T-51)', IN_FOLDER, async () => {
+  const began = Date.now();
+  await assert.rejects(
+    inFolder(sfdx, 'pass', 'none', async ({ settle }) => { await settle('the Command Center to open', new Promise<void>(() => {})); }, { early: true, budgetMs: 1000 }),
+    /^Error: timed out after \d+ ms waiting for the Command Center to open$/,
+  );
+  assert.ok(Date.now() - began < 20_000, `failed after ${Date.now() - began} ms`);
 });
 
 test('a first check that gets no results from acc doctor hasn\'t checked the machine: the first open lands at the question', IN_FOLDER, async () => {
