@@ -28,7 +28,9 @@
 .lp-row.openable { cursor: pointer; }
 .lp-row.openable:hover { border-top-color: var(--accent-edge); border-right-color: var(--accent-edge); border-bottom-color: var(--accent-edge); }
 .lp-row.openable:hover .lp-title { color: var(--vscode-textLink-foreground); }
-.lp-row:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+/* The line's link is its title (T-59): the whole line shows its focus, as it did when the line took it. */
+.lp-row:has(> .lp-title:focus-visible) { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.lp-row > .lp-title:focus-visible { outline: none; }
 .lp-state { flex: 0 0 170px; min-width: 0; }
 .lp-state > .codicon { flex: none; }
 .lp-state-text, .lp-title, .lp-fact, .lp-btn-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

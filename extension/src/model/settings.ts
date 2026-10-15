@@ -211,13 +211,13 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
     : `Each task can go to the cloud, from Dispatch to the cloud on its card, or stay on this Mac. ${reason ? `${reason}.` : 'Setup checks the routine\'s token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on this Mac when acc collects the branch; where GitHub enforces no protection on a branch, a push past the guard would be caught then, after the fact.`;
   const action = (command: string, label: string, icon: string, name: string, primary = false, disabled: string | null = null): SettingsAction => ({ command, label, icon, arg: p.root, name, primary, disabled });
   const actions: SettingsAction[] = !on
-    ? [action('acc.cloud.enable', 'Turn on…', 'cloud', `Turn cloud builders on for ${p.name}`, false, github ? null : 'Cloud builders need the repo on GitHub')]
+    ? [action('acc.cloud.enable', 'Turn on…', 'cloud', `Turn on cloud builders for ${p.name}`, false, github ? null : 'Cloud builders need the repo on GitHub')]
     : [
       action('acc.cloud.routine', 'Routine prompt', 'clippy', `Copy the routine prompt for ${p.name}`),
-      action('acc.cloud.enable', cloud?.routine ? 'Change routine…' : 'Add the routine…', 'edit', `Give acc ${p.name}'s routine`, !cloud?.routine),
-      action('acc.cloud.token', 'Token…', 'key', `Keep the routine's token for ${p.name}`),
-      action('acc.cloud.default', 'Default…', 'arrow-swap', `Choose where ${p.name}'s builders go by default`),
-      action('acc.cloud.disable', 'Turn off', 'circle-slash', `Turn cloud builders off for ${p.name}`),
+      action('acc.cloud.enable', cloud?.routine ? 'Change routine…' : 'Add the routine…', 'edit', `${cloud?.routine ? 'Change routine' : 'Add the routine'}: give acc ${p.name}'s routine`, !cloud?.routine),
+      action('acc.cloud.token', 'Token…', 'key', `Token: keep the routine's token for ${p.name}`),
+      action('acc.cloud.default', 'Default…', 'arrow-swap', `Default: choose where ${p.name}'s builders go`),
+      action('acc.cloud.disable', 'Turn off', 'circle-slash', `Turn off cloud builders for ${p.name}`),
     ];
   return {
     key: 'agents.cloud.routine', look, from: PROJECT, meaning, needs: needs.map((n) => ({ label: n.label, ok: n.ok, fix: n.fix })),
@@ -353,7 +353,7 @@ export function trackerSetting(b: BoardInput, p: { root: string; name: string })
       { command: 'acc.trackers.signIn' as const, label: b.signedInAs ? 'Sign in again' : 'Sign in', icon: 'sign-in', arg, name: `${b.signedInAs ? 'Sign in again to' : 'Sign in to'} ${whose}`, primary: fix, disabled: null },
       { command: 'acc.trackers.signOut' as const, label: 'Sign out', icon: 'sign-out', arg, name: `Sign out of ${whose}`, primary: false, disabled: b.signedInAs ? null : 'It isn\'t signed in, so there\'s nothing to sign out of.' },
     ]),
-    { command: 'acc.trackers.add', label: 'Change place…', icon: 'edit', arg, name: `Change where ${whose} gets its tickets, and its board`, primary: false, disabled: null },
+    { command: 'acc.trackers.add', label: 'Change place…', icon: 'edit', arg, name: `Change place: where ${whose} gets its tickets, and its board`, primary: false, disabled: null },
   ];
   return { index: b.index, kind: b.kind, ...kindOf(b.kind), title: b.title, place: b.place ?? b.title, board, signIn, from: PROJECT, signInFrom: b.kind === 'github' ? GH_SIGN_IN_KEPT : SIGN_IN_KEPT, actions };
 }
@@ -411,7 +411,7 @@ export function githubAccount(p: ProjectLike, id: IdentityCard | null): GithubAc
   if (id.signedIn) lines.push(LOOK(`gh is signed in as ${id.account}${id.projects ? '' : ', without GitHub Projects access'}`, 'pass', 'blue'));
   lines.push(id.commit ? LOOK(`Commits as ${id.commit}`, 'git-commit', 'neutral') : LOOK('No commit identity set for this repo', 'warning', 'orange'));
   const actions = [switchTo(null, !!id.problem && id.signedIn)];
-  if (!id.signedIn || !id.projects) actions.push({ command: 'acc.github.signIn', label: id.signedIn ? 'Add Projects access' : 'Sign in', icon: 'github', arg: id.account, name: `${id.signedIn ? 'Add GitHub Projects access for' : 'Sign in to GitHub as'} ${id.account}, for ${p.name}`, primary: !id.signedIn, disabled: null });
+  if (!id.signedIn || !id.projects) actions.push({ command: 'acc.github.signIn', label: id.signedIn ? 'Add Projects access' : 'Sign in', icon: 'github', arg: id.account, name: `${id.signedIn ? 'Add Projects access on GitHub for' : 'Sign in to GitHub as'} ${id.account}, for ${p.name}`, primary: !id.signedIn, disabled: null });
   return {
     ...base,
     // Its row is named Pushes as, so the account stands alone, or with what's wrong.

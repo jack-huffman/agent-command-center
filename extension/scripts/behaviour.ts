@@ -360,9 +360,12 @@ export const CASES: Case[] = [
     name: 'detail modal: a click on the backdrop closes it; one inside it, or a drag out of it, doesn\'t; focus goes back to the line that opened it',
     page: 'overview-landing',
     async run(t) {
-      // Opened by a click on the question's line, not its Answer: focus goes back to the line.
-      const opener = t.find(`li[data-opens="${CSS.escape(t.data.questionOpens)}"]`);
-      await t.click(opener);
+      // Opened by a click on the question's line, not its Answer: focus goes back to the line's link, its title (T-59).
+      const opener = t.find(`li > .lp-title[role="link"][data-opens="${CSS.escape(t.data.questionOpens)}"]`);
+      const line = opener.closest('li')!;
+      t.check('the line stays a list item, with no role of its own', !line.hasAttribute('role') && line.tabIndex === -1, line.getAttribute('role'));
+      t.check('its link is named by its title first', opener.getAttribute('aria-label')?.startsWith(`${opener.textContent}, `) === true, opener.getAttribute('aria-label'));
+      await t.click(t.find('.lp-state', line));
       const dialog = t.find<HTMLDialogElement>('dialog.detail-modal');
       const body = t.find('.task-modal-body', dialog);
       await t.click(body);
@@ -371,7 +374,7 @@ export const CASES: Case[] = [
       t.check('a press inside released on the backdrop leaves it open', dialog.open);
       await t.backdrop(dialog);
       t.check('a click on the backdrop closes it', !dialog.open);
-      t.check('focus goes back to the line', document.activeElement === opener, document.activeElement?.className);
+      t.check('focus goes back to the line\'s link', document.activeElement === opener, document.activeElement?.className);
     },
   },
   {

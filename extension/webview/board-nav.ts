@@ -23,6 +23,9 @@ export interface BoardKeys {
 /** The card held up by Space, on its board, and the lane chosen for it: its own column before a choice. */
 interface Held { board?: string; card: string; at: string }
 
+/** What a card's keys do, said after what it says of itself. */
+export const KEYS_DESCRIPTION = 'Arrows go to other cards. Enter opens it. Space picks it up to move it.';
+
 /** Each board's card last focused, so Tab from outside lands on it again after a redraw. */
 const last = new Map<string, string>();
 /** What each board's live line last said, so a redraw shows it still. */
@@ -102,7 +105,8 @@ export function boardKeys(board: HTMLElement, live: HTMLElement, o: BoardKeys): 
 
   for (const art of cards) {
     const target = focusOf(art);
-    target.setAttribute('aria-description', 'Arrows go to other cards. Enter opens it. Space picks it up to move it.');
+    // After what the card says of itself, such as a ticket's status (T-59).
+    target.setAttribute('aria-description', [target.getAttribute('aria-description'), KEYS_DESCRIPTION].filter(Boolean).join(' '));
     art.addEventListener('focusin', (e) => {
       if (e.target !== target) return;
       last.set(o.key, o.card(art));

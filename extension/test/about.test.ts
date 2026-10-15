@@ -72,7 +72,7 @@ test('a look that fails reads neutral, not as a problem; so do none yet and no r
 test('an older plugin than the extension is said in orange, with Setup\'s own A4 fix', () => {
   const behind = pluginRow(sampleAboutBehind(NOW));
   assert.deepEqual([behind.look.label, behind.look.tone], ['0.36.0, older than the extension\'s 0.37.0', 'orange']);
-  assert.deepEqual(behind.action, { command: 'acc.step.fix', label: 'Update the plugin', icon: 'tools', arg: 'A4.plugin', name: 'Update the acc plugin to 0.37.0, as Setup\'s A4 does', primary: true, disabled: null });
+  assert.deepEqual(behind.action, { command: 'acc.step.fix', label: 'Update the plugin', icon: 'tools', arg: 'A4.plugin', name: 'Update the plugin to 0.37.0: the acc plugin, as Setup\'s A4 does', primary: true, disabled: null });
   // A newer plugin is fine, as A4 says (D-088).
   assert.deepEqual([pluginRow(facts({ plugin: plugin('0.38.0') })).look.tone, pluginRow(facts({ plugin: plugin('0.38.0') })).action], ['blue', null]);
   // Not installed, turned off, or no Claude Code: orange, and A4's fix, whatever it turns out to be.
