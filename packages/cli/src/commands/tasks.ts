@@ -34,7 +34,7 @@ function upsert(o: Opts, inputs: TaskInput[], own = false): number {
 }
 
 /**
- * The tasks whose Jira, Azure DevOps or monday.com key a tracker in .acc/config.json owns, and why the rest are refused,
+ * The tasks whose Jira, Azure DevOps, monday.com or Slack key a tracker in .acc/config.json owns, and why the rest are refused,
  * so another project's or client's tickets never become tasks here (D-072). Without a Jira sign-in acc can't
  * check an epic, so only the project is held here; the board's check removes strays. A repo that names no
  * trackers has no place to hold to, and takes any.
@@ -80,7 +80,7 @@ const SIGNED_IN_KINDS = TRACKER_KINDS.filter((k): k is SignedInKind => k !== 'gi
 const isSignedInKind = (k: unknown): k is SignedInKind => (SIGNED_IN_KINDS as readonly unknown[]).includes(k);
 
 /**
- * Follows Jira, Azure DevOps or monday.com tickets that left the repo's place (D-072). Only the Command
+ * Follows Jira, Azure DevOps, monday.com or Slack tickets that left the repo's place (D-072). Only the Command
  * Center signs in to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
  */
 function cmdIntakeOutside(o: Opts, kind: SignedInKind): number {
