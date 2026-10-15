@@ -64,3 +64,5 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 
 /* Stop (T-47): ends the agent's work, so it sits at the far end of the bar, set off by a rule, apart from the buttons that open things. */
 .agent-head .actions-stop { margin-left: 8px; padding-left: 14px; border-left: 1px solid var(--line); }
+/* Where the bar wraps, Stop is on a line of its own, so the rule has nothing to divide. */
+@media (max-width: 760px) { .agent-head .actions-stop { margin-left: 0; padding-left: 0; border-left: none; } }
