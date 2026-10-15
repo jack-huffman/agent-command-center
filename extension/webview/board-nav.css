@@ -1,0 +1,16 @@
+/* ---------------------------------------------------------------- a board from the keyboard (T-54) */
+/* The line that says what a key did, above the board: an icon and its words. Empty, it takes no room, but
+   stays in the page, so a screen reader hears it when it fills. */
+.board-live { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 10px; font-size: 0.92em; }
+.board-live > .codicon { flex: none; margin-top: 2px; }
+.board-live > span:not(.codicon) { min-width: 0; overflow-wrap: anywhere; }
+.board-live:empty { position: absolute; width: 1px; height: 1px; margin: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* The card a person's focus is on: its title holds the focus, the whole card shows it. */
+.card:has(> .openable.card-title:focus-visible) { border-color: var(--vscode-focusBorder); }
+/* The card held up by Space: it lifts a little and says Moving. Under reduced motion it doesn't lift. */
+.card.held { border-color: var(--vscode-focusBorder); box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent); transform: translateY(-2px); transition: transform 0.12s ease-out, box-shadow 0.12s ease-out; }
+.card-moving { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; padding-right: 26px; font-size: 0.88em; font-weight: 600; }
+/* As a drag does, the lanes it can't go to dim, except its own, which holds it. */
+.board.holding .column:not(.can-drop):not(:has(> .card.held)) { opacity: 0.45; }
+.board.holding .column.can-drop { border-style: dashed; }
+@media (prefers-reduced-motion: reduce) { .card.held { transform: none; transition: none; } }
