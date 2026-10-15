@@ -53,7 +53,7 @@ export function mainCheckout(run: Runner, cwd: string): string {
  * `.claude/worktrees/` inside the repo (D-022): a background agent started from the trusted main checkout
  * can enter a worktree there without a trust prompt, and Claude Code then enforces the isolation.
  */
-export function worktreeRoot(config: Config, main: string): string {
+export function worktreeRoot(config: Pick<Config, 'worktrees'>, main: string): string {
   const root = config.worktrees.root;
   if (!root) return join(main, '.claude', 'worktrees');
   return isAbsolute(root) ? root : resolve(main, root);
