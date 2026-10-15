@@ -20,7 +20,7 @@ export const row = (id: string, state: string, display: TaskRow['display'], url:
 export function hub(): HubLike {
   const project = {
     name: 'Acme', root: '/r', branch: 'devbox',
-    config: { github: { repo: 'o/r', account: 'me' }, environments: envs, profile: 'salesforce' },
+    config: { github: { repo: 'o/r', account: 'me' }, environments: envs, profile: 'salesforce', worktrees: { root: '../r.worktrees' } },
     worktrees: [
       { path: '/r', head: 'abc1234', branch: 'devbox', main: true, changed: 0, locked: false, prunable: false },
       { path: '/r.worktrees/AV-2', head: 'def5678', branch: 'task/AV-2-login', main: false, changed: 3, locked: false, prunable: false },

@@ -64,11 +64,11 @@ export function renderEnvironments(m: EnvironmentsModel): Node[] {
     const cards = el('div', 'env-cards');
     for (const e of p.envs) {
       cards.append(el('article', `env-card${e.current ? ' current' : ''}`,
-        el('div', 'env-head', icon(e.icon, e.current ? 'blue' : 'neutral'), el('span', 'strong', e.name), el('span', 'chip', e.type === 'none' ? 'branch' : e.type.replace('_', ' '))),
+        el('div', 'env-head', icon(e.icon, e.current ? 'blue' : 'neutral'), el('span', 'strong', e.name), el('span', 'chip', e.typeWords)),
         el('dl', '',
           el('dt', '', 'Branch'), work(el('dd', 'mono', e.branch), 'branch'),
           el('dt', '', 'Org'), el('dd', 'mono', e.org ?? (e.type === 'none' ? '–' : 'no alias')),
-          el('dt', '', 'Promotes to'), el('dd', 'mono', e.promotesTo.length ? e.promotesTo.join(', ') : '–')),
+          ...(e.promotesTo.length ? [el('dt', '', 'Promotes to'), el('dd', 'mono', e.promotesTo.join(', '))] : [])),
         e.badges.length ? el('div', 'badges', ...e.badges.map((b) => el('span', `badge${b === 'checked out' ? ' tone-blue' : ''}`, b))) : null,
         el('div', 'actions', ...e.actions.map(actionButton)),
       ));

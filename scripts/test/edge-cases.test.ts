@@ -18,7 +18,6 @@ export const EDGE = /\b(empty|none|nothing|no|zero|missing|without|fail(s|ed|ing
 /** The test files that predate the rule, with no test named for an edge case. Only ever remove one. */
 export const OLDER = [
   'extension/test/activate.test.ts',
-  'extension/test/environments.test.ts',
   'extension/test/inline.test.ts',
   'extension/test/overview.test.ts',
   'packages/cli/test/github.test.ts',

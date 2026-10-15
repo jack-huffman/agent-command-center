@@ -4,7 +4,7 @@
  */
 
 import type { GithubIdentity } from '../../../packages/core/src/github.ts';
-import { ENV_ICON } from '../logic/environments.ts';
+import { ENV_ICON, envTypeWords, inPromotionOrder } from '../logic/environments.ts';
 import type { Action, HubLike, ModelArea, Ref } from './shared.ts';
 import { promotionPaths } from '../../../packages/core/src/promote.ts';
 import { settingsKey } from './settings.ts';
@@ -53,6 +53,8 @@ export interface EnvCard {
   name: string;
   branch: string;
   type: string;
+  /** The type in plain words, such as "Partial copy sandbox". */
+  typeWords: string;
   icon: string;
   org: string | null;
   badges: string[];
@@ -80,7 +82,7 @@ export function environmentsModel(hub: HubLike, identity: (root: string) => Iden
       github: p.config.github ? `${p.config.github.repo} as ${p.config.github.account}` : null,
       identity: identity(p.root),
       paths: promotionPaths(p.config.environments),
-      envs: p.config.environments.map((e) => {
+      envs: inPromotionOrder(p.config.environments).map((e) => {
         const ref: Ref = { project: p.root, env: e.branch };
         const actions: Action[] = [];
         if (e.org) actions.push({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref });
@@ -91,7 +93,7 @@ export function environmentsModel(hub: HubLike, identity: (root: string) => Iden
         if (p.config.profile === 'salesforce' && e.org) actions.push({ command: 'acc.env.deploy', label: 'Deploy…', icon: 'cloud-upload', ref });
         const current = p.branch === e.branch;
         const badges = [e.default ? 'default' : '', e.protected ? 'protected' : '', current ? 'checked out' : ''].filter(Boolean);
-        return { name: e.name, branch: e.branch, type: e.type, icon: ENV_ICON[e.type] ?? 'git-branch', org: e.org, badges, current, promotesTo: e.promotesTo, actions };
+        return { name: e.name, branch: e.branch, type: e.type, typeWords: envTypeWords(e.type), icon: ENV_ICON[e.type] ?? 'git-branch', org: e.org, badges, current, promotesTo: e.promotesTo, actions };
       }),
     })),
   };
