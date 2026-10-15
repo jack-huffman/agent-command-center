@@ -39,25 +39,16 @@ export interface A11yException { name: string; rule: string; what: RegExp; reaso
 const THEMED = 'The page draws it in the theme\'s colour, and Light and Dark keep VSCode\'s Dark and Light Modern colours (theme.css, GH-109), so the page can\'t change it and still match VSCode.';
 
 /**
- * What the accessibility check allows, each with why. A fix that needs a file another task changes now is a
- * follow-up, and so is one outside the page's shared parts (main.ts and dom.ts), which T-55 fixed. A run of
- * every page fails on an exception that excused nothing, so the list only shrinks;
- * `extension/test/a11y.test.ts` pins how far each reaches. The first match excuses a node, so the theme's
- * colours come first.
+ * What the accessibility check allows, each with why: only the theme's own colours, which the page can't
+ * change and still match VSCode. T-59 fixed the eight follow-ups T-55 left at their source. A run of every
+ * page fails on an exception that excused nothing, so the list only shrinks; `extension/test/a11y.test.ts`
+ * pins how far each reaches.
  */
 export const A11Y_EXCEPTIONS: A11yException[] = [
   { name: 'contrast: --vscode-charts-blue', rule: 'color-contrast', what: /--vscode-charts-blue\b/, reason: `Blue states (.tone-blue, a pill, a chip) are --vscode-charts-blue, 3.2 to 4.5:1 on the page's raised and hovered surfaces. ${THEMED}` },
   { name: 'contrast: --vscode-charts-orange', rule: 'color-contrast', what: /--vscode-charts-orange\b/, reason: `Orange states (.tone-orange, the rail's attention counts) are --vscode-charts-orange, 2.4 to 4.1:1. ${THEMED}` },
   { name: 'contrast: --vscode-descriptionForeground', rule: 'color-contrast', what: /--vscode-descriptionForeground\b/, reason: `Muted text is --vscode-descriptionForeground, 4.1 to 4.5:1 on a raised or hovered surface. ${THEMED}` },
   { name: 'contrast: --vscode-textLink-foreground', rule: 'color-contrast', what: /--vscode-textLink-foreground\b/, reason: `Avatars, mentions, counts and the chosen part of a segmented control are --vscode-textLink-foreground on a tint of itself, 3.6 to 4.5:1. ${THEMED}` },
-  { name: 'contrast: Setup\'s done steps', rule: 'color-contrast', what: /(?:^|> )\.done(?::nth-child\(\d+\))? > (?:\.strong|\.step-line|\.status)\b/, reason: 'follow-up: setup.css fades a done step with opacity, to 2.4 to 3.5:1; how a done step reads is a choice for Setup\'s own task.' },
-  { name: 'contrast: faded task cards', rule: 'color-contrast', what: /(?:^|> )\.done(?::nth-child\(\d+\))? > \.card-|^article\[data-key="[^"]+"\] > \.tcard-(?:top|acc) > |^button\[title="Clean up"\]$/, reason: 'follow-up: boards.css fades a done or closed card with opacity, to 3.1 to 4.2:1, and T-52 to T-54 change the boards now.' },
-  { name: 'name: the rail\'s tabs', rule: 'label-content-name-mismatch', what: /^(?:Overview|Tasks|Agents|Worktrees|Environments|Setup|Settings) \d+$/, reason: 'follow-up: rail.ts names a tab "Tasks: 14 need you" while it shows "Tasks 14"; the name must hold the shown count, and T-52 to T-54 change rail.ts now.' },
-  { name: 'name: task cards', rule: 'label-content-name-mismatch', what: /^article\[data-key="[^"]+"\]$|^\.acc-hover$|^\.held$/, reason: 'follow-up: a tracker card\'s aria-label (boards.ts) leaves out the labels, people and state it shows, and the card a person holds by its keys (board-nav.ts, T-54) its Moving badge; T-59 names each by what it shows.' },
-  { name: 'name: the Overview\'s rows and cards', rule: 'label-content-name-mismatch', what: /^button\[data-overview-card="[a-z-]+"\]$|^(?:ol\[[^\]]+\] > )?(?:li|\.openable|\.tone-row-(?:blue|orange|neutral))(?:[.:[]\S*)?$/, reason: 'follow-up: landing.ts names a row or card by its state and title, and leaves out the facts and counts it shows; what a row is called is a choice for the Overview\'s own task.' },
-  { name: 'name: Settings\' action buttons', rule: 'label-content-name-mismatch', what: /\.settings-tracker-actions\.actions > \.btn(?::nth-child\(\d+\))?$|^div\[data-about="plugin"\] > \.primary\.btn$/, reason: 'follow-up: settings.ts and about.ts name a button "Change where Jira · ACME, in Acme Service gets its tickets, and its board" while it shows "Change place…"; the name must hold what it shows.' },
-  { name: 'list: the Overview\'s lists', rule: 'list', what: /^ol(?:\[[^\]]+\])?$/, reason: 'follow-up: landing.ts gives a row that opens (an li) the role link, so its ol holds links, not list items.' },
-  { name: 'progressbar: Setup\'s progress', rule: 'aria-progressbar-name', what: /^\.progress$/, reason: 'follow-up: setup.ts draws its progress bar with a role and values but no name, such as "Steps done".' },
 ];
 
 /** The exception excuses this node of a violation of rule: it names the rule, and its pattern matches the node's selector, text or colours. */
