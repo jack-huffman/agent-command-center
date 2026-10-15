@@ -62,7 +62,7 @@ test('a burst across two projects shows one notification, and Slack still gets e
   s.notices.dispose();
 });
 
-test('three notices across two projects stay three, each Show on its own task (edge case: at the limit)', async () => {
+test('three notices across two projects stay three, each Show on its own task, and no new change says nothing more (edge case: at the limit)',async () => {
   said.info.length = 0; said.warn.length = 0; said.ran.length = 0; said.pick = 'Show';
   const s = swarm({ '/a': ['T-1', 'T-2'], '/b': ['T-9'] });
   s.block();
