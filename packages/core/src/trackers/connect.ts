@@ -143,6 +143,8 @@ export interface TrackerDescription {
   pickers: PickerSpec[];
   /** The picker that stands in for an epic (GH-81). */
   place: PlaceSpec;
+  /** The Connect page's third step, where this tracker's own word is better than the usual "Its tickets and board" (T-43). */
+  listsTitle?: string;
   /** Who the sign-in is, or a TrackerError saying why not. */
   verify: (ctx: Ctx) => Promise<Person>;
   /** The tracker as .acc/config.json keeps it. A key set to null is taken out of an existing one. */
@@ -341,7 +343,7 @@ export const SLACK_BOT_TOKEN = 'xoxb-';
 const slackToken = (ctx: Ctx): string => ctx.signIn.fields.token ?? '';
 
 export const SLACK: TrackerDescription = {
-  kind: 'slack', name: 'Slack', icon: 'comment-discussion',
+  kind: 'slack', name: 'Slack', icon: 'comment-discussion', listsTitle: 'Its channel',
   host: {
     key: 'workspace', label: 'Workspace', placeholder: 'acme', hint: 'The workspace, as in acme.slack.com, or any link from it.',
     parse: (v) => parseHost('slack', v), invalid: 'A workspace name, such as acme, or a link from acme.slack.com.',

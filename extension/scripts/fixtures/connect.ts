@@ -12,7 +12,7 @@ export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | '
  * existing Jira tracker opened to change, signed in for this project only, its epic done now but kept; and
  * a monday.com board signed in for this project only, with Sign in again open, so its token field, token
  * page and the tick (off) show beside its board, group and two status columns (GH-70). A Slack workspace
- * whose token isn't a bot token, and then signed in as the app for every project on it, a channel picked
+ * with its token not typed yet, so no field warns (T-43), and then signed in as the app for every project on it, a channel picked
  * (T-29). Then a project
  * started from Setup (GH-81): from a Jira epic, signed in for every project on the site, its epics listed
  * and none picked yet; with an epic another repo here uses picked, marked; from an Azure DevOps area path
@@ -58,8 +58,6 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   if (which === 'slack') {
     const s = blankConnect(SLACK, { id: 'c-slack', ...base });
     s.host = 'acme';
-    s.fieldErrors = { token: 'A bot token starts with xoxb-. Copy it from the app\'s OAuth & Permissions page.' };
-    s.signIn = { state: 'failed', who: null, error: null, again: false };
     return connectModel(s);
   }
   if (which === 'slack-channel') {

@@ -124,14 +124,24 @@ export interface ConnectModel {
   methods: { id: string; label: string; icon: string; on: boolean }[];
   method: { id: string; hint: string; test: string };
   fields: ConnectField[];
-  signIn: { look: Look; editing: boolean; canTest: boolean };
+  /** why: the reason Test connection is off, in words, beside it; null when it's on (T-43). */
+  signIn: { look: Look; editing: boolean; canTest: boolean; why: Look | null };
   /** Use this sign-in for every project on the site (GH-79): shown while a sign-in is typed, never for gh. */
   share: { shown: boolean; on: boolean; label: string; hint: string };
   pickers: ConnectPicker[];
+  /** The third step's heading, from the description (T-43). */
+  listsTitle: string;
   /** Starting a project (GH-81): which list stands in for an epic, and the description's words for it. Null otherwise. */
   place: { key: string; words: string } | null;
-  save: { can: boolean; label: string; look: Look | null };
+  /** why: the reason the button is off, in words, beside it; null when it's on (T-43). */
+  save: { can: boolean; label: string; look: Look | null; why: Look | null };
 }
+
+/** The usual heading of the Connect page's third step (T-43). */
+export const LISTS_TITLE = 'Its tickets and board';
+
+/** Why a button is off, as a word and an icon beside it: "Sign in and choose a project first." (T-43) */
+const whyOff = (words: string): Look => LOOK(words, 'lock', 'neutral');
 
 /** A fresh page for one kind of tracker, or for an existing one with its choices filled in. */
 export function blankConnect(d: TrackerDescription, i: {
@@ -222,6 +232,14 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const placeLabel = (placePicker?.label ?? 'place').toLowerCase();
   // "an epic", "an area path", "labels", "a group": what the project is started from.
   const placeName = placePicker?.multi ? placeLabel : `${/^[aeiou]/.test(placeLabel) ? 'an' : 'a'} ${placeLabel}`;
+  // What's still to do before Save, in the order a person does it: sign in, then each choice (T-43).
+  // Before it's signed in the lists are empty, so only the first is named: the rest come after.
+  const open = pickers.filter((p) => !p.fixed && !p.hidden && p.required && !p.selected.length).map((p) => `${/^[aeiou]/i.test(p.label) ? 'an' : 'a'} ${p.label.toLowerCase()}`);
+  const choices = [...new Set([...(s.root ? [] : ['a project']), ...(ok ? open : open.slice(0, 1))])];
+  const joined = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs[0]!);
+  const todo = [...(ok ? [] : ['sign in']), ...(choices.length ? [`choose ${joined(choices)}`] : [])];
+  const saveWhy = s.saving ? whyOff('Saving now.') : todo.length ? whyOff(`${joined(todo).replace(/^./, (c) => c.toUpperCase())} first.`)
+    : !ready ? whyOff('Wait for its lists to load first.') : null;
   return {
     id: s.id, rev: s.rev,
     title: s.start ? `Start ${s.projectName} from ${placeName} in ${name}` : s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
@@ -235,15 +253,17 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     method: { id: method.id, hint: method.hint, test: method.test },
     fields: editing ? fields : [],
     // Not held back by an empty site: Test sends what's typed there, and says beside it what's wrong.
-    signIn: { look, editing, canTest: !!s.root && !testing && !s.saving },
+    signIn: { look, editing, canTest: !!s.root && !testing && !s.saving, why: !s.root ? whyOff('Choose a project first.') : testing ? whyOff('Testing the connection now.') : s.saving ? whyOff('Saving now.') : null },
     share: {
       shown: editing && method.via !== 'gh' && !!s.root, on: s.share, label: `Use this sign-in for every project on ${site}`,
       hint: s.share ? `Every project on this machine that uses ${site} signs in with it, unless it has a sign-in of its own.` : `Kept for ${s.projectName || 'this project'} only. Other projects on ${site} sign in on their own.`,
     },
     pickers,
+    listsTitle: d.listsTitle ?? LISTS_TITLE,
     place: s.start ? { key: d.place.key, words: d.place.words } : null,
     save: {
       can: !!s.root && ok && ready && !s.saving, label: s.start ? 'Start the project' : s.existing ? 'Save changes' : `Connect ${name}`,
+      why: saveWhy,
       look: s.saving ? LOOK(s.start ? 'Starting the project' : 'Saving', 'sync~spin', 'blue') : s.saveError ? LOOK(s.saveError, 'warning', 'orange') : null,
     },
   };
