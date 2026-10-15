@@ -176,10 +176,11 @@ export function memento(initial: Record<string, unknown> = {}) {
   return { get: (k: string, fallback?: unknown) => m.get(k) ?? fallback, update: async (k: string, v: unknown) => { m.set(k, v); }, keys: () => [...m.keys()] };
 }
 
-export async function until(fn: () => boolean, ms = 20_000): Promise<void> {
+/** Polls fn until it holds. Past ms it throws, naming what it waited for when given (T-51). */
+export async function until(fn: () => boolean, ms = 20_000, what?: string): Promise<void> {
   const end = Date.now() + ms;
   while (!fn()) {
-    if (Date.now() > end) throw new Error('timed out');
+    if (Date.now() > end) throw new Error(`timed out after ${ms} ms${what ? ` waiting for ${what}` : ''}`);
     await new Promise((r) => setTimeout(r, 50));
   }
 }

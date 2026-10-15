@@ -66,6 +66,15 @@ type Posted = { type?: string; jump?: boolean; open?: string; model?: { section:
 type Started = { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof activate> };
 
 type WaitTimer = { requested: number; fire: () => void };
+/** Waits for cond, up to what's left of the test's budget, and fails naming what. */
+type Wait = (what: string, cond: () => boolean) => Promise<void>;
+/** Waits for p in the same way. */
+type Settle = <T>(what: string, p: Promise<T>) => Promise<T>;
+
+/** All a test in a folder may wait, for the checks, the open and the listener together (T-51). */
+const FOLDER_BUDGET_MS = 150_000;
+/** Its timeout: the budget, and time to put the folder back after it, so a slow test fails rather than being cancelled. */
+const IN_FOLDER = { timeout: FOLDER_BUDGET_MS + 30_000 };
 
 /** Takes over the one timer the first open's wait sets (FIRST_OPEN_WAIT_MS); every other timer runs as it does. */
 function holdWaitTimer(): { waitTimer: WaitTimer; restore: () => void } {
@@ -92,14 +101,35 @@ function holdWaitTimer(): { waitTimer: WaitTimer; restore: () => void } {
  * one after the other, and a 1 s sleep on top, all racing a real 4 s timer; on a busy machine the timer won,
  * "waited 4008 ms"). With
  * doctorFails, the results are as old and every acc doctor prints none, and fn runs once that check is over.
+ *
+ * Every wait in here, and each one fn makes through wait() and settle(), shares one budget (budgetMs), well
+ * under the test's timeout (T-51). A test that runs out fails naming what it waited for, and its finally
+ * puts the folder back before the next test starts. node:test doesn't stop a test's body at its timeout:
+ * with waits longer than the timeout (60 s, 60 s, and an open with no end), a busy machine's test was
+ * cancelled while its body went on, and its finally later gave the next test the real HOME, PATH and
+ * setTimeout, so that test's checks ran the real tools and waited for files nothing would write. With
+ * slow, each fake tool sleeps that many seconds before it answers, as on a busy machine.
  */
-async function inFolder(files: Record<string, string>, machine: DoctorItem['status'], profile: string, fn: (s: Started & { repo: string; release: () => void; waitTimer: WaitTimer }) => Promise<void>, opts: { early?: boolean; doctorFails?: boolean } = {}): Promise<void> {
+async function inFolder(files: Record<string, string>, machine: DoctorItem['status'], profile: string, fn: (s: Started & { repo: string; release: () => void; waitTimer: WaitTimer; wait: Wait; settle: Settle }) => Promise<void>, opts: { early?: boolean; doctorFails?: boolean; slow?: number; budgetMs?: number } = {}): Promise<void> {
+  const end = Date.now() + (opts.budgetMs ?? FOLDER_BUDGET_MS);
+  const wait: Wait = (what, cond) => until(cond, Math.max(0, end - Date.now()), what);
+  const settle: Settle = async (what, p) => {
+    let done = false;
+    const ended = Promise.resolve(p).finally(() => { done = true; });
+    // Out of budget, the wait throws; p may still fail later, after nobody listens.
+    ended.catch(() => {});
+    await wait(what, () => done);
+    return ended;
+  };
   const sandbox = realpathSync(tempDir('acc-first-open-'));
   const at = (...p: string[]) => join(sandbox, ...p);
   for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
   writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
+  const slow = `sleep ${opts.slow ?? 0}\n`;
+  // The held claude --version ends at the release, or at the budget's end by the clock, however slow each sleep is.
+  const holdVersion = `[ "$1" = --version ] && while [ ! -f '${at('release')}' ] && [ "$(date +%s)" -lt ${Math.ceil(end / 1000)} ]; do sleep 0.05; done\n`;
   for (const name of ['gh', 'claude', 'sf', 'code', 'open', 'osascript', 'caffeinate']) {
-    writeFileSync(at('bin', name), name === 'claude' && opts.early ? `#!/bin/sh\n[ "$1" = --version ] && i=0; while [ ! -f '${at('release')}' ] && [ $i -lt 2400 ]; do sleep 0.05; i=$((i+1)); done\nexit 1\n` : '#!/bin/sh\nexit 1\n');
+    writeFileSync(at('bin', name), `#!/bin/sh\n${slow}${name === 'claude' && opts.early ? holdVersion : ''}exit 1\n`);
     chmodSync(at('bin', name), 0o755);
   }
   const saved = { ...process.env };
@@ -118,17 +148,19 @@ async function inFolder(files: Record<string, string>, machine: DoctorItem['stat
   const fake = fakeVscode(repo);
   const version = (JSON.parse(readFileSync(join(dist, '..', '..', 'package.json'), 'utf8')) as { version: string }).version;
   // No acc.welcomed: before GH-138, a machine's first window opened the machine walkthrough.
-  const started = activate(dist, fake, { 'acc.machineItems': { at: Date.now(), profile, version: opts.early || opts.doctorFails ? `${version}-older` : version, items: [item('A1.git', 'machine', machine)] } });
+  const activated = activate(dist, fake, { 'acc.machineItems': { at: Date.now(), profile, version: opts.early || opts.doctorFails ? `${version}-older` : version, items: [item('A1.git', 'machine', machine)] } });
+  let stopped = false;
+  const started = { ...activated, stop: () => { if (!stopped) activated.stop(); stopped = true; } };
   const ready = async () => {
     // Started, its whole setup pass done: with acc doctor failing, there are no steps to show.
-    await until(() => fake.calls.contexts.get('acc.profile') === profile && (opts.doctorFails || fake.calls.contexts.has('acc.step.A1.git')), 60_000);
-    // And listening for agents' questions, which starts once the projects load: started after stop(), its
-    // file watcher would outlive the test and keep the process from exiting.
-    await until(() => readdirSync(at('state', 'questions')).length > 0, 60_000);
+    await wait('the extension to start and its first check to finish', () => fake.calls.contexts.get('acc.profile') === profile && (opts.doctorFails || fake.calls.contexts.has('acc.step.A1.git')));
+    // And listening for agents' questions, which starts once the projects load, so nothing it starts is
+    // left for the next test. A stopped extension never listens: that file would never come.
+    if (!stopped) await wait('the extension to listen for agents\' questions', () => readdirSync(at('state', 'questions')).length > 0);
   };
   try {
     if (!opts.early) await ready();
-    await fn({ fake, started, repo, release: () => writeFileSync(at('release'), ''), waitTimer: held?.waitTimer ?? { requested: 0, fire: () => {} } });
+    await fn({ fake, started, repo, release: () => writeFileSync(at('release'), ''), waitTimer: held?.waitTimer ?? { requested: 0, fire: () => {} }, wait, settle });
     if (opts.early) await ready();
   } finally {
     // A test that fails before it releases the held check still lets the fake claude end.
@@ -144,8 +176,8 @@ async function inFolder(files: Record<string, string>, machine: DoctorItem['stat
 const walkthroughs = (fake: Started['fake']) => fake.calls.executed.filter(([id]) => id === 'workbench.action.openWalkthrough');
 const lastState = (tab: { posted: unknown[] }) => (tab.posted as Posted[]).filter((x) => x.model).at(-1)!;
 
-test('a Salesforce folder that isn\'t set up opens nothing, and the Command Center\'s first open there lands on Setup, once', { timeout: 120_000 }, async () => {
-  await inFolder({ 'sfdx-project.json': '{"packageDirectories":[{"path":"force-app","default":true}]}\n' }, 'pass', 'none', async ({ fake, started }) => {
+test('a Salesforce folder that isn\'t set up opens nothing, and the Command Center\'s first open there lands on Setup, once', IN_FOLDER, async () => {
+  await inFolder({ 'sfdx-project.json': '{"packageDirectories":[{"path":"force-app","default":true}]}\n' }, 'pass', 'none', async ({ fake, started, settle }) => {
     const { calls, panels } = fake;
     const { ctx } = started;
     // Opening the folder: no walkthrough tab, no Command Center, no notification.
@@ -155,14 +187,14 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
     assert.equal(ctx.workspaceState.get(FIRST_OPEN_STATE), undefined);
 
     // Sent somewhere, such as Tasks by Connect a tracker, it goes there, and that isn't its first open.
-    await calls.commands.get('acc.open.tasks')!();
+    await settle('the Command Center to open on Tasks', calls.commands.get('acc.open.tasks')!() as Promise<void>);
     const sent = panels[0]!;
     sent.receive!({ type: 'ready' });
     assert.equal(lastState(sent).model!.section, 'tasks');
     assert.equal(ctx.workspaceState.get(FIRST_OPEN_STATE), undefined);
     sent.close!();
     // And a section picked in the sidebar's list, which names it.
-    await calls.commands.get('acc.open.home')!('worktrees');
+    await settle('the Command Center to open on Worktrees', calls.commands.get('acc.open.home')!('worktrees') as Promise<void>);
     const picked = panels.at(-1)!;
     picked.receive!({ type: 'ready' });
     assert.equal(lastState(picked).model!.section, 'worktrees');
@@ -170,7 +202,7 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
     picked.close!();
 
     // Opened by a person, from the activity bar, the status bar or a command: Setup, at what kind of project it is.
-    await calls.commands.get('acc.open.home')!();
+    await settle('the Command Center\'s first open', calls.commands.get('acc.open.home')!() as Promise<void>);
     const first = panels.at(-1)!;
     first.receive!({ type: 'ready' });
     const landed = lastState(first);
@@ -183,14 +215,14 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
     first.receive!({ type: 'toolbar', command: COMMANDS.machine });
     first.receive!({ type: 'toolbar', command: COMMANDS.project });
     assert.deepEqual(calls.executed.slice(ran).map(([id]) => id), [COMMANDS.machine, COMMANDS.project], 'the page may ask for both');
-    await calls.commands.get(COMMANDS.machine)!();
-    await calls.commands.get(COMMANDS.project)!();
+    await settle('the machine walkthrough to open', calls.commands.get(COMMANDS.machine)!() as Promise<void>);
+    await settle('the project walkthrough to open', calls.commands.get(COMMANDS.project)!() as Promise<void>);
     assert.deepEqual(walkthroughs(fake).map(([, args]) => args), [[`${EXTENSION_ID}#${WALKTHROUGHS.machine.id}`, false], [`${EXTENSION_ID}#${WALKTHROUGHS.project.id}`, false]]);
 
     // Left at Agents, the next open is where it was left, not Setup.
     first.receive!({ type: 'nav', section: 'agents' });
     first.close!();
-    await calls.commands.get('acc.open.home')!();
+    await settle('the Command Center\'s second open', calls.commands.get('acc.open.home')!() as Promise<void>);
     const second = panels.at(-1)!;
     second.receive!({ type: 'ready' });
     const again = lastState(second);
@@ -200,12 +232,12 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
   });
 });
 
-test('on a machine with steps still to do, the first open in a folder of any kind lands on Setup\'s machine part', { timeout: 120_000 }, async () => {
+test('on a machine with steps still to do, the first open in a folder of any kind lands on Setup\'s machine part', IN_FOLDER, async () => {
   // No sfdx-project.json: a folder of no profile yet gets the same first open.
-  await inFolder({ 'README.md': '# A repo\n' }, 'fail', 'none', async ({ fake }) => {
+  await inFolder({ 'README.md': '# A repo\n' }, 'fail', 'none', async ({ fake, settle }) => {
     assert.deepEqual(walkthroughs(fake), []);
     assert.equal(fake.panels.length, 0);
-    await fake.calls.commands.get('acc.open.home')!();
+    await settle('the Command Center\'s first open', fake.calls.commands.get('acc.open.home')!() as Promise<void>);
     const tab = fake.panels[0]!;
     tab.receive!({ type: 'ready' });
     const landed = lastState(tab);
@@ -214,11 +246,11 @@ test('on a machine with steps still to do, the first open in a folder of any kin
   });
 });
 
-test('a folder that\'s set up opens as it did: the section it was left at, never Setup on its own', { timeout: 120_000 }, async () => {
+test('a folder that\'s set up opens as it did: the section it was left at, never Setup on its own', IN_FOLDER, async () => {
   const config = JSON.stringify({ schema: 1, project: 'Tool', profile: 'generic', environments: [{ name: 'main', default: true }], trackers: [{ kind: 'github' }] });
-  await inFolder({ '.acc/config.json': config, '.gitignore': '.claude/worktrees/\n' }, 'pass', 'generic', async ({ fake, started }) => {
+  await inFolder({ '.acc/config.json': config, '.gitignore': '.claude/worktrees/\n' }, 'pass', 'generic', async ({ fake, started, settle }) => {
     assert.deepEqual(walkthroughs(fake), []);
-    await fake.calls.commands.get('acc.open.home')!();
+    await settle('the Command Center to open', fake.calls.commands.get('acc.open.home')!() as Promise<void>);
     const tab = fake.panels[0]!;
     tab.receive!({ type: 'ready' });
     const opened = lastState(tab);
@@ -231,15 +263,15 @@ test('a folder that\'s set up opens as it did: the section it was left at, never
 const sfdx = { 'sfdx-project.json': '{"packageDirectories":[{"path":"force-app","default":true}]}\n' };
 const OPEN_ITEM = '$(home) Open the Command Center';
 
-test('the status bar menu\'s Open the Command Center is a first open too: it lands on Setup', { timeout: 120_000 }, async () => {
-  await inFolder(sfdx, 'pass', 'none', async ({ fake, started }) => {
+test('the status bar menu\'s Open the Command Center is a first open too: it lands on Setup', IN_FOLDER, async () => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started, settle }) => {
     const offered: string[] = [];
     fake.calls.pick = (items) => {
       const all = items as unknown as { label: string }[];
       offered.push(...all.map((i) => i.label));
       return all.find((i) => i.label === OPEN_ITEM);
     };
-    await fake.calls.commands.get('acc.status.menu')!();
+    await settle('the status bar menu to open the Command Center', fake.calls.commands.get('acc.status.menu')!() as Promise<void>);
     assert.ok(offered.includes(OPEN_ITEM), 'the menu offers it');
     assert.equal(fake.panels.length, 1);
     const tab = fake.panels[0]!;
@@ -250,8 +282,8 @@ test('the status bar menu\'s Open the Command Center is a first open too: it lan
   });
 });
 
-test('the launcher view becoming visible, as the activity bar icon makes it, is a first open: it lands on Setup', { timeout: 120_000 }, async () => {
-  await inFolder(sfdx, 'pass', 'none', async ({ fake, started }) => {
+test('the launcher view becoming visible, as the activity bar icon makes it, is a first open: it lands on Setup', IN_FOLDER, async () => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started, wait }) => {
     const shown = fake.treeShown.get('acc.home')!;
     assert.equal(shown.length, 1, 'the launcher listens');
     // Hidden, it opens nothing.
@@ -259,7 +291,7 @@ test('the launcher view becoming visible, as the activity bar icon makes it, is 
     await new Promise((r) => setTimeout(r, 100));
     assert.equal(fake.panels.length, 0);
     for (const l of shown) l({ visible: true });
-    await until(() => fake.panels.length === 1);
+    await wait('the Command Center\'s tab', () => fake.panels.length === 1);
     const tab = fake.panels[0]!;
     tab.receive!({ type: 'ready' });
     const landed = lastState(tab);
@@ -269,8 +301,8 @@ test('the launcher view becoming visible, as the activity bar icon makes it, is 
   });
 });
 
-test('an early first open on a ready machine waits for the checks, and when the wait ends first lands at the question, not This machine', { timeout: 120_000 }, async () => {
-  await inFolder(sfdx, 'pass', 'none', async ({ fake, started, release, waitTimer }) => {
+test('an early first open on a ready machine waits for the checks, and when the wait ends first lands at the question, not This machine', IN_FOLDER, async () => {
+  await inFolder(sfdx, 'pass', 'none', async ({ fake, started, release, waitTimer, settle }) => {
     const { calls, panels } = fake;
     const opening = calls.commands.get('acc.open.home')!() as Promise<void>;
     // It waits: no tab yet, and the first open isn't spent. The checks are held, and so is the wait's timer.
@@ -282,7 +314,7 @@ test('an early first open on a ready machine waits for the checks, and when the 
     const again = calls.commands.get('acc.open.home')!() as Promise<void>;
     // The wait runs out with the checks still held: it's the wait that ended the open.
     waitTimer.fire();
-    await Promise.all([opening, again]);
+    await settle('both opens to end when the wait ran out', Promise.all([opening, again]));
     assert.equal(panels.length, 1);
     assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'the checks still haven\'t finished');
     const tab = panels[0]!;
@@ -294,34 +326,65 @@ test('an early first open on a ready machine waits for the checks, and when the 
   }, { early: true });
 });
 
-test('an early first open whose checks finish inside the wait, with a step failing, lands at This machine', { timeout: 120_000 }, async () => {
-  await inFolder(sfdx, 'pass', 'none', async ({ fake, release, waitTimer }) => {
-    const { calls, panels } = fake;
-    assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'opened while the checks run');
-    const opening = calls.commands.get('acc.open.home')!() as Promise<void>;
-    // The wait's timer never fires here, so only the checks finishing can end the open, however slow the
-    // machine is. An open that didn't wait for them would have a tab by now.
-    await new Promise((r) => setTimeout(r, 500));
-    assert.equal(waitTimer.requested, 1, 'one wait, of FIRST_OPEN_WAIT_MS');
-    assert.equal(panels.length, 0, 'it waits for the checks');
-    release();
-    await opening;
-    assert.ok(calls.contexts.has('acc.step.A1.git'), 'the checks finished first');
-    const tab = panels[0]!;
-    tab.receive!({ type: 'ready' });
-    const landed = lastState(tab);
-    // The sandbox's claude fails, so the machine has a step to do, whatever the older results said.
-    assert.deepEqual([landed.model!.section, landed.open], ['setup', SETUP_PARTS.machine]);
-  }, { early: true });
+/** An early first open whose checks finish inside the wait lands at This machine; slow, each fake tool takes that many seconds. */
+const checksInsideTheWait = (slow?: number) => inFolder(sfdx, 'pass', 'none', async ({ fake, release, waitTimer, settle }) => {
+  const { calls, panels } = fake;
+  assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'opened while the checks run');
+  const opening = calls.commands.get('acc.open.home')!() as Promise<void>;
+  // The wait's timer never fires here, so only the checks finishing can end the open, however slow the
+  // machine is. An open that didn't wait for them would have a tab by now.
+  await new Promise((r) => setTimeout(r, 500));
+  assert.equal(waitTimer.requested, 1, 'one wait, of FIRST_OPEN_WAIT_MS');
+  assert.equal(panels.length, 0, 'it waits for the checks');
+  release();
+  await settle('the first open to end when the checks finished', opening);
+  assert.ok(calls.contexts.has('acc.step.A1.git'), 'the checks finished first');
+  const tab = panels[0]!;
+  tab.receive!({ type: 'ready' });
+  const landed = lastState(tab);
+  // The sandbox's claude fails, so the machine has a step to do, whatever the older results said.
+  assert.deepEqual([landed.model!.section, landed.open], ['setup', SETUP_PARTS.machine]);
+}, { early: true, slow });
+
+test('an early first open whose checks finish inside the wait, with a step failing, lands at This machine', IN_FOLDER, () => checksInsideTheWait());
+
+test('a slow machine, each tool taking 1 s to answer, still finishes the early first open inside its wait (T-51)', IN_FOLDER, async () => {
+  const began = Date.now();
+  await checksInsideTheWait(1);
+  // Each of the check's tools slept: the fake was slow, and the test still ended, on the checks.
+  assert.ok(Date.now() - began > 1000 * 3, `took ${Date.now() - began} ms`);
 });
 
-test('a first check that gets no results from acc doctor hasn\'t checked the machine: the first open lands at the question', { timeout: 120_000 }, async () => {
-  await inFolder({ 'README.md': '# A repo\n' }, 'pass', 'none', async ({ fake, started }) => {
+test('a check slower than the test\'s budget fails naming what it waited for, and puts the folder back for the next test (T-51)', IN_FOLDER, async () => {
+  const before = { home: process.env.HOME, path: process.env.PATH, timer: globalThis.setTimeout };
+  const began = Date.now();
+  let ran = false;
+  await assert.rejects(
+    inFolder(sfdx, 'pass', 'none', async ({ release }) => { ran = true; release(); }, { early: true, slow: 1, budgetMs: 1000 }),
+    /^Error: timed out after \d+ ms waiting for the extension to start and its first check to finish$/,
+  );
+  assert.ok(ran, 'the test\'s own part ran');
+  // Failed at its budget's end, not at the test's timeout, after which node:test would leave it running.
+  assert.ok(Date.now() - began < 20_000, `failed after ${Date.now() - began} ms`);
+  assert.deepEqual({ home: process.env.HOME, path: process.env.PATH, timer: globalThis.setTimeout }, before, 'this process\'s HOME, PATH and timers are its own again');
+});
+
+test('an open that never ends fails at the budget\'s end naming the open, not with a cancel of the file (T-51)', IN_FOLDER, async () => {
+  const began = Date.now();
+  await assert.rejects(
+    inFolder(sfdx, 'pass', 'none', async ({ settle }) => { await settle('the Command Center to open', new Promise<void>(() => {})); }, { early: true, budgetMs: 1000 }),
+    /^Error: timed out after \d+ ms waiting for the Command Center to open$/,
+  );
+  assert.ok(Date.now() - began < 20_000, `failed after ${Date.now() - began} ms`);
+});
+
+test('a first check that gets no results from acc doctor hasn\'t checked the machine: the first open lands at the question', IN_FOLDER, async () => {
+  await inFolder({ 'README.md': '# A repo\n' }, 'pass', 'none', async ({ fake, started, settle }) => {
     const { calls, panels } = fake;
     assert.equal(calls.contexts.has('acc.step.A1.git'), false, 'the check finished, with no machine rows');
-    await calls.commands.get('acc.open.home')!();
+    await settle('the first open to end after a check with no results', calls.commands.get('acc.open.home')!() as Promise<void>);
     // The wait's timer never fires here, so the open came back because the check was over, not on time:
-    // an open that waited for the timer would hang until the test's timeout.
+    // an open that waited for the timer would fail at the budget's end.
     const tab = panels[0]!;
     tab.receive!({ type: 'ready' });
     const landed = lastState(tab);
@@ -330,7 +393,7 @@ test('a first check that gets no results from acc doctor hasn\'t checked the mac
   }, { doctorFails: true });
 });
 
-test('a first open still waiting when the extension stops opens nothing, so no page or poll outlives it (GH-149)', { timeout: 120_000 }, async () => {
+test('a first open still waiting when the extension stops opens nothing, so no page or poll outlives it (GH-149)', IN_FOLDER, async () => {
   await inFolder(sfdx, 'pass', 'none', async ({ fake, started, release, waitTimer }) => {
     // Opened early, it waits for the checks; the window closes during that wait.
     void fake.calls.commands.get('acc.open.home')!();
