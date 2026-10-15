@@ -2,6 +2,7 @@
 
 import type { TrackerBoard, TrackerCard } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
+import { boardKeys, liveLine } from './board-nav.ts';
 import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
 import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
@@ -42,6 +43,8 @@ export function renderTasks(m: TasksModel): Node[] {
       }
     }
     const board = el('div', 'board agent-board');
+    // A drop and Enter on a held card (T-54) send the same move.
+    const moveTask = (task: string, to: string): void => api.postMessage({ type: 'move-task', project: p.root, task, to });
     for (const c of p.columns) {
       const col = el('section', `column tone-edge-${c.tone}`, el('h2', '', icon(c.icon, c.tone), c.label, el('span', 'count', String(c.cards.length))));
       col.setAttribute('aria-label', `${c.label}: ${plural(c.cards.length, 'task')}`);
@@ -82,7 +85,7 @@ export function renderTasks(m: TasksModel): Node[] {
         art.dataset.task = card.id;
         art.dataset.drops = card.drops.join(' ');
         art.draggable = card.drops.length > 0;
-        art.setAttribute('aria-label', `${card.id}: ${card.title}. ${card.drops.length ? 'Drag to another lane to move it.' : ''}`);
+        art.setAttribute('aria-label', `${card.id}: ${card.title}. ${card.drops.length ? 'Drag it, or press Space, to move it to another lane.' : ''}`);
         art.addEventListener('dragstart', (e) => {
           e.dataTransfer?.setData('text/x-acc-task', card.id);
           if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
@@ -114,11 +117,16 @@ export function renderTasks(m: TasksModel): Node[] {
         // Shown in place at once; the board redraws from the ledger, or snaps back if acc refuses.
         col.querySelector('.drop-hint')?.remove();
         col.append(moved);
-        api.postMessage({ type: 'move-task', project: p.root, task: id, to: c.group });
+        moveTask(id, c.group);
       });
       board.append(col);
     }
-    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), p.total ? board : empty('Tasks are tickets for agents to work on.', ...tools));
+    const live = liveLine(`agents:${p.root}`);
+    boardKeys(board, live, {
+      key: `agents:${p.root}`, column: (col) => col.dataset.group ?? '', card: (art) => art.dataset.task ?? '',
+      lanes: (art) => (art.dataset.drops ?? '').split(' ').filter(Boolean), move: moveTask,
+    });
+    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), ...(p.total ? [live, board] : [empty('Tasks are tickets for agents to work on.', ...tools)]));
   });
 }
 
@@ -143,7 +151,7 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
   );
   card.dataset.key = c.key;
   card.draggable = true;
-  card.setAttribute('aria-label', `${c.key}: ${c.title}. ${c.status}. Press Enter to open, or drag to another column.`);
+  card.setAttribute('aria-label', `${c.key}: ${c.title}. ${c.status}. Press Enter to open, or drag it or press Space to move it to another column.`);
   card.addEventListener('dragstart', (e) => {
     e.dataTransfer?.setData('text/x-acc-card', c.key);
     if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
@@ -259,6 +267,8 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
     return out;
   }
   const board = el('div', 'board');
+  // A drop and Enter on a held card (T-54) send the same move.
+  const moveCard = (key: string, to: string): void => api.postMessage({ type: 'move', project: root, tracker: b.index, key, to });
   for (const c of b.columns) {
     const col = el('section', `column tone-edge-${c.tone}${c.done ? ' done-col' : ''}`, el('h2', '', icon(c.icon, c.tone), c.name, el('span', 'count', String(c.cards.length))));
     col.setAttribute('aria-label', `${c.name}: ${plural(c.cards.length, 'ticket')}`);
@@ -281,11 +291,17 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
       // Shown in place at once; the board reloads from the tracker, or snaps back if the move is refused.
       col.querySelector('.drop-hint')?.remove();
       col.append(moved);
-      api.postMessage({ type: 'move', project: root, tracker: b.index, key, to: c.id });
+      moveCard(key, c.id);
     });
     board.append(col);
   }
-  out.append(board);
+  // Any column but its own takes a ticket, as a drag drops it in any.
+  const live = liveLine(`tracker:${root}#${b.index}`);
+  boardKeys(board, live, {
+    key: `tracker:${root}#${b.index}`, column: (col) => col.dataset.col ?? '', card: (art) => art.dataset.key ?? '',
+    lanes: (art) => b.columns.map((c) => c.id).filter((id) => id !== art.closest<HTMLElement>('.column')?.dataset.col), move: moveCard,
+  });
+  out.append(live, board);
   return out;
 }
 

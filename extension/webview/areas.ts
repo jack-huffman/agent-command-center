@@ -2,6 +2,7 @@
 // npm run build writes it again, and scripts/test/areas.test.ts fails when it's stale.
 import { area as agentPage } from './agent-page.ts';
 import { area as agents } from './agents.ts';
+import { area as boardNav } from './board-nav.ts';
 import { area as connect } from './connect.ts';
 import { area as detail } from './detail.ts';
 import { area as dock } from './dock.ts';
@@ -19,4 +20,4 @@ import { area as theme } from './theme.ts';
 import { area as updates } from './updates.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [agentPage, agents, connect, detail, dock, environments, overview, palette, questions, rules, settings, setup, taskModal, taskPage, tasks, theme, updates, worktrees];
+export const AREAS = [agentPage, agents, boardNav, connect, detail, dock, environments, overview, palette, questions, rules, settings, setup, taskModal, taskPage, tasks, theme, updates, worktrees];
