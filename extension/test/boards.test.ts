@@ -1,7 +1,7 @@
 // Tracker boards: who a board is signed in as.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { type BoardInput, columnLook, placeAdds, trackerBoard } from '../src/model/boards.ts';
+import { type BoardInput, changeTitle, columnLook, placeAdds, trackerBoard } from '../src/model/boards.ts';
 import { sampleBoards, sampleGithubBoards, sampleMondayBoards } from '../scripts/fixtures/boards.ts';
 
 test('a board says who it\'s signed in as, and whether every project on the site shares that sign-in (GH-79)', () => {
@@ -38,4 +38,16 @@ test('a tracker column whose name says its work waits is orange and blocked, not
   assert.deepEqual(columnLook('Testing', 'doing'), { icon: 'sync', tone: 'blue' });
   assert.deepEqual(columnLook('Unblocked', 'doing'), { icon: 'sync', tone: 'blue' }, 'a word, not part of one');
   assert.deepEqual(columnLook('Done', 'done'), { icon: 'check', tone: 'neutral' });
+});
+
+test('T-42: Change carries the sign-in in its title, scope first, then the bare account, then nothing (edge: not signed in)', () => {
+  const board = (b: Partial<BoardInput>): BoardInput => ({ index: 0, kind: 'jira', title: 'Jira · ACME', board: null, error: null, connect: null, loading: false, ...b });
+  const scoped = trackerBoard(board({ signedInAs: 'jordan@acme.example', signInScope: { shared: true, host: 'acme.atlassian.net' } }), [], '/r');
+  assert.match(scoped.changeTitle, /Signed in as jordan@acme\.example, /);
+  assert.ok(scoped.changeTitle.startsWith('Change where its tickets come from'));
+  const bare = trackerBoard(board({ signedInAs: 'jordan-kim', signInScope: null }), [], '/r');
+  assert.match(bare.changeTitle, / Signed in as jordan-kim\.$/);
+  const none = trackerBoard(board({ signedInAs: null, signInScope: null }), [], '/r');
+  assert.equal(none.changeTitle, 'Change where its tickets come from, its board, or its sign-in.');
+  assert.equal(changeTitle(null, null), none.changeTitle);
 });

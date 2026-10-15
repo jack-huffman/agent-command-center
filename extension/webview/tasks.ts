@@ -227,8 +227,7 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   // Its place, board or sign-in, changed on the Connect page (GH-51).
   const change = el('button', 'btn ghost', icon('settings'), 'Change') as HTMLButtonElement;
   change.type = 'button';
-  const who = b.signIn?.label ?? (b.signedInAs ? `Signed in as ${b.signedInAs}` : null);
-  change.title = `Change where its tickets come from, its board, or its sign-in.${who ? ` ${who.replace(/\.$/, '')}.` : ''}`;
+  change.title = b.changeTitle;
   change.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: 'acc.trackers.add', arg: JSON.stringify({ root, index: b.index }) }));
   tools.push(change);
   const out = el('section', 'tracker',

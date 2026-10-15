@@ -140,6 +140,8 @@ export interface TrackerBoard {
   left: string[];
   /** The warning for `left` in plain words, "Moved out of epic ACME-3 after work started: ACME-18.", or null (T-42). */
   movedOut: string | null;
+  /** The hover title of its Change button: what Change does, then who it's signed in as when known (T-42). */
+  changeTitle: string;
   columns: TrackerColumn[];
   /**
    * A Slack tracker's box for a thread's link, in place of a board (T-31): which channel the thread must be
@@ -189,6 +191,12 @@ export function placeAdds(place: string, title: string): boolean {
 /** What a tracker's board is called on the Tasks tab's switch, beside the Agent board: by its kind, never its title. */
 export const BOARD_WORD: Record<TrackerKind, string> = { github: 'GitHub board', jira: 'Jira board', azure: 'Azure DevOps board', monday: 'monday.com board', slack: 'Slack thread' };
 
+/** Change's title: the sign-in moved here from its own row, "Signed in as jordan@acme.example, shared across projects." (T-42). */
+export function changeTitle(signIn: Look | null, signedInAs: string | null): string {
+  const who = signIn?.label ?? (signedInAs ? `Signed in as ${signedInAs}` : null);
+  return `Change where its tickets come from, its board, or its sign-in.${who ? ` ${who.replace(/\.$/, '')}.` : ''}`;
+}
+
 export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): TrackerBoard {
   const byId = new Map(rows.map((r) => [r.id, r]));
   const columns: TrackerColumn[] = (b.board?.columns ?? []).map((c) => ({
@@ -206,11 +214,13 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
     }),
   }));
   const title = b.board?.title ?? b.title;
+  const signIn = b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null;
   return {
     index: b.index, kind: b.kind, title, tab: BOARD_WORD[b.kind] ?? title, source: b.board?.source ?? null, url: b.board?.url ?? null,
     notice: b.board?.notice ? inProcessWords(b.board.notice) : null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
-    signIn: b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null,
+    signIn,
     place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], movedOut: movedOut(b.place ?? null, b.left ?? []), columns,
+    changeTitle: changeTitle(signIn, b.signedInAs ?? null),
     paste: b.paste && !b.error ? { hint: pasteHint(b.paste), example: exampleLink(b.paste), link: b.paste.link, busy: b.paste.busy, error: b.paste.error ? inProcessWords(b.paste.error) : null, tracked: b.paste.tracked } : null,
   };
 }
