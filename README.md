@@ -314,8 +314,12 @@ Settings.
 - `agentCommandCenter.notifications` (on by default): say when a task changes in a way that
   needs you or is news, such as a builder finishing, a review's verdict, or a
   pull request's checks failing or its merge. It's quiet while the Command
-  Center shows that board. Notices to Slack have their own switch, in the
-  Settings section's **Notices in Slack**.
+  Center shows that board. When one refresh finds more than three changes,
+  such as after you were away, they show as one notification that counts
+  them, for example "Since you last looked: 2 need you, 3 merged", with Show
+  to open the Overview. When every change is to one task, it keeps that
+  task's own buttons instead. Notices to Slack have their own switch, in the
+  Settings section's **Notices in Slack**, and still get each change.
 - `agentCommandCenter.theme`: how the Command Center's pages look: `vscode`
   (Match VSCode, the default), `light` or `dark`. It changes only acc's own
   pages; VSCode keeps its theme. It's kept on this machine, and set from

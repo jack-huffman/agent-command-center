@@ -122,3 +122,44 @@ test('all of acc is one status bar item: what needs you first, a spinner while b
   assert.equal(combinedStatus({ ...base, autopilot: [{ project: 'Acme', state: 'on' }] }).text, '$(hubot) Autopilot on');
   assert.equal(combinedStatus({ ...base, account: { name: 'someone-else', ok: false } }).attention, true, 'the wrong account says so');
 });
+
+test('a burst of notices says one line that counts them, the kinds that need you first (D-???)', async () => {
+  const { BURST_AT, noticeBurst, OVERVIEW_COMMAND } = await import('../src/logic/notices.ts');
+  type Notice = import('../src/logic/notices.ts').TaskNotice;
+  const n = (kind: Notice['kind'], task: string, urgent: boolean, root = '/a'): { root: string; notice: Notice } => ({ root, notice: { kind, task, text: `${kind} ${task}`, urgent } });
+  assert.equal(BURST_AT, 3);
+  const three = [n('review', 'T-1', false), n('merged', 'T-2', false), n('blocked', 'T-3', true)];
+  assert.deepEqual(noticeBurst(three).map((s) => [s.text, s.urgent, s.task?.task]), [['review T-1', false, 'T-1'], ['merged T-2', false, 'T-2'], ['blocked T-3', true, 'T-3']], 'three come back as three');
+  assert.deepEqual(noticeBurst(three)[0]!.actions, [['Review', 'acc.task.review'], ['Show', 'acc.task.show']], 'each keeps its own buttons');
+  const seven = [n('merged', 'T-1', false), n('passed', 'T-2', false), n('waiting', 'T-3', true), n('merged', 'T-4', false), n('blocked', 'T-5', true), n('passed', 'T-6', false), n('merged', 'T-7', false)];
+  assert.deepEqual(noticeBurst(seven), [{ text: 'Since you last looked: 2 need you, 2 reviews passed, 3 merged.', urgent: true, actions: [['Show', OVERVIEW_COMMAND]], task: null }], 'counts in order: what needs you first');
+  assert.deepEqual(noticeBurst([n('merged', 'T-1', false), n('merged', 'T-2', false), n('review', 'T-3', false), n('passed', 'T-4', false)]), [{ text: 'Since you last looked: 1 ready for review, 1 review passed, 2 merged.', urgent: false, actions: [['Show', OVERVIEW_COMMAND]], task: null }], 'four come back as one, singular words for one');
+  const urgentOne = noticeBurst([n('merged', 'T-1', false), n('merged', 'T-2', false), n('merged', 'T-3', false), n('autopilot', 'T-4', true)]);
+  assert.deepEqual(urgentOne.map((s) => [s.text, s.urgent]), [['Since you last looked: 1 autopilot step, 3 merged.', true]], 'one urgent notice makes the summary urgent, and goes first');
+});
+
+test('a burst about one task keeps its buttons; none says nothing; two projects make one burst (edge cases)', async () => {
+  const { noticeBurst, OVERVIEW_COMMAND } = await import('../src/logic/notices.ts');
+  type Notice = import('../src/logic/notices.ts').TaskNotice;
+  const n = (kind: Notice['kind'], task: string, urgent: boolean, root = '/a'): { root: string; notice: Notice } => ({ root, notice: { kind, task, text: `${kind} ${task}`, urgent } });
+  assert.deepEqual(noticeBurst([]), [], 'no notices: none');
+  // blocked and waiting share "need you"; the group sorts by its most urgent kind, whichever came first (T-60 review).
+  const shared = [n('stopped', 'T-1', true), n('blocked', 'T-2', true), n('waiting', 'T-3', true), n('merged', 'T-4', false)];
+  for (const order of [shared, [...shared].reverse()]) assert.equal(noticeBurst(order)[0]!.text, 'Since you last looked: 2 need you, 1 builder stopped, 1 merged.', 'need you first in either order');
+  const one = noticeBurst([n('review', 'T-1', false), n('passed', 'T-1', false), n('ci-failed', 'T-1', true), n('changes', 'T-1', true)]);
+  assert.deepEqual(one, [{ text: 'Since you last looked, T-1: 1 pull request failed its checks, 1 pull request with changes asked for, 1 ready for review, 1 review passed.', urgent: true, actions: [['Open pull request', 'acc.task.openPr'], ['Show', 'acc.task.show']], task: { root: '/a', task: 'T-1' } }], 'one task: its newest notice\'s buttons, on that task');
+  const two = noticeBurst([n('merged', 'T-1', false, '/a'), n('merged', 'T-2', false, '/a'), n('merged', 'T-1', false, '/b'), n('merged', 'T-2', false, '/b')]);
+  assert.deepEqual(two, [{ text: 'Since you last looked: 4 merged.', urgent: false, actions: [['Show', OVERVIEW_COMMAND]], task: null }], 'two projects count as one burst');
+  const sameId = noticeBurst([n('merged', 'T-1', false, '/a'), n('merged', 'T-1', false, '/a'), n('merged', 'T-1', false, '/b'), n('merged', 'T-1', false, '/b')]);
+  assert.equal(sameId[0]!.task, null, 'one id in two projects is two tasks: the Overview');
+});
+
+test('every kind of notice has words for one and for more, so a burst can count it (edge case: a kind with none)', async () => {
+  const { NOTICE_KINDS, NOTICE_WORDS } = await import('../src/logic/notices.ts');
+  assert.ok(NOTICE_KINDS.length > 0);
+  for (const kind of NOTICE_KINDS) {
+    const words = NOTICE_WORDS[kind];
+    assert.ok(Array.isArray(words) && words.length === 2 && words.every((w) => typeof w === 'string' && w.trim()), `${kind} has no words`);
+  }
+  assert.deepEqual(Object.keys(NOTICE_WORDS).sort(), [...NOTICE_KINDS].sort(), 'no words for a kind that isn\'t one');
+});
