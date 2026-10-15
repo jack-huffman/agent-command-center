@@ -11,11 +11,11 @@
  */
 import { clip, sentence } from './text.ts';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from './config.ts';
 import { AccError } from './exec.ts';
-import { type Actor, mutate, type TaskInput, upsertTasks } from './ledger.ts';
+import { type Actor, mutate, type TaskInput, upsertTasks, writeAtomic } from './ledger.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { readVerdicts } from './review.ts';
@@ -513,8 +513,7 @@ function record(paths: Pick<RepoPaths, 'suggestions'>, s: Suggestion, outcome: S
   mkdirSync(paths.suggestions, { recursive: true });
   const n = readdirSync(paths.suggestions).filter((x) => x.startsWith(`${s.id}.`) && x.endsWith('.json')).length + 1;
   const file = join(paths.suggestions, `${s.id}.${n}.json`);
-  writeFileSync(`${file}.tmp`, JSON.stringify(r, null, 2) + '\n');
-  renameSync(`${file}.tmp`, file);
+  writeAtomic(file, JSON.stringify(r, null, 2) + '\n');
   return r;
 }
 

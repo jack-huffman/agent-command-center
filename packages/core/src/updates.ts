@@ -1,8 +1,8 @@
 import { sentence } from './text.ts';
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { AccError } from './exec.ts';
-import type { Task } from './ledger.ts';
+import { type Task, writeAtomic } from './ledger.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { isTrackerKind, type TrackerKind } from './trackers/types.ts';
@@ -168,8 +168,7 @@ export const stalePosting = (u: Pick<Update, 'state' | 'posting'>, now: Date): b
 
 function writeUpdate(paths: UpdatePaths, u: Update): void {
   const file = updateFile(paths, u.id);
-  writeFileSync(`${file}.tmp`, JSON.stringify(u, null, 2) + '\n');
-  renameSync(`${file}.tmp`, file);
+  writeAtomic(file, JSON.stringify(u, null, 2) + '\n');
 }
 
 /** Every change holds the store's lock, beside the folder, so two windows or a CLI never race. */
