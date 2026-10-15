@@ -278,6 +278,22 @@ export function foldable(key: string, content: HTMLElement, inner: string | null
   return wrapEl;
 }
 
+/**
+ * A Settings row's explanation (T-40): in view, or, when the model folds it, under "What this means", closed
+ * at first; the tab remembers each one opened as the page redraws. None when it's empty.
+ */
+export function whatThisMeans(id: string, text: string, folded: readonly string[]): HTMLElement | null {
+  if (!text) return null;
+  if (!folded.includes(id)) return el('p', 'muted small settings-meaning', text);
+  const key = `settings-meaning:${id}`;
+  const d = el('details', 'settings-fold', el('summary', 'muted small', el('span', 'tool-chev', icon('chevron-right')), el('span', '', 'What this means')),
+    el('p', 'muted small settings-meaning', text)) as HTMLDetailsElement;
+  d.dataset.fold = id;
+  d.open = memory().opened.includes(key);
+  d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])].slice(-200) : x.opened.filter((y) => y !== key); }));
+  return d;
+}
+
 export function clippedSpan(text: string): HTMLElement {
   const s = el('span', 'mono clip-inline', text);
   s.title = text;

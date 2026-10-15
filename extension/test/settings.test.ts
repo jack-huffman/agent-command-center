@@ -16,7 +16,7 @@ import { homeModel, type HomeModel } from '../src/model/home.ts';
 import { PAGE_COMMANDS } from '../src/model/messages.ts';
 import { WHERE_VIEWS } from '../src/model/agents.ts';
 import { MODEL_CHOICES, OLDER_MODELS } from '../src/logic/agents.ts';
-import { agentSettings, area as settingsArea, autoMergeSetting, autonomySetting, GH_SIGN_IN_KEPT, githubAccount, githubAccounts, howAgentsRun, MACHINE_KEPT, olderModelWords, OPENS_ON_CHOICES, opensOnChoice, pagePreferences, refreshLines, settingFrom, SETTINGS_PARTS, settingsKey, settingsModel, SIGN_IN_KEPT, THEME_CHOICES, THEME_SETTING, themeChoice, THEMES, trackerSetting, trackersAndSignIns, WHERE_WORDS, WINDOW_KEPT } from '../src/model/settings.ts';
+import { agentSettings, area as settingsArea, autoMergeSetting, BILLING_MEANING, autonomySetting, GH_SIGN_IN_KEPT, githubAccount, githubAccounts, howAgentsRun, MACHINE_KEPT, olderModelWords, OPENS_ON_CHOICES, opensOnChoice, pagePreferences, refreshLines, settingFrom, SETTINGS_PARTS, settingsKey, settingsModel, SIGN_IN_KEPT, THEME_CHOICES, THEME_SETTING, themeChoice, THEMES, trackerSetting, trackersAndSignIns, WHERE_WORDS, WINDOW_KEPT } from '../src/model/settings.ts';
 import { area as boardsArea, type BoardInput } from '../src/model/boards.ts';
 import type { DoctorItem } from '../src/logic/setup.ts';
 import type { ProjectLike } from '../src/model/shared.ts';
@@ -155,10 +155,10 @@ test('How agents run names each project, and says once what this machine\'s agen
   // Every project with agents' settings, under its own name; one without them isn't listed.
   assert.deepEqual(run.projects.map((p) => [p.project, p.root, p.roles.length, p.autonomy?.look.label]), [['Acme', '/r', 2, 'manual'], ['Portal', '/p', 2, 'review']]);
   const toSetup = { label: 'Open Setup', icon: 'checklist', section: 'setup' };
-  assert.deepEqual(run.billing, { look: { label: 'Agents use your Claude subscription', icon: 'pass', tone: 'blue' }, link: null });
+  assert.deepEqual(run.billing, { look: { label: 'Agents use your Claude subscription', icon: 'pass', tone: 'blue' }, link: null, meaning: BILLING_MEANING });
   assert.deepEqual(howAgentsRun([], [billingItem('fail', 'Agents would bill per token: ANTHROPIC_API_KEY in the environment.')]).billing,
-    { look: { label: 'Per-token billing: Agents would bill per token: ANTHROPIC_API_KEY in the environment.', icon: 'warning', tone: 'orange' }, link: toSetup });
-  for (const items of [[], [billingItem('skip')]]) assert.deepEqual(howAgentsRun([], items).billing, { look: { label: 'Not checked yet: Setup checks it', icon: 'circle-outline', tone: 'neutral' }, link: toSetup });
+    { look: { label: 'Per-token billing: Agents would bill per token: ANTHROPIC_API_KEY in the environment.', icon: 'warning', tone: 'orange' }, link: toSetup, meaning: BILLING_MEANING });
+  for (const items of [[], [billingItem('skip')]]) assert.deepEqual(howAgentsRun([], items).billing, { look: { label: 'Not checked yet: Setup checks it', icon: 'circle-outline', tone: 'neutral' }, link: toSetup, meaning: BILLING_MEANING });
 });
 
 test('How agents run is a built part, or says no project is onboarded yet, with a way to Setup', () => {

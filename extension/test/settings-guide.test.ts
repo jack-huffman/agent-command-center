@@ -4,9 +4,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeModel, type HomeModel } from '../src/model/home.ts';
-import { SETTINGS_PARTS, settingsKey } from '../src/model/settings.ts';
 import { openAt, PAGES, sampleModel } from '../scripts/screenshot.ts';
-import { BILLING_MEANING, foldsMeaning, meaningKey, SHORT_MEANING, settingsGuide, settingsMeanings } from '../webview/settings-guide.ts';
+import { BILLING_MEANING, foldsMeaning, meaningKey, SETTINGS_PARTS, settingsGuide, settingsKey, settingsMeanings, SHORT_MEANING } from '../src/model/settings.ts';
 import { hub, pageSource } from './support.ts';
 
 const settings = (kind: 'settings' | 'settings-agents' | 'settings-about' = 'settings-agents') => (sampleModel(kind, Date.now(), 'dark') as HomeModel).settings;
@@ -14,6 +13,7 @@ const settings = (kind: 'settings' | 'settings-agents' | 'settings-about' = 'set
 test('the guide has a link for each part of Settings, in its order, each opening the heading another page opens', () => {
   const m = settings('settings');
   const links = settingsGuide(m.parts);
+  assert.deepEqual(m.guide, links, 'the model carries the guide');
   assert.equal(links.length, SETTINGS_PARTS.length);
   assert.deepEqual(links.map((l) => l.id), [...SETTINGS_PARTS]);
   for (const [i, l] of links.entries()) {
@@ -54,7 +54,7 @@ test('one short sentence stays in view; two sentences, or one past the limit, fo
 
 test('edge case: an empty explanation neither folds nor is listed, and a version number\'s dot isn\'t a sentence end', () => {
   assert.equal(foldsMeaning(''), false);
-  assert.equal(foldsMeaning('Runs acc 0.40.0 from this machine.'), false);
+  assert.equal(foldsMeaning('The installed acc is 0.40.0, from this machine.'), false);
   const m = settings();
   const empty = { ...m, page: { ...m.page, preferences: m.page.preferences.map((p) => ({ ...p, meaning: '' })) } };
   assert.ok(settingsMeanings(empty).every((x) => !x.id.startsWith('page:')));
@@ -75,6 +75,7 @@ test('the page model lists every row\'s explanation, each long one folding and e
   assert.ok(folds.length >= 5, `${folds.length} fold`);
   assert.ok(all.length - folds.length >= 2, 'a short one stays in view');
   assert.ok(folds.some((x) => x.id === 'billing') && folds.some((x) => x.id.startsWith('page:')));
+  assert.deepEqual(m.folded, folds.map((x) => x.id), 'the model names the ones that fold, for the page');
   // About's versions, once read.
   const about = settings('settings-about');
   assert.ok((about.about?.rows ?? []).every((r) => !r.meaning || settingsMeanings(about).some((x) => x.id === `about:${r.key}`)));
@@ -85,14 +86,16 @@ test('edge case: before About is read, its versions add nothing, and a workspace
   const ids = settingsMeanings({ ...m, about: null, agents: { ...m.agents, projects: [] } }).map((x) => x.id);
   assert.ok(ids.every((id) => !id.startsWith('about:') && !/^(autonomy|auto-merge|cloud):/.test(id)), ids.join(', '));
   assert.ok(ids.includes('theme'));
+  assert.ok(!m.folded.some((id) => id.startsWith('about:')), 'the model folds no version before About is read');
 });
 
 test('each fold is remembered by the tab under its own key, and the page draws each explanation through it', () => {
   assert.equal(meaningKey('theme'), 'settings-meaning:theme');
   const page = pageSource('settings.ts');
-  for (const call of ["whatThisMeans('theme', now.meaning)", 'whatThisMeans(`autonomy:${s.root}`, s.autonomy.meaning)', 'whatThisMeans(`auto-merge:${s.root}`, s.autoMerge.meaning)',
-    'whatThisMeans(`cloud:${s.root}`, c.meaning)', "whatThisMeans('billing', BILLING_MEANING)", 'whatThisMeans(`page:${p.id}`, p.meaning)']) assert.ok(page.includes(call), call);
-  assert.ok(pageSource('about.ts').includes("whatThisMeans(`about:${r.key}`, r.meaning ?? '')"));
-  const fold = pageSource('settings-fold.ts');
-  assert.ok(fold.includes("'What this means'") && fold.includes('d.open = memory().opened.includes(key);'), 'closed until opened, and remembered');
+  for (const call of ["whatThisMeans('theme', now.meaning, m.folded)", 'whatThisMeans(`autonomy:${s.root}`, s.autonomy.meaning, folded)', 'whatThisMeans(`auto-merge:${s.root}`, s.autoMerge.meaning, folded)',
+    'whatThisMeans(`cloud:${s.root}`, c.meaning, folded)', "whatThisMeans('billing', b.meaning, m.folded)", 'whatThisMeans(`page:${p.id}`, p.meaning, folded)']) assert.ok(page.includes(call), call);
+  assert.ok(pageSource('about.ts').includes("whatThisMeans(`about:${r.key}`, r.meaning ?? '', folded)"));
+  const dom = pageSource('dom.ts');
+  assert.ok(dom.includes("'What this means'") && dom.includes('d.open = memory().opened.includes(key);'), 'closed until opened, and remembered');
+  assert.ok(dom.includes(`const key = \`${meaningKey('${id}')}\`;`), 'the page remembers it under the model\'s key');
 });

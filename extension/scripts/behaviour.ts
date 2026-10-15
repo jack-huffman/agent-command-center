@@ -34,7 +34,7 @@ import { pathToFileURL } from 'node:url';
 import type { HomeModel, Model } from '../src/model/home.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../webview/settings-guide.ts';
+import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { ROOT } from './fixtures/shared.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
@@ -560,8 +560,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'the task page shows no wording list', file: 'analysis.ts', find: 'if (a.wording) {', replace: 'if (a.wording && !a.wording) {', kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'the wording list leaves out where each finding is', file: 'analysis.ts', find: "el('strong', '', `${f.place}: `)", replace: "el('strong', '', '')", kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'a guide link goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });", replace: "a.addEventListener('click', (e) => { e.preventDefault(); });", kills: [caseNamed('settings: a link for each part')] },
-  { name: 'every explanation stays in view', file: 'settings-fold.ts', find: 'if (!foldsMeaning(text)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
-  { name: 'an opened explanation closes on a redraw', file: 'settings-fold.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
+  { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
+  { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
   { name: 'a page holding only the loading screen isn\'t fresh', file: 'main.ts', find: "const fresh = !app.hasChildNodes() || !!app.querySelector(':scope > .opening');", replace: 'const fresh = !app.hasChildNodes();', kills: [caseNamed('loading screen: a tab rebuilt')] },
 ];
 
