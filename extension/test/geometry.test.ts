@@ -10,14 +10,14 @@ const text = (what: string, o: Partial<GeoText> = {}): GeoText => ({ what, text:
 const rail = { what: 'button.nav-item.on', box: { x: 10, y: 60, w: 200, h: 30 }, rail: { x: 0, y: 0, w: 232, h: 900 } };
 /** A drawing that passes every check: two controls side by side, a text that fits, the tab on screen, nothing wide. */
 const fine = (o: Partial<GeoSnapshot> = {}): GeoSnapshot => ({
-  controls: [control('button.a', 0, 0), control('button.b', 100, 0)], texts: [text('span.a')], tab: rail, doc: { scroll: 1000, view: 1000 }, scrollers: [], said: [{ what: 'span.a', text: 'span.a\'s words', work: null }], ...o,
+  controls: [control('button.a', 0, 0), control('button.b', 100, 0)], texts: [text('span.a')], tab: rail, doc: { scroll: 1000, view: 1000 }, scrollers: [], said: [{ what: 'span.a', text: 'span.a\'s words', work: null }], a11y: { violations: [], examined: 3, incomplete: [] }, ...o,
 });
 const found = (s: GeoSnapshot, home = true) => judge(s, home, []).violations.map((v) => `${v.check}: ${v.what}: ${v.detail}`);
 
 test('a drawing that breaks no rule passes, and says how much each check examined (GH-105)', () => {
   const v = judge(fine(), true, []);
   assert.deepEqual(v.violations, []);
-  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1, covered: 0 });
+  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1, covered: 0, a11y: 3 });
 });
 
 test('the Overview\'s lines are each one line high, three in Needs you at most, with a gap between each (GH-160, T-36)', () => {
@@ -90,13 +90,13 @@ test('the page never scrolls sideways, and only the elements meant to do (GH-105
 });
 
 test('a drawing that examined no controls or no text fails: an empty page can\'t pass (GH-105)', () => {
-  assert.deepEqual(found({ controls: [], texts: [], tab: null, doc: { scroll: 0, view: 1000 }, scrollers: [] }, false), ['overlap: the page: examined no controls', 'clipped: the page: examined no text', 'words: the page: gathered no words']);
+  assert.deepEqual(found({ controls: [], texts: [], tab: null, doc: { scroll: 0, view: 1000 }, scrollers: [] }, false), ['overlap: the page: examined no controls', 'clipped: the page: examined no text', 'words: the page: gathered no words', 'a11y: the page: axe examined no node, and the page wrote no a11y part']);
 });
 
 test('an exception excuses only its own check on what it names, and counts what it excused (GH-105)', () => {
   const exceptions = [{ name: 'the strip', check: 'sideways' as const, what: /^div\.strip$/, reason: 'made up' }];
   const s = fine({ scrollers: [{ what: 'div.strip', scroll: 960, client: 900, allowed: false }, { what: 'div.strip2', scroll: 960, client: 900, allowed: false }], texts: [text('div.strip', { over: 9 })] });
-  const v = judge(s, true, exceptions);
+  const v = judge(s, true, exceptions, true, null, []);
   assert.deepEqual(v.violations.map((x) => `${x.check}: ${x.what}`), ['clipped: div.strip', 'sideways: div.strip2']);
   assert.deepEqual(v.excused, { 'the strip': 1 });
   for (const e of GEOMETRY_EXCEPTIONS) assert.ok(e.reason.length > 20, `${e.name} says why`);
@@ -105,10 +105,10 @@ test('an exception excuses only its own check on what it names, and counts what 
 test('a whole run fails below its floors, and on an exception that excused nothing; a run of a few pages doesn\'t (GH-105)', () => {
   const verdict = judge(fine(), true, []);
   const renders: Render[] = [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...verdict, violations: [{ check: 'overlap', what: 'button.a', detail: 'overlaps button.b' }] } }];
-  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0 };
+  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0, a11y: 0 };
   const unused = [{ name: 'the strip', check: 'sideways' as const, what: /strip/, reason: 'made up' }];
-  assert.deepEqual(runFailures(renders, false, unused, floor, []), ['tasks dark 500px: overlap: button.a: overlaps button.b']);
-  assert.deepEqual(runFailures(renders, true, unused, floor, []), [
+  assert.deepEqual(runFailures(renders, false, unused, floor, [], []), ['tasks dark 500px: overlap: button.a: overlaps button.b']);
+  assert.deepEqual(runFailures(renders, true, unused, floor, [], []), [
     'tasks dark 500px: overlap: button.a: overlaps button.b', 'The run examined 2 for overlap, below its floor of 10.', 'The exception for the strip excused nothing: take it off GEOMETRY_EXCEPTIONS.',
   ]);
   assert.deepEqual(runFailures([], false), ['No page was drawn.']);
@@ -122,7 +122,7 @@ test('a page measures its geometry only when the run asks, and the run reads it 
   const model = sampleModel('agents');
   assert.ok(!pageFor('agents', 'dark', model).includes('collectGeometry'), 'a page drawn for the colour check doesn\'t measure');
   const page = pageFor('agents', 'dark', model, 'light', false, true);
-  assert.ok(page.includes(COLLECT_GEOMETRY) && page.includes('document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry))))'), 'measured once its fonts have loaded, two frames have drawn and the selected tab has settled (GH-167)');
+  assert.ok(page.includes(COLLECT_GEOMETRY) && page.includes('document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y)))))'), 'measured once its fonts have loaded, two frames have drawn and the selected tab has settled (GH-167), then checked by axe (T-55)');
   assert.ok(page.includes('window.requestAnimationFrame = '), 'with frame callbacks run on a timer, as the colour check does');
   assert.doesNotThrow(() => new Function(COLLECT_GEOMETRY), 'the collector is valid script');
   assert.equal(dumpedGeometry('<html><body><main></main></body></html>'), null);

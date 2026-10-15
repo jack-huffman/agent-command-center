@@ -11,8 +11,9 @@
 
 import { COLLECT_WORDS, type GeoSaid, judgeWords, WORK_DATA } from './words.ts';
 import { SELECTED_TAB } from './steady.ts';
+import { A11Y_EXCEPTIONS, type GeoA11y, incompleteSummary, judgeA11y } from './a11y.ts';
 
-export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered'] as const;
+export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'a11y'] as const;
 export type Check = (typeof CHECKS)[number];
 
 /** A box in the page's coordinates, in CSS pixels. */
@@ -80,6 +81,8 @@ export interface GeoSnapshot {
   cells?: GeoCell[];
   /** How many fonts the page loaded before it was sent its model (T-21, steady.ts): none means nothing waited on them. */
   fonts?: number;
+  /** What axe found on the page (T-55, a11y.ts). */
+  a11y?: GeoA11y;
 }
 
 /** A table cell's text as drawn, in a row with a sticky cell. */
@@ -153,6 +156,8 @@ export interface Verdict {
   held: Record<string, number>;
   /** Where the first column of a tracker's board starts (T-42), or null where none is drawn. */
   boardTop: number | null;
+  /** How many nodes axe left incomplete, by rule (T-55): counted, never a finding. */
+  incomplete: Record<string, number>;
 }
 
 /** The two boxes overlap by more than a pixel each way. */
@@ -166,10 +171,11 @@ const quote = (s: string): string => (s ? ` "${s.length > 40 ? `${s.slice(0, 39)
  * No two controls overlap, unless one sits inside the other or one floats in a sticky layer. No text is
  * cut off: an ellipsis passes only with the full text in a title or aria-label. The rail's selected tab
  * is on screen. Nothing scrolls sideways but SIDEWAYS. On the Overview, its lines keep OVERVIEW_LINES.
- * And no string outside work data names an acc command or path (words.ts, GH-163). controls: the page
- * has controls, which every page but a still one, such as the loading screen, does (T-16).
+ * And no string outside work data names an acc command or path (words.ts, GH-163). Nor does axe find a
+ * violation that a11yExceptions doesn't excuse (a11y.ts, T-55). controls: the page has controls, which every
+ * page but a still one, such as the loading screen, does (T-16).
  */
-export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS, controls = true, expected: ExpectedButton[] | null = null): Verdict {
+export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEPTIONS, controls = true, expected: ExpectedButton[] | null = null, a11yExceptions = A11Y_EXCEPTIONS): Verdict {
   const found: Violation[] = [];
   const cs = s.controls;
   for (let i = 0; i < cs.length; i++) {
@@ -214,7 +220,8 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   const said = judgeWords(s.said ?? []);
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length };
+  const a11y = judgeA11y(s.a11y, a11yExceptions);
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, a11y: a11y.examined };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -227,7 +234,9 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   if (home && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
   if (s.overview && !examined.overview) violations.push({ check: 'overview', what: 'the page', detail: 'is the Overview, and examined no lines or cards on it' });
   if (!examined.words) violations.push({ check: 'words', what: 'the page', detail: 'gathered no words' });
-  return { examined, violations, excused, held: said.held, boardTop: s.boardTop ?? null };
+  // What axe found that no exception excuses, and a page where it examined nothing (T-55).
+  for (const f of a11y.findings) violations.push({ check: 'a11y', what: f.what, detail: f.detail });
+  return { examined, violations, excused: { ...excused, ...a11y.excused }, held: said.held, boardTop: s.boardTop ?? null, incomplete: a11y.incomplete };
 }
 
 /**
@@ -244,13 +253,14 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 13600, clipped: 41700, tab: 354, sideways: 1100, overview: 800, buttons: 450, words: 76400, covered: 1700 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 13600, clipped: 41700, tab: 354, sideways: 1100, overview: 800, buttons: 450, words: 76400, covered: 1700, a11y: 190000 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
- * RUN_FLOOR, on an exception that excused nothing, and on a kind of work data no page drew (GH-163).
+ * RUN_FLOOR, on an exception that excused nothing, in GEOMETRY_EXCEPTIONS or A11Y_EXCEPTIONS (T-55), and on
+ * a kind of work data no page drew (GH-163).
  */
-export function runFailures(renders: Render[], full: boolean, exceptions = GEOMETRY_EXCEPTIONS, floor = RUN_FLOOR, regions = WORK_DATA): string[] {
+export function runFailures(renders: Render[], full: boolean, exceptions = GEOMETRY_EXCEPTIONS, floor = RUN_FLOOR, regions = WORK_DATA, a11yExceptions = A11Y_EXCEPTIONS): string[] {
   const out = renders.flatMap((r) => r.verdict.violations.map((v) => `${r.page} ${r.theme} ${r.width}px: ${v.check}: ${v.what}: ${v.detail}`));
   if (!renders.length) out.push('No page was drawn.');
   for (const r of renders) {
@@ -265,18 +275,19 @@ export function runFailures(renders: Render[], full: boolean, exceptions = GEOME
   const total = examinedIn(renders);
   for (const c of CHECKS) if (total[c] < floor[c]) out.push(`The run examined ${total[c]} for ${c}, below its floor of ${floor[c]}.`);
   for (const e of exceptions) if (!renders.some((r) => r.verdict.excused[e.name])) out.push(`The exception for ${e.name} excused nothing: take it off GEOMETRY_EXCEPTIONS.`);
+  for (const e of a11yExceptions) if (!renders.some((r) => r.verdict.excused[e.name])) out.push(`The exception for ${e.name} excused nothing: take it off A11Y_EXCEPTIONS.`);
   for (const w of regions) if (!renders.some((r) => r.verdict.held?.[w.name])) out.push(`Work data "${w.name}" held no words on any page: draw it in a fixture, or take it off WORK_DATA.`);
   return out;
 }
 
 const examinedIn = (renders: Render[]): Record<Check, number> => Object.fromEntries(CHECKS.map((c) => [c, renders.reduce((n, r) => n + r.verdict.examined[c], 0)])) as Record<Check, number>;
 
-/** What a run examined, per check, and how many findings each exception excused. */
+/** What a run examined, per check, how many findings each exception excused, and axe's incomplete results by rule (T-55). */
 export function geometrySummary(renders: Render[]): string {
   const total = examinedIn(renders);
-  const excused = GEOMETRY_EXCEPTIONS.map((e) => `${e.name} ${renders.reduce((n, r) => n + (r.verdict.excused[e.name] ?? 0), 0)}`);
+  const excused = [...GEOMETRY_EXCEPTIONS, ...A11Y_EXCEPTIONS].map((e) => `${e.name} ${renders.reduce((n, r) => n + (r.verdict.excused[e.name] ?? 0), 0)}`);
   const held = WORK_DATA.map((w) => `${w.name} ${renders.reduce((n, r) => n + (r.verdict.held?.[w.name] ?? 0), 0)}`);
-  return `Geometry of ${renders.length} drawings: ${CHECKS.map((c) => `${c} examined ${total[c]}`).join(', ')}.${excused.length ? ` Excused: ${excused.join(', ')}.` : ''} Work data held: ${held.join(', ')}.`;
+  return `Geometry of ${renders.length} drawings: ${CHECKS.map((c) => `${c} examined ${total[c]}`).join(', ')}.${excused.length ? ` Excused: ${excused.join(', ')}.` : ''} Work data held: ${held.join(', ')}. Incomplete in axe, by rule: ${incompleteSummary(renders.map((r) => r.verdict.incomplete ?? {}))}.`;
 }
 
 /** The geometry a --dump-dom of a measuring page holds, or null when it never measured. */
@@ -290,9 +301,11 @@ export function dumpedGeometry(dom: string): GeoSnapshot | null {
  * have drawn and the selected tab has settled, and writes
  * what it found into a JSON script element, which Chrome's --dump-dom prints. The screenshot run puts it
  * in each page it draws. `<` is escaped in the JSON, so no text from the page can close the element.
+ * more, if given, is called once the page is measured, and resolves to more parts of the dump, such as
+ * the a11y part (T-55): the element is written once it has.
  */
 export const COLLECT_GEOMETRY = `
-function collectGeometry() {
+function collectGeometry(more) {
   const SIDEWAYS = ${JSON.stringify(SIDEWAYS)};
   const style = (e) => getComputedStyle(e);
   const name = (e) => e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className.trim() ? '.' + e.className.trim().split(/\\s+/).slice(0, 3).join('.') : '');
@@ -410,9 +423,12 @@ function collectGeometry() {
   // Where a tracker's first column starts (T-42).
   const firstCol = document.querySelector('.tracker .board:not(.agent-board) .column');
   const boardTop = firstCol && visible(firstCol) ? Math.round(firstCol.getBoundingClientRect().top + window.scrollY) : null;
-  const out = document.createElement('script');
-  out.type = 'application/json';
-  out.id = 'acc-geometry';
-  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, fonts: window.accFontsFirst ?? 0 }).replace(/</g, '\\\\u003c');
-  document.body.append(out);
+  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, fonts: window.accFontsFirst ?? 0 };
+  Promise.resolve(more ? more() : {}).then((parts) => {
+    const out = document.createElement('script');
+    out.type = 'application/json';
+    out.id = 'acc-geometry';
+    out.textContent = JSON.stringify({ ...measured, ...parts }).replace(/</g, '\\\\u003c');
+    document.body.append(out);
+  });
 }`;
