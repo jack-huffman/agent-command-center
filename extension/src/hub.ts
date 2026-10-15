@@ -15,7 +15,7 @@ import { rememberRepo } from '../../packages/core/src/repos.ts';
 import { reviewing } from '../../packages/core/src/review.ts';
 import { type Suggestion, suggestRules, WRITTEN_RULE_FILES } from '../../packages/core/src/rule-suggestions.ts';
 import { RULES_DIR } from '../../packages/core/src/rules.ts';
-import { readTidy, tidyDue, tidyFile, type TidyRecord, type TidyStatus } from '../../packages/core/src/tidy.ts';
+import { branchInEnvironment, readTidy, rememberInEnvironment, tidyDue, tidyFile, type TidyRecord, type TidyStatus } from '../../packages/core/src/tidy.ts';
 import { type BranchMove, branchMoves as readBranchMoves, branchesPath } from '../../packages/core/src/branches.ts';
 import type { Protection } from '../../packages/core/src/protection.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
@@ -131,7 +131,7 @@ export class Hub implements vscode.Disposable {
   otherWindows: string[] = [];
   /** The repo each session's folder is in, as of the last `claude agents`, so a repo made since shows next time (GH-83). */
   private readonly repos = new Map<string, string | null>();
-  private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[] }>();
+  private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[]; inEnvironment: Map<string, boolean> }>();
   /** The steps autopilot took in each repo, by ledger: projects of one repo share them (D-064). */
   private readonly steps = new Map<string, AutopilotLog>();
   /** Each analysis read, by file, kept until the file changes: the rows are re-derived every few seconds. */
@@ -294,7 +294,8 @@ export class Hub implements vscode.Disposable {
         this.repoBranches.set(p.ledgerPath, readBranchMoves({ stateDir: dirname(p.ledgerPath) }));
       }
       const rows = deriveRows(this, ledger, p);
-      this.tasks.set(p.root, { stamp, ledger, rows });
+      // The git answers of tidy() last as long as this read of the ledger, so a render starts no git process twice.
+      this.tasks.set(p.root, { stamp, ledger, rows, inEnvironment: new Map() });
       changed = true;
     }
     if (changed || force) this.emitter.fire('tasks');
@@ -335,7 +336,9 @@ export class Hub implements vscode.Disposable {
     const p = this.project(root);
     const ledger = this.ledger(root);
     if (!p || !ledger) return null;
-    return { ...tidyDue(ledger, p.config, this.repoTidy.get(p.ledgerPath) ?? null), ledger: p.ledgerPath };
+    // A branch merged in git counts, with or without a pull request (as `acc tidy` counts it), asked once a branch.
+    const inEnvironment = rememberInEnvironment(branchInEnvironment(runSync, p.root), this.tasks.get(p.root)?.inEnvironment ?? new Map());
+    return { ...tidyDue(ledger, p.config, this.repoTidy.get(p.ledgerPath) ?? null, inEnvironment), ledger: p.ledgerPath };
   }
 
   /** The environment branches of a project's repo that moved by anything but acc's own merge, until a person has seen them (GH-69). */

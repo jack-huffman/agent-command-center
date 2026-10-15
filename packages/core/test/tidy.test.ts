@@ -10,7 +10,7 @@ import { run } from '../src/exec.ts';
 import { emptyLedger, type Ledger, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { sync } from '../src/sync.ts';
-import { addTidy, draftTidy, readTidy, skipTidy, TIDY_LABEL, tidyDue, tidyFile, type TidyRecord, tidyScope, tidyStatus } from '../src/tidy.ts';
+import { addTidy, draftTidy, readTidy, rememberInEnvironment, skipTidy, TIDY_LABEL, tidyDue, tidyFile, type TidyRecord, tidyScope, tidyStatus } from '../src/tidy.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-08T12:00:00Z');
@@ -100,6 +100,17 @@ test('a task merged in git counts once, as one merged by a pull request does; a 
   assert.deepEqual(s.tasks.map((t) => [t.id, t.pr]), [['T-1', null], ['T-3', 3]], 'merged in git once, merged by a pull request once; unmerged, branchless and not-done tasks left out');
   assert.deepEqual([s.count, s.due], [2, true]);
   assert.equal(tidyDue(ledgerOf(...tasks), withEvery(2), null).count, 1, 'without git to ask, only the pull request counts');
+});
+
+test('rememberInEnvironment asks git once for each branch, and for each environment of one (edge case: asked again)', () => {
+  const asked: string[] = [];
+  const known = new Map<string, boolean>();
+  const ask = rememberInEnvironment((t) => (asked.push(`${t.run?.branch}>${t.environment}`), t.run?.branch === 'task/T-1'), known);
+  const t = (branch: string | null, environment = 'main'): Task => merged('T-9', 9, { environment, run: branch ? { branch, worktree: '/gone' } : null });
+  assert.deepEqual([ask(t('task/T-1')), ask(t('task/T-1')), ask(t('task/T-2')), ask(t('task/T-2')), ask(t('task/T-1', 'prod'))], [true, true, false, false, true]);
+  assert.deepEqual(asked, ['task/T-1>main', 'task/T-2>main', 'task/T-1>prod']);
+  const fresh = rememberInEnvironment(ask, new Map());
+  assert.equal(fresh(t('task/T-1')), true, 'a new set of answers (a ledger read again) asks again');
 });
 
 // ---------------------------------------------------------------- the files they touched

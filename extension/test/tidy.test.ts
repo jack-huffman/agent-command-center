@@ -1,11 +1,13 @@
 // The tidy-up offer on the Overview (GH-104): blue, once per repo, never counted as needing you.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { homeModel } from '../src/model/home.ts';
 import { needsYouCount } from '../src/model/overview.ts';
 import type { HubLike } from '../src/model/shared.ts';
 import { PAGE_COMMANDS } from '../src/model/messages.ts';
-import { hub } from './support.ts';
+import { hub, root } from './support.ts';
 
 type Tidy = ReturnType<NonNullable<HubLike['tidy']>>;
 const home = (h: HubLike) => homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
@@ -34,4 +36,10 @@ test('two projects on one repo\'s ledger get one offer between them; two repos g
   const two = (ledgerOf: (root: string) => string) => home({ ...withTidy((root) => ({ due: true, count: 9, every: 8, ledger: ledgerOf(root) }), base), projects: [base.projects[0]!, second] });
   assert.deepEqual(tidyItems(two(() => '/r/.git/acc/ledger.json')).map((a) => a.project), ['Acme'], 'one ledger, one item');
   assert.deepEqual(tidyItems(two((root) => `${root}/.git/acc/ledger.json`)).map((a) => a.project), ['Acme', 'Acme UAT']);
+});
+
+test('the hub asks git for a done task\'s branch, so a task merged in git with no pull request brings up the offer, and keeps the answers until the ledger is read again', () => {
+  const src = readFileSync(join(root, 'src/hub.ts'), 'utf8');
+  assert.match(src, /const inEnvironment = rememberInEnvironment\(branchInEnvironment\(runSync, p\.root\), this\.tasks\.get\(p\.root\)\?\.inEnvironment \?\? new Map\(\)\);\n\s+return \{ \.\.\.tidyDue\(ledger, p\.config, this\.repoTidy\.get\(p\.ledgerPath\) \?\? null, inEnvironment\)/);
+  assert.match(src, /this\.tasks\.set\(p\.root, \{ stamp, ledger, rows, inEnvironment: new Map\(\) \}\)/, 'a fresh read of the ledger drops the answers');
 });

@@ -69,12 +69,22 @@ export interface TidyStatus {
 export type InEnvironment = (t: Task) => boolean;
 
 /** Reads git: the task's branch is an ancestor of its environment's branch (origin's copy when there is one, else the local one), as after a merge a person made. */
-function branchInEnvironment(run: Runner, root: string): InEnvironment {
+export function branchInEnvironment(run: Runner, root: string): InEnvironment {
   return (t) => {
     const branch = t.run?.branch;
     if (!branch) return false;
     const inRef = (ref: string) => run('git', ['merge-base', '--is-ancestor', `refs/heads/${branch}`, ref], { cwd: root }).code === 0;
     return inRef(`refs/remotes/origin/${t.environment}`) || inRef(`refs/heads/${t.environment}`);
+  };
+}
+
+/** An InEnvironment that asks git once for each branch and environment, and keeps the answers in `known` (the caller drops them when the ledger is read again). */
+export function rememberInEnvironment(ask: InEnvironment, known: Map<string, boolean>): InEnvironment {
+  return (t) => {
+    const key = `${t.run?.branch}\0${t.environment}`;
+    let merged = known.get(key);
+    if (merged === undefined) known.set(key, (merged = ask(t)));
+    return merged;
   };
 }
 
