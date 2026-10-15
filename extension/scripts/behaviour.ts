@@ -31,6 +31,8 @@ import type { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { JIRA } from '../../packages/core/src/trackers/connect.ts';
+import { blankConnect, connectModel, type ConnectModel } from '../src/model/connect.ts';
 import type { HomeModel, Model } from '../src/model/home.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { isFromWebview } from '../src/model/messages.ts';
@@ -97,22 +99,27 @@ export interface BehaviourData {
    * the key the tab remembers it by; and how many stay in view.
    */
   settings: { parts: string[]; folds: { id: string; key: string }[]; kept: number };
+  /**
+ * The Connect page before it's signed in (T-45): Save's label, and the reason its model gives for it being off.
+ * `none` is the same page with no project chosen, where Test connection is off too: its model, and the reason it gives.
+ */
+  connect: { save: string; why: string; none: { model: ConnectModel; testWhy: string } };
 }
 
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'ticket-questions' | 'settings-agents';
+  page: 'tasks' | 'overview-landing' | 'ticket-questions' | 'settings-agents' | 'connect-start';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
 /** The pages the cases open: the Tasks board, the Overview, ACME-21's task page, and Settings with two projects. */
-export interface CaseModels { tasks: Model; overview: Model; ticket: Model; settings: Model }
+export interface CaseModels { tasks: Model; overview: Model; ticket: Model; settings: Model; connect: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'settings-agents' ? models.settings : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -521,6 +528,41 @@ export const CASES: Case[] = [
       t.check('and the others closed', t.all<HTMLDetailsElement>('details.settings-fold[open]').length === 1, t.all('details.settings-fold[open]').length);
     },
   },
+  {
+    name: 'connect: a button that is off gives its reason in its title and, for Save, in a status line beside it',
+    page: 'connect-start',
+    async run(t) {
+      const want = t.data.connect;
+      const save = t.all<HTMLButtonElement>('.connect-foot button').find((b) => b.textContent?.trim() === want.save);
+      if (!save) throw new Error(`not found: the ${want.save} button`);
+      t.check('Save is off', save.disabled);
+      t.check('its title is the reason', save.title === want.why, save.title);
+      const line = t.find('.connect-foot .status');
+      t.check('a status line beside it says the same', line.textContent?.trim() === want.why, line.textContent);
+      t.check('with an icon, never colour alone', !!line.querySelector('.codicon, svg, [class*="codicon"]'), line.innerHTML.slice(0, 120));
+      // Edge: Test connection is on here (a project is chosen), so it has no reason and no title.
+      const test = t.all<HTMLButtonElement>('.connect-test button').find((b) => b.textContent?.trim() === 'Test connection');
+      if (!test) throw new Error('not found: the Test connection button');
+      t.check('Test connection is on, with nothing to explain', !test.disabled && test.title === '' && t.all('.connect-test .status').length === 0, { title: test.title });
+    },
+  },
+  {
+    name: 'connect: with no project chosen, Test connection is off and gives its reason in its title and in a status line beside it',
+    page: 'connect-start',
+    async run(t) {
+      const none = t.data.connect.none;
+      const home = structuredClone(t.model) as HomeModel;
+      home.connect = none.model;
+      await t.post({ type: 'state', model: home });
+      const test = t.all<HTMLButtonElement>('.connect-test button').find((b) => b.textContent?.trim() === 'Test connection');
+      if (!test) throw new Error('not found: the Test connection button');
+      t.check('Test connection is off', test.disabled);
+      t.check('its title is the reason', test.title === none.testWhy, test.title);
+      const line = t.find('.connect-test .status');
+      t.check('a status line beside it says the same', line.textContent?.trim() === none.testWhy, line.textContent);
+      t.check('with an icon, never colour alone', !!line.querySelector('.codicon, svg, [class*="codicon"]'), line.innerHTML.slice(0, 120));
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -562,6 +604,10 @@ export const MUTANTS: Mutant[] = [
   { name: 'a guide link goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });", replace: "a.addEventListener('click', (e) => { e.preventDefault(); });", kills: [caseNamed('settings: a link for each part')] },
   { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
   { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
+  { name: 'the Connect page draws no status line beside Save', file: 'connect.ts', find: '(m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null', replace: 'm.save.look ? status(m.save.look) : null', kills: [caseNamed('connect: a button that is off')] },
+  { name: 'the Connect page leaves Save\'s title empty', file: 'connect.ts', find: 'if (m.save.why) save.title = m.save.why.label;', replace: '', kills: [caseNamed('connect: a button that is off')] },
+  { name: 'the Connect page draws no status line beside Test connection', file: 'connect.ts', find: 'm.signIn.why ? status(m.signIn.why) : null', replace: 'null', kills: [caseNamed('connect: with no project chosen')] },
+  { name: 'the Connect page leaves Test connection\'s title empty', file: 'connect.ts', find: 'if (m.signIn.why) testButton.title = m.signIn.why.label;', replace: '', kills: [caseNamed('connect: with no project chosen')] },
   { name: 'a page holding only the loading screen isn\'t fresh', file: 'main.ts', find: "const fresh = !app.hasChildNodes() || !!app.querySelector(':scope > .opening');", replace: 'const fresh = !app.hasChildNodes();', kills: [caseNamed('loading screen: a tab rebuilt')] },
 ];
 
@@ -569,6 +615,14 @@ export const MUTANTS: Mutant[] = [
 export const occurrences = (source: string, find: string): number => (find ? source.split(find).length - 1 : 0);
 
 // ---------------------------------------------------------------- what Node expects, and the page
+
+/** What the Connect case expects (T-45): the reason Save is off, from the model the page is drawn from. */
+function connectData(model: Model): BehaviourData['connect'] {
+  if (model.kind !== 'home' || !model.connect?.save.why) throw new Error('The Connect case needs a home model whose Save is off with a reason.');
+  const none = connectModel(blankConnect(JIRA, { id: 'c-none', root: null, projectName: '', ownRepo: null, ghAccount: null, from: 'tasks' }));
+  if (!none.signIn.why) throw new Error('The Connect case needs a page with no project whose Test connection is off with a reason.');
+  return { save: model.connect.save.label, why: model.connect.save.why.label, none: { model: none, testWhy: none.signIn.why.label } };
+}
 
 /** What Settings' case expects (T-40): from the model, each part's heading and each explanation, folded or kept. */
 function settingsData(model: Model): BehaviourData['settings'] {
@@ -603,6 +657,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     machine: o.inProgress.machine.length,
     project: ROOT,
     settings: settingsData(models.settings),
+    connect: connectData(models.connect),
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
   };
 }

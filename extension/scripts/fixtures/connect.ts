@@ -3,7 +3,7 @@ import { AZURE, GITHUB, JIRA, MONDAY, SLACK } from '../../../packages/core/src/t
 import { blankConnect, connectModel, type ConnectModel, type ConnectState } from '../../src/model/connect.ts';
 
 /** Which Connect page to draw (GH-51). */
-export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'monday' | 'slack' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github';
+export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'monday' | 'slack' | 'slack-refused' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github';
 
 /**
  * The Connect page at each step: a new Jira tracker before signing in; its site given, with the tick for
@@ -58,6 +58,15 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   if (which === 'slack') {
     const s = blankConnect(SLACK, { id: 'c-slack', ...base });
     s.host = 'acme';
+    return connectModel(s);
+  }
+  // A user token (xoxp-) typed, and Test connection clicked: the field warns and the sign-in is not signed in (T-45).
+  if (which === 'slack-refused') {
+    const s = blankConnect(SLACK, { id: 'c-slack-refused', ...base });
+    s.host = 'acme';
+    s.fields = { token: 'xoxp-1234-5678-notabottoken' };
+    s.fieldErrors = { token: SLACK.methods[0]!.fields![0]!.check!(s.fields.token!) ?? '' };
+    s.signIn = { state: 'failed', who: null, error: null, again: false };
     return connectModel(s);
   }
   if (which === 'slack-channel') {

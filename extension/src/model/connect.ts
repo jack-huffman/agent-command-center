@@ -238,8 +238,11 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const open = pickers.filter((p) => !p.fixed && !p.hidden && p.required && !p.selected.length).map((p) => `${/^[aeiou]/i.test(p.label) ? 'an' : 'a'} ${p.label.toLowerCase()}`);
   const choices = [...new Set([...(s.root ? [] : ['a project']), ...(ok ? open : open.slice(0, 1))])];
   const todo = [...(ok ? [] : ['sign in']), ...(choices.length ? [`choose ${taskNames(choices)}`] : [])];
+  // A required list that is hidden has no choice and nothing loads for it: name it, don't say to wait (T-45).
+  const loadingNow = pickers.some((p) => p.look?.icon === 'sync~spin');
+  const noChoice = pickers.filter((p) => !p.fixed && p.required && !p.selected.length).map((p) => `${/^[aeiou]/i.test(p.label) ? 'an' : 'a'} ${p.label.toLowerCase()}`);
   const saveWhy = s.saving ? whyOff('Saving now.') : todo.length ? whyOff(`${taskNames(todo).replace(/^./, (c) => c.toUpperCase())} first.`)
-    : !ready ? whyOff('Wait for its lists to load first.') : null;
+    : !ready ? whyOff(loadingNow ? 'Wait for its lists to load first.' : `Choose ${taskNames(noChoice)} first.`) : null;
   return {
     id: s.id, rev: s.rev,
     title: s.start ? `Start ${s.projectName} from ${placeName} in ${name}` : s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
