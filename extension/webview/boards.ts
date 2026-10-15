@@ -2,7 +2,8 @@
 
 import type { Action } from '../src/model/shared.ts';
 import { actionButton, el, icon, work, wrap } from './dom.ts';
-import { api } from './state.ts';
+import { answerHere } from './detail.ts';
+import { api, go } from './state.ts';
 
 /**
  * A mouse wheel scrolls the board sideways wherever a lane wouldn't scroll itself: over a heading, the
@@ -57,6 +58,20 @@ const cardPr = (actions: Action[]): Action | undefined => actions.find((a) => a.
 /** What goes behind ⋯: the rest, with the card itself opening its page, and drag doing Move. */
 export const cardMenu = (actions: Action[]): Action[] => actions.filter((a) => a !== cardPrimary(actions) && a !== cardPr(actions) && a.command !== 'acc.task.move' && !(a.command === 'acc.task.show' && !a.primary));
 
+/**
+ * A card's next step as a button. An Answer with its question opens that question in Needs you, on the
+ * Overview, as the Agents tab's Answer does (T-39); any other runs its command.
+ */
+export function nextStep(a: Action): HTMLElement {
+  if (!a.question) return actionButton(a);
+  const id = a.question;
+  const b = el('button', 'btn primary', icon(a.icon), a.label) as HTMLButtonElement;
+  b.type = 'button';
+  b.title = 'Go to its question in Needs you, on the Overview, and answer it there';
+  b.addEventListener('click', (e) => { e.stopPropagation(); go('overview'); answerHere(id); });
+  return b;
+}
+
 /** A card's footer: where it lives and its pull request on the left, its one next step on the right. */
 export function cardFoot(card: { worktree: string | null; actions: Action[] }): HTMLElement | null {
   const primary = cardPrimary(card.actions);
@@ -71,7 +86,7 @@ export function cardFoot(card: { worktree: string | null; actions: Action[] }): 
   return el('div', 'card-foot',
     // The worktree's last two folders, with the whole path on hover, since a narrow card cuts it short.
     el('div', 'card-meta', card.worktree ? Object.assign(work(el('span', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')), 'branch'), { title: card.worktree }) : null, prLink),
-    primary ? actionButton(primary) : null);
+    primary ? nextStep(primary) : null);
 }
 
 // The screenshot harness can start with a menu open, to see it laid out.

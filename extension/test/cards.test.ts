@@ -304,7 +304,7 @@ test('a running card, its task page and its Agents row name the model its agent 
   assert.deepEqual(rows.map((r) => [r.name, r.model]), [['av-2', 'claude-sonnet-5-5'], ['other', null]]);
   const main = pageSource();
   assert.match(main, /\['Model', 'model'\]/, 'a Model column');
-  assert.match(main, /el\('td', 'nowrap mono muted model', a\.model \? shortModel\(a\.model\) : '—', a\.model && a\.effort \? ` · \$\{a\.effort\}` : ''\), \{ title: a\.model \?/, 'a dash until it\'s known, in neutral mono text, its full name on hover, and an effort beside it (D-128)');
+  assert.match(main, /el\('td', 'mono muted model', el\('span', 'unbroken', a\.model \? shortModel\(a\.model\) : '—'\), a\.model && a\.effort \? ' ' : null, a\.model && a\.effort \? el\('span', 'unbroken', `· \$\{a\.effort\}`\) : null\), \{ title: a\.model \?/, 'a dash until it\'s known, in neutral mono text, its full name on hover, and an effort beside it (D-128)');
   assert.match(main, /card\.agent && card\.model \? el\('div', 'card-where card-model'/);
   assert.match(main, /field\('Model', el\('span', '', el\('span', 'mono', a\.model\), a\.effort \? el\('span', 'muted', ` · \$\{a\.effort\} effort`\) : null\)\)/);
 });
@@ -320,4 +320,24 @@ test('a task page and its Agents row show a builder\'s effort beside its model o
   const lines = (r: TaskRow) => { h.taskRows = () => [r]; return agentsModel(h).repos.flatMap((x) => x.tasks.flatMap((t) => t.agents)).filter((a) => a.model); };
   assert.deepEqual(lines(at('xhigh')).map((a) => [a.model, a.effort]), [['claude-sonnet-5-5', 'xhigh']]);
   assert.deepEqual(lines(at('high')).map((a) => [a.model, a.effort]), [['claude-sonnet-5-5', null]]);
+});
+
+test('a card whose agent asks offers Answer, to its question, as its one next step on the right of its foot (T-39)', () => {
+  const ref = { project: '/r', task: 'AV-9' };
+  const asking: TaskRow = { ...row('AV-9', 'running', 'needs-you'), deps: [], run: { bgId: 'bg1', sessionId: 's9' }, agent: { label: 'Needs you: wants permission', icon: 'bell', tone: 'orange' }, asking: true, question: 'q-9' };
+  const acts = cardActions(asking, ref);
+  assert.deepEqual(acts.filter((a) => a.primary).map((a) => [a.label, a.command, a.icon, a.question]), [['Answer', 'acc.task.show', 'bell', 'q-9']]);
+  assert.ok(acts.some((a) => a.command === 'acc.task.watch' && !a.primary), 'Watch goes behind ⋯');
+  // Edge: its question isn't read yet, so there's no Answer, and Watch stays its next step.
+  assert.deepEqual(cardActions({ ...asking, question: null }, ref).filter((a) => a.primary).map((a) => a.label), ['Watch']);
+  // Edge: a stopped builder's next step is Resume, not Answer.
+  assert.deepEqual(cardActions({ ...asking, stopped: { said: null } }, ref).filter((a) => a.primary).map((a) => a.label), ['Resume']);
+  // Edge: in the cloud there's no question here to answer.
+  assert.ok(!cardActions({ ...asking, run: { ...asking.run, where: 'cloud' } }, ref).some((a) => a.label === 'Answer'));
+  // The page: the foot draws the next step on its right through nextStep, which goes to the question, as Agents' Answer does.
+  const boards = pageSource('boards.ts');
+  assert.match(boards, /el\('div', 'card-meta', [^\n]*\),\n    primary \? nextStep\(primary\) : null\);/);
+  assert.match(boards, /if \(!a\.question\) return actionButton\(a\);/);
+  assert.match(boards, /go\('overview'\); answerHere\(id\);/);
+  assert.match(pageSource('tasks.ts'), /c\.acc\.action \? nextStep\(c\.acc\.action\) : null/, 'a tracker card\'s next step too');
 });

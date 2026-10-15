@@ -13,7 +13,7 @@ export function sampleTasks(now = Date.now()): TaskRow[] {
   const analyses = sampleAnalyses(now);
   const analyzed = (id: string) => ({ analysis: rowAnalysis(analyses[id]!) });
   return [
-    task('ACME-14', 'Route web-to-case submissions by product line', 'running', 'needs-you', { run: { bgId: 'bg14', sessionId: 's-acme-14', worktree: wt('ACME-14'), model: 'claude-opus-5-5', name: N14 }, agent: { label: 'Needs you: wants permission', icon: 'bell', tone: 'orange' }, model: 'claude-opus-5-5', asking: true, since: ago(27), branchStats: { commits: 2, files: 4, uncommitted: 1 } }),
+    task('ACME-14', 'Route web-to-case submissions by product line', 'running', 'needs-you', { run: { bgId: 'bg14', sessionId: 's-acme-14', worktree: wt('ACME-14'), model: 'claude-opus-5-5', name: N14 }, agent: { label: 'Needs you: wants permission', icon: 'bell', tone: 'orange' }, model: 'claude-opus-5-5', asking: true, question: 'm1-aaaa0001', since: ago(27), branchStats: { commits: 2, files: 4, uncommitted: 1 } }),
     // Its analysis has questions for you; another says it's too big for one task (D-052).
     task('ACME-21', 'Contact roles missing on converted leads', 'todo', 'needs-you', analyzed('ACME-21')),
     task('ACME-23', 'Rebuild the partner portal on Experience Cloud', 'todo', 'needs-you', analyzed('ACME-23')),
@@ -25,7 +25,7 @@ export function sampleTasks(now = Date.now()): TaskRow[] {
     // No analysis: its files aren't known, so it never waits.
     task('ACME-37', 'Tidy the Case page layout', 'todo', 'ready', { analysisRequired: false, files: { known: false, shares: [], first: [], held: null } }),
     task('ACME-24', 'Sync the renewal date to the billing system', 'todo', 'ready', { analyzing: { sessionId: 'an-acme-24' } }),
-    task('ACME-12', 'Case escalation rules for the premium tier', 'running', 'needs-you', { run: { bgId: 'bg12', sessionId: 's-acme-12', worktree: wt('ACME-12'), model: 'claude-sonnet-5-5', modelPicked: true, effort: 'xhigh', effortPicked: true, name: N12 }, agent: { label: 'Needs you: has a question', icon: 'bell', tone: 'orange' }, model: 'claude-sonnet-5-5', effort: 'xhigh', asking: true, ...analyzed('ACME-12'), since: ago(12), branchStats: { commits: 3, files: 6, uncommitted: 4 } }),
+    task('ACME-12', 'Case escalation rules for the premium tier', 'running', 'needs-you', { run: { bgId: 'bg12', sessionId: 's-acme-12', worktree: wt('ACME-12'), model: 'claude-sonnet-5-5', modelPicked: true, effort: 'xhigh', effortPicked: true, name: N12 }, agent: { label: 'Needs you: has a question', icon: 'bell', tone: 'orange' }, model: 'claude-sonnet-5-5', effort: 'xhigh', asking: true, question: 'm1-aaaa0002', ...analyzed('ACME-12'), since: ago(12), branchStats: { commits: 3, files: 6, uncommitted: 4 } }),
     // Built beside ACME-15, which touched the same layout: its pull request won't merge into dev.
     task('ACME-22', 'Add a Region field to the Lead page', 'review', 'needs-you', { run: { worktree: wt('ACME-22'), branch: 'task/ACME-22-lead-region' }, review: { verdict: 'pass', summary: 'Adds Region__c and puts it on the Lead layout.', current: true }, pr: { number: 44, url: 'https://github.com/acme/service/pull/44', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/layouts/Lead-Lead Layout.layout-meta.xml', 'force-app/main/default/objects/Lead/fields/Region__c.field-meta.xml'] } }),
     // A person committed to its branch after its builder finished, so autopilot couldn't review it: acc's

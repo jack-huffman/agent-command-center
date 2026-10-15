@@ -91,6 +91,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       model,
       effort: model ? effortShown(model, t.run?.effort) : null,
       asking: !!asking,
+      question: asking && session?.sessionId ? hub.questions.find((q) => q.sessionId === session.sessionId)?.id ?? null : null,
       // Current on its latest commit, or carried there by the merge queue's merge commit (GH-73).
       review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && !!reviews && reviewCurrent(reviews, t, verdict, head), at: verdict.at } : null,
       // Each agent under way with the name acc gave it (D-087); the builder's is on its run.

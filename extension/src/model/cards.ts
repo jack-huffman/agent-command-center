@@ -135,9 +135,13 @@ export function cardActions(t: TaskRow, ref: Ref, config?: Parameters<typeof clo
     if (t.state === 'running') a.push({ command: 'acc.task.collect', label: 'Collect', icon: 'cloud-download', ref, primary: !!t.cloud?.wait || !!t.cloud?.finished });
     if (t.state === 'running') a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, disabled: 'Its conversation runs on claude.ai, not on this Mac: Watch opens it there.' });
   }
+  // Its agent waits on a question in the Command Center (D-030): Answer opens it in Needs you, as the Agents
+  // tab's does, and Watch goes behind ⋯ (T-39).
+  const answer = !inCloud && !stopped && !!t.asking && !!t.question;
+  if (answer) a.push({ command: 'acc.task.show', label: 'Answer', icon: 'bell', ref, primary: true, question: t.question! });
   // Waiting in its own terminal, it's answered by attaching; anything else is seen on its page.
   const inTerminal = !stopped && t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
-  if (!inCloud && (t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !inTerminal && !stopped });
+  if (!inCloud && (t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !inTerminal && !stopped && !answer });
   // Its conversation in a Claude Code tab (D-040); the terminal is the fallback when that isn't installed.
   if (!inCloud && t.state === 'running' && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, primary: inTerminal });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });

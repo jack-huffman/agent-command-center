@@ -2,14 +2,14 @@
 
 import type { TrackerBoard, TrackerCard } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
-import { cardFoot, cardMenu, moreMenu } from './boards.ts';
-import { actionButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
+import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
+import { avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
 export function renderTasks(m: TasksModel): Node[] {
   if (!m.projects.length) return [header('Tasks', 'No onboarded project in this workspace.'), empty('Onboard this folder to start tracking tasks.', toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true))];
   return m.projects.map((p) => {
-    const tools: Child[] = [toolbarButton('acc.task.add', 'Add task', 'add', p.root, true)];
+    const tools: Child[] = [toolbarButton('acc.task.add', 'Add task', 'add', p.root)];
     // With a tracker's board on show, its tickets come from the board (Track on a card), not an import.
     if (!p.boards.length) {
       if (p.github) tools.push(toolbarButton('acc.task.importGithub', 'Import GitHub issues', 'github', p.root));
@@ -135,7 +135,7 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
     el('div', 'tcard-top', kind, el('span', 'tcard-key', c.key), prio, el('span', 'spacer'), ...c.assignees.slice(0, 3).map(avatar)),
     el('div', 'card-title', c.title),
     c.labels.length ? el('div', 'labels', ...c.labels.slice(0, 4).map(labelChip)) : null,
-    c.acc ? el('div', 'tcard-acc', status(c.acc.look), el('span', 'spacer'), c.acc.action ? actionButton(c.acc.action) : null) : null,
+    c.acc ? el('div', 'tcard-acc', status(c.acc.look), el('span', 'spacer'), c.acc.action ? nextStep(c.acc.action) : null) : null,
     c.acc?.conflicts ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', c.acc.conflicts)) : null,
     c.acc?.failedChecks ? el('div', 'card-note conflict tcard-conflict', icon('github-action'), el('span', '', c.acc.failedChecks)) : null,
     c.track ? el('div', 'tcard-acc', el('span', 'spacer'), trackButton(root, b, c.key, c.track.busy)) : null,
