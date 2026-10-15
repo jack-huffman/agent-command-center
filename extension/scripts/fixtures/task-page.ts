@@ -6,7 +6,7 @@ import { ticketModel, type TicketModel } from '../../src/model/task-page.ts';
 import { sampleAnalyses } from './analysis.ts';
 import { DOING, DONE, REVIEW, sampleBoards, TODO } from './boards.ts';
 import { sampleHub } from './hub.ts';
-import { MIN, ROOT } from './shared.ts';
+import { MIN, ROOT, wt } from './shared.ts';
 import { sampleUpdates } from './updates.ts';
 
 const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks: marks.map((type) => ({ type })) } : {}) }] });
@@ -64,7 +64,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
   };
   const task = {
     id: 'ACME-12', title: ticket.title, brief: '', source: { kind: 'jira', key: 'ACME-12', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'running', blocker: null,
-    run: { bgId: 'bg12', worktree: `${ROOT}/.claude/worktrees/ACME-12`, branch: 'task/ACME-12-case-escalation-rules' }, pr,
+    run: { bgId: 'bg12', worktree: wt('ACME-12'), branch: 'task/ACME-12-case-escalation-rules' }, pr,
     history: [
       { at: new Date(now - 4 * 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:me' },
       { at: new Date(now - 3 * 86_400_000).toISOString(), from: 'todo', to: 'running', by: 'human:me' },

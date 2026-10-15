@@ -115,7 +115,7 @@ export interface Case {
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, ACME-21's task page, and Settings with two projects. */
+/** The pages the cases open: the Tasks board, the Overview, ACME-21's task page, Settings with two projects, and the Connect page. */
 export interface CaseModels { tasks: Model; overview: Model; ticket: Model; settings: Model; connect: Model }
 
 /** The model a case's page is drawn from. */
@@ -798,7 +798,7 @@ window.acquireVsCodeApi = () => ({
 });`;
 }
 
-/** The fonts VSCode would set; the screenshot run's own (FONTS in screenshot.ts) is passed in, so this file imports nothing of it. */
+/** A case's page, with its model and data, in the light theme. `fonts` are the fonts VSCode would set; the screenshot run's own (FONTS in screenshot.ts) is passed in, so this file imports nothing of it. */
 export function behaviourPage(c: Case, model: Model, data: BehaviourData, fonts: Record<string, string>, script = 'webview/main.js'): string {
   const vars = Object.entries({ ...palettes().light, ...fonts }).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
   return `<!DOCTYPE html>

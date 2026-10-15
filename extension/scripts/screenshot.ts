@@ -80,7 +80,7 @@ import { behaviourCheck } from './behaviour.ts';
  * board can be in (GH-112); Settings' Limits and checks in their other states: no total across repos,
  * slots set by the environment, and two projects, one building through the merge queue (GH-111); and About
  * behind, with a newer release and an older plugin, and with a look that failed (GH-114). Last, Agents with each repo's finished sessions opened (GH-119). Then the
- * Overview with a suggested rule and a suggested check under Needs you, and with the rule's draft task open
+ * Overview with a suggested rule and a suggested check under When you have a moment, and with the rule's draft task open
  * after Accept (GH-102).
  * Last, Settings at GitHub accounts, one project pushing as this clone's choice and one whose account gh
  * isn't signed in as, and at the Command Center's own preferences, each set to other than its default (GH-113).
@@ -231,10 +231,6 @@ export const openAt = (kind: Page): string | null => (kind === 'settings-agents'
   : kind.startsWith('slack-') ? settingsKey('slack') : kind === 'settings-github' ? settingsKey('github') : kind === 'settings-page' ? settingsKey('page') : kind.startsWith('settings-about') ? settingsKey('about')
   : kind === 'setup-first' ? SETUP_PARTS.kind : kind === 'setup-first-machine' ? SETUP_PARTS.machine : null);
 
-/**
- * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
- * Screenshots can't hover, so each :hover rule is copied to a class put on the first row or card.
- */
 /** How tall a shot is unless --height says. */
 export const DEFAULT_HEIGHT = 900;
 
@@ -290,6 +286,8 @@ function collectColours() {
 }`;
 
 /**
+ * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
+ * Screenshots can't hover, so each :hover rule is copied to a class put on the first row or card.
  * A page as VSCode would show it with `under`'s theme (GH-109): VSCode's own webview stylesheet first in
  * the head, that theme's colours inline on <html> and its class on <body>, and the page's theme in
  * data-theme. A shot forces Light or Dark under VSCode's other theme, so a colour that still comes from
