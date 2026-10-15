@@ -66,7 +66,7 @@ test('the screenshot run draws the loading page with no model sent, so the scree
 });
 
 test('a still page with no controls passes the geometry check, while any other page with none fails (edge case)', () => {
-  const s = { controls: [], texts: [{ what: 'p.opening-words', text: 'Opening the Command Center', over: 0, ellipsis: false, titled: false, folded: false }], scrollers: [], doc: { scroll: 500, view: 500 }, said: [{ what: 'p.opening-words', text: 'Opening the Command Center', work: null }] } as never;
+  const s = { controls: [], texts: [{ what: 'p.opening-words', text: 'Opening the Command Center', over: 0, ellipsis: false, titled: false, folded: false }], scrollers: [], doc: { scroll: 500, view: 500 }, said: [{ what: 'p.opening-words', text: 'Opening the Command Center', work: null }], a11y: { violations: [], examined: 5, incomplete: [] } } as never;
   assert.deepEqual(judge(s, false, [], false).violations, []);
   assert.deepEqual(judge(s, false, []).violations.map((v) => v.detail), ['examined no controls']);
 });
