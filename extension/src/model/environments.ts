@@ -83,7 +83,7 @@ export function environmentsModel(hub: HubLike, identity: (root: string) => Iden
       envs: p.config.environments.map((e) => {
         const ref: Ref = { project: p.root, env: e.branch };
         const actions: Action[] = [];
-        if (e.org) actions.push({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref, primary: true });
+        if (e.org) actions.push({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref });
         if (p.config.github) actions.push({ command: 'acc.env.openGithub', label: 'GitHub', icon: 'github', ref });
         if (p.branch !== e.branch) actions.push({ command: 'acc.env.compare', label: 'Compare', icon: 'diff', ref });
         // A person moves work between environments (D-034): a pull request onward, then a deploy after it merges.

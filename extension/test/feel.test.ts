@@ -2,7 +2,7 @@
 // guidance: every animation stops or changes under reduced motion, every kind of button shows a press at
 // once, and text follows VSCode's font size, so no font-size is in px but an icon's.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { cssRules, pageStyles, styleFile, styleFiles } from '../scripts/styles.ts';
@@ -170,4 +170,81 @@ test('large titles sit a little tighter, and body text has no letter spacing of 
   assert.equal(spacing('h1'), '-0.01em');
   assert.equal(spacing('.ticket-title'), '-0.01em');
   assert.equal(spacing('body'), undefined, 'body text stays at 0');
+});
+
+/** A line of the page's source that draws a primary button: a 'primary' class, or a primary passed or read. */
+const PRIMARY_MARK = /'primary\b|'btn primary\b|\? ' primary'|(?:toolbarButton|argButton)\([^;]*,\s*(?:true|[\w.]*\.primary)\)/;
+
+/**
+ * The places the page may draw a primary button, the blue fill, each with its reason: only where the
+ * person must act (D-147, T-39). Answer, Resume and a Needs you step, a fix for a sign-in that failed, and
+ * the button that sends what the person typed in the box beside it. Anything else is outlined.
+ */
+const PRIMARY: { file: string; at: RegExp; why: string }[] = [
+  { file: 'about.ts', at: /a\.primary\)/, why: 'About\'s fix for a plugin that is out of date or turned off: the model marks it primary then, and only then.' },
+  { file: 'agent-page.ts', at: /'primary small'/, why: 'Send: the message the person typed, to an agent that waits on it.' },
+  { file: 'agents.ts', at: /b\('Answer'/, why: 'Answer: an agent waits on the person\'s answer to its question.' },
+  { file: 'analysis.ts', at: /button\('Answer'/, why: 'Answer: the analysis waits on the person\'s answer.' },
+  { file: 'boards.ts', at: /el\('button', 'btn primary', icon\(a\.icon\), a\.label\)/, why: 'A card\'s Answer: its agent waits on the person\'s answer to its question.' },
+  { file: 'connect.ts', at: /m\.method\.test/, why: 'Test, until the sign-in passes: the dialog can\'t go on without it.' },
+  { file: 'connect.ts', at: /m\.save\.label/, why: 'Save: the dialog\'s last step, which the person opened it to take.' },
+  { file: 'detail.ts', at: /a\.extra\.arg, true\)/, why: 'A Needs you step: the fix for a tracker that is not signed in.' },
+  { file: 'dock.ts', at: /button\('Yes'/, why: 'Yes: a run asks the person, and waits.' },
+  { file: 'dock.ts', at: /button\('Send'/, why: 'Send: the answer the person typed to a run that asks.' },
+  { file: 'dom.ts', at: /\$\{a\.primary \?/, why: 'actionButton: primary only when the model\'s action says so. The model sets it for a next step that needs the person.' },
+  { file: 'dom.ts', at: /\$\{primary \?/, why: 'toolbarButton and argButton: primary only when the caller says so, and this test reads each caller.' },
+  { file: 'environments.ts', at: /'Onboard this project'.*true\)/, why: 'An empty tab with no project: onboarding is the one way on, and only the person can start it.' },
+  { file: 'tasks.ts', at: /'Onboard this project'.*true\)/, why: 'An empty tab with no project: onboarding is the one way on, and only the person can start it.' },
+  { file: 'worktrees.ts', at: /'Onboard this project'.*true\)/, why: 'An empty tab with no project: onboarding is the one way on, and only the person can start it.' },
+  { file: 'landing.ts', at: /b\.primary \?/, why: 'The Overview\'s lines: primary in Needs you only, as the model sets it (D-147, landing.test.ts).' },
+  { file: 'overview.ts', at: /'Add task'.*true\)/, why: 'The Overview\'s header, which D-150 laid out and T-39 leaves out of its scope.' },
+  { file: 'questions.ts', at: /button\(isCommand/, why: 'An agent\'s question: the answer the person gives it.' },
+  { file: 'questions.ts', at: /q-choice\$\{c\.primary/, why: 'An agent\'s question: its Yes, as the model marks it.' },
+  { file: 'questions.ts', at: /'primary q-send'/, why: 'An agent\'s question: Send, the answer the person typed.' },
+  { file: 'rules.ts', at: /button\('Accept…'/, why: 'A suggested rule waits on the person\'s yes or no: Accept… is the yes.' },
+  { file: 'rules.ts', at: /^\s*\}, 'primary'\);$/, why: 'Confirm: the rule the person wrote, sent.' },
+  { file: 'settings.ts', at: /a\.primary\)/, why: 'Settings\' fix for a tracker or GitHub that is not signed in: the model marks it primary then, and only then.' },
+  { file: 'slack.ts', at: /c\.tail \? '' : 'primary'/, why: 'Connect: the webhook the person pasted in the box beside it.' },
+  { file: 'slack.ts', at: /'Send a test'.*'paused'/, why: 'Send a test while notices are paused: nothing is sent until a test goes through.' },
+  { file: 'task-page.ts', at: /'Comment'/, why: 'Comment: the comment the person typed in the box beside it.' },
+  { file: 'task-page.ts', at: /m\.connect\.label/, why: 'The fix for a tracker that is not signed in, so the ticket can\'t load.' },
+  { file: 'tasks.ts', at: /button\('Track'/, why: 'Track: the thread link the person pasted in the box beside it.' },
+  { file: 'tasks.ts', at: /b\.connect\.label/, why: 'The fix for a tracker that is not signed in, so its board can\'t load.' },
+  { file: 'updates.ts', at: /'primary'\);$/, why: 'Post: an update the person drafted, sent.' },
+];
+
+/** Each line of each file that draws a primary button, and how many PRIMARY entries it matches. */
+function primaries(files: Record<string, string>, places = PRIMARY): { file: string; line: string; matches: number }[] {
+  return Object.entries(files).flatMap(([file, src]) => src.split('\n').filter((l) => PRIMARY_MARK.test(l)).map((line) => ({ file, line: line.trim(), matches: places.filter((p) => p.file === file && p.at.test(line)).length })));
+}
+
+const webviewFiles = (): Record<string, string> => Object.fromEntries(readdirSync(join(root, 'webview')).filter((f) => f.endsWith('.ts')).map((f) => [f, readFileSync(join(root, 'webview', f), 'utf8')]));
+
+test('the page draws a primary button only where PRIMARY says, each with its reason, and each place is still drawn (T-39)', () => {
+  const src = webviewFiles();
+  const found = primaries(src);
+  // It ran: about 30 places across the page.
+  assert.ok(found.length >= 25, `found ${found.length} primary buttons`);
+  assert.deepEqual(found.filter((f) => f.matches !== 1).map((f) => `${f.file}: ${f.line}`), [], 'each of these draws a primary button that PRIMARY names not once: outline it, or name it with why it needs the person');
+  const stale = PRIMARY.filter((p) => !found.some((f) => f.file === p.file && p.at.test(f.line)));
+  assert.deepEqual(stale.map((p) => `${p.file}: ${p.at}`), [], 'each of these names a place that no longer draws a primary button');
+  for (const p of PRIMARY) assert.ok(p.why.length > 30, `${p.file} ${p.at} says why`);
+  // The places T-39 outlined stay outlined: Open org, Switch account, Add task, Start a background agent,
+  // Slack's Turn on and a ticket's Track in acc.
+  assert.doesNotMatch(readFileSync(join(root, 'src', 'model', 'environments.ts'), 'utf8'), /label: 'Open org'[^}]*primary/);
+  assert.match(src['environments.ts']!, /argButton\('acc\.github\.switch', [^;]*'arrow-swap', root\),/);
+  assert.match(src['tasks.ts']!, /toolbarButton\('acc\.task\.add', 'Add task', 'add', p\.root\)\]/);
+  assert.match(src['agents.ts']!, /toolbarButton\('acc\.agent\.new', 'Start a background agent', 'add', [^;]*\?\? undefined\);/);
+  assert.match(src['slack.ts']!, /act\('Turn on', 'play', 'on'\)/);
+  assert.match(src['task-page.ts']!, /el\('button', 'btn ticket-track'\)/);
+});
+
+test('a primary button with no reason fails, one whose place matches twice fails, and an outlined one isn\'t counted (T-39)', () => {
+  const places = [{ file: 'a.ts', at: /'Go'/, why: 'x' }, { file: 'a.ts', at: /button\('G/, why: 'x' }];
+  assert.deepEqual(primaries({ 'a.ts': "button('Open', 'globe', go, 'primary');" }, places).map((f) => f.matches), [0], 'a primary no place names');
+  assert.deepEqual(primaries({ 'a.ts': "button('Go', 'go', go, 'primary');" }, places).map((f) => f.matches), [2], 'named twice');
+  assert.deepEqual(primaries({ 'b.ts': "button('Go', 'go', go, 'primary');" }, places).map((f) => f.matches), [0], 'another file\'s entries don\'t reach it');
+  assert.deepEqual(primaries({ 'a.ts': "toolbarButton('acc.x', 'Open', 'globe', root, true);\nargButton('acc.y', 'Y', 'y', arg, a.primary);\nel('button', 'btn primary', icon('x'), 'Open org');" }, []).map((f) => f.matches), [0, 0, 0], 'a primary passed in, read from the model or set as a class is found');
+  assert.deepEqual(primaries({ 'a.ts': "toolbarButton('acc.x', 'Open', 'globe', root);\nbutton('Go', 'go', go, 'ghost');" }, places), [], 'outlined, nothing found');
+  assert.deepEqual(primaries({}), [], 'no files, nothing found');
 });

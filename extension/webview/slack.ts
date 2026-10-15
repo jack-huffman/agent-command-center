@@ -82,6 +82,6 @@ export function slackCardView(c: SlackCard): HTMLElement {
     hook,
     c.tail ? el('div', 'actions',
       act('Send a test', 'send', 'test', c.state === 'paused' ? 'primary' : ''),
-      c.state === 'off' ? act('Turn on', 'play', 'on', 'primary') : act('Turn off', 'debug-pause', 'off'),
+      c.state === 'off' ? act('Turn on', 'play', 'on') : act('Turn off', 'debug-pause', 'off'),
       act('Remove', 'trash', 'remove', 'ghost')) : null);
 }
