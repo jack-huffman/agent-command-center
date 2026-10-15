@@ -12,7 +12,7 @@
 import { COLLECT_WORDS, type GeoSaid, judgeWords, WORK_DATA } from './words.ts';
 import { SELECTED_TAB } from './steady.ts';
 
-export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words'] as const;
+export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered'] as const;
 export type Check = (typeof CHECKS)[number];
 
 /** A box in the page's coordinates, in CSS pixels. */
@@ -73,9 +73,17 @@ export interface GeoSnapshot {
   drawn?: string[];
   /** Where the first column of a tracker's board starts, in CSS pixels down the page (T-42). Null where no tracker board is drawn. */
   boardTop?: number | null;
+  /**
+   * Each table cell with text, in a row that has a sticky cell (T-46), measured at the page's first scroll
+   * position: the box its text fills, the row it is in, and whether it is the sticky cell itself.
+   */
+  cells?: GeoCell[];
   /** How many fonts the page loaded before it was sent its model (T-21, steady.ts): none means nothing waited on them. */
   fonts?: number;
 }
+
+/** A table cell's text as drawn, in a row with a sticky cell. */
+export interface GeoCell { what: string; text: string; row: number; sticky: boolean; box: Box }
 
 /** A row button as drawn on the Overview, and as its row's model says it should be named. */
 export interface DrawnButton { row: string; label: string | null }
@@ -190,6 +198,13 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
       if (next && next.y - (r.y + r.h) < OVERVIEW_LINES.minGap) found.push({ check: 'overview', what: g.what, detail: `lines ${i + 1} and ${i + 2} are ${next.y - (r.y + r.h)} px apart, less than ${OVERVIEW_LINES.minGap}` });
     });
   }
+  // A sticky cell floats over its row, so it must not sit on another cell's text, whole or part (T-46).
+  const cells = s.cells ?? [];
+  const plain = cells.filter((c) => !c.sticky);
+  for (const c of plain) {
+    const over = cells.find((o) => o.sticky && o.row === c.row && overlaps(o.box, c.box));
+    if (over) found.push({ check: 'covered', what: c.what, detail: `${quote(c.text).trim()} is covered by the sticky ${over.what}` });
+  }
   const buttons = s.buttons ?? [];
   for (const f of judgeButtons(buttons, expected)) found.push({ check: 'buttons', what: 'the Overview', detail: f });
   if (s.doc.scroll > s.doc.view + 1) found.push({ check: 'sideways', what: 'the page', detail: `scrolls sideways by ${s.doc.scroll - s.doc.view} px` });
@@ -199,7 +214,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   const said = judgeWords(s.said ?? []);
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined };
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -229,7 +244,7 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 13600, clipped: 41700, tab: 348, sideways: 1100, overview: 800, buttons: 450, words: 76400 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 13600, clipped: 41700, tab: 348, sideways: 1100, overview: 800, buttons: 450, words: 76400, covered: 1700 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
@@ -373,12 +388,30 @@ function collectGeometry() {
     if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) continue;
     for (const c of e.classList) drawn.add(c);
   }
+  // The text of each cell in a row with a sticky cell, at the first scroll position (T-46).
+  const cells = [];
+  [...document.querySelectorAll('tr')].forEach((tr, row) => {
+    const tds = [...tr.children].filter((c) => (c.tagName === 'TD' || c.tagName === 'TH') && visible(c));
+    if (!tds.some((c) => style(c).position === 'sticky')) return;
+    for (const c of tds) {
+      const rg = document.createRange();
+      rg.selectNodeContents(c);
+      const r = rg.getBoundingClientRect();
+      const sticky = style(c).position === 'sticky';
+      if (!words(c.textContent) || r.width < 1 || r.height < 1) { if (!sticky) continue; }
+      const cb = c.getBoundingClientRect();
+      // A cell that hides its overflow (td.clip) shows its text only inside itself, so that is all a sticky cell can cover.
+      const cut = !sticky && style(c).overflowX !== 'visible';
+      const cr = sticky ? cb : cut ? { left: Math.max(r.left, cb.left), top: r.top, right: Math.min(r.right, cb.right), bottom: r.bottom } : r;
+      cells.push({ what: what(c), text: words(c.textContent).slice(0, 60), row, sticky, box: box(cr.left, cr.top, cr.right, cr.bottom) });
+    }
+  });
   // Where a tracker's first column starts (T-42).
   const firstCol = document.querySelector('.tracker .board:not(.agent-board) .column');
   const boardTop = firstCol && visible(firstCol) ? Math.round(firstCol.getBoundingClientRect().top + window.scrollY) : null;
   const out = document.createElement('script');
   out.type = 'application/json';
   out.id = 'acc-geometry';
-  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, fonts: window.accFontsFirst ?? 0 }).replace(/</g, '\\\\u003c');
+  out.textContent = JSON.stringify({ controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, fonts: window.accFontsFirst ?? 0 }).replace(/</g, '\\\\u003c');
   document.body.append(out);
 }`;
