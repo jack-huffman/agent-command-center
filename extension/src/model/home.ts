@@ -17,6 +17,7 @@ import type { ConnectModel } from './connect.ts';
 import { environmentsModel, type EnvironmentsModel, type IdentityCard } from './environments.ts';
 import { historyItems } from './history.ts';
 import { landing } from './landing.ts';
+import { overviewCards } from '../../webview/pending.ts';
 import { type AttentionItem, mergeQueues, needsYouCount, type OverviewModel, queueLook, type QueuePanel, type StatTile } from './overview.ts';
 import { type QuestionCard, questionCards } from './questions.ts';
 import { runCard, type RunCard, type RunInput } from './runs.ts';
@@ -173,8 +174,9 @@ export function homeModel(i: HomeInput): HomeModel {
   // What's under way, below Needs you. It never changes the badge, which counts only what needs you.
   const progress = inProgress({ hub, runs: i.runs, finished: i.finished, autopilot: i.autopilot, now: i.now });
   const overview = { projects, questions, attention, stats, ready, queue, history, inProgress: progress };
-  // The page itself is a landing page: a line per item, five to a list, the detail a click away (GH-160).
-  return { kind: 'home', section: i.section, nav, overview: { ...overview, landing: landing(overview, i.now) }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null };
+  // The page itself is a landing page: Needs you, then a card for each other list, the detail a click away (GH-160, T-36).
+  const lists = landing(overview, i.now);
+  return { kind: 'home', section: i.section, nav, overview: { ...overview, landing: lists, cards: overviewCards(lists) }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null };
 }
 
 export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | SettingsModel | TicketModel | HomeModel | AgentModel;

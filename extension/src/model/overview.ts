@@ -12,7 +12,7 @@ import { type Action, type HomeSection, type HubLike, type Look, LOOK, type Mode
 import type { RuleCard } from './rules.ts';
 import type { UpdateCard } from './updates.ts';
 import type { HomeInput } from './home.ts';
-import type { LandingGroup, RowMenu } from './landing.ts';
+import type { LandingGroup, OverviewCard, RowMenu } from './landing.ts';
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
 
 export interface AttentionItem {
@@ -60,8 +60,10 @@ export interface OverviewModel {
   history: HistoryItem[];
   /** Every job under way, grouped by task, below Needs you (D-092). It never adds to the badge. */
   inProgress: ProgressModel;
-  /** The page's lists, a line per item and five to a list, worked out from the rest (GH-160). */
+  /** The page's lists, a line per item, worked out from the rest (GH-160). */
   landing: LandingGroup[];
+  /** A card for each list but Needs you that holds a line, in the page's order (T-36). */
+  cards: OverviewCard[];
 }
 
 /** A project's merge queue on the Overview (GH-73): head first, each with its place and what it waits on. */

@@ -1,8 +1,5 @@
-/* In progress (D-092), on the Overview: its heading folds it, and the machine's line sits under it. Its
-   lines are landing.css's (GH-160). */
-.progress-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 2px 6px 2px 0; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
-.progress-toggle:hover { background: var(--vscode-toolbar-hoverBackground); }
-.lp-progress:not(.folded) .progress-toggle .tool-chev .codicon { transform: rotate(90deg); }
-.machine-line { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 0 8px; }
+/* In progress's machine line (D-092), at the top of its list in the detail its card opens (T-36). Its lines
+   are landing.css's (GH-160). */
+.machine-line { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 0 0 10px; }
 .machine-line .status { cursor: default; font-size: 0.92em; }
 @media (max-width: 520px) { .machine-line { flex-direction: column; gap: 2px; } }

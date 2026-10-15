@@ -4,11 +4,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { HubLike } from '../src/model/shared.ts';
 import { type HomeModel, homeModel } from '../src/model/home.ts';
-import { CAP, landing } from '../src/model/landing.ts';
+import { landing } from '../src/model/landing.ts';
 import type { AttentionItem, OverviewModel } from '../src/model/overview.ts';
 import { LOOK } from '../src/model/shared.ts';
 import type { RuleCard } from '../src/model/rules.ts';
-import { hideSettled, ruleKey, rulesLineTitle } from '../webview/pending.ts';
+import { hideSettled, overviewCards, ruleKey, rulesLineTitle } from '../webview/pending.ts';
 import { sampleLandingHub } from '../scripts/fixtures/landing.ts';
 import { sampleRulesHub } from '../scripts/fixtures/rules.ts';
 import { sampleBoards } from '../scripts/fixtures/boards.ts';
@@ -28,14 +28,16 @@ const withNotes = (hub: HubLike, notes: number): OverviewModel => {
   const o = model(hub).overview;
   const extra = Array.from({ length: notes }, (_, i): AttentionItem => ({ key: `note:${i}`, look: LOOK('Note', 'info', 'neutral'), title: `Note ${i + 1}`, detail: 'Acme', project: 'Acme', actions: [] }));
   const attention = [...extra, ...o.attention];
-  return { ...o, attention, landing: landing({ ...o, attention }, NOW) };
+  const lists = landing({ ...o, attention }, NOW);
+  return { ...o, attention, landing: lists, cards: overviewCards(lists) };
 };
 
-for (const [name, hub, notes] of [['ten suggestions', sampleLandingHub(NOW), 0], ['two suggestions, a list over its cap', sampleRulesHub(NOW), CAP + 1], ['two suggestions, a list back at its cap once they go', sampleRulesHub(NOW), CAP]] as const) {
+for (const [name, hub, notes] of [['ten suggestions, their line first on the card', sampleLandingHub(NOW), 0], ['two suggestions, with six notes in their list', sampleRulesHub(NOW), 6], ['two suggestions, with three notes in their list', sampleRulesHub(NOW), 3]] as const) {
   test(`${name}: hiding the first, some, or every one gives the Overview the extension would send without them, the last one taking the line with it (T-35)`, () => {
     const all = ids(model(hub));
     assert.ok(all.length >= 2, `${all.length} suggestions`);
-    assert.equal(!!withNotes(hub, notes).landing.find((g) => g.key === 'moment')?.all, notes > 0, 'the list is over its cap, or not');
+    const card = withNotes(hub, notes).cards.find((c) => c.key === 'moment');
+    assert.equal(card?.line, rulesLineTitle(all.length), 'the card leads with the suggested rules\' line, before any note');
     const counts = [1, all.length - 1, all.length];
     for (const n of counts) {
       const gone = new Set(all.slice(0, n));
@@ -44,7 +46,8 @@ for (const [name, hub, notes] of [['ten suggestions', sampleLandingHub(NOW), 0],
       const got = hideSettled(full, new Set([...gone].map((id) => key({ project: full.attention.find((a) => a.rule?.id === id)!.rule!.project, id }))), key);
       assert.deepEqual(got.attention, want.attention, `${n} hidden: what waits on you`);
       assert.deepEqual(got.landing, want.landing, `${n} hidden: every list, the suggested rules' line and its count`);
-      const line = got.landing.flatMap((g) => g.all ?? g.rows).find((r) => r.key === 'rules');
+      assert.deepEqual(got.cards, want.cards, `${n} hidden: the When you have a moment card's count and line (T-36)`);
+      const line = got.landing.flatMap((g) => g.all).find((r) => r.key === 'rules');
       assert.equal(line?.title, n === all.length ? undefined : rulesLineTitle(all.length - n));
     }
   });

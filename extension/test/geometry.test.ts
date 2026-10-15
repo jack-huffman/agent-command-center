@@ -2,7 +2,7 @@
 // that stopped looking can't pass. The run itself measures the real pages in Chrome: npm run screenshot.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeButtons, OVERVIEW_LINES, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
+import { COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeButtons, judgeCards, OVERVIEW_LINES, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
 const control = (what: string, x: number, y: number, o: Partial<GeoControl> = {}): GeoControl => ({ what, text: what, box: { x, y, w: 80, h: 24 }, inside: [], layer: null, ...o });
@@ -20,22 +20,42 @@ test('a drawing that breaks no rule passes, and says how much each check examine
   assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1 });
 });
 
-test('the Overview\'s lines are each one line high, five to a list at most, with a gap between each (GH-160)', () => {
+test('the Overview\'s lines are each one line high, three in Needs you at most, with a gap between each (GH-160, T-36)', () => {
   const at = (y: number, h = 36) => ({ x: 0, y, w: 900, h });
   const list = (what: string, rows: { x: number; y: number; w: number; h: number }[]) => fine({ overview: { groups: [{ what, rows }] } });
-  // Five lines of 36 px, 6 px apart: as the page draws them.
+  // Three lines of 32 px, 5 px apart: as the page draws them.
+  const three = [0, 37, 74].map((y) => at(y, 32));
+  assert.deepEqual(found(list('needs-you', three)), []);
+  assert.equal(judge(list('needs-you', three), true, []).examined.overview, 3, 'each line is examined');
+  assert.deepEqual(found(list('needs-you', [...three, at(111, 32)])), ['overview: needs-you: shows 4 lines, more than 3']);
+  // A list a detail shows over the page holds every line, each still one line high.
   const five = [0, 42, 84, 126, 168].map((y) => at(y));
-  assert.deepEqual(found(list('needs-you', five)), []);
-  assert.equal(judge(list('needs-you', five), true, []).examined.overview, 5, 'each line is examined');
-  assert.deepEqual(found(list('history', [...five, at(210)])), ['overview: history: shows 6 lines, more than 5']);
+  assert.deepEqual(found(list('detail:progress', [...five, at(210)])), [], 'a detail\'s list isn\'t capped');
+  assert.deepEqual(found(list('detail:progress', [at(0), at(42, 90)])), [`overview: detail:progress: line 2 is 90 px high, more than one line's ${OVERVIEW_LINES.maxHeight}`]);
   assert.deepEqual(found(list('needs-you', [at(0), at(42, 160)])), [`overview: needs-you: line 2 is 160 px high, more than one line's ${OVERVIEW_LINES.maxHeight}`], 'a question drawn in full is no line');
   assert.deepEqual(found(list('ready', [at(0), at(36), at(72)])), ['overview: ready: lines 1 and 2 are 0 px apart, less than 4', 'overview: ready: lines 2 and 3 are 0 px apart, less than 4'], 'rows that share one bar');
   assert.deepEqual(found(list('ready', [at(72), at(0), at(36)])).length, 2, 'measured in the order they\'re drawn down the page, not the order found');
   assert.deepEqual(found(fine({ overview: { groups: [{ what: 'a', rows: [at(0), at(42)] }, { what: 'b', rows: [at(44)] }] } })), [], 'a gap is between neighbours in one list');
   // The Overview with no lines has stopped being looked at; another page has nothing to measure.
-  assert.deepEqual(found(fine({ overview: { groups: [] } })), ['overview: the page: is the Overview, and examined no lines on it']);
+  assert.deepEqual(found(fine({ overview: { groups: [] } })), ['overview: the page: is the Overview, and examined no lines or cards on it']);
   assert.deepEqual(found(fine({ overview: null })), []);
-  assert.deepEqual(OVERVIEW_LINES, { maxHeight: 44, minGap: 4, maxRows: 5 }, 'pinned');
+  assert.deepEqual(OVERVIEW_LINES, { maxHeight: 44, minGap: 4, maxRows: 3 }, 'pinned');
+});
+
+test('the Overview\'s cards line up in a grid: one out of line, of another width, height or column fails; an empty Needs you with cards is still looked at (T-36)', () => {
+  const card = (what: string, x: number, y: number, w = 300, h = 64) => ({ what, box: { x, y, w, h } });
+  const grid = [card('a', 0, 0), card('b', 312, 0), card('c', 624, 0), card('d', 0, 76), card('e', 312, 76)];
+  const cards = (cs: ReturnType<typeof card>[]) => fine({ overview: { groups: [{ what: 'needs-you', rows: [] }], cards: cs } });
+  assert.deepEqual(found(cards(grid)), [], 'three columns, two rows');
+  assert.equal(judge(cards(grid), true, []).examined.overview, 5, 'each card is examined, with no lines');
+  assert.deepEqual(judgeCards([]), [], 'no cards, nothing to line up');
+  assert.deepEqual(judgeCards([card('a', 0, 0)]), [], 'one card lines up with itself');
+  assert.deepEqual(judgeCards([...grid.slice(0, 4), card('e', 312, 76, 280)]), ['e is 280 px wide, not 300 as the first card is']);
+  assert.deepEqual(judgeCards([...grid.slice(0, 4), card('e', 340, 76)]), ['e starts at 340 px, in none of the first row\'s columns']);
+  assert.deepEqual(judgeCards([card('a', 0, 0), card('b', 312, 0, 300, 80)]), ['a is 64 px high, not as high as the cards beside it', 'b is 80 px high, not as high as the cards beside it']);
+  assert.deepEqual(judgeCards([card('a', 0, 0), card('b', 312, 20)]), ['a is out of line with the cards beside it', 'b starts at 312 px, in none of the first row\'s columns', 'b is out of line with the cards beside it'], 'a card dropped 20 px below its row');
+  // The run judges them: a page with a card out of its column fails the overview check.
+  assert.deepEqual(found(cards([...grid.slice(0, 4), card('e', 340, 76)])), ['overview: the cards: e starts at 340 px, in none of the first row\'s columns']);
 });
 
 test('two controls that overlap fail; one inside the other, or one floating in a sticky layer, doesn\'t (GH-105)', () => {

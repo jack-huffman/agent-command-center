@@ -94,7 +94,11 @@ test('what the cases expect comes from the same fixtures the pages draw: ten rul
   assert.ok(d.rules.every((r) => isFromWebview(r.accept)), 'every Accept the cases expect is one the extension takes');
   assert.deepEqual(Object.keys(d.rules[1]!.accept), ['type', 'project', 'id', 'line', 'title', 'check']);
   assert.ok((d.rules[1]?.sources ?? 0) > 4, 'the second rule has more reviews than its fold shows');
-  assert.deepEqual(d.list, { key: 'needs-you', title: 'Needs you', shown: 5, total: 19 });
+  assert.deepEqual(d.list, { key: 'needs-you', title: 'Needs you', shown: 3, total: 19 });
+  // The cards the Overview case opens (T-36): every list but Needs you, each with every line, History in full.
+  assert.deepEqual(d.cards.map((c) => [c.key, c.lines, c.history]), [['progress', 6, false], ['ready', 6, false], ['moment', d.cards.find((c) => c.key === 'moment')!.lines, false], ['history', 12, true]]);
+  assert.ok(d.cards.every((c) => /^.+, \d+: .+$/.test(c.name)), 'each card\'s name holds its count');
+  assert.ok(d.machine >= 2, `${d.machine} facts on the machine line`);
   assert.equal(d.rulesOpens, '{"kind":"rules"}');
   assert.deepEqual([d.task.key, (d.task.message.model as { kind: string }).kind, d.task.peek], ['ACME-12', 'ticket', '/Users/me/code/acme-service#ACME-12']);
   // The Tasks board the cases open holds the card they click.
@@ -105,7 +109,7 @@ test('the task page case opens ACME-21\'s page, whose analysis has wording findi
   const d = behaviourData(models(), now);
   assert.deepEqual(d.wording.map((f) => f.place), ['Criterion 2', 'Assumption 1'], 'two findings, from the sample analysis');
   assert.ok(d.wording.every((f) => f.message && f.text), 'each has why and its line');
-  const c = CASES.find((x) => x.page === 'ticket-questions');
+  const c = CASES.find((x) => x.page === 'ticket-questions' && x.name.startsWith('task page:'));
   assert.ok(c, 'a case opens the task page');
   const m = caseModel(c, models()) as { kind: string; key: string };
   assert.deepEqual([m.kind, m.key], ['ticket', 'ACME-21']);

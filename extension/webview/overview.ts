@@ -1,52 +1,40 @@
-// The Overview, a landing page (GH-160): what needs you, what waits on you, what's in progress, the stat
-// tiles, the merge queue, what's ready and History, a line each, five to a list. Detail opens on a click.
+// The Overview, a landing page (GH-160, T-36): a header with one button, Needs you first, its first three
+// lines, then a quiet card for each other list. A card opens its list in full over the page.
 
 import type { HomeModel } from '../src/model/home.ts';
-import type { GroupKey } from '../src/model/landing.ts';
-import { type Child, el, icon, sectionTitle, toolbarButton } from './dom.ts';
-import { landingGroup } from './landing.ts';
-import { renderInProgress } from './progress.ts';
-import { go, type PageArea } from './state.ts';
+import type { Action } from '../src/model/shared.ts';
+import { moreMenu } from './boards.ts';
+import { type Child, el, pageHeader, refreshPage, toolbarButton } from './dom.ts';
+import { landingCard, landingGroup } from './landing.ts';
+import { api, type PageArea } from './state.ts';
+
+/** What the header's ⋯ menu holds (T-36): each did the same as its button in the header before. */
+export const HEADER_MENU = [
+  { command: 'acc.agent.new', label: 'Start an agent', icon: 'hubot' },
+  { command: 'acc.trackers.add', label: 'Add a tracker', icon: 'plug' },
+  { command: 'refresh', label: 'Refresh', icon: 'refresh' },
+] as const;
+
+/** The header's ⋯ menu: Start an agent and Add a tracker on the project, as their buttons did, and Refresh. */
+function headerMenu(root: string | undefined): HTMLElement | null {
+  const items = HEADER_MENU.filter((x) => root || x.command === 'refresh').map((x): Action => ({ ...x, ref: { project: root } }));
+  return moreMenu('overview-header', 'the Overview', items, (a) => (a.command === 'refresh' ? refreshPage() : api.postMessage({ type: 'toolbar', command: a.command, project: root })));
+}
 
 export function renderOverview(m: HomeModel): Node[] {
   const o = m.overview;
-  const people = o.questions.length + o.attention.filter((a) => a.look.tone === 'orange').length;
-  const project = o.projects[0];
-  const summary = [
-    people ? `${people} thing${people === 1 ? '' : 's'} need${people === 1 ? 's' : ''} you` : 'Nothing needs you right now',
-    project ? `${project.name}${project.branch ? ` on ${project.branch}` : ''}` : '',
-    project?.trackers.length ? project.trackers.join(' and ') : '',
-  ].filter(Boolean).join(' · ');
-  const root = project?.root;
-  const tools: Child[] = root ? [
-    toolbarButton('acc.task.add', 'Add task', 'add', root, true),
-    toolbarButton('acc.agent.new', 'Start an agent', 'hubot', root),
-    toolbarButton('acc.trackers.add', 'Add a tracker', 'plug', root),
-  ] : [toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true)];
-  const out: Node[] = [sectionTitle('Overview', summary, ...tools)];
-  const group = (k: GroupKey) => o.landing.find((g) => g.key === k)!;
-  const shown = (k: GroupKey) => group(k).rows.length > 0 || group(k).empty !== null;
-
-  // What needs a person, first and alone at the top; what waits on you when you have a moment, apart.
-  out.push(landingGroup(group('needs-you')));
-  if (shown('moment')) out.push(landingGroup(group('moment')));
-  out.push(renderInProgress(group('progress'), o.inProgress));
-
-  // At a glance: each tile opens its section.
-  const tiles = el('div', 'tiles');
-  for (const s of o.stats) {
-    const tile = el('button', `tile tone-edge-${s.tone}`, el('div', 'tile-top', icon(s.icon, s.tone === 'neutral' ? undefined : s.tone), el('span', 'tile-label', s.label)), el('div', 'tile-value', s.value), el('div', 'muted small', s.hint)) as HTMLButtonElement;
-    tile.type = 'button';
-    tile.addEventListener('click', () => go(s.section));
-    tiles.append(tile);
-  }
-  out.push(tiles);
-
-  // Each repo's merge queue, where auto-merge is on (GH-73): head first, with what each waits on.
-  if (shown('queue')) out.push(landingGroup(group('queue')));
-  // Ready work, its top five, then the last five things that happened.
-  out.push(landingGroup(group('ready')), landingGroup(group('history')));
-  return out;
+  const needs = o.landing.find((g) => g.key === 'needs-you')!;
+  const summary = needs.count ? `${needs.count} thing${needs.count === 1 ? '' : 's'} need${needs.count === 1 ? 's' : ''} you` : 'All clear: nothing needs you right now';
+  const root = o.projects[0]?.root;
+  const tools: Child[] = [
+    root ? toolbarButton('acc.task.add', 'Add task', 'add', root, true) : toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true),
+    headerMenu(root),
+  ];
+  const cards = el('div', 'lp-cards', ...o.cards.map(landingCard));
+  cards.setAttribute('role', 'group');
+  cards.setAttribute('aria-label', 'Your other lists');
+  // What needs a person, first and alone at the top; every other list a card under it.
+  return [pageHeader('Overview', summary, ...tools), landingGroup(needs), ...(o.cards.length ? [cards] : [])];
 }
 
 export const area: PageArea = {

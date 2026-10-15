@@ -75,10 +75,21 @@ export interface BehaviourData {
   rules: { id: string; line: string; sources: number; accept: Record<string, unknown> }[];
   /** The opener Review on the suggested rules' line carries. */
   rulesOpens: string;
+  /** The opener the first question in Needs you carries, on its line and its Answer. */
+  questionOpens: string;
   /** A list with more than its page shows: its key, its heading, how many it shows and how many it holds. */
   list: { key: string; title: string; shown: number; total: number };
   /** The wording findings ACME-21's page lists (T-12), in its order: where each is, why, and its line. */
   wording: { place: string; message: string; text: string }[];
+  /**
+   * The Overview's cards (T-36), in its order: each one's list, its name as read out, and what it opens:
+   * the list's title and every line, or History.
+   */
+  cards: { key: string; name: string; opens: string; title: string; lines: number; history: boolean }[];
+  /** How many facts In progress's machine line holds, at the top of its detail. */
+  machine: number;
+  /** The project the header's Start an agent and Add a tracker act on. */
+  project: string;
 }
 
 /** One case: its name, the page it opens, and what it does there. */
@@ -111,10 +122,14 @@ async function openTask(t: Probe): Promise<{ dialog: HTMLDialogElement; body: HT
   return { dialog, body: t.find('.task-modal-body', dialog), card };
 }
 
-/** Opens the suggested rules over the Overview with Review on their line, or the line itself. Returns what opened it. */
-async function openRules(t: Probe, by: 'button' | 'line' = 'button'): Promise<{ dialog: HTMLDialogElement; body: HTMLElement; opener: HTMLElement }> {
-  const opener = t.find(`${by === 'button' ? 'button' : 'li'}[data-opens="${CSS.escape(t.data.rulesOpens)}"]`);
+/**
+ * Opens the suggested rules over the Overview: the When you have a moment card, then Review on their line in
+ * the list it opens (T-36). Returns the card, which focus goes back to when they close.
+ */
+async function openRules(t: Probe): Promise<{ dialog: HTMLDialogElement; body: HTMLElement; opener: HTMLElement }> {
+  const opener = t.find('[data-overview-card="moment"]');
   await t.click(opener);
+  await t.click(t.find(`button[data-opens="${CSS.escape(t.data.rulesOpens)}"]`, t.find('dialog.detail-modal')));
   const dialog = t.find<HTMLDialogElement>('dialog.detail-modal');
   t.check('the suggested rules open over the Overview', dialog.open);
   t.check('its title counts them', t.find('.detail-title', dialog).textContent === `Suggested rules: ${t.data.rules.length}`, t.find('.detail-title', dialog).textContent);
@@ -140,10 +155,11 @@ export const HELPERS = [openTask, openRules, shownRule, page];
 export const CASES: Case[] = [
   {
     name: 'loading screen: a tab rebuilt with a saved scroll returns to it on its first model',
-    page: 'overview-landing',
+    // A task's page, which is long enough to scroll at this size; the calm Overview isn't (T-36).
+    page: 'ticket-questions',
     opening: { scroll: 150 },
     async run(t) {
-      const main = t.find('.home-main');
+      const main = document.scrollingElement as HTMLElement;
       t.check('the page scrolls at this size, so the scroll is worth checking', main.scrollHeight - main.clientHeight > 150, { scroll: main.scrollHeight, client: main.clientHeight });
       t.check('the first model replaced the loading screen', t.all('.opening').length === 0, t.all('.opening').length);
       t.check('the page is at the saved scroll', main.scrollTop === 150, { now: main.scrollTop });
@@ -232,23 +248,29 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'detail modal: Escape closes it and focus goes back to Review, which opened it',
+    name: 'detail modal: Escape closes it and focus goes back to Answer, which opened it',
     page: 'overview-landing',
     async run(t) {
-      const { dialog, opener } = await openRules(t);
+      const opener = t.find(`button[data-opens="${CSS.escape(t.data.questionOpens)}"]`);
+      await t.click(opener);
+      const dialog = t.find<HTMLDialogElement>('dialog.detail-modal');
+      t.check('the question opens over the Overview', dialog.open);
       t.check('focus moves into it', dialog.contains(document.activeElement), document.activeElement?.className);
       await t.escape(dialog);
       t.check('Escape closes it', !dialog.open);
       t.check('the tab forgets it was open', t.memory().detail === undefined, t.memory().detail);
-      t.check('focus goes back to Review', document.activeElement === opener, document.activeElement?.className);
+      t.check('focus goes back to Answer, not its line', document.activeElement === opener, document.activeElement?.className);
     },
   },
   {
     name: 'detail modal: a click on the backdrop closes it; one inside it, or a drag out of it, doesn\'t; focus goes back to the line that opened it',
     page: 'overview-landing',
     async run(t) {
-      // Opened by a click on the line, not its Review: focus goes back to the line.
-      const { dialog, body, opener } = await openRules(t, 'line');
+      // Opened by a click on the question's line, not its Answer: focus goes back to the line.
+      const opener = t.find(`li[data-opens="${CSS.escape(t.data.questionOpens)}"]`);
+      await t.click(opener);
+      const dialog = t.find<HTMLDialogElement>('dialog.detail-modal');
+      const body = t.find('.task-modal-body', dialog);
       await t.click(body);
       t.check('a click inside it leaves it open', dialog.open);
       await t.backdrop(dialog, true);
@@ -259,7 +281,7 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'detail modal: a new model under it leaves it open on the same rule, scrolled and typed in, and focus finds Review again',
+    name: 'detail modal: a new model under it leaves it open on the same rule, scrolled and typed in, and focus finds the card that opened its list again',
     page: 'overview-landing',
     async run(t) {
       const { dialog, body, opener } = await openRules(t);
@@ -279,10 +301,10 @@ export const CASES: Case[] = [
       const again = t.find<HTMLTextAreaElement>('textarea.rule-input', dialog);
       t.check('the draft keeps what\'s typed', again.value === 'A rule line, edited', again.value);
       t.check('and keeps focus', document.activeElement === again, document.activeElement?.className);
-      t.check('the page redrew: the Review that opened it has gone', !opener.isConnected);
+      t.check('the page redrew: the card that opened its list has gone', !opener.isConnected);
       await t.escape(dialog);
-      const review = t.find(`button[data-opens="${CSS.escape(t.data.rulesOpens)}"]`);
-      t.check('focus goes to Review on the redrawn page', document.activeElement === review, document.activeElement?.className);
+      const card = t.find('[data-overview-card="moment"]');
+      t.check('focus goes to the card on the redrawn page', document.activeElement === card, document.activeElement?.className);
     },
   },
   {
@@ -300,6 +322,54 @@ export const CASES: Case[] = [
       t.check('holding every line', t.all('.lp-row', dialog).length === t.data.list.total, t.all('.lp-row', dialog).length);
       await t.escape(dialog);
       t.check('focus goes back to Show all', document.activeElement === more, document.activeElement?.className);
+    },
+  },
+  {
+    name: 'overview: each card opens its list in full over the page, In progress with its machine line, and focus comes back to it',
+    page: 'overview-landing',
+    async run(t) {
+      const cards = t.all<HTMLButtonElement>('[data-overview-card]');
+      t.check('a card for each list but Needs you that holds a line, in order', JSON.stringify(cards.map((c) => c.dataset.overviewCard)) === JSON.stringify(t.data.cards.map((c) => c.key)), cards.map((c) => c.dataset.overviewCard));
+      for (const want of t.data.cards) {
+        const card = t.find<HTMLButtonElement>(`[data-overview-card="${CSS.escape(want.key)}"]`);
+        t.check(`${want.key}: a button, so Enter and Space open it too`, card.tagName === 'BUTTON' && card.type === 'button', card.tagName);
+        t.check(`${want.key}: its name holds its count`, card.getAttribute('aria-label') === want.name, card.getAttribute('aria-label'));
+        await t.click(card);
+        const dialog = t.find<HTMLDialogElement>('dialog.detail-modal');
+        t.check(`${want.key}: it opens`, dialog.open);
+        t.check(`${want.key}: the tab remembers what it opened`, JSON.stringify(t.memory().detail) === want.opens, t.memory().detail);
+        t.check(`${want.key}: headed with its list`, t.find('.detail-title', dialog).textContent === want.title, t.find('.detail-title', dialog).textContent);
+        const lines = t.all(want.history ? '.history-feed > li' : '.lp-row', dialog).length;
+        t.check(`${want.key}: holding every line`, lines === want.lines, lines);
+        if (want.key === 'progress') t.check('In progress: its machine line on top', t.all('.machine-line .status', dialog).length === t.data.machine, t.all('.machine-line .status', dialog).length);
+        await t.escape(dialog);
+        t.check(`${want.key}: focus comes back to the card`, document.activeElement === card, document.activeElement?.className);
+      }
+    },
+  },
+  {
+    name: 'overview: the header\'s one button is Add task, and its ⋯ menu sends what Start an agent, Add a tracker and Refresh did',
+    page: 'overview-landing',
+    async run(t) {
+      const header = t.find('.page-header');
+      const buttons = t.all<HTMLButtonElement>('.toolbar > .btn', header);
+      t.check('one button in the header: Add task', buttons.length === 1 && buttons[0]!.textContent?.trim() === 'Add task', buttons.map((b) => b.textContent?.trim()));
+      const open = async () => {
+        await t.click(t.find<HTMLButtonElement>('.more-btn', header));
+        return t.all<HTMLButtonElement>('.more-item', header);
+      };
+      const items = await open();
+      t.check('the menu names each, with its icon', JSON.stringify(items.map((b) => [b.textContent?.trim(), !!b.querySelector('.codicon')])) === JSON.stringify([['Start an agent', true], ['Add a tracker', true], ['Refresh', true]]), items.map((b) => b.textContent?.trim()));
+      t.check('it opens with focus on its first item', document.activeElement === items[0], document.activeElement?.className);
+      for (const label of ['Start an agent', 'Add a tracker', 'Refresh']) {
+        const item = (await open()).find((b) => b.textContent?.trim() === label);
+        if (!item) throw new Error(`not found: ${label} in the header's menu`);
+        await t.click(item);
+      }
+      const toolbar = t.sent('toolbar').map((m) => [m.command, m.project]);
+      t.check('Start an agent and Add a tracker run their commands on the project, as their buttons did', JSON.stringify(toolbar) === JSON.stringify([['acc.agent.new', t.data.project], ['acc.trackers.add', t.data.project]]), toolbar);
+      t.check('Refresh asks the extension to read again, as its button did', t.sent('refresh').length === 1, t.sent('refresh'));
+      t.check('a pick closes the menu', t.all('.more-menu:not([hidden])', header).length === 0);
     },
   },
   {
@@ -348,8 +418,9 @@ export const CASES: Case[] = [
       const { dialog } = await openRules(t);
       const n = t.data.rules.length;
       const first = t.data.rules[0]!;
-      const line = () => t.find(`li[data-opens="${CSS.escape(t.data.rulesOpens)}"]`).textContent ?? '';
-      t.check('the rules\' line counts them all', line().includes(`${n} suggested rules`), line());
+      // The rules' line leads the When you have a moment card (T-36), as it leads that list.
+      const line = () => document.querySelector('[data-overview-card="moment"]')?.textContent ?? '';
+      t.check('the card\'s line counts them all', line().includes(`${n} suggested rules`), line());
       const accept = t.all<HTMLButtonElement>('.detail-actions button', dialog).find((b) => b.textContent?.trim() === 'Accept…');
       if (!accept) throw new Error('not found: Accept… on the first rule');
       await t.click(accept);
@@ -363,7 +434,7 @@ export const CASES: Case[] = [
       t.check('from acc\'s reply, it and its Confirm are gone', gone(), shownRule(t, dialog));
       t.check('the detail shows the next one, counting one fewer', shownRule(t, dialog).place === `1 of ${n - 1}` && shownRule(t, dialog).line === t.data.rules[1]?.line, shownRule(t, dialog));
       t.check('its title counts one fewer', t.find('.detail-title', dialog).textContent === `Suggested rules: ${n - 1}`, t.find('.detail-title', dialog).textContent);
-      t.check('the rules\' line counts one fewer', line().includes(`${n - 1} suggested rules`), line());
+      t.check('the card\'s line counts one fewer', line().includes(`${n - 1} suggested rules`), line());
       await t.post({ type: 'state', model: t.model });
       t.check('a model that still holds it doesn\'t bring it back', gone() && shownRule(t, dialog).place === `1 of ${n - 1}`, shownRule(t, dialog));
       // The next one's accept, which acc refuses, as it does one another window already accepted: its reason shows, and it stays.
@@ -388,7 +459,7 @@ export const CASES: Case[] = [
       }
       t.check('every one sent its dismiss', t.sent('rule-dismiss').length === n - 1, t.sent('rule-dismiss').length);
       t.check('none left, the detail closes', !dialog.open);
-      t.check('and the rules\' line goes', !document.querySelector(`li[data-opens="${CSS.escape(t.data.rulesOpens)}"]`));
+      t.check('and the rules\' line goes from the card', !line().includes('suggested rule'), line());
     },
   },
   {
@@ -438,13 +509,17 @@ export const MUTANTS: Mutant[] = [
   { name: 'a drag out of it closes it', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (onBackdrop(dialog, e)) shut();', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
   { name: 'the task modal leaves focus where it falls', file: 'task-modal.ts', find: 'document.querySelector<HTMLElement>(`[data-peek="${CSS.escape(peekKey(m.project, m.key))}"]`)?.focus();', replace: '', kills: [caseNamed('task modal: Close sends focus back')] },
   { name: 'the detail leaves focus where it falls', file: 'detail.ts', find: '(openers.find((e) => e.tagName === openedBy) ?? openers[0])?.focus();', replace: '', kills: [caseNamed('detail modal: a new model under it')] },
+  { name: 'a detail opened from a card\'s list sends focus nowhere', file: 'detail.ts', find: 'CSS.escape(from ?? opensKey(d))', replace: 'CSS.escape(opensKey(d))', kills: [caseNamed('detail modal: a new model under it')] },
   { name: 'the detail sends focus to the first thing that opens it', file: 'detail.ts', find: '(openers.find((e) => e.tagName === openedBy) ?? openers[0])?.focus();', replace: 'openers[0]?.focus();', kills: [caseNamed('detail modal: Escape')] },
   { name: 'the task modal draws again with every board model', file: 'task-modal.ts', find: 'const own = model === under;', replace: 'const own = true;', kills: [caseNamed('task modal: a new board model')] },
   { name: 'the task modal doesn\'t draw again with its own fold', file: 'task-modal.ts', find: 'if (own && state.modal && dialog?.open) draw();', replace: 'if (!own && state.modal && dialog?.open) draw();', kills: [caseNamed('task modal: Show all on a fold')] },
   { name: 'the detail starts at its top on every draw', file: 'detail.ts', find: 'const y = fresh ? 0 : modal.body.scrollTop;', replace: 'const y = 0;', kills: [caseNamed('detail modal: a new model under it')] },
   { name: 'a rule\'s draft forgets what\'s typed', file: 'rules.ts', find: "box.addEventListener('input', () => { keep(c, name, box.value); onInput(); });", replace: "box.addEventListener('input', () => { onInput(); });", kills: [caseNamed('detail modal: a new model under it')] },
   { name: 'the detail doesn\'t draw again after the page does', file: 'detail.ts', find: "if (model.kind === 'home' && memory().detail) draw();", replace: "if (model.kind === 'home' && memory().detail && model !== state.last) draw();", kills: [caseNamed('detail modal: Show all on a rule'), caseNamed('detail modal: Accept')] },
-  { name: 'Show all opens only what the page shows', file: 'detail.ts', find: 'const rows = g ? g.all ?? g.rows : [];', replace: 'const rows = g ? g.rows : [];', kills: [caseNamed('detail modal: Show all opens')] },
+  { name: 'Show all opens only what the page shows', file: 'detail.ts', find: 'const rows = g ? g.all : [];', replace: 'const rows = g ? g.rows : [];', kills: [caseNamed('detail modal: Show all opens'), caseNamed('overview: each card opens')] },
+  { name: 'a card opens nothing', file: 'landing.ts', find: "b.addEventListener('click', () => openDetail(c.opens));", replace: "b.addEventListener('click', () => undefined);", kills: [caseNamed('overview: each card opens')] },
+  { name: 'In progress\'s detail drops its machine line', file: 'detail.ts', find: "const top = d.group === 'progress' ? machineLine(o.inProgress) : null;", replace: 'const top = null;', kills: [caseNamed('overview: each card opens')] },
+  { name: 'the header\'s menu runs each item as a task\'s action', file: 'overview.ts', find: "(a.command === 'refresh' ? refreshPage() : api.postMessage({ type: 'toolbar', command: a.command, project: root }))", replace: "api.postMessage({ type: 'run', command: a.command, ref: a.ref })", kills: [caseNamed('overview: the header')] },
   { name: 'Next stays put', file: 'detail.ts', find: "const next = button('Next', 'arrow-right', () => go(at + 1), 'ghost small');", replace: "const next = button('Next', 'arrow-right', () => go(at), 'ghost small');", kills: [caseNamed('detail modal: Previous and Next'), caseNamed('detail modal: Accept')] },
   { name: 'Previous stays put', file: 'detail.ts', find: "const prev = button('Previous', 'arrow-left', () => go(at - 1), 'ghost small');", replace: "const prev = button('Previous', 'arrow-left', () => go(at), 'ghost small');", kills: [caseNamed('detail modal: Previous and Next')] },
   { name: 'the detail shows the first rule whatever the pager says', file: 'detail.ts', find: 'card(items[at]!)', replace: 'card(items[0]!)', kills: [caseNamed('detail modal: Previous and Next'), caseNamed('detail modal: Accept')] },
@@ -474,7 +549,14 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     task: { project: ROOT, key: ticket.key, peek: `${ROOT}#${ticket.key.toUpperCase()}`, message: { type: 'task-modal', model: ticket, tab: { type: 'ticket', project: ROOT, tracker: 0, key: ticket.key } } },
     rules: rules.map((r) => ({ id: r.id, line: r.line, sources: r.sources.length, accept: accept(r) })),
     rulesOpens: JSON.stringify({ kind: 'rules' }),
+    questionOpens: JSON.stringify({ kind: 'question', id: o.questions[0]!.id }),
     list: { key: list.key, title: list.title, shown: list.rows.length, total: list.total },
+    cards: o.cards.map((c) => {
+      const g = o.landing.find((x) => x.key === c.key)!;
+      return { key: c.key, name: `${c.title}, ${c.count}: ${c.line}`, opens: JSON.stringify(c.opens), title: c.opens.kind === 'history' ? 'History' : `${g.title}: ${g.total}`, lines: g.total, history: c.opens.kind === 'history' };
+    }),
+    machine: o.inProgress.machine.length,
+    project: ROOT,
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
   };
 }

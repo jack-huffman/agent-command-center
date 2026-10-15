@@ -60,9 +60,17 @@ export function toolbarButton(command: string, label: string, iconName: string, 
 export function header(title: string, summary: string, ...tools: Child[]): HTMLElement {
   const refresh = el('button', 'btn ghost', icon('refresh'), 'Refresh') as HTMLButtonElement;
   refresh.type = 'button';
-  refresh.addEventListener('click', () => api.postMessage({ type: 'refresh' }));
-  return el('header', 'page-header', el('div', 'titles', el('h1', '', title), el('p', 'summary', summary)), el('div', 'toolbar', ...tools, refresh));
+  refresh.addEventListener('click', () => refreshPage());
+  return pageHeader(title, summary, ...tools, refresh);
 }
+
+/** A page's header with only the tools it's given: the Overview's puts Refresh in its ⋯ menu (T-36). */
+export function pageHeader(title: string, summary: string, ...tools: Child[]): HTMLElement {
+  return el('header', 'page-header', el('div', 'titles', el('h1', '', title), el('p', 'summary', summary)), el('div', 'toolbar', ...tools));
+}
+
+/** Refresh: the extension reads again what the section shows. */
+export const refreshPage = (): void => api.postMessage({ type: 'refresh' });
 
 export function empty(text: string, ...tools: Child[]): HTMLElement {
   return el('div', 'empty', el('p', '', text), el('div', 'toolbar', ...tools));

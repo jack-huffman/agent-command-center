@@ -6,7 +6,7 @@ import { tempDir } from '../../packages/core/test/support.ts';
 import { HOME_SECTIONS } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
-import { afterModel, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, PAGES, pageFor, sampleModel, startState } from '../scripts/screenshot.ts';
+import { afterModel, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, OVERVIEW_LISTS, PAGES, pageFor, sampleModel, startState } from '../scripts/screenshot.ts';
 import { ROOT } from '../scripts/fixtures/shared.ts';
 import { cssRules, pageStyles, palettes, readsVars, styleFile, styleFiles, vscodeDefaults } from '../scripts/styles.ts';
 
@@ -50,12 +50,18 @@ test('every section of the page, and a ticket, has sample data built by the real
     // The Overview with a suggested rule and check, neutral and after everything orange (GH-102).
     else if (kind.startsWith('rules')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.attention.filter((a) => a.rule).map((a) => [a.rule!.kind, a.look.tone])], ['home', 'overview', [['rule', 'neutral'], ['check', 'neutral']]]);
     // The busy Overview as a landing page, and with a detail opened over it (GH-160): ten suggested rules, six
-    // tasks building, each with a check, three questions, two update drafts and twelve things in History.
-    else if (['overview-landing', 'overview-answer', 'overview-drafts', 'overview-history'].includes(kind)) {
+    // tasks building, each with a check, three questions, two update drafts and twelve things in History. The
+    // same with Needs you's Show all, or a card's list, open in full (T-36).
+    else if (['overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment'].includes(kind)) {
       const o = (m as HomeModel).overview;
+      const list = OVERVIEW_LISTS[kind];
+      if (list) assert.deepEqual(startState(kind), { detail: { kind: 'list', group: list } });
+      if (list) assert.ok(o.landing.find((g) => g.key === list)!.total > 3, `${kind}: more than Needs you would show`);
       assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.length], ['home', 'overview', 10, 6, 3, 2, 12]);
       assert.ok(o.inProgress.groups.every((g) => g.jobs.some((j) => j.kind === 'check')), 'each building task has its checks');
     }
+    // The busy Overview with nothing that needs you (T-36): its calm line, and the cards but When you have a moment, which emptied with it.
+    else if (kind === 'overview-clear') assert.deepEqual([(m as HomeModel).overview.landing[0]!.rows.length, (m as HomeModel).overview.landing[0]!.empty, (m as HomeModel).overview.cards.length], [0, 'No agent is waiting, nothing is blocked, and setup is done.', 3]);
     // The loading screen (T-16) holds back the Overview's model, which the run never sends.
     else if (kind === 'loading') assert.deepEqual([m.kind, (m as HomeModel).section], ['home', 'overview']);
     else if (kind.startsWith('overview-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.inProgress.empty === null], ['home', 'overview', kind === 'overview-busy']);
@@ -70,7 +76,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading']);
   assert.equal((sampleModel('settings') as HomeModel).settings.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;

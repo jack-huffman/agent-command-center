@@ -55,9 +55,10 @@ export interface GeoSnapshot {
   scrollers: { what: string; scroll: number; client: number; allowed: boolean }[];
   /**
    * The Overview's lists and the box of each line in them (GH-160), as the page marks them: a group with
-   * data-overview-group, a line with data-overview-row. Null on any other page.
+   * data-overview-group, a line with data-overview-row; and each list's card (T-36), data-overview-card.
+   * Null on any other page.
    */
-  overview?: { groups: { what: string; rows: Box[] }[] } | null;
+  overview?: { groups: { what: string; rows: Box[] }[]; cards?: { what: string; box: Box }[] } | null;
   /**
    * Each row button the Overview draws (T-25): the title of its row and its aria-label, null when it has none.
    * Null on any other page.
@@ -95,11 +96,31 @@ export function judgeButtons(drawn: DrawnButton[], expected: ExpectedButton[] | 
 }
 
 /**
- * The Overview is a landing page (GH-160): each line is one line high, no list shows more than five, and
- * each line stands apart from the next. The height is pinned for a line at the page's font size, with its
+ * The Overview is a landing page (GH-160): each line is one line high, Needs you shows three at most (T-36),
+ * and each line stands apart from the next, on the page and in a list a detail shows over it. The height is pinned for a line at the page's font size, with its
  * buttons, at every width the run draws.
  */
-export const OVERVIEW_LINES = { maxHeight: 44, minGap: 4, maxRows: 5 } as const;
+export const OVERVIEW_LINES = { maxHeight: 44, minGap: 4, maxRows: 3 } as const;
+
+/**
+ * The Overview's cards line up in a grid (T-36): the cards in a row share their top and their height, every
+ * card is as wide as the first, and each stands in one of the first row's columns. Returns each finding.
+ */
+export function judgeCards(cards: { what: string; box: Box }[]): string[] {
+  const out: string[] = [];
+  const first = cards[0];
+  if (!first) return out;
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1;
+  const columns = cards.filter((c) => near(c.box.y, first.box.y)).map((c) => c.box.x);
+  for (const c of cards) {
+    if (!near(c.box.w, first.box.w)) out.push(`${c.what} is ${c.box.w} px wide, not ${first.box.w} as the first card is`);
+    if (!columns.some((x) => near(x, c.box.x))) out.push(`${c.what} starts at ${c.box.x} px, in none of the first row's columns`);
+    const row = cards.filter((o) => near(o.box.y, c.box.y));
+    if (row.some((o) => !near(o.box.h, c.box.h))) out.push(`${c.what} is ${c.box.h} px high, not as high as the cards beside it`);
+    if (cards.some((o) => o !== c && !near(o.box.y, c.box.y) && o.box.y < c.box.y + c.box.h && c.box.y < o.box.y + o.box.h)) out.push(`${c.what} is out of line with the cards beside it`);
+  }
+  return out;
+}
 
 /** The elements that scroll sideways by design: a board's lanes, a wide table, the rail's strip, code. */
 export const SIDEWAYS = ['.board', '.table-wrap', '.rail', '.doc pre', '.table-scroll'];
@@ -154,8 +175,10 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   }
   if (s.tab && !within(s.tab.box, s.tab.rail)) found.push({ check: 'tab', what: s.tab.what, detail: 'the selected tab is outside the rail\'s visible part' });
   const lines = s.overview?.groups ?? [];
+  const cards = s.overview?.cards ?? [];
+  for (const f of judgeCards(cards)) found.push({ check: 'overview', what: 'the cards', detail: f });
   for (const g of lines) {
-    if (g.rows.length > OVERVIEW_LINES.maxRows) found.push({ check: 'overview', what: g.what, detail: `shows ${g.rows.length} lines, more than ${OVERVIEW_LINES.maxRows}` });
+    if (g.what === 'needs-you' && g.rows.length > OVERVIEW_LINES.maxRows) found.push({ check: 'overview', what: g.what, detail: `shows ${g.rows.length} lines, more than ${OVERVIEW_LINES.maxRows}` });
     const rows = [...g.rows].sort((a, b) => a.y - b.y);
     rows.forEach((r, i) => {
       if (r.h > OVERVIEW_LINES.maxHeight) found.push({ check: 'overview', what: g.what, detail: `line ${i + 1} is ${r.h} px high, more than one line's ${OVERVIEW_LINES.maxHeight}` });
@@ -172,7 +195,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   const said = judgeWords(s.said ?? []);
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0), buttons: buttons.length, words: said.examined };
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -183,7 +206,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   if (controls && !examined.overlap) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
   if (!examined.clipped) violations.push({ check: 'clipped', what: 'the page', detail: 'examined no text' });
   if (home && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
-  if (s.overview && !examined.overview) violations.push({ check: 'overview', what: 'the page', detail: 'is the Overview, and examined no lines on it' });
+  if (s.overview && !examined.overview) violations.push({ check: 'overview', what: 'the page', detail: 'is the Overview, and examined no lines or cards on it' });
   if (!examined.words) violations.push({ check: 'words', what: 'the page', detail: 'gathered no words' });
   return { examined, violations, excused, held: said.held };
 }
@@ -195,7 +218,7 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 13700, clipped: 41700, tab: 318, sideways: 1100, overview: 1200, buttons: 1000, words: 76400 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 13600, clipped: 41700, tab: 348, sideways: 1100, overview: 800, buttons: 450, words: 76400 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
@@ -314,15 +337,18 @@ function collectGeometry() {
     scrollers.push({ what: what(e), scroll: e.scrollWidth, client: e.clientWidth, allowed: SIDEWAYS.some((s) => e.matches(s)) });
   }
   const doc = { scroll: document.documentElement.scrollWidth, view: vw };
-  // The Overview's lists, and each line's box, as the page marks them (GH-160).
+  // The Overview's lists, and each line's box, as the page marks them (GH-160), with the list a detail open
+  // over it shows (T-36), and each list's card.
   const home = document.querySelector('.home-main[data-section="overview"]');
-  const overview = home ? { groups: [...home.querySelectorAll('[data-overview-group]')].filter(visible).map((g) => ({
+  const opened = document.querySelector('dialog.detail-modal[open]');
+  const scopes = home ? [home, ...(opened ? [opened] : [])] : [];
+  const overview = home ? { groups: scopes.flatMap((s) => [...s.querySelectorAll('[data-overview-group]')]).filter(visible).map((g) => ({
     what: g.dataset.overviewGroup,
     rows: [...g.querySelectorAll('[data-overview-row]')].filter((r) => r.closest('[data-overview-group]') === g && visible(r)).map((r) => { const b = r.getBoundingClientRect(); return box(b.left, b.top, b.right, b.bottom); }),
-  })) } : null;
+  })), cards: [...home.querySelectorAll('[data-overview-card]')].filter(visible).map((c) => { const b = c.getBoundingClientRect(); return { what: 'the ' + c.dataset.overviewCard + ' card', box: box(b.left, b.top, b.right, b.bottom) }; }) } : null;
   // Every string a person can read, for the words check (GH-163).${COLLECT_WORDS}
   // The Overview's row buttons and the names they carry (T-25).
-  const buttons = home ? [...home.querySelectorAll('.lp-btn')].filter(visible).map((b) => ({ row: words(b.closest('[data-overview-row]')?.querySelector('.lp-title')?.textContent), label: b.getAttribute('aria-label') })) : null;
+  const buttons = home ? scopes.flatMap((s) => [...s.querySelectorAll('.lp-btn')]).filter(visible).map((b) => ({ row: words(b.closest('[data-overview-row]')?.querySelector('.lp-title')?.textContent), label: b.getAttribute('aria-label') })) : null;
   // The classes drawn inside the window, which the shot holds, for the screenshots gate (T-5).
   const drawn = new Set();
   for (const e of document.querySelectorAll('body *')) {
