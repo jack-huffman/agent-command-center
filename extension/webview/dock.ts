@@ -1,5 +1,6 @@
 // The output panel: the commands acc runs for you, under every section.
 
+import { pickerOf } from './run-picker.ts';
 import type { RunCard } from '../src/model/runs.ts';
 import { button, el, icon, keepFocus, keptInput, status, titled, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state, view } from './state.ts';
@@ -41,16 +42,18 @@ export function renderDock(list: RunCard[]): HTMLElement | null {
     const pick = document.createElement('select');
     pick.className = 'dock-pick';
     pick.setAttribute('aria-label', 'Which command');
-    for (const r of list) {
-      const o = document.createElement('option');
-      o.value = r.id;
-      o.textContent = `${r.running ? '● ' : ''}${r.label.length > 36 ? `${r.label.slice(0, 36)}…` : r.label}`;
-      o.selected = r.id === run.id;
-      pick.append(o);
-    }
-    pick.title = 'Show another command\'s output';
+    // Closed it reads "1 of 4", for the head already names the run; while it's open its list names every run.
+    const fill = (listing: boolean) => {
+      const { options, title } = pickerOf(list, run.id, listing);
+      pick.replaceChildren(...options.map((c) => { const o = document.createElement('option'); o.value = c.id; o.textContent = c.text; o.selected = c.selected; return o; }));
+      pick.title = `${title}\n\nShow another command's output`;
+    };
+    fill(false);
+    pick.addEventListener('mousedown', () => fill(true));
+    pick.addEventListener('focus', () => fill(true));
+    pick.addEventListener('blur', () => fill(false));
     pick.addEventListener('change', () => { remember((x) => { x.dock.run = pick.value; x.dock.open = true; }); redrawDock(); });
-    bar.append(el('span', 'muted small dock-count', `${list.indexOf(run) + 1} of ${list.length}`), pick);
+    bar.append(pick);
   }
   const control = (action: string) => api.postMessage({ type: 'run-control', run: run.id, action });
   // A toolbar like VSCode's own panels: icons, each with its name on hover and for screen readers.

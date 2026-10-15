@@ -10,7 +10,10 @@ import type { HubLike, Look, ModelArea, ProjectLike } from './shared.ts';
 export interface WorktreeRow {
   path: string;
   branch: string;
+  /** From the worktrees folder ("ACME-12"), or "Main checkout" for the main one. */
   place: string;
+  /** The full path, for the cell's title. */
+  fullPath: string;
   state: Look;
   main: boolean;
 }
@@ -27,6 +30,11 @@ export function worktreeLook(w: Pick<ProjectLike['worktrees'][number], 'prunable
   return w.changed > 0 ? { label: `${w.changed} changed`, icon: 'diff-modified', tone: 'orange' } : { label: 'Clean', icon: 'check', tone: 'blue' };
 }
 
+/** A worktree's path from its worktrees folder (".claude/worktrees/ACME-12" reads "ACME-12"); a path outside one stays whole. */
+export function fromWorktreesFolder(path: string): string {
+  return /(?:^|\/)(?:\.claude\/worktrees|[^/]*\.worktrees)\/(.+)$/.exec(path)?.[1] ?? path;
+}
+
 export function worktreesModel(hub: HubLike): WorktreesModel {
   return {
     kind: 'worktrees',
@@ -34,8 +42,8 @@ export function worktreesModel(hub: HubLike): WorktreesModel {
       name: p.name, root: p.root,
       worktrees: p.worktrees.map((w) => {
         const state = worktreeLook(w);
-        const place = w.main ? 'Main checkout' : w.path.replace(p.root.replace(/\/[^/]+$/, ''), '…');
-        return { path: w.path, branch: w.branch ?? `detached at ${w.head.slice(0, 7)}`, place: w.locked ? `${place} · locked` : place, state, main: w.main };
+        const place = w.main ? 'Main checkout' : fromWorktreesFolder(w.path);
+        return { path: w.path, branch: w.branch ?? `detached at ${w.head.slice(0, 7)}`, place: w.locked ? `${place} · locked` : place, fullPath: w.path, state, main: w.main };
       }),
     })),
   };
