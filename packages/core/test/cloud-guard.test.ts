@@ -5,7 +5,7 @@
 // the git commands that could change the guard or switch its hooks off; the pre-push hook checks the push
 // itself, whatever ran git. Both fail closed; outside a cloud session the script says nothing.
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import { GUARD_COMMAND, GUARD_MATCHER, GUARD_PATH, GUARD_SCRIPT, guardCommitted, guardInstalled, installGuard, PRE_PUSH_PATH, PRE_PUSH_SCRIPT, RECORD_LINE, SESSION_COMMAND, SETTINGS_PATH, settingsRunGuard } from '../src/cloud-guard.ts';
 import { run } from '../src/exec.ts';
 import { commandsOf, SUBSTITUTED } from '../src/hooks.ts';
-import { gitIn, tempDir } from './support.ts';
+import { gitIn, pool, tempDir } from './support.ts';
 
 const BRANCH = 'task/T-1-a-thing';
 
@@ -67,17 +67,36 @@ interface Hook { code: number | null; reason: string | null; out: string; err: s
 
 /** Runs the guard as Claude Code does: the hook's input on stdin, the project dir in the environment, in or out of a cloud session. */
 function hook(root: string, input: unknown, opts: { cloud?: boolean; env?: NodeJS.ProcessEnv; args?: string[] } = {}): Hook {
-  const r = spawnSync(process.execPath, [join(root, GUARD_PATH), ...(opts.args ?? [])], {
-    cwd: root, input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8',
-    env: { ...process.env, ...opts.env, CLAUDE_PROJECT_DIR: root, CLAUDE_CODE_REMOTE: opts.cloud === false ? '' : 'true', CLAUDE_CODE_REMOTE_SESSION_ID: opts.cloud === false ? '' : 'cse_01TEST' },
-  });
+  const r = spawnSync(process.execPath, [join(root, GUARD_PATH), ...(opts.args ?? [])], { cwd: root, input: typeof input === 'string' ? input : JSON.stringify(input), encoding: 'utf8', env: hookEnv(root, opts) });
+  return hookOf(r.status, r.stdout, r.stderr);
+}
+
+const hookEnv = (root: string, opts: { cloud?: boolean; env?: NodeJS.ProcessEnv }): NodeJS.ProcessEnv =>
+  ({ ...process.env, ...opts.env, CLAUDE_PROJECT_DIR: root, CLAUDE_CODE_REMOTE: opts.cloud === false ? '' : 'true', CLAUDE_CODE_REMOTE_SESSION_ID: opts.cloud === false ? '' : 'cse_01TEST' });
+
+function hookOf(code: number | null, out: string, err: string): Hook {
   let reason: string | null = null;
   try {
-    reason = (JSON.parse(r.stdout) as { hookSpecificOutput?: { permissionDecisionReason?: string } }).hookSpecificOutput?.permissionDecisionReason ?? null;
+    reason = (JSON.parse(out) as { hookSpecificOutput?: { permissionDecisionReason?: string } }).hookSpecificOutput?.permissionDecisionReason ?? null;
   } catch {
     reason = null;
   }
-  return { code: r.status, reason, out: r.stdout, err: r.stderr };
+  return { code, reason, out, err };
+}
+
+/** `hook`, without waiting for the process, so a test can start several together through pool (T-57). */
+function hookAsync(root: string, input: unknown): Promise<Hook> {
+  return new Promise((done, fail) => {
+    const child = spawn(process.execPath, [join(root, GUARD_PATH)], { cwd: root, env: hookEnv(root, {}) });
+    let out = '';
+    let err = '';
+    child.stdout.setEncoding('utf8').on('data', (d: string) => { out += d; });
+    child.stderr.setEncoding('utf8').on('data', (d: string) => { err += d; });
+    child.stdin.on('error', () => {});
+    child.on('error', fail);
+    child.on('close', (code) => done(hookOf(code, out, err)));
+    child.stdin.end(JSON.stringify(input));
+  });
 }
 
 const bash = (root: string, transcript: string | null, command: string, opts?: { cloud?: boolean; env?: NodeJS.ProcessEnv }): Hook => hook(root, { tool_name: 'Bash', tool_input: { command }, cwd: root, ...(transcript ? { transcript_path: transcript } : {}) }, opts);
@@ -562,19 +581,27 @@ test('an Edit, Write, MultiEdit or NotebookEdit of the hooks, any .claude settin
   const ctx = { cwd: root, projectDir: root, transcript };
   const home = tempDir('home-');
   mkdirSync(join(home, '.claude'), { recursive: true });
+  // Each call is its own process and reads nothing from the others, so they start a few at once (T-57).
+  type Call = { name: string; input: unknown; check: (r: Hook) => void };
+  const calls: Call[] = [];
   for (const tool of ['Edit', 'Write', 'MultiEdit', 'NotebookEdit']) {
     const key = tool === 'NotebookEdit' ? 'notebook_path' : 'file_path';
     for (const path of [SETTINGS_PATH, GUARD_PATH, PRE_PUSH_PATH, '.claude/hooks/other.mjs', '.claude/settings.local.json', join(root, SETTINGS_PATH), transcript, '.git/hooks/pre-push', '.git/acc-task-branch', '.git/config', 'g/hooks/pre-push', 'c/settings.json', 'c/hooks/acc-pre-push', join(home, '.claude', 'settings.json')]) {
-      const r = hook(root, { tool_name: tool, tool_input: { [key]: path }, cwd: root, transcript_path: transcript });
-      assert.equal(r.code, 0);
-      assert.match(r.reason ?? '', /a cloud builder never changes them|transcript isn't yours/, `${tool} ${path}: refused`);
+      calls.push({ name: `${tool} ${path}: refused`, input: { tool_name: tool, tool_input: { [key]: path }, cwd: root, transcript_path: transcript }, check: (r) => {
+        assert.equal(r.code, 0);
+        assert.match(r.reason ?? '', /a cloud builder never changes them|transcript isn't yours/, `${tool} ${path}: refused`);
+      } });
     }
-    assert.equal(hook(root, { tool_name: tool, tool_input: { [key]: 'src/a.ts' }, cwd: root, transcript_path: transcript }).out, '', `${tool} src/a.ts: passes`);
-    assert.equal(hook(root, { tool_name: tool, tool_input: { [key]: '.claude/rules/x.md' }, cwd: root }).out, '', `${tool} .claude/rules/x.md: passes`);
-    assert.equal(hook(root, { tool_name: tool, tool_input: { [key]: 'c/rules/x.md' }, cwd: root }).out, '', `${tool} c/rules/x.md: passes`);
-    assert.equal(hook(root, { tool_name: tool, tool_input: { [key]: '.gitignore' }, cwd: root }).out, '', `${tool} .gitignore: passes`);
-    assert.match(hook(root, { tool_name: tool, tool_input: {}, cwd: root }).reason ?? '', /couldn't see which file/, `${tool} with no path: refused`);
+    const passes = (path: string, withTranscript: boolean) => calls.push({ name: `${tool} ${path}: passes`, input: { tool_name: tool, tool_input: { [key]: path }, cwd: root, ...(withTranscript ? { transcript_path: transcript } : {}) }, check: (r) => assert.equal(r.out, '', `${tool} ${path}: passes`) });
+    passes('src/a.ts', true);
+    passes('.claude/rules/x.md', false);
+    passes('c/rules/x.md', false);
+    passes('.gitignore', false);
+    calls.push({ name: `${tool} with no path: refused`, input: { tool_name: tool, tool_input: {}, cwd: root }, check: (r) => assert.match(r.reason ?? '', /couldn't see which file/, `${tool} with no path: refused`) });
   }
+  const answers = await pool(calls, 4, (c) => hookAsync(root, c.input));
+  assert.equal(answers.length, 4 * 19, 'every call ran');
+  calls.forEach((c, i) => c.check(answers[i]!));
   // From a subfolder, the path is still the project's; a link made first can't hide where a write lands.
   assert.match(g.fileProblem({ file_path: `../${SETTINGS_PATH}` }, { ...ctx, cwd: join(root, 'sub') }) ?? '', /never changes them/);
   assert.match(g.fileProblem({ file_path: '../g/hooks/pre-push' }, { ...ctx, cwd: join(root, 'sub') }) ?? '', /never changes them/);

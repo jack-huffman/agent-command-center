@@ -17,13 +17,13 @@ import type { ParseArgsOptionsConfig } from 'node:util';
 import { AREAS } from '../src/commands/index.ts';
 import { commandsOf, entryPointsOf, MESSAGE_MAX } from '../src/main.ts';
 import type { CommandArea } from '../src/shared.ts';
-import { changes, GENERIC_CONFIG, makeRepo, snapshot, tempDir } from '../../core/test/support.ts';
+import { changes, GENERIC_CONFIG, makeRepo, pool, snapshot, tempDir } from '../../core/test/support.ts';
 
 const ACC = fileURLToPath(new URL('../../../dist/acc.mjs', import.meta.url));
 const COMMANDS_DIR = fileURLToPath(new URL('../src/commands/', import.meta.url));
 /** How long one call may take, and how many run at once. */
 const LIMIT_MS = 20_000;
-const AT_ONCE = 4;
+const AT_ONCE = 8;
 /** The longest line a failure may print: main.ts cuts its message, with its mark in front. */
 const LONGEST_LINE = MESSAGE_MAX + 2;
 const MB = 1024 * 1024;
@@ -200,18 +200,6 @@ function call(s: Sandbox, c: Case): Promise<CallResult> {
   });
 }
 
-async function pool<T, R>(items: T[], n: number, f: (t: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  await Promise.all(Array.from({ length: n }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await f(items[i]!);
-    }
-  }));
-  return results;
-}
-
 const clip = (s: string) => (s.length > 200 ? `${s.slice(0, 200)}…` : s).replace(/\n/g, '⏎');
 const shown = (args: string[]) => args.map((a) => (a.length > 40 ? `<${a.length} chars>` : a === '' ? "''" : a)).join(' ');
 
@@ -274,31 +262,33 @@ test('every acc command and subcommand survives junk arguments, options and stdi
   const commands = commandsOf(AREAS);
   const subcommands = AREAS.reduce((n, a) => n + Object.values(a.subcommands ?? {}).reduce((m, l) => m + l.length, 0), 0);
   const started = Date.now();
-  let before = snapAll(s);
+  const before = snapAll(s);
   const failures: string[] = [];
-  let calls = 0;
   const slow: [string, number][] = [];
   const reached = new Set<string>();
-  for (const words of entries) {
+  // Every command's cases make one list, so the last calls of one command run beside the first of the next (T-57).
+  const plan = entries.map((words) => {
     const area = AREAS.find((a) => Object.hasOwn(a.commands, words[0]!))!;
     // A command that takes a subcommand first gets its junk there; its options are tried on each subcommand.
     const takesSub = words.length === 1 && !!area.subcommands?.[words[0]!];
     const cases = casesFor(s, words, takesSub ? [] : stringOptions(area.options));
     assert.ok(cases.length > 0, `acc ${words.join(' ')} has junk to get`);
-    const results = await pool(cases, AT_ONCE, (c) => call(s, c));
-    calls += results.length;
+    return { words, cases };
+  });
+  const everyResult = await pool(plan.flatMap((p) => p.cases), AT_ONCE, (c) => call(s, c));
+  const calls = everyResult.length;
+  let at = 0;
+  for (const { words, cases } of plan) {
+    const results = everyResult.slice(at, at += cases.length);
     slow.push([words.join(' '), results.reduce((n, r) => n + (r.ms ?? 0), 0)]);
     reached.add(words.join(' '));
     results.forEach((r, i) => {
       const why = judge(r);
       if (why.length) failures.push(`acc ${shown(cases[i]!.args)} (${cases[i]!.name}): ${why.join('; ')}. stderr: ${clip(r.stderr)} stdout: ${clip(r.stdout)}`);
     });
-    const moved = changes(before, snapAll(s));
-    if (moved.length) {
-      failures.push(`acc ${words.join(' ')} wrote outside its repo: ${moved.join(', ')}`);
-      before = snapAll(s);
-    }
   }
+  const moved = changes(before, snapAll(s));
+  if (moved.length) failures.push(`acc wrote outside its repo: ${moved.join(', ')}`);
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
   t.diagnostic(`${commands.size} commands, ${subcommands} subcommands, ${calls} calls, ${seconds}s`);
   t.diagnostic(`slowest: ${slow.sort((a, b) => b[1] - a[1]).slice(0, 8).map(([w, ms]) => `${w} ${(ms / 1000).toFixed(1)}s`).join(', ')}`);

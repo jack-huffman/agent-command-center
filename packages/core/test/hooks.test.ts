@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -10,7 +10,7 @@ import { DONE_COMMAND, mutate, readLedger, type Task, upsertTasks } from '../src
 import { parseConfig, type Config } from '../src/config.ts';
 import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
-import { GENERIC_CONFIG, gitIn, makeRepo, tempDir } from './support.ts';
+import { GENERIC_CONFIG, gitIn, makeRepo, pool, tempDir } from './support.ts';
 
 const MAIN = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url));
 const FIXTURES = fileURLToPath(new URL('./fixtures/hooks/', import.meta.url));
@@ -41,15 +41,33 @@ function hook(event: string, input: unknown, env: Record<string, string>, cwd: s
   return { code: r.status, out: r.stdout.trim() ? JSON.parse(r.stdout) : null, err: r.stderr };
 }
 
-test('every hook fixture gets the outcome it expects, and no hook ever exits 2 or fails loudly', () => {
+/** `hook`, without waiting for the process, so a test can start several together (T-57). */
+function hookAsync(event: string, input: unknown, env: Record<string, string>, cwd: string): Promise<ReturnType<typeof hook>> {
+  return new Promise((done, fail) => {
+    const child = spawn(process.execPath, ['--no-warnings', MAIN, 'hook', event], { cwd, env: { ...process.env, ACC_ROLE: '', ACC_TASK: '', ...env } });
+    let out = '';
+    let err = '';
+    child.stdout.setEncoding('utf8').on('data', (d: string) => { out += d; });
+    child.stderr.setEncoding('utf8').on('data', (d: string) => { err += d; });
+    child.stdin.on('error', () => {});
+    child.on('error', fail);
+    child.on('close', (code) => done({ code, out: out.trim() ? JSON.parse(out) : null, err }));
+    child.stdin.end(typeof input === 'string' ? input : JSON.stringify(input));
+  });
+}
+
+test('every hook fixture gets the outcome it expects, and no hook ever exits 2 or fails loudly', async () => {
   const r = repo();
   const fill = (s: string) => s.replaceAll('{wt}', r.wt).replaceAll('{root}', r.root).replaceAll('{outside}', r.outside);
   const files = readdirSync(FIXTURES).filter((f) => f.endsWith('.json')).sort();
   assert.ok(files.length >= 20, 'a fixture for each rule');
-  for (const f of files) {
-    const fx = JSON.parse(fill(readFileSync(join(FIXTURES, f), 'utf8'))) as { event: string; env: Record<string, string>; input: { cwd?: string } | string; expect: string };
-    const cwd = typeof fx.input === 'string' ? r.wt : fx.input.cwd ?? r.wt;
-    const res = hook(fx.event, fx.input, fx.env, cwd);
+  type Fixture = { event: string; env: Record<string, string>; input: { cwd?: string } | string; expect: string };
+  const fixtures = files.map((f) => JSON.parse(fill(readFileSync(join(FIXTURES, f), 'utf8'))) as Fixture);
+  // The hooks start together, a few at a time; the answers are read in the fixtures' order.
+  const answers = await pool(fixtures, 4, (fx) => hookAsync(fx.event, fx.input, fx.env, typeof fx.input === 'string' ? r.wt : fx.input.cwd ?? r.wt));
+  for (const [i, f] of files.entries()) {
+    const fx = fixtures[i]!;
+    const res = answers[i]!;
     assert.equal(res.code, 0, `${f}: exits 0 (${res.err})`);
     const [kind, words] = fx.expect.split(/:(.*)/s) as [string, string | undefined];
     if (kind === 'none' || kind === 'none+linked') assert.equal(res.out, null, `${f}: says nothing`);
