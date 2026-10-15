@@ -12,6 +12,10 @@ import { homeModel } from '../src/model/home.ts';
 import { needsYouCount } from '../src/model/overview.ts';
 import { ticketModel } from '../src/model/task-page.ts';
 import { pageStyles } from '../scripts/styles.ts';
+import { emptyLedger, type Task } from '../../packages/core/src/ledger.ts';
+import type { Question } from '../../packages/core/src/questions.ts';
+import type { Hub } from '../src/hub.ts';
+import { deriveRows } from '../src/task-rows.ts';
 import { root, manifest, pageSource, row, hub } from './support.ts';
 
 test('in review, a card offers the one next step: watch the reviewer, land a passing review, then follow the pull request', () => {
@@ -340,4 +344,26 @@ test('a card whose agent asks offers Answer, to its question, as its one next st
   assert.match(boards, /if \(!a\.question\) return actionButton\(a\);/);
   assert.match(boards, /go\('overview'\); answerHere\(id\);/);
   assert.match(pageSource('tasks.ts'), /c\.acc\.action \? nextStep\(c\.acc\.action\) : null/, 'a tracker card\'s next step too');
+});
+
+test('deriveRows gives a card its agent\'s question id; edge cases: no question, a question for another session, an agent that doesn\'t ask (T-39)', () => {
+  const task = {
+    id: 'AV-9', title: 'Task AV-9', brief: '', source: { kind: 'manual', url: null }, environment: 'devbox', deps: [], labels: [], state: 'running', blocker: null,
+    run: { worktree: '/w', branch: 'task/AV-9', sessionId: 's9' }, pr: null, history: [], createdAt: '', updatedAt: '',
+  } as unknown as Task;
+  const session = { cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 's9', name: 'av-9', status: 'waiting', pid: 9 };
+  const question = (id: string, sessionId: string) => ({ id, sessionId }) as Question;
+  const read = (questions: Question[], asks = true): TaskRow => {
+    const fake = {
+      agentsAt: 1, agentsError: null, agents: [session], questions,
+      askingFor: () => (asks ? 'wants permission' : null), tieFor: () => null, lastSaid: () => null, lastModel: () => null,
+    } as unknown as Hub;
+    return deriveRows(fake, { ...emptyLedger(), tasks: [task] })[0]!;
+  };
+  const asking = read([question('q-other', 's1'), question('q-9', 's9')]);
+  assert.equal(asking.asking, true);
+  assert.equal(asking.question, 'q-9', 'the question for this row\'s session');
+  assert.equal(read([]).question, null, 'no question read yet');
+  assert.equal(read([question('q-other', 's1')]).question, null, 'a question for a different session');
+  assert.equal(read([question('q-9', 's9')], false).question, null, 'an agent that doesn\'t ask has no question to answer');
 });
