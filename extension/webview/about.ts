@@ -5,6 +5,7 @@
 import type { AboutAction, AboutModel, AboutRow } from '../src/model/about.ts';
 import type { SettingFrom } from '../src/model/settings.ts';
 import { argButton, el, icon, linkTo, status, toolbarButton } from './dom.ts';
+import { whatThisMeans } from './settings-fold.ts';
 
 /** A button for one of About's commands, named for what it does. One that can't be used now says why. */
 function aboutButton(a: AboutAction): HTMLElement {
@@ -24,7 +25,7 @@ const from = (f: SettingFrom): HTMLElement => el('span', 'settings-from muted sm
 function versionRow(r: AboutRow): HTMLElement {
   const row = el('div', 'settings-row has-change about-row',
     el('span', 'settings-name', icon(r.icon), el('span', 'strong', r.name)),
-    el('div', 'settings-value', el('div', 'settings-now', status(r.look), from(r.from)), r.meaning ? el('p', 'muted small settings-meaning', r.meaning) : null),
+    el('div', 'settings-value', el('div', 'settings-now', status(r.look), from(r.from)), whatThisMeans(`about:${r.key}`, r.meaning ?? '')),
     r.action ? aboutButton(r.action) : null);
   row.dataset.about = r.key;
   return row;

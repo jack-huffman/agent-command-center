@@ -6,7 +6,9 @@ import { argButton, button, el, header, icon, segmented, status, toolbarButton }
 import { renderAbout } from './about.ts';
 import { renderLimits } from './limits.ts';
 import { slackCardView } from './slack.ts';
-import { api, go, type PageArea } from './state.ts';
+import { whatThisMeans } from './settings-fold.ts';
+import { BILLING_MEANING, settingsGuide } from './settings-guide.ts';
+import { api, go, jumpTo, type PageArea } from './state.ts';
 
 /** The theme: Match VSCode, Light or Dark. The extension keeps the pick, and every open page follows it. */
 function appearance(m: SettingsModel): HTMLElement {
@@ -15,7 +17,7 @@ function appearance(m: SettingsModel): HTMLElement {
     (key) => api.postMessage({ type: 'toolbar', command: 'acc.settings.theme', arg: key }));
   pick.querySelectorAll('button').forEach((b, i) => { b.dataset.keep = `settings-theme:${i}`; });
   return el('div', 'settings-row', el('span', 'settings-name', icon('color-mode'), el('span', 'strong', 'Theme')),
-    el('div', 'settings-value', pick, el('p', 'muted small settings-meaning', now.meaning)));
+    el('div', 'settings-value', pick, whatThisMeans('theme', now.meaning)));
 }
 
 /** A way to where a part's settings live today, or to what it needs first: its section. */
@@ -48,11 +50,11 @@ function agentProject(s: AgentRunProject): HTMLElement {
     box.append(row(r.label, r.icon, parts, argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`), `${r.label.toLowerCase()}' model, effort or fallback, in ${s.project}`));
   }
   if (s.autonomy) {
-    const value = el('div', '', el('div', 'settings-now', status(s.autonomy.look), from(s.autonomy.from)), s.autonomy.meaning ? el('p', 'muted small settings-meaning', s.autonomy.meaning) : null);
+    const value = el('div', '', el('div', 'settings-now', status(s.autonomy.look), from(s.autonomy.from)), whatThisMeans(`autonomy:${s.root}`, s.autonomy.meaning));
     box.append(row('Autonomy', 'rocket', value, argButton('acc.agents.autonomy', 'Change…', 'edit', s.root), `what autopilot may do on its own, in ${s.project}`));
   }
   if (s.autoMerge) {
-    const value = el('div', '', el('div', 'settings-now', status(s.autoMerge.look), from(s.autoMerge.from)), el('p', 'muted small settings-meaning', s.autoMerge.meaning));
+    const value = el('div', '', el('div', 'settings-now', status(s.autoMerge.look), from(s.autoMerge.from)), whatThisMeans(`auto-merge:${s.root}`, s.autoMerge.meaning));
     // A Salesforce project never auto-merges, so it has no Change… (D-083): its meaning says why.
     box.append(row('Auto-merge', 'git-merge', value, s.autoMerge.settable ? argButton('acc.agents.autoMerge', 'Change…', 'edit', s.root) : null, `whether autopilot merges pull requests, in ${s.project}`));
   }
@@ -64,7 +66,7 @@ function agentProject(s: AgentRunProject): HTMLElement {
     const protection = c.protection.length ? el('ul', 'settings-needs', ...c.protection.map((p) => Object.assign(el('li', `settings-need${p.look.tone === 'blue' ? ' ok' : ''}`, status(p.look), p.look.tone === 'blue' ? null : el('span', 'muted small', ` ${p.why}`)), { title: p.why }))) : null;
     const value = el('div', '',
       el('div', 'settings-now', status(c.look), from(c.from), c.defaultPlace ? el('span', 'settings-from muted small', icon(c.defaultPlace.icon), `plain dispatch: ${c.defaultPlace.label}`) : null),
-      el('p', 'muted small settings-meaning', c.meaning),
+      whatThisMeans(`cloud:${s.root}`, c.meaning),
       c.look.label === 'off' ? null : needs,
       protection,
       el('div', 'actions settings-tracker-actions', ...c.actions.map(trackerButton)));
@@ -78,7 +80,7 @@ function howAgentsRun(m: SettingsModel): Node[] {
   const b = m.agents.billing;
   const billing = el('div', 'settings-row has-change settings-billing',
     el('span', 'settings-name', icon('credit-card'), el('span', 'strong', 'Billing')),
-    el('div', 'settings-value', el('div', 'settings-state', status(b.look)), el('p', 'muted small settings-meaning', 'This machine\'s, for every project. Agents shows it too while it\'s per token.')),
+    el('div', 'settings-value', el('div', 'settings-state', status(b.look)), whatThisMeans('billing', BILLING_MEANING)),
     b.link ? linkButton(b.link) : null);
   return [...m.agents.projects.map(agentProject), billing];
 }
@@ -186,7 +188,7 @@ function preference(p: PagePreference): HTMLElement {
     pick = el('div', 'settings-pick', mark ? el('span', 'settings-chosen', mark) : null, select);
   }
   return el('div', 'settings-row', el('span', 'settings-name', icon(p.icon), el('span', 'strong', p.name)),
-    el('div', 'settings-value', el('div', 'settings-now', pick, from(p.from)), el('p', 'muted small settings-meaning', p.meaning)));
+    el('div', 'settings-value', el('div', 'settings-now', pick, from(p.from)), whatThisMeans(`page:${p.id}`, p.meaning)));
 }
 
 /** The Command Center's own preferences (GH-113), then how often each part refreshes at the pace chosen. */
@@ -207,8 +209,26 @@ function today(p: SettingsPartModel): HTMLElement {
     p.links.length ? el('div', 'actions', ...p.links.map(linkButton)) : null);
 }
 
+/**
+ * The guide under the title (T-40): a link to each part, which scrolls to its heading and focuses it, as a
+ * link from another page does. On a narrow tab the row wraps.
+ */
+function guide(m: SettingsModel): HTMLElement {
+  const nav = el('nav', 'settings-guide', ...settingsGuide(m.parts).map((g) => {
+    const a = el('a', 'settings-guide-link', icon(g.icon), el('span', '', g.label)) as HTMLAnchorElement;
+    a.href = `#settings-${g.id}`;
+    a.dataset.guide = g.part;
+    a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });
+    return a;
+  }));
+  nav.setAttribute('aria-label', 'Parts of Settings');
+  return nav;
+}
+
 export function renderSettings(m: SettingsModel): Node[] {
-  const out: Node[] = [header('Settings', 'How the Command Center looks and behaves on this machine, how agents run in each project and the limits they run under, each project\'s trackers and GitHub account, notices in Slack, and the versions installed.')];
+  const head = header('Settings', '');
+  head.querySelector('.summary')!.replaceWith(guide(m));
+  const out: Node[] = [head];
   for (const p of m.parts) {
     // Its heading is where another page opens Settings at this part.
     const h = el('h2', '', icon(p.icon), p.title);
