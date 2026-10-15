@@ -86,7 +86,7 @@ body[data-view="ticket"] { padding-top: 18px; }
 .related .rel { min-width: 90px; font-size: 0.9em; }
 
 .comment { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
-.comment .avatar { width: 26px; height: 26px; font-size: 0.808em; }
+.comment .avatar { width: 2.475em; height: 2.475em; font-size: 0.808em; }
 .comment-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
 .comment-head a.ext { color: var(--vscode-descriptionForeground); }
 
@@ -102,7 +102,7 @@ body[data-view="ticket"] { padding-top: 18px; }
 .act-icon.tone-orange { border-color: var(--orange); color: var(--orange); }
 .act-icon .codicon { font-size: 14px; }
 .act-avatar { border: 0; background: none; }
-.act-avatar .avatar { width: 28px; height: 28px; font-size: 0.808em; }
+.act-avatar .avatar { width: 2.666em; height: 2.666em; font-size: 0.808em; }
 .act-body { min-width: 0; }
 .act-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 28px; }
 .act-line .status { font-weight: 600; }
