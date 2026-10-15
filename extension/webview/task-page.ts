@@ -70,8 +70,8 @@ export function renderTicket(m: TicketModel): Node[] {
   // A field its tracker lacks gets one muted line in place of its control (T-28).
   const lack = (f: 'status' | 'assignee' | 'labels') => m.lacks.find((l) => l.field === f);
   const statusEl = m.status && !lack('status') ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : null;
-  // A tracker that can't give a status says so where the pill would be, now Details no longer has the row.
-  let statusCtl: Child = statusEl ?? (lack('status') ? el('span', 'muted', lack('status')!.line) : null);
+  // No pill (the tracker can't give a status, or none came) says so in the head, now Details no longer has the row.
+  let statusCtl: Child = statusEl ?? el('span', 'muted', lack('status') ? lack('status')!.line : '—');
   if (statusEl && m.can.status) {
     const b = el('button', 'btn status-btn', statusEl, icon('chevron-down')) as HTMLButtonElement;
     b.type = 'button';
