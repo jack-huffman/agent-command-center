@@ -5,9 +5,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DESCRIPTIONS, JIRA, SLACK } from '../../packages/core/src/trackers/connect.ts';
+import { DESCRIPTIONS, JIRA, MONDAY, SLACK } from '../../packages/core/src/trackers/connect.ts';
 import { blankConnect, connectModel, LISTS_TITLE } from '../src/model/connect.ts';
+import { behaviourData, CASES, MUTANTS } from '../scripts/behaviour.ts';
 import { sampleConnect } from '../scripts/fixtures/connect.ts';
+import { sampleModel } from '../scripts/screenshot.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const base = { root: '/Users/me/code/acme-service', projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
@@ -44,12 +46,32 @@ test('a Connect page with no project, and a test in flight, give the right reaso
   assert.equal(connectModel(s).save.why?.label, 'Saving now.');
 });
 
-test('the page puts the reason in the button\'s title and in a status line beside it', () => {
-  const page = readFileSync(join(root, 'webview', 'connect.ts'), 'utf8');
-  assert.match(page, /testButton\.title = m\.signIn\.why\.label/);
-  assert.match(page, /m\.signIn\.why \? status\(m\.signIn\.why\)/);
-  assert.match(page, /save\.title = m\.save\.why\.label/);
-  assert.match(page, /m\.save\.look \?\? m\.save\.why/);
+test('the page draws the reason in the button\'s title and in a status line: a browser case reads the drawn page, and mutants that drop either fail it', () => {
+  const c = CASES.find((x) => x.page === 'connect-start');
+  assert.ok(c, 'a behaviour case opens the Connect page');
+  assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 2, 'one mutant draws no status line, another no title');
+  const d = behaviourData({ tasks: sampleModel('tasks', 0, 'dark'), overview: sampleModel('overview-landing', 0, 'dark'), ticket: sampleModel('ticket-questions', 0, 'dark'), settings: sampleModel('settings-agents', 0, 'dark'), connect: sampleModel('connect-start', 0, 'dark') }, 0);
+  assert.deepEqual(d.connect, { save: 'Connect Jira', why: 'Sign in and choose a project first.' });
+});
+
+test('Save names a required list that is hidden with no choice, and says to wait only while a list loads (T-45)', () => {
+  const signed = (): ReturnType<typeof blankConnect> => {
+    const s = blankConnect(MONDAY, { id: 'c-hidden', ...base });
+    s.signIn = { state: 'ok', who: 'Jordan Kim', error: null, again: false };
+    s.pickers.board = { options: [{ value: '1', label: 'Client work' }], selected: ['1'], state: 'ready', error: null };
+    s.pickers.group = { options: [], selected: [], state: 'ready', error: null };
+    return s;
+  };
+  const hidden = signed();
+  hidden.pickers.statusColumn = { options: [{ value: 'status', label: 'Status' }], selected: [], state: 'ready', error: null };
+  const m = connectModel(hidden);
+  const column = m.pickers.find((p) => p.key === 'statusColumn')!;
+  assert.deepEqual([column.hidden, column.required, column.selected.length], [true, true, 0], 'the list is hidden, required, and has no choice');
+  assert.equal(m.save.can, false);
+  assert.equal(m.save.why?.label, 'Choose a status column first.', 'it names the list, though nothing loads');
+  const loading = signed();
+  loading.pickers.statusColumn = { options: [], selected: [], state: 'loading', error: null };
+  assert.equal(connectModel(loading).save.why?.label, 'Wait for its lists to load first.', 'a list that loads: wait');
 });
 
 test('an untouched empty field shows no warning, on every tracker; a warning shows after the person tries to go on', () => {
