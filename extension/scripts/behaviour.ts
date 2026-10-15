@@ -118,6 +118,20 @@ export interface BehaviourData {
     second: { query: string; title: string; sent: Record<string, unknown> };
     disabled: { model: Model; title: string; reason: string };
   };
+  /**
+   * The Tasks board from the keyboard (T-54), on the Jira board the page opens on: its first card, the card
+   * under it, its column's last card, and the card at the same place in the next column. Then the move
+   * Space, Right and Enter make of the first card: the column it lands in, the columns it may land in, the
+   * message a drop there sends, and what the live line says at each step; and the page's model with the card
+   * in that column, as the extension sends it once the move is made. Last, on the agent board, a card no
+   * column takes, the model that holds it, and what the live line says on its Space.
+   */
+  keys: {
+    first: string; down: string; last: string; right: string;
+    move: { card: string; to: string; lanes: string[]; sent: Record<string, unknown>; moving: string; moved: string; stays: string };
+    moved: Model;
+    stuck: { card: string; model: Model; says: string };
+  };
 }
 
 /** One case: its name, the page it opens, and what it does there. */
@@ -195,7 +209,16 @@ async function openPalette(t: Probe): Promise<{ button: HTMLElement; dialog: HTM
   return { button, dialog, box };
 }
 
-export const HELPERS = [openTask, openRules, shownRule, page, press, openPalette];
+/** A card on a keyed board by its id (T-54), and what takes its focus: the card, or its title on the agent board. */
+function boardCard(t: Probe, id: string): { card: HTMLElement; focus: HTMLElement; board: HTMLElement; live: HTMLElement } {
+  const card = t.find(`.board[data-keys] article.card[data-card-id="${CSS.escape(id)}"]`);
+  const board = card.closest<HTMLElement>('.board')!;
+  const live = board.previousElementSibling as HTMLElement | null;
+  if (!live?.matches('.board-live[aria-live]')) throw new Error('not found: the live line above the board');
+  return { card, focus: card.matches('[data-peek]') ? card : t.find('[data-peek]', card), board, live };
+}
+
+export const HELPERS = [openTask, openRules, shownRule, page, press, openPalette, boardCard];
 
 // ---------------------------------------------------------------- the cases
 
@@ -777,6 +800,133 @@ export const CASES: Case[] = [
       await t.click(first);
       t.check('a click runs nothing', t.sent('toolbar').length === 0 && dialog.open);
     },
+  },  {
+    name: 'board keys: one card on each board is in the tab order, and Right moves focus to the next column\'s card',
+    page: 'tasks',
+    async run(t) {
+      const boards = t.all('.board[data-keys]');
+      t.check('the board is wired to its keys', boards.length > 0, boards.length);
+      for (const b of boards) {
+        const inTab = t.all('article.card', b).map((a) => (a.matches('[data-peek]') ? a : a.querySelector<HTMLElement>('[data-peek]'))).filter((e) => e?.tabIndex === 0);
+        t.check(`one card on ${b.dataset.keys} is in the tab order`, inTab.length === 1, inTab.length);
+      }
+      const first = boardCard(t, t.data.keys.first);
+      t.check('Tab from outside lands on the first card: it is the one in the tab order', first.focus.tabIndex === 0, first.focus.tabIndex);
+      first.focus.focus();
+      const right = await press(t, first.focus, 'ArrowRight');
+      const next = boardCard(t, t.data.keys.right);
+      t.check('Right moves focus to the card at the same place in the next column', document.activeElement === next.focus, document.activeElement?.textContent?.slice(0, 80));
+      t.check('the page takes Right, so the board doesn\'t scroll', right.defaultPrevented);
+      t.check('the card focused now is the one in the tab order', next.focus.tabIndex === 0 && first.focus.tabIndex === -1, [next.focus.tabIndex, first.focus.tabIndex]);
+      await press(t, next.focus, 'ArrowLeft');
+      t.check('Left goes back', document.activeElement === first.focus, document.activeElement?.textContent?.slice(0, 80));
+      await press(t, first.focus, 'ArrowDown');
+      t.check('Down goes to the next card in the column', document.activeElement === boardCard(t, t.data.keys.down).focus, document.activeElement?.textContent?.slice(0, 80));
+      await press(t, document.activeElement as HTMLElement, 'End');
+      t.check('End goes to the column\'s last card', document.activeElement === boardCard(t, t.data.keys.last).focus, document.activeElement?.textContent?.slice(0, 80));
+      await press(t, document.activeElement as HTMLElement, 'Home');
+      t.check('Home goes to its first', document.activeElement === first.focus, document.activeElement?.textContent?.slice(0, 80));
+      // Edge: a key the board doesn't take is left alone.
+      const other = await press(t, first.focus, 'a');
+      t.check('a key it doesn\'t take leaves focus and the key alone', document.activeElement === first.focus && !other.defaultPrevented);
+      await press(t, first.focus, 'Enter');
+      const asked = t.sent('task-modal-open');
+      t.check('Enter opens the card', asked.length === 1 && asked[0]?.key === t.data.keys.first, asked);
+    },
+  },
+  {
+    name: 'board keys: Space, Right and Enter move a card as a drop does, and the live line says so',
+    page: 'tasks',
+    async run(t) {
+      const { card, focus, board, live } = boardCard(t, t.data.keys.move.card);
+      const m = t.data.keys.move;
+      focus.focus();
+      await press(t, focus, ' ');
+      t.check('Space picks it up: it says Moving, with an icon', card.classList.contains('held') && t.find('.card-moving', card).textContent === 'Moving' && !!t.find('.card-moving .codicon', card));
+      t.check('the live line says it is moving, and how to drop it', live.textContent === m.moving, live.textContent);
+      t.check('the columns it may land in are marked', JSON.stringify(t.all('.column.can-drop', board).map((c) => c.dataset.col)) === JSON.stringify(m.lanes), t.all('.column.can-drop', board).map((c) => c.dataset.col));
+      t.check('none is chosen yet', t.all('.column.drop-target', board).length === 0);
+      await press(t, focus, 'ArrowRight');
+      t.check('Right chooses the next column', JSON.stringify(t.all('.column.drop-target', board).map((c) => c.dataset.col)) === JSON.stringify([m.to]), t.all('.column.drop-target', board).map((c) => c.dataset.col));
+      t.check('focus stays on the held card', document.activeElement === focus);
+      await press(t, focus, 'Enter');
+      const sent = t.sent('move');
+      t.check('Enter sends the move, once', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(m.sent), sent);
+      t.check('Enter drops it rather than opening it', t.sent('task-modal-open').length === 0, t.sent('task-modal-open'));
+      t.check('the live line says where it moved', live.textContent === m.moved, live.textContent);
+      t.check('it shows in its new column at once, put down', (card.closest('.column') as HTMLElement | null)?.dataset.col === m.to && !card.classList.contains('held') && !card.querySelector('.card-moving'));
+      t.check('no column is marked any more', t.all('.column.can-drop, .column.drop-target', board).length === 0);
+      t.check('focus stays on it', document.activeElement === focus);
+      // A drop of another card on the same column sends the same message, with its own key.
+      const other = t.find(`.column[data-col="${CSS.escape(t.all('.column', board)[0]!.dataset.col!)}"] article.card`, board);
+      const dt = new DataTransfer();
+      dt.setData('text/x-acc-card', other.dataset.cardId!);
+      t.find(`.column[data-col="${CSS.escape(m.to)}"]`, board).dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      await t.settle();
+      const drop = t.sent('move');
+      t.check('a drop there sends the same message', drop.length === 2 && JSON.stringify({ ...drop[1], key: m.card }) === JSON.stringify(m.sent), drop);
+    },
+  },
+  {
+    name: 'board keys: Escape puts a held card down where it was and sends nothing',
+    page: 'tasks',
+    async run(t) {
+      const { card, focus, board, live } = boardCard(t, t.data.keys.move.card);
+      const home = (card.closest('.column') as HTMLElement).dataset.col;
+      focus.focus();
+      await press(t, focus, ' ');
+      await press(t, focus, 'ArrowRight');
+      const esc = await press(t, focus, 'Escape');
+      t.check('the page takes Escape', esc.defaultPrevented);
+      t.check('Escape sends no move', t.sent('move').length === 0, t.sent('move'));
+      t.check('the card is put down in its own column', !card.classList.contains('held') && !card.querySelector('.card-moving') && (card.closest('.column') as HTMLElement).dataset.col === home);
+      t.check('no column is marked any more', t.all('.column.can-drop, .column.drop-target', board).length === 0 && !board.classList.contains('holding'));
+      t.check('the live line says it stays', live.textContent === t.data.keys.move.stays, live.textContent);
+      t.check('focus stays on it', document.activeElement === focus);
+      // Edge: Enter after Escape opens the card, as it did before the hold.
+      await press(t, focus, 'Enter');
+      t.check('Enter then opens it, and moves nothing', t.sent('task-modal-open').length === 1 && t.sent('move').length === 0, t.sent('task-modal-open'));
+    },
+  },
+  {
+    name: 'board keys: Space on a card no column takes says why, and holds nothing',
+    page: 'tasks',
+    async run(t) {
+      await t.post({ type: 'state', model: t.data.keys.stuck.model });
+      const seg = t.all<HTMLButtonElement>('.segmented .seg').find((b) => b.textContent?.includes('Agent board'));
+      if (!seg) throw new Error('not found: the Agent board button');
+      await t.click(seg);
+      const { card, focus, board, live } = boardCard(t, t.data.keys.stuck.card);
+      focus.focus();
+      const space = await press(t, focus, ' ');
+      t.check('the page takes Space', space.defaultPrevented);
+      t.check('the live line says why it can\'t move', live.textContent === t.data.keys.stuck.says, live.textContent);
+      t.check('it says so with an icon', !!live.querySelector('.codicon'));
+      t.check('nothing is held or marked', !card.classList.contains('held') && !board.classList.contains('holding') && t.all('.column.can-drop', board).length === 0);
+      // Edge: Enter after it opens the card, and moves nothing.
+      await press(t, focus, 'Enter');
+      t.check('Enter then opens it, and sends no move', t.sent('task-modal-open').length === 1 && t.sent('move-task').length === 0, t.sent('move-task'));
+    },
+  },
+  {
+    name: 'board keys: focus stays on the same card after a redraw, in its new column',
+    page: 'tasks',
+    async run(t) {
+      const m = t.data.keys.move;
+      boardCard(t, m.card).focus.focus();
+      await t.post({ type: 'state', model: t.model });
+      const again = boardCard(t, m.card);
+      t.check('a redraw keeps focus on the card, a new element', document.activeElement === again.focus, document.activeElement?.className);
+      await press(t, again.focus, ' ');
+      await press(t, again.focus, 'ArrowRight');
+      await press(t, again.focus, 'Enter');
+      await t.post({ type: 'state', model: t.data.keys.moved });
+      const moved = boardCard(t, m.card);
+      t.check('the redrawn board has it in its new column', (moved.card.closest('.column') as HTMLElement).dataset.col === m.to);
+      t.check('focus is on it there', document.activeElement === moved.focus, document.activeElement?.className);
+      t.check('it is the card in the tab order', moved.focus.tabIndex === 0 && t.all('[data-peek]', moved.board).filter((e) => e.tabIndex === 0).length === 1);
+      t.check('the live line still says where it moved', moved.live.textContent === m.moved, moved.live.textContent);
+    },
   },
 ];
 
@@ -838,6 +988,12 @@ export const MUTANTS: Mutant[] = [
   { name: 'the rail has no palette button', file: 'rail.ts', find: 'paletteButton(), list,', replace: 'list,', kills: [caseNamed('palette: the rail')] },
   { name: '/ opens no palette', file: 'palette.ts', find: "document.addEventListener('keydown', onSlash);", replace: '', kills: [caseNamed('palette: the rail')] },
   { name: '/ opens the palette from a text box too', file: 'palette.ts', find: "if (t?.closest('input, textarea, select, [contenteditable=\"\"], [contenteditable=\"true\"], dialog[open]')) return;", replace: '', kills: [caseNamed('palette: the rail')] },
+  { name: 'Right does nothing on a board', file: 'board-keys.ts', find: "const step = key === 'ArrowRight' ? 1 : -1;", replace: "const step = key === 'ArrowRight' ? 0 : -1;", kills: [caseNamed('board keys: one card')] },
+  { name: 'every card on a board is in the tab order', file: 'board-nav.ts', find: 'focusOf(a).tabIndex = a === to ? 0 : -1;', replace: 'focusOf(a).tabIndex = 0;', kills: [caseNamed('board keys: one card')] },
+  { name: 'a held card\'s Enter sends no message', file: 'board-nav.ts', find: 'o.move(id, to);', replace: '', kills: [caseNamed('board keys: Space, Right and Enter')] },
+  { name: 'Escape still sends the move', file: 'board-nav.ts', find: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          putDown();", replace: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          o.move(id, held.at);\n          putDown();", kills: [caseNamed('board keys: Escape')] },
+  { name: 'the board\'s live line stays silent', file: 'board-nav.ts', find: "live.replaceChildren(icon(look.icon, look.tone), el('span', '', text));", replace: 'void look;', kills: [caseNamed('board keys: Space, Right and Enter'), caseNamed('board keys: Escape'), caseNamed('board keys: Space on a card')] },
+  { name: 'a redraw drops the focused card\'s focus', file: 'board-nav.ts', find: 'if (again) focusOf(again).focus({ preventScroll: true });', replace: '', kills: [caseNamed('board keys: focus stays')] },
 ];
 
 /** How many times `find` is in `source`: a mutant applies only where it's there exactly once. */
@@ -889,6 +1045,35 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     connect: connectData(models.connect),
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
     palette: paletteData(models.tasks, now),
+    keys: keysData(models.tasks),
+  };
+}
+
+/** What the board's key cases expect (T-54), from the Tasks board's model: the Jira board it opens on, and the agent board. */
+function keysData(model: Model): BehaviourData['keys'] {
+  if (model.kind !== 'home') throw new Error('The board key cases need a home model.');
+  const board = model.tasks.projects[0]?.boards[0];
+  const [home, next] = board?.columns ?? [];
+  if (!board || !home || home.cards.length < 3 || !next?.cards.length) throw new Error('The board key cases need a Jira board whose first column has three cards and whose second has one.');
+  const card = home.cards[0]!.key;
+  const moved = JSON.parse(JSON.stringify(model)) as typeof model;
+  const cols = moved.tasks.projects[0]!.boards[0]!.columns;
+  cols[1]!.cards.unshift(cols[0]!.cards.shift()!);
+  // A task no column takes from where it is: its card's lanes emptied, as the model gives such a task.
+  const stuck = JSON.parse(JSON.stringify(model)) as typeof model;
+  const done = stuck.tasks.projects[0]!.columns.findLast((c) => c.cards.length)!;
+  done.cards[0]!.drops = [];
+  return {
+    first: card, down: home.cards[1]!.key, last: home.cards.at(-1)!.key, right: next.cards[0]!.key,
+    move: {
+      card, to: next.id, lanes: board.columns.slice(1).map((c) => c.id),
+      sent: { type: 'move', project: model.tasks.projects[0]!.root, tracker: board.index, key: card, to: next.id },
+      moving: `Moving ${card}. Left and Right choose a column. Enter drops it. Escape cancels.`,
+      moved: `Moved ${card} to ${next.name}`,
+      stays: `Put ${card} down. It stays in ${home.name}.`,
+    },
+    moved,
+    stuck: { card: done.cards[0]!.id, model: stuck, says: `${done.cards[0]!.id} can't move from ${done.label}. No other column takes it from here.` },
   };
 }
 
@@ -994,7 +1179,7 @@ async function begin() {
     async post(m) { window.postMessage(clone(m), '*'); await settle(); },
     settle,
     async click(e) {
-      if (e.tabIndex >= 0 || e.matches('button, a[href], input, textarea, select')) e.focus();
+      if (e.hasAttribute('tabindex') || e.matches('button, a[href], input, textarea, select')) e.focus();
       const r = e.getBoundingClientRect();
       const at = { bubbles: true, cancelable: true, view: window, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
       e.dispatchEvent(new MouseEvent('mousedown', at));
