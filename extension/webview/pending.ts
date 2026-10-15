@@ -1,7 +1,6 @@
 // What a page is waiting on acc for. Kept apart from main.ts, which runs in the webview, so node's tests
 // can import it.
 
-import type { GroupKey, LandingGroup, LandingRow, OverviewCard } from '../src/model/landing.ts';
 import type { OverviewModel } from '../src/model/overview.ts';
 import type { RuleCard } from '../src/model/rules.ts';
 
@@ -143,38 +142,11 @@ export function hideSettled(o: OverviewModel, settled: ReadonlySet<string>, key:
       more: g.more && left.length > g.shows ? { ...g.more, label: `Show all ${left.length}` } : null,
     };
   });
-  return { ...o, attention, landing, cards: overviewCards(landing) };
-}
-
-// ---------------------------------------------------------------- the Overview's cards (T-36)
-
-// Here, with what the page waits on acc for, as both the extension's model and hideSettled build them: a
-// settled rule changes the When you have a moment card. The page imports no values from src (D-121).
-
-/** The lists the Overview shows as cards, in its order. Needs you is drawn as lines above them. */
-export const CARD_ORDER: GroupKey[] = ['progress', 'ready', 'moment', 'history', 'queue'];
-
-/** A line's task, or its title where it's no one task's. */
-const named = (r: LandingRow): string => r.id ?? r.title;
-
-/** A card's one line: In progress says how many wait on you, else what's first; each other list what's first. */
-export function cardLine(g: Pick<LandingGroup, 'key' | 'all'>): string {
-  const first = g.all[0];
-  if (!first) return '';
-  const waiting = g.all.filter((r) => r.look.tone === 'orange').length;
-  switch (g.key) {
-    case 'progress': return waiting ? `${waiting} waiting on you` : `${named(first)} ${first.look.label.toLowerCase()}`;
-    case 'ready': return `${named(first)} next`;
-    case 'queue': return `${named(first)} next to merge`;
-    case 'history': return [named(first), first.look.label.toLowerCase(), first.facts[0]?.text].filter(Boolean).join(', ');
-    default: return first.title;
-  }
-}
-
-/** A card for each list in CARD_ORDER that holds a line; none for an empty one. */
-export function overviewCards(landing: LandingGroup[]): OverviewCard[] {
-  return CARD_ORDER.flatMap((key) => {
-    const g = landing.find((x) => x.key === key);
-    return g?.all.length ? [{ key, title: g.title, icon: g.icon, tone: g.tone, count: g.count, line: cardLine(g), opens: g.opens }] : [];
+  // Only When you have a moment holds suggested rules: its card takes that list's count and first line, or goes with its last line.
+  const cards = o.cards.flatMap((c) => {
+    if (c.key !== 'moment') return [c];
+    const moment = landing.find((g) => g.key === 'moment');
+    return moment?.all.length ? [{ ...c, count: moment.count, line: moment.all[0]!.title }] : [];
   });
+  return { ...o, attention, landing, cards };
 }

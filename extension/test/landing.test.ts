@@ -7,9 +7,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { HubLike, Ref } from '../src/model/shared.ts';
 import { type HomeModel, homeModel } from '../src/model/home.ts';
-import { CAP, checksFact, type Detail, landing, type LandingGroup, type LandingRow, type RowDo, TASK_MENU } from '../src/model/landing.ts';
-import type { OverviewModel } from '../src/model/overview.ts';
-import { CARD_ORDER, cardLine, overviewCards } from '../webview/pending.ts';
+import { CAP, CARD_ORDER, cardLine, checksFact, type Detail, landing, type LandingGroup, type LandingRow, overviewCards, type RowDo, TASK_MENU } from '../src/model/landing.ts';
+import { needsYouCount, type OverviewModel } from '../src/model/overview.ts';
 import { cardActions } from '../src/model/cards.ts';
 import { pickStop } from '../src/progress.ts';
 import { sampleLandingHub } from '../scripts/fixtures/landing.ts';
@@ -332,7 +331,7 @@ test('the model carries a card for each list but Needs you, in order, with its c
   assert.deepEqual(o.cards.map((c) => [c.key, c.title, c.count]), [
     ['progress', 'In progress', group(busy(), 'progress').count], ['ready', 'Ready for an agent', 6], ['moment', 'When you have a moment', group(busy(), 'moment').count], ['history', 'History', 12],
   ]);
-  assert.deepEqual(o.cards, overviewCards(o.landing), 'the model\'s cards are the page\'s helper\'s');
+  assert.deepEqual(o.cards, overviewCards(o.landing), 'the model\'s cards are the host\'s overviewCards');
   for (const c of o.cards) assert.ok(c.line.trim() && c.count > 0, `${c.key}: a line and a count`);
   // The empty edge: no history, nothing ready, nothing running, no queue: no card for any of them.
   const quiet = busy({ ...sampleLandingHub(NOW), history: () => [], autopilotLog: () => [], answers: [], taskRows: () => [], jobs: () => [] } as HubLike);
@@ -342,17 +341,34 @@ test('the model carries a card for each list but Needs you, in order, with its c
   assert.deepEqual(overviewCards([]), [], 'no lists, no cards');
 });
 
-test('a card\'s line says what waits on you in it, or what\'s first: each kind, and an empty list\'s (T-36)', () => {
+test('a card\'s line names its lines\' states, or what\'s first: each kind, and an empty list\'s (T-36)', () => {
   const row = (id: string | null, title: string, label: string, tone: 'orange' | 'blue' | 'neutral' = 'neutral', fact?: string): LandingRow => ({ key: title, look: { label, icon: 'circle', tone }, id, title, facts: fact ? [{ text: fact }] : [], action: null, menu: null, open: null, tip: null });
   const line = (key: LandingGroup['key'], all: LandingRow[]) => cardLine({ key, all });
-  assert.equal(line('progress', [row('ACME-13', 'Login', 'Working', 'blue'), row('ACME-12', 'Sum', 'Asks a question', 'orange'), row('ACME-11', 'X', 'Stopped', 'orange')]), '2 waiting on you');
+  assert.equal(line('progress', [row('ACME-13', 'Login', 'Working', 'blue'), row('ACME-12', 'Sum', 'Asks a question', 'orange'), row('ACME-11', 'X', 'Stopped', 'orange')]), '1 asks a question, 1 stopped');
+  assert.equal(line('progress', [row('ACME-12', 'Sum', 'Stopped', 'orange'), row('ACME-11', 'X', 'Stopped', 'orange'), row('ACME-13', 'Login', 'Working', 'blue')]), '2 stopped', 'lines in one state are counted together, in that state\'s words');
+  assert.equal(line('progress', [row('ACME-12', 'Sum', 'Waiting on you', 'orange'), row('ACME-11', 'X', 'Failed', 'orange')]), '1 asking, 1 failed', 'a line labelled Waiting on you is an agent asking: the card doesn\'t claim the header\'s count');
   assert.equal(line('progress', [row('ACME-13', 'Login', 'Working', 'blue')]), 'ACME-13 working');
+  assert.equal(line('progress', [row('ACME-12', 'Sum', 'Needs you', 'orange'), row('ACME-11', 'X', 'Stopped', 'orange')]), '1 stuck, 1 stopped', 'a finished job\'s Needs you line is stuck: the card never names the person');
+  assert.equal(line('progress', [row('ACME-12', 'Sum', 'Needs you', 'neutral')]), 'ACME-12 stuck', 'nor does a card naming its first line');
   assert.equal(line('ready', [row('ACME-16', 'Export', 'Ready')]), 'ACME-16 next');
   assert.equal(line('queue', [row('GH-41', 'Fix', 'Checks running')]), 'GH-41 next to merge');
   assert.equal(line('history', [row('ACME-12', 'Sum', 'Done', 'neutral', '4 min ago')]), 'ACME-12, done, 4 min ago');
   assert.equal(line('history', [row(null, 'Run the checks', 'Passed')]), 'Run the checks, passed');
   assert.equal(line('moment', [row(null, '10 suggested rules, from repeated review findings', 'Rules suggested')]), '10 suggested rules, from repeated review findings');
   assert.equal(line('ready', []), '', 'an empty list has no line, and no card');
+});
+
+test('where the header says all is clear, no card says that something waits on the person: the edge case of stopped work with nothing needing you (T-37)', () => {
+  const m = busy();
+  const o = { ...m.overview, questions: [], attention: [] };
+  assert.equal(needsYouCount(o), 0, 'the header says all is clear');
+  const lists = landing(o, NOW);
+  const cards = overviewCards(lists);
+  const progress = lists.find((g) => g.key === 'progress')!;
+  assert.ok(progress.all.some((r) => r.look.tone === 'orange'), 'the sample has lines that stopped or ask something');
+  assert.ok(cards.length >= 3, `${cards.length} cards checked`);
+  for (const c of cards) assert.doesNotMatch(c.line, c.key === 'history' ? /needs you|waiting (?:on|for) you|waits on you/i : /\byou\b/i, `${c.key}: ${c.line}`);
+  assert.match(cards.find((c) => c.key === 'progress')!.line, /^\d+ [a-z ]+(, \d+ [a-z ]+)*$/, 'In progress names the lines\' own states');
 });
 
 test('the Overview\'s header has one button, Add task, and a ⋯ menu that reaches what its buttons did; each card is named with its count (T-36)', () => {

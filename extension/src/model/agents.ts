@@ -325,13 +325,6 @@ export const area: ModelArea = {
         });
       }
     },
-    stats({ hub }) {
-      // An agent waiting on a question reads as busy to Claude Code, but it's waiting on you.
-      const working = hub.agents.filter((s) => (s.kind === 'background' ? s.state === 'working' : s.status === 'busy') && !hub.askingFor?.(s)).length;
-      return [
-      { order: 30, tile: { label: 'Agents working', value: String(working), icon: 'hubot', tone: working ? 'blue' : 'neutral', section: 'agents', hint: 'Sessions busy right now' } },
-      ];
-    },
     nav({ agents }) {
       const needsAgents = agents.counts.needsYou;
       const sessions = agents.counts.sessions;
