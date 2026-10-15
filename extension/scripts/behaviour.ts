@@ -28,8 +28,7 @@
  * HELPERS, by the same names.
  */
 
-import type { spawnSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { JIRA } from '../../packages/core/src/trackers/connect.ts';
@@ -43,6 +42,7 @@ import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { ROOT } from './fixtures/shared.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
+import { pool, type Ran } from './jobs.ts';
 
 /** What the page hands each case: ways to find, act and check, and what Node worked out it should see. */
 export interface Probe {
@@ -1299,25 +1299,32 @@ export interface BehaviourDeps {
   models: CaseModels;
   now: number;
   fonts: Record<string, string>;
-  run: (chrome: string, args: string[]) => ReturnType<typeof spawnSync>;
+  /** How many cases, or mutants, run at once (T-58). */
+  jobs: number;
+  /** Runs Chrome in a slot, 0 to jobs - 1, whose profile no other run uses meanwhile. */
+  run: (chrome: string, args: string[], slot: number) => Promise<Ran>;
   log: (line: string) => void;
 }
 
-function runCase(d: BehaviourDeps, c: Case, data: BehaviourData, script?: string, tag = 'case'): BehaviourRun {
+async function runCase(d: BehaviourDeps, c: Case, data: BehaviourData, slot: number, script?: string, tag = 'case'): Promise<BehaviourRun> {
   const file = join(d.work, `behaviour-${tag}-${CASES.indexOf(c)}.html`);
   writeFileSync(file, behaviourPage(c, caseModel(c, d.models), data, d.fonts, script));
-  const r = d.run(d.chrome, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--allow-file-access-from-files',
-    '--virtual-time-budget=8000', `--window-size=${BEHAVIOUR_WINDOW.width},${BEHAVIOUR_WINDOW.height}`, '--dump-dom', pathToFileURL(file).href]);
+  const r = await d.run(d.chrome, ['--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check', '--allow-file-access-from-files',
+    '--virtual-time-budget=8000', `--window-size=${BEHAVIOUR_WINDOW.width},${BEHAVIOUR_WINDOW.height}`, '--dump-dom', pathToFileURL(file).href], slot);
   return { name: c.name, report: r.error ? null : dumpedBehaviour(String(r.stdout ?? '')) };
 }
 
-/** Builds the webview with one mutant's change into work/webview/, returning its script's path and how often the change applied. */
+/**
+ * Builds the webview with one mutant's change into its own folder, work/mutant-<index>/, so builds running
+ * at once never write the same file (T-58). Returns its script's path from work, and how often the change applied.
+ */
 async function buildMutant(work: string, m: Mutant, index: number): Promise<{ script: string; applied: number }> {
   const { build } = await import('esbuild');
   const webview = join(import.meta.dirname, '..', 'webview');
   const target = join(webview, m.file);
   let applied = 0;
-  const out = `webview/mutant-${index}.js`;
+  const out = `mutant-${index}/main.js`;
+  mkdirSync(join(work, `mutant-${index}`), { recursive: true });
   await build({
     entryPoints: [join(webview, 'main.ts')], outfile: join(work, out), bundle: true, platform: 'browser', target: 'es2022', format: 'iife', legalComments: 'none', logLevel: 'silent',
     plugins: [{ name: 'mutant', setup(b) {
@@ -1333,28 +1340,27 @@ async function buildMutant(work: string, m: Mutant, index: number): Promise<{ sc
 }
 
 /**
- * Runs every case on the built page, then every mutant's cases on the page built with its change. Returns
- * the failures; each case's checks and each mutant are counted in the log.
+ * Runs every case on the built page, then every mutant's cases on the page built with its change, d.jobs
+ * at a time (T-58): a mutant's cases run one after another in its slot. Returns the failures; each case's
+ * checks and each mutant are counted in the log, in CASES' and mutants' order whatever finished first.
  */
 export async function behaviourCheck(d: BehaviourDeps, mutants = MUTANTS): Promise<string[]> {
   const data = behaviourData(d.models, d.now);
-  const runs: BehaviourRun[] = [];
-  for (const c of CASES) {
-    const r = runCase(d, c, data);
-    runs.push(r);
-    d.log(`${r.report && !caseFailed(r.report) ? 'pass' : 'FAIL'}  ${c.name}  (${r.report?.checks.length ?? 0} checks)`);
-  }
+  const runs = await pool(CASES, d.jobs, (c, slot) => runCase(d, c, data, slot), (r, i) => {
+    d.log(`${r.report && !caseFailed(r.report) ? 'pass' : 'FAIL'}  ${CASES[i]!.name}  (${r.report?.checks.length ?? 0} checks)`);
+  });
   const judged = judgeBehaviour(runs);
   d.log(`Behaviour: ${runs.length} cases, ${judged.checks} checks, ${judged.failures.length} failure${judged.failures.length === 1 ? '' : 's'}.`);
-  const results: { mutant: Mutant; applied: number; runs: BehaviourRun[] }[] = [];
-  for (const [i, m] of mutants.entries()) {
+  const results = await pool(mutants, d.jobs, async (m, slot, i) => {
     const built = await buildMutant(d.work, m, i);
-    const mruns = built.applied === 1 ? m.kills.map((name) => runCase(d, CASES.find((c) => c.name === name)!, data, built.script, `mutant-${i}`)) : [];
-    results.push({ mutant: m, applied: built.applied, runs: mruns });
+    const mruns: BehaviourRun[] = [];
+    if (built.applied === 1) for (const name of m.kills) mruns.push(await runCase(d, CASES.find((c) => c.name === name)!, data, slot, built.script, `mutant-${i}`));
+    return { mutant: m, applied: built.applied, runs: mruns };
+  }, ({ mutant: m, applied, runs: mruns }) => {
     // What caught it: each case's first failed check, or what stopped it.
     const why = mruns.map((r) => r.report?.error ?? r.report?.checks.find((c) => !c.ok)?.what ?? 'passed').join('; ');
-    d.log(`mutant "${m.name}": ${built.applied !== 1 ? `its change applied ${built.applied} times` : mruns.every((r) => caseFailed(r.report)) ? `caught: ${why}` : `NOT caught: ${why}`}`);
-  }
+    d.log(`mutant "${m.name}": ${applied !== 1 ? `its change applied ${applied} times` : mruns.every((r) => caseFailed(r.report)) ? `caught: ${why}` : `NOT caught: ${why}`}`);
+  });
   const missed = judgeMutants(results);
   const caught = results.filter((r) => r.applied === 1 && r.mutant.kills.length && r.runs.every((x) => caseFailed(x.report))).length;
   d.log(`Mutants: ${results.length}, ${caught} caught.`);

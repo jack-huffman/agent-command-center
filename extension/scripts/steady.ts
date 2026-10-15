@@ -32,6 +32,15 @@ export function drawRetrying<T extends Drawn>(draw: () => T, what: string, retri
   return draw();
 }
 
+/** drawRetrying for a drawing that runs without blocking (T-58): drawn again in its own job when it timed out. */
+export async function drawRetried<T extends Drawn>(draw: () => Promise<T>, what: string, retried: string[], say: (line: string) => void = console.log): Promise<T> {
+  const first = await draw();
+  if (!timedOut(first)) return first;
+  retried.push(what);
+  say(`Chrome didn't finish ${what} in ${shotTimeout() / 1000} s, so it's drawn once more.`);
+  return draw();
+}
+
 /** The summary's words for the drawings drawn twice: how many, and which. Empty when none were. */
 export const retriedSummary = (retried: string[]): string => (retried.length ? ` Retried ${retried.length} drawing${retried.length === 1 ? '' : 's'} that timed out: ${retried.join('; ')}.` : ' Retried no drawings.');
 

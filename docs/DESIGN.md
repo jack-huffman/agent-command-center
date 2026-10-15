@@ -1569,7 +1569,12 @@ every element's computed colours across themes. A drawing Chrome doesn't
 finish in `ACC_SHOT_TIMEOUT` seconds (60 unless set) is drawn once more, and
 the run's summary line counts and names each; a second timeout fails the run.
 A page measures its geometry once the rail's selected tab has held still for
-three frames (D-133).
+three frames (D-133). The run draws three pages at once (`--jobs N` sets how
+many), each job in its own Chrome with its own profile and output folders, and
+prints and notes each drawing in the pages' order (D-???). A drawing that
+fails, timed out twice or from a Chrome that died, is named, and the others
+are drawn before the run fails. The behaviour cases and mutants run in a pool
+of as many, each mutant built into a folder of its own.
 
 **The modals' behaviour** (GH-170): a full run of `npm run screenshot` (every page,
 theme and width), or `npm run screenshot -- --behaviour` alone, then opens the task modal and the

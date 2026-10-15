@@ -384,7 +384,10 @@ themes, at 1000, 620 and 500 pixels wide, with one row shown hovered. Chrome
 lays out no narrower than 500, so a narrower `--width` is refused. Name tabs to
 shoot only those (`npm run screenshot -- agents worktrees`), or pass `--width`,
 `--theme`, `--height` and `--out`. It renders the built webview, so run
-`npm run build` after a change. Set `CHROME` if Chrome isn't found.
+`npm run build` after a change. Set `CHROME` if Chrome isn't found. It draws
+three pages at once, each in its own Chrome under `nice`; `--jobs N` changes
+how many, and `--jobs 1` draws one at a time. The log and the shots are the
+same either way.
 
 Each shot also measures itself, and the run exits 1, naming the page, theme,
 width and element, when two controls overlap, a label is cut off, the selected
