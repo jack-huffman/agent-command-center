@@ -3,6 +3,7 @@
 import type { HomeSection } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import { el, icon } from './dom.ts';
+import { paletteButton } from './palette.ts';
 import { api, go } from './state.ts';
 
 // The page draws a new rail on each render: only the latest one listens for fonts.
@@ -58,7 +59,7 @@ export function renderNav(m: HomeModel, current: HomeSection): HTMLElement {
     return b;
   });
   const rail = el('nav', 'rail', el('div', 'brand', logo(), el('div', 'brand-text', el('span', 'brand-name', 'Command Center'),
-    el('span', 'muted small', m.overview.projects.map((p) => p.name).join(', ') || 'No project yet'))), list, el('div', 'rail-foot', ...people));
+    el('span', 'muted small', m.overview.projects.map((p) => p.name).join(', ') || 'No project yet'))), paletteButton(), list, el('div', 'rail-foot', ...people));
   // Once laid out, and again when the fonts already loading are done.
   requestAnimationFrame(() => showSelected(rail));
   void document.fonts.ready.then(() => showSelected(rail));

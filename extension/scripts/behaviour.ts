@@ -37,6 +37,8 @@ import type { HomeModel, Model } from '../src/model/home.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
+import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
+import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { ROOT } from './fixtures/shared.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
@@ -104,6 +106,18 @@ export interface BehaviourData {
  * `none` is the same page with no project chosen, where Test connection is off too: its model, and the reason it gives.
  */
   connect: { save: string; why: string; none: { model: ConnectModel; testWhy: string } };
+  /**
+   * The command palette (T-52), on the Tasks board: the sections an empty query shows, in order; the task
+   * "16" finds first, with the message that opens it in the modal; the query whose second result Down and
+   * Enter run, that result's title and the message it sends; and the board's model with Stop finished off,
+   * its title and its reason.
+   */
+  palette: {
+    sections: string[];
+    task: { id: string; key: string; project: string; message: Record<string, unknown> };
+    second: { query: string; title: string; sent: Record<string, unknown> };
+    disabled: { model: Model; title: string; reason: string };
+  };
 }
 
 /** One case: its name, the page it opens, and what it does there. */
@@ -130,7 +144,7 @@ async function openTask(t: Probe): Promise<{ dialog: HTMLDialogElement; body: HT
   const asked = t.sent('task-modal-open').at(-1);
   t.check('a card\'s click asks the extension for its task in the modal', asked?.project === t.data.task.project && asked?.key === t.data.task.key, asked);
   await t.post(t.data.task.message);
-  const dialog = t.find<HTMLDialogElement>('dialog.task-modal:not(.detail-modal)');
+  const dialog = t.find<HTMLDialogElement>('dialog.task-modal:not(.detail-modal):not(.palette-modal)');
   t.check('the modal opens', dialog.open);
   t.check('focus moves into it', dialog.contains(document.activeElement), document.activeElement?.className);
   return { dialog, body: t.find('.task-modal-body', dialog), card };
@@ -162,7 +176,26 @@ async function page(t: Probe, dialog: HTMLDialogElement, which: 'Previous' | 'Ne
   await t.click(b);
 }
 
-export const HELPERS = [openTask, openRules, shownRule, page];
+/** A key pressed on an element, as the page hears it; returns its event, to see whether the page took it. */
+async function press(t: Probe, target: HTMLElement, key: string, shift = false): Promise<KeyboardEvent> {
+  const ev = new KeyboardEvent('keydown', { key, shiftKey: shift, bubbles: true, cancelable: true });
+  target.dispatchEvent(ev);
+  await t.settle();
+  return ev;
+}
+
+/** Opens the command palette from the rail's button (T-52). Returns the button, the palette and its box. */
+async function openPalette(t: Probe): Promise<{ button: HTMLElement; dialog: HTMLDialogElement; box: HTMLInputElement }> {
+  const button = t.find('.rail .palette-btn');
+  await t.click(button);
+  const dialog = t.find<HTMLDialogElement>('dialog.palette-modal');
+  t.check('the palette opens', dialog.open);
+  const box = t.find<HTMLInputElement>('.palette-box', dialog);
+  t.check('focus is in its box', document.activeElement === box, document.activeElement?.className);
+  return { button, dialog, box };
+}
+
+export const HELPERS = [openTask, openRules, shownRule, page, press, openPalette];
 
 // ---------------------------------------------------------------- the cases
 
@@ -608,6 +641,143 @@ export const CASES: Case[] = [
       t.check('In the terminal sends the answer that releases the waiting hook', answer?.decision === 'terminal', answer);
     },
   },
+  {
+    name: 'palette: the rail\'s button opens it with focus in the box, a combobox over a listbox of options, and the sections for an empty query',
+    page: 'tasks',
+    async run(t) {
+      const { button, dialog, box } = await openPalette(t);
+      t.check('the button names it, with the key in its title', button.getAttribute('aria-label') === 'Search or run a command' && /K/.test(button.title), button.title);
+      const list = t.find('[role=listbox]', dialog);
+      t.check('the box is a combobox that controls the list', box.getAttribute('role') === 'combobox' && box.getAttribute('aria-controls') === list.id, box.outerHTML.slice(0, 200));
+      const options = t.all('[role=option]', list);
+      t.check('nothing run yet: the sections, in order', JSON.stringify(options.map((o) => t.find('.palette-title', o).textContent)) === JSON.stringify(t.data.palette.sections), options.map((o) => o.textContent));
+      t.check('the box names the first as the choice', box.getAttribute('aria-activedescendant') === options[0]?.id && options[0]?.getAttribute('aria-selected') === 'true', box.getAttribute('aria-activedescendant'));
+      const live = t.find('[aria-live]', dialog);
+      t.check('a live line says how many results there are', live.textContent?.startsWith(`${options.length} results`) === true, live.textContent);
+      t.check('a heading names the group', t.all('.palette-head', list).map((h) => h.textContent).join() === 'Sections', t.all('.palette-head', list).map((h) => h.textContent));
+      // `/` opens it too, but not while typing in a text box, where it's a character.
+      await t.escape(dialog);
+      const field = document.createElement('input');
+      document.body.append(field);
+      field.focus();
+      const typed = await press(t, field, '/');
+      t.check('/ in a text box opens nothing, and stays a character', !dialog.open && !typed.defaultPrevented);
+      field.remove();
+      const slash = await press(t, document.body, '/');
+      t.check('/ elsewhere on the page opens it, with focus in the box', dialog.open && slash.defaultPrevented && document.activeElement === box, document.activeElement?.className);
+    },
+  },
+  {
+    name: 'palette: the extension\'s message opens it, with focus in the box',
+    page: 'tasks',
+    async run(t) {
+      t.check('it isn\'t open before', t.all('dialog.palette-modal[open]').length === 0);
+      await t.post({ type: 'palette' });
+      const dialog = t.find<HTMLDialogElement>('dialog.palette-modal');
+      t.check('the message opens it', dialog.open);
+      t.check('focus is in its box', document.activeElement === t.find('.palette-box', dialog), document.activeElement?.className);
+      // Edge: a second message while it's open opens no second palette.
+      await t.post({ type: 'palette' });
+      t.check('a second message leaves one palette open', t.all('dialog.palette-modal[open]').length === 1);
+    },
+  },
+  {
+    name: 'palette: typing 16 and Enter opens ACME-16 over the board, and it is remembered as run',
+    page: 'tasks',
+    async run(t) {
+      const { dialog, box } = await openPalette(t);
+      await t.type(box, '16');
+      const first = t.find('[role=option]', dialog);
+      t.check('16 finds ACME-16 first, its key in bold', t.find('.palette-hint', first).textContent === t.data.palette.task.key && t.find('.palette-hint b', first).textContent === '16', first.textContent);
+      await press(t, box, 'Enter');
+      t.check('Enter closes the palette', !dialog.open);
+      const asked = t.sent('task-modal-open').at(-1);
+      t.check('it asks for ACME-16 in the modal, as its card\'s click does', asked?.project === t.data.palette.task.project && asked?.key === t.data.palette.task.key && !('tracker' in (asked ?? {})), asked);
+      await t.post(t.data.palette.task.message);
+      const modal = t.find<HTMLDialogElement>('dialog.task-modal:not(.detail-modal):not(.palette-modal)');
+      t.check('ACME-16 opens over the board', modal.open && modal.getAttribute('aria-label')?.startsWith(`${t.data.palette.task.key}:`) === true, modal.getAttribute('aria-label'));
+      const ran = (t.memory().palette as string[] | undefined) ?? [];
+      t.check('the page remembers it as run', ran[0] === t.data.palette.task.id, ran);
+    },
+  },
+  {
+    name: 'palette: Down then Enter runs the second result',
+    page: 'tasks',
+    async run(t) {
+      const { dialog, box } = await openPalette(t);
+      await t.type(box, t.data.palette.second.query);
+      const options = t.all('[role=option]', dialog);
+      t.check('the second result is the one Node expects', t.find('.palette-title', options[1]!).textContent === t.data.palette.second.title, options.map((o) => o.textContent));
+      await press(t, box, 'ArrowDown');
+      t.check('Down makes the second the choice', box.getAttribute('aria-activedescendant') === options[1]!.id && options[1]!.getAttribute('aria-selected') === 'true', box.getAttribute('aria-activedescendant'));
+      // Edge: End and Home go to the ends, and Up at the top stays there.
+      await press(t, box, 'End');
+      t.check('End goes to the last', box.getAttribute('aria-activedescendant') === options.at(-1)!.id);
+      await press(t, box, 'Home');
+      await press(t, box, 'ArrowUp');
+      t.check('Home goes to the first, and Up there stays', box.getAttribute('aria-activedescendant') === options[0]!.id);
+      await press(t, box, 'ArrowDown');
+      const type = String(t.data.palette.second.sent.type);
+      const before = t.sent(type).length;
+      await press(t, box, 'Enter');
+      const sent = t.sent(type);
+      t.check('Enter runs the second result: it sends what its control sends', sent.length === before + 1 && JSON.stringify(sent.at(-1)) === JSON.stringify(t.data.palette.second.sent), sent.at(-1));
+      t.check('and closes the palette', !dialog.open);
+    },
+  },
+  {
+    name: 'palette: Escape closes it, and focus returns to the rail\'s button that opened it',
+    page: 'tasks',
+    async run(t) {
+      const { button, dialog } = await openPalette(t);
+      // A new model while it's open redraws the rail under it, with a new button.
+      await t.post({ type: 'state', model: t.model });
+      t.check('a new model leaves it open', dialog.open);
+      t.check('the rail was drawn again', !button.isConnected);
+      await t.escape(dialog);
+      t.check('Escape closes it', !dialog.open);
+      t.check('focus goes back to the button, found again', (document.activeElement as HTMLElement | null)?.classList.contains('palette-btn') === true, document.activeElement?.className);
+      t.check('it ran nothing', t.sent('run').length + t.sent('toolbar').length + t.sent('task-modal-open').length === 0);
+    },
+  },
+  {
+    name: 'palette: Tab and Shift+Tab stay inside it, and typing goes to the box',
+    page: 'tasks',
+    async run(t) {
+      const { dialog, box } = await openPalette(t);
+      const tab = await press(t, box, 'Tab');
+      t.check('Tab is kept: the page takes it, so focus can\'t leave', tab.defaultPrevented, tab.defaultPrevented);
+      t.check('focus stays in the box', document.activeElement === box, document.activeElement?.className);
+      const back = await press(t, box, 'Tab', true);
+      t.check('Shift+Tab is kept too', back.defaultPrevented && document.activeElement === box, document.activeElement?.className);
+      // Focus somewhere else in it, as a click on a heading leaves it: a key typed there goes to the box.
+      const head = t.find('.palette-head', dialog);
+      head.tabIndex = -1;
+      head.focus();
+      await press(t, head, 'a');
+      t.check('typing goes to the box', document.activeElement === box, document.activeElement?.className);
+      t.check('it stays open', dialog.open);
+    },
+  },
+  {
+    name: 'palette: a disabled result does not run, and its reason shows',
+    page: 'tasks',
+    async run(t) {
+      await t.post({ type: 'state', model: t.data.palette.disabled.model });
+      const { dialog, box } = await openPalette(t);
+      await t.type(box, t.data.palette.disabled.title);
+      const first = t.find('[role=option]', dialog);
+      t.check('the result is the disabled one, marked so', t.find('.palette-title', first).textContent === t.data.palette.disabled.title && first.getAttribute('aria-disabled') === 'true', first.outerHTML.slice(0, 200));
+      t.check('its reason shows beside it, with an icon', t.find('.palette-hint', first).textContent === t.data.palette.disabled.reason && !!t.find('.palette-hint', first).querySelector('.codicon'), t.find('.palette-hint', first).textContent);
+      await press(t, box, 'Enter');
+      t.check('Enter runs nothing', t.sent('toolbar').length === 0 && t.sent('run').length === 0, t.sent('toolbar'));
+      t.check('it stays open', dialog.open);
+      t.check('the live line says why', t.find('[aria-live]', dialog).textContent?.includes(t.data.palette.disabled.reason) === true, t.find('[aria-live]', dialog).textContent);
+      // Edge: a click on it runs nothing either.
+      await t.click(first);
+      t.check('a click runs nothing', t.sent('toolbar').length === 0 && dialog.open);
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -622,7 +792,7 @@ const caseNamed = (start: string): string => {
 };
 
 export const MUTANTS: Mutant[] = [
-  { name: 'Escape does nothing', file: 'modal.ts', find: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); shut(); });", replace: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); });", kills: [caseNamed('task modal: Escape'), caseNamed('detail modal: Escape')] },
+  { name: 'Escape does nothing', file: 'modal.ts', find: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); shut(); });", replace: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); });", kills: [caseNamed('task modal: Escape'), caseNamed('detail modal: Escape'), caseNamed('palette: Escape')] },
   { name: 'a backdrop click does nothing', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (downOnBackdrop && onBackdrop(dialog, e)) { /* stub */ }', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
   { name: 'a drag out of it closes it', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (onBackdrop(dialog, e)) shut();', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
   { name: 'the task modal leaves focus where it falls', file: 'task-modal.ts', find: 'cardOf(m)?.focus();', replace: '', kills: [caseNamed('task modal: Close sends focus back')] },
@@ -659,6 +829,15 @@ export const MUTANTS: Mutant[] = [
   { name: 'no question card on the agent page offers In Claude Code', file: 'agent-page.ts', find: "const claudeInHeader = m.actions.some((a) => a.command === 'acc.agent.openInClaude');", replace: 'const claudeInHeader = true;', kills: [caseNamed('agent page: Stop stands apart')] },
   { name: 'the card drops In the terminal', file: 'questions.ts', find: "const terminal = el('span', 'q-aside-group', inClaude, inTerminal);", replace: "const terminal = el('span', 'q-aside-group', inClaude);", kills: [caseNamed('agent page: Stop stands apart')] },
   { name: 'a page holding only the loading screen isn\'t fresh', file: 'main.ts', find: "const fresh = !app.hasChildNodes() || !!app.querySelector(':scope > .opening');", replace: 'const fresh = !app.hasChildNodes();', kills: [caseNamed('loading screen: a tab rebuilt')] },
+  { name: 'the palette\'s Enter runs the first result rather than the choice', file: 'palette.ts', find: 'const choice = shown[active];', replace: 'const choice = shown[0];', kills: [caseNamed('palette: Down then Enter')] },
+  { name: 'Tab leaves the palette', file: 'palette.ts', find: "if (e.key === 'Tab') {\n      e.preventDefault();\n      box.focus();", replace: "if (e.key === 'Tab') {", kills: [caseNamed('palette: Tab')] },
+  { name: 'the palette\'s match ignores the query', file: 'fuzzy.ts', find: 'const m = fuzzyMatch(query, item.words);', replace: 'const m = fuzzyMatch(item.words, item.words);', kills: [caseNamed('palette: typing 16')] },
+  { name: 'the palette leaves focus where it falls', file: 'palette.ts', find: 'again?.focus({ preventScroll: true });', replace: '', kills: [caseNamed('palette: Escape')] },
+  { name: 'a disabled palette result runs', file: 'palette.ts', find: '  if (item.disabled) {\n    parts.foot', replace: '  if (!item) {\n    parts.foot', kills: [caseNamed('palette: a disabled result')] },
+  { name: 'the extension\'s palette message opens nothing', file: 'palette.ts', find: "receive: { palette: (msg: { query?: string }) => openPalette(typeof msg.query === 'string' ? msg.query : '') },", replace: 'receive: { palette: () => undefined },', kills: [caseNamed('palette: the extension')] },
+  { name: 'the rail has no palette button', file: 'rail.ts', find: 'paletteButton(), list,', replace: 'list,', kills: [caseNamed('palette: the rail')] },
+  { name: '/ opens no palette', file: 'palette.ts', find: "document.addEventListener('keydown', onSlash);", replace: '', kills: [caseNamed('palette: the rail')] },
+  { name: '/ opens the palette from a text box too', file: 'palette.ts', find: "if (t?.closest('input, textarea, select, [contenteditable=\"\"], [contenteditable=\"true\"], dialog[open]')) return;", replace: '', kills: [caseNamed('palette: the rail')] },
 ];
 
 /** How many times `find` is in `source`: a mutant applies only where it's there exactly once. */
@@ -709,6 +888,25 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     settings: settingsData(models.settings),
     connect: connectData(models.connect),
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
+    palette: paletteData(models.tasks, now),
+  };
+}
+
+/** What the palette's cases expect (T-52), from the Tasks board's model and the palette's own search. */
+function paletteData(model: Model, now: number): BehaviourData['palette'] {
+  if (model.kind !== 'home') throw new Error('The palette cases need a home model.');
+  const found = paletteResults(model.palette, '16').groups[0]?.items[0]?.item;
+  if (found?.does.kind !== 'task') throw new Error('On the Tasks board, "16" should find a task first.');
+  const card = model.tasks.projects.flatMap((p) => p.columns.flatMap((c) => c.cards)).find((c) => c.id === found.hint)!;
+  const second = paletteResults(model.palette, 'set').groups.flatMap((g) => g.items)[1]?.item;
+  if (second?.does.kind !== 'go') throw new Error('On the Tasks board, "set" should find a section second.');
+  const none = paletteItems({ ...model, agents: { ...model.agents, stopFinished: 0 } });
+  const off = none.find((i) => i.disabled === NOTHING_FINISHED)!;
+  return {
+    sections: model.nav.map((n) => n.label),
+    task: { id: found.id, key: found.does.key, project: found.does.project, message: { type: 'task-modal', model: { ...sampleTicket(now), key: card.id, title: card.title }, tab: { type: 'ticket', project: found.does.project, key: card.id } } },
+    second: { query: 'set', title: second.title, sent: { type: 'nav', section: second.does.section } },
+    disabled: { model: { ...model, agents: { ...model.agents, stopFinished: 0 }, palette: none }, title: off.title, reason: NOTHING_FINISHED },
   };
 }
 

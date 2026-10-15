@@ -40,11 +40,13 @@ interface Memory {
   scroll?: Record<string, SavedScroll>;
   /** The Overview's detail open over the page, drawn again from each model until it's closed (GH-160). */
   detail?: Detail;
+  /** What the command palette ran last, newest first, by its items' ids (T-52). */
+  palette?: string[];
 }
 interface SavedScroll { y: number; boards: { x: number; lanes: number[] }[] }
 export function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [] };
 }
 export function remember(change: (m: Memory) => void): void {
   const m = memory();

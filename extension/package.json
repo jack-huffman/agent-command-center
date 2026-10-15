@@ -310,6 +310,12 @@
         "category": "Agent Command Center"
       },
       {
+        "command": "acc.palette",
+        "title": "Search or run a command in the Command Center",
+        "category": "Agent Command Center",
+        "icon": "$(search)"
+      },
+      {
         "command": "acc.job.stop",
         "title": "Stop a job in progress",
         "category": "Agent Command Center",
@@ -666,6 +672,14 @@
         "title": "Refresh worktrees",
         "category": "Agent Command Center",
         "icon": "$(refresh)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "acc.palette",
+        "key": "ctrl+k",
+        "mac": "cmd+k",
+        "when": "activeWebviewPanelId == 'acc.home'"
       }
     ],
     "menus": {

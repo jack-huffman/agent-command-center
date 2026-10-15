@@ -1,0 +1,8 @@
+[
+  {
+    "command": "acc.palette",
+    "title": "Search or run a command in the Command Center",
+    "category": "Agent Command Center",
+    "icon": "$(search)"
+  }
+]

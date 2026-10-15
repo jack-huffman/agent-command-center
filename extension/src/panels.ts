@@ -176,6 +176,8 @@ export class Panels implements vscode.Disposable {
   private readonly takers = new Map<string, (m: never) => void>();
   /** What's drawn over the page, which sees its messages first (GH-158). */
   private cover: Cover | null = null;
+  /** Messages for a page still opening, such as the palette asked for with the tab closed (T-52): sent once it's ready. */
+  private waiting: Record<string, unknown>[] = [];
 
   constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (visible: boolean) => void, deps: BoardDeps) {
     this.ctx = ctx;
@@ -313,6 +315,20 @@ export class Panels implements vscode.Disposable {
     this.cover = cover;
   }
 
+  /**
+   * Sends the page a message, such as the palette's open (T-52), and brings it forward. With no page, it
+   * opens one, which gets the message once it says it's ready: one posted before then would be lost.
+   */
+  async tell(msg: Record<string, unknown>): Promise<void> {
+    if (this.panel) {
+      this.panel.reveal();
+      void this.panel.webview.postMessage(msg);
+      return;
+    }
+    this.waiting.push(msg);
+    await this.open();
+  }
+
   /** Tells the page how something it sent went. */
   reply(msg: Record<string, unknown>): void {
     void this.panel?.webview.postMessage(msg);
@@ -373,7 +389,11 @@ export class Panels implements vscode.Disposable {
     if (!isFromWebview(m)) return;
     // A task in the modal over the board sends what its tab would: those are its own (GH-158).
     if (this.cover?.take(m)) return;
-    if (m.type === 'ready') { this.tab?.ready(); this.arrived(); this.post(true); this.cover?.ready(); return; }
+    if (m.type === 'ready') {
+      this.tab?.ready(); this.arrived(); this.post(true); this.cover?.ready();
+      for (const w of this.waiting.splice(0)) void this.panel?.webview.postMessage(w);
+      return;
+    }
     if (m.type === 'nav') {
       this.remember(m.section);
       // Settings' limits are read only while it shows (GH-111), so arriving there reads them, and About's versions (GH-114).

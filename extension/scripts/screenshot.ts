@@ -91,8 +91,10 @@ import { behaviourCheck } from './behaviour.ts';
  * tasks building with their checks, three questions, two update drafts and twelve things in History; then
  * the same with a question opened over it, its update drafts, and History opened at an answer.
  * Last, the loading screen the Command Center shows while it opens, which no model replaces (T-16).
+ * Last, the command palette open over the Tasks board (T-52): with "an" typed and its results across several groups, and with
+ * nothing typed, showing what was run last and then the sections.
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty'] as const;
 export type Page = (typeof PAGES)[number];
 
 /**
@@ -186,7 +188,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind.startsWith('palette') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards
     // A Slack channel's box for a thread's link (T-31): empty, or with a link Track refused.
@@ -217,14 +219,18 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
   // The agent board, with two builders in the cloud (GH-69): the Tasks tab remembers which board shows.
   : kind === 'tasks-agents' ? { modes: { [ROOT]: 'agents' } }
+  // The palette with nothing typed (T-52) shows what was run last, newest first: a task, a part of Settings, an action and a section.
+  : kind === 'palette-empty' ? { palette: [`task:${ROOT}#ACME-12`, 'setting:agents', 'action:add-task', 'section:agents'] }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 /**
  * What the extension sends after the page's model: the task a card's click opened in the modal over the
- * Tasks board, and what its Open as tab sends (GH-158).
+ * Tasks board, and what its Open as tab sends (GH-158); and the command palette's open, with what's typed (T-52).
  */
 export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown>[] => (kind === 'tasks-modal'
-  ? [{ type: 'task-modal', model: sampleTicket(now), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-12' } }] : []);
+  ? [{ type: 'task-modal', model: sampleTicket(now), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-12' } }]
+  // The command palette (T-52), as acc.palette opens it; the screenshot run types "an" into one, which matches actions, sections and tasks alike.
+  : kind === 'palette' ? [{ type: 'palette', query: 'an' }] : kind === 'palette-empty' ? [{ type: 'palette' }] : []);
 export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
 export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' ? settingsKey('trackers')
@@ -369,8 +375,8 @@ function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typ
   return spawnSync(cmd, cmdArgs, dump ? { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: shotTimeout() } : { stdio: 'ignore', timeout: shotTimeout() });
 }
 
-/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, a task in the modal over the board (GH-158), and the busy Overview with its update drafts open over it (GH-160), and the loading screen (T-16). */
-export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts', 'tasks-agents', 'ticket-cloud', 'loading'];
+/** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, a task in the modal over the board (GH-158), and the busy Overview with its update drafts open over it (GH-160), the loading screen (T-16), and the command palette open with results (T-52). */
+export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts', 'tasks-agents', 'ticket-cloud', 'loading', 'palette'];
 
 /** A page's computed colours, as its collector gathered them: what each element is, and its colours in COLOUR_PROPERTIES' order. */
 export type Colours = [string, string[]][];
