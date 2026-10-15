@@ -6751,6 +6751,8 @@ needs you, held on the Overview alone. T-39 applies it to every tab.
   frame, and the sticky actions covered Running. At 500 px the Model column goes, and the table fit. The
   State cell now wraps at every width (at least 8em to 660 px, 10em above), and the Model cell breaks between
   the model and its effort. The screenshot run's overlap check doesn't see a cell covered by a sticky one.
+  - 2026-10-15: the run now has a check for that, `covered` (T-46): a sticky cell covering another cell's text
+    fails, with the covered text named.
 
 Out of scope: the Overview, which D-150 made.
 

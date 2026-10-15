@@ -17,7 +17,7 @@ const found = (s: GeoSnapshot, home = true) => judge(s, home, []).violations.map
 test('a drawing that breaks no rule passes, and says how much each check examined (GH-105)', () => {
   const v = judge(fine(), true, []);
   assert.deepEqual(v.violations, []);
-  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1 });
+  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1, covered: 0 });
 });
 
 test('the Overview\'s lines are each one line high, three in Needs you at most, with a gap between each (GH-160, T-36)', () => {
@@ -105,7 +105,7 @@ test('an exception excuses only its own check on what it names, and counts what 
 test('a whole run fails below its floors, and on an exception that excused nothing; a run of a few pages doesn\'t (GH-105)', () => {
   const verdict = judge(fine(), true, []);
   const renders: Render[] = [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...verdict, violations: [{ check: 'overlap', what: 'button.a', detail: 'overlaps button.b' }] } }];
-  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0 };
+  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0 };
   const unused = [{ name: 'the strip', check: 'sideways' as const, what: /strip/, reason: 'made up' }];
   assert.deepEqual(runFailures(renders, false, unused, floor, []), ['tasks dark 500px: overlap: button.a: overlaps button.b']);
   assert.deepEqual(runFailures(renders, true, unused, floor, []), [
@@ -169,4 +169,22 @@ test('the Tasks board\'s first column may start no lower than it does now at 100
   assert.deepEqual(runFailures(at(BOARD_TOP.max + 100, 'tasks', 620), false), [], 'only the 1000 px drawing is held to it');
   assert.ok(BOARD_TOP.max < 330, 'lower than the four rows and a warning it replaces');
   assert.ok(COLLECT_GEOMETRY.includes('boardTop'), 'the page measures it');
+});
+
+test('a sticky cell that covers another cell\'s text, whole or part, fails; one that doesn\'t, or an empty row, passes (T-46)', () => {
+  const cell = (what: string, row: number, x: number, w: number, sticky = false, t = what) => ({ what, text: t, row, sticky, box: { x, y: row * 30, w, h: 24 } });
+  const row = (x: number, w: number) => [cell('td.name', 0, 0, 200), cell('td.state', 0, x, w, false, 'Waiting for you'), cell('td.actions', 0, 880, 120, true, '')];
+  const judged = (cells: ReturnType<typeof cell>[]) => judge(fine({ cells }), true, []);
+  // The actions start at 880. State ends at 860: clear.
+  assert.deepEqual(judged(row(700, 160)).violations, []);
+  assert.equal(judged(row(700, 160)).examined.covered, 2, 'each cell that isn\'t sticky is examined');
+  // The old Agents layout: State and Model did not wrap, so the row ran under the actions.
+  assert.deepEqual(found(fine({ cells: row(800, 160) })), ['covered: td.state: "Waiting for you" is covered by the sticky td.actions'], 'part of the text under the cell');
+  assert.equal(found(fine({ cells: row(900, 60) })).length, 1, 'all of the text under the cell');
+  assert.deepEqual(found(fine({ cells: [cell('td.state', 1, 900, 60), cell('td.actions', 0, 880, 120, true, '')] })), [], 'the actions are in another row');
+  assert.deepEqual(found(fine({ cells: [cell('td.state', 0, 900, 60)] })), [], 'no sticky cell in the row');
+  assert.equal(judged([]).examined.covered, 0, 'a page without a sticky row examines none');
+  assert.ok(runFailures([{ page: 'agents', theme: 'dark', width: 620, verdict: judged([]) }], true).some((f) => f.includes('for covered')), 'a whole run that examined none fails');
+  assert.ok(RUN_FLOOR.covered > 0, 'the floor is set');
+  assert.ok(COLLECT_GEOMETRY.includes("position === 'sticky'") && COLLECT_GEOMETRY.includes('cells'), 'the page reports its cells at the first scroll position');
 });

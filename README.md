@@ -386,7 +386,8 @@ shoot only those (`npm run screenshot -- agents worktrees`), or pass `--width`,
 
 Each shot also measures itself, and the run exits 1, naming the page, theme,
 width and element, when two controls overlap, a label is cut off, the selected
-tab is out of the rail's view, or something scrolls sideways that shouldn't. It
+tab is out of the rail's view, a sticky cell covers another cell's text, or
+something scrolls sideways that shouldn't. It
 prints how many elements each check examined; a page with none fails. The shots
 are written either way, and still need reading.
 
