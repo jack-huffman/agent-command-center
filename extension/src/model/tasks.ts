@@ -10,6 +10,7 @@ import { type BoardInput, trackerBoard, type TrackerBoard } from './boards.ts';
 import { type Action, type HubLike, KEY, type Look, LOOK, type ModelArea, type Ref, short } from './shared.ts';
 import { hasTicket, withClient } from './updates.ts';
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
+import { plural } from '../../../packages/core/src/text.ts';
 import { analysisLook, autopilotLook, canDispatch, cardActions, closedPrLook, filesLook, placeLook, stoppedLook } from './cards.ts';
 
 // ---------------------------------------------------------------- tasks: the board
@@ -196,7 +197,7 @@ export const area: ModelArea = {
     },
     nav({ rows }) {
     const taskAttention = rows.filter((r) => r.display === 'needs-you' || r.display === 'blocked').length;
-      return { section: 'tasks', label: 'Tasks', icon: 'project', count: taskAttention || rows.length || null, attention: taskAttention > 0, hint: taskAttention ? `${taskAttention} need you` : `${rows.length} task${rows.length === 1 ? '' : 's'}` };
+      return { section: 'tasks', label: 'Tasks', icon: 'project', count: taskAttention || rows.length || null, attention: taskAttention > 0, hint: taskAttention ? `${taskAttention} need you` : plural(rows.length, 'task') };
     },
   },
   messages: {

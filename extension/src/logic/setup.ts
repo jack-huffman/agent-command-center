@@ -6,6 +6,7 @@
 import { join } from 'node:path';
 import type { Tracker } from '../../../packages/core/src/config.ts';
 import type { CheckStatus, Step } from '../../../packages/core/src/onboarding/types.ts';
+import { isObj, plural } from '../../../packages/core/src/text.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { StartProject } from '../connect.ts';
 import { inProcessWords, processLine, processName } from './processes.ts';
@@ -322,7 +323,7 @@ export type ShownTemplate =
 
 const trackerOf = (t: unknown): Record<string, unknown> | null => {
   const tracker = t && typeof t === 'object' ? (t as { tracker?: unknown }).tracker : null;
-  return tracker && typeof tracker === 'object' && !Array.isArray(tracker) ? tracker as Record<string, unknown> : null;
+  return isObj(tracker) ? tracker : null;
 };
 
 /** What `acc template show --json` said: the template, or every problem with it, or why it couldn't be read. */
@@ -392,7 +393,7 @@ export function shownRules(stdout: string, stderr = ''): ShownRules {
 
 /** The confirmation's detail: where the copy goes, where it's from, its first lines, and that a person commits it. */
 export const rulesDetail = (r: Extract<ShownRules, { ok: true }>): string => [
-  `From ${r.source}${r.commit ? `, at commit ${r.commit.slice(0, 7)}` : ''}: ${r.lines} line${r.lines === 1 ? '' : 's'}.`,
+  `From ${r.source}${r.commit ? `, at commit ${r.commit.slice(0, 7)}` : ''}: ${plural(r.lines, 'line')}.`,
   ...(r.replaces ? [`It replaces the copy${r.replaces.source ? ` from ${r.replaces.source}` : ''}${r.replaces.copied ? `, copied on ${r.replaces.copied}` : ''}${r.replaces.edited ? ', and the edits made to it here' : ''}.`] : []),
   '',
   ...r.preview.slice(0, 10),

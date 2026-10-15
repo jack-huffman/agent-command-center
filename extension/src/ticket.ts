@@ -275,8 +275,7 @@ export class TicketPanels implements vscode.Disposable {
     // A ratchet carries its numbers, from the environment's floor to this commit's (GH-99).
     const ratchet = (gate: string) => p.config.gates.ratchets?.[gate];
     if (!branch) return required.map((gate) => ticketCheck(gate, null, lighter && scope(gate).scope === 'merge' ? unrun(gate) : 'Not run yet', scope(gate), ratchet(gate)));
-    const sha = await runFile('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], p.root);
-    const receipts = sha.code === 0 ? receiptsAt({ receipts: join(dirname(p.ledgerPath), 'receipts') } as RepoPaths, sha.stdout.trim()) : {};
+    const receipts = await this.receiptsFor(p, branch);
     const gates = [...new Set([...required, ...Object.keys(receipts)])];
     return gates.map((gate) => ticketCheck(gate, receipts[gate] ?? null, unrun(gate), scope(gate), ratchet(gate)));
   }

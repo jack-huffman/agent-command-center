@@ -16,7 +16,7 @@ import { slackEscape } from '../../packages/core/src/text.ts';
 import { isTrackerKind } from '../../packages/core/src/trackers/types.ts';
 import { EVENT_WORDS, type Update } from '../../packages/core/src/updates.ts';
 import type { NoticeKind, TaskNotice } from './logic/notices.ts';
-import type { TaskRow, Tone } from './logic/shared.ts';
+import { saidLine, type TaskRow, type Tone } from './logic/shared.ts';
 import type { ExtensionArea } from './area.ts';
 import type { FromWebview } from './model/messages.ts';
 import { settingsKey } from './model/settings.ts';
@@ -46,12 +46,6 @@ export const SLACK_CLAIM_DAYS = 30;
 
 /** Only Slack's own incoming webhooks: a notice never goes to any other address. */
 export const isSlackWebhook = (url: string): boolean => url.length <= 300 && /^https:\/\/hooks\.slack\.com\/services\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/.test(url);
-
-/** A title on one line, and short. */
-const oneLine = (s: string, max = 150): string => {
-  const t = s.replace(/\s+/g, ' ').trim();
-  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
-};
 
 /** A link Slack's <url|label> can hold as it is: https, with nothing it would read as markup. */
 const linkable = (url: string | null | undefined): url is string => !!url && url.length <= 500 && /^https:\/\/[^\s<>|&]+$/.test(url);
@@ -87,8 +81,8 @@ const payload = (lines: (string | null)[]): SlackPayload => ({ text: lines.filte
 export function slackMessage(ev: Pick<SlackEvent, 'kind' | 'project' | 'task' | 'title' | 'what' | 'link'>): SlackPayload {
   const k = SLACK_KIND_WORDS[ev.kind];
   return payload([
-    `${k.emoji} *${k.label}* · ${slackEscape(oneLine(ev.project, 80))}`,
-    `*${slackEscape(oneLine(ev.task, 40))}* ${slackEscape(oneLine(ev.title))}`.trimEnd(),
+    `${k.emoji} *${k.label}* · ${slackEscape(saidLine(ev.project, 80))}`,
+    `*${slackEscape(saidLine(ev.task, 40))}* ${slackEscape(saidLine(ev.title, 150))}`.trimEnd(),
     slackEscape(ev.what),
     ev.link && linkable(ev.link.url) ? `<${ev.link.url}|${slackEscape(ev.link.label)}>` : null,
   ]);

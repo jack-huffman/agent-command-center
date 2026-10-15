@@ -8,6 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { TaskInput } from '../../../packages/core/src/ledger.ts';
+import { isObj } from '../../../packages/core/src/text.ts';
 import type { Ticket } from '../../../packages/core/src/trackers/types.ts';
 import type { Pending } from '../../webview/pending.ts';
 import { inProcessWords } from './processes.ts';
@@ -76,7 +77,7 @@ const parseCred = (raw: string | undefined): Record<string, unknown> | null => {
   if (!raw) return null;
   try {
     const c = JSON.parse(raw) as unknown;
-    return c && typeof c === 'object' && !Array.isArray(c) ? c as Record<string, unknown> : null;
+    return isObj(c) ? c : null;
   } catch {
     return null;
   }
