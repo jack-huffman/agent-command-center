@@ -1,7 +1,7 @@
 // The output panel's run picker: "1 of 4" closed, the names in its list, the full name in its title (T-44).
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pickerName, pickerOf } from '../webview/run-picker.ts';
+import { pickerName, pickerOf } from '../webview/looks.ts';
 import { pageSource } from './support.ts';
 
 const runs = [{ id: 'a', label: 'Run the checks', running: false }, { id: 'b', label: 'Start a background agent on a very long task name that goes on', running: true }, { id: 'c', label: 'Refresh', running: false }];

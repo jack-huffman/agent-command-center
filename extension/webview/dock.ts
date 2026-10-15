@@ -1,6 +1,6 @@
 // The output panel: the commands acc runs for you, under every section.
 
-import { pickerOf } from './run-picker.ts';
+import { pickerOf } from './looks.ts';
 import type { RunCard } from '../src/model/runs.ts';
 import { button, el, icon, keepFocus, keptInput, status, titled, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state, view } from './state.ts';

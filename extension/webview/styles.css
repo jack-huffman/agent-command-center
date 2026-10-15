@@ -133,6 +133,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid .nowrap { white-space: nowrap; }
 .grid th.wide { width: 100%; }
 .grid td.clip { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid td.place { overflow-wrap: anywhere; }
 .table-wrap { overflow-x: auto; }
 /* A table is a raised panel, as the Overview's and Tasks' are (D-127): its column headings a band in a well,
    and no hairline under its last row, where the panel's own edge is. */

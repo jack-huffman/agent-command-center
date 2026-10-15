@@ -27,6 +27,6 @@ test('a worktree shows its path from the worktrees folder, with the full path in
   assert.equal(fromWorktreesFolder('/Users/me/Code/Proj/.claude/worktrees/ACME-12'), 'ACME-12');
   assert.equal(fromWorktreesFolder('/elsewhere/checkout'), '/elsewhere/checkout', 'a path outside a worktrees folder stays whole (edge case)');
   const src = pageSource('worktrees.ts');
-  assert.ok(src.includes("clipped(w.place, w.main ? '' : 'mono', w.fullPath)"), 'the words are in the normal font, a path in the code font, the full path in the title');
+  assert.ok(src.includes("titled(el('td', w.main ? 'place' : 'place mono', w.place), w.fullPath)"), 'the words are in the normal font, a path in the code font, the full path in the title');
   assert.ok(src.includes('branch.title = w.branch;'), 'a long branch name keeps its full text in the title');
 });

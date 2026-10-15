@@ -173,9 +173,9 @@ export function renderDoc(doc: Doc, emptyText: string): HTMLElement {
 }
 
 /** A cell that truncates with an ellipsis and shows the full text on hover. */
-export function clipped(text: string, cls = '', title = text): HTMLElement {
+export function clipped(text: string, cls = ''): HTMLElement {
   const td = el('td', `clip ${cls}`.trim(), text);
-  td.title = title;
+  td.title = text;
   return td;
 }
 
