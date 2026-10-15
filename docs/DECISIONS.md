@@ -7048,8 +7048,10 @@ once, and `--jobs N` sets how many.
   and the load average was under 8 (a stuck `adb` and Malwarebytes hold about 3 of the 12 cores all the
   time; other work raised the load to 17 to 34 during the runs, so they were not on a fully idle
   machine): `--jobs 1` 660 s, `--jobs 3` 249 s. Both drew 450 drawings with no findings, ran 35 cases
-  and 54 mutants, all caught, and gave the same 542-line log and the same `shots.json` notes but for the
-  time taken and the PNG hashes.
+  and 54 mutants, all caught, and gave the same 542-line log and, for each of the 450 shots, the same
+  fingerprint, findings and classes drawn in `shots.json`. 142 PNGs' bytes differed; two runs of the
+  same pages at `--jobs 1` differ the same way (7 of 12 PNGs for `loading` and `tasks`), so Chrome's
+  PNG bytes aren't the same from run to run whatever `--jobs` is.
 - **Checked:** `extension/test/jobs.test.ts` adds 11 tests: the splitter finds each page once across the
   jobs; an empty list, k above the count and k below 1; `--jobs`; results handed on in order; `runJobs`
   and `pool` with a failing job; `runAsync`'s output, timeout and missing program; three pages drawn with
