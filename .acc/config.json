@@ -96,6 +96,9 @@
       "check",
       "near-tests",
       "repo-rules"
+    ],
+    "nearIndexes": [
+      "extension/webview/areas.ts"
     ]
   },
   "secretScan": {

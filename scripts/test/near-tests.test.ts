@@ -7,6 +7,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { loadConfig } from '../../packages/core/src/config.ts';
 import { nearTests } from '../../packages/core/src/gates.ts';
 import { fakeBin, makeRepo } from '../../packages/core/test/support.ts';
 import { areaFiles, CORE_INDEX, FOLDERS } from '../areas.ts';
@@ -91,6 +92,8 @@ const read = (f: string): string | null => {
     return null;
   }
 };
+/** The indexes this repo names (D-???), as acc gives nearTests them from the project's settings. */
+const indexes = loadConfig(join(ROOT, '.acc', 'config.json')).config.gates.nearIndexes ?? [];
 
 test('after the split (D-099), every area module has tests near it: the CLI\'s are every command group\'s file, and an extension area\'s include its entry\'s', () => {
   // What loads each folder's index, whose tests count for every module in it. The CLI's tests are a file per
@@ -106,13 +109,32 @@ test('after the split (D-099), every area module has tests near it: the CLI\'s a
   let checked = 0;
   for (const folder of FOLDERS) {
     for (const file of areaFiles(folder).map((f) => `${folder.dir}/${f}`)) {
-      const near = nearTests([file], tracked, read);
+      const near = nearTests([file], tracked, read, indexes);
       assert.ok(near.length, `${file} has tests near it`);
       for (const t of entry[folder.dir] ?? []) assert.ok(near.includes(t), `${file}: ${t} isn't in ${near.join(', ')}`);
       checked++;
     }
   }
   assert.ok(checked >= 50, `${checked} area modules`);
+});
+
+test('new page modules that areas.ts doesn\'t import, past half the folder, keep screenshot.test.ts near every page module, as the project names areas.ts its index (D-???)', () => {
+  const dir = 'extension/webview';
+  const index = `${dir}/areas.ts`;
+  assert.ok(indexes.includes(index), 'the project\'s settings name the page\'s index');
+  const before = tracked.filter((f) => f.startsWith(`${dir}/`) && /^[^/]+\.ts$/.test(f.slice(dir.length + 1)));
+  // Enough new modules that areas.ts gathers fewer than half the rest, so the guess no longer counts it.
+  const added = Array.from({ length: before.length + 1 }, (_, i) => `${dir}/new-page-${i}.ts`);
+  const fixture = [...tracked, ...added];
+  const readFixture = (f: string): string | null => (added.includes(f) ? 'export const x = 1;\n' : read(f));
+  const screenshot = 'extension/test/screenshot.test.ts';
+  let checked = 0;
+  for (const f of [...added, ...before.filter((f) => f !== index)]) {
+    assert.ok(nearTests([f], fixture, readFixture, indexes).includes(screenshot), `${f}: ${screenshot} is near it`);
+    checked++;
+  }
+  assert.ok(checked >= before.length + 10, `${checked} page modules`);
+  assert.ok(!nearTests([added[0]!], fixture, readFixture).includes(screenshot), 'without the setting, the guess drops areas.ts and screenshot.test.ts with it');
 });
 
 test('a module of core is near its own tests and the one that loads core\'s index by its path, not gates.test.ts, which only quotes indexes (GH-117)', () => {
@@ -125,7 +147,7 @@ test('a module of core is near its own tests and the one that loads core\'s inde
     const stem = m.split('/').at(-1)!.replace(/\.ts$/, '');
     // Its own tests: named for it, or naming a path that ends in it.
     const own = (t: string): boolean => t.endsWith(`/${stem}.test.ts`) || new RegExp(`['"\`][^'"\`\\n]*/${stem}(\\.[cm]?[jt]sx?)?['"\`]`).test(read(t) ?? '');
-    const near = nearTests([m], tracked, read);
+    const near = nearTests([m], tracked, read, indexes);
     assert.ok(near.includes(lock), `${m}: core's index gathers it, and lock.test.ts loads that`);
     assert.deepEqual(near.filter((t) => t !== lock && !own(t)), [], `${m}: nothing else the index adds`);
     assert.equal(near.includes(gates), own(gates), `${m}: gates.test.ts only if it names it`);
@@ -137,7 +159,7 @@ test('a module of core is near its own tests and the one that loads core\'s inde
 test('a module extension.ts gathers is near activate.test.ts, which loads its build, so an index named for itself is still found by name (GH-117)', () => {
   const entry = 'extension/src/extension.ts';
   const gathered = [...read(entry)!.matchAll(/from '\.\/([^'/]+\.ts)'/g)].map((m) => `extension/src/${m[1]}`).filter((f) => tracked.includes(f));
-  for (const f of gathered) assert.ok(nearTests([f], tracked, read).includes('extension/test/activate.test.ts'), f);
+  for (const f of gathered) assert.ok(nearTests([f], tracked, read, indexes).includes('extension/test/activate.test.ts'), f);
   assert.ok(gathered.length >= 15, `${gathered.length} modules extension.ts gathers`);
 });
 
