@@ -207,6 +207,7 @@ export const NOT_TABLES: Record<string, string> = {
   'extension/src/progress.ts#doneLine': 'a finished job\'s line, Done with its kind\'s icon: each icon is a literal the icon scan checks',
   'extension/src/logic/shared.ts#TONE_COLOR': 'a tone\'s colour in the sidebar, which draws with VSCode\'s own theme colours, not a state',
   'extension/webview/task-page.ts#moveFeed': 'a move\'s icon in the feed, each a literal the icon scan checks; the state it reached is the model\'s DISPLAY look',
+  'extension/src/model/connect.ts#whyOff': 'the reason a Connect button is off, always the lock icon and neutral tone, its words checked in connect-why.test.ts (T-43)',
   'extension/webview/connect.ts#errorLook': 'an error\'s own words, with the warning icon',
 };
 

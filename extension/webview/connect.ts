@@ -132,20 +132,22 @@ export function renderConnect(m: ConnectModel): Node[] {
   out.push(step(1, `Where it is`, connectInput(m, m.host, test)));
   const testButton = button(m.method.test, 'plug', test, m.signIn.look.tone === 'blue' && m.signIn.look.icon === 'pass' ? '' : 'primary');
   testButton.disabled = !m.signIn.canTest;
+  if (m.signIn.why) testButton.title = m.signIn.why.label;
   const signIn: Child[] = m.signIn.editing ? [
     m.methods.length ? el('div', 'connect-choose', segmented('How to sign in', m.methods.map((x) => ({ key: x.id, label: x.label, icon: x.icon, on: x.on })), (method) => connectSend(m, { type: 'connect-method', method }))) : null,
     el('p', 'muted small connect-hint', m.method.hint),
     ...m.fields.map((f) => connectInput(m, f, test)),
     m.share.shown ? connectShare(m) : null,
-    el('div', 'connect-test', testButton, el('div', `cfield-status tone-${m.signIn.look.tone}`, icon(m.signIn.look.icon, m.signIn.look.tone), el('span', '', m.signIn.look.label))),
+    el('div', 'connect-test', testButton, el('div', `cfield-status tone-${m.signIn.look.tone}`, icon(m.signIn.look.icon, m.signIn.look.tone), el('span', '', m.signIn.look.label)), m.signIn.why ? status(m.signIn.why) : null),
   ] : [el('div', 'connect-test', status(m.signIn.look), button('Sign in again', 'account', () => connectSend(m, { type: 'connect-again' }), 'ghost'))];
   out.push(step(2, 'Sign in', ...signIn));
   // Until it's signed in there's nothing to list: say so, rather than show empty lists that look ready.
   const waiting = m.signIn.editing && m.pickers.some((p) => !p.fixed) ? el('p', 'muted small connect-hint', icon('lock'), ' Sign in above, and its lists fill in here.') : null;
-  out.push(step(3, 'Its tickets and board', waiting, ...m.pickers.filter((p) => !p.hidden).map((p) => connectPicker(m, p))));
+  out.push(step(3, m.listsTitle, waiting, ...m.pickers.filter((p) => !p.hidden).map((p) => connectPicker(m, p))));
   const save = button(m.save.label, 'check', () => connectSend(m, { type: 'connect-save' }), 'primary');
   save.disabled = !m.save.can;
-  out.push(el('div', 'connect-foot', save, button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost'), m.save.look ? status(m.save.look) : null));
+  if (m.save.why) save.title = m.save.why.label;
+  out.push(el('div', 'connect-foot', save, button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost'), (m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null));
   return [el('div', 'connect', ...out)];
 }
 
