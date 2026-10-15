@@ -7,7 +7,7 @@ import { type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/s
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../../packages/core/src/trackers/connect.ts';
 import { signInScope } from '../logic/connect.ts';
 import { settingsKey } from './settings.ts';
-import { type HomeSection, type Look, LOOK, type ModelArea, short, VIEW_TITLES } from './shared.ts';
+import { type HomeSection, type Look, LOOK, type ModelArea, short, taskNames, VIEW_TITLES } from './shared.ts';
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
 
@@ -236,9 +236,8 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   // Before it's signed in the lists are empty, so only the first is named: the rest come after.
   const open = pickers.filter((p) => !p.fixed && !p.hidden && p.required && !p.selected.length).map((p) => `${/^[aeiou]/i.test(p.label) ? 'an' : 'a'} ${p.label.toLowerCase()}`);
   const choices = [...new Set([...(s.root ? [] : ['a project']), ...(ok ? open : open.slice(0, 1))])];
-  const joined = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}` : xs[0]!);
-  const todo = [...(ok ? [] : ['sign in']), ...(choices.length ? [`choose ${joined(choices)}`] : [])];
-  const saveWhy = s.saving ? whyOff('Saving now.') : todo.length ? whyOff(`${joined(todo).replace(/^./, (c) => c.toUpperCase())} first.`)
+  const todo = [...(ok ? [] : ['sign in']), ...(choices.length ? [`choose ${taskNames(choices)}`] : [])];
+  const saveWhy = s.saving ? whyOff('Saving now.') : todo.length ? whyOff(`${taskNames(todo).replace(/^./, (c) => c.toUpperCase())} first.`)
     : !ready ? whyOff('Wait for its lists to load first.') : null;
   return {
     id: s.id, rev: s.rev,
