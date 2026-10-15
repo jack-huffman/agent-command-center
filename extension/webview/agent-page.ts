@@ -48,9 +48,15 @@ export function renderAgent(m: AgentModel): Node[] {
     m.model ? el('span', '', el('span', 'sep', '·'), el('span', 'mono', m.model)) : null,
     m.lastAt ? el('span', '', el('span', 'sep', '·'), 'last active ', when(m.lastAt)) : null,
     m.where ? el('span', '', el('span', 'sep', '·'), Object.assign(el('span', '', m.where), { title: m.path })) : null);
-  const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts,
-    el('div', 'ticket-bar', status(m.look), el('span', 'spacer'), el('div', 'actions', ...m.actions.map(actionButton))))];
-  if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false }))));
+  // Stop ends the agent's work, so it stands apart from the buttons that only open things (T-47): at the far end of the bar, after a rule.
+  const stop = m.actions.find((a) => a.command === 'acc.agent.stop');
+  const bar = el('div', 'ticket-bar', status(m.look), el('span', 'spacer'),
+    el('div', 'actions', ...m.actions.filter((a) => a !== stop).map(actionButton)),
+    stop ? el('div', 'actions actions-stop', actionButton(stop)) : null);
+  const out: Node[] = [el('header', 'ticket-head agent-head', crumbs, el('h1', 'ticket-title', m.task?.title ?? m.name), facts, bar)];
+  // In Claude Code and In the terminal are in the header when it has both: a card doesn't repeat them.
+  const handOff = !(m.actions.some((a) => a.command === 'acc.agent.openInClaude') && m.actions.some((a) => a.command === 'acc.agent.attach'));
+  if (m.questions.length) out.push(el('section', 'agent-asks', ...m.questions.map((q) => questionCard(q, { watch: false, handOff }))));
   const recap = [...m.entries].reverse().find((e) => e.k === 'recap');
   if (recap && recap.k === 'recap') out.push(foldable(`recap:${m.key}`, el('div', 'notice recap', icon('info', 'blue'), el('div', 'why-text', el('strong', '', 'Where it got to: '), recap.text)), 'why-text', 2));
   if (!m.readable) {
