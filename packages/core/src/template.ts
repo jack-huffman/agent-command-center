@@ -6,7 +6,7 @@
 import { isObj } from './text.ts';
 import { createHash } from 'node:crypto';
 import {
-  type AgentProfile, AGENT_ROLES, type AgentRole, type Autonomy, branchFor, type Config, type EnvType, type Environment, parseConfig, parseEnvironments,
+  type AgentProfile, AGENT_ROLES, type AgentRole, type Autonomy, branchFor, type Config, type EnvType, type Environment, isStr, parseConfig, parseEnvironments,
   type Profile, PROFILES, type TemplateRecord,
 } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
@@ -70,7 +70,6 @@ export interface TemplateParse {
   errors: string[];
 }
 
-const isStr = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
 const given = (v: unknown) => v !== undefined && v !== null;
 
 // ---------------------------------------------------------------- keys

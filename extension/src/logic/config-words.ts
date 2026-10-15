@@ -12,6 +12,9 @@
  * Like the rest of logic/, no `vscode` import.
  */
 import { CONFIG_KEYS } from '../../../packages/core/src/config.ts';
+import { escapeRegExp } from '../../../packages/core/src/text.ts';
+
+export { escapeRegExp };
 
 type ConfigKey = (typeof CONFIG_KEYS)[number];
 
@@ -93,7 +96,6 @@ export const CONFIG_WORDS: Record<ConfigKey, string> = {
 export const DOTTED_KEYS: readonly ConfigKey[] = CONFIG_KEYS.filter((k) => k.includes('.'));
 
 /** Text as a regular expression that matches it literally. */
-export const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const alternatives = [...DOTTED_KEYS].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|');
 /** A dotted key in text, in backticks or quotes or bare, never after a dot (config.gates.required is code) or inside a word. */
 const KEY = String.raw`[\`"]?(?<![\w.-])(${alternatives})(?![\w-])[\`"]?`;

@@ -1,4 +1,4 @@
-// Rules suggested by review findings that keep coming back (GH-102), under Needs you on the Overview: the
+// Rules suggested by review findings that keep coming back (GH-102), opened from When you have a moment on the Overview: the
 // drafted line, a link to each review it came from, and Accept, which opens the task's draft to edit and
 // confirm, or Dismiss. Nothing is added until Confirm, and acc does the adding.
 

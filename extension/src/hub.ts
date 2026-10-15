@@ -261,8 +261,8 @@ export class Hub implements vscode.Disposable {
   }
 
   /**
-   * Reads each ledger again if it, the analyses, the ticket updates or the tidy-up record changed on disk.
-   * Cheap: four stats per project. An analysis starting or ending, an update drafted or posted, or a
+   * Reads each ledger again if it, the analyses, the ticket updates, the tidy-up record, the moved branches,
+   * the reviews or the suggested rules changed on disk. Cheap: seven stats per project. An analysis starting or ending, an update drafted or posted, or a
    * tidy-up skipped, adds or replaces a file beside the ledger, which the ledger doesn't see.
    */
   async loadTasks(force = false): Promise<void> {
@@ -609,8 +609,9 @@ export class Hub implements vscode.Disposable {
   /**
    * Looks at what runs: the machine's heavy-check slots, each repo's job markers, and its review, analysis
    * and resume markers, all stats and small reads. On screen, each running builder's latest step too, read
-   * from its transcript's tail only when the file changed. Says 'jobs' only when something changed, and
-   * every 15 seconds while anything is under way, so times and done lines move on.
+   * from its transcript's tail only when the file changed. Says 'jobs' only when something changed, and,
+   * while the page is on screen, every 15 seconds until 90 seconds after anything was last under way, so times
+   * and done lines move on.
    */
   async loadJobs(visible = true): Promise<void> {
     let heavy: HeavyState | null = null;

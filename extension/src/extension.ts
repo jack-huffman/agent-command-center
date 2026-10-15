@@ -146,7 +146,7 @@ export function activate(context: vscode.ExtensionContext): void {
       return task ? { kind: 'task', project, task } : undefined;
     }
     if (ref.session) {
-      const session = hub.agents.find((a) => (a.sessionId ?? a.id ?? `${a.pid ?? ''}:${a.startedAt}`) === ref.session);
+      const session = hub.agents.find((a) => sessionKey(a) === ref.session);
       return session ? { kind: 'agent', session, project: hub.projectFor(session.cwd) } : undefined;
     }
     if (ref.worktree) {

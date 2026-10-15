@@ -4,6 +4,7 @@
  */
 
 import { sessionsOf, type SessionTie } from '../../../packages/core/src/ledger.ts';
+import { plural } from '../../../packages/core/src/text.ts';
 import { agentLook, finishedSession, ownsSession, stopFinishedPlan } from '../logic/agents.ts';
 import { effortShown } from '../logic/efforts.ts';
 import { type AgentSession, isUnder, tildePath } from '../logic/shared.ts';
@@ -328,7 +329,7 @@ export const area: ModelArea = {
     nav({ agents }) {
       const needsAgents = agents.counts.needsYou;
       const sessions = agents.counts.sessions;
-      return { section: 'agents', label: 'Agents', icon: 'hubot', count: needsAgents || sessions || null, attention: needsAgents > 0, hint: needsAgents ? `${needsAgents} waiting on you` : `${sessions} session${sessions === 1 ? '' : 's'}` };
+      return { section: 'agents', label: 'Agents', icon: 'hubot', count: needsAgents || sessions || null, attention: needsAgents > 0, hint: needsAgents ? `${needsAgents} waiting on you` : plural(sessions, 'session') };
     },
   },
   messages: {

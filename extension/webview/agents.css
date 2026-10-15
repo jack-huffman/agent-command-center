@@ -40,7 +40,6 @@
 .where .codicon { flex: none; font-size: 13px; align-self: center; }
 .where-text { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .unbroken { white-space: nowrap; }
-/* A state keeps to one line while there's room; a narrow tab wraps it, two lines at most. */
 /* The State and Model cells wrap when there's no room, so the table fits its frame at every width. A table
    wider than its frame scrolls under the sticky actions, and those then cover the Running column (T-39). */
 .agents-grid td.state .status { white-space: normal; min-width: 10em; }

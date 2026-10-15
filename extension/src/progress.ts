@@ -7,7 +7,7 @@
 import { type Job, jobsUnderWay } from '../../packages/core/src/jobs.ts';
 import type { AutopilotStepName, Ledger } from '../../packages/core/src/ledger.ts';
 import type { HeavyState, SlotHolder, SlotWaiter } from '../../packages/core/src/semaphore.ts';
-import { isUnder, isWebviewMenuContext, type TaskRow } from './logic/shared.ts';
+import { fileList, isUnder, isWebviewMenuContext, type TaskRow } from './logic/shared.ts';
 import { sessionFor } from './logic/agents.ts';
 import { displayLook, type HubLike, LOOK, type Look, type ProjectLike, type Ref } from './model/shared.ts';
 import type { RunInput } from './model/runs.ts';
@@ -49,7 +49,7 @@ export interface ProgressAction {
   command?: string;
   ref?: Ref;
   arg?: string;
-  /** The question's id: Answer scrolls to its card in Needs you. */
+  /** The question's id: Answer opens the question, with its answers, in a dialog (the Overview's progressButton). */
   question?: string;
 }
 
@@ -413,7 +413,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
         const run = runFor(p, (x) => x.kind === 'promote' && x.from === j.from && x.env === j.env);
         if (run) used.add(run.id);
         const g = envGroup(p, `e:${p.root}:promote:${j.from}:${j.env}`, `Promote ${j.from} → ${j.env}`, `${envName(p, j.from)} to ${envName(p, j.env)}`, LOOK('Promoting', 'git-pull-request-create', 'blue'));
-        if (j.carries?.length) g.group.note = `Tasks in ${envName(p, j.from)} not yet in ${envName(p, j.env)}: ${j.carries.slice(0, 6).join(', ')}${j.carries.length > 6 ? ` and ${j.carries.length - 6} more` : ''}`;
+        if (j.carries?.length) g.group.note = `Tasks in ${envName(p, j.from)} not yet in ${envName(p, j.env)}: ${fileList(j.carries, 6)}`;
         add(g, { key: `promote:${j.key}`, kind: 'promote', look: LOOK('Promoting', 'git-pull-request-create', 'blue'), label: 'Promotion', detail: `a branch from ${j.env} with ${j.from}'s changes, then its pull request, for ${by}`, since: ago(at), actions: run ? [stop({ kind: 'run', run: run.id, label: run.label }, 'End the promotion this window started. A pull request it already opened stays open.')] : [] }, at);
       } else if (j.kind === 'deploy' && j.env) {
         const run = runFor(p, (x) => x.kind === 'deploy' && x.env === j.env);

@@ -286,7 +286,8 @@ export function dumpedGeometry(dom: string): GeoSnapshot | null {
 }
 
 /**
- * The page's side: measures itself once its fonts have loaded and two frames have drawn, and writes
+ * The page's side: measures itself when called, which pageFor does once its fonts have loaded, two frames
+ * have drawn and the selected tab has settled, and writes
  * what it found into a JSON script element, which Chrome's --dump-dom prints. The screenshot run puts it
  * in each page it draws. `<` is escaped in the JSON, so no text from the page can close the element.
  */

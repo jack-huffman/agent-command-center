@@ -1,7 +1,7 @@
 // What every board shares: a card's footer and its ⋯ menu, and scrolling a board sideways.
 
 import type { Action } from '../src/model/shared.ts';
-import { actionButton, el, icon, work, wrap } from './dom.ts';
+import { actionButton, el, icon, work } from './dom.ts';
 import { answerHere } from './detail.ts';
 import { api, go } from './state.ts';
 

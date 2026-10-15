@@ -17,5 +17,8 @@ export const clip = (s: string, max: number): string => (s.length > max ? `${s.s
 /** A count with its noun: "1 file", "2 files". The third argument is the plural form when it isn't the noun and an s. */
 export const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
+/** The text as a regular expression that matches it literally, every special character escaped. */
+export const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /** Slack's three control characters, so a title like <!channel> is text, not a mention. */
 export const slackEscape = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

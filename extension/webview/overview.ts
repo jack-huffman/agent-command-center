@@ -4,7 +4,7 @@
 import type { HomeModel } from '../src/model/home.ts';
 import type { Action } from '../src/model/shared.ts';
 import { moreMenu } from './boards.ts';
-import { type Child, el, pageHeader, refreshPage, toolbarButton } from './dom.ts';
+import { type Child, el, pageHeader, plural, refreshPage, toolbarButton } from './dom.ts';
 import { landingCard, landingGroup } from './landing.ts';
 import { api, type PageArea } from './state.ts';
 
@@ -24,7 +24,7 @@ function headerMenu(root: string | undefined): HTMLElement | null {
 export function renderOverview(m: HomeModel): Node[] {
   const o = m.overview;
   const needs = o.landing.find((g) => g.key === 'needs-you')!;
-  const summary = needs.count ? `${needs.count} thing${needs.count === 1 ? '' : 's'} need${needs.count === 1 ? 's' : ''} you` : 'All clear: nothing needs you right now';
+  const summary = needs.count ? `${plural(needs.count, 'thing')} need${needs.count === 1 ? 's' : ''} you` : 'All clear: nothing needs you right now';
   const root = o.projects[0]?.root;
   const tools: Child[] = [
     root ? toolbarButton('acc.task.add', 'Add task', 'add', root, true) : toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true),

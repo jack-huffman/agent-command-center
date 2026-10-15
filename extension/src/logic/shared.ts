@@ -5,6 +5,7 @@
 
 import type { Approach } from '../../../packages/core/src/analyze.ts';
 import type { BuilderPlace, Effort } from '../../../packages/core/src/config.ts';
+import { isObj } from '../../../packages/core/src/text.ts';
 import type { AutopilotStepName, CloudRun, FileShare, QueuePhase } from '../../../packages/core/src/ledger.ts';
 
 // ---------------------------------------------------------------- sidebar (views)
@@ -177,8 +178,7 @@ export function isWebviewMenuContext(a: unknown): a is WebviewMenuContext {
   return !!x && typeof x === 'object' && typeof x.webviewSection === 'string' && !!x.accRef && typeof x.accRef === 'object';
 }
 
-const isObject = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
-const isProject = (p: unknown): boolean => isObject(p) && typeof p.root === 'string' && isObject(p.config);
+const isProject = (p: unknown): boolean => isObj(p) && typeof p.root === 'string' && isObj(p.config);
 
 /**
  * What a node command gets, from whatever it was called with (GH-106). A node of the right shape passes, and so
@@ -189,15 +189,15 @@ const isProject = (p: unknown): boolean => isObject(p) && typeof p.root === 'str
 export function nodeArg(a: unknown): unknown {
   if (a === null) return undefined;
   if (typeof a !== 'object') return a;
-  if (!isObject(a)) return undefined;
+  if (!isObj(a)) return undefined;
   switch (a.kind) {
     case 'project': return isProject(a.project) ? a : undefined;
     case 'group': return isProject(a.project) && typeof a.group === 'string' && Array.isArray(a.tasks) ? a : undefined;
-    case 'task': return isProject(a.project) && isObject(a.task) && typeof a.task.id === 'string' && isObject(a.task.source) ? a : undefined;
+    case 'task': return isProject(a.project) && isObj(a.task) && typeof a.task.id === 'string' && isObj(a.task.source) ? a : undefined;
     case 'place': return Array.isArray(a.sessions) ? a : undefined;
-    case 'agent': return isObject(a.session) && typeof a.session.cwd === 'string' ? a : undefined;
-    case 'worktree': return isProject(a.project) && isObject(a.worktree) && typeof a.worktree.path === 'string' ? a : undefined;
-    case 'env': return isProject(a.project) && isObject(a.env) && typeof a.env.branch === 'string' ? a : undefined;
+    case 'agent': return isObj(a.session) && typeof a.session.cwd === 'string' ? a : undefined;
+    case 'worktree': return isProject(a.project) && isObj(a.worktree) && typeof a.worktree.path === 'string' ? a : undefined;
+    case 'env': return isProject(a.project) && isObj(a.env) && typeof a.env.branch === 'string' ? a : undefined;
     default: return undefined;
   }
 }
@@ -205,7 +205,7 @@ export function nodeArg(a: unknown): unknown {
 /** Quotes one word for a POSIX shell, so an org alias with spaces stays one argument. */
 export const shq = (s: string): string => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
 
-/** The last thing a stopped agent said, on one line, short enough for a card or a notice. */
+/** Text on one line, cut to `max` with … when longer: the last thing a stopped agent said, or a Slack notice's title. */
 export function saidLine(said: string, max = 200): string {
   const one = said.replace(/\s+/g, ' ').trim();
   return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;

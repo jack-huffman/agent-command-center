@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import type { HeavyState } from '../../packages/core/src/semaphore.ts';
 import { tempDir } from '../../packages/core/test/support.ts';
 import { POLL_INTERVALS } from '../src/logic/polls.ts';
@@ -14,8 +13,8 @@ import type { RunInput } from '../src/model/runs.ts';
 import { ordinal } from '../../packages/core/src/queue.ts';
 import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, type ProgressGroup, type RepoJobs } from '../src/progress.ts';
 import { lastStepIn } from '../src/transcript.ts';
+import { manifest, root } from './support.ts';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MIN = 60_000;
 const NOW = Date.UTC(2026, 9, 6, 12, 0);
 const at = (min: number) => new Date(NOW - min * MIN).toISOString();
@@ -254,7 +253,6 @@ test('In progress sits on the Overview and never changes the badge, which counts
 });
 
 test('acc.job.stop may be asked for from the page, is declared, hidden from the palette, and asks before it stops anything (D-092)', () => {
-  const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.job.stop'));
   assert.ok(manifest.contributes.menus.commandPalette.some((c: { command: string; when: string }) => c.command === 'acc.job.stop' && c.when === 'false'));
   assert.match(readFileSync(join(root, 'src', 'model', 'overview.ts'), 'utf8'), /'acc\.job\.stop', 'acc\.autopilot\.output'/);

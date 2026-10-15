@@ -5,6 +5,7 @@
 
 import { sep } from 'node:path';
 import { worktreeRoot } from '../../../packages/core/src/dispatch.ts';
+import { plural } from '../../../packages/core/src/text.ts';
 import type { HubLike, Look, ModelArea, ProjectLike } from './shared.ts';
 
 // ---------------------------------------------------------------- worktrees
@@ -60,7 +61,7 @@ export const area: ModelArea = {
     order: 30,
     nav({ hub }) {
       const linkedTrees = hub.projects.reduce((n, p) => n + p.worktrees.filter((w) => !w.main).length, 0);
-      return { section: 'worktrees', label: 'Worktrees', icon: 'git-branch', count: linkedTrees || null, attention: false, hint: `${linkedTrees} task checkout${linkedTrees === 1 ? '' : 's'}` };
+      return { section: 'worktrees', label: 'Worktrees', icon: 'git-branch', count: linkedTrees || null, attention: false, hint: plural(linkedTrees, 'task checkout') };
     },
   },
 };

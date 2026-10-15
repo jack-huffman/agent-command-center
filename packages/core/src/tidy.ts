@@ -14,6 +14,7 @@ import { type Ledger, mutate, type Task, upsertTasks, writeAtomic } from './ledg
 import type { RepoPaths } from './paths.ts';
 import { readVerdicts } from './review.ts';
 import { fetchBranches } from './sync.ts';
+import { plural } from './text.ts';
 
 /** The label a tidy-up task carries, so its own merge never counts toward the next one. */
 export const TIDY_LABEL = 'tidy-up';
@@ -222,7 +223,7 @@ export function draftTidy(status: Pick<TidyStatus, 'tasks'>, scope: TidyScope): 
   const n = status.tasks.length;
   const ids = status.tasks.map((t) => t.id);
   const brief = [
-    `${n} task${n === 1 ? '' : 's'} merged in this repo since the last tidy-up: ${ids.join(', ')}. With many builders at once and nobody tidying, code collects copies of one helper, and comments that say the opposite of the code elsewhere. This task finds those in the files those tasks changed, and changes no behaviour.`,
+    `${plural(n, 'task')} merged in this repo since the last tidy-up: ${ids.join(', ')}. With many builders at once and nobody tidying, code collects copies of one helper, and comments that say the opposite of the code elsewhere. This task finds those in the files those tasks changed, and changes no behaviour.`,
     '',
     '## What to look for',
     '',
@@ -243,7 +244,7 @@ export function draftTidy(status: Pick<TidyStatus, 'tasks'>, scope: TidyScope): 
     ...(scope.files.length ? scope.files.map((f) => `- \`${f}\``) : ['- none']),
     ...(scope.unknown.length ? ['', '## Tasks whose files aren\'t known', '', 'Their changes aren\'t in the list above. Look at them by hand if they matter:', '', ...scope.unknown.map((u) => `- ${u.task}: ${u.why}.`)] : []),
   ].join('\n');
-  return { title: `Tidy up after ${n} merge${n === 1 ? '' : 's'}`, brief, labels: [TIDY_LABEL], covered: ids, files: scope.files, unknown: scope.unknown };
+  return { title: `Tidy up after ${plural(n, 'merge')}`, brief, labels: [TIDY_LABEL], covered: ids, files: scope.files, unknown: scope.unknown };
 }
 
 // ---------------------------------------------------------------- a person's choice

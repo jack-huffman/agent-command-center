@@ -2,9 +2,8 @@
 // never leaves the extension. The session runs with stand-ins for VSCode's secrets, the trackers and gh.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
 import { replaceTracker, type Tracker, trackerForKey, withTracker } from '../../packages/core/src/config.ts';
 import type { RepoInUse } from '../../packages/core/src/repos.ts';
 import { DESCRIPTIONS, type TrackerDescription } from '../../packages/core/src/trackers/connect.ts';
@@ -14,8 +13,8 @@ import { type ConnectDeps, type ConnectProject, ConnectSession, type StartProjec
 import { credInUse, credKey, credWrites, type CredWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic/connect.ts';
 import { blankConnect, type ConnectMessage, connectModel, type ConnectModel } from '../src/model/connect.ts';
 import { isFromWebview } from '../src/model/messages.ts';
+import { root } from './support.ts';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT = '/Users/me/code/acme-service';
 const SITE = 'acme.atlassian.net';
 const EMAIL = 'jordan.kim@example.com';

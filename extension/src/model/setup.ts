@@ -5,9 +5,10 @@
 
 import { GROUP_TITLES, STEPS } from '../../../packages/core/src/onboarding/steps.ts';
 import type { CheckStatus } from '../../../packages/core/src/onboarding/types.ts';
+import { plural } from '../../../packages/core/src/text.ts';
 import { KIND_QUESTION, SETUP_PARTS } from '../logic/first-open.ts';
 import { inProcessWords, processLine, toolLineDoes } from '../logic/processes.ts';
-import type { DoctorItem } from '../logic/setup.ts';
+import { type DoctorItem, hasRunnableFix } from '../logic/setup.ts';
 import { type Action, type Look, LOOK, type ModelArea, type Ref } from './shared.ts';
 
 // ---------------------------------------------------------------- setup
@@ -103,7 +104,7 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: b
     // What the step always offers, whatever its status, such as Import rules… (GH-108).
     if (step?.offer) actions.push({ command: step.offer.vscode, label: step.offer.label, icon: step.offer.icon, ref });
     const open = status === 'fail' || status === 'unknown';
-    if (open && (step?.fix?.command || step?.fix?.fromCheck || step?.fix?.vscode)) actions.unshift({ command: 'acc.step.fix', label: 'Do it', icon: 'wrench', ref, primary: true });
+    if (open && step && hasRunnableFix(step)) actions.unshift({ command: 'acc.step.fix', label: 'Do it', icon: 'wrench', ref, primary: true });
     if (open && step?.fix?.setupPath) actions.push({ command: 'acc.step.openSetup', label: 'Open in Salesforce', icon: 'globe', ref });
     if (status === 'unknown') actions.push({ command: 'acc.step.confirm', label: 'I\'ve done this', icon: 'check', ref });
     if (step?.fix?.docs) actions.push({ command: 'acc.openGuide', label: 'Guide', icon: 'book', ref });
@@ -152,7 +153,7 @@ export const area: ModelArea = {
     order: 50,
     after({ setup, attention }) {
       const { todo, failing } = counts(setup);
-      if (todo > 0) attention.push({ key: 'setup', look: LOOK(`${todo} setup step${todo === 1 ? '' : 's'} to do`, 'checklist', failing ? 'orange' : 'neutral'), title: 'Setup', detail: setup.parts.flatMap((part) => part.steps).filter((s) => s.look.tone === 'orange').slice(0, 3).map((s) => s.title).join(' · ') || 'Some steps are left to confirm', project: '', actions: [], go: { section: 'setup', label: 'Open Setup' } });
+      if (todo > 0) attention.push({ key: 'setup', look: LOOK(`${plural(todo, 'setup step')} to do`, 'checklist', failing ? 'orange' : 'neutral'), title: 'Setup', detail: setup.parts.flatMap((part) => part.steps).filter((s) => s.look.tone === 'orange').slice(0, 3).map((s) => s.title).join(' · ') || 'Some steps are left to confirm', project: '', actions: [], go: { section: 'setup', label: 'Open Setup' } });
     },
     nav({ setup }) {
       const { todo, failing } = counts(setup);

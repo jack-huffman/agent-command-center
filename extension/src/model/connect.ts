@@ -9,6 +9,7 @@ import { signInScope } from '../logic/connect.ts';
 import { settingsKey } from './settings.ts';
 import { type HomeSection, type Look, LOOK, type ModelArea, short, VIEW_TITLES } from './shared.ts';
 import { taskNames } from '../logic/shared.ts';
+import { isObj } from '../../../packages/core/src/text.ts';
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
 
@@ -298,17 +299,17 @@ const session = (x: Record<string, unknown>): boolean => short(x.session, 64);
 
 export const area: ModelArea = {
   messages: {
-    'connect-project': (x) => short(x.session, 64) && short(x.root, 4096),
-    'connect-kind': (x) => short(x.session, 64) && CONNECT.kinds.has(x.kind as string),
-    'connect-method': (x) => short(x.session, 64) && CONNECT.methods.has(x.method as string),
-    'connect-set': (x) => short(x.session, 64) && CONNECT.fields.has(x.field as string) && typeof x.value === 'string' && x.value.length <= 4096,
+    'connect-project': (x) => session(x) && short(x.root, 4096),
+    'connect-kind': (x) => session(x) && CONNECT.kinds.has(x.kind as string),
+    'connect-method': (x) => session(x) && CONNECT.methods.has(x.method as string),
+    'connect-set': (x) => session(x) && CONNECT.fields.has(x.field as string) && typeof x.value === 'string' && x.value.length <= 4096,
     'connect-test': (x) => {
-      if (!short(x.session, 64) || typeof x.host !== 'string' || x.host.length > 4096) return false;
+      if (!session(x) || typeof x.host !== 'string' || x.host.length > 4096) return false;
       const f = x.fields as Record<string, unknown> | null;
-      return !!f && typeof f === 'object' && !Array.isArray(f) && Object.keys(f).length <= 8 && Object.entries(f).every(([k, v]) => CONNECT.fields.has(k) && typeof v === 'string' && v.length <= 4096);
+      return isObj(f) && Object.keys(f).length <= 8 && Object.entries(f).every(([k, v]) => CONNECT.fields.has(k) && typeof v === 'string' && v.length <= 4096);
     },
-    'connect-pick': (x) => short(x.session, 64) && CONNECT.pickers.has(x.key as string) && connectValue(x.value),
-    'connect-share': (x) => short(x.session, 64) && typeof x.on === 'boolean',
+    'connect-pick': (x) => session(x) && CONNECT.pickers.has(x.key as string) && connectValue(x.value),
+    'connect-share': (x) => session(x) && typeof x.on === 'boolean',
     'connect-again': session,
     'connect-save': session,
     'connect-cancel': session,

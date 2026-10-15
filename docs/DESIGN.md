@@ -357,8 +357,8 @@ Every read is held to each tracker's place (D-072): its project or repo, and
 when set, a Jira epic (its tickets and their sub-tasks), GitHub labels (any
 one), an Azure area path or a monday.com group. A monday.com board is the
 tracker, as a Jira project is. `acc intake github` lists open issues per place
-label, from the tracker's `repo`. `acc import` refuses a Jira, Azure or
-monday.com key that no tracker owns. After a Jira, Azure or monday.com board
+label, from the tracker's `repo`. `acc import` refuses a Jira, Azure,
+monday.com or Slack key that no tracker owns. After a Jira, Azure or monday.com board
 loads, the Command Center asks about the repo's unfinished tasks that aren't on
 it, and hands the ones outside the place to `acc intake jira|azure|monday
 --file`, which removes or names them as below.
@@ -1374,15 +1374,9 @@ says.
 
 ## 14. VSCode extension
 
-An **Agents** container in the activity bar holds three views:
-
-- **Board** (webview). Columns are To do, Ready, Running, In review, Rework,
-  Blocked and Done. Each card shows id, title, agent state, checks, pull request
-  and buttons.
-- **Sessions** (tree). Every Claude Code session from `claude agents --json`,
-  with task-linked ones first. Each shows its state and what it's waiting for.
-- **Worktrees** (tree). For each task: branch, uncommitted files, ahead or behind
-  the environment's branch, pull request and CI.
+An **Agent Command Center** container in the activity bar holds one view,
+**Command Center**, which opens the Command Center page below. The page's
+sections replaced the first design's Board, Sessions and Worktrees views.
 
 **Status bar:** running, needs you, and in review counts, each with its icon.
 For each repo whose autonomy isn't manual, autopilot's switch: on, off, or on

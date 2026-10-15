@@ -1,6 +1,13 @@
 /** The Connect page (GH-51) at each of its steps. */
 import { AZURE, GITHUB, JIRA, MONDAY, SLACK } from '../../../packages/core/src/trackers/connect.ts';
 import { blankConnect, connectModel, type ConnectModel, type ConnectState } from '../../src/model/connect.ts';
+import { ROOT } from './shared.ts';
+
+/** A picker that has loaded its options, with these picked. */
+const ready = (options: ConnectState['pickers'][string]['options'], selected: string[] = []): ConnectState['pickers'][string] => ({ options, selected, state: 'ready', error: null });
+/** The Jira projects and boards the samples offer. */
+const PROJECTS = [{ value: 'ACME', label: 'ACME', detail: 'Acme Service Desk' }, { value: 'OPS', label: 'OPS', detail: 'Operations' }];
+const BOARDS = [{ value: '7', label: 'ACME Service board', detail: 'scrum', preferred: true }, { value: '9', label: 'Support kanban', detail: 'kanban' }];
 
 /** Which Connect page to draw (GH-51). */
 export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'monday' | 'slack' | 'slack-refused' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github';
@@ -19,12 +26,8 @@ export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | '
  * one over another repo's; and from GitHub labels, one of them another repo's.
  */
 export function sampleConnect(which: ConnectSample): ConnectModel {
-  const root = '/Users/me/code/acme-service';
-  const base = { root, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
-  const ready = (options: ConnectState['pickers'][string]['options'], selected: string[] = []): ConnectState['pickers'][string] => ({ options, selected, state: 'ready', error: null });
+  const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
   const ok = (who: string): ConnectState['signIn'] => ({ state: 'ok', who, error: null, again: false });
-  const projects = [{ value: 'ACME', label: 'ACME', detail: 'Acme Service Desk' }, { value: 'OPS', label: 'OPS', detail: 'Operations' }];
-  const boards = [{ value: '7', label: 'ACME Service board', detail: 'scrum', preferred: true }, { value: '9', label: 'Support kanban', detail: 'kanban' }];
   if (which === 'start') return connectModel(blankConnect(JIRA, { id: 'c-start', ...base }));
   if (which.startsWith('epic')) return sampleStart(which);
   if (which === 'shared') {
@@ -36,7 +39,7 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     const s = blankConnect(JIRA, { id: 'c-jira', ...base });
     s.host = 'acme.atlassian.net';
     s.signIn = { ...ok('Jordan Kim'), shared: true };
-    s.pickers.project = ready(projects, ['ACME']);
+    s.pickers.project = ready(PROJECTS, ['ACME']);
     s.pickers.epic = { options: [], selected: [], state: 'loading', error: null };
     s.pickers.board = { options: [], selected: [], state: 'failed', error: 'Jira answered HTTP 503: the service is unavailable.' };
     return connectModel(s);
@@ -94,14 +97,13 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   s.signIn = { ...ok('Jordan Kim'), shared: false };
   s.pickers.project = ready([], ['ACME']);
   s.pickers.epic = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }], ['ACME-3']);
-  s.pickers.board = ready(boards, ['7']);
+  s.pickers.board = ready(BOARDS, ['7']);
   return connectModel(s);
 }
 
 /** A project started from Setup's "From a Jira epic…" (GH-81), at each of its kinds. */
 function sampleStart(which: ConnectSample): ConnectModel {
   const base = { root: '/Users/me/code/acme-renewals', projectName: 'acme-renewals', ownRepo: 'acme/renewals', ghAccount: 'jordan-kim', from: 'setup' as const, gitEmail: 'jordan.kim@example.com', start: true };
-  const ready = (options: ConnectState['pickers'][string]['options'], selected: string[] = []): ConnectState['pickers'][string] => ({ options, selected, state: 'ready', error: null });
   if (which === 'epic-azure') {
     const s = blankConnect(AZURE, { id: 'c-epic-azure', ...base });
     s.host = 'acme';
@@ -125,12 +127,12 @@ function sampleStart(which: ConnectSample): ConnectModel {
   const s = blankConnect(JIRA, { id: `c-${which}`, ...base });
   s.host = 'acme.atlassian.net';
   s.signIn = { state: 'ok', who: 'Jordan Kim', error: null, again: false, shared: true };
-  s.pickers.project = ready([{ value: 'ACME', label: 'ACME', detail: 'Acme Service Desk' }, { value: 'OPS', label: 'OPS', detail: 'Operations' }], ['ACME']);
+  s.pickers.project = ready(PROJECTS, ['ACME']);
   s.pickers.epic = ready([
     { value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' },
     { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal', usedBy: 'used by acme-portal' },
     { value: 'ACME-12', label: 'ACME-12', detail: 'Single sign-on for the customer portal and the partner portal' },
   ], which === 'epic-used' ? ['ACME-30'] : []);
-  s.pickers.board = ready([{ value: '7', label: 'ACME Service board', detail: 'scrum', preferred: true }, { value: '9', label: 'Support kanban', detail: 'kanban' }], ['7']);
+  s.pickers.board = ready(BOARDS, ['7']);
   return connectModel(s);
 }

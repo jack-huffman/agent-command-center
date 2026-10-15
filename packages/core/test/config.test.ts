@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isEffort, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isEffort, isStr, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { parseFloors } from '../src/ratchets.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
@@ -590,3 +590,9 @@ test('isEffort accepts each effort level and nothing else, including a missing v
   for (const not of ['default', 'High', '', undefined, null, 3]) assert.equal(isEffort(not), false, String(not));
 });
 
+
+test('isStr: a blank or spaces-only string, and a value that is not a string, are not a string with something in it', () => {
+  assert.equal(isStr('main'), true);
+  assert.equal(isStr(' x '), true);
+  for (const v of ['', '   ', null, undefined, 0, ['a']]) assert.equal(isStr(v), false, String(v));
+});

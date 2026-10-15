@@ -49,7 +49,7 @@ Salesforce. Project types plug in as profiles.
   cards on the Overview, to allow, deny or answer in place. **Watch** shows an
   agent's work as it happens: what it said, each command and its result. Setup's
   commands run in an output panel on the page, which answers their prompts.
-- **M5, under way:** `acc review` has a read-only agent judge each commit's
+- **M5:** `acc review` has a read-only agent judge each commit's
   change against its ticket. `acc land` pushes and opens the pull request, and
   `acc sync` follows it to done. A person approves each step on the page.
 - **Promotion and deploys:** **Promote…** on an environment opens a pull
@@ -219,8 +219,9 @@ installs the same way, over the old one.
   VSCode's secret storage.
 - **`~/.acc/`:** `runtime`, the path of VSCode's runtime for the launcher;
   `questions/`, agents' questions waiting for the Command Center; `heavy/`, the
-  slot heavy checks take turns on; and `slack/sent/`, which notices went to
-  Slack.
+  slot heavy checks take turns on; `machine.json`, this machine's heavy-check
+  slots; `repos.json`, the repos acc knows on this machine; and `slack/sent/`,
+  which notices went to Slack.
 - **Claude Code:** the acc plugin, at user scope, with its marketplace's clone
   under `~/.claude/plugins/`. Its hooks run in every Claude Code session, and
   do nothing in a repo without `.acc/config.json`. Each project's main checkout
@@ -271,14 +272,14 @@ installs the same way, over the old one.
   helps, it is orange against blue, never red against green. Tests check both,
   and that every colour comes from the theme.
 
-## Planned layout
+## Layout
 
 ```text
 packages/core   ledger, config and state rules, shared by everything below
 packages/cli    the acc CLI: its launcher (bin/acc) and the bundle it runs, built into dist/,
                 and into plugin/bin/ for a release
 plugin/         Claude Code plugin: skills, hooks, reviewer agent, bin/acc and bin/acc.mjs
-extension/      VSCode extension: Board, Sessions and Worktrees views
+extension/      VSCode extension: the Command Center page
 docs/           design, roadmap, decisions, research
 ```
 
@@ -287,7 +288,7 @@ docs/           design, roadmap, decisions, research
 Each repo lists its own trackers in `.acc/config.json`, and signs in to them on
 its own. One machine can work across clients with different Jira sites, Azure
 DevOps organizations, GitHub repos and pipelines, and no client's login serves
-another's repo. GitHub Issues, Jira Cloud, Azure DevOps and monday.com. Set
+another's repo. GitHub Issues, Jira Cloud, Azure DevOps, monday.com and Slack. Set
 one up on the Command Center's **Connect page**: Connect
 Jira on the Tasks tab, Add a tracker on the Overview, or **Add a tracker…** from
 the Command Palette. It signs in, tests the connection, and lists the projects,
@@ -296,7 +297,8 @@ for you to commit. The Command Center's **Settings** lists every open project's
 trackers under **Trackers and sign-ins**, with who each signs in as, and signs
 each in again, signs it out, or changes its place. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).
 
-Each tracker names its place: the project, repo or monday.com board, and when
+Each tracker names its place: the project, repo, monday.com board or Slack
+channel, and when
 set, a Jira epic, GitHub labels, an Azure DevOps area path or a monday.com
 group. Boards, ticket pages and intake see only tickets in that place, so
 another project's or client's never show up.

@@ -3,7 +3,7 @@
 import type { TrackerBoard, TrackerCard } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
 import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
-import { avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
+import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
 export function renderTasks(m: TasksModel): Node[] {
@@ -245,8 +245,7 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
         el('span', 'muted', 'They stay on the agent board, for you to finish or set aside.'))));
   }
   if (b.error) {
-    const fix = b.connect ? el('button', 'btn primary', icon('plug'), b.connect.label) as HTMLButtonElement : null;
-    if (fix && b.connect) { fix.type = 'button'; const c = b.connect; fix.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: c.command, arg: c.arg })); }
+    const fix = b.connect ? argButton(b.connect.command, b.connect.label, 'plug', b.connect.arg, true) : null;
     out.append(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', b.error), fix));
   }
   if (b.notice) out.append(el('div', 'notice info', icon('info', 'blue'), el('span', '', b.notice)));

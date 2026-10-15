@@ -357,9 +357,6 @@ export function segmented(label: string, items: { key: string; label: string; ic
   return g;
 }
 
-export function sectionTitle(title: string, summary: string, ...tools: Child[]): HTMLElement {
-  return header(title, summary, ...tools);
-}
 
 /** A button that runs a command with one argument, such as the project it's for. */
 export function argButton(command: string, label: string, iconName: string, arg: string, primary = false): HTMLElement {
