@@ -47,12 +47,6 @@ export const area: ModelArea = {
   ],
   home: {
     order: 30,
-    stats({ hub }) {
-      const linkedTrees = hub.projects.reduce((n, p) => n + p.worktrees.filter((w) => !w.main).length, 0);
-      return [
-      { order: 50, tile: { label: 'Worktrees', value: String(linkedTrees), icon: 'git-branch', tone: 'neutral', section: 'worktrees', hint: 'Task checkouts beside the main one' } },
-      ];
-    },
     nav({ hub }) {
       const linkedTrees = hub.projects.reduce((n, p) => n + p.worktrees.filter((w) => !w.main).length, 0);
       return { section: 'worktrees', label: 'Worktrees', icon: 'git-branch', count: linkedTrees || null, attention: false, hint: `${linkedTrees} task checkout${linkedTrees === 1 ? '' : 's'}` };

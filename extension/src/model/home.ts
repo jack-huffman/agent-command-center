@@ -16,9 +16,8 @@ import type { BoardInput } from './boards.ts';
 import type { ConnectModel } from './connect.ts';
 import { environmentsModel, type EnvironmentsModel, type IdentityCard } from './environments.ts';
 import { historyItems } from './history.ts';
-import { landing } from './landing.ts';
-import { overviewCards } from '../../webview/pending.ts';
-import { type AttentionItem, mergeQueues, needsYouCount, type OverviewModel, queueLook, type QueuePanel, type StatTile } from './overview.ts';
+import { landing, overviewCards } from './landing.ts';
+import { type AttentionItem, mergeQueues, needsYouCount, type OverviewModel, queueLook, type QueuePanel } from './overview.ts';
 import { type QuestionCard, questionCards } from './questions.ts';
 import { runCard, type RunCard, type RunInput } from './runs.ts';
 import { limitsModel } from './limits.ts';
@@ -118,8 +117,8 @@ export interface HomeContext {
 
 /**
  * What an area adds to the Command Center page (D-099), in its module's `area`. Areas take their turns by
- * order: under Needs you, each project's items area by area, then the items that aren't a project's; the
- * Overview's stat tiles by each tile's own order; and the rail's items.
+ * order: under Needs you, each project's items area by area, then the items that aren't a project's; and
+ * the rail's items.
  */
 export interface HomeArea {
   order: number;
@@ -127,8 +126,6 @@ export interface HomeArea {
   attention?(c: HomeContext, p: ProjectLike): void;
   /** What it adds under Needs you once every project's items are in. */
   after?(c: HomeContext): void;
-  /** Its stat tiles on the Overview, each with its place among every area's. */
-  stats?(c: HomeContext): { order: number; tile: StatTile }[];
   /** Its section's item in the rail. */
   nav?(c: HomeContext): NavItem;
 }
@@ -164,7 +161,6 @@ export function homeModel(i: HomeInput): HomeModel {
   // People's work first, then the rest: orange before blue before neutral.
   const rank = (a: AttentionItem) => (a.look.tone === 'orange' ? 0 : a.look.tone === 'blue' ? 1 : 2);
   attention.sort((a, b) => rank(a) - rank(b));
-  const stats = parts.flatMap((a) => a.stats?.(c) ?? []).sort((a, b) => a.order - b.order).map((s) => s.tile);
 
   const history = historyItems(hub, i.runs ?? []);
   const projects = hub.projects.map((p) => ({ name: p.name, root: p.root, branch: p.branch, account: p.config.github?.account ?? null, trackers: i.boards(p.root).map((b) => b.title) }));
@@ -173,7 +169,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const runs = (i.runs ?? []).map((r) => runCard(r));
   // What's under way, below Needs you. It never changes the badge, which counts only what needs you.
   const progress = inProgress({ hub, runs: i.runs, finished: i.finished, autopilot: i.autopilot, now: i.now });
-  const overview = { projects, questions, attention, stats, ready, queue, history, inProgress: progress };
+  const overview = { projects, questions, attention, ready, queue, history, inProgress: progress };
   // The page itself is a landing page: Needs you, then a card for each other list, the detail a click away (GH-160, T-36).
   const lists = landing(overview, i.now);
   return { kind: 'home', section: i.section, nav, overview: { ...overview, landing: lists, cards: overviewCards(lists) }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null };

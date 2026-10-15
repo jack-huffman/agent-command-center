@@ -141,7 +141,6 @@ test('questions are asked by the task their agent works on, and come first on th
   assert.ok(titles.includes('ACME-11'), 'an agent waiting in its own terminal still shows, to attach to');
   assert.equal(home.nav[0]!.count, needsYouCount(home.overview));
   // ACME-13's builder, acme-dev, ACME-24's analyst and ACME-42's reviewer elsewhere (GH-119); not ACME-12's or ACME-14's.
-  assert.equal(home.overview.stats.find((s) => s.label === 'Agents working')!.value, '4', 'agents waiting on a question aren\'t counted as working');
   assert.equal(home.runs[0]!.look.label, 'Waiting for you');
 });
 

@@ -4,7 +4,7 @@
  */
 
 import { phaseWords } from '../../../packages/core/src/queue.ts';
-import type { AnalysisAsk, TaskRow, Tone } from '../logic/shared.ts';
+import type { AnalysisAsk, TaskRow } from '../logic/shared.ts';
 import type { ProgressModel } from '../progress.ts';
 import type { HistoryItem } from './history.ts';
 import type { QuestionCard } from './questions.ts';
@@ -38,21 +38,11 @@ export interface AttentionItem {
   menu?: RowMenu;
 }
 
-export interface StatTile {
-  label: string;
-  value: string;
-  icon: string;
-  tone: Tone;
-  section: HomeSection;
-  hint: string;
-}
-
 export interface OverviewModel {
   projects: { name: string; root: string; branch: string | null; account: string | null; trackers: string[] }[];
   /** Agents' questions, answered right here. They come before everything else that needs you. */
   questions: QuestionCard[];
   attention: AttentionItem[];
-  stats: StatTile[];
   ready: { project: string; id: string; title: string; environment: string; action: Action }[];
   /** Each project's merge queue, where auto-merge is on and it holds a pull request (GH-73). */
   queue: QueuePanel[];

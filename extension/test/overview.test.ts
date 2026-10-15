@@ -26,7 +26,6 @@ test('the Overview gathers what needs a person, counts it once, and groups revie
   assert.deepEqual([nav.overview!.count, nav.overview!.attention], [people, true], 'the rail and the inbox agree');
   assert.deepEqual([nav.setup!.count, nav.setup!.attention], [1, true]);
   assert.deepEqual(m.nav.map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings']);
-  assert.equal(m.overview.stats.find((s) => s.section === 'setup')!.value, '1/2');
   // An agent already shown through its task isn't listed twice.
   const linked = { ...h, taskRows: () => [{ ...h.taskRows('/r')[1]!, display: 'needs-you' as const, run: { bgId: 'bg1' }, agent: { label: 'Needs you: permission prompt', icon: 'bell', tone: 'orange' as const } }] };
   const once = homeModel({ hub: linked, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
@@ -91,7 +90,6 @@ test('the Overview shows each repo\'s merge queue where auto-merge is on: each p
   assert.deepEqual([off.off, off.rows[0]!.look.label, off.rows[0]!.look.tone, off.rows[1]!.look.label], [true, 'Autopilot is off', 'blue', 'Behind GH-1']);
   // Nothing in the queue waits on you: it's in the panel, not in Waiting on you. A task in review outside it still is.
   assert.deepEqual(o.attention.map((a) => a.title), ['GH-4 Task GH-4']);
-  assert.equal(o.stats.find((s) => s.label === 'Waiting for review')?.value, '1');
   // No panel where auto-merge is off, or nothing is in the queue.
   assert.deepEqual(homeModel({ hub: { ...hub(), projects: [{ ...tools, config: { ...tools.config, autopilot: {} } }], agents: [], taskRows: () => rows('waiting') }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.queue, []);
   assert.deepEqual(homeModel({ hub: { ...hub(), projects: [tools], agents: [], taskRows: () => [row('GH-4', 'review', 'review')] }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.queue, []);

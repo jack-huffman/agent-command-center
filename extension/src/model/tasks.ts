@@ -194,18 +194,6 @@ export const area: ModelArea = {
         }
       }
     },
-    stats({ tasks, rows, ready }) {
-    const onBoard = tasks.projects.reduce((n, p) => n + p.boards.reduce((k, b) => k + b.columns.reduce((c, col) => c + col.cards.length, 0), 0), 0);
-    // One in the merge queue isn't for you to check: the queue merges it (GH-73).
-    const review = rows.filter((r) => r.display === 'review' && !r.queue).length;
-      return [
-        { order: 10, tile: tasks.projects.some((p) => p.boards.length)
-          ? { label: 'On the board', value: String(onBoard), icon: 'project', tone: 'neutral', section: 'tasks', hint: 'Tickets on your trackers\' boards' }
-          : { label: 'Tasks', value: String(rows.length), icon: 'tasklist', tone: 'neutral', section: 'tasks', hint: 'Tasks acc keeps' } },
-      { order: 20, tile: { label: 'Ready', value: String(ready.length), icon: 'rocket', tone: ready.length ? 'blue' : 'neutral', section: 'tasks', hint: 'Tasks an agent can start now' } },
-      { order: 40, tile: { label: 'Waiting for review', value: String(review), icon: 'eye', tone: review ? 'blue' : 'neutral', section: 'tasks', hint: 'Finished by an agent, for you to check' } },
-      ];
-    },
     nav({ rows }) {
     const taskAttention = rows.filter((r) => r.display === 'needs-you' || r.display === 'blocked').length;
       return { section: 'tasks', label: 'Tasks', icon: 'project', count: taskAttention || rows.length || null, attention: taskAttention > 0, hint: taskAttention ? `${taskAttention} need you` : `${rows.length} task${rows.length === 1 ? '' : 's'}` };

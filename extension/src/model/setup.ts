@@ -154,12 +154,6 @@ export const area: ModelArea = {
       const { todo, failing } = counts(setup);
       if (todo > 0) attention.push({ key: 'setup', look: LOOK(`${todo} setup step${todo === 1 ? '' : 's'} to do`, 'checklist', failing ? 'orange' : 'neutral'), title: 'Setup', detail: setup.parts.flatMap((part) => part.steps).filter((s) => s.look.tone === 'orange').slice(0, 3).map((s) => s.title).join(' · ') || 'Some steps are left to confirm', project: '', actions: [], go: { section: 'setup', label: 'Open Setup' } });
     },
-    stats({ setup }) {
-      const { failing } = counts(setup);
-      return [
-      { order: 60, tile: { label: 'Setup', value: `${setup.done}/${setup.total}`, icon: 'checklist', tone: failing ? 'orange' : 'neutral', section: 'setup', hint: failing ? `${failing} step${failing === 1 ? '' : 's'} failing` : 'Steps done' } },
-      ];
-    },
     nav({ setup }) {
       const { todo, failing } = counts(setup);
       return { section: 'setup', label: 'Setup', icon: 'checklist', count: todo || null, attention: failing > 0, hint: todo ? `${todo} to do` : 'All done' };

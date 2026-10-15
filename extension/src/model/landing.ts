@@ -333,3 +333,44 @@ export function landing(o: Omit<OverviewModel, 'landing' | 'cards'>, now = Date.
       o.history.map((it, i) => historyRow(it, i, now, roots, many)), { kind: 'history' }),
   ];
 }
+
+// ---------------------------------------------------------------- the Overview's cards (T-36)
+
+/** The lists the Overview shows as cards, in its order. Needs you is drawn as lines above them. */
+export const CARD_ORDER: GroupKey[] = ['progress', 'ready', 'moment', 'history', 'queue'];
+
+/** A line's task, or its title where it's no one task's. */
+const named = (r: LandingRow): string => r.id ?? r.title;
+
+/**
+ * A card's one line. In progress counts the lines that stopped or ask something, each by its own state ("2
+ * stopped"), never as waiting on you: the header counts what needs you, and these lines are not in it. Each
+ * other list says what's first.
+ */
+export function cardLine(g: Pick<LandingGroup, 'key' | 'all'>): string {
+  const first = g.all[0];
+  if (!first) return '';
+  switch (g.key) {
+    case 'progress': {
+      const states = new Map<string, number>();
+      for (const r of g.all) {
+        // A running agent that asks something shows "Waiting on you" on its line (progress.ts); the card says "asking".
+        const state = r.look.label === 'Waiting on you' ? 'asking' : r.look.label.toLowerCase();
+        if (r.look.tone === 'orange') states.set(state, (states.get(state) ?? 0) + 1);
+      }
+      return states.size ? [...states].map(([state, n]) => `${n} ${state}`).join(', ') : `${named(first)} ${first.look.label.toLowerCase()}`;
+    }
+    case 'ready': return `${named(first)} next`;
+    case 'queue': return `${named(first)} next to merge`;
+    case 'history': return [named(first), first.look.label.toLowerCase(), first.facts[0]?.text].filter(Boolean).join(', ');
+    default: return first.title;
+  }
+}
+
+/** A card for each list in CARD_ORDER that holds a line; none for an empty one. */
+export function overviewCards(landing: LandingGroup[]): OverviewCard[] {
+  return CARD_ORDER.flatMap((key) => {
+    const g = landing.find((x) => x.key === key);
+    return g?.all.length ? [{ key, title: g.title, icon: g.icon, tone: g.tone, count: g.count, line: cardLine(g), opens: g.opens }] : [];
+  });
+}
