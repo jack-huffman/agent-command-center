@@ -195,6 +195,24 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task modal: it opens from its card, and closes back to it',
+    page: 'tasks',
+    async run(t) {
+      const { dialog, card } = await openTask(t);
+      const at = (): { x: number; y: number } => { const [x, y] = getComputedStyle(dialog).transformOrigin.split(' ').map(parseFloat); return { x: x!, y: y! }; };
+      const want = (c: HTMLElement): { x: number; y: number } => { const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2 - dialog.offsetLeft, y: r.top + r.height / 2 - dialog.offsetTop }; };
+      const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => Math.abs(a.x - b.x) < 1.5 && Math.abs(a.y - b.y) < 1.5;
+      t.check('it scales from its card\'s centre', near(at(), want(card)), JSON.stringify([at(), want(card)]));
+      // Edge: a card at the dialog's own centre would pass with no origin set, so it must be somewhere else.
+      t.check('that is not the modal\'s own centre, the default', !near(at(), { x: dialog.offsetWidth / 2, y: dialog.offsetHeight / 2 }), JSON.stringify(at()));
+      // Edge: the board redrew under it, so the card is a new element: closing aims at that one.
+      await t.post({ type: 'state', model: t.model });
+      const again = t.find(`[data-peek="${CSS.escape(t.data.task.peek)}"]`);
+      await t.click(t.find('.task-modal-close', dialog));
+      t.check('it closes toward the card for its task now on the board', near(at(), want(again)), JSON.stringify([at(), want(again)]));
+    },
+  },
+  {
     name: 'task modal: a click on the backdrop closes it; one inside it, or a drag out of it, doesn\'t',
     page: 'tasks',
     async run(t) {
@@ -581,6 +599,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'a backdrop click does nothing', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (downOnBackdrop && onBackdrop(dialog, e)) { /* stub */ }', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
   { name: 'a drag out of it closes it', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (onBackdrop(dialog, e)) shut();', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
   { name: 'the task modal leaves focus where it falls', file: 'task-modal.ts', find: 'document.querySelector<HTMLElement>(`[data-peek="${CSS.escape(peekKey(m.project, m.key))}"]`)?.focus();', replace: '', kills: [caseNamed('task modal: Close sends focus back')] },
+  { name: 'the task modal has no origin to grow from', file: 'task-modal.ts', find: "d.style.setProperty('--origin',", replace: "void ('--origin',", kills: [caseNamed('task modal: it opens from its card')] },
   { name: 'the detail leaves focus where it falls', file: 'detail.ts', find: '(openers.find((e) => e.tagName === openedBy) ?? openers[0])?.focus();', replace: '', kills: [caseNamed('detail modal: a new model under it')] },
   { name: 'a detail opened from a card\'s list sends focus nowhere', file: 'detail.ts', find: 'CSS.escape(from ?? opensKey(d))', replace: 'CSS.escape(opensKey(d))', kills: [caseNamed('detail modal: a new model under it')] },
   { name: 'the detail sends focus to the first thing that opens it', file: 'detail.ts', find: '(openers.find((e) => e.tagName === openedBy) ?? openers[0])?.focus();', replace: 'openers[0]?.focus();', kills: [caseNamed('detail modal: Escape')] },
