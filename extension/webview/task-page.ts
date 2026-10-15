@@ -4,7 +4,7 @@ import type { Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
 import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
-import { actionButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when, work } from './dom.ts';
+import { actionButton, argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { updateDraft } from './updates.ts';
@@ -93,8 +93,7 @@ export function renderTicket(m: TicketModel): Node[] {
   tools.push(refresh);
   const out: Node[] = [el('header', 'ticket-head', crumbs, el('h1', 'ticket-title', m.title), el('div', 'ticket-bar', statusCtl, type, el('span', 'spacer'), ...tools))];
   if (m.error) {
-    const fix = m.connect ? el('button', 'btn primary', icon('plug'), m.connect.label) as HTMLButtonElement : null;
-    if (fix && m.connect) { fix.type = 'button'; const c = m.connect; fix.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: c.command, arg: c.arg })); }
+    const fix = m.connect ? argButton(m.connect.command, m.connect.label, 'plug', m.connect.arg, true) : null;
     out.push(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', m.error), fix));
   }
   // Outside the repo's place (D-072): said plainly, and only a person's call when acc keeps a task for it.
@@ -234,8 +233,8 @@ function moveFeed(h: { from: string | null; to: string; by: string; look: Look }
   const sync = /^sync|^acc sync/.test(h.by);
   if (!h.from) return { icon: 'add', tone: 'neutral', verb: 'added it', pill: false };
   if (h.to === 'running') return h.from === 'rework' ? { icon: 'debug-restart', tone: 'blue', verb: 'sent it back to its agent', pill: false } : { icon: 'rocket', tone: 'blue', verb: 'started its agent', pill: false };
-  // Only autopilot's send-back for checks that failed on GitHub is the orchestrator's move to rework (D-076).
-  // Core's sentBackForChecks (D-076), which this page can't import: autopilot's own move, not a review made for it.
+  // Autopilot's own send-back, for checks that failed on GitHub (D-076) or from the merge queue (GH-73), is the
+  // orchestrator's move to rework: core's sentBackByAutopilot, which this page can't import. A review made for it isn't.
   if (h.to === 'rework' && h.from === 'review' && h.by === 'orchestrator:autopilot') return { icon: 'github-action', tone: 'orange', verb: 'sent it back to its builder', pill: false };
   if (h.to === 'rework') return { icon: 'request-changes', tone: 'orange', verb: 'asked for changes', pill: false };
   if (h.to === 'blocked') return { icon: 'circle-slash', tone: 'orange', verb: 'blocked it', pill: false };

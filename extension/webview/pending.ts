@@ -112,7 +112,7 @@ export function keepEdits(e: Edits, drafts: DraftKeys[], mine: (key: string) => 
 // Suggested rules acc said it accepted or dismissed, taken off the Overview at once, before a model
 // without them arrives.
 
-/** The suggested rules' line in When you have a moment, as the model words it (landing.ts's rulesRow). */
+/** The suggested rules' line in When you have a moment, as the model words it (src/model/landing.ts's rulesRow). */
 export const rulesLineTitle = (n: number): string => `${n} suggested rule${n === 1 ? '' : 's'}, from repeated review findings`;
 
 /** A suggested rule's key on the page: what the page remembers about it, and what acc's reply settles. */

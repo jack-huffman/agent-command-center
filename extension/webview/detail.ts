@@ -163,7 +163,7 @@ function draw(): void {
   if (fresh || (inside && !modal.dialog.contains(document.activeElement))) modal.body.focus({ preventScroll: true });
 }
 
-/** Answer, from Agents or In progress: the question over the page, with its answers. */
+/** Answer, from Agents or a Tasks card: the question over the page, with its answers. */
 export function answerHere(id: string): void {
   openDetail({ kind: 'question', id });
 }

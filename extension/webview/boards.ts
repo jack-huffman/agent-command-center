@@ -1,7 +1,7 @@
 // What every board shares: a card's footer and its ⋯ menu, and scrolling a board sideways.
 
 import type { Action } from '../src/model/shared.ts';
-import { actionButton, el, icon, work, wrap } from './dom.ts';
+import { actionButton, button, el, icon, work } from './dom.ts';
 import { answerHere } from './detail.ts';
 import { api, go } from './state.ts';
 
@@ -65,10 +65,8 @@ export const cardMenu = (actions: Action[]): Action[] => actions.filter((a) => a
 export function nextStep(a: Action): HTMLElement {
   if (!a.question) return actionButton(a);
   const id = a.question;
-  const b = el('button', 'btn primary', icon(a.icon), a.label) as HTMLButtonElement;
-  b.type = 'button';
+  const b = button(a.label, a.icon, () => { go('overview'); answerHere(id); }, 'primary');
   b.title = 'Go to its question in Needs you, on the Overview, and answer it there';
-  b.addEventListener('click', (e) => { e.stopPropagation(); go('overview'); answerHere(id); });
   return b;
 }
 

@@ -1,5 +1,5 @@
 // The page's own tables of how a state shows (GH-105). Plain data with no DOM, so the looks test can walk
-// them: every other module here reaches the VSCode API as it loads. What the model decides, it sends.
+// them: most other modules here reach the VSCode API as they load. What the model decides, it sends.
 
 import type { Tone } from '../src/logic/shared.ts';
 

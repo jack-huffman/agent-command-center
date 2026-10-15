@@ -2,7 +2,7 @@
 
 import type { HomeSection } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
-import { el, icon, wrap } from './dom.ts';
+import { el, icon } from './dom.ts';
 import { api, go } from './state.ts';
 
 // The page draws a new rail on each render: only the latest one listens for fonts.
