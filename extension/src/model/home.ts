@@ -32,6 +32,7 @@ import { tasksModel, type TasksModel } from './tasks.ts';
 import { hasTicket, updateCards, withClient } from './updates.ts';
 import { worktreesModel, type WorktreesModel } from './worktrees.ts';
 import { AREAS } from './areas.ts';
+import { type PaletteItem, paletteItems } from './palette.ts';
 
 // ---------------------------------------------------------------- the Command Center page
 
@@ -60,6 +61,8 @@ export interface HomeModel {
   runs: RunCard[];
   /** The Connect page, while it's open: it shows in place of the section, with Back to it (GH-51). */
   connect: ConnectModel | null;
+  /** What the command palette searches (T-52): every section, part of Settings, task, agent and action. */
+  palette: PaletteItem[];
 }
 
 export interface HomeInput {
@@ -172,7 +175,8 @@ export function homeModel(i: HomeInput): HomeModel {
   const overview = { projects, questions, attention, ready, queue, history, inProgress: progress };
   // The page itself is a landing page: Needs you, then a card for each other list, the detail a click away (GH-160, T-36).
   const lists = landing(overview, i.now);
-  return { kind: 'home', section: i.section, nav, overview: { ...overview, landing: lists, cards: overviewCards(lists) }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null };
+  const page = { kind: 'home' as const, section: i.section, nav, overview: { ...overview, landing: lists, cards: overviewCards(lists) }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null };
+  return { ...page, palette: paletteItems(page) };
 }
 
 export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | SettingsModel | TicketModel | HomeModel | AgentModel;

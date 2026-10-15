@@ -1,0 +1,34 @@
+/* ---------------------------------------------------------------- the command palette (T-52) */
+/* The rail's button, under the brand: a search icon and its words, the key in its title. In the narrow
+   strip, only its icon; its name stays in its aria-label. */
+.palette-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--vscode-input-background, transparent); color: var(--vscode-descriptionForeground); font: inherit; text-align: left; cursor: pointer; transition: color 0.12s, border-color 0.12s; }
+.palette-btn:hover { color: var(--vscode-foreground); border-color: var(--vscode-focusBorder); }
+.palette-btn:active { transform: scale(0.97); transition: none; }
+.palette-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.palette-btn-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 820px) {
+  .palette-btn { width: auto; flex: none; padding: 5px 8px; }
+  .palette-btn-label { display: none; }
+}
+
+/* A sheet at the top of the tab, centred, 560 px at most: the box above its results. It opens with the
+   modal's fade and scale, from its top edge; under reduced motion it only fades (task-modal.css). */
+.task-modal.palette-modal { width: min(560px, calc(100vw - 32px)); height: fit-content; max-height: calc(100vh - 96px); margin: 48px auto auto; --origin: 50% 0; }
+.palette-modal .task-modal-bar { justify-content: flex-start; gap: 8px; padding: 8px 14px; }
+.palette-box { flex: 1; min-width: 0; padding: 4px 0; border: 0; outline: none; background: transparent; color: var(--vscode-foreground); font: inherit; font-size: 1.1em; }
+.palette-box::placeholder { color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground)); }
+.palette-modal .task-modal-body { padding: 4px 6px 6px; }
+.palette-head { padding: 8px 10px 3px; font-weight: 600; }
+/* A result: its icon, its title with the matched characters in bold, its kind, and its hint on the right. */
+.palette-option { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 5px; cursor: pointer; min-width: 0; }
+.palette-option[aria-selected="true"] { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.palette-option[aria-selected="true"] .muted { color: inherit; }
+.palette-option[aria-disabled="true"] { cursor: default; }
+.palette-option[aria-disabled="true"] .palette-title { color: var(--vscode-descriptionForeground); }
+.palette-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-title b, .palette-hint b { font-weight: 700; }
+.palette-hint .codicon { margin-right: 4px; vertical-align: text-bottom; }
+.palette-kind { flex: none; font-size: 0.85em; }
+.palette-hint { flex: 0 0 auto; max-width: 45%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.9em; color: var(--vscode-descriptionForeground); }
+.palette-option[aria-selected="true"] .palette-hint { color: inherit; }
+.palette-foot { margin: 6px 10px 2px; }

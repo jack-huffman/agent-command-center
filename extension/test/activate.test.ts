@@ -129,6 +129,10 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     tab.receive!({ type: 'agents-where', view: 'tree' });
     assert.equal(ctx.workspaceState.get('acc.agents.where'), 'path', 'not a view the page can ask for');
     tab.receive!({ type: 'run', command: 'workbench.action.quit', ref: {} });
+    // The palette's key (T-52): acc.palette tells the open page to open its palette, and opens no second page.
+    await calls.commands.get('acc.palette')!();
+    assert.deepEqual(tab.posted.at(-1), { type: 'palette' }, 'acc.palette posts the palette message to the page');
+    assert.equal(panels.length, 1, 'it opens no second page');
 
     // Every answer sent from a page gets a reply, so it never stays on "Sending your answer…" (D-059).
     type Done = { type: string; action: string; ok: boolean; error?: string; task: string; question: string };
@@ -533,6 +537,18 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     await calls.commands.get('acc.github.signIn')!('jordan-kim');
     calls.signsInAs = undefined;
     assert.deepEqual(calls.warn.slice(signInWarned), ['That\'s someone-else, but this repo works as jordan-kim.']);
+
+    // With the page closed, acc.palette opens it, and the palette message waits for the page to be ready (T-52).
+    reopened.close!();
+    await calls.commands.get('acc.palette')!();
+    const fresh = panels.at(-1)!;
+    assert.notEqual(fresh, reopened, 'a page opened for it');
+    assert.ok(!fresh.posted.some((x) => (x as { type?: string }).type === 'palette'), 'nothing is posted before the page is ready: it would be lost');
+    fresh.receive!({ type: 'ready' });
+    assert.deepEqual(fresh.posted.map((x) => (x as { type: string }).type).slice(-1), ['palette'], 'once ready, after its model, the page gets the palette message');
+    assert.ok(fresh.posted.some((x) => (x as { type?: string }).type === 'state'), 'and its model first');
+    fresh.receive!({ type: 'ready' });
+    assert.equal(fresh.posted.filter((x) => (x as { type?: string }).type === 'palette').length, 1, 'once, not again on the next ready');
 
     await calls.commands.get(COMMANDS.check)!('B0.repo');
     assert.match(calls.info.at(-1) ?? '', /^✓ Inside the project's repo: Repo at /);
