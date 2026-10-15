@@ -10,7 +10,7 @@ import { FONTS, sampleModel } from '../scripts/screenshot.ts';
 
 const webview = join(import.meta.dirname, '..', 'webview');
 const now = Date.UTC(2026, 9, 10, 12);
-const models = () => ({ tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark') });
+const models = () => ({ tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark') });
 const ok = (n = 1): BehaviourReport => ({ checks: Array.from({ length: n }, (_, i) => ({ what: `check ${i}`, ok: true })), error: null, sent: [{ type: 'ready' }] });
 
 test('a case passes on a report whose every check held, and its checks are counted', () => {
