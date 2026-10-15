@@ -7,7 +7,8 @@ import { type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/s
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../../packages/core/src/trackers/connect.ts';
 import { signInScope } from '../logic/connect.ts';
 import { settingsKey } from './settings.ts';
-import { type HomeSection, type Look, LOOK, type ModelArea, short, taskNames, VIEW_TITLES } from './shared.ts';
+import { type HomeSection, type Look, LOOK, type ModelArea, short, VIEW_TITLES } from './shared.ts';
+import { taskNames } from '../logic/shared.ts';
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
 
