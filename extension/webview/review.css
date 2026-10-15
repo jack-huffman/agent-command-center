@@ -12,6 +12,8 @@
 .rv-place .codicon { margin-top: 2px; flex: none; }
 .rv-place:hover:not(:disabled) .mono { text-decoration: underline; }
 .rv-place:disabled { color: var(--vscode-descriptionForeground); cursor: default; }
+/* A press shows at once, as every button's does. */
+.rv-place:active:not(:disabled) { transform: scale(0.97); transition: none; }
 .rv-note { margin: 4px 0; }
 /* The lines around a finding: a number, a mark, and the text, wrapped in the narrow side column. */
 .rv-excerpt { margin-top: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--well); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; line-height: 1.45; overflow: hidden; }
