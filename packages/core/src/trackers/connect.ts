@@ -189,7 +189,9 @@ const many = (v: string | string[] | null | undefined): string[] => (Array.isArr
 const b64 = (s: string): string => Buffer.from(s).toString('base64');
 /** The Authorization header an Azure DevOps sign-in gives: Microsoft's, or a personal access token's. */
 const azureAuth = (s: SignIn): string => s.header ?? `Basic ${b64(`:${s.fields.token ?? ''}`)}`;
-const jiraWith = (ctx: Ctx) => ({ email: ctx.signIn.fields.email ?? '', token: ctx.signIn.fields.token ?? '' });
+/** The token the person signed in with: monday.com's and Slack's only field, and half of Jira's. */
+const tokenOf = (ctx: Ctx): string => ctx.signIn.fields.token ?? '';
+const jiraWith = (ctx: Ctx) => ({ email: ctx.signIn.fields.email ?? '', token: tokenOf(ctx) });
 const github = (ctx: Ctx): GithubClient => {
   if (!ctx.signIn.gh) throw new Error('GitHub signs in through gh, as the project\'s account.');
   return new GithubClient({ repo: ctx.host, token: ctx.signIn.gh.token, account: ctx.signIn.gh.account, exec: ctx.exec });
@@ -289,7 +291,6 @@ export const AZURE: TrackerDescription = {
   fromConfig: (t) => ({ host: t.organization ?? '', values: { project: t.project, team: t.team, board: typeof t.board === 'string' ? t.board : null, areaPath: t.areaPath } }),
 };
 
-const mondayToken = (ctx: Ctx): string => ctx.signIn.fields.token ?? '';
 
 export const MONDAY: TrackerDescription = {
   kind: 'monday', name: 'monday.com', icon: 'table',
@@ -308,22 +309,22 @@ export const MONDAY: TrackerDescription = {
   pickers: [
     {
       key: 'board', label: 'Board', dependsOn: [], identifies: true, idValues: true,
-      load: async (ctx) => (await mondayBoards(mondayToken(ctx), ctx.fetch)).map((b) => ({ value: b.id, label: b.name, detail: b.workspace })),
+      load: async (ctx) => (await mondayBoards(tokenOf(ctx), ctx.fetch)).map((b) => ({ value: b.id, label: b.name, detail: b.workspace })),
     },
     {
       key: 'group', label: 'Group', dependsOn: ['board'], whole: (c) => `Every group on ${c.labels?.board ?? 'the board'}`,
       hint: 'Pick a group to take only its items.',
-      load: async (ctx) => (await mondayGroups(one(ctx.values.board)!, mondayToken(ctx), ctx.fetch)).map((g) => ({ value: g.id, label: g.title })),
+      load: async (ctx) => (await mondayGroups(one(ctx.values.board)!, tokenOf(ctx), ctx.fetch)).map((g) => ({ value: g.id, label: g.title })),
     },
     {
       key: 'statusColumn', label: 'Status column', dependsOn: ['board'], hideSingle: true, hint: 'Its labels are the Tasks tab\'s columns.',
       fallback: 'Without one, the board uses its column called Status, or its first status column.',
-      load: async (ctx) => (await mondayStatusColumns(one(ctx.values.board)!, mondayToken(ctx), ctx.fetch)).map((c) => ({ value: c.id, label: c.title, detail: c.labels.join(', '), ...(c.usual ? { default: true } : {}) })),
+      load: async (ctx) => (await mondayStatusColumns(one(ctx.values.board)!, tokenOf(ctx), ctx.fetch)).map((c) => ({ value: c.id, label: c.title, detail: c.labels.join(', '), ...(c.usual ? { default: true } : {}) })),
     },
   ],
   place: { key: 'group', words: 'On monday.com, a group stands in for an epic: only its items are this project\'s.' },
   verify: async (ctx) => {
-    const me = await mondayMe(mondayToken(ctx), ctx.fetch);
+    const me = await mondayMe(tokenOf(ctx), ctx.fetch);
     // A token is one account's: one from another would show another client's boards.
     if (me.account && me.account !== ctx.host) throw new TrackerError('auth', `This token is for the monday.com account ${me.account}, not ${ctx.host}. Make one in ${ctx.host}.monday.com, or change the account above.`);
     return { id: me.id, name: me.name };
@@ -340,7 +341,6 @@ export const SLACK_APPS = 'https://api.slack.com/apps';
 /** What a Slack app's bot token starts with. A user token (xoxp-) would post as the person, not the app. */
 export const SLACK_BOT_TOKEN = 'xoxb-';
 
-const slackToken = (ctx: Ctx): string => ctx.signIn.fields.token ?? '';
 
 export const SLACK: TrackerDescription = {
   kind: 'slack', name: 'Slack', icon: 'comment-discussion', listsTitle: 'Its channel',
@@ -360,10 +360,10 @@ export const SLACK: TrackerDescription = {
   pickers: [{
     key: 'channel', label: 'Channel', dependsOn: [], identifies: true, idValues: true,
     hint: 'Its threads are the tracker\'s tickets. Only channels the app is in are listed.',
-    load: async (ctx) => (await slackChannels(slackToken(ctx), ctx.fetch)).map((c) => ({ value: c.id, label: `#${c.name}`, detail: c.private ? 'private' : 'public' })),
+    load: async (ctx) => (await slackChannels(tokenOf(ctx), ctx.fetch)).map((c) => ({ value: c.id, label: `#${c.name}`, detail: c.private ? 'private' : 'public' })),
   }],
   place: { key: 'channel', words: 'In Slack, the channel stands in for an epic: only its threads are this project\'s.' },
-  verify: (ctx) => slackApp(ctx.host, slackToken(ctx), ctx.fetch),
+  verify: (ctx) => slackApp(ctx.host, tokenOf(ctx), ctx.fetch),
   toConfig: (c) => ({ kind: 'slack', workspace: c.host, channel: one(c.values.channel) }),
   fromConfig: (t) => ({ host: t.workspace ?? '', values: { channel: t.channel } }),
 };

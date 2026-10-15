@@ -9,6 +9,7 @@ import { environmentProtection, protectionWarnings } from './protection.ts';
 import { PUSH_TIMEOUT_MS } from './land.ts';
 import { fetchBranches } from './sync.ts';
 import { readList } from './gates.ts';
+import { sleep } from './lock.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
 import { type RepoPaths, samePath } from './paths.ts';
@@ -189,8 +190,6 @@ function excludeEverywhere(run: Runner, main: string, pattern: string): void {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `${text}${text && !text.endsWith('\n') ? '\n' : ''}# Added by acc: worktrees link node_modules from the main checkout.\n${pattern}\n`);
 }
-
-const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 export interface FindSessionOptions {
   /** Started at this time or later, in ms: an older session of the same name is another run's. */
