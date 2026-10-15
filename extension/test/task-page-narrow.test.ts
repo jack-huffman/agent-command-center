@@ -24,5 +24,5 @@ test('the page draws its status once, as the tracker writes it, and Details has 
 });
 
 test('edge case: a tracker that gives no status says so in the head (or shows a dash), not in a Details row', () => {
-  assert.ok(pageSource('task-page.ts').includes("let statusCtl: Child = statusEl ?? el('span', 'muted', lack('status') ? lack('status')!.line : '—')"));
+  assert.ok(pageSource('task-page.ts').includes("let statusCtl: Child = statusEl ?? (lack('status') ? el('span', 'muted', lack('status')!.line) : el('span', 'muted', '—'))"));
 });

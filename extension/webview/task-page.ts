@@ -71,7 +71,7 @@ export function renderTicket(m: TicketModel): Node[] {
   const lack = (f: 'status' | 'assignee' | 'labels') => m.lacks.find((l) => l.field === f);
   const statusEl = m.status && !lack('status') ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : null;
   // No pill (the tracker can't give a status, or none came) says so in the head, now Details no longer has the row.
-  let statusCtl: Child = statusEl ?? el('span', 'muted', lack('status') ? lack('status')!.line : '—');
+  let statusCtl: Child = statusEl ?? (lack('status') ? el('span', 'muted', lack('status')!.line) : el('span', 'muted', '—'));
   if (statusEl && m.can.status) {
     const b = el('button', 'btn status-btn', statusEl, icon('chevron-down')) as HTMLButtonElement;
     b.type = 'button';
