@@ -227,25 +227,21 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   // Its place, board or sign-in, changed on the Connect page (GH-51).
   const change = el('button', 'btn ghost', icon('settings'), 'Change') as HTMLButtonElement;
   change.type = 'button';
-  change.title = 'Change where its tickets come from, its board, or its sign-in';
+  change.title = b.changeTitle;
   change.addEventListener('click', () => api.postMessage({ type: 'toolbar', command: 'acc.trackers.add', arg: JSON.stringify({ root, index: b.index }) }));
   tools.push(change);
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
       el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
       el('div', 'toolbar', ...tools)));
-  // One quiet line under its name, each fact once: what its columns are; where its tickets come from (D-072),
-  // when that narrows it; and who it's signed in as, with whether every project on the site shares that (GH-79).
-  const meta: HTMLElement[] = [];
-  if (b.source) meta.push(el('span', 'meta-item', icon(b.source === 'github-state' ? 'list-flat' : 'project'), SOURCE_LABEL[b.source] ?? b.source));
-  if (b.place) meta.push(el('span', 'meta-item', icon('filter'), el('span', '', 'Tickets from ', el('strong', '', b.place))));
-  if (b.signIn) meta.push(el('span', 'meta-item', icon(b.signIn.icon, b.signIn.tone), b.signIn.label));
-  else if (b.signedInAs) meta.push(el('span', 'meta-item', icon('account'), `as ${b.signedInAs}`));
-  if (meta.length) out.append(el('div', 'tracker-meta', ...meta));
-  if (b.left.length) {
+  // One quiet source line under its name (T-42): where its tickets come from (D-072) when that narrows it,
+  // else what its columns are. Who it's signed in as sits in Change's title, and in Settings, Trackers.
+  const source = b.place ? el('span', 'meta-item', icon('filter'), el('span', '', 'Tickets from ', el('strong', '', b.place)))
+    : b.source ? el('span', 'meta-item', icon(b.source === 'github-state' ? 'list-flat' : 'project'), SOURCE_LABEL[b.source] ?? b.source) : null;
+  if (source) out.append(el('div', 'tracker-meta', source));
+  if (b.movedOut) {
     out.append(el('div', 'notice attention left-place', icon('warning', 'orange'),
-      el('div', 'left-text', el('strong', '', `Left this repo's place after work started: ${plural(b.left.length, 'task')}`),
-        el('ul', '', ...b.left.map((n) => el('li', '', n))),
+      el('div', 'left-text', el('strong', '', b.movedOut),
         el('span', 'muted', 'They stay on the agent board, for you to finish or set aside.'))));
   }
   if (b.error) {
