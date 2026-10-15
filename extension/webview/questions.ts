@@ -26,7 +26,7 @@ function sendAnswer(q: QuestionCard, msg: Record<string, unknown>): void {
  * An agent's question, to answer where it's shown: Allow or Deny for a permission prompt, its options for
  * a question. "In the terminal" hands it back to Claude Code's own prompt.
  */
-export function questionCard(q: QuestionCard, opts: { watch: boolean; handOff?: boolean }): HTMLElement {
+export function questionCard(q: QuestionCard, opts: { watch: boolean; claudeInHeader?: boolean }): HTMLElement {
   const d = draftOf(q.id);
   // The bell and the words say it needs you; the orange edge only adds to them.
   const head = el('div', 'q-head',
@@ -38,12 +38,12 @@ export function questionCard(q: QuestionCard, opts: { watch: boolean; handOff?: 
   card.dataset.question = q.id;
   const tools: Child[] = [];
   const watch = opts.watch ? button('Watch', 'pulse', () => api.postMessage({ type: 'run', command: 'acc.agent.watch', ref: { session: q.session } }), 'ghost small') : null;
-  // The agent's page has both in its header, so its cards leave them out (T-47): each shows once.
-  const terminal = opts.handOff === false ? null : el('span', 'q-aside-group',
-    button('In Claude Code', 'comment-discussion', () => api.postMessage({ type: 'run', command: 'acc.agent.openInClaude', ref: { session: q.session } }), 'ghost small'),
-    button('In the terminal', 'terminal', () => sendAnswer(q, { decision: 'terminal' }), 'ghost small'));
-  if (terminal) (terminal.firstChild as HTMLElement).title = 'Take its conversation over in a Claude Code tab: it stops in the background, and you carry on there';
-  if (terminal) (terminal.lastChild as HTMLElement).title = 'Answer in Claude Code\'s own prompt instead: a terminal attaches to the session';
+  // The agent's page has In Claude Code in its header, so its cards leave that one out (T-47). "In the terminal" stays on the card: it also releases the waiting hook, which the header's Attach doesn't.
+  const inClaude = opts.claudeInHeader ? null : button('In Claude Code', 'comment-discussion', () => api.postMessage({ type: 'run', command: 'acc.agent.openInClaude', ref: { session: q.session } }), 'ghost small');
+  if (inClaude) inClaude.title = 'Take its conversation over in a Claude Code tab: it stops in the background, and you carry on there';
+  const inTerminal = button('In the terminal', 'terminal', () => sendAnswer(q, { decision: 'terminal' }), 'ghost small');
+  inTerminal.title = 'Answer in Claude Code\'s own prompt instead: a terminal attaches to the session';
+  const terminal = el('span', 'q-aside-group', inClaude, inTerminal);
 
   if (q.kind === 'permission') {
     if (q.detail && q.code) card.append(el('p', 'q-detail', q.detail));

@@ -23,6 +23,12 @@ test('the page draws its status once, as the tracker writes it, and Details has 
   assert.ok(pill && !/text-transform/.test(pill), 'the pill keeps the tracker\'s case');
 });
 
+test('at 760 px and below the Agent panel sits where the content starts: no panel-after-panel margin reaches it (T-47)', () => {
+  // The base `.side-panel + .side-panel` rule comes later in the file, so the narrow one must name the grid to outrank it.
+  assert.match(narrow, /\.ticket-grid \.side-panel \+ \.side-panel \{ margin-top: 0; \}/);
+  assert.ok(!/(^|\n)\s*\.side-panel \+ \.side-panel \{ margin-top: 0/.test(narrow), 'not the plain selector, which the base rule beats');
+});
+
 test('edge case: a tracker that gives no status says so in the head (or shows a dash), not in a Details row', () => {
   assert.ok(pageSource('task-page.ts').includes("let statusCtl: Child = statusEl ?? (lack('status') ? el('span', 'muted', lack('status')!.line) : el('span', 'muted', '—'))"));
 });
