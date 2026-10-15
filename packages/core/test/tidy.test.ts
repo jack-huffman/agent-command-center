@@ -10,7 +10,7 @@ import { run } from '../src/exec.ts';
 import { emptyLedger, type Ledger, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { sync } from '../src/sync.ts';
-import { addTidy, draftTidy, readTidy, skipTidy, TIDY_LABEL, tidyDue, tidyFile, type TidyRecord, tidyScope, tidyStatus } from '../src/tidy.ts';
+import { addTidy, branchInEnvironment, draftTidy, readTidy, rememberInEnvironment, skipTidy, TIDY_LABEL, tidyDue, tidyFile, type TidyRecord, tidyScope, tidyStatus } from '../src/tidy.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-08T12:00:00Z');
@@ -74,6 +74,59 @@ test('an open tidy-up task holds the next offer back; `every` sets the threshold
   const never = tidyDue(ledgerOf(...many(40)), withEvery(0), null);
   assert.deepEqual([never.count, never.due], [0, false]);
   assert.equal(tidyDue(ledgerOf(...many(40)), withEvery(0), record(0)).due, false, 'not after a record either');
+});
+
+test('a task merged in git counts once, as one merged by a pull request does; a branch not merged does not (edge case: no pull request)', () => {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, tidy: { every: 2 } }), 'src/keep.ts': 'export const k = 1;\n' });
+  const branchWith = (branch: string, file: string) => {
+    gitIn(dir, 'checkout', '-q', '-b', branch, 'main');
+    writeFileSync(join(dir, file), `export const x = '${branch}';\n`);
+    gitIn(dir, 'add', '-A');
+    gitIn(dir, 'commit', '-q', '-m', `${branch}: change`);
+    gitIn(dir, 'checkout', '-q', 'main');
+  };
+  branchWith('task/T-1', 'src/a.ts');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-1', 'task/T-1');
+  branchWith('task/T-2', 'src/b.ts');
+  const onBranch = (id: string): Partial<Task> => ({ run: { branch: `task/${id}`, worktree: '/gone' } });
+  const tasks = [
+    merged('T-1', 1, { pr: null, ...onBranch('T-1') }),
+    merged('T-3', 3),
+    merged('T-2', 2, { pr: null, ...onBranch('T-2') }),
+    merged('T-4', 4, { pr: null, run: null }),
+    merged('T-5', 5, { pr: null, state: 'review', ...onBranch('T-1') }),
+  ];
+  const s = tidyStatus(repoPaths(dir, run), withEvery(2), ledgerOf(...tasks));
+  assert.deepEqual(s.tasks.map((t) => [t.id, t.pr]), [['T-1', null], ['T-3', 3]], 'merged in git once, merged by a pull request once; unmerged, branchless and not-done tasks left out');
+  assert.deepEqual([s.count, s.due], [2, true]);
+  assert.equal(tidyDue(ledgerOf(...tasks), withEvery(2), null).count, 1, 'without git to ask, only the pull request counts');
+});
+
+test('a task merged in git whose local branch was deleted counts through origin\'s copy of it; with neither, it does not (edge case: branch gone)', () => {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, tidy: { every: 2 } }), 'src/keep.ts': 'export const k = 1;\n' });
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-6', 'main');
+  writeFileSync(join(dir, 'src/f.ts'), 'export const f = 6;\n');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'T-6: change');
+  gitIn(dir, 'checkout', '-q', 'main');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-6', 'task/T-6');
+  gitIn(dir, 'update-ref', 'refs/remotes/origin/task/T-6', 'refs/heads/task/T-6');
+  gitIn(dir, 'branch', '-q', '-D', 'task/T-6');
+  const inEnv = branchInEnvironment(run, dir);
+  const task = (branch: string): Task => merged('T-6', 6, { pr: null, run: { branch, worktree: '/gone' } });
+  assert.equal(inEnv(task('task/T-6')), true, 'the local branch is gone; origin\'s copy is in main');
+  assert.equal(inEnv(task('task/T-7')), false, 'no branch here or on origin');
+});
+
+test('rememberInEnvironment asks git once for each branch, and for each environment of one (edge case: asked again)', () => {
+  const asked: string[] = [];
+  const known = new Map<string, boolean>();
+  const ask = rememberInEnvironment((t) => (asked.push(`${t.run?.branch}>${t.environment}`), t.run?.branch === 'task/T-1'), known);
+  const t = (branch: string | null, environment = 'main'): Task => merged('T-9', 9, { environment, run: branch ? { branch, worktree: '/gone' } : null });
+  assert.deepEqual([ask(t('task/T-1')), ask(t('task/T-1')), ask(t('task/T-2')), ask(t('task/T-2')), ask(t('task/T-1', 'prod'))], [true, true, false, false, true]);
+  assert.deepEqual(asked, ['task/T-1>main', 'task/T-2>main', 'task/T-1>prod']);
+  const fresh = rememberInEnvironment(ask, new Map());
+  assert.equal(fresh(t('task/T-1')), true, 'a new set of answers (a ledger read again) asks again');
 });
 
 // ---------------------------------------------------------------- the files they touched

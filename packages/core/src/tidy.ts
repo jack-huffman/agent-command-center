@@ -8,7 +8,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Config, defaultEnvironment, tidyEvery } from './config.ts';
-import { AccError, type Runner } from './exec.ts';
+import { AccError, type Runner, run as gitRun } from './exec.ts';
 import { listed, readList } from './gates.ts';
 import { type Ledger, mutate, type Task, upsertTasks, writeAtomic } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -41,13 +41,14 @@ export function readTidy(paths: Pick<RepoPaths, 'stateDir'>): TidyRecord | null 
   }
 }
 
-/** A task its pull request's merge moved to done. */
+/** A task moved to done by its pull request's merge, or whose branch a person merged in git. */
 export interface MergedTask {
   id: string;
   title: string;
   /** When it moved to done, else when acc sync saw its merge. */
   at: string;
-  pr: number;
+  /** The pull request's number; null for a branch merged in git with none. */
+  pr: number | null;
   mergeSha: string | null;
   branch: string | null;
 }
@@ -64,11 +65,40 @@ export interface TidyStatus {
   last: TidyRecord | null;
 }
 
-function mergedTask(t: Task): MergedTask | null {
-  if (t.state !== 'done' || t.pr?.state !== 'merged' || t.labels.includes(TIDY_LABEL)) return null;
+/** Whether a task's branch is in its environment's branch. */
+export type InEnvironment = (t: Task) => boolean;
+
+/**
+ * Reads git: the task's branch is an ancestor of its environment's branch (origin's copy when there is one,
+ * else the local one), as after a merge a person made. The branch is the local one, or origin's copy once
+ * the local one is deleted, as it often is after a merge, as tidyScope reads it.
+ */
+export function branchInEnvironment(run: Runner, root: string): InEnvironment {
+  return (t) => {
+    const branch = t.run?.branch;
+    if (!branch) return false;
+    const inRef = (tip: string, ref: string) => run('git', ['merge-base', '--is-ancestor', tip, ref], { cwd: root }).code === 0;
+    return [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`].some((tip) => inRef(tip, `refs/remotes/origin/${t.environment}`) || inRef(tip, `refs/heads/${t.environment}`));
+  };
+}
+
+/** An InEnvironment that asks git once for each branch and environment, and keeps the answers in `known` (the caller drops them when the ledger is read again). */
+export function rememberInEnvironment(ask: InEnvironment, known: Map<string, boolean>): InEnvironment {
+  return (t) => {
+    const key = `${t.run?.branch}\0${t.environment}`;
+    let merged = known.get(key);
+    if (merged === undefined) known.set(key, (merged = ask(t)));
+    return merged;
+  };
+}
+
+function mergedTask(t: Task, inEnvironment: InEnvironment): MergedTask | null {
+  if (t.state !== 'done' || t.labels.includes(TIDY_LABEL)) return null;
+  const viaPr = t.pr?.state === 'merged';
+  if (!viaPr && !inEnvironment(t)) return null;
   const done = [...t.history].reverse().find((h) => h.to === 'done');
-  const at = done?.at ?? t.pr.syncedAt ?? t.updatedAt;
-  return { id: t.id, title: t.title, at, pr: t.pr.number, mergeSha: t.pr.mergeSha ?? null, branch: t.run?.branch ?? null };
+  const at = done?.at ?? t.pr?.syncedAt ?? t.updatedAt;
+  return { id: t.id, title: t.title, at, pr: t.pr?.number ?? null, mergeSha: viaPr ? t.pr?.mergeSha ?? null : null, branch: t.run?.branch ?? null };
 }
 
 /**
@@ -76,9 +106,9 @@ function mergedTask(t: Task): MergedTask | null {
  * not counting tidy-ups. With none on record yet, only the newest `every`, so a busy repo gets an offer at
  * once with a scope a person can read, and older work isn't swept in.
  */
-export function tidyDue(ledger: Pick<Ledger, 'tasks'>, config: Pick<Config, 'tidy'>, last: TidyRecord | null): TidyStatus {
+export function tidyDue(ledger: Pick<Ledger, 'tasks'>, config: Pick<Config, 'tidy'>, last: TidyRecord | null, inEnvironment: InEnvironment = () => false): TidyStatus {
   const every = tidyEvery(config);
-  const merged = ledger.tasks.map(mergedTask).filter((m): m is MergedTask => !!m).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id, undefined, { numeric: true }));
+  const merged = ledger.tasks.map((t) => mergedTask(t, inEnvironment)).filter((m): m is MergedTask => !!m).sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id, undefined, { numeric: true }));
   const covered = new Set(last?.covered ?? []);
   const tasks = last ? merged.filter((m) => m.at > last.at && !covered.has(m.id)) : every ? merged.slice(-every) : [];
   const open = ledger.tasks.find((t) => t.labels.includes(TIDY_LABEL) && t.state !== 'done')?.id ?? null;
@@ -86,8 +116,8 @@ export function tidyDue(ledger: Pick<Ledger, 'tasks'>, config: Pick<Config, 'tid
 }
 
 /** What a repo's ledger and its record say now. */
-export function tidyStatus(paths: Pick<RepoPaths, 'ledger' | 'stateDir'>, config: Pick<Config, 'tidy'>, ledger: Pick<Ledger, 'tasks'>): TidyStatus {
-  return tidyDue(ledger, config, readTidy(paths));
+export function tidyStatus(paths: Pick<RepoPaths, 'ledger' | 'stateDir' | 'root'>, config: Pick<Config, 'tidy'>, ledger: Pick<Ledger, 'tasks'>, run: Runner = gitRun): TidyStatus {
+  return tidyDue(ledger, config, readTidy(paths), branchInEnvironment(run, paths.root));
 }
 
 // ---------------------------------------------------------------- the files they touched

@@ -184,7 +184,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 
 .openable:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
-.avatar { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 0.731em; font-weight: 600; letter-spacing: 0.02em; background: var(--accent-soft); color: var(--accent); flex: none; }
+.avatar { display: inline-flex; align-items: center; justify-content: center; width: 2.104em; height: 2.104em; border-radius: 50%; font-size: 0.731em; font-weight: 600; letter-spacing: 0.02em; background: var(--accent-soft); color: var(--accent); flex: none; }
 
 /* Long text shows its first lines; Show all opens the rest. */
 .clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 4); overflow: hidden; }

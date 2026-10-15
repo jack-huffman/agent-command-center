@@ -1807,12 +1807,13 @@ already exists.
 ## 19. Left out of v1
 
 - destructive Salesforce changes
-- Slack as a ticket source (acc's notices can go to Slack: D-078 in
-  DECISIONS.md)
 - cloud reviewers and analysts: builders can run in the cloud where a project
   opts in (GH-69, D-140); the rest stay local, as does the ledger
 - sharing a ledger across machines
 - a Developer sandbox for each agent
+
+Slack as a ticket source was left out of v1 and is built now: D-145 (the
+tracker), D-146 (its Connect page) and D-148 (tracking a thread by its link).
 
 ## 20. Open questions
 

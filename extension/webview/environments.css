@@ -16,7 +16,7 @@
 .identity { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 14px 16px; margin: 4px 0 18px; max-width: 760px; }
 .identity.attention { border-left: 3px solid var(--orange); }
 .id-head { display: flex; align-items: center; gap: 12px; }
-.avatar.avatar-lg { width: 40px; height: 40px; font-size: 1.077em; }
+.avatar.avatar-lg { width: 2.857em; height: 2.857em; font-size: 1.077em; }
 .id-who { min-width: 0; }
 .id-name { display: flex; align-items: center; gap: 8px; font-size: 1.15em; }
 .chip.chip-blue { border-color: var(--blue); color: var(--blue); }

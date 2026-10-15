@@ -380,10 +380,19 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
       if (m === '/api/bots.info') return Response.json({ ok: true, bot: { id: 'B0APP', name: 'Acme Command Center' } });
       return Response.json({ ok: false, error: 'unknown_method' });
     }) as unknown as typeof fetch;
-    globalThis.fetch = slackApi;
+    // Edge case, Slack refusing the token (the client can't start): Commenting as says the bot-token words, not a name.
+    globalThis.fetch = (async () => Response.json({ ok: false, error: 'invalid_auth' })) as unknown as typeof fetch;
     try {
       await calls.commands.get('acc.trackers.refresh')!();
       await until(() => !!slackBoard()?.signedInAs);
+      assert.equal(slackBoard()!.signedInAs, 'a Slack app\'s bot token', 'a client that cannot start leaves the token\'s words');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    globalThis.fetch = slackApi;
+    try {
+      await calls.commands.get('acc.trackers.refresh')!();
+      await until(() => slackBoard()?.signedInAs === 'Acme Command Center');
       // The same name three ways (T-32): the client's me, the Connect page's sign-in, and the board the task page and the update card's Post read.
       const app = (await slackApp('acme', slackToken, slackApi)).name;
       const me = (await new SlackClient({ workspace: 'acme', channel: 'C0123ABCD', prefix: 'SL', token: slackToken, fetch: slackApi }).me()).name;
