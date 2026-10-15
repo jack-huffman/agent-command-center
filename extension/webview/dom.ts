@@ -140,6 +140,8 @@ function renderBlocks(bs: Block[]): Node[] {
           const li = el('li', it.checked === undefined ? '' : it.checked ? 'task done' : 'task');
           if (it.checked !== undefined) {
             const box = icon(it.checked ? 'pass-filled' : 'circle-large-outline', it.checked ? 'blue' : undefined);
+            // A span may carry a name only with a role (axe's aria-prohibited-attr, T-55): the icon is an image of its state.
+            box.setAttribute('role', 'img');
             box.setAttribute('aria-label', it.checked ? 'Done' : 'Not done');
             box.removeAttribute('aria-hidden');
             li.append(box);
@@ -149,7 +151,12 @@ function renderBlocks(bs: Block[]): Node[] {
         }
         return list;
       }
-      case 'code': return el('div', 'code', b.lang ? el('div', 'code-lang', b.lang) : null, el('pre', '', el('code', '', b.text)));
+      case 'code': {
+        // A long line scrolls the block sideways, so the keyboard can reach it to scroll it (axe's scrollable-region-focusable, T-55).
+        const pre = el('pre', '', el('code', '', b.text));
+        pre.tabIndex = 0;
+        return el('div', 'code', b.lang ? el('div', 'code-lang', b.lang) : null, pre);
+      }
       case 'quote': {
         const kind = panelLook(b.label ?? '');
         return el('blockquote', b.label ? `panel tone-edge-${kind.tone}` : '', b.label ? el('div', 'panel-label', icon(kind.icon, kind.tone), b.label) : null, ...renderBlocks(b.c));

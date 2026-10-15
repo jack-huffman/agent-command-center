@@ -388,9 +388,11 @@ shoot only those (`npm run screenshot -- agents worktrees`), or pass `--width`,
 
 Each shot also measures itself, and the run exits 1, naming the page, theme,
 width and element, when two controls overlap, a label is cut off, the selected
-tab is out of the rail's view, a sticky cell covers another cell's text, or
-something scrolls sideways that shouldn't. It
-prints how many elements each check examined; a page with none fails. The shots
+tab is out of the rail's view, a sticky cell covers another cell's text,
+something scrolls sideways that shouldn't, or axe-core finds a WCAG 2.1 AA
+violation that `A11Y_EXCEPTIONS` (`extension/scripts/a11y.ts`) doesn't excuse.
+It prints how many elements each check examined, and axe's incomplete results by
+rule; a page with none examined fails. The shots
 are written either way, and still need reading.
 
 Run builds and tests one at a time, under `nice -n 15`.

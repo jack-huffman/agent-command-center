@@ -16,7 +16,9 @@
   measures every page at 1000, 620 and 500 px, dark and light, and exits 1 when
   two controls overlap, a label is cut off (an ellipsis needs its full text in a
   title), the selected tab is out of view, a sticky cell covers another cell's
-  text, or the page scrolls sideways (`extension/scripts/geometry.ts`). It can't see spacing, alignment or a page
+  text, the page scrolls sideways (`extension/scripts/geometry.ts`), or axe-core
+  finds a WCAG 2.1 AA violation that `A11Y_EXCEPTIONS` doesn't excuse
+  (`extension/scripts/a11y.ts`). It can't see spacing, alignment or a page
   that reads badly, so the PNGs still need reading. Checked by the builder's
   `screenshots` gate (`extension/scripts/looked.ts`, D-138): a branch that
   changes `extension/webview/`, `extension/src/` or `extension/scripts/` fails

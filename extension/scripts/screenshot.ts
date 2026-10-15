@@ -61,6 +61,7 @@ import { loadingScreen } from '../src/logic/loading.ts';
 import { CHECKS, COLLECT_GEOMETRY, type ExpectedButton, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
 import { drawRetrying, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
+import { axeScript, COLLECT_A11Y } from './a11y.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -234,6 +235,8 @@ export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown
   ? [{ type: 'task-modal', model: sampleTicket(now), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-12' } }]
   // The command palette (T-52), as acc.palette opens it; the screenshot run types "an" into one, which matches actions, sections and tasks alike.
   : kind === 'palette' ? [{ type: 'palette', query: 'an' }] : kind === 'palette-empty' ? [{ type: 'palette' }] : []);
+/** The title each kind of tab carries, as htmlFor in panels.ts gives it: a page needs one to be named (T-55). */
+export const TAB_TITLES: Record<string, string> = { home: 'Command Center', ticket: 'Ticket', agent: 'Agent' };
 export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
 export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' ? settingsKey('trackers')
@@ -305,7 +308,8 @@ const NO_MODAL_FADE = '<style>dialog { transition: none !important; }</style>';
  * data-theme. A shot forces Light or Dark under VSCode's other theme, so a colour that still comes from
  * VSCode's shows in it. With collect, the page also gathers its computed colours for the colour check;
  * with measure, its geometry for the geometry checks (GH-105), once its fonts have loaded, two frames
- * have drawn and the rail's selected tab has stopped moving (GH-167). Every page loads its fonts before
+ * have drawn and the rail's selected tab has stopped moving (GH-167), and then what axe-core finds, which
+ * it loads inline before the harness's own scripts (T-55, a11y.ts). Every page loads its fonts before
  * it's sent its model, so a font that comes late on a busy machine can't move the rail's tab (T-21).
  */
 export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: Theme = theme === 'light' ? 'dark' : 'light', collect = false, measure = false, after: Record<string, unknown>[] = afterModel(kind)): string {
@@ -322,11 +326,12 @@ export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: The
   const opening = still(kind) ? loadingScreen('home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : '';
   return `<!DOCTYPE html>
 <html lang="en" data-theme="${theme}" style="${vars.replace(/"/g, '&quot;')}"><head><meta charset="UTF-8">
+<title>${TAB_TITLES[viewOf(kind)]}</title>
 <style>${vscodeDefaults()}</style>
 <link rel="stylesheet" href="webview/codicons/codicon.css">
 <link rel="stylesheet" href="webview/styles.css">
 ${measure ? NO_MODAL_FADE : ''}
-<script>
+${measure ? `<script>${axeScript()}</script>\n` : ''}<script>
 const MODEL = ${json};
 const AFTER = ${then};
 function forceHover() {
@@ -335,9 +340,9 @@ function forceHover() {
     for (const r of rules) if (r.selectorText && r.selectorText.includes(':hover')) sheet.insertRule(r.cssText.replaceAll(':hover', '.acc-hover'), sheet.cssRules.length);
   }
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
-}${FONTS_FIRST}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + SETTLE : ''}
+}${FONTS_FIRST}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + COLLECT_A11Y + SETTLE : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') fontsFirst(document.fonts, () => setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, collectGeometry)))); }, 300);` : ''} })); },
+  postMessage(m) { if (m.type === 'ready') fontsFirst(document.fonts, () => setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y))))); }, 300);` : ''} })); },
   getState() { return ${JSON.stringify(startState(kind)) ?? 'undefined'}; }, setState() {},
 });
 </script>
