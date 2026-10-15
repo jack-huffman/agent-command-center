@@ -1,6 +1,8 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
+    "incremental": true,
+    "tsBuildInfoFile": "../dist/tsbuildinfo/extension.tsbuildinfo",
     "module": "esnext",
     "moduleResolution": "bundler",
     "types": ["node", "vscode"]

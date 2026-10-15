@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { homedir, tmpdir, userInfo } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { CheckDecision } from './check-receipt.ts';
 import { run as realRun, type Runner } from '../packages/core/src/exec.ts';
 import { cloneAccount, ghAccounts } from '../packages/core/src/github.ts';
 import { GH_TIMEOUT_MS, ghToken } from '../packages/core/src/land.ts';
@@ -416,6 +417,8 @@ export interface PackageSteps {
   log: (line: string) => void;
   /** npm run check: typecheck, build, test. */
   check: () => boolean;
+  /** Says whether package runs `check` (T-56): a fresh receipt of this tree skips it. Absent: always run. */
+  decideCheck?: () => CheckDecision;
   /** vsce: packages the extension into this file. */
   vsce: (out: string) => boolean;
   /** Copies the launcher and acc.mjs into plugin/bin, together. */
@@ -440,7 +443,9 @@ export function packageRelease(s: PackageSteps): Outcome {
   const shape = changelogProblems(log);
   if (shape.length) return { ok: false, problems: shape };
 
-  if (!s.check()) return { ok: false, problems: ['npm run check failed. Fix it, then package again.'] };
+  const decision = s.decideCheck?.() ?? { run: true as const, why: '' };
+  if (!decision.run) s.log(decision.message);
+  if (decision.run && !s.check()) return { ok: false, problems: ['npm run check failed. Fix it, then package again.'] };
   const vsix = join(s.root, 'dist', vsixName(version));
   if (!s.vsce(vsix) || !existsSync(vsix)) return { ok: false, problems: [`vsce didn't make ${relative(s.root, vsix)}.`] };
 
