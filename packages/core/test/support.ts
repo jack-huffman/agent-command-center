@@ -167,3 +167,41 @@ export function changes(before: Map<string, string>, after: Map<string, string>)
   for (const p of before.keys()) if (!after.has(p)) out.push(`removed ${p}`);
   return out;
 }
+
+/** An item that made `pool` reject: where it sat, what it was, and what went wrong. */
+export class PoolError extends Error {
+  readonly index: number;
+  readonly item: unknown;
+  constructor(index: number, item: unknown, reason: unknown) {
+    const shown = typeof item === 'string' ? JSON.stringify(item.length > 60 ? `${item.slice(0, 60)}…` : item) : (() => { try { return JSON.stringify(item)?.slice(0, 80) ?? String(item); } catch { return String(item); } })();
+    super(`item ${index} (${shown}) failed: ${(reason as Error)?.message ?? String(reason)}`, { cause: reason });
+    this.name = 'PoolError';
+    this.index = index;
+    this.item = item;
+  }
+}
+
+/**
+ * Runs `fn` on each item, at most `size` calls at once, and gives the results in the items' order, so a test
+ * starts its processes together instead of one after another. No items give []. When a call throws or
+ * rejects, the pool starts no more calls and rejects with a PoolError that names the item.
+ */
+export async function pool<T, R>(items: readonly T[], size: number = 4, fn: (item: T, index: number) => R | Promise<R>): Promise<R[]> {
+  if (!Number.isInteger(size) || size < 1) throw new RangeError(`pool size must be a whole number of 1 or more, not ${size}`);
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  let failed: PoolError | undefined;
+  const worker = async () => {
+    while (!failed && next < items.length) {
+      const i = next++;
+      try {
+        results[i] = await fn(items[i]!, i);
+      } catch (e) {
+        failed ??= new PoolError(i, items[i], e);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
+  if (failed) throw failed;
+  return results;
+}
