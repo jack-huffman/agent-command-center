@@ -76,6 +76,32 @@ test('an open tidy-up task holds the next offer back; `every` sets the threshold
   assert.equal(tidyDue(ledgerOf(...many(40)), withEvery(0), record(0)).due, false, 'not after a record either');
 });
 
+test('a task merged in git counts once, as one merged by a pull request does; a branch not merged does not (edge case: no pull request)', () => {
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, tidy: { every: 2 } }), 'src/keep.ts': 'export const k = 1;\n' });
+  const branchWith = (branch: string, file: string) => {
+    gitIn(dir, 'checkout', '-q', '-b', branch, 'main');
+    writeFileSync(join(dir, file), `export const x = '${branch}';\n`);
+    gitIn(dir, 'add', '-A');
+    gitIn(dir, 'commit', '-q', '-m', `${branch}: change`);
+    gitIn(dir, 'checkout', '-q', 'main');
+  };
+  branchWith('task/T-1', 'src/a.ts');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-1', 'task/T-1');
+  branchWith('task/T-2', 'src/b.ts');
+  const onBranch = (id: string): Partial<Task> => ({ run: { branch: `task/${id}`, worktree: '/gone' } });
+  const tasks = [
+    merged('T-1', 1, { pr: null, ...onBranch('T-1') }),
+    merged('T-3', 3),
+    merged('T-2', 2, { pr: null, ...onBranch('T-2') }),
+    merged('T-4', 4, { pr: null, run: null }),
+    merged('T-5', 5, { pr: null, state: 'review', ...onBranch('T-1') }),
+  ];
+  const s = tidyStatus(repoPaths(dir, run), withEvery(2), ledgerOf(...tasks));
+  assert.deepEqual(s.tasks.map((t) => [t.id, t.pr]), [['T-1', null], ['T-3', 3]], 'merged in git once, merged by a pull request once; unmerged, branchless and not-done tasks left out');
+  assert.deepEqual([s.count, s.due], [2, true]);
+  assert.equal(tidyDue(ledgerOf(...tasks), withEvery(2), null).count, 1, 'without git to ask, only the pull request counts');
+});
+
 // ---------------------------------------------------------------- the files they touched
 
 /**
