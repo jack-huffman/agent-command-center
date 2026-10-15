@@ -289,6 +289,9 @@ function collectColours() {
   document.body.append(out);
 }`;
 
+/** A modal's open fades from opacity 0 (T-47), and the geometry check skips what is transparent: a measured page opens its modal at once. */
+const NO_MODAL_FADE = '<style>dialog { transition: none !important; }</style>';
+
 /**
  * A page as VSCode would show it with `under`'s theme (GH-109): VSCode's own webview stylesheet first in
  * the head, that theme's colours inline on <html> and its class on <body>, and the page's theme in
@@ -308,15 +311,14 @@ export function pageFor(kind: Page, theme: ThemeChoice, model: Model, under: The
   const send = still(kind) ? '' : `window.postMessage({ type: 'state', model: MODEL${open ? `, jump: true, open: ${JSON.stringify(open)}` : ''} }, '*'); for (const m of AFTER) window.postMessage(m, '*'); `;
   // The loading screen fades in (T-16), and a fade at opacity 0 reads as unseen. Headless Chrome's virtual time
   // doesn't move animations, so a still page ends its fades itself before it's measured, as they'd have ended.
-  // A modal's open (T-47) runs to its end on every page, the loading screen's fade on a still one: the geometry check skips what is still transparent.
-  const modals = "document.querySelectorAll('dialog').forEach((d) => d.getAnimations().forEach((a) => a.finish())); ";
-  const faded = modals + (still(kind) ? 'document.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).forEach((a) => a.finish()); ' : '');
+  const faded = still(kind) ? 'document.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).forEach((a) => a.finish()); ' : '';
   const opening = still(kind) ? loadingScreen('home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : '';
   return `<!DOCTYPE html>
 <html lang="en" data-theme="${theme}" style="${vars.replace(/"/g, '&quot;')}"><head><meta charset="UTF-8">
 <style>${vscodeDefaults()}</style>
 <link rel="stylesheet" href="webview/codicons/codicon.css">
 <link rel="stylesheet" href="webview/styles.css">
+${measure ? NO_MODAL_FADE : ''}
 <script>
 const MODEL = ${json};
 const AFTER = ${then};
