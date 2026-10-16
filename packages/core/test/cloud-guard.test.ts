@@ -5,7 +5,7 @@
 // the git commands that could change the guard or switch its hooks off; the pre-push hook checks the push
 // itself, whatever ran git. Both fail closed; outside a cloud session the script says nothing.
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import { GUARD_COMMAND, GUARD_MATCHER, GUARD_PATH, GUARD_SCRIPT, guardCommitted, guardInstalled, installGuard, PRE_PUSH_PATH, PRE_PUSH_SCRIPT, RECORD_LINE, SESSION_COMMAND, SETTINGS_PATH, settingsRunGuard } from '../src/cloud-guard.ts';
 import { run } from '../src/exec.ts';
 import { commandsOf, SUBSTITUTED } from '../src/hooks.ts';
-import { gitIn, pool, tempDir } from './support.ts';
+import { gitIn, pool, spawnWith, tempDir } from './support.ts';
 
 const BRANCH = 'task/T-1-a-thing';
 
@@ -85,18 +85,9 @@ function hookOf(code: number | null, out: string, err: string): Hook {
 }
 
 /** `hook`, without waiting for the process, so a test can start several together through pool (T-57). */
-function hookAsync(root: string, input: unknown): Promise<Hook> {
-  return new Promise((done, fail) => {
-    const child = spawn(process.execPath, [join(root, GUARD_PATH)], { cwd: root, env: hookEnv(root, {}) });
-    let out = '';
-    let err = '';
-    child.stdout.setEncoding('utf8').on('data', (d: string) => { out += d; });
-    child.stderr.setEncoding('utf8').on('data', (d: string) => { err += d; });
-    child.stdin.on('error', () => {});
-    child.on('error', fail);
-    child.on('close', (code) => done(hookOf(code, out, err)));
-    child.stdin.end(JSON.stringify(input));
-  });
+async function hookAsync(root: string, input: unknown): Promise<Hook> {
+  const r = await spawnWith(process.execPath, [join(root, GUARD_PATH)], JSON.stringify(input), { cwd: root, env: hookEnv(root, {}) });
+  return hookOf(r.code, r.out, r.err);
 }
 
 const bash = (root: string, transcript: string | null, command: string, opts?: { cloud?: boolean; env?: NodeJS.ProcessEnv }): Hook => hook(root, { tool_name: 'Bash', tool_input: { command }, cwd: root, ...(transcript ? { transcript_path: transcript } : {}) }, opts);

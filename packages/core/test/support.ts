@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, globSync, lstatSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { delimiter, dirname, join, relative } from 'node:path';
@@ -204,4 +205,27 @@ export async function pool<T, R>(items: readonly T[], size: number = 4, fn: (ite
   await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
   if (failed) throw failed;
   return results;
+}
+
+/** What a program run by `spawnWith` gave: its exit code, and what it wrote to stdout and stderr. */
+export interface Spawned { code: number | null; out: string; err: string }
+
+/**
+ * Runs a program with `input` on its stdin, without waiting for it, so a test can start several together
+ * through pool (T-57). It rejects only when the program can't be started; a program that exits before
+ * reading its input still gives what it wrote.
+ */
+export function spawnWith(cmd: string, args: readonly string[], input: string, opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {}): Promise<Spawned> {
+  return new Promise((done, fail) => {
+    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env });
+    let out = '';
+    let err = '';
+    child.stdout.setEncoding('utf8').on('data', (d: string) => { out += d; });
+    child.stderr.setEncoding('utf8').on('data', (d: string) => { err += d; });
+    // A program that exits before it reads its input closes the pipe: that isn't a failure of the run.
+    child.stdin.on('error', () => {});
+    child.on('error', fail);
+    child.on('close', (code) => done({ code, out, err }));
+    child.stdin.end(input);
+  });
 }
