@@ -65,10 +65,13 @@ Salesforce. Project types plug in as profiles.
 - **A task's model and effort:** each builder runs with the clone's or the
   project's model and effort unless a task picks its own:
   `acc dispatch <id> --model <m> --effort <low|medium|high|xhigh|max>`, or
-  **Dispatch with…** (**Re-dispatch with…** on a rework), which offers the
-  model, then the levels it takes, saying which is its default and where the
-  current one is set. A re-dispatch and a resume keep the pick;
-  `--effort default`, or the builder's own level in the picker, drops it, and
+  **Dispatch** (**Re-dispatch** on a rework) in the Command Center, which
+  opens one sheet: the model, with where the current one is set; the levels
+  it takes, as a segmented control; and where it runs, This Mac or the
+  cloud, which is off with its reason when the project can't use it. What
+  the builder would use is already chosen, so Enter dispatches with it. A
+  re-dispatch and a resume keep the pick;
+  `--effort default`, or the builder's own level in the sheet, drops it, and
   a model picked that doesn't take it drops it and says so. On every dispatch
   and resume, a level the model doesn't take is refused before anything
   starts, citing acc's list of each model's levels, copied from Anthropic's
