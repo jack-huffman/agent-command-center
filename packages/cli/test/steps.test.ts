@@ -4,33 +4,49 @@
 // stable. acc runs from '../src/main.ts', through cli().
 
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { fakeClaude, IGNORE, trustingHome } from '../../core/test/dispatch-support.ts';
+import { parseConfig, type Config } from '../../core/src/config.ts';
 import { run } from '../../core/src/exec.ts';
+import { waiveGates } from '../../core/src/gates.ts';
+import { mutate } from '../../core/src/ledger.ts';
+import { repoPaths } from '../../core/src/paths.ts';
+import { reviewPath } from '../../core/src/review.ts';
+import { readSteps } from '../../core/src/steps.ts';
 import { GENERIC_CONFIG, gitIn, makeRepo, SF_CONFIG, tempDir } from '../../core/test/support.ts';
+import { openSteps, steps } from '../src/shared.ts';
 import { cli } from './support.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
-/** Stand-in sf, gh and claude on PATH: sf's deploy and its check pass, gh signs in and opens pull request 9. */
-function fakes(): string {
+/** What a stand-in fails at: sf's deploy, its check-only deploy, listing one branch's components, or an analyst's answer. */
+interface Fail { deploy?: true; check?: true; list?: string; analyst?: true }
+
+/**
+ * Stand-in sf, gh and claude on PATH: sf lists components, and its deploy and its check pass; gh signs in and
+ * opens pull request 9; claude answers an analysis. `fail` names what fails instead.
+ */
+function fakes(fail: Fail = {}): string {
   const bin = join(tempDir('fake-tools-'), 'bin');
   mkdirSync(bin);
   const tool = (name: string, script: string) => { writeFileSync(join(bin, name), `#!/bin/sh\n${script}`); chmodSync(join(bin, name), 0o755); };
+  const failed = `echo '{"status":1,"result":{"success":false,"details":{"componentFailures":{"fullName":"B","problem":"Invalid type: Foo"}}}}'; exit 1`;
   // sf lists a checkout's components into the file it's told, and deploys or checks with success.
   tool('sf', `if [ "$1 $2 $3" = "project generate manifest" ]; then
   while [ $# -gt 0 ]; do case "$1" in --output-dir) out="$2" ;; --name) name="$2" ;; esac; shift; done
+  if [ "$name" = "${fail.list ?? ''}" ]; then echo '{"status":1,"message":"No source here"}'; exit 1; fi
   printf '<?xml version="1.0" encoding="UTF-8"?><Package xmlns="http://soap.sforce.com/2006/04/metadata"><types><members>A</members><name>ApexClass</name></types><version>62.0</version></Package>' > "$out/$name.xml"
   echo '{"status":0}'
   exit 0
 fi
+case " $* " in *" --dry-run "*) ${fail.check ? failed : ':'} ;; *) ${fail.deploy ? failed : ':'} ;; esac
 echo '{"status":0,"result":{"id":"0Af1","success":true,"numberComponentsDeployed":1,"numberComponentsTotal":1}}'
 `);
-  // claude answers an analysis as \`claude -p --output-format json\` does; anything else is fakeClaude's.
-  tool('claude', `echo '${JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-analyst', total_cost_usd: 0.5, structured_output: ANALYSIS })}'\n`);
+  // claude answers an analysis as \`claude -p --output-format json\` does, or with junk.
+  tool('claude', fail.analyst ? 'echo "not an analysis"\n' : `echo '${JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-analyst', total_cost_usd: 0.5, structured_output: ANALYSIS })}'\n`);
   tool('gh', `case "$1 $2" in\n  "auth token") echo gho ;;\n  "pr create") echo https://github.com/acme-co/acme-salesforce/pull/9 ;;\n  *) echo '[]' ;;\nesac\n`);
   return bin;
 }
@@ -159,4 +175,169 @@ test('each long command prints what it printed before, with ACC_STEPS or without
   }
   assert.equal(checked, CASES.length);
   assert.ok(checked >= 1);
+});
+
+// ---------------------------------------------------------------- each command's steps, in order
+
+/**
+ * A command run with ACC_STEPS: its exit code, and its trail, each step as it ended ("deploy failed") and
+ * the result last ("result failed"). A step's start comes before its end, and a skipped step has none.
+ */
+function trail(dir: string, args: string[], env: NodeJS.ProcessEnv = {}): { code: number; trail: string[]; notes: Record<string, string> } {
+  const file = join(tempDir('steps-'), 'steps.jsonl');
+  const r = acc(dir, args, undefined, { ...env, ACC_STEPS: file });
+  const events = readSteps(existsSync(file) ? readFileSync(file, 'utf8') : '');
+  const started = new Set<string>();
+  const out: string[] = [];
+  const notes: Record<string, string> = {};
+  for (const e of events) {
+    if (e.kind === 'result') { out.push(`result ${e.ok ? 'ok' : 'failed'}`); continue; }
+    if (e.state === 'started') { started.add(e.id); continue; }
+    if (e.state !== 'skipped') assert.ok(started.has(e.id), `${e.id} ended without starting`);
+    out.push(`${e.id} ${e.state}`);
+    if (e.note) notes[e.id] = e.note;
+  }
+  return { code: r.code, trail: out, notes };
+}
+
+const withFakes = (fail: Fail = {}) => ({ PATH: `${fakes(fail)}:${process.env.PATH}` });
+
+test('deploy reports its steps in order, and one whose deploy fails stops there with sf\'s failure, then a failed result', () => {
+  const ok = sfRepo();
+  assert.deepEqual(trail(ok.dir, ['deploy', 'dev', '--since', ok.base], withFakes()).trail,
+    ['branch done', 'changes done', 'ready done', 'checkout done', 'deploy done', 'record done', 'updates done', 'result ok']);
+  const bad = sfRepo();
+  const r = trail(bad.dir, ['deploy', 'dev', '--since', bad.base], withFakes({ deploy: true }));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.trail, ['branch done', 'changes done', 'ready done', 'checkout done', 'deploy failed', 'result failed']);
+  assert.equal(r.notes.deploy, 'B: Invalid type: Foo');
+});
+
+test('promote reports its steps in order, and one whose check fails in the org stops at the check, with no pull request', () => {
+  assert.deepEqual(trail(sfRepo().dir, ['promote', 'dev', '--to', 'uat'], withFakes()).trail,
+    ['branches done', 'changes done', 'ready done', 'build done', 'check done', 'push done', 'open done', 'record done', 'result ok']);
+  const r = trail(sfRepo().dir, ['promote', 'dev', '--to', 'uat'], withFakes({ check: true }));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.trail, ['branches done', 'changes done', 'ready done', 'build done', 'check failed', 'result failed']);
+  // A check skipped is said, not left out.
+  assert.deepEqual(trail(sfRepo().dir, ['promote', 'dev', '--to', 'uat', '--skip-validate'], withFakes()).trail.slice(4, 5), ['check skipped']);
+});
+
+test('dispatch reports its steps in order, and one whose builder won\'t start fails at the start, after its worktree is made', () => {
+  const ok = generic();
+  assert.deepEqual(trail(ok, ['dispatch', 'T-1'], { PATH: `${fakeClaude().bin}:${process.env.PATH}`, HOME: trustingHome(ok) }).trail,
+    ['task done', 'files skipped', 'worktree done', 'setup done', 'packet done', 'start done', 'record done', 'result ok']);
+  const bad = generic();
+  const bin = join(tempDir('no-claude-'), 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'claude'), '#!/bin/sh\necho "Not signed in" >&2\nexit 1\n');
+  chmodSync(join(bin, 'claude'), 0o755);
+  const r = trail(bad, ['dispatch', 'T-1'], { PATH: `${bin}:${process.env.PATH}`, HOME: trustingHome(bad) });
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.trail, ['task done', 'files skipped', 'worktree done', 'setup done', 'packet done', 'start failed', 'result failed']);
+  assert.match(r.notes.start!, /Claude Code didn't start the agent: Not signed in/);
+});
+
+/** A generic repo on a bare origin with T-1 in review on its own branch, its check waived and its review passed. */
+function reviewed(): string {
+  const raw = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, gates: { required: ['test'], commands: { test: 'true' } }, strayFiles: { required: false } };
+  const origin = tempDir('origin-');
+  run('git', ['init', '-q', '--bare', origin]);
+  const dir = generic(raw);
+  const base = gitIn(dir, 'branch', '--show-current').trim();
+  gitIn(dir, 'remote', 'add', 'origin', origin);
+  gitIn(dir, 'push', '-q', 'origin', base);
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1-write-the-changelog');
+  writeFileSync(join(dir, 'CHANGELOG.md'), '# Changelog\n');
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'T-1: changelog');
+  gitIn(dir, 'checkout', '-q', base);
+  const config = parseConfig(raw).config as Config;
+  const paths = repoPaths(dir, run);
+  const now = () => new Date('2026-10-16T12:00:00Z');
+  // The ledger is written when a change is recorded, so this one is.
+  mutate(paths, now, (l, emit) => {
+    const t = l.tasks[0]!;
+    Object.assign(t, { state: 'review', environment: base, run: { branch: 'task/T-1-write-the-changelog', worktree: dir } });
+    emit({ type: 'task.updated', task: t.id, actor: 'human', by: 'human:test', data: { state: 'review' } });
+  });
+  const sha = gitIn(dir, 'rev-parse', 'task/T-1-write-the-changelog').trim();
+  waiveGates(paths, config, { sha, env: config.environments[0]!, gates: ['test'], reason: 'a test', by: 'human:t', now });
+  mkdirSync(paths.reviews, { recursive: true });
+  writeFileSync(reviewPath(paths, 'T-1', sha), JSON.stringify({ v: 1, task: 'T-1', sha, env: base, verdict: 'pass', summary: 'Adds a changelog.', sessionId: 's', at: now().toISOString(), durationMs: 1, costUsd: null, criteria: [], findings: [] }));
+  return dir;
+}
+
+test('land reports its steps in order, and one whose push is refused fails at the push, with no pull request', () => {
+  assert.deepEqual(trail(reviewed(), ['land', 'T-1'], withFakes()).trail,
+    ['task done', 'github done', 'find done', 'push done', 'pr done', 'conflicts done', 'record done', 'update done', 'result ok']);
+  const bad = reviewed();
+  gitIn(bad, 'remote', 'set-url', 'origin', join(tempDir('gone-'), 'nowhere'));
+  const r = trail(bad, ['land', 'T-1'], withFakes());
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.trail, ['task done', 'github done', 'find done', 'push failed', 'result failed']);
+  assert.match(r.notes.push!, /git push refused task\/T-1-write-the-changelog/);
+});
+
+test('analyze reports its steps in order, and one whose analyst answers junk fails at reading it, after the analyst ran', () => {
+  assert.deepEqual(trail(generic(), ['analyze', 'T-1'], withFakes()).trail, ['task done', 'gather done', 'analyze done', 'read done', 'save done', 'result ok']);
+  const r = trail(generic(), ['analyze', 'T-1'], withFakes({ analyst: true }));
+  assert.notEqual(r.code, 0);
+  assert.deepEqual(r.trail, ['task done', 'gather done', 'analyze done', 'read failed', 'result failed']);
+});
+
+test('setup baseline reports a step a branch, and one branch that can\'t be listed fails there and stops the rest', () => {
+  assert.deepEqual(trail(sfRepo().dir, ['setup', 'baseline'], withFakes()).trail, ['fetch done', 'list-production done', 'list-uat done', 'list-dev done', 'write done', 'result ok']);
+  const r = trail(sfRepo().dir, ['setup', 'baseline'], withFakes({ list: 'uat' }));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.trail, ['fetch done', 'list-production done', 'list-uat failed', 'result failed']);
+});
+
+test('setup branches reports a step a branch it makes, and one that can\'t be made fails while the next is still made', () => {
+  const config = { ...GENERIC_CONFIG, environments: [{ name: 'main', default: true }, { name: 'staging', promotesTo: ['main'] }, { name: 'qa', promotesTo: ['staging'] }] };
+  assert.deepEqual(trail(generic(config), ['setup', 'branches']).trail, ['fetch done', 'make-staging done', 'make-qa done', 'result ok']);
+  // A branch named staging/x leaves no room for a branch named staging.
+  const dir = generic(config);
+  gitIn(dir, 'branch', 'staging/x');
+  const r = trail(dir, ['setup', 'branches']);
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.trail, ['fetch done', 'make-staging failed', 'make-qa done', 'result failed']);
+});
+
+test('setup lists reports a step a branch it compares, and lists that can\'t be written fail at the write', () => {
+  assert.deepEqual(trail(sfRepo().dir, ['setup', 'lists']).trail, ['fetch done', 'compare-uat done', 'compare-dev done', 'write done', 'result ok']);
+  // A file named manifest leaves no room for the folder the lists go in.
+  const { dir } = sfRepo();
+  writeFileSync(join(dir, 'manifest'), 'not a folder\n');
+  const r = trail(dir, ['setup', 'lists']);
+  assert.notEqual(r.code, 0);
+  assert.deepEqual(r.trail, ['fetch done', 'compare-uat done', 'compare-dev done', 'write failed', 'result failed']);
+});
+
+test('setup readme reports its one step, and a README that can\'t be read fails it', () => {
+  assert.deepEqual(trail(generic(), ['setup', 'readme']).trail, ['readme done', 'result ok']);
+  const dir = generic();
+  rmSync(join(dir, 'README.md'), { force: true });
+  mkdirSync(join(dir, 'README.md'));
+  assert.deepEqual(trail(dir, ['setup', 'readme']).trail, ['readme failed', 'result failed']);
+});
+
+test('a command that reports no steps writes no steps file, ACC_STEPS or not', () => {
+  const dir = generic();
+  const file = join(tempDir('steps-'), 'steps.jsonl');
+  assert.equal(acc(dir, ['list'], undefined, { ACC_STEPS: file }).code, 0);
+  assert.equal(existsSync(file), false);
+});
+
+test('openSteps opens this run\'s steps from ACC_STEPS and takes the variable out, so nothing acc starts writes to the file; without it, steps() reports nowhere', () => {
+  const file = join(tempDir('steps-'), 'steps.jsonl');
+  const env: NodeJS.ProcessEnv = { ACC_STEPS: file };
+  const s = openSteps(env);
+  assert.equal(env.ACC_STEPS, undefined, 'gone from the environment children get');
+  assert.equal(steps(), s);
+  s.start('a', 'A');
+  assert.equal(readSteps(readFileSync(file, 'utf8')).length, 1);
+  const none = openSteps({});
+  assert.equal(none.on, false);
+  assert.equal(steps(), none);
 });
