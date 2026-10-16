@@ -12,6 +12,7 @@ import { describePermission, questionsOf } from './questions.ts';
 import { runCard, type RunInput } from './runs.ts';
 import { type HubLike, type Look, LOOK, sessionKey } from './shared.ts';
 import { AUTOPILOT_STEP } from './cards.ts';
+import { moveLook } from './landing.ts';
 
 // ---------------------------------------------------------------- what happened to each question (D-037)
 
@@ -72,12 +73,14 @@ export function decisionOf(h: HistoryRecord): Decision {
   };
 }
 
+/** One thing in History. Its id stays the same from refresh to refresh, so a page of them can be asked for after it. */
 export type HistoryItem =
-  | { kind: 'move'; at: string; project: string; task: string; title: string; from: string | null; to: string; by: string }
+  /** A task's move, with the look of where it went. */
+  | { kind: 'move'; id: string; at: string; project: string; task: string; title: string; from: string | null; to: string; by: string; look: Look }
   /** A step autopilot took (D-064), with what it did in words, and its pull request's link. */
-  | { kind: 'autopilot'; at: string; project: string; task: string; title: string; look: Look; detail: string | null; url: string | null }
-  | { kind: 'answer'; at: string; project: string; who: string; session: string; decision: Decision }
-  | { kind: 'run'; at: string; label: string; command: string; look: Look; lines: string[] };
+  | { kind: 'autopilot'; id: string; at: string; project: string; task: string; title: string; look: Look; detail: string | null; url: string | null }
+  | { kind: 'answer'; id: string; at: string; project: string; who: string; session: string; decision: Decision }
+  | { kind: 'run'; id: string; at: string; label: string; command: string; look: Look; lines: string[] };
 
 /** What a step autopilot took looks like in History (D-064): an icon for the step, and what it did. */
 export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: string | null; url: string | null } {
@@ -109,7 +112,10 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
   return { look: LOOK('Autopilot found it no longer conflicts', 'git-merge', 'blue'), detail: null, url: r.pr?.url || null };
 }
 
-/** Everything that happened, newest first: your answers, task moves, autopilot's steps and the commands acc ran. */
+/**
+ * Everything that happened, newest first: your answers, task moves, autopilot's steps and the commands acc ran.
+ * Two at the same moment go in their ids' order, so a page asked for after one always starts at the same place.
+ */
 export function historyItems(hub: HubLike, runs: RunInput[] = [], limit = 300): HistoryItem[] {
   // Autopilot's steps, once each though two projects share a repo's ledger.
   const steps: Extract<HistoryItem, { kind: 'autopilot' }>[] = [];
@@ -120,23 +126,26 @@ export function historyItems(hub: HubLike, runs: RunInput[] = [], limit = 300): 
       if (seen.has(key)) continue;
       seen.add(key);
       const title = hub.taskRows(p.root).find((t) => t.id === r.task)?.title ?? '';
-      steps.push({ kind: 'autopilot', at: r.at, project: p.name, task: r.task, title, ...autopilotStepLook(r) });
+      steps.push({ kind: 'autopilot', id: `step:${key}`, at: r.at, project: p.name, task: r.task, title, ...autopilotStepLook(r) });
     }
   }
   // A move autopilot made is told by its step, so it isn't listed twice.
   const told = (project: string, h: { at: string; task: string; by: string }) => byAutopilot(h.by)
     && steps.some((s) => s.project === project && s.task === h.task && Math.abs(Date.parse(s.at) - Date.parse(h.at)) < 5_000);
   const moves: HistoryItem[] = hub.projects.flatMap((p) => (hub.history?.(p.root) ?? []).filter((h) => !told(p.name, h))
-    .map((h) => ({ kind: 'move' as const, at: h.at, project: p.name, task: h.task, title: h.title, from: h.from, to: h.to, by: h.by })));
+    .map((h) => ({ kind: 'move' as const, id: `move:${p.name}|${h.task}|${h.at}|${h.to}`, at: h.at, project: p.name, task: h.task, title: h.title, from: h.from, to: h.to, by: h.by, look: moveLook(h.to) })));
   const answers: HistoryItem[] = (hub.answers ?? []).map((h) => {
     const project = hub.projectFor(h.cwd);
     const session = hub.agents.find((s) => s.sessionId === h.sessionId);
     const row = project ? hub.taskRows(project.root).find((r) => r.run?.sessionId === h.sessionId || (!!r.run?.worktree && isUnder(h.cwd, r.run.worktree))) : undefined;
-    return { kind: 'answer' as const, at: new Date(h.endedAt).toISOString(), project: project?.name ?? '', who: row?.id ?? session?.name ?? 'An agent', session: session ? sessionKey(session) : h.sessionId, decision: decisionOf(h) };
+    return { kind: 'answer' as const, id: `answer:${h.id}`, at: new Date(h.endedAt).toISOString(), project: project?.name ?? '', who: row?.id ?? session?.name ?? 'An agent', session: session ? sessionKey(session) : h.sessionId, decision: decisionOf(h) };
   });
   const done: HistoryItem[] = runs.filter((r) => r.endedAt !== null).map((r) => {
     const c = runCard(r, 30);
-    return { kind: 'run' as const, at: new Date(r.endedAt!).toISOString(), label: r.label, command: r.command, look: c.look, lines: c.lines };
+    return { kind: 'run' as const, id: `run:${r.id}`, at: new Date(r.endedAt!).toISOString(), label: r.label, command: r.command, look: c.look, lines: c.lines };
   });
-  return [...moves, ...steps, ...answers, ...done].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+  return [...moves, ...steps, ...answers, ...done].sort(newestFirst).slice(0, limit);
 }
+
+/** History's order: newest first, and by id where two are at the same moment. */
+export const newestFirst = (a: { at: string; id: string }, b: { at: string; id: string }): number => b.at.localeCompare(a.at) || a.id.localeCompare(b.id);

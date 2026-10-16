@@ -16,6 +16,7 @@ import type { BoardInput } from './boards.ts';
 import type { ConnectModel } from './connect.ts';
 import { environmentsModel, type EnvironmentsModel, type IdentityCard } from './environments.ts';
 import { historyItems } from './history.ts';
+import { historyPage } from './history-pages.ts';
 import { landing, overviewCards } from './landing.ts';
 import { sinceGroup } from './since.ts';
 import type { ProjectNotice } from '../logic/notices.ts';
@@ -169,7 +170,8 @@ export function homeModel(i: HomeInput): HomeModel {
   const rank = (a: AttentionItem) => (a.look.tone === 'orange' ? 0 : a.look.tone === 'blue' ? 1 : 2);
   attention.sort((a, b) => rank(a) - rank(b));
 
-  const history = historyItems(hub, i.runs ?? []);
+  // Only History's first page goes to the page; it asks for the rest as a person scrolls (D-???).
+  const history = historyPage(historyItems(hub, i.runs ?? []), 'all');
   const projects = hub.projects.map((p) => ({ name: p.name, root: p.root, branch: p.branch, account: p.config.github?.account ?? null, trackers: i.boards(p.root).map((b) => b.title) }));
   const queue = mergeQueues(hub, i.autopilot);
   const nav = parts.flatMap((a) => (a.nav ? [a.nav(c)] : []));

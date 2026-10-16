@@ -2,7 +2,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeModel } from '../src/model/home.ts';
-import { pageSource, hub } from './support.ts';
+import { historyKind } from '../src/model/history-pages.ts';
+import { historyKind as pageKind } from '../webview/history-store.ts';
+import { hub } from './support.ts';
 
 test('History tells each step autopilot took once, under Tasks, with its icon and words, in place of its moves (D-064)', () => {
   const h = hub();
@@ -22,7 +24,7 @@ test('History tells each step autopilot took once, under Tasks, with its icon an
   ];
   // Two folders of one repo share its steps: each is told once.
   h.projects = [h.projects[0]!, { ...h.projects[0]!, root: '/r.worktrees/AV-2' }];
-  const items = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.history;
+  const items = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.history.items;
   const steps = items.filter((i) => i.kind === 'autopilot');
   assert.deepEqual(steps.map((i) => i.kind === 'autopilot' && [i.task, i.look.icon, i.look.label, i.look.tone, i.detail, i.url]), [
     ['AV-3', 'warning', 'Autopilot couldn\'t land', 'orange', 'The push was refused.', null],
@@ -33,8 +35,9 @@ test('History tells each step autopilot took once, under Tasks, with its icon an
   assert.equal(steps[0]!.kind === 'autopilot' && steps[0]!.title, 'Task AV-3');
   const moves = items.filter((i) => i.kind === 'move');
   assert.deepEqual(moves.map((i) => i.kind === 'move' && `${i.from}→${i.to}`), ['running→review', 'running→review'], 'autopilot\'s moves aren\'t listed twice; a builder\'s still are');
-  // Tasks is the filter they count under: the page has four filters, not five.
-  assert.match(pageSource(), /const historyKind = \(i: HistoryItem\): string => \(i\.kind === 'autopilot' \? 'move' : i\.kind\);/);
+  // Tasks is the filter they count under, in the model and in the page's copy: four filters, not five.
+  assert.deepEqual(steps.map(historyKind), ['move', 'move', 'move', 'move']);
+  assert.deepEqual(steps.map(pageKind), ['move', 'move', 'move', 'move']);
 });
 
 test('History tells autopilot\'s start of a held task, and one it couldn\'t make (D-093)', async () => {
@@ -49,7 +52,7 @@ test('History tells autopilot\'s start of a held task, and one it couldn\'t make
 test('History tells a pull request autopilot merged, with its link (GH-67)', () => {
   const h = hub();
   h.autopilotLog = () => [{ seq: 12, at: new Date(Date.UTC(2026, 9, 6, 12)).toISOString(), task: 'AV-3', step: 'merge', outcome: 'done', pr: { number: 40, url: 'https://github.com/o/r/pull/40', opened: false } }];
-  const items = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.history;
+  const items = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } }).overview.history.items;
   const merged = items.filter((i) => i.kind === 'autopilot').map((i) => i.kind === 'autopilot' && [i.task, i.look.icon, i.look.label, i.look.tone, i.detail, i.url]);
   assert.deepEqual(merged, [['AV-3', 'git-merge', 'Autopilot merged pull request #40', 'blue', 'It moves to done at the next refresh from GitHub.', 'https://github.com/o/r/pull/40']]);
 });
