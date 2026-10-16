@@ -5,6 +5,57 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.41.0
+
+- A command palette (D-156): **Search or run a command** in the rail, `/`, or
+  Cmd+K finds any section, part of Settings, task, agent or action, ranked as
+  you type, and Enter runs it.
+- Dispatch asks first (D-168): one sheet over the page for the model, the
+  effort and where the builder runs, This Mac or the cloud, with your usual
+  choices already picked. **Dispatch with…** and **Dispatch to the cloud** are
+  gone. A task page's actions share one size and one place: the next step full
+  width, the rest in equal columns.
+- The output panel is a designed view, never plain text (D-169). Each run has
+  one header line with its state, name and time; its output is rows with an
+  icon for a success, a warning, an error or a count of progress; paths open
+  the file; like rows fold into one, such as "Deployed 7 files"; and it ends
+  with a card that says what happened. acc's deploy, promote, dispatch, land,
+  analyze and Setup's fixes report their steps, and the panel lists them, a
+  failed step opening to what went wrong (D-171). A review shows as its
+  verdict, its unmet criteria and its findings, each opening in place (D-167).
+- A review's findings on the task page (D-157), each with its file, line and
+  the lines around it; a click opens the file there.
+- Fewer notifications (D-162, D-164): more than three changes in one refresh
+  are one notification that counts them. After ten minutes away from the
+  window, news waits on the Overview under **Since you last looked**, with one
+  notification when you come back; what needs you still shows at once.
+- History (D-170): a line with the day's name between days, each entry one row
+  with its time, and 40 entries at a time as you scroll.
+- The Tasks boards work from the keyboard (D-159): arrows between cards, Enter
+  opens, Space picks a card up and moves it, with a live line saying each step.
+- The extension finds a newer release by itself and offers it (D-166):
+  **Install and reload** downloads it as your gh account, checks it against
+  its `.sha256` when the release has one, installs it, reloads and opens the
+  Command Center. `agentCommandCenter.updates.check` turns the look off. This
+  release is the first with a `.sha256` beside its `.vsix`.
+- Slack as a ticket source (D-145, D-146, D-148): connect a channel with a
+  Slack app's bot token, track a thread by pasting its link, and its update
+  drafts post as replies in the thread.
+- A calmer Overview (D-150, D-151): Needs you first, and every other list a
+  quiet card that opens in full. Settings opens with a link to each part, and
+  long explanations fold (D-154). Blue buttons only for what needs you (D-153).
+  The Overview's row buttons line up.
+- Accessibility (D-147, D-160, D-161): reduce motion is obeyed, a press shows
+  at once, text follows your font size, and every drawing is checked with
+  axe-core for WCAG 2.1 AA. Every control is named by what it shows, and faded
+  text keeps its contrast.
+- A loading screen with the acc mark in a turning ring (D-142).
+- For anyone building acc: UI changes are verified with a pinned
+  chrome-headless-shell, never your own Chrome, and the screenshots gate
+  enforces it (D-172; `npm run browser` gets it). The screenshot run draws
+  three pages at once (D-163), `npm test` takes about two minutes (D-165), and
+  `npm run package` skips a check that already passed on the commit (D-158).
+
 ## 0.40.0
 
 - Cloud builders, for a project on GitHub that opts in (GH-69, D-140): `acc

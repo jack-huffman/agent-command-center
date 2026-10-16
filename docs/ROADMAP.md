@@ -1,7 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-13**. Version 0.40.0 is
-the latest release (2026-10-13).
+Where each piece of the build stands, as of **2026-10-16**. Version 0.40.0 is
+the latest release (2026-10-13). Version 0.41.0 is prepared, with its CHANGELOG
+entry and its version in every package, and waits on a person to release it.
 
 Every bullet below is one status line, in this form:
 
@@ -41,7 +42,7 @@ where each one's done-when is written out.
 - **M6 Plugin**: done. Checked 2026-10-10. Evidence: D-042, D-081, 0.39.0.
 - **M7 Extension views**: done. Checked 2026-10-10. Evidence: D-044, D-064,
   D-129, D-131, GH-7. Its milestone issue, GH-7, is still open on GitHub.
-- **M8 Pilots**: waiting on a person. Checked 2026-10-10. Evidence: D-025,
+- **M8 Pilots**: waiting on a person. Checked 2026-10-16. Evidence: D-025,
   GH-8. The done-when is one sprint of real tickets landing through acc. This
   repo is the first pilot and its tickets land through acc now (GH-167). The
   second, a Salesforce client repo, waits on that pilot's tickets, which a
@@ -52,8 +53,12 @@ where each one's done-when is written out.
 - **Install without Node, one version, a CHANGELOG, a scanned package, the
   plugin as a walkthrough step**: done. Checked 2026-10-10. Evidence: D-077,
   D-079, D-081, 0.39.0.
+- **The extension updates itself**: done. Checked 2026-10-16. Evidence: D-166.
+  It looks for a newer release, offers it, and installs it after checking its
+  `.sha256`. Its first real use waits on the next release after 0.41.0, since
+  0.41.0 is the first release to carry a `.sha256`.
 - **The first run on a fresh machine**: waiting on a person. Checked
-  2026-10-10. Evidence: D-088, GH-88. [FIRST-RUN.md](FIRST-RUN.md) is the
+  2026-10-16. Evidence: D-088, GH-88. [FIRST-RUN.md](FIRST-RUN.md) is the
   checklist. It needs a Mac that has never run acc and someone to fill it in. A
   follow-up that fixes what the run finds can't start until then.
 
@@ -63,13 +68,13 @@ where each one's done-when is written out.
   done. Checked 2026-10-12. Evidence: GH-69, D-140. Merged to main with its
   push guard; the real run, below, still waits on a person.
 - **A real cloud run, on this repo's next small task**: waiting on a person.
-  Checked 2026-10-10. Evidence: GH-69. Claude Code starts a cloud session from a
+  Checked 2026-10-16. Evidence: GH-69. Claude Code starts a cloud session from a
   routine, and a person makes the routine and its token at claude.ai. acc can't
   make either.
 
 ## Later
 
-- **Slack as a ticket source**: under way. Checked 2026-10-14. Evidence:
+- **Slack as a ticket source**: under way. Checked 2026-10-16. Evidence:
   D-145, D-146, D-148. A channel connects with a Slack app's bot token, and a
   thread becomes a task when its link is pasted on the Tasks tab. A board of
   Slack messages with a reaction is still to come.
@@ -81,6 +86,20 @@ where each one's done-when is written out.
 - **Cloud reviewers and analysts**: not started. Checked 2026-10-12. Evidence:
   D-140. Cloud builders came first (GH-69); reviews and analyses still run on
   the Mac.
+
+- **A command palette**: done. Checked 2026-10-16. Evidence: D-156.
+- **The output panel as a designed view, with acc's steps and reviews**: done.
+  Checked 2026-10-16. Evidence: D-167, D-169, D-171.
+- **Fewer notifications, and what changed while you were away**: done. Checked
+  2026-10-16. Evidence: D-162, D-164.
+- **Dispatch asks for the model, the effort and where it runs**: done. Checked
+  2026-10-16. Evidence: D-168.
+- **An accessibility check on every drawing, WCAG 2.1 AA**: done. Checked
+  2026-10-16. Evidence: D-160, D-161. Four contrast exceptions on the theme's
+  own colours stay, by choice.
+- **UI changes verified with a pinned headless shell**: done. Checked
+  2026-10-16. Evidence: D-172. One check is still a person's: that the Chrome
+  app opens a window when clicked while a run draws.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
