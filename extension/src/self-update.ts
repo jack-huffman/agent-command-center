@@ -11,7 +11,7 @@ import type * as vscode from 'vscode';
 import { activeAccountEnv, type About } from './about.ts';
 import type { ExtensionArea } from './area.ts';
 import { AFTER_STATE, afterText, afterUpdate, checksumCheck, downloadArgs, FIRST_LOOK_MS, nextLookIn, OFFER_BUTTONS, offerText, pickVsix, shouldOffer, SKIPPED_STATE } from './logic/self-update.ts';
-import { ABOUT_COMMANDS, RELEASE_EVERY_MS, type Release } from './model/about.ts';
+import { RELEASE_EVERY_MS, type Release } from './model/about.ts';
 import type { RunResult } from './run.ts';
 
 /** What the update needs from the rest of the extension. */
@@ -147,6 +147,7 @@ export class SelfUpdate {
 
 export const area: ExtensionArea = {
   register({ reg, selfUpdate }) {
-    reg(ABOUT_COMMANDS.install, (version?: unknown) => selfUpdate.install(version));
+    // ABOUT_COMMANDS.install, named here as areas.test reads registrations.
+    reg('acc.update.install', (version?: unknown) => selfUpdate.install(version));
   },
 };
