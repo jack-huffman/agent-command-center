@@ -2,13 +2,13 @@
 // the vscode stand-in, with acc's real reviews and suggestions folders. Once acc says it accepted one, the
 // next home model doesn't hold it; a second accept comes back with acc's reason. Run after npm run build.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
-import { activate, fakeVscode, until } from './vscode.ts';
+import { makeRepo } from '../../packages/core/test/support.ts';
+import { activate, fakeVscode, sandboxEnv, until } from './vscode.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 
@@ -16,7 +16,7 @@ type Tab = ReturnType<typeof fakeVscode>['panels'][number];
 type Rule = { project: string; id: string; line: string };
 type Msg = { type?: string; action?: string; ok?: boolean; error?: string; id?: string; task?: string; model?: { kind: string; overview: { attention: { rule?: Rule }[] } } };
 
-const s = {} as { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof activate>; repo: string; tab: Tab; saved: NodeJS.ProcessEnv };
+const s = {} as { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof activate>; repo: string; tab: Tab; restore: () => void };
 
 /** One review's verdict, as acc review writes it, with one finding on `file` citing `rule`. */
 function verdict(reviews: string, task: string, sha: string, file: string, rule: string): void {
@@ -27,22 +27,8 @@ function verdict(reviews: string, task: string, sha: string, file: string, rule:
 }
 
 before(async () => {
-  const sandbox = realpathSync(tempDir('acc-rule-accept-'));
-  const at = (...p: string[]) => join(sandbox, ...p);
-  for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
-  writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
-  for (const name of ['gh', 'claude', 'sf', 'code', 'open', 'osascript', 'caffeinate']) {
-    writeFileSync(at('bin', name), '#!/bin/sh\nexit 1\n');
-    chmodSync(at('bin', name), 0o755);
-  }
-  s.saved = { ...process.env };
-  Object.assign(process.env, {
-    HOME: at('home'), CLAUDE_CONFIG_DIR: at('home', '.claude'), PATH: `${at('bin')}:${process.env.PATH}`, NO_COLOR: '1',
-    ACC_QUESTIONS_DIR: at('state', 'questions'), ACC_HEAVY_DIR: at('state', 'heavy'), ACC_MACHINE_FILE: at('state', 'machine.json'), ACC_REPOS_FILE: at('state', 'repos.json'),
-    ACC_RUNTIME_FILE: at('state', 'runtime'), ACC_SLACK_DIR: at('state', 'slack'),
-  });
-  delete process.env.ACC_ROLE;
-  delete process.env.ACC_TASK;
+  const { at, restore } = sandboxEnv('acc-rule-accept-');
+  s.restore = restore;
   s.repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }], trackers: [] }), '.gitignore': '.claude/worktrees/\n' });
   // Two findings that keep coming back, each 3 times across 3 tasks: two suggestions, so one is left after the first goes.
   const reviews = join(s.repo, '.git', 'acc', 'reviews');
@@ -65,8 +51,7 @@ before(async () => {
 after(() => {
   s.started?.stop();
   delete createRequire(import.meta.url).cache[dist];
-  for (const k of Object.keys(process.env)) if (!(k in s.saved)) delete process.env[k];
-  Object.assign(process.env, s.saved);
+  s.restore?.();
 });
 
 const since = (from: number): Msg[] => s.tab.posted.slice(from) as Msg[];
