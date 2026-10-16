@@ -540,12 +540,14 @@ export const CASES: Case[] = [
       // A refresh with a new entry, scrolled part way down: it goes on top, and the row in view stays put.
       await t.scroll(body, 1500);
       const top = () => body.getBoundingClientRect().top;
+      // In the layout's px: the modal may still be growing in as it opens, which scales what a box measures.
+      const inBox = (r: HTMLElement) => (r.getBoundingClientRect().top - top()) / (body.getBoundingClientRect().height / body.offsetHeight);
       const seen = rows().find((r) => r.getBoundingClientRect().bottom > top())!;
-      const was = seen.getBoundingClientRect().top - top();
+      const was = inBox(seen);
       await t.post({ type: 'state', model: h.newer });
       const again = rows().find((r) => r.dataset.id === seen.dataset.id);
       t.check('a refresh adds its new entry on top, and keeps what was loaded', rows().length === h.next.rows + 1, rows().length);
-      t.check('and the row in view stays where it was', !!again && Math.abs(again.getBoundingClientRect().top - top() - was) < 2, [seen.dataset.id, was, again && again.getBoundingClientRect().top - top()]);
+      t.check('and the row in view stays where it was', !!again && Math.abs(inBox(again) - was) < 2, [seen.dataset.id, was, again && inBox(again)]);
       const commands = t.all<HTMLButtonElement>('.history-filters button', dialog).find((b) => b.textContent?.startsWith('Commands'));
       if (!commands) throw new Error('not found: the Commands filter');
       t.check('a filter\'s count is the newer model\'s, not the rows on the page', commands.querySelector('.count')?.textContent === String(h.count + 1), commands.textContent);

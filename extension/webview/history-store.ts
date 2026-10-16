@@ -65,6 +65,12 @@ export function withPage(l: Loaded, r: Omit<HistoryReply, 'type'>): Loaded | nul
 }
 
 /**
+ * How much an element is drawn bigger or smaller than its layout: under 1 while the modal grows in as it
+ * opens (task-modal.css), 1 once it's open, and 1 for an element with no height, which can't say.
+ */
+export const scaleOf = (e: HTMLElement): number => (e.offsetHeight ? e.getBoundingClientRect().height / e.offsetHeight : 1);
+
+/**
  * Keeps a person's place in History as it draws again: the first row in view stays where it was, though new
  * entries came in above it. At the top, the new entries show.
  */
@@ -75,15 +81,15 @@ export function keepPlace(body: HTMLElement): () => void {
   const first = rows().find((r) => r.getBoundingClientRect().bottom > top);
   if (!first) return () => {};
   const id = first.dataset.id;
-  // Measured from the box's own top, which moves if what holds it scrolls.
-  const was = first.getBoundingClientRect().top - top;
+  // Measured from the box's own top, which moves if what holds it scrolls, in the layout's px.
+  const was = (first.getBoundingClientRect().top - top) / scaleOf(body);
   return () => {
     const again = rows().find((r) => r.dataset.id === id);
     if (!again) return;
     // Measured again after each move, as a scroll may land short of where it was set (a whole px, or what
     // the browser makes of it), up to three times.
     for (let i = 0; i < 3; i++) {
-      const off = again.getBoundingClientRect().top - body.getBoundingClientRect().top - was;
+      const off = (again.getBoundingClientRect().top - body.getBoundingClientRect().top) / scaleOf(body) - was;
       if (Math.abs(off) < 1) break;
       body.scrollTop += off;
     }

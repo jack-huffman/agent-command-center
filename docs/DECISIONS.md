@@ -7503,13 +7503,15 @@ read, and costly on each refresh.
 - **Refresh keeps the place.** What the page loaded is kept
   (`webview/history-store.ts`): a new model's newer entries go on top, and the
   row in view stays where it was (`keepPlace`, which measures again after each
-  move, as a scroll can land a few px short of where it was set). When All's
+  move, as a scroll can land a few px short of where it was set). It measures
+  in the layout's px (`scaleOf`): while the modal still grows in as it opens,
+  a box measures up to a tenth smaller than it lays out. When All's
   whole first page is new and more are still to come, there may be a gap, so
   All starts again from it.
-- **Checked.** `history-pages.test.ts` has 27 tests: day names (each of the
+- **Checked.** `history-pages.test.ts` has 29 tests: day names (each of the
   last 7 days, an older date, midnight in Chicago), the pages (first, next,
   last, a filter's, up to an entry; no entries, exactly 40, an entry that's
-  gone), the page's store and its kept place, the home model's 40 with its
+  gone), the page's store and its kept place, also while the modal grows in, the home model's 40 with its
   counts, and a mutant
   of the model that sends every entry, which the page-size check catches. The
   screenshot run adds History with 100 entries over six or seven days. A

@@ -13,7 +13,7 @@ import { homeModel } from '../src/model/home.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { LOOK } from '../src/model/shared.ts';
 import { clock, dayName, dayNumber } from '../webview/days.ts';
-import { afterOf, historyKind as pageKind, keepPlace, newestFirst as pageOrder, startFrom, withNewer, withPage } from '../webview/history-store.ts';
+import { afterOf, historyKind as pageKind, keepPlace, newestFirst as pageOrder, scaleOf, startFrom, withNewer, withPage } from '../webview/history-store.ts';
 import { hub, root } from './support.ts';
 
 const MIN = 60_000;
@@ -270,15 +270,18 @@ test('a page that isn\'t for what\'s loaded now is ignored: a stale filter\'s, o
 });
 
 /**
- * A scrolling box with a row for each id, 60 px each, as the page lays History out, its top at 100 px.
- * `draw` lays out other rows, as a redraw does.
+ * A scrolling box with a row for each id, 60 px each, as the page lays History out, its top at 100 px and
+ * 400 px high. `draw` lays out other rows, as a redraw does; `scale` draws it all bigger or smaller than
+ * its layout from its top, as the modal does while it grows in.
  */
 function scrollBox(ids: string[], scrollTop: number) {
   let rows = ids;
   const box = {
     scrollTop,
-    getBoundingClientRect: () => ({ top: 100, bottom: 500 }),
-    querySelectorAll: () => rows.map((id, i) => ({ dataset: { id }, getBoundingClientRect: () => ({ top: 100 + i * 60 - box.scrollTop, bottom: 160 + i * 60 - box.scrollTop }) })),
+    scale: 1,
+    offsetHeight: 400,
+    getBoundingClientRect: () => ({ top: 100, bottom: 100 + 400 * box.scale, height: 400 * box.scale }),
+    querySelectorAll: () => rows.map((id, i) => ({ dataset: { id }, getBoundingClientRect: () => ({ top: 100 + (i * 60 - box.scrollTop) * box.scale, bottom: 100 + (60 + i * 60 - box.scrollTop) * box.scale }) })),
     draw(next: string[]) { rows = next; },
   };
   return box;
@@ -294,6 +297,27 @@ test('a redraw with new entries above keeps the row in view where it was', () =>
   place();
   assert.equal(box.scrollTop, 250, 'scrolled down by the two new rows, 120 px');
   assert.equal(topOf(box, 'e'), 90, 'e is where it was');
+});
+
+test('a redraw while the modal still grows in keeps the row where it was in the layout, not where it was drawn', () => {
+  const box = scrollBox(['c', 'd', 'e', 'f'], 130);
+  box.scale = 0.9;
+  const place = keepPlace(box as unknown as HTMLElement);
+  box.draw(['a', 'b', 'c', 'd', 'e', 'f']);
+  // Open by the time it draws again: what it measured at 0.9 is the same place in the layout.
+  box.scale = 1;
+  place();
+  assert.equal(box.scrollTop, 250, 'scrolled down by the two new rows, 120 px, not by what the scale moved');
+  assert.equal(topOf(box, 'e'), 90, 'e is where it was');
+});
+
+test('scaleOf: an element drawn at its layout\'s size is 1, one growing in is under 1, and one with no height is 1', () => {
+  const box = scrollBox([], 0);
+  assert.equal(scaleOf(box as unknown as HTMLElement), 1);
+  box.scale = 0.9;
+  assert.equal(scaleOf(box as unknown as HTMLElement), 0.9);
+  box.offsetHeight = 0;
+  assert.equal(scaleOf(box as unknown as HTMLElement), 1, 'no height: it can\'t say, so 1');
 });
 
 test('at the top, nothing is kept: the new entries show', () => {
