@@ -20,7 +20,8 @@ function chip(run: string, p: Extract<RowPart, { path: string }>): HTMLElement {
   const b = el('button', 'dock-chip', icon('file'), el('span', 'dock-chip-text', text)) as HTMLButtonElement;
   b.type = 'button';
   b.title = `Open ${p.opens}${p.line ? ` at line ${p.line}` : ''}`;
-  b.setAttribute('aria-label', b.title);
+  // Its name holds the words it shows, as a screen reader's user hears and says them.
+  b.setAttribute('aria-label', `Open ${text}`);
   const opens = p.opens;
   b.addEventListener('click', () => api.postMessage({ type: 'run-file', run, file: opens, ...(p.line ? { line: p.line } : {}) }));
   return b;
@@ -92,7 +93,7 @@ function resultCard(run: RunCard, r: RunResult): HTMLElement {
  */
 export function renderRunRows(run: RunCard): HTMLElement {
   const rows = run.rows.length ? el('ol', 'dock-rows', ...run.rows.map((r) => runRow(run.id, r)))
-    : el('p', 'muted dock-none', run.running ? 'Nothing yet. Its output shows here as it comes.' : 'It printed nothing.');
+    : el('p', 'muted', run.running ? 'Nothing yet. Its output shows here as it comes.' : 'It printed nothing.');
   const box = el('div', 'dock-body', rows, run.result ? resultCard(run, run.result) : null);
   box.dataset.run = run.id;
   box.tabIndex = 0;

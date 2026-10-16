@@ -13,7 +13,7 @@ import { COLLECT_WORDS, type GeoSaid, judgeWords, WORK_DATA } from './words.ts';
 import { SELECTED_TAB } from './steady.ts';
 import { A11Y_EXCEPTIONS, type GeoA11y, incompleteSummary, judgeA11y } from './a11y.ts';
 
-export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'a11y'] as const;
+export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'raw', 'a11y'] as const;
 export type Check = (typeof CHECKS)[number];
 
 /** A box in the page's coordinates, in CSS pixels. */
@@ -83,7 +83,15 @@ export interface GeoSnapshot {
   fonts?: number;
   /** What axe found on the page (T-55, a11y.ts). */
   a11y?: GeoA11y;
+  /** Each output panel drawn, and every block of raw output in it (T-64): the raw check fails on one. */
+  panels?: { what: string; raw: string[] }[];
 }
+
+/**
+ * A block of raw output in the output panel (T-64): the pre.dock-out it showed a run's lines in as plain text
+ * until then, or any other pre. The panel shows a run as rows, never as a block of raw lines.
+ */
+export const RAW_OUTPUT = '.dock pre, .dock .dock-out';
 
 /** A table cell's text as drawn, in a row with a sticky cell. */
 export interface GeoCell { what: string; text: string; row: number; sticky: boolean; box: Box }
@@ -211,6 +219,9 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
     const over = cells.find((o) => o.sticky && o.row === c.row && overlaps(o.box, c.box));
     if (over) found.push({ check: 'covered', what: c.what, detail: `${quote(c.text).trim()} is covered by the sticky ${over.what}` });
   }
+  // The output panel shows a run as rows, never as a block of raw lines (T-64).
+  const panels = s.panels ?? [];
+  for (const p of panels) for (const r of p.raw) found.push({ check: 'raw', what: r, detail: 'the output panel shows a block of raw output, not rows' });
   const buttons = s.buttons ?? [];
   for (const f of judgeButtons(buttons, expected)) found.push({ check: 'buttons', what: 'the Overview', detail: f });
   if (s.doc.scroll > s.doc.view + 1) found.push({ check: 'sideways', what: 'the page', detail: `scrolls sideways by ${s.doc.scroll - s.doc.view} px` });
@@ -221,7 +232,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
   const a11y = judgeA11y(s.a11y, a11yExceptions);
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, a11y: a11y.examined };
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, raw: panels.length, a11y: a11y.examined };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -253,7 +264,7 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 14600, clipped: 41700, tab: 408, sideways: 1100, overview: 800, buttons: 450, words: 76400, covered: 1700, a11y: 190000 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 15300, clipped: 41700, tab: 432, sideways: 1100, overview: 800, buttons: 450, words: 76400, covered: 1700, raw: 330, a11y: 190000 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
@@ -423,7 +434,9 @@ function collectGeometry(more) {
   // Where a tracker's first column starts (T-42).
   const firstCol = document.querySelector('.tracker .board:not(.agent-board) .column');
   const boardTop = firstCol && visible(firstCol) ? Math.round(firstCol.getBoundingClientRect().top + window.scrollY) : null;
-  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, fonts: window.accFontsFirst ?? 0 };
+  // Each output panel, and any block of raw output in it (T-64).
+  const panels = [...document.querySelectorAll('.dock')].map((d) => ({ what: what(d), raw: [...d.querySelectorAll(${JSON.stringify(RAW_OUTPUT)})].map(what) }));
+  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, fonts: window.accFontsFirst ?? 0 };
   const write = (parts) => {
     const out = document.createElement('script');
     out.type = 'application/json';

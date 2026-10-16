@@ -140,10 +140,17 @@ export interface BehaviourData {
   /**
    * A review in the output panel (T-63), over the Tasks board: the run it opens on and the runs message that
    * opens it, as the extension sends one when a review starts; its header's verdict and count; each row's key,
-   * state and text in order; how many criteria the met row folds; its lines; and what a click on the first
-   * finding's file and line, and on the next step, sends.
+   * state and text in order; how many criteria the met row folds; its output's rows (T-64); and what a click on
+   * the first finding's file and line, and on the next step, sends.
    */
-  dock: { run: string; runs: Record<string, unknown>; look: string; count: string; rows: { key: string; label: string; text: string }[]; met: number; lines: string; click: Record<string, unknown>; next: Record<string, unknown> };
+  dock: { run: string; runs: Record<string, unknown>; look: string; count: string; rows: { key: string; label: string; text: string }[]; met: number; lines: string[]; click: Record<string, unknown>; next: Record<string, unknown> };
+  /**
+   * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
+   * its state, name and time; each row's words in order; its command; how many of its paths are outside its
+   * folder; its result card's sentence, last error and exit code; and what Copy log, its first path chip and the
+   * result card's button send.
+   */
+  run: { runs: Record<string, unknown>; look: string; label: string; took: string; rows: string[]; command: string; off: number; sentence: string; error: string; exit: string; copy: Record<string, unknown>; chip: Record<string, unknown>; next: Record<string, unknown> };
   keys: {
     first: string; down: string; last: string; right: string;
     move: { card: string; to: string; lanes: string[]; sent: Record<string, unknown>; moving: string; moved: string; stays: string };
@@ -155,17 +162,17 @@ export interface BehaviourData {
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review in the output panel. */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel. */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -671,7 +678,7 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'output panel: a review shows its verdict and rows, a row opens in place, its file and line and its next step send their messages, and Show output shows the lines',
+    name: 'output panel: a review shows its verdict and rows, a row opens in place, its file and line and its next step send their messages, and Show output shows its rows',
     page: 'output-changes',
     async run(t) {
       const want = t.data.dock;
@@ -683,7 +690,7 @@ export const CASES: Case[] = [
       t.check('the header line says the verdict', t.find('.status', head).textContent === want.look, t.find('.status', head).textContent);
       t.check('and counts the criteria and findings', t.find('.dr-count', head).textContent === want.count, t.find('.dr-count', head).textContent);
       t.check('the header line hovers who reviewed it, when and how long', /^Reviewed by .+\. It took .+\.$/.test(head.title), head.title);
-      t.check('the review, not the lines', t.all('.dock-out', dock()).length === 0, t.all('.dock-out', dock()).length);
+      t.check('the review, not the rows', t.all('.dock-body', dock()).length === 0, t.all('.dock-body', dock()).length);
       const rows = t.all('.dr-rows > .dr-row:not(.dr-met)', dock());
       const shown = rows.map((r) => ({ key: r.dataset.row, label: t.find('.dr-toggle .status', r).textContent, text: t.find('.dr-text', r).textContent }));
       t.check('a row for each criterion not met, then each finding, must-fix first', JSON.stringify(shown) === JSON.stringify(want.rows), shown);
@@ -710,11 +717,54 @@ export const CASES: Case[] = [
       const show = t.find<HTMLButtonElement>('.dock-lines', dock());
       t.check('Show output is named so', show.getAttribute('aria-label') === 'Show output', show.getAttribute('aria-label'));
       await t.click(show);
-      const out = t.find('.dock-out');
-      t.check('Show output shows the lines', out.textContent === want.lines, out.textContent);
+      // As rows, never a block of raw lines (T-64).
+      const out = t.all('.dock-body .dock-row').map((r) => r.title);
+      t.check('Show output shows its output as rows', JSON.stringify(out) === JSON.stringify(want.lines) && !t.all('.dock pre').length, out);
       t.check('in place of the review', t.all('.dr').length === 0);
       await t.click(t.find('.dock-lines'));
-      t.check('Show the review brings it back, the row still open', t.all('.dock-out').length === 0 && !!document.querySelector(`[data-row="${first.key}"] .dr-detail`));
+      t.check('Show the review brings it back, the row still open', t.all('.dock-body').length === 0 && !!document.querySelector(`[data-row="${first.key}"] .dr-detail`));
+    },
+  },
+  {
+    name: 'output panel: a run shows as rows, Details shows its command, Copy log copies it, a path chip opens its file, and the result card runs it again',
+    page: 'output-failed',
+    async run(t) {
+      const want = t.data.run;
+      // A run that ends opens the panel on it, as the extension's runs message does.
+      await t.post(want.runs);
+      // The panel redraws on each click, so it's found again each time.
+      const dock = (): HTMLElement => t.find('section.dock');
+      const head = t.find('.dock-title', dock());
+      t.check('the header line says the state in words', t.find('.status', head).textContent === want.look, t.find('.status', head).textContent);
+      t.check('then the run\'s name and how long it took', t.find('.dock-label', head).textContent === want.label && t.find('.dock-clock', head).textContent === want.took, head.textContent);
+      t.check('no block of raw output', t.all('pre, .dock-out', dock()).length === 0, t.all('pre, .dock-out', dock()).length);
+      const rows = t.all('.dock-body > .dock-rows > .dock-row', dock());
+      t.check('a row for each line, the blank one gone, in order', JSON.stringify(rows.map((r) => r.title)) === JSON.stringify(want.rows), rows.map((r) => r.title));
+      t.check('each warning and error says so in words', rows.every((r) => !r.matches('.kind-warning, .kind-error') || t.find('.status', r).textContent === (r.matches('.kind-error') ? 'Error' : 'Warning')));
+      t.check('the command is out of view', !dock().textContent!.includes(want.command));
+      // Details and Copy log, from the header's menu.
+      const pick = async (label: string) => {
+        await t.click(t.find('.dock-bar .more-btn', dock()));
+        const item = t.all<HTMLButtonElement>('.dock-bar .more-item', dock()).find((b) => b.textContent === label);
+        t.check(`the menu holds ${label}`, !!item);
+        if (item) await t.click(item);
+      };
+      await pick('Show details');
+      t.check('Details shows the command', t.all('.dock-details .dock-cmd', dock())[0]?.textContent === want.command, t.all('.dock-details', dock())[0]?.textContent);
+      await pick('Copy log');
+      const copied = t.sent('run-control').at(-1);
+      t.check('Copy log asks for the whole output', JSON.stringify(copied) === JSON.stringify(want.copy), copied);
+      await t.click(t.find('button.dock-chip', dock()));
+      const chip = t.sent('run-file').at(-1);
+      t.check('a path chip asks to open its file at its line', JSON.stringify(chip) === JSON.stringify(want.chip), chip);
+      t.check('a path outside the folder is a quiet label, not a button', t.all('span.dock-chip.off', dock()).length === want.off, t.all('span.dock-chip.off', dock()).length);
+      const card = t.find('.dock-result', dock());
+      t.check('the result card says what happened', t.find('.dock-result-text', card).textContent === want.sentence, t.find('.dock-result-text', card).textContent);
+      t.check('with the last error and the exit code in words', t.find('.dock-row', card).title === want.error && t.find('.dock-exit', card).textContent === want.exit, card.textContent);
+      t.check('one primary button', t.all('.btn.primary', dock()).length === 1, t.all('.btn.primary', dock()).length);
+      await t.click(t.find('.dock-next', card));
+      const next = t.sent('run-control').at(-1);
+      t.check('its button runs it again', JSON.stringify(next) === JSON.stringify(want.next), next);
     },
   },
   {
@@ -1114,6 +1164,11 @@ export const MUTANTS: Mutant[] = [
   { name: 'the output panel drops the verdict and shows only the lines', file: 'dock.ts', find: 'const body = open && review ? renderDockReview(run.id, review, redrawDock) : null;', replace: 'const body = null;', kills: [caseNamed('output panel: a review')] },
   { name: 'a review\'s row opens nothing', file: 'dock-review.ts', find: "toggle.addEventListener('click', () => flip(key, redraw));\n  const li = el('li', `dr-row tone-row", replace: "const li = el('li', `dr-row tone-row", kills: [caseNamed('output panel: a review')] },
   { name: 'a review\'s next step sends nothing', file: 'dock-review.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));", replace: "b.addEventListener('click', () => void a);", kills: [caseNamed('output panel: a review')] },
+  { name: 'the output panel shows the raw lines again', file: 'run-view.ts', find: "const box = el('div', 'dock-body', rows,", replace: "const box = el('div', 'dock-body', el('pre', 'dock-out', run.lines.join('\\n')),", kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'Details shows nothing', file: 'dock.ts', find: 'if (open && shown) dock.append(details(run));', replace: '', kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'Copy log sends nothing', file: 'dock.ts', find: "if (a.command !== 'details') { control(a.command); return; }", replace: "if (a.command !== 'details') return;", kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'a path chip opens nothing', file: 'run-view.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'run-file', run, file: opens, ...(p.line ? { line: p.line } : {}) }));", replace: "b.addEventListener('click', () => void opens);", kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'the result card\'s button sends nothing', file: 'run-view.ts', find: "if (n.kind === 'rerun') { api.postMessage({ type: 'run-control', run: run.id, action: 'rerun' }); return; }", replace: "if (n.kind === 'rerun') return;", kills: [caseNamed('output panel: a run shows as rows')] },
   { name: 'Show output does nothing', file: 'dock.ts', find: 'x.opened = lines ? x.opened.filter((y) => y !== k) : [...x.opened, k];', replace: '', kills: [caseNamed('output panel: a review')] },
   { name: 'a guide link goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });", replace: "a.addEventListener('click', (e) => { e.preventDefault(); });", kills: [caseNamed('settings: a link for each part')] },
   { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
@@ -1196,6 +1251,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     palette: paletteData(models.tasks, now),
     review: reviewData(models.review),
     dock: dockData(models.dock),
+    run: runData(models.run),
     keys: keysData(models.tasks),
   };
 }
@@ -1262,8 +1318,22 @@ function dockData(model: Model): BehaviourData['dock'] {
   if (!run || !r || !r.met || !opens || model.kind !== 'home') throw new Error('The output panel case needs a home model with a finished review whose finding opens and some criteria met.');
   return {
     run: run.id, runs: { type: 'runs', runs: model.runs, focus: run.id }, look: r.look.label, count: r.count,
-    rows: r.rows.map((x) => ({ key: x.key, label: x.look.label, text: x.text })), met: r.met.items.length, lines: run.lines.join('\n'),
+    rows: r.rows.map((x) => ({ key: x.key, label: x.look.label, text: x.text })), met: r.met.items.length, lines: run.rows.map((x) => x.text),
     click: { type: 'review-file', ...opens }, next: { type: 'run', command: r.next.command, ref: r.next.ref },
+  };
+}
+
+/** What the output panel's run case expects (T-64): from the Tasks board's model, its failed run and what it shows. */
+function runData(model: Model): BehaviourData['run'] {
+  const run = model.kind === 'home' ? model.runs[0] : undefined;
+  const r = run?.result;
+  const chip = run?.rows.flatMap((x) => x.parts).find((p): p is Extract<typeof p, { opens: string | null }> => 'path' in p && !!p.opens);
+  if (!run || !r?.error || !r.exit || r.next?.kind !== 'rerun' || !chip?.opens || model.kind !== 'home') throw new Error('The output panel\'s run case needs a home model whose first run failed with an error row, runs again, and names a path in its folder.');
+  return {
+    runs: { type: 'runs', runs: model.runs, focus: run.id }, look: run.look.label, label: run.label, took: run.took!, rows: run.rows.map((x) => x.text), command: run.command,
+    off: run.rows.flatMap((x) => x.parts).filter((p) => 'path' in p && !p.opens).length, sentence: r.sentence, error: r.error.text, exit: r.exit,
+    copy: { type: 'run-control', run: run.id, action: 'copy' }, chip: { type: 'run-file', run: run.id, file: chip.opens, ...(chip.line ? { line: chip.line } : {}) },
+    next: { type: 'run-control', run: run.id, action: 'rerun' },
   };
 }
 
