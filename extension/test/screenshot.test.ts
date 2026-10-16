@@ -7,8 +7,9 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { DispatchSheet } from '../src/model/dispatch-sheet.ts';
-import { afterModel, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, OUTPUT_REVIEWS, OUTPUT_RUNS, OVERVIEW_LISTS, PAGES, pageFor, sampleModel, startState } from '../scripts/screenshot.ts';
+import { afterModel, APP_WARNING, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, NO_BROWSER, OUTPUT_REVIEWS, OUTPUT_RUNS, OVERVIEW_LISTS, PAGES, pageFor, sampleModel, startState } from '../scripts/screenshot.ts';
 import { ROOT } from '../scripts/fixtures/shared.ts';
+import { PIN } from '../scripts/browser.ts';
 import { cssRules, pageStyles, palettes, readsVars, styleFile, styleFiles, vscodeDefaults } from '../scripts/styles.ts';
 
 test('every section of the page, and a ticket, has sample data built by the real model functions', () => {
@@ -266,7 +267,36 @@ test('the page hands the model to the real webview, and no string in it can clos
 });
 
 test('Chrome is found from $CHROME first, and a wrong $CHROME is reported, not guessed past', () => {
-  assert.equal(findChrome({ CHROME: '/opt/chrome' }, (p) => p === '/opt/chrome'), '/opt/chrome');
-  assert.equal(findChrome({ CHROME: '/nowhere' }, () => false), null);
-  assert.equal(findChrome({}, (p) => p.includes('Chromium.app')), '/Applications/Chromium.app/Contents/MacOS/Chromium');
+  const said: string[] = [];
+  const say = (l: string) => said.push(l);
+  assert.equal(findChrome({ CHROME: '/opt/chrome' }, (p) => p === '/opt/chrome', say, () => '/cache/shell'), '/opt/chrome');
+  assert.deepEqual(said.splice(0), ['Drawing with CHROME: /opt/chrome.'], '$CHROME wins over the shell in the cache');
+  assert.equal(findChrome({ CHROME: '/nowhere' }, () => false, say, () => '/cache/shell'), null);
+  assert.deepEqual(said.splice(0), [], 'a wrong $CHROME says nothing, and the run fails naming it');
+});
+
+test('the pinned shell in the cache comes before the Chrome app, and says so in one line (T-68)', () => {
+  const said: string[] = [];
+  const app = (p: string) => p.includes('Google Chrome.app');
+  assert.equal(findChrome({}, app, (l) => said.push(l), () => '/cache/155/chrome-headless-shell', () => undefined), '/cache/155/chrome-headless-shell');
+  assert.deepEqual(said, [`Drawing with the pinned headless shell, chrome-headless-shell ${PIN.version}.`]);
+});
+
+test('with no shell in the cache, only the Chrome app draws, and its one line says it may take the app over and names npm run browser (T-68)', () => {
+  const said: string[] = [];
+  assert.equal(findChrome({}, (p) => p.includes('Chromium.app'), (l) => said.push(l), () => null, () => undefined), '/Applications/Chromium.app/Contents/MacOS/Chromium');
+  assert.deepEqual(said, [APP_WARNING]);
+  assert.match(APP_WARNING, /may take it over/);
+  assert.match(APP_WARNING, /npm run browser/);
+  // One on the PATH is the app too.
+  said.length = 0;
+  assert.equal(findChrome({}, () => false, (l) => said.push(l), () => null, () => '/usr/bin/chromium'), '/usr/bin/chromium');
+  assert.deepEqual(said, [APP_WARNING]);
+});
+
+test('with nothing to draw with, findChrome finds none and says nothing, and the run\'s message names npm run browser (T-68)', () => {
+  const said: string[] = [];
+  assert.equal(findChrome({}, () => false, (l) => said.push(l), () => null, () => undefined), null);
+  assert.deepEqual(said, []);
+  assert.match(NO_BROWSER, /npm run browser/);
 });

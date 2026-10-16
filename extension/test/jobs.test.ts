@@ -174,7 +174,7 @@ async function drawThree(jobs: number, dies: string | null = null): Promise<{ dr
   };
   mkdirSync(work, { recursive: true });
   mkdirSync(out, { recursive: true });
-  const drawn = await drawPages(['tasks', 'agents', 'settings-about'], { themes: ['dark', 'light'], widths: [1000, 620, 500], height: undefined, jobs, work, out, now: Date.UTC(2026, 0, 1), print: 'print', draw, log: (l) => log.push(l) });
+  const drawn = await drawPages(['tasks', 'agents', 'settings-about'], { themes: ['dark', 'light'], widths: [1000, 620, 500], height: undefined, jobs, work, out, now: Date.UTC(2026, 0, 1), print: 'print', browser: { name: 'chrome-headless-shell', version: '155.0.8059.84' }, draw, log: (l) => log.push(l) });
   return { drawn, log: log.map((l) => l.replace(out, '<out>')), finished, most, profiles, out };
 }
 
@@ -197,8 +197,10 @@ test('three pages drawn with --jobs 1 and --jobs 3 give the same findings, count
   assert.deepEqual(three.log, one.log);
   assert.match(three.log[0]!, /^<out>\/tasks-dark-1000\.png {2}overlap /);
   assert.ok(three.log.some((l) => /agents \(dark, 500px\).*drawn once more/.test(l)));
-  const record = (d: DrawnPages) => Object.entries(d.taken).map(([k, n]) => [k, n.sha256, n.findings, n.drawn, n.fingerprint]);
+  const record = (d: DrawnPages) => Object.entries(d.taken).map(([k, n]) => [k, n.sha256, n.findings, n.drawn, n.fingerprint, n.browser]);
   assert.deepEqual(record(three.drawn), record(one.drawn));
+  // Each note names the browser that drew it, for the screenshots gate (T-68).
+  assert.deepEqual([...new Set(Object.values(three.drawn.taken).map((n) => JSON.stringify(n.browser)))], ['{"name":"chrome-headless-shell","version":"155.0.8059.84"}']);
   // The drawing that timed out was drawn again in its own job, with its profile.
   const again = three.profiles.get('agents-dark-500.png')!;
   assert.equal(again.length, 2);
