@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { arrivedAt } from './carried.ts';
 import type { Config, Environment } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
-import { listed, niced, packageDirs, under } from './gates.ts';
+import { listed, listLines, niced, packageDirs, under } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -100,7 +100,7 @@ function deployChanges(paths: RepoPaths, config: Config, run: Runner, env: Envir
       rmSync(tmp, { recursive: true, force: true });
     }
   })();
-  const specific = config.environmentSpecific ? show(config.environmentSpecific).stdout.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')) : [];
+  const specific = config.environmentSpecific ? listLines(show(config.environmentSpecific).stdout) : [];
   const files: string[] = [];
   const deleted: string[] = [];
   const leftOut: string[] = [];

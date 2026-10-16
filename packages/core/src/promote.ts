@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { carriedTasks } from './carried.ts';
 import { type Config, type Environment } from './config.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
-import { assertCheckOnly, listed, niced, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
+import { assertCheckOnly, listed, listLines, niced, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { mutate, type Promotion, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -94,7 +94,7 @@ function specificOn(run: Runner, root: string, config: Config, refs: string[]): 
   for (const ref of refs) {
     const r = git(run, root, 'show', `${ref}:${config.environmentSpecific}`);
     if (r.code !== 0) continue;
-    for (const l of r.stdout.split('\n').map((x) => x.trim()).filter((x) => x && !x.startsWith('#'))) out.add(l);
+    for (const l of listLines(r.stdout)) out.add(l);
   }
   return [...out];
 }
