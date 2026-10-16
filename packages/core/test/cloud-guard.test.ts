@@ -124,8 +124,12 @@ test('in a cloud session, the guard allows a plain push of the recorded branch a
   const g = await guardModule(root);
   const ctx = { cwd: root, projectDir: root, transcript };
   // End to end, as Claude Code runs it: the two allowed forms, with -u or --set-upstream, exit 0 with no decision.
-  for (const c of [`git push origin ${BRANCH}`, `git push origin HEAD:${BRANCH}`, `git push -u origin ${BRANCH}`, `git push --set-upstream origin HEAD:${BRANCH}`, `git fetch origin ${BRANCH} && git checkout ${BRANCH}`, 'npm test', `git status && git push origin ${BRANCH}`, `FOO=1 git push origin ${BRANCH}`]) {
-    const r = bash(root, transcript, c);
+  // Each is its own process and reads nothing from the others, so they start a few at once (T-57).
+  const ends = [`git push origin ${BRANCH}`, `git push origin HEAD:${BRANCH}`, `git push -u origin ${BRANCH}`, `git push --set-upstream origin HEAD:${BRANCH}`, `git fetch origin ${BRANCH} && git checkout ${BRANCH}`, 'npm test', `git status && git push origin ${BRANCH}`, `FOO=1 git push origin ${BRANCH}`];
+  const ended = await pool(ends, 4, (c) => hookAsync(root, { tool_name: 'Bash', tool_input: { command: c }, cwd: root, transcript_path: transcript }));
+  assert.equal(ended.length, ends.length, 'every call ran');
+  for (const [i, c] of ends.entries()) {
+    const r = ended[i]!;
     assert.equal(r.code, 0, `${c}: exits 0 (${r.err})`);
     assert.equal(r.out, '', `${c}: allowed, with nothing said`);
   }
