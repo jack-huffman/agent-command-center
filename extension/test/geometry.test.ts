@@ -2,7 +2,7 @@
 // that stopped looking can't pass. The run itself measures the real pages in Chrome: npm run screenshot.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeButtons, judgeCards, OVERVIEW_LINES, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, OVERVIEW_LINES, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
 const control = (what: string, x: number, y: number, o: Partial<GeoControl> = {}): GeoControl => ({ what, text: what, box: { x, y, w: 80, h: 24 }, inside: [], layer: null, ...o });
@@ -17,7 +17,7 @@ const found = (s: GeoSnapshot, home = true) => judge(s, home, []).violations.map
 test('a drawing that breaks no rule passes, and says how much each check examined (GH-105)', () => {
   const v = judge(fine(), true, []);
   assert.deepEqual(v.violations, []);
-  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1, covered: 0, a11y: 3 });
+  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1, covered: 0, a11y: 3, actions: 0 });
 });
 
 test('the Overview\'s lines are each one line high, three in Needs you at most, with a gap between each (GH-160, T-36)', () => {
@@ -105,7 +105,7 @@ test('an exception excuses only its own check on what it names, and counts what 
 test('a whole run fails below its floors, and on an exception that excused nothing; a run of a few pages doesn\'t (GH-105)', () => {
   const verdict = judge(fine(), true, []);
   const renders: Render[] = [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...verdict, violations: [{ check: 'overlap', what: 'button.a', detail: 'overlaps button.b' }] } }];
-  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0, a11y: 0 };
+  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0, a11y: 0, actions: 0 };
   const unused = [{ name: 'the strip', check: 'sideways' as const, what: /strip/, reason: 'made up' }];
   assert.deepEqual(runFailures(renders, false, unused, floor, [], []), ['tasks dark 500px: overlap: button.a: overlaps button.b']);
   assert.deepEqual(runFailures(renders, true, unused, floor, [], []), [
@@ -187,4 +187,23 @@ test('a sticky cell that covers another cell\'s text, whole or part, fails; one 
   assert.ok(runFailures([{ page: 'agents', theme: 'dark', width: 620, verdict: judged([]) }], true).some((f) => f.includes('for covered')), 'a whole run that examined none fails');
   assert.ok(RUN_FLOOR.covered > 0, 'the floor is set');
   assert.ok(COLLECT_GEOMETRY.includes("position === 'sticky'") && COLLECT_GEOMETRY.includes('cells'), 'the page reports its cells at the first scroll position');
+});
+
+test('a task\'s actions are equal in height, the grid\'s equal in width, and the next step spans the grid, with each edge case (D-???)', () => {
+  const b = (x: number, y: number, w: number, h = 30) => ({ x, y, w, h });
+  const good = { what: 'div.task-actions', next: [b(0, 0, 300)], rest: [b(0, 36, 147), b(153, 36, 147), b(0, 72, 147)] };
+  assert.deepEqual(judgeActions([good]), []);
+  assert.deepEqual(judgeActions([{ ...good, rest: [b(0, 36, 147), b(153, 36, 147, 44)] }]).map((f) => f.detail), ['button 3 is 44 px high, not 30 as the first is'], 'a label that wrapped');
+  assert.deepEqual(judgeActions([{ ...good, rest: [b(0, 36, 147), b(153, 36, 120)] }]).map((f) => f.detail), ['the grid\'s button 2 is 120 px wide, not 147 as the first is', 'the next step spans 0 to 300 px, not the grid\'s 0 to 273'], 'buttons that size to their labels');
+  assert.deepEqual(judgeActions([{ ...good, next: [b(100, 0, 100)] }]).map((f) => f.detail), ['the next step spans 100 to 200 px, not the grid\'s 0 to 300'], 'a next step that isn\'t full width');
+  assert.deepEqual(judgeActions([{ what: 'x', next: [b(0, 0, 300)], rest: [] }, { what: 'y', next: [], rest: [b(0, 0, 100), b(106, 0, 100)] }]), [], 'only a next step, or none: nothing to compare it to');
+  assert.deepEqual(judgeActions([]), [], 'no actions on the page');
+  // judge counts the buttons it measured, and a run that measured none on a task's page fails.
+  const v = judge({ ...fine(), actionSets: [good] }, true, []);
+  assert.equal(v.examined.actions, 4);
+  assert.deepEqual(judge({ ...fine(), actionSets: [{ ...good, rest: [b(0, 36, 147), b(153, 36, 147, 40)] }] }, true, []).violations.map((x) => x.check), ['actions']);
+  const none = judge(fine(), true, []);
+  assert.ok(runFailures([{ page: 'ticket', theme: 'dark', width: 500, verdict: none }], false).includes('The task pages gave no action buttons to check.'));
+  assert.ok(!runFailures([{ page: 'ticket', theme: 'dark', width: 500, verdict: v }], false).includes('The task pages gave no action buttons to check.'));
+  assert.ok(COLLECT_GEOMETRY.includes('[data-action-set]') && COLLECT_GEOMETRY.includes("p.getAttribute('role') === 'menu'"), 'the page measures each set, and an open menu floats over the page');
 });

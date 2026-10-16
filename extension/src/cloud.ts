@@ -1,5 +1,5 @@
-// Cloud builders' VS Code side (GH-69): dispatching a task to the cloud, watching and messaging a cloud
-// builder, collecting its work, and the project's opt-in, routine and token, all through acc. The Command
+// Cloud builders' VS Code side (GH-69): watching and messaging a cloud builder, collecting its work (Dispatch's
+// sheet sends a task there, D-168), and the project's opt-in, routine and token, all through acc. The Command
 // Center never writes the config or the keychain itself.
 import * as vscode from 'vscode';
 import { BUILDER_PLACES, type BuilderPlace, ROUTINE_ID } from '../../packages/core/src/config.ts';
@@ -20,7 +20,6 @@ class CloudCommands extends Sidebar {
   }
 
   register(regNode: (id: string, fn: (...args: any[]) => unknown) => void, reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
-    regNode('acc.task.dispatchCloud', (n: TaskNode) => this.dispatchCloud(n));
     regNode('acc.task.message', (n: TaskNode) => this.message(n));
     regNode('acc.task.collect', (n: TaskNode) => this.collect(n));
     reg('acc.cloud.enable', (root?: unknown) => this.enable(typeof root === 'string' ? root : undefined));
@@ -33,24 +32,6 @@ class CloudCommands extends Sidebar {
   private projectOf(root?: string): Promise<Project | undefined> {
     const p = root ? this.hub.project(root) : undefined;
     return p ? Promise.resolve(p) : this.pickProject();
-  }
-
-  /** Dispatch to the cloud (GH-69): acc dispatch --cloud, which pushes the branch and fires the routine. */
-  private async dispatchCloud(n: TaskNode): Promise<void> {
-    if (n?.kind !== 'task') return;
-    const { project, task } = n;
-    const ok = await vscode.window.showInformationMessage(`${task.state === 'rework' ? 'Re-dispatch' : 'Dispatch'} ${task.id} to the cloud?`, { modal: true, detail: 'acc pushes its branch to GitHub and fires the project\'s routine. A cloud session builds it, and acc collects the branch when its last commit says Acc-Done. Checks that need an org run on this Mac when it collects.' }, 'Dispatch to the cloud');
-    if (!ok) return;
-    let out: { cloud?: { url?: string }; worktree?: string } | null = null;
-    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id} to the cloud`, cancellable: false }, async (progress) => {
-      progress.report({ message: 'pushing its branch and firing the routine…' });
-      await this.runAcc(project, ['dispatch', task.id, '--cloud'], (o) => { out = o; return undefined; });
-    });
-    const url = (out as { cloud?: { url?: string } } | null)?.cloud?.url;
-    if (!url) return;
-    await this.hub.loadWorktrees();
-    const pick = await vscode.window.showInformationMessage(`${task.id} is running in the cloud. acc follows its branch on GitHub and collects it when it's done.`, 'Watch on claude.ai');
-    if (pick) await vscode.env.openExternal(vscode.Uri.parse(url));
   }
 
   /** A message to a cloud builder (GH-69): claude -p "<text>" --cloud <session>, which queues it and returns. */
@@ -123,7 +104,7 @@ class CloudCommands extends Sidebar {
     const project = await this.projectOf(root);
     if (!project?.config.agents.cloud) return;
     const now = project.config.agents.cloud.default;
-    const pick = await vscode.window.showQuickPick(BUILDER_PLACES.map((w) => ({ label: w === 'local' ? '$(device-desktop) This Mac' : '$(cloud) Cloud', description: w === now ? 'Now' : undefined, detail: w === 'local' ? 'A plain dispatch runs the builder here; Dispatch to the cloud sends one task there.' : 'A plain dispatch fires the routine; Dispatch to this Mac keeps a task here.', value: w as BuilderPlace })), { title: `Where ${project.name}'s builders go by default` });
+    const pick = await vscode.window.showQuickPick(BUILDER_PLACES.map((w) => ({ label: w === 'local' ? '$(device-desktop) This Mac' : '$(cloud) Cloud', description: w === now ? 'Now' : undefined, detail: w === 'local' ? 'A dispatch runs the builder here unless its sheet\'s Where picks the cloud.' : 'A dispatch fires the routine unless its sheet\'s Where picks This Mac.', value: w as BuilderPlace })), { title: `Where ${project.name}'s builders go by default` });
     if (!pick || pick.value === now) return;
     await this.runAcc(project, ['cloud', 'enable', '--default-place', pick.value], () => `${project.name}'s builders go to ${pick.value === 'cloud' ? 'the cloud' : 'this Mac'} unless a dispatch says otherwise.`);
     await this.hub.loadProjects();

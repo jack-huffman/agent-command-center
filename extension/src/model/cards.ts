@@ -90,11 +90,26 @@ export function filesLook(t: Pick<TaskRow, 'state' | 'display' | 'files' | 'anal
 }
 
 /**
- * What a task's card offers, by where it is in its life. The one next step comes first: before a build,
- * that's its analysis (D-052) while one runs, has questions or says to split it, or when the project wants
- * one and there's none; then Dispatch.
+ * A task's actions in the one order its card, its page and the palette show them (D-168): the next step,
+ * then Move, then Block or Unblock, then the rest as they came.
  */
-export function cardActions(t: TaskRow, ref: Ref, config?: Parameters<typeof cloudDisabled>[0]): Action[] {
+export function actionOrder(actions: Action[]): Action[] {
+  const lead = [actions.find((x) => x.primary), actions.find((x) => x.command === 'acc.task.move'), actions.find((x) => x.command === 'acc.task.block' || x.command === 'acc.task.unblock')]
+    .filter((x, i, l): x is Action => !!x && l.indexOf(x) === i);
+  return [...lead, ...actions.filter((x) => !lead.includes(x))];
+}
+
+/**
+ * What a task's card offers, by where it is in its life, in actionOrder. The one next step comes first:
+ * before a build, that's its analysis (D-052) while one runs, has questions or says to split it, or when
+ * the project wants one and there's none; then Dispatch.
+ */
+export function cardActions(t: TaskRow, ref: Ref): Action[] {
+  return actionOrder(offered(t, ref));
+}
+
+/** What a task offers, as each step of its life adds it. */
+function offered(t: TaskRow, ref: Ref): Action[] {
   const a: Action[] = [];
   const todo = t.state === 'todo';
   const inCloud = t.run?.where === 'cloud' && (t.state === 'running' || t.state === 'review' || t.state === 'blocked');
@@ -106,14 +121,8 @@ export function cardActions(t: TaskRow, ref: Ref, config?: Parameters<typeof clo
   else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref, primary: true });
   // A task a person dispatched already waits for others' files (D-093): its next step is starting it anyway.
   const held = todo && !!t.files?.held;
+  // Its sheet asks for the model, the effort and where it runs (D-168), so there's one Dispatch.
   if (dispatchable) a.push(held ? { command: 'acc.task.dispatchAnyway', label: 'Dispatch anyway', icon: 'rocket', ref, primary: !a.some((x) => x.primary) } : { command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
-  // The same, with a model a person picks for this task (D-086): behind ⋯ on the card.
-  if (dispatchable) a.push({ command: 'acc.task.dispatchWith', label: `${t.state === 'rework' ? 'Re-dispatch' : 'Dispatch'} with…`, icon: 'sparkle', ref });
-  // And in the cloud (GH-69), where the project opted in; disabled with the reason where it didn't.
-  if (dispatchable && config !== undefined) {
-    const why = cloudDisabled(config);
-    a.push({ command: 'acc.task.dispatchCloud', label: `${t.state === 'rework' ? 'Re-dispatch' : 'Dispatch'} to the cloud`, icon: 'cloud-upload', ref, ...(why ? { disabled: why } : {}) });
-  }
   if (todo && !t.analyzing && !t.analysis) a.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!t.analysisRequired && !a.some((x) => x.primary) });
   // In review (D-032, D-033): watch the reviewer, review it, land it, or follow its pull request.
   if (t.state === 'review') {

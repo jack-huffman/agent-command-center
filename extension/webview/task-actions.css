@@ -1,0 +1,13 @@
+/* ---------------------------------------------------------------- a task's actions (D-???) */
+/* One size and one place, on its page and its card: the next step full width on a row of its own, the
+   rest under it in a grid of equal columns, two in the task page's side panel. Every button is as high as
+   the next, and a label too long for its column ends in an ellipsis, whole in its title. */
+.task-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.ta-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.ta-btn { display: flex; justify-content: center; width: 100%; min-width: 0; height: 30px; padding: 0 10px; }
+.ta-btn .codicon { flex: none; }
+.ta-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ta-btn:disabled { opacity: 0.55; cursor: default; }
+.ta-btn:disabled:hover { background: var(--raised); border-color: var(--edge); }
+/* On a card, the next step under its footer's line: as wide as the card, and a little lower. */
+.card .ta-btn { height: 26px; font-size: 0.92em; padding: 0 8px; }

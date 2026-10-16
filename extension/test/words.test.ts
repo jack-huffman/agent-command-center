@@ -65,6 +65,8 @@ const MARKS: Record<string, Record<string, number>> = {
   'agent-page.ts': { transcript: 4, output: 1, 'agent-text': 1 },
   'analysis.ts': { files: 1 },
   'boards.ts': { branch: 1 },
+  // Dispatch anyway's sheet: the files the task shares with work in flight (D-???).
+  'dispatch-sheet.ts': { files: 1 },
   'dock-review.ts': { transcript: 6 },
   'dock.ts': { output: 4 },
   'environments.ts': { branch: 1 },

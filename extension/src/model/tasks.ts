@@ -93,7 +93,7 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
             // A stopped builder's line says it all: its old session's own state would only repeat it.
             agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, agentName: t.run?.name ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
             stopped: t.autopilot ? null : stoppedLook(t), files: filesLook(t), place: placeLook(t),
-            actions: cardActions(t, { project: p.root, task: t.id }, p.config), drops: dropLanes(t),
+            actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
           })),
         };
       });
