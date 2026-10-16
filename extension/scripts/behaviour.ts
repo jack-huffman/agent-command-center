@@ -563,6 +563,9 @@ export const CASES: Case[] = [
       await t.escape(dialog);
       // Opened at an entry on a later page, as a tab rebuilt with History open at it is.
       t.remember({ detail: { kind: 'history', at: h.upTo.id } });
+      // The browser sends a closed modal's close event a task later; on a busy machine it came after the tab
+      // remembered History open again, and closed it before the model drew it (T-69). Sent here, it comes late every time.
+      dialog.dispatchEvent(new Event('close'));
       await t.post({ type: 'state', model: t.model });
       dialog = t.find<HTMLDialogElement>('dialog.detail-modal');
       t.check('it opens', dialog.open);
@@ -1356,6 +1359,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'History drops the page the extension sends', file: 'history.ts', find: '      loaded = next;\n', replace: '      void next;\n', kills: [caseNamed('overview: History loads its next page')] },
   { name: 'History shows a filter from All\'s first page, never asking for its own', file: 'history-store.ts', find: "    : { filter, items: [], more: true, waiting: true, counts: first.counts };", replace: "    : { filter, items: first.items.filter((i) => historyKind(i) === filter), more: false, waiting: false, counts: first.counts };", kills: [caseNamed('overview: History loads its next page')] },
   { name: 'History opened at an entry it hasn\'t loaded asks for nothing', file: 'history.ts', find: '    sought = at;\n    ask(at);\n', replace: '    sought = at;\n', kills: [caseNamed('overview: History loads its next page')] },
+  { name: 'History opened at an entry opens at none', file: 'detail.ts', find: 'renderHistory(o.history, o.projects.length > 1, d.at)', replace: 'renderHistory(o.history, o.projects.length > 1)', kills: [caseNamed('overview: History loads its next page')] },
+  { name: 'a late close event closes History the tab remembered open again', file: 'detail.ts', find: 'if (!m.dialog.open && drawn !== null && memory().detail) closeDetail();', replace: 'if (!m.dialog.open && memory().detail) closeDetail();', kills: [caseNamed('overview: History loads its next page')] },
   { name: 'History jumps when new entries come in above', file: 'detail.ts', find: '  keep();\n  place();\n', replace: '  keep();\n', kills: [caseNamed('overview: History loads its next page')] },
   { name: 'Clear leaves the group on the page', file: 'since.ts', find: '    box.remove();\n', replace: '', kills: [caseNamed('overview: Since you last looked')] },
   { name: 'Clear tells the extension nothing', file: 'since.ts', find: "    api.postMessage({ type: 'toolbar', command: g.clear.command });\n", replace: '', kills: [caseNamed('overview: Since you last looked')] },
