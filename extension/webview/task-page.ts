@@ -5,7 +5,8 @@ import type { PersonChip } from '../src/model/boards.ts';
 import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
 import { renderReview } from './review.ts';
-import { actionButton, argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when, work } from './dom.ts';
+import { taskActions } from './task-actions.ts';
+import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { updateDraft } from './updates.ts';
@@ -181,7 +182,8 @@ export function renderTicket(m: TicketModel): Node[] {
         // a person relaxes its floor instead (GH-99).
         c.waivable ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null,
         c.counts ? Object.assign(el('span', 'muted small check-tests', icon('beaker'), `Tests: ${c.counts}`), { title: c.countsNote ?? `Tests: ${c.counts}` }) : null))) : null,
-      el('div', 'actions', ...a.actions.map(actionButton))));
+      // Its actions in one size and place (D-???): the next step full width, the rest in two equal columns.
+      taskActions(a.actions)));
   } else if (m.trackable) {
     // Tracking… while it's on its way, from here or its card, so a second click starts nothing (D-074).
     const show = (on: boolean) => {

@@ -338,10 +338,10 @@ test('a card whose agent asks offers Answer, to its question, as its one next st
   assert.deepEqual(cardActions({ ...asking, stopped: { said: null } }, ref).filter((a) => a.primary).map((a) => a.label), ['Resume']);
   // Edge: in the cloud there's no question here to answer.
   assert.ok(!cardActions({ ...asking, run: { ...asking.run, where: 'cloud' } }, ref).some((a) => a.label === 'Answer'));
-  // The page: the foot draws the next step on its right through nextStep, which goes to the question, as Agents' Answer does.
+  // The page: the foot draws the next step full width under it (D-???) through nextStep, which goes to the question, as Agents' Answer does.
   const boards = pageSource('boards.ts');
-  assert.match(boards, /el\('div', 'card-meta', [^\n]*\),\n    primary \? nextStep\(primary\) : null\);/);
-  assert.match(boards, /if \(!a\.question\) return actionButton\(a\);/);
+  assert.match(boards, /el\('div', 'card-meta', [^\n]*\) : null,\n    primary \? nextStep\(primary\) : null\);/);
+  assert.match(boards, /if \(!a\.question\) return actionTile\(a, true\);/);
   assert.match(boards, /go\('overview'\); answerHere\(id\);/);
   assert.match(pageSource('tasks.ts'), /c\.acc\.action \? nextStep\(c\.acc\.action\) : null/, 'a tracker card\'s next step too');
 });

@@ -1,7 +1,8 @@
 // What every board shares: a card's footer and its ⋯ menu, and scrolling a board sideways.
 
 import type { Action } from '../src/model/shared.ts';
-import { actionButton, el, icon, work } from './dom.ts';
+import { el, icon, work } from './dom.ts';
+import { actionTile } from './task-actions.ts';
 import { answerHere } from './detail.ts';
 import { api, go } from './state.ts';
 
@@ -59,20 +60,19 @@ const cardPr = (actions: Action[]): Action | undefined => actions.find((a) => a.
 export const cardMenu = (actions: Action[]): Action[] => actions.filter((a) => a !== cardPrimary(actions) && a !== cardPr(actions) && a.command !== 'acc.task.move' && !(a.command === 'acc.task.show' && !a.primary));
 
 /**
- * A card's next step as a button. An Answer with its question opens that question in Needs you, on the
- * Overview, as the Agents tab's Answer does (T-39); any other runs its command.
+ * A card's next step as a full-width button, the task page's size (D-???). An Answer with its question
+ * opens that question in Needs you, on the Overview, as the Agents tab's Answer does (T-39); any other runs
+ * its command.
  */
 export function nextStep(a: Action): HTMLElement {
-  if (!a.question) return actionButton(a);
+  if (!a.question) return actionTile(a, true);
   const id = a.question;
-  const b = el('button', 'btn primary', icon(a.icon), a.label) as HTMLButtonElement;
-  b.type = 'button';
-  b.title = 'Go to its question in Needs you, on the Overview, and answer it there';
-  b.addEventListener('click', (e) => { e.stopPropagation(); go('overview'); answerHere(id); });
+  const b = actionTile(a, true, () => { go('overview'); answerHere(id); });
+  b.title = `${a.label}: go to its question in Needs you, on the Overview, and answer it there`;
   return b;
 }
 
-/** A card's footer: where it lives and its pull request on the left, its one next step on the right. */
+/** A card's footer: where it lives and its pull request, then its one next step, full width, under them. */
 export function cardFoot(card: { worktree: string | null; actions: Action[] }): HTMLElement | null {
   const primary = cardPrimary(card.actions);
   const pr = cardPr(card.actions);
@@ -85,7 +85,7 @@ export function cardFoot(card: { worktree: string | null; actions: Action[] }): 
   }
   return el('div', 'card-foot',
     // The worktree's last two folders, with the whole path on hover, since a narrow card cuts it short.
-    el('div', 'card-meta', card.worktree ? Object.assign(work(el('span', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')), 'branch'), { title: card.worktree }) : null, prLink),
+    card.worktree || prLink ? el('div', 'card-meta', card.worktree ? Object.assign(work(el('span', 'card-where mono muted', icon('git-branch'), card.worktree.split('/').slice(-2).join('/')), 'branch'), { title: card.worktree }) : null, prLink) : null,
     primary ? nextStep(primary) : null);
 }
 
