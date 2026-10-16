@@ -10,6 +10,7 @@ import type { TaskRow } from '../src/logic/shared.ts';
 import { sizeLine } from '../src/logic/tasks.ts';
 import { cloudDisabled } from '../src/model/cards.ts';
 import { area, defaultPlace, dispatchChoiceArgs, dispatchSheet, effortSegments, SHEET_COMMANDS, type SheetInput } from '../src/model/dispatch-sheet.ts';
+import { pageDom } from './page-dom.ts';
 import { pageSource, row } from './support.ts';
 
 const CLOUD = { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', default: 'local' as const, quietMinutes: 120, max: 3 };
@@ -147,9 +148,19 @@ test('the page\'s go message is checked: a task key, a model, an effort the shee
   assert.deepEqual([...SHEET_COMMANDS], ['acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.dispatchAnyway']);
 });
 
-test('the sheet and the palette remember what opened them with one focusedElement; edge case: only the body focused gives no opener (T-70)', () => {
-  const dom = pageSource('dom.ts');
-  assert.match(dom, /export function focusedElement\(\): HTMLElement \| null \{\n  const a = document\.activeElement as HTMLElement \| null;\n  return a && a !== document\.body \? a : null;\n\}/);
+test('focusedElement, run in a document: edge case: with only the body focused it gives null, and with a button focused it gives the button (T-71)', async () => {
+  const page = pageDom();
+  const { focusedElement } = await import('../webview/dom.ts');
+  assert.equal(page.document.activeElement, page.document.body, 'the page starts with only its body focused');
+  assert.equal(focusedElement(), null);
+  const b = page.document.createElement('button');
+  b.focus();
+  assert.equal(focusedElement(), b);
+  page.document.body.focus();
+  assert.equal(focusedElement(), null, 'focus back on the body gives null again');
+});
+
+test('the sheet and the palette remember what opened them with the one focusedElement (T-70)', () => {
   for (const page of ['dispatch-sheet.ts', 'palette.ts']) {
     const src = pageSource(page);
     assert.match(src, /opener = focusedElement\(\);/, page);
