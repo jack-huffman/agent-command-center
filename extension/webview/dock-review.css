@@ -33,12 +33,14 @@
 .dr-toggle > .codicon { flex: none; color: var(--vscode-descriptionForeground); }
 .dr-toggle > .status { flex: none; }
 .dr-toggle:hover .dr-text { color: var(--vscode-textLink-foreground); }
+.dr-toggle:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
 .dr-toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .dr-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* The file and line at the row's right, on one line; the row's detail shows it whole. */
 .dr-line > .rv-place { flex: 0 1 auto; max-width: 40%; }
-.dr-line > .rv-place .mono { display: flex; min-width: 0; white-space: nowrap; word-break: normal; }
-.dr-line > .rv-place .mono, .dr-file { overflow: hidden; text-overflow: ellipsis; }
+.dr-where { display: flex; min-width: 0; overflow: hidden; white-space: nowrap; font-family: var(--vscode-editor-font-family); }
+.rv-place:hover:not(:disabled) .dr-where { text-decoration: underline; }
+.dr-file { overflow: hidden; text-overflow: ellipsis; }
 .dr-at { flex: none; }
 .dr-detail { margin: 0; padding: 2px 12px 10px 30px; min-width: 0; }
 .dr-detail > p { margin: 4px 0; }

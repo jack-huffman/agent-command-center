@@ -62,7 +62,11 @@ function rowPlace(r: DockReviewRow, short: boolean): HTMLElement | null {
   // In the row, a name too long for its room is cut, and its line stays whole.
   const mono = short ? b.querySelector('.mono') : null;
   const at = /^(.*?)(:\d+)$/.exec(mono?.textContent ?? '');
-  if (mono && at) mono.replaceChildren(el('span', 'dr-file', at[1]!), el('span', 'dr-at', at[2]!));
+  if (mono && at) {
+    mono.replaceChildren(el('span', 'dr-file', at[1]!), el('span', 'dr-at', at[2]!));
+    // Its own class, a flex line, so the task page's .mono, which a table cell also wears, keeps its layout.
+    mono.classList.replace('mono', 'dr-where');
+  }
   b.title = f.opens ? `Open ${f.place} in the task's checkout` : `${f.place}\n\n${f.off ?? ''}`.trim();
   return b;
 }
