@@ -191,7 +191,15 @@ export interface Config {
   tidy?: { every: number };
   /** The team template the project was started from, and its digest then, so Setup can say when it changed (GH-80). */
   template?: TemplateRecord;
+  /**
+   * Tools the project's own checks need on this machine (T-68), such as a pinned browser: Setup's step for
+   * each runs its check command, which exits 0 when it's there, and offers its fix command when it isn't.
+   */
+  tools?: ProjectTool[];
 }
+
+/** A tool the project's checks need: its name, why, a command that exits 0 when it's there, and one that sets it up. */
+export interface ProjectTool { title: string; why: string; check: string; fix: string }
 
 /** Which way a ratchet's number may go (GH-99): a floor's only up, a ceiling's only down. */
 export const RATCHET_LIMITS = ['floor', 'ceiling'] as const;
@@ -252,6 +260,7 @@ export const CONFIG_KEYS = [
   'gates.ratchets', 'gates.nearIndexes',
   'secretScan.paths', 'secretScan.exclude', 'strayFiles.required', 'strayFiles.allow', 'strayFiles.data', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
   'dispatch.shared', 'tidy.every', 'template.name', 'template.source', 'template.digest',
+  'tools[].title', 'tools[].why', 'tools[].check', 'tools[].fix',
 ] as const satisfies readonly ConfigPath[];
 
 type LeftOut = Exclude<ConfigPath, (typeof CONFIG_KEYS)[number]>;
@@ -620,6 +629,14 @@ export function parseConfig(raw: unknown): ParseResult {
     }
   }
 
+  let tools: Config['tools'];
+  if (raw.tools !== undefined) {
+    const list = raw.tools;
+    if (!Array.isArray(list) || !list.every((t) => isObj(t) && ['title', 'why', 'check', 'fix'].every((k) => isStr(t[k])))) {
+      errors.push('"tools" must be a list of tools, each with "title", "why", "check" (a command that exits 0 when the tool is there) and "fix" (a command that sets it up).');
+    } else tools = list.map((t) => ({ title: t.title as string, why: t.why as string, check: t.check as string, fix: t.fix as string }));
+  }
+
   let tidy: Config['tidy'];
   if (raw.tidy !== undefined) {
     const t = raw.tidy;
@@ -678,6 +695,7 @@ export function parseConfig(raw: unknown): ParseResult {
       ...(dispatch ? { dispatch } : {}),
       ...(tidy ? { tidy } : {}),
       ...(template ? { template } : {}),
+      ...(tools ? { tools } : {}),
     },
     errors,
     warnings,

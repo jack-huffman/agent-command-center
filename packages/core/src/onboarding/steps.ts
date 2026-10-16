@@ -19,6 +19,7 @@ import {
 } from './helpers.ts';
 import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
 import { CLOUD_STEPS } from './cloud-steps.ts';
+import { TOOL_STEPS } from './tool-steps.ts';
 
 const DOCS = 'docs/ONBOARDING.md';
 const GH_SIGN_IN = '"Do it" opens VSCode\'s GitHub sign-in: pick this repo\'s account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh\'s active account stays as it was. In a terminal: gh auth login.';
@@ -774,6 +775,8 @@ export const STEPS: Step[] = [
       return pass(`Ready: ${required.join(', ')}.`);
     },
   },
+  // The tools the project's own checks need (T-68): in their own file, registered here.
+  ...TOOL_STEPS,
   {
     id: 'B14.tickets', part: 'project', group: 'B14', title: 'The repo\'s ticket source',
     why: 'The Tasks board shows this repo\'s own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in on this machine for this repo, or for every project on the same site. If this repo keeps its tasks in acc alone, mark this done.',

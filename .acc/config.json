@@ -106,5 +106,13 @@
       "."
     ],
     "exclude": []
-  }
+  },
+  "tools": [
+    {
+      "title": "The pinned headless shell",
+      "why": "The screenshot run, and the check that its shots were taken, draw every page with Google's headless shell at the pinned version, never the person's own Chrome.",
+      "check": "node --no-warnings extension/scripts/browser.ts --check",
+      "fix": "npm run browser"
+    }
+  ]
 }
