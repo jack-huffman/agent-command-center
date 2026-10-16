@@ -7216,6 +7216,10 @@ that held 48 of them.
   cache, npm test took 102.1 s (load 17 at the start) and 120.1 s (load 8, rising to 20); with it turned
   off (`NODE_DISABLE_COMPILE_CACHE=1`) straight after, 147.8 s. The longest test was 15.9 s and 22.7 s
   (both the CLI junk totals test), so no test took over 30 s.
+- **Timing on a quiet machine (2026-10-15, at the merge of T-62):** no builder running, load average
+  3.6 at the start. npm test took 98.4 s, under the 120 s limit, inside the full `npm run check` of
+  1612 tests. Criterion 4 is met.
+
 ## D-166 The extension finds a newer release by itself, offers it in a notification, and installs it, reloads and opens the Command Center (2026-10-15)
 
 T-62. A newer release showed only in Settings' About, and a person installed
