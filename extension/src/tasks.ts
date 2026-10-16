@@ -12,9 +12,11 @@ import { effortDroppedWords } from '../../packages/core/src/efforts.ts';
 import type { Project } from './hub.ts';
 import { dispatchModelArgs, dispatchModelItems, displayName, sessionFor } from './logic/agents.ts';
 import { dispatchEffortArgs, dispatchEffortItems, noEffortArgs } from './logic/efforts.ts';
+import { newestVerdictText, readReviewRun } from './logic/dock-review.ts';
 import { inProcessWords } from './logic/processes.ts';
 import { reasonInWords } from './logic/relayed.ts';
 import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, sizeLine, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
+import { verdictFrom } from './model/dock-review.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
 import { accRunner, runFile } from './run.ts';
@@ -355,14 +357,27 @@ class TaskCommands extends Sidebar {
 
   // ------------------------------------------------------------ review and land (D-032, D-033)
 
-  /** The reviewer runs in the output panel; its session can be watched while it reads. */
+  /**
+   * The reviewer runs in the output panel; its session can be watched while it reads. The panel shows it as a
+   * review (T-63): once it ends, the verdict it wrote, with the lines around each finding, read as its page reads them.
+   */
   private reviewTask(n: TaskNode): void {
     if (n?.kind !== 'task') return;
     const { project, task } = n;
     const acc = this.helpers.accCommand ?? 'acc';
     const done = () => void this.hub.loadTasks(true);
     if (this.helpers.run) {
-      this.helpers.run(`${acc} review ${task.id}`, project.root, `Review ${task.id}`, done);
+      const reviews = join(dirname(project.ledgerPath), 'reviews');
+      const sha = project.worktrees.find((w) => w.branch === task.run?.branch)?.head || null;
+      const checkout = task.run?.worktree ?? null;
+      const read = (startedAt: number) => readReviewRun({
+        reviews, task: task.id, startedAt, checkout, there: !!checkout && existsSync(checkout),
+        branch: project.config.environments.find((e) => e.name === task.environment)?.branch ?? task.environment, git: (args, cwd) => runFile('git', args, cwd),
+      });
+      // acc review exits 1 when it asks for changes: a verdict written is a review that worked.
+      const startedAt = Date.now();
+      const made = (code: number | null) => code === 0 || !('why' in verdictFrom(newestVerdictText(reviews, task.id), startedAt));
+      this.helpers.run(`${acc} review ${task.id}`, project.root, `Review ${task.id}`, done, made, { run: { project: project.root, task: task.id, sha }, read });
       // The reviewer's session shows once acc has started it.
       setTimeout(done, 2_000);
     } else {

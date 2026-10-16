@@ -18,14 +18,14 @@ function sign(mark: ExcerptLine['mark']): HTMLElement {
   return s;
 }
 
-/** The lines around a finding: each with its number, its mark and its text, the finding's own line marked. */
-function excerpt(x: Excerpt): HTMLElement {
+/** The lines around a finding: each with its number, its mark and its text, the finding's own line marked. Also the output panel's (T-63). */
+export function excerpt(x: Excerpt): HTMLElement {
   const lines = x.lines.map((l) => el('div', `rv-l${l.mark === 'same' ? '' : ` rv-${l.mark}`}${l.at ? ' rv-at' : ''}`, el('span', 'rv-n', l.n === null ? '' : String(l.n)), sign(l.mark), el('span', 'rv-t', l.text)));
   return work(el('div', 'rv-excerpt', ...lines), 'files');
 }
 
-/** A finding's file and line: a link that opens it in the task's checkout, or off, with why. */
-function place(f: ReviewFinding): HTMLElement | null {
+/** A finding's file and line: a link that opens it in the task's checkout, or off, with why. Also the output panel's (T-63). */
+export function place(f: ReviewFinding): HTMLElement | null {
   if (!f.place) return null;
   const b = el('button', 'rv-place', icon('go-to-file'), work(el('span', 'mono', f.place), 'files')) as HTMLButtonElement;
   b.type = 'button';

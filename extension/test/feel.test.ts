@@ -189,6 +189,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'connect.ts', at: /m\.method\.test/, why: 'Test, until the sign-in passes: the dialog can\'t go on without it.' },
   { file: 'connect.ts', at: /m\.save\.label/, why: 'Save: the dialog\'s last step, which the person opened it to take.' },
   { file: 'detail.ts', at: /a\.extra\.arg, true\)/, why: 'A Needs you step: the fix for a tracker that is not signed in.' },
+  { file: 'dock-review.ts', at: /'btn primary dr-next'/, why: 'A finished review\'s next step: Land a pass, or send changes back to the builder, the one thing the person does next (T-63).' },
   { file: 'dock.ts', at: /button\('Yes'/, why: 'Yes: a run asks the person, and waits.' },
   { file: 'dock.ts', at: /button\('Send'/, why: 'Send: the answer the person typed to a run that asks.' },
   { file: 'dom.ts', at: /\$\{a\.primary \?/, why: 'actionButton: primary only when the model\'s action says so. The model sets it for a next step that needs the person.' },

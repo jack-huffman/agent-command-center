@@ -1,0 +1,60 @@
+/* ---------------------------------------------------------------- a review in the output panel (T-63)
+   Short, since the panel opens over the page: the header line stays in view while the rest scrolls. Rows are
+   the Overview's lines, smaller: a raised card each, its left edge its tone, its text on one line. */
+.dr { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 12px 10px; border-top: 1px solid var(--line); }
+.dr-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; gap: 10px; min-width: 0; min-height: 36px; padding: 6px 0;
+  background: var(--vscode-sideBar-background); white-space: nowrap;
+}
+.dr-head > .status { flex: none; font-weight: 600; }
+.dr-key { flex: none; }
+.dr-count, .dr-sha { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dr-clock { flex: none; font-variant-numeric: tabular-nums; }
+.dr-next { flex: none; }
+.dr-running { padding-bottom: 4px; }
+/* The summary in two lines; More opens the rest, with the sentence for the client after it. */
+.dr-summary-box { display: flex; align-items: flex-end; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+.dr-summary { flex: 1 1 260px; min-width: 0; margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
+.dr-client { flex: 1 1 100%; order: 1; margin: 0; overflow-wrap: anywhere; }
+.dr-more { flex: none; }
+.dr-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.dr-row {
+  min-width: 0; background: var(--raised); border: 1px solid var(--edge); border-left: 3px solid var(--edge);
+  border-radius: 6px; box-shadow: var(--lift);
+}
+.dr-row.tone-row-orange { border-left-color: var(--orange); }
+.dr-row.tone-row-blue, .dr-row.dr-met { border-left-color: var(--blue); }
+.dr-line { display: flex; align-items: center; gap: 8px; min-width: 0; padding-right: 8px; }
+.dr-toggle {
+  display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; min-height: 30px; padding: 2px 6px;
+  border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.dr-toggle > .codicon { flex: none; color: var(--vscode-descriptionForeground); }
+.dr-toggle > .status { flex: none; }
+.dr-toggle:hover .dr-text { color: var(--vscode-textLink-foreground); }
+.dr-toggle:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.dr-toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.dr-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The file and line at the row's right, on one line; the row's detail shows it whole. */
+.dr-line > .rv-place { flex: 0 1 auto; max-width: 40%; }
+.dr-where { display: flex; min-width: 0; overflow: hidden; white-space: nowrap; font-family: var(--vscode-editor-font-family); }
+.rv-place:hover:not(:disabled) .dr-where { text-decoration: underline; }
+.dr-file { overflow: hidden; text-overflow: ellipsis; }
+.dr-at { flex: none; }
+.dr-detail { margin: 0; padding: 2px 12px 10px 30px; min-width: 0; }
+.dr-detail > p { margin: 4px 0; }
+.dr-message, .dr-evidence { overflow-wrap: anywhere; }
+/* The detail's file and line is the whole path, wrapped. */
+.dr-detail > .rv-place { margin: 2px 0; }
+.dr-met-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.dr-met-list > li { display: flex; align-items: flex-start; gap: 6px; overflow-wrap: anywhere; }
+.dr-met-list > li > .codicon { flex: none; margin-top: 2px; }
+.dr-why { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 8px 14px; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.dr-why > .codicon { flex: none; margin-top: 2px; }
+/* At 500 px the next step shows its icon alone; its name stays its title and label. */
+@media (max-width: 560px) {
+  .dr-btn-text { display: none; }
+  .dr-next { padding-left: 6px; padding-right: 6px; }
+  .dr { padding-left: 8px; padding-right: 8px; }
+}

@@ -339,22 +339,7 @@ export class TicketPanels implements vscode.Disposable {
    */
   private async openFile(o: Open, p: Project, m: Extract<FromWebview, { type: 'review-file' }>): Promise<void> {
     if (m.project !== o.project || m.task.toUpperCase() !== o.key) return;
-    const checkout = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key)?.run?.worktree;
-    if (!checkout || !existsSync(checkout)) {
-      void vscode.window.showWarningMessage(`${o.key}'s checkout is gone, so its files don't open here.`);
-      return;
-    }
-    const path = fileInCheckout(checkout, m.file);
-    if (!path) {
-      void vscode.window.showWarningMessage(`${m.file} isn't inside ${o.key}'s checkout, so it doesn't open.`);
-      return;
-    }
-    try {
-      const at = new vscode.Position(m.line - 1, 0);
-      await vscode.window.showTextDocument(vscode.Uri.file(path), { selection: new vscode.Range(at, at), preview: true });
-    } catch (e) {
-      void vscode.window.showWarningMessage(`Couldn't open ${m.file}: ${(e as Error).message}`);
-    }
+    return openReviewFile(o.key, this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key)?.run?.worktree, m.file, m.line);
   }
 
   private async receive(o: Open, m: unknown): Promise<void> {
@@ -635,6 +620,28 @@ export class TicketPanels implements vscode.Disposable {
     if (r.ok) void vscode.window.showInformationMessage(`${o.key} is now a task in acc. Dispatch it from here or the board.`);
     else if ('error' in r) void vscode.window.showErrorMessage(`Couldn't track ${o.key}: ${r.error}`);
     await this.post(o);
+  }
+}
+
+/**
+ * A review finding's file, opened at its line in the task's checkout: from its page (T-53), and from the
+ * output panel (T-63). A checkout that is gone, or a path outside it, is refused with why.
+ */
+export async function openReviewFile(key: string, checkout: string | undefined, file: string, line: number): Promise<void> {
+  if (!checkout || !existsSync(checkout)) {
+    void vscode.window.showWarningMessage(`${key}'s checkout is gone, so its files don't open here.`);
+    return;
+  }
+  const path = fileInCheckout(checkout, file);
+  if (!path) {
+    void vscode.window.showWarningMessage(`${file} isn't inside ${key}'s checkout, so it doesn't open.`);
+    return;
+  }
+  try {
+    const at = new vscode.Position(line - 1, 0);
+    await vscode.window.showTextDocument(vscode.Uri.file(path), { selection: new vscode.Range(at, at), preview: true });
+  } catch (e) {
+    void vscode.window.showWarningMessage(`Couldn't open ${file}: ${(e as Error).message}`);
   }
 }
 
