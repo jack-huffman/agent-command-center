@@ -678,7 +678,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
     {
       id: 'about', title: 'About', icon: 'info', summary: 'The versions of acc, the extension and the plugin, read fresh each time Settings shows, and whether a newer release is out.',
       built: true, today: null,
-      details: ['A newer release installs as the README says, from its page. The plugin updates as Setup\'s A4 does: this page changes nothing itself.'],
+      details: ['A newer release installs with Install and reload, here or in the notification that offers it: the extension downloads it as gh\'s active account, checks it, installs it and reloads the window. The plugin updates as Setup\'s A4 does.'],
       links: [],
     },
   ];
