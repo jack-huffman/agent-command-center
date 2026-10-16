@@ -46,7 +46,8 @@ export function landingRow(r: LandingRow, calm = false): HTMLElement {
   const state = el('span', `status tone-${r.look.tone} lp-state`, icon(r.look.icon, r.look.tone), el('span', 'lp-state-text', r.look.label));
   state.title = r.look.label;
   const facts: Child[] = calm ? [] : r.facts.map((f) => Object.assign(el('span', 'lp-fact', f.text), { title: f.text }));
-  const caret = r.menu ? menuButton(r.id ? `${r.id} ${r.title}` : r.title) : null;
+  // A row with no menu keeps the caret's place, so every row's button starts and ends where the others do.
+  const caret = r.menu ? menuButton(r.id ? `${r.id} ${r.title}` : r.title) : r.action ? Object.assign(el('span', 'lp-caret-slot'), { ariaHidden: 'true' }) : null;
   const title = el('span', 'lp-title', r.title);
   const row = el('li', `lp-row tone-row-${r.look.tone}`, state, r.id ? el('span', 'tcard-key lp-key', r.id) : null, title, ...facts,
     el('span', 'lp-do', r.action ? rowButton(r.action) : null, caret));

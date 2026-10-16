@@ -39,7 +39,9 @@
 .lp-fact { flex: 0 1 auto; max-width: 150px; color: var(--vscode-descriptionForeground); font-size: 0.92em; }
 .lp-do { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
 .lp-do .btn { min-width: 0; max-width: 170px; padding: 1px 8px; line-height: 1.5; }
-.lp-do .menu-caret { flex: none; }
+/* One width for every row's button, and the caret's place kept on a row without one, so the buttons line up. */
+.lp-do .btn.lp-btn { min-width: 7.5em; justify-content: center; }
+.lp-do .menu-caret, .lp-caret-slot { flex: none; width: 28px; padding: 1px 0; justify-content: center; }
 .lp-more { margin-top: 6px; }
 .lp-group > .muted.quiet { margin: 0; }
 /* A job that ended (D-092): its line fades over its minute, then folds away until the next redraw removes it. */
@@ -52,4 +54,4 @@
 @media (max-width: 820px) { .lp-state { flex-basis: 150px; } .lp-do .btn { max-width: 140px; } .lp-fact + .lp-fact { display: none; } }
 @media (max-width: 640px) { .lp-state { flex-basis: 120px; } .lp-do .btn { max-width: 116px; } .lp-title { min-width: 64px; } .lp-fact { display: none; } .lp-row { gap: 8px; } }
 /* A line too narrow for its button's words shows the icon alone; its aria-label and title still carry the label (GH-169). */
-@container (max-width: 600px) { .lp-btn-text { display: none; } .lp-do .btn.lp-btn { padding: 1px 6px; } }
+@container (max-width: 600px) { .lp-btn-text { display: none; } .lp-do .btn.lp-btn { padding: 1px 6px; min-width: 0; } }
