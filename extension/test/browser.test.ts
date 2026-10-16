@@ -34,7 +34,7 @@ test('the pin names a version and a 64-digit SHA-256 for each platform, and each
   assert.equal(zipUrl(PIN, 'linux64'), `${CFT_BASE}/${PIN.version}/linux64/chrome-headless-shell-linux64.zip`);
 });
 
-test('the platform names: macOS on each chip and Linux, and none for a platform the pin doesn\'t cover', () => {
+test('the platform names: macOS on Apple silicon and Intel, Linux, and none for a platform the pin doesn\'t cover', () => {
   assert.equal(shellPlatform('darwin', 'arm64'), 'mac-arm64');
   assert.equal(shellPlatform('darwin', 'x64'), 'mac-x64');
   assert.equal(shellPlatform('linux', 'x64'), 'linux64');

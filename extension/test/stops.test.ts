@@ -28,7 +28,7 @@ stopOnExit();
 await runJobs([0, 1, 2], 3, () => runAsync(process.execPath, ['-e', ${JSON.stringify(FAKE)}, ${JSON.stringify(dir)}], 600000));
 `;
 
-const alive = (pid: number): boolean => {
+const isUp = (pid: number): boolean => {
   try { process.kill(pid, 0); return true; } catch { return false; }
 };
 
@@ -49,11 +49,11 @@ test('a run sent SIGTERM stops every fake browser it started, and each one\'s he
   assert.ok(await until(() => readdirSync(dir).length === 3, 20_000), `three fake browsers started: ${err}`);
   const pids = readdirSync(dir).flatMap((f) => [Number(f.replace('.pid', '')), Number(readFileSync(join(dir, f), 'utf8'))]);
   assert.equal(pids.length, 6);
-  assert.ok(pids.every(alive), 'all six running before the signal');
+  assert.ok(pids.every(isUp), 'all six running before the signal');
   const exited = new Promise<number | null>((r) => run.on('exit', (code) => r(code)));
   run.kill('SIGTERM');
   assert.equal(await exited, SIGNAL_EXITS.SIGTERM);
-  assert.ok(await until(() => !pids.some(alive), 10_000), `still running: ${pids.filter(alive).join(', ')}`);
+  assert.ok(await until(() => !pids.some(isUp), 10_000), `still running: ${pids.filter(isUp).join(', ')}`);
 });
 
 test('with nothing running, stopAll stops nothing and stop on a child that never started is ignored', () => {
