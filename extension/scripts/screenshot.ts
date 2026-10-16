@@ -443,6 +443,10 @@ function onPath(): string | undefined {
 /** What the run says when it finds no browser at all. */
 export const NO_BROWSER = 'No browser to draw with. Run npm run browser to get the pinned headless shell, or set CHROME to a browser\'s path.';
 
+/** Why the run has no browser. A CHROME that names no file gets its own message, since nothing is tried past it. */
+export const noBrowser = (env: NodeJS.ProcessEnv = process.env): string =>
+  (env.CHROME ? `CHROME is set to ${env.CHROME}, but there is no browser there. Fix the path, or unset CHROME to draw with the pinned headless shell.` : NO_BROWSER);
+
 /** The built webview is older than its source, so a screenshot would show the last build. */
 function staleBuild(): string | null {
   const built = join(extensionDir, 'dist', 'webview', 'main.js');
@@ -732,7 +736,7 @@ async function main(argv: string[]): Promise<number> {
     const stale = staleBuild();
     if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
     const chrome = findChrome();
-    if (!chrome) return fail(NO_BROWSER);
+    if (!chrome) return fail(noBrowser());
     return behaviourRun(chrome, jobs);
   }
   const views = positionals.length ? positionals : values.colours ? [...COLOUR_PAGES] : [...PAGES];
@@ -742,7 +746,7 @@ async function main(argv: string[]): Promise<number> {
     const stale = staleBuild();
     if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
     const chrome = findChrome();
-    if (!chrome) return fail(NO_BROWSER);
+    if (!chrome) return fail(noBrowser());
     const work = mkdtempSync(join(tmpdir(), 'acc-colours-'));
     try {
       cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
@@ -762,7 +766,7 @@ async function main(argv: string[]): Promise<number> {
   const stale = staleBuild();
   if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
   const chrome = findChrome();
-  if (!chrome) return fail(NO_BROWSER);
+  if (!chrome) return fail(noBrowser());
 
   const out = resolve(values.out ?? join(extensionDir, '..', 'dist', 'screenshots'));
   mkdirSync(out, { recursive: true });

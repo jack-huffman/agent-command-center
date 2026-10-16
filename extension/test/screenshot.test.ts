@@ -7,7 +7,7 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { DispatchSheet } from '../src/model/dispatch-sheet.ts';
-import { afterModel, APP_WARNING, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, NO_BROWSER, OUTPUT_REVIEWS, OUTPUT_RUNS, OVERVIEW_LISTS, PAGES, pageFor, sampleModel, startState } from '../scripts/screenshot.ts';
+import { afterModel, APP_WARNING, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, NO_BROWSER, noBrowser, OUTPUT_REVIEWS, OUTPUT_RUNS, OVERVIEW_LISTS, PAGES, pageFor, sampleModel, startState } from '../scripts/screenshot.ts';
 import { ROOT } from '../scripts/fixtures/shared.ts';
 import { PIN } from '../scripts/browser.ts';
 import { cssRules, pageStyles, palettes, readsVars, styleFile, styleFiles, vscodeDefaults } from '../scripts/styles.ts';
@@ -273,6 +273,8 @@ test('Chrome is found from $CHROME first, and a wrong $CHROME is reported, not g
   assert.deepEqual(said.splice(0), ['Drawing with CHROME: /opt/chrome.'], '$CHROME wins over the shell in the cache');
   assert.equal(findChrome({ CHROME: '/nowhere' }, () => false, say, () => '/cache/shell'), null);
   assert.deepEqual(said.splice(0), [], 'a wrong $CHROME says nothing, and the run fails naming it');
+  assert.equal(noBrowser({ CHROME: '/nowhere' }), 'CHROME is set to /nowhere, but there is no browser there. Fix the path, or unset CHROME to draw with the pinned headless shell.', 'its own message, naming the path');
+  assert.equal(noBrowser({}), NO_BROWSER, 'with no CHROME, the run says there is no browser at all');
 });
 
 test('the pinned shell in the cache comes before the Chrome app, and says so in one line (T-68)', () => {
