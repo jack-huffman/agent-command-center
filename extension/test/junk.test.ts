@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { changes, makeRepo, snapshot, tempDir } from '../../packages/core/test/support.ts';
+import { changes, makeRepo, pool, snapshot, tempDir } from '../../packages/core/test/support.ts';
 import { activate, fakeVscode } from './vscode.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
@@ -94,8 +94,10 @@ test('every contributed command survives junk arguments (GH-106)', { timeout: 20
   ];
   const fake = fakeVscode(repo);
   const rejections: string[] = [];
-  let current = '';
-  const onRejection = (e: unknown) => rejections.push(`${current}: ${clip((e as Error)?.message ?? String(e))}`);
+  // What each command being called is on right now. Commands run a few at once (T-57), so a rejection that
+  // surfaces is put down to all of them.
+  const current = new Map<string, string>();
+  const onRejection = (e: unknown) => rejections.push(`${[...current.values()].join(' or ') || 'between calls'}: ${clip((e as Error)?.message ?? String(e))}`);
   process.on('unhandledRejection', onRejection);
   // Fresh machine results, so no slow machine CLI runs, and no welcome.
   const started = activate(dist, fake, { 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', items: [] } });
@@ -106,18 +108,20 @@ test('every contributed command survives junk arguments (GH-106)', { timeout: 20
     const failures: string[] = [];
     let calls = 0;
     const t0 = Date.now();
-    for (const id of contributed) {
+    // A command gets its values one after another, as before; commands run a few at once.
+    await pool(contributed, 4, async (id) => {
       const fn = fake.calls.commands.get(id);
       assert.ok(fn, `${id} is contributed, so it's registered`);
       for (const [name, args] of JUNK) {
-        current = `${id}(${name})`;
+        current.set(id, `${id}(${name})`);
         const why = await exercise(fn!, args);
         calls++;
-        if (why) failures.push(`${current} ${why}`);
+        if (why) failures.push(`${current.get(id)} ${why}`);
       }
       // A rejection the command left behind surfaces here, and is put down to it.
       await settle(100);
-    }
+      current.delete(id);
+    });
     const seconds = ((Date.now() - t0) / 1000).toFixed(1);
     t.diagnostic(`${contributed.length} commands, ${JUNK.length} values each, ${calls} calls, ${seconds}s`);
     assert.deepEqual([...failures, ...rejections.map((r) => `unhandled rejection after ${r}`)], [], 'every call settled cleanly');

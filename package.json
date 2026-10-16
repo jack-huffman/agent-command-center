@@ -11,7 +11,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p extension/tsconfig.json && tsc -p extension/webview/tsconfig.json",
-    "test": "node --no-warnings --test --test-timeout=300000 --test-reporter=spec \"packages/*/test/*.test.ts\" \"extension/test/*.test.ts\" \"scripts/test/*.test.ts\"",
+    "test": "node --no-warnings --import ./scripts/compile-cache.ts --test --test-timeout=300000 --test-reporter=spec \"packages/*/test/*.test.ts\" \"extension/test/*.test.ts\" \"scripts/test/*.test.ts\"",
     "build": "node --no-warnings scripts/build.mjs",
     "screenshot": "node --no-warnings extension/scripts/screenshot.ts",
     "check": "node --no-warnings scripts/areas.ts --check && npm run typecheck && npm run build && npm test && node --no-warnings scripts/check-receipt.ts",
