@@ -6,6 +6,7 @@ import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
+import { dayName } from './days.ts';
 import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
@@ -247,16 +248,6 @@ function moveFeed(h: { from: string | null; to: string; by: string; look: Look }
   return { icon: h.look.icon, tone: h.look.tone, verb: 'moved it to', pill: true };
 }
 
-/** "Today", "Yesterday", or the date: the feed's day headings. */
-function dayLabel(iso: string): string {
-  const d = new Date(iso);
-  const start = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const days = Math.round((start(new Date()) - start(d)) / 86_400_000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) });
-}
-
 /** One entry in the feed: its icon on the rail, a line saying who did what, and what came with it. */
 function feedItem(bubble: HTMLElement, line: Child[], extra: HTMLElement | null = null): HTMLElement {
   return el('li', 'act-item', bubble, el('div', 'act-body', el('div', 'act-line', ...line), extra));
@@ -293,8 +284,10 @@ function renderActivity(m: TicketModel): HTMLElement | null {
   const all = memory().opened.includes(key);
   const list = el('ol', 'act-feed');
   let day = '';
+  const now = Date.now();
+  // The feed's day headings are History's day names (D-170).
   for (const it of all ? items : items.slice(0, FEED_FIRST)) {
-    const d = dayLabel(it.at);
+    const d = dayName(it.at, now);
     if (d !== day) { list.append(el('li', 'act-day', d)); day = d; }
     list.append(it.node);
   }

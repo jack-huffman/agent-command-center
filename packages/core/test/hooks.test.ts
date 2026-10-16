@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -10,7 +10,7 @@ import { DONE_COMMAND, mutate, readLedger, type Task, upsertTasks } from '../src
 import { parseConfig, type Config } from '../src/config.ts';
 import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
-import { GENERIC_CONFIG, gitIn, makeRepo, pool, tempDir } from './support.ts';
+import { GENERIC_CONFIG, gitIn, makeRepo, pool, spawnWith, tempDir } from './support.ts';
 
 const MAIN = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url));
 const FIXTURES = fileURLToPath(new URL('./fixtures/hooks/', import.meta.url));
@@ -42,18 +42,9 @@ function hook(event: string, input: unknown, env: Record<string, string>, cwd: s
 }
 
 /** `hook`, without waiting for the process, so a test can start several together (T-57). */
-function hookAsync(event: string, input: unknown, env: Record<string, string>, cwd: string): Promise<ReturnType<typeof hook>> {
-  return new Promise((done, fail) => {
-    const child = spawn(process.execPath, ['--no-warnings', MAIN, 'hook', event], { cwd, env: { ...process.env, ACC_ROLE: '', ACC_TASK: '', ...env } });
-    let out = '';
-    let err = '';
-    child.stdout.setEncoding('utf8').on('data', (d: string) => { out += d; });
-    child.stderr.setEncoding('utf8').on('data', (d: string) => { err += d; });
-    child.stdin.on('error', () => {});
-    child.on('error', fail);
-    child.on('close', (code) => done({ code, out: out.trim() ? JSON.parse(out) : null, err }));
-    child.stdin.end(typeof input === 'string' ? input : JSON.stringify(input));
-  });
+async function hookAsync(event: string, input: unknown, env: Record<string, string>, cwd: string): Promise<ReturnType<typeof hook>> {
+  const r = await spawnWith(process.execPath, ['--no-warnings', MAIN, 'hook', event], typeof input === 'string' ? input : JSON.stringify(input), { cwd, env: { ...process.env, ACC_ROLE: '', ACC_TASK: '', ...env } });
+  return { code: r.code, out: r.out.trim() ? JSON.parse(r.out) : null, err: r.err };
 }
 
 test('every hook fixture gets the outcome it expects, and no hook ever exits 2 or fails loudly', async () => {

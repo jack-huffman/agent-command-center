@@ -7,7 +7,7 @@
 import type { Model } from '../src/model/home.ts';
 import type { PaletteItem } from '../src/model/palette.ts';
 import { answerHere } from './detail.ts';
-import { el, icon, plural, refreshPage } from './dom.ts';
+import { el, focusedElement, icon, plural, refreshPage } from './dom.ts';
 import { boldParts, hintAt, PALETTE_KINDS, paletteResults, RECENTS, type Results, type Shown } from './fuzzy.ts';
 import { makeModal } from './modal.ts';
 import { api, go, memory, type PageArea, remember, state, view } from './state.ts';
@@ -167,8 +167,7 @@ function openPalette(query = ''): void {
   if (view !== 'home' || state.last?.kind !== 'home') return;
   parts ??= make();
   if (!parts.dialog.open) {
-    const a = document.activeElement as HTMLElement | null;
-    opener = a && a !== document.body ? a : null;
+    opener = focusedElement();
     parts.box.value = query;
     active = 0;
     draw();

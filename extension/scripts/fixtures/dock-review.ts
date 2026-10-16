@@ -1,15 +1,13 @@
 /** Reviews in the output panel (T-63): one that passed, one that asked for changes, one still running, and one whose verdict file isn't JSON. */
 import type { Verdict } from '../../../packages/core/src/review.ts';
 import type { RunInput } from '../../src/model/runs.ts';
-import { MIN, ROOT } from './shared.ts';
+import { excerptLine, MIN, ROOT, WELCOME_CLS } from './shared.ts';
 
 export type ReviewSample = 'passed' | 'changes' | 'reviewing' | 'unread';
 
 /** The id of the review run the panel opens on. */
 export const REVIEW_RUN = 'r-review';
 
-const CLS = 'force-app/main/default/classes/WelcomeEmailService.cls';
-const line = (n: number | null, mark: 'add' | 'del' | 'same', text: string, at = false) => ({ n, mark, text, at });
 
 /** ACME-19's verdict: changes asked, one criterion not met, a must-fix finding and one worth a look. */
 function changes(at: string): Verdict {
@@ -18,14 +16,14 @@ function changes(at: string): Verdict {
     summary: 'Marks each contact when its welcome email is sent, so a second run skips it. Contacts welcomed before this change have no mark, so they would get the email again.',
     client: 'New contacts get one welcome email, even when the flow runs twice in a day.',
     criteria: [
-      { text: 'A contact gets the welcome email once, however often the flow runs.', met: true, evidence: `${CLS}:30` },
+      { text: 'A contact gets the welcome email once, however often the flow runs.', met: true, evidence: `${WELCOME_CLS}:30` },
       { text: 'Contacts welcomed before the change don\'t get a second email.', met: false, evidence: 'Nothing reads Welcome_Sent__c any more, and no test covers a contact with only that set.' },
       { text: 'The service has a test for each path.', met: true, evidence: 'WelcomeEmailServiceTest: 6 tests.' },
       { text: 'The flow calls the service, not its own query.', met: true, evidence: 'force-app/main/default/flows/Welcome_Email.flow-meta.xml:88' },
     ],
     findings: [
-      { message: 'Name the 24-hour window once, so the flow and the class agree on it.', must: false, file: CLS, line: 12, kind: 'magic number' },
-      { message: 'Contacts welcomed before this change have no Welcome_Sent_At__c, so they get a second email. Treat Welcome_Sent__c as sent too, and test a contact with only that set.', must: true, file: CLS, line: 31, kind: 'untested edge case' },
+      { message: 'Name the 24-hour window once, so the flow and the class agree on it.', must: false, file: WELCOME_CLS, line: 12, kind: 'magic number' },
+      { message: 'Contacts welcomed before this change have no Welcome_Sent_At__c, so they get a second email. Treat Welcome_Sent__c as sent too, and test a contact with only that set.', must: true, file: WELCOME_CLS, line: 31, kind: 'untested edge case' },
     ],
   };
 }
@@ -63,15 +61,15 @@ export function sampleReviewRun(now: number, kind: ReviewSample): RunInput {
   const at = new Date(startedAt + 6 * MIN).toISOString();
   const verdict = kind === 'passed' ? passed(at) : changes(at);
   const excerpts = kind === 'passed'
-    ? [{ kind: 'diff' as const, lines: [line(5, 'same', '    <label>Renewal Date</label>'), line(6, 'add', '    <inlineHelpText>Renewal Date</inlineHelpText>', true), line(7, 'same', '    <type>Date</type>')] }]
+    ? [{ kind: 'diff' as const, lines: [excerptLine(5, 'same', '    <label>Renewal Date</label>'), excerptLine(6, 'add', '    <inlineHelpText>Renewal Date</inlineHelpText>', true), excerptLine(7, 'same', '    <type>Date</type>')] }]
     : [
-      { kind: 'unchanged' as const, lines: [line(11, 'same', '    List<Contact> queue = new List<Contact>();'), line(12, 'same', '    Integer hours = 24;', true), line(13, 'same', '    Datetime since = System.now().addHours(-hours);')] },
+      { kind: 'unchanged' as const, lines: [excerptLine(11, 'same', '    List<Contact> queue = new List<Contact>();'), excerptLine(12, 'same', '    Integer hours = 24;', true), excerptLine(13, 'same', '    Datetime since = System.now().addHours(-hours);')] },
       { kind: 'diff' as const, lines: [
-        line(29, 'same', '    for (Contact c : contacts) {'),
-        line(null, 'del', '      if (c.Welcome_Sent__c) continue;'),
-        line(30, 'add', '      if (c.Welcome_Sent_At__c >= since) continue;'),
-        line(31, 'add', '      c.Welcome_Sent_At__c = System.now();', true),
-        line(32, 'same', '      queue.add(c);'),
+        excerptLine(29, 'same', '    for (Contact c : contacts) {'),
+        excerptLine(null, 'del', '      if (c.Welcome_Sent__c) continue;'),
+        excerptLine(30, 'add', '      if (c.Welcome_Sent_At__c >= since) continue;'),
+        excerptLine(31, 'add', '      c.Welcome_Sent_At__c = System.now();', true),
+        excerptLine(32, 'same', '      queue.add(c);'),
       ] },
     ];
   const out = verdict.verdict === 'pass' ? `✓ Review passed: ${verdict.summary}` : `↺ Changes asked for: ${verdict.summary}`;

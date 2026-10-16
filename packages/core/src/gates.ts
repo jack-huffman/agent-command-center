@@ -442,11 +442,14 @@ export function priorTests(paths: RepoPaths, config: Pick<Config, 'profile'>, sh
 
 // ---------------------------------------------------------------- what changed
 
+/** The paths a list's text holds: one per line, trimmed, blank lines and `#` comments left out. */
+export const listLines = (text: string): string[] => text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+
 /** Paths listed in an environment-specific or known-drift file: one per line, `#` for comments. */
 export function readList(root: string, rel: string | null): string[] {
   if (!rel) return [];
   try {
-    return readFileSync(join(root, rel), 'utf8').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+    return listLines(readFileSync(join(root, rel), 'utf8'));
   } catch {
     return [];
   }

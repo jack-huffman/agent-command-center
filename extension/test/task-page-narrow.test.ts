@@ -32,3 +32,12 @@ test('at 760 px and below the Agent panel sits where the content starts: no pane
 test('edge case: a tracker that gives no status says so in the head (or shows a dash), not in a Details row', () => {
   assert.ok(pageSource('task-page.ts').includes("let statusCtl: Child = statusEl ?? (lack('status') ? el('span', 'muted', lack('status')!.line) : el('span', 'muted', '—'))"));
 });
+
+test('the activity feed heads its days with History\'s dayName, and keeps no day namer of its own (T-70)', () => {
+  const src = pageSource('task-page.ts');
+  assert.match(src, /import \{ dayName \} from '\.\/days\.ts';/);
+  assert.equal(src.match(/dayName\(it\.at, now\)/g)?.length, 1, 'each feed entry\'s day comes from dayName');
+  // The edge case: a second, local namer would let the feed and History name one day two ways.
+  assert.ok(!/function day\w*\(/.test(src), 'no local day namer');
+  assert.ok(!src.includes('toLocaleDateString'), 'no date written outside dayName');
+});

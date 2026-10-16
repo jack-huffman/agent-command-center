@@ -122,6 +122,15 @@ test('two entries at the same moment go in their ids\' order, so a page after on
   assert.equal(pageOrder(a, b), newestFirst(a, b), 'the page\'s copy orders them the same');
 });
 
+test('the page\'s copy of newestFirst agrees with the model\'s for every pair, at other moments and the same one (T-70)', () => {
+  const at = iso(T0);
+  const all: HistoryItem[] = [...entries(10), { ...moves(1)[0]!, id: 'move:a', at }, { ...moves(1)[0]!, id: 'move:b', at }];
+  let pairs = 0;
+  for (const x of all) for (const y of all) { assert.equal(Math.sign(pageOrder(x, y)), Math.sign(newestFirst(x, y)), `${x.id} against ${y.id}`); pairs++; }
+  assert.equal(pairs, all.length ** 2);
+  assert.ok(all.some((x) => x.at !== at), 'some entries are at other moments');
+});
+
 test('a filter has its own pages, and its counts come from every entry, not the page', () => {
   const all = entries(300);
   const counts = historyCounts(all);

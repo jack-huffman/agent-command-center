@@ -7,7 +7,7 @@ import { BUILT_IN_GATES, builderGatesFor, parseConfig, type Config, requiredGate
 import { drift, driftReportPath } from '../src/drift.ts';
 import type { RunOptions, RunResult, Runner } from '../src/exec.ts';
 import {
-  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, nearTests, priorTests, readAnalyzer, readDeploy, runGates, settle, validateArgs, waiveGates,
+  assertCheckOnly, changesFor, checkEnv, gatesFor, gateTarget, listLines, nearTests, priorTests, readAnalyzer, readDeploy, readList, runGates, settle, validateArgs, waiveGates,
 } from '../src/gates.ts';
 import { checkMove, emptyLedger, type Task } from '../src/ledger.ts';
 import { builderSettings } from '../src/packet.ts';
@@ -1041,4 +1041,13 @@ test('a ratchet can\'t be waived: a person relaxes its floor instead (GH-99)', (
     (e: Error & { code?: string }) => e.code === 'refused' && e.message === 'tests is a ratchet: waived, its number could merge below its floor and fail every task after it. A person relaxes the floor instead: acc gate relax tests --to <n> --reason "<why>".',
   );
   assert.equal(readReceipt(r.paths, sha, 'tests')?.status, 'fail', 'its receipt is as it was');
+});
+
+test('listLines reads a path list as readList, promotion and deploy all read it; edge case: empty text, or only comments, gives none (T-70)', () => {
+  assert.deepEqual(listLines('config/prod.json\n  # orgs differ\n\n  manifest/a.xml  \n#x\n'), ['config/prod.json', 'manifest/a.xml']);
+  assert.deepEqual(listLines(''), []);
+  assert.deepEqual(listLines('\n# only a comment\n'), []);
+  const root = tempDir();
+  writeFileSync(join(root, 'list.txt'), 'a\n# b\n c \n');
+  assert.deepEqual(readList(root, 'list.txt'), ['a', 'c'], 'readList gives what listLines gives for the file');
 });

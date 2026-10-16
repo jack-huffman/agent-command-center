@@ -2,8 +2,10 @@
 // window: activate.test.ts checks what they do, and junk.test.ts that none of them throws on bad arguments
 // (GH-106). It's strict: reading an API it doesn't have throws "fake vscode has no <name>", so a gap in the
 // stand-in reads as one, never as a bug in the extension.
+import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { tempDir } from '../../packages/core/test/support.ts';
 
 const disposable = { dispose() {} };
 const event = () => () => disposable;
@@ -183,6 +185,39 @@ export async function until(fn: () => boolean, ms = 20_000, what?: string): Prom
     if (Date.now() > end) throw new Error(`timed out after ${ms} ms${what ? ` waiting for ${what}` : ''}`);
     await new Promise((r) => setTimeout(r, 50));
   }
+}
+
+/** The tools a sandbox stands in for, each one a script on its PATH. */
+export const SANDBOX_TOOLS = ['gh', 'claude', 'sf', 'code', 'open', 'osascript', 'caffeinate'] as const;
+
+/**
+ * A sandbox for the built extension, made by a test in place of the machine's own (T-70): a home with an
+ * empty Claude config, acc's state folders, and a stand-in for each of SANDBOX_TOOLS, which runs
+ * `tool(name, at)` (by default it fails at once). It points the process's environment at them and clears
+ * ACC_ROLE and ACC_TASK; restore() gives the environment back as it was, dropping what was added.
+ */
+export function sandboxEnv(prefix: string, tool: (name: string, at: (...p: string[]) => string) => string = () => 'exit 1\n'): { at: (...p: string[]) => string; restore: () => void } {
+  const sandbox = realpathSync(tempDir(prefix));
+  const at = (...p: string[]) => join(sandbox, ...p);
+  for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
+  writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
+  for (const name of SANDBOX_TOOLS) {
+    writeFileSync(at('bin', name), `#!/bin/sh\n${tool(name, at)}`);
+    chmodSync(at('bin', name), 0o755);
+  }
+  const saved = { ...process.env };
+  Object.assign(process.env, {
+    HOME: at('home'), CLAUDE_CONFIG_DIR: at('home', '.claude'), PATH: `${at('bin')}:${process.env.PATH}`, NO_COLOR: '1',
+    ACC_QUESTIONS_DIR: at('state', 'questions'), ACC_HEAVY_DIR: at('state', 'heavy'), ACC_MACHINE_FILE: at('state', 'machine.json'), ACC_REPOS_FILE: at('state', 'repos.json'),
+    ACC_RUNTIME_FILE: at('state', 'runtime'), ACC_SLACK_DIR: at('state', 'slack'),
+  });
+  delete process.env.ACC_ROLE;
+  delete process.env.ACC_TASK;
+  const restore = (): void => {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  };
+  return { at, restore };
 }
 
 /**

@@ -4,7 +4,7 @@
 // the modal over the board, over the Command Center; with the Command Center closed, it opens first, then
 // the sheet. The sheet's Dispatch reaches acc dispatch. Run after npm run build.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
@@ -12,8 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import type { DispatchSheet } from '../src/model/dispatch-sheet.ts';
 import { openSheet, SHEET_MESSAGE, sheetInput } from '../src/dispatch-sheet.ts';
-import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
-import { activate, fakeVscode, until } from './vscode.ts';
+import { makeRepo } from '../../packages/core/test/support.ts';
+import { activate, fakeVscode, sandboxEnv, until } from './vscode.ts';
 import { row } from './support.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
@@ -21,25 +21,11 @@ const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 type Tab = ReturnType<typeof fakeVscode>['panels'][number];
 type Msg = { type?: string; sheet?: DispatchSheet; model?: { kind: string; key?: string; loading?: boolean }; [k: string]: unknown };
 
-const s = {} as { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof activate>; repo: string; root: string; tab: Tab; id: string; saved: NodeJS.ProcessEnv };
+const s = {} as { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof activate>; repo: string; root: string; tab: Tab; id: string; restore: () => void };
 
 before(async () => {
-  const sandbox = realpathSync(tempDir('acc-dispatch-sheet-'));
-  const at = (...p: string[]) => join(sandbox, ...p);
-  for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
-  writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
-  for (const name of ['gh', 'claude', 'sf', 'code', 'open', 'osascript', 'caffeinate']) {
-    writeFileSync(at('bin', name), '#!/bin/sh\nexit 1\n');
-    chmodSync(at('bin', name), 0o755);
-  }
-  s.saved = { ...process.env };
-  Object.assign(process.env, {
-    HOME: at('home'), CLAUDE_CONFIG_DIR: at('home', '.claude'), PATH: `${at('bin')}:${process.env.PATH}`, NO_COLOR: '1',
-    ACC_QUESTIONS_DIR: at('state', 'questions'), ACC_HEAVY_DIR: at('state', 'heavy'), ACC_MACHINE_FILE: at('state', 'machine.json'), ACC_REPOS_FILE: at('state', 'repos.json'),
-    ACC_RUNTIME_FILE: at('state', 'runtime'), ACC_SLACK_DIR: at('state', 'slack'),
-  });
-  delete process.env.ACC_ROLE;
-  delete process.env.ACC_TASK;
+  const { at, restore } = sandboxEnv('acc-dispatch-sheet-');
+  s.restore = restore;
   s.repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }], trackers: [] }), '.gitignore': '.claude/worktrees/\n' });
   s.fake = fakeVscode(s.repo);
   const version = (JSON.parse(readFileSync(join(dist, '..', '..', 'package.json'), 'utf8')) as { version: string }).version;
@@ -62,8 +48,7 @@ before(async () => {
 after(() => {
   s.started?.stop();
   delete createRequire(import.meta.url).cache[dist];
-  for (const k of Object.keys(process.env)) if (!(k in s.saved)) delete process.env[k];
-  Object.assign(process.env, s.saved);
+  s.restore();
 });
 
 const since = (tab: Tab, from: number): Msg[] => tab.posted.slice(from) as Msg[];

@@ -103,8 +103,9 @@ function isVerdict(v: unknown): v is Verdict {
 }
 
 /**
- * A review run's verdict from its file's text: null when the run wrote none, as a review that was refused or
- * failed, and the newest file is an older review's, from before the run started; or why the file can't be read.
+ * A review run's verdict from its file's text, or why there's none to show: the run wrote none, as a review
+ * that was refused or failed (no file, or the newest is an older review's, from before the run started), or
+ * the file can't be read as a verdict.
  */
 export function verdictFrom(text: string | null, startedAt: number): { verdict: Verdict } | { why: string } {
   if (text === null) return { why: 'The review wrote no verdict. Its output says why.' };

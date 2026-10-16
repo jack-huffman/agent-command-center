@@ -2,6 +2,7 @@
 // every browser it started, with each one's helper processes, and a run with nothing running stops nothing.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -86,5 +87,15 @@ test('with nothing running, stopAll stops nothing, and a browser that never star
   assert.equal(never.pid, undefined, 'it never had a process');
   assert.doesNotThrow(() => stop(never));
   assert.equal(runningCount(), 0, 'its error drops it');
-  assert.equal(typeof stopOnExit, 'function');
+});
+
+test('a second stopOnExit call adds no second set of listeners (T-70)', () => {
+  // A stand-in process: only its listeners are read, so nothing here exits or is signalled.
+  const proc = new EventEmitter();
+  const EVENTS = ['exit', 'SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection'];
+  const counts = () => EVENTS.map((e) => proc.listenerCount(e));
+  stopOnExit(proc as unknown as NodeJS.Process);
+  assert.deepEqual(counts(), [1, 1, 1, 1, 1], 'the first call listens once for each way a run ends');
+  stopOnExit(proc as unknown as NodeJS.Process);
+  assert.deepEqual(counts(), [1, 1, 1, 1, 1], 'the second call adds none');
 });

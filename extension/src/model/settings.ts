@@ -1,7 +1,7 @@
 /**
  * The Settings section (GH-109): the Command Center's own choices on this machine, how agents run in each
- * project (GH-110), the limits and checks they run under (GH-111), a part for each area that will gather its
- * settings here, and, until a part is built, where its settings live today.
+ * project (GH-110), the limits and checks they run under (GH-111), and a part for each area, with its
+ * settings here. Every part is built; a part that wasn't would say where its settings live today.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
@@ -207,8 +207,8 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
   const on = !!cloud;
   const look: Look = !on ? { label: 'off', icon: 'circle-slash', tone: 'neutral' } : reason ? { label: 'on, not ready', icon: 'warning', tone: 'orange' } : { label: 'on', icon: 'cloud', tone: 'blue' };
   const meaning = !on
-    ? github ? 'A local builder is the default everywhere. Turn this on to offer Dispatch to the cloud for each task: a Claude Code cloud session the project\'s routine starts, followed through its branch on GitHub.' : 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back.'
-    : `Each task can go to the cloud, from Dispatch to the cloud on its card, or stay on this Mac. ${reason ? `${reason}.` : 'Setup checks the routine\'s token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on this Mac when acc collects the branch; where GitHub enforces no protection on a branch, a push past the guard would be caught then, after the fact.`;
+    ? github ? 'A local builder is the default everywhere. Turn this on to offer the cloud in each task\'s Dispatch sheet: a Claude Code cloud session the project\'s routine starts, followed through its branch on GitHub.' : 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back.'
+    : `Each task can go to the cloud, picked in its Dispatch sheet, or stay on this Mac. ${reason ? `${reason}.` : 'Setup checks the routine\'s token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on this Mac when acc collects the branch; where GitHub enforces no protection on a branch, a push past the guard would be caught then, after the fact.`;
   const action = (command: string, label: string, icon: string, name: string, primary = false, disabled: string | null = null): SettingsAction => ({ command, label, icon, arg: p.root, name, primary, disabled });
   const actions: SettingsAction[] = !on
     ? [action('acc.cloud.enable', 'Turn on…', 'cloud', `Turn on cloud builders for ${p.name}`, false, github ? null : 'Cloud builders need the repo on GitHub')]

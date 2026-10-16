@@ -4,12 +4,12 @@
 // is covered without anyone adding it here. Each call must settle within the time limit without throwing,
 // no promise may reject unhandled, and nothing outside the repo may change. Run after npm run build.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { changes, makeRepo, pool, snapshot, tempDir } from '../../packages/core/test/support.ts';
-import { activate, fakeVscode } from './vscode.ts';
+import { changes, makeRepo, pool, snapshot } from '../../packages/core/test/support.ts';
+import { activate, fakeVscode, sandboxEnv } from './vscode.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 /** The extension's folder, as VSCode gives it: its package.json, media/ and dist/. */
@@ -64,23 +64,9 @@ test('the harness catches a command that throws, rejects, hangs or leaves a reje
 });
 
 test('every contributed command survives junk arguments (GH-106)', { timeout: 20 * 60_000 }, async (t) => {
-  const sandbox = realpathSync(tempDir('acc-ext-junk-'));
-  const at = (...p: string[]) => join(sandbox, ...p);
-  for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin', 'OUTSIDE/X']) mkdirSync(at(d), { recursive: true });
-  writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
+  const { at, restore } = sandboxEnv('acc-ext-junk-');
+  mkdirSync(at('OUTSIDE', 'X'), { recursive: true });
   writeFileSync(at('OUTSIDE', 'sentinel.txt'), 'The extension must never change this file.\n');
-  for (const name of ['gh', 'claude', 'sf', 'code', 'open', 'osascript', 'caffeinate']) {
-    writeFileSync(at('bin', name), '#!/bin/sh\nexit 1\n');
-    chmodSync(at('bin', name), 0o755);
-  }
-  const saved = { ...process.env };
-  Object.assign(process.env, {
-    HOME: at('home'), CLAUDE_CONFIG_DIR: at('home', '.claude'), PATH: `${at('bin')}:${process.env.PATH}`, NO_COLOR: '1',
-    ACC_QUESTIONS_DIR: at('state', 'questions'), ACC_HEAVY_DIR: at('state', 'heavy'), ACC_MACHINE_FILE: at('state', 'machine.json'), ACC_REPOS_FILE: at('state', 'repos.json'),
-    ACC_RUNTIME_FILE: at('state', 'runtime'), ACC_SLACK_DIR: at('state', 'slack'),
-  });
-  delete process.env.ACC_ROLE;
-  delete process.env.ACC_TASK;
   const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', profile: 'generic', environments: [{ name: 'main', default: true }], trackers: [{ kind: 'github' }] }), '.gitignore': '.claude/worktrees/\n' });
   const outside = at('OUTSIDE');
   const JUNK: [string, unknown[]][] = [
@@ -148,7 +134,6 @@ test('every contributed command survives junk arguments (GH-106)', { timeout: 20
     });  } finally {
     started.stop();
     process.off('unhandledRejection', onRejection);
-    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
-    Object.assign(process.env, saved);
+    restore();
   }
 });

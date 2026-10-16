@@ -3,7 +3,7 @@
 // install, against the vscode stand-in. The last two need npm run build first, for the extension's bundle.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -15,7 +15,7 @@ import type { AboutFacts, Release } from '../src/model/about.ts';
 import { RELEASE_EVERY_MS, RELEASES_REPO } from '../src/model/about.ts';
 import type { RunResult } from '../src/run.ts';
 import { area as selfUpdateArea, SelfUpdate, type SelfUpdateDeps } from '../src/self-update.ts';
-import { activate, fakeVscode, memento, until } from './vscode.ts';
+import { activate, fakeVscode, memento, sandboxEnv, until } from './vscode.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -289,22 +289,7 @@ test('the page\'s Install and reload runs the update with the version it names',
 
 /** The built extension in a sandbox of its own, with what the install saved before the reload. */
 async function activated(saved: unknown, fn: (fake: ReturnType<typeof fakeVscode>, state: { get(k: string): unknown }) => Promise<void>): Promise<void> {
-  const sandbox = realpathSync(tempDir('acc-self-update-'));
-  const at = (...p: string[]) => join(sandbox, ...p);
-  for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
-  writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
-  for (const name of ['gh', 'claude', 'sf', 'code', 'open', 'osascript', 'caffeinate']) {
-    writeFileSync(at('bin', name), '#!/bin/sh\nexit 1\n');
-    chmodSync(at('bin', name), 0o755);
-  }
-  const env = { ...process.env };
-  Object.assign(process.env, {
-    HOME: at('home'), CLAUDE_CONFIG_DIR: at('home', '.claude'), PATH: `${at('bin')}:${process.env.PATH}`, NO_COLOR: '1',
-    ACC_QUESTIONS_DIR: at('state', 'questions'), ACC_HEAVY_DIR: at('state', 'heavy'), ACC_MACHINE_FILE: at('state', 'machine.json'), ACC_REPOS_FILE: at('state', 'repos.json'),
-    ACC_RUNTIME_FILE: at('state', 'runtime'), ACC_SLACK_DIR: at('state', 'slack'),
-  });
-  delete process.env.ACC_ROLE;
-  delete process.env.ACC_TASK;
+  const { restore } = sandboxEnv('acc-self-update-');
   const repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }] }) });
   const fake = fakeVscode(repo);
   const started = activate(dist, fake, { 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', version: running(), items: [] }, ...(saved === undefined ? {} : { [AFTER_STATE]: saved }) });
@@ -315,8 +300,7 @@ async function activated(saved: unknown, fn: (fake: ReturnType<typeof fakeVscode
   } finally {
     started.stop();
     delete createRequire(import.meta.url).cache[dist];
-    for (const k of Object.keys(process.env)) if (!(k in env)) delete process.env[k];
-    Object.assign(process.env, env);
+    restore();
   }
 }
 

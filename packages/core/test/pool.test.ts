@@ -1,8 +1,9 @@
-// The shared test support's pool (T-57): the slow tests start their processes through it, so they run a few at
-// once and still read their results in order.
+// The shared test support's pool (T-57) and spawnWith: the slow tests start their processes through them, so they
+// run a few at once and still read their results in order.
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { pool, PoolError } from './support.ts';
+import { pool, PoolError, spawnWith, tempDir } from './support.ts';
 
 const later = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -77,4 +78,16 @@ test('a call that throws without waiting, and a rejection that is not an Error, 
 
 test('a size that is not a whole number of 1 or more is refused', async () => {
   for (const size of [0, -1, 1.5, NaN]) await assert.rejects(pool([1], size, (n) => n), RangeError, String(size));
+});
+
+test('spawnWith gives a program its input and gathers both outputs and its code, and the pool runs several (T-70)', async () => {
+  const echo = 'let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => { process.stdout.write(s.toUpperCase()); process.stderr.write("e" + s); process.exit(s.length); })';
+  const ran = await pool(['ab', 'cde'], 2, (s) => spawnWith(process.execPath, ['-e', echo], s));
+  assert.deepEqual(ran, [{ code: 2, out: 'AB', err: 'eab' }, { code: 3, out: 'CDE', err: 'ecde' }]);
+});
+
+test('spawnWith rejects for a program that is not there, and keeps the output of one that exits before it reads its input', async () => {
+  await assert.rejects(spawnWith(join(tempDir(), 'no-such-program-t70'), [], 'x'), { code: 'ENOENT' });
+  const quick = await spawnWith(process.execPath, ['-e', 'process.stdout.write("gone"); process.exit(4)'], 'x'.repeat(1 << 20));
+  assert.deepEqual(quick, { code: 4, out: 'gone', err: '' });
 });

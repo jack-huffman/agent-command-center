@@ -5,8 +5,9 @@
  * as the screenshot run draws it, measures itself with COLLECT_GEOMETRY and writes what it found into
  * the DOM Chrome dumps; judge() decides, with no browser, so its rules are unit-tested.
  *
- * Each check says how many elements it examined, and one that examined none fails: a page that drew
- * nothing can't pass.
+ * Each check says how many elements it examined. A page fails when its clipped or words check examined
+ * none, or its overlap, tab or overview check where the page has what that check reads; a whole run fails
+ * when a check's total is below RUN_FLOOR. So a page that drew nothing can't pass.
  */
 
 import { COLLECT_WORDS, type GeoSaid, judgeWords, WORK_DATA } from './words.ts';

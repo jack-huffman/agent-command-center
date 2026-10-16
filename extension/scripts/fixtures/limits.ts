@@ -18,7 +18,7 @@ export function sampleProjectLimits(): ProjectLimits {
   };
 }
 
-/** Two heavy-check slots, one in use and one check waiting; a total of six across two repos, four running. */
+/** Two heavy-check slots, both in use and one check waiting; a total of six across two repos, four running. */
 export function sampleLimits(): LimitsFacts {
   return {
     machine: { slots: 2, slotsFrom: 'machine', inUse: 2, waiting: 1, total: 6, running: 4, repos: 2 },

@@ -1512,7 +1512,7 @@ function sinceData(model: Model): BehaviourData['since'] {
   return { part: g.part, title: g.title, tasks: g.rows.map((r) => r.id ?? ''), open: { type: 'task-modal-open', project: first.project, key: first.key } };
 }
 
-/** What the board's key cases expect (T-54), from the Tasks board's model: the Jira board it opens on, and the agent board. */
+/** What the Dispatch sheet's cases expect (D-168): ACME-16's sheet, whose builder's model takes no effort, Another model…, and ACME-19's rework sheet with the cloud off. */
 function sheetData(now: number): BehaviourData['sheet'] {
   const input = sampleSheetInput(now, 'no-effort');
   const sheet = dispatchSheet(input);
@@ -1542,6 +1542,7 @@ function sheetData(now: number): BehaviourData['sheet'] {
   };
 }
 
+/** What the board's key cases expect (T-54), from the Tasks board's model: the Jira board it opens on, and the agent board. */
 function keysData(model: Model): BehaviourData['keys'] {
   if (model.kind !== 'home') throw new Error('The board key cases need a home model.');
   const board = model.tasks.projects[0]?.boards[0];
@@ -1790,7 +1791,7 @@ window.acquireVsCodeApi = () => ({
 });`;
 }
 
-/** A case's page, with its model and data, in the light theme. `fonts` are the fonts VSCode would set; the screenshot run's own (FONTS in screenshot.ts) is passed in, so this file imports nothing of it. */
+/** A case's page, with its model and data, under VSCode's light theme with the page's own theme set to Dark. `fonts` are the fonts VSCode would set; the screenshot run's own (FONTS in screenshot.ts) is passed in, so this file imports nothing of it. */
 export function behaviourPage(c: Case, model: Model, data: BehaviourData, fonts: Record<string, string>, script = 'webview/main.js'): string {
   const vars = Object.entries({ ...palettes().light, ...fonts }).map(([k, v]) => `--vscode-${k}: ${v};`).join(' ');
   return `<!DOCTYPE html>

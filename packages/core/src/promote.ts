@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { carriedTasks } from './carried.ts';
 import { type Config, type Environment } from './config.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
-import { assertCheckOnly, listed, niced, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
+import { assertCheckOnly, listed, listLines, niced, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { mutate, type Promotion, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -94,7 +94,7 @@ function specificOn(run: Runner, root: string, config: Config, refs: string[]): 
   for (const ref of refs) {
     const r = git(run, root, 'show', `${ref}:${config.environmentSpecific}`);
     if (r.code !== 0) continue;
-    for (const l of r.stdout.split('\n').map((x) => x.trim()).filter((x) => x && !x.startsWith('#'))) out.add(l);
+    for (const l of listLines(r.stdout)) out.add(l);
   }
   return [...out];
 }
@@ -179,10 +179,6 @@ export function promotionBody(plan: PromotionPlan, validation: Outcome | null): 
 }
 
 /**
- * Builds the promotion branch from the destination, validates it against the destination's org when
- * there is one, pushes it as the repo's account, and opens the pull request. Never merges or deploys.
- */
-/**
  * The promotion's own check: a check-only deploy of what it brings, to the destination's org. Unlike a
  * task's validate gate, it goes to a protected org too, since that's where a promotion is headed, and
  * runs the org's local tests when Apex changes. Nothing is saved to the org.
@@ -236,6 +232,10 @@ export function promote(paths: RepoPaths, config: Config, fromName: string, toNa
   return withJob(paths, job, () => promoteNow(paths, config, fromName, toName, deps, opts), deps.now);
 }
 
+/**
+ * Builds the promotion branch from the destination, validates it against the destination's org when
+ * there is one, pushes it as the repo's account, and opens the pull request. Never merges or deploys.
+ */
 function promoteNow(paths: RepoPaths, config: Config, fromName: string, toName: string | undefined, deps: PromoteDeps, opts: PromoteOpts): PromoteResult {
   const { run, now } = deps;
   const steps = deps.steps ?? NO_STEPS;

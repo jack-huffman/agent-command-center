@@ -50,10 +50,11 @@ export interface Parts {
   selfUpdate: SelfUpdate;
   /** acc's bundle, which the extension runs itself. */
   accScript: string;
-  /** Registers a command. regNode turns a row's menu context into its node first. */
+  /** Registers a command. */
   reg: (id: string, fn: Handler) => void;
   /** Ends something with the extension, such as a listener. */
   subscribe: (d: vscode.Disposable) => void;
+  /** Registers a command that turns a row's menu context into its node first. */
   regNode: (id: string, fn: Handler) => void;
   /** Runs a command for what a tab's Ref names, as the sidebar's node. */
   resolve: (command: string, ref: Ref) => unknown;

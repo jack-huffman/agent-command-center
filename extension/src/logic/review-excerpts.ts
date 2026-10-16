@@ -110,7 +110,7 @@ export function parseDiff(out: string): FileDiff {
 const lineOf = (f: Pick<Finding, 'line'>): number | null => (typeof f.line === 'number' && Number.isInteger(f.line) && f.line >= 1 ? f.line : null);
 
 /**
- * The merge base of the reviewed commit and the environment's branch: its own, else origin's copy's.
+ * The merge base of the reviewed commit and the environment's branch: origin's copy's, else its own.
  * Null when git finds neither.
  */
 export async function mergeBase(git: Git, checkout: string, branch: string, sha: string): Promise<string | null> {

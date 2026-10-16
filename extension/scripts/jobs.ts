@@ -6,10 +6,10 @@
 import { spawn } from 'node:child_process';
 import { stop, track } from './stops.ts';
 
-/** How many pages the run draws at once unless --jobs says. */
-
 /** How many jobs or slots k gives for n items: a whole number, at least 1, at most n. */
 const slotsFor = (k: number, n: number): number => Math.min(Math.max(1, Math.floor(k) || 1), n);
+
+/** How many pages the run draws at once unless --jobs says. */
 export const DEFAULT_JOBS = 3;
 
 /** --jobs as a count: DEFAULT_JOBS when it isn't given, null when it isn't a whole number of 1 or more. */
@@ -73,6 +73,8 @@ export async function runJobs<T, R>(items: readonly T[], k: number, work: (item:
 /**
  * Runs work on every item, at most k at once: each of k slots takes the next item not yet started, so a
  * slot's folders are only ever used by one item at a time. emit gets each result in the items' order.
+ * When an item fails, the other items still run, and the first failure is thrown at the end; the test
+ * support's pool, which stops at the first failure, is kept apart for that (jobs.test.ts pins both).
  */
 export async function pool<T, R>(items: readonly T[], k: number, work: (item: T, slot: number, index: number) => Promise<R>, emit: (result: R, index: number) => void = () => {}): Promise<R[]> {
   const results: R[] = [];

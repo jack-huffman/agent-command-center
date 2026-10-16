@@ -70,6 +70,19 @@ const STEPS_MS = 250;
 const STEPS_FILE = 'steps.jsonl';
 
 /**
+ * Opens a file in an editor, its cursor at the start of `line` (counted from 0). An editor that can't open
+ * it says why, naming the file as `shown`. A run's output (T-64) and a review's excerpts (T-63) open files this way.
+ */
+export async function showFileAt(path: string, shown: string, line: number): Promise<void> {
+  try {
+    const at = new vscode.Position(line, 0);
+    await vscode.window.showTextDocument(vscode.Uri.file(path), { selection: new vscode.Range(at, at), preview: true });
+  } catch (e) {
+    void vscode.window.showWarningMessage(`Couldn't open ${shown}: ${(e as Error).message}`);
+  }
+}
+
+/**
  * Commands acc runs for you (D-030): setup's fixes, opening an org, comparing branches. Each runs as a
  * child process whose output goes to the page as it comes, instead of into a terminal you have to
  * find. When one goes quiet on a question ("Continue? [y/N]", "Password:"), the page asks it for you.
@@ -233,12 +246,7 @@ export class Runs implements vscode.Disposable {
       void vscode.window.showWarningMessage(`${file} isn't in the folder ${r.label} ran in, so it doesn't open.`);
       return;
     }
-    try {
-      const at = new vscode.Position(Math.max(0, (line ?? 1) - 1), 0);
-      await vscode.window.showTextDocument(vscode.Uri.file(path), { selection: new vscode.Range(at, at), preview: true });
-    } catch (e) {
-      void vscode.window.showWarningMessage(`Couldn't open ${file}: ${(e as Error).message}`);
-    }
+    await showFileAt(path, file, Math.max(0, (line ?? 1) - 1));
   }
 
   /** Saves the finished runs, each with the end of its output. */
