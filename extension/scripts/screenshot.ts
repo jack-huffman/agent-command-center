@@ -54,6 +54,7 @@ import { sampleRulesHub } from './fixtures/rules.ts';
 import { sampleRuns } from './fixtures/runs.ts';
 import { REVIEW_RUN, type ReviewSample, sampleReviewRun } from './fixtures/dock-review.ts';
 import { RUN_SAMPLE_ID, type RunSample, sampleRunView } from './fixtures/run-view.ts';
+import { sampleStepRun, STEP_SAMPLE_ID, STEP_SAMPLE_OPEN, type StepSample } from './fixtures/run-steps.ts';
 import { CLIENTS, ROOT } from './fixtures/shared.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
 import { sampleFirstSetup, sampleSetup } from './fixtures/setup.ts';
@@ -112,7 +113,7 @@ import { jobsOption, type Ran, runAsync, runJobs } from './jobs.ts';
  * more rows than the panel shows, a lint that failed, and the deploy done with its Details open. The run waiting
  * for an answer is the output page's.
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread', 'dispatch-sheet', 'ticket-dispatch', 'tasks-card-menu', 'dispatch-sheet-anyway', 'output-running', 'output-done', 'output-failed', 'output-details'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread', 'dispatch-sheet', 'ticket-dispatch', 'tasks-card-menu', 'dispatch-sheet-anyway', 'output-running', 'output-done', 'output-failed', 'output-details', 'output-steps-running', 'output-steps-failed', 'output-steps-done'] as const;
 export type Page = (typeof PAGES)[number];
 
 /**
@@ -154,6 +155,9 @@ export const OUTPUT_REVIEWS: Partial<Record<Page, ReviewSample>> = { 'output-pas
 /** The output panel's pages of a run as rows (T-64), by the run each shows. */
 export const OUTPUT_RUNS: Partial<Record<Page, RunSample>> = { 'output-running': 'running', 'output-done': 'done', 'output-failed': 'failed', 'output-details': 'done' };
 
+/** The output panel's pages of a run of acc as a list of steps (T-65), by the run each shows. */
+export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-running': 'steps-running', 'output-steps-failed': 'steps-failed', 'output-steps-done': 'steps-done' };
+
 /** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
 export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = 'vscode'): Model {
   // The loading screen is drawn with the Overview's model held back (STILL): it never arrives.
@@ -177,6 +181,10 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   // A run in the output panel as rows (T-64), over the Tasks board, with the other runs behind it in the picker.
   if (OUTPUT_RUNS[kind]) {
     return homeModel({ hub: sampleHub(now), section: 'tasks', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: [sampleRunView(now, OUTPUT_RUNS[kind]!), ...sampleRuns(now)], edited: sampleEdited, slack: sampleSlack('on', now), theme, now });
+  }
+  // A run of acc in the output panel as a list of steps (T-65), over the Tasks board.
+  if (OUTPUT_STEPS[kind]) {
+    return homeModel({ hub: sampleHub(now), section: 'tasks', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: [sampleStepRun(now, OUTPUT_STEPS[kind]!), ...sampleRuns(now)], edited: sampleEdited, slack: sampleSlack('on', now), theme, now });
   }
   if (kind === 'ticket') return sampleTicket(now);
   if (kind === 'ticket-questions') return sampleTicket(now, 'ACME-21');
@@ -243,6 +251,13 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   });
 }
 
+/** A run of acc's steps open in the panel (T-65), with the step its sample opens. */
+function stepsState(k: StepSample): unknown {
+  const id = STEP_SAMPLE_ID[k];
+  const step = STEP_SAMPLE_OPEN[k];
+  return { dock: { open: true, run: id }, ...(step ? { opened: [`run-step:${id}:${step}`] } : {}) };
+}
+
 /**
  * What the page remembers when it opens: the output page starts with the panel open, the split ticket
  * with two of its analysis's lists open, to see them laid out, and ACME-12's with the edit typed for the
@@ -256,6 +271,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   // A run as rows (T-64); the done deploy also with its Details open.
   : kind === 'output-details' ? { dock: { open: true, run: RUN_SAMPLE_ID.done }, opened: [`dock-details:${RUN_SAMPLE_ID.done}`] }
   : OUTPUT_RUNS[kind] ? { dock: { open: true, run: RUN_SAMPLE_ID[OUTPUT_RUNS[kind]!] } }
+  // A run of acc's steps (T-65); the failed promotion with its failed check open to its rows.
+  : OUTPUT_STEPS[kind] ? stepsState(OUTPUT_STEPS[kind]!)
   : kind === 'rules' ? { detail: { kind: 'rules' } }
   : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'], detail: { kind: 'rules' } }
   : kind === 'overview-answer' ? { detail: { kind: 'question', id: 'm1-aaaa0002' } }

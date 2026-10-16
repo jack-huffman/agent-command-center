@@ -19,6 +19,11 @@ export interface SidebarHelpers {
    * than done or failed; `review` makes it a review of a task, which the panel shows as one (T-63).
    */
   run?: (command: string, cwd: string, label: string, onExit?: (code: number | null) => void, ok?: (code: number | null) => boolean, review?: StartOptions['review']) => void;
+  /**
+   * Runs acc with --json in the page's output panel, where its steps show (T-65), and gives back its answer
+   * once it ends: its exit code and what it printed to stdout.
+   */
+  runAccShown?: (args: string[], cwd: string, label: string) => Promise<{ code: number; stdout: string; stderr: string }>;
   /** Opens a session's activity page. A session that has ended needs the hint to find its transcript. */
   watch?: (key: string, ended?: AgentSession, active?: () => boolean) => boolean;
   /** How a shell runs the bundled acc, for commands run in the page. */
@@ -82,9 +87,12 @@ export class Sidebar {
     this.log.info(`Ran in terminal: ${command}`);
   }
 
-  /** Runs acc, reports what it refused in plain words, and refreshes the tasks. */
-  protected async runAcc(project: Project, args: string[], done: (out: any) => string | undefined): Promise<boolean> {
-    const r = await this.acc([...args, '--json'], project.root);
+  /**
+   * Runs acc, reports what it refused in plain words, and refreshes the tasks. Given a label, and a page to
+   * show it in, it runs in the output panel, which lists its steps as it goes (T-65).
+   */
+  protected async runAcc(project: Project, args: string[], done: (out: any) => string | undefined, shown?: string): Promise<boolean> {
+    const r = shown && this.helpers.runAccShown ? await this.helpers.runAccShown([...args, '--json'], project.root, shown) : await this.acc([...args, '--json'], project.root);
     let out: any = null;
     try {
       out = JSON.parse(r.stdout);

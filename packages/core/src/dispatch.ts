@@ -25,6 +25,7 @@ import { claimHeld, holdTask, releaseHeld, startingNow } from './holding.ts';
 import { machineCapProblem, machineLoad } from './limits.ts';
 import { builderSettings, renderPacket } from './packet.ts';
 import { rulesText } from './rules.ts';
+import { NO_STEPS, type Steps } from './steps.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -100,6 +101,8 @@ export interface DispatchDeps {
   findSessionMs?: number;
   /** For tests: how the Mac is kept awake while the builder runs (D-067). */
   awake?: AwakeDeps;
+  /** Where its steps are reported (T-65). */
+  steps?: Steps;
 }
 
 export interface DispatchResult {
@@ -275,6 +278,9 @@ export function builderModel(task: Pick<Task, 'run'>, config: Config, chosen?: s
  */
 export function dispatch(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: DispatchOptions): DispatchOutcome {
   const { run, now } = deps;
+  // Its steps (T-65). A step that throws is left open, and acc's result fails it with the error's words.
+  const steps = deps.steps ?? NO_STEPS;
+  steps.start('task', 'Check the task');
   if (opts.model !== undefined) checkModelName(opts.model);
   if (opts.effort !== undefined) checkEffortPick(opts.effort);
   const before = readLedger(paths.ledger);
@@ -307,24 +313,35 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
   if (held.length && !(opts.withoutAnalysis && opts.actor === 'human')) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${held.join('\n- ')}`);
   const starting = opts.fromHold ? null : startingNow(found, now());
   if (starting) throw new AccError('move-refused', `Can't dispatch ${id}: ${starting.by} is starting it.`);
+  steps.done('task');
   // Only a first dispatch weighs the files: a rework's branch already holds its change (D-093). A task
   // whose analysis names no files never waits, so nothing in flight is looked at for it.
   let shares = opts.fromHold?.shares ?? [];
   let overrode = false;
   const planned = found.state === 'todo' && !opts.fromHold ? plannedFiles(readAnalysis(paths, id), paths.root) : null;
+  const filesLabel = 'Check the files in flight';
   if (planned) {
+    steps.start('files', filesLabel);
     const look = startLook(paths, config, before, run, id, { fetch: true, files: planned });
     shares = look.shares;
     if (waits(look)) {
-      if (!(opts.anyway && opts.actor === 'human')) return { ...holdTask(paths, now, id, { ...opts, effort: keep }, look), ...effortDropped };
+      if (!(opts.anyway && opts.actor === 'human')) {
+        const held = holdTask(paths, now, id, { ...opts, effort: keep }, look);
+        steps.done('files', `It waits for ${held.waitsFor.map((w) => w.task).join(', ')}`);
+        return { ...held, ...effortDropped };
+      }
       overrode = true;
     }
+    steps.done('files', overrode ? 'Started anyway, by a person' : shares.length ? `It shares files with ${[...new Set(shares.map((s) => s.task))].join(', ')}` : undefined);
+  } else {
+    steps.skip('files', filesLabel, opts.fromHold ? 'Weighed when it began to wait' : found.state !== 'todo' ? 'Its branch already holds its change' : 'Its analysis names no files');
   }
   // A held task a person dispatches is claimed first, as a held start claims it, so the two never both
   // launch (D-093). One whose start failed needs a person, and this is one: nothing else starts it.
   const claim = !opts.fromHold && !!found.held && !found.held.failed;
   if (claim && !claimHeld(paths, now, id, opts)) throw new AccError('move-refused', `Can't dispatch ${id}: it's being started already.`);
   try {
+    steps.start('worktree', 'Make the worktree');
     const env = environmentByBranch(config, found.environment);
     if (!env) throw new AccError('dispatch', `${id}'s environment "${found.environment}" isn't in the config.`);
 
@@ -338,8 +355,10 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     }
     const branch = found.run?.branch ?? taskBranch(found);
     const reused = ensureWorktree(run, main, wt, branch, env);
-    setupWorktree(run, config, env, main, wt);
+    steps.done('worktree', reused ? `Reused ${basename(wt)}` : basename(wt));
+    steps.step('setup', 'Set up the worktree', () => setupWorktree(run, config, env, main, wt));
 
+    steps.start('packet', 'Write the builder\'s instructions');
     // The worktree's own copies only (GH-108): a source elsewhere is never read here.
     const rules = rulesText(wt, config.profile);
     const rework = found.state === 'rework';
@@ -360,6 +379,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     mkdirSync(paths.packets, { recursive: true });
     const packetPath = join(paths.packets, `${found.id}.md`);
     writeFileSync(packetPath, packet);
+    steps.done('packet');
 
     const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? '', deps.accCommand));
     const prompt = `Read your task instructions below and do the task.\n\n${packet}`;
@@ -369,7 +389,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const name = sessionName({ project: config.project, key: found.id, title: found.title, role: 'builder', n });
     const base = ['--name', name, '--permission-mode', config.agents.permissionMode, ...agentArgs({ ...config.agents.builder, model, effort }), '--settings', settings];
 
-    const record = (bgId: string | null, sessionId: string | null, cloud: (Fired & { head: string }) | null = null) => mutate(paths, now, (ledger, emit) => {
+    const record = (bgId: string | null, sessionId: string | null, cloud: (Fired & { head: string }) | null = null) => steps.step('record', 'Record the run', () => mutate(paths, now, (ledger, emit) => {
       const task = ledger.tasks.find((t) => t.id === id)!;
       const again = [...checkMove(ledger, config, task, req, noGateHooks), ...overMachine(ledger)];
       if (again.length) throw new AccError('move-refused', `Can't dispatch ${id}:\n- ${again.join('\n- ')}`);
@@ -390,9 +410,10 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       task.run = { worktree: wt, branch, startedAt: at, model, ...(picked ? { modelPicked: true as const } : {}), ...(effort ? { effort } : {}), ...(effortPicked ? { effortPicked: true as const } : {}), ...(bgId ? { bgId } : {}), ...(sessionId ? { sessionId } : {}), name, n, ...(shares.length ? { shares } : {}), ...place, ...last };
       emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { run: task.run } });
       return task;
-    });
+    }));
 
     if (where === 'cloud') {
+      steps.start('guard', 'Check the push guard');
       // The guard must be in the trees the cloud session loads its hooks from (GH-69): the branch its clone
       // starts on, the repo's default branch on origin, and the task branch it then checks out. Read from
       // the commits, never the files on disk: an uncommitted guard never reaches the cloud.
@@ -407,13 +428,16 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       }
       // GitHub's rules are the line behind the guard: where it enforces none, say so, and go on (a person decided).
       const warnings = protectionWarnings(environmentProtection(run, config.github!.repo, config.github!.account, [...new Set([base, env.branch])], deps.env));
+      steps.done('guard', warnings.length ? `${warnings.length} warning(s) about GitHub's rules` : undefined);
       // The branch goes to GitHub first (GH-69): the cloud session clones from there, so nothing depends on
       // this Mac. Only the task's branch, as the repo's account, and never an environment's.
+      steps.start('push', 'Push the branch');
       const push = run('git', ['push', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: main, env: gitEnv, timeoutMs: PUSH_TIMEOUT_MS });
       if (push.code !== 0) throw new AccError('dispatch', `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split('\n').slice(-2).join(' ')}. The worktree is kept at ${wt}, and nothing was started.`);
+      steps.done('push');
       const head = git(run, main, 'rev-parse', `refs/heads/${branch}`).stdout.trim();
       const text = cloudText({ task: found, config, env, branch, packet, checks: cloudChecks(config, env) });
-      const fired = fireRoutine(paths, run, config.agents.cloud!.routine!, readCloudToken(run, config.github!.repo, deps.env)!, text, deps.env);
+      const fired = steps.step('start', 'Start the cloud session', () => fireRoutine(paths, run, config.agents.cloud!.routine!, readCloudToken(run, config.github!.repo, deps.env)!, text, deps.env));
       // No caffeinate (D-067): nothing runs on this Mac. The fire counts as the branch's first move.
       const task = record(null, null, { ...fired, head });
       return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares, where, cloud: fired, ...(warnings.length ? { warnings } : {}), ...effortDropped };
@@ -423,18 +447,22 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       const task = record(null, null);
       // The session is this terminal's, so the Mac stays awake while acc waits on it (D-067).
       const awake = holdAwake(process.pid, deps.awake);
+      steps.start('start', 'Run the builder in this terminal');
       try {
         spawnSync('claude', [...base, prompt], { cwd: wt, stdio: 'inherit', env: deps.env });
       } finally {
         awake?.release();
       }
+      steps.done('start');
       return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares, where, ...effortDropped };
     }
 
     const since = Date.now() - LAUNCH_SLACK_MS;
+    steps.start('start', 'Start the builder');
     const launched = run('claude', ['--bg', ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 60_000 });
     if (launched.code !== 0) throw new AccError('dispatch', `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split('\n')[0]}. The worktree is kept at ${wt}.`);
     const { bgId, sessionId, pid } = findSession(run, launchDir, name, deps.findSessionMs ?? 8_000, { since, places: [launchDir, wt] });
+    steps.done('start', bgId ? `Background session ${bgId}` : 'Its session wasn\'t found yet');
     try {
       const task = record(bgId, sessionId);
       // acc exits now, so the Mac is kept awake for the background session's own process (D-067).

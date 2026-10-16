@@ -3,7 +3,7 @@
 
 import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, clearBranchMoves, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
-import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, stepWords } from '../shared.ts';
+import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, steps, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
 
 function cmdReview(o: Opts, id: string): number {
@@ -54,10 +54,13 @@ function cmdAnalyze(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const a = analyze(paths, config, id.toUpperCase(), {
-    run, now, env: process.env, accCommand: accCommand(),
+    run, now, env: process.env, accCommand: accCommand(), steps: steps(),
     onStart: (session, name) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}, named ${name}.`, 'dim')),
   }, { by: `analyst:${id.toUpperCase()} for ${by}` });
   out(o, () => analysisLines(a).join('\n'), a);
+  // An analysis with questions, or one that says split, is an analysis made: it exits 1, and its steps worked (D-052).
+  const asks = openQuestions(a).length;
+  steps().result(true, a.verdict === 'ready' ? `${a.task} is ready to build.` : a.verdict === 'split' ? `${a.task} is too big for one task.` : `${a.task}'s analysis has ${asks} question${asks === 1 ? '' : 's'} for you.`);
   return a.verdict === 'ready' ? 0 : 1;
 }
 
@@ -82,7 +85,8 @@ function cmdLand(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   if (actor === 'builder') throw new AccError('refused', 'A builder never lands its own work. A person does, once it\'s reviewed.');
-  const r = followingCards(paths, config, () => land(paths, config, id.toUpperCase(), { run, now, env: process.env }, { actor, by }));
+  const r = followingCards(paths, config, () => land(paths, config, id.toUpperCase(), { run, now, env: process.env, steps: steps() }, { actor, by }));
+  steps().result(true, `${r.opened ? 'Opened' : 'Updated'} pull request #${r.pr.number} for ${r.task.id}.`);
   out(o, () => [
     `${r.task.id}: ${r.opened ? 'opened' : 'updated'} pull request #${r.pr.number}  ${r.pr.url}`,
     r.update ? `  Drafted an update for ${r.update.key} (${r.update.id}). Nothing is posted until a person posts it: acc updates.` : '',

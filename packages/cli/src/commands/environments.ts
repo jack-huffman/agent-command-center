@@ -2,7 +2,7 @@
 
 import { AccError, deploy, lastDeploy, planDeploy, planPromotion, promote, run, skipWarning } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
-import { type CommandArea, now, type Opts, out, personOnly, project } from '../shared.ts';
+import { type CommandArea, now, type Opts, out, personOnly, project, steps } from '../shared.ts';
 
 function cmdPromote(o: Opts, from: string): number {
   const by = personOnly(o, 'promote');
@@ -20,14 +20,16 @@ function cmdPromote(o: Opts, from: string): number {
     out(o, () => show(p).join('\n'), p);
     return 0;
   }
-  const r = promote(paths, config, from, o.to as string | undefined, { run, now, env: process.env, onStep: say }, { allowDeletions: o['allow-deletions'] === true, validate: o['skip-validate'] !== true, by });
+  const r = promote(paths, config, from, o.to as string | undefined, { run, now, env: process.env, onStep: say, steps: steps() }, { allowDeletions: o['allow-deletions'] === true, validate: o['skip-validate'] !== true, by });
   out(o, () => [
     ...show(r.plan), '', r.pr ? `Opened pull request #${r.pr.number}  ${r.pr.url}` : r.stopped ?? '', r.pr ? tone('It merges only when a person merges it. Deploy after that with acc deploy.', 'dim') : '',
     r.warning ? tone(`! ${r.warning}`, 'orange') : '',
     ...r.updates.map((u) => `  Drafted an update for ${u.key} (${u.id}).`),
     r.updates.length ? tone('Nothing is posted until a person posts it: acc updates.', 'dim') : '',
   ].filter(Boolean).join('\n'), r);
-  return r.pr || !r.stopped?.startsWith('Validation') ? 0 : 1;
+  const code = r.pr || !r.stopped?.startsWith('Validation') ? 0 : 1;
+  steps().result(code === 0, r.pr ? `Opened pull request #${r.pr.number} into ${r.plan.to.name}.` : r.stopped ?? 'It finished.');
+  return code;
 }
 
 function cmdDeploy(o: Opts, envName: string): number {
@@ -43,13 +45,15 @@ function cmdDeploy(o: Opts, envName: string): number {
     out(o, () => show(p).join('\n'), { ...p, last: lastDeploy(paths, p.env.branch) });
     return 0;
   }
-  const r = deploy(paths, config, envName, { run, now, onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another heavy check or deploy on this machine to finish…\n', 'dim')); } }, { since: o.since as string | undefined, confirmed: o['confirm-production'] === true, noTests: o['no-tests'] === true, by });
+  const r = deploy(paths, config, envName, { run, now, steps: steps(), onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another heavy check or deploy on this machine to finish…\n', 'dim')); } }, { since: o.since as string | undefined, confirmed: o['confirm-production'] === true, noTests: o['no-tests'] === true, by });
   out(o, () => [
     ...show(r.plan), '', r.deployed ? tone(`✓ ${r.summary}`, 'blue') : r.summary,
     ...r.updates.map((u) => `  Drafted an update for ${u.key} (${u.id}).`),
     r.updates.length ? tone('Nothing is posted until a person posts it: acc updates.', 'dim') : '',
   ].filter(Boolean).join('\n'), r);
-  return r.deployed || !r.plan.files.length ? 0 : 1;
+  const code = r.deployed || !r.plan.files.length ? 0 : 1;
+  steps().result(code === 0, r.summary);
+  return code;
 }
 
 export const area: CommandArea = {

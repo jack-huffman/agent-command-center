@@ -4,8 +4,10 @@
  */
 
 import { runRows } from '../logic/run-rows.ts';
+import type { RunSteps } from '../logic/run-steps.ts';
 import type { RunPrompt } from '../logic/runs.ts';
 import { type DockReview, dockReview, type ReviewRun } from './dock-review.ts';
+import { lineCount, type ShownStep, shownSteps } from './run-steps.ts';
 import { RESULT_LOOK, runResult, type RunResult, type ShownRow, shownRows, tookWords } from './run-view.ts';
 import { type Look, LOOK, type ModelArea, short } from './shared.ts';
 
@@ -39,6 +41,10 @@ export interface RunCard {
   background?: boolean;
   /** A review of a task (T-63): the panel shows it in place of its lines, and its lines on Show output. */
   review?: DockReview;
+  /** A run of acc's steps (T-65), the panel's list under its header; null for a run that reported none. */
+  steps: ShownStep[] | null;
+  /** How many lines it printed, which fold under its steps. */
+  lineCount: number;
 }
 
 export interface RunInput {
@@ -56,10 +62,15 @@ export interface RunInput {
   step: string | null;
   /** Lasts as long as the window, such as autopilot (D-064): never the output panel's first pick. */
   background?: boolean;
+  /** Runs once (T-65 review): what follows it, such as a dispatch's Watch or a landing's pull request, can't follow a second run, so it has no Run again. */
+  once?: boolean;
   /** Where it runs, so In progress puts it on its project (D-092). */
   cwd?: string;
   /** A review of a task (T-63), and, once it ended, the verdict it wrote. */
   review?: ReviewRun;
+  /** A run of acc: the steps it reported (T-65), and the line its first kept line is in the whole output. */
+  steps?: RunSteps;
+  base?: number;
 }
 
 export function runCard(r: RunInput, lines = 400): RunCard {
@@ -72,11 +83,15 @@ export function runCard(r: RunInput, lines = 400): RunCard {
   // The question it's waiting on shows once, as the panel's question, not again as its last row.
   const asking = running && r.prompt && read.rows.at(-1)?.text === r.prompt.text.trim();
   const rows = shownRows(asking ? read.rows.slice(0, -1) : read.rows, running);
+  // A run of acc that reported steps lists them, and its result card says what acc said it did (T-65).
+  const steps = r.steps?.steps.length ? shownSteps(r.steps, r.lines, r.base ?? 0, running, r.cwd ?? null) : null;
+  const said = steps ? r.steps?.result ?? null : null;
   // A review with its verdict wears the verdict's look: acc review exits 1 when it asks for changes, which isn't a failure.
   return {
     id: r.id, label: r.label, command: r.command, look: review?.phase === 'done' ? review.look : look, running, startedAt: r.startedAt, endedAt: r.endedAt, lines: r.lines.slice(-lines),
-    rows, hidden: read.hidden, took: r.endedAt === null ? null : tookWords(r.endedAt - r.startedAt), result: review ? null : runResult(r, rows), cwd: r.cwd ?? null,
+    rows, hidden: read.hidden, took: r.endedAt === null ? null : tookWords(r.endedAt - r.startedAt), result: review ? null : runResult(r, rows, said), cwd: r.cwd ?? null,
     prompt: running ? r.prompt : null, step: r.step, ...(r.background ? { background: true } : {}), ...(review ? { review } : {}),
+    steps, lineCount: lineCount(r.lines),
   };
 }
 

@@ -1,11 +1,14 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { delimiter } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import * as vscode from 'vscode';
 import { sfEnv } from '../../packages/core/src/exec.ts';
+import { readStepEvents, STEPS_VAR } from '../../packages/core/src/steps.ts';
 import { fileInCheckout } from './logic/review-excerpts.ts';
 import { appendOutput, promptOf, type RunPrompt } from './logic/runs.ts';
+import { applySteps, NO_RUN_STEPS, runsAcc } from './logic/run-steps.ts';
 import type { RunControl, RunInput } from './model/runs.ts';
 import { keptReview, type ReviewRun, type VerdictRead } from './model/dock-review.ts';
 import type { ExtensionArea } from './area.ts';
@@ -19,6 +22,11 @@ interface Run extends RunInput {
   readReview?: (startedAt: number) => Promise<VerdictRead>;
   /** How it was started, for Run again (T-64). A run kept over a reload has only what was kept: no env, no onExit. */
   again: StartOptions;
+  /** A command run with --json: its stdout so far, which is its answer, not its output (T-65). */
+  stdout?: string;
+  /** A run of acc's: the folder its steps file is in, while it runs (T-65), and the timer that reads it. */
+  stepsDir?: string;
+  stepsTimer?: NodeJS.Timeout;
 }
 
 export interface StartOptions {
@@ -44,6 +52,11 @@ export interface StartOptions {
    * wrote, which the run's card then carries. A stopped review reads none.
    */
   review?: { run: ReviewRun; read: (startedAt: number) => Promise<VerdictRead> };
+  /**
+   * A command run with --json, such as acc dispatch from the Command Center (T-65): what it prints to stdout
+   * is its answer, kept apart from the lines the panel shows, and handed here once it ends, before onExit.
+   */
+  answer?: (stdout: string, code: number | null) => void;
 }
 
 /** A command that has gone this long without output may be waiting for an answer. */
@@ -51,6 +64,10 @@ const QUIET_MS = 700;
 const KEEP_RUNS = 20;
 const KEPT_KEY = 'acc.runs.finished';
 const KEPT_LINES = 300;
+/** How often a run of acc's steps file is read while it prints nothing (T-65). */
+const STEPS_MS = 250;
+/** The steps file's name in its folder. */
+const STEPS_FILE = 'steps.jsonl';
 
 /**
  * Commands acc runs for you (D-030): setup's fixes, opening an org, comparing branches. Each runs as a
@@ -94,7 +111,11 @@ export class Runs implements vscode.Disposable {
 
   dispose(): void {
     clearTimeout(this.pending);
-    for (const r of this.list) this.kill(r);
+    for (const r of this.list) {
+      this.kill(r);
+      clearInterval(r.stepsTimer);
+      if (r.stepsDir) rmSync(r.stepsDir, { recursive: true, force: true });
+    }
     this.status.dispose();
     this.emitter.dispose();
     this.events.dispose();
@@ -104,8 +125,8 @@ export class Runs implements vscode.Disposable {
     return this.list.map((r) => this.view(r));
   }
 
-  private view({ id, label, command, cwd, startedAt, endedAt, code, ok, stopped, lines, prompt, step, background, review }: Run): RunInput {
-    return { id, label, command, cwd, startedAt, endedAt, code, ...(ok === undefined ? {} : { ok }), stopped, lines, prompt, step, ...(background ? { background } : {}), ...(review ? { review } : {}) };
+  private view({ id, label, command, cwd, startedAt, endedAt, code, ok, stopped, lines, prompt, step, background, review, steps, base, again }: Run): RunInput {
+    return { id, label, command, cwd, startedAt, endedAt, code, ...(ok === undefined ? {} : { ok }), stopped, lines, prompt, step, ...(background ? { background } : {}), ...(again?.answer ? { once: true } : {}), ...(review ? { review } : {}), ...(steps ? { steps, base: base ?? 0 } : {}) };
   }
 
   running(step?: string): boolean {
@@ -127,17 +148,31 @@ export class Runs implements vscode.Disposable {
       this.list.splice(i, 1);
     }
     this.log.info(`Running: ${command} (in ${opts.cwd})`);
+    // A run of acc reports its steps (T-65): to a file in a folder of its own, read as it grows, gone once it ends.
+    const stepsEnv: Record<string, string> = {};
+    if (runsAcc(command)) {
+      try {
+        run.stepsDir = mkdtempSync(join(tmpdir(), 'acc-steps-'));
+        stepsEnv[STEPS_VAR] = join(run.stepsDir, STEPS_FILE);
+        run.steps = NO_RUN_STEPS;
+        run.base = 0;
+        run.stepsTimer = setInterval(() => { if (this.readStepFile(run)) this.changed(false); }, STEPS_MS);
+      } catch (e) {
+        this.log.warn(`${command}: its steps can't be shown: ${(e as Error).message}`);
+      }
+    }
     let child: ChildProcess;
     try {
       // A shell, since setup's fixes are command lines. Its own process group, so Stop ends all of it.
-      child = spawn(command, { cwd: opts.cwd, shell: true, env: sfEnv({ ...process.env, ...opts.env, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(command, { cwd: opts.cwd, shell: true, env: sfEnv({ ...process.env, ...opts.env, ...stepsEnv, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (e) {
       this.output(run, `${(e as Error).message}\n`);
       this.finish(run, 127);
       return id;
     }
     run.child = child;
-    child.stdout?.on('data', (b: Buffer) => this.output(run, b.toString('utf8')));
+    if (opts.answer) run.stdout = '';
+    child.stdout?.on('data', (b: Buffer) => { if (run.stdout !== undefined) run.stdout += b.toString('utf8'); else this.output(run, b.toString('utf8')); });
     child.stderr?.on('data', (b: Buffer) => this.output(run, b.toString('utf8')));
     child.stdin?.on('error', () => undefined); // writing to a command that has just ended
     child.on('error', (e) => this.output(run, `${e.message}\n`));
@@ -208,7 +243,11 @@ export class Runs implements vscode.Disposable {
 
   /** Saves the finished runs, each with the end of its output. */
   private keep(): void {
-    const done = this.list.filter((r) => r.endedAt !== null).map((r) => ({ ...this.view(r), cwd: r.cwd, lines: r.lines.slice(-KEPT_LINES) }));
+    const done = this.list.filter((r) => r.endedAt !== null).map((r) => {
+      const lines = r.lines.slice(-KEPT_LINES);
+      // The lines let go move where the kept ones begin, so a step still finds its own.
+      return { ...this.view(r), cwd: r.cwd, lines, ...(r.steps ? { base: (r.base ?? 0) + r.lines.length - lines.length } : {}) };
+    });
     void this.store?.update(KEPT_KEY, done);
   }
 
@@ -223,8 +262,32 @@ export class Runs implements vscode.Disposable {
     }
   }
 
+  /**
+   * Reads a run of acc's steps file, and applies what's new at the line the output has reached (T-65). It's
+   * read before each chunk of output is added, so a step's lines are those printed after it began. Says
+   * whether anything changed. A file not there yet, or half read, is tried again next time.
+   */
+  private readStepFile(r: Run): boolean {
+    if (!r.stepsDir || !r.steps) return false;
+    let text: string;
+    try {
+      text = readFileSync(join(r.stepsDir, STEPS_FILE), 'utf8');
+    } catch {
+      return false;
+    }
+    const next = applySteps(r.steps, readStepEvents(text), (r.base ?? 0) + r.lines.length - 1);
+    if (next === r.steps) return false;
+    r.steps = next;
+    return true;
+  }
+
   private output(r: Run, chunk: string): void {
+    this.readStepFile(r);
+    // Where lines[0] is in the whole output, as the oldest lines are let go.
+    const before = (r.base ?? 0) + r.lines.length;
     r.lines = appendOutput(r.lines, chunk);
+    const added = (chunk.replace(/\r\n/g, '\n').match(/\n/g) ?? []).length;
+    if (r.base !== undefined) r.base = before + added - r.lines.length;
     const asked = r.prompt !== null;
     r.prompt = null;
     clearTimeout(r.quiet);
@@ -244,10 +307,16 @@ export class Runs implements vscode.Disposable {
   private finish(r: Run, code: number | null): void {
     if (r.endedAt !== null) return;
     clearTimeout(r.quiet);
+    // Its steps are read a last time, and their folder goes.
+    clearInterval(r.stepsTimer);
+    this.readStepFile(r);
+    if (r.stepsDir) rmSync(r.stepsDir, { recursive: true, force: true });
+    r.stepsDir = undefined;
     r.endedAt = Date.now();
     r.code = code;
     try {
-      r.ok = !r.stopped && (r.judge ? r.judge(code) : code === 0);
+      // acc's own result says whether it did its job, when it wrote one (T-65); else its exit code does.
+      r.ok = !r.stopped && (r.steps?.result ? r.steps.result.ok : r.judge ? r.judge(code) : code === 0);
     } catch {
       r.ok = code === 0;
     }
@@ -259,6 +328,11 @@ export class Runs implements vscode.Disposable {
     this.events.fire({ kind: 'end', run: this.view(r) });
     this.keep();
     if (r.review && r.readReview && !r.stopped) void this.readVerdict(r, r.review, r.readReview);
+    try {
+      r.again.answer?.(r.stdout ?? '', code);
+    } catch (e) {
+      this.log.warn(`After ${r.command}: ${(e as Error).message}`);
+    }
     try {
       r.onExit?.(code);
     } catch (e) {

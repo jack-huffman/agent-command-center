@@ -229,7 +229,7 @@ test('a run that is not a review draws as it did: no review, its own look', () =
   const card = runCard(plain);
   assert.equal('review' in card, false);
   assert.equal(card.look.label, 'Done');
-  assert.deepEqual(Object.keys(card).sort(), ['command', 'cwd', 'endedAt', 'hidden', 'id', 'label', 'lines', 'look', 'prompt', 'result', 'rows', 'running', 'startedAt', 'step', 'took']);
+  assert.deepEqual(Object.keys(card).sort(), ['command', 'cwd', 'endedAt', 'hidden', 'id', 'label', 'lineCount', 'lines', 'look', 'prompt', 'result', 'rows', 'running', 'startedAt', 'step', 'steps', 'took']);
 });
 
 test('the panel draws a finding with the task page\'s parts, with no second copy, and the Command Center opens its file as the task page does', () => {

@@ -2,11 +2,12 @@
 // kept, Run again starts it once more in the panel, and a path the output names opens when it's in the run's
 // folder. Real commands run, through a shell, as the panel's do. And the page draws each run with the rows.
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { tempDir } from '../../packages/core/test/support.ts';
+import { runCard } from '../src/model/runs.ts';
 import { pageSource } from './support.ts';
 import { until } from './vscode.ts';
 
@@ -110,6 +111,95 @@ test('a path in the output opens at its line when it\'s in the run\'s folder; ed
     runs.control(id, 'dismiss');
     await runs.openFile(id, 'src/a.ts');
     assert.equal(did.opened.length, opened, 'a run no longer in the panel opens nothing');
+  } finally {
+    runs.dispose();
+  }
+});
+
+/**
+ * A stand-in acc on the panel's PATH (T-65): it writes its steps to the file ACC_STEPS names, a line at a
+ * time with pauses, prints a line in each step, notes where the file was, and fails at its second step.
+ */
+function fakeAcc(): { bin: string; where: string } {
+  const bin = tempDir('acc-bin-');
+  const where = join(tempDir('acc-where-'), 'where');
+  const line = (e: object) => `printf '%s\\n' '${JSON.stringify({ ...e, at: 't' })}' >> "$ACC_STEPS"`;
+  const step = (id: string, label: string, state: string, note?: string) => line({ kind: 'step', id, label, state, ...(note ? { note } : {}) });
+  writeFileSync(join(bin, 'acc'), [
+    '#!/bin/sh',
+    `echo "$ACC_STEPS" > '${where}'`,
+    step('branch', 'Check the branch', 'started'),
+    'echo "Fetching dev"',
+    'sleep 0.8',
+    step('branch', 'Check the branch', 'done'),
+    step('deploy', 'Deploy to Dev', 'started'),
+    'echo "force-app/main/default/classes/B.cls: Invalid type: Foo"',
+    'sleep 0.8',
+    step('deploy', 'Deploy to Dev', 'failed', 'B: Invalid type: Foo. Run acc gate run first.'),
+    line({ kind: 'result', ok: false, sentence: 'The deploy to Dev failed.' }),
+    'exit 1',
+  ].join('\n') + '\n');
+  chmodSync(join(bin, 'acc'), 0o755);
+  return { bin, where };
+}
+
+test('a run of acc gets a steps file of its own: its steps reach the card as the file grows, a failed one with its rows, and the folder is gone once it ends (T-65)', async () => {
+  const fake = fakeAcc();
+  const runs = new Runs(log, () => {}, fake.bin);
+  const card = (id: string) => runCard(runs.views().find((r) => r.id === id)!);
+  try {
+    const id = runs.start('acc deploy dev', { cwd: folder(), label: 'Deploy Dev' });
+    assert.equal(card(id).steps, null, 'no list yet, before the first step arrives');
+    await until(() => card(id).steps?.length === 1, 20_000, 'the first step');
+    assert.deepEqual(card(id).steps!.map((s) => [s.label, s.look.label]), [['Check the branch', 'Running']]);
+    await until(() => card(id).steps?.length === 2, 20_000, 'the second step');
+    assert.deepEqual(card(id).steps!.map((s) => s.look.label), ['Done', 'Running']);
+    assert.equal(card(id).result, null, 'no result card while it runs');
+    await ended(runs, id);
+    const c = card(id);
+    assert.deepEqual(c.steps!.map((s) => [s.label, s.look.label]), [['Check the branch', 'Done'], ['Deploy to Dev', 'Failed']]);
+    // acc's words reach the person as processes (D-132), and the failed step opens to its own rows only.
+    assert.equal(c.steps![1]!.note, 'B: Invalid type: Foo. Run the checks first.');
+    assert.deepEqual(c.steps![1]!.rows.map((r) => r.text), ['force-app/main/default/classes/B.cls: Invalid type: Foo']);
+    assert.deepEqual(c.steps![0]!.rows, []);
+    assert.equal(c.lineCount, 2);
+    assert.equal(c.result?.look.label, 'Failed');
+    assert.match(c.result!.sentence, /^The deploy to Dev failed\. It took (\d+ s|under a second)\.$/);
+    const file = readFileSync(fake.where, 'utf8').trim();
+    assert.match(file, /acc-steps-[^/]+\/steps\.jsonl$/);
+    assert.equal(existsSync(dirname(file)), false, 'its folder is gone once it ended');
+  } finally {
+    runs.dispose();
+  }
+});
+
+test('a command that isn\'t acc gets no steps file: no ACC_STEPS, and no list of steps on its card (T-65)', async () => {
+  const runs = new Runs(log, () => {}, '/nowhere');
+  try {
+    const id = runs.start('echo "steps:[$ACC_STEPS]"', { cwd: folder(), label: 'Echo' });
+    await ended(runs, id);
+    const c = runCard(runs.views().find((r) => r.id === id)!);
+    assert.equal(c.steps, null);
+    assert.deepEqual(c.rows.map((r) => r.text), ['steps:[]']);
+  } finally {
+    runs.dispose();
+  }
+});
+
+test('a run with an answer, as a dispatch from the Command Center is: its stdout is handed over once it ends, never shown as rows; its stderr still is (T-65)', async () => {
+  const runs = new Runs(log, () => {}, '/nowhere');
+  try {
+    const got: { stdout: string; code: number | null }[] = [];
+    const order: string[] = [];
+    const id = runs.start('echo \'{"held":false}\'; echo "a warning" >&2; exit 0', {
+      cwd: folder(), label: 'Dispatch T-1',
+      answer: (stdout, code) => { got.push({ stdout, code }); order.push('answer'); },
+      onExit: () => order.push('exit'),
+    });
+    await ended(runs, id);
+    assert.deepEqual(got, [{ stdout: '{"held":false}\n', code: 0 }]);
+    assert.deepEqual(order, ['answer', 'exit'], 'the answer comes before onExit');
+    assert.deepEqual(runCard(runs.views().find((r) => r.id === id)!).rows.map((r) => r.text), ['a warning']);
   } finally {
     runs.dispose();
   }

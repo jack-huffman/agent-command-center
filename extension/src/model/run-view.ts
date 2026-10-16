@@ -60,12 +60,21 @@ export interface RunResult {
   next: RunNext | null;
 }
 
-/** What an ended run's card says: how it ended, how long it took, and its next step. Null while it runs. */
-export function runResult(r: { endedAt: number | null; startedAt: number; code: number | null; ok?: boolean; stopped: boolean; step: string | null; background?: boolean }, rows: ShownRow[]): RunResult | null {
+/**
+ * What an ended run's card says: how it ended, how long it took, and its next step. Null while it runs.
+ * `said` is acc's own result, for a run that reported its steps (T-65): it says whether it worked, and its
+ * sentence is the card's, with how long it took after it.
+ */
+export function runResult(r: { endedAt: number | null; startedAt: number; code: number | null; ok?: boolean; stopped: boolean; step: string | null; background?: boolean; once?: boolean }, rows: ShownRow[], said: { ok: boolean; sentence: string } | null = null): RunResult | null {
   if (r.endedAt === null) return null;
   const took = tookWords(r.endedAt - r.startedAt);
-  const next: RunNext | null = r.background ? null : r.step ? { kind: 'step', label: 'Open the step', icon: 'list-selection', step: r.step } : { kind: 'rerun', label: 'Run again', icon: 'debug-restart' };
+  const next: RunNext | null = r.background ? null : r.step ? { kind: 'step', label: 'Open the step', icon: 'list-selection', step: r.step } : r.once ? null : { kind: 'rerun', label: 'Run again', icon: 'debug-restart' };
   if (r.stopped) return { look: RESULT_LOOK.stopped, sentence: `It was stopped after ${took}.`, error: null, exit: null, next };
+  if (said) {
+    const sentence = `${said.sentence.replace(/\s*$/, '')} It took ${took}.`;
+    return said.ok ? { look: RESULT_LOOK.done, sentence, error: null, exit: null, next }
+      : { look: RESULT_LOOK.failed, sentence, error: null, exit: exitWords(r.code), next };
+  }
   if (r.ok ?? r.code === 0) {
     const warnings = rows.filter((x) => x.kind === 'warning').reduce((n, x) => n + x.count, 0);
     return { look: RESULT_LOOK.done, sentence: `It finished in ${took}${warnings ? `, with ${plural(warnings, 'warning')}` : ''}.`, error: null, exit: null, next };

@@ -4,13 +4,28 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ParseArgsOptionsConfig } from 'node:util';
-import { AccError, type Actor, ACTORS, type AutopilotStepName, cardWords, closesIssues, type Config, followCards, loadConfig, readLedger, type RepoPaths, repoPaths, run, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
+import { AccError, type Actor, ACTORS, type AutopilotStepName, cardWords, closesIssues, type Config, followCards, loadConfig, NO_STEPS, readLedger, type RepoPaths, repoPaths, run, type Steps, stepsFrom, STEPS_VAR, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
 import { tone } from './format.ts';
 import pkg from '../../../package.json' with { type: 'json' };
 
 // One version for acc, the extension, the plugin and the marketplace: the root package.json's (D-079).
 export const VERSION = pkg.version;
 export const now = () => new Date();
+
+let current: Steps = NO_STEPS;
+
+/** This run's steps (T-65): reported to the file ACC_STEPS named when main started, or nowhere. */
+export const steps = (): Steps => current;
+
+/**
+ * Opens this run's steps from ACC_STEPS, and takes the variable out of the environment, so nothing acc
+ * starts, such as a builder or an analyst running acc of its own, writes to the same file.
+ */
+export function openSteps(env: NodeJS.ProcessEnv = process.env): Steps {
+  current = stepsFrom(env);
+  delete env[STEPS_VAR];
+  return current;
+}
 
 export interface Opts {
   json: boolean;

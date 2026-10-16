@@ -188,3 +188,9 @@ test('once a run has ended, a count of progress spins no more: at its end it is 
   assert.equal(shownRows([row!], false)[0]!.look, ROW_LOOK.success, 'ended at 236/236: done');
   assert.equal(shownRows([half!], false)[0]!.look, ROW_LOOK.note, 'ended at half: a note, not a spinner');
 });
+
+test('a run that runs once, such as a dispatch with its Watch to follow, offers no Run again; another does (T-65 review)', () => {
+  const ended = { endedAt: 2000, startedAt: 0, code: 0, stopped: false, step: null };
+  assert.equal(runResult(ended, [])!.next?.kind, 'rerun');
+  assert.equal(runResult({ ...ended, once: true }, [])!.next, null);
+});
