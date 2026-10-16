@@ -208,7 +208,7 @@ test('edge case: a review run whose verdict file is missing or isn\'t JSON ends 
   const card = runCard(ended);
   assert.equal(card.review?.phase, 'unread');
   assert.match((card.review as { why: string }).why, /isn't JSON/);
-  assert.equal(card.look.label, 'Failed (exit 1)', 'with no verdict, the run\'s own look');
+  assert.equal(card.look.label, 'Failed', 'with no verdict, the run\'s own look');
   assert.deepEqual(card.lines, ['It failed.']);
 });
 
@@ -229,7 +229,7 @@ test('a run that is not a review draws as it did: no review, its own look', () =
   const card = runCard(plain);
   assert.equal('review' in card, false);
   assert.equal(card.look.label, 'Done');
-  assert.deepEqual(Object.keys(card).sort(), ['command', 'endedAt', 'id', 'label', 'lines', 'look', 'prompt', 'running', 'startedAt', 'step']);
+  assert.deepEqual(Object.keys(card).sort(), ['command', 'cwd', 'endedAt', 'hidden', 'id', 'label', 'lines', 'look', 'prompt', 'result', 'rows', 'running', 'startedAt', 'step', 'took']);
 });
 
 test('the panel draws a finding with the task page\'s parts, with no second copy, and the Command Center opens its file as the task page does', () => {
@@ -237,7 +237,7 @@ test('the panel draws a finding with the task page\'s parts, with no second copy
   assert.match(page, /import \{ excerpt, place \} from '\.\/review\.ts';/);
   assert.doesNotMatch(page, /function (excerpt|place)\(/, 'no copy of the task page\'s parts');
   const dock = pageSource('dock.ts');
-  assert.match(dock, /import \{ openKey, renderDockReview, showsLines \} from '\.\/dock-review\.ts';/);
+  assert.match(dock, /import \{ clock, openKey, renderDockReview, showsLines, tick \} from '\.\/dock-review\.ts';/);
   assert.match(dock, /renderDockReview\(run\.id, review, redrawDock\)/, 'the panel draws a run\'s review');
   const ext = readFileSync(join(root, 'src', 'dock-review.ts'), 'utf8');
   assert.match(ext, /receive\('review-file'/, 'the Command Center takes a finding\'s click');
