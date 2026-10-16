@@ -17,7 +17,7 @@ import { LOOK, type Look, type ModelArea } from './shared.ts';
 /** The repo whose Releases are acc's: the marketplace's own, as owner/name. */
 export const RELEASES_REPO = PLUGIN.repo.replace(/^https:\/\/github\.com\//, '');
 
-/** How often a newer release is looked for when Settings opens, after the first look in a session. */
+/** How often a newer release is looked for, by itself or when Settings opens, after the first look in a session. */
 export const RELEASE_EVERY_MS = 6 * 60 * 60 * 1000;
 
 /** Whether to look for a newer release now: never yet in this session, or not for RELEASE_EVERY_MS. */
@@ -57,6 +57,8 @@ export interface AboutFacts {
   checking: boolean;
   /** When a release was last looked for, by the extension's clock. */
   checkedAt: number | null;
+  /** Whether the extension looks for a release by itself (T-62), as its setting says. */
+  auto: boolean;
 }
 
 /** A button: one of the commands the page may ask for. Disabled, it says why. */
@@ -89,14 +91,16 @@ export interface AboutModel {
     look: Look;
     /** A newer release's notes. */
     notes: { label: string; url: string } | null;
+    /** A newer release's Install and reload (T-62). */
+    install: AboutAction | null;
     /** When it was last looked for, and how often it's looked for. */
     when: string;
     check: AboutAction;
   };
 }
 
-/** The commands About runs: Check now, and Setup's own fix for A4 (D-088). */
-export const ABOUT_COMMANDS = { check: 'acc.about.check', fix: COMMANDS.fix } as const;
+/** The commands About runs: Check now, Install and reload (T-62), and Setup's own fix for A4 (D-088). */
+export const ABOUT_COMMANDS = { check: 'acc.about.check', install: 'acc.update.install', fix: COMMANDS.fix } as const;
 
 /** A release's tag as a version: v0.38.0 is 0.38.0. */
 export const tagVersion = (tag: string): string => tag.replace(/^v(?=\d)/, '');
@@ -180,13 +184,16 @@ export function aboutModel(f: AboutFacts, now: number): AboutModel {
     release: {
       look,
       notes: newer ? { label: `Read ${newer.name}'s notes`, url: newer.url } : null,
-      when: `${ago ? `Looked ${ago}, as gh's active account.` : 'Looked for as gh\'s active account.'} Looked for again when Settings opens, at most every ${durationWords(RELEASE_EVERY_MS)}, or now with Check now.`,
+      install: newer ? { command: ABOUT_COMMANDS.install, label: 'Install and reload', icon: 'cloud-download', arg: newer.version, name: `Install and reload: ${newer.version}, then the Command Center opens on it`, primary: true, disabled: null } : null,
+      when: `${ago ? `Looked ${ago}, as gh's active account.` : 'Looked for as gh\'s active account.'} ${f.auto
+        ? `Looked for again by itself, and when Settings opens, at most every ${durationWords(RELEASE_EVERY_MS)}, or now with Check now.`
+        : `Looking by itself is off in VSCode's settings: looked for when Settings opens, at most every ${durationWords(RELEASE_EVERY_MS)}, or now with Check now.`}`,
       check: { command: ABOUT_COMMANDS.check, label: 'Check now', icon: 'refresh', arg: null, name: 'Check now for a newer release, and read the versions again', primary: false, disabled: f.checking ? 'It\'s looking now.' : null },
     },
   };
 }
 
 export const area: ModelArea = {
-  // Setup's acc.step.fix is Setup's to claim; About asks for it too.
-  commands: [ABOUT_COMMANDS.check],
+  // Setup's acc.step.fix is Setup's to claim; About asks for it too. Install and reload is self-update.ts's.
+  commands: [ABOUT_COMMANDS.check, ABOUT_COMMANDS.install],
 };

@@ -29,6 +29,7 @@ import { accRunner, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import { Setup } from './setup.ts';
 import { About } from './about.ts';
+import { SelfUpdate } from './self-update.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
 import { TicketPanels, type UpdateActions } from './ticket.ts';
@@ -346,6 +347,8 @@ export function activate(context: vscode.ExtensionContext): void {
     log: (line) => setup.log.warn(line),
     exec,
   });
+  // Whether the extension looks for a newer release by itself (T-62); About's Check now works either way.
+  const updatesCheck = () => vscode.workspace.getConfiguration('agentCommandCenter').get<boolean>('updates.check', true) !== false;
   // Settings' About (GH-114): the versions, read fresh, and the latest release, read as gh's active account.
   const about = new About({
     // Read once, as Setup has it: it can't change without a window reload.
@@ -353,9 +356,17 @@ export function activate(context: vscode.ExtensionContext): void {
     acc: () => accRunner(accScript)(['--version'], homedir()),
     run: (cmd, args, env) => runFile(cmd, args, homedir(), env),
     now: () => Date.now(),
+    auto: () => updatesCheck(),
     changed: () => panels.post(),
     env: process.env,
   });
+  // The extension's own update (T-62): it hears of About's looks, and makes one by itself a minute after this.
+  const selfUpdate = new SelfUpdate({
+    vscode, state: context.globalState, running: () => setup.version, open: () => panels.open(), about, auto: updatesCheck,
+    run: (cmd, args, env) => runFile(cmd, args, homedir(), env, undefined, RELEASE_DOWNLOAD_MS),
+    env: process.env, now: () => Date.now(), tmp: tmpdir(), log: (line) => setup.log.warn(line),
+  });
+  context.subscriptions.push(selfUpdate.start());
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
     about,
     connect: { model: () => connect.model(), close: () => connect.close() },
@@ -445,7 +456,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Each area registers its commands, and takes the page's messages that are its own (D-099).
   const parts: Parts = {
-    vscode, hub, setup, runs, panels, tickets, pages, trackers, identity, connect, slack, autopilot, sidebar, about, accScript,
+    vscode, hub, setup, runs, panels, tickets, pages, trackers, identity, connect, slack, autopilot, sidebar, about, selfUpdate, accScript,
     reg, subscribe: (d) => context.subscriptions.push(d), regNode, resolve, accSays, answer, answerAnalysis, updates, showRun,
     receive: (type, fn) => panels.take(type, fn),
   };
@@ -488,11 +499,16 @@ export function activate(context: vscode.ExtensionContext): void {
     pagePolls(panels.visible());
   });
   void openPendingConversation(context);
+  // The first activation after the extension's own update opens the Command Center on it, or says it didn't take (T-62).
+  void selfUpdate.afterActivation();
   // Nothing opens on its own (GH-138): the first open of the Command Center in a folder that isn't set up lands on Setup.
   void setup.refresh('startup', { reuseMachine: true });
 }
 
 const OPEN_LATER = 'acc.openInClaude.pending';
+
+/** A release's download is a few megabytes, which can take longer than other gh calls. */
+const RELEASE_DOWNLOAD_MS = 5 * 60_000;
 
 /**
  * A conversation another window asked this one to open (D-040): this window's folder is the session's

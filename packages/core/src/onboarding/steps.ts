@@ -147,6 +147,8 @@ function billingSettings(file: string): string[] | null {
  */
 export const PLUGIN = { marketplace: 'agent-command-center', name: 'acc', repo: 'https://github.com/jack-huffman/agent-command-center' } as const;
 const PLUGIN_ID = `${PLUGIN.name}@${PLUGIN.marketplace}`;
+/** A release's one extension file: npm run package makes it, and the extension's own update installs it (T-62). */
+export const vsixName = (version: string): string => `${PLUGIN.marketplace}-${version}.vsix`;
 const MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
 const PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
 /** A private marketplace doesn't update itself (D-081), so the plugin is updated by hand after a release. */

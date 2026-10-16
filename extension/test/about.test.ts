@@ -37,7 +37,8 @@ test('About lists acc, the extension and the plugin, each with where it\'s read 
     ['plugin', 'The acc plugin', '0.37.0, the same as the extension', 'blue', 'Claude Code on this machine, for every session'],
   ]);
   assert.deepEqual([m.release.look.label, m.release.look.tone, m.release.notes], ['Up to date: 0.37.0 is the latest release', 'blue', null]);
-  assert.equal(m.release.when, 'Looked 12 min ago, as gh\'s active account. Looked for again when Settings opens, at most every 6 h, or now with Check now.');
+  assert.equal(m.release.when, 'Looked 12 min ago, as gh\'s active account. Looked for again by itself, and when Settings opens, at most every 6 h, or now with Check now.');
+  assert.equal(m.release.install, null, 'nothing to install when it\'s the latest');
   assert.deepEqual([m.release.check.command, m.release.check.label, m.release.check.disabled], ['acc.about.check', 'Check now', null]);
   assert.ok(m.rows.every((r) => r.action === null), 'nothing to do when everything is current');
 });
@@ -47,9 +48,12 @@ test('a newer release is said in orange, with a link to its notes', () => {
   assert.deepEqual([m.release.look.label, m.release.look.icon, m.release.look.tone], ['0.38.0 is out: this is 0.37.0', 'arrow-circle-up', 'orange']);
   assert.deepEqual(m.release.notes, { label: 'Read v0.38.0\'s notes', url: 'https://github.com/jack-huffman/agent-command-center/releases/tag/v0.38.0' });
   assert.equal(m.release.when.split('.')[0], 'Looked just now, as gh\'s active account');
+  // Install and reload (T-62), the extension's own update, for that version, named for what it shows.
+  assert.deepEqual(m.release.install, { command: 'acc.update.install', label: 'Install and reload', icon: 'cloud-download', arg: '0.38.0', name: 'Install and reload: 0.38.0, then the Command Center opens on it', primary: true, disabled: null });
+  assert.ok(m.release.install!.name.includes(m.release.install!.label));
   // An older release, or one that isn't x.y.z, isn't newer: nothing to say, and no notes.
   const older = aboutModel(facts({ release: { ok: true, value: { version: '0.36.0', tag: 'v0.36.0', name: 'v0.36.0', url: 'https://github.com/x/y' } } }), NOW);
-  assert.deepEqual([older.release.look.tone, older.release.notes], ['blue', null]);
+  assert.deepEqual([older.release.look.tone, older.release.notes, older.release.install], ['blue', null, null]);
   assert.deepEqual([releaseNewer('0.38.0', '0.37.0'), releaseNewer('0.10.0', '0.9.0'), releaseNewer('0.37.0', '0.37.0'), releaseNewer('nightly', '0.37.0'), releaseNewer('0.38.0', '')], [true, true, false, false, false]);
 });
 
@@ -59,6 +63,7 @@ test('a look that fails reads neutral, not as a problem; so do none yet and no r
   assert.equal(failed.release.when.split('.')[0], 'Looked 3 h ago, as gh\'s active account');
   // While the versions are read again, each says so.
   assert.deepEqual(failed.rows.filter((r) => r.key !== 'extension').map((r) => [r.look.label, r.look.icon, r.look.tone]), [['Reading it', 'sync~spin', 'blue'], ['Reading it', 'sync~spin', 'blue']]);
+  assert.equal(failed.release.install, null, 'a failed look offers nothing to install');
   const none = aboutModel(facts({ release: null, checkedAt: null }), NOW).release;
   assert.deepEqual([none.look.label, none.look.tone, none.when.split('.')[0]], ['Not looked for yet', 'neutral', 'Looked for as gh\'s active account']);
   assert.deepEqual([aboutModel(facts({ release: { ok: true, value: null } }), NOW).release.look.label], ['No release yet']);
@@ -185,6 +190,7 @@ function stand(gh: () => RunResult = () => ({ code: 0, stdout: JSON.stringify({ 
       return cmd === 'gh' ? gh() : { code: 0, stdout: JSON.stringify([{ id: 'acc@agent-command-center', scope: 'user', version: '0.36.0', enabled: true }]), stderr: '' };
     },
     now: () => now,
+    auto: () => true,
     changed: () => { redraws++; },
     env: { PATH: '/bin', GH_TOKEN: 'project-account' },
   };
@@ -225,9 +231,10 @@ test('reads already going aren\'t started twice, and a look that throws is neutr
 test('every command About runs is one the page may ask for, and each does what it says', async () => {
   const m = aboutModel(sampleAboutBehind(NOW), NOW);
   const commands = [m.release.check.command, ...m.rows.flatMap((r) => (r.action ? [r.action.command] : []))];
-  assert.deepEqual(commands, ['acc.about.check', 'acc.step.fix']);
-  for (const c of commands) assert.ok(PAGE_COMMANDS.includes(c), `${c} may be asked for by the page`);
-  assert.deepEqual(aboutModelArea.commands, [ABOUT_COMMANDS.check], 'About claims Check now; Setup claims its own fix');
+  const install = m.release.install!.command;
+  assert.deepEqual([...commands, install], ['acc.about.check', 'acc.step.fix', 'acc.update.install']);
+  for (const c of [...commands, install]) assert.ok(PAGE_COMMANDS.includes(c), `${c} may be asked for by the page`);
+  assert.deepEqual(aboutModelArea.commands, [ABOUT_COMMANDS.check, ABOUT_COMMANDS.install], 'About claims Check now and Install and reload; Setup claims its own fix');
   // acc.about.check runs Check now; Settings' Refresh reads About again, as arriving does, with the projects.
   const did: string[] = [];
   const reg = new Map<string, (...a: unknown[]) => unknown>();
@@ -266,4 +273,27 @@ test('Check now shows that it\'s looking while it looks: the first redraw alread
   assert.deepEqual(seen[0], [true, false], 'reading the versions');
   assert.deepEqual(seen[1], [true, true], 'and looking on GitHub');
   assert.deepEqual(seen.at(-1), [false, false], 'then done');
+});
+
+test('with looking by itself off in the settings, About says so, and Check now still looks (T-62)', () => {
+  const off = aboutModel(facts({ auto: false }), NOW).release;
+  assert.equal(off.when, 'Looked 12 min ago, as gh\'s active account. Looking by itself is off in VSCode\'s settings: looked for when Settings opens, at most every 6 h, or now with Check now.');
+  assert.equal(off.check.disabled, null);
+});
+
+test('the look by itself shares About\'s look: one going isn\'t asked twice, one not due asks nothing, and each look is heard (T-62)', async () => {
+  const s = stand();
+  const heard: unknown[] = [];
+  s.about.onLooked((r) => heard.push(r));
+  await Promise.all([s.about.lookIfDue(), s.about.arrive(), s.about.lookIfDue()]);
+  assert.deepEqual(s.names().filter((n) => n === 'gh').length, 1, 'one look for all three');
+  assert.equal(heard.length, 1);
+  assert.equal((heard[0] as { ok: boolean }).ok, true);
+  // Not due yet: nothing asked, nothing heard. Check now always asks, and is heard too.
+  s.tick(RELEASE_EVERY_MS - 1);
+  await s.about.lookIfDue();
+  assert.equal(s.names().filter((n) => n === 'gh').length, 1);
+  await s.about.checkNow();
+  assert.deepEqual([s.names().filter((n) => n === 'gh').length, heard.length], [2, 2]);
+  assert.equal(s.about.facts().auto, true);
 });

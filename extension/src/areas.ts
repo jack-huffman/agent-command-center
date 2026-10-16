@@ -15,6 +15,7 @@ import { area as progress } from './progress.ts';
 import { area as questions } from './questions.ts';
 import { area as rules } from './rules.ts';
 import { area as runs } from './runs.ts';
+import { area as selfUpdate } from './self-update.ts';
 import { area as settings } from './settings.ts';
 import { area as setup } from './setup.ts';
 import { area as slack } from './slack.ts';
@@ -25,4 +26,4 @@ import { area as tidy } from './tidy.ts';
 import { area as trackers } from './trackers.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agents, autopilot, branches, cloud, connect, environments, identity, limits, notices, palette, progress, questions, rules, runs, settings, setup, slack, taskModal, tasks, ticket, tidy, trackers, worktrees];
+export const AREAS = [about, agents, autopilot, branches, cloud, connect, environments, identity, limits, notices, palette, progress, questions, rules, runs, selfUpdate, settings, setup, slack, taskModal, tasks, ticket, tidy, trackers, worktrees];
