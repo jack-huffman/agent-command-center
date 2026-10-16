@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import type { TaskRow } from '../src/logic/shared.ts';
 import { agentsModel } from '../src/model/agents.ts';
-import { cardActions } from '../src/model/cards.ts';
+import { actionOrder, cardActions } from '../src/model/cards.ts';
 import { tasksModel } from '../src/model/tasks.ts';
 import { type BoardInput, trackerBoard } from '../src/model/boards.ts';
 import { homeModel } from '../src/model/home.ts';
@@ -26,7 +26,7 @@ test('in review, a card offers the one next step: watch the reviewer, land a pas
   assert.equal(first({ review: { verdict: 'pass', summary: 's', current: false } }), 'Review', 'a review of an older commit doesn\'t count');
   assert.equal(first({ review: { verdict: 'changes', summary: 's', current: true } }), 'Review again');
   const open = cardActions({ ...row('AV-9', 'review', 'review'), deps: [], run: { worktree: '/w' }, review: { verdict: 'pass', summary: 's', current: true }, pr: { number: 42, url: 'u', state: 'open' } } as TaskRow, {}).map((a) => a.label);
-  assert.deepEqual(open.slice(0, 2), ['Pull request #42', 'Update pull request']);
+  assert.deepEqual(open.slice(0, 4), ['Pull request #42', 'Move', 'Block', 'Update pull request'], 'the next step, then Move and Block, then the rest (D-???)');
 });
 
 test('a pull request that conflicts with its base says so on its card and on the Overview, naming the files (D-049)', () => {
@@ -273,21 +273,21 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   }
 });
 
-test('Dispatch with… sits behind ⋯ wherever Dispatch is offered, and on the task page, and the pages may ask for it (D-086)', () => {
+test('no card or task page lists Dispatch with… or Dispatch to the cloud: one Dispatch opens the sheet, and their commands stay for one release (D-???)', () => {
   const actions = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, { project: '/r', task: 'AV-9' });
-  const withIt = actions({}).find((a) => a.command === 'acc.task.dispatchWith')!;
-  assert.deepEqual([withIt.label, withIt.icon, !!withIt.primary], ['Dispatch with…', 'sparkle', false], 'never the next step, so it sits behind ⋯');
-  assert.equal(actions({ state: 'rework', display: 'rework' }).find((a) => a.command === 'acc.task.dispatchWith')!.label, 'Re-dispatch with…');
-  for (const r of [{ state: 'running', display: 'running' as const, run: { bgId: 'bg1' } }, { state: 'review', display: 'review' as const }, { analysisRequired: true }, { analyzing: { sessionId: 's' } }]) {
-    assert.ok(!actions(r).some((a) => a.command === 'acc.task.dispatchWith'), `only where Dispatch is: ${JSON.stringify(r)}`);
-  }
+  const gone = ['acc.task.dispatchWith', 'acc.task.dispatchCloud'];
+  const states = [{}, { state: 'rework', display: 'rework' as const }, { files: { known: true, shares: [{ task: 'AV-1', files: ['a.ts'] }], first: [], held: { at: '', failed: null, byAutopilot: false } } }, { state: 'running', display: 'running' as const, run: { bgId: 'bg1' } }, { state: 'review', display: 'review' as const }, { analysisRequired: true }];
+  for (const r of states) assert.ok(!actions(r as Partial<TaskRow>).some((a) => gone.includes(a.command)), JSON.stringify(r));
+  assert.equal(actions({}).filter((a) => a.label.startsWith('Dispatch')).length, 1, 'one Dispatch');
   const task = { id: 'AV-9', title: 'Task AV-9', brief: '', source: { kind: 'jira', key: 'AV-9', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, history: [], createdAt: '', updatedAt: '' } as never;
   const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-9', ticket: null, loading: false, error: null, connect: null, checks: [], row: { ...row('AV-9', 'todo', 'ready'), deps: [] }, task });
-  assert.deepEqual(page.acc!.actions.slice(0, 2).map((a) => a.command), ['acc.task.dispatch', 'acc.task.dispatchWith'], 'the task page offers it beside Dispatch');
-  assert.match(readFileSync(join(root, 'src', 'model', 'tasks.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
-  assert.match(readFileSync(join(root, 'src', 'ticket.ts'), 'utf8'), /'acc\.task\.dispatchWith'/);
-  assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === 'acc.task.dispatchWith'));
-  assert.match(readFileSync(join(root, 'src', 'tasks.ts'), 'utf8'), /reg\('acc\.task\.dispatchWith'/);
+  assert.deepEqual(page.acc!.actions.map((a) => a.command), ['acc.task.dispatch', 'acc.task.move', 'acc.task.block'], 'the task page: Dispatch, then Move, then Block');
+  // Their commands are kept, so a key binding still works, and each opens the sheet (dispatch-sheet-open.test.ts runs them).
+  for (const command of gone) assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === command), command);
+  const tasks = readFileSync(join(root, 'src', 'tasks.ts'), 'utf8');
+  assert.match(tasks, /reg\('acc\.task\.dispatchWith', \(n: TaskNode\) => this\.ask\(n\)\)/);
+  assert.match(tasks, /reg\('acc\.task\.dispatchCloud', \(n: TaskNode\) => this\.ask\(n, \{ where: 'cloud' \}\)\)/);
+  assert.match(tasks, /reg\('acc\.task\.dispatchAnyway', \(n: TaskNode\) => this\.ask\(n, \{ anyway: true \}\)\)/);
 });
 
 test('a running card, its task page and its Agents row name the model its agent runs with, in plain text (D-086)', () => {
@@ -366,4 +366,14 @@ test('deriveRows gives a card its agent\'s question id; edge cases: no question,
   assert.equal(read([]).question, null, 'no question read yet');
   assert.equal(read([question('q-other', 's1')]).question, null, 'a question for a different session');
   assert.equal(read([question('q-9', 's9')], false).question, null, 'an agent that doesn\'t ask has no question to answer');
+});
+
+test('actionOrder puts the next step first, then Move, then Block or Unblock, then the rest as they came, with edge cases (D-???)', () => {
+  const a = (command: string, primary = false) => ({ command, label: command.split('.').at(-1)!, icon: 'x', ref: {}, ...(primary ? { primary } : {}) });
+  const names = (xs: { label: string }[]) => xs.map((x) => x.label);
+  assert.deepEqual(names(actionOrder([a('acc.task.watch'), a('acc.task.block'), a('acc.task.show'), a('acc.task.move'), a('acc.task.review', true)])), ['review', 'move', 'block', 'watch', 'show']);
+  assert.deepEqual(names(actionOrder([a('acc.task.show'), a('acc.task.unblock'), a('acc.task.move', true)])), ['move', 'unblock', 'show'], 'Move as the next step comes once');
+  assert.deepEqual(names(actionOrder([a('acc.task.show'), a('acc.task.watch')])), ['show', 'watch'], 'no next step, Move or Block: as they came');
+  assert.deepEqual(actionOrder([]), [], 'nothing to order');
+  assert.deepEqual(names(actionOrder([a('acc.task.watch', true), a('acc.task.collect', true)])), ['watch', 'collect'], 'only the first primary leads');
 });

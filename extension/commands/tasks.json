@@ -76,6 +76,12 @@
     "icon": "$(sparkle)"
   },
   {
+    "command": "acc.task.dispatchCloud",
+    "title": "Dispatch to the cloud",
+    "category": "Agent Command Center",
+    "icon": "$(cloud-upload)"
+  },
+  {
     "command": "acc.task.dispatchAnyway",
     "title": "Dispatch anyway, though it shares files with work in flight",
     "category": "Agent Command Center",

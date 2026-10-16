@@ -1,11 +1,5 @@
 [
   {
-    "command": "acc.task.dispatchCloud",
-    "title": "Dispatch to the cloud",
-    "category": "Agent Command Center",
-    "icon": "$(cloud-upload)"
-  },
-  {
     "command": "acc.task.message",
     "title": "Send its cloud builder a message…",
     "category": "Agent Command Center",

@@ -96,6 +96,11 @@ export class TicketPanels implements vscode.Disposable {
   private readonly editsChanged = new vscode.EventEmitter<void>();
   /** Opens a review's session page, as a suggested rule's finding does (T-53): set once the agent pages exist. */
   openReview: ((m: { project: string; task: string; sha: string }) => void) | null = null;
+  /**
+   * Dispatch's sheet (D-???), set by the Tasks area: open shows it over the page that asked, with `say`,
+   * and is true when the command is one that opens it; go is the sheet's Dispatch.
+   */
+  dispatch: { open(command: string, ref: Ref, say: (msg: Record<string, unknown>) => void): boolean; go(m: Extract<FromWebview, { type: 'dispatch-sheet-go' }>): void } | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
@@ -356,8 +361,10 @@ export class TicketPanels implements vscode.Disposable {
       case 'open': if (isWebLink(m.url)) void vscode.env.openExternal(vscode.Uri.parse(m.url)); return;
       case 'ticket': return this.show(m.project, m.tracker, m.key);
       case 'run':
-        if (ALLOWED.has(m.command)) await this.resolve(m.command, m.ref);
+        // Dispatch opens its sheet over this page (D-???), the tab or the modal, not over the Command Center.
+        if (ALLOWED.has(m.command) && !this.dispatch?.open(m.command, m.ref, (msg) => o.view.say(msg))) await this.resolve(m.command, m.ref);
         return;
+      case 'dispatch-sheet-go': this.dispatch?.go(m); return;
       case 'toolbar':
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);
         return;

@@ -132,12 +132,6 @@
         "icon": "$(eye)"
       },
       {
-        "command": "acc.task.dispatchCloud",
-        "title": "Dispatch to the cloud",
-        "category": "Agent Command Center",
-        "icon": "$(cloud-upload)"
-      },
-      {
         "command": "acc.task.message",
         "title": "Send its cloud builder a message…",
         "category": "Agent Command Center",
@@ -511,6 +505,12 @@
         "title": "Dispatch to an agent with a model you pick",
         "category": "Agent Command Center",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "acc.task.dispatchCloud",
+        "title": "Dispatch to the cloud",
+        "category": "Agent Command Center",
+        "icon": "$(cloud-upload)"
       },
       {
         "command": "acc.task.dispatchAnyway",
