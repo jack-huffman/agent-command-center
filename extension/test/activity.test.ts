@@ -104,15 +104,17 @@ test('only commands that need a keyboard of their own still open a terminal', ()
   for (const c of ['sf org login web --alias dev --instance-url https://x.my.salesforce.com', 'npm install', 'acc doctor', 'git diff --stat a...b', 'claude update']) assert.ok(!needsTerminal(c), c);
 });
 
-test('a run reads in words: running, waiting for you, done, failed with its exit code, stopped', () => {
+test('a run reads in words: running, waiting for you, done, failed with its exit code on its result card, stopped', () => {
   const r = (over: Partial<RunInput>): RunInput => ({ id: 'r', label: 'x', command: 'x', startedAt: 0, endedAt: null, code: null, stopped: false, lines: [], prompt: null, step: null, ...over });
   assert.equal(runCard(r({})).look.label, 'Running');
   assert.deepEqual([runCard(r({ prompt: { kind: 'yesno', text: '?' } })).look.label, runCard(r({ prompt: { kind: 'yesno', text: '?' } })).look.tone], ['Waiting for you', 'orange']);
   assert.equal(runCard(r({ endedAt: 1, code: 0 })).look.label, 'Done');
-  assert.equal(runCard(r({ endedAt: 1, code: 2 })).look.label, 'Failed (exit 2)');
+  assert.equal(runCard(r({ endedAt: 1, code: 2 })).look.label, 'Failed');
+  // The header line says Failed; its exit code is in words on the card at the end of its rows (T-64).
+  assert.equal(runCard(r({ endedAt: 1, code: 2 })).result?.exit, 'It was given something it couldn\'t use (exit code 2).');
   // acc analyze exits 1 when its analysis has questions (D-054): the run says whether it went well.
   assert.equal(runCard(r({ endedAt: 1, code: 1, ok: true })).look.label, 'Done', 'a run that went well is done, whatever its exit code');
-  assert.equal(runCard(r({ endedAt: 1, code: 1 })).look.label, 'Failed (exit 1)', 'with nothing said, an exit code other than 0 fails');
+  assert.equal(runCard(r({ endedAt: 1, code: 1 })).look.label, 'Failed', 'with nothing said, an exit code other than 0 fails');
   assert.equal(runCard(r({ endedAt: 1, code: null, stopped: true })).look.label, 'Stopped');
   assert.equal(runCard(r({ endedAt: 1, code: 0, prompt: { kind: 'text', text: '?' } })).prompt, null, 'a finished run asks nothing');
 });

@@ -1,0 +1,42 @@
+// A task's actions, on its page and on its card (D-168): one size and one place. The next step is a
+// full-width button on a row of its own; the rest sit under it in a grid of equal columns, each as high as
+// the next. Each shows its icon and its label, cut with an ellipsis where it's too long, whole in its title.
+// One that can't run now stays in its place, disabled, with its reason in its title. The order is the
+// model's (actionOrder): the next step, then Move, then Block, then the rest.
+
+import type { Action } from '../src/model/shared.ts';
+import { el, icon } from './dom.ts';
+import { api } from './state.ts';
+
+/**
+ * One action as a button of the shared size. A click runs its command on its ref, or does what `onClick`
+ * says, as a card's Answer does; it doesn't reach the card under it.
+ */
+export function actionTile(a: Action, primary: boolean, onClick?: () => void): HTMLButtonElement {
+  const b = el('button', `btn ta-btn${primary ? ' primary' : ''}${a.danger ? ' danger' : ''}`, icon(a.icon), el('span', 'ta-label', a.label)) as HTMLButtonElement;
+  b.type = 'button';
+  b.title = a.disabled ? `${a.label}: ${a.disabled}` : a.label;
+  if (a.disabled) {
+    b.disabled = true;
+    b.setAttribute('aria-description', a.disabled);
+  }
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (onClick) onClick();
+    else api.postMessage({ type: 'run', command: a.command, ref: a.ref });
+  });
+  return b;
+}
+
+/**
+ * A task's actions: its next step, when the first is one, full width; the rest in the grid. Null when
+ * there are none. The screenshot run's geometry check measures each set it marks (data-action-set).
+ */
+export function taskActions(actions: Action[]): HTMLElement | null {
+  if (!actions.length) return null;
+  const next = actions[0]!.primary ? actions[0]! : null;
+  const rest = next ? actions.slice(1) : actions;
+  const set = el('div', 'task-actions', next ? actionTile(next, true) : null, rest.length ? el('div', 'ta-grid', ...rest.map((a) => actionTile(a, false))) : null);
+  set.dataset.actionSet = 'task';
+  return set;
+}

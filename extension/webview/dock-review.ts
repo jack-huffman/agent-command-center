@@ -22,8 +22,8 @@ function flip(key: string, redraw: () => void): void {
 /** Whether the panel shows a review's lines in place of the review: Show output, remembered by run. */
 export const showsLines = (run: string): boolean => isOpen(openKey(run, 'lines'));
 
-/** A running review's time so far, as a clock: "0:42", "12:05", "1:02:05". */
-function clock(ms: number): string {
+/** A running review's time so far, as a clock: "0:42", "12:05", "1:02:05". The panel's header line shows a run's so (T-64). */
+export function clock(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   const two = (n: number) => String(n).padStart(2, '0');
   const h = Math.floor(s / 3600);
@@ -31,11 +31,11 @@ function clock(ms: number): string {
 }
 
 let ticking: ReturnType<typeof setInterval> | undefined;
-/** Moves every running review's clock on each second, while one is on the page. */
-function tick(): void {
+/** Moves every running review's and run's clock on each second, while one is on the page. */
+export function tick(): void {
   if (ticking) return;
   ticking = setInterval(() => {
-    const clocks = document.querySelectorAll<HTMLElement>('.dr-clock[data-start]');
+    const clocks = document.querySelectorAll<HTMLElement>('.dr-clock[data-start], .dock-clock[data-start]');
     if (!clocks.length) { clearInterval(ticking); ticking = undefined; return; }
     for (const c of clocks) c.textContent = clock(Date.now() - Number(c.dataset.start));
   }, 1000);

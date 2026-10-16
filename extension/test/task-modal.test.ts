@@ -373,7 +373,22 @@ test('update-edit, update-discard, update-ask and update-post from the modal rea
 test('run and move from the modal reach the tab\'s handler: the same command, for the same task (GH-158)', async () => {
   const [one] = s.ids;
   const { calls } = s.fake;
-  for (const command of ['acc.task.block', 'acc.task.move', 'acc.task.dispatch']) {
+  // Dispatch opens its sheet over the page that asked instead (D-168): the modal's over the Command Center, the tab's over the tab.
+  {
+    await peek(one);
+    const page = await tabFor(one);
+    const ranBefore = calls.executed.length;
+    const from = s.tab.posted.length;
+    s.tab.receive!({ type: 'run', command: 'acc.task.dispatch', ref: { project: s.root, task: one } });
+    await wait('the modal\'s sheet', () => since(s.tab, from).some((m) => m.type === 'dispatch-sheet'));
+    const pageFrom = page.posted.length;
+    page.receive!({ type: 'run', command: 'acc.task.dispatch', ref: { project: s.root, task: one } });
+    await wait('the tab\'s sheet', () => since(page, pageFrom).some((m) => m.type === 'dispatch-sheet'));
+    assert.ok(!calls.executed.slice(ranBefore).some(([id]) => id === 'acc.task.dispatch'), 'neither runs the command');
+    page.close!();
+    shut(one);
+  }
+  for (const command of ['acc.task.block', 'acc.task.move']) {
     const ran = (from: number) => calls.executed.slice(from).filter(([id]) => id === command).map(([, a]) => [(a[0] as { kind: string }).kind, (a[0] as { task: { id: string } }).task.id]);
     await peek(one);
     const page = await tabFor(one);

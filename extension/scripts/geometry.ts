@@ -13,7 +13,7 @@ import { COLLECT_WORDS, type GeoSaid, judgeWords, WORK_DATA } from './words.ts';
 import { SELECTED_TAB } from './steady.ts';
 import { A11Y_EXCEPTIONS, type GeoA11y, incompleteSummary, judgeA11y } from './a11y.ts';
 
-export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'a11y'] as const;
+export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'raw', 'a11y', 'actions'] as const;
 export type Check = (typeof CHECKS)[number];
 
 /** A box in the page's coordinates, in CSS pixels. */
@@ -26,7 +26,7 @@ export interface GeoControl {
   box: Box;
   /** The indexes of the controls it sits inside: a button in a card that opens is part of the card. */
   inside: number[];
-  /** Its sticky or fixed layer, which floats over the page by design, or null in the page's flow. */
+  /** Its sticky or fixed layer, or the open menu it is in, such as a card's ⋯ (D-168), which floats over the page by design; null in the page's flow. */
   layer: number | null;
 }
 
@@ -83,7 +83,41 @@ export interface GeoSnapshot {
   fonts?: number;
   /** What axe found on the page (T-55, a11y.ts). */
   a11y?: GeoA11y;
+  /** Each output panel drawn, and every block of raw output in it (T-64): the raw check fails on one. */
+  panels?: { what: string; raw: string[] }[];
+  /** Each set of a task's actions the page marks with data-action-set (D-168): its next step's box, and the rest's. */
+  actionSets?: GeoActionSet[];
 }
+
+/** A task's actions as drawn: the next step, full width, and the rest in the grid under it. */
+export interface GeoActionSet { what: string; next: Box[]; rest: Box[] }
+
+/**
+ * A task's actions share one size and one place (D-168): every button in a set is as high as the first,
+ * the rest are each as wide as the first of them, and the next step is as wide as the grid under it.
+ * Returns each finding.
+ */
+export function judgeActions(sets: GeoActionSet[]): { what: string; detail: string }[] {
+  const out: { what: string; detail: string }[] = [];
+  const near = (a: number, b: number) => Math.abs(a - b) <= 1;
+  for (const s of sets) {
+    const all = [...s.next, ...s.rest];
+    const h = all[0]?.h;
+    all.forEach((b, i) => { if (h !== undefined && !near(b.h, h)) out.push({ what: s.what, detail: `button ${i + 1} is ${b.h} px high, not ${h} as the first is` }); });
+    const w = s.rest[0]?.w;
+    s.rest.forEach((b, i) => { if (w !== undefined && !near(b.w, w)) out.push({ what: s.what, detail: `the grid's button ${i + 1} is ${b.w} px wide, not ${w} as the first is` }); });
+    const left = Math.min(...s.rest.map((b) => b.x));
+    const right = Math.max(...s.rest.map((b) => b.x + b.w));
+    for (const n of s.next) if (s.rest.length && (!near(n.x, left) || !near(n.x + n.w, right))) out.push({ what: s.what, detail: `the next step spans ${n.x} to ${n.x + n.w} px, not the grid's ${left} to ${right}` });
+  }
+  return out;
+}
+
+/**
+ * A block of raw output in the output panel (T-64): the pre.dock-out it showed a run's lines in as plain text
+ * until then, or any other pre. The panel shows a run as rows, never as a block of raw lines.
+ */
+export const RAW_OUTPUT = '.dock pre, .dock .dock-out';
 
 /** A table cell's text as drawn, in a row with a sticky cell. */
 export interface GeoCell { what: string; text: string; row: number; sticky: boolean; box: Box }
@@ -211,8 +245,13 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
     const over = cells.find((o) => o.sticky && o.row === c.row && overlaps(o.box, c.box));
     if (over) found.push({ check: 'covered', what: c.what, detail: `${quote(c.text).trim()} is covered by the sticky ${over.what}` });
   }
+  // The output panel shows a run as rows, never as a block of raw lines (T-64).
+  const panels = s.panels ?? [];
+  for (const p of panels) for (const r of p.raw) found.push({ check: 'raw', what: r, detail: 'the output panel shows a block of raw output, not rows' });
   const buttons = s.buttons ?? [];
   for (const f of judgeButtons(buttons, expected)) found.push({ check: 'buttons', what: 'the Overview', detail: f });
+  const actionSets = s.actionSets ?? [];
+  for (const f of judgeActions(actionSets)) found.push({ check: 'actions', what: f.what, detail: f.detail });
   if (s.doc.scroll > s.doc.view + 1) found.push({ check: 'sideways', what: 'the page', detail: `scrolls sideways by ${s.doc.scroll - s.doc.view} px` });
   for (const x of s.scrollers) if (!x.allowed && x.scroll > x.client + 1) found.push({ check: 'sideways', what: x.what, detail: `scrolls sideways by ${x.scroll - x.client} px` });
 
@@ -221,7 +260,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
   const a11y = judgeA11y(s.a11y, a11yExceptions);
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, a11y: a11y.examined };
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, raw: panels.length, a11y: a11y.examined, actions: actionSets.reduce((n, x) => n + x.next.length + x.rest.length, 0) };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -253,7 +292,7 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 14760, clipped: 41700, tab: 414, sideways: 1100, overview: 800, buttons: 450, words: 76400, covered: 1700, a11y: 190000 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 17900, clipped: 41700, tab: 450, sideways: 1100, overview: 800, buttons: 450, words: 76400, covered: 1700, raw: 330, a11y: 190000, actions: 330 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
@@ -271,6 +310,8 @@ export function runFailures(renders: Render[], full: boolean, exceptions = GEOME
   // The Overview pages drew lines, and none of them gave a button to check (T-25).
   const drewLines = renders.some((r) => r.verdict.examined.overview > 0);
   if (drewLines && !renders.some((r) => r.verdict.examined.buttons > 0)) out.push('The Overview pages gave no row button to check.');
+  // A task's page drew no actions to measure (D-168).
+  if (renders.some((r) => r.page.startsWith('ticket')) && !renders.some((r) => r.verdict.examined.actions > 0)) out.push('The task pages gave no action buttons to check.');
   if (!full) return out;
   const total = examinedIn(renders);
   for (const c of CHECKS) if (total[c] < floor[c]) out.push(`The run examined ${total[c]} for ${c}, below its floor of ${floor[c]}.`);
@@ -330,7 +371,7 @@ function collectGeometry(more) {
     return { c, ellipsis, folded };
   }
   const layers = new Map();
-  const layerOf = (e) => { for (let p = e; p; p = p.parentElement) { const s = style(p).position; if (s === 'sticky' || s === 'fixed') { if (!layers.has(p)) layers.set(p, layers.size); return layers.get(p); } } return null; };
+  const layerOf = (e) => { for (let p = e; p; p = p.parentElement) { const s = style(p).position; if (s === 'sticky' || s === 'fixed' || p.getAttribute('role') === 'menu') { if (!layers.has(p)) layers.set(p, layers.size); return layers.get(p); } } return null; };
   const visible = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true });
 
   const found = [...document.querySelectorAll('button, a[href], a.ext, input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab], [role=link]')].filter(visible);
@@ -423,7 +464,12 @@ function collectGeometry(more) {
   // Where a tracker's first column starts (T-42).
   const firstCol = document.querySelector('.tracker .board:not(.agent-board) .column');
   const boardTop = firstCol && visible(firstCol) ? Math.round(firstCol.getBoundingClientRect().top + window.scrollY) : null;
-  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, fonts: window.accFontsFirst ?? 0 };
+  // Each output panel, and any block of raw output in it (T-64).
+  const panels = [...document.querySelectorAll('.dock')].map((d) => ({ what: what(d), raw: [...d.querySelectorAll(${JSON.stringify(RAW_OUTPUT)})].map(what) }));
+  // Each set of a task's actions (D-168): the next step's box, and each of the rest's.
+  const boxOf = (e) => { const r = e.getBoundingClientRect(); return box(r.left, r.top, r.right, r.bottom); };
+  const actionSets = [...document.querySelectorAll('[data-action-set]')].filter(visible).map((s) => ({ what: what(s), next: [...s.querySelectorAll(':scope > .ta-btn')].filter(visible).map(boxOf), rest: [...s.querySelectorAll(':scope > .ta-grid > .ta-btn')].filter(visible).map(boxOf) }));
+  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, fonts: window.accFontsFirst ?? 0 };
   const write = (parts) => {
     const out = document.createElement('script');
     out.type = 'application/json';

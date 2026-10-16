@@ -1584,6 +1584,10 @@ Clean up and Details.
   and Move, because dragging does that (D-041).
 - The task page keeps showing every action (D-039).
 
+Note (D-168, 2026-10-16): the next step is no longer on the footer's right. It is a full-width button on a
+row of its own under the footer's line, the task page's size; the worktree and pull request stay above it.
+The menu behind ⋯ keeps its items in the task's one order: Block before the rest.
+
 ## D-063 Autopilot never replaces a closed pull request (2026-10-05)
 
 Follow-ups from GH-33's review (D-055). The review asked whether autopilot
@@ -3029,6 +3033,11 @@ unset is Claude Code's own default" for the model.
   config already names `claude-opus-5-5` (D-080), so it changes nothing here.
 - Not chosen: picking a model by the analysis's size; a per-task effort or
   fallback; the aliases (`opus`, `sonnet`) in the lists, which move under you.
+
+Note (D-168, 2026-10-16): Dispatch with… is gone from the card and the task page. Dispatch itself opens a
+sheet that asks for the model, from the same list in the same order, then the effort and where it runs;
+the model the builder uses is chosen first, saying where it's set. The command `acc.task.dispatchWith`
+stays for one release and opens the same sheet. Choosing the defaults still sends no `--model`.
 
 ## D-087 Agents are named for their project, ticket and role (2026-10-06)
 
@@ -5549,6 +5558,11 @@ per-task effort" out; this adds it.
   changed since, which a person didn't ask for, rather than refusing it; checking the pair in acc agents
   set, where no task's model is known.
 
+Note (D-168, 2026-10-16): the effort is no longer a second picker. Dispatch's sheet shows the levels the
+chosen model takes as a segmented control, lowest first, the one it runs with chosen and the picker's words
+under it; a model that takes none hides it and says so, with the pick it drops. `dispatchEffortItems`,
+`dispatchEffortArgs` and `noEffortArgs` are unchanged: the sheet's choice goes through them.
+
 Note (D-127, 2026-10-09): tables are raised panels too, so Agents, Worktrees and the rest match the
 Overview and Tasks. A `.grid` table's wrapper takes the raised surface, edge and lift; its column headings
 are a band in a well, and Agents' repo headings are the same band, so each repo reads as a section. Sticky
@@ -7323,6 +7337,140 @@ style, and to stay short, since the panel opens over the page.
 - Not chosen: other kinds of run (an analysis can follow this one); turning
   the next step off when the task has moved on since (Land asks first, and
   acc refuses a step the task's state no longer allows, with why).
+
+## D-168 Dispatch asks for the model, the effort and where it runs in one sheet, and a task's buttons share one size and place (2026-10-16)
+
+T-67. A task showed Dispatch, Dispatch with…, Dispatch to the cloud, Move and
+Block as buttons of different widths, in rows that wrapped where they fell.
+Dispatch started a builder at once; Dispatch with… asked for the model and
+the effort in two of VS Code's pickers, one after the other (D-086, D-128).
+The author wanted one Dispatch that asks first, and the buttons on a task in
+one size and one place.
+
+- **One Dispatch, one sheet.** Dispatch opens a sheet over the page, in the
+  page's modal (`makeModal`): "Dispatch ACME-16", or "Re-dispatch ACME-19" for
+  a task in rework. Model is a list of `dispatchModelItems`, the one the
+  builder uses chosen, its source in muted type ("project default", "picked
+  for this task"); Another model… shows a box for a name, and Dispatch is off,
+  with why, until it holds one. Effort is a segmented control of the levels
+  the chosen model takes, lowest first, the one it runs with chosen; the line
+  under it says where that's set or what the level means. A model that takes
+  no level hides it and says so, with the pick it drops. Where is This Mac or
+  the cloud, the project's default chosen; the cloud is off with
+  `cloudDisabled`'s reason in its title and in a line, and chosen, a line says
+  the routine's own model and effort apply there. The analysis's size shows
+  in muted type. Cancel and Dispatch, the primary, close it; Enter
+  dispatches, Escape cancels, and focus goes back to what opened it.
+- **The page that asked shows it.** From a task's own tab, the sheet opens
+  over that tab; from the modal over the board, over the Command Center
+  under it; from anywhere else, such as the sidebar, a notice, the palette or
+  a key binding, over the Command Center, which opens first when it's closed
+  (`Panels.tell`). A card dropped in Running opens it too, in place of the
+  old confirmation, and goes back to its lane meanwhile.
+- **The choice is acc's arguments.** The page sends what was chosen
+  (`dispatch-sheet-go`); the extension reads the task again and
+  `dispatchChoiceArgs` turns the choice into arguments with
+  `dispatchModelArgs`, `dispatchEffortArgs` and `noEffortArgs`. A choice the
+  same as the sheet's defaults sends none, as acc keeps a pick made before; a
+  place other than the project's default sends `--cloud` or `--local`.
+  `dispatchTask` runs it, and a cloud builder's run says so and offers its
+  session on claude.ai, as Dispatch to the cloud did.
+- **Dispatch with… and Dispatch to the cloud go.** `cardActions` lists
+  neither. Their commands stay for one release, so a key binding still works,
+  and each opens the sheet; Dispatch to the cloud chooses the cloud when it's
+  on. Dispatch anyway (D-093) opens the sheet too, its button "Dispatch
+  anyway" and the tasks and files it shares above the choices. After the
+  sheet, a first dispatch that would wait for others' files still asks whether
+  to wait, and one acc holds still asks before Dispatch anyway, as before.
+- **One size, one place.** A task's actions keep one order, `actionOrder`:
+  the next step, then Move, then Block or Unblock, then the rest as they
+  came. On the task page, the next step is a full-width button on a row of
+  its own, and the rest sit under it in two equal columns, each 30 px high,
+  with its icon and its label, cut with an ellipsis and whole in its title
+  (`task-actions.ts`). A disabled one stays in its place, with its reason in
+  its title. A card's next step is the same full-width button under its
+  footer's line; the rest stay behind ⋯ (D-062), in the same order, one to
+  a row.
+- **Checked.** `dispatch-sheet.test.ts` has 9 tests: the sheet for a task
+  to do and in rework, a model that takes no effort, the cloud off with its
+  reason, Dispatch anyway, the effort segments, and the arguments, the
+  defaults sending none and another model, effort and place each sending
+  theirs. `dispatch-sheet-open.test.ts` has 5, against the built extension:
+  each of the four commands opens the sheet and dispatches nothing; a task's
+  tab and the modal show it over themselves; a closed Command Center opens
+  first; the sheet's Dispatch reaches acc dispatch. `cards.test.ts` checks
+  that no card lists Dispatch with… or Dispatch to the cloud, `actionOrder`
+  and the task page's `taskActions`. The screenshot run adds four pages:
+  the sheet over the Tasks board for ACME-16, analysed; over ACME-19's tab
+  in rework with the cloud off; the agent board with a card's ⋯ open; and
+  Dispatch anyway's sheet for ACME-35, with the files it shares. The name box
+  for Another model… shows only after a pick, so the screenshots gate's
+  `UNDRAWN` names it, and a behaviour case draws it. A new geometry check,
+  `actions`, finds a task page's buttons equal in height, the grid's equal in
+  width and the next step as wide as the grid, and a run with no task page
+  buttons to measure fails; an open menu floats over the page, as a sticky
+  layer does. Three behaviour cases open the sheet from a card and from the
+  task page, pick a model and see the efforts change, press Enter and see
+  the message, press Escape and see none, and type a model's name for
+  Another model…; six new mutants, Dispatch without the sheet among them,
+  each fail one.
+- Not chosen: a grid of every action on a card, which D-062 put behind ⋯;
+  folding acc's own wait for others' files into the sheet; Autopilot's
+  dispatches, which ask nobody.
+## D-169 Every run in the output panel shows as rows, never as a block of raw lines (2026-10-16)
+
+T-64. The output panel showed each run as its command and its lines in a
+monospace block. D-167 gave a review its own view, but its Show output and
+every other run were still plain text. The author asked for no plain text
+in the panel at all: each run in the page's own type and the theme's
+colours, as the review view reads.
+
+- **Rows from one pure function.** `logic/run-rows.ts` turns a run's lines
+  into rows, with no `vscode` import: a success (a tick, "Done", "passed",
+  "Deployed") with a blue mark; a warning and an error with an orange icon
+  and label; a count of progress ("3/10", "45%") as a thin bar; and a note
+  in muted type. "0 failed" and "no errors" aren't failures. It drops colour
+  codes, blank lines, a spinner's frame, and the "npm ERR!" or "Warning:" the
+  row's label says. A line that repeats is one row with a count, and a count
+  that moves on is one row at its latest. The last 200 rows show; one line
+  counts the rest. A URL is a link. A file path is a chip: one in the folder
+  the run ran in opens at its line (`Runs.openFile`, through the review's
+  `fileInCheckout`), and one outside it is a quiet label that says why.
+- **The card carries it.** `runCard` adds the rows, the count not shown, how
+  long it took, its folder and its result (`model/run-view.ts`). The header
+  line's state label is now Failed, not "Failed (exit 1)": the exit code is
+  on the result card, in words ("It reported an error (exit code 1).").
+  History shows a failed run as Failed too.
+- **A header line, a menu and a result card.** The header line shows the
+  state's icon and label, the run's name, and its clock (the review's own
+  `clock`) or how long it took. The command moves into Details, in the
+  header's menu (the board's `moreMenu`) with Copy log and the run in a
+  terminal. Copy log copies every line the run kept, from the extension, not
+  only the rows shown. An ended run ends with a result card: one sentence,
+  a failure's last error row and exit code, and one next step: Open the step
+  for a setup step's fix, Run again for any other run, and none for
+  autopilot, whose switch starts it. Run again starts the command with the
+  options it first had, in place of the ended run; one kept over a reload
+  has only its folder, label and step.
+- **Reviews too.** A review's Show output shows the same rows, with no
+  result card, since its review says how it went.
+- **Checked.** `run-rows.test.ts` has 15 tests: each kind, a URL, a path in
+  the folder and outside it, repeats, escape codes, an empty output, more
+  than 200 rows, the exit code in words, the result card and the run's card.
+  `run-view.test.ts` has 4: Copy log, Run again, opening a path, and the
+  panel drawing every run with `renderRunRows`. The screenshot run draws four
+  more pages over the Tasks board: a deploy running, the deploy done with
+  more rows than it shows, a lint that failed, and the deploy with Details
+  open; Setup's output page is the run waiting for an answer. A new geometry
+  check, raw, fails on a `pre`, or the `pre.dock-out` the panel used, in any
+  panel drawn (`RAW_OUTPUT`), with a floor of 330 panels a run, and
+  `geometry.test.ts` has a test for it. A behaviour
+  case clicks through the failed lint, and five new mutants each fail it:
+  the raw lines again, Details showing nothing, Copy log, a chip and Run
+  again each sending nothing.
+- Not chosen: how acc reports its own steps (a separate task gives its
+  commands a step list); the terminal tab, which stays a terminal; a menu
+  that opens on a keyboard shortcut.
 
 ## D-??? History groups its entries under a line for each day, and loads them a page at a time (2026-10-16)
 

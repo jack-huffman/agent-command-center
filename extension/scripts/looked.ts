@@ -35,7 +35,10 @@ export const uiChanges = (changed: string[]): string[] => changed.filter((p) => 
  * Classes a branch may add without a shot that draws them, each with why. A class here that the
  * stylesheets no longer hold fails the gate's test, so the list only holds what's still true.
  */
-export const UNDRAWN: readonly { name: string; reason: string }[] = [];
+export const UNDRAWN: readonly { name: string; reason: string }[] = [
+  { name: 'dock-fold-rows', reason: 'A folded row\'s own rows show only after a person opens it, which a shot can\'t do; run-rows.test.ts checks what folds, and the done shots draw the folded row.' },
+  { name: 'ds-name', reason: 'Dispatch\'s sheet shows the model name box only after a person picks Another model…, which a shot can\'t do; the behaviour case "dispatch sheet: Another model…" opens it and types in it (D-168).' },
+];
 
 /** The class names a stylesheet's selectors use. Declarations, comments and strings are left out, so `url(a.svg)` isn't a class. */
 export function cssClasses(css: string): Set<string> {

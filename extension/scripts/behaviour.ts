@@ -43,6 +43,8 @@ import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../sr
 import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
+import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
+import { dispatchChoiceArgs, dispatchSheet } from '../src/model/dispatch-sheet.ts';
 import { ROOT } from './fixtures/shared.ts';
 import { sampleLongHub } from './fixtures/landing.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
@@ -155,10 +157,29 @@ export interface BehaviourData {
   /**
    * A review in the output panel (T-63), over the Tasks board: the run it opens on and the runs message that
    * opens it, as the extension sends one when a review starts; its header's verdict and count; each row's key,
-   * state and text in order; how many criteria the met row folds; its lines; and what a click on the first
-   * finding's file and line, and on the next step, sends.
+   * state and text in order; how many criteria the met row folds; its output's rows (T-64); and what a click on
+   * the first finding's file and line, and on the next step, sends.
    */
-  dock: { run: string; runs: Record<string, unknown>; look: string; count: string; rows: { key: string; label: string; text: string }[]; met: number; lines: string; click: Record<string, unknown>; next: Record<string, unknown> };
+  dock: { run: string; runs: Record<string, unknown>; look: string; count: string; rows: { key: string; label: string; text: string }[]; met: number; lines: string[]; click: Record<string, unknown>; next: Record<string, unknown> };
+  /**
+   * Dispatch's sheet (D-168). From a card: ACME-16's Dispatch, the run it sends, and the sheet the extension
+   * sends back, on a builder whose model takes no effort, with the line that says so; the model the case picks,
+   * its levels and the one chosen; and the message Enter sends, with acc's arguments for it. From the task
+   * page: ACME-19's page in the modal, the run its Re-dispatch sends, its sheet with the cloud off and why.
+   */
+  sheet: {
+    card: { task: string; run: Record<string, unknown>; message: Record<string, unknown>; none: string; pick: string; levels: string[]; chosen: string; sent: Record<string, unknown>; args: string[] };
+    /** Another model…: its row's label, what Dispatch says while the box is empty, and the message for a name typed, with acc's arguments. */
+    another: { label: string; empty: string; name: string; sent: Record<string, unknown>; args: string[] };
+    page: { modal: Record<string, unknown>; run: Record<string, unknown>; message: Record<string, unknown>; title: string; reason: string };
+  };
+  /**
+   * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
+   * its state, name and time; each row's words in order; its command; how many of its paths are outside its
+   * folder; its result card's sentence, last error and exit code; and what Copy log, its first path chip and the
+   * result card's button send.
+   */
+  run: { runs: Record<string, unknown>; look: string; label: string; took: string; rows: string[]; command: string; off: number; sentence: string; error: string; exit: string; copy: Record<string, unknown>; chip: Record<string, unknown>; next: Record<string, unknown> };
   keys: {
     first: string; down: string; last: string; right: string;
     move: { card: string; to: string; lanes: string[]; sent: Record<string, unknown>; moving: string; moved: string; stays: string };
@@ -173,17 +194,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, the Tasks board with a review in the output panel, and the Overview with History of more than two pages. */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; pages: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, and the Overview with History of more than two pages. */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'overview-pages' ? models.pages : c.page === 'output-changes' ? models.dock : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -744,7 +765,7 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'output panel: a review shows its verdict and rows, a row opens in place, its file and line and its next step send their messages, and Show output shows the lines',
+    name: 'output panel: a review shows its verdict and rows, a row opens in place, its file and line and its next step send their messages, and Show output shows its rows',
     page: 'output-changes',
     async run(t) {
       const want = t.data.dock;
@@ -756,7 +777,7 @@ export const CASES: Case[] = [
       t.check('the header line says the verdict', t.find('.status', head).textContent === want.look, t.find('.status', head).textContent);
       t.check('and counts the criteria and findings', t.find('.dr-count', head).textContent === want.count, t.find('.dr-count', head).textContent);
       t.check('the header line hovers who reviewed it, when and how long', /^Reviewed by .+\. It took .+\.$/.test(head.title), head.title);
-      t.check('the review, not the lines', t.all('.dock-out', dock()).length === 0, t.all('.dock-out', dock()).length);
+      t.check('the review, not the rows', t.all('.dock-body', dock()).length === 0, t.all('.dock-body', dock()).length);
       const rows = t.all('.dr-rows > .dr-row:not(.dr-met)', dock());
       const shown = rows.map((r) => ({ key: r.dataset.row, label: t.find('.dr-toggle .status', r).textContent, text: t.find('.dr-text', r).textContent }));
       t.check('a row for each criterion not met, then each finding, must-fix first', JSON.stringify(shown) === JSON.stringify(want.rows), shown);
@@ -783,11 +804,54 @@ export const CASES: Case[] = [
       const show = t.find<HTMLButtonElement>('.dock-lines', dock());
       t.check('Show output is named so', show.getAttribute('aria-label') === 'Show output', show.getAttribute('aria-label'));
       await t.click(show);
-      const out = t.find('.dock-out');
-      t.check('Show output shows the lines', out.textContent === want.lines, out.textContent);
+      // As rows, never a block of raw lines (T-64).
+      const out = t.all('.dock-body .dock-row').map((r) => r.title);
+      t.check('Show output shows its output as rows', JSON.stringify(out) === JSON.stringify(want.lines) && !t.all('.dock pre').length, out);
       t.check('in place of the review', t.all('.dr').length === 0);
       await t.click(t.find('.dock-lines'));
-      t.check('Show the review brings it back, the row still open', t.all('.dock-out').length === 0 && !!document.querySelector(`[data-row="${first.key}"] .dr-detail`));
+      t.check('Show the review brings it back, the row still open', t.all('.dock-body').length === 0 && !!document.querySelector(`[data-row="${first.key}"] .dr-detail`));
+    },
+  },
+  {
+    name: 'output panel: a run shows as rows, Details shows its command, Copy log copies it, a path chip opens its file, and the result card runs it again',
+    page: 'output-failed',
+    async run(t) {
+      const want = t.data.run;
+      // A run that ends opens the panel on it, as the extension's runs message does.
+      await t.post(want.runs);
+      // The panel redraws on each click, so it's found again each time.
+      const dock = (): HTMLElement => t.find('section.dock');
+      const head = t.find('.dock-title', dock());
+      t.check('the header line says the state in words', t.find('.status', head).textContent === want.look, t.find('.status', head).textContent);
+      t.check('then the run\'s name and how long it took', t.find('.dock-label', head).textContent === want.label && t.find('.dock-clock', head).textContent === want.took, head.textContent);
+      t.check('no block of raw output', t.all('pre, .dock-out', dock()).length === 0, t.all('pre, .dock-out', dock()).length);
+      const rows = t.all('.dock-body > .dock-rows > .dock-row', dock());
+      t.check('a row for each line, the blank one gone, in order', JSON.stringify(rows.map((r) => r.title)) === JSON.stringify(want.rows), rows.map((r) => r.title));
+      t.check('each warning and error says so in words', rows.every((r) => !r.matches('.kind-warning, .kind-error') || t.find('.status', r).textContent === (r.matches('.kind-error') ? 'Error' : 'Warning')));
+      t.check('the command is out of view', !dock().textContent!.includes(want.command));
+      // Details and Copy log, from the header's menu.
+      const pick = async (label: string) => {
+        await t.click(t.find('.dock-bar .more-btn', dock()));
+        const item = t.all<HTMLButtonElement>('.dock-bar .more-item', dock()).find((b) => b.textContent === label);
+        t.check(`the menu holds ${label}`, !!item);
+        if (item) await t.click(item);
+      };
+      await pick('Show details');
+      t.check('Details shows the command', t.all('.dock-details .dock-cmd', dock())[0]?.textContent === want.command, t.all('.dock-details', dock())[0]?.textContent);
+      await pick('Copy log');
+      const copied = t.sent('run-control').at(-1);
+      t.check('Copy log asks for the whole output', JSON.stringify(copied) === JSON.stringify(want.copy), copied);
+      await t.click(t.find('button.dock-chip', dock()));
+      const chip = t.sent('run-file').at(-1);
+      t.check('a path chip asks to open its file at its line', JSON.stringify(chip) === JSON.stringify(want.chip), chip);
+      t.check('a path outside the folder is a quiet label, not a button', t.all('span.dock-chip.off', dock()).length === want.off, t.all('span.dock-chip.off', dock()).length);
+      const card = t.find('.dock-result', dock());
+      t.check('the result card says what happened', t.find('.dock-result-text', card).textContent === want.sentence, t.find('.dock-result-text', card).textContent);
+      t.check('with the last error and the exit code in words', t.find('.dock-row', card).title === want.error && t.find('.dock-exit', card).textContent === want.exit, card.textContent);
+      t.check('one primary button', t.all('.btn.primary', dock()).length === 1, t.all('.btn.primary', dock()).length);
+      await t.click(t.find('.dock-next', card));
+      const next = t.sent('run-control').at(-1);
+      t.check('its button runs it again', JSON.stringify(next) === JSON.stringify(want.next), next);
     },
   },
   {
@@ -1121,6 +1185,93 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'dispatch sheet: a card\'s Dispatch opens it, a model picked changes the efforts, and Enter sends the choice',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.sheet.card;
+      const button = t.find(`article.card[data-card-id="${CSS.escape(d.task)}"] .ta-btn.primary`);
+      t.check('the card\'s next step is Dispatch', button.textContent?.trim() === 'Dispatch', button.textContent);
+      await t.click(button);
+      const ran = t.sent('run').at(-1);
+      t.check('a click asks the extension for the sheet, and dispatches nothing', JSON.stringify(ran) === JSON.stringify(d.run) && t.sent('dispatch-sheet-go').length === 0, ran);
+      t.check('nothing opens before the extension answers', t.all('dialog.dispatch-sheet[open]').length === 0);
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.dispatch-sheet');
+      t.check('the sheet opens', dialog.open);
+      t.check('focus is on the model chosen', document.activeElement === t.find('[data-part="model"] [aria-checked="true"]', dialog), document.activeElement?.className);
+      // Edge: the builder's model takes no effort, so Effort shows no levels, and a line says so.
+      t.check('a model that takes no effort shows no levels', t.all('[data-part="effort"]', dialog).length === 0);
+      t.check('and says so in a line', t.find('[data-section="effort"] .ds-note', dialog).textContent === d.none, t.find('[data-section="effort"] .ds-note', dialog).textContent);
+      const pick = t.all('[data-part="model"] [role=radio]', dialog).find((r) => r.querySelector('.ds-row-name')?.textContent === d.pick);
+      if (!pick) throw new Error(`not found: the model ${d.pick}`);
+      await t.click(pick);
+      const levels = t.all('[data-part="effort"] [role=radio]', dialog).map((e) => e.textContent);
+      t.check('picking another model shows its levels', JSON.stringify(levels) === JSON.stringify(d.levels), levels);
+      t.check('with the one the builder runs with chosen', t.find('[data-part="effort"] [aria-checked="true"]', dialog).textContent === d.chosen, t.find('[data-part="effort"] [aria-checked="true"]', dialog).textContent);
+      t.check('and the model it picked chosen, with focus on it', t.find('[data-part="model"] [aria-checked="true"] .ds-row-name', dialog).textContent === d.pick && document.activeElement === t.find('[data-part="model"] [aria-checked="true"]', dialog));
+      await press(t, document.activeElement as HTMLElement, 'Enter');
+      const sent = t.sent('dispatch-sheet-go');
+      t.check(`Enter sends the choice once, which acc gets as: ${d.args.join(' ')}`, sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      t.check('the sheet closes', !dialog.open);
+      t.check('focus goes back to the Dispatch that opened it', document.activeElement === button, document.activeElement?.className);
+    },
+  },
+  {
+    name: 'dispatch sheet: Another model… asks for a name, and Dispatch is off until it holds one',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.sheet.another;
+      await t.post(t.data.sheet.card.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.dispatch-sheet');
+      t.check('no name box before Another model… is picked', t.all('.ds-name', dialog).length === 0);
+      const row = t.all('[data-part="model"] [role=radio]', dialog).find((r) => r.querySelector('.ds-row-name')?.textContent === d.label);
+      if (!row) throw new Error(`not found: ${d.label}`);
+      await t.click(row);
+      const box = t.find<HTMLInputElement>('.ds-name', dialog);
+      const go = t.find<HTMLButtonElement>('.ds-go', dialog);
+      t.check('picking it shows a box for the name', !!box && box.value === '');
+      t.check('Dispatch is off, saying why', go.disabled && go.title === d.empty, go.title);
+      // Edge: Enter with the box empty sends nothing, and the sheet stays.
+      await press(t, box, 'Enter');
+      t.check('Enter with no name sends nothing', t.sent('dispatch-sheet-go').length === 0 && dialog.open);
+      await t.type(box, d.name);
+      t.check('a name turns Dispatch on', !go.disabled, go.title);
+      await press(t, box, 'Enter');
+      const sent = t.sent('dispatch-sheet-go');
+      t.check(`Enter sends the name typed, which acc gets as: ${d.args.join(' ')}`, sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      t.check('the sheet closes', !dialog.open);
+    },
+  },
+  {
+    name: 'dispatch sheet: the task page\'s Re-dispatch opens it over the page, with the cloud off and why, and Escape sends nothing',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.sheet.page;
+      await t.post(d.modal);
+      const modal = t.find<HTMLDialogElement>('dialog.task-modal:not(.detail-modal):not(.palette-modal):not(.dispatch-sheet)');
+      t.check('the task page is open over the board', modal.open);
+      const go = t.find('.task-actions > .ta-btn.primary', modal);
+      await t.click(go);
+      const ran = t.sent('run').at(-1);
+      t.check('Re-dispatch asks the extension for the sheet, and dispatches nothing', JSON.stringify(ran) === JSON.stringify(d.run) && t.sent('dispatch-sheet-go').length === 0, ran);
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.dispatch-sheet');
+      t.check('the sheet opens over the task page', dialog.open && modal.open);
+      t.check('it is titled for a rework', t.find('.ds-title', dialog).textContent === d.title, t.find('.ds-title', dialog).textContent);
+      const cloud = (): HTMLElement => t.all('[data-part="where"] [role=radio]', dialog)[1]!;
+      t.check('the cloud is off, with its reason in its title', cloud().getAttribute('aria-disabled') === 'true' && cloud().title.includes(d.reason), cloud().title);
+      t.check('and a line says why', t.find('[data-section="where"] .ds-note', dialog).textContent === d.reason, t.find('[data-section="where"] .ds-note', dialog).textContent);
+      // Edge: a click on the cloud, which is off, chooses nothing.
+      await t.click(cloud());
+      t.check('a click on it leaves This Mac chosen', cloud().getAttribute('aria-checked') === 'false');
+      await t.escape(dialog);
+      t.check('Escape closes the sheet', !dialog.open);
+      t.check('and leaves the task page open under it', modal.open);
+      t.check('and sends nothing', t.sent('dispatch-sheet-go').length === 0, t.sent('dispatch-sheet-go'));
+      t.check('focus goes back to Re-dispatch', document.activeElement === go, document.activeElement?.className);
+    },
+  },
+  {
     name: 'board keys: focus stays on the same card after a redraw, in its new column',
     page: 'tasks',
     async run(t) {
@@ -1192,6 +1343,11 @@ export const MUTANTS: Mutant[] = [
   { name: 'the output panel drops the verdict and shows only the lines', file: 'dock.ts', find: 'const body = open && review ? renderDockReview(run.id, review, redrawDock) : null;', replace: 'const body = null;', kills: [caseNamed('output panel: a review')] },
   { name: 'a review\'s row opens nothing', file: 'dock-review.ts', find: "toggle.addEventListener('click', () => flip(key, redraw));\n  const li = el('li', `dr-row tone-row", replace: "const li = el('li', `dr-row tone-row", kills: [caseNamed('output panel: a review')] },
   { name: 'a review\'s next step sends nothing', file: 'dock-review.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));", replace: "b.addEventListener('click', () => void a);", kills: [caseNamed('output panel: a review')] },
+  { name: 'the output panel shows the raw lines again', file: 'run-view.ts', find: "const box = el('div', 'dock-body', rows,", replace: "const box = el('div', 'dock-body', el('pre', 'dock-out', run.lines.join('\\n')),", kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'Details shows nothing', file: 'dock.ts', find: 'if (open && shown) dock.append(details(run));', replace: '', kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'Copy log sends nothing', file: 'dock.ts', find: "if (a.command !== 'details') { control(a.command); return; }", replace: "if (a.command !== 'details') return;", kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'a path chip opens nothing', file: 'run-view.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'run-file', run, file: opens, ...(p.line ? { line: p.line } : {}) }));", replace: "b.addEventListener('click', () => void opens);", kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'the result card\'s button sends nothing', file: 'run-view.ts', find: "if (n.kind === 'rerun') { api.postMessage({ type: 'run-control', run: run.id, action: 'rerun' }); return; }", replace: "if (n.kind === 'rerun') return;", kills: [caseNamed('output panel: a run shows as rows')] },
   { name: 'Show output does nothing', file: 'dock.ts', find: 'x.opened = lines ? x.opened.filter((y) => y !== k) : [...x.opened, k];', replace: '', kills: [caseNamed('output panel: a review')] },
   { name: 'a guide link goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });", replace: "a.addEventListener('click', (e) => { e.preventDefault(); });", kills: [caseNamed('settings: a link for each part')] },
   { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
@@ -1219,6 +1375,12 @@ export const MUTANTS: Mutant[] = [
   { name: 'a held card\'s Enter sends no message', file: 'board-nav.ts', find: 'o.move(id, to);', replace: '', kills: [caseNamed('board keys: Space, Right and Enter')] },
   { name: 'Escape still sends the move', file: 'board-nav.ts', find: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          putDown();", replace: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          o.move(id, held.at);\n          putDown();", kills: [caseNamed('board keys: Escape')] },
   { name: 'the board\'s live line stays silent', file: 'board-nav.ts', find: "live.replaceChildren(icon(look.icon, look.tone), el('span', '', text));", replace: 'void look;', kills: [caseNamed('board keys: Space, Right and Enter'), caseNamed('board keys: Escape'), caseNamed('board keys: Space on a card')] },
+  { name: 'Dispatch goes without the sheet', file: 'dispatch-sheet.ts', find: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) openSheet(msg.sheet); } },", replace: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) api.postMessage({ type: 'dispatch-sheet-go', project: msg.sheet.project, task: msg.sheet.task, model: msg.sheet.models[0]!.value, where: msg.sheet.place }); } },", kills: [caseNamed('dispatch sheet: a card'), caseNamed('dispatch sheet: the task page')] },
+  { name: 'Escape on the sheet dispatches', file: 'dispatch-sheet.ts', find: "const m = makeModal('dispatch-sheet', [title], shut);", replace: "const m = makeModal('dispatch-sheet', [title], dispatch);", kills: [caseNamed('dispatch sheet: the task page')] },
+  { name: 'Enter on the sheet does nothing', file: 'dispatch-sheet.ts', find: '    e.preventDefault();\n    dispatch();\n', replace: '    e.preventDefault();\n', kills: [caseNamed('dispatch sheet: a card')] },
+  { name: 'a model picked leaves the efforts as they were', file: 'dispatch-sheet.ts', find: '(i) => { open!.model = i; draw(); }', replace: '(i) => { void i; draw(); }', kills: [caseNamed('dispatch sheet: a card')] },
+  { name: 'the sheet dispatches with no model name', file: 'dispatch-sheet.ts', find: "const goOff = (): string | null => (modelName() === null ?", replace: "const goOff = (): string | null => (modelName() === undefined ?", kills: [caseNamed('dispatch sheet: Another model')] },
+  { name: 'the sheet leaves out why the cloud is off', file: 'dispatch-sheet.ts', find: "off ? el('p', 'ds-note muted', icon('info'), el('span', '', off.disabled!)) : null", replace: 'null', kills: [caseNamed('dispatch sheet: the task page')] },
   { name: 'a redraw drops the focused card\'s focus', file: 'board-nav.ts', find: 'if (again) focusOf(again).focus({ preventScroll: true });', replace: '', kills: [caseNamed('board keys: focus stays')] },
 ];
 
@@ -1275,7 +1437,9 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     palette: paletteData(models.tasks, now),
     review: reviewData(models.review),
     dock: dockData(models.dock),
+    run: runData(models.run),
     keys: keysData(models.tasks),
+    sheet: sheetData(now),
   };
 }
 
@@ -1314,6 +1478,35 @@ function sinceData(model: Model): BehaviourData['since'] {
 }
 
 /** What the board's key cases expect (T-54), from the Tasks board's model: the Jira board it opens on, and the agent board. */
+function sheetData(now: number): BehaviourData['sheet'] {
+  const input = sampleSheetInput(now, 'no-effort');
+  const sheet = dispatchSheet(input);
+  const first = sheet.models[0]!;
+  const pick = sheet.models.find((m) => m.value === 'claude-opus-5-5');
+  if (first.efforts.length || !first.none || !pick?.efforts.length) throw new Error('The sheet case needs a builder whose model takes no effort, and Opus 5.5 to pick.');
+  const chosen = pick.efforts[pick.effort]!;
+  const choice = { model: pick.value!, effort: chosen.value, where: sheet.place };
+  const task = input.row.id;
+  const another = sheet.models.at(-1)!;
+  if (another.value !== null || !another.efforts.length) throw new Error('The sheet case needs Another model… last, taking every level.');
+  const named = { model: 'opus', effort: another.efforts[another.effort]!.value, where: sheet.place };
+  const rework = sampleSheet(now, 'rework');
+  const reason = rework.places.find((p) => p.value === 'cloud')?.disabled;
+  if (!reason) throw new Error('The sheet case needs the rework sheet with the cloud off.');
+  return {
+    card: {
+      task, run: { type: 'run', command: 'acc.task.dispatch', ref: { project: ROOT, task } }, message: { type: 'dispatch-sheet', sheet }, none: first.none,
+      pick: pick.value!, levels: pick.efforts.map((e) => e.label), chosen: chosen.label,
+      sent: { type: 'dispatch-sheet-go', project: ROOT, task, ...choice }, args: dispatchChoiceArgs(input, choice).args,
+    },
+    another: { label: another.label, empty: 'Type a model\'s name first', name: named.model, sent: { type: 'dispatch-sheet-go', project: ROOT, task, ...named }, args: dispatchChoiceArgs(input, named).args },
+    page: {
+      modal: { type: 'task-modal', model: sampleTicket(now, 'ACME-19'), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-19' } },
+      run: { type: 'run', command: 'acc.task.dispatch', ref: { project: ROOT, task: 'ACME-19' } }, message: { type: 'dispatch-sheet', sheet: rework }, title: rework.title, reason,
+    },
+  };
+}
+
 function keysData(model: Model): BehaviourData['keys'] {
   if (model.kind !== 'home') throw new Error('The board key cases need a home model.');
   const board = model.tasks.projects[0]?.boards[0];
@@ -1367,8 +1560,22 @@ function dockData(model: Model): BehaviourData['dock'] {
   if (!run || !r || !r.met || !opens || model.kind !== 'home') throw new Error('The output panel case needs a home model with a finished review whose finding opens and some criteria met.');
   return {
     run: run.id, runs: { type: 'runs', runs: model.runs, focus: run.id }, look: r.look.label, count: r.count,
-    rows: r.rows.map((x) => ({ key: x.key, label: x.look.label, text: x.text })), met: r.met.items.length, lines: run.lines.join('\n'),
+    rows: r.rows.map((x) => ({ key: x.key, label: x.look.label, text: x.text })), met: r.met.items.length, lines: run.rows.map((x) => x.text),
     click: { type: 'review-file', ...opens }, next: { type: 'run', command: r.next.command, ref: r.next.ref },
+  };
+}
+
+/** What the output panel's run case expects (T-64): from the Tasks board's model, its failed run and what it shows. */
+function runData(model: Model): BehaviourData['run'] {
+  const run = model.kind === 'home' ? model.runs[0] : undefined;
+  const r = run?.result;
+  const chip = run?.rows.flatMap((x) => x.parts).find((p): p is Extract<typeof p, { opens: string | null }> => 'path' in p && !!p.opens);
+  if (!run || !r?.error || !r.exit || r.next?.kind !== 'rerun' || !chip?.opens || model.kind !== 'home') throw new Error('The output panel\'s run case needs a home model whose first run failed with an error row, runs again, and names a path in its folder.');
+  return {
+    runs: { type: 'runs', runs: model.runs, focus: run.id }, look: run.look.label, label: run.label, took: run.took!, rows: run.rows.map((x) => x.text), command: run.command,
+    off: run.rows.flatMap((x) => x.parts).filter((p) => 'path' in p && !p.opens).length, sentence: r.sentence, error: r.error.text, exit: r.exit,
+    copy: { type: 'run-control', run: run.id, action: 'copy' }, chip: { type: 'run-file', run: run.id, file: chip.opens, ...(chip.line ? { line: chip.line } : {}) },
+    next: { type: 'run-control', run: run.id, action: 'rerun' },
   };
 }
 

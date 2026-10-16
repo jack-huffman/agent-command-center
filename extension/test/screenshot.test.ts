@@ -6,7 +6,8 @@ import { tempDir } from '../../packages/core/test/support.ts';
 import { HOME_SECTIONS } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
-import { afterModel, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, OUTPUT_REVIEWS, OVERVIEW_LISTS, PAGES, pageFor, sampleModel, startState } from '../scripts/screenshot.ts';
+import type { DispatchSheet } from '../src/model/dispatch-sheet.ts';
+import { afterModel, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, OUTPUT_REVIEWS, OUTPUT_RUNS, OVERVIEW_LISTS, PAGES, pageFor, sampleModel, startState } from '../scripts/screenshot.ts';
 import { ROOT } from '../scripts/fixtures/shared.ts';
 import { cssRules, pageStyles, palettes, readsVars, styleFile, styleFiles, vscodeDefaults } from '../scripts/styles.ts';
 
@@ -44,6 +45,13 @@ test('every section of the page, and a ticket, has sample data built by the real
       // The agent board, with two builders in the cloud (GH-69): the page starts on it, and the cards say where each runs.
       const cards = (m as HomeModel).tasks.projects[0]!.columns.flatMap((c) => c.cards);
       assert.deepEqual([m.kind, (m as HomeModel).section, (startState(kind) as { modes: Record<string, string> }).modes[ROOT], cards.filter((c) => c.place?.label === 'Cloud').map((c) => c.id)], ['home', 'tasks', 'agents', ['ACME-43', 'ACME-44']]);
+    } else if (kind.startsWith('dispatch-sheet') || kind === 'tasks-card-menu') {
+      // Dispatch's sheet over the Tasks board, for an analysed task, and a card's ⋯ menu open on the agent board (D-168).
+      const [after] = afterModel(kind);
+      const sheet = after?.sheet as DispatchSheet | undefined;
+      if (kind === 'dispatch-sheet') assert.deepEqual([m.kind, (m as HomeModel).section, after?.type, sheet?.title, !!sheet?.size, sheet?.places.find((p) => p.value === 'cloud')?.disabled], ['home', 'tasks', 'dispatch-sheet', 'Dispatch ACME-16', true, undefined]);
+      else if (kind === 'dispatch-sheet-anyway') assert.deepEqual([m.kind, (m as HomeModel).section, sheet?.go, sheet?.shares?.lines.map((l) => l.task)], ['home', 'tasks', 'Dispatch anyway', ['ACME-12', 'ACME-13']]);
+      else assert.deepEqual([m.kind, (m as HomeModel).section, startState(kind)], ['home', 'tasks', { modes: { [ROOT]: 'agents' }, openMenu: `card:${ROOT}#ACME-16` }]);
     } else if (kind.startsWith('tasks-slack')) {
       // A Slack channel (T-31): a box for a thread's link in place of a board, empty or with a link Track refused.
       const b = (m as HomeModel).tasks.projects[0]!.boards[0]!;
@@ -93,12 +101,17 @@ test('every section of the page, and a ticket, has sample data built by the real
     // Setup as first shown in a folder that isn't set up (GH-138): the question, and the machine's steps left.
     else if (kind.startsWith('setup-first')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).setup.start, (m as HomeModel).setup.parts.map((p) => [p.part, p.todo])], ['home', 'setup', true, [['machine', kind === 'setup-first' ? 0 : 2], ['project', 0]]]);
     // The output panel over the Tasks board on a review (T-63): passed, changes asked, still running, and with no verdict to show.
-    else if (OUTPUT_REVIEWS[kind]) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).runs[0]?.review?.phase, (m as HomeModel).runs[0]?.look.label], ['home', 'tasks', kind === 'output-reviewing' ? 'running' : kind === 'output-unread' ? 'unread' : 'done', kind === 'output-passed' ? 'Passed' : kind === 'output-reviewing' ? 'Running' : kind === 'output-unread' ? 'Failed (exit 1)' : 'Changes asked']);
+    else if (OUTPUT_REVIEWS[kind]) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).runs[0]?.review?.phase, (m as HomeModel).runs[0]?.look.label], ['home', 'tasks', kind === 'output-reviewing' ? 'running' : kind === 'output-unread' ? 'unread' : 'done', kind === 'output-passed' ? 'Passed' : kind === 'output-reviewing' ? 'Running' : kind === 'output-unread' ? 'Failed' : 'Changes asked']);
+    // The output panel over the Tasks board on a run as rows (T-64): a deploy running, done with more rows than it shows, and an install that failed.
+    else if (OUTPUT_RUNS[kind]) {
+      const r = (m as HomeModel).runs[0]!;
+      assert.deepEqual([m.kind, (m as HomeModel).section, r.look.label, r.hidden > 0, r.result?.look.label ?? null], ['home', 'tasks', ...({ running: ['Running', false, null], done: ['Done', true, 'Done'], failed: ['Failed', false, 'Failed'] } as const)[OUTPUT_RUNS[kind]!]]);
+    }
     else if (kind === 'settings-limits') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.limits?.caps.map((c) => c.value)], ['home', 'settings', ['1', '16', 'None']]);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread', 'dispatch-sheet', 'ticket-dispatch', 'tasks-card-menu', 'dispatch-sheet-anyway', 'output-running', 'output-done', 'output-failed', 'output-details']);
   assert.equal((sampleModel('settings') as HomeModel).settings.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;

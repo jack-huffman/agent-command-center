@@ -30,6 +30,7 @@ import { STATUS } from '../src/model/setup.ts';
 import { displayLook } from '../src/model/shared.ts';
 import { CHECK_LOOK, checkLook, REVIEW_LOOK, ticketReview, wordingLook } from '../src/model/task-page.ts';
 import { CRITERION_LOOK, dockReview, REVIEW_RUN_LOOK } from '../src/model/dock-review.ts';
+import { RESULT_LOOK, ROW_LOOK } from '../src/model/run-view.ts';
 import { worktreeLook } from '../src/model/worktrees.ts';
 import { loadWord, taskLook } from '../src/progress.ts';
 import { SLACK_KIND_WORDS, SLACK_KINDS, slackCard } from '../src/slack.ts';
@@ -127,6 +128,8 @@ export const TABLES: Table[] = [
       return [...Object.entries(CRITERION_LOOK), ...Object.entries(REVIEW_RUN_LOOK), ...shown('pass'), ...shown('changes')];
     },
   },
+  // A run in the output panel as rows (T-64): each kind of row, and how an ended run shows in its header line and result card.
+  { name: 'a run\'s rows and its result in the output panel', sources: ['extension/src/model/run-view.ts#ROW_LOOK', 'extension/src/model/run-view.ts#RESULT_LOOK'], states: () => [...Object.entries(ROW_LOOK), ...Object.entries(RESULT_LOOK)] },
   {
     name: 'a question\'s outcome', sources: ['extension/src/model/history.ts#OUTCOME_LOOK', 'extension/src/model/history.ts#outcomeLook'],
     states: () => [...Object.entries(OUTCOME_LOOK), ...product(Object.keys(OUTCOME_LOOK), [false, true]).map(([o, ask]): [string, Shown] => [`${o}${ask ? ', asked' : ''}`, outcomeLook(o, ask)]), ['one a newer acc wrote', outcomeLook('reconsidered', false)]],
@@ -232,6 +235,7 @@ export const TABLES: Table[] = [
  * a reason: the test fails on one in neither, and on one here that's gone.
  */
 export const NOT_TABLES: Record<string, string> = {
+  'extension/src/model/run-view.ts#lookOf': 'picks a row\'s look from ROW_LOOK, which is walked: an ended count of progress takes its success or its note',
   'extension/src/model/shared.ts#LOOK': 'builds a look from its three parts; the tables that call it are walked',
   'extension/src/progress.ts#doneLine': 'a finished job\'s line, Done with its kind\'s icon: each icon is a literal the icon scan checks',
   'extension/src/logic/shared.ts#TONE_COLOR': 'a tone\'s colour in the sidebar, which draws with VSCode\'s own theme colours, not a state',

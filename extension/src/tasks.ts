@@ -10,12 +10,13 @@ import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import { endResume } from '../../packages/core/src/resume.ts';
 import { effortDroppedWords } from '../../packages/core/src/efforts.ts';
 import type { Project } from './hub.ts';
-import { dispatchModelArgs, dispatchModelItems, displayName, sessionFor } from './logic/agents.ts';
-import { dispatchEffortArgs, dispatchEffortItems, noEffortArgs } from './logic/efforts.ts';
+import { displayName, sessionFor } from './logic/agents.ts';
 import { newestVerdictText, readReviewRun } from './logic/dock-review.ts';
 import { inProcessWords } from './logic/processes.ts';
 import { reasonInWords } from './logic/relayed.ts';
-import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, sizeLine, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
+import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
+import { dispatchChoiceArgs, type Message as SheetGo, SHEET_COMMANDS } from './model/dispatch-sheet.ts';
+import { openSheet, type SheetAsk, sheetInput } from './dispatch-sheet.ts';
 import { verdictFrom } from './model/dock-review.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -26,8 +27,12 @@ import { Sidebar } from './sidebar.ts';
 
 /** The Tasks area's commands: adding, moving, dispatching, reviewing and landing tasks, all through acc. */
 class TaskCommands extends Sidebar {
-  constructor(from: Sidebar) {
+  /** Opens Dispatch's sheet over the Command Center (D-168): false when the task isn't there. */
+  private readonly sheet: (root: string, id: string, ask?: SheetAsk) => boolean;
+
+  constructor(from: Sidebar, sheet: (root: string, id: string, ask?: SheetAsk) => boolean) {
     super(from.hub, from.acc, from.log, from.openTicket, from.helpers, from.terminals);
+    this.sheet = sheet;
   }
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
@@ -48,10 +53,12 @@ class TaskCommands extends Sidebar {
     reg('acc.task.openTicket', (n: TaskNode) => n?.kind === 'task' && n.task.source.url && vscode.env.openExternal(vscode.Uri.parse(n.task.source.url)));
     reg('acc.task.copyId', (n: TaskNode) => n?.kind === 'task' && vscode.env.clipboard.writeText(n.task.id));
     reg('acc.tasks.refresh', () => this.hub.loadTasks(true));
-    reg('acc.task.dispatch', (n: TaskNode) => this.dispatchTask(n));
-    reg('acc.task.dispatchAnyway', (n: TaskNode) => this.dispatchAnyway(n));
+    // Each opens Dispatch's sheet (D-168). Dispatch with… and Dispatch to the cloud are kept for one release, so a key binding still works.
+    reg('acc.task.dispatch', (n: TaskNode) => this.ask(n));
+    reg('acc.task.dispatchAnyway', (n: TaskNode) => this.ask(n, { anyway: true }));
     reg('acc.task.stopWaiting', (n: TaskNode) => this.stopWaiting(n));
-    reg('acc.task.dispatchWith', (n: TaskNode) => this.dispatchWith(n));
+    reg('acc.task.dispatchWith', (n: TaskNode) => this.ask(n));
+    reg('acc.task.dispatchCloud', (n: TaskNode) => this.ask(n, { where: 'cloud' }));
     reg('acc.task.watch', (n: TaskNode) => this.watchTask(n));
     reg('acc.task.resume', (n: TaskNode) => this.resumeTask(n));
     reg('acc.task.review', (n: TaskNode) => this.reviewTask(n));
@@ -159,11 +166,10 @@ class TaskCommands extends Sidebar {
     const to = laneMove(lane);
     if (!to) { await this.hub.loadTasks(true); return; }
     if (to === 'dispatch') {
-      // One that would wait for others' files asks that instead (D-093).
-      if (waitsForFiles(task) && task.files) { await this.dispatchTask(n); await this.hub.loadTasks(true); return; }
-      const ok = await vscode.window.showInformationMessage(`Dispatch ${id}?`, { modal: true, detail: 'An agent starts on it in its own worktree.' }, 'Dispatch');
-      if (ok === 'Dispatch') await this.dispatchTask(n);
-      else await this.hub.loadTasks(true);
+      // Dropped in Running, it asks as Dispatch does, in its sheet (D-168). The card goes back to its lane
+      // meanwhile, and moves once the task runs.
+      this.ask(n);
+      await this.hub.loadTasks(true);
       return;
     }
     const rule = findRule(task.state as State, to);
@@ -199,39 +205,32 @@ class TaskCommands extends Sidebar {
     await this.runAcc(n.project, ['set', n.task.id, to, ...(reason ? ['--reason', reason] : [])], () => `${n.task.id} → ${DISPLAY[to].label}.`);
   }
 
-  /**
-   * Dispatch with…: the model for this task's builder, then its effort, picked by a person (D-086, D-128).
-   * The analysis's size is shown beside the models to weigh the choice by; it picks nothing. Only the levels
-   * the model takes are offered, and none for a model that takes none, which drops a level picked for the
-   * task and says so. A re-dispatch and a resume keep both.
-   */
-  private async dispatchWith(n: TaskNode): Promise<void> {
+  /** Opens Dispatch's sheet for a task (D-168); one that has gone from the project's tasks is said so. */
+  private ask(n: TaskNode, ask: SheetAsk = {}): void {
     if (n?.kind !== 'task') return;
-    const { project, task } = n;
-    const verb = task.state === 'rework' ? 'Re-dispatch' : 'Dispatch';
-    const pick = await vscode.window.showQuickPick(dispatchModelItems(task, project.agents.builder), { title: `${verb} ${task.id} with which model?`, placeHolder: sizeLine(task) });
-    if (!pick) return;
-    const model = pick.value ?? await this.askModelName(`${verb} ${task.id}: model name`);
-    if (!model) return;
-    const efforts = dispatchEffortItems(task, project.agents.builder, model);
-    let effort: string[] = [];
-    let dropped: string | null = null;
-    if (efforts.length) {
-      const level = await vscode.window.showQuickPick(efforts, { title: `${task.id} on ${model}: which effort?`, placeHolder: 'Higher thinks harder: slower, uses more' });
-      if (!level) return;
-      effort = dispatchEffortArgs(task, project.agents.builder, level.value);
-    } else {
-      ({ args: effort, dropped } = noEffortArgs(task));
-    }
-    await this.dispatchTask(n, [...dispatchModelArgs(task, project.agents.builder, model), ...effort], false, dropped ? effortDroppedWords(dropped, model) : undefined);
+    if (!this.sheet(n.project.root, n.task.id, ask)) void vscode.window.showInformationMessage(`${n.task.id} isn't in ${n.project.name}'s tasks any more.`);
+  }
+
+  /**
+   * The sheet's Dispatch (D-168): acc dispatch with the arguments for what was chosen, worked out from the
+   * task as it is now. A task that has gone since the sheet opened is said so.
+   */
+  async go(m: SheetGo): Promise<void> {
+    const project = this.hub.project(m.project);
+    const i = project ? sheetInput(this.hub, m.project, m.task) : null;
+    if (!project || !i) return void vscode.window.showInformationMessage(`${m.task} isn't there to dispatch any more.`);
+    const { args, dropped } = dispatchChoiceArgs(i, { model: m.model, effort: m.effort, where: m.where });
+    const task = this.hub.taskRows(m.project).find((t) => t.id === m.task)!;
+    await this.dispatchTask({ kind: 'task', project, task }, args, m.anyway === true, dropped ?? undefined);
   }
 
   /**
    * Dispatch (D-009, D-013): worktree, setup, packet, background session, task → Running. A first dispatch
    * that would wait for others' files asks first, naming each task and its files (D-093): wait, and it
    * starts on its own, or dispatch anyway. acc decides, and a hold it records is said so. `extra` is
-   * acc dispatch's other arguments, such as the model Dispatch with… picked (D-086). `dropped` says a level
-   * picked for the task was dropped (D-128), as acc says it when it drops one itself.
+   * acc dispatch's other arguments: the model, effort and place picked in the sheet (D-168). `dropped`
+   * says a level picked for the task was dropped (D-128), as acc says it when it drops one itself. In the
+   * cloud (GH-69), it says so, and offers its session on claude.ai.
    */
   private async dispatchTask(n: TaskNode, extra: string[] = [], anyway = false, dropped?: string): Promise<void> {
     if (n?.kind !== 'task') return;
@@ -242,10 +241,11 @@ class TaskCommands extends Sidebar {
       if (!pick) return;
       anyway = pick === 'Dispatch anyway';
     }
-    type Out = { held?: boolean; waitsFor?: { task: string; files: string[] }[]; first?: string[]; worktree?: string; bgId?: string | null; reused?: boolean; name?: string; effortDropped?: string; task?: { run?: { model?: string } | null; held?: { model?: string } | null } };
+    type Out = { held?: boolean; waitsFor?: { task: string; files: string[] }[]; first?: string[]; worktree?: string; bgId?: string | null; reused?: boolean; name?: string; effortDropped?: string; cloud?: { url?: string }; task?: { run?: { model?: string } | null; held?: { model?: string } | null } };
     let result: Out | null = null;
-    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}`, cancellable: false }, async (progress) => {
-      progress.report({ message: 'creating the worktree and starting the agent…' });
+    const cloud = extra.includes('--cloud');
+    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}${cloud ? ' to the cloud' : ''}`, cancellable: false }, async (progress) => {
+      progress.report({ message: cloud ? 'pushing its branch and firing the routine…' : 'creating the worktree and starting the agent…' });
       await this.runAcc(project, ['dispatch', task.id, ...extra, ...(anyway ? ['--anyway'] : [])], (out) => {
         result = out;
         return undefined;
@@ -259,6 +259,13 @@ class TaskCommands extends Sidebar {
       const pick = await vscode.window.showInformationMessage(`${task.id} ${waitLine(r.waitsFor ?? [], false, r.first ?? []).replace(/^Waits/, 'waits')}. It starts on its own once they're free, or once nothing else is ready.${also}`, 'Dispatch anyway');
       // What acc just reported it waits for, which the board may not have foreseen, so the confirmation names it.
       if (pick) await this.dispatchAnyway(n, extra, r.waitsFor);
+      return;
+    }
+    // A cloud builder (GH-69), as the project's default or picked in the sheet: its session is on claude.ai.
+    if (r.cloud?.url) {
+      await this.hub.loadWorktrees();
+      const watch = await vscode.window.showInformationMessage(`${task.id} is running in the cloud. acc follows its branch on GitHub and collects it when it's done.${also}`, 'Watch on claude.ai');
+      if (watch) await vscode.env.openExternal(vscode.Uri.parse(r.cloud.url));
       return;
     }
     await Promise.all([this.hub.loadAgents(), this.hub.loadWorktrees()]);
@@ -277,9 +284,9 @@ class TaskCommands extends Sidebar {
   }
 
   /**
-   * Dispatch anyway (D-093): a task that waits for others' files starts now, once a person confirms, named
-   * overlap and all. `extra` keeps what the Dispatch it follows on from was given, such as a model (D-086).
-   * `shares`, when acc has just said what it waits for, names the overlap over the board's guess.
+   * Dispatch anyway, once acc held a dispatch (D-093): a task that waits for others' files starts now, once a
+   * person confirms, named overlap and all. `extra` keeps what the sheet chose (D-168). `shares`, what acc
+   * has just said it waits for, names the overlap over the board's guess.
    */
   private async dispatchAnyway(n: TaskNode, extra: string[] = [], shares?: { task: string; files: string[] }[]): Promise<void> {
     if (n?.kind !== 'task') return;
@@ -471,9 +478,17 @@ class TaskCommands extends Sidebar {
 
 
 export const area: ExtensionArea = {
-  register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive }) {
-    const tasks = new TaskCommands(sidebar);
+  register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets }) {
+    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask));
     tasks.register(regNode);
+    // Dispatch's sheet (D-168): its Dispatch from the Command Center's page. A task's own tab, and the modal
+    // over the board, show the sheet over that page, and send its Dispatch here too.
+    receive('dispatch-sheet-go', (m) => void tasks.go(m));
+    tickets.dispatch = {
+      open: (command, ref, say) => SHEET_COMMANDS.includes(command) && !!ref.project && !!ref.task
+        && openSheet(hub, panels, ref.project, ref.task, command === 'acc.task.dispatchAnyway' ? { anyway: true } : command === 'acc.task.dispatchCloud' ? { where: 'cloud' } : {}, say),
+      go: (m) => void tasks.go(m),
+    };
     // A task's card dropped in a lane of the agent board (D-041).
     receive('move-task', (m) => { const p = hub.project(m.project); if (p) void tasks.moveToLane(p, m.task, m.to); });
 

@@ -253,9 +253,9 @@ export interface DispatchOptions {
   where?: BuilderPlace;
 }
 
-/** Where a task's builder goes (GH-69): the flag, else the project's choice, else this Mac. */
-export function builderPlace(config: Pick<Config, 'agents'>, chosen?: BuilderPlace): BuilderPlace {
-  return chosen ?? config.agents.cloud?.default ?? 'local';
+/** Where a task's builder goes (GH-69): the flag, else the project's choice, else this Mac. No config, or none for agents, is this Mac too. */
+export function builderPlace(config: { agents?: { cloud?: { default?: BuilderPlace } | null } | null } | null | undefined, chosen?: BuilderPlace): BuilderPlace {
+  return chosen ?? config?.agents?.cloud?.default ?? 'local';
 }
 
 /**

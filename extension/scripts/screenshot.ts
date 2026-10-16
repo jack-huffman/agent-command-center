@@ -53,11 +53,13 @@ import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progr
 import { sampleRulesHub } from './fixtures/rules.ts';
 import { sampleRuns } from './fixtures/runs.ts';
 import { REVIEW_RUN, type ReviewSample, sampleReviewRun } from './fixtures/dock-review.ts';
+import { RUN_SAMPLE_ID, type RunSample, sampleRunView } from './fixtures/run-view.ts';
 import { CLIENTS, ROOT } from './fixtures/shared.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
 import { sampleFirstSetup, sampleSetup } from './fixtures/setup.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
+import { sampleSheet } from './fixtures/dispatch-sheet.ts';
 import { SAMPLE_EDIT, sampleEdited } from './fixtures/updates.ts';
 import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
@@ -103,8 +105,14 @@ import { jobsOption, type Ran, runAsync, runJobs } from './jobs.ts';
  * Last, the output panel open over the Tasks board on a review (T-63): one that passed, one that asked for changes, one
  * still running, the one that asked for changes with its summary, a criterion, a finding and the met criteria opened,
  * and one whose verdict file isn't JSON, which shows its lines and why.
+ * Last, Dispatch's sheet (D-168): over the Tasks board for a task with an analysis, and over a task's own tab
+ * in rework with the cloud off; then the agent board with a card's ⋯ menu open beside its full-width next step;
+ * then Dispatch anyway's sheet for ACME-35, with the tasks and files it shares.
+ * Then the output panel open over the Tasks board on a run as rows (T-64): a deploy still running, the deploy done with
+ * more rows than the panel shows, a lint that failed, and the deploy done with its Details open. The run waiting
+ * for an answer is the output page's.
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread', 'dispatch-sheet', 'ticket-dispatch', 'tasks-card-menu', 'dispatch-sheet-anyway', 'output-running', 'output-done', 'output-failed', 'output-details'] as const;
 export type Page = (typeof PAGES)[number];
 
 /**
@@ -143,6 +151,9 @@ export const OVERVIEW_LISTS: Partial<Record<Page, GroupKey>> = { 'overview-needs
 /** The output panel's review pages (T-63), by the review each shows. */
 export const OUTPUT_REVIEWS: Partial<Record<Page, ReviewSample>> = { 'output-passed': 'passed', 'output-changes': 'changes', 'output-reviewing': 'reviewing', 'output-review-open': 'changes', 'output-unread': 'unread' };
 
+/** The output panel's pages of a run as rows (T-64), by the run each shows. */
+export const OUTPUT_RUNS: Partial<Record<Page, RunSample>> = { 'output-running': 'running', 'output-done': 'done', 'output-failed': 'failed', 'output-details': 'done' };
+
 /** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
 export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = 'vscode'): Model {
   // The loading screen is drawn with the Overview's model held back (STILL): it never arrives.
@@ -163,6 +174,10 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (OUTPUT_REVIEWS[kind]) {
     return homeModel({ hub: sampleHub(now), section: 'tasks', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: [sampleReviewRun(now, OUTPUT_REVIEWS[kind]!), ...sampleRuns(now)], edited: sampleEdited, slack: sampleSlack('on', now), theme, now });
   }
+  // A run in the output panel as rows (T-64), over the Tasks board, with the other runs behind it in the picker.
+  if (OUTPUT_RUNS[kind]) {
+    return homeModel({ hub: sampleHub(now), section: 'tasks', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: [sampleRunView(now, OUTPUT_RUNS[kind]!), ...sampleRuns(now)], edited: sampleEdited, slack: sampleSlack('on', now), theme, now });
+  }
   if (kind === 'ticket') return sampleTicket(now);
   if (kind === 'ticket-questions') return sampleTicket(now, 'ACME-21');
   if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
@@ -174,7 +189,8 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
   if (kind === 'ticket-waits') return sampleTicket(now, 'ACME-35');
   if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
-  if (kind === 'ticket-review') return sampleTicket(now, 'ACME-19');
+  // ACME-19 in rework, in its own tab, with Dispatch's sheet over it (D-168).
+  if (kind === 'ticket-review' || kind === 'ticket-dispatch') return sampleTicket(now, 'ACME-19');
   if (kind === 'agent') return sampleAgent(now);
   if (kind === 'queue' || kind === 'queue-off' || kind === 'queue-held') {
     // Held, the head says why in the wait's own words, which can be long.
@@ -212,7 +228,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const connect = kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-moving' || kind.startsWith('palette') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind === 'tasks-card-menu' ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards
     // A Slack channel's box for a thread's link (T-31): empty, or with a link Track refused.
@@ -237,6 +253,9 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   // A review in the output panel (T-63); opened, with its summary, its criterion not met, its must-fix finding and the met criteria open.
   : kind === 'output-review-open' ? { dock: { open: true, run: REVIEW_RUN }, opened: ['summary', 'c1', 'f0', 'met'].map((p) => `dock-review:${REVIEW_RUN}:${p}`) }
   : OUTPUT_REVIEWS[kind] ? { dock: { open: true, run: REVIEW_RUN } }
+  // A run as rows (T-64); the done deploy also with its Details open.
+  : kind === 'output-details' ? { dock: { open: true, run: RUN_SAMPLE_ID.done }, opened: [`dock-details:${RUN_SAMPLE_ID.done}`] }
+  : OUTPUT_RUNS[kind] ? { dock: { open: true, run: RUN_SAMPLE_ID[OUTPUT_RUNS[kind]!] } }
   : kind === 'rules' ? { detail: { kind: 'rules' } }
   : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'], detail: { kind: 'rules' } }
   : kind === 'overview-answer' ? { detail: { kind: 'question', id: 'm1-aaaa0002' } }
@@ -247,6 +266,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'agents-finished' ? { opened: [ROOT, CLIENTS].map((r) => `agents-finished:${r}`) }
   // The agent board, with two builders in the cloud (GH-69): the Tasks tab remembers which board shows.
   : kind === 'tasks-agents' ? { modes: { [ROOT]: 'agents' } }
+  // A card's actions on the agent board (D-168): its next step full width, and the rest in its ⋯ menu, opened.
+  : kind === 'tasks-card-menu' ? { modes: { [ROOT]: 'agents' }, openMenu: `card:${ROOT}#ACME-16` }
   // The palette with nothing typed (T-52) shows what was run last, newest first: a task, a part of Settings, an action and a section.
   : kind === 'palette-empty' ? { palette: [`task:${ROOT}#ACME-12`, 'setting:agents', 'action:add-task', 'section:agents'] }
   // A card held up by Space on the Jira board (T-54), with In Progress chosen: Space then Right.
@@ -260,7 +281,11 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
 export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown>[] => (kind === 'tasks-modal'
   ? [{ type: 'task-modal', model: sampleTicket(now), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-12' } }]
   // The command palette (T-52), as acc.palette opens it; the screenshot run types "an" into one, which matches actions, sections and tasks alike.
-  : kind === 'palette' ? [{ type: 'palette', query: 'an' }] : kind === 'palette-empty' ? [{ type: 'palette' }] : []);
+  : kind === 'palette' ? [{ type: 'palette', query: 'an' }] : kind === 'palette-empty' ? [{ type: 'palette' }]
+  // Dispatch's sheet (D-168): over the Tasks board for an analysed task, and over a task's tab in rework with the cloud off.
+  : kind === 'dispatch-sheet' ? [{ type: 'dispatch-sheet', sheet: sampleSheet(now, 'analysed') }] : kind === 'ticket-dispatch' ? [{ type: 'dispatch-sheet', sheet: sampleSheet(now, 'rework') }]
+  // Dispatch anyway's sheet, with the tasks and files ACME-35 shares above the choices (D-093).
+  : kind === 'dispatch-sheet-anyway' ? [{ type: 'dispatch-sheet', sheet: sampleSheet(now, 'anyway') }] : []);
 /** The title each kind of tab carries, as htmlFor in panels.ts gives it: a page needs one to be named (T-55). */
 export const TAB_TITLES: Record<string, string> = { home: 'Command Center', ticket: 'Ticket', agent: 'Agent' };
 export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
@@ -501,7 +526,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

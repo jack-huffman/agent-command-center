@@ -65,10 +65,13 @@ Salesforce. Project types plug in as profiles.
 - **A task's model and effort:** each builder runs with the clone's or the
   project's model and effort unless a task picks its own:
   `acc dispatch <id> --model <m> --effort <low|medium|high|xhigh|max>`, or
-  **Dispatch with…** (**Re-dispatch with…** on a rework), which offers the
-  model, then the levels it takes, saying which is its default and where the
-  current one is set. A re-dispatch and a resume keep the pick;
-  `--effort default`, or the builder's own level in the picker, drops it, and
+  **Dispatch** (**Re-dispatch** on a rework) in the Command Center, which
+  opens one sheet: the model, with where the current one is set; the levels
+  it takes, as a segmented control; and where it runs, This Mac or the
+  cloud, which is off with its reason when the project can't use it. What
+  the builder would use is already chosen, so Enter dispatches with it. A
+  re-dispatch and a resume keep the pick;
+  `--effort default`, or the builder's own level in the sheet, drops it, and
   a model picked that doesn't take it drops it and says so. On every dispatch
   and resume, a level the model doesn't take is refused before anything
   starts, citing acc's list of each model's levels, copied from Anthropic's
@@ -414,8 +417,8 @@ same either way.
 
 Each shot also measures itself, and the run exits 1, naming the page, theme,
 width and element, when two controls overlap, a label is cut off, the selected
-tab is out of the rail's view, a sticky cell covers another cell's text,
-something scrolls sideways that shouldn't, or axe-core finds a WCAG 2.1 AA
+tab is out of the rail's view, a sticky cell covers another cell's text, the
+output panel shows a block of raw output, something scrolls sideways that shouldn't, or axe-core finds a WCAG 2.1 AA
 violation that `A11Y_EXCEPTIONS` (`extension/scripts/a11y.ts`) doesn't excuse.
 It prints how many elements each check examined, and axe's incomplete results by
 rule; a page with none examined fails. The shots

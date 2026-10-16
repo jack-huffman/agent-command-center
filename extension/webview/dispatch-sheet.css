@@ -1,0 +1,42 @@
+/* ---------------------------------------------------------------- Dispatch's sheet (D-168) */
+/* A sheet at the top of the tab, centred, 480 px at most, sized to what it holds: its title in the bar,
+   Model, Effort and Where under it, and Cancel and Dispatch along its foot. It opens with the modal's fade
+   and scale, from its top edge; under reduced motion it only fades (task-modal.css). */
+.task-modal.dispatch-sheet { width: min(480px, calc(100vw - 32px)); height: fit-content; max-height: calc(100vh - 64px); margin: 32px auto auto; --origin: 50% 0; }
+.dispatch-sheet .task-modal-bar { justify-content: flex-start; padding: 10px 18px; }
+.ds-title { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.dispatch-sheet .task-modal-body { padding: 6px 18px 4px; }
+.ds-part { padding: 10px 0; }
+.ds-part + .ds-part { border-top: 1px solid var(--line); }
+.ds-label { margin: 0 0 8px; }
+/* Model: a list of rows, one chosen, each its name and, in muted type, where it's set or what it is. */
+.ds-models { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.ds-row { display: flex; align-items: baseline; gap: 10px; width: 100%; min-height: 30px; padding: 5px 10px; border: 0; background: transparent; color: var(--vscode-foreground); font: inherit; text-align: left; cursor: pointer; }
+.ds-row + .ds-row { border-top: 1px solid var(--line); }
+.ds-row:hover { background: var(--vscode-toolbar-hoverBackground); }
+.ds-row.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.ds-row:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.ds-row:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.ds-row-name { flex: none; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ds-row-about { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; font-weight: normal; font-size: 0.9em; }
+.ds-row.on .ds-row-about { color: inherit; }
+.ds-name { display: block; width: 100%; margin-top: 8px; padding: 4px 8px; border: 1px solid var(--vscode-input-border, var(--line)); border-radius: 4px; background: var(--vscode-input-background, transparent); color: var(--vscode-input-foreground, var(--vscode-foreground)); font: inherit; }
+.ds-name:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+/* Effort and Where: segmented controls as wide as the sheet, each segment the same width. */
+.segmented.ds-seg { display: flex; width: 100%; }
+.ds-seg .seg { flex: 1 1 0; justify-content: center; min-width: 0; min-height: 28px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-seg .seg[aria-disabled="true"] { color: var(--vscode-descriptionForeground); opacity: 0.55; cursor: default; }
+.ds-seg .seg[aria-disabled="true"]:hover { background: transparent; }
+.ds-seg .seg:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.ds-note { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; font-size: 0.92em; }
+.ds-note .codicon { margin-top: 1px; }
+.ds-size { display: flex; align-items: center; gap: 6px; margin: 8px 0 6px; font-size: 0.92em; }
+/* Dispatch anyway (D-093): what it shares, above the choices. */
+.ds-shares { margin: 6px 0 4px; padding: 8px 10px; border: 1px solid var(--edge); border-radius: var(--radius); }
+.ds-shares-head { display: flex; align-items: center; gap: 6px; margin: 0; }
+.ds-shares-list { margin: 6px 0 0; padding-left: 20px; }
+.ds-shares-list li { overflow-wrap: anywhere; }
+/* Cancel, then Dispatch, the default, on the right. */
+.ds-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 10px 18px 14px; border-top: 1px solid var(--edge); }
+.ds-foot .btn { min-width: 96px; justify-content: center; }
+.ds-foot .btn:disabled { opacity: 0.55; cursor: default; }

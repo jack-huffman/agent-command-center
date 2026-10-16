@@ -1,0 +1,64 @@
+/* ---------------------------------------------------------------- a run in the output panel as rows (T-64)
+   The page's own type, never a block of raw lines: the rows scroll under the header line, the newest last.
+   A success's mark is blue, a warning's and an error's orange with its label, a note's words muted. A line
+   that came again keeps its count beside it; a count of progress puts its bar at the row's right. */
+.dock-output { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.dock-hidden { flex: none; display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 14px; font-size: 0.92em; border-bottom: 1px solid var(--line); }
+.dock-body { flex: 1 1 auto; min-height: 96px; overflow: auto; padding: 6px 10px 10px; }
+.dock-body:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.dock-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.dock-row { display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 2px 6px; border-radius: 4px; line-height: 1.5; }
+.dock-row > .status { flex: none; min-width: 5.4em; font-weight: 600; font-size: 0.92em; }
+.dock-mark { flex: none; display: inline-flex; justify-content: center; width: 16px; padding-top: 2px; }
+.dock-row.kind-note .dock-mark { color: var(--vscode-descriptionForeground); }
+.dock-text { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.dock-row.kind-note .dock-text { color: var(--vscode-descriptionForeground); }
+/* A path is a quiet chip in the line; one in the folder the run ran in opens on a click. */
+.dock-chip {
+  display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; margin: 0 1px; padding: 0 6px;
+  border: 1px solid var(--edge); border-radius: 4px; background: var(--well); color: inherit;
+  font: inherit; font-size: 0.92em; line-height: 1.45; text-align: left; vertical-align: baseline; cursor: pointer;
+}
+.dock-chip > .codicon { flex: none; font-size: 1em; align-self: center; color: var(--vscode-descriptionForeground); }
+.dock-chip-text { min-width: 0; overflow-wrap: anywhere; font-family: var(--vscode-editor-font-family); }
+button.dock-chip:hover { border-color: var(--accent-edge); color: var(--vscode-textLink-foreground); }
+button.dock-chip:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+button.dock-chip:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.dock-chip.off { cursor: default; color: var(--vscode-descriptionForeground); }
+/* A count of progress: a thin bar, with how far it's got as written. */
+.dock-progress { flex: 0 1 180px; display: flex; align-items: center; gap: 8px; min-width: 96px; margin-left: auto; align-self: center; }
+.dock-meter { flex: 1 1 auto; height: 4px; border-radius: 2px; background: var(--edge); overflow: hidden; }
+.dock-meter-fill { display: block; height: 100%; border-radius: 2px; background: var(--blue); }
+.dock-meter-text { flex: none; font-size: 0.92em; font-variant-numeric: tabular-nums; }
+.dock-count { flex: none; padding: 0 7px; border-radius: 9px; background: var(--edge); color: var(--vscode-descriptionForeground); font-size: 0.86em; font-variant-numeric: tabular-nums; }
+/* The result card at the end: a raised card, its left edge its tone, with one next step. */
+.dock-result {
+  margin-top: 8px; padding: 8px 10px; background: var(--raised); border: 1px solid var(--edge);
+  border-left: 3px solid var(--edge); border-radius: 6px; box-shadow: var(--lift);
+}
+.dock-result.tone-row-blue { border-left-color: var(--blue); }
+.dock-result.tone-row-orange { border-left-color: var(--orange); }
+.dock-result-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dock-result-head > .status { flex: none; font-weight: 600; }
+.dock-result-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.dock-next { flex: none; }
+.dock-result > .dock-rows { margin-top: 6px; }
+.dock-exit { margin: 4px 0 0 30px; }
+/* Details, from the header's menu: the command, the folder and when it started. */
+.dock-details { flex: none; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 12px; margin: 0; padding: 6px 14px 8px; border-top: 1px solid var(--line); }
+.dock-details > dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.dock-cmd { font-family: var(--vscode-editor-font-family); font-size: 0.92em; overflow-wrap: anywhere; }
+.dock-where { overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .dock-next-text { display: none; }
+  .dock-next { padding-left: 6px; padding-right: 6px; }
+  .dock-body { padding-left: 6px; padding-right: 6px; }
+  .dock-progress { flex-basis: 110px; }
+}
+
+/* Like rows folded into one (T-64 merge): a quiet toggle the width of the row, its rows indented under it once open. */
+.dock-folded { flex-direction: column; gap: 0; }
+.dock-fold { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 0; border: none; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+button.dock-fold:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.dock-fold:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.dock-fold-rows { margin-inline-start: 22px; width: calc(100% - 22px); }
