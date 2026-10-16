@@ -14,12 +14,22 @@ import type { RepoPaths } from './paths.ts';
 import { promotionPaths } from './promote.ts';
 import { orList } from './trackers/types.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { NO_STEPS, type Steps } from './steps.ts';
 
 export interface SetupDeps {
   run: Runner;
   now: () => Date;
   slots?: SlotOptions;
   onStep?: (what: string) => void;
+  /** Where its steps are reported (T-65). */
+  steps?: Steps;
+}
+
+/** The first step of each fix that reads the branches: fetching them, when there's an origin to fetch from. */
+function fetchStep(run: Runner, root: string, steps: Steps): void {
+  steps.step('fetch', 'Fetch the branches', () => {
+    if (git(run, root, 'remote', 'get-url', 'origin').code === 0) git(run, root, 'fetch', '--quiet', 'origin');
+  });
 }
 
 const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
@@ -88,19 +98,23 @@ export interface BaselineResult {
 export function buildBaseline(paths: RepoPaths, config: Config, deps: SetupDeps): BaselineResult {
   if (config.profile !== 'salesforce') throw new AccError('refused', 'A baseline manifest is for Salesforce projects.');
   const { run } = deps;
-  if (git(run, paths.root, 'remote', 'get-url', 'origin').code === 0) git(run, paths.root, 'fetch', '--quiet', 'origin');
+  const steps = deps.steps ?? NO_STEPS;
+  fetchStep(run, paths.root, steps);
   const out = mkdtempSync(join(tmpdir(), 'acc-manifests-'));
   const xmls: string[] = [];
   const from: string[] = [];
   const generate = (dir: string, name: string) => {
     const dirs = packageDirs(dir).filter((d) => existsSync(join(dir, d)));
-    if (!dirs.length) return;
+    const label = `List the components on ${name}`;
+    if (!dirs.length) return steps.skip(`list-${name}`, label, 'It has no Salesforce source');
     deps.onStep?.(`Listing the components on ${name}`);
-    const r = run(...niced('sf', ['project', 'generate', 'manifest', ...dirs.flatMap((d) => ['--source-dir', d]), '--output-dir', out, '--name', name, '--json']), { cwd: dir, env: sfEnv(), timeoutMs: 10 * 60_000 });
-    const file = join(out, `${name}.xml`);
-    if (r.code !== 0 || !existsSync(file)) throw new AccError('sf', `sf couldn't list the components on ${name}: ${lastLine(r.stderr || r.stdout)}`);
-    xmls.push(readFileSync(file, 'utf8'));
-    from.push(name);
+    steps.step(`list-${name}`, label, () => {
+      const r = run(...niced('sf', ['project', 'generate', 'manifest', ...dirs.flatMap((d) => ['--source-dir', d]), '--output-dir', out, '--name', name, '--json']), { cwd: dir, env: sfEnv(), timeoutMs: 10 * 60_000 });
+      const file = join(out, `${name}.xml`);
+      if (r.code !== 0 || !existsSync(file)) throw new AccError('sf', `sf couldn't list the components on ${name}: ${lastLine(r.stderr || r.stdout)}`);
+      xmls.push(readFileSync(file, 'utf8'));
+      from.push(name);
+    });
   };
   try {
     const branches = config.environments.map((e) => ({ e, ref: refFor(run, paths.root, e.branch) })).filter((x) => x.ref);
@@ -113,8 +127,10 @@ export function buildBaseline(paths: RepoPaths, config: Config, deps: SetupDeps)
   if (!xmls.length) throw new AccError('refused', 'There\'s no Salesforce source on any environment branch, or in this checkout, to list.');
   const xml = unionManifests(xmls);
   const file = join(paths.root, BASELINE_MANIFEST);
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, xml);
+  steps.step('write', 'Write the baseline', () => {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, xml);
+  });
   const parsed = parseManifest(xml);
   return { file, from, types: parsed.types.size, members: [...parsed.types.values()].reduce((n, s) => n + s.size, 0) };
 }
@@ -153,7 +169,8 @@ export function seedBranches(paths: RepoPaths, config: Config, deps: SetupDeps, 
   const sf = config.profile === 'salesforce';
   const manifest = join(paths.root, BASELINE_MANIFEST);
   if (sf && !existsSync(manifest)) throw new AccError('refused', `There's no ${BASELINE_MANIFEST} yet. Make it first: acc setup baseline (B5).`);
-  if (git(run, paths.root, 'remote', 'get-url', 'origin').code === 0) git(run, paths.root, 'fetch', '--quiet', 'origin');
+  const steps = deps.steps ?? NO_STEPS;
+  fetchStep(run, paths.root, steps);
   const prod = config.environments.find((e) => e.type === 'production') ?? config.environments.find((e) => e.protected) ?? null;
   const date = now().toISOString().slice(0, 10);
   const out: SeededBranch[] = [];
@@ -164,6 +181,7 @@ export function seedBranches(paths: RepoPaths, config: Config, deps: SetupDeps, 
   };
   const seed = (e: Environment, start: string, clear: boolean) => {
     deps.onStep?.(`Making ${e.branch}${sf && e.org ? ` from ${e.org}` : ''}`);
+    steps.start(`make-${e.branch}`, `Make ${e.branch}${sf && e.org ? ` from ${e.org}` : ''}`);
     let made = false;
     try {
       inWorktree(run, paths.root, ['-b', e.branch, start], (dir) => {
@@ -184,10 +202,13 @@ export function seedBranches(paths: RepoPaths, config: Config, deps: SetupDeps, 
       const pushed = opts.push ? git(run, paths.root, 'push', '--quiet', '--set-upstream', 'origin', `${e.branch}:${e.branch}`) : null;
       const note = !pushed ? 'made locally; push it when you\'re happy with it' : pushed.code === 0 ? 'made and pushed' : `made locally, but git push refused it: ${lastLine(pushed.stderr)}`;
       out.push({ env: e.name, branch: e.branch, status: 'made', note, differs });
+      steps.done(`make-${e.branch}`, note);
     } catch (err) {
       // A branch whose retrieve failed is taken out again, so the next try starts clean.
       if (!made && git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${e.branch}`).code === 0) git(run, paths.root, 'branch', '-D', e.branch);
       out.push({ env: e.name, branch: e.branch, status: made ? 'made' : 'failed', note: (err as Error).message, differs: null });
+      if (made) steps.done(`make-${e.branch}`, (err as Error).message);
+      else steps.fail(`make-${e.branch}`, (err as Error).message);
     }
   };
   if (prod && !refFor(run, paths.root, prod.branch)) seed(prod, 'HEAD', false);
@@ -257,7 +278,8 @@ export function draftLists(paths: RepoPaths, config: Config, deps: SetupDeps): L
   const { run } = deps;
   if (config.profile !== 'salesforce') throw new AccError('refused', 'The environment-specific and known-drift lists are for Salesforce projects.');
   if (!config.environmentSpecific || !config.knownDrift) throw new AccError('refused', 'Name both lists in .acc/config.json first: "environmentSpecific": "manifest/environment-specific.txt" and "knownDrift": "manifest/known-drift.txt".');
-  if (git(run, paths.root, 'remote', 'get-url', 'origin').code === 0) git(run, paths.root, 'fetch', '--quiet', 'origin');
+  const steps = deps.steps ?? NO_STEPS;
+  fetchStep(run, paths.root, steps);
   const prod = config.environments.find((e) => e.type === 'production');
   const prodRef = prod ? refFor(run, paths.root, prod.branch) : null;
   if (!prod || !prodRef) throw new AccError('refused', 'There\'s no production branch to compare the others with yet. Make the branches first (B6).');
@@ -268,6 +290,7 @@ export function draftLists(paths: RepoPaths, config: Config, deps: SetupDeps): L
     if (e === prod) continue;
     const ref = refFor(run, paths.root, e.branch);
     if (!ref) continue;
+    steps.start(`compare-${e.branch}`, `Compare ${e.branch} with ${prod.branch}`);
     const files = under(git(run, paths.root, 'diff', '--no-renames', '--name-only', prodRef, ref).stdout.split('\n').filter(Boolean), packageDirs(paths.root));
     const rest: string[] = [];
     const maybe: string[] = [];
@@ -283,6 +306,7 @@ export function draftLists(paths: RepoPaths, config: Config, deps: SetupDeps): L
       else rest.push(f);
     }
     if (rest.length) unexplained.push({ branch: e.branch, files: rest });
+    steps.done(`compare-${e.branch}`, files.length ? `${files.length} difference(s), ${rest.length} that neither list explains` : 'No differences');
   }
   const draft = (rel: string, found: Set<string>): ListDraft => {
     const file = join(paths.root, rel);
@@ -294,7 +318,8 @@ export function draftLists(paths: RepoPaths, config: Config, deps: SetupDeps): L
     writeFileSync(file, entries.length ? `${entries.join('\n')}\n` : '');
     return { file, written: true, entries };
   };
-  return { environmentSpecific: draft(config.environmentSpecific, specific), knownDrift: draft(config.knownDrift, drift), unexplained };
+  const lists = steps.step('write', 'Write the lists', () => ({ environmentSpecific: draft(config.environmentSpecific!, specific), knownDrift: draft(config.knownDrift!, drift) }));
+  return { ...lists, unexplained };
 }
 
 // ---------------------------------------------------------------- B10: the README's environments
@@ -375,7 +400,11 @@ export function environmentsSection(config: Config): string {
 }
 
 /** Writes or updates the README's environments section (B10). The rest of the README is left as it is. */
-export function writeReadme(paths: RepoPaths, config: Config): { file: string; created: boolean; replaced: boolean } {
+export function writeReadme(paths: RepoPaths, config: Config, steps: Steps = NO_STEPS): { file: string; created: boolean; replaced: boolean } {
+  return steps.step('readme', 'Write the environments section', () => writeReadmeNow(paths, config));
+}
+
+function writeReadmeNow(paths: RepoPaths, config: Config): { file: string; created: boolean; replaced: boolean } {
   const file = join(paths.root, 'README.md');
   const section = environmentsSection(config);
   if (!existsSync(file)) {

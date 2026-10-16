@@ -11,6 +11,7 @@ import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { rulesText } from './rules.ts';
 import { requirementWording, type WordingFinding } from './ste.ts';
+import { NO_STEPS, type Steps } from './steps.ts';
 
 /**
  * The analysis (D-052): before a task is built, a read-only agent works out what it asks for, what's
@@ -360,6 +361,8 @@ export interface AnalyzeDeps {
   onStart?: (sessionId: string, name: string) => void;
   /** For tests: how the Mac is kept awake while the analyst runs (D-067). */
   awake?: AwakeDeps;
+  /** Where its steps are reported (T-65). */
+  steps?: Steps;
 }
 
 const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
@@ -385,13 +388,18 @@ function scratchProject(paths: RepoPaths, id: string): string {
 
 export function analyze(paths: RepoPaths, config: Config, id: string, deps: AnalyzeDeps, opts: { actor?: Actor; by?: string } = {}): Analysis {
   const { run, now } = deps;
-  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
-  if (!task) throw new AccError('no-task', `No task ${id}.`);
-  if (task.state === 'done') throw new AccError('refused', `${id} is done. There's nothing left to analyze.`);
-  if (task.state === 'running') throw new AccError('refused', `${id} is being built. Analyze before dispatch, or after it's abandoned.`);
-  const env = environmentByBranch(config, task.environment);
-  if (!env) throw new AccError('analyze', `${id}'s environment "${task.environment}" isn't in the config.`);
+  const steps = deps.steps ?? NO_STEPS;
+  const { task, env } = steps.step('task', 'Check the task', () => {
+    const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+    if (!task) throw new AccError('no-task', `No task ${id}.`);
+    if (task.state === 'done') throw new AccError('refused', `${id} is done. There's nothing left to analyze.`);
+    if (task.state === 'running') throw new AccError('refused', `${id} is being built. Analyze before dispatch, or after it's abandoned.`);
+    const env = environmentByBranch(config, task.environment);
+    if (!env) throw new AccError('analyze', `${id}'s environment "${task.environment}" isn't in the config.`);
+    return { task, env };
+  });
   const sf = config.profile === 'salesforce';
+  steps.start('gather', 'Gather what the analyst reads');
   const base = git(run, paths.root, 'rev-parse', '--verify', '--quiet', env.branch).stdout.trim() || git(run, paths.root, 'rev-parse', 'HEAD').stdout.trim();
   const current = git(run, paths.root, 'branch', '--show-current').stdout.trim();
   const orgs = sf ? config.environments.filter((e) => e.org).map((e) => ({ alias: e.org!, name: e.name, type: e.type })) : [];
@@ -402,6 +410,7 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   // Belt and braces: the hook refuses anything but those reads, even if a pattern lets more through.
   const settings = deps.accCommand ? { hooks: { PreToolUse: [{ matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: `${deps.accCommand} hook pre-tool-use` }] }] } } : null;
   const cwd = sf ? scratchProject(paths, id) : paths.root;
+  steps.done('gather', orgs.length ? `The code and ${orgs.length} org(s)` : 'The code');
 
   const sessionId = (deps.uuid ?? randomUUID)();
   const name = sessionName({ project: config.project, key: id, title: task.title, role: 'analysis' });
@@ -410,6 +419,7 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const startedAt = now();
   writeFileSync(marker, JSON.stringify({ sessionId, name, startedAt: startedAt.toISOString(), pid: process.pid } satisfies Analyzing));
   deps.onStart?.(sessionId, name);
+  steps.start('analyze', `Analyze ${id}`, 'The analyst reads, and changes nothing');
   // The analyst is a child of this acc, so the Mac stays awake while acc lives (D-067).
   const awake = holdAwake(process.pid, deps.awake);
   let out: RunResult;
@@ -428,7 +438,9 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   }
   if (out.timedOut) throw new AccError('analyze', `The analysis didn't finish within 45 minutes, so acc stopped it.`);
   if (out.code === 127 && !out.stdout) throw new AccError('analyze', `Claude Code didn't start: ${out.stderr.trim().split('\n')[0] ?? 'claude not found'}`);
-  const parsed = parseAnalysis(out.stdout);
+  steps.done('analyze');
+  const parsed = steps.step('read', 'Read the analysis', () => parseAnalysis(out.stdout));
+  steps.start('save', 'Save the analysis');
   const finished = now();
   // Answers to questions it asks again carry over, so nobody answers twice.
   const answered = new Map((previous?.questions ?? []).filter((q) => q.answer).map((q) => [q.question.trim().toLowerCase(), q.answer!]));
@@ -443,6 +455,7 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   mutate(paths, now, (_l, emit) => {
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? `analyst:${id}`, data: { analyzed: { verdict: analysis.verdict, questions: analysis.questions.length } } });
   });
+  steps.done('save');
   return analysis;
 }
 

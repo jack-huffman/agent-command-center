@@ -10,6 +10,7 @@ import { readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { envByName } from './promote.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { NO_STEPS, type Steps } from './steps.ts';
 import { draftUpdate } from './updates.ts';
 
 /**
@@ -55,8 +56,15 @@ export function lastDeploy(paths: RepoPaths, env: string): DeployRecord | null {
 
 const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
 
-export function planDeploy(paths: RepoPaths, config: Config, envName: string, deps: { run: Runner }, opts: { since?: string; noTests?: boolean } = {}): DeployPlan {
-  const { run } = deps;
+/** Works out a deploy, reporting its first two steps (T-65): the branch, then what changed on it. */
+export function planDeploy(paths: RepoPaths, config: Config, envName: string, deps: { run: Runner; steps?: Steps }, opts: { since?: string; noTests?: boolean } = {}): DeployPlan {
+  const steps = deps.steps ?? NO_STEPS;
+  const { env, head, base } = steps.step('branch', 'Check the branch', () => deployBase(paths, config, envName, deps.run, opts));
+  return steps.step('changes', 'Work out what changed', () => deployChanges(paths, config, deps.run, env, base, head, opts));
+}
+
+/** Where a deploy starts and ends: the last deployed commit, or the one given, and the branch's head on GitHub. */
+function deployBase(paths: RepoPaths, config: Config, envName: string, run: Runner, opts: { since?: string; noTests?: boolean }): { env: Environment; head: string; base: string } {
   if (config.profile !== 'salesforce') throw new AccError('refused', 'acc deploy deploys Salesforce source to an org; this project isn\'t a Salesforce one.');
   const env = envByName(config, envName);
   if (!env.org) throw new AccError('refused', `${env.name} has no org alias in .acc/config.json.`);
@@ -71,6 +79,11 @@ export function planDeploy(paths: RepoPaths, config: Config, envName: string, de
   const base = git(run, paths.root, 'rev-parse', '--verify', '--quiet', `${since}^{commit}`).stdout.trim();
   if (!base) throw new AccError('usage', `There's no commit "${since}" here.`);
   if (git(run, paths.root, 'merge-base', '--is-ancestor', base, head).code !== 0) throw new AccError('refused', `${since} isn't on ${env.branch}, so it can't be where the org's deploy starts.`);
+  return { env, head, base };
+}
+
+/** What changed on the branch between the two, sorted into files to deploy, deletions, and environment-specific files left out. */
+function deployChanges(paths: RepoPaths, config: Config, run: Runner, env: Environment, base: string, head: string, opts: { noTests?: boolean }): DeployPlan {
   const r = git(run, paths.root, 'diff', '--name-status', '--no-renames', '-z', base, head);
   const parts = r.stdout.split('\0').filter(Boolean);
   // Read sfdx-project.json and the environment-specific list as the branch has them.
@@ -98,7 +111,7 @@ export function planDeploy(paths: RepoPaths, config: Config, envName: string, de
     else files.push(f);
   }
   const apex = files.some((f) => /\.(cls|trigger)(-meta\.xml)?$/.test(f));
-  return { env, org: env.org, base, head, files, deleted, leftOut, testLevel: apex && !opts.noTests ? 'RunLocalTests' : 'NoTestRun', confirm: env.protected };
+  return { env, org: env.org!, base, head, files, deleted, leftOut, testLevel: apex && !opts.noTests ? 'RunLocalTests' : 'NoTestRun', confirm: env.protected };
 }
 
 export interface DeployResult {
@@ -130,7 +143,7 @@ export function deployArgs(plan: DeployPlan): string[] {
   return ['project', 'deploy', 'start', '--target-org', plan.org, '--wait', '90', '--json', '--test-level', plan.testLevel, ...plan.files.flatMap((f) => ['--source-dir', f])];
 }
 
-type DeployDeps = { run: Runner; now: () => Date; slots?: SlotOptions; onWait?: () => void };
+type DeployDeps = { run: Runner; now: () => Date; slots?: SlotOptions; onWait?: () => void; steps?: Steps };
 type DeployOpts = { since?: string; confirmed?: boolean; noTests?: boolean; by: string };
 
 /** A deploy, with a marker saying it's under way while it runs, so every window shows it (D-092). */
@@ -141,18 +154,24 @@ export function deploy(paths: RepoPaths, config: Config, envName: string, deps: 
 
 function deployNow(paths: RepoPaths, config: Config, envName: string, deps: DeployDeps, opts: DeployOpts): DeployResult {
   const { run, now } = deps;
+  const steps = deps.steps ?? NO_STEPS;
   const plan = planDeploy(paths, config, envName, deps, opts);
   if (!plan.files.length && !plan.deleted.length) return { plan, deployed: false, jobId: null, summary: `${plan.env.name} already has ${plan.env.branch} at ${plan.head.slice(0, 7)}.`, updates: [] };
-  if (plan.deleted.length) {
-    throw new AccError('refused', `${plan.deleted.length} file(s) were deleted on ${plan.env.branch} since the last deploy (${plan.deleted.slice(0, 5).join(', ')}${plan.deleted.length > 5 ? ', …' : ''}). acc doesn't deploy deletions; remove them from the org by hand, or with a destructive-changes manifest.`);
-  }
-  if (plan.confirm && !opts.confirmed) throw new AccError('refused', `${plan.env.name} is protected. Deploying to it needs a person's confirmation: add --confirm-production.`);
+  steps.step('ready', `Check it can go to ${plan.env.name}`, () => {
+    if (plan.deleted.length) {
+      throw new AccError('refused', `${plan.deleted.length} file(s) were deleted on ${plan.env.branch} since the last deploy (${plan.deleted.slice(0, 5).join(', ')}${plan.deleted.length > 5 ? ', …' : ''}). acc doesn't deploy deletions; remove them from the org by hand, or with a destructive-changes manifest.`);
+    }
+    if (plan.confirm && !opts.confirmed) throw new AccError('refused', `${plan.env.name} is protected. Deploying to it needs a person's confirmation: add --confirm-production.`);
+  });
   if (!plan.files.length) return { plan, deployed: false, jobId: null, summary: 'Nothing deployable changed.', updates: [] };
   const dir = mkdtempSync(join(tmpdir(), 'acc-deploy-'));
   const wt = join(dir, 'wt');
   try {
-    const add = git(run, paths.root, 'worktree', 'add', '--quiet', '--detach', wt, plan.head);
-    if (add.code !== 0) throw new AccError('git', `Couldn't check out ${plan.head.slice(0, 7)}: ${add.stderr.trim()}`);
+    steps.step('checkout', `Check out ${plan.env.branch} at ${plan.head.slice(0, 7)}`, () => {
+      const add = git(run, paths.root, 'worktree', 'add', '--quiet', '--detach', wt, plan.head);
+      if (add.code !== 0) throw new AccError('git', `Couldn't check out ${plan.head.slice(0, 7)}: ${add.stderr.trim()}`);
+    });
+    steps.start('deploy', `Deploy to ${plan.env.name}`, `${plan.files.length} file(s), ${plan.testLevel === 'RunLocalTests' ? 'with the org\'s local tests' : 'no tests'}`);
     const [cmd, args] = niced('sf', deployArgs(plan));
     const owner = { what: `Deploy ${plan.env.branch}`, env: plan.env.branch, project: config.project };
     const r = withSlot(() => run(cmd, args, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000 }), { owner, ...deps.slots, onWait: deps.onWait });
@@ -166,14 +185,20 @@ function deployNow(paths: RepoPaths, config: Config, envName: string, deps: Depl
     if (r.code !== 0 || result.status !== 0 || result.result?.success === false) {
       const failures = result.result?.details?.componentFailures;
       const list = (Array.isArray(failures) ? failures : failures ? [failures] : []).slice(0, 3).map((f) => `${f.fullName}: ${f.problem}`);
-      return { plan, deployed: false, jobId, summary: `The deploy to ${plan.env.name} failed${jobId ? ` (job ${jobId})` : ''}: ${list.join('; ') || result.message || 'see sf\'s output'}`, updates: [] };
+      const why = list.join('; ') || result.message || 'see sf\'s output';
+      steps.fail('deploy', why);
+      return { plan, deployed: false, jobId, summary: `The deploy to ${plan.env.name} failed${jobId ? ` (job ${jobId})` : ''}: ${why}`, updates: [] };
     }
-    const record: DeployRecord = { env: plan.env.branch, org: plan.org, sha: plan.head, at: now().toISOString(), by: opts.by, jobId, files: plan.files.length };
-    const file = deployRecordPath(paths, plan.env.branch);
-    mkdirSync(join(paths.stateDir, 'deploys'), { recursive: true });
-    writeFileSync(`${file}.tmp`, JSON.stringify(record, null, 2) + '\n');
-    renameSync(`${file}.tmp`, file);
+    steps.done('deploy', jobId ? `Job ${jobId}` : undefined);
+    steps.step('record', 'Record the deploy', () => {
+      const record: DeployRecord = { env: plan.env.branch, org: plan.org, sha: plan.head, at: now().toISOString(), by: opts.by, jobId, files: plan.files.length };
+      const file = deployRecordPath(paths, plan.env.branch);
+      mkdirSync(join(paths.stateDir, 'deploys'), { recursive: true });
+      writeFileSync(`${file}.tmp`, JSON.stringify(record, null, 2) + '\n');
+      renameSync(`${file}.tmp`, file);
+    });
     // Each ticket whose change went can hear so, once a person posts it. acc posts nothing (D-066).
+    steps.start('updates', 'Draft the tickets\' updates');
     const updates: DeployResult['updates'] = [];
     let unsaid = '';
     try {
@@ -181,8 +206,10 @@ function deployNow(paths: RepoPaths, config: Config, envName: string, deps: Depl
         const u = draftUpdate(paths, t, { event: 'deployed', env: plan.env.name }, opts.by, now);
         if (u) updates.push({ task: t.id, id: u.id, key: u.key });
       }
+      steps.done('updates', updates.length ? `${updates.length} drafted` : 'No ticket\'s change went');
     } catch (e) {
       unsaid = ` Its tickets' updates weren't all drafted: ${(e as Error).message}`;
+      steps.fail('updates', (e as Error).message);
     }
     return { plan, deployed: true, jobId, summary: `Deployed ${plan.files.length} file(s) from ${plan.env.branch} at ${plan.head.slice(0, 7)} to ${plan.env.name}${jobId ? ` (job ${jobId})` : ''}.${unsaid}`, updates };
   } finally {

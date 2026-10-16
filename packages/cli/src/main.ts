@@ -8,7 +8,7 @@ import { isDeepStrictEqual, parseArgs, type ParseArgsOptionsConfig } from 'node:
 import { AccError } from '../../core/src/index.ts';
 import { AREAS } from './commands/index.ts';
 import { tone } from './format.ts';
-import { type Command, type CommandArea, type Opts, VERSION } from './shared.ts';
+import { type Command, type CommandArea, openSteps, type Opts, VERSION } from './shared.ts';
 
 /** Options every command takes, and who's asking (actorFrom), which any command may record. */
 const GLOBAL: ParseArgsOptionsConfig = {
@@ -99,7 +99,18 @@ export async function main(argv: string[]): Promise<number> {
   if (!cmd || values.help || cmd === 'help') { process.stdout.write(helpOf(AREAS) + '\n'); return cmd ? 0 : (values.help ? 0 : 2); }
   const command = COMMANDS.get(cmd);
   if (!command) throw new AccError('usage', `Unknown command "${cmd}". Run acc help.`);
-  return command.run(o, rest);
+  // The steps a long command reports (T-65): a command that reported some and failed, or wrote no result of
+  // its own, ends with one here. One that reported none writes nothing.
+  const steps = openSteps();
+  let code: number;
+  try {
+    code = await command.run(o, rest);
+  } catch (e) {
+    if (steps.used) steps.result(false, failureLine(String((e as Error)?.message ?? e)));
+    throw e;
+  }
+  if (steps.used && !steps.ended) steps.result(code === 0, code === 0 ? 'It finished.' : 'It ended with an error.');
+  return code;
 }
 
 const isEntry = (() => {

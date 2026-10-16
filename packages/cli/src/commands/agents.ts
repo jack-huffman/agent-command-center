@@ -3,7 +3,7 @@
 
 import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
-import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
+import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
 
 /** "1 builder", "3 builders". */
@@ -192,12 +192,13 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
   const model = typeof o.model === 'string' ? o.model : undefined;
   const effort = typeof o.effort === 'string' ? o.effort as EffortPick : undefined;
-  const r = followingCards(paths, config, () => dispatch(paths, config, id.toUpperCase(), deps, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, anyway: o.anyway === true, model, effort, where }));
+  const r = followingCards(paths, config, () => dispatch(paths, config, id.toUpperCase(), { ...deps, steps: steps() }, { actor, by, foreground: o.foreground === true, withoutAnalysis: o['without-analysis'] === true, anyway: o.anyway === true, model, effort, where }));
   // An effort picked for it before that the model picked now doesn't take is dropped, and said (D-128).
   const dropped = r.effortDropped ? tone(`  ${effortDroppedWords(r.effortDropped, model ?? '')}`, 'orange') : '';
   if (r.held) {
     // Held, not refused: the dispatch is kept, and the task starts on its own (D-093).
     const blockers = r.waitsFor.map((w) => w.task);
+    steps().result(true, `${r.task.id} waits for ${taskList(blockers)}, and starts on its own once they merge.`);
     out(o, () => [
       tone(`${r.task.id} waits for ${filesOf(r.waitsFor)}.`, 'blue'),
       dropped,
@@ -222,6 +223,7 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
     // GitHub's rules behind the guard (GH-69): a warning, never a refusal, where it enforces none.
     ...(r.warnings ?? []).map((w) => tone(`  ! ${w}`, 'orange')),
   ].filter(Boolean).join('\n'), r);
+  steps().result(true, `${r.task.id} is running ${r.where === 'cloud' ? 'in the cloud' : o.foreground ? 'in this terminal' : 'in the background'}.`);
   return 0;
 }
 

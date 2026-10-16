@@ -9,6 +9,7 @@ import type { RepoPaths } from './paths.ts';
 import { ratchetLine } from './ratchets.ts';
 import { type GateStatus, ratchetOf, type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { resolvedWords } from './refresh.ts';
+import { NO_STEPS, type Steps } from './steps.ts';
 import { carriedVerdict, readVerdict, type Verdict } from './review.ts';
 import { conflictsOf, FETCH_TIMEOUT_MS, fetchBranches } from './sync.ts';
 import { testsText } from './test-counts.ts';
@@ -39,6 +40,8 @@ export interface LandDeps {
   run: Runner;
   now: () => Date;
   env: NodeJS.ProcessEnv;
+  /** Where its steps are reported (T-65). */
+  steps?: Steps;
 }
 
 export interface LandResult {
@@ -123,46 +126,56 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
 
 function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string; gates?: GateScope }): LandResult {
   const { run, now } = deps;
-  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
-  if (!task) throw new AccError('no-task', `No task ${id}.`);
-  if (task.state !== 'review') throw new AccError('refused', `${id} is ${task.state}. A task lands from review, once its review has passed.`);
-  const gh = config.github;
-  if (!gh) throw new AccError('no-github', 'acc land opens a pull request on GitHub, and this project has no "github" section in .acc/config.json.');
-  const env = environmentByBranch(config, task.environment);
-  if (!env) throw new AccError('land', `${id}'s environment "${task.environment}" isn't in the config.`);
-  const branch = task.run?.branch;
-  if (!branch) throw new AccError('land', `${id} has no branch to land.`);
-  const sha = run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: paths.root }).stdout.trim();
-  if (!sha) throw new AccError('land', `The branch ${branch} isn't in this clone.`);
-  const missing = receiptHooks(paths, config, run).missingGates(task, opts.gates);
-  if (missing.length) throw new AccError('refused', `${id}'s checks aren't settled on ${sha.slice(0, 7)}: ${missing.join(', ')}.`);
-  const own = readVerdict(paths, id, sha);
-  const verdict = own ?? carriedVerdict(paths, task, sha);
-  if (!verdict) throw new AccError('refused', `${id} hasn't been reviewed on ${sha.slice(0, 7)}. Run acc review ${id} first.`);
-  if (verdict.verdict !== 'pass') throw new AccError('refused', `${id}'s review on ${sha.slice(0, 7)} asked for changes: ${verdict.summary}`);
+  const steps = deps.steps ?? NO_STEPS;
+  const { task, gh, env, branch, sha, own, verdict } = steps.step('task', 'Check its review and checks', () => {
+    const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+    if (!task) throw new AccError('no-task', `No task ${id}.`);
+    if (task.state !== 'review') throw new AccError('refused', `${id} is ${task.state}. A task lands from review, once its review has passed.`);
+    const gh = config.github;
+    if (!gh) throw new AccError('no-github', 'acc land opens a pull request on GitHub, and this project has no "github" section in .acc/config.json.');
+    const env = environmentByBranch(config, task.environment);
+    if (!env) throw new AccError('land', `${id}'s environment "${task.environment}" isn't in the config.`);
+    const branch = task.run?.branch;
+    if (!branch) throw new AccError('land', `${id} has no branch to land.`);
+    const sha = run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: paths.root }).stdout.trim();
+    if (!sha) throw new AccError('land', `The branch ${branch} isn't in this clone.`);
+    const missing = receiptHooks(paths, config, run).missingGates(task, opts.gates);
+    if (missing.length) throw new AccError('refused', `${id}'s checks aren't settled on ${sha.slice(0, 7)}: ${missing.join(', ')}.`);
+    const own = readVerdict(paths, id, sha);
+    const verdict = own ?? carriedVerdict(paths, task, sha);
+    if (!verdict) throw new AccError('refused', `${id} hasn't been reviewed on ${sha.slice(0, 7)}. Run acc review ${id} first.`);
+    if (verdict.verdict !== 'pass') throw new AccError('refused', `${id}'s review on ${sha.slice(0, 7)} asked for changes: ${verdict.summary}`);
+    return { task, gh, env, branch, sha, own, verdict };
+  });
 
-  const ghEnv = { ...deps.env, GH_TOKEN: ghToken(run, gh.account) };
+  const ghEnv = { ...deps.env, GH_TOKEN: steps.step('github', `Sign in to GitHub as ${gh.account}`, () => ghToken(run, gh.account)) };
   const ghRun = (args: string[]) => run('gh', args, { cwd: paths.root, env: ghEnv, timeoutMs: GH_TIMEOUT_MS });
-  const open = ghRun(['pr', 'list', '-R', gh.repo, '--head', branch, '--state', 'open', '--json', 'number,url']);
-  const existing = open.code === 0 ? (JSON.parse(open.stdout || '[]') as { number: number; url: string }[])[0] : undefined;
-  // The ledger names a pull request GitHub doesn't have open: closed, or merged since acc last looked.
-  // Autopilot never opens another in its place, and asks before the push, so a merged pull request's
-  // deleted branch isn't made again (D-063).
-  if (!existing && task.pr && opts.actor === 'orchestrator') {
-    const seen = open.code === 0 ? 'isn\'t open on GitHub'
-      : `may not be open on GitHub: gh couldn't list the branch's pull requests (${(open.stderr || open.stdout).trim().split('\n')[0] || `exit ${open.code}`})`;
-    throw new AccError('land', `Pull request #${task.pr.number} ${seen}. Autopilot won't open another: a person decides.`);
-  }
+  const existing = steps.step('find', 'Look for its pull request', () => {
+    const open = ghRun(['pr', 'list', '-R', gh.repo, '--head', branch, '--state', 'open', '--json', 'number,url']);
+    const existing = open.code === 0 ? (JSON.parse(open.stdout || '[]') as { number: number; url: string }[])[0] : undefined;
+    // The ledger names a pull request GitHub doesn't have open: closed, or merged since acc last looked.
+    // Autopilot never opens another in its place, and asks before the push, so a merged pull request's
+    // deleted branch isn't made again (D-063).
+    if (!existing && task.pr && opts.actor === 'orchestrator') {
+      const seen = open.code === 0 ? 'isn\'t open on GitHub'
+        : `may not be open on GitHub: gh couldn't list the branch's pull requests (${(open.stderr || open.stdout).trim().split('\n')[0] || `exit ${open.code}`})`;
+      throw new AccError('land', `Pull request #${task.pr.number} ${seen}. Autopilot won't open another: a person decides.`);
+    }
+    return existing;
+  });
 
   // Push as the repo's own account: the credential helper acc set up follows this clone's choice (D-028).
-  const push = run('git', ['push', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS });
-  if (push.code !== 0) throw new AccError('land', `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split('\n').slice(-2).join(' ')}`);
+  steps.step('push', `Push ${branch}`, () => {
+    const push = run('git', ['push', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS });
+    if (push.code !== 0) throw new AccError('land', `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split('\n').slice(-2).join(' ')}`);
+  });
 
   const receipts = receiptsAt(paths, sha);
   const body = prBody(task, env, sha, verdict, receipts, autoMergeFor(config, env.branch), own ? null : task.autopilot?.carried ?? null);
   const dir = mkdtempSync(join(tmpdir(), 'acc-land-'));
   let pr: PullRequest;
   let opened: boolean;
+  steps.start('pr', existing ? `Update pull request #${existing.number}` : `Open the pull request into ${env.branch}`);
   try {
     const bodyFile = join(dir, 'body.md');
     writeFileSync(bodyFile, body);
@@ -178,14 +191,20 @@ function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, o
       pr = { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url, state: 'open', landedAt: now().toISOString(), sha };
       opened = true;
     }
+  } catch (e) {
+    steps.fail('pr', (e as Error).message);
+    throw e;
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+  steps.done('pr', `#${pr.number}`);
   // Whether it merges into its base: branches built side by side often don't (D-049).
+  steps.start('conflicts', `Check it merges into ${env.branch}`);
   const conflicts = fetchBranches(run, paths.root, [env.branch, branch], deps.env) ? conflictsOf(run, paths.root, env.branch, branch) : null;
   if (conflicts) pr = { ...pr, conflicts };
+  steps.done('conflicts', conflicts?.length ? `It conflicts in ${conflicts.join(', ')}` : undefined);
 
-  const updated = mutate(paths, now, (l, emit) => {
+  const updated = steps.step('record', 'Record the pull request', () => mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id)!;
     t.pr = pr;
     // Landed, by autopilot or by hand: whatever autopilot couldn't do before is done (D-055).
@@ -193,16 +212,19 @@ function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, o
     t.updatedAt = now().toISOString();
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? 'acc land', data: { pr, sha, opened } });
     return t;
-  });
+  }));
   // The ticket hears about it only from a person: acc drafts what to say, and posts nothing (D-066).
   // The pull request is recorded whatever happens to the draft.
+  steps.start('update', 'Draft the ticket\'s update');
   try {
     const update = draftUpdate(paths, task, {
       event: opened ? 'pr-opened' : 'pr-updated', pr: { number: pr.number, url: pr.url },
       context: { summary: verdict.client?.trim() || task.title },
     }, opts.by ?? 'acc land', now);
+    steps.done('update', update ? undefined : 'It has no ticket');
     return { task: updated, sha, pr, opened, update: update ? { id: update.id, key: update.key } : null };
   } catch (e) {
+    steps.fail('update', (e as Error).message);
     return { task: updated, sha, pr, opened, update: null, updateError: (e as Error).message };
   }
 }

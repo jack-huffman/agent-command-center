@@ -9,6 +9,7 @@ import { withJob } from './jobs.ts';
 import { mutate, type Promotion, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { NO_STEPS, type Steps } from './steps.ts';
 import { draftUpdate } from './updates.ts';
 
 /**
@@ -39,6 +40,8 @@ export interface PromoteDeps {
   env: NodeJS.ProcessEnv;
   slots?: SlotOptions;
   onStep?: (what: string) => void;
+  /** Where its steps are reported (T-65). */
+  steps?: Steps;
 }
 
 const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
@@ -96,18 +99,30 @@ function specificOn(run: Runner, root: string, config: Config, refs: string[]): 
   return [...out];
 }
 
-/** Works out a promotion from the branches on GitHub, after fetching them. Changes nothing. */
-export function planPromotion(paths: RepoPaths, config: Config, fromName: string, toName: string | undefined, deps: Pick<PromoteDeps, 'run'>): PromotionPlan {
+/**
+ * Works out a promotion from the branches on GitHub, after fetching them. Changes nothing. Its two steps
+ * (T-65): the branches, then what changed.
+ */
+export function planPromotion(paths: RepoPaths, config: Config, fromName: string, toName: string | undefined, deps: Pick<PromoteDeps, 'run' | 'steps'>): PromotionPlan {
   const { run } = deps;
-  const from = envByName(config, fromName);
-  if (!from.promotesTo.length) throw new AccError('refused', `${from.name} doesn't promote anywhere: its "promotesTo" is empty.`);
-  const to = toName ? envByName(config, toName) : envByName(config, from.promotesTo[0]!);
-  if (!from.promotesTo.includes(to.branch)) throw new AccError('refused', `${from.name} can't promote to ${to.name}. Its "promotesTo" allows: ${from.promotesTo.join(', ')}.`);
-  must(git(run, paths.root, 'fetch', '--quiet', 'origin', from.branch, to.branch), `Couldn't fetch ${from.branch} and ${to.branch}`);
+  const steps = deps.steps ?? NO_STEPS;
+  const { from, to, fromSha, toSha } = steps.step('branches', 'Check the branches', () => {
+    const from = envByName(config, fromName);
+    if (!from.promotesTo.length) throw new AccError('refused', `${from.name} doesn't promote anywhere: its "promotesTo" is empty.`);
+    const to = toName ? envByName(config, toName) : envByName(config, from.promotesTo[0]!);
+    if (!from.promotesTo.includes(to.branch)) throw new AccError('refused', `${from.name} can't promote to ${to.name}. Its "promotesTo" allows: ${from.promotesTo.join(', ')}.`);
+    must(git(run, paths.root, 'fetch', '--quiet', 'origin', from.branch, to.branch), `Couldn't fetch ${from.branch} and ${to.branch}`);
+    const fromSha = must(git(run, paths.root, 'rev-parse', `origin/${from.branch}`), `No origin/${from.branch}`).trim();
+    const toSha = must(git(run, paths.root, 'rev-parse', `origin/${to.branch}`), `No origin/${to.branch}`).trim();
+    return { from, to, fromSha, toSha };
+  });
+  return steps.step('changes', 'Work out what changed', () => promotionChanges(paths, config, run, from, to, fromSha, toSha));
+}
+
+/** What the source changed that the destination should take: files, deletions, and environment-specific files left out. */
+function promotionChanges(paths: RepoPaths, config: Config, run: Runner, from: Environment, to: Environment, fromSha: string, toSha: string): PromotionPlan {
   const src = `origin/${from.branch}`;
   const dst = `origin/${to.branch}`;
-  const fromSha = must(git(run, paths.root, 'rev-parse', src), `No ${src}`).trim();
-  const toSha = must(git(run, paths.root, 'rev-parse', dst), `No ${dst}`).trim();
   // What the source changed since the two last shared history, so changes made only in the destination stay.
   const parts = must(git(run, paths.root, 'diff', '--name-status', '--no-renames', '-z', `${dst}...${src}`), 'git diff failed').split('\0').filter(Boolean);
   const specific = specificOn(run, paths.root, config, [src, dst]);
@@ -223,14 +238,17 @@ export function promote(paths: RepoPaths, config: Config, fromName: string, toNa
 
 function promoteNow(paths: RepoPaths, config: Config, fromName: string, toName: string | undefined, deps: PromoteDeps, opts: PromoteOpts): PromoteResult {
   const { run, now } = deps;
+  const steps = deps.steps ?? NO_STEPS;
   const plan = planPromotion(paths, config, fromName, toName, deps);
   const none = { tasks: [], updates: [], warning: null };
   if (!plan.files.length && !plan.deleted.length) return { plan, branch: null, pr: null, validation: null, stopped: `${plan.to.name} already has everything from ${plan.from.name}.`, ...none };
-  if (plan.deleted.length && !opts.allowDeletions) {
-    throw new AccError('refused', `Promoting would delete ${plan.deleted.length} file(s) in ${plan.to.branch}, which usually means the branches have drifted apart: ${plan.deleted.slice(0, 5).join(', ')}${plan.deleted.length > 5 ? ', …' : ''}. Check them, then add --allow-deletions.`);
-  }
-  const gh = config.github;
-  if (!gh) throw new AccError('no-github', 'acc promote opens a pull request on GitHub, and this project has no "github" section.');
+  const gh = steps.step('ready', 'Check it can open a pull request', () => {
+    if (plan.deleted.length && !opts.allowDeletions) {
+      throw new AccError('refused', `Promoting would delete ${plan.deleted.length} file(s) in ${plan.to.branch}, which usually means the branches have drifted apart: ${plan.deleted.slice(0, 5).join(', ')}${plan.deleted.length > 5 ? ', …' : ''}. Check them, then add --allow-deletions.`);
+    }
+    if (!config.github) throw new AccError('no-github', 'acc promote opens a pull request on GitHub, and this project has no "github" section.');
+    return config.github;
+  });
   const stamp = now().toISOString().replace(/[-:]/g, '').slice(0, 13).replace('T', '-');
   const branch = `promote/${plan.from.branch}-to-${plan.to.branch}-${stamp}`;
   const dir = mkdtempSync(join(tmpdir(), 'acc-promote-'));
@@ -238,15 +256,19 @@ function promoteNow(paths: RepoPaths, config: Config, fromName: string, toName: 
   let validation: Outcome | null = null;
   try {
     deps.onStep?.(`Building ${branch} from ${plan.to.branch}`);
-    must(git(run, paths.root, 'worktree', 'add', '--quiet', '-b', branch, wt, plan.toSha), 'Couldn\'t make the promotion worktree');
-    for (let i = 0; i < plan.files.length; i += 200) must(git(run, wt, 'checkout', plan.fromSha, '--', ...plan.files.slice(i, i + 200)), 'Couldn\'t bring the changes over');
-    for (let i = 0; i < plan.deleted.length; i += 200) must(git(run, wt, 'rm', '--quiet', '--', ...plan.deleted.slice(i, i + 200)), 'Couldn\'t remove the deleted files');
-    must(git(run, wt, 'commit', '--quiet', '-m', `Promote ${plan.from.branch} to ${plan.to.branch}`, '-m', `${plan.files.length} changed, ${plan.deleted.length} deleted, from ${plan.fromSha.slice(0, 7)}.`), 'Couldn\'t commit the promotion');
+    steps.step('build', 'Build the promotion branch', () => {
+      must(git(run, paths.root, 'worktree', 'add', '--quiet', '-b', branch, wt, plan.toSha), 'Couldn\'t make the promotion worktree');
+      for (let i = 0; i < plan.files.length; i += 200) must(git(run, wt, 'checkout', plan.fromSha, '--', ...plan.files.slice(i, i + 200)), 'Couldn\'t bring the changes over');
+      for (let i = 0; i < plan.deleted.length; i += 200) must(git(run, wt, 'rm', '--quiet', '--', ...plan.deleted.slice(i, i + 200)), 'Couldn\'t remove the deleted files');
+      must(git(run, wt, 'commit', '--quiet', '-m', `Promote ${plan.from.branch} to ${plan.to.branch}`, '-m', `${plan.files.length} changed, ${plan.deleted.length} deleted, from ${plan.fromSha.slice(0, 7)}.`), 'Couldn\'t commit the promotion');
+    });
 
     // Salesforce: a check-only deploy to the destination's org, before anyone is asked to merge it.
     const source = config.profile === 'salesforce' ? under(plan.files, packageDirs(wt)) : [];
+    const checkLabel = `Check in ${plan.to.org ?? plan.to.name}`;
     if (source.length && plan.to.org && opts.validate !== false) {
       deps.onStep?.(`Validating against ${plan.to.name} (${plan.to.org}). Nothing is saved to the org.`);
+      steps.start('check', checkLabel, 'A check-only deploy: nothing is saved to the org');
       const args = promotionCheckArgs(plan.to.org, source);
       assertCheckOnly('sf', args);
       const [cmd, a] = niced('sf', args);
@@ -254,27 +276,37 @@ function promoteNow(paths: RepoPaths, config: Config, fromName: string, toName: 
       const r = withSlot(() => run(cmd, a, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000 }), { owner, ...deps.slots });
       validation = readDeploy(r, plan.to.org, [], source.length);
       if (validation.status !== 'pass') {
+        steps.fail('check', validation.summary);
         return { plan, branch: null, pr: null, validation, stopped: `Validation against ${plan.to.name} didn't pass: ${validation.summary}`, ...none };
       }
+      steps.done('check', validation.summary);
+    } else {
+      steps.skip('check', checkLabel, opts.validate === false ? 'Skipped when it was started' : !source.length ? 'No Salesforce source to check' : `${plan.to.name} has no org`);
     }
 
     // What it carries is worked out before anything is pushed: once the pull request is open, it's recorded.
     const carried = carriedTasks(paths, run, plan);
     deps.onStep?.(`Pushing ${branch}`);
-    must(run('git', ['push', '--quiet', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: wt, env: deps.env, timeoutMs: 5 * 60_000 }), `git push refused ${branch}`);
-    const token = run('gh', ['auth', 'token', '-u', gh.account]);
-    if (token.code !== 0) throw new AccError('no-github', `gh isn't logged in as ${gh.account}. The branch ${branch} is pushed; open its pull request on GitHub.`);
-    const bodyFile = join(dir, 'body.md');
-    writeFileSync(bodyFile, promotionBody(plan, validation));
-    const title = `Promote ${plan.from.name} to ${plan.to.name}${plan.skipped.length ? ` (skips ${plan.skipped.map((e) => e.branch).join(', ')})` : ''}`;
-    const create = run('gh', ['pr', 'create', '-R', gh.repo, '--base', plan.to.branch, '--head', branch, '--title', title, '--body-file', bodyFile], { cwd: paths.root, env: { ...deps.env, GH_TOKEN: token.stdout.trim() }, timeoutMs: 2 * 60_000 });
-    const url = create.stdout.trim().split('\n').find((l) => /\/pull\/\d+/.test(l))?.trim();
-    if (create.code !== 0 || !url) throw new AccError('land', `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split('\n')[0]}. The branch ${branch} is pushed.`);
-    const pr = { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url };
+    steps.step('push', 'Push the promotion branch', () => must(run('git', ['push', '--quiet', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: wt, env: deps.env, timeoutMs: 5 * 60_000 }), `git push refused ${branch}`));
+    const pr = steps.step('open', `Open the pull request into ${plan.to.branch}`, () => {
+      const token = run('gh', ['auth', 'token', '-u', gh.account]);
+      if (token.code !== 0) throw new AccError('no-github', `gh isn't logged in as ${gh.account}. The branch ${branch} is pushed; open its pull request on GitHub.`);
+      const bodyFile = join(dir, 'body.md');
+      writeFileSync(bodyFile, promotionBody(plan, validation));
+      const title = `Promote ${plan.from.name} to ${plan.to.name}${plan.skipped.length ? ` (skips ${plan.skipped.map((e) => e.branch).join(', ')})` : ''}`;
+      const create = run('gh', ['pr', 'create', '-R', gh.repo, '--base', plan.to.branch, '--head', branch, '--title', title, '--body-file', bodyFile], { cwd: paths.root, env: { ...deps.env, GH_TOKEN: token.stdout.trim() }, timeoutMs: 2 * 60_000 });
+      const url = create.stdout.trim().split('\n').find((l) => /\/pull\/\d+/.test(l))?.trim();
+      if (create.code !== 0 || !url) throw new AccError('land', `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split('\n')[0]}. The branch ${branch} is pushed.`);
+      return { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url };
+    });
+    steps.start('record', 'Record what it carries');
     mkdirSync(paths.stateDir, { recursive: true });
     const tasks = carried.map((t) => t.id);
     appendFileSync(join(paths.stateDir, 'promotions.jsonl'), JSON.stringify({ at: now().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch), tasks }) + '\n');
-    return { plan, branch, pr, validation, stopped: null, tasks, ...recordCarried(paths, plan, pr, carried, opts.by ?? 'acc promote', now) };
+    const recorded = recordCarried(paths, plan, pr, carried, opts.by ?? 'acc promote', now);
+    if (recorded.warning) steps.fail('record', recorded.warning);
+    else steps.done('record', tasks.length ? `${tasks.length} task(s)` : 'No task\'s change');
+    return { plan, branch, pr, validation, stopped: null, tasks, ...recorded };
   } finally {
     git(run, paths.root, 'worktree', 'remove', '--force', wt);
     // The branch lives on GitHub once pushed; locally it goes with its worktree.
