@@ -16,6 +16,7 @@ import { htmlFor, isWebLink, type Panels, TabTheme } from './panels.ts';
 import { modalTakes, taskOf } from './model/task-modal.ts';
 import type { ThemeChoice } from './model/settings.ts';
 import { runFile } from './run.ts';
+import { showFileAt } from './runs.ts';
 import type { Trackers } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
 import { addTaskArgs, draftFromOpen } from './logic/tasks.ts';
@@ -644,12 +645,7 @@ export async function openReviewFile(key: string, checkout: string | undefined, 
     void vscode.window.showWarningMessage(`${file} isn't inside ${key}'s checkout, so it doesn't open.`);
     return;
   }
-  try {
-    const at = new vscode.Position(line - 1, 0);
-    await vscode.window.showTextDocument(vscode.Uri.file(path), { selection: new vscode.Range(at, at), preview: true });
-  } catch (e) {
-    void vscode.window.showWarningMessage(`Couldn't open ${file}: ${(e as Error).message}`);
-  }
+  await showFileAt(path, file, line - 1);
 }
 
 export const area: ExtensionArea = {

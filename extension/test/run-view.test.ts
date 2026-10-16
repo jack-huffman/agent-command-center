@@ -30,7 +30,26 @@ class Emitter { private ls: ((e: unknown) => void)[] = []; event = (l: (e: unkno
 };
 const STUB = `data:text/javascript,${encodeURIComponent('const v = globalThis.accRunsVscode; export const { EventEmitter, StatusBarAlignment, Position, Range, Uri, env, window } = v; export default v;')}`;
 registerHooks({ resolve: (spec, ctx, next) => (spec === 'vscode' ? { url: STUB, format: 'module', shortCircuit: true } : next(spec, ctx)) });
-const { Runs } = await import('../src/runs.ts');
+const { Runs, showFileAt } = await import('../src/runs.ts');
+
+test('showFileAt opens a file at a line, and an editor that fails says why, naming the file as shown (T-70)', async () => {
+  await showFileAt('/x/src/b.ts', 'src/b.ts', 4);
+  assert.deepEqual(did.opened.at(-1), { path: '/x/src/b.ts', line: 4 });
+  const win = (globalThis as { accRunsVscode: { window: { showTextDocument: unknown } } }).accRunsVscode.window;
+  const opens = win.showTextDocument;
+  win.showTextDocument = async () => { throw new Error('no editor'); };
+  try {
+    await showFileAt('/x/src/b.ts', 'src/b.ts', 0);
+  } finally {
+    win.showTextDocument = opens;
+  }
+  assert.equal(did.warn.at(-1), 'Couldn\'t open src/b.ts: no editor');
+  // The task page's review and a run's output both open through it, so the two can't drift apart again.
+  const src = (f: string) => readFileSync(join(import.meta.dirname, '..', 'src', f), 'utf8');
+  assert.match(src('ticket.ts'), /await showFileAt\(path, file, line - 1\);/);
+  assert.match(src('runs.ts'), /await showFileAt\(path, file, Math\.max\(0, \(line \?\? 1\) - 1\)\);/);
+  assert.equal(src('ticket.ts').match(/showTextDocument/g), null, 'the task page opens no editor itself');
+});
 
 test('the panel draws every run as rows with renderRunRows, a review\'s Show output too, and its header line\'s clock is the review\'s own', () => {
   const dock = pageSource('dock.ts');
