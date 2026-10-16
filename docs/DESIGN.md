@@ -1609,13 +1609,39 @@ plugin older than the extension is orange, and its **Update the plugin** is
 Setup's own A4 fix (`acc.step.fix A4.plugin`): one comparison,
 `pluginBehind` in core, decides both, and a test holds About to A4 over the
 same versions. The latest GitHub Release is read with `gh release view`, as
-gh's active account (a token in the environment is left out), once when
-Settings first shows in a session, then at most every six hours, or at
-**Check now**. A newer one is orange, with a link to its notes; a look that
+gh's active account (a token in the environment is left out), when Settings
+shows or by itself, at most every six hours, or at **Check now**. A newer one
+is orange, with a link to its notes and **Install and reload**; a look that
 fails is neutral. `extension/src/about.ts` reads, `model/about.ts` words it,
-`webview/about.ts` draws it; nothing there writes. Setup's saved machine
-results (`acc.machineItems`) carry the version that checked them, so an
-upgrade checks the machine again.
+`webview/about.ts` draws it. Setup's saved machine results
+(`acc.machineItems`) carry the version that checked them, so an upgrade
+checks the machine again.
+
+**The extension's own update** (T-62, D-???): `extension/src/self-update.ts`
+asks About for its look a minute after activation, then each six hours after
+the last look, whoever made it, so About shows what it found and neither asks
+twice; `agentCommandCenter.updates.check` off stops that, and Check now still
+looks. With the setting on, after each look About makes, a newer version not
+skipped and not yet offered in the session gets one notification: **Install and reload**, **Release
+notes**, **Skip this version** (kept in global state as `acc.update.skipped`).
+Install and reload runs `gh release download` as gh's active account into a
+new temporary folder, takes the one `.vsix` named for the version, checks it
+against the release's `<vsix>.sha256` when there is one, installs it with
+`workbench.extensions.installExtension`, removes the folder, saves
+`acc.update.after` with the version, and reloads the window. The next
+activation that finds the save clears it, then opens the Command Center with
+"Updated to <version>", or says the update didn't take when another version
+runs. A failure says which step failed and offers the release's notes. The
+decisions are `logic/self-update.ts`'s. `npm run release` uploads the
+`.sha256` beside the `.vsix`.
+
+| VSCode setting | Default | What it does |
+| --- | --- | --- |
+| `agentCommandCenter.openFromActivityBar` | on | The activity bar icon opens the page and closes the sidebar |
+| `agentCommandCenter.notifications` | on | Notifications for task changes that need you or are news |
+| `agentCommandCenter.updates.check` | on | Looks for a newer release by itself and offers it (T-62) |
+| `agentCommandCenter.theme` | `vscode` | The pages' theme, kept on this machine |
+| `agentCommandCenter.refreshPace` | `normal` | How often the page refreshes while it's on screen, kept on this machine |
 
 The page is a webview under a nonce content security policy. It renders text
 only and accepts only allow-listed `acc.*` commands. Ticket pages stay their
