@@ -253,7 +253,7 @@ export interface Render { page: string; theme: string; width: number; verdict: V
  * The least a run of every page, both themes and all three widths examines, per check. Raised as the
  * pages grow, never lowered: a run below one has stopped looking.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 14600, clipped: 41700, tab: 408, sideways: 1100, overview: 800, buttons: 450, words: 76400, covered: 1700, a11y: 190000 };
+export const RUN_FLOOR: Record<Check, number> = { overlap: 14760, clipped: 41700, tab: 414, sideways: 1100, overview: 800, buttons: 450, words: 76400, covered: 1700, a11y: 190000 };
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
