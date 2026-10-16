@@ -36,13 +36,13 @@ export type RowDo =
   /** Opens a web link, such as a pull request. */
   | { kind: 'link'; url: string };
 
-/** A detail the modal shows. Rules and updates show one at a time, from `at`. History opens at `item`, its index. */
+/** A detail the modal shows. Rules and updates show one at a time, from `at`. History opens at the entry whose id is `at`. */
 export type Detail =
   | { kind: 'question'; id: string }
   | { kind: 'rules'; at?: number }
   | { kind: 'updates'; at?: number }
   | { kind: 'list'; group: GroupKey }
-  | { kind: 'history'; item?: number };
+  | { kind: 'history'; at?: string };
 
 /** A line's button. Only Needs you's are primary, the blue fill; every other list's are outlined (D-147). */
 export interface RowButton { label: string; icon: string; tip?: string; primary?: boolean; do: RowDo }
@@ -262,27 +262,27 @@ function queueRows(q: QueuePanel, many: boolean): LandingRow[] {
 }
 
 /** One thing in History: a move, a step autopilot took, your answer or a command acc ran; its task or its detail on a click. */
-function historyRow(it: HistoryItem, index: number, now: number, roots: Map<string, string>, many: boolean): LandingRow {
+function historyRow(it: HistoryItem, now: number, roots: Map<string, string>, many: boolean): LandingRow {
   const ago = `${elapsed(now - Date.parse(it.at))} ago`;
   const where = many && 'project' in it ? it.project : null;
   const task = (key: string, project: string): RowDo | null => (roots.has(project) ? { kind: 'task', project: roots.get(project)!, key } : null);
-  const own = detail({ kind: 'history', item: index });
+  const own = detail({ kind: 'history', at: it.id });
   switch (it.kind) {
     case 'move':
-      return { key: `h:${index}`, look: moveLook(it.to), id: it.task, title: it.title, facts: facts(ago, it.by.replace(/^human:/, '')), action: null, menu: null, open: task(it.task, it.project), tip: `${it.from ?? 'new'} → ${it.to}, by ${it.by.replace(/^human:/, '')}` };
+      return { key: `h:${it.id}`, look: it.look, id: it.task, title: it.title, facts: facts(ago, it.by.replace(/^human:/, '')), action: null, menu: null, open: task(it.task, it.project), tip: `${it.from ?? 'new'} → ${it.to}, by ${it.by.replace(/^human:/, '')}` };
     case 'autopilot':
       return {
-        key: `h:${index}`, look: it.look, id: it.task, title: it.title, facts: facts(ago, where), menu: null, open: task(it.task, it.project), tip: [it.look.label, it.detail].filter(Boolean).join('\n'),
+        key: `h:${it.id}`, look: it.look, id: it.task, title: it.title, facts: facts(ago, where), menu: null, open: task(it.task, it.project), tip: [it.look.label, it.detail].filter(Boolean).join('\n'),
         action: it.url ? { label: 'Pull request', icon: 'git-pull-request', tip: 'Open its pull request on GitHub', do: { kind: 'link', url: it.url } } : null,
       };
     case 'answer':
       return {
-        key: `h:${index}`, look: it.decision.look, id: null, title: `${it.who} ${it.decision.asked}`, facts: facts(ago, where), menu: null, open: own,
+        key: `h:${it.id}`, look: it.decision.look, id: null, title: `${it.who} ${it.decision.asked}`, facts: facts(ago, where), menu: null, open: own,
         action: { label: 'Watch', icon: 'pulse', tip: 'Follow what it does, step by step', do: { kind: 'run', command: 'acc.agent.watch', ref: { session: it.session } } },
         tip: [it.decision.code, it.decision.detail].filter(Boolean).join('\n') || null,
       };
     case 'run':
-      return { key: `h:${index}`, look: it.look, id: null, title: it.label, facts: facts(ago), action: null, menu: null, open: own, tip: `$ ${it.command}` };
+      return { key: `h:${it.id}`, look: it.look, id: null, title: it.label, facts: facts(ago), action: null, menu: null, open: own, tip: `$ ${it.command}` };
   }
 }
 
@@ -329,8 +329,8 @@ export function landing(o: Omit<OverviewModel, 'landing' | 'cards' | 'since'>, n
     group({ key: 'progress', title: 'In progress', icon: 'pulse', tone: p.count ? 'blue' : 'neutral', count: p.count, empty: p.empty ?? 'No task here has anything under way.' }, p.groups.map(progressRow)),
     group({ key: 'queue', title: 'Merge queue', icon: 'git-merge', tone: 'neutral', count: queue.length, empty: null }, queue),
     group({ key: 'ready', title: 'Ready for an agent', icon: 'rocket', tone: 'neutral', count: ready.length, empty: 'Nothing is ready to dispatch. Track a ticket from a board, or add a task.' }, ready),
-    group({ key: 'history', title: 'History', icon: 'history', tone: 'neutral', count: o.history.length, empty: 'What agents and tasks do shows up here.' },
-      o.history.map((it, i) => historyRow(it, i, now, roots, many)), { kind: 'history' }),
+    group({ key: 'history', title: 'History', icon: 'history', tone: 'neutral', count: o.history.counts.all, empty: 'What agents and tasks do shows up here.' },
+      o.history.items.map((it) => historyRow(it, now, roots, many)), { kind: 'history' }),
   ];
 }
 

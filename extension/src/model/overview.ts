@@ -6,7 +6,7 @@
 import { phaseWords } from '../../../packages/core/src/queue.ts';
 import type { AnalysisAsk, TaskRow } from '../logic/shared.ts';
 import type { ProgressModel } from '../progress.ts';
-import type { HistoryItem } from './history.ts';
+import type { HistoryPage } from './history-pages.ts';
 import type { QuestionCard } from './questions.ts';
 import { type Action, type HomeSection, type HubLike, type Look, LOOK, type ModelArea, type Ref } from './shared.ts';
 import type { RuleCard } from './rules.ts';
@@ -47,8 +47,8 @@ export interface OverviewModel {
   ready: { project: string; id: string; title: string; environment: string; action: Action }[];
   /** Each project's merge queue, where auto-merge is on and it holds a pull request (GH-73). */
   queue: QueuePanel[];
-  /** Everything that happened, newest first (D-037). */
-  history: HistoryItem[];
+  /** Everything that happened, newest first (D-037): its first page, and each filter's count (D-170). */
+  history: HistoryPage;
   /** Every job under way, grouped by task, below Needs you (D-092). It never adds to the badge. */
   inProgress: ProgressModel;
   /** The page's lists, a line per item, worked out from the rest (GH-160). */

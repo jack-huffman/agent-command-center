@@ -1,29 +1,35 @@
-/* History in full (D-037), in the Overview's History detail (GH-160): newest first, with filters. */
-.feed { list-style: none; margin: 4px 0 0; padding: 0; position: relative; }
-.feed li { display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 10px; padding: 6px 0; position: relative; }
-.feed li::before { content: ''; position: absolute; left: 4px; top: 22px; bottom: -6px; width: 1px; background: var(--line); }
-.feed li:last-child::before { display: none; }
-.feed-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; background: var(--card); border: 2px solid var(--vscode-descriptionForeground); }
-.history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+/* History in full (D-037), in the Overview's History detail (GH-160): newest first, with filters, each day's
+   entries under a thin rule with the day's name in its middle, a page at a time (D-170). */
+.history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .history-filters { flex-wrap: wrap; }
 .history-filters .seg { font-size: 0.88em; padding: 2px 8px; white-space: nowrap; }
-.history-line { display: flex; align-items: baseline; gap: 4px; min-width: 0; flex-wrap: wrap; }
-.history-line > strong, .history-line > span { flex: none; white-space: nowrap; }
-.history-line .tool-code { margin-left: 6px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
-.history-meta { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.history-meta .sep { margin: 0 2px; }
-.history-feed { margin: 0; }
-.feed-icon { flex: none; display: inline-flex; margin-top: 2px; }
+/* A day's line: a rule on each side of its name, a heading a screen reader moves by. The rule is the page's
+   edge, mixed from the theme's foreground: in a dark theme the panel border is near the modal's own colour. */
+.history-day-name { display: flex; align-items: center; gap: 10px; margin: 16px 0 4px; font-size: 0.82em; font-weight: 600; letter-spacing: 0.02em; color: var(--vscode-descriptionForeground); }
+.history-day-name::before, .history-day-name::after { content: ''; flex: 1 1 0; border-top: 1px solid var(--edge); }
+.history-day:first-of-type .history-day-name { margin-top: 8px; }
+.feed { list-style: none; margin: 0; padding: 0; }
+.history .history-feed > li { display: block; padding: 0; }
+/* A row: its state's icon, its key and line of text over its state's label, and its time at the right. */
+.history-row { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; column-gap: 10px; align-items: start; padding: 7px 8px; border-radius: var(--radius); cursor: pointer; list-style: none; transition: background-color 0.15s ease; }
+.history-row::-webkit-details-marker { display: none; }
+.history-row:hover { background: var(--accent-soft); }
+.history-row:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.history-row:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.feed-icon { display: inline-flex; margin-top: 1px; }
 .feed-icon.tone-neutral { color: var(--vscode-descriptionForeground); }
-.history-item { min-width: 0; flex: 1; }
-.history-item > summary { cursor: pointer; list-style: none; }
-.history-item > summary::-webkit-details-marker { display: none; }
-.history-item > summary:hover { color: var(--vscode-textLink-foreground); }
-.history-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 6px 0 4px; }
+.history-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.history-top { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.history-top .tcard-key { flex: none; }
+.history-text, .history-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-label { font-size: 0.88em; }
+.history-label.tone-neutral { color: var(--vscode-descriptionForeground); }
+.history-time { font-variant-numeric: tabular-nums; white-space: nowrap; padding-top: 1px; }
+/* What opens under a row, in line with its text. */
+.history-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 2px 8px 10px 34px; min-width: 0; }
 .history-body .q-code, .history-body .history-out { margin: 0; width: 100%; max-height: 220px; }
-.history-detail { white-space: pre-wrap; padding: 6px 10px; border-left: 3px solid var(--line); color: var(--vscode-foreground); }
-/* A step autopilot took (D-064): what it did on one line, and why under it. */
-.history-step { min-width: 0; }
-.history-note { margin-top: 2px; overflow-wrap: anywhere; }
+.history-detail { white-space: pre-wrap; overflow-wrap: anywhere; padding: 6px 10px; border-left: 3px solid var(--line); color: var(--vscode-foreground); }
 /* The item a History line opened at: brought into view, and marked. */
-.feed li[data-at] { background: var(--accent-soft); border-radius: 4px; }
+.feed li[data-at] > .history-item > .history-row { background: var(--accent-soft); }
+/* The list's end: Loading… while a page is on its way, or That's everything. */
+.history-end { text-align: center; margin: 14px 0 4px; min-height: 1.4em; }

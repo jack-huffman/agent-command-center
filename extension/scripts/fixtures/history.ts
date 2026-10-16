@@ -1,5 +1,6 @@
 /** History (D-037): moves the ledger recorded, and the steps autopilot took. */
 import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
+import type { RunInput } from '../../src/model/runs.ts';
 import type { ActivityItem } from '../../src/model/shared.ts';
 import { ACME_25_REFUSED, MIN, SLEPT } from './shared.ts';
 
@@ -37,4 +38,27 @@ export function sampleAutopilot(now = Date.now()): AutopilotRecord[] {
     { seq: 211, at: at(31), task: 'ACME-29', step: 'start', outcome: 'done', waitedFor: ['ACME-22'] },
     { seq: 222, at: at(2), task: 'ACME-36', step: 'start', outcome: 'failed', reason: 'Claude Code didn\'t start the agent: Claude Code doesn\'t trust this folder yet.' },
   ];
+}
+
+const LONG_TITLES = ['Route web-to-case submissions by product line', 'Case escalation rules for the premium tier', 'Close duplicate leads nightly', 'Rename the Region picklist values', 'Fix the flow that double-sends welcome emails'];
+const LONG_STATES: [string, string][] = [['todo', 'running'], ['running', 'review'], ['review', 'rework'], ['rework', 'running'], ['review', 'done']];
+
+/**
+ * History with more than two pages (D-170): 100 entries, one every 90 minutes back from now, over six or seven
+ * days. Every fourth is a command acc ran, which runs gives; the rest are tasks' moves.
+ */
+export function sampleLongHistory(now = Date.now()): { moves: ActivityItem[]; runs: RunInput[] } {
+  const moves: ActivityItem[] = [];
+  const runs: RunInput[] = [];
+  for (let i = 0; i < 100; i++) {
+    const at = now - (i * 90 + 3) * MIN;
+    if (i % 4 === 3) {
+      runs.push({ id: `long-${i}`, label: i % 8 === 3 ? 'Run the checks' : 'Pull the boards', command: i % 8 === 3 ? 'acc gate run' : 'acc sync', startedAt: at - MIN, endedAt: at, code: 0, stopped: false, lines: ['done'], prompt: null, step: null });
+      continue;
+    }
+    const [from, to] = LONG_STATES[i % LONG_STATES.length]!;
+    const n = 10 + (i % 5);
+    moves.push({ at: new Date(at).toISOString(), task: `ACME-${n}`, title: LONG_TITLES[i % LONG_TITLES.length]!, from, to, by: i % 2 ? 'human:jordan' : `builder:ACME-${n}` });
+  }
+  return { moves, runs };
 }

@@ -8,6 +8,7 @@ import { area as detail } from './detail.ts';
 import { area as dispatchSheet } from './dispatch-sheet.ts';
 import { area as dock } from './dock.ts';
 import { area as environments } from './environments.ts';
+import { area as history } from './history.ts';
 import { area as overview } from './overview.ts';
 import { area as palette } from './palette.ts';
 import { area as questions } from './questions.ts';
@@ -21,4 +22,4 @@ import { area as theme } from './theme.ts';
 import { area as updates } from './updates.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [agentPage, agents, boardNav, connect, detail, dispatchSheet, dock, environments, overview, palette, questions, rules, settings, setup, taskModal, taskPage, tasks, theme, updates, worktrees];
+export const AREAS = [agentPage, agents, boardNav, connect, detail, dispatchSheet, dock, environments, history, overview, palette, questions, rules, settings, setup, taskModal, taskPage, tasks, theme, updates, worktrees];

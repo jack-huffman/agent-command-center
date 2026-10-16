@@ -9,6 +9,7 @@ import type { Detail } from '../src/model/landing.ts';
 import type { AttentionItem } from '../src/model/overview.ts';
 import { argButton, button, type Child, el, keepFocus, status } from './dom.ts';
 import { renderHistory } from './history.ts';
+import { keepPlace } from './history-store.ts';
 import { landingRows, opensKey } from './landing.ts';
 import { makeModal } from './modal.ts';
 import { machineLine } from './progress.ts';
@@ -132,7 +133,7 @@ function content(m: HomeModel, d: Detail): { title: string; nodes: Node[] } | nu
       return { title: `${g.title}: ${g.total}`, nodes: [...(top ? [top] : []), list] };
     }
     case 'history':
-      return { title: 'History', nodes: [renderHistory(o.history, o.projects.length > 1, d.item)] };
+      return { title: 'History', nodes: [renderHistory(o.history, o.projects.length > 1, d.at)] };
   }
 }
 
@@ -149,6 +150,8 @@ function draw(): void {
   const y = fresh ? 0 : modal.body.scrollTop;
   const inside = modal.dialog.contains(document.activeElement);
   const keep = keepFocus();
+  // History keeps the row in view where it was, though new entries came in above it (D-170).
+  const place = fresh ? () => {} : keepPlace(modal.body);
   modal.title.textContent = c.title;
   modal.title.title = c.title;
   modal.dialog.setAttribute('aria-label', c.title);
@@ -156,6 +159,7 @@ function draw(): void {
   if (!modal.dialog.open) modal.dialog.showModal();
   modal.body.scrollTop = y;
   keep();
+  place();
   drawn = key;
   // Opened at a History item: it's brought into view.
   if (fresh) modal.body.querySelector<HTMLElement>('[data-at]')?.scrollIntoView({ block: 'center' });

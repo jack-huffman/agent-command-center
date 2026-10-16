@@ -57,7 +57,7 @@ test('Needs you shows three lines and Show all; every other list shows none on t
     assert.deepEqual(g.opens, g.key === 'history' ? { kind: 'history' } : { kind: 'list', group: g.key }, g.key);
   }
   // Ready and In progress hold every line now, not their first five; History every item, which its detail draws in full.
-  assert.deepEqual([group(m, 'ready').total, group(m, 'progress').total, group(m, 'history').total, group(m, 'history').all.length], [6, 6, 12, m.overview.history.length]);
+  assert.deepEqual([group(m, 'ready').total, group(m, 'progress').total, group(m, 'history').total, group(m, 'history').all.length], [6, 6, 12, m.overview.history.items.length]);
   // Three or fewer in Needs you: no Show all. With nothing in it, its empty line says so.
   const few = landing({ ...m.overview, questions: m.overview.questions.slice(0, 2), attention: [] }, NOW).find((g) => g.key === 'needs-you')!;
   assert.deepEqual([few.rows.length, few.total, few.more], [2, 2, null]);
@@ -157,7 +157,7 @@ function before(o: OverviewModel): string[] {
   }
   for (const r of o.ready) out.push(`run ${r.action.command} ${refKey(r.action.ref)}`, `run acc.task.show ${refKey(r.action.ref)}`);
   for (const q of o.queue) for (const r of q.rows) out.push(`run acc.task.show ${refKey(r.ref)}`, ...(r.pr ? [`link ${r.pr.url}`] : []));
-  for (const h of o.history) {
+  for (const h of o.history.items) {
     if (h.kind === 'answer') out.push(`run acc.agent.watch ${refKey({ session: h.session })}`);
     if (h.kind === 'autopilot' && h.url) out.push(`link ${h.url}`);
   }
@@ -192,7 +192,7 @@ function after(m: HomeModel, hub: HubLike): Set<string> {
         for (const r of every(o.landing.find((g) => g.key === d.group)!)) line(r);
         return;
       case 'history':
-        for (const h of o.history) {
+        for (const h of o.history.items) {
           if (h.kind === 'answer') out.add(`run acc.agent.watch ${refKey({ session: h.session })}`);
           if (h.kind === 'autopilot' && h.url) out.add(`link ${h.url}`);
         }
@@ -255,7 +255,7 @@ test('nothing is lost: every action the Overview offered is still a line\'s butt
 
 test('the page draws each detail with the controls it had inline before (GH-160)', () => {
   const src = readFileSync(join(root, 'webview', 'detail.ts'), 'utf8');
-  for (const call of ['questionCard(q, { watch: true })', 'ruleDetail(a.rule!)', 'ruleButtons(a.rule!)', 'overviewUpdateButtons(u, a.actions)', 'argButton(a.extra.command, a.extra.label, a.extra.icon, a.extra.arg, true)', 'u.edited ?? u.text', 'posterLine(u)', '...updateNotes(u)', 'renderHistory(o.history, o.projects.length > 1, d.item)', 'landingRows(rows, g.title)']) assert.ok(src.includes(call), call);
+  for (const call of ['questionCard(q, { watch: true })', 'ruleDetail(a.rule!)', 'ruleButtons(a.rule!)', 'overviewUpdateButtons(u, a.actions)', 'argButton(a.extra.command, a.extra.label, a.extra.icon, a.extra.arg, true)', 'u.edited ?? u.text', 'posterLine(u)', '...updateNotes(u)', 'renderHistory(o.history, o.projects.length > 1, d.at)', 'landingRows(rows, g.title)']) assert.ok(src.includes(call), call);
   // The Overview itself draws no detail inline: no question, rule, update text, analysis or list of checks.
   const overview = readFileSync(join(root, 'webview', 'overview.ts'), 'utf8') + readFileSync(join(root, 'webview', 'progress.ts'), 'utf8');
   for (const inline of ['questionCard', 'ruleDetail', 'analysisQuestion', 'updateNotes', 'foldable', 'pg-row']) assert.ok(!overview.includes(inline), `no ${inline} on the Overview`);
@@ -313,7 +313,7 @@ test('every list the Overview had is on the page or one click away: Needs you\'s
       const card = o.cards.find((c) => c.key === g.key);
       assert.ok(card, `${name}: ${g.key} has a card`);
       // What the card opens holds every line: the list's detail draws g.all, History's draws every item (detail.ts).
-      if (card.opens.kind === 'history') assert.equal(o.history.length, g.all.length, `${name}: History in full`);
+      if (card.opens.kind === 'history') assert.equal(o.history.items.length, g.all.length, `${name}: History in full`);
       else assert.deepEqual(card.opens, { kind: 'list', group: g.key }, `${name}: ${g.key}`);
       walked += g.all.length;
     }

@@ -35,7 +35,10 @@ import { JIRA } from '../../packages/core/src/trackers/connect.ts';
 import { blankConnect, connectModel, type ConnectModel } from '../src/model/connect.ts';
 import type { HomeModel, Model } from '../src/model/home.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
-import { isFromWebview } from '../src/model/messages.ts';
+import { isFromWebview, type FromWebview } from '../src/model/messages.ts';
+import { type HistoryItem, historyItems } from '../src/model/history.ts';
+import { LOOK } from '../src/model/shared.ts';
+import { HISTORY_PAGE, historyReply } from '../src/model/history-pages.ts';
 import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
 import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
@@ -43,6 +46,7 @@ import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { dispatchChoiceArgs, dispatchSheet } from '../src/model/dispatch-sheet.ts';
 import { ROOT } from './fixtures/shared.ts';
+import { sampleLongHub } from './fixtures/landing.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
 import { pool, type Ran } from './jobs.ts';
 
@@ -64,12 +68,16 @@ export interface Probe {
   escape(d: HTMLDialogElement): Promise<void>;
   /** A click on the backdrop outside the modal's box; with downInside, pressed inside it and released there, as a drag out of a text box. */
   backdrop(d: HTMLDialogElement, downInside?: boolean): Promise<void>;
+  /** Scrolls a box to `top`, and fires its scroll event, as the browser would once it drew the frame. */
+  scroll(box: HTMLElement, top: number): Promise<void>;
   /** Types into a text box, as a person would. */
   type(box: HTMLInputElement | HTMLTextAreaElement, text: string): Promise<void>;
   /** The messages the page sent the extension, of a type. */
   sent(type: string): Record<string, unknown>[];
   /** The tab's memory, as the page last set it. */
   memory(): Record<string, unknown>;
+  /** Changes the tab's memory, as a tab the page was rebuilt in remembers it: the next draw reads it. */
+  remember(change: Record<string, unknown>): void;
   /** The page's model, as the extension sent it, for posting again. */
   model: Model;
   /** What Node expects, from the same fixtures: the oracle. */
@@ -107,6 +115,13 @@ export interface BehaviourData {
   since: { part: string; title: string; tasks: string[]; open: Record<string, unknown> };
   /** How many facts In progress's machine line holds, at the top of its detail. */
   machine: number;
+  /**
+   * History a page at a time (D-170), on the Overview with 100 entries: how many rows its first page shows,
+   * and for the next page, the Commands filter and an entry on a later page, what the page asks for, the
+   * extension's answer, and how many rows show once it's here. `id` is the later entry's. `newer` is the
+   * model a refresh sends once a command has finished since.
+   */
+  history: { first: number; count: number; next: Exchange; filter: Exchange; upTo: Exchange & { id: string }; newer: Model };
   /** The project the header's Start an agent and Add a tracker act on. */
   project: string;
   /**
@@ -173,20 +188,23 @@ export interface BehaviourData {
   };
 }
 
+/** What the page asks the extension for, what the extension sends back, and how many rows then show. */
+export interface Exchange { asked: Record<string, unknown>; reply: Record<string, unknown>; rows: number }
+
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel. */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, and the Overview with History of more than two pages. */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -494,6 +512,65 @@ export const CASES: Case[] = [
         await t.escape(dialog);
         t.check(`${want.key}: focus comes back to the card`, document.activeElement === card, document.activeElement?.className);
       }
+    },
+  },
+  {
+    name: 'overview: History loads its next page as a person scrolls to its end, a filter asks for its own first page, and opening it at an entry on a later page loads the pages up to it',
+    page: 'overview-pages',
+    async run(t) {
+      const h = t.data.history;
+      await t.click(t.find('[data-overview-card="history"]'));
+      let dialog = t.find<HTMLDialogElement>('dialog.detail-modal');
+      const rows = () => t.all<HTMLElement>('.history-feed > li', dialog);
+      const end = () => t.find('.history-end', dialog).textContent;
+      t.check('the first page shows', rows().length === h.first, rows().length);
+      const days = t.all('section.history-day > h3.history-day-name', dialog).map((d) => d.textContent);
+      t.check('each day under a line with its name, a heading', days.length >= 3 && days[0] === 'Today' && days[1] === 'Yesterday', days);
+      t.check('nothing is asked for before the end comes near', t.sent('history-more').length === 0, t.sent('history-more'));
+      const body = t.find<HTMLElement>('.task-modal-body', dialog);
+      await t.scroll(body, 200);
+      t.check('scrolled a little, with the end far off, it asks for nothing', t.sent('history-more').length === 0, t.sent('history-more'));
+      await t.scroll(body, body.scrollHeight);
+      t.check('near the end, it asks for the next page after its last row', JSON.stringify(t.sent('history-more').at(-1)) === JSON.stringify(h.next.asked), t.sent('history-more').at(-1));
+      t.check('a quiet line says it\'s loading', end() === 'Loading…', end());
+      await t.settle();
+      t.check('it asks once while it waits', t.sent('history-more').length === 1, t.sent('history-more').length);
+      await t.post(h.next.reply);
+      t.check('the next page arrives under the first', rows().length === h.next.rows, rows().length);
+      // A refresh with a new entry, scrolled part way down: it goes on top, and the row in view stays put.
+      await t.scroll(body, 1500);
+      const top = () => body.getBoundingClientRect().top;
+      // In the layout's px: the modal may still be growing in as it opens, which scales what a box measures.
+      const inBox = (r: HTMLElement) => (r.getBoundingClientRect().top - top()) / (body.getBoundingClientRect().height / body.offsetHeight);
+      const seen = rows().find((r) => r.getBoundingClientRect().bottom > top())!;
+      const was = inBox(seen);
+      await t.post({ type: 'state', model: h.newer });
+      const again = rows().find((r) => r.dataset.id === seen.dataset.id);
+      t.check('a refresh adds its new entry on top, and keeps what was loaded', rows().length === h.next.rows + 1, rows().length);
+      t.check('and the row in view stays where it was', !!again && Math.abs(inBox(again) - was) < 2, [seen.dataset.id, was, again && inBox(again)]);
+      const commands = t.all<HTMLButtonElement>('.history-filters button', dialog).find((b) => b.textContent?.startsWith('Commands'));
+      if (!commands) throw new Error('not found: the Commands filter');
+      t.check('a filter\'s count is the newer model\'s, not the rows on the page', commands.querySelector('.count')?.textContent === String(h.count + 1), commands.textContent);
+      await t.click(commands);
+      t.check('a filter asks for its own first page', JSON.stringify(t.sent('history-more').at(-1)) === JSON.stringify(h.filter.asked), t.sent('history-more').at(-1));
+      await t.post(h.filter.reply);
+      t.check('and shows only its own', rows().length === h.filter.rows + 1 && rows().every((r) => r.classList.contains('history-run')), rows().map((r) => r.className));
+      // Its 25 entries are all there are, so the end line says so (T-66 review).
+      t.check('with all of them loaded, the end line says that\'s everything', /^That.s everything/.test(end() ?? ''), end());
+      await t.escape(dialog);
+      // Opened at an entry on a later page, as a tab rebuilt with History open at it is.
+      t.remember({ detail: { kind: 'history', at: h.upTo.id } });
+      await t.post({ type: 'state', model: t.model });
+      dialog = t.find<HTMLDialogElement>('dialog.detail-modal');
+      t.check('it opens', dialog.open);
+      t.check('it asks for the pages up to the entry, under All', JSON.stringify(t.sent('history-more').at(-1)) === JSON.stringify(h.upTo.asked), t.sent('history-more').at(-1));
+      await t.post(h.upTo.reply);
+      t.check('the pages up to it arrive', rows().length === h.upTo.rows, rows().length);
+      const at = t.find<HTMLElement>('.history-feed > li[data-at]', dialog);
+      t.check('the entry is marked, with its detail open', at.dataset.id === h.upTo.id && !!at.querySelector<HTMLDetailsElement>('details')?.open, at.dataset.id);
+      const box = t.find('.task-modal-body', dialog).getBoundingClientRect();
+      const r = at.getBoundingClientRect();
+      t.check('and scrolled into view', r.top >= box.top && r.bottom <= box.bottom, [r.top, r.bottom, box.top, box.bottom]);
     },
   },
   {
@@ -1247,6 +1324,11 @@ export const MUTANTS: Mutant[] = [
   { name: 'the detail doesn\'t draw again after the page does', file: 'detail.ts', find: "if (model.kind === 'home' && memory().detail) draw();", replace: "if (model.kind === 'home' && memory().detail && model !== state.last) draw();", kills: [caseNamed('detail modal: Show all on a rule'), caseNamed('detail modal: Accept')] },
   { name: 'Show all opens only what the page shows', file: 'detail.ts', find: 'const rows = g ? g.all : [];', replace: 'const rows = g ? g.rows : [];', kills: [caseNamed('detail modal: Show all opens'), caseNamed('overview: each card opens')] },
   { name: 'Enter on a line\'s link opens nothing', file: 'landing.ts', find: "title.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(e); });", replace: '', kills: [caseNamed('detail modal: Enter on a line')] },
+  { name: 'History never asks for its next page', file: 'history.ts', find: "        ask();\n        end.textContent = 'Loading…';\n", replace: "        end.textContent = 'Loading…';\n", kills: [caseNamed('overview: History loads its next page')] },
+  { name: 'History drops the page the extension sends', file: 'history.ts', find: '      loaded = next;\n', replace: '      void next;\n', kills: [caseNamed('overview: History loads its next page')] },
+  { name: 'History shows a filter from All\'s first page, never asking for its own', file: 'history-store.ts', find: "    : { filter, items: [], more: true, waiting: true, counts: first.counts };", replace: "    : { filter, items: first.items.filter((i) => historyKind(i) === filter), more: false, waiting: false, counts: first.counts };", kills: [caseNamed('overview: History loads its next page')] },
+  { name: 'History opened at an entry it hasn\'t loaded asks for nothing', file: 'history.ts', find: '    sought = at;\n    ask(at);\n', replace: '    sought = at;\n', kills: [caseNamed('overview: History loads its next page')] },
+  { name: 'History jumps when new entries come in above', file: 'detail.ts', find: '  keep();\n  place();\n', replace: '  keep();\n', kills: [caseNamed('overview: History loads its next page')] },
   { name: 'Clear leaves the group on the page', file: 'since.ts', find: '    box.remove();\n', replace: '', kills: [caseNamed('overview: Since you last looked')] },
   { name: 'Clear tells the extension nothing', file: 'since.ts', find: "    api.postMessage({ type: 'toolbar', command: g.clear.command });\n", replace: '', kills: [caseNamed('overview: Since you last looked')] },
   { name: 'a card opens nothing', file: 'landing.ts', find: "b.addEventListener('click', () => openDetail(c.opens));", replace: "b.addEventListener('click', () => undefined);", kills: [caseNamed('overview: each card opens')] },
@@ -1351,6 +1433,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
       return { key: c.key, name: `${c.title}, ${c.count}: ${c.line}`, opens: JSON.stringify(c.opens), title: c.opens.kind === 'history' ? 'History' : `${g.title}: ${g.total}`, lines: g.total, history: c.opens.kind === 'history' };
     }),
     machine: o.inProgress.machine.length,
+    history: historyData(models.pages, now),
     project: ROOT,
     settings: settingsData(models.settings),
     connect: connectData(models.connect),
@@ -1361,6 +1444,32 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     run: runData(models.run),
     keys: keysData(models.tasks),
     sheet: sheetData(now),
+  };
+}
+
+/**
+ * What History's case expects (D-170), from the Overview with 100 entries: what the page asks for and what the
+ * extension sends, worked out from every entry by the model's own pages.
+ */
+function historyData(model: Model, now: number): BehaviourData['history'] {
+  if (model.kind !== 'home' || !model.overview.history.more) throw new Error('The History case needs an Overview whose History has more than a page.');
+  const long = sampleLongHub(now);
+  const items = historyItems(long.hub, long.runs);
+  const first = model.overview.history.items;
+  const last = first.at(-1)!;
+  const exchange = (asked: Extract<FromWebview, { type: 'history-more' }>, rows: number) => {
+    const reply = historyReply(items, asked);
+    return { asked: { ...asked }, reply: { ...reply }, rows: rows + reply.page.items.length };
+  };
+  const after = { at: last.at, id: last.id };
+  const later = items[HISTORY_PAGE * 2 + 5]!;
+  const fresh: HistoryItem = { kind: 'run', id: 'run:fresh', at: new Date(now).toISOString(), label: 'Pull the boards', command: 'acc sync', look: LOOK('Done', 'pass', 'blue'), lines: [] };
+  return {
+    first: first.length, count: model.overview.history.counts.run,
+    next: exchange({ type: 'history-more', filter: 'all', after }, first.length),
+    filter: exchange({ type: 'history-more', filter: 'run' }, 0),
+    upTo: { ...exchange({ type: 'history-more', filter: 'all', after, upTo: later.id }, first.length), id: later.id },
+    newer: { ...model, overview: { ...model.overview, history: { ...model.overview.history, items: [fresh, ...first], counts: { ...model.overview.history.counts, all: model.overview.history.counts.all + 1, run: model.overview.history.counts.run + 1 } } } },
   };
 }
 
@@ -1544,6 +1653,25 @@ function harness(c: Case, data: BehaviourData, model: Model): string {
   const fns = [...HELPERS.map((f) => `const ${f.name} = ${f.toString().replace(/^async function \w+/, 'async function').replace(/^function \w+/, 'function')};`), `const RUN = ${c.run.toString().replace(/^async run/, 'async function')};`].join('\n');
   return `
 window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
+// Chrome run with --dump-dom and a virtual time budget draws no frames, so an IntersectionObserver never
+// reports, and a scroll fires no event. This one reports from the boxes, its root's grown by its margin's
+// bottom, once it's given a target and on each scroll event of its root, which the probe's scroll fires.
+window.IntersectionObserver = class {
+  constructor(cb, o = {}) {
+    this.cb = cb; this.root = o.root || null; this.els = [];
+    this.bottom = parseFloat(String(o.rootMargin || '0px').split(/\\s+/)[2] || '0') || 0;
+    this.look = () => {
+      if (!this.els.length) return;
+      const r = this.root ? this.root.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      this.cb(this.els.map((e) => { const b = e.getBoundingClientRect(); return { target: e, isIntersecting: b.top < r.bottom + this.bottom && b.bottom > r.top }; }), this);
+    };
+    (this.root || window).addEventListener('scroll', this.look);
+  }
+  observe(e) { this.els.push(e); setTimeout(this.look, 0); }
+  unobserve(e) { this.els = this.els.filter((x) => x !== e); }
+  disconnect() { this.els = []; (this.root || window).removeEventListener('scroll', this.look); }
+  takeRecords() { return []; }
+};
 const DATA = ${JSON.stringify(data).replace(/</g, '\\u003c')};
 const SENT = [];
 let MEMORY = ${JSON.stringify(seeded)};
@@ -1595,9 +1723,11 @@ async function begin() {
       d.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window, clientX: spot.x, clientY: spot.y }));
       await settle();
     },
+    async scroll(box, top) { box.scrollTop = top; box.dispatchEvent(new Event('scroll')); await settle(); },
     async type(box, text) { box.focus(); box.value = text; box.dispatchEvent(new Event('input', { bubbles: true })); await settle(); },
     sent(type) { return SENT.filter((m) => m && m.type === type); },
     memory() { return clone(MEMORY) ?? {}; },
+    remember(change) { MEMORY = { ...(MEMORY ?? {}), ...clone(change) }; },
     model: MODEL,
     data: DATA,
   };
