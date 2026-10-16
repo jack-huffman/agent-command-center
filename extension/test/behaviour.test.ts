@@ -11,7 +11,7 @@ import { FONTS, sampleModel } from '../scripts/screenshot.ts';
 
 const webview = join(import.meta.dirname, '..', 'webview');
 const now = Date.UTC(2026, 9, 10, 12);
-const models = () => ({ tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark') });
+const models = () => ({ tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark') });
 const ok = (n = 1): BehaviourReport => ({ checks: Array.from({ length: n }, (_, i) => ({ what: `check ${i}`, ok: true })), error: null, sent: [{ type: 'ready' }] });
 
 test('a case passes on a report whose every check held, and its checks are counted', () => {

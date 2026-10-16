@@ -12,7 +12,7 @@ import type { HubLike } from '../../src/model/shared.ts';
 import type { RunInput } from '../../src/model/runs.ts';
 import type { RepoJobs } from '../../src/progress.ts';
 import type { LastStep } from '../../src/transcript.ts';
-import { sampleAutopilot } from './history.ts';
+import { sampleAutopilot, sampleLongHistory } from './history.ts';
 import { sampleHub } from './hub.ts';
 import { sampleSuggestions } from './rules.ts';
 import { MIN, ROOT, wt } from './shared.ts';
@@ -128,3 +128,12 @@ export const sampleSince = (): ProjectNotice[] => [
   { root: ROOT, notice: { kind: 'analysis-ready', task: 'ACME-46', text: 'ACME-46\'s analysis is ready.', urgent: false } },
   { root: ROOT, notice: { kind: 'analysis-back', task: 'ACME-14', text: 'ACME-14\'s analysis is back. Its 2 questions can be answered on its page.', urgent: false } },
 ];
+
+/**
+ * The busy Overview with History of more than two pages (D-???): 100 entries over six or seven days, each a
+ * task's move or a command acc ran, and none of autopilot's steps or your answers.
+ */
+export function sampleLongHub(now = Date.now()): { hub: HubLike; runs: RunInput[] } {
+  const long = sampleLongHistory(now);
+  return { hub: { ...sampleLandingHub(now), history: () => long.moves, autopilotLog: () => [], answers: [] }, runs: long.runs };
+}
