@@ -52,6 +52,7 @@ import { sampleQueueHub } from './fixtures/overview.ts';
 import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
 import { sampleRulesHub } from './fixtures/rules.ts';
 import { sampleRuns } from './fixtures/runs.ts';
+import { REVIEW_RUN, type ReviewSample, sampleReviewRun } from './fixtures/dock-review.ts';
 import { CLIENTS, ROOT } from './fixtures/shared.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
 import { sampleFirstSetup, sampleSetup } from './fixtures/setup.ts';
@@ -99,8 +100,11 @@ import { jobsOption, type Ran, runAsync, runJobs } from './jobs.ts';
  * Last, the loading screen the Command Center shows while it opens, which no model replaces (T-16).
  * Last, the command palette open over the Tasks board (T-52): with "an" typed and its results across several groups, and with
  * nothing typed, showing what was run last and then the sections.
+ * Last, the output panel open over the Tasks board on a review (T-63): one that passed, one that asked for changes, one
+ * still running, the one that asked for changes with its summary, a criterion, a finding and the met criteria opened,
+ * and one whose verdict file isn't JSON, which shows its lines and why.
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread'] as const;
 export type Page = (typeof PAGES)[number];
 
 /**
@@ -136,6 +140,9 @@ export function expectedButtons(model: Model): ExpectedButton[] | null {
 /** The busy Overview with a list open over it in full (T-36): Needs you's Show all, or a card's list. */
 export const OVERVIEW_LISTS: Partial<Record<Page, GroupKey>> = { 'overview-needs': 'needs-you', 'overview-progress': 'progress', 'overview-ready': 'ready', 'overview-moment': 'moment' };
 
+/** The output panel's review pages (T-63), by the review each shows. */
+export const OUTPUT_REVIEWS: Partial<Record<Page, ReviewSample>> = { 'output-passed': 'passed', 'output-changes': 'changes', 'output-reviewing': 'reviewing', 'output-review-open': 'changes', 'output-unread': 'unread' };
+
 /** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
 export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = 'vscode'): Model {
   // The loading screen is drawn with the Overview's model held back (STILL): it never arrives.
@@ -146,6 +153,10 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     const o = { ...m.overview, questions: [], attention: [] };
     const lists = landing(o, now);
     return { ...m, nav: m.nav.map((n) => (n.section === 'overview' ? { ...n, count: 0 } : n)), overview: { ...o, landing: lists, cards: overviewCards(lists) } };
+  }
+  // The output panel on a review (T-63), over the Tasks board, with the other runs behind it in the picker.
+  if (OUTPUT_REVIEWS[kind]) {
+    return homeModel({ hub: sampleHub(now), section: 'tasks', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: [sampleReviewRun(now, OUTPUT_REVIEWS[kind]!), ...sampleRuns(now)], edited: sampleEdited, slack: sampleSlack('on', now), theme, now });
   }
   if (kind === 'ticket') return sampleTicket(now);
   if (kind === 'ticket-questions') return sampleTicket(now, 'ACME-21');
@@ -218,6 +229,9 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
  */
 // ACC_SHOT_STATE, a JSON object, starts every page with that state instead: for checking what a page restores.
 export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ? JSON.parse(process.env.ACC_SHOT_STATE) : kind === 'output' ? { dock: { open: true, run: 'r-login' } }
+  // A review in the output panel (T-63); opened, with its summary, its criterion not met, its must-fix finding and the met criteria open.
+  : kind === 'output-review-open' ? { dock: { open: true, run: REVIEW_RUN }, opened: ['summary', 'c1', 'f0', 'met'].map((p) => `dock-review:${REVIEW_RUN}:${p}`) }
+  : OUTPUT_REVIEWS[kind] ? { dock: { open: true, run: REVIEW_RUN } }
   : kind === 'rules' ? { detail: { kind: 'rules' } }
   : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'], detail: { kind: 'rules' } }
   : kind === 'overview-answer' ? { detail: { kind: 'question', id: 'm1-aaaa0002' } }
@@ -480,7 +494,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

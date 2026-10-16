@@ -137,6 +137,13 @@ export interface BehaviourData {
    * in that column, as the extension sends it once the move is made. Last, on the agent board, a card no
    * column takes, the model that holds it, and what the live line says on its Space.
    */
+  /**
+   * A review in the output panel (T-63), over the Tasks board: the run it opens on and the runs message that
+   * opens it, as the extension sends one when a review starts; its header's verdict and count; each row's key,
+   * state and text in order; how many criteria the met row folds; its lines; and what a click on the first
+   * finding's file and line, and on the next step, sends.
+   */
+  dock: { run: string; runs: Record<string, unknown>; look: string; count: string; rows: { key: string; label: string; text: string }[]; met: number; lines: string; click: Record<string, unknown>; next: Record<string, unknown> };
   keys: {
     first: string; down: string; last: string; right: string;
     move: { card: string; to: string; lanes: string[]; sent: Record<string, unknown>; moving: string; moved: string; stays: string };
@@ -148,17 +155,17 @@ export interface BehaviourData {
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, and an agent's page. */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review in the output panel. */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -664,6 +671,53 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'output panel: a review shows its verdict and rows, a row opens in place, its file and line and its next step send their messages, and Show output shows the lines',
+    page: 'output-changes',
+    async run(t) {
+      const want = t.data.dock;
+      // A review that starts opens the panel on it, as the extension's runs message does.
+      await t.post(want.runs);
+      // The panel redraws on each click, so it's found again each time.
+      const dock = (): HTMLElement => t.find('section.dock');
+      const head = t.find('.dr-head', dock());
+      t.check('the header line says the verdict', t.find('.status', head).textContent === want.look, t.find('.status', head).textContent);
+      t.check('and counts the criteria and findings', t.find('.dr-count', head).textContent === want.count, t.find('.dr-count', head).textContent);
+      t.check('the header line hovers who reviewed it, when and how long', /^Reviewed by .+\. It took .+\.$/.test(head.title), head.title);
+      t.check('the review, not the lines', t.all('.dock-out', dock()).length === 0, t.all('.dock-out', dock()).length);
+      const rows = t.all('.dr-rows > .dr-row:not(.dr-met)', dock());
+      const shown = rows.map((r) => ({ key: r.dataset.row, label: t.find('.dr-toggle .status', r).textContent, text: t.find('.dr-text', r).textContent }));
+      t.check('a row for each criterion not met, then each finding, must-fix first', JSON.stringify(shown) === JSON.stringify(want.rows), shown);
+      t.check('each row starts closed', rows.every((r) => t.find('.dr-toggle', r).getAttribute('aria-expanded') === 'false' && !r.querySelector('.dr-detail')));
+      // The first finding: a click on its row opens it in place, with its lines.
+      const first = want.rows.find((r) => r.key.startsWith('f'))!;
+      await t.click(t.find(`[data-row="${first.key}"] .dr-toggle`, dock()));
+      const opened = t.find(`[data-row="${first.key}"]`, dock());
+      t.check('a click opens the row in place', t.find('.dr-toggle', opened).getAttribute('aria-expanded') === 'true' && !!opened.querySelector('.dr-detail'));
+      t.check('showing the finding whole, and the lines around it', t.find('.dr-message', opened).textContent === first.text && !!opened.querySelector('.rv-excerpt .rv-at'));
+      t.check('the other rows stay closed', t.all('.dr-detail', dock()).length === 1, t.all('.dr-detail', dock()).length);
+      await t.click(t.find('.dr-line > .rv-place', opened));
+      const sent = t.sent('review-file').at(-1);
+      t.check('its file and line asks to open the file there', JSON.stringify(sent) === JSON.stringify(want.click), sent);
+      // The met criteria, folded into one row.
+      await t.click(t.find('.dr-met .dr-toggle', dock()));
+      t.check('the met row opens to list them', t.all('.dr-met-list > li', dock()).length === want.met, t.all('.dr-met-list > li', dock()).length);
+      const next = t.find<HTMLButtonElement>('.dr-head .dr-next', dock());
+      t.check('one primary button', t.all('.btn.primary', dock()).length === 1, t.all('.btn.primary', dock()).length);
+      await t.click(next);
+      const ran = t.sent('run').at(-1);
+      t.check('the next step sends its command for the task', JSON.stringify(ran) === JSON.stringify(want.next), ran);
+      // Show output: the run's lines, as before; then the review again.
+      const show = t.find<HTMLButtonElement>('.dock-lines', dock());
+      t.check('Show output is named so', show.getAttribute('aria-label') === 'Show output', show.getAttribute('aria-label'));
+      await t.click(show);
+      const out = t.find('.dock-out');
+      t.check('Show output shows the lines', out.textContent === want.lines, out.textContent);
+      t.check('in place of the review', t.all('.dr').length === 0);
+      await t.click(t.find('.dock-lines'));
+      t.check('Show the review brings it back, the row still open', t.all('.dock-out').length === 0 && !!document.querySelector(`[data-row="${first.key}"] .dr-detail`));
+    },
+  },
+  {
     name: 'settings: a link for each part opens its heading, and each long explanation is a closed What this means that stays open once opened',
     page: 'settings-agents',
     async run(t) {
@@ -1056,7 +1110,11 @@ export const MUTANTS: Mutant[] = [
   { name: 'the task page shows no wording list', file: 'analysis.ts', find: 'if (a.wording) {', replace: 'if (a.wording && !a.wording) {', kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'the wording list leaves out where each finding is', file: 'analysis.ts', find: "el('strong', '', `${f.place}: `)", replace: "el('strong', '', '')", kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'the review lists its findings in the reviewer\'s order', file: 'review.ts', find: 'r.findings.map(finding)', replace: '[...r.findings].reverse().map(finding)', kills: [caseNamed('task page: a review lists its findings')] },
-  { name: 'a finding\'s file and line sends nothing', file: 'review.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'review-file', ...opens }));", replace: "b.addEventListener('click', () => void opens);", kills: [caseNamed('task page: a review lists its findings')] },
+  { name: 'a finding\'s file and line sends nothing', file: 'review.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'review-file', ...opens }));", replace: "b.addEventListener('click', () => void opens);", kills: [caseNamed('task page: a review lists its findings'), caseNamed('output panel: a review')] },
+  { name: 'the output panel drops the verdict and shows only the lines', file: 'dock.ts', find: 'const body = open && review ? renderDockReview(run.id, review, redrawDock) : null;', replace: 'const body = null;', kills: [caseNamed('output panel: a review')] },
+  { name: 'a review\'s row opens nothing', file: 'dock-review.ts', find: "toggle.addEventListener('click', () => flip(key, redraw));\n  const li = el('li', `dr-row tone-row", replace: "const li = el('li', `dr-row tone-row", kills: [caseNamed('output panel: a review')] },
+  { name: 'a review\'s next step sends nothing', file: 'dock-review.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));", replace: "b.addEventListener('click', () => void a);", kills: [caseNamed('output panel: a review')] },
+  { name: 'Show output does nothing', file: 'dock.ts', find: 'x.opened = lines ? x.opened.filter((y) => y !== k) : [...x.opened, k];', replace: '', kills: [caseNamed('output panel: a review')] },
   { name: 'a guide link goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });", replace: "a.addEventListener('click', (e) => { e.preventDefault(); });", kills: [caseNamed('settings: a link for each part')] },
   { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
   { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
@@ -1137,6 +1195,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
     palette: paletteData(models.tasks, now),
     review: reviewData(models.review),
+    dock: dockData(models.dock),
     keys: keysData(models.tasks),
   };
 }
@@ -1192,6 +1251,19 @@ function paletteData(model: Model, now: number): BehaviourData['palette'] {
     task: { id: found.id, key: found.does.key, project: found.does.project, message: { type: 'task-modal', model: { ...sampleTicket(now), key: card.id, title: card.title }, tab: { type: 'ticket', project: found.does.project, key: card.id } } },
     second: { query: 'set', title: second.title, sent: { type: 'nav', section: second.does.section } },
     disabled: { model: { ...model, agents: { ...model.agents, stopFinished: 0 }, palette: none }, title: off.title, reason: NOTHING_FINISHED },
+  };
+}
+
+/** What the output panel's case expects (T-63): from the Tasks board's model, its review run and what it shows. */
+function dockData(model: Model): BehaviourData['dock'] {
+  const run = model.kind === 'home' ? model.runs.find((r) => r.review?.phase === 'done') : undefined;
+  const r = run?.review?.phase === 'done' ? run.review : null;
+  const opens = r?.rows.find((x) => x.finding?.opens)?.finding?.opens;
+  if (!run || !r || !r.met || !opens || model.kind !== 'home') throw new Error('The output panel case needs a home model with a finished review whose finding opens and some criteria met.');
+  return {
+    run: run.id, runs: { type: 'runs', runs: model.runs, focus: run.id }, look: r.look.label, count: r.count,
+    rows: r.rows.map((x) => ({ key: x.key, label: x.look.label, text: x.text })), met: r.met.items.length, lines: run.lines.join('\n'),
+    click: { type: 'review-file', ...opens }, next: { type: 'run', command: r.next.command, ref: r.next.ref },
   };
 }
 
