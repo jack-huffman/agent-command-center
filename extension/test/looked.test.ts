@@ -11,10 +11,12 @@ import { addedClasses, cssClasses, judgeShots, stylesBefore, UI_PATHS, uiChanges
 import { expectedShots, fingerprint, noteShots, PAGES, readShots, SHOTS_FILE, type ShotNote, type ShotsRecord, webviewSource, WIDTHS } from '../scripts/screenshot.ts';
 import { pageStyles, PALETTE_THEMES, styleNames } from '../scripts/styles.ts';
 import { COLLECT_GEOMETRY } from '../scripts/geometry.ts';
+import { PIN } from '../scripts/browser.ts';
 
 const PRINT = 'f'.repeat(64);
 const EXPECTED = ['overview-dark-1000.png', 'overview-light-1000.png'];
-const note = (over: Partial<ShotNote> = {}): ShotNote => ({ fingerprint: PRINT, sha256: 'a1', takenAt: '2026-10-10T00:00:00.000Z', findings: 0, drawn: ['row', 'aq-error'], ...over });
+const SHELL = { name: PIN.name, version: PIN.version };
+const note = (over: Partial<ShotNote> = {}): ShotNote => ({ fingerprint: PRINT, sha256: 'a1', takenAt: '2026-10-10T00:00:00.000Z', findings: 0, drawn: ['row', 'aq-error'], browser: SHELL, ...over });
 const record = (shots: Record<string, ShotNote>): ShotsRecord => ({ schema: 1, shots });
 const all = (over: Partial<ShotNote> = {}): ShotsRecord => record(Object.fromEntries(EXPECTED.map((f) => [f, note(over)])));
 const judge = (over: Partial<Parameters<typeof judgeShots>[0]> = {}) => judgeShots({ changed: ['extension/webview/main.ts'], record: all(), print: PRINT, expected: EXPECTED, hash: () => 'a1', added: [], undrawn: [], ...over });
@@ -22,7 +24,25 @@ const judge = (over: Partial<Parameters<typeof judgeShots>[0]> = {}) => judgeSho
 test('a branch whose pages were shot as they are now passes, counting the shots and classes it checked', () => {
   const r = judge({ added: ['aq-error'] });
   assert.equal(r.passed, true, r.lines.join('\n'));
-  assert.match(r.lines[0]!, /^Checked 2 shots of this commit's pages, each with no geometry findings, and 1 class new on this branch, each drawn\. 1 changed file/);
+  assert.match(r.lines[0]!, /^Checked 2 shots of this commit's pages, each drawn by chrome-headless-shell 155\.0\.8059\.84 with no geometry findings, and 1 class new on this branch, each drawn\. 1 changed file/);
+});
+
+test('shots drawn by the pinned headless shell pass; a shot drawn by the Chrome app fails, naming npm run browser as the fix (T-68)', () => {
+  assert.equal(judge().passed, true);
+  const r = judge({ record: record({ [EXPECTED[0]!]: note(), [EXPECTED[1]!]: note({ browser: { name: 'Google Chrome', version: PIN.version } }) }) });
+  assert.equal(r.passed, false);
+  assert.deepEqual(r.lines, [`1 shot was drawn by another browser than the pinned headless shell: overview-light-1000.png (Google Chrome ${PIN.version}). Run npm run browser to get the pinned headless shell, chrome-headless-shell ${PIN.version}, then npm run screenshot again.`]);
+  // The shell's name at another version isn't the pinned shell either.
+  const older = judge({ record: all({ browser: { name: PIN.name, version: '120.0.0.0' } }) });
+  assert.equal(older.passed, false);
+  assert.match(older.lines[0]!, /^2 shots were drawn by another browser than the pinned headless shell: .*chrome-headless-shell 120\.0\.0\.0.*npm run browser/);
+});
+
+test('a shot whose note names no browser fails, since nothing says how it was drawn (T-68)', () => {
+  const { browser: _none, ...bare } = note();
+  const r = judge({ record: record({ [EXPECTED[0]!]: note(), [EXPECTED[1]!]: bare }) });
+  assert.equal(r.passed, false);
+  assert.deepEqual(r.lines, [`1 shot's note names no browser, so nothing says how it was drawn: overview-light-1000.png. Run npm run browser to get the pinned headless shell, chrome-headless-shell ${PIN.version}, then npm run screenshot again.`]);
 });
 
 test('a branch that changed no files fails: it checked nothing', () => {

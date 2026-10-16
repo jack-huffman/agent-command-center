@@ -1,0 +1,9 @@
+{
+  "name": "chrome-headless-shell",
+  "version": "155.0.8059.84",
+  "sha256": {
+    "mac-arm64": "7f111980bcb41e908d0fa3e969a625e7777ff683c1fc43fd7759d05ec3ffe52b",
+    "mac-x64": "3c5bf34eb8daa874e8b50edf900eab618b74c1b9596e596340278eeba4ff1ae1",
+    "linux64": "a5d71b91aa996fef00517cd212b2dfb816b43055edefbe727e6fd562d4ae1f9c"
+  }
+}

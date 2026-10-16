@@ -57,6 +57,10 @@ export type ReadPlace = string | { file: string; via: RegExp };
 export const READ_IN: Partial<Record<ConfigPath, ReadPlace[]>> = {
   'environments[].name': [{ file: 'packages/core/src/packet.ts', via: /(?<![.\w])env\.name\b/ }],
   'environments[].type': ['packages/core/src/onboarding/steps.ts'],
+  'tools[].title': ['packages/core/src/onboarding/tool-steps.ts'],
+  'tools[].why': ['packages/core/src/onboarding/tool-steps.ts'],
+  'tools[].check': ['packages/core/src/onboarding/tool-steps.ts'],
+  'tools[].fix': ['packages/core/src/onboarding/tool-steps.ts'],
   'environments[].org': ['packages/core/src/packet.ts'],
   'environments[].default': ['packages/core/src/config.ts'],
   'environments[].protected': ['packages/core/src/ledger.ts'],

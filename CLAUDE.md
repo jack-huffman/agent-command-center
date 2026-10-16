@@ -12,7 +12,11 @@
 - Run builds and tests one at a time, under `nice -n 15`. Parallel compiles make
   the author's machine stutter.
 - Look at UI changes before shipping them: `npm run build`, then
-  `npm run screenshot`, then read the PNGs in `dist/screenshots/`. The run
+  `npm run screenshot`, then read the PNGs in `dist/screenshots/`. The project
+  verifies a UI change with the pinned headless shell
+  (`extension/scripts/browser.json`), never the person's own browser: run
+  `npm run browser` once to get it. Don't set `CHROME` to the Chrome app; the
+  gate fails a shot the pinned shell didn't draw. The run
   measures every page at 1000, 620 and 500 px, dark and light, and exits 1 when
   two controls overlap, a label is cut off (an ellipsis needs its full text in a
   title), the selected tab is out of view, a sticky cell covers another cell's
@@ -25,7 +29,8 @@
   changes `extension/webview/`, `extension/src/` or `extension/scripts/` fails
   unless every page, theme and width was shot of its last commit with no
   geometry findings, and every CSS class it adds is drawn on screen in some
-  shot (or named in `UNDRAWN` with why). It counts the shots it checked.
+  shot (or named in `UNDRAWN` with why), and every shot was drawn by the
+  pinned headless shell (T-68). It counts the shots it checked.
 - The Command Center speaks in processes, not commands or paths (D-132): "Run the
   checks", "the project's settings", never `acc gate run` or `.acc/config.json`.
   The names are in `extension/src/logic/processes.ts`, and what acc says goes

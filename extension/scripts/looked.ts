@@ -9,7 +9,9 @@
  * width) must be noted in dist/screenshots/shots.json by the screenshot run, with this commit's
  * fingerprint, no geometry findings, and the PNG on disk still the one it noted. And every CSS class the
  * branch adds to the webview's stylesheets must be drawn inside the window of at least one of them, or be
- * named in UNDRAWN with why. It counts the shots and classes it checked and fails on none.
+ * named in UNDRAWN with why. It counts the shots and classes it checked and fails on none. Every shot
+ * must have been drawn by the pinned headless shell (T-68), never the person's own browser: a shot drawn
+ * by anything else, or whose note names no browser, fails.
  *
  * It runs as a builder's check, through acc gate run, which says what the branch changed in ACC_CHANGED.
  * The merge queue's checkout has no screenshots, so the full check doesn't run it.
@@ -20,6 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isPinnedShell, type Pin, PIN } from './browser.ts';
 import { expectedShots, fingerprint, readShots, sha256Of, type ShotsRecord } from './screenshot.ts';
 import { pageStyles, styleNames } from './styles.ts';
 
@@ -63,10 +66,11 @@ export interface Judged { passed: boolean; lines: string[] }
 
 /**
  * The gate's verdict. changed: the files the branch changed. print: this commit's fingerprint. hash: a
- * PNG's sha256 on disk, or null when it's gone. added: the classes the branch adds.
+ * PNG's sha256 on disk, or null when it's gone. added: the classes the branch adds. pin: the headless
+ * shell every shot must be drawn by.
  */
-export function judgeShots(input: { changed: string[]; record: ShotsRecord; print: string; expected: string[]; hash: (file: string) => string | null; added: string[]; undrawn?: readonly { name: string }[] }): Judged {
-  const { changed, record, print, expected, hash, added, undrawn = UNDRAWN } = input;
+export function judgeShots(input: { changed: string[]; record: ShotsRecord; print: string; expected: string[]; hash: (file: string) => string | null; added: string[]; undrawn?: readonly { name: string }[]; pin?: Pin }): Judged {
+  const { changed, record, print, expected, hash, added, undrawn = UNDRAWN, pin = PIN } = input;
   if (!changed.length) return { passed: false, lines: ['The branch changed no files, so there was nothing to check.'] };
   const ui = uiChanges(changed);
   if (!ui.length) return { passed: true, lines: [`Checked ${changed.length} changed file${changed.length === 1 ? '' : 's'}: none is one the pages draw from (${UI_PATHS.join(', ')}), so no screenshots are needed.`] };
@@ -79,12 +83,18 @@ export function judgeShots(input: { changed: string[]; record: ShotsRecord; prin
   const stale = notes.filter(([, n]) => n && n.fingerprint !== print).map(([f]) => f);
   const found = notes.filter(([, n]) => n && n.fingerprint === print && n.findings > 0).map(([f, n]) => `${f} (${n!.findings})`);
   const changedSince = notes.filter(([f, n]) => n && n.fingerprint === print && hash(f) !== n.sha256).map(([f]) => f);
-  for (const [f, n] of notes) if (n && n.fingerprint === print && !n.findings && hash(f) === n.sha256) checked++;
+  // Drawn by another browser, or by one the note doesn't name (T-68): either way not the pinned shell.
+  const nameless = notes.filter(([, n]) => n && n.fingerprint === print && !n.browser).map(([f]) => f);
+  const otherBrowser = notes.filter(([, n]) => n && n.fingerprint === print && n.browser && !isPinnedShell(n.browser, pin)).map(([f, n]) => `${f} (${n!.browser!.name} ${n!.browser!.version || 'of no version'})`);
+  for (const [f, n] of notes) if (n && n.fingerprint === print && !n.findings && hash(f) === n.sha256 && isPinnedShell(n.browser, pin)) checked++;
   const some = (list: string[]): string => `${list.slice(0, 5).join(', ')}${list.length > 5 ? `, and ${list.length - 5} more` : ''}`;
   if (missing.length === expected.length) failures.push(`No screenshots of this branch's pages were taken here, and it changed ${ui.length} file${ui.length === 1 ? '' : 's'} they draw from, such as ${ui[0]}. ${take}`);
   else if (missing.length) failures.push(`${missing.length} of the ${expected.length} usual shots weren't taken: ${some(missing)}. ${take}`);
   if (stale.length) failures.push(`${stale.length} shot${stale.length === 1 ? ' was' : 's were'} taken of other code than this commit's: ${some(stale)}. Take them again: ${take}`);
   if (found.length) failures.push(`${found.length} shot${found.length === 1 ? '' : 's'} had geometry findings: ${some(found)}. Fix them and take the shots again.`);
+  const shell = `Run npm run browser to get the pinned headless shell, ${pin.name} ${pin.version}, then npm run screenshot again.`;
+  if (otherBrowser.length) failures.push(`${otherBrowser.length} shot${otherBrowser.length === 1 ? ' was' : 's were'} drawn by another browser than the pinned headless shell: ${some(otherBrowser)}. ${shell}`);
+  if (nameless.length) failures.push(`${nameless.length} shot${nameless.length === 1 ? '\'s note names' : 's\' notes name'} no browser, so nothing says how ${nameless.length === 1 ? 'it was' : 'they were'} drawn: ${some(nameless)}. ${shell}`);
   if (changedSince.length) failures.push(`${changedSince.length} PNG${changedSince.length === 1 ? ' is' : 's are'} gone or changed since the screenshot run took ${changedSince.length === 1 ? 'it' : 'them'}: ${some(changedSince)}. Take the shots again.`);
   // A class the branch adds is new UI: some shot must draw it on screen (GH-32, GH-52, GH-76's findings).
   const drawn = new Set(notes.flatMap(([, n]) => (n && n.fingerprint === print ? n.drawn : [])));
@@ -93,7 +103,7 @@ export function judgeShots(input: { changed: string[]; record: ShotsRecord; prin
   if (undrawnNew.length) failures.push(`${undrawnNew.length} class${undrawnNew.length === 1 ? '' : 'es'} new on this branch ${undrawnNew.length === 1 ? 'isn\'t' : 'aren\'t'} drawn on screen in any shot: ${some(undrawnNew.map((c) => `.${c}`))}. Give a sample page the state that shows ${undrawnNew.length === 1 ? 'it' : 'them'}, or a taller shot in PAGE_HEIGHT, or name ${undrawnNew.length === 1 ? 'it' : 'each'} in UNDRAWN (extension/scripts/looked.ts) with why.`);
   if (!checked && !failures.length) failures.push('Checked no shots.');
   if (failures.length) return { passed: false, lines: failures };
-  return { passed: true, lines: [`Checked ${checked} shots of this commit's pages, each with no geometry findings, and ${added.length} class${added.length === 1 ? '' : 'es'} new on this branch, each drawn${added.some((c) => excused.has(c)) ? ' or named in UNDRAWN' : ''}. ${ui.length} changed file${ui.length === 1 ? '' : 's'} the pages draw from.`] };
+  return { passed: true, lines: [`Checked ${checked} shots of this commit's pages, each drawn by ${pin.name} ${pin.version} with no geometry findings, and ${added.length} class${added.length === 1 ? '' : 'es'} new on this branch, each drawn${added.some((c) => excused.has(c)) ? ' or named in UNDRAWN' : ''}. ${ui.length} changed file${ui.length === 1 ? '' : 's'} the pages draw from.`] };
 }
 
 const git = (args: string[]): string => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });

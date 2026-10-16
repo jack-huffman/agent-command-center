@@ -371,6 +371,7 @@ npm run check            # type-check, build, run the tests
 npm run acc -- doctor    # run the CLI from source
 ./dist/acc doctor        # run the bundle the last build made
 npm run validate-plugin  # claude plugin validate --strict, on the plugin and the marketplace
+npm run browser          # get the pinned headless shell the screenshot run draws with, its SHA-256 checked
 npm run screenshot       # render the editor tabs with sample data, into dist/screenshots/, and check their geometry
 npm run set-version -- 0.36.0  # the one way to change the version, everywhere it's written
 npm run package          # check, package the extension into dist/, scan it for personal data, refresh plugin/bin/
@@ -405,15 +406,26 @@ in to. Each find is listed by file and line. A release goes: set the version
 and write its entry on a branch; after the merge, `npm run package` on main,
 commit plugin/bin and push; then `npm run release` (D-079).
 
-`npm run screenshot` renders each tab in headless Chrome, in dark and light
-themes, at 1000, 620 and 500 pixels wide, with one row shown hovered. Chrome
+`npm run screenshot` renders each tab with Google's headless shell
+(`chrome-headless-shell`), in dark and light themes, at 1000, 620 and 500 pixels wide, with one row shown hovered. Chrome
 lays out no narrower than 500, so a narrower `--width` is refused. Name tabs to
 shoot only those (`npm run screenshot -- agents worktrees`), or pass `--width`,
 `--theme`, `--height` and `--out`. It renders the built webview, so run
-`npm run build` after a change. Set `CHROME` if Chrome isn't found. It draws
-three pages at once, each in its own Chrome under `nice`; `--jobs N` changes
-how many, and `--jobs 1` draws one at a time. The log and the shots are the
-same either way.
+`npm run build` after a change. It draws three pages at once, each in its own
+browser under `nice`; `--jobs N` changes how many, and `--jobs 1` draws one at
+a time. The log and the shots are the same either way.
+
+The shell is a binary with no app bundle, so a run never takes over your own
+Chrome. `extension/scripts/browser.json` pins its version and each platform's
+zip SHA-256 (mac-arm64, mac-x64, linux64); `npm run browser` downloads the zip
+from Chrome for Testing into `~/Library/Caches/acc/chrome-headless-shell/` (on
+Linux `~/.cache/acc/…`), refuses and deletes one whose hash differs, unpacks
+it, and does nothing when that version is already there. The run uses `CHROME`
+if set, else the pinned shell, and only then the Chrome app, saying in one line
+that it may take the app over. Each shot's note in `dist/screenshots/shots.json`
+records the browser that drew it and its version, and the screenshots gate fails
+on any shot the pinned shell didn't draw. When the run ends, however it ends,
+it stops every browser it started.
 
 Each shot also measures itself, and the run exits 1, naming the page, theme,
 width and element, when two controls overlap, a label is cut off, the selected

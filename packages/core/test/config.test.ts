@@ -536,6 +536,8 @@ const EVERY_KEY = {
   dispatch: { shared: ['README.md'] },
   tidy: { every: 12 },
   template: { name: 'Acme', source: '~/templates/acme.json', digest: `sha256:${'a'.repeat(64)}` },
+  // The tools the project's checks need (T-68).
+  tools: [{ title: 'A pinned browser', why: 'Screenshots draw with it.', check: 'true', fix: 'npm run browser' }],
 };
 
 /** The key paths a raw config sets, as CONFIG_KEYS writes them: trackers[].team, gates.commands. */

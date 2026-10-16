@@ -363,6 +363,18 @@ count as done.
 - **Result:**
 - **Fixed in / filed as:**
 
+### B13.tools: The tools the project's checks need
+
+Look for: a generic project lists no tools, so this should say so and be
+skipped. A project that lists one, such as this repo's pinned headless shell,
+should name it, and offer its fix when its check fails.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
 ### B14.tickets: The repo's ticket source
 
 Look for: whether you connected the repo's GitHub Issues or marked it done to

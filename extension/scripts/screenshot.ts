@@ -67,10 +67,12 @@ import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { CHECKS, COLLECT_GEOMETRY, type ExpectedButton, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
-import { drawRetried, drawRetrying, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
+import { drawRetried, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
 import { axeScript, COLLECT_A11Y } from './a11y.ts';
 import { jobsOption, type Ran, runAsync, runJobs } from './jobs.ts';
+import { type Browser, browserOf, PIN, pinnedShell, sha256Of } from './browser.ts';
+import { stopOnExit } from './stops.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -420,22 +422,47 @@ window.acquireVsCodeApi = () => ({
 `;
 }
 
-/** Chrome, Chromium or Edge: $CHROME if set, else the usual install places, else the PATH. */
-export function findChrome(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync): string | null {
-  if (env.CHROME) return exists(env.CHROME) ? env.CHROME : null;
+/** What findChrome says when it falls back to the Chrome app: the run may take it over, and how to get the shell. */
+export const APP_WARNING = 'The pinned headless shell isn\'t here, so this run draws with the Chrome app and may take it over while it runs. Run npm run browser to get the shell.';
+
+/**
+ * The browser to draw with (T-68): $CHROME if set, else the pinned headless shell in the cache, else Chrome,
+ * Chromium or Edge in the usual install places or on the PATH. Each says in one line what it draws with; the
+ * Chrome app's line says the run may take it over, and names npm run browser.
+ */
+export function findChrome(env: NodeJS.ProcessEnv = process.env, exists: (p: string) => boolean = existsSync, say: (line: string) => void = console.log, shell: () => string | null = () => pinnedShell(exists), path: () => string | undefined = onPath): string | null {
+  if (env.CHROME) {
+    if (!exists(env.CHROME)) return null;
+    say(`Drawing with CHROME: ${env.CHROME}.`);
+    return env.CHROME;
+  }
+  const pinned = shell();
+  if (pinned) { say(`Drawing with the pinned headless shell, ${PIN.name} ${PIN.version}.`); return pinned; }
   const known = [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/Applications/Chromium.app/Contents/MacOS/Chromium',
     '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-  ].find(exists);
-  if (known) return known;
+  ].find(exists) ?? path();
+  if (known) say(APP_WARNING);
+  return known ?? null;
+}
+
+/** Chrome, Chromium or Edge on the PATH, or undefined. */
+function onPath(): string | undefined {
   for (const name of ['google-chrome', 'chromium', 'chromium-browser', 'microsoft-edge']) {
     const r = spawnSync('which', [name], { encoding: 'utf8' });
     if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
   }
-  return null;
+  return undefined;
 }
+
+/** What the run says when it finds no browser at all. */
+export const NO_BROWSER = 'No browser to draw with. Run npm run browser to get the pinned headless shell, or set CHROME to a browser\'s path.';
+
+/** Why the run has no browser. A CHROME that names no file gets its own message, since nothing is tried past it. */
+export const noBrowser = (env: NodeJS.ProcessEnv = process.env): string =>
+  (env.CHROME ? `CHROME is set to ${env.CHROME}, but there is no browser there. Fix the path, or unset CHROME to draw with the pinned headless shell.` : NO_BROWSER);
 
 /** The built webview is older than its source, so a screenshot would show the last build. */
 function staleBuild(): string | null {
@@ -449,13 +476,7 @@ function staleBuild(): string | null {
 /** Chrome under nice, so the machine stays usable: the program to run and its arguments. */
 const niced = (chrome: string, args: string[]): [string, string[]] => (process.platform === 'win32' ? [chrome, args] : ['nice', ['-n', '15', chrome, ...args]]);
 
-/** Runs Chrome under nice for at most shotTimeout() (GH-167), gathering what it prints. */
-function chromeRun(chrome: string, args: string[]): ReturnType<typeof spawnSync> {
-  const [cmd, cmdArgs] = niced(chrome, args);
-  return spawnSync(cmd, cmdArgs, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: shotTimeout() });
-}
-
-/** chromeRun without blocking (T-58), so jobs draw at once. */
+/** Runs Chrome under nice for at most shotTimeout() (GH-167), gathering what it prints, without blocking (T-58), so jobs draw at once. */
 const chromeAsync = (chrome: string, args: string[]): Promise<Ran> => runAsync(...niced(chrome, args), shotTimeout());
 
 /** A job's own Chrome profile, under the run's work folder: a Chrome running at once in another job never shares it (T-58). */
@@ -491,7 +512,7 @@ export function colourDiffs(a: Colours, b: Colours): ColourDiff[] {
  * its dark one, Light the same, and Match VSCode under a theme is that theme forced. Any difference fails,
  * and so does a page that compared no elements.
  */
-function colourCheck(chrome: string, work: string, views: Page[]): number {
+async function colourCheck(chrome: string, work: string, views: Page[]): Promise<number> {
   const now = Date.now();
   const retried: string[] = [];
   let elements = 0;
@@ -505,10 +526,10 @@ function colourCheck(chrome: string, work: string, views: Page[]): number {
         writeFileSync(page, pageFor(view, theme, sampleModel(view, now), under, true, false, afterModel(view, now)));
         const what = `${view} (${theme} under ${under})`;
         // A drawing that timed out is drawn once more, and the run says so (GH-167).
-        const r = drawRetrying(() => chromeRun(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--allow-file-access-from-files',
+        const r = await drawRetried(() => chromeAsync(chrome, [profileArg(work, 0), '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--allow-file-access-from-files',
           '--virtual-time-budget=3000', '--window-size=1000,900', '--dump-dom', pathToFileURL(page).href]), what, retried);
         if (r.error) return fail(`Chrome didn't finish ${what} within ${shotTimeout() / 1000} s: ${r.error.message}`);
-        const colours = dumpedColours(String(r.stdout ?? ''));
+        const colours = dumpedColours(r.stdout);
         if (!colours?.length) return fail(`${view} (${theme} under VSCode's ${under}) gathered no colours (exit ${r.status ?? r.signal}).`);
         drawn.set(`${theme}/${under}`, colours);
       }
@@ -566,6 +587,8 @@ export interface ShotNote {
   findings: number;
   /** Every class on an element drawn inside the shot's window, sorted. */
   drawn: string[];
+  /** The browser that drew it (T-68): the screenshots gate passes only the pinned headless shell. Older notes have none. */
+  browser?: Browser;
 }
 export interface ShotsRecord { schema: 1; shots: Record<string, ShotNote> }
 
@@ -614,7 +637,7 @@ export function noteShots(dir: string, taken: Record<string, ShotNote>): void {
   renameSync(`${file}.tmp`, file);
 }
 
-export const sha256Of = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
+export { sha256Of };
 
 /** What drawPages needs: the themes and widths, Chrome, and where to write. */
 export interface DrawPagesDeps {
@@ -633,6 +656,8 @@ export interface DrawPagesDeps {
   now: number;
   /** fingerprint() to note each shot under, or null when the shots aren't noted. */
   print: string | null;
+  /** The browser that draws, noted with each shot. */
+  browser: Browser;
   /** Runs Chrome with these arguments. */
   draw: (args: string[]) => Promise<Ran>;
   log: (line: string) => void;
@@ -693,7 +718,7 @@ export async function drawPages(views: Page[], d: DrawPagesDeps): Promise<DrawnP
         if (unwaited) { one.failure = unwaited; continue; }
         const verdict = judge(shot, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view), expectedButtons(model));
         one.render = { page: view, theme, width, verdict };
-        if (d.print !== null) one.note = [name, { fingerprint: d.print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort() }];
+        if (d.print !== null) one.note = [name, { fingerprint: d.print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort(), browser: d.browser }];
         one.lines.push(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
       }
     }
@@ -716,6 +741,8 @@ export async function drawPages(views: Page[], d: DrawPagesDeps): Promise<DrawnP
 }
 
 async function main(argv: string[]): Promise<number> {
+  // Every browser the run starts is stopped when it ends, however it ends (T-68).
+  stopOnExit();
   const { values, positionals } = parseArgs({
     args: argv, allowPositionals: true,
     options: { width: { type: 'string', default: WIDTHS.join(',') }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' }, colours: { type: 'boolean', default: false }, behaviour: { type: 'boolean', default: false }, jobs: { type: 'string' } },
@@ -726,7 +753,7 @@ async function main(argv: string[]): Promise<number> {
     const stale = staleBuild();
     if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
     const chrome = findChrome();
-    if (!chrome) return fail('No Chrome, Chromium or Edge found. Set CHROME to its path.');
+    if (!chrome) return fail(noBrowser());
     return behaviourRun(chrome, jobs);
   }
   const views = positionals.length ? positionals : values.colours ? [...COLOUR_PAGES] : [...PAGES];
@@ -736,11 +763,11 @@ async function main(argv: string[]): Promise<number> {
     const stale = staleBuild();
     if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
     const chrome = findChrome();
-    if (!chrome) return fail('No Chrome, Chromium or Edge found. Set CHROME to its path.');
+    if (!chrome) return fail(noBrowser());
     const work = mkdtempSync(join(tmpdir(), 'acc-colours-'));
     try {
       cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
-      return colourCheck(chrome, work, views as Page[]);
+      return await colourCheck(chrome, work, views as Page[]);
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
@@ -756,7 +783,7 @@ async function main(argv: string[]): Promise<number> {
   const stale = staleBuild();
   if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
   const chrome = findChrome();
-  if (!chrome) return fail('No Chrome, Chromium or Edge found. Set CHROME to its path.');
+  if (!chrome) return fail(noBrowser());
 
   const out = resolve(values.out ?? join(extensionDir, '..', 'dist', 'screenshots'));
   mkdirSync(out, { recursive: true });
@@ -770,7 +797,7 @@ async function main(argv: string[]): Promise<number> {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     drawn = await drawPages(views as Page[], {
       themes: themes as Theme[], widths, height: values.height === undefined ? undefined : height, jobs, work, out, now: Date.now(),
-      print: noting ? fingerprint() : null, taken, draw: (args) => chromeAsync(chrome, args), log: (line) => console.log(line),
+      print: noting ? fingerprint() : null, browser: browserOf(chrome), taken, draw: (args) => chromeAsync(chrome, args), log: (line) => console.log(line),
     });
   } finally {
     rmSync(work, { recursive: true, force: true });

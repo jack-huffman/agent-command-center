@@ -530,6 +530,16 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
   If the repo's `package.json` uses husky, `npm install` also turns on its
   pre-commit hook. `static` needs Code Analyzer (A1), and `validate` needs the
   environment's org logged in (B6).
+- [ ] **The tools the project's checks need** (`B13.tools`). Some checks need a
+  tool on this machine that `npm install` doesn't bring, such as a pinned
+  browser to draw screenshots with. List each under `tools` in
+  `.acc/config.json`, with a `check` command that exits 0 when it's there and a
+  `fix` command that sets it up. The step runs each check in the main checkout,
+  and offers the first missing tool's fix. A project that lists none skips it.
+
+  ```json
+  "tools": [{ "title": "The pinned headless shell", "why": "The screenshot run draws with it.", "check": "npm run browser -- --check", "fix": "npm run browser" }]
+  ```
 
 `acc gate list` shows each check, and `acc gate run` runs them on the current
 commit.

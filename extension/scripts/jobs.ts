@@ -4,6 +4,7 @@
  * the order they'd have come one at a time, so the log and what's noted are the same whatever K is.
  */
 import { spawn } from 'node:child_process';
+import { stop, track } from './stops.ts';
 
 /** How many pages the run draws at once unless --jobs says. */
 
@@ -93,17 +94,20 @@ export interface Ran { status: number | null; signal: NodeJS.Signals | null; std
 /**
  * Runs a program without blocking, for at most timeout ms, gathering what it prints. When time runs out it
  * is sent SIGTERM and the error's code is ETIMEDOUT, as spawnSync's is, so drawRetried draws it again.
+ * It runs in a process group of its own, tracked until it closes, so a run that stops stops it and its
+ * helpers too (T-68).
  */
 export function runAsync(cmd: string, args: string[], timeout: number): Promise<Ran> {
   return new Promise((resolve) => {
     let finished = false;
     const done = (r: Ran): void => { if (!finished) { finished = true; clearTimeout(timer); resolve(r); } };
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], detached: process.platform !== 'win32' });
+    track(child);
     const out: Buffer[] = [];
     let error: Error | undefined;
     const timer = setTimeout(() => {
       error = Object.assign(new Error(`spawn ${cmd} ETIMEDOUT`), { code: 'ETIMEDOUT' });
-      child.kill('SIGTERM');
+      stop(child);
     }, timeout);
     child.stdout.on('data', (b: Buffer) => out.push(b));
     // It couldn't be started at all, such as a Chrome that isn't there: what close says after is ignored.
