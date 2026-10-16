@@ -7138,7 +7138,7 @@ once, and `--jobs N` sets how many.
 
 Out of scope: skipping pages that did not change, which needs a fingerprint per page.
 
-## D-??? The slow tests start their processes a few at once, and the dispatch tests are three files (2026-10-15)
+## D-??? The slow tests start their processes a few at once, the dispatch tests are three files, and the tests keep a compile cache (2026-10-15)
 
 T-57. The test suite's time went to a few tests that start processes one after another, and to one file
 that held 48 of them.
@@ -7165,6 +7165,17 @@ that held 48 of them.
   12.0 s, `dispatch.test.ts` 122.9 s in all. After: 131 s; CLI junk 15.1, 15.0 and 15.2 s a part,
   extension junk 16.7 s, hook fixtures 6.5 s, cloud-guard push 6.2 s and Edit/Write under 5 s, the
   dispatch files 38.1, 40.8 and 26.9 s. The longest test was 16.7 s.
-- **Not met:** `npm test` under 120 s. With 16 files at once instead of 11 it took 129 s, so the files
-  aren't waiting for a slot: starting processes is the limit (223 s of system time a run), and the
-  endpoint agent was at 180 to 200% of a core in the minutes after a run.
+- **The first run's limit:** with 16 files at once instead of 11 the suite took 129 s, so the files
+  weren't waiting for a slot: starting processes was the limit (223 s of system time a run), and the
+  endpoint agent was at 180 to 200% of a core in the minutes after a run. The review asked for the suite
+  under 120 s.
+- **Compile cache:** `scripts/compile-cache.ts` is loaded before `node --test`, by npm test and the
+  near-tests gate. It names `NODE_COMPILE_CACHE` (a folder in the machine's temp folder, unless the
+  environment names one), so every test file and every acc a test starts reuses what Node compiled before.
+  Node keys the cache by each file's contents and its own version, so an edited file compiles fresh. One
+  `acc --help` went from about 300 ms to about 150 ms. `scripts/test/compile-cache.test.ts` has 3 tests.
+- **Timing with the cache:** the machine was never idle: Spotlight was indexing (`mds_stores` at about
+  200%) and the endpoint agent was at 160 to 200% throughout, load average 8 to 17 at the start. With the
+  cache, npm test took 102.1 s (load 17 at the start) and 120.1 s (load 8, rising to 20); with it turned
+  off (`NODE_DISABLE_COMPILE_CACHE=1`) straight after, 147.8 s. The longest test was 15.9 s and 22.7 s
+  (both the CLI junk totals test), so no test took over 30 s.
