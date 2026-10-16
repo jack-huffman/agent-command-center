@@ -252,50 +252,77 @@ test('every subcommand a command compares a word to is in the registry', async (
   assert.equal(checked, AREAS.length, 'every group was read');
 });
 
-test('every acc command and subcommand survives junk arguments, options and stdin (GH-106)', { timeout: 30 * 60_000 }, async (t) => {
+/** What the parts below found so far: one sandbox for them all, and what each part adds (T-57). */
+interface JunkRun { s: Sandbox; reached: Set<string>; slow: [string, number][]; calls: number; ms: number }
+let junkRun: JunkRun | undefined;
+
+/** The shared sandbox, made by the first part that runs, with the template's one task added by the acc under test. */
+async function junkRunOf(): Promise<JunkRun> {
+  if (junkRun) return junkRun;
   assert.ok(existsSync(ACC), `${ACC} is missing: run npm run build first`);
   const s = sandbox();
-  // The template's one task, added by the acc under test.
   const add = await new Promise<number | null>((r) => spawn(process.execPath, ['--no-warnings', ACC, 'add', 'A real task'], { cwd: s.at('template'), env: s.env, stdio: 'ignore' }).on('close', r));
   assert.equal(add, 0, 'the template repo has its task');
-  const entries = entryPointsOf(AREAS);
+  junkRun = { s, reached: new Set(), slow: [], calls: 0, ms: 0 };
+  return junkRun;
+}
+
+/**
+ * The registry's entry points, dealt into parts, one test each, so no one test makes every call (T-57). They're
+ * dealt in turn, not cut into runs, so each part gets a share of the slow commands.
+ */
+const PARTS = 3;
+const ENTRIES = entryPointsOf(AREAS);
+const partOf = (part: number) => ENTRIES.filter((_, i) => i % PARTS === part);
+
+for (let part = 0; part < PARTS; part++) {
+  test(`junk arguments, options and stdin, part ${part + 1} of ${PARTS}: ${partOf(part).length} commands and subcommands (GH-106)`, { timeout: 30 * 60_000 }, async (t) => {
+    const r = await junkRunOf();
+    const { s } = r;
+    const started = Date.now();
+    const before = snapAll(s);
+    const failures: string[] = [];
+    // A part's cases make one list, so the last calls of one command run beside the first of the next.
+    const plan = partOf(part).map((words) => {
+      const area = AREAS.find((a) => Object.hasOwn(a.commands, words[0]!))!;
+      // A command that takes a subcommand first gets its junk there; its options are tried on each subcommand.
+      const takesSub = words.length === 1 && !!area.subcommands?.[words[0]!];
+      const cases = casesFor(s, words, takesSub ? [] : stringOptions(area.options));
+      assert.ok(cases.length > 0, `acc ${words.join(' ')} has junk to get`);
+      return { words, cases };
+    });
+    const everyResult = await pool(plan.flatMap((p) => p.cases), AT_ONCE, (c) => call(s, c));
+    const calls = everyResult.length;
+    let at = 0;
+    for (const { words, cases } of plan) {
+      const results = everyResult.slice(at, at += cases.length);
+      r.slow.push([words.join(' '), results.reduce((n, x) => n + (x.ms ?? 0), 0)]);
+      r.reached.add(words.join(' '));
+      results.forEach((x, i) => {
+        const why = judge(x);
+        if (why.length) failures.push(`acc ${shown(cases[i]!.args)} (${cases[i]!.name}): ${why.join('; ')}. stderr: ${clip(x.stderr)} stdout: ${clip(x.stdout)}`);
+      });
+    }
+    const moved = changes(before, snapAll(s));
+    if (moved.length) failures.push(`acc wrote outside its repo: ${moved.join(', ')}`);
+    r.calls += calls;
+    r.ms += Date.now() - started;
+    t.diagnostic(`part ${part + 1} of ${PARTS}: ${plan.length} commands and subcommands, ${calls} calls, ${((Date.now() - started) / 1000).toFixed(1)}s`);
+    assert.deepEqual(failures, [], `${failures.length} of ${calls} calls failed:\n${failures.join('\n')}`);
+  });
+}
+
+test('every acc command and subcommand survives junk arguments, options and stdin (GH-106)', (t) => {
+  // The parts above made the calls. With none run, as when only this test is picked, there's nothing to count.
+  assert.ok(junkRun, 'the junk parts ran first');
+  const { s, reached, slow, calls } = junkRun;
   const commands = commandsOf(AREAS);
   const subcommands = AREAS.reduce((n, a) => n + Object.values(a.subcommands ?? {}).reduce((m, l) => m + l.length, 0), 0);
-  const started = Date.now();
-  const before = snapAll(s);
-  const failures: string[] = [];
-  const slow: [string, number][] = [];
-  const reached = new Set<string>();
-  // Every command's cases make one list, so the last calls of one command run beside the first of the next (T-57).
-  const plan = entries.map((words) => {
-    const area = AREAS.find((a) => Object.hasOwn(a.commands, words[0]!))!;
-    // A command that takes a subcommand first gets its junk there; its options are tried on each subcommand.
-    const takesSub = words.length === 1 && !!area.subcommands?.[words[0]!];
-    const cases = casesFor(s, words, takesSub ? [] : stringOptions(area.options));
-    assert.ok(cases.length > 0, `acc ${words.join(' ')} has junk to get`);
-    return { words, cases };
-  });
-  const everyResult = await pool(plan.flatMap((p) => p.cases), AT_ONCE, (c) => call(s, c));
-  const calls = everyResult.length;
-  let at = 0;
-  for (const { words, cases } of plan) {
-    const results = everyResult.slice(at, at += cases.length);
-    slow.push([words.join(' '), results.reduce((n, r) => n + (r.ms ?? 0), 0)]);
-    reached.add(words.join(' '));
-    results.forEach((r, i) => {
-      const why = judge(r);
-      if (why.length) failures.push(`acc ${shown(cases[i]!.args)} (${cases[i]!.name}): ${why.join('; ')}. stderr: ${clip(r.stderr)} stdout: ${clip(r.stdout)}`);
-    });
-  }
-  const moved = changes(before, snapAll(s));
-  if (moved.length) failures.push(`acc wrote outside its repo: ${moved.join(', ')}`);
-  const seconds = ((Date.now() - started) / 1000).toFixed(1);
-  t.diagnostic(`${commands.size} commands, ${subcommands} subcommands, ${calls} calls, ${seconds}s`);
+  t.diagnostic(`${commands.size} commands, ${subcommands} subcommands, ${calls} calls, ${(junkRun.ms / 1000).toFixed(1)}s`);
   t.diagnostic(`slowest: ${slow.sort((a, b) => b[1] - a[1]).slice(0, 8).map(([w, ms]) => `${w} ${(ms / 1000).toFixed(1)}s`).join(', ')}`);
-  assert.deepEqual(failures, [], `${failures.length} of ${calls} calls failed:\n${failures.join('\n')}`);
   // Nothing drops out silently: every command and every subcommand the registry holds was called.
   assert.equal(reached.size, commands.size + subcommands, 'every command and subcommand was called');
   assert.ok(commands.size >= 35 && subcommands >= 33, `the registry holds ${commands.size} commands and ${subcommands} subcommands`);
-  assert.ok(calls >= entries.length * 7, `${calls} calls`);
+  assert.ok(calls >= ENTRIES.length * 7, `${calls} calls`);
   rmSync(s.root, { recursive: true, force: true });
 });
