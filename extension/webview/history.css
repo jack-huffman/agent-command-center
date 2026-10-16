@@ -3,9 +3,10 @@
 .history-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .history-filters { flex-wrap: wrap; }
 .history-filters .seg { font-size: 0.88em; padding: 2px 8px; white-space: nowrap; }
-/* A day's line: the theme's border colour on each side of its name, a heading a screen reader moves by. */
+/* A day's line: a rule on each side of its name, a heading a screen reader moves by. The rule is the page's
+   edge, mixed from the theme's foreground: in a dark theme the panel border is near the modal's own colour. */
 .history-day-name { display: flex; align-items: center; gap: 10px; margin: 16px 0 4px; font-size: 0.82em; font-weight: 600; letter-spacing: 0.02em; color: var(--vscode-descriptionForeground); }
-.history-day-name::before, .history-day-name::after { content: ''; flex: 1 1 0; border-top: 1px solid var(--line); }
+.history-day-name::before, .history-day-name::after { content: ''; flex: 1 1 0; border-top: 1px solid var(--edge); }
 .history-day:first-of-type .history-day-name { margin-top: 8px; }
 .feed { list-style: none; margin: 0; padding: 0; }
 .history .history-feed > li { display: block; padding: 0; }
