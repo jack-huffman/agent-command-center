@@ -7137,3 +7137,34 @@ once, and `--jobs N` sets how many.
   `steady.test.ts` adds 1 for `drawRetried`.
 
 Out of scope: skipping pages that did not change, which needs a fingerprint per page.
+
+## D-??? The slow tests start their processes a few at once, and the dispatch tests are three files (2026-10-15)
+
+T-57. The test suite's time went to a few tests that start processes one after another, and to one file
+that held 48 of them.
+
+- **Pool:** `pool(items, size = 4, fn)` in `packages/core/test/support.ts` runs at most `size` calls at
+  once and gives the results in the items' order. A call that throws makes it reject with a `PoolError`
+  that names the item, and no later item starts. `packages/core/test/pool.test.ts` has 8 tests.
+- **Pooled:** the CLI junk-argument test (8 at once), the extension junk-argument test (4 commands at
+  once), the hook fixture test, and the cloud-guard Edit/Write test and push test (4 at once). Each keeps
+  every assertion and its count line.
+- **Split:** the CLI junk-argument run is three tests, each a third of the registry's entry points dealt
+  in turn, and a fourth that keeps the totals line and checks every command and subcommand was reached.
+  `dispatch.test.ts` is three files: the packet, settings, model and effort tests stay; a dispatch run end
+  to end is in `dispatch-run.test.ts`; conflict-aware dispatch (D-093) is in `held.test.ts`. Their shared
+  helpers moved, unchanged, to `dispatch-support.ts`. Node runs test files side by side, so one file no
+  longer sets the suite's time.
+- **Stays in sequence:** a test whose steps read what the step before wrote (the gate ratchet test, the
+  merge queue's stops, `acc agents auto-merge`, `acc updates`, the relaxed-floor merge, a builder's note)
+  keeps its order. The near-tests tests and the colour-table test start no processes. Activation's
+  processes are the extension's own.
+- **Timing:** `npm test` on this machine, load average 3 to 5 at the start, Malwarebytes' endpoint agent
+  using one to two of the 12 cores throughout. Before (main's tests): 179 s; the CLI junk test 94.5 s,
+  the extension junk test 66.0 s, the hook fixtures 18.2 s, cloud-guard push 12.6 s and Edit/Write
+  12.0 s, `dispatch.test.ts` 122.9 s in all. After: 131 s; CLI junk 15.1, 15.0 and 15.2 s a part,
+  extension junk 16.7 s, hook fixtures 6.5 s, cloud-guard push 6.2 s and Edit/Write under 5 s, the
+  dispatch files 38.1, 40.8 and 26.9 s. The longest test was 16.7 s.
+- **Not met:** `npm test` under 120 s. With 16 files at once instead of 11 it took 129 s, so the files
+  aren't waiting for a slot: starting processes is the limit (223 s of system time a run), and the
+  endpoint agent was at 180 to 200% of a core in the minutes after a run.
