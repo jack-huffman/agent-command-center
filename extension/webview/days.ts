@@ -1,5 +1,5 @@
-// History's day lines (D-170): each day's name, in the person's time zone, and an entry's time of day. No DOM,
-// so it's testable.
+// History's day lines (D-170), and the task page's activity feed: each day's name, in the person's time zone,
+// and an entry's time of day. No DOM, so it's testable.
 
 const DAY = 86_400_000;
 const FORMATS = new Map<string, Intl.DateTimeFormat>();
