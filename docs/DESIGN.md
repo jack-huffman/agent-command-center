@@ -1673,6 +1673,29 @@ which opens the page over the board, with Open as tab (D-129).
 - **Output.** Commands acc runs for you stream into a panel at the bottom of
   the page, which asks for them when they prompt. Only commands that need a
   keyboard of their own open a terminal.
+- **A run as rows (T-64, D-169).** The panel never shows a block of raw lines.
+  A pure function (`logic/run-rows.ts`) turns a run's output into rows: a
+  success with a blue mark, a warning and an error with an orange icon and
+  label, a count of progress ("3/10", "45%") as a thin bar, and a note in
+  muted type. It drops colour codes, blank lines and a spinner's frame, and the
+  "npm ERR!" or "Warning:" a row's label already says. A line that repeats is
+  one row with a count; a count that moves on is one row at its latest. The
+  panel shows the last 200 rows and counts the rest in one line. A URL is a
+  link; a file path is a quiet chip, which opens the file at its line when it
+  is in the folder the run ran in, and says why not when it isn't. The header
+  line shows the state's icon and label (Running, Waiting for you, Done,
+  Failed, Stopped), the run's name, and its clock or how long it took; at the
+  right, the picker when there are several runs, then Stop, the header's
+  menu, Dismiss and the fold, as icons. The menu
+  holds Details, which shows the command, its folder and when it started (the
+  panel shows the command nowhere else), Copy log, which copies all the
+  output the run kept, and the run in a terminal. An ended run ends with a
+  result card (`model/run-view.ts`): what happened in one sentence, a
+  failure's last error row and its exit code in words, and one next step,
+  Open the step for a setup step's fix and Run again for any other run
+  (none for autopilot, which its switch starts). A question it waits on shows
+  once, as the panel's question. The screenshot run's raw check fails on a
+  `pre`, or the `pre.dock-out` the panel used, in any panel it draws.
 - **A review in the output panel (T-63, D-167).** A review started from a card
   runs in the panel as a review: the run carries its project, task and commit.
   While it runs, the panel shows one line: Reviewing, the task, the commit and
@@ -1688,9 +1711,10 @@ which opens the page over the board, with Open as tab (D-129).
   finding, must-fix first, which opens in place to show the evidence, or the
   finding's note and lines; and the met criteria folded into one row. A
   finding's file and line opens the file in the task's checkout, from the
-  Command Center as from the task page. **Show output** shows the run's lines,
-  as before. A review that was stopped, or whose verdict can't be read, shows
-  its lines with a line that says why.
+  Command Center as from the task page. **Show output** shows the run's output
+  as rows (T-64), with no result card, since the review says how it went. A
+  review that was stopped, or whose verdict can't be read, shows its rows with
+  a line that says why.
 
 ### Walkthrough
 

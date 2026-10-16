@@ -1,4 +1,4 @@
-// A task's actions, on its page and on its card (D-???): one size and one place. The next step is a
+// A task's actions, on its page and on its card (D-168): one size and one place. The next step is a
 // full-width button on a row of its own; the rest sit under it in a grid of equal columns, each as high as
 // the next. Each shows its icon and its label, cut with an ellipsis where it's too long, whole in its title.
 // One that can't run now stays in its place, disabled, with its reason in its title. The order is the

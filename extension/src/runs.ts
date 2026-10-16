@@ -1,10 +1,12 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { delimiter } from 'node:path';
 import * as vscode from 'vscode';
 import { sfEnv } from '../../packages/core/src/exec.ts';
+import { fileInCheckout } from './logic/review-excerpts.ts';
 import { appendOutput, promptOf, type RunPrompt } from './logic/runs.ts';
-import type { RunInput } from './model/runs.ts';
+import type { RunControl, RunInput } from './model/runs.ts';
 import { keptReview, type ReviewRun, type VerdictRead } from './model/dock-review.ts';
 import type { ExtensionArea } from './area.ts';
 
@@ -15,6 +17,8 @@ interface Run extends RunInput {
   onExit?: (code: number | null) => void;
   judge?: (code: number | null) => boolean;
   readReview?: (startedAt: number) => Promise<VerdictRead>;
+  /** How it was started, for Run again (T-64). A run kept over a reload has only what was kept: no env, no onExit. */
+  again: StartOptions;
 }
 
 export interface StartOptions {
@@ -65,6 +69,8 @@ export class Runs implements vscode.Disposable {
   private readonly status = vscode.window.createStatusBarItem('acc.runs', vscode.StatusBarAlignment.Left, -1);
   private readonly log: vscode.LogOutputChannel;
   private readonly toTerminal: (command: string, cwd: string) => void;
+  /** Puts text on the clipboard, for Copy log. */
+  copy: (text: string) => Thenable<void> = (text) => vscode.env.clipboard.writeText(text);
   private readonly accBin: string;
   private readonly store: vscode.Memento | null;
   private pending: NodeJS.Timeout | undefined;
@@ -80,7 +86,7 @@ export class Runs implements vscode.Disposable {
     this.store = store;
     for (const r of store?.get<(RunInput & { cwd: string })[]>(KEPT_KEY) ?? []) {
       if (!r || typeof r.id !== 'string' || r.endedAt === null) continue;
-      this.list.push({ ...r, ...(r.review ? { review: keptReview(r.review, r.stopped) } : {}), prompt: null, child: null, quiet: undefined });
+      this.list.push({ ...r, ...(r.review ? { review: keptReview(r.review, r.stopped) } : {}), prompt: null, child: null, quiet: undefined, again: { cwd: r.cwd, label: r.label, ...(r.step ? { step: r.step } : {}), ...(r.background ? { background: true } : {}) } });
     }
     this.status.name = 'Agent Command Center: running command';
     this.status.command = 'acc.runs.show';
@@ -111,7 +117,7 @@ export class Runs implements vscode.Disposable {
     const run: Run = {
       id, label: opts.label ?? command, command, cwd: opts.cwd, startedAt: Date.now(), endedAt: null, code: null, stopped: false,
       lines: [''], prompt: null, step: opts.step ?? null, child: null, quiet: undefined, onExit: opts.onExit, judge: opts.ok,
-      ...(opts.background ? { background: true } : {}), ...(opts.review ? { review: { ...opts.review.run }, readReview: opts.review.read } : {}),
+      ...(opts.background ? { background: true } : {}), ...(opts.review ? { review: { ...opts.review.run }, readReview: opts.review.read } : {}), again: opts,
     };
     this.list.unshift(run);
     // Finished runs beyond the last few are dropped; running ones never are.
@@ -153,7 +159,7 @@ export class Runs implements vscode.Disposable {
     return true;
   }
 
-  control(id: string, action: 'stop' | 'terminal' | 'dismiss'): void {
+  control(id: string, action: RunControl): void {
     const r = this.list.find((x) => x.id === id);
     if (!r) return;
     if (action === 'stop') {
@@ -168,6 +174,35 @@ export class Runs implements vscode.Disposable {
       this.list.splice(this.list.indexOf(r), 1);
       this.changed(true);
       this.keep();
+    } else if (action === 'copy') {
+      // All it kept, not only the rows the panel shows.
+      void this.copy(r.lines.join('\n')).then(() => vscode.window.setStatusBarMessage(`Copied the output of ${r.label}`, 3000));
+    } else if (action === 'rerun') {
+      // A run still going isn't started twice; an ended one gives its place to the new one.
+      if (r.endedAt === null) return;
+      this.list.splice(this.list.indexOf(r), 1);
+      this.start(r.command, r.again);
+      this.keep();
+    }
+  }
+
+  /**
+   * Opens a file a run's output names (T-64), at its line, when it's inside the folder the run ran in; one
+   * outside it, or gone, says so. The page sends only paths it found in that folder.
+   */
+  async openFile(id: string, file: string, line?: number): Promise<void> {
+    const r = this.list.find((x) => x.id === id);
+    if (!r) return;
+    const path = fileInCheckout(r.cwd, file);
+    if (!path || !existsSync(path)) {
+      void vscode.window.showWarningMessage(`${file} isn't in the folder ${r.label} ran in, so it doesn't open.`);
+      return;
+    }
+    try {
+      const at = new vscode.Position(Math.max(0, (line ?? 1) - 1), 0);
+      await vscode.window.showTextDocument(vscode.Uri.file(path), { selection: new vscode.Range(at, at), preview: true });
+    } catch (e) {
+      void vscode.window.showWarningMessage(`Couldn't open ${file}: ${(e as Error).message}`);
     }
   }
 
@@ -278,5 +313,6 @@ export const area: ExtensionArea = {
   register({ runs, receive }) {
     receive('run-input', (m) => void runs.input(m.run, m.text));
     receive('run-control', (m) => runs.control(m.run, m.action));
+    receive('run-file', (m) => void runs.openFile(m.run, m.file, m.line));
   },
 };

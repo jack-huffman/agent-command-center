@@ -1,5 +1,5 @@
 // A cloud builder's card (GH-69): why the cloud is off, which Dispatch's sheet says now that no card offers
-// Dispatch to the cloud (D-???); a running cloud task's Watch, Send a message and Collect, with Open in
+// Dispatch to the cloud (D-168); a running cloud task's Watch, Send a message and Collect, with Open in
 // Claude Code disabled and why; Abandon's cloud label.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -24,7 +24,7 @@ test('the cloud is off with its reason where the repo isn\'t on GitHub or the pr
   for (const [cfg, why] of [[config(false, null), 'Cloud builders need the repo on GitHub'], [config(true, null), 'Cloud builders are off for this project: opt in under Settings'], [config(true, CLOUD), undefined]] as const) {
     assert.equal(dispatchSheet({ project: '/r', row: todo, builder, config: cfg }).places.find((p) => p.value === 'cloud')!.disabled, why, 'Dispatch\'s sheet says why');
   }
-  // No card offers the cloud on its own, to do, in rework or running: the sheet's Where does (D-???).
+  // No card offers the cloud on its own, to do, in rework or running: the sheet's Where does (D-168).
   for (const t of [todo, { ...row('AV-3', 'rework', 'rework'), deps: [] }, { ...row('AV-4', 'running', 'running'), run: { worktree: '/w', branch: 'b' } }] as TaskRow[]) {
     assert.ok(!labels(cardActions(t, {})).some((l) => l.includes('cloud')), t.id);
     assert.ok(!cardActions(t, {}).some((a) => a.command === 'acc.task.dispatchCloud'), t.id);

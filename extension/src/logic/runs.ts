@@ -8,7 +8,7 @@ import { hasPlaceholder } from './setup.ts';
 // ---------------------------------------------------------------- runs: commands acc runs for you (D-030)
 
 /** Colour codes and other terminal controls, which a log shown as text doesn't want. */
-const CONTROL = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
+export const CONTROL = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*(\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
 
 /**
  * Adds a chunk of output to a log of lines, as a terminal would show it: a carriage return redraws the

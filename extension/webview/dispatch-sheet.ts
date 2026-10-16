@@ -1,4 +1,4 @@
-// Dispatch's sheet (D-???): the extension's dispatch-sheet message opens it over the page, a task's tab or
+// Dispatch's sheet (D-168): the extension's dispatch-sheet message opens it over the page, a task's tab or
 // the Command Center, in the page's modal (modal.ts). It asks for the model, the effort and where the
 // builder runs, with what the builder would use already chosen. Enter dispatches and Escape cancels; focus
 // goes back to what opened it. Dispatch sends the choice, and the extension works out acc's arguments.

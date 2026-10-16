@@ -373,7 +373,7 @@ test('update-edit, update-discard, update-ask and update-post from the modal rea
 test('run and move from the modal reach the tab\'s handler: the same command, for the same task (GH-158)', async () => {
   const [one] = s.ids;
   const { calls } = s.fake;
-  // Dispatch opens its sheet over the page that asked instead (D-???): the modal's over the Command Center, the tab's over the tab.
+  // Dispatch opens its sheet over the page that asked instead (D-168): the modal's over the Command Center, the tab's over the tab.
   {
     await peek(one);
     const page = await tabFor(one);

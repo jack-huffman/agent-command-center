@@ -26,7 +26,7 @@ test('in review, a card offers the one next step: watch the reviewer, land a pas
   assert.equal(first({ review: { verdict: 'pass', summary: 's', current: false } }), 'Review', 'a review of an older commit doesn\'t count');
   assert.equal(first({ review: { verdict: 'changes', summary: 's', current: true } }), 'Review again');
   const open = cardActions({ ...row('AV-9', 'review', 'review'), deps: [], run: { worktree: '/w' }, review: { verdict: 'pass', summary: 's', current: true }, pr: { number: 42, url: 'u', state: 'open' } } as TaskRow, {}).map((a) => a.label);
-  assert.deepEqual(open.slice(0, 4), ['Pull request #42', 'Move', 'Block', 'Update pull request'], 'the next step, then Move and Block, then the rest (D-???)');
+  assert.deepEqual(open.slice(0, 4), ['Pull request #42', 'Move', 'Block', 'Update pull request'], 'the next step, then Move and Block, then the rest (D-168)');
 });
 
 test('a pull request that conflicts with its base says so on its card and on the Overview, naming the files (D-049)', () => {
@@ -273,7 +273,7 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   }
 });
 
-test('no card or task page lists Dispatch with… or Dispatch to the cloud: one Dispatch opens the sheet, and their commands stay for one release (D-???)', () => {
+test('no card or task page lists Dispatch with… or Dispatch to the cloud: one Dispatch opens the sheet, and their commands stay for one release (D-168)', () => {
   const actions = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, { project: '/r', task: 'AV-9' });
   const gone = ['acc.task.dispatchWith', 'acc.task.dispatchCloud'];
   const states = [{}, { state: 'rework', display: 'rework' as const }, { files: { known: true, shares: [{ task: 'AV-1', files: ['a.ts'] }], first: [], held: { at: '', failed: null, byAutopilot: false } } }, { state: 'running', display: 'running' as const, run: { bgId: 'bg1' } }, { state: 'review', display: 'review' as const }, { analysisRequired: true }];
@@ -338,7 +338,7 @@ test('a card whose agent asks offers Answer, to its question, as its one next st
   assert.deepEqual(cardActions({ ...asking, stopped: { said: null } }, ref).filter((a) => a.primary).map((a) => a.label), ['Resume']);
   // Edge: in the cloud there's no question here to answer.
   assert.ok(!cardActions({ ...asking, run: { ...asking.run, where: 'cloud' } }, ref).some((a) => a.label === 'Answer'));
-  // The page: the foot draws the next step full width under it (D-???) through nextStep, which goes to the question, as Agents' Answer does.
+  // The page: the foot draws the next step full width under it (D-168) through nextStep, which goes to the question, as Agents' Answer does.
   const boards = pageSource('boards.ts');
   assert.match(boards, /el\('div', 'card-meta', [^\n]*\) : null,\n    primary \? nextStep\(primary\) : null\);/);
   assert.match(boards, /if \(!a\.question\) return actionTile\(a, true\);/);
@@ -368,7 +368,7 @@ test('deriveRows gives a card its agent\'s question id; edge cases: no question,
   assert.equal(read([question('q-9', 's9')], false).question, null, 'an agent that doesn\'t ask has no question to answer');
 });
 
-test('the task page draws its actions with taskActions: the next step full width, the rest in the grid, a disabled one in place with its reason (D-???)', () => {
+test('the task page draws its actions with taskActions: the next step full width, the rest in the grid, a disabled one in place with its reason (D-168)', () => {
   assert.match(pageSource('task-page.ts'), /taskActions\(a\.actions\)/, 'the task page\'s Agent panel');
   const tiles = pageSource('task-actions.ts');
   assert.match(tiles, /const next = actions\[0\]!\.primary \? actions\[0\]! : null;/, 'the next step only when the first is one');
@@ -384,7 +384,7 @@ test('the task page draws its actions with taskActions: the next step full width
   assert.match(styles, /\.ta-btn \{[^}]*height: 30px;/, 'each the same height');
 });
 
-test('actionOrder puts the next step first, then Move, then Block or Unblock, then the rest as they came, with edge cases (D-???)', () => {
+test('actionOrder puts the next step first, then Move, then Block or Unblock, then the rest as they came, with edge cases (D-168)', () => {
   const a = (command: string, primary = false) => ({ command, label: command.split('.').at(-1)!, icon: 'x', ref: {}, ...(primary ? { primary } : {}) });
   const names = (xs: { label: string }[]) => xs.map((x) => x.label);
   assert.deepEqual(names(actionOrder([a('acc.task.watch'), a('acc.task.block'), a('acc.task.show'), a('acc.task.move'), a('acc.task.review', true)])), ['review', 'move', 'block', 'watch', 'show']);

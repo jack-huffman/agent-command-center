@@ -1,4 +1,4 @@
-// Dispatch's sheet (D-???), with the built extension against the vscode stand-in: Dispatch, and Dispatch
+// Dispatch's sheet (D-168), with the built extension against the vscode stand-in: Dispatch, and Dispatch
 // with…, Dispatch to the cloud and Dispatch anyway, kept for one release, each open the sheet rather than
 // dispatching. From the Command Center, the sheet shows over it; from a task's own tab, over that tab; from
 // the modal over the board, over the Command Center; with the Command Center closed, it opens first, then
@@ -78,7 +78,7 @@ async function runFrom(tab: Tab, command: string): Promise<void> {
   if (ran) await calls.commands.get(command)!(...ran[1]);
 }
 
-test('Dispatch, and the commands kept for one release, open the sheet over the Command Center and dispatch nothing (D-???)', async () => {
+test('Dispatch, and the commands kept for one release, open the sheet over the Command Center and dispatch nothing (D-168)', async () => {
   for (const command of ['acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.dispatchAnyway']) {
     const from = s.tab.posted.length;
     const warned = s.fake.calls.warn.length;
@@ -95,7 +95,7 @@ test('Dispatch, and the commands kept for one release, open the sheet over the C
   assert.equal(t.tasks.find((x) => x.id === s.id)?.state, 'todo', 'still to do: nothing was dispatched');
 });
 
-test('from a task\'s own tab, Dispatch opens the sheet over that tab, and runs no command; from the modal, over the Command Center (D-???)', async () => {
+test('from a task\'s own tab, Dispatch opens the sheet over that tab, and runs no command; from the modal, over the Command Center (D-168)', async () => {
   const { calls, panels } = s.fake;
   const n = panels.length;
   await runFrom(s.tab, 'acc.task.show');
@@ -123,7 +123,7 @@ test('from a task\'s own tab, Dispatch opens the sheet over that tab, and runs n
   s.tab.receive!({ type: 'task-modal-close', project: s.root, key: s.id });
 });
 
-test('with the Command Center closed, Dispatch opens it, then the sheet once it is ready (D-???)', async () => {
+test('with the Command Center closed, Dispatch opens it, then the sheet once it is ready (D-168)', async () => {
   const { calls, panels } = s.fake;
   const node = calls.executed.findLast(([id]) => id === 'acc.task.dispatch')?.[1];
   assert.ok(node, 'a node to dispatch, as a row or a notice gives one');
@@ -140,7 +140,7 @@ test('with the Command Center closed, Dispatch opens it, then the sheet once it 
   s.tab = tab;
 });
 
-test('the sheet\'s Dispatch reaches acc dispatch, and one for a task that has gone says so (D-???)', async () => {
+test('the sheet\'s Dispatch reaches acc dispatch, and one for a task that has gone says so (D-168)', async () => {
   const { calls } = s.fake;
   // A model chosen in the sheet reaches acc dispatch as --model: one that isn't a model name, acc refuses by name.
   const warned = calls.warn.length;
@@ -158,7 +158,7 @@ test('the sheet\'s Dispatch reaches acc dispatch, and one for a task that has go
   assert.equal(calls.info.at(-1), 'T-999 isn\'t there to dispatch any more.');
 });
 
-test('openSheet and sheetInput: a task that isn\'t there opens nothing, and say posts to the page that asked, else the Command Center (D-???)', () => {
+test('openSheet and sheetInput: a task that isn\'t there opens nothing, and say posts to the page that asked, else the Command Center (D-168)', () => {
   const builder = { model: 'claude-opus-5-5', effort: null, from: { model: 'acc', effort: 'default' } };
   const hub = { project: (r: string) => (r === '/r' ? { config: { github: null }, agents: { builder } } : undefined), taskRows: () => [{ ...row('T-1', 'todo', 'ready'), deps: [] }] } as never;
   const told: unknown[] = [];

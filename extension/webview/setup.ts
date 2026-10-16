@@ -98,7 +98,8 @@ export function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
       d.addEventListener('toggle', () => remember((x) => { x.sections = { ...(x.sections ?? {}), [key]: d.open }; }));
       const count = sec.todo ? el('span', 'count tone-orange', `${sec.todo} to do`) : el('span', 'count done-count', icon('check'), sec.steps.length === 1 ? 'Done' : `All ${sec.steps.length} done`);
       d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', 'setup-section-title', sec.title), count),
-        el('ul', 'steps', ...sec.steps.map((s) => setupStep(s, live))));
+        // Each step names its id, so the output panel's Open the step finds it (T-64).
+        el('ul', 'steps', ...sec.steps.map((s) => { const li = setupStep(s, live); li.dataset.step = s.id; return li; })));
       return d;
     });
     const start = part.part === 'project' && m.start ? startCard(m.start) : null;

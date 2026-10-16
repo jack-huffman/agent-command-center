@@ -81,7 +81,7 @@
 .openable.tcard-key { color: var(--vscode-textLink-foreground); cursor: pointer; }
 .tcard .card-title { margin: 5px 0 6px; }
 .tcard-acc { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 0.92em; }
-/* Its one next step goes full width, on a row of its own under its state (D-???). */
+/* Its one next step goes full width, on a row of its own under its state (D-168). */
 .tcard-acc > .ta-btn { flex: 1 0 100%; margin-top: 2px; }
 /* A Track on its way says Tracking…, and stops looking like a button to press (D-074). */
 .tcard-track:disabled, .ticket-track:disabled { cursor: default; }
@@ -94,7 +94,7 @@
 .label-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
 /* A card's actions, intentionally (D-062): one next step in its footer, the rest behind ⋯ in its corner. The
-   next step is full width, on a row of its own under where it lives (D-???, task-actions.css). */
+   next step is full width, on a row of its own under where it lives (D-168, task-actions.css). */
 .card { position: relative; }
 .card-foot { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
 .card-meta { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }

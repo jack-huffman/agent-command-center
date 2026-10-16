@@ -4,14 +4,18 @@
 .dock-bar { display: flex; align-items: center; gap: 4px; padding: 4px 10px 4px 6px; min-height: 34px; }
 .dock-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 auto; max-width: 70%; padding: 3px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--vscode-foreground); font: inherit; cursor: pointer; }
 .dock-title:hover { background: var(--vscode-toolbar-hoverBackground); }
+/* The header line: the state's icon and label, the run's name, and its time (T-64). */
+.dock-title > .status { flex: none; font-weight: 600; }
 .dock-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-clock { flex: none; font-variant-numeric: tabular-nums; }
 .dock-last { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-bar .btn.icon-only { flex: none; }
+/* The header's menu sits in the bar, and opens up, since the panel is at the foot of the page. */
+.dock-bar > .more { position: relative; top: auto; right: auto; flex: none; }
+.dock-bar .more-menu { top: auto; bottom: 28px; }
 .dock-pick { max-width: 220px; padding: 2px 4px; font: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--line)); border-radius: 3px; }
-.dock-cmd { padding: 0 14px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dock-out { margin: 0; padding: 8px 14px 10px; flex: 1; min-height: 120px; overflow: auto; font-family: var(--vscode-editor-font-family); font-size: 0.9em; line-height: 1.5; white-space: pre-wrap; word-break: break-word; background: var(--vscode-editor-background); border-top: 1px solid var(--line); }
-.dock-out:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .dock-ask { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--line); background: var(--card); }
 .dock-ask-text { min-width: 0; overflow-wrap: anywhere; }
 @media (max-width: 820px) { .dock { position: sticky; bottom: 0; z-index: 3; } }
-@media (max-width: 560px) { .dock-title { max-width: none; flex: 1; } .dock-pick { display: none; } .dock-title .status { display: none; } }
+/* At 500 px the state keeps its icon and label; the run's name gives up room first. */
+@media (max-width: 560px) { .dock-title { max-width: none; flex: 1 1 auto; } .dock-pick { display: none; } }

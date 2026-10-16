@@ -159,7 +159,7 @@ test('the board has a column for every status, left to right as a task goes, and
   const cols = m.projects[0]!.columns;
   assert.deepEqual(cols.map((c) => c.group), ['todo', 'ready', 'running', 'needs-you', 'review', 'rework', 'blocked', 'done'], 'left to right as a task goes: To do first (D-068)');
   const card = (id: string) => cols.flatMap((c) => c.cards).find((c) => c.id === id)!;
-  assert.deepEqual(card('AV-2').actions.map((a) => a.label), ['Move', 'Block', 'Analyze', 'Ticket', 'Details'], 'waiting on another task, it can still be analyzed, after Move and Block (D-???)');
+  assert.deepEqual(card('AV-2').actions.map((a) => a.label), ['Move', 'Block', 'Analyze', 'Ticket', 'Details'], 'waiting on another task, it can still be analyzed, after Move and Block (D-168)');
   assert.deepEqual(card('AV-3').actions.map((a) => a.label), ['Move', 'Unblock', 'Details']);
   assert.deepEqual(card('AV-4').actions.map((a) => a.label), ['Move', 'Details'], 'done tasks can\'t be blocked');
   assert.deepEqual(card('AV-2').waitingOn, ['AV-1']);
@@ -168,7 +168,7 @@ test('the board has a column for every status, left to right as a task goes, and
 
 test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Abandon, then Clean up', () => {
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => a.label);
-  // The next step, then Move, then Block, then the rest (D-???).
+  // The next step, then Move, then Block, then the rest (D-168).
   assert.deepEqual(labels({}), ['Dispatch', 'Move', 'Block', 'Analyze', 'Details']);
   assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Move', 'Open in Claude Code', 'Worktree', 'Instructions', 'Abandon', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { bgId: 'bg1' } } as TaskRow, {})[0]!.primary, true, 'Watch is the main action while it runs');

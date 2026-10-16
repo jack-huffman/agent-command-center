@@ -81,7 +81,7 @@ export function render(model: Model): void {
   const scroll = { y: saved?.y ?? scroller?.scrollTop ?? 0 };
   // An agent's page follows its newest step, unless you've scrolled up to read.
   const following = model.kind === 'agent' && !!scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
-  const dockBox = document.querySelector<HTMLElement>('.dock-out');
+  const dockBox = document.querySelector<HTMLElement>('.dock-body');
   const dockAtBottom = !dockBox || dockBox.scrollHeight - dockBox.scrollTop - dockBox.clientHeight < 24;
   const dockTop = dockBox?.scrollTop ?? 0;
   const keep = keepFocus();
@@ -108,7 +108,7 @@ export function render(model: Model): void {
   else if (timeline) timeline.scrollTop = following ? timeline.scrollHeight : scroll.y;
   else if (!main) window.scrollTo(0, scroll.y);
   state.scrolledTo = false;
-  const box = document.querySelector<HTMLElement>('.dock-out');
+  const box = document.querySelector<HTMLElement>('.dock-body');
   if (box) stickToBottom(box, dockAtBottom, dockTop);
   keep();
   for (const a of AREAS) a.after?.(model);
