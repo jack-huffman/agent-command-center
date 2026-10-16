@@ -40,6 +40,8 @@ import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../sr
 import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
+import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
+import { dispatchChoiceArgs, dispatchSheet } from '../src/model/dispatch-sheet.ts';
 import { ROOT } from './fixtures/shared.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
 import { pool, type Ran } from './jobs.ts';
@@ -144,6 +146,16 @@ export interface BehaviourData {
    * finding's file and line, and on the next step, sends.
    */
   dock: { run: string; runs: Record<string, unknown>; look: string; count: string; rows: { key: string; label: string; text: string }[]; met: number; lines: string; click: Record<string, unknown>; next: Record<string, unknown> };
+  /**
+   * Dispatch's sheet (D-???). From a card: ACME-16's Dispatch, the run it sends, and the sheet the extension
+   * sends back, on a builder whose model takes no effort, with the line that says so; the model the case picks,
+   * its levels and the one chosen; and the message Enter sends, with acc's arguments for it. From the task
+   * page: ACME-19's page in the modal, the run its Re-dispatch sends, its sheet with the cloud off and why.
+   */
+  sheet: {
+    card: { task: string; run: Record<string, unknown>; message: Record<string, unknown>; none: string; pick: string; levels: string[]; chosen: string; sent: Record<string, unknown>; args: string[] };
+    page: { modal: Record<string, unknown>; run: Record<string, unknown>; message: Record<string, unknown>; title: string; reason: string };
+  };
   keys: {
     first: string; down: string; last: string; right: string;
     move: { card: string; to: string; lanes: string[]; sent: Record<string, unknown>; moving: string; moved: string; stays: string };
@@ -1048,6 +1060,67 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'dispatch sheet: a card\'s Dispatch opens it, a model picked changes the efforts, and Enter sends the choice',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.sheet.card;
+      const button = t.find(`article.card[data-card-id="${CSS.escape(d.task)}"] .ta-btn.primary`);
+      t.check('the card\'s next step is Dispatch', button.textContent?.trim() === 'Dispatch', button.textContent);
+      await t.click(button);
+      const ran = t.sent('run').at(-1);
+      t.check('a click asks the extension for the sheet, and dispatches nothing', JSON.stringify(ran) === JSON.stringify(d.run) && t.sent('dispatch-sheet-go').length === 0, ran);
+      t.check('nothing opens before the extension answers', t.all('dialog.dispatch-sheet[open]').length === 0);
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.dispatch-sheet');
+      t.check('the sheet opens', dialog.open);
+      t.check('focus is on the model chosen', document.activeElement === t.find('[data-part="model"] [aria-checked="true"]', dialog), document.activeElement?.className);
+      // Edge: the builder's model takes no effort, so Effort shows no levels, and a line says so.
+      t.check('a model that takes no effort shows no levels', t.all('[data-part="effort"]', dialog).length === 0);
+      t.check('and says so in a line', t.find('[data-section="effort"] .ds-note', dialog).textContent === d.none, t.find('[data-section="effort"] .ds-note', dialog).textContent);
+      const pick = t.all('[data-part="model"] [role=radio]', dialog).find((r) => r.querySelector('.ds-row-name')?.textContent === d.pick);
+      if (!pick) throw new Error(`not found: the model ${d.pick}`);
+      await t.click(pick);
+      const levels = t.all('[data-part="effort"] [role=radio]', dialog).map((e) => e.textContent);
+      t.check('picking another model shows its levels', JSON.stringify(levels) === JSON.stringify(d.levels), levels);
+      t.check('with the one the builder runs with chosen', t.find('[data-part="effort"] [aria-checked="true"]', dialog).textContent === d.chosen, t.find('[data-part="effort"] [aria-checked="true"]', dialog).textContent);
+      t.check('and the model it picked chosen, with focus on it', t.find('[data-part="model"] [aria-checked="true"] .ds-row-name', dialog).textContent === d.pick && document.activeElement === t.find('[data-part="model"] [aria-checked="true"]', dialog));
+      await press(t, document.activeElement as HTMLElement, 'Enter');
+      const sent = t.sent('dispatch-sheet-go');
+      t.check(`Enter sends the choice once, which acc gets as: ${d.args.join(' ')}`, sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      t.check('the sheet closes', !dialog.open);
+      t.check('focus goes back to the Dispatch that opened it', document.activeElement === button, document.activeElement?.className);
+    },
+  },
+  {
+    name: 'dispatch sheet: the task page\'s Re-dispatch opens it over the page, with the cloud off and why, and Escape sends nothing',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.sheet.page;
+      await t.post(d.modal);
+      const modal = t.find<HTMLDialogElement>('dialog.task-modal:not(.detail-modal):not(.palette-modal):not(.dispatch-sheet)');
+      t.check('the task page is open over the board', modal.open);
+      const go = t.find('.task-actions > .ta-btn.primary', modal);
+      await t.click(go);
+      const ran = t.sent('run').at(-1);
+      t.check('Re-dispatch asks the extension for the sheet, and dispatches nothing', JSON.stringify(ran) === JSON.stringify(d.run) && t.sent('dispatch-sheet-go').length === 0, ran);
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.dispatch-sheet');
+      t.check('the sheet opens over the task page', dialog.open && modal.open);
+      t.check('it is titled for a rework', t.find('.ds-title', dialog).textContent === d.title, t.find('.ds-title', dialog).textContent);
+      const cloud = (): HTMLElement => t.all('[data-part="where"] [role=radio]', dialog)[1]!;
+      t.check('the cloud is off, with its reason in its title', cloud().getAttribute('aria-disabled') === 'true' && cloud().title.includes(d.reason), cloud().title);
+      t.check('and a line says why', t.find('[data-section="where"] .ds-note', dialog).textContent === d.reason, t.find('[data-section="where"] .ds-note', dialog).textContent);
+      // Edge: a click on the cloud, which is off, chooses nothing.
+      await t.click(cloud());
+      t.check('a click on it leaves This Mac chosen', cloud().getAttribute('aria-checked') === 'false');
+      await t.escape(dialog);
+      t.check('Escape closes the sheet', !dialog.open);
+      t.check('and leaves the task page open under it', modal.open);
+      t.check('and sends nothing', t.sent('dispatch-sheet-go').length === 0, t.sent('dispatch-sheet-go'));
+      t.check('focus goes back to Re-dispatch', document.activeElement === go, document.activeElement?.className);
+    },
+  },
+  {
     name: 'board keys: focus stays on the same card after a redraw, in its new column',
     page: 'tasks',
     async run(t) {
@@ -1141,6 +1214,11 @@ export const MUTANTS: Mutant[] = [
   { name: 'a held card\'s Enter sends no message', file: 'board-nav.ts', find: 'o.move(id, to);', replace: '', kills: [caseNamed('board keys: Space, Right and Enter')] },
   { name: 'Escape still sends the move', file: 'board-nav.ts', find: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          putDown();", replace: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          o.move(id, held.at);\n          putDown();", kills: [caseNamed('board keys: Escape')] },
   { name: 'the board\'s live line stays silent', file: 'board-nav.ts', find: "live.replaceChildren(icon(look.icon, look.tone), el('span', '', text));", replace: 'void look;', kills: [caseNamed('board keys: Space, Right and Enter'), caseNamed('board keys: Escape'), caseNamed('board keys: Space on a card')] },
+  { name: 'Dispatch goes without the sheet', file: 'dispatch-sheet.ts', find: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) openSheet(msg.sheet); } },", replace: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) api.postMessage({ type: 'dispatch-sheet-go', project: msg.sheet.project, task: msg.sheet.task, model: msg.sheet.models[0]!.value, where: msg.sheet.place }); } },", kills: [caseNamed('dispatch sheet: a card'), caseNamed('dispatch sheet: the task page')] },
+  { name: 'Escape on the sheet dispatches', file: 'dispatch-sheet.ts', find: "const m = makeModal('dispatch-sheet', [title], shut);", replace: "const m = makeModal('dispatch-sheet', [title], dispatch);", kills: [caseNamed('dispatch sheet: the task page')] },
+  { name: 'Enter on the sheet does nothing', file: 'dispatch-sheet.ts', find: '    e.preventDefault();\n    dispatch();\n', replace: '    e.preventDefault();\n', kills: [caseNamed('dispatch sheet: a card')] },
+  { name: 'a model picked leaves the efforts as they were', file: 'dispatch-sheet.ts', find: '(i) => { open!.model = i; draw(); }', replace: '(i) => { void i; draw(); }', kills: [caseNamed('dispatch sheet: a card')] },
+  { name: 'the sheet leaves out why the cloud is off', file: 'dispatch-sheet.ts', find: "off ? el('p', 'ds-note muted', icon('info'), el('span', '', off.disabled!)) : null", replace: 'null', kills: [caseNamed('dispatch sheet: the task page')] },
   { name: 'a redraw drops the focused card\'s focus', file: 'board-nav.ts', find: 'if (again) focusOf(again).focus({ preventScroll: true });', replace: '', kills: [caseNamed('board keys: focus stays')] },
 ];
 
@@ -1197,6 +1275,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     review: reviewData(models.review),
     dock: dockData(models.dock),
     keys: keysData(models.tasks),
+    sheet: sheetData(now),
   };
 }
 
@@ -1209,6 +1288,31 @@ function sinceData(model: Model): BehaviourData['since'] {
 }
 
 /** What the board's key cases expect (T-54), from the Tasks board's model: the Jira board it opens on, and the agent board. */
+function sheetData(now: number): BehaviourData['sheet'] {
+  const input = sampleSheetInput(now, 'no-effort');
+  const sheet = dispatchSheet(input);
+  const first = sheet.models[0]!;
+  const pick = sheet.models.find((m) => m.value === 'claude-opus-5-5');
+  if (first.efforts.length || !first.none || !pick?.efforts.length) throw new Error('The sheet case needs a builder whose model takes no effort, and Opus 5.5 to pick.');
+  const chosen = pick.efforts[pick.effort]!;
+  const choice = { model: pick.value!, effort: chosen.value, where: sheet.place };
+  const task = input.row.id;
+  const rework = sampleSheet(now, 'rework');
+  const reason = rework.places.find((p) => p.value === 'cloud')?.disabled;
+  if (!reason) throw new Error('The sheet case needs the rework sheet with the cloud off.');
+  return {
+    card: {
+      task, run: { type: 'run', command: 'acc.task.dispatch', ref: { project: ROOT, task } }, message: { type: 'dispatch-sheet', sheet }, none: first.none,
+      pick: pick.value!, levels: pick.efforts.map((e) => e.label), chosen: chosen.label,
+      sent: { type: 'dispatch-sheet-go', project: ROOT, task, ...choice }, args: dispatchChoiceArgs(input, choice).args,
+    },
+    page: {
+      modal: { type: 'task-modal', model: sampleTicket(now, 'ACME-19'), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-19' } },
+      run: { type: 'run', command: 'acc.task.dispatch', ref: { project: ROOT, task: 'ACME-19' } }, message: { type: 'dispatch-sheet', sheet: rework }, title: rework.title, reason,
+    },
+  };
+}
+
 function keysData(model: Model): BehaviourData['keys'] {
   if (model.kind !== 'home') throw new Error('The board key cases need a home model.');
   const board = model.tasks.projects[0]?.boards[0];

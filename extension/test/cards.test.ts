@@ -368,6 +368,22 @@ test('deriveRows gives a card its agent\'s question id; edge cases: no question,
   assert.equal(read([question('q-9', 's9')], false).question, null, 'an agent that doesn\'t ask has no question to answer');
 });
 
+test('the task page draws its actions with taskActions: the next step full width, the rest in the grid, a disabled one in place with its reason (D-???)', () => {
+  assert.match(pageSource('task-page.ts'), /taskActions\(a\.actions\)/, 'the task page\'s Agent panel');
+  const tiles = pageSource('task-actions.ts');
+  assert.match(tiles, /const next = actions\[0\]!\.primary \? actions\[0\]! : null;/, 'the next step only when the first is one');
+  assert.match(tiles, /el\('div', 'ta-grid', \.\.\.rest\.map\(\(a\) => actionTile\(a, false\)\)\)/, 'the rest in the grid, none of them primary');
+  assert.match(tiles, /set\.dataset\.actionSet = 'task';/, 'marked for the geometry check');
+  assert.match(tiles, /b\.title = a\.disabled \? `\$\{a\.label\}: \$\{a\.disabled\}` : a\.label;/, 'its label whole in its title, and why it is off');
+  // Edge: a cloud task's Open in Claude Code is off with its reason, and stays in its place on the page.
+  const cloud = { sessionId: 's', url: 'https://claude.ai/code/s', firedAt: '', head: '', lastPushAt: '' };
+  const acts = cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { worktree: '/w', where: 'cloud', cloud }, cloud: { url: cloud.url, wait: null, finished: false } } as TaskRow, {});
+  assert.ok(acts.find((a) => a.label === 'Open in Claude Code')?.disabled, 'off, with why');
+  const styles = pageStyles();
+  assert.match(styles, /\.ta-grid \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/, 'two equal columns');
+  assert.match(styles, /\.ta-btn \{[^}]*height: 30px;/, 'each the same height');
+});
+
 test('actionOrder puts the next step first, then Move, then Block or Unblock, then the rest as they came, with edge cases (D-???)', () => {
   const a = (command: string, primary = false) => ({ command, label: command.split('.').at(-1)!, icon: 'x', ref: {}, ...(primary ? { primary } : {}) });
   const names = (xs: { label: string }[]) => xs.map((x) => x.label);
