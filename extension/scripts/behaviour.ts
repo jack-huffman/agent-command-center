@@ -154,6 +154,8 @@ export interface BehaviourData {
    */
   sheet: {
     card: { task: string; run: Record<string, unknown>; message: Record<string, unknown>; none: string; pick: string; levels: string[]; chosen: string; sent: Record<string, unknown>; args: string[] };
+    /** Another model…: its row's label, what Dispatch says while the box is empty, and the message for a name typed, with acc's arguments. */
+    another: { label: string; empty: string; name: string; sent: Record<string, unknown>; args: string[] };
     page: { modal: Record<string, unknown>; run: Record<string, unknown>; message: Record<string, unknown>; title: string; reason: string };
   };
   keys: {
@@ -1092,6 +1094,32 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'dispatch sheet: Another model… asks for a name, and Dispatch is off until it holds one',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.sheet.another;
+      await t.post(t.data.sheet.card.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.dispatch-sheet');
+      t.check('no name box before Another model… is picked', t.all('.ds-name', dialog).length === 0);
+      const row = t.all('[data-part="model"] [role=radio]', dialog).find((r) => r.querySelector('.ds-row-name')?.textContent === d.label);
+      if (!row) throw new Error(`not found: ${d.label}`);
+      await t.click(row);
+      const box = t.find<HTMLInputElement>('.ds-name', dialog);
+      const go = t.find<HTMLButtonElement>('.ds-go', dialog);
+      t.check('picking it shows a box for the name', !!box && box.value === '');
+      t.check('Dispatch is off, saying why', go.disabled && go.title === d.empty, go.title);
+      // Edge: Enter with the box empty sends nothing, and the sheet stays.
+      await press(t, box, 'Enter');
+      t.check('Enter with no name sends nothing', t.sent('dispatch-sheet-go').length === 0 && dialog.open);
+      await t.type(box, d.name);
+      t.check('a name turns Dispatch on', !go.disabled, go.title);
+      await press(t, box, 'Enter');
+      const sent = t.sent('dispatch-sheet-go');
+      t.check(`Enter sends the name typed, which acc gets as: ${d.args.join(' ')}`, sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      t.check('the sheet closes', !dialog.open);
+    },
+  },
+  {
     name: 'dispatch sheet: the task page\'s Re-dispatch opens it over the page, with the cloud off and why, and Escape sends nothing',
     page: 'tasks',
     async run(t) {
@@ -1218,6 +1246,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'Escape on the sheet dispatches', file: 'dispatch-sheet.ts', find: "const m = makeModal('dispatch-sheet', [title], shut);", replace: "const m = makeModal('dispatch-sheet', [title], dispatch);", kills: [caseNamed('dispatch sheet: the task page')] },
   { name: 'Enter on the sheet does nothing', file: 'dispatch-sheet.ts', find: '    e.preventDefault();\n    dispatch();\n', replace: '    e.preventDefault();\n', kills: [caseNamed('dispatch sheet: a card')] },
   { name: 'a model picked leaves the efforts as they were', file: 'dispatch-sheet.ts', find: '(i) => { open!.model = i; draw(); }', replace: '(i) => { void i; draw(); }', kills: [caseNamed('dispatch sheet: a card')] },
+  { name: 'the sheet dispatches with no model name', file: 'dispatch-sheet.ts', find: "const goOff = (): string | null => (modelName() === null ?", replace: "const goOff = (): string | null => (modelName() === undefined ?", kills: [caseNamed('dispatch sheet: Another model')] },
   { name: 'the sheet leaves out why the cloud is off', file: 'dispatch-sheet.ts', find: "off ? el('p', 'ds-note muted', icon('info'), el('span', '', off.disabled!)) : null", replace: 'null', kills: [caseNamed('dispatch sheet: the task page')] },
   { name: 'a redraw drops the focused card\'s focus', file: 'board-nav.ts', find: 'if (again) focusOf(again).focus({ preventScroll: true });', replace: '', kills: [caseNamed('board keys: focus stays')] },
 ];
@@ -1297,6 +1326,9 @@ function sheetData(now: number): BehaviourData['sheet'] {
   const chosen = pick.efforts[pick.effort]!;
   const choice = { model: pick.value!, effort: chosen.value, where: sheet.place };
   const task = input.row.id;
+  const another = sheet.models.at(-1)!;
+  if (another.value !== null || !another.efforts.length) throw new Error('The sheet case needs Another model… last, taking every level.');
+  const named = { model: 'opus', effort: another.efforts[another.effort]!.value, where: sheet.place };
   const rework = sampleSheet(now, 'rework');
   const reason = rework.places.find((p) => p.value === 'cloud')?.disabled;
   if (!reason) throw new Error('The sheet case needs the rework sheet with the cloud off.');
@@ -1306,6 +1338,7 @@ function sheetData(now: number): BehaviourData['sheet'] {
       pick: pick.value!, levels: pick.efforts.map((e) => e.label), chosen: chosen.label,
       sent: { type: 'dispatch-sheet-go', project: ROOT, task, ...choice }, args: dispatchChoiceArgs(input, choice).args,
     },
+    another: { label: another.label, empty: 'Type a model\'s name first', name: named.model, sent: { type: 'dispatch-sheet-go', project: ROOT, task, ...named }, args: dispatchChoiceArgs(input, named).args },
     page: {
       modal: { type: 'task-modal', model: sampleTicket(now, 'ACME-19'), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-19' } },
       run: { type: 'run', command: 'acc.task.dispatch', ref: { project: ROOT, task: 'ACME-19' } }, message: { type: 'dispatch-sheet', sheet: rework }, title: rework.title, reason,

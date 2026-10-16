@@ -7400,16 +7400,20 @@ one size and one place.
   tab and the modal show it over themselves; a closed Command Center opens
   first; the sheet's Dispatch reaches acc dispatch. `cards.test.ts` checks
   that no card lists Dispatch with… or Dispatch to the cloud, `actionOrder`
-  and the task page's `taskActions`. The screenshot run adds three pages:
+  and the task page's `taskActions`. The screenshot run adds four pages:
   the sheet over the Tasks board for ACME-16, analysed; over ACME-19's tab
-  in rework with the cloud off; and the agent board with a card's ⋯ open. A
-  new geometry check, `actions`, finds a task page's buttons equal in height,
-  the grid's equal in width and the next step as wide as the grid, and a run
-  with no task page buttons to measure fails; an open menu floats over the
-  page, as a sticky layer does. Two behaviour cases open the sheet from a
-  card and from the task page, pick a model and see the efforts change,
-  press Enter and see the message, and press Escape and see none; five new
-  mutants, Dispatch without the sheet among them, each fail one.
+  in rework with the cloud off; the agent board with a card's ⋯ open; and
+  Dispatch anyway's sheet for ACME-35, with the files it shares. The name box
+  for Another model… shows only after a pick, so the screenshots gate's
+  `UNDRAWN` names it, and a behaviour case draws it. A new geometry check,
+  `actions`, finds a task page's buttons equal in height, the grid's equal in
+  width and the next step as wide as the grid, and a run with no task page
+  buttons to measure fails; an open menu floats over the page, as a sticky
+  layer does. Three behaviour cases open the sheet from a card and from the
+  task page, pick a model and see the efforts change, press Enter and see
+  the message, press Escape and see none, and type a model's name for
+  Another model…; six new mutants, Dispatch without the sheet among them,
+  each fail one.
 - Not chosen: a grid of every action on a card, which D-062 put behind ⋯;
   folding acc's own wait for others' files into the sheet; Autopilot's
   dispatches, which ask nobody.
