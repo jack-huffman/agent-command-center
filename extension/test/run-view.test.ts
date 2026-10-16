@@ -35,7 +35,7 @@ const { Runs, showFileAt } = await import('../src/runs.ts');
 test('showFileAt opens a file at a line, and an editor that fails says why, naming the file as shown (T-70)', async () => {
   await showFileAt('/x/src/b.ts', 'src/b.ts', 4);
   assert.deepEqual(did.opened.at(-1), { path: '/x/src/b.ts', line: 4 });
-  const win = (globalThis as { accRunsVscode: { window: { showTextDocument: unknown } } }).accRunsVscode.window;
+  const win = (globalThis as unknown as { accRunsVscode: { window: { showTextDocument: unknown } } }).accRunsVscode.window;
   const opens = win.showTextDocument;
   win.showTextDocument = async () => { throw new Error('no editor'); };
   try {

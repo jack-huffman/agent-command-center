@@ -10,7 +10,30 @@ import { COMMANDS } from '../src/logic/setup.ts';
 import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import { slackApp, SlackClient } from '../../packages/core/src/trackers/slack.ts';
 import { updatePoster } from '../src/model/updates.ts';
-import { activate, fakeVscode, until } from './vscode.ts';
+import { activate, fakeVscode, SANDBOX_TOOLS, sandboxEnv, until } from './vscode.ts';
+
+test('sandboxEnv points the environment at a sandbox of stand-in tools, and restore gives it back; edge case: a variable it added is dropped (T-70)', () => {
+  const before = { ...process.env };
+  process.env.ACC_ROLE = 'builder';
+  const { at, restore } = sandboxEnv('acc-sandbox-', (name) => (name === 'gh' ? 'echo gh\n' : 'exit 1\n'));
+  try {
+    assert.equal(process.env.HOME, at('home'));
+    assert.ok(process.env.PATH!.startsWith(`${at('bin')}:`));
+    assert.equal(process.env.ACC_ROLE, undefined, 'a builder\'s role is cleared');
+    assert.equal(readFileSync(at('home', '.claude.json'), 'utf8'), '{"projects":{}}\n');
+    assert.equal(SANDBOX_TOOLS.filter((t) => existsSync(at('bin', t))).length, SANDBOX_TOOLS.length);
+    assert.equal(spawnSync(at('bin', 'gh'), { encoding: 'utf8' }).stdout, 'gh\n');
+    assert.equal(spawnSync(at('bin', 'claude')).status, 1, 'a tool not given its own script fails at once');
+    process.env.ACC_SANDBOX_ADDED = '1';
+  } finally {
+    restore();
+  }
+  assert.equal(process.env.ACC_ROLE, 'builder');
+  assert.equal(process.env.ACC_SANDBOX_ADDED, undefined);
+  assert.equal(process.env.HOME, before.HOME);
+  delete process.env.ACC_ROLE;
+  if (before.ACC_ROLE !== undefined) process.env.ACC_ROLE = before.ACC_ROLE;
+});
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 /** The extension's folder, as VSCode gives it: its package.json, media/ and dist/. */

@@ -2,7 +2,7 @@
 // folder opens, the first open lands on Setup once per folder, and the walkthroughs open when asked for.
 // The decisions are tested here, then the built extension against the vscode stand-in. Run after npm run build.
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { FIRST_OPEN_STATE, FIRST_OPEN_WAIT_MS, firstOpen, type FirstOpenInput, KIND_QUESTION, machineDone, SETUP_PARTS, waitsForMachine } from '../src/logic/first-open.ts';
 import { COMMANDS, type DoctorItem, EXTENSION_ID, WALKTHROUGHS } from '../src/logic/setup.ts';
 import { setupModel } from '../src/model/setup.ts';
-import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
-import { activate, fakeVscode, until } from './vscode.ts';
+import { makeRepo } from '../../packages/core/test/support.ts';
+import { activate, fakeVscode, sandboxEnv, until } from './vscode.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 
@@ -121,29 +121,14 @@ async function inFolder(files: Record<string, string>, machine: DoctorItem['stat
     await wait(what, () => done);
     return ended;
   };
-  const sandbox = realpathSync(tempDir('acc-first-open-'));
-  const at = (...p: string[]) => join(sandbox, ...p);
-  for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
-  writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
   const slow = `sleep ${opts.slow ?? 0}\n`;
   // The held claude --version ends at the release, or at the budget's end by the clock, however slow each sleep is.
-  const holdVersion = `[ "$1" = --version ] && while [ ! -f '${at('release')}' ] && [ "$(date +%s)" -lt ${Math.ceil(end / 1000)} ]; do sleep 0.05; done\n`;
-  for (const name of ['gh', 'claude', 'sf', 'code', 'open', 'osascript', 'caffeinate']) {
-    writeFileSync(at('bin', name), `#!/bin/sh\n${slow}${name === 'claude' && opts.early ? holdVersion : ''}exit 1\n`);
-    chmodSync(at('bin', name), 0o755);
-  }
-  const saved = { ...process.env };
+  const holdVersion = (at: (...p: string[]) => string) => `[ "$1" = --version ] && while [ ! -f '${at('release')}' ] && [ "$(date +%s)" -lt ${Math.ceil(end / 1000)} ]; do sleep 0.05; done\n`;
+  const { at, restore } = sandboxEnv('acc-first-open-', (name, at) => `${slow}${name === 'claude' && opts.early ? holdVersion(at) : ''}exit 1\n`);
   const held = opts.early || opts.doctorFails ? holdWaitTimer() : null;
-  Object.assign(process.env, {
-    HOME: at('home'), CLAUDE_CONFIG_DIR: at('home', '.claude'), PATH: `${at('bin')}:${process.env.PATH}`, NO_COLOR: '1',
-    ACC_QUESTIONS_DIR: at('state', 'questions'), ACC_HEAVY_DIR: at('state', 'heavy'), ACC_MACHINE_FILE: at('state', 'machine.json'), ACC_REPOS_FILE: at('state', 'repos.json'),
-    ACC_RUNTIME_FILE: at('state', 'runtime'), ACC_SLACK_DIR: at('state', 'slack'),
-  });
   // Node reads NODE_OPTIONS as it starts, so only the acc runs started from here on load this.
   writeFileSync(at('bin', 'no-doctor.cjs'), "if (process.argv.includes('doctor')) { process.stdout.write('acc broke'); process.exit(1); }\n");
   if (opts.doctorFails) process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ?? ''} --require ${at('bin', 'no-doctor.cjs')}`.trim();
-  delete process.env.ACC_ROLE;
-  delete process.env.ACC_TASK;
   const repo = makeRepo(files);
   const fake = fakeVscode(repo);
   const version = (JSON.parse(readFileSync(join(dist, '..', '..', 'package.json'), 'utf8')) as { version: string }).version;
@@ -168,8 +153,7 @@ async function inFolder(files: Record<string, string>, machine: DoctorItem['stat
     held?.restore();
     started.stop();
     delete createRequire(import.meta.url).cache[dist];
-    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
-    Object.assign(process.env, saved);
+    restore();
   }
 }
 
