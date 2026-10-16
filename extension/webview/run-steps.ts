@@ -38,7 +38,7 @@ function stepRow(run: RunCard, s: ShownStep, rows: (r: ShownRow[]) => HTMLElemen
   const key = `run-step:${run.id}:${s.id}`;
   const open = memory().opened.includes(key);
   // Named by what it shows, its state then its label, with a space between so they read as two words; open or not, aria-expanded says.
-  const head = el('button', 'dock-step-head dock-step-toggle', icon(open ? 'chevron-down' : 'chevron-right'), stepMark(s), ' ', label) as HTMLButtonElement;
+  const head = el('button', 'dock-step-toggle dock-step-head', icon(open ? 'chevron-down' : 'chevron-right'), stepMark(s), ' ', label) as HTMLButtonElement;
   head.type = 'button';
   head.title = `${open ? 'Hide' : 'Show'} its ${plural(s.rows.length, 'row')}`;
   head.setAttribute('aria-expanded', String(open));
