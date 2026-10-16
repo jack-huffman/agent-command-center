@@ -109,7 +109,6 @@ the test that reads it.
 | `.acc/config.json` | yes | Project settings ([section 4](#4-config)) |
 | `.acc/rules.md` | yes, optional | The repo's own rules, which builders, reviewers and the analyst keep to. They win over every other ([section 8](#8-the-packet)) |
 | `.acc/rules/<name>.md` | yes, optional | Rules copied in from elsewhere by `acc rules import`, each after a header naming its source, the commit or date it was copied, and its sha256 (GH-108, [docs/RULES.md](RULES.md)) |
-| `.acc/packet.md` | yes, optional | Override for the builder's instructions template |
 | `<git-common-dir>/acc/ledger.json` | no | Tasks: the current snapshot |
 | `<git-common-dir>/acc/events.jsonl` | no | Append-only log of every change |
 | `<git-common-dir>/acc/receipts/<sha>/<gate>.json` | no | Check results, tied to a commit |
@@ -549,8 +548,8 @@ logs and stop come for free. The feature is a research preview, so
 
 ## 8. The packet
 
-The packet is what a builder is told. It's rendered from `templates/packet.md`,
-or from the project's `.acc/packet.md` if there is one. It contains:
+The packet is what a builder is told. It's built in code, by `renderPacket` in
+`packages/core/src/packet.ts`; a project can't override it yet. It contains:
 
 - **The task:** id, title, link, brief and acceptance criteria.
 - **Where:** the worktree path, the environment's branch and, for Salesforce,

@@ -66,7 +66,8 @@ export function renderAgent(m: AgentModel): Node[] {
     return out;
   }
   const list = el('ol', 'timeline');
-  // Runs of tool steps fold to one line each, except the latest run and any that failed or is running.
+  // Runs of tool steps fold to one line each, except the latest run and any of two steps or fewer. A folded
+  // run with a failed or running step says so on its line.
   type Tool = Extract<EntryView, { k: 'tool' }>;
   type Block = Exclude<EntryView, Tool> | { k: 'steps'; id: string; items: Tool[] };
   const blocks: Block[] = [];

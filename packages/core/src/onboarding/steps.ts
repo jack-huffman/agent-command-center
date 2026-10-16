@@ -36,7 +36,7 @@ function needsProject(ctx: CheckContext): CheckResult | null {
 export const NEARBY_LIMIT = 200;
 
 /**
- * A repo near an old project folder: the folder itself, its siblings, or their parent. A repo that has
+ * A repo near an old project folder: one of its siblings, or their parent, never the folder itself. A repo that has
  * an acc config wins over one that only has sfdx-project.json. Only the filesystem is read: no more than
  * NEARBY_LIMIT of the parent's entries, and none at all when the parent is the system temp directory,
  * whose neighbours are other programs' scratch folders (GH-174).

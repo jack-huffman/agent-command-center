@@ -1,7 +1,7 @@
 /**
  * The Settings section (GH-109): the Command Center's own choices on this machine, how agents run in each
- * project (GH-110), the limits and checks they run under (GH-111), a part for each area that will gather its
- * settings here, and, until a part is built, where its settings live today.
+ * project (GH-110), the limits and checks they run under (GH-111), and a part for each area, with its
+ * settings here. Every part is built; a part that wasn't would say where its settings live today.
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
