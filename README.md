@@ -414,8 +414,8 @@ same either way.
 
 Each shot also measures itself, and the run exits 1, naming the page, theme,
 width and element, when two controls overlap, a label is cut off, the selected
-tab is out of the rail's view, a sticky cell covers another cell's text,
-something scrolls sideways that shouldn't, or axe-core finds a WCAG 2.1 AA
+tab is out of the rail's view, a sticky cell covers another cell's text, the
+output panel shows a block of raw output, something scrolls sideways that shouldn't, or axe-core finds a WCAG 2.1 AA
 violation that `A11Y_EXCEPTIONS` (`extension/scripts/a11y.ts`) doesn't excuse.
 It prints how many elements each check examined, and axe's incomplete results by
 rule; a page with none examined fails. The shots
