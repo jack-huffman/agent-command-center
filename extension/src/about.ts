@@ -1,7 +1,8 @@
 // Settings' About (GH-114), VS Code's side: the versions of acc, the extension and the plugin, read each
-// time Settings is arrived at, and the latest GitHub Release, looked for once when Settings first shows in
-// a session, then at most every six hours, or at Check now. Everything here reads: the page writes nothing
-// (D-064), and the plugin's update is Setup's own A4 fix. VS Code's API comes from the parts activate()
+// time Settings is arrived at, and the latest GitHub Release, looked for when Settings shows or by itself
+// (T-62), at most every six hours, or at Check now. One look serves both: what the look by itself finds,
+// About shows, and the update's offer hears of each look About makes. Everything here reads: the page
+// writes nothing (D-064), the plugin's update is Setup's own A4 fix, and the extension's is self-update.ts's. VS Code's API comes from the parts activate()
 // hands every area, so a test can drive it with stand-ins (D-099).
 
 import { parsePluginList, PLUGIN_LIST_ARGS, userPlugin } from '../../packages/core/src/onboarding/steps.ts';
@@ -18,6 +19,8 @@ export interface AboutDeps {
   /** A program on PATH: claude, and gh. */
   run(cmd: string, args: string[], env: NodeJS.ProcessEnv): Promise<RunResult>;
   now(): number;
+  /** Whether the extension looks for a release by itself (T-62), the setting, read now. */
+  auto(): boolean;
   /** What it knows changed: the page redraws. */
   changed(): void;
   env: NodeJS.ProcessEnv;
@@ -46,6 +49,7 @@ export class About {
   private checkedAt: number | null = null;
   private reading: Promise<void> | null = null;
   private checking: Promise<void> | null = null;
+  private readonly looked: ((r: NonNullable<AboutFacts['release']>) => void)[] = [];
   private readonly d: AboutDeps;
 
   constructor(d: AboutDeps) {
@@ -53,7 +57,17 @@ export class About {
   }
 
   facts(): AboutFacts {
-    return { extension: this.d.extension(), acc: this.acc, plugin: this.plugin, release: this.release, reading: !!this.reading, checking: !!this.checking, checkedAt: this.checkedAt };
+    return { extension: this.d.extension(), acc: this.acc, plugin: this.plugin, release: this.release, reading: !!this.reading, checking: !!this.checking, checkedAt: this.checkedAt, auto: this.d.auto() };
+  }
+
+  /** Hears of each look for a release, whoever asked for it, once it's stored (T-62). */
+  onLooked(fn: (r: NonNullable<AboutFacts['release']>) => void): void {
+    this.looked.push(fn);
+  }
+
+  /** The look by itself (T-62): a release, when one is due, or the look already going. */
+  lookIfDue(): Promise<void> {
+    return this.checking ?? (releaseDue(this.checkedAt, this.d.now()) ? this.lookForRelease() : Promise.resolve());
   }
 
   /**
@@ -95,6 +109,7 @@ export class About {
       this.checkedAt = this.d.now();
       this.checking = null;
       this.d.changed();
+      for (const fn of this.looked) fn(this.release!);
     });
     this.d.changed();
     return this.checking;

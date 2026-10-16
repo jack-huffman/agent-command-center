@@ -3,3 +3,4 @@
 .about-row .settings-now a.ext { display: inline-flex; align-items: center; gap: 4px; }
 .about-row > .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .about-row > .btn:disabled:hover { background: var(--raised); border-color: var(--edge); }
+.about-install { margin-top: 6px; }

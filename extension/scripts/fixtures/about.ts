@@ -9,7 +9,7 @@ export function sampleAbout(now: number): AboutFacts {
   return {
     extension: '0.37.0', acc: { ok: true, value: '0.37.0' }, plugin: { ok: true, value: { version: '0.37.0', enabled: true } },
     release: { ok: true, value: { version: '0.37.0', tag: 'v0.37.0', name: 'v0.37.0', url: `${URL}0.37.0` } },
-    reading: false, checking: false, checkedAt: now - 12 * MIN,
+    reading: false, checking: false, checkedAt: now - 12 * MIN, auto: true,
   };
 }
 

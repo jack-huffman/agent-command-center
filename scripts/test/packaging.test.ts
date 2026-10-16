@@ -3,14 +3,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { run, type Runner, type RunOptions, type RunResult } from '../../packages/core/src/exec.ts';
 import { bad, gitIn, makeRepo, ok, tempDir } from '../../packages/core/test/support.ts';
 import { type CheckDecision, decideCheck, readReceipt, RECEIPT_FILE, RECEIPT_MAX_AGE_MS, type Receipt, treeState, writeReceipt } from '../check-receipt.ts';
 import {
-  changelogEntry, changelogProblems, CHANGELOG, matcher, NO_TERMS, packageRelease, parseSignIn, personalTerms, PLACEHOLDERS, readVersions, release, ROOT,
+  changelogEntry, changelogProblems, CHANGELOG, checksumText, matcher, NO_TERMS, packageRelease, parseSignIn, personalTerms, PLACEHOLDERS, readVersions, release, ROOT,
   scanFiles, scanLine, scanVsix, setVersion, type Terms, VERSION_PLACES, versionProblems, vsixName, filesIn,
 } from '../packaging.ts';
 
@@ -385,7 +385,7 @@ function releasable(): string {
   return dir;
 }
 
-interface Tried { reason: string | null; url: string | null; calls: string[]; created: { args: string[]; env?: NodeJS.ProcessEnv; notes: string } | null; asked: boolean }
+interface Tried { reason: string | null; url: string | null; calls: string[]; created: { args: string[]; env?: NodeJS.ProcessEnv; notes: string; sha256: string | null } | null; asked: boolean }
 
 async function releaseWith(dir: string, o: { tty?: boolean; env?: NodeJS.ProcessEnv; typed?: string; fixtures?: Record<string, RunResult> } = {}): Promise<Tried> {
   const t: Tried = { reason: null, url: null, calls: [], created: null, asked: false };
@@ -400,7 +400,8 @@ async function releaseWith(dir: string, o: { tty?: boolean; env?: NodeJS.Process
     'gh release view': bad('release not found'),
     'gh release create': (args, opts) => {
       const notes = args[args.indexOf('--notes-file') + 1]!;
-      t.created = { args, env: opts?.env, notes: readFileSync(notes, 'utf8') };
+      const sum = args.find((a) => a.endsWith('.sha256'));
+      t.created = { args, env: opts?.env, notes: readFileSync(notes, 'utf8'), sha256: sum ? readFileSync(sum, 'utf8') : null };
       return ok(`${RELEASE_URL}\n`);
     },
     ...o.fixtures,
@@ -422,10 +423,13 @@ test('npm run release makes the release as the repo\'s account, with the .vsix a
   assert.equal(t.url, RELEASE_URL);
   assert.ok(t.asked, 'a person typed the version');
   const notesAt = t.created!.args[t.created!.args.length - 1]!;
-  assert.deepEqual(t.created!.args, ['release', 'create', `v${VERSION}`, join(dir, 'dist', vsixName(VERSION)), '-R', REPO, '--target', SHA, '--title', VERSION, '--notes-file', notesAt]);
+  const sumAt = t.created!.args[4]!;
+  assert.deepEqual(t.created!.args, ['release', 'create', `v${VERSION}`, join(dir, 'dist', vsixName(VERSION)), sumAt, '-R', REPO, '--target', SHA, '--title', VERSION, '--notes-file', notesAt]);
   assert.equal(t.created!.env?.GH_TOKEN, 'tok-123');
   assert.equal(t.created!.notes, '- What changed.\n');
   assert.equal(existsSync(notesAt), false, 'the notes file is removed');
+  assert.equal(basename(sumAt), `${vsixName(VERSION)}.sha256`, 'the checksum is named for the .vsix (T-62)');
+  assert.equal(existsSync(sumAt), false, 'and removed with the notes');
   assert.ok(t.calls.includes('gh auth token -u jack-huffman'));
 });
 
@@ -476,4 +480,23 @@ test('npm run release refuses, saying why, unless a person runs it on a clean, p
   await refused(/gh isn't logged in as jack-huffman/, releasable(), { fixtures: { 'gh auth token -u jack-huffman': bad('no account') } });
   const typo = await refused(/You typed "0\.0\.9", not .*Nothing was released/, releasable(), { typed: '0.0.9' });
   assert.ok(typo.asked);
+});
+
+test('npm run release uploads the .vsix\'s .sha256 beside it, which matches what shasum -a 256 prints (T-62)', async () => {
+  const dir = releasable();
+  const vsix = join(dir, 'dist', vsixName(VERSION));
+  const t = await releaseWith(dir);
+  assert.equal(t.reason, null);
+  // shasum -a 256, run in the .vsix's folder, prints the hash, two spaces and the file's name: the extension's update reads that.
+  const shasum = spawnSync('shasum', ['-a', '256', vsixName(VERSION)], { cwd: dirname(vsix), encoding: 'utf8' });
+  assert.equal(shasum.status, 0, shasum.stderr);
+  assert.equal(t.created!.sha256, shasum.stdout);
+  assert.equal(checksumText(vsix), shasum.stdout);
+  assert.match(t.created!.sha256!, /^[0-9a-f]{64} {2}agent-command-center-\S+\.vsix\n$/);
+});
+
+test('a refused release uploads no checksum, the edge case of a release that stops before it creates anything', async () => {
+  const t = await releaseWith(releasable(), { typed: 'nope' });
+  assert.equal(t.created, null);
+  assert.ok(!t.calls.some((c) => c.startsWith('gh release create')));
 });

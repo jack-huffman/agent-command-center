@@ -4,14 +4,16 @@
  * npm run release run these. Releasing this repo isn't acc's product behaviour, so it lives here, not in
  * core (D-003).
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir, userInfo } from 'node:os';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CheckDecision } from './check-receipt.ts';
 import { run as realRun, type Runner } from '../packages/core/src/exec.ts';
 import { cloneAccount, ghAccounts } from '../packages/core/src/github.ts';
 import { GH_TIMEOUT_MS, ghToken } from '../packages/core/src/land.ts';
+import { vsixName } from '../packages/core/src/onboarding/steps.ts';
 
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const SEMVER = /^\d+\.\d+\.\d+$/;
@@ -410,7 +412,11 @@ export function personalTerms(d: TermDeps): { terms: Terms; notes: string[] } {
 
 // ---------------------------------------------------------------- npm run package
 
-export const vsixName = (version: string): string => `agent-command-center-${version}.vsix`;
+/** The release's .vsix, by the name the extension's update looks for (T-62). */
+export { vsixName };
+
+/** The .vsix's checksum file, beside it on a release: what `shasum -a 256 <vsix>` prints, run in its folder (T-62). */
+export const checksumText = (vsix: string): string => `${createHash('sha256').update(readFileSync(vsix)).digest('hex')}  ${basename(vsix)}\n`;
 
 export interface PackageSteps {
   root: string;
@@ -487,7 +493,7 @@ const short = (sha: string) => sha.slice(0, 7);
 
 /**
  * npm run release: a GitHub Release v<version> of HEAD, on the repo, as the repo's account (D-007), with
- * the .vsix attached and its CHANGELOG entry as the notes. Only a person makes one: it needs a terminal
+ * the .vsix and its .sha256 attached and its CHANGELOG entry as the notes. Only a person makes one: it needs a terminal
  * and the version typed, refuses an agent's environment, and builders' hooks deny it.
  */
 export async function release(d: ReleaseDeps): Promise<Released> {
@@ -554,7 +560,10 @@ export async function release(d: ReleaseDeps): Promise<Released> {
   try {
     const notesFile = join(tmp, 'notes.md');
     writeFileSync(notesFile, `${notes}\n`);
-    const r = d.run('gh', ['release', 'create', tag, vsix, '-R', repo, '--target', head, '--title', version, '--notes-file', notesFile], { cwd: d.root, env, timeoutMs: RELEASE_TIMEOUT_MS });
+    // Its checksum beside it, which the extension's update checks the download against (T-62).
+    const sum = join(tmp, `${vsixName(version)}.sha256`);
+    writeFileSync(sum, checksumText(vsix));
+    const r = d.run('gh', ['release', 'create', tag, vsix, sum, '-R', repo, '--target', head, '--title', version, '--notes-file', notesFile], { cwd: d.root, env, timeoutMs: RELEASE_TIMEOUT_MS });
     if (r.code !== 0) return no(`gh release create failed: ${(r.stderr || r.stdout).trim()}`);
     const url = r.stdout.trim().split('\n').pop() ?? '';
     return { ok: true, url };

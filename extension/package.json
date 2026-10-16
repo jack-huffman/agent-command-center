@@ -1487,6 +1487,11 @@
           "default": true,
           "markdownDescription": "Say when a task changes in a way that needs you or is news: a builder finished, a review passed or asked for changes, a pull request's checks failed or it merged. Quiet while the Command Center shows that board. Notices to Slack have their own switch, in the Settings section's Notices in Slack."
         },
+        "agentCommandCenter.updates.check": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Look for a newer release by itself, a minute after VSCode starts and then every six hours, as gh's signed-in account, and offer it in a notification: Install and reload, Release notes, or Skip this version. Off, nothing is looked for by itself; Check now in the Command Center's Settings, About, still looks."
+        },
         "agentCommandCenter.theme": {
           "type": "string",
           "enum": [

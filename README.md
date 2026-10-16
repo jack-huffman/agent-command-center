@@ -169,8 +169,14 @@ code --install-extension agent-command-center-*.vsix
 A fresh VSCode doesn't put `code` on your PATH: run **Shell Command: Install
 'code' command in PATH** from its Command Palette first, or, in VSCode:
 Extensions view → **⋯** → **Install from VSIX…**, and pick the file. Then
-reload the window (**Developer: Reload Window**). A newer release
-installs the same way, over the old one.
+reload the window (**Developer: Reload Window**).
+
+After that, the extension finds a newer release by itself and offers it in a
+notification. **Install and reload** (also in Settings' **About**) downloads
+the release's `.vsix` as gh's signed-in account, checks it against the
+release's `.sha256`, installs it, reloads the window and opens the Command
+Center on the new version. A newer release also installs by hand, the same
+way as the first, over the old one.
 
 ### The first run
 
@@ -305,7 +311,7 @@ another project's or client's never show up.
 
 ## Settings
 
-The extension has four settings, under **Agent Command Center** in VSCode's
+The extension has five settings, under **Agent Command Center** in VSCode's
 Settings.
 
 - `agentCommandCenter.openFromActivityBar` (on by default): clicking the Command Center's icon
@@ -326,6 +332,13 @@ Settings.
   list lives in the window: reloading VS Code starts it empty. Notices to
   Slack have their own switch, in the Settings section's **Notices in Slack**,
   and still get each change.
+- `agentCommandCenter.updates.check` (on by default): look for a newer
+  release by itself, a minute after the window starts and then every six
+  hours, as gh's signed-in account. A newer version shows one notification,
+  "Agent Command Center <version> is out", with **Install and reload**,
+  **Release notes** and **Skip this version**. A skipped version isn't offered
+  again; a later one is. Off, nothing is looked for by itself, and **Check
+  now** in Settings' **About** still looks.
 - `agentCommandCenter.theme`: how the Command Center's pages look: `vscode`
   (Match VSCode, the default), `light` or `dark`. It changes only acc's own
   pages; VSCode keeps its theme. It's kept on this machine, and set from

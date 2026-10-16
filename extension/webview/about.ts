@@ -1,6 +1,7 @@
 // Settings' About (GH-114): the versions of acc, the extension and the plugin, each with where it's read
-// from, then the latest release, with its notes when it's newer, and Check now. Every button asks the
-// extension: Check now reads again, and the plugin's Update is Setup's own A4 fix. The page writes nothing.
+// from, then the latest release, with its notes and Install and reload when it's newer, and Check now. Every
+// button asks the extension: Check now reads again, Install and reload is the extension's own update (T-62),
+// and the plugin's Update is Setup's own A4 fix. The page writes nothing.
 
 import type { AboutAction, AboutModel, AboutRow } from '../src/model/about.ts';
 import type { SettingFrom } from '../src/model/settings.ts';
@@ -37,6 +38,7 @@ export function renderAbout(m: AboutModel | null, folded: readonly string[]): No
     el('span', 'settings-name', icon('tag'), el('span', 'strong', 'Latest release')),
     el('div', 'settings-value',
       el('div', 'settings-now', status(r.look), r.notes ? linkTo(r.notes.url, icon('link-external'), r.notes.label) : null),
+      r.install ? el('div', 'about-install', aboutButton(r.install)) : null,
       el('p', 'muted small settings-meaning', r.when)),
     aboutButton(r.check));
   release.dataset.about = 'release';

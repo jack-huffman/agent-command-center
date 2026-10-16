@@ -16,6 +16,7 @@ import type { FromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
 import type { Panels } from './panels.ts';
 import type { Runs } from './runs.ts';
+import type { SelfUpdate } from './self-update.ts';
 import type { Setup } from './setup.ts';
 import type { Sidebar } from './sidebar.ts';
 import type { Slack } from './slack.ts';
@@ -45,6 +46,8 @@ export interface Parts {
   sidebar: Sidebar;
   /** Settings' About (GH-114): the versions, and the latest release. */
   about: About;
+  /** The extension's own update (T-62): the offer, and Install and reload. */
+  selfUpdate: SelfUpdate;
   /** acc's bundle, which the extension runs itself. */
   accScript: string;
   /** Registers a command. regNode turns a row's menu context into its node first. */
