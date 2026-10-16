@@ -9,6 +9,7 @@ import { type FromWebview, isFromWebview, PAGE_COMMANDS } from './model/messages
 import { HOME_SECTIONS, type HomeSection, type Ref, type ViewKind } from './model/shared.ts';
 import type { IdentityCard } from './model/environments.ts';
 import { homeModel } from './model/home.ts';
+import type { ProjectNotice } from './logic/notices.ts';
 import { runCard, type RunInput } from './model/runs.ts';
 import type { SlackCard } from './model/slack.ts';
 import { WHERE_VIEWS, type WhereView } from './model/agents.ts';
@@ -36,6 +37,8 @@ export interface BoardDeps {
   autopilot?(root: string): 'on' | 'elsewhere' | null;
   /** Settings' About (GH-114): what it knows, and Settings arrived at, which reads the versions again. */
   about?: { facts(): AboutFacts; arrive(): Promise<void> };
+  /** What the newest away span held, for the Overview's Since you last looked (D-???). */
+  since?(): readonly ProjectNotice[];
 }
 
 /** Something drawn over the page, such as a task in a modal over the Tasks board (GH-158). */
@@ -368,7 +371,7 @@ export class Panels implements vscode.Disposable {
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed(), setUp: this.setup.setUp() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
       whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(), pace: currentPace(), opensOn: this.opens,
-      finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(), about: this.deps.about?.facts() ?? null,
+      finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(), about: this.deps.about?.facts() ?? null, since: this.deps.since?.() ?? [],
     });
   }
 

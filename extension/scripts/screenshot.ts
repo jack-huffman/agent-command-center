@@ -43,7 +43,7 @@ import { sampleIdentities, sampleIdentity } from './fixtures/environments.ts';
 import { sampleHub } from './fixtures/hub.ts';
 import { sampleLimitsOther } from './fixtures/limits.ts';
 import { sampleAbout, sampleAboutBehind, sampleAboutFailed } from './fixtures/about.ts';
-import { sampleLandingHub, sampleLandingRuns } from './fixtures/landing.ts';
+import { sampleLandingHub, sampleLandingRuns, sampleSince } from './fixtures/landing.ts';
 import { sampleQueueHub } from './fixtures/overview.ts';
 import { sampleAnalyzeRun, sampleBusyHub, sampleIdleHub } from './fixtures/progress.ts';
 import { sampleRulesHub } from './fixtures/rules.ts';
@@ -95,7 +95,7 @@ import { axeScript, COLLECT_A11Y } from './a11y.ts';
  * Last, the command palette open over the Tasks board (T-52): with "an" typed and its results across several groups, and with
  * nothing typed, showing what was run last and then the sections.
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving'] as const;
 export type Page = (typeof PAGES)[number];
 
 /**
@@ -174,8 +174,9 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     return homeModel({ ...base, hub: sampleBusyHub(now), runs, finished, autopilot: () => 'on', now });
   }
   // The Overview when everything is busy at once, and with a detail opened over it (GH-160).
-  if (kind === 'overview-landing' || kind === 'overview-answer' || kind === 'overview-drafts' || kind === 'overview-history' || OVERVIEW_LISTS[kind]) {
-    return homeModel({ hub: sampleLandingHub(now), section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleLandingRuns(), edited: sampleEdited, slack: sampleSlack('on', now), autopilot: () => 'on', now });
+  // With what changed while the person was away above the cards (D-???).
+  if (kind === 'overview-landing' || kind === 'overview-answer' || kind === 'overview-drafts' || kind === 'overview-history' || kind === 'overview-since' || OVERVIEW_LISTS[kind]) {
+    return homeModel({ hub: sampleLandingHub(now), section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleLandingRuns(), edited: sampleEdited, slack: sampleSlack('on', now), autopilot: () => 'on', now, ...(kind === 'overview-since' ? { since: sampleSince() } : {}) });
   }
   // Setup as it's first shown in a folder that isn't set up, which no project is loaded from (GH-138).
   if (kind === 'setup-first' || kind === 'setup-first-machine') {
@@ -259,7 +260,7 @@ export const DEFAULT_HEIGHT = 900;
  * Command Center's preferences is shot tall enough not to scroll at 500 px, and Environments tall enough to
  * show This machine's line saying Slack moved (GH-113).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, 'overview-since': 1500, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
@@ -465,7 +466,7 @@ async function behaviourRun(chrome: string): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, run: (c, args) => chromeRun(c, args, true), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

@@ -138,6 +138,19 @@ export interface Said {
   actions: [label: string, command: string][];
   /** The task its buttons act on, or null for the Overview. */
   task: { root: string; task: string } | null;
+  /** The heading the Overview opens at, for one with no task, such as Since you last looked (D-???). */
+  part?: string;
+}
+
+/** Notices counted by kind, in words, the kinds that need you first: "2 need you, 2 reviews passed, 3 merged". */
+export function noticeCounts(all: ProjectNotice[]): string {
+  const counts = new Map<string, { words: [string, string]; n: number; urgent: boolean; at: number }>();
+  for (const { notice: n } of all) {
+    const words = NOTICE_WORDS[n.kind];
+    const c = counts.get(words[1]) ?? { words, n: 0, urgent: false, at: NOTICE_KINDS.indexOf(n.kind) };
+    counts.set(words[1], { ...c, n: c.n + 1, urgent: c.urgent || n.urgent, at: Math.min(c.at, NOTICE_KINDS.indexOf(n.kind)) });
+  }
+  return [...counts.values()].sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.at - b.at).map((c) => `${c.n} ${c.words[c.n === 1 ? 0 : 1]}`).join(', ');
 }
 
 /**
@@ -149,16 +162,10 @@ export interface Said {
 export function noticeBurst(all: ProjectNotice[]): Said[] {
   const one = ({ root, notice: n }: ProjectNotice): Said => ({ text: n.text, urgent: n.urgent, actions: noticeActions(n), task: { root, task: n.task } });
   if (all.length <= BURST_AT) return all.map(one);
-  const counts = new Map<string, { words: [string, string]; n: number; urgent: boolean; at: number }>();
-  for (const { notice: n } of all) {
-    const words = NOTICE_WORDS[n.kind];
-    const c = counts.get(words[1]) ?? { words, n: 0, urgent: false, at: NOTICE_KINDS.indexOf(n.kind) };
-    counts.set(words[1], { ...c, n: c.n + 1, urgent: c.urgent || n.urgent, at: Math.min(c.at, NOTICE_KINDS.indexOf(n.kind)) });
-  }
-  const parts = [...counts.values()].sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.at - b.at).map((c) => `${c.n} ${c.words[c.n === 1 ? 0 : 1]}`);
+  const parts = noticeCounts(all);
   const urgent = all.some(({ notice: n }) => n.urgent);
   const first = all[0]!;
   const sameTask = all.every((p) => p.root === first.root && p.notice.task === first.notice.task);
-  if (sameTask) return [{ text: `Since you last looked, ${first.notice.task}: ${parts.join(', ')}.`, urgent, actions: noticeActions(all.at(-1)!.notice), task: { root: first.root, task: first.notice.task } }];
-  return [{ text: `Since you last looked: ${parts.join(', ')}.`, urgent, actions: [['Show', OVERVIEW_COMMAND]], task: null }];
+  if (sameTask) return [{ text: `Since you last looked, ${first.notice.task}: ${parts}.`, urgent, actions: noticeActions(all.at(-1)!.notice), task: { root: first.root, task: first.notice.task } }];
+  return [{ text: `Since you last looked: ${parts}.`, urgent, actions: [['Show', OVERVIEW_COMMAND]], task: null }];
 }

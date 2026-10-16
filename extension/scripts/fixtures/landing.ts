@@ -6,6 +6,7 @@
 import type { Question } from '../../../packages/core/src/questions.ts';
 import type { Suggestion } from '../../../packages/core/src/rule-suggestions.ts';
 import { stepInWords } from '../../src/logic/relayed.ts';
+import type { ProjectNotice } from '../../src/logic/notices.ts';
 import type { TaskRow } from '../../src/logic/shared.ts';
 import type { HubLike } from '../../src/model/shared.ts';
 import type { RunInput } from '../../src/model/runs.ts';
@@ -14,7 +15,7 @@ import type { LastStep } from '../../src/transcript.ts';
 import { sampleAutopilot } from './history.ts';
 import { sampleHub } from './hub.ts';
 import { sampleSuggestions } from './rules.ts';
-import { MIN, wt } from './shared.ts';
+import { MIN, ROOT, wt } from './shared.ts';
 
 /** Eight more suggestions after the two the rules page shows: ten in all, each from a few reviews. */
 function moreSuggestions(now: number): Suggestion[] {
@@ -115,3 +116,15 @@ export function sampleLandingHub(now = Date.now()): HubLike {
  * output panel stays shut.
  */
 export const sampleLandingRuns = (): RunInput[] => [];
+
+/**
+ * What changed while the person was away (D-???), for Since you last looked: a review passed, a pull request
+ * merged, a task ready for review with a long title, an analysis ready and one back.
+ */
+export const sampleSince = (): ProjectNotice[] => [
+  { root: ROOT, notice: { kind: 'passed', task: 'ACME-16', text: 'The review passed ACME-16. It\'s ready to land.', urgent: false } },
+  { root: ROOT, notice: { kind: 'merged', task: 'ACME-17', text: 'Pull request #142 merged. ACME-17 is done.', urgent: false } },
+  { root: ROOT, notice: { kind: 'review', task: 'ACME-43', text: 'ACME-43 is ready for review: Archive email attachments to Files, and remove each one from its email once the copy is checked', urgent: false } },
+  { root: ROOT, notice: { kind: 'analysis-ready', task: 'ACME-46', text: 'ACME-46\'s analysis is ready.', urgent: false } },
+  { root: ROOT, notice: { kind: 'analysis-back', task: 'ACME-14', text: 'ACME-14\'s analysis is back. Its 2 questions can be answered on its page.', urgent: false } },
+];

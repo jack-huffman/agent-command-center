@@ -17,6 +17,8 @@ import type { ConnectModel } from './connect.ts';
 import { environmentsModel, type EnvironmentsModel, type IdentityCard } from './environments.ts';
 import { historyItems } from './history.ts';
 import { landing, overviewCards } from './landing.ts';
+import { sinceGroup } from './since.ts';
+import type { ProjectNotice } from '../logic/notices.ts';
 import { type AttentionItem, mergeQueues, needsYouCount, type OverviewModel, queueLook, type QueuePanel } from './overview.ts';
 import { type QuestionCard, questionCards } from './questions.ts';
 import { runCard, type RunCard, type RunInput } from './runs.ts';
@@ -96,6 +98,8 @@ export interface HomeInput {
   opensOn?: OpensOn;
   /** What Settings' About has read: the versions and the latest release (GH-114). */
   about?: AboutFacts | null;
+  /** What the newest away span held, for the Overview's Since you last looked (D-???). None unless said. */
+  since?: readonly ProjectNotice[];
 }
 
 /** What homeModel has worked out, for each area's part of the page. Areas add to attention and ready as they go. */
@@ -175,7 +179,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const overview = { projects, questions, attention, ready, queue, history, inProgress: progress };
   // The page itself is a landing page: Needs you, then a card for each other list, the detail a click away (GH-160, T-36).
   const lists = landing(overview, i.now);
-  const page = { kind: 'home' as const, section: i.section, nav, overview: { ...overview, landing: lists, cards: overviewCards(lists) }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null };
+  const page = { kind: 'home' as const, section: i.section, nav, overview: { ...overview, landing: lists, cards: overviewCards(lists), since: sinceGroup(i.since ?? [], projects) }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null };
   return { ...page, palette: paletteItems(page) };
 }
 
