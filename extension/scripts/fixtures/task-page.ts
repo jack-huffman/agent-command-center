@@ -6,7 +6,7 @@ import { ticketModel, type TicketModel } from '../../src/model/task-page.ts';
 import { sampleAnalyses } from './analysis.ts';
 import { DOING, DONE, REVIEW, sampleBoards, TODO } from './boards.ts';
 import { sampleHub } from './hub.ts';
-import { MIN, R19, ROOT, wt } from './shared.ts';
+import { excerptLine, MIN, R19, ROOT, WELCOME_CLS, wt } from './shared.ts';
 import { sampleUpdates } from './updates.ts';
 
 const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks: marks.map((type) => ({ type })) } : {}) }] });
@@ -73,7 +73,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
       { at: new Date(now - 2.5 * 86_400_000).toISOString(), from: 'running', to: 'blocked', by: 'builder:ACME-12', reason: 'acc gate run errors on validate: the Acme Dev login has expired. Log in to Acme Dev again, then I can run acc gate run.' },
       { at: new Date(now - 2.4 * 86_400_000).toISOString(), from: 'blocked', to: 'running', by: 'human:me' },
       { at: new Date(now - 2 * 86_400_000).toISOString(), from: 'running', to: 'review', by: 'builder:ACME-12' },
-      { at: new Date(now - 30 * 60_000).toISOString(), from: 'review', to: 'rework', by: 'human:me', reason: 'Pull request #38 conflicts with dev in the Case escalation rules. The rule entries for High and Medium both changed on dev since this branch started: dev added a Low entry and reordered the criteria, so the merge needs a person. Checks on 4f2a9c1: format passed; static found the 2 known sev-2 violations in CaseRouting.cls; validate ran CaseRoutingTest and EscalationRulesTest in Acme Dev, 19 of 21 passing, with the 2 known failures in premiumEscalates.' },
+      { at: new Date(now - 30 * 60_000).toISOString(), from: 'review', to: 'rework', by: 'human:me', reason: 'Pull request #38 conflicts with dev in the Case escalation rules. The rule entries for High and Medium both changed on dev since this branch started: dev added a Low entry and reordered the criteria, so the merge needs a person. Checks on 4f2a9c1: format passed; static found the 2 known sev-2 violations in CaseRouting.WELCOME_CLS; validate ran CaseRoutingTest and EscalationRulesTest in Acme Dev, 19 of 21 passing, with the 2 known failures in premiumEscalates.' },
       { at: new Date(now - 12 * 60_000).toISOString(), from: 'rework', to: 'running', by: 'human:me' },
     ],
     createdAt: new Date(now - 4 * 86_400_000).toISOString(), updatedAt: new Date(now - 12 * 60_000).toISOString(),
@@ -332,8 +332,6 @@ function sampleReviewTicket(now: number): TicketModel {
     ],
     createdAt: new Date(now - 3 * 86_400_000).toISOString(), updatedAt: reviewed,
   } as unknown as Task;
-  const cls = 'force-app/main/default/classes/WelcomeEmailService.cls';
-  const line = (n: number | null, mark: 'add' | 'del' | 'same', text: string, at = false) => ({ n, mark, text, at });
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-19', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
     trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
@@ -346,28 +344,28 @@ function sampleReviewTicket(now: number): TicketModel {
         task: 'ACME-19', sha: '7c3e9a1', verdict: 'changes', sessionId: 'rv-acme-19', name: R19, at: reviewed,
         summary: 'Marks each contact when its welcome email is sent, so a second run skips it. Contacts welcomed before this change have no mark, so they would get the email again.',
         findings: [
-          { message: 'Name the 24-hour window once, so the flow and the class agree on it.', must: false, file: cls, line: 12, kind: 'magic number' },
-          { message: 'Contacts welcomed before this change have no Welcome_Sent_At__c, so they get a second email. Treat Welcome_Sent__c as sent too, and test a contact with only that set.', must: true, file: cls, line: 31, kind: 'untested edge case' },
+          { message: 'Name the 24-hour window once, so the flow and the class agree on it.', must: false, file: WELCOME_CLS, line: 12, kind: 'magic number' },
+          { message: 'Contacts welcomed before this change have no Welcome_Sent_At__c, so they get a second email. Treat Welcome_Sent__c as sent too, and test a contact with only that set.', must: true, file: WELCOME_CLS, line: 31, kind: 'untested edge case' },
           { message: 'The builder\'s note says every flow test passes, but only WelcomeEmailServiceTest ran.', must: false, kind: 'note overstates' },
         ],
       },
       current: true, checkout: true,
       excerpts: [
         { kind: 'unchanged', lines: [
-          line(10, 'same', '  public static List<Contact> due(List<Contact> contacts) {'),
-          line(11, 'same', '    List<Contact> queue = new List<Contact>();'),
-          line(12, 'same', '    Integer hours = 24;', true),
-          line(13, 'same', '    Datetime since = System.now().addHours(-hours);'),
-          line(14, 'same', '    for (Contact c : contacts) {'),
+          excerptLine(10, 'same', '  public static List<Contact> due(List<Contact> contacts) {'),
+          excerptLine(11, 'same', '    List<Contact> queue = new List<Contact>();'),
+          excerptLine(12, 'same', '    Integer hours = 24;', true),
+          excerptLine(13, 'same', '    Datetime since = System.now().addHours(-hours);'),
+          excerptLine(14, 'same', '    for (Contact c : contacts) {'),
         ] },
         { kind: 'diff', lines: [
-          line(29, 'same', '    for (Contact c : contacts) {'),
-          line(null, 'del', '      if (c.Welcome_Sent__c) continue;'),
-          line(30, 'add', '      if (c.Welcome_Sent_At__c >= since) continue;'),
-          line(31, 'add', '      c.Welcome_Sent_At__c = System.now();', true),
-          line(32, 'same', '      queue.add(c);'),
-          line(33, 'same', '    }'),
-          line(34, 'same', '    return queue;'),
+          excerptLine(29, 'same', '    for (Contact c : contacts) {'),
+          excerptLine(null, 'del', '      if (c.Welcome_Sent__c) continue;'),
+          excerptLine(30, 'add', '      if (c.Welcome_Sent_At__c >= since) continue;'),
+          excerptLine(31, 'add', '      c.Welcome_Sent_At__c = System.now();', true),
+          excerptLine(32, 'same', '      queue.add(c);'),
+          excerptLine(33, 'same', '    }'),
+          excerptLine(34, 'same', '    return queue;'),
         ] },
         null,
       ],

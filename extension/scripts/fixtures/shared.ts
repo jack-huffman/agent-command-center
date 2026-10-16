@@ -14,6 +14,11 @@ export const CLIENTS = '/Users/me/clients/Acme Service';
 /** A task's worktree in the sample project. */
 export const wt = (id: string) => `${ROOT}/.claude/worktrees/${id}`;
 
+/** The class ACME-19 changes, whose excerpts the task page's review and the output panel's review show (T-63). */
+export const WELCOME_CLS = 'force-app/main/default/classes/WelcomeEmailService.cls';
+/** A line of a review's excerpt: its number in the file (none for a deleted line), its mark, and whether a finding points at it. */
+export const excerptLine = (n: number | null, mark: 'add' | 'del' | 'same', text: string, at = false) => ({ n, mark, text, at });
+
 /** What GH-41's builder last said when the Mac slept (D-067). */
 export const SLEPT = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
 /** Why autopilot couldn't review ACME-25, as acc's review refuses it: in acc's words, with its command (GH-163). */
