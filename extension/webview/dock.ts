@@ -3,6 +3,7 @@
 import { pickerOf } from './looks.ts';
 import type { RunCard } from '../src/model/runs.ts';
 import { button, el, icon, keepFocus, keptInput, status, titled, work } from './dom.ts';
+import { openKey, renderDockReview, showsLines } from './dock-review.ts';
 import { api, memory, type PageArea, remember, state, view } from './state.ts';
 
 // ---------------------------------------------------------------- the output panel (D-030)
@@ -30,9 +31,13 @@ export function renderDock(list: RunCard[]): HTMLElement | null {
   const run = list.find((r) => r.id === m.run) ?? list.find((r) => r.running && !r.background) ?? list.find((r) => !r.background) ?? list[0]!;
   const open = m.open;
   const toggle = () => { remember((x) => { x.dock.open = !open; x.dock.run = run.id; }); redrawDock(); };
-  const lastLine = [...run.lines].reverse().find((l) => l.trim()) ?? (run.running ? 'Starting…' : 'No output');
+  const review = run.review;
+  // Closed, a finished review's line is its count, not its last line of output (T-63).
+  const lastLine = review?.phase === 'done' ? review.count : [...run.lines].reverse().find((l) => l.trim()) ?? (run.running ? 'Starting…' : 'No output');
   const bar = el('div', 'dock-bar');
-  const head = el('button', 'dock-title', icon('terminal'), el('span', 'strong dock-label', run.label), status(run.look), open || run.prompt ? null : work(el('span', 'muted mono dock-last', lastLine), 'output')) as HTMLButtonElement;
+  // Open on a review, its header line says the verdict, so the bar doesn't say it again (T-63).
+  const reviewShown = open && !!review && review.phase !== 'unread' && !showsLines(run.id);
+  const head = el('button', 'dock-title', icon('terminal'), el('span', 'strong dock-label', run.label), reviewShown ? null : status(run.look), open || run.prompt ? null : work(el('span', 'muted mono dock-last', lastLine), 'output')) as HTMLButtonElement;
   head.type = 'button';
   head.title = `${run.label}\n\n${open ? 'Hide' : 'Show'} the output`;
   head.setAttribute('aria-expanded', String(open));
@@ -57,6 +62,16 @@ export function renderDock(list: RunCard[]): HTMLElement | null {
   }
   const control = (action: string) => api.postMessage({ type: 'run-control', run: run.id, action });
   // A toolbar like VSCode's own panels: icons, each with its name on hover and for screen readers.
+  // A review shows its lines on Show output, and its review again after (T-63). One with no verdict shows only its lines.
+  if (review && review.phase !== 'unread') {
+    const lines = showsLines(run.id);
+    const show = tool(lines ? 'Show the review' : 'Show output', lines ? 'checklist' : 'output', () => {
+      remember((x) => { const k = openKey(run.id, 'lines'); x.opened = lines ? x.opened.filter((y) => y !== k) : [...x.opened, k]; x.dock.open = true; x.dock.run = run.id; });
+      redrawDock();
+    });
+    show.classList.add('dock-lines');
+    bar.append(show);
+  }
   if (run.running) bar.append(tool('Stop it', 'debug-stop', () => control('stop')));
   bar.append(tool(run.running ? 'Stop it here and run it in a terminal, for a command that needs your keyboard' : 'Run it again in a terminal', 'terminal', () => control('terminal')));
   if (!run.running) bar.append(tool('Dismiss', 'close', () => { control('dismiss'); remember((x) => { x.dock.run = null; }); }));
@@ -64,7 +79,9 @@ export function renderDock(list: RunCard[]): HTMLElement | null {
 
   const dock = el('section', `dock${open ? ' open' : ''}${run.prompt ? ' asking' : ''}`, bar);
   dock.setAttribute('aria-label', 'Command output');
-  if (open) {
+  const body = open && review ? renderDockReview(run.id, review, redrawDock) : null;
+  if (body?.above) dock.append(body.above);
+  if (open && (!body || body.lines)) {
     const out = work(el('pre', 'dock-out', run.lines.join('\n')), 'output');
     out.dataset.run = run.id;
     out.tabIndex = 0;
@@ -103,6 +120,10 @@ export function redrawDock(): void {
   else if (next) document.querySelector('.home-col')?.append(next);
   const nbox = next?.querySelector<HTMLElement>('.dock-out');
   if (nbox) stickToBottom(nbox, atBottom || box?.dataset.run !== nbox.dataset.run, top);
+  // A review opened in place keeps where it was scrolled, for the same run (T-63).
+  const was = old?.querySelector<HTMLElement>('.dr');
+  const now = next?.querySelector<HTMLElement>('.dr');
+  if (was && now && was.dataset.run === now.dataset.run) now.scrollTop = was.scrollTop;
   keep();
 }
 

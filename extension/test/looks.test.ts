@@ -29,6 +29,7 @@ import { SINCE_LOOK } from '../src/model/since.ts';
 import { STATUS } from '../src/model/setup.ts';
 import { displayLook } from '../src/model/shared.ts';
 import { CHECK_LOOK, checkLook, REVIEW_LOOK, ticketReview, wordingLook } from '../src/model/task-page.ts';
+import { CRITERION_LOOK, dockReview, REVIEW_RUN_LOOK } from '../src/model/dock-review.ts';
 import { worktreeLook } from '../src/model/worktrees.ts';
 import { loadWord, taskLook } from '../src/progress.ts';
 import { SLACK_KIND_WORDS, SLACK_KINDS, slackCard } from '../src/slack.ts';
@@ -111,6 +112,19 @@ export const TABLES: Table[] = [
       const f = (must: boolean) => ({ message: 'm', must, file: 'a.ts', line: 1 });
       const block = (verdict: 'pass' | 'changes') => ticketReview('/r', 'review', { verdict: { task: 'T-1', sha: 'abc1234', verdict, summary: 's', findings: [f(true), f(false)], sessionId: '', at: 't' }, current: true, checkout: true, excerpts: [] })!;
       return [...Object.entries(REVIEW_LOOK), ...(['pass', 'changes'] as const).flatMap((v): [string, Shown][] => [[`a review that says ${v}`, block(v).look], ...block(v).findings.map((x): [string, Shown] => [`a finding: ${x.look.label}`, x.look])])];
+    },
+  },
+  // A review in the output panel (T-63): before its verdict, each criterion, the met criteria's fold, and what a run's card wears.
+  {
+    name: 'a review in the output panel', sources: ['extension/src/model/dock-review.ts#CRITERION_LOOK', 'extension/src/model/dock-review.ts#REVIEW_RUN_LOOK'],
+    states: () => {
+      const v = (verdict: 'pass' | 'changes') => ({ v: 1 as const, task: 'T-1', sha: 'abc1234', env: 'e', verdict, summary: 's', criteria: [{ text: 'a', met: true, evidence: '' }, { text: 'b', met: false, evidence: '' }], findings: [{ message: 'm', must: true }], sessionId: '', at: 't', durationMs: 1, costUsd: null });
+      const shown = (verdict: 'pass' | 'changes'): [string, Shown][] => {
+        const r = dockReview({ startedAt: 0, endedAt: 1, stopped: false, review: { project: '/r', task: 'T-1', sha: null, read: { ok: true, verdict: v(verdict), checkout: true, excerpts: [] } } });
+        if (r.phase !== 'done') return [];
+        return [[`a review that says ${verdict}`, r.look], ...r.rows.map((x): [string, Shown] => [`a row: ${x.look.label}`, x.look]), ['the met criteria', r.met!.look]];
+      };
+      return [...Object.entries(CRITERION_LOOK), ...Object.entries(REVIEW_RUN_LOOK), ...shown('pass'), ...shown('changes')];
     },
   },
   {

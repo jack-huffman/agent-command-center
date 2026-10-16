@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { sfEnv } from '../../packages/core/src/exec.ts';
 import { appendOutput, promptOf, type RunPrompt } from './logic/runs.ts';
 import type { RunInput } from './model/runs.ts';
+import { keptReview, type ReviewRun, type VerdictRead } from './model/dock-review.ts';
 import type { ExtensionArea } from './area.ts';
 
 interface Run extends RunInput {
@@ -13,6 +14,7 @@ interface Run extends RunInput {
   quiet: NodeJS.Timeout | undefined;
   onExit?: (code: number | null) => void;
   judge?: (code: number | null) => boolean;
+  readReview?: (startedAt: number) => Promise<VerdictRead>;
 }
 
 export interface StartOptions {
@@ -33,6 +35,11 @@ export interface StartOptions {
    * analysis with questions, and that's an analysis made, not a failure (D-052). Without it, exit 0 is done.
    */
   ok?: (code: number | null) => boolean;
+  /**
+   * A review of a task (T-63): the panel shows it as a review, and once it ends, `read` reads the verdict it
+   * wrote, which the run's card then carries. A stopped review reads none.
+   */
+  review?: { run: ReviewRun; read: (startedAt: number) => Promise<VerdictRead> };
 }
 
 /** A command that has gone this long without output may be waiting for an answer. */
@@ -72,7 +79,8 @@ export class Runs implements vscode.Disposable {
     this.accBin = accBin;
     this.store = store;
     for (const r of store?.get<(RunInput & { cwd: string })[]>(KEPT_KEY) ?? []) {
-      if (r && typeof r.id === 'string' && r.endedAt !== null) this.list.push({ ...r, prompt: null, child: null, quiet: undefined });
+      if (!r || typeof r.id !== 'string' || r.endedAt === null) continue;
+      this.list.push({ ...r, ...(r.review ? { review: keptReview(r.review, r.stopped) } : {}), prompt: null, child: null, quiet: undefined });
     }
     this.status.name = 'Agent Command Center: running command';
     this.status.command = 'acc.runs.show';
@@ -90,8 +98,8 @@ export class Runs implements vscode.Disposable {
     return this.list.map((r) => this.view(r));
   }
 
-  private view({ id, label, command, cwd, startedAt, endedAt, code, ok, stopped, lines, prompt, step, background }: Run): RunInput {
-    return { id, label, command, cwd, startedAt, endedAt, code, ...(ok === undefined ? {} : { ok }), stopped, lines, prompt, step, ...(background ? { background } : {}) };
+  private view({ id, label, command, cwd, startedAt, endedAt, code, ok, stopped, lines, prompt, step, background, review }: Run): RunInput {
+    return { id, label, command, cwd, startedAt, endedAt, code, ...(ok === undefined ? {} : { ok }), stopped, lines, prompt, step, ...(background ? { background } : {}), ...(review ? { review } : {}) };
   }
 
   running(step?: string): boolean {
@@ -103,7 +111,7 @@ export class Runs implements vscode.Disposable {
     const run: Run = {
       id, label: opts.label ?? command, command, cwd: opts.cwd, startedAt: Date.now(), endedAt: null, code: null, stopped: false,
       lines: [''], prompt: null, step: opts.step ?? null, child: null, quiet: undefined, onExit: opts.onExit, judge: opts.ok,
-      ...(opts.background ? { background: true } : {}),
+      ...(opts.background ? { background: true } : {}), ...(opts.review ? { review: { ...opts.review.run }, readReview: opts.review.read } : {}),
     };
     this.list.unshift(run);
     // Finished runs beyond the last few are dropped; running ones never are.
@@ -215,11 +223,27 @@ export class Runs implements vscode.Disposable {
     this.changed(true);
     this.events.fire({ kind: 'end', run: this.view(r) });
     this.keep();
+    if (r.review && r.readReview && !r.stopped) void this.readVerdict(r, r.review, r.readReview);
     try {
       r.onExit?.(code);
     } catch (e) {
       this.log.warn(`After ${r.command}: ${(e as Error).message}`);
     }
+  }
+
+  /** A review run's verdict, once it ended (T-63): its card carries it, kept with the run. A read that fails says why. */
+  private async readVerdict(r: Run, review: ReviewRun, read: (startedAt: number) => Promise<VerdictRead>): Promise<void> {
+    let got: VerdictRead;
+    try {
+      got = await read(r.startedAt);
+    } catch (e) {
+      got = { ok: false, why: `Its verdict couldn't be read: ${(e as Error).message}` };
+    }
+    // Dismissed meanwhile: nothing to put it on.
+    if (!this.list.includes(r)) return;
+    r.review = { ...review, read: got };
+    this.changed(true);
+    this.keep();
   }
 
   /** Output comes in bursts, so the page hears about it at most every 120 ms. */

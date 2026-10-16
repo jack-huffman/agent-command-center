@@ -7,14 +7,18 @@ import { CLAUDE_EXTENSION, claudeSessionUri, isSessionId, sessionFor } from './l
 import { inProcessWords } from './logic/processes.ts';
 import { nameOf, sessionKey } from './model/shared.ts';
 import { type RunResult, runFile } from './run.ts';
+import type { StartOptions } from './runs.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
 
 type Acc = (args: string[], cwd: string, token?: vscode.CancellationToken) => Promise<RunResult>;
 
 /** What the sidebar's actions can use from the rest of the extension (D-030). */
 export interface SidebarHelpers {
-  /** Runs a command with its output in the page, instead of a terminal. `ok` judges an exit code that says more than done or failed. */
-  run?: (command: string, cwd: string, label: string, onExit?: (code: number | null) => void, ok?: (code: number | null) => boolean) => void;
+  /**
+   * Runs a command with its output in the page, instead of a terminal. `ok` judges an exit code that says more
+   * than done or failed; `review` makes it a review of a task, which the panel shows as one (T-63).
+   */
+  run?: (command: string, cwd: string, label: string, onExit?: (code: number | null) => void, ok?: (code: number | null) => boolean, review?: StartOptions['review']) => void;
   /** Opens a session's activity page. A session that has ended needs the hint to find its transcript. */
   watch?: (key: string, ended?: AgentSession, active?: () => boolean) => boolean;
   /** How a shell runs the bundled acc, for commands run in the page. */

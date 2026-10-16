@@ -302,7 +302,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const pages = new AgentPages(context, hub, resolve, answer, reply);
   context.subscriptions.push(pages);
   const sidebar = new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
-    run: (command, cwd, label, onExit, ok) => void runs.start(command, { cwd, label, onExit, ok }),
+    run: (command, cwd, label, onExit, ok, review) => void runs.start(command, { cwd, label, onExit, ok, review }),
     watch: (key, ended, active) => pages.open(key, ended, active),
     sessionSettings: sessionSettings(accScript),
     accScript,
