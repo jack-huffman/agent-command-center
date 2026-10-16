@@ -31,8 +31,8 @@ export type Message =
   | import('./agents.ts').Message
   | import('./boards.ts').Message
   | import('./connect.ts').Message
-  | import('./history-pages.ts').Message
   | import('./dispatch-sheet.ts').Message
+  | import('./history-pages.ts').Message
   | import('./page.ts').Message
   | import('./questions.ts').Message
   | import('./rules.ts').Message
