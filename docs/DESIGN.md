@@ -1715,6 +1715,31 @@ which opens the page over the board, with Open as tab (D-129).
   as rows (T-64), with no result card, since the review says how it went. A
   review that was stopped, or whose verdict can't be read, shows its rows with
   a line that says why.
+- **A run of acc as a list of steps (T-65, D-???).** acc's long commands (a
+  deploy, a promotion, a dispatch, a land, an analysis, and Setup's baseline,
+  branches, lists and readme fixes) report each step through one helper in
+  core, `steps.ts`. When `ACC_STEPS` names a file, each step's start, end,
+  skip or failure is one JSON line in it, with its id, its label in process
+  words ("Check the branch", "Check in Acme UAT", "Deploy to Dev") and a short
+  note, and the last line is the result: ok or not, in one sentence. The file
+  is written whole for each line, to a temp file then a rename, and a write
+  that fails is dropped. Without `ACC_STEPS` nothing is written, and what acc
+  prints is the same with it or without (`packages/cli/test/steps.test.ts`
+  pins it). acc takes `ACC_STEPS` out of its environment once read, so a
+  builder or analyst it starts never writes to the same file. The command
+  writes its own result; one that throws, or ends without one, gets one from
+  `main`. For a run of acc in the panel (`logic/run-steps.ts`'s `runsAcc`),
+  `Runs` sets `ACC_STEPS` to a file in a folder of its own, reads it every
+  250 ms and before each chunk of output, so a step knows the lines printed
+  while it ran, and removes the folder when the run ends. The card
+  (`model/run-steps.ts`) lists the steps under the header line: a quiet
+  spinner while one runs, then Done, Skipped or Failed, and Didn't finish for
+  one still running when its run ended. A failed step shows its note, in
+  process words, and opens to its own rows. The output rows fold into one
+  row, "Show 42 lines". The result card says acc's own sentence and how long
+  it took. A dispatch or a land from the Command Center runs in the panel
+  too: its `--json` answer goes to the extension apart from the rows
+  (`StartOptions.answer`), and it says what happened as it did before.
 
 ### Walkthrough
 
