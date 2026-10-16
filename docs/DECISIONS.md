@@ -7571,13 +7571,17 @@ a headless one forward, so the person couldn't open their browser. On
   `npm run browser` as its fix.
 - **Checked.** `browser.test.ts` has 10 tests (the pin, the platforms and
   cache, a match, a mismatch, the version already there, a fetch that fails,
-  from a local zip); `stops.test.ts` 2 (a run sent SIGTERM stops 3 fake
-  browsers and each one's helper); `screenshot.test.ts` 3 more for
-  `findChrome`, with the line each case prints; `looked.test.ts` 2 for the
-  gate; `tool-steps.test.ts` 5. With the group kill turned back into a plain
-  kill, the SIGTERM test fails, naming the helpers left running. The full run
-  with the shell drew 540 drawings, as before, with no findings, 43 behaviour
-  cases and 77 mutants caught, in 195 s; sampled every 2 s, no headless
-  Chrome-app process ran. It wasn't timed with the Chrome app: the author was
-  using it, and a run with the app takes it over.
+  from a local zip); `stops.test.ts` 6 (a run that exits, throws, leaves a
+  promise rejected, or is sent SIGINT or SIGTERM stops 3 fake browsers and
+  each one's helper, and one with nothing running stops nothing);
+  `screenshot.test.ts` 3 more for `findChrome`, with the line each case
+  prints, and a wrong `CHROME` gets its own message; `looked.test.ts` 2 for
+  the gate; `tool-steps.test.ts` 5. With the group kill turned back into a
+  plain kill, the SIGTERM test fails, naming the helpers left running; with
+  `stopOnExit` taken out, all five endings fail. The full run with the shell
+  drew 540 drawings, as before, with no findings, 43 behaviour cases and 77
+  mutants caught, in 195 s. The merger waived a timing with the Chrome app:
+  the person was using it, and the app is what this moves away from. That the
+  Chrome app opens a window when clicked while the full run draws is left for
+  the person to check at the merge.
 - Not chosen: reusing one browser for many drawings, which can follow this.
