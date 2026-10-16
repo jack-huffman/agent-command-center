@@ -62,7 +62,9 @@ function make(): NonNullable<typeof modal> {
   close.title = 'Close it, back to the Overview (Escape)';
   const title = el('h2', 'detail-title');
   const m = makeModal('detail-modal', [title, close], closeDetail);
-  m.dialog.addEventListener('close', () => { if (!m.dialog.open && memory().detail) closeDetail(); });
+  // The browser closed it itself. A close event that comes late, after closeDetail already ran (drawn is null),
+  // closes nothing: by then the tab may remember a detail open again, for its next model to draw (T-69).
+  m.dialog.addEventListener('close', () => { if (!m.dialog.open && drawn !== null && memory().detail) closeDetail(); });
   return { ...m, title };
 }
 
