@@ -108,7 +108,7 @@ export const stepsFrom = (env: NodeJS.ProcessEnv, now?: () => Date): Steps => st
 export const NO_STEPS: Steps = stepsTo(null);
 
 /** Reads a steps file's events, skipping a line that isn't one. */
-export function readSteps(text: string): StepEvent[] {
+export function readStepEvents(text: string): StepEvent[] {
   const out: StepEvent[] = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;

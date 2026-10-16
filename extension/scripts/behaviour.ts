@@ -43,6 +43,8 @@ import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { dispatchChoiceArgs, dispatchSheet } from '../src/model/dispatch-sheet.ts';
 import { ROOT } from './fixtures/shared.ts';
+import { sampleStepRun } from './fixtures/run-steps.ts';
+import { runCard } from '../src/model/runs.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
 import { pool, type Ran } from './jobs.ts';
 
@@ -165,6 +167,7 @@ export interface BehaviourData {
    * result card's button send.
    */
   run: { runs: Record<string, unknown>; look: string; label: string; took: string; rows: string[]; command: string; off: number; sentence: string; error: string; exit: string; copy: Record<string, unknown>; chip: Record<string, unknown>; next: Record<string, unknown> };
+  steps: { runs: Record<string, unknown>; labels: string[]; failed: string; note: string; stepRows: string[]; rows: string[]; fold: string; open: string; sentence: string };
   keys: {
     first: string; down: string; last: string; right: string;
     move: { card: string; to: string; lanes: string[]; sent: Record<string, unknown>; moving: string; moved: string; stays: string };
@@ -782,6 +785,31 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'output panel: a run of acc lists its steps, its failed step opens to its own rows on a click, and its output folds into one row that opens (T-65)',
+    page: 'output-failed',
+    async run(t) {
+      const want = t.data.steps;
+      await t.post(want.runs);
+      const dock = (): HTMLElement => t.find('section.dock');
+      const labels = t.all('.dock-step .dock-step-label', dock()).map((l) => l.textContent);
+      t.check('a step for each, in order, each with its label', JSON.stringify(labels) === JSON.stringify(want.labels), labels);
+      t.check('no output rows until the fold opens', t.all('.dock-body > .dock-rows', dock()).length === 0);
+      const failed = (): HTMLElement => t.find('.dock-step.state-failed', dock());
+      t.check('the failed step says so in words, and why', t.find('.status', failed()).textContent === 'Failed' && t.find('.dock-step-note', failed()).textContent === want.note, failed().textContent);
+      const toggle = (): HTMLButtonElement => t.find<HTMLButtonElement>('.dock-step-toggle', failed());
+      t.check('closed, its rows unshown', toggle().getAttribute('aria-expanded') === 'false' && t.all('.dock-step-rows', failed()).length === 0);
+      await t.click(toggle());
+      const stepRows = t.all('.dock-step-rows .dock-row', failed()).map((r) => r.title);
+      t.check('a click opens it to the rows it printed', toggle().getAttribute('aria-expanded') === 'true' && JSON.stringify(stepRows) === JSON.stringify(want.stepRows), stepRows);
+      const fold = (): HTMLButtonElement => t.find<HTMLButtonElement>('.dock-output-fold', dock());
+      t.check('the output folds into one row that counts its lines', fold().textContent === want.fold && fold().getAttribute('aria-expanded') === 'false', fold().textContent);
+      await t.click(fold());
+      const rows = t.all('.dock-body > .dock-rows > .dock-row', dock()).map((r) => r.title);
+      t.check('a click opens it to every row', fold().textContent === want.open && JSON.stringify(rows) === JSON.stringify(want.rows), rows);
+      t.check('and the result card says what acc said', t.find('.dock-result-text', dock()).textContent === want.sentence, t.find('.dock-result-text', dock()).textContent);
+    },
+  },
+  {
     name: 'settings: a link for each part opens its heading, and each long explanation is a closed What this means that stays open once opened',
     page: 'settings-agents',
     async run(t) {
@@ -1265,7 +1293,9 @@ export const MUTANTS: Mutant[] = [
   { name: 'the output panel drops the verdict and shows only the lines', file: 'dock.ts', find: 'const body = open && review ? renderDockReview(run.id, review, redrawDock) : null;', replace: 'const body = null;', kills: [caseNamed('output panel: a review')] },
   { name: 'a review\'s row opens nothing', file: 'dock-review.ts', find: "toggle.addEventListener('click', () => flip(key, redraw));\n  const li = el('li', `dr-row tone-row", replace: "const li = el('li', `dr-row tone-row", kills: [caseNamed('output panel: a review')] },
   { name: 'a review\'s next step sends nothing', file: 'dock-review.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));", replace: "b.addEventListener('click', () => void a);", kills: [caseNamed('output panel: a review')] },
-  { name: 'the output panel shows the raw lines again', file: 'run-view.ts', find: "const box = el('div', 'dock-body', rows,", replace: "const box = el('div', 'dock-body', el('pre', 'dock-out', run.lines.join('\\n')),", kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'the output panel shows the raw lines again', file: 'run-view.ts', find: "const box = el('div', 'dock-body', ...body,", replace: "const box = el('div', 'dock-body', el('pre', 'dock-out', run.lines.join('\\n')),", kills: [caseNamed('output panel: a run shows as rows')] },
+  { name: 'a failed step opens to nothing', file: 'run-steps.ts', find: "head.addEventListener('click', () => toggle(key, open));", replace: '', kills: [caseNamed('output panel: a run of acc lists its steps')] },
+  { name: 'the folded output stays folded', file: 'run-steps.ts', find: "fold.addEventListener('click', () => toggle(key, open));", replace: '', kills: [caseNamed('output panel: a run of acc lists its steps')] },
   { name: 'Details shows nothing', file: 'dock.ts', find: 'if (open && shown) dock.append(details(run));', replace: '', kills: [caseNamed('output panel: a run shows as rows')] },
   { name: 'Copy log sends nothing', file: 'dock.ts', find: "if (a.command !== 'details') { control(a.command); return; }", replace: "if (a.command !== 'details') return;", kills: [caseNamed('output panel: a run shows as rows')] },
   { name: 'a path chip opens nothing', file: 'run-view.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'run-file', run, file: opens, ...(p.line ? { line: p.line } : {}) }));", replace: "b.addEventListener('click', () => void opens);", kills: [caseNamed('output panel: a run shows as rows')] },
@@ -1359,6 +1389,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     review: reviewData(models.review),
     dock: dockData(models.dock),
     run: runData(models.run),
+    steps: stepsData(now),
     keys: keysData(models.tasks),
     sheet: sheetData(now),
   };
@@ -1471,6 +1502,17 @@ function runData(model: Model): BehaviourData['run'] {
     off: run.rows.flatMap((x) => x.parts).filter((p) => 'path' in p && !p.opens).length, sentence: r.sentence, error: r.error.text, exit: r.exit,
     copy: { type: 'run-control', run: run.id, action: 'copy' }, chip: { type: 'run-file', run: run.id, file: chip.opens, ...(chip.line ? { line: chip.line } : {}) },
     next: { type: 'run-control', run: run.id, action: 'rerun' },
+  };
+}
+
+/** What the panel's steps case expects (T-65): the promotion that failed at its check, as its card shows it. */
+function stepsData(now: number): BehaviourData['steps'] {
+  const run = runCard(sampleStepRun(now, 'steps-failed'));
+  const failed = run.steps?.find((x) => x.look.label === 'Failed');
+  if (!run.steps || !failed?.rows.length || !failed.note || !run.result || !run.lineCount) throw new Error('The panel\'s steps case needs a run of acc whose failed step has a note and rows, and a result.');
+  return {
+    runs: { type: 'runs', runs: [run], focus: run.id }, labels: run.steps.map((x) => x.label), failed: failed.label, note: failed.note, stepRows: failed.rows.map((r) => r.text),
+    rows: run.rows.map((r) => r.text), fold: `Show ${run.lineCount} lines`, open: `Hide ${run.lineCount} lines`, sentence: run.result.sentence,
   };
 }
 

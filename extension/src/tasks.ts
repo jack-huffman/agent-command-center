@@ -244,13 +244,18 @@ class TaskCommands extends Sidebar {
     type Out = { held?: boolean; waitsFor?: { task: string; files: string[] }[]; first?: string[]; worktree?: string; bgId?: string | null; reused?: boolean; name?: string; effortDropped?: string; cloud?: { url?: string }; task?: { run?: { model?: string } | null; held?: { model?: string } | null } };
     let result: Out | null = null;
     const cloud = extra.includes('--cloud');
-    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}${cloud ? ' to the cloud' : ''}`, cancellable: false }, async (progress) => {
-      progress.report({ message: cloud ? 'pushing its branch and firing the routine…' : 'creating the worktree and starting the agent…' });
-      await this.runAcc(project, ['dispatch', task.id, ...extra, ...(anyway ? ['--anyway'] : [])], (out) => {
-        result = out;
-        return undefined;
+    const go = (shown?: string) => this.runAcc(project, ['dispatch', task.id, ...extra, ...(anyway ? ['--anyway'] : [])], (out) => {
+      result = out;
+      return undefined;
+    }, shown);
+    // In the output panel, where its steps show as it goes (T-65); else under a notification.
+    if (this.helpers.runAccShown) await go(`Dispatch ${task.id}${cloud ? ' to the cloud' : ''}`);
+    else {
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}${cloud ? ' to the cloud' : ''}`, cancellable: false }, async (progress) => {
+        progress.report({ message: cloud ? 'pushing its branch and firing the routine…' : 'creating the worktree and starting the agent…' });
+        await go();
       });
-    });
+    }
     if (!result) return;
     const r = result as Out;
     const said = dropped ?? (r.effortDropped ? effortDroppedWords(r.effortDropped, r.task?.run?.model ?? r.task?.held?.model ?? 'the model') : null);
@@ -446,10 +451,15 @@ class TaskCommands extends Sidebar {
     if (!ok) return;
     type Landed = { pr?: { number: number; url: string }; opened?: boolean; update?: { id: string; key: string } | null; updateError?: string };
     const box: { r: Landed | null } = { r: null };
-    await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Landing ${task.id}`, cancellable: false }, async (progress) => {
-      progress.report({ message: 'pushing and opening the pull request…' });
-      await this.runAcc(project, ['land', task.id], (out) => { box.r = out as Landed; return undefined; });
-    });
+    const go = (shown?: string) => this.runAcc(project, ['land', task.id], (out) => { box.r = out as Landed; return undefined; }, shown);
+    // In the output panel, where its steps show as it goes (T-65); else under a notification.
+    if (this.helpers.runAccShown) await go(`Land ${task.id}`);
+    else {
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Landing ${task.id}`, cancellable: false }, async (progress) => {
+        progress.report({ message: 'pushing and opening the pull request…' });
+        await go();
+      });
+    }
     const r = box.r;
     if (!r) return;
     // The ticket hears about it only once a person posts the update acc drafted (D-066).

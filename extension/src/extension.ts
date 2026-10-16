@@ -303,6 +303,10 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(pages);
   const sidebar = new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
     run: (command, cwd, label, onExit, ok, review) => void runs.start(command, { cwd, label, onExit, ok, review }),
+    // A dispatch or a land in the output panel, with its steps (T-65); its answer is what --json printed.
+    runAccShown: (args, cwd, label) => new Promise((resolve) => {
+      runs.start(`${accShellCommand(accScript)} ${args.map(shq).join(' ')}`, { cwd, label, answer: (stdout, code) => resolve({ code: code ?? 1, stdout, stderr: '' }) });
+    }),
     watch: (key, ended, active) => pages.open(key, ended, active),
     sessionSettings: sessionSettings(accScript),
     accScript,

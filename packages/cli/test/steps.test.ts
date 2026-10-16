@@ -15,7 +15,7 @@ import { waiveGates } from '../../core/src/gates.ts';
 import { mutate } from '../../core/src/ledger.ts';
 import { repoPaths } from '../../core/src/paths.ts';
 import { reviewPath } from '../../core/src/review.ts';
-import { readSteps } from '../../core/src/steps.ts';
+import { readStepEvents } from '../../core/src/steps.ts';
 import { GENERIC_CONFIG, gitIn, makeRepo, SF_CONFIG, tempDir } from '../../core/test/support.ts';
 import { openSteps, steps } from '../src/shared.ts';
 import { cli } from './support.ts';
@@ -186,7 +186,7 @@ test('each long command prints what it printed before, with ACC_STEPS or without
 function trail(dir: string, args: string[], env: NodeJS.ProcessEnv = {}): { code: number; trail: string[]; notes: Record<string, string> } {
   const file = join(tempDir('steps-'), 'steps.jsonl');
   const r = acc(dir, args, undefined, { ...env, ACC_STEPS: file });
-  const events = readSteps(existsSync(file) ? readFileSync(file, 'utf8') : '');
+  const events = readStepEvents(existsSync(file) ? readFileSync(file, 'utf8') : '');
   const started = new Set<string>();
   const out: string[] = [];
   const notes: Record<string, string> = {};
@@ -336,7 +336,7 @@ test('openSteps opens this run\'s steps from ACC_STEPS and takes the variable ou
   assert.equal(env.ACC_STEPS, undefined, 'gone from the environment children get');
   assert.equal(steps(), s);
   s.start('a', 'A');
-  assert.equal(readSteps(readFileSync(file, 'utf8')).length, 1);
+  assert.equal(readStepEvents(readFileSync(file, 'utf8')).length, 1);
   const none = openSteps({});
   assert.equal(none.on, false);
   assert.equal(steps(), none);

@@ -1,0 +1,36 @@
+/* ---------------------------------------------------------------- a run of acc as a list of steps (T-65)
+   Each step one line: its mark, then its label, then what acc said of it, muted. A running step's spinner
+   is quiet; a failed step's mark carries its label in orange, and its note sits under it. The output rows
+   fold under the list in one quiet row. */
+.dock-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.dock-step { display: flex; flex-direction: column; min-width: 0; padding: 3px 6px; border-radius: 4px; line-height: 1.5; }
+.dock-step-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dock-step-head > .status { flex: none; width: 68px; font-weight: 600; font-size: 0.92em; }
+.dock-step-mark { flex: none; display: inline-flex; justify-content: center; width: 16px; }
+.dock-step-mark.tone-neutral { color: var(--vscode-descriptionForeground); }
+.dock-step-label { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+/* A step skipped, or one its run ended before it finished, is muted; one running reads as the rest do. */
+.dock-step.state-skipped .dock-step-label, .dock-step.state-stopped .dock-step-label { color: var(--vscode-descriptionForeground); }
+.dock-step-note { margin-inline-start: 24px; overflow-wrap: anywhere; font-size: 0.92em; }
+.dock-step.state-failed { background: var(--well); }
+/* A failed step's note and rows sit under its label: past its 68px state, and its 16px chevron when it opens. */
+.dock-step.state-failed .dock-step-note { margin-inline-start: 76px; color: inherit; }
+.dock-step.has-rows .dock-step-note, .dock-step .dock-step-rows { margin-inline-start: 100px; }
+.dock-step-toggle { width: 100%; padding: 0; border: none; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.dock-step-toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+button.dock-step-toggle:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+/* run-view.css sets .dock-rows' margins after this file, so these name the step too. */
+.dock-step .dock-step-rows { margin-block: 4px 2px; }
+/* The output, folded: one quiet row that opens to every row it printed. */
+.dock-output-fold {
+  display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 6px; padding: 3px 6px;
+  border: none; border-top: 1px solid var(--line); background: none; color: var(--vscode-descriptionForeground);
+  font: inherit; font-size: 0.92em; text-align: start; cursor: pointer;
+}
+.dock-output-fold:hover { color: var(--vscode-foreground); }
+.dock-output-fold:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+button.dock-output-fold:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.dock-output-fold + .dock-rows { margin-top: 4px; }
+@media (max-width: 560px) {
+  .dock-step.state-failed .dock-step-note, .dock-step.has-rows .dock-step-note, .dock-step .dock-step-rows { margin-inline-start: 24px; }
+}

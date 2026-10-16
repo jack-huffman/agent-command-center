@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { NO_STEPS, NOTE_MAX, readSteps, STEP_STATES, type StepEvent, stepsFrom, stepsTo, STEPS_VAR } from '../src/steps.ts';
+import { NO_STEPS, NOTE_MAX, readStepEvents, STEP_STATES, type StepEvent, stepsFrom, stepsTo, STEPS_VAR } from '../src/steps.ts';
 import { tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-16T12:00:00Z');
@@ -100,7 +100,7 @@ test('without ACC_STEPS nothing is written, nothing counts as used, and NO_STEPS
   assert.equal(read(file).length, 1);
 });
 
-test('readSteps reads each event and skips a line that isn\'t one: junk, half a line, an unknown state', () => {
+test('readStepEvents reads each event and skips a line that isn\'t one: junk, half a line, an unknown state', () => {
   const file = join(tempDir('steps-'), 'mixed.jsonl');
   writeFileSync(file, [
     JSON.stringify({ kind: 'step', id: 'a', label: 'A', state: 'started', at: AT }),
@@ -111,6 +111,6 @@ test('readSteps reads each event and skips a line that isn\'t one: junk, half a 
     JSON.stringify({ kind: 'result', ok: true, sentence: 'Done.', at: AT }),
     '',
   ].join('\n'));
-  assert.deepEqual(readSteps(readFileSync(file, 'utf8')).map((e) => e.kind === 'step' ? e.id : e.sentence), ['a', 'Done.']);
-  assert.deepEqual(readSteps(''), []);
+  assert.deepEqual(readStepEvents(readFileSync(file, 'utf8')).map((e) => e.kind === 'step' ? e.id : e.sentence), ['a', 'Done.']);
+  assert.deepEqual(readStepEvents(''), []);
 });

@@ -7,6 +7,7 @@ import type { RowPart } from '../src/logic/run-rows.ts';
 import type { RunCard } from '../src/model/runs.ts';
 import type { RunResult, ShownRow } from '../src/model/run-view.ts';
 import { el, icon, linkTo, plural, status, work } from './dom.ts';
+import { renderRunSteps } from './run-steps.ts';
 import { api, go, memory, remember, state } from './state.ts';
 
 /** A path's chip: a button that opens it, in the folder the run ran in, or a quiet label that says why it doesn't. */
@@ -108,13 +109,15 @@ function resultCard(run: RunCard, r: RunResult): HTMLElement {
  * output, with no card, since its review says how it went.
  */
 export function renderRunRows(run: RunCard): HTMLElement {
-  const rows = run.rows.length ? el('ol', 'dock-rows', ...run.rows.map((r) => runRow(run.id, r)))
-    : el('p', 'muted', run.running ? 'Nothing yet. Its output shows here as it comes.' : 'It printed nothing.');
-  const box = el('div', 'dock-body', rows, run.result ? resultCard(run, run.result) : null);
+  const rows = () => (run.rows.length ? el('ol', 'dock-rows', ...run.rows.map((r) => runRow(run.id, r)))
+    : el('p', 'muted', run.running ? 'Nothing yet. Its output shows here as it comes.' : 'It printed nothing.'));
+  // A run of acc that reported its steps lists them, its rows folded under the list (T-65).
+  const body = run.steps ? renderRunSteps(run, run.steps, (rs) => el('ol', 'dock-rows dock-step-rows', ...rs.map((r) => runRow(run.id, r))), rows) : [rows()];
+  const box = el('div', 'dock-body', ...body, run.result ? resultCard(run, run.result) : null);
   box.dataset.run = run.id;
   box.tabIndex = 0;
   box.setAttribute('aria-label', `Output of ${run.label}`);
   box.setAttribute('aria-live', 'polite');
-  const hidden = run.hidden ? el('p', 'muted dock-hidden', icon('fold-up'), `${plural(run.hidden, 'earlier row')} not shown. Copy log has all of it.`) : null;
+  const hidden = run.hidden && !run.steps ? el('p', 'muted dock-hidden', icon('fold-up'), `${plural(run.hidden, 'earlier row')} not shown. Copy log has all of it.`) : null;
   return el('div', 'dock-output', hidden, box);
 }
