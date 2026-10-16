@@ -11,7 +11,7 @@ import { DEFAULT_JOBS, inOrder, jobsOption, pool, type Ran, runAsync, runJobs, s
 import { drawPages, type DrawnPages, FONTS, PAGES, type Page, profileArg, sampleModel, shotHeight } from '../scripts/screenshot.ts';
 import { type BehaviourReport, behaviourCheck, CASES, MUTANTS } from '../scripts/behaviour.ts';
 import type { GeoSnapshot } from '../scripts/geometry.ts';
-import { tempDir } from '../../packages/core/test/support.ts';
+import { pool as testPool, PoolError, tempDir } from '../../packages/core/test/support.ts';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -111,6 +111,31 @@ test('a pool runs at most k at once, a slot never holds two items, and an empty 
   let calls = 0;
   assert.deepEqual(await pool([], 3, async () => { calls++; return 1; }), []);
   assert.equal(calls, 0);
+});
+
+test('when an item fails, this pool still runs every item, and the test support\'s pool starts no more: why both stay (T-70)', async () => {
+  // The screenshot run's pool gives each case and mutant its slot's own folders and lets every one run to its
+  // end, so none is left running when the failure is thrown; the tests' pool stops at the first failure and names it.
+  const items = [1, 2, 3, 4, 5, 6, 7, 8];
+  const ran: number[] = [];
+  const slots = new Set<number>();
+  await assert.rejects(pool(items, 2, async (n, slot) => {
+    ran.push(n);
+    slots.add(slot);
+    await wait(5);
+    if (n === 3) throw new Error('boom');
+    return n;
+  }), /boom/);
+  assert.deepEqual(ran.sort((a, b) => a - b), items, 'every item ran, though item 3 failed');
+  assert.deepEqual([...slots].sort(), [0, 1], 'each item was given its slot');
+  const started: number[] = [];
+  await assert.rejects(testPool(items, 2, async (n) => {
+    started.push(n);
+    await wait(5);
+    if (n === 3) throw new Error('boom');
+    return n;
+  }), PoolError);
+  assert.ok(started.length < items.length, `the tests' pool stopped after ${started.length} of ${items.length}`);
 });
 
 test('runAsync gathers what a program prints, times out with ETIMEDOUT, and fails with no program there (T-58)', async () => {
