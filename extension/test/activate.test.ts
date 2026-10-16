@@ -2,8 +2,8 @@
 // keys are tested without a VSCode window. Run after npm run build.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { COMMANDS } from '../src/logic/setup.ts';
@@ -33,6 +33,18 @@ test('sandboxEnv points the environment at a sandbox of stand-in tools, and rest
   assert.equal(process.env.HOME, before.HOME);
   delete process.env.ACC_ROLE;
   if (before.ACC_ROLE !== undefined) process.env.ACC_ROLE = before.ACC_ROLE;
+});
+
+test('every test that points the environment at a sandbox makes it with sandboxEnv; edge case: one that builds its own is named (T-71)', () => {
+  const dir = dirname(fileURLToPath(import.meta.url));
+  const files = readdirSync(dir).filter((f) => f.endsWith('.ts') && f !== 'vscode.ts');
+  const using = files.filter((f) => readFileSync(join(dir, f), 'utf8').includes('= sandboxEnv('));
+  assert.ok(using.length >= 7, `found ${using.length} tests that use sandboxEnv`);
+  assert.ok(using.includes('rule-accept.test.ts'));
+  // A sandbox built by hand points ACC_QUESTIONS_DIR into it, as sandboxEnv does.
+  const handMade = ['ACC_QUESTIONS_DIR', ': at('].join('');
+  const own = files.filter((f) => readFileSync(join(dir, f), 'utf8').includes(handMade));
+  assert.deepEqual(own, [], 'these build their own sandbox: use sandboxEnv');
 });
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));

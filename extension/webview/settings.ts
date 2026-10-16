@@ -1,8 +1,8 @@
 // The Settings section (GH-109): Appearance, How agents run (GH-110), Limits and checks (GH-111), Trackers and sign-ins
 // (GH-112), Notices in Slack, GitHub accounts and the Command Center's own preferences (GH-113), and About (GH-114).
 
-import type { AgentRunProject, GithubAccountSetting, PagePreference, SettingFrom, SettingsAction, SettingsLink, SettingsModel, SettingsPartModel, TrackerProject, TrackerSetting } from '../src/model/settings.ts';
-import { argButton, button, el, header, icon, segmented, status, toolbarButton, whatThisMeans } from './dom.ts';
+import type { AgentRunProject, GithubAccountSetting, PagePreference, SettingFrom, SettingsLink, SettingsModel, SettingsPartModel, TrackerProject, TrackerSetting } from '../src/model/settings.ts';
+import { argButton, button, el, header, icon, segmented, settingsButton, status, whatThisMeans } from './dom.ts';
 import { renderAbout } from './about.ts';
 import { renderLimits } from './limits.ts';
 import { slackCardView } from './slack.ts';
@@ -67,7 +67,7 @@ function agentProject(s: AgentRunProject, folded: readonly string[]): HTMLElemen
       whatThisMeans(`cloud:${s.root}`, c.meaning, folded),
       c.look.label === 'off' ? null : needs,
       protection,
-      el('div', 'actions settings-tracker-actions', ...c.actions.map(trackerButton)));
+      el('div', 'actions settings-tracker-actions', ...c.actions.map(settingsButton)));
     box.append(row('Cloud builders', 'cloud', value, null, `cloud builders, in ${s.project}`));
   }
   return box;
@@ -84,21 +84,6 @@ function howAgentsRun(m: SettingsModel): Node[] {
 }
 
 /**
- * A button of Settings' (GH-112, GH-113): one of the commands the page may ask for, with what it's for, named
- * for what it does and to whose. One that can't be used now is disabled, and says why.
- */
-function trackerButton(a: SettingsAction): HTMLElement {
-  const b = (a.arg === null ? toolbarButton(a.command, a.label, a.icon, undefined, a.primary) : argButton(a.command, a.label, a.icon, a.arg, a.primary)) as HTMLButtonElement;
-  b.setAttribute('aria-label', a.name);
-  if (a.disabled) {
-    b.disabled = true;
-    b.title = a.disabled;
-    b.setAttribute('aria-description', a.disabled);
-  }
-  return b;
-}
-
-/**
  * One tracker (GH-112): its kind and name with its buttons, then its place, its board and its sign-in, each
  * with where it's kept: the project's .acc/config.json, or VSCode on this machine.
  */
@@ -109,7 +94,7 @@ function tracker(t: TrackerSetting): HTMLElement {
   const line = (name: string, iconName: string, value: HTMLElement, f: SettingFrom) =>
     el('div', 'settings-row settings-tracker-row', el('span', 'settings-name', icon(iconName), el('span', 'strong', name)), el('div', 'settings-value settings-now', value, from(f)));
   box.append(
-    el('div', 'settings-tracker-head', el('h4', 'settings-tracker-name', icon(t.icon), el('span', '', t.title)), el('div', 'actions settings-tracker-actions', ...t.actions.map(trackerButton))),
+    el('div', 'settings-tracker-head', el('h4', 'settings-tracker-name', icon(t.icon), el('span', '', t.title)), el('div', 'actions settings-tracker-actions', ...t.actions.map(settingsButton))),
     line('Place', 'location', el('span', 'settings-place', t.place), t.from),
     line('Board', 'layout', status(t.board), t.from),
     line('Sign-in', 'account', status(t.signIn), t.signInFrom),
@@ -131,7 +116,7 @@ function trackerProject(p: TrackerProject): HTMLElement {
 
 /** Trackers and sign-ins (GH-112): every open project's trackers, then Connect a tracker. */
 function trackersPart(m: SettingsModel): Node[] {
-  return [...m.trackers.projects.map(trackerProject), ...(m.trackers.connect ? [el('div', 'actions settings-links', trackerButton(m.trackers.connect))] : [])];
+  return [...m.trackers.projects.map(trackerProject), ...(m.trackers.connect ? [el('div', 'actions settings-links', settingsButton(m.trackers.connect))] : [])];
 }
 
 /**
@@ -143,7 +128,7 @@ function githubProject(g: GithubAccountSetting): HTMLElement {
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', g.project);
   box.append(
-    el('div', 'settings-tracker-head', el('h3', 'settings-project-name', icon('repo'), el('span', '', g.project)), el('div', 'actions settings-tracker-actions', ...g.actions.map(trackerButton))),
+    el('div', 'settings-tracker-head', el('h3', 'settings-project-name', icon('repo'), el('span', '', g.project)), el('div', 'actions settings-tracker-actions', ...g.actions.map(settingsButton))),
     el('div', 'settings-row settings-tracker-row', el('span', 'settings-name', icon('github'), el('span', 'strong', 'Pushes as')),
       el('div', 'settings-value', el('div', 'settings-now', status(g.look), g.from ? from(g.from) : null),
         g.repo ? el('p', 'muted small settings-meaning mono', g.repo) : null,

@@ -54,6 +54,11 @@ test('acc tidy shows the count and the draft and changes nothing; only a person 
   assert.equal(added.json().task, 'T-9');
   const t = readLedger(paths.ledger).tasks.find((x) => x.id === 'T-9')!;
   assert.deepEqual([t.state, t.labels, t.title], ['todo', ['tidy-up'], 'Tidy up after 8 merges']);
+  // The brief it added passes acc ste check, as every requirement a builder reads must (T-71).
+  const checked = acc(dir, ['ste', 'check', '--json'], t.brief);
+  assert.ok(t.brief.split('\n').length > 10, 'checked the whole brief');
+  assert.deepEqual(checked.json().findings, [], 'acc ste check finds nothing in the brief');
+  assert.equal(checked.code, 0);
   const after = acc(dir, ['tidy', '--json']).json();
   assert.deepEqual([after.count, after.open], [0, 'T-9']);
   assert.match(acc(dir, ['tidy', 'skip']).err, /Nothing has merged since the last tidy-up/);

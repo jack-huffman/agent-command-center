@@ -181,7 +181,6 @@ const PRIMARY_MARK = /'primary\b|'btn primary\b|\? ' primary'|(?:toolbarButton|a
  * the button that sends what the person typed in the box beside it. Anything else is outlined.
  */
 const PRIMARY: { file: string; at: RegExp; why: string }[] = [
-  { file: 'about.ts', at: /a\.primary\)/, why: 'About\'s fix for a plugin that is out of date or turned off: the model marks it primary then, and only then.' },
   { file: 'agent-page.ts', at: /'primary small'/, why: 'Send: the message the person typed, to an agent that waits on it.' },
   { file: 'agents.ts', at: /b\('Answer'/, why: 'Answer: an agent waits on the person\'s answer to its question.' },
   { file: 'analysis.ts', at: /button\('Answer'/, why: 'Answer: the analysis waits on the person\'s answer.' },
@@ -206,7 +205,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'questions.ts', at: /'primary q-send'/, why: 'An agent\'s question: Send, the answer the person typed.' },
   { file: 'rules.ts', at: /button\('Accept…'/, why: 'A suggested rule waits on the person\'s yes or no: Accept… is the yes.' },
   { file: 'rules.ts', at: /^\s*\}, 'primary'\);$/, why: 'Confirm: the rule the person wrote, sent.' },
-  { file: 'settings.ts', at: /a\.primary\)/, why: 'Settings\' fix for a tracker or GitHub that is not signed in: the model marks it primary then, and only then.' },
+  { file: 'dom.ts', at: /a\.primary\)/, why: 'settingsButton, which Settings and About share (T-71): Settings\' fix for a tracker or GitHub not signed in, and About\'s for a plugin out of date or off. The model marks it primary then, and only then.' },
   { file: 'slack.ts', at: /c\.tail \? '' : 'primary'/, why: 'Connect: the webhook the person pasted in the box beside it.' },
   { file: 'slack.ts', at: /'Send a test'.*'paused'/, why: 'Send a test while notices are paused: nothing is sent until a test goes through.' },
   { file: 'task-page.ts', at: /'Comment'/, why: 'Comment: the comment the person typed in the box beside it.' },

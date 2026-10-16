@@ -3,6 +3,7 @@
 
 import type { Action, Look, Ref } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
+import type { SettingsAction } from '../src/model/settings.ts';
 import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts';
 import { api, go, memory, remember, state } from './state.ts';
 import { panelLook } from './looks.ts';
@@ -376,5 +377,20 @@ export function argButton(command: string, label: string, iconName: string, arg:
   const b = el('button', `btn${primary ? ' primary' : ''}`, icon(iconName), label) as HTMLButtonElement;
   b.type = 'button';
   b.addEventListener('click', () => api.postMessage({ type: 'toolbar', command, arg }));
+  return b;
+}
+
+/**
+ * A button of Settings' and About's (GH-112, GH-113, GH-114): one of the commands the page may ask for, with
+ * what it's for, named for what it does and to whose. One that can't be used now is disabled, and says why.
+ */
+export function settingsButton(a: SettingsAction): HTMLElement {
+  const b = (a.arg === null ? toolbarButton(a.command, a.label, a.icon, undefined, a.primary) : argButton(a.command, a.label, a.icon, a.arg, a.primary)) as HTMLButtonElement;
+  b.setAttribute('aria-label', a.name);
+  if (a.disabled) {
+    b.disabled = true;
+    b.title = a.disabled;
+    b.setAttribute('aria-description', a.disabled);
+  }
   return b;
 }

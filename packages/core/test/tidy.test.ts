@@ -9,6 +9,7 @@ import { type Config, parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { emptyLedger, type Ledger, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
+import { steLine, steLint } from '../src/ste.ts';
 import { sync } from '../src/sync.ts';
 import { addTidy, branchInEnvironment, draftTidy, readTidy, rememberInEnvironment, skipTidy, TIDY_LABEL, tidyDue, tidyFile, type TidyRecord, tidyScope, tidyStatus } from '../src/tidy.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
@@ -244,7 +245,8 @@ test('the draft names the tasks it covers, lists the files, and asks for duplica
   const d = draftTidy(status, tidyScope(run, dir, config, status.tasks));
   assert.equal(d.title, 'Tidy up after 4 merges');
   assert.deepEqual([d.labels, d.covered, d.files], [[TIDY_LABEL], ['T-2', 'T-3', 'T-4', 'T-5'], ['src/a.ts', 'src/b.ts', 'src/e.ts']]);
-  assert.match(d.brief, /^4 tasks merged in this repo since the last tidy-up: T-2, T-3, T-4, T-5\./);
+  assert.match(d.brief, /^4 tasks merged in this repo since the last tidy-up\. /);
+  assert.match(d.brief, /\n## The tasks \(4\)\n\n- T-2\n- T-3\n- T-4\n- T-5\n/);
   assert.match(d.brief, /\*\*Duplicated helpers:\*\*/);
   assert.match(d.brief, /\*\*Comments that contradict the code:\*\*/);
   assert.match(d.brief, /- \[ \] It changes no behaviour: no test's expectations change/);
@@ -252,6 +254,21 @@ test('the draft names the tasks it covers, lists the files, and asks for duplica
   assert.match(d.brief, /## The files \(3\)\n\n.*\n\n- `src\/a\.ts`\n- `src\/b\.ts`\n- `src\/e\.ts`\n/);
   assert.match(d.brief, /## Tasks whose files aren't known\n\n.*\n\n- T-4: acc didn't record its merge commit or its branch\.$/);
   assert.ok(!/src\/(old|c)\.ts|DECISIONS/.test(d.brief), 'nothing outside the scope');
+});
+
+test('the draft\'s brief passes the wording check; edge case: 21 merges, no files left, and tasks whose files aren\'t known (T-71)', () => {
+  const merged = (n: number) => ({ id: `T-${n}`, title: `Task ${n}`, at: at(n), pr: n, mergeSha: null, branch: null });
+  const scope = (files: string[], unknown: { task: string; why: string }[]) => ({ branch: 'main', tip: 'origin/main', fetched: true, files, unknown, leftOut: [] });
+  const drafts = [
+    draftTidy({ tasks: [merged(1)] }, scope(['src/a.ts'], [])),
+    draftTidy({ tasks: Array.from({ length: 21 }, (_, i) => merged(i + 1)) }, scope([], [{ task: 'T-4', why: 'acc didn\'t record its merge commit or its branch' }, { task: 'T-9', why: 'its merge commit fffffff isn\'t in this clone, and fetching it failed' }])),
+  ];
+  assert.match(drafts[1]!.brief, /## The files \(0\)\n\n.*\n\n- none\n\n## Tasks whose files aren't known/);
+  for (const d of drafts) {
+    const r = steLint(d.brief, d.title);
+    assert.ok(r.words > 150, `${d.title}: checked ${r.words} words`);
+    assert.deepEqual(r.findings.map(steLine), [], d.title);
+  }
 });
 
 // ---------------------------------------------------------------- a person's choice, and nothing on its own

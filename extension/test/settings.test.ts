@@ -22,6 +22,7 @@ import type { DoctorItem } from '../src/logic/setup.ts';
 import type { ProjectLike } from '../src/model/shared.ts';
 import { HOME_SECTIONS, VIEW_KINDS, VIEW_TITLES } from '../src/model/shared.ts';
 import { COLOUR_PAGES, openAt, PAGE_HEIGHT, PAGES, sampleModel } from '../scripts/screenshot.ts';
+import { pageDom, type PageElement } from './page-dom.ts';
 import { hub, manifest, pageSource, root } from './support.ts';
 
 const source = (...path: string[]) => readFileSync(join(root, ...path), 'utf8');
@@ -429,7 +430,7 @@ test('GitHub accounts lists every open project from what Environments read, is b
   assert.ok(id.includes("const p = (typeof arg === 'string' ? this.hub.project(arg) : undefined) ?? this.active();"), 'the project it was asked for');
   const page = pageSource('settings.ts');
   assert.ok(page.includes("if (p.id === 'github') part.append(...githubPart(m));"));
-  assert.ok(page.includes("el('div', 'actions settings-tracker-actions', ...g.actions.map(trackerButton))"), 'each named and disabled as a tracker\'s are');
+  assert.ok(page.includes("el('div', 'actions settings-tracker-actions', ...g.actions.map(settingsButton))"), 'each named and disabled as a tracker\'s are');
   assert.ok(page.includes("g.from ? from(g.from) : null"), 'where it\'s chosen, beside it');
 });
 
@@ -556,8 +557,8 @@ test('the page draws each tracker under its project, its buttons named for whose
   const page = pageSource('settings.ts');
   assert.ok(page.includes("if (p.id === 'trackers') part.append(...trackersPart(m));"));
   assert.ok(page.includes("box.append(el('h3', 'settings-project-name', icon('repo'), el('span', '', p.project)));"), 'each project under its name');
-  assert.ok(page.includes("b.setAttribute('aria-label', a.name);") && page.includes('b.title = a.disabled;') && page.includes("b.setAttribute('aria-description', a.disabled);"));
-  assert.ok(page.includes('a.arg === null ? toolbarButton(a.command, a.label, a.icon, undefined, a.primary) : argButton(a.command, a.label, a.icon, a.arg, a.primary)'));
+  // Each button is named and disabled by settingsButton, which the test of it below runs in a document.
+  assert.ok(page.includes('...t.actions.map(settingsButton)'));
   for (const name of ['Place', 'Board', 'Sign-in']) assert.ok(page.includes(`line('${name}', `), name);
   assert.ok(page.includes("{ label: 'Reading its trackers', icon: 'sync~spin', tone: 'blue' }") && page.includes("{ label: 'No tracker yet', icon: 'circle-outline', tone: 'neutral' }"));
   assert.doesNotMatch(page, /writeFile|config\.json'|fs\./, 'the page writes no file');
@@ -579,4 +580,27 @@ test('the screenshots show Trackers and sign-ins with a tracker in every state, 
   assert.deepEqual(all.map((x) => x.board.icon), ['project', 'circle-outline', 'project', 'sync~spin', 'circle-outline'], 'read, waiting for a sign-in, reading');
   assert.ok(all.some((x) => x.actions.some((a) => a.disabled)), 'a Sign out it can\'t use');
   assert.ok(t.connect);
+});
+
+test('Settings and About draw their buttons with the one settingsButton, run in a document; edge case: a disabled one says why and sends nothing (T-71)', async () => {
+  const page = pageDom();
+  const { settingsButton } = await import('../webview/dom.ts');
+  const action = { command: 'acc.trackers.signIn', label: 'Sign in', icon: 'account', arg: '{"root":"/r","index":0}', name: 'Sign in to Jira, in Acme', primary: true, disabled: null };
+  const on = settingsButton(action) as unknown as PageElement;
+  assert.deepEqual([on.tagName, on.className, on.textContent, on.getAttribute('aria-label'), on.disabled], ['BUTTON', 'btn primary', 'Sign in', 'Sign in to Jira, in Acme', false]);
+  on.click();
+  assert.deepEqual(page.sent, [{ type: 'toolbar', command: 'acc.trackers.signIn', arg: '{"root":"/r","index":0}' }], 'its argument goes with it');
+  // An action that takes no argument asks for its command alone.
+  (settingsButton({ ...action, command: 'acc.about.check', arg: null, primary: false }) as unknown as PageElement).click();
+  assert.deepEqual(page.sent.at(-1), { type: 'toolbar', command: 'acc.about.check', project: undefined });
+  const why = 'Connect a tracker first.';
+  const off = settingsButton({ ...action, disabled: why }) as unknown as PageElement;
+  assert.deepEqual([off.disabled, off.title, off.getAttribute('aria-description')], [true, why, why]);
+  off.click();
+  assert.equal(page.sent.length, 2, 'a disabled button sends nothing');
+  for (const file of ['settings.ts', 'about.ts']) {
+    const src = pageSource(file);
+    assert.ok(src.includes('settingsButton('), `${file} draws its buttons with it`);
+    assert.ok(!src.includes("b.setAttribute('aria-label', a.name);"), `${file} keeps no copy of its own`);
+  }
 });

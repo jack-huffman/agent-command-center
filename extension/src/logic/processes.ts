@@ -135,7 +135,6 @@ export const FILES: readonly NamedFile[] = [
   { path: '~/.acc/machine.json', name: 'this machine\'s settings', noun: 'machine settings file' },
   { path: '.acc/config.json', name: 'the project\'s settings', noun: 'project settings file' },
   { path: '.acc/rules.md', name: 'the project\'s rules', noun: 'project rules file' },
-  { path: '.acc/packet.md', name: 'the template for the builder\'s instructions', noun: 'template for the builder\'s instructions' },
   { path: '.acc/floors.json', name: 'the project\'s floors', noun: 'floors file' },
   { path: 'docs/FIRST-RUN.md', name: 'the first-run checklist', noun: 'first-run checklist' },
   { path: 'docs/ONBOARDING.md', name: 'the onboarding guide', noun: 'onboarding guide' },
