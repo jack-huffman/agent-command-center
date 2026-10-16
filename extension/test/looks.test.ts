@@ -25,6 +25,7 @@ import { capLook } from '../src/model/limits.ts';
 import type { UpdateCard } from '../src/model/updates.ts';
 import { queueLook } from '../src/model/overview.ts';
 import { RULE_LOOK } from '../src/model/rules.ts';
+import { SINCE_LOOK } from '../src/model/since.ts';
 import { STATUS } from '../src/model/setup.ts';
 import { displayLook } from '../src/model/shared.ts';
 import { CHECK_LOOK, checkLook, REVIEW_LOOK, ticketReview, wordingLook } from '../src/model/task-page.ts';
@@ -69,6 +70,7 @@ export const TABLES: Table[] = [
   { name: 'a tracker column, by its name', sources: ['extension/src/model/boards.ts#columnLook'], states: () => ([['Blocked', 'doing'], ['On hold', 'doing'], ['Stuck', 'doing'], ['In Progress', 'doing'], ['Todo', 'todo'], ['Done', 'done']] as const).map(([n, c]): [string, Shown] => [n, { label: n, ...columnLook(n, c) }]) },
   { name: 'a cap on builders, a project\'s or this machine\'s', sources: ['extension/src/model/limits.ts#capLook'], states: () => [['no total, some running', capLook(2, null, 'here')], ['no total, none running', capLook(0, null, 'here')], ['full', capLook(3, 3, 'here')], ['none running', capLook(0, 3, 'here')], ['room for more', capLook(1, 3, 'here')]] },
   { name: 'a suggested rule or check', sources: ['extension/src/model/rules.ts#RULE_LOOK'], states: () => Object.entries(RULE_LOOK) },
+  { name: 'a notice on Since you last looked', sources: ['extension/src/model/since.ts#SINCE_LOOK'], states: () => Object.entries(SINCE_LOOK) },
   {
     name: 'a line on the Overview of its own', sources: ['extension/src/model/landing.ts#LANDING_LOOK', 'extension/src/model/landing.ts#updatesLook', 'extension/src/model/landing.ts#moveLook'],
     states: () => {

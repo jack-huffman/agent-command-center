@@ -19,7 +19,7 @@ import { displayLook, type HomeSection, type Look, LOOK, type Ref } from './shar
 /** The most lines Needs you shows on the Overview (T-36); Show all opens the rest. Every other list is a card. */
 export const CAP = 3;
 
-export type GroupKey = 'needs-you' | 'moment' | 'progress' | 'queue' | 'ready' | 'history';
+export type GroupKey = 'needs-you' | 'since' | 'moment' | 'progress' | 'queue' | 'ready' | 'history';
 
 /** What a line's button, a click on the line, or Show all does on the page. */
 export type RowDo =
@@ -305,7 +305,7 @@ function group(g: Omit<LandingGroup, 'shows' | 'rows' | 'total' | 'more' | 'all'
  * merge queue, what's ready, and History. Questions come first in Needs you, then the collapsed lines, so
  * they're seen within the cap.
  */
-export function landing(o: Omit<OverviewModel, 'landing' | 'cards'>, now = Date.now()): LandingGroup[] {
+export function landing(o: Omit<OverviewModel, 'landing' | 'cards' | 'since'>, now = Date.now()): LandingGroup[] {
   const many = o.projects.length > 1;
   const orange = (a: AttentionItem) => a.look.tone === 'orange';
   const updates = o.attention.filter((a) => a.update);

@@ -13,6 +13,7 @@ import type { RuleCard } from './rules.ts';
 import type { UpdateCard } from './updates.ts';
 import type { HomeInput } from './home.ts';
 import type { LandingGroup, OverviewCard, RowMenu } from './landing.ts';
+import { SINCE_CLEAR, type SinceGroup } from './since.ts';
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
 
 export interface AttentionItem {
@@ -54,6 +55,8 @@ export interface OverviewModel {
   landing: LandingGroup[];
   /** A card for each list but Needs you that holds a line, in the page's order (T-36). */
   cards: OverviewCard[];
+  /** What changed while the person was away from the window, above the cards, or null with nothing held (D-164). */
+  since: SinceGroup | null;
 }
 
 /** A project's merge queue on the Overview (GH-73): head first, each with its place and what it waits on. */
@@ -112,6 +115,8 @@ export const area: ModelArea = {
   commands: [
     // In progress (D-092): a job's Stop asks first; autopilot's output for its step.
     'acc.job.stop', 'acc.autopilot.output',
+    // Clear on Since you last looked (D-164).
+    SINCE_CLEAR,
   ],
   home: {
     order: 0,

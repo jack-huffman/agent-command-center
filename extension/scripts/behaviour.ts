@@ -98,6 +98,11 @@ export interface BehaviourData {
    * the list's title and every line, or History.
    */
   cards: { key: string; name: string; opens: string; title: string; lines: number; history: boolean }[];
+  /**
+   * Since you last looked (D-164), on the Overview with news held while away: its heading's part, its title,
+   * each line's task in order, and what a click on the first line sends.
+   */
+  since: { part: string; title: string; tasks: string[]; open: Record<string, unknown> };
   /** How many facts In progress's machine line holds, at the top of its detail. */
   machine: number;
   /** The project the header's Start an agent and Add a tracker act on. */
@@ -143,17 +148,17 @@ export interface BehaviourData {
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, and an agent's page. */
-export interface CaseModels { tasks: Model; overview: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, and an agent's page. */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -461,6 +466,35 @@ export const CASES: Case[] = [
         await t.escape(dialog);
         t.check(`${want.key}: focus comes back to the card`, document.activeElement === card, document.activeElement?.className);
       }
+    },
+  },
+  {
+    name: 'overview: Since you last looked sits between Needs you and the cards, a line opens its task, and Clear takes the group off and asks the extension to forget it',
+    page: 'overview-since',
+    async run(t) {
+      const group = t.find('[data-overview-group="since"]');
+      const order = t.all('.home-main > *').map((e) => (e as HTMLElement).dataset.overviewGroup ?? e.className);
+      t.check('between Needs you and the cards', JSON.stringify(order.slice(1, 4)) === JSON.stringify(['needs-you', 'since', 'lp-cards']), order);
+      const heading = t.find<HTMLElement>(`h2[data-part="${CSS.escape(t.data.since.part)}"]`, group);
+      t.check('headed with its title and count', heading.textContent === `${t.data.since.title}${t.data.since.tasks.length}`, heading.textContent);
+      t.check('its heading takes focus, for Show to open it at', heading.tabIndex === -1);
+      const lines = t.all('.lp-row', group);
+      const keys = lines.map((l) => l.querySelector('.lp-key')?.textContent);
+      t.check('a line for each notice, in order, with its task key', JSON.stringify(keys) === JSON.stringify(t.data.since.tasks), keys);
+      t.check('each line has its state, an icon and a label', lines.every((l) => !!l.querySelector('.lp-state .codicon') && !!l.querySelector('.lp-state-text')?.textContent));
+      await t.click(t.find('.lp-title', lines[0]));
+      const asked = t.sent('task-modal-open').at(-1);
+      t.check('a click on a line opens its task', JSON.stringify(asked) === JSON.stringify(t.data.since.open), asked);
+      const clear = t.all<HTMLButtonElement>('button', group).find((b) => b.textContent?.trim() === 'Clear');
+      if (!clear) throw new Error('not found: Clear on Since you last looked');
+      await t.click(clear);
+      t.check('Clear takes the group off', !document.querySelector('[data-overview-group="since"]'));
+      const sent = t.sent('toolbar').at(-1);
+      t.check('and asks the extension to forget the list', sent?.command === 'acc.since.clear', sent);
+      t.check('focus goes to the page, not lost with the group', document.activeElement === document.querySelector('.home-main'), document.activeElement?.className);
+      const home = t.model as unknown as { overview: Record<string, unknown> };
+      await t.post({ type: 'state', model: { ...home, overview: { ...home.overview, since: null } } });
+      t.check('the extension\'s next model draws none', !document.querySelector('[data-overview-group="since"]') && !!document.querySelector('[data-overview-card]'));
     },
   },
   {
@@ -1008,6 +1042,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'the detail doesn\'t draw again after the page does', file: 'detail.ts', find: "if (model.kind === 'home' && memory().detail) draw();", replace: "if (model.kind === 'home' && memory().detail && model !== state.last) draw();", kills: [caseNamed('detail modal: Show all on a rule'), caseNamed('detail modal: Accept')] },
   { name: 'Show all opens only what the page shows', file: 'detail.ts', find: 'const rows = g ? g.all : [];', replace: 'const rows = g ? g.rows : [];', kills: [caseNamed('detail modal: Show all opens'), caseNamed('overview: each card opens')] },
   { name: 'Enter on a line\'s link opens nothing', file: 'landing.ts', find: "title.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(e); });", replace: '', kills: [caseNamed('detail modal: Enter on a line')] },
+  { name: 'Clear leaves the group on the page', file: 'since.ts', find: '    box.remove();\n', replace: '', kills: [caseNamed('overview: Since you last looked')] },
+  { name: 'Clear tells the extension nothing', file: 'since.ts', find: "    api.postMessage({ type: 'toolbar', command: g.clear.command });\n", replace: '', kills: [caseNamed('overview: Since you last looked')] },
   { name: 'a card opens nothing', file: 'landing.ts', find: "b.addEventListener('click', () => openDetail(c.opens));", replace: "b.addEventListener('click', () => undefined);", kills: [caseNamed('overview: each card opens')] },
   { name: 'In progress\'s detail drops its machine line', file: 'detail.ts', find: "const top = d.group === 'progress' ? machineLine(o.inProgress) : null;", replace: 'const top = null;', kills: [caseNamed('overview: each card opens')] },
   { name: 'the header\'s menu runs each item as a task\'s action', file: 'overview.ts', find: "(a.command === 'refresh' ? refreshPage() : api.postMessage({ type: 'toolbar', command: a.command, project: root }))", replace: "api.postMessage({ type: 'run', command: a.command, ref: a.ref })", kills: [caseNamed('overview: the header')] },
@@ -1089,6 +1125,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     rulesOpens: JSON.stringify({ kind: 'rules' }),
     questionOpens: JSON.stringify({ kind: 'question', id: o.questions[0]!.id }),
     list: { key: list.key, title: list.title, shown: list.rows.length, total: list.total },
+    since: sinceData(models.since),
     cards: o.cards.map((c) => {
       const g = o.landing.find((x) => x.key === c.key)!;
       return { key: c.key, name: `${c.title}, ${c.count}: ${c.line}`, opens: JSON.stringify(c.opens), title: c.opens.kind === 'history' ? 'History' : `${g.title}: ${g.total}`, lines: g.total, history: c.opens.kind === 'history' };
@@ -1102,6 +1139,14 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     review: reviewData(models.review),
     keys: keysData(models.tasks),
   };
+}
+
+/** What Since you last looked's case expects (D-164), from the Overview drawn with news held while away. */
+function sinceData(model: Model): BehaviourData['since'] {
+  const g = model.kind === 'home' ? model.overview.since : null;
+  const first = g?.rows[0]?.open;
+  if (!g || first?.kind !== 'task') throw new Error('The Since you last looked case needs an Overview with news held, whose first line opens its task.');
+  return { part: g.part, title: g.title, tasks: g.rows.map((r) => r.id ?? ''), open: { type: 'task-modal-open', project: first.project, key: first.key } };
 }
 
 /** What the board's key cases expect (T-54), from the Tasks board's model: the Jira board it opens on, and the agent board. */

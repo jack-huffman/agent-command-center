@@ -356,6 +356,8 @@ export function activate(context: vscode.ExtensionContext): void {
     changed: () => panels.post(),
     env: process.env,
   });
+  /** The notices, made once the page is: the page reads Since you last looked from them (D-164). */
+  let noticesRef: Notices | undefined;
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
     about,
     connect: { model: () => connect.model(), close: () => connect.close() },
@@ -363,6 +365,7 @@ export function activate(context: vscode.ExtensionContext): void {
     identity: (root) => identity.card(root),
     edited: (root, id, replaces) => tickets.edited(root, id, replaces),
     runs: () => runs.views(),
+    since: () => noticesRef?.since() ?? [],
     autopilot: (root) => autopilotRef?.stateFor(root) ?? null,
     slack: {
       card: () => slackCard(slack.state(), slack.busy),
@@ -383,8 +386,11 @@ export function activate(context: vscode.ExtensionContext): void {
       account: identity.account(),
     };
   };
-  const notices = new Notices(hub, resolve, () => panels.visible() && ['overview', 'tasks'].includes(panels.current()), statusParts, slack);
+  // News while the person is away waits in the Overview's Since you last looked (D-164): the page draws it as it changes.
+  const notices = new Notices(hub, resolve, () => panels.visible() && ['overview', 'tasks'].includes(panels.current()), statusParts, slack, { onSince: () => panels.post() });
+  noticesRef = notices;
   context.subscriptions.push(notices);
+  reg('acc.since.clear', () => notices.clearSince());
   questions = new Questions(hub, setup.log,
     (card) => { if (!pages.open(card.session)) panels.show('overview'); },
     (card) => (panels.visible() && panels.current() === 'overview') || pages.showing(card.sessionId), slack);
@@ -439,7 +445,8 @@ export function activate(context: vscode.ExtensionContext): void {
   identity.onDidChange(changed);
   // An edit on a task's page changes what the Overview shows for its update, and whether it offers Post.
   tickets.onDidEdit(changed);
-  reg('acc.open.home', (section?: unknown) => panels.open(typeof section === 'string' ? (section as ViewKind) : undefined));
+  // With a part, such as Since you last looked from the welcome back's Show, it opens at that heading.
+  reg('acc.open.home', (section?: unknown, part?: unknown) => (typeof section === 'string' && typeof part === 'string' ? panels.show(section as ViewKind, part) : panels.open(typeof section === 'string' ? (section as ViewKind) : undefined)));
   for (const kind of VIEW_KINDS) reg(`acc.open.${kind}`, () => panels.show(kind));
 
 
@@ -467,7 +474,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeWorkspaceFolders(() => { setup.refreshSoon('folders changed', 200); void hub.loadProjects(); }),
     vscode.window.onDidChangeActiveTextEditor(() => { setup.renderStatusIfFolderChanged(); identity.render(); }),
     // Coming back to VSCode is when an account may have changed elsewhere, such as gh in a terminal.
-    vscode.window.onDidChangeWindowState((s) => { if (s.focused) void identity.refresh(); }),
+    vscode.window.onDidChangeWindowState((s) => { if (s.focused) void identity.refresh(); notices.focus(s.focused); }),
   );
   // Each folder's own .acc/config.json: a builder's worktree inside it has one too, which isn't this project's.
   const reload = () => void hub.loadProjects();

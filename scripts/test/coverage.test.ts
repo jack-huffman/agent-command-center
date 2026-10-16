@@ -66,7 +66,7 @@ export const OLDER: Record<string, string[]> = {
   'extension/webview/detail.ts': ['openDetail', 'closeDetail'],
   'extension/webview/dock.ts': ['stickToBottom', 'renderDock', 'redrawDock'],
   'extension/webview/dom.ts': ['linkTo', 'labelChip', 'renderDoc', 'menuButton', 'peekKey', 'peekable', 'clippedSpan', 'keptInput', 'keepFocus'],
-  'extension/webview/landing.ts': ['runDo', 'opensKey', 'landingRow', 'showAll', 'landingGroup'],
+  'extension/webview/landing.ts': ['runDo', 'opensKey', 'landingRow', 'showAll'],
   'extension/webview/limits.ts': ['renderLimits'],
   'extension/webview/modal.ts': ['makeModal'],
   'extension/webview/overview.ts': ['renderOverview'],

@@ -325,7 +325,7 @@ test('the section it opens on is kept per window, and used only when the Command
   const open = panels.slice(panels.indexOf('  async open(section?: ViewKind | HomeSection): Promise<void> {'), panels.indexOf('  show(section?: ViewKind | HomeSection, open?: string): void {'));
   assert.ok(open.includes('this.remember(this.opens)') && !panels.slice(panels.indexOf('  show(section?')).split('\n  }\n')[0]?.includes('this.opens'), 'open applies it, show doesn\'t');
   const ext = source('src', 'extension.ts');
-  assert.ok(ext.includes("if (!e.visible) return;\n    void panels.open();") && ext.includes("reg('acc.open.home', (section?: unknown) => panels.open("), 'the activity bar and acc.open.home open it');
+  assert.ok(ext.includes("if (!e.visible) return;\n    void panels.open();") && ext.includes("reg('acc.open.home', (section?: unknown, part?: unknown) => (typeof section === 'string' && typeof part === 'string' ? panels.show(section as ViewKind, part) : panels.open("), 'the activity bar and acc.open.home open it');
   // Agents' toggle and Settings both set the Where view through one path.
   assert.ok(panels.includes("if (m.type === 'agents-where') {\n      void this.setWhere(m.view);") && panels.includes("await this.ctx.workspaceState.update('acc.agents.where', view);"));
 });

@@ -6,6 +6,7 @@ import type { Action } from '../src/model/shared.ts';
 import { moreMenu } from './boards.ts';
 import { type Child, el, pageHeader, plural, refreshPage, toolbarButton } from './dom.ts';
 import { landingCard, landingGroup } from './landing.ts';
+import { sinceSection } from './since.ts';
 import { api, type PageArea } from './state.ts';
 
 /** What the header's ⋯ menu holds (T-36): each did the same as its button in the header before. */
@@ -33,8 +34,8 @@ export function renderOverview(m: HomeModel): Node[] {
   const cards = el('div', 'lp-cards', ...o.cards.map(landingCard));
   cards.setAttribute('role', 'group');
   cards.setAttribute('aria-label', 'Your other lists');
-  // What needs a person, first and alone at the top; every other list a card under it.
-  return [pageHeader('Overview', summary, ...tools), landingGroup(needs), ...(o.cards.length ? [cards] : [])];
+  // What needs a person, first and alone at the top; then what changed while they were away (D-164); every other list a card under it.
+  return [pageHeader('Overview', summary, ...tools), landingGroup(needs), ...(o.since ? [sinceSection(o.since)] : []), ...(o.cards.length ? [cards] : [])];
 }
 
 export const area: PageArea = {

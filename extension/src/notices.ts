@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { Hub } from './hub.ts';
 import { combinedStatus, type StatusParts } from './logic/status.ts';
+import { Away, welcomeBack } from './logic/away.ts';
 import { noticeBurst, type ProjectNotice, type Said } from './logic/notices.ts';
 import type { Ref } from './model/shared.ts';
 import { News, type NewsInput } from './news.ts';
@@ -13,7 +14,9 @@ import { settingsKey } from './model/settings.ts';
  * review, and a notice when a task changes in a way a person would want to hear about. The page being on
  * screen showing that task's board is reason enough to stay quiet. Each step autopilot takes is told once
  * too, wherever it ran (D-064). What changed is worked out whether or not a toast shows, and offered to
- * Slack, which has its own switch (GH-58), with every new draft update.
+ * Slack, which has its own switch (GH-58), with every new draft update. While the person is away from the
+ * window, news waits for them in the Overview's Since you last looked, and one notification on their return
+ * counts it (D-164).
  */
 export class Notices implements vscode.Disposable {
   private readonly item = vscode.window.createStatusBarItem('acc.summary', vscode.StatusBarAlignment.Left, 98);
@@ -25,14 +28,23 @@ export class Notices implements vscode.Disposable {
   private readonly slack: SlackSink | null;
   private readonly news: News;
   private needsYou = 0;
+  /** The window's away spans, and the news the newest held (D-164). In this window's memory only. */
+  private readonly away: Away;
+  private readonly clock: () => number;
+  /** Since you last looked changed: the page draws it again. */
+  private readonly onSince: () => void;
 
-  constructor(hub: Hub, resolve: (command: string, ref: Ref) => unknown, quiet: () => boolean, parts: () => Omit<StatusParts, 'rows' | 'needsYou'>, slack: SlackSink | null = null) {
+  constructor(hub: Hub, resolve: (command: string, ref: Ref) => unknown, quiet: () => boolean, parts: () => Omit<StatusParts, 'rows' | 'needsYou'>, slack: SlackSink | null = null,
+    { clock = Date.now, onSince = () => {} }: { clock?: () => number; onSince?: () => void } = {}) {
     this.hub = hub;
     this.resolve = resolve;
     this.quiet = quiet;
     this.parts = parts;
     this.slack = slack;
     this.news = new News((key) => slack?.told(key) ?? false);
+    this.clock = clock;
+    this.onSince = onSince;
+    this.away = new Away(vscode.window.state.focused, clock());
     this.item.name = 'Agent Command Center';
     this.item.command = { command: 'acc.status.menu', title: 'Agent Command Center' };
   }
@@ -69,7 +81,6 @@ export class Notices implements vscode.Disposable {
   update(needsYou: number): void {
     this.needsYou = needsYou;
     this.draw();
-    const speak = () => !this.quiet() && vscode.workspace.getConfiguration('agentCommandCenter').get<boolean>('notifications', true);
     // Every project's notices first, so a burst after a person was away is one notification (D-162).
     const all: ProjectNotice[] = [];
     for (const p of this.hub.projects) {
@@ -77,7 +88,41 @@ export class Notices implements vscode.Disposable {
       all.push(...notices.map((notice) => ({ root: p.root, notice })));
       for (const ev of slack) this.slack?.offer(ev);
     }
-    if (all.length && speak()) for (const s of noticeBurst(all)) void this.say(s);
+    // A new span replaces the list; news in a span grows it. Either redraws the Overview (T-61 review).
+    const before = this.away.since();
+    const held = before.length;
+    const shown = this.away.sort(all, this.clock());
+    const after = this.away.since();
+    if (after !== before || after.length !== held) this.onSince();
+    if (shown.length && this.speaks()) for (const s of noticeBurst(shown)) void this.say(s);
+  }
+
+  /**
+   * The window's focus changed. Back after an away span, the Overview shows what the span held, and one
+   * notification counts its news; a span with none says nothing.
+   */
+  focus(focused: boolean): void {
+    const back = this.away.focus(focused, this.clock());
+    if (!back) return;
+    this.onSince();
+    const said = welcomeBack(back);
+    if (said && this.speaks()) void this.say(said);
+  }
+
+  /** The news the newest away span held, for the Overview's Since you last looked. */
+  since(): readonly ProjectNotice[] {
+    return this.away.since();
+  }
+
+  /** Clear on Since you last looked. */
+  clearSince(): void {
+    this.away.clear();
+    this.onSince();
+  }
+
+  /** Notifications are on, and the page isn't on screen showing what they'd say. */
+  private speaks(): boolean {
+    return !this.quiet() && vscode.workspace.getConfiguration('agentCommandCenter').get<boolean>('notifications', true);
   }
 
   private async say(s: Said): Promise<void> {
@@ -85,9 +130,9 @@ export class Notices implements vscode.Disposable {
     const pick = await show(s.text, ...s.actions.map(([label]) => label));
     const chosen = s.actions.find(([label]) => label === pick);
     if (!chosen) return;
-    // A burst across tasks has no task: its Show opens the Overview.
+    // A burst across tasks has no task: its Show opens the Overview, at its part where it names one.
     if (s.task) void this.resolve(chosen[1], { project: s.task.root, task: s.task.task });
-    else void vscode.commands.executeCommand(chosen[1], 'overview');
+    else void vscode.commands.executeCommand(chosen[1], 'overview', ...(s.part ? [s.part] : []));
   }
 }
 

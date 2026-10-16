@@ -318,8 +318,14 @@ Settings.
   such as after you were away, they show as one notification that counts
   them, for example "Since you last looked: 2 need you, 3 merged", with Show
   to open the Overview. When every change is to one task, it keeps that
-  task's own buttons instead. Notices to Slack have their own switch, in the
-  Settings section's **Notices in Slack**, and still get each change.
+  task's own buttons instead. When VS Code has had no focus for ten minutes,
+  news waits for you instead: on your return one notification counts it,
+  "While you were away: 1 review passed, 2 merged", and its Show opens the
+  Overview at **Since you last looked**, a line for each change, until you
+  Clear it or are away again. Changes that need you still show at once. The
+  list lives in the window: reloading VS Code starts it empty. Notices to
+  Slack have their own switch, in the Settings section's **Notices in Slack**,
+  and still get each change.
 - `agentCommandCenter.theme`: how the Command Center's pages look: `vscode`
   (Match VSCode, the default), `light` or `dark`. It changes only acc's own
   pages; VSCode keeps its theme. It's kept on this machine, and set from
