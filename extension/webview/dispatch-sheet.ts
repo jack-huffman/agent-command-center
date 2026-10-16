@@ -4,7 +4,7 @@
 // goes back to what opened it. Dispatch sends the choice, and the extension works out acc's arguments.
 
 import type { DispatchSheet, EffortValue, SheetEffort, SheetModel } from '../src/model/dispatch-sheet.ts';
-import { button, el, icon, work } from './dom.ts';
+import { button, el, focusedElement, icon, work } from './dom.ts';
 import { makeModal } from './modal.ts';
 import { api, type PageArea } from './state.ts';
 
@@ -181,10 +181,7 @@ function make(): NonNullable<typeof parts> {
 /** Opens the sheet for a task, with what its builder uses chosen; open already, it shows this one. */
 function openSheet(sheet: DispatchSheet): void {
   parts ??= make();
-  if (!parts.dialog.open) {
-    const a = document.activeElement as HTMLElement | null;
-    opener = a && a !== document.body ? a : null;
-  }
+  if (!parts.dialog.open) opener = focusedElement();
   open = { sheet, model: 0, effort: null, where: sheet.place, name: '' };
   draw();
   if (!parts.dialog.open) parts.dialog.showModal();

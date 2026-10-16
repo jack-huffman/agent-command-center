@@ -10,7 +10,7 @@ import type { TaskRow } from '../src/logic/shared.ts';
 import { sizeLine } from '../src/logic/tasks.ts';
 import { cloudDisabled } from '../src/model/cards.ts';
 import { area, defaultPlace, dispatchChoiceArgs, dispatchSheet, effortSegments, SHEET_COMMANDS, type SheetInput } from '../src/model/dispatch-sheet.ts';
-import { row } from './support.ts';
+import { pageSource, row } from './support.ts';
 
 const CLOUD = { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', default: 'local' as const, quietMinutes: 120, max: 3 };
 const ON = { github: { repo: 'o/r' }, agents: { cloud: CLOUD } };
@@ -145,4 +145,14 @@ test('the page\'s go message is checked: a task key, a model, an effort the shee
   assert.ok(!ok({ ...m, model: '' }), 'an empty model');
   assert.ok(!ok({ ...m, anyway: 'yes' }));
   assert.deepEqual([...SHEET_COMMANDS], ['acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.dispatchAnyway']);
+});
+
+test('the sheet and the palette remember what opened them with one focusedElement; edge case: only the body focused gives no opener (T-70)', () => {
+  const dom = pageSource('dom.ts');
+  assert.match(dom, /export function focusedElement\(\): HTMLElement \| null \{\n  const a = document\.activeElement as HTMLElement \| null;\n  return a && a !== document\.body \? a : null;\n\}/);
+  for (const page of ['dispatch-sheet.ts', 'palette.ts']) {
+    const src = pageSource(page);
+    assert.match(src, /opener = focusedElement\(\);/, page);
+    assert.ok(!src.includes('document.body ? a : null'), `${page} keeps no copy of its own`);
+  }
 });

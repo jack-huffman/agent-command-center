@@ -334,6 +334,12 @@ export function keptInput(key: string, value: string, placeholder: string, onInp
   return i;
 }
 
+/** What has focus, or null when only the page's body has it: what a dialog gives focus back to when it closes. */
+export function focusedElement(): HTMLElement | null {
+  const a = document.activeElement as HTMLElement | null;
+  return a && a !== document.body ? a : null;
+}
+
 /** Remembers which text box had focus, and puts it back after a redraw. */
 export function keepFocus(): () => void {
   const a = document.activeElement as HTMLInputElement | null;
