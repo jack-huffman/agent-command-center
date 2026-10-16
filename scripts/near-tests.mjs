@@ -32,5 +32,7 @@ if (tests.some((t) => /^(extension\/test|scripts\/test)\//.test(t) || t === 'pac
   const build = spawnSync('npm', ['run', 'build'], { stdio: 'inherit' });
   if (build.status !== 0) process.exit(build.status ?? 1);
 }
-const r = spawnSync(process.execPath, ['--no-warnings', '--test', '--test-timeout=300000', '--test-reporter=spec', ...tests], { stdio: 'inherit' });
+// The same compile cache as npm test's (D-???), so each acc these tests start compiles nothing it compiled before.
+const cache = new URL('./compile-cache.ts', import.meta.url).href;
+const r = spawnSync(process.execPath, ['--no-warnings', '--import', cache, '--test', '--test-timeout=300000', '--test-reporter=spec', ...tests], { stdio: 'inherit' });
 process.exit(r.status ?? 1);
