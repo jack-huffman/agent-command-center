@@ -123,7 +123,7 @@ test('all of acc is one status bar item: what needs you first, a spinner while b
   assert.equal(combinedStatus({ ...base, account: { name: 'someone-else', ok: false } }).attention, true, 'the wrong account says so');
 });
 
-test('a burst of notices says one line that counts them, the kinds that need you first (D-???)', async () => {
+test('a burst of notices says one line that counts them, the kinds that need you first (D-162)', async () => {
   const { BURST_AT, noticeBurst, OVERVIEW_COMMAND } = await import('../src/logic/notices.ts');
   type Notice = import('../src/logic/notices.ts').TaskNotice;
   const n = (kind: Notice['kind'], task: string, urgent: boolean, root = '/a'): { root: string; notice: Notice } => ({ root, notice: { kind, task, text: `${kind} ${task}`, urgent } });

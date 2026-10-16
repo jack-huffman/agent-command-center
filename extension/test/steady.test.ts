@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import { type Box, type GeoSnapshot, judge } from '../scripts/geometry.ts';
-import { DEFAULT_SHOT_TIMEOUT, drawRetrying, retriedSummary, SETTLE, SETTLE_FRAMES, SETTLE_LIMIT, shotTimeout } from '../scripts/steady.ts';
+import { DEFAULT_SHOT_TIMEOUT, drawRetried, drawRetrying, retriedSummary, SETTLE, SETTLE_FRAMES, SETTLE_LIMIT, shotTimeout } from '../scripts/steady.ts';
 
 const timeout = (): { error: Error } => ({ error: Object.assign(new Error('spawnSync nice ETIMEDOUT'), { code: 'ETIMEDOUT' }) });
 /** A drawing that times out on the calls listed, and draws otherwise; how often it was called. */
@@ -48,6 +48,25 @@ test('a drawing that passes, or fails for a reason other than time, is never dra
   assert.deepEqual(retried, []);
   assert.equal(retriedSummary(retried), ' Retried no drawings.');
   assert.equal(retriedSummary(['a', 'b']), ' Retried 2 drawings that timed out: a; b.');
+});
+
+test('a drawing run without blocking that times out is drawn once more, and one that fails for another reason isn\'t (T-58)', async () => {
+  const d = drawing([1]);
+  const retried: string[] = [];
+  const said: string[] = [];
+  const r = await drawRetried(async () => d.draw(), 'tasks (dark, 500px)', retried, (l) => said.push(l));
+  assert.equal(r.error, undefined);
+  assert.equal(d.calls(), 2);
+  assert.deepEqual(retried, ['tasks (dark, 500px)']);
+  assert.match(said[0]!, /tasks \(dark, 500px\).*drawn once more/);
+  const twice = drawing([1, 2]);
+  assert.match((await drawRetried(async () => twice.draw(), 'b', retried, () => {})).error!.message, /ETIMEDOUT/);
+  assert.equal(twice.calls(), 2, 'once more, no further');
+  let calls = 0;
+  const missing = async () => { calls++; return { error: Object.assign(new Error('spawn nice ENOENT'), { code: 'ENOENT' }) }; };
+  assert.match((await drawRetried(missing, 'c', retried, () => {})).error!.message, /ENOENT/);
+  assert.equal(calls, 1);
+  assert.deepEqual(retried, ['tasks (dark, 500px)', 'b']);
 });
 
 test('a drawing\'s time allowed is ACC_SHOT_TIMEOUT\'s seconds, else the default when it\'s unset or invalid (GH-167)', () => {

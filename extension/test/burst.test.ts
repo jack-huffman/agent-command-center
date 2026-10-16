@@ -1,4 +1,4 @@
-// A burst of notices after a person was away (D-???): Notices.update() gathers every project's notices of
+// A burst of notices after a person was away (D-162): Notices.update() gathers every project's notices of
 // one reload, shows what noticeBurst makes of them, and still offers Slack each event.
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';

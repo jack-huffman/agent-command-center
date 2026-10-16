@@ -8,12 +8,16 @@
  *   npm run screenshot -- --colours          check no colour leaks from VSCode's theme into Light or Dark
  *   ACC_SHOT_TIMEOUT=90 npm run screenshot   allow each drawing 90 s, not 60 (GH-167)
  *   npm run screenshot -- --behaviour        the modals' behaviour cases and their mutants (GH-170)
+ *   npm run screenshot -- --jobs 1           draw one page at a time, not DEFAULT_JOBS at once (T-58)
  *
  * A full run (every tab, theme and width) also runs the behaviour cases and their mutants (behaviour.ts)
  * after the shots.
  *
  * It renders the built webview (extension/dist/webview), so run `npm run build` after changing it. The
- * first data row or card is shown hovered. Chrome runs one shot at a time, under nice.
+ * first data row or card is shown hovered. Chrome runs under nice, in DEFAULT_JOBS jobs at once (T-58): each
+ * job draws its share of the pages one after another, in its own Chrome with its own profile and output
+ * folders, and the behaviour cases and mutants run in a pool of as many. What each drawing found is printed
+ * and noted in the pages' order, so a run's log and record are the same whatever --jobs is.
  *
  * Each shot is the page with Light or Dark forced, as Settings forces it, under VSCode's other theme
  * (GH-109): a colour that still came from VSCode's theme would show in it. --colours checks the same
@@ -59,9 +63,10 @@ import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { CHECKS, COLLECT_GEOMETRY, type ExpectedButton, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
-import { drawRetrying, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
+import { drawRetried, drawRetrying, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
 import { axeScript, COLLECT_A11Y } from './a11y.ts';
+import { jobsOption, type Ran, runAsync, runJobs } from './jobs.ts';
 
 /**
  * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
@@ -377,11 +382,20 @@ function staleBuild(): string | null {
   return newest > statSync(built).mtimeMs ? 'the built webview is older than its source' : null;
 }
 
-/** Runs Chrome under nice, so the machine stays usable, for at most shotTimeout() (GH-167). */
-function chromeRun(chrome: string, args: string[], dump = false): ReturnType<typeof spawnSync> {
-  const [cmd, cmdArgs] = process.platform === 'win32' ? [chrome, args] : ['nice', ['-n', '15', chrome, ...args]];
-  return spawnSync(cmd, cmdArgs, dump ? { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: shotTimeout() } : { stdio: 'ignore', timeout: shotTimeout() });
+/** Chrome under nice, so the machine stays usable: the program to run and its arguments. */
+const niced = (chrome: string, args: string[]): [string, string[]] => (process.platform === 'win32' ? [chrome, args] : ['nice', ['-n', '15', chrome, ...args]]);
+
+/** Runs Chrome under nice for at most shotTimeout() (GH-167), gathering what it prints. */
+function chromeRun(chrome: string, args: string[]): ReturnType<typeof spawnSync> {
+  const [cmd, cmdArgs] = niced(chrome, args);
+  return spawnSync(cmd, cmdArgs, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: shotTimeout() });
 }
+
+/** chromeRun without blocking (T-58), so jobs draw at once. */
+const chromeAsync = (chrome: string, args: string[]): Promise<Ran> => runAsync(...niced(chrome, args), shotTimeout());
+
+/** A job's own Chrome profile, under the run's work folder: a Chrome running at once in another job never shares it (T-58). */
+export const profileArg = (work: string, slot: number): string => `--user-data-dir=${join(work, `profile-${slot}`)}`;
 
 /** The pages the colour check draws (GH-109): the busiest sections, Settings, a task's page and an agent's, a task in the modal over the board (GH-158), and the busy Overview with its update drafts open over it (GH-160), the loading screen (T-16), and the command palette open with results (T-52). */
 export const COLOUR_PAGES: Page[] = ['overview', 'tasks', 'settings', 'settings-agents', 'settings-trackers', 'settings-limits', 'settings-about', 'slack-paused', 'settings-github', 'settings-page', 'ticket', 'agent', 'tasks-modal', 'overview-landing', 'overview-drafts', 'tasks-agents', 'ticket-cloud', 'loading', 'palette'];
@@ -428,7 +442,7 @@ function colourCheck(chrome: string, work: string, views: Page[]): number {
         const what = `${view} (${theme} under ${under})`;
         // A drawing that timed out is drawn once more, and the run says so (GH-167).
         const r = drawRetrying(() => chromeRun(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--allow-file-access-from-files',
-          '--virtual-time-budget=3000', '--window-size=1000,900', '--dump-dom', pathToFileURL(page).href], true), what, retried);
+          '--virtual-time-budget=3000', '--window-size=1000,900', '--dump-dom', pathToFileURL(page).href]), what, retried);
         if (r.error) return fail(`Chrome didn't finish ${what} within ${shotTimeout() / 1000} s: ${r.error.message}`);
         const colours = dumpedColours(String(r.stdout ?? ''));
         if (!colours?.length) return fail(`${view} (${theme} under VSCode's ${under}) gathered no colours (exit ${r.status ?? r.signal}).`);
@@ -460,13 +474,13 @@ function colourCheck(chrome: string, work: string, views: Page[]): number {
  * The modals' behaviour (GH-170): each case in behaviour.ts on the built page, then each mutant's cases on
  * the page built with its one change, which must fail them.
  */
-async function behaviourRun(chrome: string): Promise<number> {
+async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   const work = mkdtempSync(join(tmpdir(), 'acc-behaviour-'));
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
     const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark') };
-    const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, run: (c, args) => chromeRun(c, args, true), log: (line) => console.log(line) });
+    const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;
   } finally {
@@ -538,17 +552,118 @@ export function noteShots(dir: string, taken: Record<string, ShotNote>): void {
 
 export const sha256Of = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
 
+/** What drawPages needs: the themes and widths, Chrome, and where to write. */
+export interface DrawPagesDeps {
+  /** Where each shot's note goes as it's taken; the caller notes it even when a drawing throws. */
+  taken?: Record<string, ShotNote>;
+  themes: Theme[];
+  widths: number[];
+  /** --height, or undefined for the usual heights, PAGE_HEIGHT's included. */
+  height: number | undefined;
+  /** How many jobs draw at once. */
+  jobs: number;
+  /** A folder holding the built webview at webview/: the pages, and each job's profile, are written here. */
+  work: string;
+  /** Where the PNGs end up. Each job writes its own into out/.job-<slot>/ first. */
+  out: string;
+  now: number;
+  /** fingerprint() to note each shot under, or null when the shots aren't noted. */
+  print: string | null;
+  /** Runs Chrome with these arguments. */
+  draw: (args: string[]) => Promise<Ran>;
+  log: (line: string) => void;
+}
+
+/** What a run drew: each drawing's verdict, the shots noted, the drawings retried, and each that failed, all in the pages' order. */
+export interface DrawnPages { renders: Render[]; taken: Record<string, ShotNote>; retried: string[]; failures: string[] }
+
+/** One drawing's outcome, held until those before it are printed. */
+interface Drawing { lines: string[]; retried: string[]; render?: Render; note?: [string, ShotNote]; failure?: string }
+
+/** How tall a page is shot: --height, else DEFAULT_HEIGHT or PAGE_HEIGHT's, whichever is taller (D-092). */
+export const shotHeight = (view: Page, height: number | undefined): number => height ?? Math.max(DEFAULT_HEIGHT, PAGE_HEIGHT[view] ?? 0);
+
+/**
+ * Draws each page in each theme at each width, d.jobs pages at once (T-58): splitJobs shares the pages out
+ * by how tall they're shot, since a taller shot takes Chrome longer, and each job draws its own one after
+ * another with its own Chrome profile and output folder. A drawing that timed out is drawn again in its
+ * job; a Chrome that dies, or gives no geometry, fails that drawing only, named in failures, and the rest
+ * are drawn. What each drawing found is logged in the pages' order.
+ */
+export async function drawPages(views: Page[], d: DrawPagesDeps): Promise<DrawnPages> {
+  const result: DrawnPages = { renders: [], taken: d.taken ?? {}, retried: [], failures: [] };
+  const drawView = async (view: Page, slot: number): Promise<Drawing[]> => {
+    const own = join(d.out, `.job-${slot}`);
+    mkdirSync(own, { recursive: true });
+    const drawings: Drawing[] = [];
+    for (const theme of d.themes) {
+      // Forced, under VSCode's other theme: a colour still taken from VSCode's would show (GH-109). Each
+      // shot also measures its geometry, which Chrome prints with the page (GH-105).
+      const page = join(d.work, `${view}-${theme}.html`);
+      const model = sampleModel(view, d.now, theme);
+      writeFileSync(page, pageFor(view, theme, model, other(theme), false, true, afterModel(view, d.now)));
+      for (const width of d.widths) {
+        const name = `${view}-${theme}-${width}.png`;
+        const png = join(d.out, name);
+        const drawnAt = join(own, name);
+        rmSync(png, { force: true });
+        const args = [
+          // The job's own profile, kept for its drawings (T-58): two Chromes at once never share one.
+          profileArg(d.work, slot),
+          '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check',
+          '--allow-file-access-from-files', '--force-device-scale-factor=2',
+          '--virtual-time-budget=3000', `--window-size=${width},${shotHeight(view, d.height)}`, `--screenshot=${drawnAt}`, '--dump-dom', pathToFileURL(page).href,
+        ];
+        const what = `${view} (${theme}, ${width}px)`;
+        const one: Drawing = { lines: [], retried: [] };
+        drawings.push(one);
+        // A drawing that timed out is drawn once more, in this job, and the run says so (GH-167).
+        const r = await drawRetried(() => d.draw(args), what, one.retried, (line) => one.lines.push(line));
+        if (r.error) { one.failure = `Chrome didn't finish ${what} within ${shotTimeout() / 1000} s: ${r.error.message}`; continue; }
+        if (!existsSync(drawnAt)) { one.failure = `Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`; continue; }
+        renameSync(drawnAt, png);
+        const shot = dumpedGeometry(r.stdout);
+        if (!shot) { one.failure = `${what} measured no geometry (exit ${r.status ?? r.signal}).`; continue; }
+        // A late font moves the rail's tab, so a page that loaded none first was measured by chance (T-21).
+        const unwaited = fontsUnwaited(what, shot.fonts);
+        if (unwaited) { one.failure = unwaited; continue; }
+        const verdict = judge(shot, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view), expectedButtons(model));
+        one.render = { page: view, theme, width, verdict };
+        if (d.print !== null) one.note = [name, { fingerprint: d.print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort() }];
+        one.lines.push(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
+      }
+    }
+    return drawings;
+  };
+  try {
+    await runJobs(views, d.jobs, drawView, (drawings) => {
+      for (const one of drawings) {
+        for (const line of one.lines) d.log(line);
+        result.retried.push(...one.retried);
+        if (one.render) result.renders.push(one.render);
+        if (one.note) result.taken[one.note[0]] = one.note[1];
+        if (one.failure) result.failures.push(one.failure);
+      }
+    }, (view) => shotHeight(view, d.height));
+  } finally {
+    for (let slot = 0; slot < d.jobs; slot++) rmSync(join(d.out, `.job-${slot}`), { recursive: true, force: true });
+  }
+  return result;
+}
+
 async function main(argv: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args: argv, allowPositionals: true,
-    options: { width: { type: 'string', default: WIDTHS.join(',') }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' }, colours: { type: 'boolean', default: false }, behaviour: { type: 'boolean', default: false } },
+    options: { width: { type: 'string', default: WIDTHS.join(',') }, theme: { type: 'string', default: 'dark,light' }, height: { type: 'string' }, out: { type: 'string' }, colours: { type: 'boolean', default: false }, behaviour: { type: 'boolean', default: false }, jobs: { type: 'string' } },
   });
+  const jobs = jobsOption(values.jobs);
+  if (jobs === null) return fail('--jobs is how many pages to draw at once: a whole number, 1 or more.');
   if (values.behaviour) {
     const stale = staleBuild();
     if (stale) return fail(`Run \`npm run build\` first: ${stale}.`);
     const chrome = findChrome();
     if (!chrome) return fail('No Chrome, Chromium or Edge found. Set CHROME to its path.');
-    return behaviourRun(chrome);
+    return behaviourRun(chrome, jobs);
   }
   const views = positionals.length ? positionals : values.colours ? [...COLOUR_PAGES] : [...PAGES];
   const bad = views.filter((v) => !(PAGES as readonly string[]).includes(v));
@@ -582,62 +697,34 @@ async function main(argv: string[]): Promise<number> {
   const out = resolve(values.out ?? join(extensionDir, '..', 'dist', 'screenshots'));
   mkdirSync(out, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), 'acc-screenshots-'));
-  const renders: Render[] = [];
-  const retried: string[] = [];
   // The screenshots gate counts shots at the usual heights only, and not ones started in a given state.
   const noting = values.height === undefined && !process.env.ACC_SHOT_STATE;
-  const print = noting ? fingerprint() : '';
+  // Shared with drawPages, so a throw partway still notes the shots already taken.
   const taken: Record<string, ShotNote> = {};
+  let drawn: DrawnPages = { renders: [], taken, retried: [], failures: [] };
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
-    const now = Date.now();
-    for (const view of views as Page[]) {
-      for (const theme of themes as Theme[]) {
-        // Forced, under VSCode's other theme: a colour still taken from VSCode's would show (GH-109). Each
-        // shot also measures its geometry, which Chrome prints with the page (GH-105).
-        const page = join(work, `${view}-${theme}.html`);
-        const model = sampleModel(view, now, theme);
-        writeFileSync(page, pageFor(view, theme, model, other(theme), false, true, afterModel(view, now)));
-        for (const width of widths) {
-          const png = join(out, `${view}-${theme}-${width}.png`);
-          // A page whose part sits low on it is shot taller unless --height says otherwise (D-092).
-          const tall = values.height === undefined ? Math.max(height, PAGE_HEIGHT[view] ?? 0) : height;
-          rmSync(png, { force: true });
-          const args = [
-            // No --user-data-dir: headless Chrome already uses a throwaway profile, and a fresh one makes it
-            // hang after writing the shot.
-            '--headless=new', '--disable-gpu', '--hide-scrollbars', '--no-first-run', '--no-default-browser-check',
-            '--allow-file-access-from-files', '--force-device-scale-factor=2',
-            '--virtual-time-budget=3000', `--window-size=${width},${tall}`, `--screenshot=${png}`, '--dump-dom', pathToFileURL(page).href,
-          ];
-          const what = `${view} (${theme}, ${width}px)`;
-          // A drawing that timed out is drawn once more, and the run says so (GH-167).
-          const r = drawRetrying(() => chromeRun(chrome, args, true), what, retried);
-          if (r.error) return fail(`Chrome didn't finish ${what} within ${shotTimeout() / 1000} s: ${r.error.message}`);
-          if (!existsSync(png)) return fail(`Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`);
-          const shot = dumpedGeometry(String(r.stdout ?? ''));
-          if (!shot) return fail(`${view} (${theme}, ${width}px) measured no geometry (exit ${r.status ?? r.signal}).`);
-          // A late font moves the rail's tab, so a page that loaded none first was measured by chance (T-21).
-          const unwaited = fontsUnwaited(what, shot.fonts);
-          if (unwaited) return fail(unwaited);
-          const verdict = judge(shot, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view), expectedButtons(model));
-          renders.push({ page: view, theme, width, verdict });
-          if (noting) taken[`${view}-${theme}-${width}.png`] = { fingerprint: print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort() };
-          console.log(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
-        }
-      }
-    }
+    drawn = await drawPages(views as Page[], {
+      themes: themes as Theme[], widths, height: values.height === undefined ? undefined : height, jobs, work, out, now: Date.now(),
+      print: noting ? fingerprint() : null, taken, draw: (args) => chromeAsync(chrome, args), log: (line) => console.log(line),
+    });
   } finally {
     rmSync(work, { recursive: true, force: true });
     // Noted even when Chrome stops partway, so the shots it did take count.
     noteShots(out, taken);
+  }
+  const { renders, retried } = drawn;
+  // A drawing that failed is named; the others were drawn all the same (T-58).
+  if (drawn.failures.length) {
+    for (const f of drawn.failures) console.error(f);
+    return fail(`${drawn.failures.length} drawing${drawn.failures.length === 1 ? '' : 's'} failed: ${drawn.failures.length === 1 ? 'it is' : 'each is'} named above.${retriedSummary(retried)}`);
   }
   // Exceptions and floors are a whole run's: a run of a few pages may not reach them.
   const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === WIDTHS.join(',');
   const failures = runFailures(renders, full);
   console.log(geometrySummary(renders) + retriedSummary(retried));
   // A full run checks the modals' behaviour too (GH-170); a run of a few pages, themes or widths doesn't.
-  const behaviour = full ? await behaviourRun(chrome) : 0;
+  const behaviour = full ? await behaviourRun(chrome, jobs) : 0;
   if (failures.length) {
     for (const f of failures) console.error(f);
     return fail(`${failures.length} geometry finding${failures.length === 1 ? '' : 's'}. Fix each, or list it in GEOMETRY_EXCEPTIONS (extension/scripts/geometry.ts) with why. The shots are written all the same.`);
