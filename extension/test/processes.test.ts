@@ -1,12 +1,12 @@
 // The Command Center's words for acc's processes (GH-163): every command acc has gets a plain name in one
 // table, and a message from acc reaches a person in those words, with no command or path left in it.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import test from 'node:test';
 import { AREAS } from '../../packages/cli/src/commands/index.ts';
 import { entryPointsOf } from '../../packages/cli/src/main.ts';
-import { FILES, fileName, inProcessWords, processLine, processName, processOf, PROCESSES } from '../src/logic/processes.ts';
+import { FILES, fileName, type NamedFile, inProcessWords, processLine, processName, processOf, PROCESSES } from '../src/logic/processes.ts';
 import { WORD_RULES } from '../scripts/words.ts';
 
 const root = join(import.meta.dirname, '..');
@@ -59,6 +59,19 @@ test('each file a person is told about has a name, and none is a path', () => {
   assert.equal(fileName('.acc/rules.md'), 'the project\'s rules');
   assert.equal(fileName('docs/FIRST-RUN.md'), 'the first-run checklist');
   assert.throws(() => fileName('.acc/nothing.json'));
+});
+
+test('each file a person is told about is real: a page this repo keeps, or one acc reads; edge case: .acc/packet.md, which nothing reads, is not named (T-71)', () => {
+  const repo = join(root, '..');
+  const sources = ['packages/core/src', 'packages/cli/src'].flatMap((d) => readdirSync(join(repo, d), { recursive: true }).map(String).filter((f) => f.endsWith('.ts')).map((f) => readFileSync(join(repo, d, f), 'utf8'))).join('\n');
+  assert.ok(sources.length > 0, 'read no source');
+  const kept = (f: NamedFile) => !f.path.startsWith('~/') && existsSync(join(repo, f.path));
+  const unread = FILES.filter((f) => !kept(f) && !sources.includes(basename(f.path)));
+  assert.deepEqual(unread.map((f) => f.path), [], 'named for a person, but no such file is kept or read');
+  assert.equal(FILES.length, 6);
+  assert.ok(!FILES.some((f) => f.path === '.acc/packet.md'));
+  // The builder's instructions are built in code, with nothing in the project to override them (DESIGN section 8).
+  assert.ok(!sources.includes('packet.md'));
 });
 
 /**
