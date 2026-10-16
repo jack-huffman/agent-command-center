@@ -36,7 +36,8 @@ import { blankConnect, connectModel, type ConnectModel } from '../src/model/conn
 import type { HomeModel, Model } from '../src/model/home.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { isFromWebview, type FromWebview } from '../src/model/messages.ts';
-import { historyItems } from '../src/model/history.ts';
+import { type HistoryItem, historyItems } from '../src/model/history.ts';
+import { LOOK } from '../src/model/shared.ts';
 import { HISTORY_PAGE, historyReply } from '../src/model/history-pages.ts';
 import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
 import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
@@ -115,9 +116,10 @@ export interface BehaviourData {
   /**
    * History a page at a time (D-???), on the Overview with 100 entries: how many rows its first page shows,
    * and for the next page, the Commands filter and an entry on a later page, what the page asks for, the
-   * extension's answer, and how many rows show once it's here. `id` is the later entry's.
+   * extension's answer, and how many rows show once it's here. `id` is the later entry's. `newer` is the
+   * model a refresh sends once a command has finished since.
    */
-  history: { first: number; count: number; next: Exchange; filter: Exchange; upTo: Exchange & { id: string } };
+  history: { first: number; count: number; next: Exchange; filter: Exchange; upTo: Exchange & { id: string }; newer: Model };
   /** The project the header's Start an agent and Add a tracker act on. */
   project: string;
   /**
@@ -514,13 +516,22 @@ export const CASES: Case[] = [
       t.check('it asks once while it waits', t.sent('history-more').length === 1, t.sent('history-more').length);
       await t.post(h.next.reply);
       t.check('the next page arrives under the first', rows().length === h.next.rows, rows().length);
+      // A refresh with a new entry, scrolled part way down: it goes on top, and the row in view stays put.
+      await t.scroll(body, 1500);
+      const top = () => body.getBoundingClientRect().top;
+      const seen = rows().find((r) => r.getBoundingClientRect().bottom > top())!;
+      const was = seen.getBoundingClientRect().top - top();
+      await t.post({ type: 'state', model: h.newer });
+      const again = rows().find((r) => r.dataset.id === seen.dataset.id);
+      t.check('a refresh adds its new entry on top, and keeps what was loaded', rows().length === h.next.rows + 1, rows().length);
+      t.check('and the row in view stays where it was', !!again && Math.abs(again.getBoundingClientRect().top - top() - was) < 2, [seen.dataset.id, was, again && again.getBoundingClientRect().top - top()]);
       const commands = t.all<HTMLButtonElement>('.history-filters button', dialog).find((b) => b.textContent?.startsWith('Commands'));
       if (!commands) throw new Error('not found: the Commands filter');
-      t.check('a filter\'s count is the model\'s, not the rows on the page', commands.querySelector('.count')?.textContent === String(h.count), commands.textContent);
+      t.check('a filter\'s count is the newer model\'s, not the rows on the page', commands.querySelector('.count')?.textContent === String(h.count + 1), commands.textContent);
       await t.click(commands);
       t.check('a filter asks for its own first page', JSON.stringify(t.sent('history-more').at(-1)) === JSON.stringify(h.filter.asked), t.sent('history-more').at(-1));
       await t.post(h.filter.reply);
-      t.check('and shows only its own', rows().length === h.filter.rows && rows().every((r) => r.classList.contains('history-run')), rows().map((r) => r.className));
+      t.check('and shows only its own', rows().length === h.filter.rows + 1 && rows().every((r) => r.classList.contains('history-run')), rows().map((r) => r.className));
       await t.escape(dialog);
       // Opened at an entry on a later page, as a tab rebuilt with History open at it is.
       t.remember({ detail: { kind: 'history', at: h.upTo.id } });
@@ -1162,6 +1173,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'History drops the page the extension sends', file: 'history.ts', find: '      loaded = next;\n', replace: '      void next;\n', kills: [caseNamed('overview: History loads its next page')] },
   { name: 'History shows a filter from All\'s first page, never asking for its own', file: 'history-store.ts', find: "    : { filter, items: [], more: true, waiting: true, counts: first.counts };", replace: "    : { filter, items: first.items.filter((i) => historyKind(i) === filter), more: false, waiting: false, counts: first.counts };", kills: [caseNamed('overview: History loads its next page')] },
   { name: 'History opened at an entry it hasn\'t loaded asks for nothing', file: 'history.ts', find: '    sought = at;\n    ask(at);\n', replace: '    sought = at;\n', kills: [caseNamed('overview: History loads its next page')] },
+  { name: 'History jumps when new entries come in above', file: 'detail.ts', find: '  keep();\n  place();\n', replace: '  keep();\n', kills: [caseNamed('overview: History loads its next page')] },
   { name: 'Clear leaves the group on the page', file: 'since.ts', find: '    box.remove();\n', replace: '', kills: [caseNamed('overview: Since you last looked')] },
   { name: 'Clear tells the extension nothing', file: 'since.ts', find: "    api.postMessage({ type: 'toolbar', command: g.clear.command });\n", replace: '', kills: [caseNamed('overview: Since you last looked')] },
   { name: 'a card opens nothing', file: 'landing.ts', find: "b.addEventListener('click', () => openDetail(c.opens));", replace: "b.addEventListener('click', () => undefined);", kills: [caseNamed('overview: each card opens')] },
@@ -1283,11 +1295,13 @@ function historyData(model: Model, now: number): BehaviourData['history'] {
   };
   const after = { at: last.at, id: last.id };
   const later = items[HISTORY_PAGE * 2 + 5]!;
+  const fresh: HistoryItem = { kind: 'run', id: 'run:fresh', at: new Date(now).toISOString(), label: 'Pull the boards', command: 'acc sync', look: LOOK('Done', 'pass', 'blue'), lines: [] };
   return {
     first: first.length, count: model.overview.history.counts.run,
     next: exchange({ type: 'history-more', filter: 'all', after }, first.length),
     filter: exchange({ type: 'history-more', filter: 'run' }, 0),
     upTo: { ...exchange({ type: 'history-more', filter: 'all', after, upTo: later.id }, first.length), id: later.id },
+    newer: { ...model, overview: { ...model.overview, history: { ...model.overview.history, items: [fresh, ...first], counts: { ...model.overview.history.counts, all: model.overview.history.counts.all + 1, run: model.overview.history.counts.run + 1 } } } },
   };
 }
 

@@ -13,7 +13,7 @@ import { homeModel } from '../src/model/home.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { LOOK } from '../src/model/shared.ts';
 import { clock, dayName, dayNumber } from '../webview/days.ts';
-import { afterOf, historyKind as pageKind, newestFirst as pageOrder, startFrom, withNewer, withPage } from '../webview/history-store.ts';
+import { afterOf, historyKind as pageKind, keepPlace, newestFirst as pageOrder, startFrom, withNewer, withPage } from '../webview/history-store.ts';
 import { hub, root } from './support.ts';
 
 const MIN = 60_000;
@@ -267,4 +267,47 @@ test('a page that isn\'t for what\'s loaded now is ignored: a stale filter\'s, o
   assert.deepEqual([twice.items.length, twice.items.at(-1)!.id], [81, 'move:080'], 'entries already loaded aren\'t added twice');
   const last = withPage(twice, historyReply(all, { type: 'history-more', filter: 'all', after: afterOf(twice) }))!;
   assert.deepEqual([last.items.length, last.more], [100, false]);
+});
+
+/**
+ * A scrolling box with a row for each id, 60 px each, as the page lays History out, its top at 100 px.
+ * `draw` lays out other rows, as a redraw does.
+ */
+function scrollBox(ids: string[], scrollTop: number) {
+  let rows = ids;
+  const box = {
+    scrollTop,
+    getBoundingClientRect: () => ({ top: 100, bottom: 500 }),
+    querySelectorAll: () => rows.map((id, i) => ({ dataset: { id }, getBoundingClientRect: () => ({ top: 100 + i * 60 - box.scrollTop, bottom: 160 + i * 60 - box.scrollTop }) })),
+    draw(next: string[]) { rows = next; },
+  };
+  return box;
+}
+const topOf = (box: ReturnType<typeof scrollBox>, id: string) => box.querySelectorAll().find((r) => r.dataset.id === id)!.getBoundingClientRect().top;
+
+test('a redraw with new entries above keeps the row in view where it was', () => {
+  const box = scrollBox(['c', 'd', 'e', 'f'], 130);
+  // e is the first row whose bottom is below the box's top, at 90 px, cut by the box's top edge.
+  assert.equal(topOf(box, 'e'), 90);
+  const place = keepPlace(box as unknown as HTMLElement);
+  box.draw(['a', 'b', 'c', 'd', 'e', 'f']);
+  place();
+  assert.equal(box.scrollTop, 250, 'scrolled down by the two new rows, 120 px');
+  assert.equal(topOf(box, 'e'), 90, 'e is where it was');
+});
+
+test('at the top, nothing is kept: the new entries show', () => {
+  const box = scrollBox(['c', 'd'], 0);
+  const place = keepPlace(box as unknown as HTMLElement);
+  box.draw(['a', 'b', 'c', 'd']);
+  place();
+  assert.equal(box.scrollTop, 0);
+});
+
+test('a row in view that\'s gone after the redraw leaves the scroll as it was', () => {
+  const box = scrollBox(['c', 'd', 'e'], 130);
+  const place = keepPlace(box as unknown as HTMLElement);
+  box.draw(['a', 'c', 'e']);
+  place();
+  assert.equal(box.scrollTop, 130);
 });

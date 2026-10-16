@@ -8,7 +8,8 @@ import type { HomeModel, Model } from '../src/model/home.ts';
 import type { Detail } from '../src/model/landing.ts';
 import type { AttentionItem } from '../src/model/overview.ts';
 import { argButton, button, type Child, el, keepFocus, status } from './dom.ts';
-import { keepPlace, renderHistory } from './history.ts';
+import { renderHistory } from './history.ts';
+import { keepPlace } from './history-store.ts';
 import { landingRows, opensKey } from './landing.ts';
 import { makeModal } from './modal.ts';
 import { machineLine } from './progress.ts';
@@ -157,8 +158,8 @@ function draw(): void {
   modal.body.replaceChildren(...c.nodes);
   if (!modal.dialog.open) modal.dialog.showModal();
   modal.body.scrollTop = y;
-  place();
   keep();
+  place();
   drawn = key;
   // Opened at a History item: it's brought into view.
   if (fresh) modal.body.querySelector<HTMLElement>('[data-at]')?.scrollIntoView({ block: 'center' });

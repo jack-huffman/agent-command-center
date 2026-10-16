@@ -7354,17 +7354,20 @@ read, and costly on each refresh.
   the next page, with nothing marked.
 - **Refresh keeps the place.** What the page loaded is kept
   (`webview/history-store.ts`): a new model's newer entries go on top, and the
-  row in view stays where it was. When All's whole first page is new and more
-  are still to come, there may be a gap, so All starts again from it.
-- **Checked.** `history-pages.test.ts` has 24 tests: day names (each of the
+  row in view stays where it was (`keepPlace`, which measures again after each
+  move, as a scroll can land a few px short of where it was set). When All's
+  whole first page is new and more are still to come, there may be a gap, so
+  All starts again from it.
+- **Checked.** `history-pages.test.ts` has 27 tests: day names (each of the
   last 7 days, an older date, midnight in Chicago), the pages (first, next,
   last, a filter's, up to an entry; no entries, exactly 40, an entry that's
-  gone), the page's store, the home model's 40 with its counts, and a mutant
+  gone), the page's store and its kept place, the home model's 40 with its
+  counts, and a mutant
   of the model that sends every entry, which the page-size check catches. The
   screenshot run adds History with 100 entries over six or seven days. A
-  behaviour case scrolls to the end and sees the next page arrive, picks
-  Commands, and opens History at an entry on its third page; four mutants each
-  fail it. Headless Chrome with a virtual time budget draws no frames, so no
+  behaviour case scrolls to the end and sees the next page arrive, takes a
+  refresh with a new entry while scrolled, picks Commands, and opens History
+  at an entry on its third page; five mutants each fail it. Headless Chrome with a virtual time budget draws no frames, so no
   IntersectionObserver reports there and a scroll fires no event: the
   behaviour page stands in for it, measuring boxes on each scroll event, and
   the probe's scroll fires one.

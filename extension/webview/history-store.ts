@@ -1,5 +1,6 @@
 // The History entries a tab has loaded (D-???), a page at a time: what each new model adds at the top, and
-// each page the extension sends added at the end. No DOM, so it's testable. The page imports no values from
+// each page the extension sends added at the end, and the row in view kept in place as it draws again. It
+// reads only the boxes it's given, never the page's own, so it's testable. The page imports no values from
 // the extension's model (D-121), so historyKind and newestFirst are copies of model/history-pages.ts's and
 // model/history.ts's; test/history-pages.test.ts holds them to the same answers.
 
@@ -61,4 +62,30 @@ export function withPage(l: Loaded, r: Omit<HistoryReply, 'type'>): Loaded | nul
   if (r.filter !== l.filter || r.after?.id !== after?.id) return null;
   const have = new Set(l.items.map((i) => i.id));
   return { ...l, items: [...l.items, ...r.page.items.filter((i) => !have.has(i.id))], more: r.page.more, waiting: false, counts: r.page.counts };
+}
+
+/**
+ * Keeps a person's place in History as it draws again: the first row in view stays where it was, though new
+ * entries came in above it. At the top, the new entries show.
+ */
+export function keepPlace(body: HTMLElement): () => void {
+  if (body.scrollTop <= 0) return () => {};
+  const top = body.getBoundingClientRect().top;
+  const rows = () => [...body.querySelectorAll<HTMLElement>('.history-feed > li[data-id]')];
+  const first = rows().find((r) => r.getBoundingClientRect().bottom > top);
+  if (!first) return () => {};
+  const id = first.dataset.id;
+  // Measured from the box's own top, which moves if what holds it scrolls.
+  const was = first.getBoundingClientRect().top - top;
+  return () => {
+    const again = rows().find((r) => r.dataset.id === id);
+    if (!again) return;
+    // Measured again after each move, as a scroll may land short of where it was set (a whole px, or what
+    // the browser makes of it), up to three times.
+    for (let i = 0; i < 3; i++) {
+      const off = again.getBoundingClientRect().top - body.getBoundingClientRect().top - was;
+      if (Math.abs(off) < 1) break;
+      body.scrollTop += off;
+    }
+  };
 }

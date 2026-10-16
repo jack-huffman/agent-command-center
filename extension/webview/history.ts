@@ -162,24 +162,6 @@ export function renderHistory(first: HistoryPage, manyProjects: boolean, at?: st
   return box;
 }
 
-/**
- * Keeps a person's place in History as it draws again: the first row in view stays where it was, though new
- * entries came in above it. At the top, the new entries show.
- */
-export function keepPlace(body: HTMLElement): () => void {
-  if (body.scrollTop <= 0) return () => {};
-  const top = body.getBoundingClientRect().top;
-  const rows = () => [...body.querySelectorAll<HTMLElement>('.history-feed > li[data-id]')];
-  const first = rows().find((r) => r.getBoundingClientRect().bottom > top);
-  if (!first) return () => {};
-  const id = first.dataset.id;
-  const was = first.getBoundingClientRect().top;
-  return () => {
-    const again = rows().find((r) => r.dataset.id === id);
-    if (again) body.scrollTop += again.getBoundingClientRect().top - was;
-  };
-}
-
 export const area: PageArea = {
   receive: {
     // A page the extension sent: added at the end, and drawn; the entry it was asked up to is brought into view.
