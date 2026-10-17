@@ -54,7 +54,7 @@ where each one's done-when is written out.
   D-079, D-081, 0.39.0.
 - **The extension updates itself**: done. Checked 2026-10-16. Evidence: D-166.
   It looks for a newer release, offers it, and installs it after checking its
-  `.sha256`. 0.41.0's checksum was checked against its `.vsix` on 2026-10-16.
+  `.sha256`, and refuses a release with none (D-???). 0.41.0's checksum was checked against its `.vsix` on 2026-10-16.
   Its first real offer comes with the next release after 0.41.0.
 - **The first run on a fresh machine**: waiting on a person. Checked
   2026-10-16. Evidence: D-088, GH-88. [FIRST-RUN.md](FIRST-RUN.md) is the

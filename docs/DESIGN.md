@@ -1634,7 +1634,7 @@ skipped and not yet offered in the session gets one notification: **Install and 
 notes**, **Skip this version** (kept in global state as `acc.update.skipped`).
 Install and reload runs `gh release download` as gh's active account into a
 new temporary folder, takes the one `.vsix` named for the version, checks it
-against the release's `<vsix>.sha256` when there is one, installs it with
+against the release's `<vsix>.sha256` (a release with none, or a mismatch, is refused, D-???), installs it with
 `workbench.extensions.installExtension`, removes the folder, saves
 `acc.update.after` with the version, and reloads the window. The next
 activation that finds the save clears it, then opens the Command Center with
