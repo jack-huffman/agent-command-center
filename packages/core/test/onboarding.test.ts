@@ -11,6 +11,7 @@ import type { CheckStatus } from '../src/onboarding/types.ts';
 import { repoPaths } from '../src/paths.ts';
 import { importRules, renderHeader, rulesDigest } from '../src/rules.ts';
 import { writeReadme } from '../src/setup.ts';
+import { NO_TRACKING_REASON } from '../src/source-tracking.ts';
 import { templateDigest } from '../src/template.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
 
@@ -184,6 +185,22 @@ test('an untracked Developer sandbox fails B8, with both the org and the CLI che
   const r = statuses(sfRepo(), f);
   assert.equal(r['B8.tracking']!.status, 'fail');
   assert.equal(r['B8.cli-tracking']!.status, 'fail');
+});
+
+test('a project that doesn\'t use source tracking skips both B8 steps with the reason, even with untracked sandboxes; on or not set, they still run (T-73)', () => {
+  const f = healthy();
+  f[`${TRACK_Q} -o Acme Dev`] = sf(null, 1);
+  f['sf org list'] = sf({ nonScratchOrgs: [{ alias: 'Acme Dev', tracksSource: false }] });
+  const config = (over: Record<string, unknown>) => ({ ...SF_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME' }], ...over });
+  const off = statuses(sfRepo({ config: config({ sourceTracking: false }) }), f);
+  for (const id of ['B8.tracking', 'B8.cli-tracking']) {
+    assert.deepEqual(off[id], { status: 'skip', detail: NO_TRACKING_REASON }, id);
+  }
+  assert.match(NO_TRACKING_REASON, /doesn't use source tracking.*Source tracking under Limits and checks in the project's settings/);
+  for (const over of [{ sourceTracking: true }, {}]) {
+    const r = statuses(sfRepo({ config: config(over) }), f);
+    assert.deepEqual([r['B8.tracking']!.status, r['B8.cli-tracking']!.status], ['fail', 'fail'], JSON.stringify(over));
+  }
 });
 
 test('git pushing as the wrong account fails B2 and shows the repo-local helper', () => {

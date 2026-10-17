@@ -12,6 +12,7 @@ import { rulesStatus } from '../rules.ts';
 import { readmePlaces } from '../setup.ts';
 import { DATA_EXT } from '../stray-files.ts';
 import { parseSource } from '../source.ts';
+import { NO_TRACKING_REASON, usesSourceTracking } from '../source-tracking.ts';
 import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
 import {
@@ -611,6 +612,7 @@ export const STEPS: Step[] = [
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
+      if (!usesSourceTracking(ctx.config!)) return skip(NO_TRACKING_REASON);
       const envs = devEnvs(ctx);
       if (!envs.length) return skip('No Developer sandboxes in this project.');
       const off = envs.filter((e) => sfJson(ctx, ['data', 'query', '--use-tooling-api', '-q', 'SELECT COUNT() FROM SourceMember', '-o', e.org!]).status !== 0);
@@ -624,6 +626,7 @@ export const STEPS: Step[] = [
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
+      if (!usesSourceTracking(ctx.config!)) return skip(NO_TRACKING_REASON);
       const envs = devEnvs(ctx);
       if (!envs.length) return skip('No Developer sandboxes in this project.');
       const list = sfJson(ctx, ['org', 'list']);
