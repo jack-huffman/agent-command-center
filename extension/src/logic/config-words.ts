@@ -84,6 +84,7 @@ export const CONFIG_WORDS: Record<ConfigKey, string> = {
   'strayFiles.allow': 'the stray files it allows',
   'strayFiles.data': 'the data files it allows',
   'analysis.required': 'when a task needs an analysis',
+  sourceTracking: 'whether it uses source tracking',
   'autopilot.appendOnly': 'whether autopilot only adds tasks',
   'autopilot.autoMerge': 'whether autopilot merges',
   'dispatch.shared': 'the files tasks may share',

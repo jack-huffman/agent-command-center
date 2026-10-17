@@ -37,6 +37,8 @@ export interface ProjectLimits {
   gates: { name: string; about: string }[];
   /** The environments whose pull requests go through the merge queue, where builders' lighter checks apply (D-096). */
   queue: string[];
+  /** Whether a Salesforce project uses source tracking (T-73), or null where the project isn't Salesforce. */
+  sourceTracking: boolean | null;
   /** The model builders run with, and where it's set (D-036, D-086). */
   model: string;
   modelFrom: string;
@@ -167,6 +169,7 @@ export const LIMIT_COMMANDS = {
   heavySlots: 'acc.settings.heavySlots',
   requiredGates: 'acc.settings.requiredGates',
   builderGates: 'acc.settings.builderGates',
+  sourceTracking: 'acc.settings.sourceTracking',
 } as const;
 
 export function limitsModel(f: LimitsFacts, billing: Look | null = null): LimitsModel {
@@ -268,7 +271,16 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
       command: LIMIT_COMMANDS.builderGates, arg: p.root,
       why: p.gates.length ? null : `${p.name} has no checks to choose from yet: add a command for each check in ${config}.`,
     };
-    return { project: p.name, root: p.root, rows: [required, builder] };
+    // Source tracking is a Salesforce setting (T-73): on unless the project's settings turn it off.
+    const tracking: LimitRow[] = p.sourceTracking === null ? [] : [{
+      key: `tracking:${p.root}`, name: 'Source tracking', icon: 'eye', value: p.sourceTracking ? 'Used' : 'Not used',
+      from: p.sourceTracking
+        ? `acc's default: ${config} set none. Setup checks that each Developer sandbox is source tracked.`
+        : `Set in ${config}, for everyone on the repo once it's committed. Retrieves use manifests and deploys use source folders, as always.`,
+      look: p.sourceTracking ? null : { label: 'Off: Setup skips its source-tracking steps', icon: 'circle-slash', tone: 'neutral' },
+      command: LIMIT_COMMANDS.sourceTracking, arg: p.root, why: null,
+    }];
+    return { project: p.name, root: p.root, rows: [required, builder, ...tracking] };
   });
 
   return { caps, meaning, billing, slots, checks };

@@ -395,6 +395,11 @@ access, and who git push and commits use.
 
 *Salesforce only.*
 
+A project that doesn't use source tracking skips this part: turn Source
+tracking off under Limits and checks in the project's settings, or run
+`acc tracking off`. Both B8 checks then skip and say why. acc's retrieves use
+manifests and its deploys use source folders, so nothing else changes.
+
 - [ ] **Create it** in Production: Setup → Sandboxes → New Sandbox → Developer.
   Its name becomes its branch name, and B1 lists it (`acc init --force`).
 - [ ] **Developer sandboxes are source tracked** (`B8.tracking`). A Developer

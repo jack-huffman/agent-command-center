@@ -229,6 +229,7 @@ doesn't know, at any level (GH-107).
 | `secretScan.paths`, `secretScan.exclude` | Where setup's B3.secrets step looks for credentials in tracked files, and what it skips there. By default the whole repo, or in Salesforce `force-app`, `config` and `scripts`, skipping nothing |
 | `strayFiles.required`, `strayFiles.allow`, `strayFiles.data` | The built-in `stray-files` check ([section 9](#9-gates-and-receipts), GH-103). It's required, for builders and the merge queue, unless `strayFiles.required` is `false`. `strayFiles.allow` lists files, or folders, a change may add that it would fail, such as `LICENSE`. In Salesforce, `strayFiles.data` lists folders where data files (`.csv`, `.xls`, `.xlsx`, `.eml`) belong. Each is a path inside the repo, with no globs; left out, there are none. It's read from the checked commit's own config |
 | `analysis.required` | Whether a task needs an analysis before it's built (D-052). Left out, a Salesforce project's do and a generic one's don't |
+| `sourceTracking` | Whether a Salesforce project uses source tracking (D-???). Left out, it does. `false` makes Setup's source-tracking steps (`B8.tracking`, `B8.cli-tracking`) skip, with the reason and where to change it; retrieves and deploys don't change, since they use manifests and source folders. Outside Salesforce nothing reads it, and `false` gets a warning. `acc tracking on` or `off` changes it, as Settings' Limits and checks does |
 | `template` | The team template the project was started from, written by `acc init --from`: its `name`, its `source` (a GitHub file URL, `<git-url>#<path>`, or a path inside the repo, under `~/`, or an absolute path elsewhere) and its `digest` (`sha256:` of its JSON with sorted keys). Setup's B0.template step says when the template has changed and the project now differs; nothing re-applies it ([docs/TEMPLATES.md](TEMPLATES.md), D-097) |
 
 **Shared rules are copied in, not linked (GH-108).** A team's rules, such as
@@ -1598,9 +1599,10 @@ and the run fails unless the cases it names fail on it.
 total across every repo side by side, each with −, its number, + and Change…,
 how many run now and where it's set; what a change means, in this machine's
 own numbers; the heavy-check slots; and each project's required and builders'
-checks. Every change runs acc (`acc agents max`, `acc machine agents`, `acc
-machine heavy-slots`, `acc gate required`, `acc gate builder`), which changes
-only its key. The extension reads the part's facts in `extension/src/limits.ts`
+checks, and in a Salesforce project whether it uses source tracking (D-???).
+Every change runs acc (`acc agents max`, `acc machine agents`, `acc
+machine heavy-slots`, `acc gate required`, `acc gate builder`, `acc
+tracking`), which changes only its key. The extension reads the part's facts in `extension/src/limits.ts`
 only while Settings shows, or a held task waits, and then at most every 15
 seconds, since the total counts every repo's ledger acc noted under
 `~/.acc/ledgers/`. That read writes nothing (D-012): a note whose ledger has

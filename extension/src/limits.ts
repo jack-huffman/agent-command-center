@@ -12,6 +12,7 @@ import { builders, type Ledger } from '../../packages/core/src/ledger.ts';
 import { agentsMaxSet, configSets, machineAgents, machineRepos, MAX_AGENTS, MAX_MACHINE_AGENTS, realLedger, recentWork } from '../../packages/core/src/limits.ts';
 import { readMachineKey } from '../../packages/core/src/machine.ts';
 import { heavySlots, type HeavyState, MAX_HEAVY_SLOTS } from '../../packages/core/src/semaphore.ts';
+import { usesSourceTracking } from '../../packages/core/src/source-tracking.ts';
 import type { ExtensionArea } from './area.ts';
 import type { LimitsFacts } from './model/limits.ts';
 import type { RunResult } from './run.ts';
@@ -75,6 +76,7 @@ export function readLimits(projects: LimitsProject[], ledgerOf: (root: string) =
         required: fullGates(p.config), requiredFrom: configSets(join(p.root, '.acc', 'config.json'), ['gates', 'required']) ? 'project' : 'acc', builder: p.config.gates.builder?.length ? p.config.gates.builder : null,
         gates: gatesFor(p.config).filter((g) => g.name !== STRAY_FILES).map((g) => ({ name: g.name, about: g.about })),
         queue: queueOf(p.config),
+        sourceTracking: p.config.profile === 'salesforce' ? usesSourceTracking(p.config) : null,
         model: p.agents.builder.model, modelFrom: p.agents.builder.from.model,
         recent: first ? recentWork({ reviews: join(state, 'reviews'), analyses: join(state, 'analyses') }, ledger) : { builds: [], reviews: [], analyses: [] },
       };
@@ -247,6 +249,25 @@ export function limitCommands(vs: Vscode, d: LimitsDeps): Record<string, (arg?: 
         ? `${p.name}'s builders now run ${names.join(', ')}${queue.length ? '' : ' once a merge queue runs there'}. Changed in the project\'s settings: commit the change to share it.`
         : `${p.name}'s builders now run the required checks. Changed in the project\'s settings: commit the change to share it.`);
     },
+
+    /** Whether a Salesforce project uses source tracking (T-73), in its .acc/config.json. A project that isn't Salesforce has no such choice. */
+    async sourceTracking(arg) {
+      const p = await pickProject(typeof arg === 'string' ? arg : undefined);
+      if (!p) return;
+      if (p.config.profile !== 'salesforce') {
+        void vs.window.showInformationMessage(`${p.name} isn't a Salesforce project, so it has no source tracking to turn on or off.`);
+        return;
+      }
+      const was = usesSourceTracking(p.config);
+      const pick = await vs.window.showQuickPick([
+        { label: 'Used', description: now(was), detail: 'Setup checks that each Developer sandbox is source tracked, and that the Salesforce CLI knows it.', value: true },
+        { label: 'Not used', description: now(!was), detail: 'Setup skips its source-tracking steps. Retrieves use manifests and deploys use source folders, as always.', value: false },
+      ], { title: `${p.name}: does it use source tracking?`, placeHolder: 'Set in the project\'s settings, for everyone on the repo once it\'s committed.' });
+      if (!pick || pick.value === was) return;
+      await run(['tracking', pick.value ? 'on' : 'off'], p.root, pick.value
+        ? `${p.name} now uses source tracking: Setup checks it again. Changed in the project\'s settings: commit the change to share it.`
+        : `${p.name} no longer uses source tracking: Setup skips its source-tracking steps. Changed in the project\'s settings: commit the change to share it.`);
+    },
   };
 }
 
@@ -270,5 +291,6 @@ export const area: ExtensionArea = {
     reg('acc.settings.heavySlots', (a?: unknown) => c.heavySlots!(a));
     reg('acc.settings.requiredGates', (a?: unknown) => c.requiredGates!(a));
     reg('acc.settings.builderGates', (a?: unknown) => c.builderGates!(a));
+    reg('acc.settings.sourceTracking', (a?: unknown) => c.sourceTracking!(a));
   },
 };

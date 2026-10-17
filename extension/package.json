@@ -299,6 +299,12 @@
         "icon": "$(tools)"
       },
       {
+        "command": "acc.settings.sourceTracking",
+        "title": "Change whether a Salesforce project uses source tracking",
+        "category": "Agent Command Center",
+        "icon": "$(eye)"
+      },
+      {
         "command": "acc.status.menu",
         "title": "Show the Command Center menu",
         "category": "Agent Command Center"
