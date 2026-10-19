@@ -228,13 +228,28 @@ export function checkLine(r: Receipt): string {
  */
 export const DUPLICATE_HELPER = 'Does it add a helper that does what an existing one already does? Search for one (Grep for its name and for what it does), and name both in the finding\'s message, each as file:line. When the existing one is exported, the finding must be fixed (must: true): use it instead. A near-copy of a local, unexported one is must: false.';
 
+/** The fields a person edited since the task's builder started (T-74): the packet holds the older values. */
+export function editedSince(task: Pick<Task, 'edits' | 'run'>): Set<string> {
+  const since = task.run?.startedAt ?? '';
+  return new Set((task.edits ?? []).filter((e) => e.at >= since).flatMap((e) => e.fields));
+}
+
+/**
+ * The notes for the builder as a person edited them since its builder started (T-74). Notes from before are
+ * in the packet already, so they aren't repeated; notes cleared since say so, as the packet still holds them.
+ */
+export function notesEditedSection(task: Pick<Task, 'notes' | 'edits' | 'run'>): string[] {
+  if (!editedSince(task).has('notes')) return [];
+  const notes = notesSection(task);
+  return notes.length ? notes : ['## Notes for the builder', '', 'A person removed the notes for the builder after the builder started. Disregard them.', ''];
+}
+
 /**
  * A task a person edited since its builder started (T-74): its title and brief as they are now, which the
  * reviewer judges against, since the packet holds them as the builder was given them.
  */
 export function editedSection(task: Pick<Task, 'title' | 'brief' | 'edits' | 'run'>): string[] {
-  const since = task.run?.startedAt ?? '';
-  const fields = new Set((task.edits ?? []).filter((e) => e.at >= since).flatMap((e) => e.fields));
+  const fields = editedSince(task);
   if (!fields.has('title') && !fields.has('brief')) return [];
   return [
     '## The task as a person edited it since',
@@ -276,7 +291,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     i.packet.trim(),
     '',
     ...editedSection(i.task),
-    ...notesSection(i.task),
+    ...notesEditedSection(i.task),
     '## The checks on this commit',
     '',
     ...(i.checks.length ? i.checks : ['- none recorded']),
@@ -377,7 +392,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const receipts = receiptsAt(paths, sha);
   const checks = Object.values(receipts).map(checkLine);
   const packetFile = join(paths.packets, `${id}.md`);
-  const packet = existsSync(packetFile) ? readFileSync(packetFile, 'utf8') : `# ${task.id}: ${task.title}\n\n${task.brief}`;
+  const packet = existsSync(packetFile) ? readFileSync(packetFile, 'utf8') : [`# ${task.id}: ${task.title}`, '', task.brief, '', ...notesSection(task)].join('\n');
   const rules = rulesText(worktree, config.profile);
   const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules, kinds: knownKinds(paths) });
 

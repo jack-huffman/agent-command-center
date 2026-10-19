@@ -3,10 +3,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
-import { EDIT_FIELD_WORDS, EDIT_FIELDS, EDITABLE_STATES, editChanges, editRefusal, editTask, type TaskEdit, TRACKER_OWNED, trackerFields, trackerOwns } from '../src/edit.ts';
+import { EDIT_FIELD_WORDS, EDIT_FIELDS, editedWords, EDITABLE_STATES, editChanges, editRefusal, editTask, type TaskEdit, TRACKER_OWNED, trackerFields, trackerOwns } from '../src/edit.ts';
 import { emptyLedger, environmentProblem, type Ledger, type LedgerEvent, STATES, type Task, taskDeps, upsertTasks } from '../src/ledger.ts';
 import { notesSection, renderPacket } from '../src/packet.ts';
-import { editedSection, reviewPrompt } from '../src/review.ts';
+import { editedSection, editedSince, notesEditedSection, reviewPrompt } from '../src/review.ts';
 import { SF_CONFIG } from './support.ts';
 
 const config = parseConfig(JSON.parse(JSON.stringify(SF_CONFIG))).config!;
@@ -164,4 +164,34 @@ test('the reviewer reads the notes, and the brief as a person edited it after th
   assert.ok(p.includes('The new brief.'));
   // An edit before the builder started is in its packet already (edge: an older edit).
   assert.deepEqual(editedSection({ ...t, run: { startedAt: '2026-10-19T13:00:00.000Z' } }), []);
+});
+
+test('edge: notes set before the builder started are in its packet already, so the reviewer\'s prompt doesn\'t repeat them', () => {
+  const l = ledger();
+  const t = l.tasks[0]!;
+  edit(l, 'T-1', { notes: 'Set before dispatch.' });
+  t.state = 'review';
+  t.run = { startedAt: '2026-10-19T13:00:00.000Z' };
+  const packet = renderPacket({ task: t, config, env: dev, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] });
+  const p = reviewPrompt({ task: t, config, envName: dev.name, envBranch: dev.branch, sha: 'abcdef1234', packet, diff: '', stat: '', checks: [], rules: null }).prompt;
+  assert.equal(p.split('## Notes for the builder').length - 1, 1, 'the notes show once, from the packet');
+  assert.deepEqual([...editedSince(t)], []);
+  assert.deepEqual(notesEditedSection(t), []);
+});
+
+test('edge: notes cleared after the builder started tell the reviewer to disregard the packet\'s notes', () => {
+  const l = ledger();
+  const t = l.tasks[0]!;
+  t.notes = 'Old notes.';
+  t.state = 'review';
+  t.run = { startedAt: '2026-10-19T11:00:00.000Z' };
+  edit(l, 'T-1', { notes: '' });
+  assert.deepEqual([...editedSince(t)], ['notes']);
+  assert.match(notesEditedSection(t).join('\n'), /removed the notes for the builder/);
+});
+
+test('edge: an edit\'s fields read in words, and a field a newer acc wrote shows as itself', () => {
+  assert.equal(editedWords(['brief', 'notes']), 'description, notes for the builder');
+  assert.equal(editedWords(['priority']), 'priority');
+  assert.equal(editedWords([]), '');
 });

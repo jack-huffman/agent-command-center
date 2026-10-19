@@ -146,6 +146,8 @@ test('builder settings: identity, acc on PATH, and the dangerous commands denied
   assert.deepEqual(s.env, { ACC_TASK: 'ACME-7', ACC_ROLE: 'builder', PATH: '/acc/bin:/usr/bin' });
   for (const d of ['Bash(git push*)', 'Bash(gh pr *)', 'Bash(sf project deploy start*)', 'Bash(acc set *)', 'Bash(git checkout *)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc trackers set*)', 'Bash(gh release create*)', 'Bash(npm run release*)']) assert.ok(s.permissions.deny.includes(d), d);
   assert.ok(s.permissions.allow.includes('Bash(sf project deploy validate *)'));
+  // A builder works from the brief it was given, so it can't edit its task (T-74).
+  assert.ok(s.permissions.deny.includes('Bash(acc edit*)'), 'acc edit is denied');
   for (const a of ['Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)']) assert.ok(s.permissions.allow.includes(a), a);
 });
 
