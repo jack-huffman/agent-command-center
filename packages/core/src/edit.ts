@@ -15,6 +15,10 @@ export const EDIT_FIELD_WORDS: Record<EditField, string> = {
   title: 'title', brief: 'description', deps: 'dependencies', environment: 'environment', labels: 'labels', notes: 'notes for the builder',
 };
 
+/** The fields an edit changed, in words for a person: "description, notes for the builder". A field a newer acc wrote shows as itself. */
+export const editedWords = (fields: readonly string[]): string =>
+  fields.map((f) => (Object.hasOwn(EDIT_FIELD_WORDS, f) ? EDIT_FIELD_WORDS[f as EditField] : f)).join(', ');
+
 /** What an edit changes: a field left out stays as it is. */
 export type TaskEdit = Partial<{ title: string; brief: string; deps: string[]; environment: string; labels: string[]; notes: string }>;
 

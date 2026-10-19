@@ -4,6 +4,7 @@
  */
 
 import { type AutopilotRecord, byAutopilot } from '../../../packages/core/src/autopilot-log.ts';
+import { editedWords } from '../../../packages/core/src/edit.ts';
 import type { HistoryRecord, QuestionOutcome } from '../../../packages/core/src/questions.ts';
 import { isUnder, taskNames } from '../logic/shared.ts';
 import { queueWhy } from '../logic/autopilot.ts';
@@ -77,10 +78,15 @@ export function decisionOf(h: HistoryRecord): Decision {
 export type HistoryItem =
   /** A task's move, with the look of where it went. */
   | { kind: 'move'; id: string; at: string; project: string; task: string; title: string; from: string | null; to: string; by: string; look: Look }
+  /** A person's edit of a task's fields (T-74), with the fields it changed in words. */
+  | { kind: 'edit'; id: string; at: string; project: string; task: string; title: string; fields: string; by: string; look: Look }
   /** A step autopilot took (D-064), with what it did in words, and its pull request's link. */
   | { kind: 'autopilot'; id: string; at: string; project: string; task: string; title: string; look: Look; detail: string | null; url: string | null }
   | { kind: 'answer'; id: string; at: string; project: string; who: string; session: string; decision: Decision }
   | { kind: 'run'; id: string; at: string; label: string; command: string; look: Look; lines: string[] };
+
+/** How a person's edit of a task shows in History and on its page (T-74): apart from its moves, as D-??? keeps them. */
+export const EDIT_LOOK: Look = LOOK('Edited', 'edit', 'neutral');
 
 /** What a step autopilot took looks like in History (D-064): an icon for the step, and what it did. */
 export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: string | null; url: string | null } {
@@ -113,7 +119,7 @@ export function autopilotStepLook(r: AutopilotRecord): { look: Look; detail: str
 }
 
 /**
- * Everything that happened, newest first: your answers, task moves, autopilot's steps and the commands acc ran.
+ * Everything that happened, newest first: your answers, task moves and edits, autopilot's steps and the commands acc ran.
  * Two at the same moment go in their ids' order, so a page asked for after one always starts at the same place.
  */
 export function historyItems(hub: HubLike, runs: RunInput[] = [], limit = 300): HistoryItem[] {
@@ -134,6 +140,9 @@ export function historyItems(hub: HubLike, runs: RunInput[] = [], limit = 300): 
     && steps.some((s) => s.project === project && s.task === h.task && Math.abs(Date.parse(s.at) - Date.parse(h.at)) < 5_000);
   const moves: HistoryItem[] = hub.projects.flatMap((p) => (hub.history?.(p.root) ?? []).filter((h) => !told(p.name, h))
     .map((h) => ({ kind: 'move' as const, id: `move:${p.name}|${h.task}|${h.at}|${h.to}`, at: h.at, project: p.name, task: h.task, title: h.title, from: h.from, to: h.to, by: h.by, look: moveLook(h.to) })));
+  // A person's edits (T-74), apart from its moves.
+  const edits: HistoryItem[] = hub.projects.flatMap((p) => (hub.edits?.(p.root) ?? [])
+    .map((e) => ({ kind: 'edit' as const, id: `edit:${p.name}|${e.task}|${e.at}`, at: e.at, project: p.name, task: e.task, title: e.title, fields: editedWords(e.fields), by: e.by, look: EDIT_LOOK })));
   const answers: HistoryItem[] = (hub.answers ?? []).map((h) => {
     const project = hub.projectFor(h.cwd);
     const session = hub.agents.find((s) => s.sessionId === h.sessionId);
@@ -144,7 +153,7 @@ export function historyItems(hub: HubLike, runs: RunInput[] = [], limit = 300): 
     const c = runCard(r, 30);
     return { kind: 'run' as const, id: `run:${r.id}`, at: new Date(r.endedAt!).toISOString(), label: r.label, command: r.command, look: c.look, lines: c.lines };
   });
-  return [...moves, ...steps, ...answers, ...done].sort(newestFirst).slice(0, limit);
+  return [...moves, ...edits, ...steps, ...answers, ...done].sort(newestFirst).slice(0, limit);
 }
 
 /** History's order: newest first, and by id where two are at the same moment. */

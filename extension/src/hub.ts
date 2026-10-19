@@ -32,6 +32,7 @@ import type { LastStep } from './transcript.ts';
 import { analysesOf, deriveRows, loadChanged } from './task-rows.ts';
 import { readLimits } from './limits.ts';
 import type { LimitsFacts } from './model/limits.ts';
+import type { EditActivity } from './model/shared.ts';
 
 export interface WorktreeInfo extends Worktree {
   main: boolean;
@@ -258,6 +259,11 @@ export class Hub implements vscode.Disposable {
   /** Every move every task made, for the Overview's activity. */
   history(root: string): { at: string; task: string; title: string; from: string | null; to: string; by: string }[] {
     return (this.ledger(root)?.tasks ?? []).flatMap((t) => t.history.map((h) => ({ at: h.at, task: t.id, title: t.title, from: h.from, to: h.to, by: h.by })));
+  }
+
+  /** Every edit a person made to a task's fields (T-74), for History. */
+  edits(root: string): EditActivity[] {
+    return (this.ledger(root)?.tasks ?? []).flatMap((t) => (t.edits ?? []).map((e) => ({ at: e.at, task: t.id, title: t.title, fields: e.fields, by: e.by })));
   }
 
   /**

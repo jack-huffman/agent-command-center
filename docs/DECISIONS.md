@@ -7673,7 +7673,10 @@ needs.
   the new values; one that changes nothing records nothing. `edits` is apart
   from `history`, which holds moves: autopilot, the packet and History read
   `history` as moves, and an edit with `from` equal to `to` would read as one.
-  `acc show` lists both in time order. `acc add` takes `--title` and `--label`
+  `acc show` lists both in time order, the Command Center's History lists
+  each edit as its own entry under Tasks (`EDIT_LOOK`, with the fields in
+  words from `editedWords`), and a task's page shows its edits in its
+  activity beside its moves. `acc add` takes `--title` and `--label`
   too, so a title that starts with a dash reaches it.
 - **When an edit is allowed.** In `todo`, `blocked`, `rework` or `review`.
   While a builder runs, it's refused: the builder works from the brief it was
@@ -7689,9 +7692,11 @@ needs.
   change to them, with why. A value given as it is now is no change, so a
   sheet that sends every field still saves the rest. Its environment and a
   new field, notes for the builder (`notes`), are acc's: intake never changes
-  either. The packet (`notesSection` in `renderPacket`) and the reviewer's
-  prompt show the notes under "Notes for the builder", and leave the heading
-  out when there are none. Manual tasks have notes too.
+  either. The packet (`notesSection` in `renderPacket`) shows the notes under
+  "Notes for the builder", and leaves the heading out when there are none.
+  The reviewer reads the packet, so its prompt adds the notes only when a
+  person changed them after the builder started (`notesEditedSection`), and
+  says so when they were cleared. Manual tasks have notes too.
 - **The task sheet.** Add task opens a sheet over the page, in the page's
   modal, as Dispatch's does (D-168): "New task in" the project, with a title,
   a description of several lines (Markdown, as briefs are), dependencies and
@@ -7714,11 +7719,17 @@ needs.
   does; from anywhere else, over the Command Center. The palette lists Edit
   for each task that can be edited now. A task's page shows its notes under
   its description.
-- **Checked.** `packages/core/test/edit.test.ts` has 9 tests: each field, the
+- **Checked.** `packages/core/test/edit.test.ts` has 12 tests: each field, the
   record and an edit that changes nothing, each state allowed or refused,
   `acc add`'s checks, a builder or reviewer refused, a tracker's read-only
   fields, intake keeping the notes and environment, the packet's notes and
-  their heading left out, and the reviewer's. `packages/cli/test/tasks.test.ts`
+  their heading left out, the reviewer's, notes set before dispatch shown
+  once, notes cleared since, and an edit's fields in words.
+  `packages/core/test/dispatch.test.ts`'s builder settings test checks the
+  session denies `acc edit`. `extension/test/edit-history.test.ts` has 3:
+  History's entry for an edit and its Overview row, none without edits, and
+  a task page's edits. The screenshot run's History has an edit of ACME-19,
+  and ACME-12's page an edit in its activity. `packages/cli/test/tasks.test.ts`
   has 3 more: `acc edit` with `--json`, its refusals, and a tracker task.
   `extension/test/task-sheet.test.ts` has 9: the sheet for a new, a manual
   and a tracker task, Edit off with its reason, `acc add`'s and `acc edit`'s

@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, EDIT_FIELD_WORDS, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -203,7 +203,7 @@ function cmdShow(o: Opts, id: string): number {
     // Its moves and a person's edits (T-74), in time order.
     ...[
       ...t.history.map((h) => ({ at: h.at, line: `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}` })),
-      ...(t.edits ?? []).map((e) => ({ at: e.at, line: `  ${e.at}  edited its ${e.fields.map((f) => EDIT_FIELD_WORDS[f as keyof typeof EDIT_FIELD_WORDS] ?? f).join(', ')}  by ${e.by}` })),
+      ...(t.edits ?? []).map((e) => ({ at: e.at, line: `  ${e.at}  edited its ${editedWords(e.fields)}  by ${e.by}` })),
     ].sort((a, b) => a.at.localeCompare(b.at)).map((x) => x.line),
   ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null, files: files.data, cloudWait: waiting, wording });
   return 0;
@@ -229,7 +229,7 @@ function cmdEdit(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const { task, changed } = mutate(paths, now, (ledger, emit) => editTask(ledger, config, id.toUpperCase(), edit, actor, by, emit, now));
-  out(o, () => (changed.length ? `${task.id}: changed its ${changed.map((f) => EDIT_FIELD_WORDS[f]).join(', ')}.` : `${task.id}: nothing to change, every field was already so.`), { task, changed });
+  out(o, () => (changed.length ? `${task.id}: changed its ${editedWords(changed)}.` : `${task.id}: nothing to change, every field was already so.`), { task, changed });
   return 0;
 }
 

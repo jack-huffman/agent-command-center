@@ -273,7 +273,9 @@ given as ids. A field left out stays as it is; `--dep ""` or `--label ""`
 clears a list. Each edit that changes something adds an entry to `edits`, with
 who made it and which fields, and emits `task.updated` with the new values. An
 edit is no move, so it is in `edits`, not `history`; `acc show` lists both in
-time order.
+time order. The Command Center's History lists each edit as its own entry
+under Tasks, with the fields it changed and who made it, and a task's page
+shows its edits in its activity beside its moves.
 
 A person edits a task in `todo`, `blocked`, `rework` or `review`. While a
 builder runs, the edit is refused: the builder works from the brief it was
@@ -281,7 +283,9 @@ given. A done task can't be edited. A builder or reviewer can't edit a task,
 and a builder's session denies `acc edit`. The next builder reads the edited
 brief, since acc writes its packet at dispatch, and a reviewer of a task edited
 since its builder started gets its title and brief as they are now
-(`editedSection` in `review.ts`).
+(`editedSection` in `review.ts`). The packet holds the notes the builder was
+given, so the reviewer's prompt repeats them only when a person changed them
+since (`notesEditedSection`).
 
 A tracker's task (Jira, GitHub, Azure DevOps, monday.com or Slack) keeps its
 title, brief, dependencies and labels in its ticket: intake refreshes them, so

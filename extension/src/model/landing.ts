@@ -270,6 +270,8 @@ function historyRow(it: HistoryItem, now: number, roots: Map<string, string>, ma
   switch (it.kind) {
     case 'move':
       return { key: `h:${it.id}`, look: it.look, id: it.task, title: it.title, facts: facts(ago, it.by.replace(/^human:/, '')), action: null, menu: null, open: task(it.task, it.project), tip: `${it.from ?? 'new'} → ${it.to}, by ${it.by.replace(/^human:/, '')}` };
+    case 'edit':
+      return { key: `h:${it.id}`, look: it.look, id: it.task, title: it.title, facts: facts(ago, it.by.replace(/^human:/, '')), action: null, menu: null, open: task(it.task, it.project), tip: `Edited its ${it.fields}, by ${it.by.replace(/^human:/, '')}` };
     case 'autopilot':
       return {
         key: `h:${it.id}`, look: it.look, id: it.task, title: it.title, facts: facts(ago, where), menu: null, open: task(it.task, it.project), tip: [it.look.label, it.detail].filter(Boolean).join('\n'),

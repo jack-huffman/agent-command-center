@@ -258,8 +258,8 @@ function feedItem(bubble: HTMLElement, line: Child[], extra: HTMLElement | null 
 const FEED_FIRST = 6;
 
 /**
- * The ticket's activity as one feed, newest first: comments and acc's moves together, each with an
- * icon, who did it, and the state it reached; a move's reason shows under it, two lines and Show all.
+ * The ticket's activity as one feed, newest first: comments, acc's moves and a person's edits together, each
+ * with an icon, who did it, and the state it reached or the fields it changed; a move's reason shows under it, two lines and Show all.
  */
 function renderActivity(m: TicketModel): HTMLElement | null {
   const items: { at: string; node: HTMLElement }[] = [];
@@ -274,6 +274,11 @@ function renderActivity(m: TicketModel): HTMLElement | null {
     const reason = h.reason ? foldable(`reason:${m.project}#${m.key}@${h.at}`, el('div', 'act-reason', el('div', 'act-reason-text', h.reason)), 'act-reason-text', 2) : null;
     items.push({ at: h.at, node: feedItem(el('span', `act-icon tone-${f.tone}`, icon(f.icon, f.tone)),
       [el('strong', '', whoMoved(h.by)), el('span', '', f.verb), f.pill ? status(h.look) : null, el('span', 'muted', '·'), when(h.at)], reason) });
+  }
+  // A person's edits (T-74): who changed which fields, apart from its moves.
+  for (const e of m.acc?.edits ?? []) {
+    items.push({ at: e.at, node: feedItem(el('span', 'act-icon tone-neutral', icon('edit', 'neutral')),
+      [el('strong', '', whoMoved(e.by)), el('span', '', `edited its ${e.fields}`), el('span', 'muted', '·'), when(e.at)]) });
   }
   if (!items.length && !m.can.comment && !m.updates.length) return null;
   const section = el('section', 'block activity', el('h2', '', 'Activity'));
