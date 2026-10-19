@@ -11,10 +11,11 @@ import { openTaskSheet, taskSheetInput } from '../src/task-sheet.ts';
 import { row } from './support.ts';
 
 const ENVS = [{ name: 'Production', branch: 'main', protected: true }, { name: 'Dev', branch: 'dev', default: true }, { name: 'UAT', branch: 'uat' }];
-const manual = (more: Partial<Task> = {}): TaskSheetInput['task'] => ({
+type Sheeted = NonNullable<TaskSheetInput['task']>;
+const manual = (more: Partial<Sheeted> = {}): Sheeted => ({
   id: 'T-3', title: 'Add a report', brief: '## Goal\n\nA report.', deps: ['T-1'], environment: 'dev', labels: ['ui'], notes: '', source: { kind: 'manual', key: null, url: null }, state: 'todo', ...more,
 });
-const jira = (more: Partial<Task> = {}): TaskSheetInput['task'] => ({
+const jira = (more: Partial<Sheeted> = {}): Sheeted => ({
   ...manual(), id: 'ACME-7', title: 'From Jira', brief: 'Jira text', deps: [], labels: ['j'], source: { kind: 'jira', key: 'ACME-7', url: 'https://acme.example/browse/ACME-7' }, ...more,
 });
 const input = (task: TaskSheetInput['task'] = null): TaskSheetInput => ({ project: '/r', name: 'Tool', environments: ENVS, task });

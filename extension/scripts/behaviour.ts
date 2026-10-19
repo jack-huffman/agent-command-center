@@ -44,6 +44,8 @@ import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
+import { sampleTaskSheet } from './fixtures/task-sheet.ts';
+import { taskSheetOff } from '../src/model/task-sheet.ts';
 import { dispatchChoiceArgs, dispatchSheet } from '../src/model/dispatch-sheet.ts';
 import { ROOT } from './fixtures/shared.ts';
 import { sampleLongHub } from './fixtures/landing.ts';
@@ -174,6 +176,16 @@ export interface BehaviourData {
     /** Another model…: its row's label, what Dispatch says while the box is empty, and the message for a name typed, with acc's arguments. */
     another: { label: string; empty: string; name: string; sent: Record<string, unknown>; args: string[] };
     page: { modal: Record<string, unknown>; run: Record<string, unknown>; message: Record<string, unknown>; title: string; reason: string };
+  };
+  /**
+   * The task sheet (T-74): a new task's sheet and what Cmd+Enter sends once a title and a description are
+   * typed; a manual task's sheet and what Save sends with its notes changed; and a Jira task's sheet with
+   * its ticket's link.
+   */
+  taskSheet: {
+    add: { message: Record<string, unknown>; off: string; title: string; brief: string; sent: Record<string, unknown> };
+    edit: { message: Record<string, unknown>; notes: string; sent: Record<string, unknown> };
+    tracker: { message: Record<string, unknown>; url: string; kept: number };
   };
   /**
    * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
@@ -1307,6 +1319,65 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task sheet: a new task\'s Save is off without a title, Enter in the description is a new line, and Cmd+Enter adds it',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.taskSheet.add;
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.task-sheet');
+      const title = t.find<HTMLInputElement>('input.ts-box', dialog);
+      const brief = t.find<HTMLTextAreaElement>('textarea.ts-box', dialog);
+      const go = t.find<HTMLButtonElement>('.ts-go', dialog);
+      t.check('the sheet opens with focus on the title', dialog.open && document.activeElement === title, document.activeElement?.className);
+      t.check('Add task is off, saying why', go.disabled && go.title === d.off, go.title);
+      // Edge: Enter with no title sends nothing, and the sheet stays.
+      await press(t, title, 'Enter');
+      t.check('Enter with no title sends nothing', t.sent('task-sheet-go').length === 0 && dialog.open);
+      await t.type(title, d.title);
+      t.check('a title turns Add task on', !go.disabled, go.title);
+      await t.type(brief, d.brief);
+      const enter = await press(t, brief, 'Enter');
+      t.check('Enter in the description is a new line: it sends nothing', !enter.defaultPrevented && t.sent('task-sheet-go').length === 0 && dialog.open);
+      brief.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+      await t.settle();
+      const sent = t.sent('task-sheet-go');
+      t.check('Cmd+Enter sends what was written, once', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      t.check('the sheet closes', !dialog.open);
+    },
+  },
+  {
+    name: 'task sheet: a manual task\'s Save sends its fields with the notes changed',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.taskSheet.edit;
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.task-sheet');
+      const boxes = t.all<HTMLTextAreaElement>('textarea.ts-box', dialog);
+      t.check('a manual task has a description and notes to change', boxes.length === 2, boxes.length);
+      await t.type(boxes[1]!, d.notes);
+      await t.click(t.find('.ts-go', dialog));
+      const sent = t.sent('task-sheet-go');
+      t.check('Save sends the task and its fields, once', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      t.check('the sheet closes', !dialog.open);
+    },
+  },
+  {
+    name: 'task sheet: a Jira task shows what its ticket owns read-only, opens the ticket, and Escape sends nothing',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.taskSheet.tracker;
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.task-sheet');
+      t.check('its title, description, dependencies and labels are text, not boxes', t.all('.ts-kept', dialog).length === d.kept && t.all('input.ts-box', dialog).length === 0, t.all('.ts-kept', dialog).length);
+      t.check('focus is on the environment, the first field a person may change', document.activeElement === t.find('select.ts-box', dialog), document.activeElement?.className);
+      await t.click(t.find('.ts-ticket', dialog));
+      const opened = t.sent('open').at(-1);
+      t.check('Open in Jira sends its link', opened?.url === d.url, opened);
+      await t.escape(dialog);
+      t.check('Escape closes the sheet, and sends nothing', !dialog.open && t.sent('task-sheet-go').length === 0, t.sent('task-sheet-go'));
+    },
+  },
+  {
     name: 'board keys: focus stays on the same card after a redraw, in its new column',
     page: 'tasks',
     async run(t) {
@@ -1415,6 +1486,9 @@ export const MUTANTS: Mutant[] = [
   { name: 'Escape still sends the move', file: 'board-nav.ts', find: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          putDown();", replace: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          o.move(id, held.at);\n          putDown();", kills: [caseNamed('board keys: Escape')] },
   { name: 'the board\'s live line stays silent', file: 'board-nav.ts', find: "live.replaceChildren(icon(look.icon, look.tone), el('span', '', text));", replace: 'void look;', kills: [caseNamed('board keys: Space, Right and Enter'), caseNamed('board keys: Escape'), caseNamed('board keys: Space on a card')] },
   { name: 'Dispatch goes without the sheet', file: 'dispatch-sheet.ts', find: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) openSheet(msg.sheet); } },", replace: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) api.postMessage({ type: 'dispatch-sheet-go', project: msg.sheet.project, task: msg.sheet.task, model: msg.sheet.models[0]!.value, where: msg.sheet.place }); } },", kills: [caseNamed('dispatch sheet: a card'), caseNamed('dispatch sheet: the task page')] },
+  { name: 'Escape on the task sheet saves', file: 'task-sheet.ts', find: "const m = makeModal('task-sheet', [heading], shut);", replace: "const m = makeModal('task-sheet', [heading], save);", kills: [caseNamed('task sheet: a Jira task')] },
+  { name: 'Enter in the description saves', file: 'task-sheet.ts', find: '    if (e.target instanceof HTMLTextAreaElement && !e.metaKey && !e.ctrlKey) return;\n', replace: '', kills: [caseNamed('task sheet: a new task')] },
+  { name: 'the task sheet saves with no title', file: 'task-sheet.ts', find: "const goOff = (): string | null => (written().title.trim() ? null : 'A task needs a title');", replace: 'const goOff = (): string | null => null;', kills: [caseNamed('task sheet: a new task')] },
   { name: 'Escape on the sheet dispatches', file: 'dispatch-sheet.ts', find: "const m = makeModal('dispatch-sheet', [title], shut);", replace: "const m = makeModal('dispatch-sheet', [title], dispatch);", kills: [caseNamed('dispatch sheet: the task page')] },
   { name: 'Enter on the sheet does nothing', file: 'dispatch-sheet.ts', find: '    e.preventDefault();\n    dispatch();\n', replace: '    e.preventDefault();\n', kills: [caseNamed('dispatch sheet: a card')] },
   { name: 'a model picked leaves the efforts as they were', file: 'dispatch-sheet.ts', find: '(i) => { open!.model = i; draw(); }', replace: '(i) => { void i; draw(); }', kills: [caseNamed('dispatch sheet: a card')] },
@@ -1480,6 +1554,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     steps: stepsData(now),
     keys: keysData(models.tasks),
     sheet: sheetData(now),
+    taskSheet: taskSheetData(now),
   };
 }
 
@@ -1544,6 +1619,22 @@ function sheetData(now: number): BehaviourData['sheet'] {
       modal: { type: 'task-modal', model: sampleTicket(now, 'ACME-19'), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-19' } },
       run: { type: 'run', command: 'acc.task.dispatch', ref: { project: ROOT, task: 'ACME-19' } }, message: { type: 'dispatch-sheet', sheet: rework }, title: rework.title, reason,
     },
+  };
+}
+
+/** What the task sheet's cases expect (T-74): a new task, a manual task's edit and a Jira task's. */
+function taskSheetData(now: number): BehaviourData['taskSheet'] {
+  const add = sampleTaskSheet(now, 'new');
+  const edit = sampleTaskSheet(now, 'manual');
+  const tracker = sampleTaskSheet(now, 'tracker');
+  if (!tracker.ticket || !tracker.locked) throw new Error('The task sheet case needs a Jira task with its ticket\'s link.');
+  const title = 'Write the release notes';
+  const brief = 'One page for the sales team.';
+  const notes = 'Ask the sales lead before it goes out.';
+  return {
+    add: { message: { type: 'task-sheet', sheet: add }, off: taskSheetOff({ title: '' })!, title, brief, sent: { type: 'task-sheet-go', project: ROOT, ...add.fields, title, brief } },
+    edit: { message: { type: 'task-sheet', sheet: edit }, notes, sent: { type: 'task-sheet-go', project: ROOT, task: edit.task, ...edit.fields, notes } },
+    tracker: { message: { type: 'task-sheet', sheet: tracker }, url: tracker.ticket.url, kept: 4 },
   };
 }
 

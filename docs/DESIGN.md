@@ -54,7 +54,7 @@ gathers them.
 | `extension/src/model/` | The page's view models, a module per area: overview, landing (the Overview as a landing page: Needs you's lines, three on the page, and the lists its cards open, GH-160, T-36), history, tasks (the agent board), cards (what a task's card says), boards (tracker boards), task-page, updates, agents, questions, agent-page, runs, connect, worktrees, environments, setup, slack, settings (its parts, the theme's choices, How agents run: each project's builders, reviewers, autonomy and auto-merge, and the guide to its parts and which rows' explanations fold, T-40), page (the page's own messages), and palette (the command palette's items, T-52). `home.ts` builds the page from the areas' parts, `messages.ts` gathers their messages, `shared.ts` holds what several use | the messages its parts send with their checks (`messages`, and its `Message` type), the acc.* commands they may ask for (`commands`), and what it adds to the page (`home`: Needs you for each project or once, its item in the rail, in its `order`) |
 | `extension/src/logic/` | Pure decisions, a module per area: setup and the walkthrough, tasks, agents, worktrees, environments, connect and trackers, runs, notices, autopilot, the status bar, polls (how often each thing is looked at again, which Settings says), efforts (Dispatch with…'s effort step), processes (the words for acc's commands and files, and the translator for what acc says, GH-163), relayed (what acc recorded, put in those words where the extension reads it, GH-163); `shared.ts` holds a task's row and an agent's session | nothing: nothing names every area here |
 | `extension/src/` | Each area's VS Code side: tasks, agents, worktrees and environments (their commands, subclasses of `sidebar.ts`'s shared base), setup, trackers and the Connect page, identity, slack, notices (the status bar's menu), autopilot, progress (In progress's Stop), ticket (a task's page, in its own tab or over the Tasks board), task-modal (wires that modal to the Command Center), questions, runs, settings (the theme every tab follows, and Settings' Refresh). `extension.ts` builds the extension's parts and hands them to every area; `hub.ts` loads, polls and caches (`task-rows.ts` reads a task's row); `panels.ts` handles the page's own messages | `register(parts)`: its commands, and with `receive` the page's messages it takes |
-| `extension/webview/` | The page, flat so its tsconfig and the screenshot harness's staleness check see every file: overview, landing (the Overview's lines), detail (what a line opens, in the modal), history (History in full, a page at a time, with `days.ts` its day names and `history-store.ts` what it has loaded, which hold no DOM), progress, tasks, task-page, task-modal (a task's page over the Tasks board), modal (the modal both open in), updates, analysis, questions, agents, agent-page, dock, dock-review (a review in the output panel, T-63), dispatch-sheet (Dispatch's sheet, D-168), task-actions (a task's buttons in one size and place, D-168), connect, worktrees, environments, slack, setup, settings, theme (the page's `data-theme`), and palette (the command palette, T-52), with `fuzzy.ts` its search, which holds no DOM so node:test loads it, and board-nav (a board from the keyboard, T-54), with `board-keys.ts` its arrows and words, which hold no DOM either. `main.ts` is the entry; `state.ts` owns the page's state, `dom.ts` builds elements, `boards.ts` holds what boards share, `rail.ts` draws the rail, `looks.ts` holds the page's own tables of how a state shows, with no DOM, so the looks test can walk them (GH-105) | the sections and tabs it draws, what it draws over a section, its hooks around a draw, and the extension's messages it takes |
+| `extension/webview/` | The page, flat so its tsconfig and the screenshot harness's staleness check see every file: overview, landing (the Overview's lines), detail (what a line opens, in the modal), history (History in full, a page at a time, with `days.ts` its day names and `history-store.ts` what it has loaded, which hold no DOM), progress, tasks, task-page, task-modal (a task's page over the Tasks board), modal (the modal both open in), updates, analysis, questions, agents, agent-page, dock, dock-review (a review in the output panel, T-63), dispatch-sheet (Dispatch's sheet, D-168), task-sheet (the task sheet, T-74), task-actions (a task's buttons in one size and place, D-168), connect, worktrees, environments, slack, setup, settings, theme (the page's `data-theme`), and palette (the command palette, T-52), with `fuzzy.ts` its search, which holds no DOM so node:test loads it, and board-nav (a board from the keyboard, T-54), with `board-keys.ts` its arrows and words, which hold no DOM either. `main.ts` is the entry; `state.ts` owns the page's state, `dom.ts` builds elements, `boards.ts` holds what boards share, `rail.ts` draws the rail, `looks.ts` holds the page's own tables of how a state shows, with no DOM, so the looks test can walk them (GH-105) | the sections and tabs it draws, what it draws over a section, its hooks around a draw, and the extension's messages it takes |
 | `packages/core/src/` | dispatch.ts (the start and cleanup), packet.ts, held.ts and holding.ts (D-093), efforts.ts (each model's effort levels, and a task's builder effort, D-128); autopilot.ts (its mode and pass), autopilot-rules.ts, autopilot-log.ts; repos.ts (the repos acc set up on this machine, and which place each uses, GH-81); ste.ts (the wording check on an analysis's requirements: Simplified Technical English's structural rules, ported from the skill in `plugin/skills/ste100/`, T-12). `index.ts` is generated: `export *` from each module by file name, then onboarding's (GH-95) | nothing: a module the index takes only some names from is in `scripts/areas.ts`'s `CORE_INDEX`, with why |
 
 **A new command, message or section.** Add it to its area's module: a CLI
@@ -259,7 +259,35 @@ A task is one unit of work, usually one ticket.
 | `state` | `running` | See below |
 | `run` | `{ "bgId", "sessionId", "worktree", "branch", "startedAt", "note", "before" }` | Set on dispatch. `note` is what its builder said as it finished ([section 8](#8-the-packet)), and `before` the note the run before it left, or `null` when it left none (D-106) |
 | `pr` | `{ "number", "url", "state" }` | Set on land |
-| `history` | `[{ "at", "by", "from", "to", "reason" }]` | Every change, and who made it |
+| `labels` | `["ui"]` | From the ticket, or written by a person |
+| `notes` | `"Mind the cache."` | Notes for the builder, which a person writes and intake never changes (T-74) |
+| `history` | `[{ "at", "by", "from", "to", "reason" }]` | Every move, and who made it |
+| `edits` | `[{ "at", "actor", "by", "fields" }]` | Every edit of its fields, and who made it (T-74) |
+
+### Editing a task (T-74)
+
+`acc edit <id>` changes a task's title, brief, dependencies, environment,
+labels and notes for the builder, with `acc add`'s checks: a title that isn't
+empty, an environment in the config that isn't protected, and dependencies
+given as ids. A field left out stays as it is; `--dep ""` or `--label ""`
+clears a list. Each edit that changes something adds an entry to `edits`, with
+who made it and which fields, and emits `task.updated` with the new values. An
+edit is no move, so it is in `edits`, not `history`; `acc show` lists both in
+time order.
+
+A person edits a task in `todo`, `blocked`, `rework` or `review`. While a
+builder runs, the edit is refused: the builder works from the brief it was
+given. A done task can't be edited. A builder or reviewer can't edit a task,
+and a builder's session denies `acc edit`. The next builder reads the edited
+brief, since acc writes its packet at dispatch, and a reviewer of a task edited
+since its builder started gets its title and brief as they are now
+(`editedSection` in `review.ts`).
+
+A tracker's task (Jira, GitHub, Azure DevOps, monday.com or Slack) keeps its
+title, brief, dependencies and labels in its ticket: intake refreshes them, so
+`acc edit` refuses a change to them, and says to change them there. Its
+environment and notes are acc's own, and intake never changes them. Writing
+back to a tracker is left out.
 
 ### States
 
@@ -349,7 +377,7 @@ JSON. monday.com was one more producer (D-085).
 | GitHub Issues | `acc intake github [--label L]`, run directly through `gh` with the repo's account | `Depends on #N` and `Blocked by #N` lines in the issue body |
 | Jira, Azure DevOps | **Track** on a ticket's card on the tracker's board, or **Track in acc** on its page (one way for both), or the `acc:intake` skill: Claude queries a connector for the tracker's place and pipes the results to `acc import` | "is blocked by" issue links |
 | monday.com | **Track** on an item's card, or **Track in acc** on its page. The brief is the item's long-text columns, or its first update | none |
-| Manual | `acc add "title" --brief …` | `--dep` |
+| Manual | `acc add "title" --brief …`, or the Command Center's task sheet (T-74) | `--dep` |
 
 Intake is idempotent, keyed by tracker key, and it never changes the tracker.
 
@@ -552,6 +580,8 @@ The packet is what a builder is told. It's built in code, by `renderPacket` in
 `packages/core/src/packet.ts`; a project can't override it yet. It contains:
 
 - **The task:** id, title, link, brief and acceptance criteria.
+- **Notes for the builder,** under their own heading, when a person wrote some
+  (T-74). With none, the heading is left out.
 - **Where:** the worktree path, the environment's branch and, for Salesforce,
   its org.
 - **The finish line:**
@@ -1470,7 +1500,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 | Section | What it holds |
 |---|---|
 | **Overview** | A landing page (GH-160, T-36). The header says how many things need you, or that all is clear; its one button is Add task, and its ⋯ menu holds Start an agent, Add a tracker and Refresh. **Needs you** first, its first three lines, each with its state, its task, its title and one button, the rest in its ⋯ menu, then Show all: questions, update drafts as one line, agents waiting on a prompt, blocked tasks, steps autopilot couldn't take, missing tracker sign-ins and setup still to do. With nothing in it, one calm line. Then **Since you last looked**, when news waited while you were away from the window (D-164): a calm line for each notice, with its state, its task and what it said, which opens its task, and Clear. Under it a quiet card for each other list that holds a line, with its name, its count and one muted line: **In progress** (a line per task; its detail heads with the machine's line), **Ready for an agent**, **When you have a moment** (suggested rules as one line, work waiting for review, the tidy-up), **History**, and the **Merge queue**. A card opens its list in full over the page, History with its filters (D-170): each day's entries under a thin rule with the day's name (Today, Yesterday, a weekday in the last 7 days, then a date, in the person's time zone), each a row with its state's icon and label, its task's key, one line of text and its time, which opens in place. The model sends History's newest 40 and each filter's count; the page asks for the next 40 as the list's end comes near, a filter asks for its own first page, and a line that opens History at an entry not loaded asks for the pages up to it. A refresh adds new entries on top and keeps the row in view where it was. A line's click opens its detail: a question with its answers, the rules or drafts one at a time, a task's page over the Overview |
-| **Tasks** | The tracker's own board, or acc's agent board (D-026). A card's one next step is a full-width button under its foot's line, and a task's page draws it so, with the rest in two equal columns under it, in one order: the next step, Move, Block, the rest (D-168). Dispatch opens a sheet that asks for the model, the effort and where it runs (D-168). A card whose agent asks offers Answer, which opens its question in Needs you, as the Agents tab's does (T-39). Add task is outlined (T-39) |
+| **Tasks** | The tracker's own board, or acc's agent board (D-026). A card's one next step is a full-width button under its foot's line, and a task's page draws it so, with the rest in two equal columns under it, in one order: the next step, Move, Block, the rest (D-168). Dispatch opens a sheet that asks for the model, the effort and where it runs (D-168). Add task opens the task sheet, and a task's Edit opens it filled in (T-74): a title, a description of several lines in Markdown, dependencies, environment and labels, and for a task already there, notes for the builder. A tracker's task shows what its ticket owns as text, with why and Open in its tracker. Edit is on a task's page, its modal and its card's ⋯ menu, off with the reason while its builder runs or once it's done; the palette offers Edit for each task that can be edited. A task's page shows its notes under the description. A card whose agent asks offers Answer, which opens its question in Needs you, as the Agents tab's does (T-39). Add task is outlined (T-39) |
 | **Agents** | Sessions by repo, then by task (GH-119): this window's projects, then every other repo on the machine by name, saying when another window has one open, then Other folders. Under each task, a line per agent: its role, its state, the model it runs with (D-086), how long it has run, and a menu (D-023), with Answer, Watch and Open in Claude Code while it needs you. Where shows only when an agent isn't in its task's own worktree. Finished sessions fold into one Finished (N) under each repo, with Stop finished, the header's own command and name, for that repo (D-095, T-39). The header holds Stop finished, Start a background agent (outlined), Refresh, and **Settings** last, which opens Settings at **How agents run** (GH-110). The State and Model cells wrap where there's no room, so the table fits and the sticky actions never cover Running (T-39). Per-token billing shows above the sessions, since it costs money while nobody looks (D-036, D-089) |
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment. Open org and Switch account are outlined (T-39). Under **This machine**, a line saying Notices in Slack moved to Settings, with a button to it (GH-113) |
