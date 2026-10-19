@@ -22,7 +22,7 @@ export type TaskEdit = Partial<{ title: string; brief: string; deps: string[]; e
 export const EDITABLE_STATES: readonly State[] = ['todo', 'blocked', 'rework', 'review'];
 
 /** The fields a tracker's intake refreshes, so its ticket owns them: acc keeps the environment and the notes. */
-export const TRACKER_FIELDS: readonly EditField[] = ['title', 'brief', 'deps', 'labels'];
+export const TRACKER_OWNED: readonly EditField[] = ['title', 'brief', 'deps', 'labels'];
 
 /** Why a task can't be edited now, or null when it can. In plain words, with no command in them (D-132). */
 export function editRefusal(task: Pick<Task, 'state'>): string | null {
@@ -32,7 +32,7 @@ export function editRefusal(task: Pick<Task, 'state'>): string | null {
 }
 
 /** The fields its tracker owns, or none for a task acc keeps itself. */
-export const trackerFields = (task: Pick<Task, 'source'>): readonly EditField[] => (task.source.kind === 'manual' ? [] : TRACKER_FIELDS);
+export const trackerFields = (task: Pick<Task, 'source'>): readonly EditField[] => (task.source.kind === 'manual' ? [] : TRACKER_OWNED);
 
 /** Why a tracker task's own fields are read-only, or null for a task acc keeps itself. */
 export function trackerOwns(task: Pick<Task, 'source'>): string | null {

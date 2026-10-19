@@ -281,7 +281,7 @@ test('no card or task page lists Dispatch with… or Dispatch to the cloud: one 
   assert.equal(actions({}).filter((a) => a.label.startsWith('Dispatch')).length, 1, 'one Dispatch');
   const task = { id: 'AV-9', title: 'Task AV-9', brief: '', source: { kind: 'jira', key: 'AV-9', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, history: [], createdAt: '', updatedAt: '' } as never;
   const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-9', ticket: null, loading: false, error: null, connect: null, checks: [], row: { ...row('AV-9', 'todo', 'ready'), deps: [] }, task });
-  assert.deepEqual(page.acc!.actions.map((a) => a.command), ['acc.task.dispatch', 'acc.task.move', 'acc.task.block'], 'the task page: Dispatch, then Move, then Block');
+  assert.deepEqual(page.acc!.actions.map((a) => a.command), ['acc.task.dispatch', 'acc.task.move', 'acc.task.block', 'acc.task.edit'], 'the task page: Dispatch, then Move, then Block, then Edit (T-74)');
   // Their commands are kept, so a key binding still works, and each opens the sheet (dispatch-sheet-open.test.ts runs them).
   for (const command of gone) assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === command), command);
   const tasks = readFileSync(join(root, 'src', 'tasks.ts'), 'utf8');

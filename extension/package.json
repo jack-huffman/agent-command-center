@@ -602,6 +602,12 @@
         "icon": "$(debug-stop)"
       },
       {
+        "command": "acc.task.edit",
+        "title": "Edit task…",
+        "category": "Agent Command Center",
+        "icon": "$(edit)"
+      },
+      {
         "command": "acc.task.cleanup",
         "title": "Clean up its worktree…",
         "category": "Agent Command Center",
@@ -810,6 +816,10 @@
         },
         {
           "command": "acc.task.abandon",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.edit",
           "when": "false"
         },
         {

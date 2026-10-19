@@ -17,6 +17,9 @@ import { reasonInWords } from './logic/relayed.ts';
 import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
 import { dispatchChoiceArgs, type Message as SheetGo, SHEET_COMMANDS } from './model/dispatch-sheet.ts';
 import { openSheet, type SheetAsk, sheetInput } from './dispatch-sheet.ts';
+import { editRefusal } from '../../packages/core/src/edit.ts';
+import { type Message as TaskSheetGo, taskSheetArgs } from './model/task-sheet.ts';
+import { openTaskSheet, taskSheetInput } from './task-sheet.ts';
 import { verdictFrom } from './model/dock-review.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -30,13 +33,18 @@ class TaskCommands extends Sidebar {
   /** Opens Dispatch's sheet over the Command Center (D-168): false when the task isn't there. */
   private readonly sheet: (root: string, id: string, ask?: SheetAsk) => boolean;
 
-  constructor(from: Sidebar, sheet: (root: string, id: string, ask?: SheetAsk) => boolean) {
+  /** Opens the task sheet (T-74) over the Command Center, for a new task or to edit one: false when it isn't there to open. */
+  private readonly taskSheet: (root: string, id: string | null) => boolean;
+
+  constructor(from: Sidebar, sheet: (root: string, id: string, ask?: SheetAsk) => boolean, taskSheet: (root: string, id: string | null) => boolean) {
     super(from.hub, from.acc, from.log, from.openTicket, from.helpers, from.terminals);
     this.sheet = sheet;
+    this.taskSheet = taskSheet;
   }
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
     reg('acc.task.add', (n?: TaskNode) => this.addTask(n));
+    reg('acc.task.edit', (n: TaskNode) => this.editTask(n));
     reg('acc.task.importGithub', (n?: TaskNode) => this.importGithub(n));
     // Jira, connected on the Command Center's Connect page (site, sign-in, project, epic, board), never by editing a file.
     reg('acc.task.importJira', (n?: TaskNode) => {
@@ -83,14 +91,32 @@ class TaskCommands extends Sidebar {
 
   // ------------------------------------------------------------ tasks
 
+  /** Opens the task sheet for a new task (T-74): a title, a description in Markdown, its dependencies, environment and labels. */
   private async addTask(n?: TaskNode): Promise<void> {
     const project = await this.pickProject(n);
     if (!project) return void vscode.window.showInformationMessage('Onboard a project first: Agent Command Center: Onboard this project.');
-    const title = await vscode.window.showInputBox({ title: `New task in ${project.name}`, prompt: 'What needs doing?', validateInput: (v) => (v.trim() ? undefined : 'A task needs a title.') });
-    if (!title) return;
-    const brief = await vscode.window.showInputBox({ title: 'Details (optional)', prompt: 'Acceptance criteria, links, anything an agent should know. Press Enter to skip.' });
-    const args = ['add', title.trim(), ...(brief?.trim() ? ['--brief', brief.trim()] : [])];
-    await this.runAcc(project, args, (out) => (out?.added?.length ? `Added ${out.added.join(', ')}.` : undefined));
+    this.taskSheet(project.root, null);
+  }
+
+  /** Opens the task sheet filled in with a task (T-74); one that can't be edited now says why, and one that has gone says so. */
+  private editTask(n: TaskNode): void {
+    if (n?.kind !== 'task') return;
+    const why = editRefusal(n.task as { state: State });
+    if (why) return void vscode.window.showInformationMessage(`${n.task.id} can't be edited now. ${why}`);
+    if (!this.taskSheet(n.project.root, n.task.id)) void vscode.window.showInformationMessage(`${n.task.id} isn't in ${n.project.name}'s tasks any more.`);
+  }
+
+  /**
+   * The task sheet's Add task or Save (T-74): acc add, or acc edit with the fields that changed, worked out
+   * from the task as it is now. An edit that changes nothing runs nothing; a task gone since says so.
+   */
+  async saveSheet(m: TaskSheetGo): Promise<void> {
+    const project = this.hub.project(m.project);
+    const i = project ? taskSheetInput(this.hub, m.project, m.task ?? null) : null;
+    if (!project || !i) return void vscode.window.showInformationMessage(m.task ? `${m.task} isn't there to edit any more.` : 'That project isn\'t open any more.');
+    const args = taskSheetArgs(i, m);
+    if (!args.length) return void vscode.window.showInformationMessage(`Nothing changed in ${m.task}.`);
+    await this.runAcc(project, args, (out) => (m.task ? `Saved ${m.task}.` : out?.added?.length ? `Added ${out.added.join(', ')}.` : undefined));
   }
 
   private async importGithub(n?: TaskNode): Promise<void> {
@@ -489,15 +515,19 @@ class TaskCommands extends Sidebar {
 
 export const area: ExtensionArea = {
   register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets }) {
-    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask));
+    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, panels, root, id));
     tasks.register(regNode);
     // Dispatch's sheet (D-168): its Dispatch from the Command Center's page. A task's own tab, and the modal
     // over the board, show the sheet over that page, and send its Dispatch here too.
     receive('dispatch-sheet-go', (m) => void tasks.go(m));
+    // The task sheet (T-74): its Add task or Save, from any page; Edit on a task's tab or the modal opens it over that page.
+    receive('task-sheet-go', (m) => void tasks.saveSheet(m));
     tickets.dispatch = {
-      open: (command, ref, say) => SHEET_COMMANDS.includes(command) && !!ref.project && !!ref.task
-        && openSheet(hub, panels, ref.project, ref.task, command === 'acc.task.dispatchAnyway' ? { anyway: true } : command === 'acc.task.dispatchCloud' ? { where: 'cloud' } : {}, say),
+      open: (command, ref, say) => (command === 'acc.task.edit' && !!ref.project && !!ref.task ? openTaskSheet(hub, panels, ref.project, ref.task, say)
+        : SHEET_COMMANDS.includes(command) && !!ref.project && !!ref.task
+        && openSheet(hub, panels, ref.project, ref.task, command === 'acc.task.dispatchAnyway' ? { anyway: true } : command === 'acc.task.dispatchCloud' ? { where: 'cloud' } : {}, say)),
       go: (m) => void tasks.go(m),
+      save: (m) => void tasks.saveSheet(m),
     };
     // A task's card dropped in a lane of the agent board (D-041).
     receive('move-task', (m) => { const p = hub.project(m.project); if (p) void tasks.moveToLane(p, m.task, m.to); });

@@ -70,10 +70,14 @@ export function paletteItems(m: Omit<HomeModel, 'palette'>): PaletteItem[] {
   }
   const many = m.tasks.projects.length > 1;
   const steps: PaletteItem[] = [];
+  const edits: PaletteItem[] = [];
   for (const p of m.tasks.projects) {
     for (const c of p.columns) {
       for (const card of c.cards) {
         out.push({ id: `task:${p.root}#${card.id}`, kind: 'task', title: card.title, hint: card.id, words: words(card.title, card.id, p.name), icon: 'tasklist', does: { kind: 'task', project: p.root, key: card.id } });
+        // Edit (T-74), for a task that can be edited now: one whose builder runs, or that's done, says why on its page.
+        const edit = card.actions.find((a) => a.command === 'acc.task.edit' && !a.disabled);
+        if (edit) edits.push({ id: `edit:${p.root}#${card.id}`, kind: 'action', title: `Edit: ${card.title}`, hint: card.id, words: words(`Edit: ${card.title}`, card.id, many ? p.name : null), icon: edit.icon, does: { kind: 'run', command: edit.command, ref: edit.ref } });
         const step = paletteStep(card.actions);
         if (!step) continue;
         const does: PaletteDo = step.question ? { kind: 'answer', question: step.question } : { kind: 'run', command: step.command, ref: step.ref };
@@ -93,7 +97,7 @@ export function paletteItems(m: Omit<HomeModel, 'palette'>): PaletteItem[] {
   });
   out.push(header('add-task', 'Add task', 'add', 'acc.task.add'), header('start-agent', 'Start an agent', 'hubot', 'acc.agent.new'), header('add-tracker', 'Add a tracker', 'plug', 'acc.trackers.add'));
   out.push({ id: 'action:refresh', kind: 'action', title: 'Refresh', hint: '', words: 'Refresh', icon: 'refresh', does: { kind: 'refresh' } });
-  out.push(...steps);
+  out.push(...steps, ...edits);
   // Agents' Stop finished, through the same command as its header's button; off with its reason when there's none.
   const n = m.agents.stopFinished;
   out.push({ id: 'action:stop-finished', kind: 'action', title: 'Stop finished sessions', hint: n ? `${n} finished` : NOTHING_FINISHED, words: words('Stop finished sessions', 'Agents'), icon: 'debug-stop', does: { kind: 'toolbar', command: 'acc.agents.stopFinished' }, ...(n ? {} : { disabled: NOTHING_FINISHED }) });

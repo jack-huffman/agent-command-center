@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
-import { EDIT_FIELD_WORDS, EDIT_FIELDS, EDITABLE_STATES, editChanges, editRefusal, editTask, type TaskEdit, TRACKER_FIELDS, trackerFields, trackerOwns } from '../src/edit.ts';
+import { EDIT_FIELD_WORDS, EDIT_FIELDS, EDITABLE_STATES, editChanges, editRefusal, editTask, type TaskEdit, TRACKER_OWNED, trackerFields, trackerOwns } from '../src/edit.ts';
 import { emptyLedger, environmentProblem, type Ledger, type LedgerEvent, STATES, type Task, taskDeps, upsertTasks } from '../src/ledger.ts';
 import { notesSection, renderPacket } from '../src/packet.ts';
 import { editedSection, reviewPrompt } from '../src/review.ts';
@@ -110,12 +110,12 @@ test('a builder or reviewer can\'t edit a task: only a person does', () => {
 test('a tracker task\'s title, description, dependencies and labels are read-only; its environment and notes are a person\'s', () => {
   const l = ledger();
   const jira = l.tasks[1]!;
-  assert.deepEqual(trackerFields(jira), TRACKER_FIELDS);
+  assert.deepEqual(trackerFields(jira), TRACKER_OWNED);
   assert.deepEqual(trackerFields(l.tasks[0]!), []);
   assert.equal(trackerOwns(l.tasks[0]!), null);
   assert.match(trackerOwns(jira)!, /Jira ticket owns its title, description/);
   let checked = 0;
-  for (const f of TRACKER_FIELDS) {
+  for (const f of TRACKER_OWNED) {
     const e: TaskEdit = f === 'deps' || f === 'labels' ? { [f]: ['NEW-1'] } : { [f]: 'changed' };
     assert.throws(() => edit(l, 'ACME-7', e), (err: Error) => err.message.includes(EDIT_FIELD_WORDS[f]) && err.message.includes('Jira ticket owns'), f);
     checked++;

@@ -257,7 +257,7 @@ export const area: CommandArea = {
   help: {
     section: 'Tasks',
     order: 20,
-    lines: `  acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--key <T-n>]
+    lines: `  acc add "<title>"|--title <text> [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--key <T-n>]
   acc edit <id> [--title <text>] [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--notes <text>]
                                         Change a task's fields, with add's checks. A field left out stays; --dep ""
                                         or --label "" clears the list. Refused while a builder runs or once it's
@@ -295,7 +295,8 @@ export const area: CommandArea = {
   subcommands: { intake: ['github', ...SIGNED_IN_KINDS] },
   commands: {
     add: (o, rest) => {
-      const title = rest.join(' ').trim();
+      // --title takes a title that starts with a dash, as the Command Center's sheet sends it (T-74).
+      const title = ((o.title as string | undefined) ?? rest.join(' ')).trim();
       if (!title) throw new AccError('usage', 'acc add "<title>"');
       const labels = ((o.label as string[] | undefined) ?? []).map((l) => l.trim()).filter(Boolean);
       return upsert(o, [{ source: { kind: 'manual', key: (o.key as string | undefined) ?? null }, title, brief: o.brief as string | undefined, deps: (o.dep as string[] | undefined) ?? [], environment: o.env as string | undefined, labels }]);

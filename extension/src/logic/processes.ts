@@ -48,6 +48,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['trackers', 'trackers set'], name: 'Connect a tracker', command: 'acc.trackers.add' },
   // Tasks
   { acc: ['add'], name: 'Add a task', command: 'acc.task.add' },
+  { acc: ['edit'], name: 'Edit the task', named: 'Edit {arg}', command: 'acc.task.edit' },
   { acc: ['import'], name: 'Import tickets' },
   { acc: ['intake', 'intake github', 'intake jira', 'intake azure', 'intake monday', 'intake slack'], name: 'Bring in tickets', command: 'acc.task.intake' },
   { acc: ['status'], name: 'Count the tasks' },

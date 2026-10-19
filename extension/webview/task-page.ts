@@ -130,6 +130,8 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
   const main = el('div', 'ticket-main');
   main.append(el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
+  // What a person wrote for its builder (T-74), which a tracker's intake never changes.
+  if (m.acc?.notes) main.append(el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)));
   const note = renderNote(m);
   if (note) main.append(note);
   if (m.related.length) {
