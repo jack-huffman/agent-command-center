@@ -52,16 +52,16 @@ export function pickVsix(files: readonly string[], version: string): { ok: true;
 
 /**
  * The checksum check: the VSIX's SHA-256 against the release's `<vsix>.sha256`, in the format `shasum -a 256`
- * writes (the hash, two spaces, the file name). A release with no checksum file installs, and says so; a
- * mismatch, a file that names another VSIX, or one that can't be read, refuses.
+ * writes (the hash, two spaces, the file name). A release with no checksum file is refused (D-173), as is a
+ * mismatch, a file that names another VSIX, or one that can't be read.
  */
-export function checksumCheck(actual: string, asset: string | null, file: string): { ok: true; checked: boolean } | { ok: false; error: string } {
-  if (asset === null) return { ok: true, checked: false };
+export function checksumCheck(actual: string, asset: string | null, file: string): { ok: true } | { ok: false; error: string } {
+  if (asset === null) return { ok: false, error: 'the release has no checksum, so it isn\'t installed' };
   const m = /^([0-9a-fA-F]{64}) [ *](.+)$/.exec(asset.split('\n')[0]!.trim());
   if (!m) return { ok: false, error: 'the release\'s checksum file can\'t be read' };
   if (m[2]!.trim() !== file) return { ok: false, error: `the release's checksum is for ${m[2]!.trim()}, not ${file}` };
   if (m[1]!.toLowerCase() !== actual.toLowerCase()) return { ok: false, error: 'the downloaded file doesn\'t match the release\'s checksum' };
-  return { ok: true, checked: true };
+  return { ok: true };
 }
 
 /** What an install saves before it reloads the window. */

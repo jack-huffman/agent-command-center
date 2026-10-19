@@ -113,7 +113,6 @@ export class SelfUpdate {
         const sum = `${file}.sha256`;
         const checked = checksumCheck(createHash('sha256').update(readFileSync(file)).digest('hex'), existsSync(sum) ? readFileSync(sum, 'utf8') : null, picked.file);
         if (!checked.ok) return checked.error;
-        if (!checked.checked) this.d.log(`${release.tag} has no checksum file, so ${picked.file} is installed unchecked.`);
         progress.report({ message: 'Installing' });
         await commands.executeCommand(INSTALL, Uri.file(file));
         return null;

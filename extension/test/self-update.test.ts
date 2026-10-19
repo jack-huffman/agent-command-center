@@ -40,10 +40,10 @@ test('a version is offered when it\'s newer, not skipped and not offered in this
 test('the checksum check: a match, a mismatch, a missing asset, and the edge cases of an unreadable or another file\'s checksum', () => {
   const file = vsixName('0.41.0');
   const hash = sha('the vsix');
-  assert.deepEqual(checksumCheck(hash, `${hash}  ${file}\n`, file), { ok: true, checked: true }, 'a match, in shasum -a 256\'s format');
-  assert.deepEqual(checksumCheck(hash.toUpperCase(), `${hash} *${file}\n`, file), { ok: true, checked: true }, 'binary mode, any case');
+  assert.deepEqual(checksumCheck(hash, `${hash}  ${file}\n`, file), { ok: true }, 'a match, in shasum -a 256\'s format');
+  assert.deepEqual(checksumCheck(hash.toUpperCase(), `${hash} *${file}\n`, file), { ok: true }, 'binary mode, any case');
   assert.deepEqual(checksumCheck(sha('another'), `${hash}  ${file}\n`, file), { ok: false, error: 'the downloaded file doesn\'t match the release\'s checksum' });
-  assert.deepEqual(checksumCheck(hash, null, file), { ok: true, checked: false }, 'no checksum on the release: installed, unchecked');
+  assert.deepEqual(checksumCheck(hash, null, file), { ok: false, error: 'the release has no checksum, so it isn\'t installed' }, 'no checksum on the release: refused');
   assert.deepEqual(checksumCheck(hash, 'not a checksum\n', file), { ok: false, error: 'the release\'s checksum file can\'t be read' });
   assert.deepEqual(checksumCheck(hash, '', file), { ok: false, error: 'the release\'s checksum file can\'t be read' }, 'an empty file');
   assert.deepEqual(checksumCheck(hash, `${hash}  ${vsixName('0.40.0')}\n`, file), { ok: false, error: `the release's checksum is for ${vsixName('0.40.0')}, not ${file}` });
@@ -164,9 +164,10 @@ test('Install and reload downloads as gh\'s active account, checks the file, ins
   assert.deepEqual(readdirSync(s.tmp), [], 'the temporary folder is gone');
 });
 
-test('a mismatched checksum, a failed download, a wrong file and a failed install each install nothing, say what failed, offer the notes, and leave no folder (the edge cases of a failure)', async () => {
+test('a mismatched checksum, a release with no checksum file, a failed download, a wrong file and a failed install each install nothing, say what failed, offer the notes, and leave no folder (the edge cases of a failure)', async () => {
   const cases: [string, Assets, RegExp, { installThrows?: boolean }?][] = [
     ['a mismatched checksum', released({ [`${vsixName('0.41.0')}.sha256`]: `${sha('other')}  ${vsixName('0.41.0')}\n` }), /Couldn't update to 0\.41\.0: the downloaded file doesn't match the release's checksum\./],
+    ['a release with no checksum file', released({ [`${vsixName('0.41.0')}.sha256`]: null }), /Couldn't update to 0\.41\.0: the release has no checksum, so it isn't installed\./],
     ['a failed download', 'fails', /Couldn't update to 0\.41\.0: couldn't download it: HTTP 404: Not Found\./],
     ['another version\'s file', { [vsixName('0.40.0')]: VSIX }, /isn't named for 0\.41\.0/],
     ['a failed install', released(), /the install failed: Can't install: corrupt zip/, { installThrows: true }],
@@ -187,10 +188,7 @@ test('a mismatched checksum, a failed download, a wrong file and a failed instal
   assert.equal(ran, cases.length);
 });
 
-test('a release with no checksum installs and says so in the log; a version that isn\'t the latest installs nothing; two clicks install once (edge cases)', async () => {
-  const unchecked = updater(released({ [`${vsixName('0.41.0')}.sha256`]: null }));
-  assert.equal(await unchecked.u.install('0.41.0'), true);
-  assert.ok(unchecked.steps.includes('log: v0.41.0 has no checksum file, so agent-command-center-0.41.0.vsix is installed unchecked.'));
+test('a version that isn\'t the latest installs nothing; two clicks install once (edge cases)', async () => {
   const stale = updater(released());
   assert.equal(await stale.u.install('0.39.0'), false);
   assert.match(stale.shown[0]!.text, /Couldn't update to 0\.39\.0: it isn't the latest release any more/);
