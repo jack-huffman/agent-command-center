@@ -21,8 +21,12 @@ import { changes, GENERIC_CONFIG, makeRepo, pool, snapshot, tempDir } from '../.
 
 const ACC = fileURLToPath(new URL('../../../dist/acc.mjs', import.meta.url));
 const COMMANDS_DIR = fileURLToPath(new URL('../src/commands/', import.meta.url));
-/** How long one call may take, and how many run at once. */
-const LIMIT_MS = 20_000;
+/**
+ * How long one call may take, and how many run at once. A call alone takes under 100 ms, even `acc hook pre-tool-use`
+ * with 1 MB on stdin, so the limit is for a hang. It was 20 s, and calls ran past it while other test files started
+ * their own processes (T-75): 60 s still catches a hang and holds under that load.
+ */
+const LIMIT_MS = 60_000;
 const AT_ONCE = 8;
 /** The longest line a failure may print: main.ts cuts its message, with its mark in front. */
 const LONGEST_LINE = MESSAGE_MAX + 2;
