@@ -102,7 +102,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/intake.ts': ['reconcileGithub'],
   'packages/core/src/jobs.ts': ['JOB_KINDS'],
   'packages/core/src/land.ts': ['LAND_TIMEOUT_MS', 'UPDATE_POST_TIMEOUT_MS', 'mergesWords'],
-  'packages/core/src/ledger.ts': ['SOURCE_KINDS', 'writeAtomic', 'isValidId', 'NOTE_LIMITS', 'NOTE_LABELS', 'noteGiven', 'noteProblems', 'sessionActive', 'STOPPED_GRACE_MS', 'runStartedAt', 'sentBackByAutopilot', 'SEND_BACKS', 'sendBacks', 'sentBackAt', 'inQueue'],
+  'packages/core/src/ledger.ts': ['SOURCE_KINDS','isValidId', 'NOTE_LIMITS', 'NOTE_LABELS', 'noteGiven', 'noteProblems', 'sessionActive', 'STOPPED_GRACE_MS', 'runStartedAt', 'sentBackByAutopilot', 'SEND_BACKS', 'sendBacks', 'sentBackAt', 'inQueue'],
   'packages/core/src/limits.ts': ['MAX_AGENTS', 'DEFAULT_AGENTS', 'realLedger'],
   'packages/core/src/lock.ts': ['alive'],
   'packages/core/src/machine.ts': ['machineJsonToWrite', 'setMachineKey'],
