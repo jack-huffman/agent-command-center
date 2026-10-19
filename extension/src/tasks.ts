@@ -18,8 +18,7 @@ import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDu
 import { dispatchChoiceArgs, type Message as SheetGo, SHEET_COMMANDS } from './model/dispatch-sheet.ts';
 import { openSheet, type SheetAsk, sheetInput } from './dispatch-sheet.ts';
 import { editRefusal } from '../../packages/core/src/edit.ts';
-import { type Message as TaskSheetGo, taskSheetArgs } from './model/task-sheet.ts';
-import { openTaskSheet, taskSheetInput } from './task-sheet.ts';
+import { type Message as TaskSheetGo, openTaskSheet, taskSheetArgs, taskSheetInput } from './model/task-sheet.ts';
 import { verdictFrom } from './model/dock-review.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -515,7 +514,7 @@ class TaskCommands extends Sidebar {
 
 export const area: ExtensionArea = {
   register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets }) {
-    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, panels, root, id));
+    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id));
     tasks.register(regNode);
     // Dispatch's sheet (D-168): its Dispatch from the Command Center's page. A task's own tab, and the modal
     // over the board, show the sheet over that page, and send its Dispatch here too.
@@ -523,7 +522,7 @@ export const area: ExtensionArea = {
     // The task sheet (T-74): its Add task or Save, from any page; Edit on a task's tab or the modal opens it over that page.
     receive('task-sheet-go', (m) => void tasks.saveSheet(m));
     tickets.dispatch = {
-      open: (command, ref, say) => (command === 'acc.task.edit' && !!ref.project && !!ref.task ? openTaskSheet(hub, panels, ref.project, ref.task, say)
+      open: (command, ref, say) => (command === 'acc.task.edit' && !!ref.project && !!ref.task ? openTaskSheet(hub, (m) => void panels.tell(m), ref.project, ref.task, say)
         : SHEET_COMMANDS.includes(command) && !!ref.project && !!ref.task
         && openSheet(hub, panels, ref.project, ref.task, command === 'acc.task.dispatchAnyway' ? { anyway: true } : command === 'acc.task.dispatchCloud' ? { where: 'cloud' } : {}, say)),
       go: (m) => void tasks.go(m),

@@ -110,6 +110,35 @@ export function taskSheetArgs(i: TaskSheetInput, c: TaskSheetChoice): string[] {
   return args.length ? ['edit', t.id, ...args] : [];
 }
 
+/** What the sheet reads from the hub: a project's name and environments, and its tasks. */
+export interface TaskSheetHub {
+  project(root: string): { name: string; config: { environments: TaskSheetInput['environments'] } } | undefined;
+  ledger(root: string): { tasks: NonNullable<TaskSheetInput['task']>[] } | undefined;
+}
+
+/** The sheet's input for a project, and the task it edits when one is named, from the hub as it is now. Null when either isn't there. */
+export function taskSheetInput(hub: TaskSheetHub, root: string, id: string | null): TaskSheetInput | null {
+  const project = hub.project(root);
+  if (!project) return null;
+  const task = id === null ? null : hub.ledger(root)?.tasks.find((t) => t.id === id.toUpperCase()) ?? null;
+  if (id !== null && !task) return null;
+  return { project: root, name: project.name, environments: project.config.environments, task };
+}
+
+/**
+ * Opens the sheet for a new task in a project, or for editing a task, as Dispatch's opens (D-168). `say`
+ * posts to the page that asked, a task's tab or the modal; without it, `tell` shows it over the Command
+ * Center, which opens first when it's closed. False when the project or task isn't there, or the task
+ * can't be edited now.
+ */
+export function openTaskSheet(hub: TaskSheetHub, tell: (msg: Record<string, unknown>) => void, root: string, id: string | null, say?: (msg: Record<string, unknown>) => void): boolean {
+  const i = taskSheetInput(hub, root, id);
+  const sheet = i ? taskSheet(i) : null;
+  if (!sheet) return false;
+  (say ?? tell)({ type: TASK_SHEET_MESSAGE, sheet });
+  return true;
+}
+
 /** Why the sheet's primary button is off, or null when it's on: a task needs a title. */
 export const taskSheetOff = (c: Pick<TaskSheetChoice, 'title'>): string | null => (c.title.trim() ? null : 'A task needs a title');
 

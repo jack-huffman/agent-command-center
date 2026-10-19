@@ -7728,8 +7728,10 @@ needs.
   and a running task's Edit is off and says why. The screenshot run adds three
   pages: the sheet for a new task and for a manual task over the Tasks board,
   and for ACME-19, a Jira task in rework, over its tab. Three behaviour cases
-  drive the sheet's keys and clicks in a browser, and three new mutants (Escape
-  saves, Enter in the description saves, Save with no title) each fail one.
+  drive the sheet's keys and clicks in a browser, and four new mutants (Escape
+  saves, Enter in the description saves, Save drops the notes typed, Save with
+  no title) each fail one. Two more Command Center pages raise the geometry
+  run's floor for the selected tab from 474 to 486 drawings.
 - Not chosen: writing changes back to a tracker, which stays the place to
   change its own text; editing while a builder runs; a separate field for
   acceptance criteria, which a brief holds.
