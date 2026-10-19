@@ -1,7 +1,8 @@
 // Changing one key of a JSON file a person keeps, such as .acc/config.json, and nothing else in it (GH-111).
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { AccError } from './exec.ts';
+import { writeAtomic } from './ledger.ts';
 
 /** Where a value sits in the text: from its first character to just after its last. */
 interface Span {
@@ -235,7 +236,7 @@ function removeMember(text: string, obj: ObjectSpan, m: Member): string {
 
 /**
  * Sets one key of a JSON file, or removes it when the value is undefined, changing nothing else in it:
- * editJsonKey, read and written. A file it can't read or that isn't JSON is refused, and left alone.
+ * editJsonKey, read, then written whole through writeAtomic. A file it can't read or that isn't JSON is refused, and left alone.
  */
 export function writeJsonKey(file: string, path: string[], value: unknown): void {
   let text: string;
@@ -246,5 +247,5 @@ export function writeJsonKey(file: string, path: string[], value: unknown): void
     throw new AccError('bad-config', `Couldn't read ${file}: ${(e as Error).message}`);
   }
   const edited = editJsonKey(text, path, value);
-  if (edited !== text) writeFileSync(file, edited);
+  if (edited !== text) writeAtomic(file, edited);
 }

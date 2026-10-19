@@ -42,8 +42,14 @@ test('edge cases: a project that isn\'t Salesforce, a file that isn\'t JSON, and
   }
   assert.equal(readFileSync(generic, 'utf8'), before);
   const broken = configFile(null, '{ not json');
-  assert.throws(() => setSourceTracking(broken, false), /Couldn't read .*config\.json/);
+  assert.throws(() => setSourceTracking(broken, false), /config\.json isn't valid JSON/);
   assert.equal(readFileSync(broken, 'utf8'), '{ not json');
-  assert.throws(() => setSourceTracking(join(tempDir('none-'), 'config.json'), false), /Couldn't read/);
-  assert.throws(() => setSourceTracking(configFile(null, 'null'), false), /isn't a Salesforce project/);
+  assert.throws(() => setSourceTracking(join(tempDir('none-'), 'config.json'), false), /No .*config\.json/);
+  assert.throws(() => setSourceTracking(configFile(null, 'null'), false), /has problems/);
+});
+
+test('setSourceTracking has no read and parse of its own: it checks the profile and calls writeJsonKey', () => {
+  const src = readFileSync(new URL('../src/source-tracking.ts', import.meta.url), 'utf8');
+  assert.match(src, /writeJsonKey\(configFile/);
+  assert.doesNotMatch(src, /readFileSync|JSON\.parse|editJsonKey|writeAtomic/);
 });
