@@ -57,13 +57,13 @@ test('Needs you shows three lines and Show all; every other list shows none on t
     assert.deepEqual(g.opens, g.key === 'history' ? { kind: 'history' } : { kind: 'list', group: g.key }, g.key);
   }
   // Ready and In progress hold every line now, not their first five; History every item, which its detail draws in full.
-  assert.deepEqual([group(m, 'ready').total, group(m, 'progress').total, group(m, 'history').total, group(m, 'history').all.length], [6, 6, 12, m.overview.history.items.length]);
+  assert.deepEqual([group(m, 'ready').total, group(m, 'progress').total, group(m, 'history').total, group(m, 'history').all.length], [6, 6, 13, m.overview.history.items.length]);
   // Three or fewer in Needs you: no Show all. With nothing in it, its empty line says so.
   const few = landing({ ...m.overview, questions: m.overview.questions.slice(0, 2), attention: [] }, NOW).find((g) => g.key === 'needs-you')!;
   assert.deepEqual([few.rows.length, few.total, few.more], [2, 2, null]);
   const none = landing({ ...m.overview, questions: [], attention: [] }, NOW).find((g) => g.key === 'needs-you')!;
   assert.deepEqual([none.rows, none.more, none.title, none.empty], [[], null, 'All clear', 'No agent is waiting, nothing is blocked, and setup is done.']);
-  const quiet = busy({ ...sampleLandingHub(NOW), history: () => [], autopilotLog: () => [], answers: [] });
+  const quiet = busy({ ...sampleLandingHub(NOW), history: () => [], edits: () => [], autopilotLog: () => [], answers: [] });
   assert.deepEqual([group(quiet, 'history').total, group(quiet, 'history').more, group(quiet, 'history').empty], [0, null, 'What agents and tasks do shows up here.']);
   // Each line says two facts at most.
   for (const g of m.overview.landing) for (const r of every(g)) assert.ok(r.facts.length <= 2 && r.facts.every((f) => f.text.trim()), `${g.key} ${r.key}`);
@@ -329,12 +329,12 @@ test('the model carries a card for each list but Needs you, in order, with its c
   const o = busy().overview;
   assert.deepEqual(CARD_ORDER, ['progress', 'ready', 'moment', 'history', 'queue']);
   assert.deepEqual(o.cards.map((c) => [c.key, c.title, c.count]), [
-    ['progress', 'In progress', group(busy(), 'progress').count], ['ready', 'Ready for an agent', 6], ['moment', 'When you have a moment', group(busy(), 'moment').count], ['history', 'History', 12],
+    ['progress', 'In progress', group(busy(), 'progress').count], ['ready', 'Ready for an agent', 6], ['moment', 'When you have a moment', group(busy(), 'moment').count], ['history', 'History', 13],
   ]);
   assert.deepEqual(o.cards, overviewCards(o.landing), 'the model\'s cards are the host\'s overviewCards');
   for (const c of o.cards) assert.ok(c.line.trim() && c.count > 0, `${c.key}: a line and a count`);
   // The empty edge: no history, nothing ready, nothing running, no queue: no card for any of them.
-  const quiet = busy({ ...sampleLandingHub(NOW), history: () => [], autopilotLog: () => [], answers: [], taskRows: () => [], jobs: () => [] } as HubLike);
+  const quiet = busy({ ...sampleLandingHub(NOW), history: () => [], edits: () => [], autopilotLog: () => [], answers: [], taskRows: () => [], jobs: () => [] } as HubLike);
   const keys = quiet.overview.cards.map((c) => c.key);
   for (const k of ['ready', 'history', 'queue'] as const) assert.ok(!keys.includes(k), `no ${k} card: ${keys.join(', ')}`);
   for (const c of quiet.overview.cards) assert.ok(group(quiet, c.key).all.length > 0, `${c.key}: a card only with lines`);

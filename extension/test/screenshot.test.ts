@@ -87,7 +87,7 @@ test('every section of the page, and a ticket, has sample data built by the real
       const list = OVERVIEW_LISTS[kind];
       if (list) assert.deepEqual(startState(kind), { detail: { kind: 'list', group: list } });
       if (list) assert.ok(o.landing.find((g) => g.key === list)!.total > 3, `${kind}: more than Needs you would show`);
-      assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.counts.all], ['home', 'overview', 10, 6, 3, 2, 12]);
+      assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.counts.all], ['home', 'overview', 10, 6, 3, 2, 13]);
       assert.ok(o.inProgress.groups.every((g) => g.jobs.some((j) => j.kind === 'check')), 'each building task has its checks');
     }
     // History with more than two pages (D-170): the first 40 of 100 entries, three days of them, opened over the Overview.

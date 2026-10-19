@@ -204,7 +204,7 @@ test('a question that has ended reads as what it asked and what you decided, blu
 test('the history holds your answers, task moves, autopilot\'s steps and finished commands, newest first, and an agent\'s page shows its own decisions in place', () => {
   const hub = sampleHub();
   const items = historyItems(hub, sampleRuns());
-  assert.deepEqual([...new Set(items.map((i) => i.kind))].sort(), ['answer', 'autopilot', 'move', 'run']);
+  assert.deepEqual([...new Set(items.map((i) => i.kind))].sort(), ['answer', 'autopilot', 'edit', 'move', 'run']);
   assert.ok(!items.some((i) => i.kind === 'run' && i.label.startsWith('Autopilot')), 'autopilot running is no command finished');
   assert.ok(items.every((it, i) => i === 0 || items[i - 1]!.at >= it.at), 'newest first');
   const answer = items.find((i) => i.kind === 'answer' && i.decision.look.label === 'You answered');
