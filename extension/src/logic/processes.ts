@@ -46,6 +46,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['rules dismiss'], name: 'Dismiss a suggested rule' },
   { acc: ['ste', 'ste check'], name: 'Check the wording' },
   { acc: ['trackers', 'trackers set'], name: 'Connect a tracker', command: 'acc.trackers.add' },
+  { acc: ['tracking'], name: 'Change whether the project uses source tracking', command: 'acc.settings.sourceTracking' },
   // Tasks
   { acc: ['add'], name: 'Add a task', command: 'acc.task.add' },
   { acc: ['import'], name: 'Import tickets' },

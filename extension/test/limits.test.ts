@@ -9,7 +9,7 @@ import { mutate, readLedger, upsertTasks } from '../../packages/core/src/ledger.
 import { ledgersDir, registerLedger, setMachineAgents } from '../../packages/core/src/limits.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { run } from '../../packages/core/src/exec.ts';
-import { GENERIC_CONFIG, makeRepo, tempDir } from '../../packages/core/test/support.ts';
+import { GENERIC_CONFIG, makeRepo, SF_CONFIG, tempDir } from '../../packages/core/test/support.ts';
 import { sampleLimits, sampleLimitsOther } from '../scripts/fixtures/limits.ts';
 import { limitCommands, type LimitsDeps, type LimitsProject, readLimits } from '../src/limits.ts';
 import { PAGE_COMMANDS } from '../src/model/messages.ts';
@@ -319,4 +319,44 @@ test('the limits are read only while Settings shows, or a task is held: never on
   // Arriving at Settings posts the page again, so it reads them; a held task's row reads only this machine's total.
   assert.match(readFileSync(join(root, 'src', 'panels.ts'), 'utf8'), /this\.remember\(m\.section\);\n\s+\/\/[^\n]*\n\s+if \(m\.section === 'settings'\) \{ this\.arrived\(\); this\.post\(\); \}/);
   assert.match(readFileSync(join(root, 'src', 'task-rows.ts'), 'utf8'), /ledger\.tasks\.some\(\(t\) => t\.state === 'todo' && t\.held\) \? hub\.limits\(\)\?\.machine : null/);
+});
+
+test('source tracking (T-73): a Salesforce project\'s row says whether it\'s used, and Change… runs acc with the pick; a project that isn\'t Salesforce has no row, and a dismissed pick runs nothing', async () => {
+  // The row, on and off, and none for a project that isn't Salesforce.
+  const on = limitsModel(sampleLimits()).checks[0]!.rows.at(-1)!;
+  assert.deepEqual([on.name, on.value, on.command, on.arg, on.look, on.why], ['Source tracking', 'Used', 'acc.settings.sourceTracking', '/Users/me/code/acme-service', null, null]);
+  assert.match(on.from, /^acc's default: Acme Service's settings set none\. Setup checks that each Developer sandbox is source tracked\.$/);
+  const other = limitsModel(sampleLimitsOther()).checks;
+  const off = other[0]!.rows.at(-1)!;
+  assert.deepEqual([off.value, off.look], ['Not used', { label: 'Off: Setup skips its source-tracking steps', icon: 'circle-slash', tone: 'neutral' }]);
+  assert.match(off.from, /^Set in Acme Service's settings, for everyone on the repo once it's committed\./);
+  assert.deepEqual(other[1]!.rows.map((r) => r.name), ['Required checks', 'Builders\' checks'], 'Tool isn\'t Salesforce, so it has no source-tracking row');
+  // What the part reads: on unless the project's settings turn it off, and null where the project isn't Salesforce.
+  const sfProject = (raw: Record<string, unknown>, root = '/code/acme'): LimitsProject => ({ name: 'Acme', root, config: parseConfig(raw).config!, ledgerPath: `${root}/.git/acc/ledger.json`, agents: { builder: { model: 'claude-opus-5-5', from: { model: 'acc' } } } });
+  const tracked = sfProject(SF_CONFIG);
+  const untracked = sfProject({ ...SF_CONFIG, sourceTracking: false }, '/code/untracked');
+  const generic: LimitsProject = { ...tracked, root: '/code/generic', config: parseConfig(GENERIC_CONFIG).config! };
+  const env = { ACC_MACHINE_FILE: join(tempDir('m-'), 'machine.json') };
+  assert.deepEqual(readLimits([tracked, untracked, generic], () => undefined, null, env).projects.map((p) => p.sourceTracking), [true, false, null]);
+  // Change… asks Used or Not used, marks what's set now, and runs acc with the pick.
+  const pick = (v: unknown) => (items: { value: unknown }[]) => items.find((i) => i.value === v);
+  const { vs, said } = stand([pick(false), pick(true), pick(true), undefined]);
+  const { d, ran } = deps({ project: (r) => [tracked, untracked].find((p) => p.root === r) });
+  const c = limitCommands(vs, d);
+  await c.sourceTracking!('/code/acme');
+  await c.sourceTracking!('/code/untracked');
+  await c.sourceTracking!('/code/acme');
+  await c.sourceTracking!('/code/acme');
+  assert.deepEqual(ran.map((r) => [r.args.join(' '), r.cwd]), [['tracking off --json', '/code/acme'], ['tracking on --json', '/code/untracked']], 'the same value, and a dismissed pick, run nothing');
+  assert.equal(said.picks[0]!.title, 'Acme: does it use source tracking?');
+  assert.deepEqual(said.picks[0]!.items.map((i) => [i.label, i.description]), [['Used', 'now'], ['Not used', undefined]]);
+  assert.deepEqual(said.picks[1]!.items.map((i) => [i.label, i.description]), [['Used', undefined], ['Not used', 'now']]);
+  assert.match(said.info[0]!, /^Acme no longer uses source tracking: Setup skips its source-tracking steps\./);
+  assert.match(said.info[1]!, /^Acme now uses source tracking: Setup checks it again\./);
+  // A project that isn't Salesforce says so, with no pick and no acc.
+  const g = stand();
+  const gd = deps();
+  await limitCommands(g.vs, gd.d).sourceTracking!('/code/tool');
+  assert.deepEqual([gd.ran, g.said.picks.length], [[], 0]);
+  assert.match(g.said.info[0]!, /^Tool isn't a Salesforce project, so it has no source tracking to turn on or off\.$/);
 });

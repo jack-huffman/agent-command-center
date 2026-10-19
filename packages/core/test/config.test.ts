@@ -260,6 +260,25 @@ test('strayFiles: allow and data are repo paths, required a boolean, data a warn
   assert.deepEqual([generic.errors, generic.warnings], [[], ['"strayFiles.data" applies only to a Salesforce project, so it\'s ignored.']]);
 });
 
+test('sourceTracking (T-73): left out, a Salesforce project uses it; false is kept; a wrong type is refused; outside Salesforce it\'s ignored with a warning', () => {
+  const unset = parseConfig(clone(SF_CONFIG));
+  assert.deepEqual([unset.errors, unset.warnings, unset.config!.sourceTracking], [[], [], undefined], 'left out, the project uses source tracking');
+  for (const value of [false, true]) {
+    const sf = parseConfig({ ...clone(SF_CONFIG), sourceTracking: value });
+    assert.deepEqual([sf.errors, sf.warnings, sf.config!.sourceTracking], [[], [], value]);
+  }
+  for (const wrong of ['no', 0, null, {}]) {
+    assert.match(errorsOf({ ...clone(SF_CONFIG), sourceTracking: wrong }), /"sourceTracking" must be true or false: whether the project uses Salesforce source tracking\./, JSON.stringify(wrong));
+  }
+  const generic = parseConfig({ ...clone(GENERIC_CONFIG), sourceTracking: false });
+  assert.deepEqual([generic.errors, generic.warnings], [[], ['"sourceTracking" applies only to a Salesforce project, so it\'s ignored.']]);
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), sourceTracking: true }).warnings, [], 'on is the default, so it says nothing to ignore');
+  // Written back, a Salesforce project's false stays, and loads again.
+  const file = join(tempDir('cfg-'), 'config.json');
+  writeConfig(file, parseConfig({ ...clone(SF_CONFIG), sourceTracking: false }).config!);
+  assert.equal(loadConfig(file).config.sourceTracking, false);
+});
+
 test('code reads the required checks through fullGates and requiredGates, never gates.required itself, but where a template is compared with what the project sets (GH-103)', () => {
   const root = join(import.meta.dirname, '..', '..', '..');
   const files: string[] = [];
@@ -532,6 +551,8 @@ const EVERY_KEY = {
   // A generic project's data folders are ignored, with a warning when it names any.
   strayFiles: { required: true, allow: ['LICENSE', 'fixtures'], data: [] },
   analysis: { required: true },
+  // Outside Salesforce nothing reads it, and only false gets a warning.
+  sourceTracking: true,
   autopilot: { appendOnly: ['docs/DECISIONS.md'], autoMerge: true },
   dispatch: { shared: ['README.md'] },
   tidy: { every: 12 },

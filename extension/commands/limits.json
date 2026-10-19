@@ -28,5 +28,11 @@
     "title": "Change builders' lighter checks",
     "category": "Agent Command Center",
     "icon": "$(tools)"
+  },
+  {
+    "command": "acc.settings.sourceTracking",
+    "title": "Change whether a Salesforce project uses source tracking",
+    "category": "Agent Command Center",
+    "icon": "$(eye)"
   }
 ]

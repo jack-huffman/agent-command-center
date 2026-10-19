@@ -55,6 +55,7 @@ export * from './rules.ts';
 export * from './runtime.ts';
 export * from './semaphore.ts';
 export * from './setup.ts';
+export * from './source-tracking.ts';
 export * from './source.ts';
 export * from './ste.ts';
 export * from './steps.ts';

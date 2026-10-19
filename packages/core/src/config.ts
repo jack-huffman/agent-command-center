@@ -177,6 +177,11 @@ export interface Config {
   /** Whether a task needs an analysis before it's built (D-052). Salesforce projects do unless they say not. */
   analysis?: { required: boolean };
   /**
+   * Whether a Salesforce project uses source tracking (T-73). Left out, it does. False where it doesn't:
+   * Setup's source-tracking steps then skip. A project that isn't Salesforce has nothing that reads it.
+   */
+  sourceTracking?: boolean;
+  /**
    * appendOnly: files autopilot may resolve when both sides only added to the end, such as a decision log
    * (D-058). autoMerge: autopilot merges a reviewed, green pull request into an environment that isn't
    * protected (GH-67). Off unless it's true; never in a Salesforce project.
@@ -258,7 +263,7 @@ export const CONFIG_KEYS = [
   'agents.cloud.routine', 'agents.cloud.default', 'agents.cloud.quietMinutes', 'agents.cloud.max', 'autonomy',
   'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
   'gates.ratchets', 'gates.nearIndexes',
-  'secretScan.paths', 'secretScan.exclude', 'strayFiles.required', 'strayFiles.allow', 'strayFiles.data', 'analysis.required', 'autopilot.appendOnly', 'autopilot.autoMerge',
+  'secretScan.paths', 'secretScan.exclude', 'strayFiles.required', 'strayFiles.allow', 'strayFiles.data', 'analysis.required', 'sourceTracking', 'autopilot.appendOnly', 'autopilot.autoMerge',
   'dispatch.shared', 'tidy.every', 'template.name', 'template.source', 'template.digest',
   'tools[].title', 'tools[].why', 'tools[].check', 'tools[].fix',
 ] as const satisfies readonly ConfigPath[];
@@ -599,6 +604,10 @@ export function parseConfig(raw: unknown): ParseResult {
   if (raw.analysis !== undefined && !isObj(raw.analysis)) errors.push('"analysis" must be an object, such as { "required": true }.');
   if (an.required !== undefined && typeof an.required !== 'boolean') errors.push('"analysis.required" must be true or false.');
 
+  const tracking = raw.sourceTracking;
+  if (tracking !== undefined && typeof tracking !== 'boolean') errors.push('"sourceTracking" must be true or false: whether the project uses Salesforce source tracking.');
+  if (profile !== 'salesforce' && tracking === false) warnings.push('"sourceTracking" applies only to a Salesforce project, so it\'s ignored.');
+
   let autopilot: Config['autopilot'];
   if (raw.autopilot !== undefined) {
     const ap = raw.autopilot;
@@ -691,6 +700,7 @@ export function parseConfig(raw: unknown): ParseResult {
         data: inRepo(sf.data) ? sf.data : [],
       },
       ...(typeof an.required === 'boolean' ? { analysis: { required: an.required } } : {}),
+      ...(typeof tracking === 'boolean' ? { sourceTracking: tracking } : {}),
       ...(autopilot ? { autopilot } : {}),
       ...(dispatch ? { dispatch } : {}),
       ...(tidy ? { tidy } : {}),
