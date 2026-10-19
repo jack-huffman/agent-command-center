@@ -10,6 +10,7 @@ import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { agentArgs } from './agents.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import { sessionName } from './names.ts';
+import { notesSection } from './packet.ts';
 import { rulesText } from './rules.ts';
 import { testsText } from './test-counts.ts';
 
@@ -227,6 +228,26 @@ export function checkLine(r: Receipt): string {
  */
 export const DUPLICATE_HELPER = 'Does it add a helper that does what an existing one already does? Search for one (Grep for its name and for what it does), and name both in the finding\'s message, each as file:line. When the existing one is exported, the finding must be fixed (must: true): use it instead. A near-copy of a local, unexported one is must: false.';
 
+/**
+ * A task a person edited since its builder started (T-74): its title and brief as they are now, which the
+ * reviewer judges against, since the packet holds them as the builder was given them.
+ */
+export function editedSection(task: Pick<Task, 'title' | 'brief' | 'edits' | 'run'>): string[] {
+  const since = task.run?.startedAt ?? '';
+  const fields = new Set((task.edits ?? []).filter((e) => e.at >= since).flatMap((e) => e.fields));
+  if (!fields.has('title') && !fields.has('brief')) return [];
+  return [
+    '## The task as a person edited it since',
+    '',
+    'A person changed the task after the builder started. Judge the change against this text, and say where the builder followed the older text.',
+    '',
+    `### ${task.title}`,
+    '',
+    task.brief.trim() || '_No details beyond the title._',
+    '',
+  ];
+}
+
 /** The reviewer's standing instructions, and what it's given to review. */
 export function reviewPrompt(i: ReviewInput): { system: string; prompt: string } {
   const system = [
@@ -254,6 +275,8 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     '',
     i.packet.trim(),
     '',
+    ...editedSection(i.task),
+    ...notesSection(i.task),
     '## The checks on this commit',
     '',
     ...(i.checks.length ? i.checks : ['- none recorded']),

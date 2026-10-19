@@ -33,6 +33,14 @@ export interface HistoryEntry {
   override?: true;
 }
 
+/** An edit of a task's fields (T-74): who made it, and which fields it changed. */
+export interface EditEntry {
+  at: string;
+  actor: Actor;
+  by: string;
+  fields: string[];
+}
+
 /** A stopped builder carried on in its session, by a person or by autopilot (D-067). */
 export interface Resume {
   at: string;
@@ -297,6 +305,10 @@ export interface Task {
   held?: Hold | null;
   /** Where acc last moved its card on the GitHub Project, or why it couldn't (GH-146). */
   card?: CardMove | null;
+  /** What a person wrote for its builder (T-74): acc keeps it, and intake never changes it. */
+  notes?: string;
+  /** Each edit a person made to its fields (T-74), oldest first. A move is in `history`. */
+  edits?: EditEntry[];
   history: HistoryEntry[];
   createdAt: string;
   updatedAt: string;
@@ -397,7 +409,18 @@ export interface UpsertResult {
   errors: string[];
 }
 
-/** Adds new tasks and refreshes the text of known ones. Never changes a task's state. */
+/** Why a task can't build on an environment, or null when it can: acc add's check, and acc edit's (T-74). */
+export function environmentProblem(config: Config, env: string): string | null {
+  const def = environmentByBranch(config, env);
+  if (!def) return `environment "${env}" isn't in the config.`;
+  if (def.protected) return `"${env}" is protected, so no task can build on it directly.`;
+  return null;
+}
+
+/** A task's dependencies as acc keeps them: each id normalized for its source's kind, as acc add and acc edit take them. */
+export const taskDeps = (deps: string[], kind: SourceKind): string[] => deps.map((d) => normalizeId(d, kind));
+
+/** Adds new tasks and refreshes the text of known ones. Never changes a task's state, its environment or its notes for the builder (T-74). */
 export function upsertTasks(
   ledger: Ledger, config: Config, inputs: TaskInput[], actor: Actor, by: string, emit: Emit, now: () => Date,
 ): UpsertResult {
@@ -416,10 +439,9 @@ export function upsertTasks(
     }
     if (!isValidId(id)) { res.errors.push(`${at}: "${id}" isn't a valid task id.`); return; }
     const env = input.environment ?? defaultEnv;
-    const envDef = environmentByBranch(config, env);
-    if (!envDef) { res.errors.push(`${id}: environment "${env}" isn't in the config.`); return; }
-    if (envDef.protected) { res.errors.push(`${id}: "${env}" is protected, so no task can build on it directly.`); return; }
-    const deps = (input.deps ?? []).map((d) => normalizeId(d, kind));
+    const envWhy = environmentProblem(config, env);
+    if (envWhy) { res.errors.push(`${id}: ${envWhy}`); return; }
+    const deps = taskDeps(input.deps ?? [], kind);
     const fields = {
       title: input.title.trim(),
       brief: (input.brief ?? '').trim(),

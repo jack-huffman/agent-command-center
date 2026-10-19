@@ -1,6 +1,6 @@
-// acc's Tasks commands: add, import, intake, status, list, ready, show and set.
+// acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, EDIT_FIELD_WORDS, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -69,7 +69,7 @@ const intakeLines = (res: IntakeResult): string[] => {
 function cmdIntakeGithub(o: Opts): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
-  const res = followingCards(paths, config, () => intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label as string | undefined, actor, by }));
+  const res = followingCards(paths, config, () => intakeGithub(paths, config, { run, now, env: process.env }, { label: (o.label as string[] | undefined)?.at(-1), actor, by }));
   out(o, () => [...upsertLines(res), ...intakeLines(res)].filter(Boolean).join('\n') || 'Nothing to do.', res);
   return res.errors.length ? 1 : 0;
 }
@@ -197,10 +197,39 @@ function cmdShow(o: Opts, id: string): number {
     ...(wording.length ? [tone(`! ${wordingWords(wording.length)} in its analysis's requirements. They're advice: they never hold a dispatch.`, 'orange'), ...wording.flatMap((f) => [`  ${wordingPlace(f)}: ${f.message}${wordingMatch(f) ? ` [${f.match}]` : ''}`, tone(`    ${f.text}`, 'dim')])] : []),
     shared.length ? tone(`${sharesWords(shared)}.`, 'dim') : '',
     t.brief ? `\n${t.brief}\n` : '',
+    t.notes ? `Notes for the builder:\n${t.notes}\n` : '',
     ...noteShown(t),
     'History:',
-    ...t.history.map((h) => `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}`),
+    // Its moves and a person's edits (T-74), in time order.
+    ...[
+      ...t.history.map((h) => ({ at: h.at, line: `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}` })),
+      ...(t.edits ?? []).map((e) => ({ at: e.at, line: `  ${e.at}  edited its ${e.fields.map((f) => EDIT_FIELD_WORDS[f as keyof typeof EDIT_FIELD_WORDS] ?? f).join(', ')}  by ${e.by}` })),
+    ].sort((a, b) => a.at.localeCompare(b.at)).map((x) => x.line),
   ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null, files: files.data, cloudWait: waiting, wording });
+  return 0;
+}
+
+/** acc edit's changes from its flags (T-74): a flag left out leaves its field as it is; an empty list flag clears it. */
+function editFrom(o: Opts): TaskEdit {
+  const list = (v: unknown) => (v as string[]).flatMap((x) => x.split(',')).map((x) => x.trim()).filter(Boolean);
+  return {
+    ...(o.title !== undefined ? { title: o.title as string } : {}),
+    ...(o.brief !== undefined ? { brief: o.brief as string } : {}),
+    ...(o.dep !== undefined ? { deps: list(o.dep) } : {}),
+    ...(o.env !== undefined ? { environment: o.env as string } : {}),
+    ...(o.label !== undefined ? { labels: list(o.label) } : {}),
+    ...(o.notes !== undefined ? { notes: o.notes as string } : {}),
+  };
+}
+
+/** Edits a task's fields (T-74), with acc add's checks; refused while a builder runs, once it's done, and for a field its tracker owns. */
+function cmdEdit(o: Opts, id: string): number {
+  const edit = editFrom(o);
+  if (!Object.keys(edit).length) throw new AccError('usage', 'acc edit <id> needs a field to change: --title, --brief, --dep, --env, --label or --notes.');
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  const { task, changed } = mutate(paths, now, (ledger, emit) => editTask(ledger, config, id.toUpperCase(), edit, actor, by, emit, now));
+  out(o, () => (changed.length ? `${task.id}: changed its ${changed.map((f) => EDIT_FIELD_WORDS[f]).join(', ')}.` : `${task.id}: nothing to change, every field was already so.`), { task, changed });
   return 0;
 }
 
@@ -228,7 +257,12 @@ export const area: CommandArea = {
   help: {
     section: 'Tasks',
     order: 20,
-    lines: `  acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
+    lines: `  acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--key <T-n>]
+  acc edit <id> [--title <text>] [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--notes <text>]
+                                        Change a task's fields, with add's checks. A field left out stays; --dep ""
+                                        or --label "" clears the list. Refused while a builder runs or once it's
+                                        done. A tracker's ticket owns its title, brief, deps and labels; acc keeps
+                                        its environment and its notes for the builder, which intake never changes
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira, Azure DevOps or
                                         monday.com key that no tracker in .acc/config.json owns is refused
   acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
@@ -253,7 +287,9 @@ export const area: CommandArea = {
     state: { type: 'string' },
     reason: { type: 'string' },
     force: { type: 'boolean', default: false },
-    label: { type: 'string' },
+    label: { type: 'string', multiple: true },
+    title: { type: 'string' },
+    notes: { type: 'string' },
     client: { type: 'string' },
   },
   subcommands: { intake: ['github', ...SIGNED_IN_KINDS] },
@@ -261,7 +297,12 @@ export const area: CommandArea = {
     add: (o, rest) => {
       const title = rest.join(' ').trim();
       if (!title) throw new AccError('usage', 'acc add "<title>"');
-      return upsert(o, [{ source: { kind: 'manual', key: (o.key as string | undefined) ?? null }, title, brief: o.brief as string | undefined, deps: (o.dep as string[] | undefined) ?? [], environment: o.env as string | undefined }]);
+      const labels = ((o.label as string[] | undefined) ?? []).map((l) => l.trim()).filter(Boolean);
+      return upsert(o, [{ source: { kind: 'manual', key: (o.key as string | undefined) ?? null }, title, brief: o.brief as string | undefined, deps: (o.dep as string[] | undefined) ?? [], environment: o.env as string | undefined, labels }]);
+    },
+    edit: (o, rest) => {
+      if (!rest[0]) throw new AccError('usage', 'acc edit <id> [--title <text>] [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--notes <text>]');
+      return cmdEdit(o, rest[0]);
     },
     import: (o) => {
       const data = readInput(o.file as string | undefined);
