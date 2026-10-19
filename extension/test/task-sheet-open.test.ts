@@ -91,7 +91,9 @@ test('Edit opens the sheet filled in over a task\'s own tab, and its Save reache
   assert.ok(!calls.executed.slice(ran).some(([id]) => id === 'acc.task.edit'), 'the tab shows it itself, not through the command');
   assert.equal(sheetIn(since(s.tab, tabFrom)), undefined, 'not over the Command Center');
   page.receive!({ type: 'task-sheet-go', project: s.root, task: 'T-1', ...sheet.fields, title: 'Write the report', notes: 'Use the 2025 numbers.' });
-  await until(() => tasks()[0]!.notes === 'Use the 2025 numbers.', 60_000, 'acc edit');
+  // acc writes the ledger before it answers: the edit is done once the extension says so.
+  await until(() => calls.info.at(-1) === 'Saved T-1.', 60_000, 'acc edit');
+  assert.equal(tasks()[0]!.notes, 'Use the 2025 numbers.');
   assert.equal(tasks()[0]!.title, 'Write the report');
   const info = calls.info.length;
   page.receive!({ type: 'task-sheet-go', project: s.root, task: 'T-1', ...sheet.fields, title: 'Write the report', notes: 'Use the 2025 numbers.' });
