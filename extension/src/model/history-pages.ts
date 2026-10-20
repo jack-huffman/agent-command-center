@@ -6,6 +6,10 @@
 
 import { type HistoryItem, newestFirst } from './history.ts';
 import { type ModelArea, short } from './shared.ts';
+import { historyKind } from '../../webview/history-store.ts';
+
+// One copy, in the page's own store: the page can't import a value from the model (D-121), but the model can import from the page.
+export { historyKind };
 
 /** How many entries one page holds. */
 export const HISTORY_PAGE = 40;
@@ -13,9 +17,6 @@ export const HISTORY_PAGE = 40;
 /** History's filters: everything, or one kind. Autopilot's steps (D-064) and a person's edits (T-74) are Tasks. */
 export const HISTORY_FILTERS = ['all', 'answer', 'move', 'run'] as const;
 export type HistoryFilter = (typeof HISTORY_FILTERS)[number];
-
-/** The filter an entry counts under. */
-export const historyKind = (i: HistoryItem): Exclude<HistoryFilter, 'all'> => (i.kind === 'autopilot' || i.kind === 'edit' ? 'move' : i.kind);
 
 /** How many entries each filter holds, from every entry, not from the ones on the page. */
 export type HistoryCounts = Record<HistoryFilter, number>;

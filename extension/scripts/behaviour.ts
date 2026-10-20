@@ -408,6 +408,17 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task modal: Activity draws a person\'s edit, with who made it and which fields (T-74)',
+    page: 'tasks',
+    async run(t) {
+      const { dialog } = await openTask(t);
+      const lines = t.all('.act-feed .act-item', dialog).map((l) => l.textContent ?? '');
+      const edit = lines.find((l) => l.includes('edited its'));
+      t.check('the edit is a line of the activity', !!edit, lines);
+      t.check('it names the fields in words', !!edit && edit.includes('edited its notes for the builder'), edit);
+    },
+  },
+  {
     name: 'detail modal: Escape closes it and focus goes back to Answer, which opened it',
     page: 'overview-landing',
     async run(t) {
