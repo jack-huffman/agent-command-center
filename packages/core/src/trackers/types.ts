@@ -236,14 +236,16 @@ export function sprintDates(s: Pick<Sprint, 'start' | 'end'>): string | null {
 }
 
 /**
- * The sprint part of a Jira place (T-78): "sprint Sprint 12 (6 Oct to 19 Oct)" once the board has found it;
- * before then, "the active sprint" or "sprint 42"; and "no active sprint" when it follows the active one and
- * none is open.
+ * The sprint part of a Jira place (T-78), once the board has found it: "active sprint Sprint 12 (6 Oct to
+ * 19 Oct)" when it follows the active one, or "sprint Sprint 12 (6 Oct to 19 Oct)" for a named one. Before
+ * then, "the active sprint" or "sprint 42"; and "no active sprint" when it follows the active one and none is
+ * open.
  */
 export function sprintPlace(sprint: 'active' | number, found: Sprint[] | null): string {
   if (!found) return sprint === 'active' ? 'the active sprint' : `sprint ${sprint}`;
   if (!found.length) return sprint === 'active' ? 'no active sprint' : `sprint ${sprint}`;
-  return `sprint ${found.map((s) => `${s.name}${sprintDates(s) ? ` (${sprintDates(s)})` : ''}`).join(' and ')}`;
+  const word = sprint === 'active' ? `active sprint${found.length > 1 ? 's' : ''}` : 'sprint';
+  return `${word} ${found.map((s) => `${s.name}${sprintDates(s) ? ` (${sprintDates(s)})` : ''}`).join(' and ')}`;
 }
 
 /** Runs `fn` over the items a few at a time, so checking many tickets never floods a tracker. */

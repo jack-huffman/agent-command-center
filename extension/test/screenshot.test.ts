@@ -68,7 +68,7 @@ test('every section of the page, and a ticket, has sample data built by the real
       assert.deepEqual([m.kind, (m as HomeModel).section, b.kind, b.error, b.columns.length, !!b.paste?.error], ['home', 'tasks', 'slack', null, 0, kind === 'tasks-slack-refused']);
     } else if (kind === 'tasks-github') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.tab, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'GitHub board', null]);
     // A Jira board following the active sprint (T-78): its place names the sprint and its dates.
-    else if (kind === 'tasks-sprint') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'Jira · ACME · sprint ACME Sprint 13 (20 Oct to 2 Nov)']);
+    else if (kind === 'tasks-sprint') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'Jira · ACME · active sprint ACME Sprint 13 (20 Oct to 2 Nov)']);
     // The Agents tab with agents that would bill per token (D-089), and Settings at How agents run (GH-110).
     else if (kind === 'agents-billing') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.billing?.tone], ['home', 'agents', 'orange']);
     else if (kind === 'settings-agents') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.agents.projects.length], ['home', 'settings', 2]);

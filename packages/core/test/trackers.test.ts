@@ -861,7 +861,7 @@ test('a Jira board in the active sprint shows only its tickets, and its place na
   });
   const b = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, sprint: 'active', fetch: f }).board();
   assert.deepEqual(b.cards.map((c) => c.key), ['MSP-4']);
-  assert.equal(b.place, 'Jira · MSP · sprint MSP Sprint 12 (6 Oct to 19 Oct)');
+  assert.equal(b.place, 'Jira · MSP · active sprint MSP Sprint 12 (6 Oct to 19 Oct)');
   assert.deepEqual(b.sprints, [{ id: 12, name: 'MSP Sprint 12', state: 'active', start: SPRINT_12.startDate, end: SPRINT_12.endDate }]);
   assert.equal(b.notice, null);
   assert.deepEqual(calls.filter((c) => c.path.includes('/issue?jql=')).map((c) => jql(c.path)), ['project = "MSP" AND sprint in (12)'], 'the board\'s own open sprint, by id');

@@ -93,5 +93,6 @@ test('a place names its sprint and dates once known; with none open, it says no 
   assert.equal(sprintPlace('active', null), 'the active sprint', 'before the board loads');
   assert.equal(sprintPlace(42, null), 'sprint 42');
   assert.equal(sprintPlace('active', []), 'no active sprint');
-  assert.equal(sprintPlace('active', [{ id: 1, name: 'A', state: 'active', start: null, end: null }, { id: 2, name: 'B', state: 'active', start: null, end: '2026-10-19T17:00:00.000Z' }]), 'sprint A and B (to 19 Oct)', 'two open at once');
+  assert.equal(sprintPlace('active', [{ id: 1, name: 'A', state: 'active', start: null, end: null }, { id: 2, name: 'B', state: 'active', start: null, end: '2026-10-19T17:00:00.000Z' }]), 'active sprints A and B (to 19 Oct)', 'two open at once');
+  assert.equal(sprintPlace(42, [{ id: 42, name: 'C', state: 'future', start: null, end: null }]), 'sprint C', 'a named one, not yet started');
 });

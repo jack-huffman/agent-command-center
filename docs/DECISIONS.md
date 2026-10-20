@@ -7818,8 +7818,8 @@ sprint together. A person who works a sprint wants that sprint's tickets.
   With `project` only (posting a draft), the sprint doesn't count, as the epic
   doesn't.
 - **The board says which sprint.** The place line names it and its dates:
-  "Jira · ACME · sprint ACME Sprint 13 (20 Oct to 2 Nov)" (`sprintPlace`,
-  `sprintDates`). Following the active sprint with none open, the board asks
+  "Jira · ACME · active sprint ACME Sprint 13 (20 Oct to 2 Nov)", or "sprint
+  …" for a named one (`sprintPlace`, `sprintDates`). Following the active sprint with none open, the board asks
   Jira for no issues, shows no cards, and its notice says there is no active
   sprint (`NO_ACTIVE_SPRINT`). A named sprint Jira doesn't have says so.
 - **Connect picks it.** After the board, a Sprint list: The whole board, The
@@ -7850,8 +7850,9 @@ sprint together. A person who works a sprint wants that sprint's tickets.
   (`Away.note`), and is never a notification. acc keeping the new sprint makes
   it once; a window that loads the board twice at once tells it once too. A
   first look, the same sprint, or a board not in a sprint says nothing. The
-  board's warning for started tasks names the sprint: "Moved out of sprint
-  ACME Sprint 12 after work started", or "epic ACME-3 or sprint 42" with both.
+  board's warning for started tasks names what they left: "Moved out of the
+  active sprint after work started", never the sprint open now; "sprint ACME
+  Sprint 12" for a named one; "epic ACME-3 or sprint 42" with both.
 - **Checked.** `packages/core/test/trackers.test.ts` adds 5: the JQL for the
   active sprint, a named sprint and a sprint with an epic; a board in the
   active sprint and its place line; a board with no active sprint, which gives

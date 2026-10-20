@@ -12,8 +12,8 @@ const SEGMENT = /^(epic|labels?|area|group|sprint) (.+)$/;
 
 /** One narrowing part of a place in a person's words, or null for one that names the project, board or team. */
 function narrowing(part: string, jira: boolean): string | null {
-  // A Jira sprint (T-78), as sprintPlace writes it: the active one, whichever it is, or one by name.
-  if (jira && (part === 'the active sprint' || part === 'no active sprint')) return 'the active sprint';
+  // A Jira sprint (T-78), as sprintPlace writes it: the active one, whichever it is now, or one by name.
+  if (jira && (part === 'the active sprint' || part === 'no active sprint' || /^active sprints? /.test(part))) return 'the active sprint';
   const m = SEGMENT.exec(part);
   if (!m || (m[1] === 'sprint' && !jira)) return null;
   if (m[1] === 'epic') return `epic ${m[2]!.split(' ')[0]}`;
