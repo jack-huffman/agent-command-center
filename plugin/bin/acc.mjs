@@ -1409,8 +1409,20 @@ function placeText(p) {
     const labels = p.labels ?? [];
     return `GitHub \xB7 ${p.repo ?? "?"}${labels.length ? ` \xB7 label${labels.length > 1 ? "s" : ""} ${orList(labels)}` : ""}`;
   }
-  if (p.kind === "jira") return `Jira \xB7 ${p.project ?? "?"}${p.epic ? ` \xB7 epic ${p.epic}${p.epicName ? ` ${p.epicName}` : ""}` : ""}`;
+  if (p.kind === "jira") return `Jira \xB7 ${p.project ?? "?"}${p.epic ? ` \xB7 epic ${p.epic}${p.epicName ? ` ${p.epicName}` : ""}` : ""}${p.sprint ? ` \xB7 ${sprintPlace(p.sprint, p.sprints ?? null)}` : ""}`;
   return `Azure DevOps \xB7 ${p.project ?? "?"}${p.team ? ` \xB7 ${p.team}` : ""}${p.areaPath ? ` \xB7 area ${p.areaPath}` : ""}`;
+}
+var DAY = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+function sprintDates(s) {
+  const day = (iso) => iso && !Number.isNaN(Date.parse(iso)) ? DAY.format(new Date(iso)) : null;
+  const [a2, b] = [day(s.start), day(s.end)];
+  return a2 && b ? `${a2} to ${b}` : a2 ? `from ${a2}` : b ? `to ${b}` : null;
+}
+function sprintPlace(sprint, found) {
+  if (!found) return sprint === "active" ? "the active sprint" : `sprint ${sprint}`;
+  if (!found.length) return sprint === "active" ? "no active sprint" : `sprint ${sprint}`;
+  const word = sprint === "active" ? `active sprint${found.length > 1 ? "s" : ""}` : "sprint";
+  return `${word} ${found.map((s) => `${s.name}${sprintDates(s) ? ` (${sprintDates(s)})` : ""}`).join(" and ")}`;
 }
 
 // packages/core/src/trackers/slack.ts
@@ -1468,6 +1480,7 @@ var CONFIG_KEYS = [
   "trackers[].prefix",
   "trackers[].skipLabels",
   "trackers[].epic",
+  "trackers[].sprint",
   "trackers[].labels",
   "trackers[].areaPath",
   "trackers[].group",
@@ -1502,6 +1515,7 @@ var CONFIG_KEYS = [
   "strayFiles.allow",
   "strayFiles.data",
   "analysis.required",
+  "sourceTracking",
   "autopilot.appendOnly",
   "autopilot.autoMerge",
   "dispatch.shared",
@@ -1554,6 +1568,11 @@ var isStr = (v) => typeof v === "string" && v.trim() !== "";
 var strList = (v) => Array.isArray(v) && v.every(isStr);
 var inRepo = (v) => strList(v) && !v.some((f) => f.startsWith("/") || f.split("/").includes(".."));
 var JIRA_ISSUE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
+function sprintProblem(kind, sprint) {
+  if (kind !== "jira") return '"sprint" applies only to a Jira tracker: other trackers have no sprints here.';
+  if (sprint === "active" || Number.isSafeInteger(sprint) && sprint > 0) return null;
+  return `"sprint" must be "active", for the board's open sprints, or a sprint's id, such as 42.`;
+}
 function parseConfig(raw) {
   const errors = [];
   const warnings = [];
@@ -1653,6 +1672,13 @@ function parseConfig(raw) {
         const empty = Array.isArray(t[p.key]) && !t[p.key].length;
         if (t.kind !== p.kind && !empty) warnings.push(`trackers[${i}]: "${p.key}" applies only to ${p.on} tracker, so it's ignored.`);
       }
+      if (t.sprint !== void 0 && t.sprint !== null) {
+        const why = sprintProblem(t.kind, t.sprint);
+        if (why) {
+          errors.push(`trackers[${i}]: ${why}`);
+          return;
+        }
+      }
       if (t.edits !== void 0 && typeof t.edits !== "boolean") {
         errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels, and on GitHub, whether acc sync closes an issue when its work merges.`);
         return;
@@ -1686,6 +1712,7 @@ function parseConfig(raw) {
         prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
         skipLabels: t.kind === "github" && strList(t.skipLabels) ? t.skipLabels : [],
         epic: t.kind === "jira" && isStr(t.epic) ? t.epic.trim().toUpperCase() : null,
+        sprint: t.kind === "jira" && (t.sprint === "active" || Number.isSafeInteger(t.sprint)) ? t.sprint : null,
         labels: t.kind === "github" && strList(t.labels) ? t.labels.map((l3) => l3.trim()) : [],
         areaPath: t.kind === "azure" && isStr(t.areaPath) ? t.areaPath.trim() : null,
         group: t.kind === "monday" && isStr(t.group) ? t.group.trim() : null,
@@ -1796,6 +1823,9 @@ function parseConfig(raw) {
   const an = isObj(raw.analysis) ? raw.analysis : {};
   if (raw.analysis !== void 0 && !isObj(raw.analysis)) errors.push('"analysis" must be an object, such as { "required": true }.');
   if (an.required !== void 0 && typeof an.required !== "boolean") errors.push('"analysis.required" must be true or false.');
+  const tracking = raw.sourceTracking;
+  if (tracking !== void 0 && typeof tracking !== "boolean") errors.push('"sourceTracking" must be true or false: whether the project uses Salesforce source tracking.');
+  if (profile !== "salesforce" && tracking === false) warnings.push(`"sourceTracking" applies only to a Salesforce project, so it's ignored.`);
   let autopilot;
   if (raw.autopilot !== void 0) {
     const ap = raw.autopilot;
@@ -1882,6 +1912,7 @@ function parseConfig(raw) {
         data: inRepo(sf.data) ? sf.data : []
       },
       ...typeof an.required === "boolean" ? { analysis: { required: an.required } } : {},
+      ...typeof tracking === "boolean" ? { sourceTracking: tracking } : {},
       ...autopilot ? { autopilot } : {},
       ...dispatch2 ? { dispatch: dispatch2 } : {},
       ...tidy ? { tidy } : {},
@@ -2481,6 +2512,13 @@ function nextManualId(ledger) {
   const n = ledger.tasks.map((t) => /^T-(\d+)$/.exec(t.id)?.[1]).filter(Boolean).map(Number);
   return `T-${(n.length ? Math.max(...n) : 0) + 1}`;
 }
+function environmentProblem(config, env) {
+  const def = environmentByBranch(config, env);
+  if (!def) return `environment "${env}" isn't in the config.`;
+  if (def.protected) return `"${env}" is protected, so no task can build on it directly.`;
+  return null;
+}
+var taskDeps = (deps, kind) => deps.map((d) => normalizeId(d, kind));
 function upsertTasks(ledger, config, inputs, actor, by, emit, now2) {
   const res = { added: [], updated: [], unchanged: [], errors: [] };
   const defaultEnv = defaultEnvironment(config).branch;
@@ -2509,16 +2547,12 @@ function upsertTasks(ledger, config, inputs, actor, by, emit, now2) {
       return;
     }
     const env = input.environment ?? defaultEnv;
-    const envDef = environmentByBranch(config, env);
-    if (!envDef) {
-      res.errors.push(`${id}: environment "${env}" isn't in the config.`);
+    const envWhy = environmentProblem(config, env);
+    if (envWhy) {
+      res.errors.push(`${id}: ${envWhy}`);
       return;
     }
-    if (envDef.protected) {
-      res.errors.push(`${id}: "${env}" is protected, so no task can build on it directly.`);
-      return;
-    }
-    const deps = (input.deps ?? []).map((d) => normalizeId(d, kind));
+    const deps = taskDeps(input.deps ?? [], kind);
     const fields = {
       title: input.title.trim(),
       brief: (input.brief ?? "").trim(),
@@ -3832,11 +3866,11 @@ var byAutopilot = (by) => by === AUTOPILOT_BY || by.endsWith(` for ${AUTOPILOT_B
 var EVENTS_TAIL_BYTES = 256 * 1024;
 
 // packages/core/src/checks.ts
-import { mkdirSync as mkdirSync21, readFileSync as readFileSync23, writeFileSync as writeFileSync23 } from "node:fs";
+import { mkdirSync as mkdirSync21, readFileSync as readFileSync23, writeFileSync as writeFileSync22 } from "node:fs";
 import { join as join21 } from "node:path";
 
 // packages/core/src/land.ts
-import { mkdtempSync as mkdtempSync3, rmSync as rmSync13, writeFileSync as writeFileSync22 } from "node:fs";
+import { mkdtempSync as mkdtempSync3, rmSync as rmSync13, writeFileSync as writeFileSync21 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
 import { join as join20 } from "node:path";
 
@@ -4172,16 +4206,16 @@ import { existsSync as existsSync15 } from "node:fs";
 
 // packages/core/src/dispatch.ts
 import { spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync14, mkdirSync as mkdirSync20, readFileSync as readFileSync22, realpathSync as realpathSync3, symlinkSync, writeFileSync as writeFileSync21 } from "node:fs";
+import { existsSync as existsSync14, mkdirSync as mkdirSync20, readFileSync as readFileSync22, realpathSync as realpathSync3, symlinkSync, writeFileSync as writeFileSync20 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { basename as basename5, dirname as dirname8, isAbsolute as isAbsolute4, join as join19, resolve as resolve2, sep as sep2 } from "node:path";
 
 // packages/core/src/cloud.ts
-import { chmodSync, existsSync as existsSync11, mkdirSync as mkdirSync16, rmSync as rmSync9, writeFileSync as writeFileSync17 } from "node:fs";
+import { chmodSync, existsSync as existsSync11, mkdirSync as mkdirSync16, rmSync as rmSync9, writeFileSync as writeFileSync16 } from "node:fs";
 import { join as join14 } from "node:path";
 
 // packages/core/src/config-edit.ts
-import { readFileSync as readFileSync12, writeFileSync as writeFileSync12 } from "node:fs";
+import { readFileSync as readFileSync12 } from "node:fs";
 var Scanner = class {
   i = 0;
   text;
@@ -4377,11 +4411,11 @@ function writeJsonKey(file, path, value) {
     throw new AccError("bad-config", `Couldn't read ${file}: ${e.message}`);
   }
   const edited = editJsonKey(text, path, value);
-  if (edited !== text) writeFileSync12(file, edited);
+  if (edited !== text) writeAtomic(file, edited);
 }
 
 // packages/core/src/cloud-guard.ts
-import { existsSync as existsSync8, mkdirSync as mkdirSync10, readFileSync as readFileSync13, writeFileSync as writeFileSync13, renameSync as renameSync8 } from "node:fs";
+import { existsSync as existsSync8, mkdirSync as mkdirSync10, readFileSync as readFileSync13, writeFileSync as writeFileSync12, renameSync as renameSync8 } from "node:fs";
 import { dirname as dirname5, join as join8 } from "node:path";
 var GUARD_PATH = ".claude/hooks/acc-push-guard.mjs";
 var PRE_PUSH_PATH = ".claude/hooks/acc-pre-push";
@@ -5322,21 +5356,21 @@ function installGuard(root) {
 }
 function writeWhole(file, text) {
   const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync13(tmp, text);
+  writeFileSync12(tmp, text);
   renameSync8(tmp, file);
 }
 
 // packages/core/src/gates.ts
-import { existsSync as existsSync9, mkdirSync as mkdirSync13, readFileSync as readFileSync16, writeFileSync as writeFileSync16 } from "node:fs";
+import { existsSync as existsSync9, mkdirSync as mkdirSync13, readFileSync as readFileSync16, writeFileSync as writeFileSync15 } from "node:fs";
 import { join as join11, posix } from "node:path";
 
 // packages/core/src/semaphore.ts
-import { mkdirSync as mkdirSync12, readdirSync as readdirSync4, readFileSync as readFileSync15, rmSync as rmSync7, statSync as statSync4, utimesSync, writeFileSync as writeFileSync15 } from "node:fs";
+import { mkdirSync as mkdirSync12, readdirSync as readdirSync4, readFileSync as readFileSync15, rmSync as rmSync7, statSync as statSync4, utimesSync, writeFileSync as writeFileSync14 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { join as join10 } from "node:path";
 
 // packages/core/src/machine.ts
-import { mkdirSync as mkdirSync11, readFileSync as readFileSync14, renameSync as renameSync9, writeFileSync as writeFileSync14 } from "node:fs";
+import { mkdirSync as mkdirSync11, readFileSync as readFileSync14, renameSync as renameSync9, writeFileSync as writeFileSync13 } from "node:fs";
 import { dirname as dirname6, join as join9 } from "node:path";
 function machineDir(env = process.env) {
   if (env.ACC_MACHINE_FILE) return dirname6(env.ACC_MACHINE_FILE);
@@ -5372,7 +5406,7 @@ function setMachineKey(key, value, env = process.env) {
     }
     const { [key]: _was, ...rest } = current3;
     const tmp = `${file}.${process.pid}.tmp`;
-    writeFileSync14(tmp, JSON.stringify(value === void 0 ? rest : { ...rest, [key]: value }, null, 2) + "\n");
+    writeFileSync13(tmp, JSON.stringify(value === void 0 ? rest : { ...rest, [key]: value }, null, 2) + "\n");
     renameSync9(tmp, file);
   });
 }
@@ -5403,7 +5437,7 @@ function take(slot, owner) {
     if (e.code !== "EEXIST") throw e;
     return false;
   }
-  writeFileSync15(join10(slot, "owner"), JSON.stringify({ ...owner, pid: process.pid, at: Date.now() }));
+  writeFileSync14(join10(slot, "owner"), JSON.stringify({ ...owner, pid: process.pid, at: Date.now() }));
   return true;
 }
 function reclaim(slot) {
@@ -5490,7 +5524,7 @@ function withSlot(fn2, opts = {}) {
       if (!mine) {
         mkdirSync12(waitingDir(dir), { recursive: true });
         const file = join10(waitingDir(dir), `${process.pid}-${++waited}.json`);
-        writeFileSync15(file, JSON.stringify({ ...opts.owner, pid: process.pid, at: Date.now() }));
+        writeFileSync14(file, JSON.stringify({ ...opts.owner, pid: process.pid, at: Date.now() }));
         mine = file;
         if (!told) {
           told = true;
@@ -5950,10 +5984,11 @@ function priorTests(paths, config, sha) {
   const tests = readReceipt(paths, sha, "validate")?.details?.tests;
   return Array.isArray(tests) ? tests.filter((t) => typeof t?.name === "string" && typeof t?.reason === "string") : [];
 }
+var listLines = (text) => text.split("\n").map((l3) => l3.trim()).filter((l3) => l3 && !l3.startsWith("#"));
 function readList(root, rel) {
   if (!rel) return [];
   try {
-    return readFileSync16(join11(root, rel), "utf8").split("\n").map((l3) => l3.trim()).filter((l3) => l3 && !l3.startsWith("#"));
+    return listLines(readFileSync16(join11(root, rel), "utf8"));
   } catch {
     return [];
   }
@@ -6121,7 +6156,7 @@ function runGates(paths, config, env, names3, tests, deps) {
       const owner = { what: gate.name, ...deps.task ? { task: deps.task } : {}, project: config.project, cwd: root };
       const r = gate.heavy ? withSlot(exec, { owner, ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
       log = join11(input.scratch, `${gate.name}.log`);
-      writeFileSync16(log, `$ ${command}
+      writeFileSync15(log, `$ ${command}
 # exit ${r.code}
 
 ${r.stdout}${r.stderr ? `
@@ -6939,9 +6974,9 @@ function fireRoutine(paths, run2, routine, token, text, env) {
   const headers = join14(dir, `fire-${stamp}.headers`);
   const body = join14(dir, `fire-${stamp}.json`);
   try {
-    writeFileSync17(headers, [`Authorization: Bearer ${token}`, `anthropic-beta: ${ROUTINE_BETA}`, `anthropic-version: ${ROUTINE_VERSION}`, "Content-Type: application/json", ""].join("\n"), { mode: 384 });
+    writeFileSync16(headers, [`Authorization: Bearer ${token}`, `anthropic-beta: ${ROUTINE_BETA}`, `anthropic-version: ${ROUTINE_VERSION}`, "Content-Type: application/json", ""].join("\n"), { mode: 384 });
     chmodSync(headers, 384);
-    writeFileSync17(body, JSON.stringify({ text }), { mode: 384 });
+    writeFileSync16(body, JSON.stringify({ text }), { mode: 384 });
     const r = run2("curl", ["-sS", "-X", "POST", ROUTINE_FIRE_URL(routine), "-H", `@${headers}`, "--data-binary", `@${body}`, "-w", "\n%{http_code}"], { env, timeoutMs: FIRE_TIMEOUT_MS });
     if (r.code === 127) throw new AccError("cloud", "curl isn't on PATH, and acc fires the routine with it.");
     if (r.code !== 0) throw new AccError("cloud", `The routine couldn't be fired: ${(r.stderr || r.stdout).trim().split("\n")[0] || `curl exited ${r.code}`}`);
@@ -7398,464 +7433,15 @@ function taskList(ids) {
 
 // packages/core/src/review.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { existsSync as existsSync13, mkdirSync as mkdirSync17, readdirSync as readdirSync6, readFileSync as readFileSync19, renameSync as renameSync10, rmSync as rmSync10, writeFileSync as writeFileSync18 } from "node:fs";
-import { join as join16 } from "node:path";
-var VERDICT_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["verdict", "summary", "client", "criteria", "findings"],
-  properties: {
-    verdict: { type: "string", enum: ["pass", "changes"], description: "changes only when something must be fixed before this merges" },
-    summary: { type: "string", description: "Two or three plain sentences for the pull request: what the change does and how well" },
-    client: { type: "string", description: "One plain sentence for the client: what changes for them, with no code, file, tool or agent names" },
-    criteria: {
-      type: "array",
-      description: "Each acceptance criterion in the task, in its own words",
-      items: { type: "object", additionalProperties: false, required: ["text", "met", "evidence"], properties: { text: { type: "string" }, met: { type: "boolean" }, evidence: { type: "string", description: "Where it is met (file:line), or what is missing" } } }
-    },
-    findings: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["message", "must"],
-        properties: {
-          message: { type: "string", description: "What is wrong, and what to do instead" },
-          must: { type: "boolean", description: "true if it has to be fixed before merging" },
-          file: { type: "string" },
-          line: { type: "integer" },
-          rule: { type: "string", description: "The project rule it breaks, if any" },
-          kind: { type: "string", description: "A short name for the kind of problem, a few words: reuse one of the kinds you are given when it fits" }
-        }
-      }
-    }
-  }
-};
-var DIFF_MAX = 15e4;
-var reviewPath = (paths, task, sha) => join16(paths.reviews, `${task}-${sha}.json`);
-var runningPath2 = (paths, task) => join16(paths.reviews, `${task}.running.json`);
-function readVerdict(paths, task, sha) {
-  try {
-    return JSON.parse(readFileSync19(reviewPath(paths, task, sha), "utf8"));
-  } catch {
-    return null;
-  }
-}
-function carriedVerdict(paths, task, sha) {
-  const c = task.autopilot?.carried;
-  if (!c || !sha || c.to !== sha) return null;
-  const v = readVerdict(paths, task.id, c.from);
-  return v?.verdict === "pass" ? v : null;
-}
-function reviewedAt(paths, task, sha) {
-  const own = readVerdict(paths, task.id, sha);
-  if (own) return own.verdict === "pass" ? own : null;
-  return carriedVerdict(paths, task, sha);
-}
-function readVerdicts(paths, task) {
-  let names3;
-  try {
-    names3 = readdirSync6(paths.reviews);
-  } catch {
-    return [];
-  }
-  const all = [];
-  for (const n of names3) {
-    if (!n.endsWith(".json") || n.endsWith(".running.json") || task && !n.startsWith(`${task}-`)) continue;
-    try {
-      const v = JSON.parse(readFileSync19(join16(paths.reviews, n), "utf8"));
-      if (typeof v?.task !== "string" || typeof v.sha !== "string" || typeof v.at !== "string" || !Array.isArray(v.findings)) continue;
-      if (`${v.task}-${v.sha}.json` === n && (!task || v.task === task)) all.push(v);
-    } catch {
-    }
-  }
-  return all.sort((a2, b) => a2.at.localeCompare(b.at) || a2.task.localeCompare(b.task) || a2.sha.localeCompare(b.sha));
-}
-function latestVerdict(paths, task) {
-  return readVerdicts(paths, task).at(-1) ?? null;
-}
-var KINDS_MAX = 30;
-function knownKinds(paths) {
-  const n = /* @__PURE__ */ new Map();
-  for (const v of readVerdicts(paths)) for (const f of v.findings) if (typeof f.kind === "string" && f.kind.trim()) n.set(f.kind.trim(), (n.get(f.kind.trim()) ?? 0) + 1);
-  return [...n].sort((a2, b) => b[1] - a2[1] || a2[0].localeCompare(b[0])).slice(0, KINDS_MAX).map(([k2]) => k2);
-}
-function reviewing(paths, task) {
-  try {
-    const r = JSON.parse(readFileSync19(runningPath2(paths, task), "utf8"));
-    return alive(r.pid) ? r : null;
-  } catch {
-    return null;
-  }
-}
-function checkLine(r) {
-  const result = r.waived ? `waived (it was ${r.waived.was ?? "not run"}), because ${r.waived.reason}` : `${r.status}. ${r.summary}`;
-  const tests = testsText(r);
-  return `- ${r.gate}: ${result}${tests ? ` Tests: ${tests}.` : ""}${r.countsNote ? ` ${r.countsNote}` : ""}`;
-}
-var DUPLICATE_HELPER = "Does it add a helper that does what an existing one already does? Search for one (Grep for its name and for what it does), and name both in the finding's message, each as file:line. When the existing one is exported, the finding must be fixed (must: true): use it instead. A near-copy of a local, unexported one is must: false.";
-function reviewPrompt(i) {
-  const system = [
-    `You are the reviewer for ${i.task.id}. A builder agent made this change; you judge it before a person sees the pull request.`,
-    "You can read files in this worktree with Read, Grep and Glob. You can't change anything, run commands, or ask questions.",
-    "Judge it as a careful senior engineer would:",
-    "- Does it do what the task asks? Go through each acceptance criterion in the task, and say whether it is met, with the file and line that meets it.",
-    "- Does it follow the rules you're given, if there are any? Where two disagree, the later one wins: this repo's own rules over the others.",
-    "- Did it change anything the task didn't ask for?",
-    "- Do the tests actually exercise the change?",
-    "- Did it add a skip, only or todo to a test (it.skip, xit, describe.skip, test.only, fit, it.todo, { skip: true }, t.skip(), t.todo())? Each is a finding with must: true, unless the task asks for it: a skipped test passes having checked nothing.",
-    `- ${DUPLICATE_HELPER}`,
-    "The builder's note is its own account of what landed, which numbers moved and what's still open. Check it against the diff rather than trust it, and say where it's wrong.",
-    "Skip formatting and style: the checks cover those. A check that a person waived is settled; don't reopen it.",
-    `Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don't block.`,
-    "Be specific: the file, the line, what is wrong, and what to do instead.",
-    "Give each finding a kind: a few words naming the kind of problem. Reuse one of the kinds you are given when it fits, so a finding that keeps coming back is seen."
-  ].join("\n");
-  const prompt = [
-    `# Review ${i.task.id}: ${i.task.title}`,
-    "",
-    `Commit ${i.sha.slice(0, 7)} on the task's branch, against ${i.envName} (\`${i.envBranch}\`).`,
-    "",
-    "## The task, as the builder was given it",
-    "",
-    i.packet.trim(),
-    "",
-    "## The checks on this commit",
-    "",
-    ...i.checks.length ? i.checks : ["- none recorded"],
-    "",
-    // What the builder said as it finished or blocked (D-106): its claim, for the reviewer to check.
-    "## The builder's note",
-    "",
-    ...i.task.run?.note ? [`What the builder said ${i.task.run.note.ended === "blocked" ? "when it blocked" : "as it finished"}, in its own words. Check it against the diff.`, "", ...noteMarkdown(i.task.run.note)] : ["The builder left no note."],
-    "",
-    ...i.rules?.trim() ? ["## Rules", "", i.rules.trim(), ""] : [],
-    ...i.kinds?.length ? ["## Kinds of finding earlier reviews named", "", ...i.kinds.map((k2) => `- ${k2}`), ""] : [],
-    "## What changed",
-    "",
-    "```",
-    i.stat.trim() || "(no files changed)",
-    "```",
-    "",
-    i.diff.length > DIFF_MAX ? "The diff is too long to include here. Read the changed files listed above." : ["```diff", i.diff.trim(), "```"].join("\n")
-  ].join("\n");
-  return { system, prompt };
-}
-function parseReview(stdout) {
-  let r;
-  try {
-    r = JSON.parse(stdout.trim().split("\n").filter(Boolean).pop() ?? "");
-  } catch {
-    throw new AccError("review", `The reviewer gave no result Claude Code could read: ${stdout.trim().slice(0, 200) || "(nothing)"}`);
-  }
-  const s = r.structured_output;
-  if (r.is_error || !s || s.verdict !== "pass" && s.verdict !== "changes" || typeof s.summary !== "string") {
-    throw new AccError("review", `The review didn't finish with a verdict (${r.subtype ?? "no result"}): ${String(r.result ?? "").slice(0, 300)}`);
-  }
-  const criteria = (Array.isArray(s.criteria) ? s.criteria : []).filter((c) => typeof c?.text === "string").map((c) => ({ text: c.text, met: c.met === true, evidence: String(c.evidence ?? "") }));
-  const findings = (Array.isArray(s.findings) ? s.findings : []).filter((f) => typeof f?.message === "string").map((f) => ({
-    message: f.message,
-    must: f.must === true,
-    ...typeof f.file === "string" && f.file ? { file: f.file } : {},
-    ...Number.isInteger(f.line) ? { line: f.line } : {},
-    ...typeof f.rule === "string" && f.rule ? { rule: f.rule } : {},
-    ...typeof f.kind === "string" && f.kind.trim() ? { kind: f.kind.trim().slice(0, 80) } : {}
-  }));
-  const verdict = s.verdict === "pass" && findings.some((f) => f.must) ? "changes" : s.verdict;
-  const client = typeof s.client === "string" && s.client.trim() ? { client: s.client.trim() } : {};
-  return { verdict: { verdict, summary: s.summary, ...client, criteria, findings }, sessionId: typeof r.session_id === "string" ? r.session_id : null, costUsd: typeof r.total_cost_usd === "number" ? r.total_cost_usd : null };
-}
-var git4 = (run2, cwd, ...args) => run2("git", args, { cwd });
-function baseRef(run2, root, branch) {
-  return git4(run2, root, "rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`).code === 0 ? `origin/${branch}` : branch;
-}
-function review(paths, config, id, deps, opts = {}) {
-  const { run: run2, now: now2 } = deps;
-  const ledger = readLedger(paths.ledger);
-  const task = ledger.tasks.find((t) => t.id === id);
-  if (!task) throw new AccError("no-task", `No task ${id}.`);
-  if (task.state !== "review") throw new AccError("refused", `${id} is ${task.state}. A review is for work that's in review: acc done, or a person, moves it there.`);
-  const env = environmentByBranch(config, task.environment);
-  if (!env) throw new AccError("review", `${id}'s environment "${task.environment}" isn't in the config.`);
-  const branch = task.run?.branch;
-  const worktree = task.run?.worktree;
-  if (!branch) throw new AccError("review", `${id} has no branch to review.`);
-  if (!worktree || !existsSync13(worktree)) throw new AccError("review", `${id}'s worktree isn't on disk any more, so there's nothing for the reviewer to read.`);
-  const sha = git4(run2, paths.root, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).stdout.trim();
-  if (!sha) throw new AccError("review", `The branch ${branch} isn't in this clone.`);
-  const missing = receiptHooks(paths, config, run2).missingGates(task);
-  if (missing.length) throw new AccError("refused", `${id}'s checks aren't settled on ${sha.slice(0, 7)}: ${missing.join(", ")}. Run acc gate run in its worktree, or waive them, then review.`);
-  const base = baseRef(run2, paths.root, env.branch);
-  const diff = git4(run2, paths.root, "diff", "--no-color", "--find-renames", `${base}...${sha}`).stdout;
-  const stat = git4(run2, paths.root, "diff", "--stat=120", "--find-renames", `${base}...${sha}`).stdout;
-  const receipts = receiptsAt(paths, sha);
-  const checks = Object.values(receipts).map(checkLine);
-  const packetFile = join16(paths.packets, `${id}.md`);
-  const packet = existsSync13(packetFile) ? readFileSync19(packetFile, "utf8") : `# ${task.id}: ${task.title}
-
-${task.brief}`;
-  const rules = rulesText(worktree, config.profile);
-  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules, kinds: knownKinds(paths) });
-  const sessionId = (deps.uuid ?? randomUUID2)();
-  const name = sessionName({ project: config.project, key: id, title: task.title, role: "review" });
-  mkdirSync17(paths.reviews, { recursive: true });
-  const marker = runningPath2(paths, id);
-  const startedAt = now2();
-  writeFileSync18(marker, JSON.stringify({ sessionId, name, sha, startedAt: startedAt.toISOString(), pid: process.pid }));
-  deps.onStart?.(sessionId, sha, name);
-  const awake = holdAwake(process.pid, deps.awake);
-  let out3;
-  try {
-    out3 = run2("claude", [
-      "-p",
-      "--session-id",
-      sessionId,
-      "--name",
-      name,
-      "--permission-mode",
-      "dontAsk",
-      ...agentArgs(config.agents.reviewer),
-      "--output-format",
-      "json",
-      "--json-schema",
-      JSON.stringify(VERDICT_SCHEMA),
-      "--append-system-prompt",
-      system,
-      "--allowedTools",
-      "Read",
-      "Grep",
-      "Glob",
-      "--disallowedTools",
-      "Bash",
-      "Edit",
-      "Write",
-      "NotebookEdit",
-      "WebFetch",
-      "WebSearch"
-    ], { cwd: worktree, input: prompt, env: { ...deps.env, ACC_ROLE: "reviewer", ACC_TASK: id }, timeoutMs: 45 * 6e4 });
-  } finally {
-    awake?.release();
-    rmSync10(marker, { force: true });
-  }
-  if (out3.timedOut) throw new AccError("review", `The review didn't finish within 45 minutes, so acc stopped it.`);
-  if (out3.code === 127 && !out3.stdout) throw new AccError("review", `Claude Code didn't start: ${out3.stderr.trim().split("\n")[0] ?? "claude not found"}`);
-  const parsed = parseReview(out3.stdout);
-  const finished = now2();
-  const verdict = {
-    v: 1,
-    task: id,
-    sha,
-    env: env.branch,
-    ...parsed.verdict,
-    sessionId: parsed.sessionId ?? sessionId,
-    name,
-    at: finished.toISOString(),
-    durationMs: finished.getTime() - startedAt.getTime(),
-    costUsd: parsed.costUsd
-  };
-  const file = reviewPath(paths, id, sha);
-  writeFileSync18(`${file}.tmp`, JSON.stringify(verdict, null, 2) + "\n");
-  renameSync10(`${file}.tmp`, file);
-  const actor = opts.actor ?? "reviewer";
-  const by = opts.by ?? `reviewer:${id}`;
-  const moved = mutate(paths, now2, (l3, emit) => {
-    const t = l3.tasks.find((x2) => x2.id === id);
-    if (t.state !== "review") return null;
-    if (verdict.verdict === "changes") {
-      const req = { to: "rework", actor, by, reason: `Review asked for changes: ${verdict.summary}` };
-      const problems = checkMove(l3, config, t, req, noGateHooks);
-      if (problems.length) throw new AccError("move-refused", problems.join(" "));
-      applyMove(t, req, emit, now2);
-      return "rework";
-    }
-    if (t.autopilot?.failed) t.autopilot.failed = null;
-    emit({ type: "task.updated", task: id, actor, by, data: { reviewed: { sha, verdict: verdict.verdict } } });
-    return null;
-  });
-  return { verdict, moved };
-}
-
-// packages/core/src/holding.ts
-var STARTING_STALE_MS = 10 * 6e4;
-var startingNow = (task, now2) => {
-  const s = task.held?.starting;
-  return s && now2.getTime() - Date.parse(s.at) < STARTING_STALE_MS ? s : null;
-};
-function holdTask(paths, now2, id, opts, look2) {
-  return mutate(paths, now2, (ledger, emit) => {
-    const task = ledger.tasks.find((t) => t.id === id);
-    if (!task) throw new AccError("no-task", `No task ${id}.`);
-    if (task.state !== "todo") throw new AccError("move-refused", `Can't dispatch ${id}: it's ${task.state} now.`);
-    const at2 = now2().toISOString();
-    const kept = task.held && !task.held.failed ? task.held : null;
-    const model = opts.model ?? task.held?.model;
-    const effort = opts.effort ?? task.held?.effort;
-    task.held = { at: kept?.at ?? at2, actor: kept?.actor ?? opts.actor, by: kept?.by ?? opts.by, waitsFor: look2.shares, first: look2.first, ...model ? { model } : {}, ...effort ? { effort } : {} };
-    task.updatedAt = at2;
-    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { held: task.held } });
-    return { held: true, task, waitsFor: look2.shares, first: look2.first };
-  });
-}
-function claimHeld(paths, now2, id, opts) {
-  return mutate(paths, now2, (ledger, emit) => {
-    const t = ledger.tasks.find((x2) => x2.id === id);
-    if (!t || t.state !== "todo" || !t.held || t.held.failed || startingNow(t, now2())) return false;
-    t.held.starting = { at: now2().toISOString(), by: opts.by };
-    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { held: t.held } });
-    return true;
-  });
-}
-function releaseHeld(paths, now2, id, opts, reason) {
-  mutate(paths, now2, (ledger, emit) => {
-    const t = ledger.tasks.find((x2) => x2.id === id);
-    if (!t || t.state !== "todo" || !t.held) return;
-    const at2 = now2().toISOString();
-    t.held = { ...t.held, starting: null, ...reason ? { failed: { reason, at: at2, by: opts.by } } : {} };
-    t.updatedAt = at2;
-    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { held: t.held } });
-  });
-}
-
-// packages/core/src/limits.ts
-import { createHash as createHash2 } from "node:crypto";
-import { mkdirSync as mkdirSync18, readdirSync as readdirSync7, readFileSync as readFileSync20, realpathSync as realpathSync2, renameSync as renameSync11, rmSync as rmSync11, statSync as statSync5, writeFileSync as writeFileSync19 } from "node:fs";
-import { basename as basename4, dirname as dirname7, join as join17 } from "node:path";
-var MAX_AGENTS = 16;
-function setAgentsMax(configFile, n) {
-  if (!Number.isInteger(n) || n < 1 || n > MAX_AGENTS) throw new AccError("usage", `A project's builder cap is a whole number from 1 to ${MAX_AGENTS}.`);
-  writeJsonKey(configFile, ["agents", "max"], n);
-  return n;
-}
-function configSets(configFile, key) {
-  try {
-    let v = JSON.parse(readFileSync20(configFile, "utf8"));
-    for (const k2 of key) v = v && typeof v === "object" && Object.hasOwn(v, k2) ? v[k2] : void 0;
-    return v !== void 0;
-  } catch {
-    return false;
-  }
-}
-var agentsMaxSet = (configFile) => configSets(configFile, ["agents", "max"]);
-function gateNames(configFile, names3, what) {
-  const { config } = loadConfig(configFile);
-  const known = gatesFor(config).map((g) => g.name).filter((n) => n !== STRAY_FILES);
-  const list = [...new Set(names3.map((n) => n.trim()).filter(Boolean))];
-  if (list.includes(STRAY_FILES)) throw new AccError("usage", `${STRAY_FILES} is required unless "strayFiles": { "required": false } turns it off in .acc/config.json, so it isn't named here. ${what} from: ${known.join(", ") || "none yet"}.`);
-  const unknown2 = list.filter((n) => !known.includes(n));
-  if (unknown2.length) {
-    throw new AccError("usage", `${unknown2.join(", ")} ${unknown2.length === 1 ? "isn't a check" : "aren't checks"} this project has. ${what} from: ${known.join(", ") || 'none yet. Add commands under "gates.commands" in .acc/config.json'}.`);
-  }
-  return list;
-}
-function setRequiredGates(configFile, names3) {
-  const list = gateNames(configFile, names3, "Name the required checks");
-  if (!list.length) throw new AccError("usage", "Name at least one check: acc gate required <name>\u2026");
-  writeJsonKey(configFile, ["gates", "required"], list);
-  return list;
-}
-function setBuilderGates(configFile, names3) {
-  if (names3 === null) {
-    writeJsonKey(configFile, ["gates", "builder"], void 0);
-    return null;
-  }
-  const list = gateNames(configFile, names3, "Name builders' checks");
-  if (!list.length) throw new AccError("usage", "Name at least one check, or say --none: acc gate builder <name>\u2026 | --none");
-  writeJsonKey(configFile, ["gates", "builder"], list);
-  return list;
-}
-var MAX_MACHINE_AGENTS = 64;
-var agentCount = (v) => Number.isInteger(v) && v >= 1 ? Math.min(MAX_MACHINE_AGENTS, v) : null;
-function machineAgents(env = process.env) {
-  return agentCount(readMachineKey("agents", env));
-}
-function setMachineAgents(n, env = process.env) {
-  if (n !== null && (!Number.isInteger(n) || n < 1 || n > MAX_MACHINE_AGENTS)) {
-    throw new AccError("usage", `This machine's total is a whole number from 1 to ${MAX_MACHINE_AGENTS}, or --none for no total.`);
-  }
-  setMachineKey("agents", n ?? void 0, env);
-  return n;
-}
-var ledgersDir = (env = process.env) => machineDir(env) ? join17(machineDir(env), "ledgers") : null;
-function realLedger(file) {
-  try {
-    return join17(realpathSync2(dirname7(file)), basename4(file));
-  } catch {
-    return file;
-  }
-}
-var entryName = (ledger) => `${createHash2("sha256").update(ledger).digest("hex").slice(0, 16)}.json`;
-function registerLedger(ledger, project2, env = process.env) {
-  const dir = ledgersDir(env);
-  if (!dir) return;
-  const path = realLedger(ledger);
-  const file = join17(dir, entryName(path));
-  try {
-    statSync5(file);
-    return;
-  } catch {
-  }
-  try {
-    mkdirSync18(dir, { recursive: true });
-    writeFileSync19(`${file}.${process.pid}.tmp`, JSON.stringify({ ledger: path, project: project2 }) + "\n");
-    renameSync11(`${file}.${process.pid}.tmp`, file);
-  } catch {
-  }
-}
-function machineRepos(env = process.env, { except, prune = false } = {}) {
-  const dir = ledgersDir(env);
-  if (!dir) return [];
-  let names3 = [];
-  try {
-    names3 = readdirSync7(dir).filter((n) => n.endsWith(".json"));
-  } catch {
-    return [];
-  }
-  const skip3 = except ? realLedger(except) : null;
-  const out3 = [];
-  for (const n of names3.sort()) {
-    let entry;
-    try {
-      entry = JSON.parse(readFileSync20(join17(dir, n), "utf8"));
-    } catch {
-      continue;
-    }
-    if (typeof entry.ledger !== "string" || entry.ledger === skip3) continue;
-    let ledger;
-    try {
-      statSync5(entry.ledger);
-    } catch {
-      if (prune) rmSync11(join17(dir, n), { force: true });
-      continue;
-    }
-    try {
-      ledger = readLedger(entry.ledger);
-    } catch {
-      continue;
-    }
-    out3.push({ project: typeof entry.project === "string" ? entry.project : basename4(dirname7(dirname7(dirname7(entry.ledger)))), ledger: entry.ledger, running: builders(ledger, "") });
-  }
-  return out3;
-}
-function machineLoad(paths, project2, env = process.env) {
-  registerLedger(paths.ledger, project2, env);
-  const max = machineAgents(env);
-  if (max === null) return { max, elsewhere: 0 };
-  return { max, elsewhere: machineRepos(env, { except: paths.ledger, prune: true }).reduce((n, r) => n + r.running, 0) };
-}
-var buildersAre = (n) => `${n} ${n === 1 ? "builder is" : "builders are"}`;
-var machineCapWords = (n, max) => `${buildersAre(n)} running on this machine, across every repo, and its total is ${max} (acc machine agents).`;
-function machineCapProblem(ledger, except, machine) {
-  if (!machine || machine.max === null) return null;
-  const n = builders(ledger, except) + machine.elsewhere;
-  return n >= machine.max ? machineCapWords(n, machine.max) : null;
-}
+import { existsSync as existsSync13, mkdirSync as mkdirSync18, readdirSync as readdirSync7, readFileSync as readFileSync20, renameSync as renameSync11, rmSync as rmSync11, writeFileSync as writeFileSync18 } from "node:fs";
+import { join as join17 } from "node:path";
 
 // packages/core/src/questions.ts
-import { chmodSync as chmodSync2, closeSync as closeSync2, fstatSync, linkSync, mkdirSync as mkdirSync19, openSync as openSync2, readdirSync as readdirSync8, readFileSync as readFileSync21, readSync as readSync2, renameSync as renameSync12, rmSync as rmSync12, statSync as statSync6, writeFileSync as writeFileSync20, writeSync } from "node:fs";
+import { chmodSync as chmodSync2, closeSync as closeSync2, fstatSync, linkSync, mkdirSync as mkdirSync17, openSync as openSync2, readdirSync as readdirSync6, readFileSync as readFileSync19, readSync as readSync2, renameSync as renameSync10, rmSync as rmSync10, statSync as statSync5, writeFileSync as writeFileSync17, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { homedir as homedir4 } from "node:os";
-import { join as join18 } from "node:path";
-var questionsDir = (env = process.env) => env.ACC_QUESTIONS_DIR || join18(homedir4(), ".acc", "questions");
+import { join as join16 } from "node:path";
+var questionsDir = (env = process.env) => env.ACC_QUESTIONS_DIR || join16(homedir4(), ".acc", "questions");
 var ALLOWED_MODES = ["auto", "acceptEdits", "default"];
 var LISTENER_STALE_MS = 45e3;
 var HOOK_TIMEOUT_S = 3600;
@@ -7863,18 +7449,18 @@ var MAX_WAIT_MS = (HOOK_TIMEOUT_S - 120) * 1e3;
 var isUnder = (path, root) => path === root || path.startsWith(root.endsWith("/") ? root : `${root}/`);
 function readJson(file) {
   try {
-    return JSON.parse(readFileSync21(file, "utf8"));
+    return JSON.parse(readFileSync19(file, "utf8"));
   } catch {
     return null;
   }
 }
 function writePrivate(file, data) {
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  writeFileSync20(tmp, JSON.stringify(data), { mode: 384 });
-  renameSync12(tmp, file);
+  writeFileSync17(tmp, JSON.stringify(data), { mode: 384 });
+  renameSync10(tmp, file);
 }
 function ensureDir(dir) {
-  mkdirSync19(join18(dir, "listeners"), { recursive: true, mode: 448 });
+  mkdirSync17(join16(dir, "listeners"), { recursive: true, mode: 448 });
   try {
     chmodSync2(dir, 448);
   } catch {
@@ -7886,12 +7472,12 @@ var HISTORY_TRIM_EVERY_BYTES = 64 * 1024;
 var HISTORY_LOCK = { timeoutMs: 1e4, staleMs: 5e3 };
 function appendHistory(dir, rec, trimEvery = HISTORY_TRIM_EVERY_BYTES) {
   ensureDir(dir);
-  const file = join18(dir, "history.jsonl");
-  withLock(join18(dir, "history.lock"), () => {
+  const file = join16(dir, "history.jsonl");
+  withLock(join16(dir, "history.lock"), () => {
     appendLine(file, JSON.stringify(rec));
     try {
-      const size = statSync6(file).size;
-      if (size > trimmedSize(dir, size) + trimEvery) writePrivateText(join18(dir, "history.trimmed"), `${trimHistory(file)}
+      const size = statSync5(file).size;
+      if (size > trimmedSize(dir, size) + trimEvery) writePrivateText(join16(dir, "history.trimmed"), `${trimHistory(file)}
 `);
     } catch {
     }
@@ -7911,14 +7497,14 @@ function appendLine(file, line) {
 }
 function trimmedSize(dir, size) {
   try {
-    const n = Number(readFileSync21(join18(dir, "history.trimmed"), "utf8"));
+    const n = Number(readFileSync19(join16(dir, "history.trimmed"), "utf8"));
     return Number.isSafeInteger(n) && n >= 0 && n <= size ? n : 0;
   } catch {
     return 0;
   }
 }
 function trimHistory(file) {
-  const data = readFileSync21(file);
+  const data = readFileSync19(file);
   const lines = data.toString("utf8").split("\n").filter(Boolean);
   const kept = [];
   let bytes = 0;
@@ -7937,8 +7523,8 @@ function trimHistory(file) {
 }
 function writePrivateText(file, text) {
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  writeFileSync20(tmp, text, { mode: 384 });
-  renameSync12(tmp, file);
+  writeFileSync17(tmp, text, { mode: 384 });
+  renameSync10(tmp, file);
 }
 function readRecord(line) {
   try {
@@ -7949,16 +7535,16 @@ function readRecord(line) {
   }
 }
 var PREAPPROVAL_MS = 10 * 6e4;
-var preapprovalFile = (dir, sessionId) => join18(dir, "approved", `${sessionId.replace(/[^A-Za-z0-9-]/g, "")}.json`);
+var preapprovalFile = (dir, sessionId) => join16(dir, "approved", `${sessionId.replace(/[^A-Za-z0-9-]/g, "")}.json`);
 function preapprove(dir, sessionId, command, now2 = Date.now()) {
-  mkdirSync19(join18(dir, "approved"), { recursive: true, mode: 448 });
+  mkdirSync17(join16(dir, "approved"), { recursive: true, mode: 448 });
   writePrivate(preapprovalFile(dir, sessionId), { command, until: now2 + PREAPPROVAL_MS });
 }
 function takePreapproval(dir, sessionId, command, now2 = Date.now()) {
   const file = preapprovalFile(dir, sessionId);
   const p = readJson(file);
   if (!p || p.command !== command || typeof p.until !== "number" || now2 > p.until) return false;
-  rmSync12(file, { force: true });
+  rmSync10(file, { force: true });
   return true;
 }
 var editedMessage = (command) => `The user edited this command in the Command Center. Run exactly this instead, as it is, and carry on:
@@ -7979,12 +7565,12 @@ function outcomeOf(q2, a2) {
 function listeners(dir, now2 = Date.now()) {
   let names3 = [];
   try {
-    names3 = readdirSync8(join18(dir, "listeners")).filter((n) => n.endsWith(".json"));
+    names3 = readdirSync6(join16(dir, "listeners")).filter((n) => n.endsWith(".json"));
   } catch {
     return [];
   }
   return names3.flatMap((n) => {
-    const l3 = readJson(join18(dir, "listeners", n));
+    const l3 = readJson(join16(dir, "listeners", n));
     const ok = !!l3 && Number.isInteger(l3.pid) && typeof l3.at === "number" && Array.isArray(l3.roots) && now2 - l3.at < LISTENER_STALE_MS && alive(l3.pid);
     return ok ? [l3] : [];
   });
@@ -7992,7 +7578,7 @@ function listeners(dir, now2 = Date.now()) {
 var covered = (ls, cwd) => ls.some((l3) => l3.roots.some((r) => typeof r === "string" && isUnder(cwd, r)));
 function existsQuestionsDir(dir) {
   try {
-    return statSync6(join18(dir, "listeners")).isDirectory();
+    return statSync5(join16(dir, "listeners")).isDirectory();
   } catch {
     return false;
   }
@@ -8078,8 +7664,8 @@ async function ask(input, opts = {}) {
     input: input.tool_input,
     suggestions: input.permission_suggestions ?? []
   };
-  const file = join18(dir, `${question.id}.json`);
-  const answerFile = join18(dir, `${question.id}.answer.json`);
+  const file = join16(dir, `${question.id}.json`);
+  const answerFile = join16(dir, `${question.id}.answer.json`);
   writePrivate(file, question);
   const started = now2();
   try {
@@ -8105,8 +7691,8 @@ async function ask(input, opts = {}) {
       await wait(pollMs);
     }
   } finally {
-    rmSync12(file, { force: true });
-    rmSync12(answerFile, { force: true });
+    rmSync10(file, { force: true });
+    rmSync10(answerFile, { force: true });
   }
 }
 function hookOutput(q2, a2) {
@@ -8133,17 +7719,17 @@ function permissionHook(command) {
 function pendingQuestions(dir) {
   let names3 = [];
   try {
-    names3 = readdirSync8(dir).filter((n) => n.endsWith(".json") && !n.endsWith(".answer.json"));
+    names3 = readdirSync6(dir).filter((n) => n.endsWith(".json") && !n.endsWith(".answer.json"));
   } catch {
     return [];
   }
   const out3 = [];
   for (const n of names3) {
-    const q2 = readJson(join18(dir, n));
+    const q2 = readJson(join16(dir, n));
     if (!q2 || q2.v !== 1 || typeof q2.id !== "string" || `${q2.id}.json` !== n || !Number.isInteger(q2.pid)) continue;
     if (!alive(q2.pid)) {
-      rmSync12(join18(dir, n), { force: true });
-      rmSync12(join18(dir, `${q2.id}.answer.json`), { force: true });
+      rmSync10(join16(dir, n), { force: true });
+      rmSync10(join16(dir, `${q2.id}.answer.json`), { force: true });
       continue;
     }
     out3.push(q2);
@@ -8221,6 +7807,10 @@ function sentBackSection(task) {
     ""
   ];
 }
+function notesSection(task) {
+  const notes = task.notes?.trim();
+  return notes ? ["## Notes for the builder", "", notes, ""] : [];
+}
 function commitRef(task) {
   if (task.source.kind === "github") return ` Add \`refs #${task.id.replace(/^GH-/, "")}\` on its own line, so GitHub links the commit to the issue.`;
   return "";
@@ -8251,6 +7841,7 @@ function renderPacket(p) {
     "",
     task.source.url ? `Ticket: ${task.source.url}` : `Source: ${task.source.kind}`,
     "",
+    ...notesSection(task),
     ...analysisSection(p.analysis ?? null),
     ...depsSection(p.deps),
     ...lastRunSection(task, env),
@@ -8363,6 +7954,7 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(git worktree *)",
     "Bash(git reset --hard*)",
     "Bash(acc set *)",
+    "Bash(acc edit*)",
     "Bash(acc dispatch *)",
     "Bash(acc init*)",
     "Bash(acc gate waive*)",
@@ -8408,6 +8000,480 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     // Its permission prompts and questions go to the Command Center when one is open (D-030).
     ...accCommand2 ? { hooks: permissionHook(accCommand2) } : {}
   };
+}
+
+// packages/core/src/review.ts
+var VERDICT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["verdict", "summary", "client", "criteria", "findings"],
+  properties: {
+    verdict: { type: "string", enum: ["pass", "changes"], description: "changes only when something must be fixed before this merges" },
+    summary: { type: "string", description: "Two or three plain sentences for the pull request: what the change does and how well" },
+    client: { type: "string", description: "One plain sentence for the client: what changes for them, with no code, file, tool or agent names" },
+    criteria: {
+      type: "array",
+      description: "Each acceptance criterion in the task, in its own words",
+      items: { type: "object", additionalProperties: false, required: ["text", "met", "evidence"], properties: { text: { type: "string" }, met: { type: "boolean" }, evidence: { type: "string", description: "Where it is met (file:line), or what is missing" } } }
+    },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["message", "must"],
+        properties: {
+          message: { type: "string", description: "What is wrong, and what to do instead" },
+          must: { type: "boolean", description: "true if it has to be fixed before merging" },
+          file: { type: "string" },
+          line: { type: "integer" },
+          rule: { type: "string", description: "The project rule it breaks, if any" },
+          kind: { type: "string", description: "A short name for the kind of problem, a few words: reuse one of the kinds you are given when it fits" }
+        }
+      }
+    }
+  }
+};
+var DIFF_MAX = 15e4;
+var reviewPath = (paths, task, sha) => join17(paths.reviews, `${task}-${sha}.json`);
+var runningPath2 = (paths, task) => join17(paths.reviews, `${task}.running.json`);
+function readVerdict(paths, task, sha) {
+  try {
+    return JSON.parse(readFileSync20(reviewPath(paths, task, sha), "utf8"));
+  } catch {
+    return null;
+  }
+}
+function carriedVerdict(paths, task, sha) {
+  const c = task.autopilot?.carried;
+  if (!c || !sha || c.to !== sha) return null;
+  const v = readVerdict(paths, task.id, c.from);
+  return v?.verdict === "pass" ? v : null;
+}
+function reviewedAt(paths, task, sha) {
+  const own = readVerdict(paths, task.id, sha);
+  if (own) return own.verdict === "pass" ? own : null;
+  return carriedVerdict(paths, task, sha);
+}
+function readVerdicts(paths, task) {
+  let names3;
+  try {
+    names3 = readdirSync7(paths.reviews);
+  } catch {
+    return [];
+  }
+  const all = [];
+  for (const n of names3) {
+    if (!n.endsWith(".json") || n.endsWith(".running.json") || task && !n.startsWith(`${task}-`)) continue;
+    try {
+      const v = JSON.parse(readFileSync20(join17(paths.reviews, n), "utf8"));
+      if (typeof v?.task !== "string" || typeof v.sha !== "string" || typeof v.at !== "string" || !Array.isArray(v.findings)) continue;
+      if (`${v.task}-${v.sha}.json` === n && (!task || v.task === task)) all.push(v);
+    } catch {
+    }
+  }
+  return all.sort((a2, b) => a2.at.localeCompare(b.at) || a2.task.localeCompare(b.task) || a2.sha.localeCompare(b.sha));
+}
+function latestVerdict(paths, task) {
+  return readVerdicts(paths, task).at(-1) ?? null;
+}
+var KINDS_MAX = 30;
+function knownKinds(paths) {
+  const n = /* @__PURE__ */ new Map();
+  for (const v of readVerdicts(paths)) for (const f of v.findings) if (typeof f.kind === "string" && f.kind.trim()) n.set(f.kind.trim(), (n.get(f.kind.trim()) ?? 0) + 1);
+  return [...n].sort((a2, b) => b[1] - a2[1] || a2[0].localeCompare(b[0])).slice(0, KINDS_MAX).map(([k2]) => k2);
+}
+function reviewing(paths, task) {
+  try {
+    const r = JSON.parse(readFileSync20(runningPath2(paths, task), "utf8"));
+    return alive(r.pid) ? r : null;
+  } catch {
+    return null;
+  }
+}
+function checkLine(r) {
+  const result = r.waived ? `waived (it was ${r.waived.was ?? "not run"}), because ${r.waived.reason}` : `${r.status}. ${r.summary}`;
+  const tests = testsText(r);
+  return `- ${r.gate}: ${result}${tests ? ` Tests: ${tests}.` : ""}${r.countsNote ? ` ${r.countsNote}` : ""}`;
+}
+var DUPLICATE_HELPER = "Does it add a helper that does what an existing one already does? Search for one (Grep for its name and for what it does), and name both in the finding's message, each as file:line. When the existing one is exported, the finding must be fixed (must: true): use it instead. A near-copy of a local, unexported one is must: false.";
+function editedSince(task) {
+  const since = task.run?.startedAt ?? "";
+  return new Set((task.edits ?? []).filter((e) => e.at >= since).flatMap((e) => e.fields));
+}
+function notesEditedSection(task) {
+  if (!editedSince(task).has("notes")) return [];
+  const notes = notesSection(task);
+  return notes.length ? notes : ["## Notes for the builder", "", "A person removed the notes for the builder after the builder started. Disregard them.", ""];
+}
+function editedSection(task) {
+  const fields = editedSince(task);
+  if (!fields.has("title") && !fields.has("brief")) return [];
+  return [
+    "## The task as a person edited it since",
+    "",
+    "A person changed the task after the builder started. Judge the change against this text, and say where the builder followed the older text.",
+    "",
+    `### ${task.title}`,
+    "",
+    task.brief.trim() || "_No details beyond the title._",
+    ""
+  ];
+}
+function reviewPrompt(i) {
+  const system = [
+    `You are the reviewer for ${i.task.id}. A builder agent made this change; you judge it before a person sees the pull request.`,
+    "You can read files in this worktree with Read, Grep and Glob. You can't change anything, run commands, or ask questions.",
+    "Judge it as a careful senior engineer would:",
+    "- Does it do what the task asks? Go through each acceptance criterion in the task, and say whether it is met, with the file and line that meets it.",
+    "- Does it follow the rules you're given, if there are any? Where two disagree, the later one wins: this repo's own rules over the others.",
+    "- Did it change anything the task didn't ask for?",
+    "- Do the tests actually exercise the change?",
+    "- Did it add a skip, only or todo to a test (it.skip, xit, describe.skip, test.only, fit, it.todo, { skip: true }, t.skip(), t.todo())? Each is a finding with must: true, unless the task asks for it: a skipped test passes having checked nothing.",
+    `- ${DUPLICATE_HELPER}`,
+    "The builder's note is its own account of what landed, which numbers moved and what's still open. Check it against the diff rather than trust it, and say where it's wrong.",
+    "Skip formatting and style: the checks cover those. A check that a person waived is settled; don't reopen it.",
+    `Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don't block.`,
+    "Be specific: the file, the line, what is wrong, and what to do instead.",
+    "Give each finding a kind: a few words naming the kind of problem. Reuse one of the kinds you are given when it fits, so a finding that keeps coming back is seen."
+  ].join("\n");
+  const prompt = [
+    `# Review ${i.task.id}: ${i.task.title}`,
+    "",
+    `Commit ${i.sha.slice(0, 7)} on the task's branch, against ${i.envName} (\`${i.envBranch}\`).`,
+    "",
+    "## The task, as the builder was given it",
+    "",
+    i.packet.trim(),
+    "",
+    ...editedSection(i.task),
+    ...notesEditedSection(i.task),
+    "## The checks on this commit",
+    "",
+    ...i.checks.length ? i.checks : ["- none recorded"],
+    "",
+    // What the builder said as it finished or blocked (D-106): its claim, for the reviewer to check.
+    "## The builder's note",
+    "",
+    ...i.task.run?.note ? [`What the builder said ${i.task.run.note.ended === "blocked" ? "when it blocked" : "as it finished"}, in its own words. Check it against the diff.`, "", ...noteMarkdown(i.task.run.note)] : ["The builder left no note."],
+    "",
+    ...i.rules?.trim() ? ["## Rules", "", i.rules.trim(), ""] : [],
+    ...i.kinds?.length ? ["## Kinds of finding earlier reviews named", "", ...i.kinds.map((k2) => `- ${k2}`), ""] : [],
+    "## What changed",
+    "",
+    "```",
+    i.stat.trim() || "(no files changed)",
+    "```",
+    "",
+    i.diff.length > DIFF_MAX ? "The diff is too long to include here. Read the changed files listed above." : ["```diff", i.diff.trim(), "```"].join("\n")
+  ].join("\n");
+  return { system, prompt };
+}
+function parseReview(stdout) {
+  let r;
+  try {
+    r = JSON.parse(stdout.trim().split("\n").filter(Boolean).pop() ?? "");
+  } catch {
+    throw new AccError("review", `The reviewer gave no result Claude Code could read: ${stdout.trim().slice(0, 200) || "(nothing)"}`);
+  }
+  const s = r.structured_output;
+  if (r.is_error || !s || s.verdict !== "pass" && s.verdict !== "changes" || typeof s.summary !== "string") {
+    throw new AccError("review", `The review didn't finish with a verdict (${r.subtype ?? "no result"}): ${String(r.result ?? "").slice(0, 300)}`);
+  }
+  const criteria = (Array.isArray(s.criteria) ? s.criteria : []).filter((c) => typeof c?.text === "string").map((c) => ({ text: c.text, met: c.met === true, evidence: String(c.evidence ?? "") }));
+  const findings = (Array.isArray(s.findings) ? s.findings : []).filter((f) => typeof f?.message === "string").map((f) => ({
+    message: f.message,
+    must: f.must === true,
+    ...typeof f.file === "string" && f.file ? { file: f.file } : {},
+    ...Number.isInteger(f.line) ? { line: f.line } : {},
+    ...typeof f.rule === "string" && f.rule ? { rule: f.rule } : {},
+    ...typeof f.kind === "string" && f.kind.trim() ? { kind: f.kind.trim().slice(0, 80) } : {}
+  }));
+  const verdict = s.verdict === "pass" && findings.some((f) => f.must) ? "changes" : s.verdict;
+  const client = typeof s.client === "string" && s.client.trim() ? { client: s.client.trim() } : {};
+  return { verdict: { verdict, summary: s.summary, ...client, criteria, findings }, sessionId: typeof r.session_id === "string" ? r.session_id : null, costUsd: typeof r.total_cost_usd === "number" ? r.total_cost_usd : null };
+}
+var git4 = (run2, cwd, ...args) => run2("git", args, { cwd });
+function baseRef(run2, root, branch) {
+  return git4(run2, root, "rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`).code === 0 ? `origin/${branch}` : branch;
+}
+function review(paths, config, id, deps, opts = {}) {
+  const { run: run2, now: now2 } = deps;
+  const ledger = readLedger(paths.ledger);
+  const task = ledger.tasks.find((t) => t.id === id);
+  if (!task) throw new AccError("no-task", `No task ${id}.`);
+  if (task.state !== "review") throw new AccError("refused", `${id} is ${task.state}. A review is for work that's in review: acc done, or a person, moves it there.`);
+  const env = environmentByBranch(config, task.environment);
+  if (!env) throw new AccError("review", `${id}'s environment "${task.environment}" isn't in the config.`);
+  const branch = task.run?.branch;
+  const worktree = task.run?.worktree;
+  if (!branch) throw new AccError("review", `${id} has no branch to review.`);
+  if (!worktree || !existsSync13(worktree)) throw new AccError("review", `${id}'s worktree isn't on disk any more, so there's nothing for the reviewer to read.`);
+  const sha = git4(run2, paths.root, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).stdout.trim();
+  if (!sha) throw new AccError("review", `The branch ${branch} isn't in this clone.`);
+  const missing = receiptHooks(paths, config, run2).missingGates(task);
+  if (missing.length) throw new AccError("refused", `${id}'s checks aren't settled on ${sha.slice(0, 7)}: ${missing.join(", ")}. Run acc gate run in its worktree, or waive them, then review.`);
+  const base = baseRef(run2, paths.root, env.branch);
+  const diff = git4(run2, paths.root, "diff", "--no-color", "--find-renames", `${base}...${sha}`).stdout;
+  const stat = git4(run2, paths.root, "diff", "--stat=120", "--find-renames", `${base}...${sha}`).stdout;
+  const receipts = receiptsAt(paths, sha);
+  const checks = Object.values(receipts).map(checkLine);
+  const packetFile = join17(paths.packets, `${id}.md`);
+  const packet = existsSync13(packetFile) ? readFileSync20(packetFile, "utf8") : [`# ${task.id}: ${task.title}`, "", task.brief, "", ...notesSection(task)].join("\n");
+  const rules = rulesText(worktree, config.profile);
+  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules, kinds: knownKinds(paths) });
+  const sessionId = (deps.uuid ?? randomUUID2)();
+  const name = sessionName({ project: config.project, key: id, title: task.title, role: "review" });
+  mkdirSync18(paths.reviews, { recursive: true });
+  const marker = runningPath2(paths, id);
+  const startedAt = now2();
+  writeFileSync18(marker, JSON.stringify({ sessionId, name, sha, startedAt: startedAt.toISOString(), pid: process.pid }));
+  deps.onStart?.(sessionId, sha, name);
+  const awake = holdAwake(process.pid, deps.awake);
+  let out3;
+  try {
+    out3 = run2("claude", [
+      "-p",
+      "--session-id",
+      sessionId,
+      "--name",
+      name,
+      "--permission-mode",
+      "dontAsk",
+      ...agentArgs(config.agents.reviewer),
+      "--output-format",
+      "json",
+      "--json-schema",
+      JSON.stringify(VERDICT_SCHEMA),
+      "--append-system-prompt",
+      system,
+      "--allowedTools",
+      "Read",
+      "Grep",
+      "Glob",
+      "--disallowedTools",
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch"
+    ], { cwd: worktree, input: prompt, env: { ...deps.env, ACC_ROLE: "reviewer", ACC_TASK: id }, timeoutMs: 45 * 6e4 });
+  } finally {
+    awake?.release();
+    rmSync11(marker, { force: true });
+  }
+  if (out3.timedOut) throw new AccError("review", `The review didn't finish within 45 minutes, so acc stopped it.`);
+  if (out3.code === 127 && !out3.stdout) throw new AccError("review", `Claude Code didn't start: ${out3.stderr.trim().split("\n")[0] ?? "claude not found"}`);
+  const parsed = parseReview(out3.stdout);
+  const finished = now2();
+  const verdict = {
+    v: 1,
+    task: id,
+    sha,
+    env: env.branch,
+    ...parsed.verdict,
+    sessionId: parsed.sessionId ?? sessionId,
+    name,
+    at: finished.toISOString(),
+    durationMs: finished.getTime() - startedAt.getTime(),
+    costUsd: parsed.costUsd
+  };
+  const file = reviewPath(paths, id, sha);
+  writeFileSync18(`${file}.tmp`, JSON.stringify(verdict, null, 2) + "\n");
+  renameSync11(`${file}.tmp`, file);
+  const actor = opts.actor ?? "reviewer";
+  const by = opts.by ?? `reviewer:${id}`;
+  const moved = mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
+    if (t.state !== "review") return null;
+    if (verdict.verdict === "changes") {
+      const req = { to: "rework", actor, by, reason: `Review asked for changes: ${verdict.summary}` };
+      const problems = checkMove(l3, config, t, req, noGateHooks);
+      if (problems.length) throw new AccError("move-refused", problems.join(" "));
+      applyMove(t, req, emit, now2);
+      return "rework";
+    }
+    if (t.autopilot?.failed) t.autopilot.failed = null;
+    emit({ type: "task.updated", task: id, actor, by, data: { reviewed: { sha, verdict: verdict.verdict } } });
+    return null;
+  });
+  return { verdict, moved };
+}
+
+// packages/core/src/holding.ts
+var STARTING_STALE_MS = 10 * 6e4;
+var startingNow = (task, now2) => {
+  const s = task.held?.starting;
+  return s && now2.getTime() - Date.parse(s.at) < STARTING_STALE_MS ? s : null;
+};
+function holdTask(paths, now2, id, opts, look2) {
+  return mutate(paths, now2, (ledger, emit) => {
+    const task = ledger.tasks.find((t) => t.id === id);
+    if (!task) throw new AccError("no-task", `No task ${id}.`);
+    if (task.state !== "todo") throw new AccError("move-refused", `Can't dispatch ${id}: it's ${task.state} now.`);
+    const at2 = now2().toISOString();
+    const kept = task.held && !task.held.failed ? task.held : null;
+    const model = opts.model ?? task.held?.model;
+    const effort = opts.effort ?? task.held?.effort;
+    task.held = { at: kept?.at ?? at2, actor: kept?.actor ?? opts.actor, by: kept?.by ?? opts.by, waitsFor: look2.shares, first: look2.first, ...model ? { model } : {}, ...effort ? { effort } : {} };
+    task.updatedAt = at2;
+    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { held: task.held } });
+    return { held: true, task, waitsFor: look2.shares, first: look2.first };
+  });
+}
+function claimHeld(paths, now2, id, opts) {
+  return mutate(paths, now2, (ledger, emit) => {
+    const t = ledger.tasks.find((x2) => x2.id === id);
+    if (!t || t.state !== "todo" || !t.held || t.held.failed || startingNow(t, now2())) return false;
+    t.held.starting = { at: now2().toISOString(), by: opts.by };
+    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { held: t.held } });
+    return true;
+  });
+}
+function releaseHeld(paths, now2, id, opts, reason) {
+  mutate(paths, now2, (ledger, emit) => {
+    const t = ledger.tasks.find((x2) => x2.id === id);
+    if (!t || t.state !== "todo" || !t.held) return;
+    const at2 = now2().toISOString();
+    t.held = { ...t.held, starting: null, ...reason ? { failed: { reason, at: at2, by: opts.by } } : {} };
+    t.updatedAt = at2;
+    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { held: t.held } });
+  });
+}
+
+// packages/core/src/limits.ts
+import { createHash as createHash2 } from "node:crypto";
+import { mkdirSync as mkdirSync19, readdirSync as readdirSync8, readFileSync as readFileSync21, realpathSync as realpathSync2, renameSync as renameSync12, rmSync as rmSync12, statSync as statSync6, writeFileSync as writeFileSync19 } from "node:fs";
+import { basename as basename4, dirname as dirname7, join as join18 } from "node:path";
+var MAX_AGENTS = 16;
+function setAgentsMax(configFile, n) {
+  if (!Number.isInteger(n) || n < 1 || n > MAX_AGENTS) throw new AccError("usage", `A project's builder cap is a whole number from 1 to ${MAX_AGENTS}.`);
+  writeJsonKey(configFile, ["agents", "max"], n);
+  return n;
+}
+function configSets(configFile, key) {
+  try {
+    let v = JSON.parse(readFileSync21(configFile, "utf8"));
+    for (const k2 of key) v = v && typeof v === "object" && Object.hasOwn(v, k2) ? v[k2] : void 0;
+    return v !== void 0;
+  } catch {
+    return false;
+  }
+}
+var agentsMaxSet = (configFile) => configSets(configFile, ["agents", "max"]);
+function gateNames(configFile, names3, what) {
+  const { config } = loadConfig(configFile);
+  const known = gatesFor(config).map((g) => g.name).filter((n) => n !== STRAY_FILES);
+  const list = [...new Set(names3.map((n) => n.trim()).filter(Boolean))];
+  if (list.includes(STRAY_FILES)) throw new AccError("usage", `${STRAY_FILES} is required unless "strayFiles": { "required": false } turns it off in .acc/config.json, so it isn't named here. ${what} from: ${known.join(", ") || "none yet"}.`);
+  const unknown2 = list.filter((n) => !known.includes(n));
+  if (unknown2.length) {
+    throw new AccError("usage", `${unknown2.join(", ")} ${unknown2.length === 1 ? "isn't a check" : "aren't checks"} this project has. ${what} from: ${known.join(", ") || 'none yet. Add commands under "gates.commands" in .acc/config.json'}.`);
+  }
+  return list;
+}
+function setRequiredGates(configFile, names3) {
+  const list = gateNames(configFile, names3, "Name the required checks");
+  if (!list.length) throw new AccError("usage", "Name at least one check: acc gate required <name>\u2026");
+  writeJsonKey(configFile, ["gates", "required"], list);
+  return list;
+}
+function setBuilderGates(configFile, names3) {
+  if (names3 === null) {
+    writeJsonKey(configFile, ["gates", "builder"], void 0);
+    return null;
+  }
+  const list = gateNames(configFile, names3, "Name builders' checks");
+  if (!list.length) throw new AccError("usage", "Name at least one check, or say --none: acc gate builder <name>\u2026 | --none");
+  writeJsonKey(configFile, ["gates", "builder"], list);
+  return list;
+}
+var MAX_MACHINE_AGENTS = 64;
+var agentCount = (v) => Number.isInteger(v) && v >= 1 ? Math.min(MAX_MACHINE_AGENTS, v) : null;
+function machineAgents(env = process.env) {
+  return agentCount(readMachineKey("agents", env));
+}
+function setMachineAgents(n, env = process.env) {
+  if (n !== null && (!Number.isInteger(n) || n < 1 || n > MAX_MACHINE_AGENTS)) {
+    throw new AccError("usage", `This machine's total is a whole number from 1 to ${MAX_MACHINE_AGENTS}, or --none for no total.`);
+  }
+  setMachineKey("agents", n ?? void 0, env);
+  return n;
+}
+var ledgersDir = (env = process.env) => machineDir(env) ? join18(machineDir(env), "ledgers") : null;
+function realLedger(file) {
+  try {
+    return join18(realpathSync2(dirname7(file)), basename4(file));
+  } catch {
+    return file;
+  }
+}
+var entryName = (ledger) => `${createHash2("sha256").update(ledger).digest("hex").slice(0, 16)}.json`;
+function registerLedger(ledger, project2, env = process.env) {
+  const dir = ledgersDir(env);
+  if (!dir) return;
+  const path = realLedger(ledger);
+  const file = join18(dir, entryName(path));
+  try {
+    statSync6(file);
+    return;
+  } catch {
+  }
+  try {
+    mkdirSync19(dir, { recursive: true });
+    writeFileSync19(`${file}.${process.pid}.tmp`, JSON.stringify({ ledger: path, project: project2 }) + "\n");
+    renameSync12(`${file}.${process.pid}.tmp`, file);
+  } catch {
+  }
+}
+function machineRepos(env = process.env, { except, prune = false } = {}) {
+  const dir = ledgersDir(env);
+  if (!dir) return [];
+  let names3 = [];
+  try {
+    names3 = readdirSync8(dir).filter((n) => n.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  const skip3 = except ? realLedger(except) : null;
+  const out3 = [];
+  for (const n of names3.sort()) {
+    let entry;
+    try {
+      entry = JSON.parse(readFileSync21(join18(dir, n), "utf8"));
+    } catch {
+      continue;
+    }
+    if (typeof entry.ledger !== "string" || entry.ledger === skip3) continue;
+    let ledger;
+    try {
+      statSync6(entry.ledger);
+    } catch {
+      if (prune) rmSync12(join18(dir, n), { force: true });
+      continue;
+    }
+    try {
+      ledger = readLedger(entry.ledger);
+    } catch {
+      continue;
+    }
+    out3.push({ project: typeof entry.project === "string" ? entry.project : basename4(dirname7(dirname7(dirname7(entry.ledger)))), ledger: entry.ledger, running: builders(ledger, "") });
+  }
+  return out3;
+}
+function machineLoad(paths, project2, env = process.env) {
+  registerLedger(paths.ledger, project2, env);
+  const max = machineAgents(env);
+  if (max === null) return { max, elsewhere: 0 };
+  return { max, elsewhere: machineRepos(env, { except: paths.ledger, prune: true }).reduce((n, r) => n + r.running, 0) };
+}
+var buildersAre = (n) => `${n} ${n === 1 ? "builder is" : "builders are"}`;
+var machineCapWords = (n, max) => `${buildersAre(n)} running on this machine, across every repo, and its total is ${max} (acc machine agents).`;
+function machineCapProblem(ledger, except, machine) {
+  if (!machine || machine.max === null) return null;
+  const n = builders(ledger, except) + machine.elsewhere;
+  return n >= machine.max ? machineCapWords(n, machine.max) : null;
 }
 
 // packages/core/src/dispatch.ts
@@ -8476,7 +8542,7 @@ function ensureWorktree(run2, main2, wt2, branch, env) {
 function setupWorktree(run2, config, env, main2, wt2) {
   if (config.profile === "salesforce" && env.org) {
     mkdirSync20(join19(wt2, ".sf"), { recursive: true });
-    writeFileSync21(join19(wt2, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
+    writeFileSync20(join19(wt2, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
   }
   if (existsSync14(join19(main2, "node_modules")) && !existsSync14(join19(wt2, "node_modules"))) {
     symlinkSync(join19(main2, "node_modules"), join19(wt2, "node_modules"), "dir");
@@ -8495,7 +8561,7 @@ function excludeEverywhere(run2, main2, pattern) {
   const text = existsSync14(file) ? readFileSync22(file, "utf8") : "";
   if (text.split("\n").some((l3) => l3.trim() === pattern)) return;
   mkdirSync20(dirname8(file), { recursive: true });
-  writeFileSync21(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
+  writeFileSync20(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
 ${pattern}
 `);
 }
@@ -8624,7 +8690,7 @@ function dispatch(paths, config, id, deps, opts) {
     });
     mkdirSync20(paths.packets, { recursive: true });
     const packetPath = join19(paths.packets, `${found.id}.md`);
-    writeFileSync21(packetPath, packet);
+    writeFileSync20(packetPath, packet);
     steps2.done("packet");
     const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? "", deps.accCommand));
     const prompt = `Read your task instructions below and do the task.
@@ -9027,7 +9093,7 @@ function landNow(paths, config, id, deps, opts) {
   steps2.start("pr", existing ? `Update pull request #${existing.number}` : `Open the pull request into ${env.branch}`);
   try {
     const bodyFile = join20(dir, "body.md");
-    writeFileSync22(bodyFile, body);
+    writeFileSync21(bodyFile, body);
     if (existing) {
       const edit = ghRun(["pr", "edit", String(existing.number), "-R", gh.repo, "--body-file", bodyFile]);
       if (edit.code !== 0) throw new AccError("land", `Couldn't update pull request #${existing.number}: ${edit.stderr.trim().split("\n")[0]}`);
@@ -9266,7 +9332,7 @@ function sendBack(paths, config, id, deps, opts) {
   const report = { v: 1, task: id, sha: head, pr: { number: pr.number, url: pr.url }, required: read2.required, checks, at: at2 };
   mkdirSync21(paths.checks, { recursive: true });
   const file = checksPath(paths, id, head);
-  writeFileSync23(file, JSON.stringify(report, null, 2) + "\n");
+  writeFileSync22(file, JSON.stringify(report, null, 2) + "\n");
   const reason = `Checks failed on GitHub on ${short2(head)}: ${names3.join(", ")}.`;
   mutate(paths, now2, (l3, emit) => {
     const t = l3.tasks.find((x2) => x2.id === id);
@@ -9473,11 +9539,11 @@ function mergePr(paths, config, id, deps, opts) {
 
 // packages/core/src/resume.ts
 import { spawn as spawn2 } from "node:child_process";
-import { appendFileSync as appendFileSync3, closeSync as closeSync4, existsSync as existsSync18, mkdirSync as mkdirSync23, openSync as openSync4, readFileSync as readFileSync25, rmSync as rmSync14, writeFileSync as writeFileSync25 } from "node:fs";
+import { appendFileSync as appendFileSync3, closeSync as closeSync4, existsSync as existsSync18, mkdirSync as mkdirSync23, openSync as openSync4, readFileSync as readFileSync25, rmSync as rmSync14, writeFileSync as writeFileSync24 } from "node:fs";
 import { dirname as dirname10, join as join24 } from "node:path";
 
 // packages/core/src/hooks.ts
-import { existsSync as existsSync16, mkdirSync as mkdirSync22, realpathSync as realpathSync4, writeFileSync as writeFileSync24 } from "node:fs";
+import { existsSync as existsSync16, mkdirSync as mkdirSync22, realpathSync as realpathSync4, writeFileSync as writeFileSync23 } from "node:fs";
 import { dirname as dirname9, join as join22, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
 function findAccRoot(cwd) {
   let dir = resolve3(cwd);
@@ -9819,7 +9885,7 @@ function stopHook(input, ctx) {
   if (existsSync16(mark)) return null;
   try {
     mkdirSync22(dirname9(mark), { recursive: true });
-    writeFileSync24(mark, ctx.now().toISOString());
+    writeFileSync23(mark, ctx.now().toISOString());
   } catch {
     return null;
   }
@@ -10044,7 +10110,7 @@ function claimResume(paths, id, claim) {
   mkdirSync23(dirname10(file), { recursive: true });
   for (let tries = 0; tries < 2; tries++) {
     try {
-      writeFileSync25(file, JSON.stringify(claim), { flag: "wx" });
+      writeFileSync24(file, JSON.stringify(claim), { flag: "wx" });
       return;
     } catch (e) {
       if (e.code !== "EEXIST") throw e;
@@ -10085,7 +10151,7 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
   const pid = (deps.launch ?? launchDetached)("claude", cmd.args, { cwd: folder, env: { ...deps.env, ...cmd.env }, log });
   if (!pid) throw new AccError("resume", `Claude Code didn't start. Its output is in ${log}.`);
   keepAwakeFor(paths, id, pid, deps.awake);
-  writeFileSync25(c.marker, JSON.stringify({ sessionId, pid, startedAt: at2, by: opts.by, log }));
+  writeFileSync24(c.marker, JSON.stringify({ sessionId, pid, startedAt: at2, by: opts.by, log }));
   rmSync14(remindedPath(paths.stateDir, sessionId), { force: true });
   try {
     const recorded = mutate(paths, now2, (l3, emit) => {
@@ -10312,7 +10378,7 @@ import { mkdirSync as mkdirSync25, readFileSync as readFileSync27 } from "node:f
 import { join as join25 } from "node:path";
 
 // packages/core/src/queue.ts
-import { mkdirSync as mkdirSync24, readFileSync as readFileSync26, writeFileSync as writeFileSync26 } from "node:fs";
+import { mkdirSync as mkdirSync24, readFileSync as readFileSync26, writeFileSync as writeFileSync25 } from "node:fs";
 var short5 = (sha) => sha.slice(0, 7) || "no commit";
 function queueOrder(ledger, config) {
   const index = new Map(ledger.tasks.map((t, i) => [t.id, i]));
@@ -10497,7 +10563,7 @@ function sendBackFromQueue(paths, config, task, deps, who, f, base, head) {
   const conflicts = f.kind === "conflict" ? f.conflicts : [];
   const report = { v: 1, task: task.id, sha: head, base, pr: { number: pr.number, url: pr.url }, kind: f.kind, conflicts, checks, merge: f.kind === "check" ? f.merge : null, at: at2 };
   mkdirSync24(paths.queue, { recursive: true });
-  writeFileSync26(queueReportPath(paths, task.id, head), JSON.stringify(report, null, 2) + "\n");
+  writeFileSync25(queueReportPath(paths, task.id, head), JSON.stringify(report, null, 2) + "\n");
   const reason = `The merge queue sent it back: ${why}.`;
   mutate(paths, deps.now, (l3, emit) => {
     const t = l3.tasks.find((x2) => x2.id === task.id);
@@ -10857,12 +10923,12 @@ var cardFailure = (task) => task.card?.failed !== void 0 && task.card.state === 
 var cardWords = (r) => `Couldn't move ${r.task}'s card${r.column ? ` to ${r.column}` : ""} on its GitHub Project: ${(r.reason ?? "").replace(/[.\s]+$/, "")}. ${r.task} is ${r.state} all the same.`;
 
 // packages/core/src/deploy.ts
-import { existsSync as existsSync19, mkdirSync as mkdirSync27, mkdtempSync as mkdtempSync5, readFileSync as readFileSync28, renameSync as renameSync13, rmSync as rmSync16, writeFileSync as writeFileSync28 } from "node:fs";
+import { existsSync as existsSync19, mkdirSync as mkdirSync27, mkdtempSync as mkdtempSync5, readFileSync as readFileSync28, renameSync as renameSync13, rmSync as rmSync16, writeFileSync as writeFileSync27 } from "node:fs";
 import { tmpdir as tmpdir5 } from "node:os";
 import { join as join27 } from "node:path";
 
 // packages/core/src/promote.ts
-import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync26, mkdtempSync as mkdtempSync4, rmSync as rmSync15, writeFileSync as writeFileSync27 } from "node:fs";
+import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync26, mkdtempSync as mkdtempSync4, rmSync as rmSync15, writeFileSync as writeFileSync26 } from "node:fs";
 import { tmpdir as tmpdir4 } from "node:os";
 import { join as join26 } from "node:path";
 var git6 = (run2, cwd, ...args) => run2("git", args, { cwd });
@@ -10910,7 +10976,7 @@ function specificOn(run2, root, config, refs) {
   for (const ref of refs) {
     const r = git6(run2, root, "show", `${ref}:${config.environmentSpecific}`);
     if (r.code !== 0) continue;
-    for (const l3 of r.stdout.split("\n").map((x2) => x2.trim()).filter((x2) => x2 && !x2.startsWith("#"))) out3.add(l3);
+    for (const l3 of listLines(r.stdout)) out3.add(l3);
   }
   return [...out3];
 }
@@ -11063,7 +11129,7 @@ function promoteNow(paths, config, fromName, toName, deps, opts) {
       const token = run2("gh", ["auth", "token", "-u", gh.account]);
       if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}. The branch ${branch} is pushed; open its pull request on GitHub.`);
       const bodyFile = join26(dir, "body.md");
-      writeFileSync27(bodyFile, promotionBody(plan, validation));
+      writeFileSync26(bodyFile, promotionBody(plan, validation));
       const title = `Promote ${plan.from.name} to ${plan.to.name}${plan.skipped.length ? ` (skips ${plan.skipped.map((e) => e.branch).join(", ")})` : ""}`;
       const create = run2("gh", ["pr", "create", "-R", gh.repo, "--base", plan.to.branch, "--head", branch, "--title", title, "--body-file", bodyFile], { cwd: paths.root, env: { ...deps.env, GH_TOKEN: token.stdout.trim() }, timeoutMs: 2 * 6e4 });
       const url = create.stdout.trim().split("\n").find((l3) => /\/pull\/\d+/.test(l3))?.trim();
@@ -11127,13 +11193,13 @@ function deployChanges(paths, config, run2, env, base, head, opts) {
     if (sfdx.code !== 0) return ["force-app"];
     const tmp = mkdtempSync5(join27(tmpdir5(), "acc-sfdx-"));
     try {
-      writeFileSync28(join27(tmp, "sfdx-project.json"), sfdx.stdout);
+      writeFileSync27(join27(tmp, "sfdx-project.json"), sfdx.stdout);
       return packageDirs(tmp);
     } finally {
       rmSync16(tmp, { recursive: true, force: true });
     }
   })();
-  const specific = config.environmentSpecific ? show(config.environmentSpecific).stdout.split("\n").map((l3) => l3.trim()).filter((l3) => l3 && !l3.startsWith("#")) : [];
+  const specific = config.environmentSpecific ? listLines(show(config.environmentSpecific).stdout) : [];
   const files = [];
   const deleted = [];
   const leftOut = [];
@@ -11203,7 +11269,7 @@ function deployNow(paths, config, envName, deps, opts) {
       const record2 = { env: plan.env.branch, org: plan.org, sha: plan.head, at: now2().toISOString(), by: opts.by, jobId, files: plan.files.length };
       const file = deployRecordPath(paths, plan.env.branch);
       mkdirSync27(join27(paths.stateDir, "deploys"), { recursive: true });
-      writeFileSync28(`${file}.tmp`, JSON.stringify(record2, null, 2) + "\n");
+      writeFileSync27(`${file}.tmp`, JSON.stringify(record2, null, 2) + "\n");
       renameSync13(`${file}.tmp`, file);
     });
     steps2.start("updates", "Draft the tickets' updates");
@@ -11227,7 +11293,7 @@ function deployNow(paths, config, envName, deps, opts) {
 }
 
 // packages/core/src/drift.ts
-import { existsSync as existsSync20, mkdirSync as mkdirSync28, rmSync as rmSync17, writeFileSync as writeFileSync29 } from "node:fs";
+import { existsSync as existsSync20, mkdirSync as mkdirSync28, rmSync as rmSync17, writeFileSync as writeFileSync28 } from "node:fs";
 import { join as join28 } from "node:path";
 var BASELINE_MANIFEST = "manifest/baseline-package.xml";
 function environmentNamed(config, name) {
@@ -11331,7 +11397,7 @@ function drift(paths, config, envName, deps, opts = {}) {
     const r = withSlot(retrieve, { owner: { what: `Drift check on ${env.branch}`, env: env.branch, project: config.project }, ...deps.slots, onWait: deps.onWait });
     const log = join28(paths.logs, "drift", `${env.branch}.log`);
     mkdirSync28(join28(paths.logs, "drift"), { recursive: true });
-    writeFileSync29(log, `$ ${shellLine("sf", args)}
+    writeFileSync28(log, `$ ${shellLine("sf", args)}
 # exit ${r.code}
 
 ${r.stdout}${r.stderr ? `
@@ -11371,7 +11437,7 @@ ${r.stderr}` : ""}`);
       checkedAt: deps.now().toISOString(),
       kept: opts.keep ? dir : null
     };
-    writeFileSync29(driftReportPath(paths, env.branch), JSON.stringify(result, null, 2) + "\n");
+    writeFileSync28(driftReportPath(paths, env.branch), JSON.stringify(result, null, 2) + "\n");
     return result;
   } finally {
     if (!opts.keep) {
@@ -11380,6 +11446,75 @@ ${r.stderr}` : ""}`);
       git10(["worktree", "prune"]);
     }
   }
+}
+
+// packages/core/src/edit.ts
+var EDIT_FIELDS = ["title", "brief", "deps", "environment", "labels", "notes"];
+var EDIT_FIELD_WORDS = {
+  title: "title",
+  brief: "description",
+  deps: "dependencies",
+  environment: "environment",
+  labels: "labels",
+  notes: "notes for the builder"
+};
+var editedWords = (fields) => fields.map((f) => Object.hasOwn(EDIT_FIELD_WORDS, f) ? EDIT_FIELD_WORDS[f] : f).join(", ");
+var EDITABLE_STATES = ["todo", "blocked", "rework", "review"];
+var TRACKER_OWNED = ["title", "brief", "deps", "labels"];
+function editRefusal(task) {
+  if (task.state === "running") return "Its builder is working from the brief it was given. Edit it once the builder stops.";
+  if (task.state === "done") return "It is done: its work has landed, so there is nothing left to change.";
+  return EDITABLE_STATES.includes(task.state) ? null : `It is ${task.state}, and only a task to do, blocked, in rework or in review can be edited.`;
+}
+var trackerFields = (task) => task.source.kind === "manual" ? [] : TRACKER_OWNED;
+function trackerOwns(task) {
+  if (task.source.kind === "manual") return null;
+  return `Its ${trackerName(task.source.kind)} ticket owns its title, description, dependencies and labels: change them there, and intake brings them in.`;
+}
+var cleanList = (xs) => [...new Set(xs.map((x2) => x2.trim()).filter(Boolean))];
+function editChanges(task, config, edit) {
+  const next = {};
+  if (edit.title !== void 0) {
+    const title = edit.title.trim();
+    if (!title) throw new AccError("usage", `${task.id} needs a title.`);
+    if (title !== task.title) next.title = title;
+  }
+  if (edit.brief !== void 0 && edit.brief.trim() !== task.brief) next.brief = edit.brief.trim();
+  if (edit.deps !== void 0) {
+    const deps = taskDeps(cleanList(edit.deps), task.source.kind);
+    if (deps.includes(task.id)) throw new AccError("usage", `${task.id} can't depend on itself.`);
+    if (JSON.stringify(deps) !== JSON.stringify(task.deps)) next.deps = deps;
+  }
+  if (edit.environment !== void 0 && edit.environment.trim() !== task.environment) {
+    const env = edit.environment.trim();
+    const why = environmentProblem(config, env);
+    if (why) throw new AccError("usage", `${task.id}: ${why}`);
+    next.environment = env;
+  }
+  if (edit.labels !== void 0) {
+    const labels = cleanList(edit.labels);
+    if (JSON.stringify(labels) !== JSON.stringify(task.labels)) next.labels = labels;
+  }
+  if (edit.notes !== void 0 && edit.notes.trim() !== (task.notes ?? "")) next.notes = edit.notes.trim();
+  return next;
+}
+function editTask(ledger, config, id, edit, actor, by, emit, now2) {
+  const task = ledger.tasks.find((t) => t.id === id);
+  if (!task) throw new AccError("no-task", `No task ${id}.`);
+  if (actor === "builder" || actor === "reviewer") throw new AccError("refused", `Only a person edits ${id}: a ${actor} works from the brief it was given.`);
+  const refused = editRefusal(task);
+  if (refused) throw new AccError("refused", `${id} can't be edited. ${refused}`);
+  const next = editChanges(task, config, edit);
+  const owned = trackerFields(task).filter((f) => f in next);
+  if (owned.length) throw new AccError("refused", `${id}'s ${owned.map((f) => EDIT_FIELD_WORDS[f]).join(", ")} can't be edited here. ${trackerOwns(task)}`);
+  const changed = EDIT_FIELDS.filter((f) => f in next);
+  if (!changed.length) return { task, changed };
+  Object.assign(task, next);
+  const at2 = now2().toISOString();
+  task.updatedAt = at2;
+  (task.edits ??= []).push({ at: at2, actor, by, fields: changed });
+  emit({ type: "task.updated", task: id, actor, by, data: next });
+  return { task, changed };
 }
 
 // packages/core/src/github.ts
@@ -11588,6 +11723,7 @@ var PROJECT_ONLY = {
     secretScan: OWN,
     strayFiles: OWN,
     analysis: OWN,
+    sourceTracking: `${OWN}: whether a client's orgs use source tracking is each project's own`,
     autopilot: OWN,
     template: `${OWN}: acc init records it`,
     trackers: `isn't a template key: a template names one tracker, under "tracker"`
@@ -12195,7 +12331,7 @@ function intakeOutside(paths, kind, outside, now2) {
 
 // packages/core/src/repos.ts
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { existsSync as existsSync23, mkdirSync as mkdirSync29, readFileSync as readFileSync30, realpathSync as realpathSync5, renameSync as renameSync14, rmSync as rmSync18, statSync as statSync8, writeFileSync as writeFileSync30 } from "node:fs";
+import { existsSync as existsSync23, mkdirSync as mkdirSync29, readFileSync as readFileSync30, realpathSync as realpathSync5, renameSync as renameSync14, rmSync as rmSync18, statSync as statSync8, writeFileSync as writeFileSync29 } from "node:fs";
 import { homedir as homedir7 } from "node:os";
 import { dirname as dirname11, join as join31, resolve as resolve4 } from "node:path";
 var reposFile = (env = process.env) => env.ACC_REPOS_FILE || join31(homedir7(), ".acc", "repos.json");
@@ -12217,7 +12353,7 @@ function rememberRepo(root, env = process.env) {
   const tmp = `${file}.${process.pid}.${randomBytes2(4).toString("hex")}.tmp`;
   try {
     mkdirSync29(dirname11(file), { recursive: true, mode: 448 });
-    writeFileSync30(tmp, `${JSON.stringify({ schema: 1, repos: next }, null, 2)}
+    writeFileSync29(tmp, `${JSON.stringify({ schema: 1, repos: next }, null, 2)}
 `, { mode: 384 });
     renameSync14(tmp, file);
     return true;
@@ -12546,7 +12682,7 @@ function acceptSuggestion(paths, config, id, edits, actor, by, now2) {
 }
 
 // packages/core/src/setup.ts
-import { copyFileSync as copyFileSync2, existsSync as existsSync24, mkdirSync as mkdirSync31, mkdtempSync as mkdtempSync6, readFileSync as readFileSync32, rmSync as rmSync19, writeFileSync as writeFileSync31 } from "node:fs";
+import { copyFileSync as copyFileSync2, existsSync as existsSync24, mkdirSync as mkdirSync31, mkdtempSync as mkdtempSync6, readFileSync as readFileSync32, rmSync as rmSync19, writeFileSync as writeFileSync30 } from "node:fs";
 import { tmpdir as tmpdir6 } from "node:os";
 import { dirname as dirname12, join as join33 } from "node:path";
 function fetchStep(run2, root, steps2) {
@@ -12636,7 +12772,7 @@ function buildBaseline(paths, config, deps) {
   const file = join33(paths.root, BASELINE_MANIFEST);
   steps2.step("write", "Write the baseline", () => {
     mkdirSync31(dirname12(file), { recursive: true });
-    writeFileSync31(file, xml);
+    writeFileSync30(file, xml);
   });
   const parsed = parseManifest(xml);
   return { file, from, types: parsed.types.size, members: [...parsed.types.values()].reduce((n, s) => n + s.size, 0) };
@@ -12790,7 +12926,7 @@ function draftLists(paths, config, deps) {
     const entries = [...found].filter((f) => !listed(f, have)).sort();
     if (existsSync24(file)) return { file, written: false, entries };
     mkdirSync31(dirname12(file), { recursive: true });
-    writeFileSync31(file, entries.length ? `${entries.join("\n")}
+    writeFileSync30(file, entries.length ? `${entries.join("\n")}
 ` : "");
     return { file, written: true, entries };
   };
@@ -12858,7 +12994,7 @@ function writeReadmeNow(paths, config) {
   const file = join33(paths.root, "README.md");
   const section = environmentsSection(config);
   if (!existsSync24(file)) {
-    writeFileSync31(file, `# ${config.project}
+    writeFileSync30(file, `# ${config.project}
 
 ${section}
 `);
@@ -12868,24 +13004,54 @@ ${section}
   const a2 = text.indexOf(README_START);
   const b = text.indexOf(README_END);
   if (a2 >= 0 && b > a2) {
-    writeFileSync31(file, `${text.slice(0, a2)}${section}${text.slice(b + README_END.length)}`);
+    writeFileSync30(file, `${text.slice(0, a2)}${section}${text.slice(b + README_END.length)}`);
     return { file, created: false, replaced: true };
   }
-  writeFileSync31(file, `${text.replace(/\s*$/, "")}
+  writeFileSync30(file, `${text.replace(/\s*$/, "")}
 
 ${section}
 `);
   return { file, created: false, replaced: false };
 }
 
-// packages/core/src/tidy.ts
+// packages/core/src/source-tracking.ts
+var usesSourceTracking = (config) => config.sourceTracking !== false;
+var NO_TRACKING_REASON = "This project doesn't use source tracking, so there's nothing to check. To change that, turn on Source tracking under Limits and checks in the project's settings.";
+function setSourceTracking(configFile, on) {
+  const { config } = loadConfig(configFile);
+  if (config.profile !== "salesforce") throw new AccError("refused", "Source tracking is a Salesforce setting: this project isn't a Salesforce project.");
+  writeJsonKey(configFile, ["sourceTracking"], on ? void 0 : false);
+}
+
+// packages/core/src/sprints.ts
 import { mkdirSync as mkdirSync32, readFileSync as readFileSync33 } from "node:fs";
 import { join as join34 } from "node:path";
+var sprintsFile = (paths) => join34(paths.stateDir, "sprints.json");
+function isSprintSeen(x2) {
+  return isObj(x2) && typeof x2.at === "string" && Array.isArray(x2.open) && x2.open.every((k2) => typeof k2 === "string") && Array.isArray(x2.sprints) && x2.sprints.every((s) => isObj(s) && Number.isSafeInteger(s.id) && typeof s.name === "string");
+}
+function readSprints(paths) {
+  try {
+    const r = JSON.parse(readFileSync33(sprintsFile(paths), "utf8"));
+    return isObj(r) ? Object.fromEntries(Object.entries(r).filter(([, v]) => isSprintSeen(v))) : {};
+  } catch {
+    return {};
+  }
+}
+function rememberSprint(paths, tracker, seen) {
+  mkdirSync32(paths.stateDir, { recursive: true });
+  writeAtomic(sprintsFile(paths), `${JSON.stringify({ ...readSprints(paths), [tracker]: seen }, null, 2)}
+`);
+}
+
+// packages/core/src/tidy.ts
+import { mkdirSync as mkdirSync33, readFileSync as readFileSync34 } from "node:fs";
+import { join as join35 } from "node:path";
 var TIDY_LABEL = "tidy-up";
-var tidyFile = (paths) => join34(paths.stateDir, "tidy.json");
+var tidyFile = (paths) => join35(paths.stateDir, "tidy.json");
 function readTidy(paths) {
   try {
-    const r = JSON.parse(readFileSync33(tidyFile(paths), "utf8"));
+    const r = JSON.parse(readFileSync34(tidyFile(paths), "utf8"));
     return r?.v === 1 && typeof r.at === "string" && (r.outcome === "added" || r.outcome === "skipped") && Array.isArray(r.covered) ? r : null;
   } catch {
     return null;
@@ -12970,19 +13136,23 @@ function draftTidy(status, scope) {
   const n = status.tasks.length;
   const ids = status.tasks.map((t) => t.id);
   const brief = [
-    `${plural(n, "task")} merged in this repo since the last tidy-up: ${ids.join(", ")}. With many builders at once and nobody tidying, code collects copies of one helper, and comments that say the opposite of the code elsewhere. This task finds those in the files those tasks changed, and changes no behaviour.`,
+    `${plural(n, "task")} merged in this repo since the last tidy-up. With many builders at once and nobody tidying, code collects copies of one helper, and comments that say the opposite of the code elsewhere. This task finds those in the files those tasks changed, and changes no behaviour.`,
+    "",
+    `## The tasks (${n})`,
+    "",
+    ...ids.map((id) => `- ${id}`),
     "",
     "## What to look for",
     "",
     "- **Duplicated helpers:** a function, or a few lines, that does what another one already does. Keep one, the exported one where there is one, and call it from where the copies were.",
-    "- **Comments that contradict the code:** a comment or doc line that says the code does something it doesn't, or that something isn't done when it is elsewhere. Make it say what the code does, or remove it.",
+    "- **Comments that contradict the code:** a comment or doc line that says the code does something it doesn't. Another kind says that nothing does a job, when other code does it. Make it say what the code does, or remove it.",
     "",
     "## Acceptance criteria",
     "",
     "- [ ] Each duplicated helper found in these files is one helper now, called from where its copies were, and the note names each.",
     "- [ ] Each comment found contradicting the code says what the code does, or is gone.",
     "- [ ] It changes no behaviour: no test's expectations change, and every check passes as before.",
-    "- [ ] It changes only the files below. It may call a helper that lives elsewhere; a duplicate whose copies are all elsewhere goes in the note's open lines.",
+    "- [ ] It changes only the files below. It may call a helper that lives elsewhere. A duplicate whose copies are all elsewhere goes in the note's open lines.",
     "",
     `## The files (${scope.files.length})`,
     "",
@@ -12994,7 +13164,7 @@ function draftTidy(status, scope) {
   return { title: `Tidy up after ${plural(n, "merge")}`, brief, labels: [TIDY_LABEL], covered: ids, files: scope.files, unknown: scope.unknown };
 }
 function writeRecord(paths, r) {
-  mkdirSync32(paths.stateDir, { recursive: true });
+  mkdirSync33(paths.stateDir, { recursive: true });
   writeAtomic(tidyFile(paths), JSON.stringify(r, null, 2) + "\n");
 }
 function addTidy(paths, config, draft, who) {
@@ -13022,9 +13192,9 @@ function skipTidy(paths, config, who) {
 }
 
 // packages/core/src/onboarding/steps.ts
-import { existsSync as existsSync25, opendirSync, readFileSync as readFileSync34 } from "node:fs";
+import { existsSync as existsSync25, opendirSync, readFileSync as readFileSync35 } from "node:fs";
 import { homedir as homedir8, tmpdir as tmpdir7 } from "node:os";
-import { dirname as dirname13, join as join35, sep as sep4 } from "node:path";
+import { dirname as dirname13, join as join36, sep as sep4 } from "node:path";
 
 // packages/core/src/onboarding/cloud-steps.ts
 var ROUTINE_PROMPT = [
@@ -13164,11 +13334,11 @@ function needsProject(ctx) {
 }
 var NEARBY_LIMIT = 200;
 function nearbyRepo(cwd) {
-  const isRepo = (d) => existsSync25(join35(d, ".git"));
+  const isRepo = (d) => existsSync25(join36(d, ".git"));
   const parent = dirname13(cwd);
   if (samePath(parent, tmpdir7())) return null;
   const candidates = [...nearbyFolders(parent).filter((d) => d !== cwd), parent].filter(isRepo);
-  return candidates.find((d) => existsSync25(join35(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync25(join35(d, "sfdx-project.json"))) ?? null;
+  return candidates.find((d) => existsSync25(join36(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync25(join36(d, "sfdx-project.json"))) ?? null;
 }
 function nearbyFolders(parent) {
   const folders = [];
@@ -13178,7 +13348,7 @@ function nearbyFolders(parent) {
     for (let read2 = 0; read2 < NEARBY_LIMIT; read2++) {
       const e = dir.readSync();
       if (!e) break;
-      if (e.isDirectory() && !e.name.startsWith(".")) folders.push(join35(parent, e.name));
+      if (e.isDirectory() && !e.name.startsWith(".")) folders.push(join36(parent, e.name));
     }
   } catch {
     return [];
@@ -13212,7 +13382,7 @@ function billingVars(vars) {
 function claudeSettingsFiles(ctx) {
   const home = ctx.env.HOME || homedir8();
   const tilde = (f) => f.startsWith(home + sep4) ? `~${f.slice(home.length)}` : f;
-  const user = ctx.env.CLAUDE_CONFIG_DIR ? join35(ctx.env.CLAUDE_CONFIG_DIR, "settings.json") : join35(home, ".claude", "settings.json");
+  const user = ctx.env.CLAUDE_CONFIG_DIR ? join36(ctx.env.CLAUDE_CONFIG_DIR, "settings.json") : join36(home, ".claude", "settings.json");
   const files = [{ file: user, label: tilde(user) }];
   if (!ctx.paths) return files;
   let main2 = ctx.paths.root;
@@ -13222,7 +13392,7 @@ function claudeSettingsFiles(ctx) {
   }
   for (const root of /* @__PURE__ */ new Set([ctx.paths.root, main2])) {
     for (const rel of [".claude/settings.json", ".claude/settings.local.json"]) {
-      files.push({ file: join35(root, rel), label: root === ctx.paths.root ? rel : tilde(join35(root, rel)) });
+      files.push({ file: join36(root, rel), label: root === ctx.paths.root ? rel : tilde(join36(root, rel)) });
     }
   }
   return files;
@@ -13230,7 +13400,7 @@ function claudeSettingsFiles(ctx) {
 function billingSettings(file) {
   let text;
   try {
-    text = readFileSync34(file, "utf8");
+    text = readFileSync35(file, "utf8");
   } catch {
     return [];
   }
@@ -13405,7 +13575,7 @@ var STEPS = [
       if (ctx.paths) return pass2(`Repo at ${ctx.paths.root}`);
       const near = nearbyRepo(ctx.cwd);
       if (near) return { status: "fail", detail: `This folder isn't a git repo. The project's repo looks like ${near}. Open that folder instead.`, open: near };
-      const sfdx = existsSync25(join35(ctx.cwd, "sfdx-project.json"));
+      const sfdx = existsSync25(join36(ctx.cwd, "sfdx-project.json"));
       return fail2(sfdx ? "This Salesforce folder isn't a git repo yet. Onboarding starts with the client's repo (guide steps B1 and B2)." : "This folder isn't a git repo. Open the project's repo folder.");
     }
   },
@@ -13746,6 +13916,7 @@ var STEPS = [
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
+      if (!usesSourceTracking(ctx.config)) return skip2(NO_TRACKING_REASON);
       const envs = devEnvs(ctx);
       if (!envs.length) return skip2("No Developer sandboxes in this project.");
       const off = envs.filter((e) => sfJson(ctx, ["data", "query", "--use-tooling-api", "-q", "SELECT COUNT() FROM SourceMember", "-o", e.org]).status !== 0);
@@ -13763,6 +13934,7 @@ var STEPS = [
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
+      if (!usesSourceTracking(ctx.config)) return skip2(NO_TRACKING_REASON);
       const envs = devEnvs(ctx);
       if (!envs.length) return skip2("No Developer sandboxes in this project.");
       const list = sfJson(ctx, ["org", "list"]);
@@ -13798,7 +13970,7 @@ var STEPS = [
         const lines = text.replace(/\n$/, "").split("\n");
         if (lines.some((l3) => l3.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
         const paths = lines.filter((l3) => l3.trim() && !l3.startsWith("#"));
-        const here = paths.filter((p) => !existsSync25(join35(ctx.paths.root, p)));
+        const here = paths.filter((p) => !existsSync25(join36(ctx.paths.root, p)));
         const elsewhere = here.length ? filesOnEnvironmentBranches(ctx) : /* @__PURE__ */ new Set();
         const gone = here.filter((p) => !elsewhere.has(p));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(", ")}${gone.length > 3 ? " \u2026" : ""}.`);
@@ -13928,7 +14100,7 @@ var STEPS = [
       } catch {
       }
       const TOOLS = { format: "prettier", lint: "eslint", "lwc-tests": "sfdx-lwc-jest" };
-      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync25(join35(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
+      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync25(join36(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
       if (absent.length) return fail2(`Not installed in ${main2}: ${absent.join(", ")}.`, `cd "${main2}" && npm install`);
       return pass2(`Ready: ${required.join(", ")}.`);
     }
@@ -13974,7 +14146,7 @@ var STEPS = [
       const cmd = `acc drift ${env.branch}`;
       let report = null;
       try {
-        report = JSON.parse(readFileSync34(driftReportPath(ctx.paths, env.branch), "utf8"));
+        report = JSON.parse(readFileSync35(driftReportPath(ctx.paths, env.branch), "utf8"));
       } catch {
         report = null;
       }
@@ -14045,11 +14217,11 @@ function gateLabel(s) {
 }
 
 // packages/cli/src/shared.ts
-import { readFileSync as readFileSync35, realpathSync as realpathSync6 } from "node:fs";
+import { readFileSync as readFileSync36, realpathSync as realpathSync6 } from "node:fs";
 import { dirname as dirname14 } from "node:path";
 
 // package.json
-var package_default = { version: "0.41.0" };
+var package_default = { version: "0.42.0" };
 
 // packages/cli/src/shared.ts
 var VERSION = package_default.version;
@@ -14070,7 +14242,7 @@ var READ_ERRORS = {
 };
 function readFileArg(file) {
   try {
-    return readFileSync35(file, "utf8");
+    return readFileSync36(file, "utf8");
   } catch (e) {
     const code2 = e.code ?? "";
     const why = READ_ERRORS[code2] ?? e.message;
@@ -14201,7 +14373,7 @@ var intakeLines = (res) => {
 function cmdIntakeGithub(o) {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
-  const res = followingCards(paths, config, () => intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label, actor, by }));
+  const res = followingCards(paths, config, () => intakeGithub(paths, config, { run, now, env: process.env }, { label: o.label?.at(-1), actor, by }));
   out(o, () => [...upsertLines(res), ...intakeLines(res)].filter(Boolean).join("\n") || "Nothing to do.", res);
   return res.errors.length ? 1 : 0;
 }
@@ -14215,8 +14387,13 @@ function cmdIntakeOutside(o, kind) {
   if (!Array.isArray(list) || !list.every((x2) => typeof x2?.key === "string" && typeof x2?.why === "string")) {
     throw new AccError("usage", `${file} must hold { "outside": [{ "key": "<ticket key>", "why": "<why it's outside>" }] }.`);
   }
+  const sprint = data.sprint;
+  if (sprint !== void 0 && (kind !== "jira" || typeof sprint?.tracker !== "string" || !isSprintSeen(sprint.seen))) {
+    throw new AccError("usage", `${file}'s "sprint" must be { "tracker": "<which>", "seen": { "sprints": [{ "id", "name" }], "open": ["<key>"], "at": "<time>" } }, and only for Jira.`);
+  }
   const { paths } = project(process.cwd());
   const res = intakeOutside(paths, kind, list, now);
+  if (sprint) rememberSprint(paths, sprint.tracker, sprint.seen);
   out(o, () => intakeLines(res).filter(Boolean).join("\n") || "Nothing to do.", res);
   return 0;
 }
@@ -14306,10 +14483,37 @@ function cmdShow(o, id) {
     t.brief ? `
 ${t.brief}
 ` : "",
+    t.notes ? `Notes for the builder:
+${t.notes}
+` : "",
     ...noteShown(t),
     "History:",
-    ...t.history.map((h2) => `  ${h2.at}  ${h2.from ?? "\u2013"} \u2192 ${h2.to}  by ${h2.by}${h2.reason ? `: ${h2.reason}` : ""}${h2.override ? " (override)" : ""}`)
+    // Its moves and a person's edits (T-74), in time order.
+    ...[
+      ...t.history.map((h2) => ({ at: h2.at, line: `  ${h2.at}  ${h2.from ?? "\u2013"} \u2192 ${h2.to}  by ${h2.by}${h2.reason ? `: ${h2.reason}` : ""}${h2.override ? " (override)" : ""}` })),
+      ...(t.edits ?? []).map((e) => ({ at: e.at, line: `  ${e.at}  edited its ${editedWords(e.fields)}  by ${e.by}` }))
+    ].sort((a2, b) => a2.at.localeCompare(b.at)).map((x2) => x2.line)
   ].filter(Boolean).join("\n"), { ...t, stopped: stopped ? { said: said2 } : null, files: files.data, cloudWait: waiting, wording });
+  return 0;
+}
+function editFrom(o) {
+  const list = (v) => v.flatMap((x2) => x2.split(",")).map((x2) => x2.trim()).filter(Boolean);
+  return {
+    ...o.title !== void 0 ? { title: o.title } : {},
+    ...o.brief !== void 0 ? { brief: o.brief } : {},
+    ...o.dep !== void 0 ? { deps: list(o.dep) } : {},
+    ...o.env !== void 0 ? { environment: o.env } : {},
+    ...o.label !== void 0 ? { labels: list(o.label) } : {},
+    ...o.notes !== void 0 ? { notes: o.notes } : {}
+  };
+}
+function cmdEdit(o, id) {
+  const edit = editFrom(o);
+  if (!Object.keys(edit).length) throw new AccError("usage", "acc edit <id> needs a field to change: --title, --brief, --dep, --env, --label or --notes.");
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  const { task, changed } = mutate(paths, now, (ledger, emit) => editTask(ledger, config, id.toUpperCase(), edit, actor, by, emit, now));
+  out(o, () => changed.length ? `${task.id}: changed its ${editedWords(changed)}.` : `${task.id}: nothing to change, every field was already so.`, { task, changed });
   return 0;
 }
 function cmdSet(o, id, to, note = null) {
@@ -14339,7 +14543,12 @@ var area = {
   help: {
     section: "Tasks",
     order: 20,
-    lines: `  acc add "<title>" [--brief <text>] [--dep <id>]... [--env <branch>] [--key <T-n>]
+    lines: `  acc add "<title>"|--title <text> [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--key <T-n>]
+  acc edit <id> [--title <text>] [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--notes <text>]
+                                        Change a task's fields, with add's checks. A field left out stays; --dep ""
+                                        or --label "" clears the list. Refused while a builder runs or once it's
+                                        done. A tracker's ticket owns its title, brief, deps and labels; acc keeps
+                                        its environment and its notes for the builder, which intake never changes
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira, Azure DevOps or
                                         monday.com key that no tracker in .acc/config.json owns is refused
   acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
@@ -14348,7 +14557,8 @@ var area = {
                                         the place
   acc intake jira|azure|monday|slack --file <report.json>
                                         Follow tickets the Command Center found outside the repo's place, from
-                                        { "outside": [{ "key", "why" }] }: a task not started yet leaves the board
+                                        { "outside": [{ "key", "why" }] }: a task not started yet leaves the board.
+                                        A Jira board in a sprint adds "sprint", which acc keeps as its last
   acc status                            One line: how many tasks are in each state
   acc list [--state <state>]
   acc ready
@@ -14364,15 +14574,22 @@ var area = {
     state: { type: "string" },
     reason: { type: "string" },
     force: { type: "boolean", default: false },
-    label: { type: "string" },
+    label: { type: "string", multiple: true },
+    title: { type: "string" },
+    notes: { type: "string" },
     client: { type: "string" }
   },
   subcommands: { intake: ["github", ...SIGNED_IN_KINDS] },
   commands: {
     add: (o, rest) => {
-      const title = rest.join(" ").trim();
+      const title = (o.title ?? rest.join(" ")).trim();
       if (!title) throw new AccError("usage", 'acc add "<title>"');
-      return upsert(o, [{ source: { kind: "manual", key: o.key ?? null }, title, brief: o.brief, deps: o.dep ?? [], environment: o.env }]);
+      const labels = (o.label ?? []).map((l3) => l3.trim()).filter(Boolean);
+      return upsert(o, [{ source: { kind: "manual", key: o.key ?? null }, title, brief: o.brief, deps: o.dep ?? [], environment: o.env, labels }]);
+    },
+    edit: (o, rest) => {
+      if (!rest[0]) throw new AccError("usage", "acc edit <id> [--title <text>] [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--notes <text>]");
+      return cmdEdit(o, rest[0]);
     },
     import: (o) => {
       const data = readInput(o.file);
@@ -14731,7 +14948,7 @@ var area2 = {
 
 // packages/cli/src/commands/checks.ts
 import { existsSync as existsSync26, realpathSync as realpathSync7 } from "node:fs";
-import { join as join36 } from "node:path";
+import { join as join37 } from "node:path";
 function currentBranch(root) {
   const r = run("git", ["branch", "--show-current"], { cwd: root });
   return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
@@ -14826,7 +15043,7 @@ function cmdGateRelax(o, names3) {
   if (!where || !existsSync26(where)) throw new AccError("usage", `${task.id} has no worktree on disk, so there's no floors file to relax.`);
   const record2 = mutate(paths, now, (l3, emit) => {
     pruneRelaxed(paths.relaxed, l3);
-    const r = relaxFloor(paths.relaxed, join36(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: o.reason ?? "", by, now, task: task.id });
+    const r = relaxFloor(paths.relaxed, join37(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: o.reason ?? "", by, now, task: task.id });
     const t = l3.tasks.find((x2) => x2.id === task.id);
     if (t) {
       t.updatedAt = now().toISOString();
@@ -14835,7 +15052,7 @@ function cmdGateRelax(o, names3) {
     return r;
   });
   out(o, () => [
-    `Relaxed ${name}'s ${record2.limit} for ${task.id}, from ${record2.was === null ? "nothing" : num(record2.was)} to ${num(record2.to)}, in ${join36(where, FLOORS_FILE)}: ${record2.reason}`,
+    `Relaxed ${name}'s ${record2.limit} for ${task.id}, from ${record2.was === null ? "nothing" : num(record2.was)} to ${num(record2.to)}, in ${join37(where, FLOORS_FILE)}: ${record2.reason}`,
     // As DESIGN §9 has it: for this task alone, a worse floor passes at the number relaxed to or a better one, from the floor relaxed.
     tone(`Commit that file with ${task.id}'s change. The relax is for ${task.id} alone: ${record2.was === null ? `where its branch began with no ${record2.limit}, it passes at ${num(record2.to)} or a better number` : `where its branch began at ${record2.limit} ${num(record2.was)}, it passes with its ${record2.limit} at ${num(record2.to)} or a better one`}, on that branch and in the merge queue's merge of it, until ${task.id} is done. Another task's branch isn't backed by it, even one that began at the same ${record2.limit}.`, "dim")
   ].join("\n"), record2);
@@ -15308,9 +15525,9 @@ var area7 = {
 };
 
 // packages/cli/src/commands/updates.ts
-import { mkdtempSync as mkdtempSync7, rmSync as rmSync20, writeFileSync as writeFileSync32 } from "node:fs";
+import { mkdtempSync as mkdtempSync7, rmSync as rmSync20, writeFileSync as writeFileSync31 } from "node:fs";
 import { tmpdir as tmpdir8 } from "node:os";
-import { join as join37 } from "node:path";
+import { join as join38 } from "node:path";
 function personOnlyUpdate(o, what) {
   if (process.env.ACC_ROLE === "analyst") throw new AccError("refused", `An analyst can't ${what}. A person does that.`);
   return personOnly(o, what);
@@ -15367,10 +15584,10 @@ function cmdUpdatePost(o, id) {
     throw new AccError("refused", `${u.key} is in ${lives} now, not this repo's ${repo}, so ${u.id} isn't posted. Discard it if it no longer applies: acc update discard ${u.id}`);
   }
   claimUpdate(paths, u.id, by, now, { again: o.again === true });
-  const dir = mkdtempSync7(join37(tmpdir8(), "acc-update-"));
+  const dir = mkdtempSync7(join38(tmpdir8(), "acc-update-"));
   try {
-    const file = join37(dir, "body.md");
-    writeFileSync32(file, text + "\n");
+    const file = join38(dir, "body.md");
+    writeFileSync31(file, text + "\n");
     const r = run("gh", ["issue", "comment", issue.number, "-R", issue.repo, "--body-file", file], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS2 });
     if (r.code !== 0) {
       const why = (r.stderr || r.stdout).trim().split("\n")[0] || `gh exited with ${r.code}.`;
@@ -15927,7 +16144,7 @@ var area10 = {
 
 // packages/cli/src/commands/setup.ts
 import { existsSync as existsSync27 } from "node:fs";
-import { join as join38 } from "node:path";
+import { join as join39 } from "node:path";
 function renderSteps(results, guided) {
   const lines = [];
   let part = "";
@@ -16010,7 +16227,7 @@ function cmdInit(o) {
     tracker
   });
   const rules = plan.rules.map((source) => ({ source, name: rulesName(source) }));
-  const here = rules.filter((r) => existsSync27(join38(paths.root, RULES_DIR, `${r.name}.md`)));
+  const here = rules.filter((r) => existsSync27(join39(paths.root, RULES_DIR, `${r.name}.md`)));
   const fresh = rules.filter((r) => !here.includes(r)).map((r) => r.source);
   const copies = o["dry-run"] ? [] : prepareImports(run, paths.root, fresh, { account: plan.readAs, base: process.cwd(), now });
   const kept = o["dry-run"] ? [] : here.map((r) => ({ name: r.name, file: `${RULES_DIR}/${r.name}.md` }));
@@ -16287,7 +16504,7 @@ var area13 = {
 };
 
 // packages/cli/src/commands/trackers.ts
-import { readFileSync as readFileSync36 } from "node:fs";
+import { readFileSync as readFileSync37 } from "node:fs";
 function cmdSet2(o) {
   const file = o.file;
   if (!file) throw new AccError("usage", "acc trackers set --file <tracker.json> [--index <n>]");
@@ -16295,7 +16512,7 @@ function cmdSet2(o) {
   if (index !== null && !(Number.isInteger(index) && index >= 0 && /^\d+$/.test(String(o.index)))) throw new AccError("usage", "--index is the tracker's place in the list, from 0.");
   let record2;
   try {
-    record2 = JSON.parse(readFileSync36(file, "utf8"));
+    record2 = JSON.parse(readFileSync37(file, "utf8"));
   } catch (e) {
     throw new AccError("usage", `Couldn't read the tracker from ${file}: ${e.message}`);
   }
@@ -16335,8 +16552,43 @@ var area14 = {
   }
 };
 
+// packages/cli/src/commands/tracking.ts
+function trackingLines(config) {
+  if (config.profile !== "salesforce") return "Source tracking is a Salesforce setting: this project isn't a Salesforce project.";
+  return usesSourceTracking(config) ? "source tracking on (project): Setup checks that each Developer sandbox is source tracked, and that the Salesforce CLI knows it." : "source tracking off (project): this project doesn't use source tracking, so Setup skips its source-tracking checks. Retrieves use manifests and deploys use source folders, as always.";
+}
+function cmdTracking(o, value) {
+  const { paths } = project(process.cwd());
+  const data = (config2) => ({ salesforce: config2.profile === "salesforce", sourceTracking: config2.profile === "salesforce" ? usesSourceTracking(config2) : null });
+  if (value === void 0) {
+    const { config: config2 } = loadConfig(paths.config);
+    out(o, () => trackingLines(config2), data(config2));
+    return 0;
+  }
+  if (value !== "on" && value !== "off") throw new AccError("usage", "acc tracking [on|off]");
+  noAgent(o, "change whether the project uses source tracking");
+  setSourceTracking(paths.config, value === "on");
+  const { config } = loadConfig(paths.config);
+  out(o, () => `${trackingLines(config)} Set in .acc/config.json: commit it to share it.`, data(config));
+  return 0;
+}
+var area15 = {
+  help: {
+    section: "Setup",
+    order: 12,
+    lines: `  acc tracking [on|off]                 Whether this Salesforce project uses source tracking. Off, Setup skips
+                                        its source-tracking checks (B8). A person's choice`
+  },
+  commands: {
+    tracking: (o, rest) => {
+      if (rest.length > 1) throw new AccError("usage", "acc tracking [on|off]");
+      return cmdTracking(o, rest[0]);
+    }
+  }
+};
+
 // packages/cli/src/commands/index.ts
-var AREAS = [area2, area3, area4, area5, area6, area7, area9, area10, area11, area12, area, area13, area14, area8];
+var AREAS = [area2, area3, area4, area5, area6, area7, area9, area10, area11, area12, area, area13, area14, area15, area8];
 
 // packages/cli/src/main.ts
 var GLOBAL = {
