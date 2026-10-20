@@ -214,7 +214,8 @@ test('a mutant that sends every entry at once fails the page-size check', async 
   const dir = tempDir('acc-history-mutant-');
   const rel = (f: string) => pathToFileURL(join(root, 'src/model', f)).href;
   writeFileSync(join(dir, 'history-pages.ts'), text.replace(find, 'return { filter, items: shown.slice(from), more: false, counts: historyCounts(items) };')
-    .replace("from './history.ts'", `from '${rel('history.ts')}'`).replace("from './shared.ts'", `from '${rel('shared.ts')}'`));
+    .replace("from './history.ts'", `from '${rel('history.ts')}'`).replace("from './shared.ts'", `from '${rel('shared.ts')}'`)
+    .replace("from '../../webview/history-store.ts'", `from '${pathToFileURL(join(root, 'webview/history-store.ts')).href}'`));
   const mutant = await import(pathToFileURL(join(dir, 'history-pages.ts')).href) as typeof import('../src/model/history-pages.ts');
   const sendsAPage = (page: typeof historyPage) => page(moves(100), 'all').items.length === HISTORY_PAGE;
   assert.ok(sendsAPage(historyPage), 'the real one sends a page');
