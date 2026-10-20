@@ -21,6 +21,7 @@ import type { Setup } from './setup.ts';
 import type { Sidebar } from './sidebar.ts';
 import type { Slack } from './slack.ts';
 import type { TicketPanels, UpdateActions } from './ticket.ts';
+import type { TicketEdits } from './ticket-edits.ts';
 import type { Trackers } from './trackers.ts';
 
 /** A command's handler, as VS Code calls it. */
@@ -35,6 +36,8 @@ export interface Parts {
   runs: Runs;
   panels: Panels;
   tickets: TicketPanels;
+  /** A tracker task's ticket, changed from the task sheet where the project allows edits (T-80). */
+  ticketEdits: TicketEdits;
   /** Each agent's own page (D-030). */
   pages: AgentPages;
   trackers: Trackers;

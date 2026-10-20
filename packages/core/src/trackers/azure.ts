@@ -7,7 +7,7 @@
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Label, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
-  type Ticket, type TrackerClient, TrackerError, type Transition,
+  textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export interface AzureOptions {
@@ -319,6 +319,11 @@ export class AzureClient implements TrackerClient {
 
   async transition(key: string, t: Transition): Promise<void> {
     await this.patch(this.idOf(key), [{ op: 'add', path: '/fields/System.State', value: t.to.name }]);
+  }
+
+  /** acc doesn't write its ticket text yet (T-80): it refuses, with why. */
+  async setText(): Promise<void> {
+    throw textRefused(this.kind);
   }
 
   async comment(key: string, markdown: string): Promise<void> {

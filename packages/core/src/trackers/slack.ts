@@ -8,7 +8,7 @@ import { type Block, type Doc, type Inline, toMarkdown } from './doc.ts';
 import { clip, slackEscape } from '../text.ts';
 import {
   type Board, inBatches, type Label, type Outside, outsideError, type Person, placeText, type Status, type Ticket, type TrackerClient, TrackerError,
-  type Transition,
+  textRefused, type Transition,
 } from './types.ts';
 
 export const SLACK_API = 'https://slack.com/api';
@@ -361,6 +361,11 @@ export class SlackClient implements TrackerClient {
 
   async transition(): Promise<void> {
     throw new TrackerError('refused', NO_STATUSES);
+  }
+
+  /** acc doesn't write its ticket text yet (T-80): it refuses, with why. */
+  async setText(): Promise<void> {
+    throw textRefused(this.kind);
   }
 
   /** A reply in the thread, posted as the app, with Slack's control characters escaped so it mentions no one. */

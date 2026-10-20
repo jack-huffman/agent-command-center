@@ -7,7 +7,7 @@ import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
 import { cardFailure } from '../../../packages/core/src/cards.ts';
-import { editedWords } from '../../../packages/core/src/edit.ts';
+import { editedWords, editRefusal } from '../../../packages/core/src/edit.ts';
 import { type WordingFinding, wordingMatch, wordingPlace, wordingWords } from '../../../packages/core/src/ste.ts';
 import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts';
 import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
@@ -163,6 +163,12 @@ export interface TicketModel {
    * assignee and labels only when its tracker says "edits": true; comments always (D-066).
    */
   can: { status: boolean; assign: boolean; labels: boolean; comment: boolean };
+  /**
+   * The description's Edit (T-80): it opens the task sheet, which writes the ticket's title and description.
+   * Only where the tracker says "edits": true, as status, assignee and labels, and only for a ticket acc
+   * has a task for; off with why while its builder runs or once it's done. Null otherwise.
+   */
+  editText: Action | null;
   /**
    * The fields its tracker doesn't have, each with the muted line the page shows in place of its control:
    * "Slack · #support has no labels." A tracker that sets no fields has all three, so this is empty (T-28).
@@ -466,12 +472,19 @@ export function ticketModel(i: TicketInput): TicketModel {
     related: t?.related ?? (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null })),
     // A client's tracker is theirs: the page changes its fields only where the tracker opts in (D-066).
     can: { status: !!t && !!i.trackerEdits && has('status'), assign: !!t && !!i.trackerEdits && has('assignee'), labels: !!t && !!i.trackerEdits && has('labels'), comment: !!t },
+    editText: t && i.trackerEdits && i.task ? editTextAction(i.project, i.task) : null,
     lacks,
     updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, i.now) : [],
     acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
     review: i.task ? ticketReview(i.project, i.task.state, i.review) : null,
     trackable: !!t && !i.task, tracking: !!i.tracking, signedInAs: i.signedInAs ?? null,
   };
+}
+
+/** The description's Edit (T-80): the task sheet's command, off with editRefusal's reason when the task can't be edited now. */
+export function editTextAction(project: string, task: Pick<Task, 'id' | 'state'>): Action {
+  const why = editRefusal(task);
+  return { command: 'acc.task.edit', label: 'Edit', icon: 'edit', ref: { project, task: task.id }, ...(why ? { disabled: why } : {}) };
 }
 
 /** task: draft a task from one of its note's still-open lines (D-106), which a person confirms. */

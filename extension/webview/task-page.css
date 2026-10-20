@@ -30,6 +30,9 @@ body[data-view="ticket"] { padding-top: 18px; }
 /* The main column's sections are raised panels, as the side panels and the other pages' are (D-127). */
 .ticket-main > section.block { background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius); box-shadow: var(--lift); padding: 12px 16px; margin-bottom: 16px; }
 .ticket-main > section.block > h2:first-child { margin-top: 0; }
+/* The description's heading, with its Edit at the right where the tracker allows edits (T-80). */
+.desc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.desc-head > h2 { margin: 0; }
 .ticket-main > section.block > :last-child, .ticket-main > section.block > :last-child > :last-child, .ticket-main > section.block > .foldable:last-child > :first-child > :last-child { margin-bottom: 0; }
 .ticket-side { grid-column: 2; grid-row: 1 / span 2; }
 @media (max-width: 760px) {

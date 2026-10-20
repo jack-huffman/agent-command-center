@@ -4,15 +4,32 @@
 // labels, and for a task already there, notes for the builder. A tracker's task shows what its ticket owns
 // read-only, with why and a way to open the ticket. Enter in a one-line box saves, and so do Cmd+Enter and
 // Ctrl+Enter anywhere; Escape cancels; focus goes back to what opened it. Save sends what was written, and
-// the extension works out acc's arguments.
+// the extension works out acc's arguments. Where the project allows edits (T-80), a tracker's task has its
+// ticket's title and description to edit, and its status, assignee and labels each with a Change. Its Save
+// waits for the extension: a ticket changed since the sheet opened shows both versions to pick from, and a
+// failed write says why. Either way the sheet stays open with what the person wrote.
 
 import type { TaskSheet, TaskSheetFields } from '../src/model/task-sheet.ts';
+import type { SheetRow, TicketTextBase } from '../src/model/ticket-text.ts';
 import { button, el, focusedElement, icon } from './dom.ts';
 import { makeModal } from './modal.ts';
 import { api, type PageArea } from './state.ts';
 
-/** The open sheet: what it shows, and its boxes. */
-let open: { sheet: TaskSheet; boxes: Partial<Record<keyof TaskSheetFields, HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>> } | null = null;
+/**
+ * The open sheet: what it shows, and its boxes. Where Save writes the ticket's text (T-80): the text it
+ * checks the ticket against, which Use theirs and Keep mine move on; whether a Save is on its way; why the
+ * last Save or Change didn't go; the ticket's text when someone changed it after the sheet opened; and the
+ * Change on its way.
+ */
+let open: {
+  sheet: TaskSheet;
+  boxes: Partial<Record<keyof TaskSheetFields, HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>>;
+  base: TicketTextBase | null;
+  saving: boolean;
+  error: string | null;
+  theirs: TicketTextBase | null;
+  changing: SheetRow['field'] | null;
+} | null = null;
 let parts: { dialog: HTMLDialogElement; heading: HTMLElement; body: HTMLElement; go: HTMLButtonElement } | null = null;
 /** What had focus when it opened, which gets it back when it closes. */
 let opener: HTMLElement | null = null;
@@ -26,8 +43,11 @@ function written(): TaskSheetFields {
   return { title: v('title'), brief: v('brief'), deps: v('deps'), environment: v('environment'), labels: v('labels'), notes: v('notes') };
 }
 
-/** Why the primary button is off, or null when it's on: the same check as the extension's taskSheetOff. */
-const goOff = (): string | null => (written().title.trim() ? null : 'A task needs a title');
+/**
+ * Why the primary button is off, or null when it's on: the same check as the extension's taskSheetOff,
+ * and, where Save writes the ticket's text (T-80), not while a Save is on its way or a version is to pick.
+ */
+const goOff = (): string | null => (open?.saving ? 'Saving to its ticket' : open?.theirs ? 'Pick a version first' : written().title.trim() ? null : 'A task needs a title');
 
 /** A field: its label, the box, and a line under it in muted type. */
 function field(label: string, box: HTMLElement, hint: string | null): HTMLElement {
@@ -57,10 +77,79 @@ function kept(label: string, value: string): HTMLElement {
   return el('div', 'ts-field', el('p', 'ts-label', label), el('p', `ts-kept${value ? '' : ' muted'}`, value || 'None'));
 }
 
+/** A line in orange, with its icon: why a Save or a Change didn't go (T-80). */
+const trouble = (text: string): HTMLElement => el('div', 'notice attention', icon('warning', 'orange'), el('span', '', text));
+
+/** The ticket's status, assignee and labels (T-80), each with a Change that asks as the ticket page's does. One Change at a time. */
+function rows(r: SheetRow[]): HTMLElement[] {
+  return r.map((row) => {
+    const busy = open!.changing === row.field;
+    const b = button(busy ? 'Changing…' : 'Change', busy ? 'loading~spin' : 'edit', () => change(row.field), 'ghost small ts-change');
+    b.setAttribute('aria-label', row.change);
+    b.title = row.change;
+    b.disabled = !!open!.changing;
+    return el('div', 'ts-field', el('p', 'ts-label', row.label), el('div', 'ts-row', el('p', 'ts-kept', row.value), b));
+  });
+}
+
+/** Change on one of the ticket's fields: the extension asks, and gives the rows back as the ticket has them. */
+function change(f: SheetRow['field']): void {
+  if (!open?.sheet.task || open.changing) return;
+  open.changing = f;
+  open.error = null;
+  api.postMessage({ type: 'task-sheet-field', project: open.sheet.project, task: open.sheet.task, field: f });
+  redraw();
+}
+
+/** The tracker's name, from the sheet's Open in button: "Jira". */
+const trackerWord = (): string => open?.sheet.ticket?.label.replace(/^Open in /, '') ?? 'its tracker';
+
+/**
+ * The ticket's text changed after the sheet opened (T-80): what's on the ticket now beside what the person
+ * wrote, and the choice. Use theirs puts the ticket's text in the boxes; Keep mine saves the person's over it.
+ */
+function choice(theirs: TicketTextBase): HTMLElement {
+  const mine = written();
+  const version = (heading: string, t: TicketTextBase) => el('div', 'ts-version', el('p', 'ts-label', heading), el('p', 'ts-kept', t.title),
+    el('p', `ts-kept${t.markdown.trim() ? '' : ' muted'}`, t.markdown.trim() || 'No description'));
+  return el('div', 'ts-conflict',
+    trouble(`Someone changed this ticket in ${trackerWord()} after you opened it, so nothing was saved. Pick the version to keep.`),
+    el('div', 'ts-versions', version(`In ${trackerWord()} now`, theirs), version('What you wrote', { title: mine.title, markdown: mine.brief })),
+    el('div', 'ts-pick', button('Use theirs', 'discard', () => useTheirs()), button('Keep mine', 'save', () => keepMine(), 'primary')));
+}
+
+/** Use theirs: the ticket's text goes in the boxes, and Save checks against it from now on. */
+function useTheirs(): void {
+  if (!open?.theirs) return;
+  const t = open.theirs;
+  open.sheet = { ...open.sheet, fields: { ...written(), title: t.title, brief: t.markdown } };
+  open.base = t;
+  open.theirs = null;
+  draw();
+  open.boxes.title?.focus();
+}
+
+/** Keep mine: the person's text is saved over the ticket's, checked against the ticket's text as it was just read. */
+function keepMine(): void {
+  if (!open?.theirs) return;
+  open.base = open.theirs;
+  open.theirs = null;
+  save();
+}
+
+/** Draws again with what's written kept: a draw starts from the sheet's own fields. */
+function redraw(): void {
+  if (!open) return;
+  open.sheet = { ...open.sheet, fields: written() };
+  draw();
+}
+
 /** Draws the sheet from what it shows. */
 function draw(): void {
   if (!open || !parts) return;
   const s = open.sheet;
+  // Where Save writes the ticket's text (T-80), the title and description are boxes, though its ticket owns them.
+  const text = !s.locked || !!open.base;
   parts.heading.textContent = s.heading;
   parts.dialog.setAttribute('aria-label', s.heading);
   open.boxes = {};
@@ -80,11 +169,13 @@ function draw(): void {
     : null;
   parts.body.replaceChildren(...[
     locked,
-    s.locked ? kept('Title', s.fields.title) : field('Title', box('title', s.fields.title, 'What needs doing'), null),
-    s.locked ? kept('Description', s.fields.brief) : field('Description', box('brief', s.fields.brief, 'The goal, what to build, and how a person will know it is done', 8), 'Markdown works here: headings, lists and code.'),
+    open.theirs ? choice(open.theirs) : null,
+    open.error ? trouble(open.error) : null,
+    text ? field('Title', box('title', s.fields.title, 'What needs doing'), null) : kept('Title', s.fields.title),
+    text ? field('Description', box('brief', s.fields.brief, 'The goal, what to build, and how a person will know it is done', 8), open.base ? `Markdown works here. Save writes it to the ticket in ${trackerWord()}.` : 'Markdown works here: headings, lists and code.') : kept('Description', s.fields.brief),
     s.locked ? kept('Dependencies', s.fields.deps) : field('Dependencies', box('deps', s.fields.deps, 'Such as T-3, ACME-12'), 'The tasks to finish first, with commas between them.'),
     field('Environment', env, 'The branch it builds from and lands on.'),
-    s.locked ? kept('Labels', s.fields.labels) : field('Labels', box('labels', s.fields.labels, 'Such as ui, docs'), 'With commas between them.'),
+    ...(s.ticketEdits ? rows(s.ticketEdits.rows) : [s.locked ? kept('Labels', s.fields.labels) : field('Labels', box('labels', s.fields.labels, 'Such as ui, docs'), 'With commas between them.')]),
     s.notes ? field('Notes for the builder', box('notes', s.fields.notes, 'What the builder should know that the description doesn\'t say', 4), 'The builder and the reviewer read these under their own heading.') : null,
   ].filter((x): x is HTMLElement => !!x));
   foot();
@@ -94,17 +185,47 @@ function draw(): void {
 function foot(): void {
   if (!open || !parts) return;
   const why = goOff();
-  parts.go.replaceChildren(icon(open.sheet.task ? 'save' : 'add'), open.sheet.go);
+  parts.go.replaceChildren(icon(open.saving ? 'loading~spin' : open.sheet.task ? 'save' : 'add'), open.saving ? 'Saving…' : open.sheet.go);
   parts.go.disabled = !!why;
   parts.go.title = why ?? `${open.sheet.go} (Enter)`;
 }
 
-/** Add task or Save: what was written goes to the extension, and the sheet closes. Nothing goes while it's off. */
+/**
+ * Add task or Save: what was written goes to the extension, and the sheet closes. Nothing goes while it's
+ * off. Where Save writes the ticket's text (T-80), it sends the text it checks the ticket against, and the
+ * sheet stays open, with what was written, until the extension says how it went.
+ */
 function save(): void {
   if (!open || goOff()) return;
   const s = open.sheet;
-  api.postMessage({ type: 'task-sheet-go', project: s.project, ...(s.task ? { task: s.task } : {}), ...written() });
-  shut();
+  api.postMessage({ type: 'task-sheet-go', project: s.project, ...(s.task ? { task: s.task } : {}), ...written(), ...(open.base ? { base: open.base } : {}) });
+  if (!open.base) return shut();
+  open.saving = true;
+  open.error = null;
+  redraw();
+}
+
+/**
+ * How a Save went (T-80): done closes the sheet; a change made meanwhile shows both versions; a failure
+ * says why. What was written stays. Only a reply for this sheet's task counts, and done or a failure only
+ * while its Save is on its way; the ticket's text changed meanwhile shows whenever it comes.
+ */
+function saved(msg: { project?: string; task?: string | null; ok?: boolean; error?: string; conflict?: TicketTextBase }): void {
+  if (!open || msg.project !== open.sheet.project || (msg.task ?? null) !== open.sheet.task || !open.base || (!open.saving && !msg.conflict)) return;
+  if (msg.ok) return shut();
+  open.saving = false;
+  open.theirs = msg.conflict ?? null;
+  open.error = msg.conflict ? null : msg.error || 'It wasn\'t saved.';
+  redraw();
+}
+
+/** How a Change went (T-80): the ticket's fields as they are now, or why it didn't go. */
+function changed(msg: { project?: string; task?: string; ok?: boolean; error?: string; rows?: SheetRow[] }): void {
+  if (!open?.changing || !open.sheet.ticketEdits || msg.project !== open.sheet.project || msg.task !== open.sheet.task) return;
+  open.changing = null;
+  open.error = msg.ok ? null : msg.error || 'It didn\'t change.';
+  if (msg.ok && msg.rows) open.sheet = { ...open.sheet, ticketEdits: { ...open.sheet.ticketEdits, rows: msg.rows } };
+  redraw();
 }
 
 function make(): NonNullable<typeof parts> {
@@ -129,7 +250,7 @@ function make(): NonNullable<typeof parts> {
 function openSheet(sheet: TaskSheet): void {
   parts ??= make();
   if (!parts.dialog.open) opener = focusedElement();
-  open = { sheet, boxes: {} };
+  open = { sheet, boxes: {}, base: sheet.ticketEdits?.base ?? null, saving: false, error: null, theirs: null, changing: null };
   draw();
   if (!parts.dialog.open) parts.dialog.showModal();
   (open.boxes.title ?? open.boxes.environment)?.focus();
@@ -152,5 +273,9 @@ function closed(): void {
 }
 
 export const area: PageArea = {
-  receive: { 'task-sheet': (msg: { sheet?: TaskSheet }) => { if (msg.sheet?.fields) openSheet(msg.sheet); } },
+  receive: {
+    'task-sheet': (msg: { sheet?: TaskSheet }) => { if (msg.sheet?.fields) openSheet(msg.sheet); },
+    'task-sheet-done': saved,
+    'task-sheet-rows': changed,
+  },
 };

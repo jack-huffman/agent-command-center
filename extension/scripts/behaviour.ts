@@ -46,7 +46,7 @@ import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
-import { sampleTaskSheet } from './fixtures/task-sheet.ts';
+import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
 import { taskSheetOff } from '../src/model/task-sheet.ts';
 import { dispatchChoiceArgs, dispatchSheet } from '../src/model/dispatch-sheet.ts';
 import { ROOT } from './fixtures/shared.ts';
@@ -188,6 +188,11 @@ export interface BehaviourData {
     add: { message: Record<string, unknown>; off: string; title: string; brief: string; sent: Record<string, unknown> };
     edit: { message: Record<string, unknown>; notes: string; sent: Record<string, unknown> };
     tracker: { message: Record<string, unknown>; url: string; kept: number };
+    /**
+     * With edits on (T-80): ACME-19's sheet, the ticket text it opened with, a title typed, a failed write's
+     * reason, the ticket's text a colleague wrote meanwhile, and the rows after a Change of its status.
+     */
+    edits: { message: Record<string, unknown>; project: string; base: Record<string, unknown>; title: string; error: string; theirs: Record<string, unknown>; rows: { field: string; value: string }[] };
   };
   /**
    * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
@@ -1393,6 +1398,41 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task sheet: with edits on, Save waits for its ticket, a failed write keeps the text, a change made meanwhile shows both versions, and Keep mine saves again',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.taskSheet.edits;
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.task-sheet');
+      const title = t.find<HTMLInputElement>('input.ts-box', dialog);
+      t.check('the ticket\'s title and description are boxes', title.value === (d.base as { title: string }).title && t.all('textarea.ts-box', dialog).length === 2, title.value);
+      await t.type(title, d.title);
+      const changes = t.all<HTMLButtonElement>('.ts-change', dialog);
+      t.check('its status, assignee and labels each have a Change', changes.length === 3, changes.length);
+      await t.click(changes[0]!);
+      t.check('Change asks for its field, and the others wait', JSON.stringify(t.sent('task-sheet-field').at(-1)) === JSON.stringify({ type: 'task-sheet-field', project: d.project, task: 'ACME-19', field: 'status' }) && t.all<HTMLButtonElement>('.ts-change', dialog).every((b) => b.disabled), t.sent('task-sheet-field'));
+      await t.post({ type: 'task-sheet-rows', project: d.project, task: 'ACME-19', field: 'status', ok: true, changed: true, rows: d.rows });
+      t.check('the rows show the ticket as it is now, and what was typed stays', t.find('.ts-row .ts-kept', dialog).textContent === d.rows[0]!.value && t.find<HTMLInputElement>('input.ts-box', dialog).value === d.title, t.find('.ts-row .ts-kept', dialog).textContent);
+      await t.click(t.find('.ts-go', dialog));
+      const first = t.sent('task-sheet-go');
+      t.check('Save sends the text it opened with, once', first.length === 1 && JSON.stringify(first[0]!.base) === JSON.stringify(d.base) && first[0]!.title === d.title, first);
+      t.check('the sheet waits for its ticket, with Save off', dialog.open && t.find<HTMLButtonElement>('.ts-go', dialog).disabled, t.find('.ts-go', dialog).title);
+      // Edge: the write failed. The sheet says why and keeps what was typed.
+      await t.post({ type: 'task-sheet-done', project: d.project, task: 'ACME-19', ok: false, error: d.error });
+      t.check('a failed write says why, keeps the text, and Save is on again', dialog.open && dialog.textContent!.includes(d.error) && t.find<HTMLInputElement>('input.ts-box', dialog).value === d.title && !t.find<HTMLButtonElement>('.ts-go', dialog).disabled);
+      await t.click(t.find('.ts-go', dialog));
+      await t.post({ type: 'task-sheet-done', project: d.project, task: 'ACME-19', ok: false, conflict: d.theirs });
+      const versions = t.all('.ts-version', dialog);
+      t.check('a change made meanwhile shows both versions, with Save off until one is picked', versions.length === 2 && versions[0]!.textContent!.includes((d.theirs as { title: string }).title) && versions[1]!.textContent!.includes(d.title) && t.find<HTMLButtonElement>('.ts-go', dialog).disabled, versions.map((v) => v.textContent));
+      t.check('what was typed stays in its box', t.find<HTMLInputElement>('input.ts-box', dialog).value === d.title);
+      await t.click(t.all<HTMLButtonElement>('.ts-pick button', dialog)[1]!);
+      const again = t.sent('task-sheet-go');
+      t.check('Keep mine saves the person\'s text against the ticket\'s as it is now', again.length === 3 && JSON.stringify(again[2]!.base) === JSON.stringify(d.theirs) && again[2]!.title === d.title, again.at(-1));
+      await t.post({ type: 'task-sheet-done', project: d.project, task: 'ACME-19', ok: true });
+      t.check('done, the sheet closes', !dialog.open);
+    },
+  },
+  {
     name: 'board keys: focus stays on the same card after a redraw, in its new column',
     page: 'tasks',
     async run(t) {
@@ -1572,7 +1612,10 @@ export const MUTANTS: Mutant[] = [
   { name: 'Escape on the task sheet saves', file: 'task-sheet.ts', find: "const m = makeModal('task-sheet', [heading], shut);", replace: "const m = makeModal('task-sheet', [heading], save);", kills: [caseNamed('task sheet: a Jira task')] },
   { name: 'Enter in the description saves', file: 'task-sheet.ts', find: '    if (e.target instanceof HTMLTextAreaElement && !e.metaKey && !e.ctrlKey) return;\n', replace: '', kills: [caseNamed('task sheet: a new task')] },
   { name: 'the task sheet\'s Save drops the notes typed', file: 'task-sheet.ts', find: "labels: v('labels'), notes: v('notes') };", replace: "labels: v('labels'), notes: s.fields.notes };", kills: [caseNamed('task sheet: a manual task')] },
-  { name: 'the task sheet saves with no title', file: 'task-sheet.ts', find: "const goOff = (): string | null => (written().title.trim() ? null : 'A task needs a title');", replace: 'const goOff = (): string | null => null;', kills: [caseNamed('task sheet: a new task')] },
+  { name: 'the task sheet saves with no title', file: 'task-sheet.ts', find: "written().title.trim() ? null : 'A task needs a title');", replace: 'null);', kills: [caseNamed('task sheet: a new task')] },
+  { name: 'the task sheet closes before its ticket answers', file: 'task-sheet.ts', find: '  if (!open.base) return shut();\n', replace: '  return shut();\n', kills: [caseNamed('task sheet: with edits on')] },
+  { name: 'a failed Save closes the task sheet', file: 'task-sheet.ts', find: '  if (msg.ok) return shut();\n', replace: '  return shut();\n', kills: [caseNamed('task sheet: with edits on')] },
+  { name: 'Keep mine saves against the text the sheet opened with', file: 'task-sheet.ts', find: '  open.base = open.theirs;\n  open.theirs = null;\n  save();', replace: '  open.theirs = null;\n  save();', kills: [caseNamed('task sheet: with edits on')] },
   { name: 'Escape on the sheet dispatches', file: 'dispatch-sheet.ts', find: "const m = makeModal('dispatch-sheet', [title], shut);", replace: "const m = makeModal('dispatch-sheet', [title], dispatch);", kills: [caseNamed('dispatch sheet: the task page')] },
   { name: 'Enter on the sheet does nothing', file: 'dispatch-sheet.ts', find: '    e.preventDefault();\n    dispatch();\n', replace: '    e.preventDefault();\n', kills: [caseNamed('dispatch sheet: a card')] },
   { name: 'a model picked leaves the efforts as they were', file: 'dispatch-sheet.ts', find: '(i) => { open!.model = i; draw(); }', replace: '(i) => { void i; draw(); }', kills: [caseNamed('dispatch sheet: a card')] },
@@ -1707,11 +1750,13 @@ function sheetData(now: number): BehaviourData['sheet'] {
   };
 }
 
-/** What the task sheet's cases expect (T-74): a new task, a manual task's edit and a Jira task's. */
+/** What the task sheet's cases expect (T-74): a new task, a manual task's edit and a Jira task's, and with edits on, ACME-19's (T-80). */
 function taskSheetData(now: number): BehaviourData['taskSheet'] {
   const add = sampleTaskSheet(now, 'new');
   const edit = sampleTaskSheet(now, 'manual');
   const tracker = sampleTaskSheet(now, 'tracker');
+  const edits = sampleTaskSheet(now, 'edits');
+  if (!edits.ticketEdits?.base) throw new Error('The edits case needs a Jira task whose ticket text the sheet writes.');
   if (!tracker.ticket || !tracker.locked) throw new Error('The task sheet case needs a Jira task with its ticket\'s link.');
   const title = 'Write the release notes';
   const brief = 'One page for the sales team.';
@@ -1720,6 +1765,11 @@ function taskSheetData(now: number): BehaviourData['taskSheet'] {
     add: { message: { type: 'task-sheet', sheet: add }, off: taskSheetOff({ title: '' })!, title, brief, sent: { type: 'task-sheet-go', project: ROOT, ...add.fields, title, brief } },
     edit: { message: { type: 'task-sheet', sheet: edit }, notes, sent: { type: 'task-sheet-go', project: ROOT, task: edit.task, ...edit.fields, notes } },
     tracker: { message: { type: 'task-sheet', sheet: tracker }, url: tracker.ticket.url, kept: 4 },
+    edits: {
+      message: { type: 'task-sheet', sheet: edits }, project: ROOT, base: { ...edits.ticketEdits!.base! }, title: 'Send the welcome email once per contact',
+      error: 'Its ticket wasn\'t changed. Jira said: HTTP 500', theirs: { ...SAMPLE_THEIRS },
+      rows: edits.ticketEdits!.rows.map((r) => (r.field === 'status' ? { ...r, value: 'In Review' } : r)),
+    },
   };
 }
 

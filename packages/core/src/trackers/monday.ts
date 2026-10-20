@@ -9,7 +9,7 @@
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Comment, type Label, type Outside, outsideError, type Person, placeText, type Status,
-  type Ticket, type TrackerClient, TrackerError, type Transition,
+  textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export const MONDAY_API = 'https://api.monday.com/v2';
@@ -398,6 +398,11 @@ export class MondayClient implements TrackerClient {
     await this.call('mutation ($board: ID!, $item: ID!, $column: String!, $value: JSON!) { change_column_value(board_id: $board, item_id: $item, column_id: $column, value: $value) { id } }', {
       board: this.boardId, item: this.idOf(key), column, value: JSON.stringify(value),
     });
+  }
+
+  /** acc doesn't write its ticket text yet (T-80): it refuses, with why. */
+  async setText(): Promise<void> {
+    throw textRefused(this.kind);
   }
 
   /** An update on the item, as HTML with every word escaped. */

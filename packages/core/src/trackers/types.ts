@@ -130,6 +130,22 @@ export const FIELD_LACKS: Record<TrackerField, string> = { status: 'statuses', a
 /** Whether the tracker has the field. A tracker that does not set `fields` has all three. */
 export const trackerHasField = (client: { fields?: readonly TrackerField[] }, field: TrackerField): boolean => !client.fields || client.fields.includes(field);
 
+/** What setText writes to a ticket: its title, its description as Markdown, or both. A field left out stays as it is. */
+export interface TicketText {
+  title?: string;
+  markdown?: string;
+}
+
+/** The trackers whose ticket text acc can write (T-80): a Jira issue's summary and description, a GitHub issue's title and body. */
+export const TEXT_TRACKERS: readonly TrackerKind[] = ['github', 'jira'];
+
+/** Why acc can't write a tracker's ticket text, or null where it can. In plain words, with no command in them (D-132). */
+export const textRefusal = (kind: TrackerKind): string | null =>
+  (TEXT_TRACKERS.includes(kind) ? null : `acc can't change a ${trackerName(kind)} ticket's title or description yet: change them in ${trackerName(kind)}, and intake brings them in.`);
+
+/** The error a tracker that can't write its ticket text throws from setText. */
+export const textRefused = (kind: TrackerKind): TrackerError => new TrackerError('refused', textRefusal(kind) ?? `${trackerName(kind)} refused the text.`);
+
 export interface TrackerClient {
   readonly kind: TrackerKind;
   /** Which of status, assignee and labels the tracker has. Not set: all three. */
@@ -156,6 +172,11 @@ export interface TrackerClient {
    */
   moveToColumn?(card: BoardCard, column: BoardColumn): Promise<void>;
   comment(key: string, markdown: string): Promise<void>;
+  /**
+   * Writes a ticket's title, its description, or both (T-80): only what's given. Jira and GitHub write it;
+   * Azure DevOps, monday.com and Slack refuse it with a TrackerError of kind 'refused' that says why.
+   */
+  setText(key: string, text: TicketText): Promise<void>;
   me(): Promise<Person>;
   assignable(key: string, query: string): Promise<Person[]>;
   assign(key: string, people: Person[]): Promise<void>;

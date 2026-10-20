@@ -61,7 +61,7 @@ import { sampleFirstSetup, sampleSetup } from './fixtures/setup.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleSheet } from './fixtures/dispatch-sheet.ts';
-import { sampleTaskSheet } from './fixtures/task-sheet.ts';
+import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
 import { SAMPLE_EDIT, sampleEdited } from './fixtures/updates.ts';
 import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
@@ -115,8 +115,10 @@ import { stopOnExit } from './stops.ts';
  * Then the output panel open over the Tasks board on a run as rows (T-64): a deploy still running, the deploy done with
  * more rows than the panel shows, a lint that failed, and the deploy done with its Details open. The run waiting
  * for an answer is the output page's.
+ * Last, ACME-19's tab where its tracker allows edits (T-80): the task sheet with its ticket's text to write
+ * and its status, assignee and labels to change, and then the choice when the ticket changed after it opened.
  */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread', 'dispatch-sheet', 'ticket-dispatch', 'tasks-card-menu', 'dispatch-sheet-anyway', 'output-running', 'output-done', 'output-failed', 'output-details', 'output-steps-running', 'output-steps-failed', 'output-steps-done', 'task-sheet-new', 'task-sheet-manual', 'ticket-edit', 'tasks-person-menu', 'tasks-person', 'tasks-person-agents', 'tasks-person-none'] as const;
+export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread', 'dispatch-sheet', 'ticket-dispatch', 'tasks-card-menu', 'dispatch-sheet-anyway', 'output-running', 'output-done', 'output-failed', 'output-details', 'output-steps-running', 'output-steps-failed', 'output-steps-done', 'task-sheet-new', 'task-sheet-manual', 'ticket-edit', 'ticket-edit-on', 'ticket-edit-changed', 'tasks-person-menu', 'tasks-person', 'tasks-person-agents', 'tasks-person-none'] as const;
 export type Page = (typeof PAGES)[number];
 
 /**
@@ -202,6 +204,8 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
   // ACME-19 in rework, in its own tab, with Dispatch's sheet over it (D-168), or the task sheet (T-74).
   if (kind === 'ticket-review' || kind === 'ticket-dispatch' || kind === 'ticket-edit') return sampleTicket(now, 'ACME-19');
+  // ACME-19 where its tracker allows edits (T-80): its description has Edit, and the sheet over it writes to its ticket.
+  if (kind === 'ticket-edit-on' || kind === 'ticket-edit-changed') return sampleTicket(now, 'ACME-19', true);
   if (kind === 'agent') return sampleAgent(now);
   if (kind === 'queue' || kind === 'queue-off' || kind === 'queue-held') {
     // Held, the head says why in the wait's own words, which can be long.
@@ -314,7 +318,10 @@ export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown
   : kind === 'dispatch-sheet-anyway' ? [{ type: 'dispatch-sheet', sheet: sampleSheet(now, 'anyway') }]
   // The task sheet (T-74): a new task and a manual task's edit over the Tasks board, and ACME-19's edit, a Jira task in rework, over its tab.
   : kind === 'task-sheet-new' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'new') }] : kind === 'task-sheet-manual' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'manual') }]
-  : kind === 'ticket-edit' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'tracker') }] : []);
+  : kind === 'ticket-edit' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'tracker') }]
+  // With edits on (T-80): ACME-19's sheet with its ticket's text to edit, and the choice when a colleague changed the ticket after it opened.
+  : kind === 'ticket-edit-on' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'edits') }]
+  : kind === 'ticket-edit-changed' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'edits') }, { type: 'task-sheet-done', project: ROOT, task: 'ACME-19', ok: false, conflict: SAMPLE_THEIRS }] : []);
 /** The title each kind of tab carries, as htmlFor in panels.ts gives it: a page needs one to be named (T-55). */
 export const TAB_TITLES: Record<string, string> = { home: 'Command Center', ticket: 'Ticket', agent: 'Agent' };
 export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
