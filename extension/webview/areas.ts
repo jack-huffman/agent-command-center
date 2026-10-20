@@ -17,9 +17,10 @@ import { area as settings } from './settings.ts';
 import { area as setup } from './setup.ts';
 import { area as taskModal } from './task-modal.ts';
 import { area as taskPage } from './task-page.ts';
+import { area as taskSheet } from './task-sheet.ts';
 import { area as tasks } from './tasks.ts';
 import { area as theme } from './theme.ts';
 import { area as updates } from './updates.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [agentPage, agents, boardNav, connect, detail, dispatchSheet, dock, environments, history, overview, palette, questions, rules, settings, setup, taskModal, taskPage, tasks, theme, updates, worktrees];
+export const AREAS = [agentPage, agents, boardNav, connect, detail, dispatchSheet, dock, environments, history, overview, palette, questions, rules, settings, setup, taskModal, taskPage, taskSheet, tasks, theme, updates, worktrees];

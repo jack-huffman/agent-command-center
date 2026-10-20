@@ -8,7 +8,7 @@ import type { HistoryItem } from '../src/model/history.ts';
 import type { HistoryAfter, HistoryCounts, HistoryFilter, HistoryPage, HistoryReply } from '../src/model/history-pages.ts';
 
 /** The filter an entry counts under. Autopilot's steps are Tasks (D-064). */
-export const historyKind = (i: HistoryItem): Exclude<HistoryFilter, 'all'> => (i.kind === 'autopilot' ? 'move' : i.kind);
+export const historyKind = (i: HistoryItem): Exclude<HistoryFilter, 'all'> => (i.kind === 'autopilot' || i.kind === 'edit' ? 'move' : i.kind);
 
 /** History's order: newest first, and by id where two are at the same moment. */
 export const newestFirst = (a: { at: string; id: string }, b: { at: string; id: string }): number => b.at.localeCompare(a.at) || a.id.localeCompare(b.id);

@@ -135,5 +135,5 @@ export const sampleSince = (): ProjectNotice[] => [
  */
 export function sampleLongHub(now = Date.now()): { hub: HubLike; runs: RunInput[] } {
   const long = sampleLongHistory(now);
-  return { hub: { ...sampleLandingHub(now), history: () => long.moves, autopilotLog: () => [], answers: [] }, runs: long.runs };
+  return { hub: { ...sampleLandingHub(now), history: () => long.moves, edits: () => [], autopilotLog: () => [], answers: [] }, runs: long.runs };
 }

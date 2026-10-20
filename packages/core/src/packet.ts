@@ -113,6 +113,12 @@ function sentBackSection(task: Task): string[] {
   ];
 }
 
+/** What a person wrote for the builder (T-74), under its own heading; nothing when there are no notes. */
+export function notesSection(task: Pick<Task, 'notes'>): string[] {
+  const notes = task.notes?.trim();
+  return notes ? ['## Notes for the builder', '', notes, ''] : [];
+}
+
 function commitRef(task: Task): string {
   if (task.source.kind === 'github') return ` Add \`refs #${task.id.replace(/^GH-/, '')}\` on its own line, so GitHub links the commit to the issue.`;
   return '';
@@ -145,6 +151,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
     '',
     task.source.url ? `Ticket: ${task.source.url}` : `Source: ${task.source.kind}`,
     '',
+    ...notesSection(task),
     ...analysisSection(p.analysis ?? null),
     ...depsSection(p.deps),
     ...lastRunSection(task, env),
@@ -244,7 +251,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   ];
   const deny = [
     'Bash(git push*)', 'Bash(gh pr *)', 'Bash(git checkout *)', 'Bash(git switch *)', 'Bash(git worktree *)', 'Bash(git reset --hard*)',
-    'Bash(acc set *)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc gate relax*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents set*)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc agents max*)', 'Bash(acc gate required*)', 'Bash(acc gate builder*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc rules import*)', 'Bash(acc rules accept*)', 'Bash(acc rules dismiss*)', 'Bash(acc trackers set*)', 'Bash(acc github use*)', 'Bash(acc tidy add*)', 'Bash(acc tidy skip*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)', 'Bash(acc machine*)', 'Bash(acc sync --close-done*)', 'Bash(acc collect*)', 'Bash(acc cloud*)',
+    'Bash(acc set *)', 'Bash(acc edit*)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc gate relax*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents set*)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc agents max*)', 'Bash(acc gate required*)', 'Bash(acc gate builder*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc rules import*)', 'Bash(acc rules accept*)', 'Bash(acc rules dismiss*)', 'Bash(acc trackers set*)', 'Bash(acc github use*)', 'Bash(acc tidy add*)', 'Bash(acc tidy skip*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)', 'Bash(acc machine*)', 'Bash(acc sync --close-done*)', 'Bash(acc collect*)', 'Bash(acc cloud*)',
     // Releases are a person's (D-079): npm run * is allowed above, and deny beats allow.
     'Bash(gh release create*)', 'Bash(gh release upload*)', 'Bash(gh release edit*)', 'Bash(gh release delete*)', 'Bash(npm run release*)', 'Bash(nice -n 15 npm run release*)',
     ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),

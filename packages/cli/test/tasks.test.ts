@@ -1,4 +1,4 @@
-// acc add, list, ready, set, show, status, import and intake: tasks through their life (tasks.ts).
+// acc add, edit, list, ready, set, show, status, import and intake: tasks through their life (tasks.ts).
 // acc runs from its source, in throwaway repos (support.ts).
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -238,4 +238,63 @@ esac
   assert.deepEqual([json.closed, json.removed, json.unchanged], [[], [], ['GH-4']]);
   assert.deepEqual(json.leftAlone, [{ task: 'GH-6', issue: '#6', state: 'running', note: '#6 was closed on GitHub; GH-6 is still running' }]);
   assert.deepEqual((acc(dir, ['list', '--json']).json() as { id: string; state: string }[]).map((t) => `${t.id} ${t.state}`), ['GH-5 done', 'GH-6 running', 'GH-4 todo']);
+});
+
+test('edit: changes a task\'s fields, records who edited them, and says what changed in --json', () => {
+  const dir = repoWithConfig(UNCHECKED);
+  assert.equal(acc(dir, ['add', 'First thing', '--label', 'ui']).code, 0);
+  assert.equal(acc(dir, ['add', 'Second thing']).code, 0);
+  const r = acc(dir, ['edit', 't-2', '--title', 'Second, clearer', '--brief', '## Goal\n\nDo it.', '--dep', 'T-1', '--label', 'a,b', '--notes', 'Mind the cache.', '--json', '--by', 'pat']);
+  assert.equal(r.code, 0, r.err);
+  const out = r.json() as { changed: string[]; task: { title: string; brief: string; deps: string[]; labels: string[]; notes: string; edits: { by: string; fields: string[] }[] } };
+  assert.deepEqual(out.changed, ['title', 'brief', 'deps', 'labels', 'notes']);
+  assert.equal(out.task.brief, '## Goal\n\nDo it.');
+  assert.deepEqual(out.task.deps, ['T-1']);
+  assert.deepEqual(out.task.labels, ['a', 'b']);
+  assert.deepEqual(out.task.edits.map((e) => e.by), ['pat']);
+  assert.match(acc(dir, ['edit', 'T-2', '--notes', 'Mind the cache.']).out, /T-2: nothing to change/);
+  assert.match(acc(dir, ['edit', 'T-2', '--dep', '']).out, /T-2: changed its dependencies\./, 'edge: an empty --dep clears the list');
+  const show = acc(dir, ['show', 'T-2']).out;
+  assert.match(show, /Notes for the builder:\nMind the cache\./);
+  assert.match(show, /edited its title, description, dependencies, labels, notes for the builder {2}by pat/);
+  assert.deepEqual((acc(dir, ['show', 'T-1', '--json']).json() as { labels: string[] }).labels, ['ui'], 'acc add takes --label');
+  const events = readFileSync(join(dir, '.git', 'acc', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { type: string; data: Record<string, unknown> });
+  assert.deepEqual(Object.keys(events.filter((e) => e.type === 'task.updated')[0]!.data), ['title', 'brief', 'deps', 'labels', 'notes']);
+  assert.match(acc(dir, ['help']).out, /acc edit <id> \[--title <text>\]/);
+});
+
+test('edit: refused while a builder runs, once done, with no field, and for a bad environment (edge: refusals)', () => {
+  const dir = repoWithConfig(UNCHECKED);
+  assert.equal(acc(dir, ['add', 'A thing']).code, 0);
+  const none = acc(dir, ['edit', 'T-1']);
+  assert.notEqual(none.code, 0);
+  assert.match(none.err, /needs a field to change/);
+  const env = acc(dir, ['edit', 'T-1', '--env', 'nowhere']);
+  assert.notEqual(env.code, 0);
+  assert.match(env.err, /isn't in the config/);
+  assert.equal(acc(dir, ['set', 'T-1', 'running']).code, 0);
+  const running = acc(dir, ['edit', 'T-1', '--title', 'New', '--json']);
+  assert.equal(running.code, 1);
+  assert.match(running.err + running.out, /builder is working from the brief it was given/);
+  assert.equal(acc(dir, ['set', 'T-1', 'review']).code, 0);
+  assert.equal(acc(dir, ['edit', 'T-1', '--title', 'New']).code, 0, 'review allows it');
+  const builder = acc(dir, ['edit', 'T-1', '--title', 'Mine'], undefined, { ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
+  assert.equal(builder.code, 1);
+  assert.match(builder.err, /Only a person edits T-1/);
+  assert.equal(acc(dir, ['set', 'T-1', 'done']).code, 0);
+  assert.match(acc(dir, ['edit', 'T-1', '--title', 'Later']).err, /It is done/);
+  assert.equal((acc(dir, ['show', 'T-1', '--json']).json() as { title: string }).title, 'New');
+});
+
+test('edit: a tracker task\'s title is refused, and its environment and notes are a person\'s', () => {
+  const dir = repoWithConfig(UNCHECKED);
+  assert.equal(acc(dir, ['import'], JSON.stringify([{ source: { kind: 'jira', key: 'ACME-4', url: 'https://acme.example/browse/ACME-4' }, title: 'From Jira' }])).code, 0);
+  const title = acc(dir, ['edit', 'ACME-4', '--title', 'Mine']);
+  assert.equal(title.code, 1);
+  assert.match(title.err, /Jira ticket owns its title/);
+  assert.equal(acc(dir, ['edit', 'ACME-4', '--notes', 'Ask first.']).code, 0);
+  assert.equal(acc(dir, ['import'], JSON.stringify([{ source: { kind: 'jira', key: 'ACME-4', url: 'https://acme.example/browse/ACME-4' }, title: 'Renamed in Jira' }])).code, 0);
+  const t = acc(dir, ['show', 'ACME-4', '--json']).json() as { title: string; notes: string };
+  assert.equal(t.title, 'Renamed in Jira');
+  assert.equal(t.notes, 'Ask first.', 'intake keeps the notes');
 });

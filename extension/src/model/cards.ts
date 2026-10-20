@@ -5,6 +5,8 @@
 
 import { BUILDER_PLACE_LOOK, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
 import type { BuilderPlace, CloudAgents } from '../../../packages/core/src/config.ts';
+import { editRefusal } from '../../../packages/core/src/edit.ts';
+import type { State } from '../../../packages/core/src/ledger.ts';
 import { analysisReady, analysisWait, filesUnknown, sharesLine, waitLine } from '../logic/tasks.ts';
 import { questionsWord, saidLine, taskNames, type TaskRow } from '../logic/shared.ts';
 import type { Action, Look, Ref } from './shared.ts';
@@ -165,6 +167,9 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   else if (t.state === 'blocked') a.push({ command: 'acc.task.unblock', label: 'Unblock', icon: 'debug-restart', ref });
   else if (t.state !== 'done') a.push({ command: 'acc.task.block', label: 'Block', icon: 'circle-slash', ref });
   if ((t.state === 'done' || t.state === 'blocked' || t.state === 'todo') && t.run?.worktree) a.push({ command: 'acc.task.cleanup', label: 'Clean up', icon: 'trash', ref, primary: tidy && !a.some((x) => x.primary) });
+  // Edit opens the task sheet (T-74); off with why while its builder runs or once it's done.
+  const noEdit = editRefusal({ state: t.state as State });
+  a.push({ command: 'acc.task.edit', label: 'Edit', icon: 'edit', ref, ...(noEdit ? { disabled: noEdit } : {}) });
   if (t.source.url) a.push({ command: 'acc.task.openTicket', label: 'Ticket', icon: 'link-external', ref });
   a.push({ command: 'acc.task.show', label: 'Details', icon: 'note', ref });
   return a;

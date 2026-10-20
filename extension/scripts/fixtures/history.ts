@@ -1,7 +1,7 @@
 /** History (D-037): moves the ledger recorded, and the steps autopilot took. */
 import type { AutopilotRecord } from '../../../packages/core/src/autopilot-log.ts';
 import type { RunInput } from '../../src/model/runs.ts';
-import type { ActivityItem } from '../../src/model/shared.ts';
+import type { ActivityItem, EditActivity } from '../../src/model/shared.ts';
 import { ACME_25_REFUSED, MIN, SLEPT } from './shared.ts';
 
 /** Moves the sample project's tasks made, newest first. */
@@ -13,6 +13,11 @@ export function sampleHistory(now = Date.now()): ActivityItem[] {
     { at: new Date(now - 26 * 60 * MIN).toISOString(), task: 'ACME-19', title: 'Fix the flow that double-sends welcome emails', from: 'review', to: 'rework', by: 'reviewer' },
     { at: new Date(now - 3 * 24 * 60 * MIN).toISOString(), task: 'ACME-10', title: 'Add a CHANGELOG', from: 'review', to: 'done', by: 'sync' },
   ];
+}
+
+/** Edits a person made to the sample project's tasks (T-74): ACME-19's notes, before it went back to its builder. */
+export function sampleEdits(now = Date.now()): EditActivity[] {
+  return [{ at: new Date(now - 25 * 60 * MIN).toISOString(), task: 'ACME-19', title: 'Fix the flow that double-sends welcome emails', fields: ['environment', 'notes'], by: 'human:jordan' }];
 }
 
 /**

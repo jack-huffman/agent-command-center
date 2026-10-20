@@ -49,5 +49,6 @@ export function sampleQueueHub(now = Date.now(), phase: NonNullable<TaskRow['que
       { seq: 305, at: at(9), task: 'GH-40', step: 'merge', outcome: 'done', pr: { number: 140, url: 'https://github.com/acme/tools/pull/140', opened: false } },
     ] satisfies AutopilotRecord[]).map(stepInWords),
     history: () => [],
+    edits: () => [],
   };
 }

@@ -76,6 +76,9 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12'):
       { at: new Date(now - 30 * 60_000).toISOString(), from: 'review', to: 'rework', by: 'human:me', reason: 'Pull request #38 conflicts with dev in the Case escalation rules. The rule entries for High and Medium both changed on dev since this branch started: dev added a Low entry and reordered the criteria, so the merge needs a person. Checks on 4f2a9c1: format passed; static found the 2 known sev-2 violations in CaseRouting.cls; validate ran CaseRoutingTest and EscalationRulesTest in Acme Dev, 19 of 21 passing, with the 2 known failures in premiumEscalates.' },
       { at: new Date(now - 12 * 60_000).toISOString(), from: 'rework', to: 'running', by: 'human:me' },
     ],
+    // A person's edit (T-74), before its builder went back to work: the activity shows it apart from the moves.
+    edits: [{ at: new Date(now - 20 * 60_000).toISOString(), actor: 'human', by: 'human:me', fields: ['notes'] }],
+    notes: 'Keep the Low entry dev added; only High and Medium change.',
     createdAt: new Date(now - 4 * 86_400_000).toISOString(), updatedAt: new Date(now - 12 * 60_000).toISOString(),
   } as unknown as Task;
   return ticketModel({

@@ -10,7 +10,7 @@ import { clock, dayName, dayNumber } from './days.ts';
 import { afterOf, historyKind, type Loaded, startFrom, withNewer, withPage } from './history-store.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 
-/** History filters: everything, or one kind. Remembered for the tab. Autopilot's steps are Tasks (D-064). */
+/** History filters: everything, or one kind. Remembered for the tab. Autopilot's steps (D-064) and a person's edits (T-74) are Tasks. */
 const HISTORY_KINDS = [['all', 'All', 'list-flat'], ['answer', 'Your answers', 'comment-discussion'], ['move', 'Tasks', 'project'], ['run', 'Commands', 'terminal']] as const;
 
 /** The entries loaded so far, for the filter that shows. */
@@ -34,6 +34,9 @@ function rowParts(it: HistoryItem, where: string | null): { look: { label: strin
   switch (it.kind) {
     case 'move':
       return { look: it.look, key: it.task, text: it.title, body: [el('div', 'muted small', `${it.from ?? 'new'} → `, el('strong', '', it.to), ` · by ${it.by.replace(/^human:/, '')}`), place] };
+    case 'edit':
+      // A person's edit (T-74): which fields it changed, and who.
+      return { look: it.look, key: it.task, text: it.title, body: [el('div', 'muted small', `Edited its ${it.fields} · by ${it.by.replace(/^human:/, '')}`), place] };
     case 'autopilot':
       // A step autopilot took (D-064): what it did, with why under it and its pull request a click away.
       return {

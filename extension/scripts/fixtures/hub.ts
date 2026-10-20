@@ -6,7 +6,7 @@ import { rowInWords, stepInWords } from '../../src/logic/relayed.ts';
 import { isUnder } from '../../src/logic/shared.ts';
 import type { HubLike, ProjectLike } from '../../src/model/shared.ts';
 import { REPOS, SESSION_MODELS, sampleAgents, sampleLedgers } from './agents.ts';
-import { sampleAutopilot, sampleHistory } from './history.ts';
+import { sampleAutopilot, sampleEdits, sampleHistory } from './history.ts';
 import { sampleLimits } from './limits.ts';
 import { sampleAnswers, sampleQuestions } from './questions.ts';
 import { CLIENTS, ROOT, wt } from './shared.ts';
@@ -62,6 +62,7 @@ export function sampleHub(now = Date.now()): HubLike {
     updates: () => sampleUpdates(now),
     tidy: sampleTidy,
     history: () => sampleHistory(now),
+    edits: () => sampleEdits(now),
     limits: () => sampleLimits(),
     // qa moved by a hand push that names a pull request (GH-69): flagged until a person has seen it.
     branchMoves: () => [{ branch: 'qa', from: 'e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4', to: 'f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5', at: new Date(now - 40 * 60_000).toISOString(), commits: ['f6a7b8c Hotfix the escalation timer, see #41'] }],

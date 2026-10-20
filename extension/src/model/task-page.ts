@@ -7,6 +7,7 @@ import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
 import { cardFailure } from '../../../packages/core/src/cards.ts';
+import { editedWords } from '../../../packages/core/src/edit.ts';
 import { type WordingFinding, wordingMatch, wordingPlace, wordingWords } from '../../../packages/core/src/ste.ts';
 import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts';
 import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
@@ -90,6 +91,8 @@ export const checkRows = (checks: CheckIn[], branch: string | null): CheckRow[] 
 export interface TicketAcc {
   look: Look;
   environment: string;
+  /** What a person wrote for its builder (T-74), in Markdown; null when there are none. */
+  notes: Doc | null;
   waitingOn: string[];
   blocker: string | null;
   /** Every file its open pull request conflicts in with its base, in one line, or null (D-049). */
@@ -116,6 +119,8 @@ export interface TicketAcc {
   checks: CheckRow[];
   /** Each move, with the state it reached as core's DISPLAY shows it (GH-105). */
   history: { at: string; from: string | null; to: string; by: string; reason: string | null; look: Look }[];
+  /** Each edit a person made to its fields (T-74), newest first, with the fields in words. Apart from its moves. */
+  edits: { at: string; by: string; fields: string }[];
   actions: Action[];
   /**
    * Its builder's handoff note (D-106): its run's, or while a new run is under way, the last run's
@@ -435,10 +440,11 @@ export function ticketModel(i: TicketInput): TicketModel {
   const has = (f: TrackerField) => !lacks.some((l) => l.field === f);
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row, true), environment: i.task.environment, waitingOn: i.row.deps, blocker: reasonInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
+    look: accLook(i.row, true), environment: i.task.environment, notes: i.task.notes?.trim() ? fromMarkdown(i.task.notes) : null, waitingOn: i.row.deps, blocker: reasonInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
     agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, effort: i.row.effort ?? null, agentName: i.task.run?.name ?? null, place: placeLook(i.row), cloudUrl: i.row.cloud?.url ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
     // Why it blocked or moved, whoever wrote it, in process words (GH-163).
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: reasonInWords(h.reason), look: displayLook(h.to) })).reverse(),
+    edits: (i.task.edits ?? []).map((e) => ({ at: e.at, by: e.by, fields: editedWords(e.fields) })).reverse(),
     // Its analysis has its own section, with its own buttons.
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
     ...ticketNote(i.task),

@@ -86,6 +86,8 @@ export interface HubLike {
   projectFor(path: string): ProjectLike | undefined;
   /** Every move every task made, for the Overview's activity. */
   history?(root: string): ActivityItem[];
+  /** Every edit a person made to a task's fields (T-74), for History. */
+  edits?(root: string): EditActivity[];
   /** The steps autopilot took in a project's repo, oldest first, wherever it ran (D-064). */
   autopilotLog?(root: string): AutopilotRecord[];
   /** The updates acc drafted for a project's tickets, posted or not (D-066). */
@@ -151,6 +153,15 @@ export interface ActivityItem {
   title: string;
   from: string | null;
   to: string;
+  by: string;
+}
+
+/** A person's edit of a task's fields (T-74): which fields it changed, by name, and who made it. */
+export interface EditActivity {
+  at: string;
+  task: string;
+  title: string;
+  fields: string[];
   by: string;
 }
 

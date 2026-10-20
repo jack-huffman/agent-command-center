@@ -7,6 +7,7 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { DispatchSheet } from '../src/model/dispatch-sheet.ts';
+import type { TaskSheet } from '../src/model/task-sheet.ts';
 import { afterModel, APP_WARNING, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, NO_BROWSER, noBrowser, OUTPUT_REVIEWS, OUTPUT_RUNS, OUTPUT_STEPS, OVERVIEW_LISTS, pageFor, PAGES, sampleModel, startState } from '../scripts/screenshot.ts';
 import { ROOT } from '../scripts/fixtures/shared.ts';
 import { PIN } from '../scripts/browser.ts';
@@ -53,6 +54,14 @@ test('every section of the page, and a ticket, has sample data built by the real
       if (kind === 'dispatch-sheet') assert.deepEqual([m.kind, (m as HomeModel).section, after?.type, sheet?.title, !!sheet?.size, sheet?.places.find((p) => p.value === 'cloud')?.disabled], ['home', 'tasks', 'dispatch-sheet', 'Dispatch ACME-16', true, undefined]);
       else if (kind === 'dispatch-sheet-anyway') assert.deepEqual([m.kind, (m as HomeModel).section, sheet?.go, sheet?.shares?.lines.map((l) => l.task)], ['home', 'tasks', 'Dispatch anyway', ['ACME-12', 'ACME-13']]);
       else assert.deepEqual([m.kind, (m as HomeModel).section, startState(kind)], ['home', 'tasks', { modes: { [ROOT]: 'agents' }, openMenu: `card:${ROOT}#ACME-16` }]);
+    } else if (kind.startsWith('task-sheet') || kind === 'ticket-edit') {
+      // The task sheet (T-74): a new task and a manual task's edit over the Tasks board, and a Jira task's edit over its tab, read-only where its ticket owns it.
+      const [after] = afterModel(kind);
+      const sheet = after?.sheet as TaskSheet | undefined;
+      const wants: Record<string, unknown[]> = { 'task-sheet-new': [null, 'Add task', false, false], 'task-sheet-manual': ['T-4', 'Save', false, true], 'ticket-edit': ['ACME-19', 'Save', true, true] };
+      const want = wants[kind];
+      assert.deepEqual([after?.type, sheet?.task, sheet?.go, !!sheet?.locked, sheet?.notes], ['task-sheet', ...want!], kind);
+      assert.equal(m.kind === 'home' ? (m as HomeModel).section : m.kind, kind === 'ticket-edit' ? 'ticket' : 'tasks');
     } else if (kind.startsWith('tasks-slack')) {
       // A Slack channel (T-31): a box for a thread's link in place of a board, empty or with a link Track refused.
       const b = (m as HomeModel).tasks.projects[0]!.boards[0]!;
@@ -78,7 +87,7 @@ test('every section of the page, and a ticket, has sample data built by the real
       const list = OVERVIEW_LISTS[kind];
       if (list) assert.deepEqual(startState(kind), { detail: { kind: 'list', group: list } });
       if (list) assert.ok(o.landing.find((g) => g.key === list)!.total > 3, `${kind}: more than Needs you would show`);
-      assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.counts.all], ['home', 'overview', 10, 6, 3, 2, 12]);
+      assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.counts.all], ['home', 'overview', 10, 6, 3, 2, 13]);
       assert.ok(o.inProgress.groups.every((g) => g.jobs.some((j) => j.kind === 'check')), 'each building task has its checks');
     }
     // History with more than two pages (D-170): the first 40 of 100 entries, three days of them, opened over the Overview.
@@ -117,7 +126,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }
   assert.equal((sampleModel('agents') as HomeModel).agents.whereView, 'folder');
-  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread', 'dispatch-sheet', 'ticket-dispatch', 'tasks-card-menu', 'dispatch-sheet-anyway', 'output-running', 'output-done', 'output-failed', 'output-details', 'output-steps-running', 'output-steps-failed', 'output-steps-done']);
+  assert.deepEqual(PAGES.filter((p) => !(HOME_SECTIONS as readonly string[]).includes(p)), ['agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-slack', 'tasks-slack-refused', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread', 'dispatch-sheet', 'ticket-dispatch', 'tasks-card-menu', 'dispatch-sheet-anyway', 'output-running', 'output-done', 'output-failed', 'output-details', 'output-steps-running', 'output-steps-failed', 'output-steps-done', 'task-sheet-new', 'task-sheet-manual', 'ticket-edit']);
   assert.equal((sampleModel('settings') as HomeModel).settings.slack?.state, 'on');
   // monday.com's Connect page: its token page, its board picked by name, and two status columns to choose from.
   const monday = (sampleModel('connect-monday') as HomeModel).connect!;

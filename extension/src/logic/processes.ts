@@ -49,6 +49,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['tracking'], name: 'Change whether the project uses source tracking', command: 'acc.settings.sourceTracking' },
   // Tasks
   { acc: ['add'], name: 'Add a task', command: 'acc.task.add' },
+  { acc: ['edit'], name: 'Edit the task', named: 'Edit {arg}', command: 'acc.task.edit' },
   { acc: ['import'], name: 'Import tickets' },
   { acc: ['intake', 'intake github', 'intake jira', 'intake azure', 'intake monday', 'intake slack'], name: 'Bring in tickets', command: 'acc.task.intake' },
   { acc: ['status'], name: 'Count the tasks' },
