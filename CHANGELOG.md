@@ -5,6 +5,35 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.42.0
+
+- Follow a sprint (D-178): a Jira tracker's place can be the board's active
+  sprint, or one sprint, alone or with an epic. Connect lists the board's open
+  and future sprints, and the board names the sprint and its dates. When the
+  active sprint changes, **Since you last looked** says so once, with how many
+  tickets carried over and how many went back to the backlog; a task already
+  started is never dropped.
+- A person filter on every board (D-176): Everyone, Mine, Unassigned, or one
+  person, with a count such as "Mine · 7 of 42". Each board keeps its choice,
+  and the arrow keys move only between the cards that show.
+- Write a task in a full sheet, and edit it later (D-175): **Add task** opens a
+  sheet with a title, a description of several lines, dependencies,
+  environment, labels and **Notes for the builder**. **Edit** on the task page,
+  the task modal, a card's menu and the palette opens it filled in, and
+  `acc edit` does the same. Edits show in History and in the task's activity.
+  A task is not edited while a builder runs, or once it is done.
+- Change a ticket from acc, where the project allows edits (D-177): the sheet
+  writes a Jira or GitHub ticket's title and description, and changes its
+  status, assignee and labels. Save reads the ticket again first, and stops
+  with both versions if someone changed it meanwhile. A Jira description that
+  holds content Markdown can't keep, such as mentions or attachments, is never
+  written back: the sheet names it and saves the other fields.
+- A Salesforce project can say it doesn't use source tracking (D-174): Setup's
+  source-tracking steps skip and say why, and Settings' **Limits and checks**
+  turns it on or off.
+- The update refuses a release with no checksum file (D-173), and says so.
+- The project's settings are always written whole (T-75).
+
 ## 0.41.0
 
 - A command palette (D-156): **Search or run a command** in the rail, `/`, or

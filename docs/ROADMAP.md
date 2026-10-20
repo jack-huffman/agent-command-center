@@ -1,7 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-16**. Version 0.41.0 is
+Where each piece of the build stands, as of **2026-10-20**. Version 0.41.0 is
 the latest release (2026-10-16), the first with a `.sha256` beside its `.vsix`.
+Version 0.42.0 is prepared and waits on a person to release it.
 
 Every bullet below is one status line, in this form:
 
@@ -99,6 +100,16 @@ where each one's done-when is written out.
 - **UI changes verified with a pinned headless shell**: done. Checked
   2026-10-16. Evidence: D-172. One check is still a person's: that the Chrome
   app opens a window when clicked while a run draws.
+- **Write and edit a task in a full sheet**: done. Checked 2026-10-20.
+  Evidence: D-175.
+- **Follow a Jira sprint, and filter a board by person**: done. Checked
+  2026-10-20. Evidence: D-176, D-178.
+- **Change a ticket's text and fields from acc, where edits are allowed**:
+  done. Checked 2026-10-20. Evidence: D-177. Jira and GitHub only; Azure
+  DevOps, monday.com and Slack refuse, with why.
+- **Help for a person who reviews other people's tickets**: under way. Checked
+  2026-10-20. Evidence: D-176, D-177. Drafted acceptance criteria are being
+  built. Verifying a developer's pull request waits on a person's answers.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
