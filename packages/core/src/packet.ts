@@ -21,6 +21,8 @@ export interface PacketInput {
   accPath?: string;
   /** On a rework, the review that asked for changes (D-032). */
   review?: Verdict | null;
+  /** On a rework, the task branch's latest commit. A passed review's findings reach a person's send-back only when the review was of this commit (T-76). */
+  head?: string;
   /** On a rework autopilot sent back, what GitHub's checks said on its pull request (D-076). */
   checks?: ChecksReport | null;
   /** On a rework the merge queue sent back, what it found: a conflict with the base, or the full check failing (GH-73). */
@@ -75,10 +77,11 @@ function depsSection(deps: PacketInput['deps']): string[] {
   ];
 }
 
+const where = (f: { file?: string; line?: number }) => (f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : '');
+
 /** On a rework: what the review asked for, so the next run fixes that and leaves the rest. */
 function reviewSection(v: Verdict | null | undefined): string[] {
   if (!v || v.verdict !== 'changes') return [];
-  const where = (f: { file?: string; line?: number }) => (f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : '');
   const must = v.findings.filter((f) => f.must);
   const unmet = v.criteria.filter((c) => !c.met);
   return [
@@ -95,10 +98,25 @@ function reviewSection(v: Verdict | null | undefined): string[] {
 }
 
 /**
+ * The findings a passed review listed, for a person's send-back (T-76): the review of the branch's latest
+ * commit only. A review that asked for changes shows its must-fix findings in reviewSection, so it adds
+ * none here; one of an older commit, or none, says nothing.
+ */
+function passedFindings(v: Verdict | null | undefined, head: string | undefined): string[] {
+  if (!v || v.verdict !== 'pass' || !v.findings.length || !head || v.sha !== head) return [];
+  return [
+    `The review of ${v.sha.slice(0, 7)} passed, and listed these findings:`,
+    '',
+    ...v.findings.map((f) => `- ${f.must ? '**Must fix:** ' : ''}${where(f)}${f.message}${f.rule ? ` (rule: ${f.rule})` : ''}`),
+    '',
+  ];
+}
+
+/**
  * On a rework a person sent back: why, in their words. A review that passed shows no findings, so without
  * this the builder sees nothing to fix and finishes unchanged, as GH-80 did twice.
  */
-function sentBackSection(task: Task): string[] {
+function sentBackSection(task: Task, review: Verdict | null | undefined, head: string | undefined): string[] {
   const back = [...task.history].reverse().find((h) => h.to === 'rework');
   if (task.state !== 'rework' || !back || back.actor !== 'human' || !back.reason?.trim()) return [];
   return [
@@ -108,6 +126,7 @@ function sentBackSection(task: Task): string[] {
     '',
     ...back.reason.trim().split('\n').map((l) => `> ${l}`),
     '',
+    ...passedFindings(review, head),
     'Do what it asks, and keep the rest of the change as it is. Then finish as below.',
     '',
   ];
@@ -156,7 +175,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
     ...depsSection(p.deps),
     ...lastRunSection(task, env),
     ...reviewSection(p.review),
-    ...sentBackSection(task),
+    ...sentBackSection(task, p.review, p.head),
     ...checksSection(p.checks),
     ...queueSection(p.queue),
     '## Where you are',

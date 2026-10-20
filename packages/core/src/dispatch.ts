@@ -366,11 +366,11 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     // the branch's latest commit. Only then: a review's or a person's rework at the same commit has its own
     // reasons, which the report would contradict.
     const cause = rework ? reworkCause(found) : null;
-    const head = cause === 'checks' || cause === 'queue' ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
+    const head = rework ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
     const packet = renderPacket({
       task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: where === 'local' && enter && !opts.foreground, cloud: where === 'cloud',
       // The Mac's acc path names the home folder, and means nothing in the cloud (GH-69): only a local builder gets it.
-      ...(where === 'local' ? { accPath: join(deps.accBinDir, 'acc') } : {}), review: rework ? latestVerdict(paths, found.id) : null, analysis: readAnalysis(paths, found.id),
+      ...(where === 'local' ? { accPath: join(deps.accBinDir, 'acc') } : {}), review: rework ? latestVerdict(paths, found.id) : null, head: head || undefined, analysis: readAnalysis(paths, found.id),
       checks: head && cause === 'checks' ? readChecksReport(paths, found.id, head) : null,
       queue: head && cause === 'queue' ? readQueueReport(paths, found.id, head) : null,
       // The notes the tasks it builds on left (D-106).

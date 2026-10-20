@@ -86,6 +86,37 @@ test('a rework a person sent back tells its builder why, in their words, though 
   assert.ok(!renderPacket({ task: t, config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] }).includes('Why a person sent it back'));
 });
 
+test('a rework a person sent back carries the passed review\'s findings with files and lines, of the latest commit only', () => {
+  const config = parseConfig(GENERIC_CONFIG).config!;
+  const l = emptyLedger();
+  upsertTasks(l, config, [{ source: { kind: 'github', key: '74', url: null }, title: 'Sheet', brief: 'b' }], 'human', 'h', () => {}, () => new Date());
+  const env = config.environments[0]!;
+  const t = l.tasks[0]!;
+  const at = '2026-10-19T09:00:00.000Z';
+  const back = { ...t, state: 'rework' as const, history: [...t.history, { at, actor: 'human' as const, by: 'human:jack', from: 'review' as const, to: 'rework' as const, reason: 'Fix the findings.' }] };
+  const head = 'b'.repeat(40);
+  const findings = [
+    { file: 'src/a.ts', line: 12, message: 'Name the edge case.', must: true },
+    { file: 'src/b.ts', message: 'Tidy this later.', must: false },
+  ];
+  const passed = { v: 1 as const, task: 'GH-74', sha: head, env: 'main', verdict: 'pass' as const, summary: 'Adds a sheet.', criteria: [], findings, sessionId: 's', at, durationMs: 1, costUsd: null };
+  const input = { config, env, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [] };
+  const p = renderPacket({ task: back, ...input, review: passed, head });
+  for (const must of ['The review of bbbbbbb passed, and listed these findings:', '- **Must fix:** `src/a.ts:12`: Name the edge case.', '- `src/b.ts`: Tidy this later.']) assert.ok(p.includes(must), must);
+  assert.ok(p.indexOf('> Fix the findings.') < p.indexOf('Name the edge case.'), 'the person\'s reason comes first');
+  // The review is of an older commit than the branch's last, there's none, or the branch's commit is unknown: nothing is said.
+  for (const [what, extra] of [['an older commit', { review: passed, head: 'c'.repeat(40) }], ['no review', { review: null, head }], ['an unknown head', { review: passed }]] as const) {
+    const q = renderPacket({ task: back, ...input, ...extra });
+    assert.ok(q.includes('> Fix the findings.'), what);
+    assert.ok(!q.includes('Name the edge case.') && !q.includes('listed these findings') && !q.includes('review of'), what);
+  }
+  // A review that asked for changes shows its must-fix findings once, in its own section; the person's send-back adds none.
+  const asked = { ...passed, verdict: 'changes' as const };
+  const r = renderPacket({ task: back, ...input, review: asked, head });
+  assert.equal(r.split('Name the edge case.').length - 1, 1, 'listed once');
+  assert.ok(r.includes('## What the review asked for') && !r.includes('Tidy this later.') && !r.includes('listed these findings'));
+});
+
 test('where a ratchet is a builder\'s check, the finish line says to commit the floor acc raised and never to make one worse; a builder can\'t relax one (GH-99)', () => {
   const raw = {
     ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true },
