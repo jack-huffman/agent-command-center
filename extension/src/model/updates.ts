@@ -56,6 +56,7 @@ export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
     case 'deployed': return `Deployed to ${u.env ?? 'its environment'}`;
     case 'blocked': return 'Blocked on a question only the client can answer';
     case 'question': return 'A question from its analysis';
+    case 'criteria': return 'Drafted acceptance criteria, test steps and edge cases';
   }
 }
 

@@ -14,14 +14,14 @@ import { isTrackerKind, type TrackerKind } from './trackers/types.ts';
  * here, one file each. A person reads it, edits it, and posts it as themselves, or discards it.
  */
 
-export const UPDATE_EVENTS = ['pr-opened', 'pr-updated', 'merged', 'promotion-opened', 'promoted', 'deployed', 'blocked', 'question'] as const;
+export const UPDATE_EVENTS = ['pr-opened', 'pr-updated', 'merged', 'promotion-opened', 'promoted', 'deployed', 'blocked', 'question', 'criteria'] as const;
 export type UpdateEvent = (typeof UPDATE_EVENTS)[number];
 
 /**
  * The events a Slack task's ticket gets a draft for (D-145): a thread takes fewer, so only the news that a
- * change is merged or deployed, and the client's questions. The other trackers get all of UPDATE_EVENTS.
+ * change is merged or deployed, the client's questions, and drafted acceptance criteria (T-81). The other trackers get all of UPDATE_EVENTS.
  */
-export const SLACK_UPDATE_EVENTS: readonly UpdateEvent[] = ['merged', 'deployed', 'blocked', 'question'];
+export const SLACK_UPDATE_EVENTS: readonly UpdateEvent[] = ['merged', 'deployed', 'blocked', 'question', 'criteria'];
 
 export const UPDATE_STATES = ['draft', 'posting', 'posted', 'discarded'] as const;
 export type UpdateState = (typeof UPDATE_STATES)[number];
@@ -86,6 +86,7 @@ export const EVENT_WORDS: Record<UpdateEvent, string> = {
   deployed: 'deployed',
   blocked: 'a question for the client',
   question: 'a question from its analysis',
+  criteria: 'drafted acceptance criteria',
 };
 
 /** Whether a task's ticket can take updates: one from a tracker, with a key. A task acc alone keeps can't. */
@@ -130,6 +131,7 @@ export function updateText(event: UpdateEvent, c: UpdateContext): string {
     case 'deployed': return `The change is now deployed to ${c.env ?? 'its environment'}.`;
     case 'blocked': return `We need your input before we can go on:\n${sentence(c.question ?? '')}`;
     case 'question': return `Before we start, a question for you:\n${sentence(c.question ?? '')}`;
+    case 'criteria': return `Proposed acceptance criteria, test steps and edge cases, for you to check:${summary}`;
   }
 }
 
