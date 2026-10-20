@@ -13,7 +13,7 @@ import { tempDir } from '../../packages/core/test/temp-root.ts';
 import { fromMarkdown, unkeptRefusal } from '../../packages/core/src/trackers/doc.ts';
 import { textRefusal, type Ticket } from '../../packages/core/src/trackers/types.ts';
 import { CriteriaDrafts, type CriteriaHost } from '../src/logic/criteria.ts';
-import { area, CRITERIA_ACTIONS, readWords, sheetRefusal, ticketCriteria, withSheetCriteria } from '../src/model/criteria.ts';
+import { area, CRITERIA_ACTIONS, CRITERIA_DONE, readWords, sheetRefusal, TASK_SHEET_DRAFT, ticketCriteria, withSheetCriteria } from '../src/model/criteria.ts';
 import { modalTakes } from '../src/model/task-modal.ts';
 import { ticketModel } from '../src/model/task-page.ts';
 import { EDITS_OFF, type SheetTicket, taskSheet, type TaskSheetInput } from '../src/model/task-sheet.ts';
@@ -213,6 +213,27 @@ test('the page\'s messages are checked before the extension acts, and the modal 
     assert.equal(modalTakes(o, { type, project: '/r', task: 'acme-7' } as FromWebview, new Set()), true, type);
     assert.equal(modalTakes(o, { type, project: '/r', task: 'ACME-8' } as FromWebview, new Set()), false, `${type}: another task's`);
   }
+});
+
+// ---------------------------------------------------------------- the page and the extension agree
+
+const source = (path: string): string => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+test('the page takes the replies by the names the extension sends, and draws the section under the description', () => {
+  assert.deepEqual([CRITERIA_DONE, TASK_SHEET_DRAFT], ['criteria-done', 'task-sheet-draft']);
+  assert.match(source('../webview/criteria.ts'), new RegExp(`'${CRITERIA_DONE}': done`), 'the section takes how its buttons went');
+  assert.match(source('../webview/task-sheet.ts'), new RegExp(`'${TASK_SHEET_DRAFT}': drafted`), 'the sheet takes its draft');
+  const page = source('../webview/task-page.ts');
+  const at = page.indexOf('if (m.criteria) main.append(renderCriteria(m, m.criteria));');
+  assert.ok(at > 0 && at > page.indexOf('renderDoc(m.body, \'No description.\')'), 'renderCriteria comes after the description');
+});
+
+test('edge: every way the Command Center opens the task sheet for a task passes sheetDress, so its drafting shows', () => {
+  const tasks = source('../src/tasks.ts');
+  const opens = tasks.match(/openTaskSheet\(/g) ?? [];
+  const dressed = tasks.match(/sheetDress\((?:root, id|ref\.project, ref\.task)\)\)/g) ?? [];
+  assert.ok(opens.length >= 2, 'found the sheet\'s opens');
+  assert.equal(dressed.length, opens.length, 'each open passes sheetDress');
 });
 
 test('the extension waits for a draft as long as the drafter may take twice, and other commands as before', () => {

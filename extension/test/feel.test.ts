@@ -183,6 +183,7 @@ const PRIMARY_MARK = /'primary\b|'btn primary\b|\? ' primary'|(?:toolbarButton|a
 const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'agent-page.ts', at: /'primary small'/, why: 'Send: the message the person typed, to an agent that waits on it.' },
   { file: 'agents.ts', at: /b\('Answer'/, why: 'Answer: an agent waits on the person\'s answer to its question.' },
+  { file: 'criteria.ts', at: /primary \? 'primary' : ''\);$/, why: 'Drafted acceptance criteria (T-81): Draft acceptance criteria before there is a draft, then Add to the description, the person\'s next step, as the model marks it.' },
   { file: 'analysis.ts', at: /button\('Answer'/, why: 'Answer: the analysis waits on the person\'s answer.' },
   { file: 'task-actions.ts', at: /\$\{primary \? ' primary'/, why: 'A task\'s next step, on its page and its card, such as a card\'s Answer: primary only where the model\'s action is (D-168).' },
   { file: 'task-sheet.ts', at: /'primary ts-go'/, why: 'The task sheet\'s Add task or Save: what the person wrote in it, sent; the sheet opened only to take it (T-74).' },

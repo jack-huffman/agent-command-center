@@ -8067,12 +8067,14 @@ acceptance criteria, test steps and edge cases. They started from nothing.
   drafted, the wording fix and what stays, the refusals, and the update draft.
   `packages/cli/test/draft.test.ts` has 4, with a fake claude: `--json` from a
   ticket file, the description alone, `acc draft update`, and the refusals.
-  `extension/test/criteria.test.ts` has 14: the page's section, both ways
-  out, the sheet's draft, the ticket file acc gets, the refusals, and a fake
-  tracker that records any write and gets none. That is 33 tests. Two
+  `extension/test/criteria.test.ts` has 16: the page's section, both ways
+  out, the sheet's draft, the ticket file acc gets, the refusals, a fake
+  tracker that records any write and gets none, and the names the page and
+  the extension share. That is 35 tests. Two
   behaviour cases drive the sheet's draft and the page's buttons in a
   browser, and four mutants each fail one. The screenshot run adds two pages
   over ACME-19's tab: the sheet with the draft in its description, and the
-  draft as an update.
+  draft as an update. With 107 pages, the run's overlap floor rises from 18900 to
+  19260 (30 controls a drawing).
 - Not chosen: posting or saving the draft from acc; drafting for a task with
   no tracker; and reading a tracker from the CLI.
