@@ -68,6 +68,11 @@ export interface Ticket {
   body: Doc;
   /** The description as markdown: GitHub's own text, or Jira's converted. It becomes a builder's brief. */
   markdown: string;
+  /**
+   * What the description holds that its markdown can't, by name, such as Jira's mentions and attachments:
+   * acc doesn't write the description back while there's any (T-80). Not set: nothing.
+   */
+  unkept?: string[];
   comments: Comment[];
   /** Parent, sub-tasks and links, shown as related tickets. */
   related: { key: string; title: string; relation: string; url: string | null }[];

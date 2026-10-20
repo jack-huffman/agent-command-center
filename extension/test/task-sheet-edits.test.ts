@@ -1,14 +1,16 @@
 // The task sheet where the project allows edits (T-80): a tracker task's title and description are boxes
 // only where its tracker says "edits": true and acc can write its ticket, filled in from the ticket; where
 // edits are off they stay read-only and say the project's settings turn edits on. Its status, assignee and
-// labels show with a Change. The description on the task page has Edit by the same rule.
+// labels show with a Change. The description on the task page has Edit by the same rule. A description
+// that holds what can't be written back is shown read-only, with a warning naming what.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Task } from '../../packages/core/src/ledger.ts';
 import { textRefusal, type Ticket } from '../../packages/core/src/trackers/types.ts';
 import { editTextAction, ticketModel } from '../src/model/task-page.ts';
+import { textChanges } from '../src/model/ticket-text.ts';
 import {
-  area, EDITS_OFF, openTaskSheet, type SheetTicket, sheetLock, TASK_SHEET_DONE, TASK_SHEET_MESSAGE, TASK_SHEET_ROWS, taskSheet, taskSheetArgs, type TaskSheetInput,
+  area, EDITS_OFF, openTaskSheet, type SheetTicket, sheetLock, TASK_SHEET_DONE, TASK_SHEET_MESSAGE, TASK_SHEET_ROWS, taskSheet, taskSheetArgs, type TaskSheetInput, unkeptWarning,
 } from '../src/model/task-sheet.ts';
 
 const ENVS = [{ name: 'Dev', branch: 'dev', default: true }];
@@ -33,6 +35,21 @@ test('edits on: the title and description come from the ticket and are the perso
   assert.deepEqual(taskSheet(input(jira(), side({ fields: ['status'] })))!.ticketEdits!.rows.map((r) => r.field), ['status'], 'only the fields its tracker has');
 });
 
+test('edge: a description that holds mentions and attachments warns before Save, naming them, and only the title is Save\'s to write', () => {
+  const s = taskSheet(input(jira(), side({ ticket: { ...ticket!, unkept: ['mentions', 'attachments'] } })))!;
+  assert.equal(s.ticketEdits!.unkept, unkeptWarning(['mentions', 'attachments']));
+  assert.match(s.ticketEdits!.unkept!, /holds mentions and attachments, which acc can't write back without losing.*Save still writes its title\./);
+  assert.match(s.locked!, /^Save writes its title to its Jira ticket\./);
+  assert.deepEqual(s.ticketEdits!.base, { title: 'As the ticket says now', markdown: 'New text' }, 'Save still checks against the ticket');
+  // The description is shown kept, so the sheet sends it as it opened, and Save writes only the title.
+  assert.deepEqual(textChanges(s.ticketEdits!.base!, { title: 'A new title', markdown: s.fields.brief }), { title: 'A new title' });
+  const plain = taskSheet(input(jira(), side({ ticket: { ...ticket!, unkept: [] } })))!;
+  assert.deepEqual([plain.ticketEdits!.unkept, unkeptWarning(undefined)], [null, null], 'a plain description: no warning');
+  assert.match(plain.locked!, /title and description/);
+  const azure = taskSheet(input(jira({ id: 'AB-7', source: { kind: 'azure', key: 'AB-7', url: null } }), side({ kind: 'azure', ticket: { ...ticket!, unkept: ['mentions'] } })))!;
+  assert.equal(azure.ticketEdits!.unkept, null, 'no warning where the description is read-only anyway');
+});
+
 test('edits off: the fields stay read-only, as the ticket owned them, and the sheet says the project\'s settings turn edits on', () => {
   for (const st of [undefined, null, side({ edits: false, ticket: null })]) {
     const s = taskSheet(input(jira(), st))!;
@@ -52,7 +69,7 @@ test('edge cases: a tracker that can\'t take text, a ticket that couldn\'t be re
   assert.equal(azure.ticketEdits!.rows.length, 3, 'its status, assignee and labels still change, as on its page');
   assert.equal(azure.fields.title, 'As intake brought it');
   const unread = taskSheet(input(jira(), side({ ticket: null, error: 'Jira refused the sign-in.' })))!;
-  assert.deepEqual([unread.ticketEdits, unread.fields.title], [{ base: null, rows: [] }, 'As intake brought it']);
+  assert.deepEqual([unread.ticketEdits, unread.fields.title], [{ base: null, rows: [], unkept: null }, 'As intake brought it']);
   assert.equal(unread.locked, 'Its Jira ticket couldn\'t be read, so its title and description can\'t change here now. Jira refused the sign-in.');
   const manual = taskSheet(input(jira({ id: 'T-3', source: { kind: 'manual', key: null, url: null } }), side()))!;
   assert.deepEqual([manual.ticketEdits, manual.locked], [null, null], 'a manual task is acc\'s own: no ticket');

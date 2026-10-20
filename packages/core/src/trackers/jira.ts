@@ -2,7 +2,7 @@
  * Jira Cloud over its REST API, with the person's email and API token (D-026). A board's columns are the
  * Jira board's own columns, each mapped to the statuses it holds, and a move is a workflow transition.
  */
-import { type AdfNode, fromAdf, fromMarkdown, toAdf, toMarkdown } from './doc.ts';
+import { type AdfNode, adfUnkept, fromAdf, fromMarkdown, toAdf, toMarkdown, unkeptRefusal } from './doc.ts';
 import {
   type Board, type BoardCard, type BoardColumn, inBatches, type Label, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
   type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
@@ -209,7 +209,7 @@ export class JiraClient implements TrackerClient {
       key: i.key, kind: 'jira', url: browse(i.key), title: f.summary, type: f.issuetype?.name ?? null, status: status(f.status),
       assignees: f.assignee ? [person(f.assignee)] : [], reporter: f.reporter ? person(f.reporter) : null,
       labels: (f.labels ?? []).map((name) => ({ name, color: null })), priority: f.priority?.name ?? null,
-      created: f.created, updated: f.updated, body: fromAdf(f.description), markdown: toMarkdown(fromAdf(f.description)),
+      created: f.created, updated: f.updated, body: fromAdf(f.description), markdown: toMarkdown(fromAdf(f.description)), unkept: adfUnkept(f.description),
       comments: (f.comment?.comments ?? []).map((c) => ({ id: c.id, author: person(c.author), created: c.created, body: fromAdf(c.body), url: `${browse(i.key)}?focusedCommentId=${c.id}` })),
       related: [
         ...(f.parent ? [{ key: f.parent.key, title: f.parent.fields.summary, relation: 'parent', url: browse(f.parent.key) }] : []),
@@ -249,14 +249,23 @@ export class JiraClient implements TrackerClient {
     await this.req('POST', `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body: toAdf(fromMarkdown(markdown)) });
   }
 
-  /** The summary and the description, the description as ADF, as a comment goes. An empty description clears it. */
+  /**
+   * The summary and the description, the description as ADF, as a comment goes. An empty description clears
+   * it. A description that holds what Markdown can't (mentions, attachments, panels…) is refused, with what,
+   * and nothing is written, since writing it back would drop them from the ticket.
+   */
   async setText(key: string, text: TicketText): Promise<void> {
     const fields: Record<string, unknown> = {};
     if (text.title !== undefined) {
       if (!text.title.trim()) throw new TrackerError('refused', 'A ticket needs a title.');
       fields.summary = text.title.trim();
     }
-    if (text.markdown !== undefined) fields.description = text.markdown.trim() ? toAdf(fromMarkdown(text.markdown)) : null;
+    if (text.markdown !== undefined) {
+      const now = await this.req<{ fields: { description: AdfNode | null } }>('GET', `/rest/api/3/issue/${encodeURIComponent(key)}?fields=description`);
+      const unkept = adfUnkept(now.fields.description);
+      if (unkept.length) throw new TrackerError('refused', unkeptRefusal(unkept));
+      fields.description = text.markdown.trim() ? toAdf(fromMarkdown(text.markdown)) : null;
+    }
     if (!Object.keys(fields).length) return;
     await this.req('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields });
   }

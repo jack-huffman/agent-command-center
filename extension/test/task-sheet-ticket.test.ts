@@ -215,7 +215,7 @@ test('edge: edits turned off in the project\'s settings: Save and Change refuse 
   assert.deepEqual([done.ok, done.error], [false, `Its ticket can't change from here. ${EDITS_OFF}`], JSON.stringify(done));
   const r = await sendChange('GH-7');
   assert.equal(r.ok, false);
-  assert.ok(r.error?.includes('read-only here') && ticketActionRefusal('status', false)!.includes('read-only here'), r.error);
+  assert.ok(r.error?.startsWith(ticketActionRefusal('status', false)!.split('. ')[0]!), String(r.error));
   assert.deepEqual([edits().length, picked, readFileSync(s.issue, 'utf8')], [before, 0, was], 'nothing written, no quick pick, the issue as it was');
   calls.pick = undefined;
   writeFileSync(join(s.repo, '.acc', 'config.json'), config(true));

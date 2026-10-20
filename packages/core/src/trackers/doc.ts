@@ -265,6 +265,54 @@ export function fromAdf(adf: AdfNode | null | undefined): Doc {
   return { blocks: adfBlocks(adf.type === 'doc' ? adf.content : [adf]) };
 }
 
+// ---------------------------------------------------------------- what Markdown can't hold of an ADF description
+
+/** The ADF that comes back the same through Markdown: anything else in a description would be lost by writing it back (T-80). */
+const ADF_KEPT = new Set(['doc', 'paragraph', 'text', 'hardBreak', 'heading', 'bulletList', 'orderedList', 'listItem', 'codeBlock', 'blockquote', 'rule', 'table', 'tableRow', 'tableHeader', 'tableCell']);
+const ADF_KEPT_MARKS = new Set(['strong', 'em', 'code', 'strike', 'link']);
+
+/** What a person calls each kind of ADF that Markdown can't hold. */
+const ADF_UNKEPT: Record<string, string> = {
+  mention: 'mentions', emoji: 'emoji', status: 'status lozenges', date: 'dates', inlineCard: 'linked cards', blockCard: 'linked cards', embedCard: 'linked cards',
+  media: 'attachments', mediaSingle: 'attachments', mediaGroup: 'attachments', mediaInline: 'attachments', panel: 'panels', expand: 'expands', nestedExpand: 'expands',
+  taskList: 'action items', taskItem: 'action items', decisionList: 'decisions', decisionItem: 'decisions', extension: 'macros', bodiedExtension: 'macros',
+  inlineExtension: 'macros', layoutSection: 'layouts', layoutColumn: 'layouts', placeholder: 'placeholders',
+};
+const ADF_UNKEPT_MARKS: Record<string, string> = {
+  underline: 'underlining', textColor: 'coloured text', backgroundColor: 'highlighted text', subsup: 'subscript and superscript', alignment: 'aligned text',
+  indentation: 'indented text', annotation: 'inline comments', border: 'borders',
+};
+
+/**
+ * What a Jira description holds that Markdown can't, by name, in the order first met: mentions, attachments,
+ * panels, merged table cells and the like. Writing the description back from Markdown would drop each, so
+ * acc doesn't (T-80). Empty for a description that comes back the same, or none.
+ */
+export function adfUnkept(adf: AdfNode | null | undefined): string[] {
+  const found = new Set<string>();
+  const walk = (n: AdfNode) => {
+    if (!n || typeof n !== 'object') return;
+    if (!ADF_KEPT.has(n.type)) found.add(ADF_UNKEPT[n.type] ?? `other Jira content (${n.type})`);
+    for (const m of n.marks ?? []) if (!ADF_KEPT_MARKS.has(m.type)) found.add(ADF_UNKEPT_MARKS[m.type] ?? `other Jira formatting (${m.type})`);
+    if (n.type === 'tableCell' || n.type === 'tableHeader') {
+      const a = n.attrs ?? {};
+      if (Number(a.colspan ?? 1) > 1 || Number(a.rowspan ?? 1) > 1) found.add('merged table cells');
+      if (a.background) found.add('coloured table cells');
+      if ((n.content ?? []).length > 1 || (n.content ?? []).some((c) => c.type !== 'paragraph')) found.add('table cells with more than one paragraph');
+    }
+    for (const c of n.content ?? []) walk(c);
+  };
+  if (adf) walk(adf);
+  return [...found];
+}
+
+/** Names in a sentence: "mentions", "mentions and attachments", "mentions, panels and attachments". */
+const inWords = (xs: string[]): string => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+
+/** Why a Jira description isn't written from acc: what it holds that would be lost, by name. */
+export const unkeptRefusal = (names: string[]): string =>
+  `Its description in Jira holds ${inWords(names)}, which acc can't write back without losing, so acc leaves the description as it is: change it in Jira.`;
+
 // ---------------------------------------------------------------- Doc → ADF, for comments sent to Jira
 
 function toAdfInlines(c: Inline[]): AdfNode[] {

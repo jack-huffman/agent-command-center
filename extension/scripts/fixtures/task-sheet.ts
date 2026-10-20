@@ -3,14 +3,15 @@
  * task; a manual task kept by acc, filled in with notes for the builder; and ACME-19, a Jira task in rework, whose ticket owns
  * its title, description, dependencies and labels. With edits on (T-80), ACME-19's sheet has its ticket's
  * title and description to edit, and its status, assignee and labels to change; and the ticket's text a
- * colleague wrote after the sheet opened, which Save stops on.
+ * colleague wrote after the sheet opened, which Save stops on. Its description may hold a mention and an
+ * attachment, which the sheet warns about and keeps read-only, as Save can't write them back.
  */
 import { taskSheet, type TaskSheet, type TaskSheetInput } from '../../src/model/task-sheet.ts';
 import type { TicketTextBase } from '../../src/model/ticket-text.ts';
 import { sampleHub } from './hub.ts';
 import { ROOT } from './shared.ts';
 
-export type TaskSheetSample = 'new' | 'manual' | 'tracker' | 'edits';
+export type TaskSheetSample = 'new' | 'manual' | 'tracker' | 'edits' | 'unkept';
 
 /** What the extension makes the sheet from, for each sample. */
 export function sampleTaskSheetInput(now: number, which: TaskSheetSample): TaskSheetInput {
@@ -47,6 +48,7 @@ export function sampleTaskSheetInput(now: number, which: TaskSheetSample): TaskS
       ticket: {
         title: row.title, markdown: 'New contacts get the welcome email twice when the flow runs again within a day. Send it once.',
         status: { id: '3', name: 'In Progress', category: 'doing' }, assignees: [{ id: 'a1', name: 'Jordan Kim' }], labels: [{ name: 'marketing', color: null }],
+        ...(which === 'unkept' ? { unkept: ['mentions', 'attachments'] } : {}),
       },
     },
   };
