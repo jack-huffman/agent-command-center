@@ -124,3 +124,13 @@
   .thread-link { grid-template-columns: minmax(0, 1fr); }
   .thread-link .cfield-label { padding-top: 0; }
 }
+
+/* A board's person filter (T-79): its button says the choice and count; its menu reuses the ⋯ menu's look. */
+.person-filter { position: relative; }
+.person-btn { max-width: 100%; }
+.person-btn > span:not(.codicon) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person-menu { top: calc(100% + 2px); left: 0; right: auto; max-width: min(300px, 80vw); }
+.person-item .person-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.person-item.on { background: var(--vscode-list-activeSelectionBackground, var(--vscode-toolbar-hoverBackground)); color: var(--vscode-list-activeSelectionForeground, inherit); }
+.person-item:disabled { opacity: .55; cursor: default; }
+.person-none { margin: 8px 0; }

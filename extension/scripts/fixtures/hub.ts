@@ -47,6 +47,8 @@ export function sampleHub(now = Date.now()): HubLike {
   const questions = sampleQuestions(now, wt);
   const answers = sampleAnswers(now, wt);
   return {
+    // The person the sample window belongs to: Mine on the agent board means the tasks they dispatched (T-79).
+    user: 'jordan',
     projects: [project], agents, agentsError: null, questions, answers,
     askingFor: (s) => { const q = questions.find((x) => x.sessionId === s.sessionId); return q ? askingLabel(q.tool) : null; },
     tieFor: (s) => (isUnder(s.cwd, root) ? tieSession(s, here) : isUnder(s.cwd, CLIENTS) ? tieSession(s, clients) : null),

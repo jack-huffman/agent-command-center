@@ -29,6 +29,15 @@ export function columnLook(name: string, category: StatusCategory): { icon: stri
   return category !== 'done' && WAITING.test(name) ? { icon: 'circle-slash', tone: 'orange' } : CATEGORY_LOOK[category];
 }
 
+/** A person a board's filter knows (T-79): the key it matches on, and the name it shows. */
+export interface Who {
+  key: string;
+  name: string;
+}
+
+/** A person's key on a board: the tracker's id for them, else their name. */
+export const whoKey = (p: { id?: string; name: string }): Who => ({ key: p.id ?? p.name, name: p.name });
+
 export interface PersonChip {
   name: string;
   initials: string;
@@ -66,12 +75,14 @@ export interface BoardInput {
   index: number;
   kind: TrackerKind;
   title: string;
-  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; assignees: { name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null }[] } | null;
+  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; assignees: { id?: string; name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null }[] } | null;
   error: string | null;
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
   /** Who the board acts as: the GitHub account, the Jira email, the Microsoft account. */
   signedInAs?: string | null;
+  /** The tracker's own account for it (T-79), which a card's assignee is matched against for Mine: its id, else its name. Null when the tracker can't say. */
+  me?: { id?: string; name: string } | null;
   /** Where a Jira, Azure DevOps or monday.com sign-in is kept (GH-79): for every project on its host, or this one only. */
   signInScope?: { shared: boolean; host: string } | null;
   /** Where its tickets come from (D-072), such as "Jira · ACME · epic ACME-3 Premium Support". */
@@ -93,6 +104,8 @@ export interface TrackerCard {
   priorityIcon: string | null;
   labels: { name: string; color: string | null }[];
   assignees: PersonChip[];
+  /** Who has it, as the board's person filter reads it (T-79): each assignee's key and name. Empty when nobody has it. */
+  people: Who[];
   status: string;
   /** The task acc keeps for this ticket, when there is one: where it is, its next step, why its pull request won't merge, and its checks that failed on GitHub. */
   acc: { look: Look; needsYou: boolean; action: Action | null; conflicts: string | null; failedChecks: string | null } | null;
@@ -125,6 +138,8 @@ export interface TrackerBoard {
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
   signedInAs: string | null;
+  /** The key of the person Mine means on this board (T-79), or null when the tracker can't say who that is. */
+  me: string | null;
   /**
    * Who it's signed in as and where that sign-in is kept (GH-79), drawn under its place: "Signed in as
    * jordan@acme.example, for every project on acme.atlassian.net". Null for GitHub, which says who in its title.
@@ -209,7 +224,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
       const tracking = b.tracking?.[card.key];
       return {
         key: card.key, title: card.title, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
-        labels: card.labels, assignees: card.assignees.map(chip), status: card.status.name,
+        labels: card.labels, assignees: card.assignees.map(chip), people: card.assignees.map(whoKey), status: card.status.name,
         acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next, conflicts: conflictLine(row), failedChecks: failedChecksLine(row) } : null,
         track: row || c.category === 'done' ? null : { busy: !!tracking?.busy, error: tracking?.error ?? null },
       };
@@ -219,7 +234,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
   const signIn = b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null;
   return {
     index: b.index, kind: b.kind, title, tab: BOARD_WORD[b.kind] ?? title, source: b.board?.source ?? null, url: b.board?.url ?? null,
-    notice: b.board?.notice ? inProcessWords(b.board.notice) : null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null,
+    notice: b.board?.notice ? inProcessWords(b.board.notice) : null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null, me: b.me ? whoKey(b.me).key : null,
     signIn,
     place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], movedOut: movedOut(b.place ?? null, b.left ?? []), columns,
     changeTitle: changeTitle(signIn, b.signedInAs ?? null),
