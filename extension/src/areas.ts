@@ -6,6 +6,7 @@ import { area as autopilot } from './autopilot.ts';
 import { area as branches } from './branches.ts';
 import { area as cloud } from './cloud.ts';
 import { area as connect } from './connect.ts';
+import { area as criteria } from './criteria.ts';
 import { area as dockReview } from './dock-review.ts';
 import { area as environments } from './environments.ts';
 import { area as history } from './history.ts';
@@ -28,4 +29,4 @@ import { area as tidy } from './tidy.ts';
 import { area as trackers } from './trackers.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agents, autopilot, branches, cloud, connect, dockReview, environments, history, identity, limits, notices, palette, progress, questions, rules, runs, selfUpdate, settings, setup, slack, taskModal, tasks, ticket, tidy, trackers, worktrees];
+export const AREAS = [about, agents, autopilot, branches, cloud, connect, criteria, dockReview, environments, history, identity, limits, notices, palette, progress, questions, rules, runs, selfUpdate, settings, setup, slack, taskModal, tasks, ticket, tidy, trackers, worktrees];

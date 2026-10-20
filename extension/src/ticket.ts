@@ -24,6 +24,7 @@ import { inProcessWords } from './logic/processes.ts';
 import { type Excerpt, fileInCheckout, mergeBase, reviewExcerpts } from './logic/review-excerpts.ts';
 import { openReview } from './rules.ts';
 import { pickField } from './ticket-edits.ts';
+import type { CriteriaActions } from './criteria.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -110,6 +111,8 @@ export class TicketPanels implements vscode.Disposable {
     /** Change on the sheet's status, assignee or labels (T-80), from Edit on this page. */
     field(m: Extract<FromWebview, { type: 'task-sheet-field' }>, say: (msg: Record<string, unknown>) => void): void;
   } | null = null;
+  /** Drafted acceptance criteria (T-81), set by its area: the section's state, its buttons, and the sheet's own Draft. */
+  criteria: CriteriaActions | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
@@ -319,6 +322,7 @@ export class TicketPanels implements vscode.Disposable {
       trackerEdits: this.edits(o, p), trackerFields: client?.fields, updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
       tracking: this.trackers.trackState(p.root, o.key).busy,
       review: task ? await this.review(o, p, task) : null,
+      ...(task && this.criteria ? this.criteria.state(p.root, task.id) : {}),
     });
     o.view.draw(model);
   }
@@ -376,6 +380,11 @@ export class TicketPanels implements vscode.Disposable {
       case 'dispatch-sheet-go': this.dispatch?.go(m); return;
       case 'task-sheet-go': this.dispatch?.save(m, (msg) => o.view.say(msg)); return;
       case 'task-sheet-field': this.dispatch?.field(m, (msg) => o.view.say(msg)); return;
+      // Drafted acceptance criteria (T-81): this page's own task only.
+      case 'criteria-draft': case 'criteria-update': case 'criteria-sheet':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.criteria?.act(m, (msg) => o.view.say(msg));
+        return;
+      case 'task-sheet-criteria': await this.criteria?.sheet(m, (msg) => o.view.say(msg)); return;
       case 'toolbar':
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);
         return;
