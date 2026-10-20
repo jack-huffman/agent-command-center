@@ -1,5 +1,6 @@
 /** Tracker boards (D-026): a Jira board and a monday.com board, with acc's tasks for some of their cards, and a Slack channel's box. */
 import { NO_PASTE, slackLinkKey } from '../../src/logic/slack-link.ts';
+import { placeText } from '../../../packages/core/src/trackers/types.ts';
 import type { BoardInput } from '../../src/model/boards.ts';
 
 const status = (id: string, name: string, category: 'todo' | 'doing' | 'done') => ({ id, name, category });
@@ -141,5 +142,20 @@ export function sampleSlackBoards(refused = false): BoardInput[] {
     index: 0, kind: 'slack', title: 'Slack · acme', error: null, connect: null, loading: false, signedInAs: 'Acme Command Center',
     signInScope: { shared: false, host: 'acme' }, place: 'Slack · acme · channel C0123ABCD', left: [], board: null,
     paste: { ...place, ...(refused ? { link, busy: false, error: read.ok ? null : read.error, tracked: null } : NO_PASTE) },
+  }];
+}
+
+/**
+ * The Jira board following the active sprint (T-78): its place names the sprint and its dates, it shows only
+ * the sprint's tickets, and a task that started went back to the backlog when the last sprint closed.
+ */
+export function sampleSprintBoards(): BoardInput[] {
+  const [jira] = sampleBoards();
+  const sprints = [{ id: 13, name: 'ACME Sprint 13', state: 'active' as const, start: '2026-10-20T09:00:00.000Z', end: '2026-11-02T17:00:00.000Z' }];
+  const inSprint = ['ACME-16', 'ACME-21', 'ACME-24', 'ACME-30', 'ACME-14', 'ACME-12', 'ACME-15', 'ACME-19', 'ACME-10'];
+  return [{
+    ...jira!, place: placeText({ kind: 'jira', project: 'ACME', sprint: 'active', sprints }), tracking: {},
+    left: ['ACME-18 left this repo\'s place: it isn\'t in the active sprint; ACME-18 is still blocked'],
+    board: { ...jira!.board!, cards: jira!.board!.cards.filter((c) => inSprint.includes(c.key)) },
   }];
 }

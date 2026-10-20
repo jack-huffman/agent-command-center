@@ -116,7 +116,7 @@ export interface BehaviourData {
    * Since you last looked (D-164), on the Overview with news held while away: its heading's part, its title,
    * each line's task in order, and what a click on the first line sends.
    */
-  since: { part: string; title: string; tasks: string[]; open: Record<string, unknown> };
+  since: { part: string; title: string; tasks: (string | null)[]; open: Record<string, unknown> };
   /** How many facts In progress's machine line holds, at the top of its detail. */
   machine: number;
   /**
@@ -1590,7 +1590,7 @@ function sinceData(model: Model): BehaviourData['since'] {
   const g = model.kind === 'home' ? model.overview.since : null;
   const first = g?.rows[0]?.open;
   if (!g || first?.kind !== 'task') throw new Error('The Since you last looked case needs an Overview with news held, whose first line opens its task.');
-  return { part: g.part, title: g.title, tasks: g.rows.map((r) => r.id ?? ''), open: { type: 'task-modal-open', project: first.project, key: first.key } };
+  return { part: g.part, title: g.title, tasks: g.rows.map((r) => r.id), open: { type: 'task-modal-open', project: first.project, key: first.key } };
 }
 
 /** What the Dispatch sheet's cases expect (D-168): ACME-16's sheet, whose builder's model takes no effort, Another model…, and ACME-19's rework sheet with the cloud off. */

@@ -5,6 +5,7 @@
  */
 import type { Question } from '../../../packages/core/src/questions.ts';
 import type { Suggestion } from '../../../packages/core/src/rule-suggestions.ts';
+import { sprintNotice } from '../../../packages/core/src/sprints.ts';
 import { stepInWords } from '../../src/logic/relayed.ts';
 import type { ProjectNotice } from '../../src/logic/notices.ts';
 import type { TaskRow } from '../../src/logic/shared.ts';
@@ -119,7 +120,8 @@ export const sampleLandingRuns = (): RunInput[] => [];
 
 /**
  * What changed while the person was away (D-164), for Since you last looked: a review passed, a pull request
- * merged, a task ready for review with a long title, an analysis ready and one back.
+ * merged, a task ready for review with a long title, an analysis ready and one back, and the Jira board's
+ * sprint changing, with a started task that went back to the backlog (T-78).
  */
 export const sampleSince = (): ProjectNotice[] => [
   { root: ROOT, notice: { kind: 'passed', task: 'ACME-16', text: 'The review passed ACME-16. It\'s ready to land.', urgent: false } },
@@ -127,6 +129,8 @@ export const sampleSince = (): ProjectNotice[] => [
   { root: ROOT, notice: { kind: 'review', task: 'ACME-43', text: 'ACME-43 is ready for review: Archive email attachments to Files, and remove each one from its email once the copy is checked', urgent: false } },
   { root: ROOT, notice: { kind: 'analysis-ready', task: 'ACME-46', text: 'ACME-46\'s analysis is ready.', urgent: false } },
   { root: ROOT, notice: { kind: 'analysis-back', task: 'ACME-14', text: 'ACME-14\'s analysis is back. Its 2 questions can be answered on its page.', urgent: false } },
+  // The Jira board's sprint changed (T-78): no task, and its line opens the Tasks tab.
+  { root: ROOT, notice: { kind: 'sprint', task: '', text: sprintNotice({ from: ['ACME Sprint 12'], to: ['ACME Sprint 13'], carried: ['ACME-16', 'ACME-21', 'ACME-24', 'ACME-30'], backlog: ['ACME-18', 'ACME-23'] }, ['ACME-18']), urgent: false } },
 ];
 
 /**

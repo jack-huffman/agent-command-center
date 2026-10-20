@@ -1,5 +1,5 @@
 /** The Connect page (GH-51) at each of its steps. */
-import { AZURE, GITHUB, JIRA, MONDAY, SLACK } from '../../../packages/core/src/trackers/connect.ts';
+import { AZURE, GITHUB, JIRA, jiraSprintOptions, MONDAY, SLACK } from '../../../packages/core/src/trackers/connect.ts';
 import { blankConnect, connectModel, type ConnectModel, type ConnectState } from '../../src/model/connect.ts';
 import { ROOT } from './shared.ts';
 
@@ -8,9 +8,14 @@ const ready = (options: ConnectState['pickers'][string]['options'], selected: st
 /** The Jira projects and boards the samples offer. */
 const PROJECTS = [{ value: 'ACME', label: 'ACME', detail: 'Acme Service Desk' }, { value: 'OPS', label: 'OPS', detail: 'Operations' }];
 const BOARDS = [{ value: '7', label: 'ACME Service board', detail: 'scrum', preferred: true }, { value: '9', label: 'Support kanban', detail: 'kanban' }];
+/** The scrum board's sprints (T-78): the active one, and the next. */
+const SPRINTS = jiraSprintOptions([
+  { id: 13, name: 'ACME Sprint 13', state: 'active', start: '2026-10-20T09:00:00.000Z', end: '2026-11-02T17:00:00.000Z' },
+  { id: 14, name: 'ACME Sprint 14', state: 'future', start: null, end: null },
+]);
 
 /** Which Connect page to draw (GH-51). */
-export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'monday' | 'slack' | 'slack-refused' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github';
+export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'sprint' | 'monday' | 'slack' | 'slack-refused' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github';
 
 /**
  * The Connect page at each step: a new Jira tracker before signing in; its site given, with the tick for
@@ -20,7 +25,7 @@ export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | '
  * a monday.com board signed in for this project only, with Sign in again open, so its token field, token
  * page and the tick (off) show beside its board, group and two status columns (GH-70). A Slack workspace
  * with its token not typed yet, so no field warns (T-43), and then signed in as the app for every project on it, a channel picked
- * (T-29). Then a project
+ * (T-29). The existing Jira tracker again, following the active sprint, picked from its board's sprints (T-78). Then a project
  * started from Setup (GH-81): from a Jira epic, signed in for every project on the site, its epics listed
  * and none picked yet; with an epic another repo here uses picked, marked; from an Azure DevOps area path
  * one over another repo's; and from GitHub labels, one of them another repo's.
@@ -93,11 +98,21 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     s.pickers.statusColumn = ready([{ value: 'status', label: 'Status', detail: 'Not started, Working on it, Stuck, Done', default: true }, { value: 'priority', label: 'Priority', detail: 'High, Medium, Low' }], ['status']);
     return connectModel(s);
   }
+  if (which === 'sprint') {
+    const s = blankConnect(JIRA, { id: 'c-sprint', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epic: null, board: '7', sprint: 'active' } } });
+    s.signIn = { ...ok('Jordan Kim'), shared: true };
+    s.pickers.project = ready([], ['ACME']);
+    s.pickers.epic = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }]);
+    s.pickers.board = ready(BOARDS, ['7']);
+    s.pickers.sprint = ready(SPRINTS, ['active']);
+    return connectModel(s);
+  }
   const s = blankConnect(JIRA, { id: 'c-existing', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epic: 'ACME-3', board: '7' } } });
   s.signIn = { ...ok('Jordan Kim'), shared: false };
   s.pickers.project = ready([], ['ACME']);
   s.pickers.epic = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }], ['ACME-3']);
   s.pickers.board = ready(BOARDS, ['7']);
+  s.pickers.sprint = ready(SPRINTS);
   return connectModel(s);
 }
 
@@ -134,5 +149,7 @@ function sampleStart(which: ConnectSample): ConnectModel {
     { value: 'ACME-12', label: 'ACME-12', detail: 'Single sign-on for the customer portal and the partner portal' },
   ], which === 'epic-used' ? ['ACME-30'] : []);
   s.pickers.board = ready(BOARDS, ['7']);
+  s.pickers.sprint = ready(SPRINTS);
   return connectModel(s);
+
 }
