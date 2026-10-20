@@ -120,3 +120,7 @@ test('both boards draw the filter and only the cards it shows, and a board with 
   assert.match(tasks, /c\.cards\.filter\(showing\)/, 'only the cards that show are drawn, so the board\'s keys skip the rest');
   assert.match(pageSource('person-menu.ts'), /remember\(\(m\) => \{[\s\S]*m\.filters = filters;/, 'the choice is kept in the window\'s state, by the board\'s key');
 });
+
+test('edge case: a tracker board with columns but no card at all says nothing about the choice, on Everyone too', () => {
+  assert.match(pageSource('tasks.ts'), /b\.columns\.some\(\(c\) => c\.cards\.length\) && !b\.columns\.some\(\(c\) => c\.cards\.some\(showing\)\)\) out\.append\(filter!\.none\(board\)\)/, 'the line comes only where cards exist and the choice hides them all');
+});

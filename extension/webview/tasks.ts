@@ -281,7 +281,8 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   const board = el('div', 'board');
   // Only the cards the choice shows are drawn, so the board's keys, which go between the cards on the page, skip the rest (T-79).
   const showing = (c: TrackerCard): boolean => shows(filter!.choice, c.people, b.me);
-  if (!b.columns.some((c) => c.cards.some(showing))) out.append(filter!.none(board));
+  // A board with no card at all (new, or an empty place) has nothing for the choice to hide, so it says nothing (T-79 review).
+  if (b.columns.some((c) => c.cards.length) && !b.columns.some((c) => c.cards.some(showing))) out.append(filter!.none(board));
   // A drop and Enter on a held card (T-54) send the same move.
   const moveCard = (key: string, to: string): void => api.postMessage({ type: 'move', project: root, tracker: b.index, key, to });
   for (const c of b.columns) {
