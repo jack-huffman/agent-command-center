@@ -1,8 +1,9 @@
 // The task sheet writing a ticket (T-80), with the built extension against the vscode stand-in and a gh
 // that keeps one issue in a file: where the GitHub tracker says "edits": true, Edit opens the sheet with the
 // issue's own title and body, and Save reaches gh issue edit, then refreshes the task from the issue. When
-// someone changed the issue after the sheet opened, Save writes nothing and sends both versions back. Run
-// after npm run build.
+// someone changed the issue after the sheet opened, Save writes nothing and sends both versions back. Save
+// and Change refuse in the extension, whatever the page sent, for a task no tracker holds and once the
+// settings turn edits off (D-066). Run after npm run build.
 import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -11,7 +12,8 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import type { TaskSheet } from '../src/model/task-sheet.ts';
-import { TASK_SHEET_DONE, TASK_SHEET_MESSAGE, TASK_SHEET_ROWS } from '../src/model/task-sheet.ts';
+import { EDITS_OFF, TASK_SHEET_DONE, TASK_SHEET_MESSAGE, TASK_SHEET_ROWS } from '../src/model/task-sheet.ts';
+import { ticketActionRefusal } from '../src/model/task-page.ts';
 import { makeRepo } from '../../packages/core/test/support.ts';
 import { activate, fakeVscode, sandboxEnv, until } from './vscode.ts';
 
@@ -62,6 +64,24 @@ const ledger = () => join(s.repo, '.git', 'acc', 'ledger.json');
 const task = () => (JSON.parse(readFileSync(ledger(), 'utf8')) as { tasks: { id: string; title: string; brief: string; labels: string[] }[] }).tasks.find((t) => t.id === 'GH-7')!;
 const since = (tab: Tab, from: number): Msg[] => tab.posted.slice(from) as Msg[];
 
+const config = (edits: boolean) => JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }], github: { repo: 'o/r', account: 'me' }, trackers: [{ kind: 'github', edits }] });
+
+/** Sends Save for a task as the page would, with a base whatever the sheet showed, and waits for how it went. */
+async function sendSave(task: string, base: { title: string; markdown: string }): Promise<Msg> {
+  const from = s.tab.posted.length;
+  s.tab.receive!({ type: 'task-sheet-go', project: s.root, task, title: 'Not allowed', brief: 'Not allowed.', deps: '', environment: 'main', labels: '', notes: '', base });
+  await until(() => since(s.tab, from).some((m) => m.type === TASK_SHEET_DONE), 60_000, 'Save\'s reply');
+  return since(s.tab, from).find((m) => m.type === TASK_SHEET_DONE)!;
+}
+
+/** Sends a Change on the sheet's status for a task, and waits for the rows' reply. */
+async function sendChange(task: string): Promise<Msg & { ok: boolean; error?: string }> {
+  const from = s.tab.posted.length;
+  s.tab.receive!({ type: 'task-sheet-field', project: s.root, task, field: 'status' });
+  await until(() => since(s.tab, from).some((m) => m.type === TASK_SHEET_ROWS), 60_000, 'the rows');
+  return since(s.tab, from).find((m) => m.type === TASK_SHEET_ROWS)! as Msg & { ok: boolean; error?: string };
+}
+
 /** Opens the sheet for GH-7 over the Command Center, as Edit on its card does, and gives what it sent. */
 async function openSheet(): Promise<TaskSheet> {
   const { calls } = s.fake;
@@ -75,7 +95,7 @@ async function openSheet(): Promise<TaskSheet> {
 }
 
 /** Sends the sheet's Save with what was written, and waits for how it went. */
-async function save(sheet: TaskSheet, written: { title: string; brief: string }): Promise<Msg> {
+async function save(sheet: TaskSheet, written: { title: string; brief: string; environment?: string }): Promise<Msg> {
   const from = s.tab.posted.length;
   s.tab.receive!({ type: 'task-sheet-go', project: s.root, task: 'GH-7', ...sheet.fields, ...written, base: sheet.ticketEdits!.base! });
   await until(() => since(s.tab, from).some((m) => m.type === TASK_SHEET_DONE), 60_000, 'Save\'s reply');
@@ -91,13 +111,16 @@ before(async () => {
   writeFileSync(s.issue, issue('The title on GitHub', 'The body on GitHub.'));
   Object.assign(process.env, { FAKE_GH_ISSUE: s.issue, FAKE_GH_LOG: s.log });
   s.repo = makeRepo({
-    '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }], github: { repo: 'o/r', account: 'me' }, trackers: [{ kind: 'github', edits: true }] }),
+    '.acc/config.json': config(true),
     '.gitignore': '.claude/worktrees/\n',
   });
   const file = join(s.repo, '..', `${Date.now()}-gh7.json`);
   writeFileSync(file, JSON.stringify([{ source: { kind: 'github', key: '#7', url: 'https://github.com/o/r/issues/7' }, title: 'As intake brought it', brief: 'Old body.', labels: ['docs'] }]));
   const imported = spawnSync(process.execPath, [join(dist, '..', 'bin', 'acc.mjs'), 'import', '--file', file], { cwd: s.repo, encoding: 'utf8' });
   assert.equal(imported.status, 0, imported.stderr);
+  // A task acc alone keeps, which no tracker holds, for the refusals that key a ticket.
+  const added = spawnSync(process.execPath, [join(dist, '..', 'bin', 'acc.mjs'), 'add', 'A task acc keeps', '--key', 'T-1'], { cwd: s.repo, encoding: 'utf8' });
+  assert.equal(added.status, 0, added.stderr);
   s.fake = fakeVscode(s.repo);
   const version = (JSON.parse(readFileSync(join(dist, '..', '..', 'package.json'), 'utf8')) as { version: string }).version;
   s.started = activate(dist, s.fake, { 'acc.welcomed': true, 'acc.machineItems': { at: Date.now(), profile: 'generic', version, items: [{ id: 'A1.git', part: 'machine', title: 'git', status: 'pass', detail: '' }] } });
@@ -164,4 +187,51 @@ test('Change on the sheet\'s status goes through TicketEdits and pickField, the 
   const r2 = since(s.tab, again).find((m) => m.type === TASK_SHEET_ROWS)! as Msg & { ok: boolean; changed: boolean };
   assert.deepEqual([r2.ok, r2.changed, edits().length], [true, false, before]);
   calls.pick = undefined;
+});
+
+test('edge: a task no tracker holds: Save with a base and Change refuse in the extension, and gh is never asked (T-80)', async () => {
+  const { calls } = s.fake;
+  const before = edits().length;
+  let picked = 0;
+  calls.pick = () => { picked++; return undefined; };
+  const done = await sendSave('T-1', { title: 'A task acc keeps', markdown: '' });
+  assert.deepEqual([done.ok, done.error], [false, 'T-1 isn\'t one of the project\'s tickets any more.'], JSON.stringify(done));
+  const r = await sendChange('T-1');
+  assert.deepEqual([r.ok, r.error], [false, 'T-1 isn\'t one of the project\'s tickets any more.']);
+  assert.deepEqual([edits().length, picked], [before, 0], 'nothing written, no quick pick');
+  calls.pick = undefined;
+});
+
+test('edge: edits turned off in the project\'s settings: Save and Change refuse whatever the page sent, and gh edits nothing (D-066, T-80)', async () => {
+  const { calls } = s.fake;
+  writeFileSync(join(s.repo, '.acc', 'config.json'), config(false));
+  await calls.commands.get('acc.settings.refresh')!();
+  const before = edits().length;
+  const was = readFileSync(s.issue, 'utf8');
+  let picked = 0;
+  calls.pick = () => { picked++; return undefined; };
+  const i = JSON.parse(was) as { title: string; body: string };
+  const done = await sendSave('GH-7', { title: i.title, markdown: i.body });
+  assert.deepEqual([done.ok, done.error], [false, `Its ticket can't change from here. ${EDITS_OFF}`], JSON.stringify(done));
+  const r = await sendChange('GH-7');
+  assert.equal(r.ok, false);
+  assert.ok(r.error?.startsWith(ticketActionRefusal('status', false)!.split('. ')[0]!), String(r.error));
+  assert.deepEqual([edits().length, picked, readFileSync(s.issue, 'utf8')], [before, 0, was], 'nothing written, no quick pick, the issue as it was');
+  calls.pick = undefined;
+  writeFileSync(join(s.repo, '.acc', 'config.json'), config(true));
+  await calls.commands.get('acc.settings.refresh')!();
+});
+
+test('edge: written to the issue but acc edit failed, a second Save writes nothing more to the issue, as it already says what was written (T-80)', async () => {
+  const sheet = await openSheet();
+  const before = edits().length;
+  const written = { title: 'Written once', brief: 'Once only.', environment: 'nowhere' };
+  const first = await save(sheet, written);
+  assert.deepEqual([first.ok, first.error], [false, 'Its ticket was saved, but the rest wasn\'t: the message says why.'], JSON.stringify(first));
+  assert.equal(edits().length, before + 1, 'the issue written once');
+  // Save again from the same sheet, with the base the page still holds.
+  const again = await save(sheet, written);
+  assert.deepEqual([again.ok, again.error], [false, 'It wasn\'t saved: the message says why.'], JSON.stringify(again));
+  assert.equal(edits().length, before + 1, 'no second write');
+  assert.equal(JSON.parse(readFileSync(s.issue, 'utf8')).title, 'Written once');
 });

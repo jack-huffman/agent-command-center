@@ -8,6 +8,7 @@
 
 import { editRefusal, trackerFields, trackerOwns } from '../../../packages/core/src/edit.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
+import { unkeptRefusal } from '../../../packages/core/src/trackers/doc.ts';
 import { textRefusal, type Ticket, type TrackerField, type TrackerKind, trackerName } from '../../../packages/core/src/trackers/types.ts';
 import { KEY, type ModelArea, short } from './shared.ts';
 import { SHEET_TICKET_FIELDS, type SheetRow, sheetRows, type TicketTextBase } from './ticket-text.ts';
@@ -49,9 +50,11 @@ export interface TaskSheet {
   /**
    * Where the project allows edits to its tracker's tickets (T-80): the ticket's title and description the
    * sheet opened with, which Save checks again before it writes, or null where they can't be written from
-   * here; and its status, assignee and labels, each with its Change. Null where edits are off.
+   * here; and its status, assignee and labels, each with its Change. unkept warns, before Save, that its
+   * description holds what can't be written back without losing it, by name: the description is then
+   * read-only, and Save writes only its title. Null where edits are off.
    */
-  ticketEdits: { base: TicketTextBase | null; rows: SheetRow[] } | null;
+  ticketEdits: { base: TicketTextBase | null; rows: SheetRow[]; unkept: string | null } | null;
 }
 
 /** A tracker task's ticket as the sheet sees it (T-80): whether the project allows edits, and the ticket as read when the sheet opened, or why it couldn't be. */
@@ -61,7 +64,7 @@ export interface SheetTicket {
   /** Which of status, assignee and labels its tracker has. Not set: all three. */
   fields?: readonly TrackerField[];
   /** Read only where edits are on. */
-  ticket: Pick<Ticket, 'title' | 'markdown' | 'status' | 'assignees' | 'labels'> | null;
+  ticket: (Pick<Ticket, 'title' | 'markdown' | 'status' | 'assignees' | 'labels'> & Pick<Partial<Ticket>, 'unkept'>) | null;
   error: string | null;
 }
 
@@ -82,7 +85,7 @@ export const EDITS_OFF = 'The project\'s settings can turn on edits, so its tick
  * Why a tracker task's fields are read-only in the sheet, or null for a task acc keeps itself (T-80).
  * Edits off: its ticket owns them, and the project's settings turn edits on. Edits on: only what can't be
  * written from here, which is its dependencies, and its title and description where the tracker can't
- * take them or its ticket couldn't be read.
+ * take them or its ticket couldn't be read, or its description where it holds what can't be written back.
  */
 export function sheetLock(t: Pick<Task, 'source'>, st: SheetTicket | null | undefined): string | null {
   const owns = trackerOwns(t);
@@ -90,9 +93,13 @@ export function sheetLock(t: Pick<Task, 'source'>, st: SheetTicket | null | unde
   if (!st?.edits) return `${owns} ${EDITS_OFF}`;
   const name = trackerName(t.source.kind);
   if (!st.ticket) return `Its ${name} ticket couldn't be read, so its title and description can't change here now. ${st.error ?? ''}`.trim();
-  return textRefusal(st.kind) ?? `Save writes its title and description to its ${name} ticket. Its dependencies come from the ticket: change them there.`;
+  const what = st.ticket.unkept?.length ? 'title' : 'title and description';
+  return textRefusal(st.kind) ?? `Save writes its ${what} to its ${name} ticket. Its dependencies come from the ticket: change them there.`;
 }
 
+
+/** The sheet's warning where its ticket's description holds what can't be written back, by name, or null (T-80). */
+export const unkeptWarning = (names: string[] | undefined): string | null => (names?.length ? `${unkeptRefusal(names)} Save still writes its title.` : null);
 
 const listText = (xs: readonly string[]): string => xs.join(', ');
 const listOf = (s: string): string[] => [...new Set(s.split(',').map((x) => x.trim()).filter(Boolean))];
@@ -119,7 +126,7 @@ export function taskSheet(i: TaskSheetInput): TaskSheet | null {
     locked: t ? sheetLock(t, i.ticket) : null,
     ticket,
     notes: !!t,
-    ticketEdits: st ? { base, rows: st.ticket ? sheetRows(st.ticket, st.fields) : [] } : null,
+    ticketEdits: st ? { base, rows: st.ticket ? sheetRows(st.ticket, st.fields) : [], unkept: unkeptWarning(base ? st.ticket?.unkept : undefined) } : null,
   };
 }
 
