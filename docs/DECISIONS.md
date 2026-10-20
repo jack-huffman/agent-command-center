@@ -7839,8 +7839,10 @@ own, had to scan the whole board.
   boards' people and `deriveRows`' `dispatchedBy`; three behaviour cases in a
   browser (the menu with its icons and counts, the choice surviving a redraw,
   Down and Right skipping the cards it hides, and a board with no match), each
-  named by a mutant; and three screenshot pages: the menu open, the Jira board
-  filtered to one person, and the agent board on Mine.
+  named by a mutant; and four screenshot pages: the menu open, the Jira board
+  filtered to one person, the agent board on Mine, and a board where the
+  choice shows no card. The geometry run's floor for the selected tab goes from
+  486 to 510 drawings.
 - Not chosen: filters by label, status or type, which the task leaves out; a
   filter shared between windows or kept on disk; hiding cards with CSS, which
   would leave the keys to step onto cards that can't be seen.

@@ -116,7 +116,7 @@ test('deriveRows reads who dispatched a task: the latest move from to do to runn
 test('both boards draw the filter and only the cards it shows, and a board with none says why', () => {
   const tasks = pageSource('tasks.ts');
   assert.equal(tasks.match(/personFilter\(/g)?.length, 2, 'a filter on the tracker board and on the agent board');
-  assert.equal(tasks.match(/\.none\(\)/g)?.length, 2, 'each says so when no card shows');
+  assert.equal(tasks.match(/\.none\(board\)/g)?.length, 2, 'each says so when no card shows');
   assert.match(tasks, /c\.cards\.filter\(showing\)/, 'only the cards that show are drawn, so the board\'s keys skip the rest');
   assert.match(pageSource('person-menu.ts'), /remember\(\(m\) => \{[\s\S]*m\.filters = filters;/, 'the choice is kept in the window\'s state, by the board\'s key');
 });

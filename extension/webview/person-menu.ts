@@ -14,8 +14,8 @@ export interface PersonFilter {
   control: HTMLElement;
   /** The choice that applies now: the one kept, or Everyone. */
   choice: string;
-  /** The line to draw above a board whose choice shows no card, with the way back to Everyone. */
-  none(): HTMLElement;
+  /** The line to draw above a board whose choice shows no card, with the way back to Everyone. It makes the empty board reachable by keyboard. */
+  none(board: HTMLElement): HTMLElement;
 }
 
 const keep = (key: string, choice: string | null): void => {
@@ -80,7 +80,11 @@ export function personFilter(key: string, cards: readonly { people: readonly Per
   const control = el('div', 'person-filter', btn, menu);
   control.addEventListener('click', (e) => e.stopPropagation());
   control.addEventListener('mousedown', (e) => e.stopPropagation());
-  const none = (): HTMLElement => {
+  const none = (board: HTMLElement): HTMLElement => {
+    // With no card to focus, the board's lanes still scroll sideways: the board itself takes the keys that scroll them.
+    board.tabIndex = 0;
+    board.setAttribute('role', 'group');
+    board.setAttribute('aria-label', `No card shows for ${at.label}`);
     const back = el('button', 'btn ghost', icon('organization'), 'Show everyone') as HTMLButtonElement;
     back.type = 'button';
     back.addEventListener('click', () => keep(key, null));

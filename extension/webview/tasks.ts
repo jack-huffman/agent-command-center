@@ -133,7 +133,7 @@ export function renderTasks(m: TasksModel): Node[] {
       key: `agents:${p.root}`, column: (col) => col.dataset.group ?? '', card: (art) => art.dataset.task ?? '',
       lanes: (art) => (art.dataset.drops ?? '').split(' ').filter(Boolean), move: moveTask,
     });
-    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), ...(p.total ? [...(filter && !p.columns.some((c) => c.cards.some(showing)) ? [filter.none()] : []), live, board] : [empty('Tasks are tickets for agents to work on.', ...tools)]));
+    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), ...(p.total ? [...(filter && !p.columns.some((c) => c.cards.some(showing)) ? [filter.none(board)] : []), live, board] : [empty('Tasks are tickets for agents to work on.', ...tools)]));
   });
 }
 
@@ -281,7 +281,7 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   const board = el('div', 'board');
   // Only the cards the choice shows are drawn, so the board's keys, which go between the cards on the page, skip the rest (T-79).
   const showing = (c: TrackerCard): boolean => shows(filter!.choice, c.people, b.me);
-  if (!b.columns.some((c) => c.cards.some(showing))) out.append(filter!.none());
+  if (!b.columns.some((c) => c.cards.some(showing))) out.append(filter!.none(board));
   // A drop and Enter on a held card (T-54) send the same move.
   const moveCard = (key: string, to: string): void => api.postMessage({ type: 'move', project: root, tracker: b.index, key, to });
   for (const c of b.columns) {
