@@ -8,7 +8,7 @@ import { type Block, type Doc, type Inline, toMarkdown } from './doc.ts';
 import { clip, slackEscape } from '../text.ts';
 import {
   type Board, inBatches, type Label, type Outside, outsideError, type Person, placeText, type Status, type Ticket, type TrackerClient, TrackerError,
-  type Transition,
+  textRefused, type Transition,
 } from './types.ts';
 
 export const SLACK_API = 'https://slack.com/api';
@@ -364,6 +364,11 @@ export class SlackClient implements TrackerClient {
   }
 
   /** A reply in the thread, posted as the app, with Slack's control characters escaped so it mentions no one. */
+  /** acc doesn't write its ticket text yet (T-80): it refuses, with why. */
+  async setText(): Promise<void> {
+    throw textRefused(this.kind);
+  }
+
   async comment(key: string, text: string): Promise<void> {
     if (!text.trim()) throw new TrackerError('refused', 'The reply is empty.');
     const { channel, ts } = this.ownThread(key);

@@ -9,7 +9,7 @@
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Comment, type Label, type Outside, outsideError, type Person, placeText, type Status,
-  type Ticket, type TrackerClient, TrackerError, type Transition,
+  textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export const MONDAY_API = 'https://api.monday.com/v2';
@@ -401,6 +401,11 @@ export class MondayClient implements TrackerClient {
   }
 
   /** An update on the item, as HTML with every word escaped. */
+  /** acc doesn't write its ticket text yet (T-80): it refuses, with why. */
+  async setText(): Promise<void> {
+    throw textRefused(this.kind);
+  }
+
   async comment(key: string, markdown: string): Promise<void> {
     if (!markdown.trim()) throw new TrackerError('refused', 'The comment is empty.');
     await this.call('mutation ($item: ID!, $body: String!) { create_update(item_id: $item, body: $body) { id } }', { item: this.idOf(key), body: toHtml(fromMarkdown(markdown)) });

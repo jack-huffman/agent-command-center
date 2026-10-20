@@ -6,7 +6,7 @@ import { ghEnv } from '../exec.ts';
 import { fromMarkdown } from './doc.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Exec, inBatches, type Label, orList, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
-  type Ticket, type TrackerClient, TrackerError, type Transition,
+  type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export interface GithubOptions {
@@ -299,6 +299,13 @@ export class GithubClient implements TrackerClient {
   async comment(key: string, markdown: string): Promise<void> {
     if (!markdown.trim()) throw new TrackerError('refused', 'The comment is empty.');
     await this.gh(['issue', 'comment', String(issueNumber(key)), '-R', this.o.repo, '--body-file', '-'], markdown);
+  }
+
+  /** The title as an argument, the body on stdin, as a comment's goes, so neither is read as a flag. */
+  async setText(key: string, text: TicketText): Promise<void> {
+    if (text.title !== undefined && !text.title.trim()) throw new TrackerError('refused', 'An issue needs a title.');
+    if (text.title === undefined && text.markdown === undefined) return;
+    await this.gh(['issue', 'edit', String(issueNumber(key)), '-R', this.o.repo, ...(text.title !== undefined ? [`--title=${text.title.trim()}`] : []), ...(text.markdown !== undefined ? ['--body-file', '-'] : [])], text.markdown);
   }
 
   async me(): Promise<Person> {

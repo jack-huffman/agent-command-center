@@ -5,7 +5,7 @@
 import { type AdfNode, fromAdf, fromMarkdown, toAdf, toMarkdown } from './doc.ts';
 import {
   type Board, type BoardCard, type BoardColumn, inBatches, type Label, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
-  type Ticket, type TrackerClient, TrackerError, type Transition,
+  type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export interface JiraOptions {
@@ -247,6 +247,18 @@ export class JiraClient implements TrackerClient {
   async comment(key: string, markdown: string): Promise<void> {
     if (!markdown.trim()) throw new TrackerError('refused', 'The comment is empty.');
     await this.req('POST', `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body: toAdf(fromMarkdown(markdown)) });
+  }
+
+  /** The summary and the description, the description as ADF, as a comment goes. An empty description clears it. */
+  async setText(key: string, text: TicketText): Promise<void> {
+    const fields: Record<string, unknown> = {};
+    if (text.title !== undefined) {
+      if (!text.title.trim()) throw new TrackerError('refused', 'A ticket needs a title.');
+      fields.summary = text.title.trim();
+    }
+    if (text.markdown !== undefined) fields.description = text.markdown.trim() ? toAdf(fromMarkdown(text.markdown)) : null;
+    if (!Object.keys(fields).length) return;
+    await this.req('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields });
   }
 
   async me(): Promise<Person> {
