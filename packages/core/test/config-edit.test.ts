@@ -1,6 +1,6 @@
 // Changing one key of a JSON file a person keeps, and nothing else in it (GH-111).
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { editJsonKey, sameJson, writeJsonKey } from '../src/config-edit.ts';
@@ -103,4 +103,20 @@ test('writeJsonKey changes the file only when the value does, and refuses a file
   writeFileSync(file, '{ "a": 1, }');
   assert.throws(() => writeJsonKey(file, ['a'], 2), /Couldn't read .*config\.json/);
   assert.equal(readFileSync(file, 'utf8'), '{ "a": 1, }', 'left alone');
+});
+
+test('every setter that uses writeJsonKey writes through writeAtomic, and leaves no temp file', () => {
+  const src = readFileSync(new URL('../src/config-edit.ts', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export function writeJsonKey'));
+  assert.match(body, /writeAtomic\(file, edited\)/);
+  assert.doesNotMatch(body, /writeFileSync/);
+  // The setters that call it, each by its own file: they never write the config themselves.
+  const setters = ['limits.ts', 'cloud.ts', 'source-tracking.ts'].map((f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8'));
+  assert.equal(setters.filter((t) => t.includes('writeJsonKey(')).length, 3, 'three modules call writeJsonKey');
+  const dir = tempDir('atomic-');
+  const file = join(dir, 'config.json');
+  writeFileSync(file, '{\n  "a": 1\n}\n');
+  writeJsonKey(file, ['a'], 2);
+  assert.equal(readFileSync(file, 'utf8'), '{\n  "a": 2\n}\n');
+  assert.deepEqual(readdirSync(dir), ['config.json'], 'no temp file is left');
 });

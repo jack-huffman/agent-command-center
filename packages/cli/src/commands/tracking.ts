@@ -13,7 +13,7 @@ function trackingLines(config: Config): string {
 
 function cmdTracking(o: Opts, value: string | undefined): number {
   const { paths } = project(process.cwd());
-  const data = (config: Config) => ({ salesforce: config.profile === 'salesforce', sourceTracking: config.profile === 'salesforce' && usesSourceTracking(config) });
+  const data = (config: Config) => ({ salesforce: config.profile === 'salesforce', sourceTracking: config.profile === 'salesforce' ? usesSourceTracking(config) : null });
   if (value === undefined) {
     const { config } = loadConfig(paths.config);
     out(o, () => trackingLines(config), data(config));

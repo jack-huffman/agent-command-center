@@ -44,7 +44,7 @@ test('edge cases: a wrong word, an agent, and a project that isn\'t Salesforce a
   assert.equal(readFileSync(file, 'utf8'), before, 'nothing refused touched the file');
 
   const generic = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
-  assert.deepEqual(acc(generic, ['tracking', '--json']).json(), { salesforce: false, sourceTracking: false });
+  assert.deepEqual(acc(generic, ['tracking', '--json']).json(), { salesforce: false, sourceTracking: null });
   const r = acc(generic, ['tracking', 'off']);
   assert.equal(r.code, 1);
   assert.match(r.err, /Source tracking is a Salesforce setting: this project isn't a Salesforce project\./);
