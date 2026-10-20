@@ -32,5 +32,7 @@
 .ts-conflict { margin: 6px 0 4px; }
 .ts-versions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 12px; margin: 8px 0; }
 .ts-version { min-width: 0; }
+/* Each version in full, so neither scrolls inside the sheet, which scrolls itself. */
+.ts-version > .ts-kept { max-height: none; overflow-y: visible; }
 .ts-version > .ts-kept + .ts-kept { margin-top: 4px; }
 .ts-pick { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

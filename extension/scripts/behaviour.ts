@@ -190,7 +190,7 @@ export interface BehaviourData {
      * With edits on (T-80): ACME-19's sheet, the ticket text it opened with, a title typed, a failed write's
      * reason, the ticket's text a colleague wrote meanwhile, and the rows after a Change of its status.
      */
-    edits: { message: Record<string, unknown>; base: Record<string, unknown>; title: string; error: string; theirs: Record<string, unknown>; rows: { field: string; value: string }[] };
+    edits: { message: Record<string, unknown>; project: string; base: Record<string, unknown>; title: string; error: string; theirs: Record<string, unknown>; rows: { field: string; value: string }[] };
   };
   /**
    * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
@@ -1395,25 +1395,25 @@ export const CASES: Case[] = [
       const changes = t.all<HTMLButtonElement>('.ts-change', dialog);
       t.check('its status, assignee and labels each have a Change', changes.length === 3, changes.length);
       await t.click(changes[0]!);
-      t.check('Change asks for its field, and the others wait', JSON.stringify(t.sent('task-sheet-field').at(-1)) === JSON.stringify({ type: 'task-sheet-field', project: ROOT, task: 'ACME-19', field: 'status' }) && t.all<HTMLButtonElement>('.ts-change', dialog).every((b) => b.disabled), t.sent('task-sheet-field'));
-      await t.post({ type: 'task-sheet-rows', project: ROOT, task: 'ACME-19', field: 'status', ok: true, changed: true, rows: d.rows });
+      t.check('Change asks for its field, and the others wait', JSON.stringify(t.sent('task-sheet-field').at(-1)) === JSON.stringify({ type: 'task-sheet-field', project: d.project, task: 'ACME-19', field: 'status' }) && t.all<HTMLButtonElement>('.ts-change', dialog).every((b) => b.disabled), t.sent('task-sheet-field'));
+      await t.post({ type: 'task-sheet-rows', project: d.project, task: 'ACME-19', field: 'status', ok: true, changed: true, rows: d.rows });
       t.check('the rows show the ticket as it is now, and what was typed stays', t.find('.ts-row .ts-kept', dialog).textContent === d.rows[0]!.value && t.find<HTMLInputElement>('input.ts-box', dialog).value === d.title, t.find('.ts-row .ts-kept', dialog).textContent);
       await t.click(t.find('.ts-go', dialog));
       const first = t.sent('task-sheet-go');
       t.check('Save sends the text it opened with, once', first.length === 1 && JSON.stringify(first[0]!.base) === JSON.stringify(d.base) && first[0]!.title === d.title, first);
       t.check('the sheet waits for its ticket, with Save off', dialog.open && t.find<HTMLButtonElement>('.ts-go', dialog).disabled, t.find('.ts-go', dialog).title);
       // Edge: the write failed. The sheet says why and keeps what was typed.
-      await t.post({ type: 'task-sheet-done', project: ROOT, task: 'ACME-19', ok: false, error: d.error });
+      await t.post({ type: 'task-sheet-done', project: d.project, task: 'ACME-19', ok: false, error: d.error });
       t.check('a failed write says why, keeps the text, and Save is on again', dialog.open && dialog.textContent!.includes(d.error) && t.find<HTMLInputElement>('input.ts-box', dialog).value === d.title && !t.find<HTMLButtonElement>('.ts-go', dialog).disabled);
       await t.click(t.find('.ts-go', dialog));
-      await t.post({ type: 'task-sheet-done', project: ROOT, task: 'ACME-19', ok: false, conflict: d.theirs });
+      await t.post({ type: 'task-sheet-done', project: d.project, task: 'ACME-19', ok: false, conflict: d.theirs });
       const versions = t.all('.ts-version', dialog);
       t.check('a change made meanwhile shows both versions, with Save off until one is picked', versions.length === 2 && versions[0]!.textContent!.includes((d.theirs as { title: string }).title) && versions[1]!.textContent!.includes(d.title) && t.find<HTMLButtonElement>('.ts-go', dialog).disabled, versions.map((v) => v.textContent));
       t.check('what was typed stays in its box', t.find<HTMLInputElement>('input.ts-box', dialog).value === d.title);
       await t.click(t.all<HTMLButtonElement>('.ts-pick button', dialog)[1]!);
       const again = t.sent('task-sheet-go');
       t.check('Keep mine saves the person\'s text against the ticket\'s as it is now', again.length === 3 && JSON.stringify(again[2]!.base) === JSON.stringify(d.theirs) && again[2]!.title === d.title, again.at(-1));
-      await t.post({ type: 'task-sheet-done', project: ROOT, task: 'ACME-19', ok: true });
+      await t.post({ type: 'task-sheet-done', project: d.project, task: 'ACME-19', ok: true });
       t.check('done, the sheet closes', !dialog.open);
     },
   },
@@ -1682,7 +1682,7 @@ function taskSheetData(now: number): BehaviourData['taskSheet'] {
     edit: { message: { type: 'task-sheet', sheet: edit }, notes, sent: { type: 'task-sheet-go', project: ROOT, task: edit.task, ...edit.fields, notes } },
     tracker: { message: { type: 'task-sheet', sheet: tracker }, url: tracker.ticket.url, kept: 4 },
     edits: {
-      message: { type: 'task-sheet', sheet: edits }, base: { ...edits.ticketEdits!.base! }, title: 'Send the welcome email once per contact',
+      message: { type: 'task-sheet', sheet: edits }, project: ROOT, base: { ...edits.ticketEdits!.base! }, title: 'Send the welcome email once per contact',
       error: 'Its ticket wasn\'t changed. Jira said: HTTP 500', theirs: { ...SAMPLE_THEIRS },
       rows: edits.ticketEdits!.rows.map((r) => (r.field === 'status' ? { ...r, value: 'In Review' } : r)),
     },
