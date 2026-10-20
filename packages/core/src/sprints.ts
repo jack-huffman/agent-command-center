@@ -8,6 +8,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeAtomic } from './ledger.ts';
+import { taskList } from './overlap.ts';
 import type { RepoPaths } from './paths.ts';
 import { isObj, plural } from './text.ts';
 import type { Sprint } from './trackers/types.ts';
@@ -92,20 +93,18 @@ export function sprintChange(prev: SprintSeen | undefined, now: { sprints: Pick<
   };
 }
 
-const and = (names: string[]): string => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
-
 /**
  * The Overview's line for a sprint change, said once (T-78): "Sprint 13 started after Sprint 12: 4 tickets
  * carried into it, 2 went back to the backlog." `stayed` are the tasks whose ticket left after work on it
  * started: they stay on the agent board, and the line names them.
  */
 export function sprintNotice(change: SprintChange, stayed: string[]): string {
-  const from = and(change.from);
-  const to = and(change.to);
+  const from = taskList(change.from);
+  const to = taskList(change.to);
   const counts = `${plural(change.carried.length, 'ticket')} carried into ${change.to.length ? 'it' : 'a new sprint'}, ${change.backlog.length} went back to the backlog`;
   const head = !change.from.length ? `${to} started.`
     : !change.to.length ? `${from} ended, and no sprint is active now: ${counts}.`
       : `${to} started after ${from}: ${counts}.`;
   if (!stayed.length) return head;
-  return `${head} ${and(stayed)} left the sprint after work started, so ${stayed.length === 1 ? 'it stays' : 'they stay'} on the agent board.`;
+  return `${head} ${taskList(stayed)} left the sprint after work started, so ${stayed.length === 1 ? 'it stays' : 'they stay'} on the agent board.`;
 }
