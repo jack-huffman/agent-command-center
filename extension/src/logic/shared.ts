@@ -84,6 +84,8 @@ export interface TaskRow {
   resuming?: boolean;
   /** Its place in its repo's merge queue (GH-73): 1 is the head, which is in `phase`, and held says `why`; the rest wait behind `ahead`. */
   queue?: { place: number; of: number; ahead: string | null; phase: QueuePhase; why?: string | null } | null;
+  /** Who dispatched it (T-79): the `by` of its latest move from to do to running, as the ledger writes it, such as "human:jordan" or autopilot's. Null before a dispatch. */
+  dispatchedBy?: string | null;
   /** When its builder last started, while it's running: its dispatch, or its latest resume (D-067). */
   since?: string | null;
   /**

@@ -4,6 +4,8 @@ import type { TrackerBoard, TrackerCard } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
 import { boardKeys, liveLine } from './board-nav.ts';
 import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
+import { shows } from './person-filter.ts';
+import { personFilter } from './person-menu.ts';
 import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
@@ -43,14 +45,19 @@ export function renderTasks(m: TasksModel): Node[] {
       }
     }
     const board = el('div', 'board agent-board');
+    // Its person filter (T-79), by who dispatched each task: Mine is this person's own dispatches.
+    const filter = p.total ? personFilter(`agents:${p.root}`, p.columns.flatMap((c) => c.cards), p.me) : null;
+    if (filter) tools.push(filter.control);
+    const showing = (card: { people: { key: string; name: string }[] }): boolean => !filter || shows(filter.choice, card.people, p.me);
     // A drop and Enter on a held card (T-54) send the same move.
     const moveTask = (task: string, to: string): void => api.postMessage({ type: 'move-task', project: p.root, task, to });
     for (const c of p.columns) {
-      const col = el('section', `column tone-edge-${c.tone}`, el('h2', '', icon(c.icon, c.tone), c.label, el('span', 'count', String(c.cards.length))));
-      col.setAttribute('aria-label', `${c.label}: ${plural(c.cards.length, 'task')}`);
+      const cards = c.cards.filter(showing);
+      const col = el('section', `column tone-edge-${c.tone}`, el('h2', '', icon(c.icon, c.tone), c.label, el('span', 'count', String(cards.length))));
+      col.setAttribute('aria-label', `${c.label}: ${plural(cards.length, 'task')}`);
       col.dataset.group = c.group;
-      if (!c.cards.length) col.append(el('p', 'muted drop-hint', 'Nothing here'));
-      for (const card of c.cards) {
+      if (!cards.length) col.append(el('p', 'muted drop-hint', 'Nothing here'));
+      for (const card of cards) {
         // Drag a card to another lane to move it (D-041), so the cards need no Move button.
         const art = el('article', `card${c.group === 'done' ? ' done' : ''}`,
           el('div', 'card-id', card.id, el('span', 'chip', card.environment)),
@@ -126,7 +133,7 @@ export function renderTasks(m: TasksModel): Node[] {
       key: `agents:${p.root}`, column: (col) => col.dataset.group ?? '', card: (art) => art.dataset.task ?? '',
       lanes: (art) => (art.dataset.drops ?? '').split(' ').filter(Boolean), move: moveTask,
     });
-    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), ...(p.total ? [live, board] : [empty('Tasks are tickets for agents to work on.', ...tools)]));
+    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), ...(p.total ? [...(filter && !p.columns.some((c) => c.cards.some(showing)) ? [filter.none(board)] : []), live, board] : [empty('Tasks are tickets for agents to work on.', ...tools)]));
   });
 }
 
@@ -228,6 +235,9 @@ function threadLink(root: string, b: TrackerBoard, paste: NonNullable<TrackerBoa
 
 function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   const tools: Child[] = [];
+  // Its person filter (T-79): Everyone, Mine, Unassigned, or one person. A Slack box and a board with no columns have no cards to filter.
+  const filter = b.columns.length && !b.paste ? personFilter(`tracker:${root}#${b.index}`, b.columns.flatMap((c) => c.cards), b.me) : null;
+  if (filter) tools.push(filter.control);
   if (b.url) {
     const open = el('button', 'btn ghost', icon('link-external'), `Open in ${KIND_NAME[b.kind] ?? 'the tracker'}`) as HTMLButtonElement;
     open.type = 'button';
@@ -269,14 +279,19 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
     return out;
   }
   const board = el('div', 'board');
+  // Only the cards the choice shows are drawn, so the board's keys, which go between the cards on the page, skip the rest (T-79).
+  const showing = (c: TrackerCard): boolean => shows(filter!.choice, c.people, b.me);
+  // A board with no card at all (new, or an empty place) has nothing for the choice to hide, so it says nothing (T-79 review).
+  if (b.columns.some((c) => c.cards.length) && !b.columns.some((c) => c.cards.some(showing))) out.append(filter!.none(board));
   // A drop and Enter on a held card (T-54) send the same move.
   const moveCard = (key: string, to: string): void => api.postMessage({ type: 'move', project: root, tracker: b.index, key, to });
   for (const c of b.columns) {
-    const col = el('section', `column tone-edge-${c.tone}${c.done ? ' done-col' : ''}`, el('h2', '', icon(c.icon, c.tone), c.name, el('span', 'count', String(c.cards.length))));
-    col.setAttribute('aria-label', `${c.name}: ${plural(c.cards.length, 'ticket')}`);
+    const cards = c.cards.filter(showing);
+    const col = el('section', `column tone-edge-${c.tone}${c.done ? ' done-col' : ''}`, el('h2', '', icon(c.icon, c.tone), c.name, el('span', 'count', String(cards.length))));
+    col.setAttribute('aria-label', `${c.name}: ${plural(cards.length, 'ticket')}`);
     col.dataset.col = c.id;
-    for (const card of c.cards) col.append(trackerCard(root, b, card));
-    if (!c.cards.length) col.append(el('p', 'muted drop-hint', 'Nothing here'));
+    for (const card of cards) col.append(trackerCard(root, b, card));
+    if (!cards.length) col.append(el('p', 'muted drop-hint', 'Nothing here'));
     col.addEventListener('dragover', (e) => {
       if (!e.dataTransfer?.types.includes('text/x-acc-card')) return;
       e.preventDefault();

@@ -107,6 +107,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       stopped: stopped ? { said } : null,
       resuming: !!resumed,
       queue: queued ? { place: queued.place, of: queued.of, ahead: queued.ahead, phase: queued.phase, why: queued.why } : null,
+      dispatchedBy: t.history.findLast((h) => h.from === 'todo' && h.to === 'running')?.by ?? null,
       since: t.state === 'running' ? runStartedAt(t) : null,
       branchStats: tree?.branchStats ? { ...tree.branchStats, uncommitted: Math.max(0, tree.changed) } : null,
       files: filesOf(t),

@@ -51,6 +51,8 @@ interface Loaded {
   loading: boolean;
   /** Who the board acts as. */
   signedInAs: string | null;
+  /** The tracker's own account for the person signed in (T-79), which Mine on the board matches cards to. Null until its board loads, and when the tracker can't say. */
+  me?: { id: string; name: string } | null;
   /** Where its sign-in is kept (GH-79): for every project on its host, or this one only. Null for GitHub, and when it has none. */
   signInScope: { shared: boolean; host: string } | null;
 }
@@ -290,7 +292,7 @@ export class Trackers implements vscode.Disposable {
         return {
           // The last board's place, with its epic's name, until this load says otherwise: no flicker every refresh.
           index, kind: t.kind, title: this.title(t), place: prev[index]?.board?.place ?? this.place(t), left: prev[index]?.left ?? [], board: prev[index]?.board ?? null,
-          error: null, connect: null, loading: true, signedInAs: as?.who ?? null, signInScope: as?.scope ?? null,
+          error: null, connect: null, loading: true, signedInAs: as?.who ?? null, signInScope: as?.scope ?? null, me: prev[index]?.me ?? null,
         };
       }));
       this.boards.set(p.root, states);
@@ -301,6 +303,8 @@ export class Trackers implements vscode.Disposable {
           // A Slack channel has no board (T-31): its box takes a thread's link, so its client's refusal isn't shown.
           if (s.kind === 'slack') return;
           s.board = await client.board();
+          // Who Mine means (T-79). A tracker that can't say leaves Mine off, with its reason, rather than failing the board.
+          s.me = await Promise.resolve().then(() => client.me()).catch(() => null);
           s.place = s.board.place;
           s.error = null;
           await this.followPlace(p, s, client);

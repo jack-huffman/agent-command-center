@@ -18,7 +18,7 @@ export function sampleBoards(): BoardInput[] {
   const card = (n: number, title: string, s: { id: string; name: string }, type: string, extra: Partial<NonNullable<BoardInput['board']>['cards'][number]> = {}) =>
     ({ key: `ACME-${n}`, title, url: `https://acme.atlassian.net/browse/ACME-${n}`, status: s, type, assignees: [], labels: [], priority: 'Medium', ...extra });
   return [{
-    index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example',
+    index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example', me: { id: 'jordan', name: 'Jordan Kim' },
     // A sign-in for every project on the site (GH-79), said under the place.
     signInScope: { shared: true, host: 'acme.atlassian.net' },
     place: 'Jira · ACME · epic ACME-3 Premium Support',
@@ -39,19 +39,19 @@ export function sampleBoards(): BoardInput[] {
         // Near the top, so the default screenshots show Track's three looks (D-074).
         card(30, 'Archive closed cases older than seven years', TODO, 'Story', { labels: [{ name: 'service', color: null }] }),
         card(31, 'Email the account owner when a premium case is opened', TODO, 'Task', { priority: 'High' }),
-        card(32, 'Hide the legacy SLA fields from the case layout', TODO, 'Task', { assignees: [{ name: 'Pat Lee' }] }),
+        card(32, 'Hide the legacy SLA fields from the case layout', TODO, 'Task', { assignees: [{ id: 'pat', name: 'Pat Lee' }] }),
         card(17, 'Dashboards for the escalation rules', TODO, 'Task'),
-        card(21, 'Contact roles missing on converted leads', TODO, 'Bug', { priority: 'Highest', assignees: [{ name: 'Pat Lee' }], labels: [{ name: 'sales', color: null }] }),
+        card(21, 'Contact roles missing on converted leads', TODO, 'Bug', { priority: 'Highest', assignees: [{ id: 'pat', name: 'Pat Lee' }], labels: [{ name: 'sales', color: null }] }),
         card(23, 'Rebuild the partner portal on Experience Cloud', TODO, 'Epic'),
         card(24, 'Sync the renewal date to the billing system', TODO, 'Story'),
-        card(14, 'Route web-to-case submissions by product line', DOING, 'Story', { assignees: [{ name: 'Jordan Kim' }] }),
-        card(28, 'Send a renewal reminder a month before the renewal date', DOING, 'Story', { assignees: [{ name: 'Jordan Kim' }] }),
-        card(12, 'Case escalation rules for the premium tier', DOING, 'Story', { priority: 'High', assignees: [{ name: 'Jordan Kim' }], labels: [{ name: 'service', color: null }, { name: 'sla', color: null }] }),
-        card(22, 'Add a Region field to the Lead page', DOING, 'Story', { assignees: [{ name: 'Jordan Kim' }] }),
-        card(15, 'Rename the Region picklist values', REVIEW, 'Task', { priority: 'Low', assignees: [{ name: 'Pat Lee' }] }),
-        card(27, 'Recalculate lead scores only when a scoring field changes', REVIEW, 'Story', { assignees: [{ name: 'Pat Lee' }] }),
-        card(34, 'Close stale cases after 30 days without a reply', REVIEW, 'Story', { assignees: [{ name: 'Pat Lee' }] }),
-        card(25, 'Merge duplicate contacts on import', REVIEW, 'Story', { assignees: [{ name: 'Pat Lee' }] }),
+        card(14, 'Route web-to-case submissions by product line', DOING, 'Story', { assignees: [{ id: 'jordan', name: 'Jordan Kim' }] }),
+        card(28, 'Send a renewal reminder a month before the renewal date', DOING, 'Story', { assignees: [{ id: 'jordan', name: 'Jordan Kim' }] }),
+        card(12, 'Case escalation rules for the premium tier', DOING, 'Story', { priority: 'High', assignees: [{ id: 'jordan', name: 'Jordan Kim' }], labels: [{ name: 'service', color: null }, { name: 'sla', color: null }] }),
+        card(22, 'Add a Region field to the Lead page', DOING, 'Story', { assignees: [{ id: 'jordan', name: 'Jordan Kim' }] }),
+        card(15, 'Rename the Region picklist values', REVIEW, 'Task', { priority: 'Low', assignees: [{ id: 'pat', name: 'Pat Lee' }] }),
+        card(27, 'Recalculate lead scores only when a scoring field changes', REVIEW, 'Story', { assignees: [{ id: 'pat', name: 'Pat Lee' }] }),
+        card(34, 'Close stale cases after 30 days without a reply', REVIEW, 'Story', { assignees: [{ id: 'pat', name: 'Pat Lee' }] }),
+        card(25, 'Merge duplicate contacts on import', REVIEW, 'Story', { assignees: [{ id: 'pat', name: 'Pat Lee' }] }),
         card(33, 'Score new leads by the size of their company', REVIEW, 'Story', { labels: [{ name: 'sales', color: null }] }),
         card(19, 'Fix the flow that double-sends welcome emails', QA, 'Bug', { priority: 'High' }),
         card(10, 'Add a CHANGELOG', DONE, 'Task', { priority: 'Lowest' }),

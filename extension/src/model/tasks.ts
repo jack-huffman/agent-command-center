@@ -3,10 +3,10 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import { DISPLAY, findRule, type State } from '../../../packages/core/src/ledger.ts';
+import { AUTOPILOT_BY, DISPLAY, findRule, type State } from '../../../packages/core/src/ledger.ts';
 import { analysisWait, conflictLine, failedChecksLine, groupTasks } from '../logic/tasks.ts';
 import { BOARD_LANES, fileList, prConflicts, saidLine, shortPath, TASK_GROUPS, type TaskRow } from '../logic/shared.ts';
-import { type BoardInput, trackerBoard, type TrackerBoard } from './boards.ts';
+import { type BoardInput, trackerBoard, type TrackerBoard, type Who } from './boards.ts';
 import { type Action, type HubLike, KEY, type Look, LOOK, type ModelArea, type Ref, short } from './shared.ts';
 import { hasTicket, withClient } from './updates.ts';
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
@@ -46,6 +46,8 @@ export interface Card {
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
   drops: string[];
+  /** Who dispatched it, for the agent board's person filter (T-79): empty before a dispatch. */
+  people: Who[];
 }
 
 /** The state a lane stands for when a card is dropped in it. Running means dispatching it. */
@@ -75,10 +77,20 @@ export interface Column extends Look {
 
 export interface TasksModel {
   kind: 'tasks';
-  projects: { name: string; root: string; github: boolean; columns: Column[]; total: number; boards: TrackerBoard[] }[];
+  projects: { name: string; root: string; github: boolean; columns: Column[]; total: number; boards: TrackerBoard[]; /** The key Mine means on the agent board (T-79): this person's own, as acc writes it in a dispatch's `by`. */ me: string | null }[];
 }
 
-export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] = () => []): TasksModel {
+/** The key acc writes in a move's `by` for a person at this account (packages/cli's actorFrom), which Mine on the agent board means. */
+export const dispatcherKey = (user: string | undefined): string | null => (user ? `human:${user}` : null);
+
+/** Who a dispatch's `by` names, for the agent board's filter (T-79): autopilot by its word, a person by their account's name. */
+export function dispatcher(by: string | null | undefined): Who[] {
+  if (!by) return [];
+  if (by === AUTOPILOT_BY) return [{ key: by, name: 'Autopilot' }];
+  return [{ key: by, name: by.replace(/^[a-z]+:/, '') }];
+}
+
+export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] = () => [], user: string | undefined = hub.user ?? process.env.USER): TasksModel {
   return {
     kind: 'tasks',
     projects: hub.projects.map((p) => {
@@ -93,11 +105,11 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
             // A stopped builder's line says it all: its old session's own state would only repeat it.
             agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, agentName: t.run?.name ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
             stopped: t.autopilot ? null : stoppedLook(t), files: filesLook(t), place: placeLook(t),
-            actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t),
+            actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t), people: dispatcher(t.dispatchedBy),
           })),
         };
       });
-      return { name: p.name, root: p.root, github: !!p.config.github, columns, total: rows.length, boards: boards(p.root).map((b) => trackerBoard(b, rows, p.root)) };
+      return { name: p.name, root: p.root, github: !!p.config.github, columns, total: rows.length, boards: boards(p.root).map((b) => trackerBoard(b, rows, p.root)), me: dispatcherKey(user) };
     }),
   };
 }

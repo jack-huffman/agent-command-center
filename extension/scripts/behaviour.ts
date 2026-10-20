@@ -38,6 +38,8 @@ import { loadingScreen } from '../src/logic/loading.ts';
 import { isFromWebview, type FromWebview } from '../src/model/messages.ts';
 import { type HistoryItem, historyItems } from '../src/model/history.ts';
 import { LOOK } from '../src/model/shared.ts';
+import type { TrackerCard } from '../src/model/boards.ts';
+import { PERSON } from '../webview/person-filter.ts';
 import { HISTORY_PAGE, historyReply } from '../src/model/history-pages.ts';
 import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
 import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
@@ -201,6 +203,8 @@ export interface BehaviourData {
     moved: Model;
     stuck: { card: string; model: Model; says: string };
   };
+  /** What the person filter's cases expect (T-79): the Jira board's key, one person with cards in two columns, the arrows through them, a card hidden by it, and the header's words. */
+  people: { board: string; person: string; choice: string; first: string; down: string; right: string; hidden: string; labels: string[]; header: string; mine: string; everyone: string };
 }
 
 /** What the page asks the extension for, what the extension sends back, and how many rows then show. */
@@ -1408,6 +1412,69 @@ export const CASES: Case[] = [
       t.check('the live line still says where it moved', moved.live.textContent === m.moved, moved.live.textContent);
     },
   },
+  {
+    name: 'person filter: the menu lists each choice with an icon and a label, a pick shows only that person\'s cards with a count, and the choice outlasts a redraw',
+    page: 'tasks',
+    async run(t) {
+      const p = t.data.people;
+      const tracker = () => t.find(`.board[data-keys="${CSS.escape(p.board)}"]`).closest<HTMLElement>('.tracker')!;
+      const button = () => t.find('.person-btn', tracker());
+      t.check('the header says Everyone with the number of cards', button().textContent?.trim() === p.everyone, button().textContent);
+      t.check('the menu is shut', !!t.find('.person-menu', tracker()).hidden);
+      await t.click(button());
+      const items = t.all('.person-item', tracker());
+      t.check('it opens, and lists Everyone, Mine, Unassigned and each person', !t.find('.person-menu', tracker()).hidden && JSON.stringify(items.map((i) => i.querySelector('.person-name')?.textContent)) === JSON.stringify(p.labels), items.map((i) => i.querySelector('.person-name')?.textContent));
+      t.check('each choice has an icon, a label and a count', items.every((i) => !!i.querySelector('.codicon') && !!i.querySelector('.person-name')?.textContent && /^\d+$/.test(i.querySelector('.person-count')?.textContent ?? '')));
+      t.check('Mine is on, since the board knows who is signed in', !(items[1] as HTMLButtonElement).disabled);
+      // Edge: Escape shuts it and puts focus back on the button.
+      await press(t, items[0]!, 'Escape');
+      t.check('Escape shuts it, and focus goes back to its button', t.find('.person-menu', tracker()).hidden && document.activeElement === button(), document.activeElement?.className);
+      await t.click(button());
+      await t.click(t.all('.person-item', tracker()).find((i) => i.querySelector('.person-name')?.textContent === p.person)!);
+      t.check('the header says the person and how many of the cards are theirs', button().textContent?.trim() === p.header, button().textContent);
+      const shown = () => t.all('article.card', t.find(`.board[data-keys="${CSS.escape(p.board)}"]`)).map((a) => a.dataset.cardId);
+      t.check('the board draws only their cards', shown().length === Number(p.header.split(' · ')[1]!.split(' ')[0]) && !shown().includes(p.hidden), shown());
+      t.check('the choice is kept in the tab\'s memory, by the board\'s key', (t.memory().filters as Record<string, string>)[p.board] === p.choice, t.memory().filters);
+      await t.post({ type: 'state', model: t.model });
+      t.check('a redraw keeps the choice, the header and the cards', button().textContent?.trim() === p.header && !shown().includes(p.hidden), button().textContent);
+      await t.click(button());
+      await t.click(t.all('.person-item', tracker()).find((i) => i.querySelector('.person-name')?.textContent === 'Mine')!);
+      t.check('Mine shows the signed-in person\'s cards', button().textContent?.trim() === p.mine, button().textContent);
+    },
+  },
+  {
+    name: 'person filter: Down and Right go between the cards that show, and skip the ones it hides',
+    page: 'tasks',
+    async run(t) {
+      const p = t.data.people;
+      t.remember({ filters: { [p.board]: p.choice } });
+      await t.post({ type: 'state', model: t.model });
+      t.check('the card the filter hides is not on the page', t.all(`article.card[data-card-id="${CSS.escape(p.hidden)}"]`).length === 0);
+      const first = boardCard(t, p.first);
+      first.focus.focus();
+      await press(t, first.focus, 'ArrowDown');
+      t.check('Down goes to their next card, past the ones in between', document.activeElement === boardCard(t, p.down).focus, document.activeElement?.textContent?.slice(0, 80));
+      await press(t, document.activeElement as HTMLElement, 'ArrowUp');
+      await press(t, first.focus, 'ArrowRight');
+      t.check('Right goes to their card in the next column that has one, past the column that has none', document.activeElement === boardCard(t, p.right).focus, document.activeElement?.textContent?.slice(0, 80));
+    },
+  },
+  {
+    name: 'person filter: a board where no card matches says so, and Show everyone brings the cards back',
+    page: 'tasks',
+    async run(t) {
+      const p = t.data.people;
+      t.remember({ filters: { [p.board]: 'person:gone' } });
+      await t.post({ type: 'state', model: t.model });
+      const tracker = () => t.find('.person-btn').closest<HTMLElement>('.tracker')!;
+      t.check('the header counts none', t.find('.person-btn', tracker()).textContent?.trim().startsWith('gone · 0 of') === true, t.find('.person-btn', tracker()).textContent);
+      t.check('the board says no card matches', t.find('.person-none', tracker()).textContent?.includes('No card here is') === true, t.find('.person-none', tracker()).textContent);
+      t.check('no card is drawn on it', t.all('article.card', tracker()).length === 0);
+      await t.click(t.find('.person-none button', tracker()));
+      t.check('Show everyone brings every card back, and the header says Everyone', t.find('.person-btn', tracker()).textContent?.trim() === p.everyone && t.all('article.card', tracker()).length > 0, t.find('.person-btn', tracker()).textContent);
+      t.check('the choice is cleared from the tab\'s memory', !(t.memory().filters as Record<string, string> | undefined)?.[p.board], t.memory().filters);
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -1496,6 +1563,10 @@ export const MUTANTS: Mutant[] = [
   { name: 'every card on a board is in the tab order', file: 'board-nav.ts', find: 'focusOf(a).tabIndex = a === to ? 0 : -1;', replace: 'focusOf(a).tabIndex = 0;', kills: [caseNamed('board keys: one card')] },
   { name: 'a held card\'s Enter sends no message', file: 'board-nav.ts', find: 'o.move(id, to);', replace: '', kills: [caseNamed('board keys: Space, Right and Enter')] },
   { name: 'Escape still sends the move', file: 'board-nav.ts', find: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          putDown();", replace: "} else if (e.key === 'Escape') {\n          e.preventDefault();\n          e.stopImmediatePropagation();\n          o.move(id, held.at);\n          putDown();", kills: [caseNamed('board keys: Escape')] },
+  { name: 'a person\'s choice shows every card', file: 'person-filter.ts', find: 'return people.some((p) => PERSON + p.key === c);', replace: 'return true;', kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right')] },
+  { name: 'a board draws every card, whatever the filter shows', file: 'tasks.ts', find: "const cards = c.cards.filter(showing);\n    const col = el('section', `column tone-edge-${c.tone}${c.done ?", replace: "const cards = c.cards;\n    const col = el('section', `column tone-edge-${c.tone}${c.done ?", kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right'), caseNamed('person filter: a board where no card')] },
+  { name: 'a board forgets its choice on a redraw', file: 'person-menu.ts', find: 'const kept = memory().filters?.[key];', replace: 'const kept: string | undefined = undefined;', kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right')] },
+  { name: 'Show everyone does nothing', file: 'person-menu.ts', find: "back.addEventListener('click', () => keep(key, null));", replace: "back.addEventListener('click', () => {});", kills: [caseNamed('person filter: a board where no card')] },
   { name: 'the board\'s live line stays silent', file: 'board-nav.ts', find: "live.replaceChildren(icon(look.icon, look.tone), el('span', '', text));", replace: 'void look;', kills: [caseNamed('board keys: Space, Right and Enter'), caseNamed('board keys: Escape'), caseNamed('board keys: Space on a card')] },
   { name: 'Dispatch goes without the sheet', file: 'dispatch-sheet.ts', find: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) openSheet(msg.sheet); } },", replace: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) api.postMessage({ type: 'dispatch-sheet-go', project: msg.sheet.project, task: msg.sheet.task, model: msg.sheet.models[0]!.value, where: msg.sheet.place }); } },", kills: [caseNamed('dispatch sheet: a card'), caseNamed('dispatch sheet: the task page')] },
   { name: 'Escape on the task sheet saves', file: 'task-sheet.ts', find: "const m = makeModal('task-sheet', [heading], shut);", replace: "const m = makeModal('task-sheet', [heading], save);", kills: [caseNamed('task sheet: a Jira task')] },
@@ -1566,6 +1637,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     run: runData(models.run),
     steps: stepsData(now),
     keys: keysData(models.tasks),
+    people: peopleData(models.tasks),
     sheet: sheetData(now),
     taskSheet: taskSheetData(now),
   };
@@ -1676,6 +1748,32 @@ function keysData(model: Model): BehaviourData['keys'] {
     },
     moved,
     stuck: { card: done.cards[0]!.id, model: stuck, says: `${done.cards[0]!.id} can't move from ${done.label}. No other column takes it from here.` },
+  };
+}
+
+/**
+ * What the person filter's cases expect (T-79), from the Jira board's model: one person who has cards in two
+ * columns with a column between them that has none of theirs, and the cards an arrow goes between.
+ */
+function peopleData(model: Model): BehaviourData['people'] {
+  if (model.kind !== 'home') throw new Error('The person filter cases need a home model.');
+  const project = model.tasks.projects[0]!;
+  const board = project.boards[0]!;
+  const all = board.columns.flatMap((c) => c.cards);
+  const person = all.flatMap((c) => c.people).find((w) => w.name === 'Pat Lee');
+  const theirs = (w: { key: string }) => board.columns.map((c) => c.cards.filter((x) => x.people.some((p) => p.key === w.key)));
+  const cols = person ? theirs(person) : [];
+  const at = cols.findIndex((c) => c.length >= 2);
+  const next = cols.findIndex((c, i) => i > at && c.length > 0);
+  const hidden = at >= 0 ? board.columns[at]!.cards.find((c) => !c.people.length)?.key : undefined;
+  if (!person || at < 0 || next < 0 || !hidden || board.me === null) throw new Error('The person filter cases need a board where one person has two cards in a column and some in a later one, a card nobody has, and a signed-in person.');
+  const count = (f: (c: TrackerCard) => boolean) => all.filter(f).length;
+  const mine = count((c) => c.people.some((p) => p.key === board.me));
+  return {
+    board: `tracker:${project.root}#${board.index}`, person: person.name, choice: PERSON + person.key,
+    first: cols[at]![0]!.key, down: cols[at]![1]!.key, right: cols[next]![0]!.key, hidden,
+    labels: ['Everyone', 'Mine', 'Unassigned', ...[...new Set(all.flatMap((c) => c.people.map((p) => p.name)))].sort((a, b) => a.localeCompare(b))],
+    header: `${person.name} · ${count((c) => c.people.some((p) => p.key === person.key))} of ${all.length}`, mine: `Mine · ${mine} of ${all.length}`, everyone: `Everyone · ${all.length}`,
   };
 }
 

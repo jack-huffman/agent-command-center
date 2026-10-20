@@ -80,6 +80,8 @@ export interface ProjectLike {
 
 export interface HubLike {
   projects: ProjectLike[];
+  /** The account acc writes as `human:<user>` in a move's `by` (T-79), which Mine on the agent board means. The environment's USER when the hub says nothing. */
+  user?: string;
   agents: AgentSession[];
   agentsError: string | null;
   taskRows(root: string): TaskRow[];

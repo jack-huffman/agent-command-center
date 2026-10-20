@@ -42,11 +42,13 @@ interface Memory {
   detail?: Detail;
   /** What the command palette ran last, newest first, by its items' ids (T-52). */
   palette?: string[];
+  /** Each board's person filter choice (T-79), by the board's key: Everyone when it has none. */
+  filters?: Record<string, string>;
 }
 interface SavedScroll { y: number; boards: { x: number; lanes: number[] }[] }
 export function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [] };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [], filters: s.filters ?? {} };
 }
 export function remember(change: (m: Memory) => void): void {
   const m = memory();
