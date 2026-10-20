@@ -26,7 +26,7 @@ const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) 
 const full = (t: Record<string, unknown>): Tracker => ({
   kind: t.kind as Tracker['kind'], site: (t.site as string) ?? null, project: (t.project as string) ?? null, repo: (t.repo as string) ?? null, organization: (t.organization as string) ?? null,
   account: (t.account as string) ?? null, workspace: (t.workspace as string) ?? null, channel: (t.channel as string) ?? null, team: (t.team as string) ?? null, board: (t.board as number | string) ?? null, statusColumn: (t.statusColumn as string) ?? null, prefix: (t.prefix as string) ?? null,
-  skipLabels: (t.skipLabels as string[]) ?? [], epic: (t.epic as string) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true, statusFor: (t.statusFor as Record<string, string>) ?? null,
+  skipLabels: (t.skipLabels as string[]) ?? [], epic: (t.epic as string) ?? null, sprint: (t.sprint as 'active' | number) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true, statusFor: (t.statusFor as Record<string, string>) ?? null,
 });
 
 type Answer = Response | Promise<Response>;
@@ -403,10 +403,13 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
 
   h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
   h.send({ type: 'connect-pick', key: 'board', value: '9' });
+  // Another board lists its own sprints (T-78): Save waits for that list.
+  assert.equal(h.model().save.can, false);
+  await settle();
   assert.equal(h.model().save.can, true);
   h.send({ type: 'connect-save' });
   await settle();
-  assert.deepEqual(h.started, [{ root: NEW_ROOT, args: ['--profile', 'generic'], record: { kind: 'jira', site: SITE, project: 'ACME', board: 9, epic: 'ACME-31' } }]);
+  assert.deepEqual(h.started, [{ root: NEW_ROOT, args: ['--profile', 'generic'], record: { kind: 'jira', site: SITE, project: 'ACME', board: 9, epic: 'ACME-31', sprint: null } }]);
   assert.equal(h.writes, 0, 'acc init writes the config, once: nothing patches it after');
   assert.deepEqual([h.saved, h.session.model()], [['Jira, started'], null], 'then the projects load, Setup checks again, and the Tasks tab opens');
   assert.deepEqual([...h.secrets.keys()], [siteCredKey('jira', SITE)], 'nothing new kept');
@@ -837,10 +840,10 @@ test('the tick doesn\'t know one tracker from another: monday.com\'s is built fr
 test('the Connect page offers no picker for a tracker key nothing reads yet, and with none listed it offers them all (GH-107)', () => {
   const jira = DESCRIPTIONS.find((d) => d.kind === 'jira')!;
   const s = blankConnect(jira, { id: 'p', root: ROOT, projectName: 'Acme Service', ownRepo: null, ghAccount: null, from: 'tasks', existing: { index: 0, title: 'Jira · ACME', host: SITE, values: { project: 'ACME', epic: 'ACME-3', board: '7' } } });
-  assert.deepEqual(connectModel(s).pickers.map((p) => p.key), ['project', 'epic', 'board']);
+  assert.deepEqual(connectModel(s).pickers.map((p) => p.key), ['project', 'epic', 'board', 'sprint']);
   assert.deepEqual(connectModel(s, DESCRIPTIONS, {}), connectModel(s), 'the real list is empty today, so nothing is hidden');
   const hidden = connectModel(s, DESCRIPTIONS, { 'trackers[].epic': 'GH-1 will read it.' });
-  assert.deepEqual(hidden.pickers.map((p) => p.key), ['project', 'board']);
+  assert.deepEqual(hidden.pickers.map((p) => p.key), ['project', 'board', 'sprint']);
   // Not offered isn't dropped: Save writes back the epic the tracker already has.
   assert.equal(s.pickers.epic!.selected[0], 'ACME-3');
 });

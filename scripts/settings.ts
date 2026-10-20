@@ -79,6 +79,7 @@ export const READ_IN: Partial<Record<ConfigPath, ReadPlace[]>> = {
   'trackers[].prefix': TRACKER_CLIENTS,
   'trackers[].skipLabels': ['packages/core/src/intake.ts'],
   'trackers[].epic': TRACKER_CLIENTS,
+  'trackers[].sprint': TRACKER_CLIENTS,
   'trackers[].labels': [{ file: 'packages/core/src/intake.ts', via: /\btracker\??\.labels\b/ }],
   'trackers[].areaPath': TRACKER_CLIENTS,
   'trackers[].group': TRACKER_CLIENTS,

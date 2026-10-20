@@ -8,10 +8,10 @@
 import type { Tracker } from '../config.ts';
 import { azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from './azure.ts';
 import { GithubClient } from './github.ts';
-import { JiraClient, jiraBoards, jiraEpics, jiraProjects } from './jira.ts';
+import { JiraClient, jiraBoards, jiraEpics, jiraProjects, jiraSprints } from './jira.ts';
 import { mondayBoards, mondayGroups, mondayMe, mondayStatusColumns, mondayTokenPage } from './monday.ts';
 import { slackApp, slackChannels } from './slack.ts';
-import { type Exec, type Person, TrackerError } from './types.ts';
+import { type Exec, type Person, type Sprint, sprintDates, TrackerError } from './types.ts';
 
 /** One thing to type: an email, or a token, which the page shows as a password field and never keeps. */
 export interface FieldSpec {
@@ -223,12 +223,36 @@ export const JIRA: TrackerDescription = {
       fallback: 'Without one, the Tasks tab shows the project\'s first board.',
       load: async (ctx) => (await jiraBoards(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((b, i) => ({ value: String(b.id), label: b.name, detail: b.type, preferred: i === 0 })),
     },
+    {
+      key: 'sprint', label: 'Sprint', dependsOn: ['project', 'board'], idValues: true, whole: () => 'The whole board',
+      hint: 'Follow the active sprint, whichever it is, or one sprint. The whole board shows its backlog and every sprint.',
+      fallback: 'Without one, the Tasks tab shows the whole board.',
+      load: async (ctx) => jiraSprintOptions(await jiraSprints(ctx.host, one(ctx.values.project)!, one(ctx.values.board) ? Number(one(ctx.values.board)) : null, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)),
+    },
   ],
   place: { key: 'epic', words: 'In Jira, it\'s the epic itself: only its child tickets and their sub-tasks are this project\'s.' },
   verify: (ctx) => new JiraClient({ site: ctx.host, project: '', ...jiraWith(ctx), fetch: ctx.fetch }).me(),
-  toConfig: (c) => ({ kind: 'jira', site: c.host, project: one(c.values.project), board: one(c.values.board) ? Number(one(c.values.board)) : null, epic: one(c.values.epic) }),
-  fromConfig: (t) => ({ host: t.site ?? '', values: { project: t.project, epic: t.epic, board: t.board === null ? null : String(t.board) } }),
+  toConfig: (c) => ({ kind: 'jira', site: c.host, project: one(c.values.project), board: one(c.values.board) ? Number(one(c.values.board)) : null, epic: one(c.values.epic), sprint: sprintValue(one(c.values.sprint)) }),
+  fromConfig: (t) => ({ host: t.site ?? '', values: { project: t.project, epic: t.epic, board: t.board === null ? null : String(t.board), sprint: t.sprint === null ? null : String(t.sprint) } }),
 };
+
+/** The sprint as the config keeps it (T-78): "active", a sprint's id, or null for the whole board. */
+const sprintValue = (v: string | null): 'active' | number | null => (v === 'active' ? 'active' : v && /^\d+$/.test(v) ? Number(v) : null);
+
+/**
+ * The Sprint list's choices (T-78), after The whole board: The active sprint, which follows the board from
+ * one sprint to the next, then each open sprint and each future one, with its dates. A board with no
+ * sprints, such as a kanban board, offers only the whole board.
+ */
+export function jiraSprintOptions(sprints: Sprint[] | null): Option[] {
+  if (!sprints) return [];
+  const active = sprints.filter((s) => s.state === 'active');
+  return [
+    { value: 'active', label: 'The active sprint', detail: active.length ? `now ${active.map((s) => s.name).join(' and ')}` : 'none open now' },
+    ...sprints.map((s) => ({ value: String(s.id), label: s.name, detail: [s.state === 'active' ? 'open' : 'future', sprintDates(s)].filter(Boolean).join(', ') })),
+  ];
+}
+
 
 export const GITHUB: TrackerDescription = {
   kind: 'github', name: 'GitHub Issues', icon: 'github',
