@@ -19,7 +19,7 @@ import { dispatchChoiceArgs, type Message as SheetGo, SHEET_COMMANDS } from './m
 import { openSheet, type SheetAsk, sheetInput } from './dispatch-sheet.ts';
 import { editRefusal } from '../../packages/core/src/edit.ts';
 import { type Message as TaskSheetMessage, openTaskSheet, TASK_SHEET_DONE, TASK_SHEET_ROWS, taskSheetArgs, taskSheetInput } from './model/task-sheet.ts';
-import { TicketEdits } from './ticket-edits.ts';
+import type { TicketEdits } from './ticket-edits.ts';
 import { verdictFrom } from './model/dock-review.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -544,8 +544,7 @@ class TaskCommands extends Sidebar {
 
 
 export const area: ExtensionArea = {
-  register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets, trackers }) {
-    const edits = new TicketEdits(hub, trackers, sidebar.acc);
+  register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets, ticketEdits: edits }) {
     const read = (root: string, key: string) => edits.sheetTicket(root, key);
     const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id, undefined, read), edits);
     tasks.register(regNode);

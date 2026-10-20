@@ -33,6 +33,7 @@ import { SelfUpdate } from './self-update.ts';
 import { Sidebar } from './sidebar.ts';
 import { RepoIdentity } from './identity.ts';
 import { TicketPanels, type UpdateActions } from './ticket.ts';
+import { TicketEdits } from './ticket-edits.ts';
 import { exec, Trackers } from './trackers.ts';
 import { ConnectSession } from './connect.ts';
 import { Slack, slackCard, SLACK_STATE } from './slack.ts';
@@ -254,6 +255,8 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   };
   const tickets = new TicketPanels(context, hub, trackers, resolve, accRunner(accScript), answerAnalysis, updates);
+  // A tracker task's ticket, changed from the task sheet where the project allows edits (T-80).
+  const ticketEdits = new TicketEdits(hub, trackers, accRunner(accScript));
 
   // Agents' questions and activity (D-030). Answering "in the terminal" hands the question back to
   // Claude Code's own prompt, and attaches to it.
@@ -467,7 +470,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Each area registers its commands, and takes the page's messages that are its own (D-099).
   const parts: Parts = {
-    vscode, hub, setup, runs, panels, tickets, pages, trackers, identity, connect, slack, autopilot, sidebar, about, selfUpdate, accScript,
+    vscode, hub, setup, runs, panels, tickets, ticketEdits, pages, trackers, identity, connect, slack, autopilot, sidebar, about, selfUpdate, accScript,
     reg, subscribe: (d) => context.subscriptions.push(d), regNode, resolve, accSays, answer, answerAnalysis, updates, showRun,
     receive: (type, fn) => panels.take(type, fn),
   };
