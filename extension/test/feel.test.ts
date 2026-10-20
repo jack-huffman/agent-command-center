@@ -186,6 +186,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'analysis.ts', at: /button\('Answer'/, why: 'Answer: the analysis waits on the person\'s answer.' },
   { file: 'task-actions.ts', at: /\$\{primary \? ' primary'/, why: 'A task\'s next step, on its page and its card, such as a card\'s Answer: primary only where the model\'s action is (D-168).' },
   { file: 'task-sheet.ts', at: /'primary ts-go'/, why: 'The task sheet\'s Add task or Save: what the person wrote in it, sent; the sheet opened only to take it (T-74).' },
+  { file: 'task-sheet.ts', at: /button\('Keep mine'/, why: 'Keep mine: the Save the person asked for, which stopped because the ticket changed meanwhile, and waits on their pick (T-80).' },
   { file: 'dispatch-sheet.ts', at: /'primary ds-go'/, why: 'The sheet\'s Dispatch: what the person chose in it, sent; the sheet opened only to take it (D-168).' },
   { file: 'connect.ts', at: /m\.method\.test/, why: 'Test, until the sign-in passes: the dialog can\'t go on without it.' },
   { file: 'connect.ts', at: /m\.save\.label/, why: 'Save: the dialog\'s last step, which the person opened it to take.' },
