@@ -8,7 +8,7 @@ import { GithubClient } from '../src/trackers/github.ts';
 import { JiraClient } from '../src/trackers/jira.ts';
 import { MondayClient } from '../src/trackers/monday.ts';
 import { SlackClient } from '../src/trackers/slack.ts';
-import { type Exec, TEXT_TRACKERS, textRefusal, textRefused, TRACKER_KINDS, TrackerError } from '../src/trackers/types.ts';
+import { type Exec, TEXT_TRACKERS, textRefusal, textRefused, type TrackerClient, TRACKER_KINDS, TrackerError } from '../src/trackers/types.ts';
 
 /** A stand-in for Jira Cloud that records each request and answers 204, as Jira's edit does. */
 function jiraRecorder() {
@@ -74,7 +74,7 @@ test('GitHub edge cases: nothing given runs nothing, an empty title is refused, 
 test('Azure DevOps, monday.com and Slack refuse to write ticket text, with why, and send nothing', async () => {
   let sent = 0;
   const f = (async () => { sent++; return new Response('{}'); }) as unknown as typeof fetch;
-  const clients = [
+  const clients: TrackerClient[] = [
     new AzureClient({ organization: 'acme', project: 'CRM', auth: async () => 'Bearer tok', fetch: f }),
     new MondayClient({ account: 'acme', board: 111, token: 'tok', fetch: f }),
     new SlackClient({ workspace: 'acme', channel: 'C0123ABCD', token: 'xoxb-test', fetch: f }),

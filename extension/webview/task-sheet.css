@@ -23,3 +23,14 @@
 .ts-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 10px 18px 14px; border-top: 1px solid var(--edge); }
 .ts-foot .btn { min-width: 96px; justify-content: center; }
 .ts-foot .btn:disabled { opacity: 0.55; cursor: default; }
+/* Where the project allows edits (T-80): the ticket's status, assignee and labels, each its value with
+   its Change beside it, and the choice when the ticket changed after the sheet opened: the two versions
+   side by side, stacked when the sheet is narrow, then Use theirs and Keep mine. */
+.ts-row { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.ts-row > .ts-kept { flex: 1 1 auto; min-width: 0; }
+.ts-change { flex: none; }
+.ts-conflict { margin: 6px 0 4px; }
+.ts-versions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 12px; margin: 8px 0; }
+.ts-version { min-width: 0; }
+.ts-version > .ts-kept + .ts-kept { margin-top: 4px; }
+.ts-pick { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

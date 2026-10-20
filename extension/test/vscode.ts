@@ -53,7 +53,7 @@ export function fakeVscode(folder: string) {
   const treeShown = new Map<string, ((e: { visible: boolean }) => void)[]>();
   class EventEmitter { private ls: ((e: unknown) => void)[] = []; event = (l: (e: unknown) => void) => { this.ls.push(l); return disposable; }; fire(e?: unknown) { for (const l of this.ls) l(e); } dispose() {} }
   class TreeItem { label: string; collapsibleState: number; [k: string]: unknown; constructor(label: string, state = 0) { this.label = label; this.collapsibleState = state; } }
-  class MarkdownString { value: string; supportThemeIcons = false; constructor(v = '') { this.value = v; } }
+  class MarkdownString { value: string; supportThemeIcons = false; constructor(v = '') { this.value = v; } appendMarkdown(v: string) { this.value += v; return this; } }
   class Disposable { private f: () => void; constructor(f: () => void) { this.f = f; } dispose() { this.f(); } static from(...ds: { dispose(): unknown }[]) { return { dispose: () => ds.forEach((d) => d.dispose()) }; } }
   /**
    * Each editor tab: what it was sent, what it says back, and closing it. Hiding it tells its listeners, as

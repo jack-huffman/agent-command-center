@@ -18,7 +18,8 @@ import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDu
 import { dispatchChoiceArgs, type Message as SheetGo, SHEET_COMMANDS } from './model/dispatch-sheet.ts';
 import { openSheet, type SheetAsk, sheetInput } from './dispatch-sheet.ts';
 import { editRefusal } from '../../packages/core/src/edit.ts';
-import { type Message as TaskSheetGo, openTaskSheet, taskSheetArgs, taskSheetInput } from './model/task-sheet.ts';
+import { type Message as TaskSheetMessage, openTaskSheet, TASK_SHEET_DONE, TASK_SHEET_ROWS, taskSheetArgs, taskSheetInput } from './model/task-sheet.ts';
+import { TicketEdits } from './ticket-edits.ts';
 import { verdictFrom } from './model/dock-review.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -35,10 +36,14 @@ class TaskCommands extends Sidebar {
   /** Opens the task sheet (T-74) over the Command Center, for a new task or to edit one: false when it isn't there to open. */
   private readonly taskSheet: (root: string, id: string | null) => boolean;
 
-  constructor(from: Sidebar, sheet: (root: string, id: string, ask?: SheetAsk) => boolean, taskSheet: (root: string, id: string | null) => boolean) {
+  /** A tracker task's ticket, changed from the sheet where the project allows edits (T-80). */
+  private readonly edits: TicketEdits | null;
+
+  constructor(from: Sidebar, sheet: (root: string, id: string, ask?: SheetAsk) => boolean, taskSheet: (root: string, id: string | null) => boolean, edits: TicketEdits | null = null) {
     super(from.hub, from.acc, from.log, from.openTicket, from.helpers, from.terminals);
     this.sheet = sheet;
     this.taskSheet = taskSheet;
+    this.edits = edits;
   }
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
@@ -108,14 +113,40 @@ class TaskCommands extends Sidebar {
   /**
    * The task sheet's Add task or Save (T-74): acc add, or acc edit with the fields that changed, worked out
    * from the task as it is now. An edit that changes nothing runs nothing; a task gone since says so.
+   * Where the sheet holds its ticket's text (T-80), that goes to the ticket first: a change made there
+   * since the sheet opened, or a failed write, stops Save before acc changes anything, and the sheet keeps
+   * what the person wrote. `say` tells the page that sent it how it went.
    */
-  async saveSheet(m: TaskSheetGo): Promise<void> {
+  async saveSheet(m: Extract<TaskSheetMessage, { type: 'task-sheet-go' }>, say: (msg: Record<string, unknown>) => void = () => {}): Promise<void> {
+    const done = (r: Record<string, unknown>) => say({ type: TASK_SHEET_DONE, project: m.project, task: m.task ?? null, ...r });
     const project = this.hub.project(m.project);
     const i = project ? taskSheetInput(this.hub, m.project, m.task ?? null) : null;
-    if (!project || !i) return void vscode.window.showInformationMessage(m.task ? `${m.task} isn't there to edit any more.` : 'That project isn\'t open any more.');
-    const args = taskSheetArgs(i, m);
-    if (!args.length) return void vscode.window.showInformationMessage(`Nothing changed in ${m.task}.`);
-    await this.runAcc(project, args, (out) => (m.task ? `Saved ${m.task}.` : out?.added?.length ? `Added ${out.added.join(', ')}.` : undefined));
+    if (!project || !i) {
+      const why = m.task ? `${m.task} isn't there to edit any more.` : 'That project isn\'t open any more.';
+      void vscode.window.showInformationMessage(why);
+      return done({ ok: false, error: why });
+    }
+    let wrote = false;
+    if (m.base && m.task) {
+      const r = this.edits ? await this.edits.saveText(m.project, m.task, m.base, { title: m.title, markdown: m.brief }) : { ok: false as const, error: 'This window can\'t change tickets.' };
+      if (!r.ok) return done(r);
+      wrote = r.wrote;
+    }
+    // Written to the ticket, the task was refreshed from it, so acc edit works from the task as it is now.
+    const now = (wrote && taskSheetInput(this.hub, m.project, m.task ?? null)) || i;
+    const args = taskSheetArgs(now, m);
+    if (!args.length) {
+      void vscode.window.showInformationMessage(wrote ? `Saved ${m.task} to its ticket.` : `Nothing changed in ${m.task}.`);
+      return done({ ok: true });
+    }
+    const ok = await this.runAcc(project, args, (out) => (m.task ? `Saved ${m.task}${wrote ? ' and its ticket' : ''}.` : out?.added?.length ? `Added ${out.added.join(', ')}.` : undefined));
+    done(ok ? { ok: true } : { ok: false, error: wrote ? 'Its ticket was saved, but the rest wasn\'t: the message says why.' : 'It wasn\'t saved: the message says why.' });
+  }
+
+  /** Change on the sheet's status, assignee or labels (T-80): the ticket page's quick pick, then the sheet's rows as the ticket has them now. */
+  async sheetField(m: Extract<TaskSheetMessage, { type: 'task-sheet-field' }>, say: (msg: Record<string, unknown>) => void): Promise<void> {
+    const r = this.edits ? await this.edits.changeField(m.project, m.task, m.field) : { ok: false as const, error: 'This window can\'t change tickets.' };
+    say({ type: TASK_SHEET_ROWS, project: m.project, task: m.task, field: m.field, ...r });
   }
 
   private async importGithub(n?: TaskNode): Promise<void> {
@@ -513,20 +544,25 @@ class TaskCommands extends Sidebar {
 
 
 export const area: ExtensionArea = {
-  register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets }) {
-    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id));
+  register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets, trackers }) {
+    const edits = new TicketEdits(hub, trackers, sidebar.acc);
+    const read = (root: string, key: string) => edits.sheetTicket(root, key);
+    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id, undefined, read), edits);
     tasks.register(regNode);
     // Dispatch's sheet (D-168): its Dispatch from the Command Center's page. A task's own tab, and the modal
     // over the board, show the sheet over that page, and send its Dispatch here too.
     receive('dispatch-sheet-go', (m) => void tasks.go(m));
     // The task sheet (T-74): its Add task or Save, from any page; Edit on a task's tab or the modal opens it over that page.
-    receive('task-sheet-go', (m) => void tasks.saveSheet(m));
+    receive('task-sheet-go', (m) => void tasks.saveSheet(m, (msg) => panels.reply(msg)));
+    // Change on the sheet's status, assignee or labels (T-80), over the Command Center or its modal.
+    receive('task-sheet-field', (m) => void tasks.sheetField(m, (msg) => panels.reply(msg)));
     tickets.dispatch = {
-      open: (command, ref, say) => (command === 'acc.task.edit' && !!ref.project && !!ref.task ? openTaskSheet(hub, (m) => void panels.tell(m), ref.project, ref.task, say)
+      open: (command, ref, say) => (command === 'acc.task.edit' && !!ref.project && !!ref.task ? openTaskSheet(hub, (m) => void panels.tell(m), ref.project, ref.task, say, read)
         : SHEET_COMMANDS.includes(command) && !!ref.project && !!ref.task
         && openSheet(hub, panels, ref.project, ref.task, command === 'acc.task.dispatchAnyway' ? { anyway: true } : command === 'acc.task.dispatchCloud' ? { where: 'cloud' } : {}, say)),
       go: (m) => void tasks.go(m),
-      save: (m) => void tasks.saveSheet(m),
+      save: (m, say) => void tasks.saveSheet(m, say),
+      field: (m, say) => void tasks.sheetField(m, say),
     };
     // A task's card dropped in a lane of the agent board (D-041).
     receive('move-task', (m) => { const p = hub.project(m.project); if (p) void tasks.moveToLane(p, m.task, m.to); });

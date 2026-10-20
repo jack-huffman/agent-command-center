@@ -7,7 +7,7 @@ import type { Task } from '../../packages/core/src/ledger.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { receiptsAt } from '../../packages/core/src/receipts.ts';
 import { latestVerdict, reviewCurrent } from '../../packages/core/src/review.ts';
-import { signInLabel, type Ticket, type TrackerClient } from '../../packages/core/src/trackers/types.ts';
+import { signInLabel, type Ticket } from '../../packages/core/src/trackers/types.ts';
 import type { Hub, Project } from './hub.ts';
 import { type FromWebview, isFromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
@@ -23,6 +23,7 @@ import { addTaskArgs, draftFromOpen } from './logic/tasks.ts';
 import { inProcessWords } from './logic/processes.ts';
 import { type Excerpt, fileInCheckout, mergeBase, reviewExcerpts } from './logic/review-excerpts.ts';
 import { openReview } from './rules.ts';
+import { pickField } from './ticket-edits.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -104,8 +105,10 @@ export class TicketPanels implements vscode.Disposable {
   dispatch: {
     open(command: string, ref: Ref, say: (msg: Record<string, unknown>) => void): boolean;
     go(m: Extract<FromWebview, { type: 'dispatch-sheet-go' }>): void;
-    /** The task sheet's Save (T-74), from Edit on this page. */
-    save(m: Extract<FromWebview, { type: 'task-sheet-go' }>): void;
+    /** The task sheet's Save (T-74), from Edit on this page; `say` tells this page how it went (T-80). */
+    save(m: Extract<FromWebview, { type: 'task-sheet-go' }>, say: (msg: Record<string, unknown>) => void): void;
+    /** Change on the sheet's status, assignee or labels (T-80), from Edit on this page. */
+    field(m: Extract<FromWebview, { type: 'task-sheet-field' }>, say: (msg: Record<string, unknown>) => void): void;
   } | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
@@ -371,7 +374,8 @@ export class TicketPanels implements vscode.Disposable {
         if (ALLOWED.has(m.command) && !this.dispatch?.open(m.command, m.ref, (msg) => o.view.say(msg))) await this.resolve(m.command, m.ref);
         return;
       case 'dispatch-sheet-go': this.dispatch?.go(m); return;
-      case 'task-sheet-go': this.dispatch?.save(m); return;
+      case 'task-sheet-go': this.dispatch?.save(m, (msg) => o.view.say(msg)); return;
+      case 'task-sheet-field': this.dispatch?.field(m, (msg) => o.view.say(msg)); return;
       case 'toolbar':
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);
         return;
@@ -450,12 +454,8 @@ export class TicketPanels implements vscode.Disposable {
       if (action === 'comment') {
         await client.comment(o.key, text ?? '');
         changed = true;
-      } else if (action === 'status') {
-        changed = await this.pickStatus(client, o);
-      } else if (action === 'assign') {
-        changed = await this.pickAssignees(client, o);
-      } else if (action === 'labels') {
-        changed = await this.pickLabels(client, o);
+      } else if (action === 'status' || action === 'assign' || action === 'labels') {
+        changed = await pickField(client, o.key, o.ticket!, action);
       }
       done(true);
       if (changed) {
@@ -467,96 +467,6 @@ export class TicketPanels implements vscode.Disposable {
       done(false, msg);
       void vscode.window.showErrorMessage(`${o.key}: ${msg}`);
     }
-  }
-
-  private async pickStatus(client: TrackerClient, o: Open): Promise<boolean> {
-    const moves = await client.transitions(o.key);
-    if (!moves.length) {
-      void vscode.window.showInformationMessage(`${o.key} has no moves from ${o.ticket!.status.name} right now.`);
-      return false;
-    }
-    const pick = await vscode.window.showQuickPick(moves.map((m) => ({ label: m.name, description: m.to.name === m.name ? undefined : `→ ${m.to.name}`, m })), { title: `${o.key}: ${o.ticket!.status.name}`, placeHolder: 'Move it to…' });
-    if (!pick) return false;
-    await client.transition(o.key, pick.m);
-    return true;
-  }
-
-  private async pickAssignees(client: TrackerClient, o: Open): Promise<boolean> {
-    const current = o.ticket!.assignees;
-    if (client.kind === 'github' || client.kind === 'monday') {
-      // GitHub and a monday.com People column take several: a checklist of everyone who can be assigned.
-      const people = await client.assignable(o.key, '');
-      const items = people.map((x) => ({ label: x.name, picked: current.some((c) => c.id === x.id), x }));
-      const chosen = await vscode.window.showQuickPick(items, { title: `Assignees for ${o.key}`, canPickMany: true, placeHolder: 'Tick everyone who should work on it' });
-      if (!chosen) return false;
-      await client.assign(o.key, chosen.map((c) => c.x));
-      return true;
-    }
-    // Jira takes one: search as you type, with yourself and nobody first.
-    const me = await client.me();
-    const qp = vscode.window.createQuickPick<vscode.QuickPickItem & { id: string | null; name: string }>();
-    qp.title = `Assignee for ${o.key}`;
-    qp.placeholder = 'Type a name to search';
-    const base = [{ label: '$(account) Assign to me', description: me.name, id: me.id, name: me.name }, { label: '$(circle-slash) Unassigned', id: null, name: '' }];
-    qp.items = base;
-    let timer: NodeJS.Timeout | undefined;
-    qp.onDidChangeValue((v) => {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
-        qp.busy = true;
-        try {
-          const found = await client.assignable(o.key, v);
-          qp.items = [...base, ...found.map((x) => ({ label: x.name, id: x.id, name: x.name }))];
-        } finally {
-          qp.busy = false;
-        }
-      }, 250);
-    });
-    const pick = await new Promise<(typeof base)[number] | undefined>((resolve) => {
-      qp.onDidAccept(() => { resolve(qp.selectedItems[0] as (typeof base)[number] | undefined); qp.hide(); });
-      qp.onDidHide(() => resolve(undefined));
-      qp.show();
-    });
-    qp.dispose();
-    if (!pick) return false;
-    await client.assign(o.key, pick.id ? [{ id: pick.id, name: pick.name }] : []);
-    return true;
-  }
-
-  private async pickLabels(client: TrackerClient, o: Open): Promise<boolean> {
-    const have = new Set(o.ticket!.labels.map((l) => l.name));
-    const all = await client.labels();
-    const names = [...new Set([...all.map((l) => l.name), ...have])].sort((a, b) => a.localeCompare(b));
-    const qp = vscode.window.createQuickPick<vscode.QuickPickItem>();
-    qp.title = `Labels for ${o.key}`;
-    qp.canSelectMany = true;
-    qp.placeholder = client.kind === 'jira' ? 'Tick labels, or type a new one' : 'Tick labels';
-    const items = names.map((label) => ({ label }));
-    qp.items = items;
-    qp.selectedItems = items.filter((i) => have.has(i.label));
-    if (client.kind === 'jira') {
-      // Jira labels are free text, so a typed name that isn't there yet can be added.
-      qp.onDidChangeValue((v) => {
-        const typed = v.trim().replace(/\s+/g, '-');
-        const extra = typed && !names.includes(typed) ? [{ label: typed, description: 'new label' }] : [];
-        const kept = qp.selectedItems;
-        qp.items = [...extra, ...items];
-        qp.selectedItems = qp.items.filter((i) => kept.some((k) => k.label === i.label));
-      });
-    }
-    const chosen = await new Promise<readonly vscode.QuickPickItem[] | undefined>((resolve) => {
-      qp.onDidAccept(() => { resolve(qp.selectedItems); qp.hide(); });
-      qp.onDidHide(() => resolve(undefined));
-      qp.show();
-    });
-    qp.dispose();
-    if (!chosen) return false;
-    const want = new Set(chosen.map((c) => c.label));
-    const add = [...want].filter((n) => !have.has(n));
-    const remove = [...have].filter((n) => !want.has(n));
-    if (!add.length && !remove.length) return false;
-    await client.setLabels(o.key, add, remove);
-    return true;
   }
 
   /** A person sets a failing check aside on the task's latest commit, with a reason (D-031). */

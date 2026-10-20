@@ -1,6 +1,6 @@
 // A ticket's page: the ticket, its fields, its comments and its activity.
 
-import type { Look } from '../src/model/shared.ts';
+import type { Action, Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
 import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
@@ -33,6 +33,20 @@ function editButton(label: string, action: string): HTMLElement {
   const b = el('button', 'btn ghost small', icon('edit'), label) as HTMLButtonElement;
   b.type = 'button';
   b.addEventListener('click', () => ticketAction(action));
+  return b;
+}
+
+/** The description's Edit (T-80): it opens the task sheet over this page; one that can't be used now is off, with why. */
+function descEdit(a: Action): HTMLElement {
+  const b = el('button', 'btn ghost small', icon(a.icon), a.label) as HTMLButtonElement;
+  b.type = 'button';
+  b.title = a.disabled ? `${a.label}: ${a.disabled}` : 'Edit its title and description';
+  b.setAttribute('aria-label', 'Edit its title and description');
+  if (a.disabled) {
+    b.disabled = true;
+    b.setAttribute('aria-description', a.disabled);
+  }
+  b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));
   return b;
 }
 
@@ -129,7 +143,9 @@ export function renderTicket(m: TicketModel): Node[] {
   }
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
   const main = el('div', 'ticket-main');
-  main.append(el('section', 'block', el('h2', '', 'Description'), m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
+  // Where the tracker allows edits, Edit opens the task sheet, which writes the ticket's title and description (T-80).
+  const descHead = m.editText ? el('div', 'desc-head', el('h2', '', 'Description'), descEdit(m.editText)) : el('h2', '', 'Description');
+  main.append(el('section', 'block', descHead, m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
   // What a person wrote for its builder (T-74), which a tracker's intake never changes.
   if (m.acc?.notes) main.append(el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)));
   const note = renderNote(m);
