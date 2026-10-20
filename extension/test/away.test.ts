@@ -123,3 +123,17 @@ test('every notice kind has a look on Since you last looked, and the Overview dr
   assert.ok(overview.includes('landingGroup(needs), ...(o.since ? [sinceSection(o.since)] : []), ...(o.cards.length ? [cards] : [])'), 'between Needs you and the cards');
   assert.ok(pageSource('since.ts').includes('h.dataset.part = g.part;'), 'its heading is where Show opens it');
 });
+
+test('a sprint change joins Since you last looked whether or not the person is away, with no task, and its line opens the Tasks tab (T-78)', () => {
+  const a = new Away(true, 0);
+  const sprint: ProjectNotice = { root: '/a', notice: { kind: 'sprint', task: '', text: 'Sprint 13 started after Sprint 12: 2 tickets carried into it, 1 went back to the backlog.', urgent: false } };
+  a.note(sprint);
+  assert.deepEqual(a.since(), [sprint], 'held with focus, never shown as a notification');
+  assert.equal(a.focus(true, 20 * MIN), null, 'focus that never left says nothing');
+  const g = sinceGroup(a.since(), [{ name: 'a', root: '/a' }])!;
+  assert.deepEqual([g.rows[0]!.look.label, g.rows[0]!.look.icon, g.rows[0]!.look.tone, g.rows[0]!.id, g.rows[0]!.title], ['Sprint changed', 'milestone', 'blue', null, sprint.notice.text], 'no task key: the line is the board\'s');
+  assert.deepEqual(g.rows[0]!.open, { kind: 'go', section: 'tasks' });
+  assert.equal(noticeCounts([sprint, { ...sprint }]), '2 sprints changed');
+  a.clear();
+  assert.deepEqual(a.since(), [], 'Clear takes it off too');
+});

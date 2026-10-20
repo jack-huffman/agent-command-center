@@ -60,7 +60,16 @@ export class Away {
     return all.filter((p) => p.notice.urgent);
   }
 
+  /**
+   * News that waits on the Overview whether or not the person is away, such as a board's sprint changing
+   * (T-78): it joins the list, and is never a notification of its own.
+   */
+  note(n: ProjectNotice): void {
+    this.held.push(n);
+  }
+
   /** The news the newest span held, oldest first, for the Overview. */
+
   since(): readonly ProjectNotice[] {
     return this.held;
   }

@@ -37,3 +37,13 @@ test('the Tasks board carries the warning, from its raw place even when the line
   assert.equal(b.movedOut, 'Moved out of epic ACME-3 after work started: ACME-18.');
   assert.equal(trackerBoard({ ...sampleBoards()[0]!, left: [] }, [], '/repo').movedOut, null);
 });
+
+test('a Jira sprint names itself without its dates, and an epic in a sprint is either; elsewhere a group called sprint is still a group (T-78)', () => {
+  assert.equal(narrowedTo('Jira · ACME · sprint ACME Sprint 12 (6 Oct to 19 Oct)'), 'sprint ACME Sprint 12');
+  assert.equal(narrowedTo('Jira · ACME · the active sprint'), 'the active sprint', 'before the board loads');
+  assert.equal(narrowedTo('Jira · ACME · no active sprint'), 'the active sprint', 'none open now');
+  assert.equal(narrowedTo('Jira · ACME · epic ACME-3 Premium Support · sprint 42'), 'epic ACME-3 or sprint 42');
+  assert.equal(movedOut('Jira · ACME · sprint Sprint 12 (6 Oct to 19 Oct)', [note('ACME-18')]), 'Moved out of sprint Sprint 12 after work started: ACME-18.');
+  assert.equal(narrowedTo('monday.com · acme · sprint board · group This sprint'), 'group This sprint', 'monday.com has no sprints: its last part narrows');
+  assert.equal(narrowedTo('monday.com · acme · sprint planning'), null, 'a monday.com board named for a sprint isn\'t a place');
+});
