@@ -298,3 +298,25 @@ test('edit: a tracker task\'s title is refused, and its environment and notes ar
   assert.equal(t.title, 'Renamed in Jira');
   assert.equal(t.notes, 'Ask first.', 'intake keeps the notes');
 });
+
+test('acc intake jira --file keeps the sprint a board shows as its tracker\'s last, and refuses a sprint in the wrong shape or for another tracker (T-78)', () => {
+  const dir = repoWithConfig({ ...GENERIC_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', sprint: 'active' }] });
+  const file = join(dir, 'outside.json');
+  const seen = { sprints: [{ id: 13, name: 'Sprint 13' }], open: ['ACME-1'], at: '2026-10-20T09:00:00.000Z' };
+  writeFileSync(file, JSON.stringify({ outside: [], sprint: { tracker: 'jira acme.atlassian.net ACME first', seen } }));
+  const r = acc(dir, ['intake', 'jira', '--file', file]);
+  assert.equal(r.code, 0, r.err);
+  assert.equal(r.out.trim(), 'Nothing to do.', 'nothing outside, and the sprint kept quietly');
+  const kept = JSON.parse(readFileSync(join(dir, '.git', 'acc', 'sprints.json'), 'utf8'));
+  assert.deepEqual(kept, { 'jira acme.atlassian.net ACME first': seen }, 'beside the ledger, not in the repo');
+
+  for (const sprint of [{ tracker: 'x' }, { tracker: 7, seen }, { tracker: 'x', seen: { ...seen, open: [3] } }]) {
+    writeFileSync(file, JSON.stringify({ outside: [], sprint }));
+    const bad = acc(dir, ['intake', 'jira', '--file', file]);
+    assert.equal(bad.code, 2, JSON.stringify(sprint));
+    assert.match(bad.err, /"sprint" must be \{ "tracker"/);
+  }
+  writeFileSync(file, JSON.stringify({ outside: [], sprint: { tracker: 'x', seen } }));
+  assert.equal(acc(dir, ['intake', 'azure', '--file', file]).code, 2, 'only a Jira board has sprints');
+  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(dir, '.git', 'acc', 'sprints.json'), 'utf8'))), ['jira acme.atlassian.net ACME first'], 'a refused one keeps nothing');
+});

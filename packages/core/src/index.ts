@@ -58,6 +58,7 @@ export * from './semaphore.ts';
 export * from './setup.ts';
 export * from './source-tracking.ts';
 export * from './source.ts';
+export * from './sprints.ts';
 export * from './ste.ts';
 export * from './steps.ts';
 export * from './stray-files.ts';

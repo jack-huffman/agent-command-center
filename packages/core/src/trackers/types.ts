@@ -112,6 +112,20 @@ export interface Board {
   notice: string | null;
   /** Where its tickets come from (D-072), such as "Jira · ACME · epic ACME-3 Premium Support". */
   place: string;
+  /**
+   * The sprints its tickets come from (T-78): a Jira board's open sprints, or the one sprint it names. Empty
+   * when it follows the active sprint and none is open. Left out when the board isn't held to a sprint.
+   */
+  sprints?: Sprint[];
+}
+
+/** A Jira sprint (T-78): its id, its name, and its dates, which a future sprint may not have yet. */
+export interface Sprint {
+  id: number;
+  name: string;
+  state: 'active' | 'future' | 'closed';
+  start: string | null;
+  end: string | null;
 }
 
 /** A ticket outside the tracker's place, and why, in a few words: "in project OPS", "no label billing". */
@@ -163,6 +177,11 @@ export interface TrackerClient {
    * out: a failed read never counts as outside (D-048).
    */
   outside(keys: string[], opts?: { project?: boolean }): Promise<Outside[]>;
+  /**
+   * Which of these tickets aren't done yet (T-78), for counting the ones a finished sprint sent back to the
+   * backlog. Only a tracker with sprints has it. A ticket it couldn't read is left out.
+   */
+  stillOpen?(keys: string[]): Promise<string[]>;
   /** The moves this ticket can make right now. */
   transitions(key: string): Promise<Transition[]>;
   transition(key: string, t: Transition, card?: BoardCard): Promise<void>;
@@ -213,6 +232,8 @@ export const orList = (names: string[]): string => (names.length < 2 ? names.joi
  */
 export function placeText(p: {
   kind: TrackerKind; project?: string | null; repo?: string | null; team?: string | null; epic?: string | null; epicName?: string | null; labels?: string[]; areaPath?: string | null;
+  /** A Jira board's sprint (T-78): "active" or an id, from the config, and once the board has loaded, the sprints it found. */
+  sprint?: 'active' | number | null; sprints?: Sprint[] | null;
   account?: string | null; board?: string | number | null; boardName?: string | null; group?: string | null; groupName?: string | null;
   workspace?: string | null; channel?: string | null;
 }): string {
@@ -222,8 +243,30 @@ export function placeText(p: {
     const labels = p.labels ?? [];
     return `GitHub · ${p.repo ?? '?'}${labels.length ? ` · label${labels.length > 1 ? 's' : ''} ${orList(labels)}` : ''}`;
   }
-  if (p.kind === 'jira') return `Jira · ${p.project ?? '?'}${p.epic ? ` · epic ${p.epic}${p.epicName ? ` ${p.epicName}` : ''}` : ''}`;
+  if (p.kind === 'jira') return `Jira · ${p.project ?? '?'}${p.epic ? ` · epic ${p.epic}${p.epicName ? ` ${p.epicName}` : ''}` : ''}${p.sprint ? ` · ${sprintPlace(p.sprint, p.sprints ?? null)}` : ''}`;
   return `Azure DevOps · ${p.project ?? '?'}${p.team ? ` · ${p.team}` : ''}${p.areaPath ? ` · area ${p.areaPath}` : ''}`;
+}
+
+const DAY = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+/** A sprint's dates in words: "6 Oct to 19 Oct". Null when it has none yet, as a future sprint may not. */
+export function sprintDates(s: Pick<Sprint, 'start' | 'end'>): string | null {
+  const day = (iso: string | null) => (iso && !Number.isNaN(Date.parse(iso)) ? DAY.format(new Date(iso)) : null);
+  const [a, b] = [day(s.start), day(s.end)];
+  return a && b ? `${a} to ${b}` : a ? `from ${a}` : b ? `to ${b}` : null;
+}
+
+/**
+ * The sprint part of a Jira place (T-78), once the board has found it: "active sprint Sprint 12 (6 Oct to
+ * 19 Oct)" when it follows the active one, or "sprint Sprint 12 (6 Oct to 19 Oct)" for a named one. Before
+ * then, "the active sprint" or "sprint 42"; and "no active sprint" when it follows the active one and none is
+ * open.
+ */
+export function sprintPlace(sprint: 'active' | number, found: Sprint[] | null): string {
+  if (!found) return sprint === 'active' ? 'the active sprint' : `sprint ${sprint}`;
+  if (!found.length) return sprint === 'active' ? 'no active sprint' : `sprint ${sprint}`;
+  const word = sprint === 'active' ? `active sprint${found.length > 1 ? 's' : ''}` : 'sprint';
+  return `${word} ${found.map((s) => `${s.name}${sprintDates(s) ? ` (${sprintDates(s)})` : ''}`).join(' and ')}`;
 }
 
 /** Runs `fn` over the items a few at a time, so checking many tickets never floods a tracker. */

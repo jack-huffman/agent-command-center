@@ -119,6 +119,12 @@ export interface Tracker {
    * so only the board's items in that group count. Unset, the whole project or board.
    */
   epic: string | null;
+  /**
+   * Jira only: which sprint's tickets count, with or without an epic (T-78). "active" for the board's open
+   * sprints, whichever they are now, or a sprint's id for that one. Unset, the whole board: its backlog and
+   * every sprint.
+   */
+  sprint: 'active' | number | null;
   labels: string[];
   areaPath: string | null;
   group: string | null;
@@ -256,7 +262,7 @@ export const CONFIG_KEYS = [
   'environments[].protected', 'environments[].promotesTo', 'environmentSpecific', 'knownDrift',
   'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
   'trackers[].workspace', 'trackers[].channel', 'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
-  'trackers[].epic', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
+  'trackers[].epic', 'trackers[].sprint', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'trackers[].statusFor',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel',
@@ -342,6 +348,16 @@ const strList = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr
 /** Paths inside the repo, as git names them: never absolute, never climbing out. */
 const inRepo = (v: unknown): v is string[] => strList(v) && !v.some((f) => f.startsWith('/') || f.split('/').includes('..'));
 const JIRA_ISSUE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
+
+/**
+ * Why a tracker's `sprint` is refused (T-78), or null when it's one: "active", or a sprint's id, a whole
+ * number above 0. Only a Jira tracker has sprints; Azure DevOps iterations aren't these.
+ */
+export function sprintProblem(kind: unknown, sprint: unknown): string | null {
+  if (kind !== 'jira') return '"sprint" applies only to a Jira tracker: other trackers have no sprints here.';
+  if (sprint === 'active' || (Number.isSafeInteger(sprint) && (sprint as number) > 0)) return null;
+  return '"sprint" must be "active", for the board\'s open sprints, or a sprint\'s id, such as 42.';
+}
 
 export interface ParseResult {
   config: Config | null;
@@ -453,6 +469,14 @@ export function parseConfig(raw: unknown): ParseResult {
         const empty = Array.isArray(t[p.key]) && !(t[p.key] as unknown[]).length;
         if (t.kind !== p.kind && !empty) warnings.push(`trackers[${i}]: "${p.key}" applies only to ${p.on} tracker, so it's ignored.`);
       }
+      // A sprint narrows a Jira board only (T-78): on any other tracker it's an error, not a key ignored.
+      if (t.sprint !== undefined && t.sprint !== null) {
+        const why = sprintProblem(t.kind, t.sprint);
+        if (why) {
+          errors.push(`trackers[${i}]: ${why}`);
+          return;
+        }
+      }
       if (t.edits !== undefined && typeof t.edits !== 'boolean') {
         errors.push(`trackers[${i}]: "edits" must be true or false: whether the task page may change a ticket's status, assignee and labels, and on GitHub, whether acc sync closes an issue when its work merges.`);
         return;
@@ -487,6 +511,7 @@ export function parseConfig(raw: unknown): ParseResult {
         prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
         skipLabels: t.kind === 'github' && strList(t.skipLabels) ? t.skipLabels : [],
         epic: t.kind === 'jira' && isStr(t.epic) ? t.epic.trim().toUpperCase() : null,
+        sprint: t.kind === 'jira' && (t.sprint === 'active' || Number.isSafeInteger(t.sprint)) ? (t.sprint as 'active' | number) : null,
         labels: t.kind === 'github' && strList(t.labels) ? t.labels.map((l) => l.trim()) : [],
         areaPath: t.kind === 'azure' && isStr(t.areaPath) ? t.areaPath.trim() : null,
         group: t.kind === 'monday' && isStr(t.group) ? t.group.trim() : null,

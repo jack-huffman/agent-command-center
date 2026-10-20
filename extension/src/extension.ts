@@ -407,6 +407,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // News while the person is away waits in the Overview's Since you last looked (D-164): the page draws it as it changes.
   const notices = new Notices(hub, resolve, () => panels.visible() && ['overview', 'tasks'].includes(panels.current()), statusParts, slack, { onSince: () => panels.post() });
   noticesRef = notices;
+  trackers.onSprint = (root, text) => notices.sprint(root, text);
   context.subscriptions.push(notices);
   reg('acc.since.clear', () => notices.clearSince());
   questions = new Questions(hub, setup.log,

@@ -29,6 +29,7 @@ export const SINCE_LOOK: Record<NoticeKind, Look> = {
   'analysis-split': LOOK('Too big for one task', 'split-horizontal', 'orange'),
   'analysis-back': LOOK('Analysis back', 'lightbulb', 'blue'),
   autopilot: LOOK('Autopilot step', 'hubot', 'blue'),
+  sprint: LOOK('Sprint changed', 'milestone', 'blue'),
 };
 
 /** The group on the Overview: its lines, Clear, and the heading the welcome back's Show opens at. */
@@ -38,16 +39,20 @@ export interface SinceGroup extends LandingGroup {
   part: string;
 }
 
-/** What the newest away span held, as the Overview's group, or null with nothing in it. Each line opens its task; with more than one project, it names its own. */
+/**
+ * What the newest away span held, as the Overview's group, or null with nothing in it. Each line opens its
+ * task; with more than one project, it names its own. A sprint's line has no task (T-78): it opens the Tasks tab.
+ */
 export function sinceGroup(held: readonly ProjectNotice[], projects: { name: string; root: string }[]): SinceGroup | null {
   if (!held.length) return null;
   const names = new Map(projects.map((p) => [p.root, p.name]));
   const all = held.map(({ root, notice: n }, i): LandingRow => {
     const project = projects.length > 1 ? names.get(root) : undefined;
     return {
-      key: `since:${i}`, look: SINCE_LOOK[n.kind], id: n.task, title: n.text, facts: project ? [{ text: project }] : [],
-      action: null, menu: null, open: { kind: 'task', project: root, key: n.task }, tip: n.text,
+      key: `since:${i}`, look: SINCE_LOOK[n.kind], id: n.task || null, title: n.text, facts: project ? [{ text: project }] : [],
+      action: null, menu: null, open: n.task ? { kind: 'task', project: root, key: n.task } : { kind: 'go', section: 'tasks' }, tip: n.text,
     };
+
   });
   return {
     key: 'since', title: 'Since you last looked', icon: 'history', tone: 'blue', count: all.length, shows: all.length, rows: all, total: all.length, more: null, all,

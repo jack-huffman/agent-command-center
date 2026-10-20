@@ -11,7 +11,7 @@ import { fileList, prConflicts, questionsWord, saidLine, type TaskRow } from './
 
 export const endSentence = (text: string): string => text.trim().replace(/([^.!?…])$/, '$1.');
 
-export const NOTICE_KINDS = ['waiting', 'stopped', 'review', 'passed', 'rework', 'blocked', 'ci-failed', 'changes', 'conflicts', 'merged', 'analysis-ready', 'analysis-questions', 'analysis-split', 'analysis-back', 'autopilot'] as const;
+export const NOTICE_KINDS = ['waiting', 'stopped', 'review', 'passed', 'rework', 'blocked', 'ci-failed', 'changes', 'conflicts', 'merged', 'analysis-ready', 'analysis-questions', 'analysis-split', 'analysis-back', 'autopilot', 'sprint'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
 /**
@@ -34,6 +34,7 @@ export const NOTICE_WORDS: Record<NoticeKind, [one: string, many: string]> = {
   'analysis-split': ['too big for one task', 'too big for one task'],
   'analysis-back': ['analysis back', 'analyses back'],
   autopilot: ['autopilot step', 'autopilot steps'],
+  sprint: ['sprint changed', 'sprints changed'],
 };
 
 export interface TaskNotice {

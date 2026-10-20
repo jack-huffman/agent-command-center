@@ -9,7 +9,7 @@ import { gitCommonDir, hostsInUse, listedRepos, rememberRepo, repoIdentity, type
 import { gitIn, makeRepo, tempDir } from './support.ts';
 
 const envFor = () => ({ ACC_REPOS_FILE: join(tempDir('acc-repos-'), 'repos.json') });
-const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
+const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
 const repo = (name: string, key: string, trackers: Tracker[], github: string | null = null): RepoInUse => ({ root: `/code/${name}`, name, key, github, trackers });
 const OWN = { root: '/code/acme-service', key: 'github:acme/service' };
 const SITE = 'acme.atlassian.net';

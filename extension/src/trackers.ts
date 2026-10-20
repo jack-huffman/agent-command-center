@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
 import type { IntakeResult } from '../../packages/core/src/intake.ts';
+import { readSprints, sprintTracker } from '../../packages/core/src/sprints.ts';
 import { AzureClient } from '../../packages/core/src/trackers/azure.ts';
 import { AZURE_SCOPE, describe, type SignIn } from '../../packages/core/src/trackers/connect.ts';
 import { GithubClient } from '../../packages/core/src/trackers/github.ts';
@@ -17,6 +18,7 @@ import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
 import { accImport, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
 import { inProcessWords } from './logic/processes.ts';
+import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
@@ -110,6 +112,10 @@ export class Trackers implements vscode.Disposable {
   /** Sign-in keys this window wrote, and when, so their change events don't reload twice. */
   private readonly wrote = new Map<string, number>();
   private readonly watch: vscode.Disposable;
+  /** Told when a Jira board's sprint changed (T-78): the Overview's Since you last looked says it, once. */
+  onSprint: ((root: string, text: string) => void) | null = null;
+  /** The sprint changes this window has told, by tracker and sprint, so two loads at once tell one once. */
+  private readonly sprintsTold = new Set<string>();
 
   constructor(secrets: vscode.SecretStorage, hub: Hub, log: vscode.LogOutputChannel, acc: AccRun | null = null) {
     this.secrets = secrets;
@@ -142,7 +148,7 @@ export class Trackers implements vscode.Disposable {
 
   /** Where a tracker's tickets come from, as its config says (D-072). */
   place(t: Tracker): string {
-    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epic: t.epic, labels: t.labels, areaPath: t.areaPath, account: t.account, board: t.board, group: t.group, workspace: t.workspace, channel: t.channel });
+    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epic: t.epic, sprint: t.sprint, labels: t.labels, areaPath: t.areaPath, account: t.account, board: t.board, group: t.group, workspace: t.workspace, channel: t.channel });
   }
 
   /**
@@ -253,7 +259,7 @@ export class Trackers implements vscode.Disposable {
     }
     if (t.kind === 'jira') {
       if (!c || c.kind !== 'jira') throw new TrackerError('auth', `Sign in to Jira (${t.site}) for this repo to see its board and tickets.`);
-      return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epic: t.epic });
+      return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epic: t.epic, sprint: t.sprint });
     }
     if (t.kind === 'monday') {
       if (!c || c.kind !== 'monday') throw new TrackerError('auth', `Sign in to monday.com (${t.account}) for this repo to see its board and items.`);
@@ -331,24 +337,35 @@ export class Trackers implements vscode.Disposable {
    * that the board doesn't show (D-072). acc intake removes the ones outside the place that never started,
    * and names the rest: those stay on the agent board, and this board says so. Only the Command Center
    * signs in to these trackers (D-066). A failed read never counts as outside (D-048), and nothing here
-   * changes a ticket.
+   * changes a ticket. A Jira board held to a sprint (T-78) also hands acc the sprint it shows, when that's
+   * new, and a change of sprint is told once, after acc has kept it.
    */
   private async followPlace(p: Project, s: Loaded, client: TrackerClient): Promise<void> {
     if (s.kind === 'github' || !s.board || !this.acc) return;
     const keys = placeCandidates(this.hub.ledger(p.root)?.tasks ?? [], { kind: s.kind, index: s.index, cards: s.board.cards }, (key) => this.trackerFor(p, key));
     const outside = await outsideKeys(keys, (k) => client.outside(k));
-    if (!outside.length) {
+    const t = this.trackers(p)[s.index];
+    const tracker = t?.kind === 'jira' && t.sprint !== null ? sprintTracker(t) : null;
+    const sprint = tracker ? await lookAtSprint(readSprints({ stateDir: dirname(p.ledgerPath) })[tracker], s.board, client, new Date()) : null;
+    if (!outside.length && !sprint?.moved) {
       s.left = [];
       return;
     }
     const dir = mkdtempSync(join(tmpdir(), 'acc-place-'));
     try {
       const file = join(dir, 'outside.json');
-      writeFileSync(file, JSON.stringify({ outside }));
+      writeFileSync(file, JSON.stringify({ outside, ...(tracker && sprint?.moved ? { sprint: { tracker, seen: sprint.seen } } : {}) }));
       const r = await this.acc(['intake', s.kind, '--file', file, '--json'], p.root);
       if (r.code !== 0) throw new Error(inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || 'acc said nothing.');
       const res = JSON.parse(r.stdout) as IntakeResult;
       s.left = res.leftAlone.map((l) => l.note);
+      const line = sprint ? sprintLine(sprint, res.leftAlone) : null;
+      const told = `${p.root}#${tracker}#${sprint?.seen.sprints.map((x) => x.id).join(',')}`;
+      if (line && !this.sprintsTold.has(told)) {
+        this.sprintsTold.add(told);
+        this.onSprint?.(p.root, line);
+      }
+
       if (res.removed.length) {
         this.log.info(`[trackers] ${s.title}: ${res.removed.join(', ')} left this repo's place before work started, so acc took them off the board.`);
         await this.hub.loadTasks(true);

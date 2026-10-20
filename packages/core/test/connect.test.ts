@@ -4,12 +4,12 @@ import { replaceTracker, type Tracker, withTracker } from '../src/config.ts';
 import { AZURE, declaredKeys, DESCRIPTIONS, describe, GITHUB, JIRA, MONDAY, parseHost, parseRepo, type SignIn, SLACK, SLACK_APPS, SLACK_BOT_TOKEN } from '../src/trackers/connect.ts';
 import { TrackerError } from '../src/trackers/types.ts';
 
-const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
+const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
 const SITE = 'acme.atlassian.net';
 
 test('a Jira tracker is written as the config keeps it, and the whole project takes its epic out', () => {
   const record = JIRA.toConfig({ host: SITE, values: { project: 'ACME', epic: null, board: '12' }, defaults: [], ownRepo: 'acme/service' });
-  assert.deepEqual(record, { kind: 'jira', site: SITE, project: 'ACME', board: 12, epic: null });
+  assert.deepEqual(record, { kind: 'jira', site: SITE, project: 'ACME', board: 12, epic: null, sprint: null });
   const was = [{ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3', board: 5, edits: true }];
   assert.deepEqual(withTracker(was, record), [{ kind: 'jira', site: SITE, project: 'ACME', board: 12, edits: true }], 'the epic goes, edits stays');
   assert.deepEqual(replaceTracker(was, 0, record), [{ kind: 'jira', site: SITE, project: 'ACME', board: 12, edits: true }]);
@@ -42,7 +42,7 @@ test('replacing a tracker refuses when the list changed under it', () => {
 
 test('an existing tracker opens with its own choices, and saves them back as they were', () => {
   const cases: [typeof JIRA, Tracker, Record<string, unknown>][] = [
-    [JIRA, tracker({ kind: 'jira', site: SITE, project: 'ACME', board: 7, epic: 'ACME-3' }), { kind: 'jira', site: SITE, project: 'ACME', board: 7, epic: 'ACME-3' }],
+    [JIRA, tracker({ kind: 'jira', site: SITE, project: 'ACME', board: 7, epic: 'ACME-3', sprint: 'active' }), { kind: 'jira', site: SITE, project: 'ACME', board: 7, epic: 'ACME-3', sprint: 'active' }],
     [GITHUB, tracker({ kind: 'github', labels: ['billing'] }), { kind: 'github', repo: null, labels: ['billing'] }],
     [AZURE, tracker({ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }), { kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }],
     [MONDAY, tracker({ kind: 'monday', account: 'acme', board: 1234567890, group: 'topics', statusColumn: 'priority' }), { kind: 'monday', account: 'acme', board: 1234567890, group: 'topics', statusColumn: 'priority' }],
@@ -130,7 +130,7 @@ test('every tracker the page offers is described, and its keys are declared for 
   assert.equal(describe('linear'), undefined);
   const keys = declaredKeys();
   assert.deepEqual([...keys.fields].sort(), ['account', 'email', 'organization', 'repo', 'site', 'token', 'workspace']);
-  assert.deepEqual([...keys.pickers].sort(), ['areaPath', 'board', 'channel', 'epic', 'group', 'labels', 'project', 'statusColumn', 'team']);
+  assert.deepEqual([...keys.pickers].sort(), ['areaPath', 'board', 'channel', 'epic', 'group', 'labels', 'project', 'sprint', 'statusColumn', 'team']);
   assert.deepEqual([...keys.methods].sort(), ['gh', 'microsoft', 'pat', 'token']);
   // Each tracker's project names which tracker it is, so an existing one shows it fixed. monday.com's is its board, and Slack's its channel.
   assert.deepEqual(DESCRIPTIONS.map((d) => d.pickers.filter((p) => p.identifies).map((p) => p.key)), [['project'], [], ['project'], ['board'], ['channel']]);
@@ -274,4 +274,30 @@ test('Slack: a second channel is a second tracker with its own prefix, and the s
   assert.deepEqual(withTracker([{ kind: 'slack', workspace: 'acme', channel: 'c0support1', edits: true }], support), [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', edits: true }]);
   assert.equal(withTracker([{ kind: 'slack', workspace: 'globex', channel: 'C0SUPPORT1' }], support).length, 2, 'the same id in another workspace is another tracker');
   assert.deepEqual(withTracker(one, { ...billing, prefix: 'BILL' })[1], { kind: 'slack', workspace: 'acme', channel: 'G0BILLING1', prefix: 'BILL' }, 'one that names its prefix keeps it');
+});
+
+test('Connect picks a Jira sprint: the whole board, the active sprint, or one of the board\'s open and future sprints, and the whole board takes it out (T-78)', async () => {
+  const sprint = JIRA.pickers.find((p) => p.key === 'sprint')!;
+  assert.deepEqual(sprint.dependsOn, ['project', 'board'], 'it lists the picked board\'s sprints');
+  assert.equal(sprint.whole!({ host: SITE, values: {} }), 'The whole board');
+  assert.ok(!/acc |\.acc\/|npm run/.test(`${sprint.hint} ${sprint.fallback}`), 'in process words (D-132)');
+  const fetch = (async (url: string) => {
+    const u = new URL(url);
+    if (u.pathname === '/rest/agile/1.0/board/7/sprint') return Response.json({ values: [{ id: 12, name: 'Sprint 12', state: 'active', startDate: '2026-10-06T09:00:00.000Z', endDate: '2026-10-19T17:00:00.000Z' }, { id: 13, name: 'Sprint 13', state: 'future' }] });
+    return new Response('{}', { status: 404 });
+  }) as unknown as typeof globalThis.fetch;
+  const signIn: SignIn = { method: 'token', fields: { email: 'jordan@example.com', token: 'secret-token-123456' }, header: null, gh: null };
+  const options = await sprint.load({ host: SITE, signIn, values: { project: 'ACME', board: '7' }, fetch, exec: async () => ({ code: 1, stdout: '', stderr: '' }) });
+  assert.deepEqual(options.map((o) => o.label), ['The active sprint', 'Sprint 12', 'Sprint 13']);
+
+  const chosen = (v: string | null) => JIRA.toConfig({ host: SITE, values: { project: 'ACME', epic: 'ACME-3', board: '7', sprint: v }, defaults: [], ownRepo: null });
+  assert.equal(chosen('active').sprint, 'active');
+  assert.equal(chosen('12').sprint, 12, 'a sprint by its id, as a number');
+  assert.equal(chosen(null).sprint, null, 'the whole board');
+  assert.equal(chosen('Sprint 12').sprint, null, 'a value that isn\'t one is never written');
+  const was = [{ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3', board: 7, sprint: 12 }];
+  assert.equal('sprint' in replaceTracker(was, 0, chosen(null))[0]!, false, 'the whole board takes the sprint out');
+  const t = tracker({ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3', board: 7, sprint: 12 });
+  assert.deepEqual(JIRA.fromConfig(t, null).values.sprint, '12', 'an existing tracker opens at its sprint');
+  assert.equal(JIRA.fromConfig({ ...t, sprint: null }, null).values.sprint, null, 'or at the whole board');
 });

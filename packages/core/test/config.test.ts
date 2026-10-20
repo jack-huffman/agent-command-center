@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isEffort, isStr, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
+import { autoMergeFor, autoMergeOn, branchFor, builderGatesFor, CONFIG_KEYS, defaultEnvironment, fullGates, isEffort, isStr, isTestGate, keyShown, loadConfig, parseConfig, requiredGates, saveTracker, skippedOnRoute, sprintProblem, TIDY_EVERY, tidyEvery, trackerForKey, UNREAD_KEYS, VALIDATOR_ONLY, withTracker, writeConfig } from '../src/config.ts';
 import { parseFloors } from '../src/ratchets.ts';
 import { GENERIC_CONFIG, SF_CONFIG, tempDir } from './support.ts';
 
@@ -358,7 +358,7 @@ test('an Azure DevOps tracker names its organization and project, and may name a
   const base = { schema: 1, project: 'P', profile: 'generic', environments: [{ name: 'main', default: true }] };
   const ok = parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', prefix: 'av' }] });
   assert.deepEqual(ok.errors, []);
-  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', account: null, workspace: null, channel: null, team: 'Sales', board: 'Stories', statusColumn: null, prefix: 'AV', skipLabels: [], epic: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null });
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', account: null, workspace: null, channel: null, team: 'Sales', board: 'Stories', statusColumn: null, prefix: 'AV', skipLabels: [], epic: null, sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null });
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', project: 'CRM' }] }).errors.join(), /needs "organization" and "project"/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'a', project: 'b', board: 3 }] }).errors.join(), /an Azure board's name/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', board: 'Main' }] }).errors.join(), /Jira board id/);
@@ -405,7 +405,7 @@ test('a monday.com tracker names its account and board, and may name a group, a 
   const base = clone(GENERIC_CONFIG);
   const ok = parseConfig({ ...base, trackers: [{ kind: 'monday', account: 'Acme', board: 1234567890, group: 'topics', statusColumn: 'status_1', prefix: 'av' }] });
   assert.deepEqual(ok.errors, []);
-  assert.deepEqual(ok.config!.trackers[0], { kind: 'monday', site: null, project: null, repo: null, organization: null, account: 'acme', workspace: null, channel: null, team: null, board: 1234567890, statusColumn: 'status_1', prefix: 'AV', skipLabels: [], epic: null, labels: [], areaPath: null, group: 'topics', edits: false, statusFor: null });
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'monday', site: null, project: null, repo: null, organization: null, account: 'acme', workspace: null, channel: null, team: null, board: 1234567890, statusColumn: 'status_1', prefix: 'AV', skipLabels: [], epic: null, sprint: null, labels: [], areaPath: null, group: 'topics', edits: false, statusFor: null });
   for (const bad of [{ board: 1 }, { account: 'acme' }, { account: 'acme', board: '1234' }, { account: 'acme', board: -3 }, { account: 'acme', board: 2 ** 53 }, { account: 'acme.monday.com', board: 1 }]) {
     assert.match(errorsOf({ ...base, trackers: [{ kind: 'monday', ...bad }] }), /a monday\.com tracker needs "account" \(as in acme\.monday\.com\) and "board"/, JSON.stringify(bad));
   }
@@ -530,7 +530,7 @@ const EVERY_KEY = {
   environmentSpecific: 'manifest/environment-specific.txt',
   knownDrift: 'manifest/known-drift.txt',
   trackers: [
-    { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' },
+    { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3', sprint: 'active' },
     { kind: 'github', repo: 'acme-co/tickets', skipLabels: ['milestone'], labels: ['billing'], edits: true, statusFor: { review: 'QA' } },
     { kind: 'azure', organization: 'acme', project: 'CRM', team: 'Billing', board: 'Stories', prefix: 'AB', areaPath: 'CRM\\Billing' },
     { kind: 'monday', account: 'acme', board: 42, statusColumn: 'status', prefix: 'MON', group: 'topics' },
@@ -631,4 +631,25 @@ test('isStr: a blank or spaces-only string, and a value that is not a string, ar
   assert.equal(isStr('main'), true);
   assert.equal(isStr(' x '), true);
   for (const v of ['', '   ', null, undefined, 0, ['a']]) assert.equal(isStr(v), false, String(v));
+});
+
+test('a Jira tracker follows a sprint: "active" or an id, alone or with an epic; a wrong value or a tracker that isn\'t Jira is refused (T-78)', () => {
+  const base = clone(GENERIC_CONFIG);
+  const one = (t: Record<string, unknown>) => parseConfig({ ...base, trackers: [t] });
+  assert.equal(one({ kind: 'jira', site: 's', project: 'K', sprint: 'active' }).config!.trackers[0]!.sprint, 'active');
+  const both = one({ kind: 'jira', site: 's', project: 'K', sprint: 42, epic: 'k-3' }).config!.trackers[0]!;
+  assert.deepEqual([both.sprint, both.epic], [42, 'K-3'], 'a sprint with an epic');
+  assert.equal(one({ kind: 'jira', site: 's', project: 'K' }).config!.trackers[0]!.sprint, null, 'unset, the whole board');
+  assert.equal(one({ kind: 'jira', site: 's', project: 'K', sprint: null }).config!.trackers[0]!.sprint, null, 'null is unset');
+
+  for (const bad of ['Active', 'now', '42', 0, -3, 1.5, true, [42], { id: 42 }]) {
+    assert.match(errorsOf({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', sprint: bad }] }), /trackers\[0\]: "sprint" must be "active", for the board's open sprints, or a sprint's id/, JSON.stringify(bad));
+  }
+  for (const t of [{ kind: 'github', sprint: 'active' }, { kind: 'azure', organization: 'a', project: 'b', sprint: 42 }, { kind: 'monday', account: 'acme', board: 1, sprint: 'active' }]) {
+    const r = parseConfig({ ...base, trackers: [t] });
+    assert.match(r.errors.join('\n'), /trackers\[0\]: "sprint" applies only to a Jira tracker/, `${t.kind}: refused, not ignored`);
+  }
+  assert.equal(sprintProblem('jira', 'active'), null);
+  assert.equal(sprintProblem('jira', 7), null);
+  assert.match(sprintProblem('slack', 7)!, /only to a Jira tracker/, 'the kind is checked before the value');
 });

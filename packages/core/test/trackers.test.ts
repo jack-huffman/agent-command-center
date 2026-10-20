@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { type AdfNode, fromAdf, fromMarkdown, plainText, safeHref, toAdf } from '../src/trackers/doc.ts';
 import { categoryOf, GithubClient } from '../src/trackers/github.ts';
-import { JiraClient } from '../src/trackers/jira.ts';
+import { jiraSprintOptions } from '../src/trackers/connect.ts';
+import { JiraClient, jiraSprints, NO_ACTIVE_SPRINT } from '../src/trackers/jira.ts';
 import { type Exec, FIELD_LACKS, movesInto, TRACKER_FIELDS, TrackerError, trackerHasField } from '../src/trackers/types.ts';
 
 test('trackerHasField: a tracker without fields has all three; one with a list has only those (T-28)', () => {
@@ -828,4 +829,102 @@ test('monday.com trouble is named: a refused token, a rate limit with its wait, 
   await assert.rejects(me(Response.json({ errors: [{ message: 'User unauthorized to perform action', extensions: { code: 'UserUnauthorizedException', status_code: 403 } }] })), (e: unknown) => e instanceof TrackerError && e.kind === 'refused' && /said no: User unauthorized/.test(e.message));
   await assert.rejects(me(new Response('<html>oops</html>', { status: 502 })), /answered HTTP 502/);
   assert.deepEqual(await mondayMe('tok', answer(Response.json({ data: { me: { id: 7, name: 'Jordan Kim', account: { slug: 'Acme' } } } }))), { id: '7', name: 'Jordan Kim', account: 'acme' });
+});
+
+// ---------------------------------------------------------------- a Jira board held to a sprint (T-78)
+
+/** The routes every sprint board below shares: board 42's columns and the project's statuses. */
+const sprintBoard = {
+  'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
+  'GET /rest/api/3/project/MSP/statuses': [{ statuses: [jiraStatus('1', 'To Do', 'new')] }],
+};
+const SPRINT_12 = { id: 12, name: 'MSP Sprint 12', state: 'active', startDate: '2026-10-06T09:00:00.000Z', endDate: '2026-10-19T17:00:00.000Z' };
+
+test('placeJql holds a Jira board to the active sprint, a named sprint, or a sprint in an epic (T-78)', () => {
+  const at = (o: Partial<ConstructorParameters<typeof JiraClient>[0]>) => new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', ...o });
+  assert.equal(at({ sprint: 'active' }).placeJql(), 'project = "MSP" AND sprint in openSprints()', 'the active sprint, before the board says which');
+  assert.equal(at({ sprint: 'active' }).placeJql([12, 13]), 'project = "MSP" AND sprint in (12, 13)', 'once the board says which, only its own open sprints');
+  assert.equal(at({ sprint: 42 }).placeJql(), 'project = "MSP" AND sprint = 42', 'a named sprint');
+  assert.equal(at({ sprint: 42, epic: 'msp-3' }).placeJql(), 'project = "MSP" AND parent = MSP-3 AND sprint = 42', 'a sprint with an epic: both hold');
+  assert.equal(at({ sprint: 'active', epic: 'MSP-3' }).placeJql([12]), 'project = "MSP" AND parent = MSP-3 AND sprint in (12)');
+  assert.equal(at({ sprint: null }).placeJql(), 'project = "MSP"', 'no sprint: the whole board');
+  assert.throws(() => at({ sprint: 0 }).placeJql(), /isn't a Jira sprint's id/, 'a sprint id that isn\'t one is refused, never sent to Jira');
+  assert.equal(at({ sprint: 'active' }).place, 'Jira · MSP · the active sprint', 'before the board loads');
+  assert.equal(at({ sprint: 42, epic: 'MSP-3' }).place, 'Jira · MSP · epic MSP-3 · sprint 42');
+});
+
+test('a Jira board in the active sprint shows only its tickets, and its place names the sprint and its dates (T-78)', async () => {
+  const { fetch: f, calls } = fakeJira({
+    ...sprintBoard,
+    'GET /rest/agile/1.0/board/42/sprint?state=active': { values: [SPRINT_12] },
+    'GET /rest/agile/1.0/board/42/issue?jql=': { total: 1, issues: [placed('MSP-4', { project: { key: 'MSP' } })] },
+  });
+  const b = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, sprint: 'active', fetch: f }).board();
+  assert.deepEqual(b.cards.map((c) => c.key), ['MSP-4']);
+  assert.equal(b.place, 'Jira · MSP · active sprint MSP Sprint 12 (6 Oct to 19 Oct)');
+  assert.deepEqual(b.sprints, [{ id: 12, name: 'MSP Sprint 12', state: 'active', start: SPRINT_12.startDate, end: SPRINT_12.endDate }]);
+  assert.equal(b.notice, null);
+  assert.deepEqual(calls.filter((c) => c.path.includes('/issue?jql=')).map((c) => jql(c.path)), ['project = "MSP" AND sprint in (12)'], 'the board\'s own open sprint, by id');
+
+  // An epic in a named sprint: the sub-tasks are held to the sprint too.
+  const named = fakeJira({
+    ...sprintBoard,
+    'GET /rest/api/3/issue/MSP-3?fields=summary': { key: 'MSP-3', fields: { summary: 'Premium Support' } },
+    'GET /rest/agile/1.0/sprint/12': SPRINT_12,
+    'GET /rest/agile/1.0/board/42/issue?jql=': { total: 1, issues: [placed('MSP-4', { project: { key: 'MSP' }, parent: { key: 'MSP-3' } })] },
+  });
+  const e = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, epic: 'MSP-3', sprint: 12, fetch: named.fetch }).board();
+  assert.equal(e.place, 'Jira · MSP · epic MSP-3 Premium Support · sprint MSP Sprint 12 (6 Oct to 19 Oct)');
+  assert.deepEqual(named.calls.filter((c) => c.path.includes('/issue?jql=')).map((c) => jql(c.path)), ['project = "MSP" AND parent = MSP-3 AND sprint = 12', 'project = "MSP" AND parent in (MSP-4) AND sprint = 12']);
+});
+
+test('a Jira board following the active sprint with none open shows no cards and says there is no active sprint (T-78)', async () => {
+  const { fetch: f, calls } = fakeJira({ ...sprintBoard, 'GET /rest/agile/1.0/board/42/sprint?state=active': { values: [] }, 'GET /rest/agile/1.0/board/42/issue?jql=': { total: 1, issues: [placed('MSP-4', { project: { key: 'MSP' } })] } });
+  const b = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, sprint: 'active', fetch: f }).board();
+  assert.deepEqual(b.cards, [], 'no cards, not the whole board');
+  assert.equal(b.notice, NO_ACTIVE_SPRINT);
+  assert.match(b.notice!, /no active sprint/);
+  assert.equal(b.place, 'Jira · MSP · no active sprint');
+  assert.deepEqual(b.sprints, []);
+  assert.equal(calls.filter((c) => c.path.includes('/issue?jql=')).length, 0, 'it never asks for the issues');
+
+  const missing = fakeJira({ ...sprintBoard });
+  await assert.rejects(new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, sprint: 99, fetch: missing.fetch }).board(), /Sprint 99 isn't in Jira/, 'a named sprint Jira doesn\'t have says so');
+});
+
+test('a Jira ticket outside the sprint is outside the place, and stillOpen counts the ones not done (T-78)', async () => {
+  const inSprint = `GET /rest/api/3/search/jql?jql=${encodeURIComponent('key = MSP-4 AND sprint in (12)')}`;
+  const { fetch: f } = fakeJira({
+    'GET /rest/agile/1.0/board/42/sprint?state=active': { values: [SPRINT_12] },
+    [inSprint]: { issues: [{ key: 'MSP-4' }] },
+    'GET /rest/api/3/search/jql?jql=': { issues: [] },
+    'GET /rest/api/3/issue/MSP-4?fields=status': { key: 'MSP-4', fields: { status: jiraStatus('1', 'To Do', 'new') } },
+    'GET /rest/api/3/issue/MSP-5?fields=status': { key: 'MSP-5', fields: { status: jiraStatus('10', 'Done', 'done') } },
+    'GET /rest/api/3/issue/MSP-4?': placed('MSP-4', { project: { key: 'MSP' } }),
+    'GET /rest/api/3/issue/MSP-5?': placed('MSP-5', { project: { key: 'MSP' } }),
+    'GET /rest/api/3/issue/OPS-1?': placed('OPS-1', { project: { key: 'OPS' } }),
+  });
+  const jira = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, sprint: 'active', fetch: f });
+  assert.equal((await jira.ticket('MSP-4')).key, 'MSP-4', 'a ticket in the sprint');
+  await assert.rejects(jira.ticket('MSP-5'), isOutside(/MSP-5 .*: it isn't in the active sprint\./), 'one outside it, such as back in the backlog');
+  assert.deepEqual(await jira.outside(['MSP-4', 'MSP-5', 'OPS-1', 'MSP-404']), [{ key: 'MSP-5', why: 'it isn\'t in the active sprint' }, { key: 'OPS-1', why: 'it\'s in project OPS' }], 'one it can\'t read is never outside');
+  assert.deepEqual(await jira.outside(['MSP-5'], { project: true }), [], 'held to the project only, the sprint doesn\'t count');
+  assert.deepEqual(await jira.stillOpen(['MSP-4', 'MSP-5', 'MSP-404']), ['MSP-4'], 'a done one, and one it can\'t read, aren\'t counted');
+
+  const none = fakeJira({ 'GET /rest/agile/1.0/board/42/sprint?state=active': { values: [] }, 'GET /rest/api/3/issue/MSP-4?': placed('MSP-4', { project: { key: 'MSP' } }) });
+  const idle = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, sprint: 'active', fetch: none.fetch });
+  assert.deepEqual(await idle.outside(['MSP-4']), [{ key: 'MSP-4', why: 'its board has no active sprint' }], 'with no active sprint, every ticket is outside it');
+});
+
+test('Jira lists a board\'s open and future sprints for Connect, and a kanban board has none (T-78)', async () => {
+  const { fetch: f } = fakeJira({ 'GET /rest/agile/1.0/board/42/sprint?state=active,future': { values: [{ id: 13, name: 'MSP Sprint 13', state: 'future' }, SPRINT_12] } });
+  const sprints = await jiraSprints('acme.atlassian.net', 'MSP', 42, 'e', 't', f);
+  assert.deepEqual(sprints?.map((s) => [s.id, s.state]), [[12, 'active'], [13, 'future']], 'the open one first');
+  assert.deepEqual(jiraSprintOptions(sprints).map((o) => [o.value, o.label, o.detail]), [
+    ['active', 'The active sprint', 'now MSP Sprint 12'], ['12', 'MSP Sprint 12', 'open, 6 Oct to 19 Oct'], ['13', 'MSP Sprint 13', 'future'],
+  ]);
+  assert.deepEqual(jiraSprintOptions([]).map((o) => [o.value, o.detail]), [['active', 'none open now']], 'a scrum board between sprints still offers the active one');
+  const kanban = fakeJira({ 'GET /rest/agile/1.0/board?projectKeyOrId=MSP': { values: [{ id: 9, name: 'Kanban', type: 'kanban' }] } }, { 'GET /rest/agile/1.0/board/9/sprint': 400 });
+  assert.equal(await jiraSprints('acme.atlassian.net', 'MSP', null, 'e', 't', kanban.fetch), null, 'no board picked: the project\'s first, which refuses sprints');
+  assert.deepEqual(jiraSprintOptions(null), [], 'so only the whole board is offered');
 });

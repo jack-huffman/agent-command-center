@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -82,17 +82,25 @@ const isSignedInKind = (k: unknown): k is SignedInKind => (SIGNED_IN_KINDS as re
 /**
  * Follows Jira, Azure DevOps, monday.com or Slack tickets that left the repo's place (D-072). Only the Command
  * Center signs in to those (D-066), so it reads them and hands acc what it found: { "outside": [{ "key", "why" }] }.
+ * A Jira board held to a sprint adds "sprint": { "tracker", "seen" }, the sprint it shows now, which acc keeps
+ * as that tracker's last (T-78).
  */
 function cmdIntakeOutside(o: Opts, kind: SignedInKind): number {
   const file = o.file as string | undefined;
   if (!file) throw new AccError('usage', `acc intake ${kind} --file <report.json>, with { "outside": [{ "key": "ACME-7", "why": "it isn't in epic ACME-3" }] }. The Command Center writes it after a board loads.`);
-  const data = readInput(file) as { outside?: unknown };
+  const data = readInput(file) as { outside?: unknown; sprint?: { tracker?: unknown; seen?: unknown } };
   const list = data?.outside;
   if (!Array.isArray(list) || !list.every((x) => typeof x?.key === 'string' && typeof x?.why === 'string')) {
     throw new AccError('usage', `${file} must hold { "outside": [{ "key": "<ticket key>", "why": "<why it's outside>" }] }.`);
   }
+  const sprint = data.sprint;
+  if (sprint !== undefined && (kind !== 'jira' || typeof sprint?.tracker !== 'string' || !isSprintSeen(sprint.seen))) {
+    throw new AccError('usage', `${file}'s "sprint" must be { "tracker": "<which>", "seen": { "sprints": [{ "id", "name" }], "open": ["<key>"], "at": "<time>" } }, and only for Jira.`);
+  }
   const { paths } = project(process.cwd());
   const res = intakeOutside(paths, kind, list as Outside[], now);
+  if (sprint) rememberSprint(paths, sprint.tracker as string, sprint.seen as Parameters<typeof rememberSprint>[2]);
+
   out(o, () => intakeLines(res).filter(Boolean).join('\n') || 'Nothing to do.', res);
   return 0;
 }
@@ -271,7 +279,8 @@ export const area: CommandArea = {
                                         the place
   acc intake jira|azure|monday|slack --file <report.json>
                                         Follow tickets the Command Center found outside the repo's place, from
-                                        { "outside": [{ "key", "why" }] }: a task not started yet leaves the board
+                                        { "outside": [{ "key", "why" }] }: a task not started yet leaves the board.
+                                        A Jira board in a sprint adds "sprint", which acc keeps as its last
   acc status                            One line: how many tasks are in each state
   acc list [--state <state>]
   acc ready
