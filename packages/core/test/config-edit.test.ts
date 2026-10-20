@@ -110,9 +110,16 @@ test('every setter that uses writeJsonKey writes through writeAtomic, and leaves
   const body = src.slice(src.indexOf('export function writeJsonKey'));
   assert.match(body, /writeAtomic\(file, edited\)/);
   assert.doesNotMatch(body, /writeFileSync/);
-  // The setters that call it, each by its own file: they never write the config themselves.
-  const setters = ['limits.ts', 'cloud.ts', 'source-tracking.ts'].map((f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8'));
-  assert.equal(setters.filter((t) => t.includes('writeJsonKey(')).length, 3, 'three modules call writeJsonKey');
+  // The setters, found by a scan of core's source rather than listed: each file that calls writeJsonKey writes
+  // the project's settings through it, and none of them writes the config itself with writeFileSync.
+  const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String).filter((f) => f.endsWith('.ts') && f !== 'config-edit.ts');
+  const setters = files.filter((f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8').includes('writeJsonKey('));
+  assert.ok(files.length > 0 && setters.length > 0, `the scan checked ${files.length} files and found ${setters.length} that call writeJsonKey`);
+  for (const f of setters) {
+    // Other files a setter writes (a cloud request's headers, a lock) aren't the settings; a line that names the config is.
+    assert.doesNotMatch(readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8'), /writeFileSync\([^\n]*[cC]onfig/, `${f} writes the settings through writeJsonKey, not writeFileSync`);
+  }
+  assert.ok(setters.includes('source-tracking.ts') && setters.includes('limits.ts') && setters.includes('cloud.ts'), `the scan found ${setters.join(', ')}`);
   const dir = tempDir('atomic-');
   const file = join(dir, 'config.json');
   writeFileSync(file, '{\n  "a": 1\n}\n');

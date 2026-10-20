@@ -172,9 +172,10 @@ test('the page may ask for a filter\'s page, and an invalid ask is ignored', () 
   assert.ok(!isFromWebview({ type: 'history-more', filter: 'all', upTo: '' }), 'an empty entry to go up to');
 });
 
-test('the page\'s copy of historyKind agrees with the model\'s for every kind', () => {
+test('the model and the page share one historyKind, and it counts every kind', () => {
   const all = [...entries(10), { kind: 'autopilot', id: 'step:x', at: iso(T0), project: 'Acme', task: 'AV-1', title: '', look, detail: null, url: null } as HistoryItem];
-  assert.deepEqual(all.map(pageKind), all.map(historyKind));
+  assert.equal(pageKind, historyKind, 'one function, not two copies');
+  assert.equal(historyKind({ ...all.at(-1)!, kind: 'edit' } as HistoryItem), 'move', 'a person\'s edit is a Task too');
   assert.equal(historyKind(all.at(-1)!), 'move', 'autopilot\'s steps are Tasks');
 });
 
@@ -213,7 +214,8 @@ test('a mutant that sends every entry at once fails the page-size check', async 
   const dir = tempDir('acc-history-mutant-');
   const rel = (f: string) => pathToFileURL(join(root, 'src/model', f)).href;
   writeFileSync(join(dir, 'history-pages.ts'), text.replace(find, 'return { filter, items: shown.slice(from), more: false, counts: historyCounts(items) };')
-    .replace("from './history.ts'", `from '${rel('history.ts')}'`).replace("from './shared.ts'", `from '${rel('shared.ts')}'`));
+    .replace("from './history.ts'", `from '${rel('history.ts')}'`).replace("from './shared.ts'", `from '${rel('shared.ts')}'`)
+    .replace("from '../../webview/history-store.ts'", `from '${pathToFileURL(join(root, 'webview/history-store.ts')).href}'`));
   const mutant = await import(pathToFileURL(join(dir, 'history-pages.ts')).href) as typeof import('../src/model/history-pages.ts');
   const sendsAPage = (page: typeof historyPage) => page(moves(100), 'all').items.length === HISTORY_PAGE;
   assert.ok(sendsAPage(historyPage), 'the real one sends a page');

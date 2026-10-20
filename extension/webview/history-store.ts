@@ -1,13 +1,13 @@
 // The History entries a tab has loaded (D-170), a page at a time: what each new model adds at the top, and
 // each page the extension sends added at the end, and the row in view kept in place as it draws again. It
 // reads only the boxes it's given, never the page's own, so it's testable. The page imports no values from
-// the extension's model (D-121), so historyKind and newestFirst are copies of model/history-pages.ts's and
-// model/history.ts's; test/history-pages.test.ts holds them to the same answers.
+// the extension's model (D-121), so newestFirst is a copy of model/history.ts's, which test/history-pages.test.ts
+// holds to the same answers. historyKind is the one copy: model/history-pages.ts imports it from here.
 
 import type { HistoryItem } from '../src/model/history.ts';
 import type { HistoryAfter, HistoryCounts, HistoryFilter, HistoryPage, HistoryReply } from '../src/model/history-pages.ts';
 
-/** The filter an entry counts under. Autopilot's steps are Tasks (D-064). */
+/** The filter an entry counts under. Autopilot's steps (D-064) and a person's edits (T-74) are Tasks. */
 export const historyKind = (i: HistoryItem): Exclude<HistoryFilter, 'all'> => (i.kind === 'autopilot' || i.kind === 'edit' ? 'move' : i.kind);
 
 /** History's order: newest first, and by id where two are at the same moment. */

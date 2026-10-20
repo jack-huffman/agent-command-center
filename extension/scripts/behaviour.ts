@@ -408,6 +408,17 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task modal: Activity draws a person\'s edit, with who made it and which fields (T-74)',
+    page: 'tasks',
+    async run(t) {
+      const { dialog } = await openTask(t);
+      const lines = t.all('.act-feed .act-item', dialog).map((l) => l.textContent ?? '');
+      const edit = lines.find((l) => l.includes('edited its'));
+      t.check('the edit is a line of the activity', !!edit, lines);
+      t.check('it names the fields in words', !!edit && edit.includes('edited its notes for the builder'), edit);
+    },
+  },
+  {
     name: 'detail modal: Escape closes it and focus goes back to Answer, which opened it',
     page: 'overview-landing',
     async run(t) {
@@ -1426,6 +1437,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'the detail doesn\'t draw again after the page does', file: 'detail.ts', find: "if (model.kind === 'home' && memory().detail) draw();", replace: "if (model.kind === 'home' && memory().detail && model !== state.last) draw();", kills: [caseNamed('detail modal: Show all on a rule'), caseNamed('detail modal: Accept')] },
   { name: 'Show all opens only what the page shows', file: 'detail.ts', find: 'const rows = g ? g.all : [];', replace: 'const rows = g ? g.rows : [];', kills: [caseNamed('detail modal: Show all opens'), caseNamed('overview: each card opens')] },
   { name: 'Enter on a line\'s link opens nothing', file: 'landing.ts', find: "title.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(e); });", replace: '', kills: [caseNamed('detail modal: Enter on a line')] },
+  { name: 'the activity names no fields in a person\'s edit', file: 'task-page.ts', find: 'el(\'span\', \'\', `edited its ${e.fields}`)', replace: 'el(\'span\', \'\', \'edited it\')', kills: [caseNamed('task modal: Activity draws a person')] },
   { name: 'History never asks for its next page', file: 'history.ts', find: "        ask();\n        end.textContent = 'Loading…';\n", replace: "        end.textContent = 'Loading…';\n", kills: [caseNamed('overview: History loads its next page')] },
   { name: 'History drops the page the extension sends', file: 'history.ts', find: '      loaded = next;\n', replace: '      void next;\n', kills: [caseNamed('overview: History loads its next page')] },
   { name: 'History shows a filter from All\'s first page, never asking for its own', file: 'history-store.ts', find: "    : { filter, items: [], more: true, waiting: true, counts: first.counts };", replace: "    : { filter, items: first.items.filter((i) => historyKind(i) === filter), more: false, waiting: false, counts: first.counts };", kills: [caseNamed('overview: History loads its next page')] },

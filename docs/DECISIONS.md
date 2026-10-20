@@ -7707,6 +7707,10 @@ release` uploads one with every release, so the exception is no longer needed.
 - **Checked.** `source-tracking.test.ts` has 3 tests, `config.test.ts` 1,
   `onboarding.test.ts` 1, `cli/test/tracking.test.ts` 2 and `limits.test.ts`
   1.
+- **A pinned refusal (2026-10-19, T-77).** `setSourceTracking` runs the
+  whole `loadConfig` check, so `acc tracking on` or `off` refuses a Salesforce
+  config that has any other problem, and leaves the file as it was.
+  `source-tracking.test.ts` has a test for it.
 
 ## D-175 A person writes a task in a full sheet, and edits its title, description and other fields later (2026-10-19)
 

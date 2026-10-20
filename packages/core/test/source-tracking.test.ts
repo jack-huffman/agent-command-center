@@ -53,3 +53,12 @@ test('setSourceTracking has no read and parse of its own: it checks the profile 
   assert.match(src, /writeJsonKey\(configFile/);
   assert.doesNotMatch(src, /readFileSync|JSON\.parse|editJsonKey|writeAtomic/);
 });
+
+test('edge case: a Salesforce config with any other problem is refused, whichever way tracking is set, and left alone (T-77)', () => {
+  const file = configFile({ ...SF_CONFIG, agents: { max: 'many' } });
+  const before = readFileSync(file, 'utf8');
+  for (const on of [true, false]) {
+    assert.throws(() => setSourceTracking(file, on), /has problems/);
+    assert.equal(readFileSync(file, 'utf8'), before, 'left alone');
+  }
+});
