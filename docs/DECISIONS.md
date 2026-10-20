@@ -7867,7 +7867,8 @@ sprint together. A person who works a sprint wants that sprint's tickets.
   and `away.test.ts` add 1 each. The screenshot run adds two pages:
   `connect-sprint`, Connect's Sprint list with the active sprint picked, and
   `tasks-sprint`, a board in a sprint with a started task that left it. Since
-  you last looked's sample has a sprint line.
+  you last looked's sample has a sprint line. The two pages raise the geometry
+  run's floor for the selected tab from 486 to 498 drawings.
 - Not chosen: Azure DevOps iterations; moving a ticket between sprints from
   acc; a notification for the change, which Since you last looked holds; and
   several named sprints, which the active sprint covers when a board runs them
