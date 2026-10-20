@@ -6,12 +6,14 @@
  * colleague wrote after the sheet opened, which Save stops on. Its description may hold a mention and an
  * attachment, which the sheet warns about and keeps read-only, as Save can't write them back.
  */
+import { withSheetCriteria } from '../../src/model/criteria.ts';
 import { taskSheet, type TaskSheet, type TaskSheetInput } from '../../src/model/task-sheet.ts';
+import { sampleCriteria } from './criteria.ts';
 import type { TicketTextBase } from '../../src/model/ticket-text.ts';
 import { sampleHub } from './hub.ts';
 import { ROOT } from './shared.ts';
 
-export type TaskSheetSample = 'new' | 'manual' | 'tracker' | 'edits' | 'unkept';
+export type TaskSheetSample = 'new' | 'manual' | 'tracker' | 'edits' | 'unkept' | 'criteria';
 
 /** What the extension makes the sheet from, for each sample. */
 export function sampleTaskSheetInput(now: number, which: TaskSheetSample): TaskSheetInput {
@@ -54,7 +56,9 @@ export function sampleTaskSheetInput(now: number, which: TaskSheetSample): TaskS
   };
 }
 
-export const sampleTaskSheet = (now: number, which: TaskSheetSample): TaskSheet => taskSheet(sampleTaskSheetInput(now, which))!;
+/** criteria: ACME-19's sheet as Add to the description opens it (T-81), with the draft below the description's text. */
+export const sampleTaskSheet = (now: number, which: TaskSheetSample): TaskSheet => (which === 'criteria'
+  ? withSheetCriteria(taskSheet(sampleTaskSheetInput(now, 'edits'))!, sampleCriteria(now), false, true) : taskSheet(sampleTaskSheetInput(now, which))!);
 
 /** ACME-19's ticket as a colleague left it after the sheet opened (T-80): Save stops, and shows it beside what the person wrote. */
 export const SAMPLE_THEIRS: TicketTextBase = {

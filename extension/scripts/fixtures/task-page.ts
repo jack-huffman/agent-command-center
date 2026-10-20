@@ -8,6 +8,7 @@ import { DOING, DONE, REVIEW, sampleBoards, TODO } from './boards.ts';
 import { sampleHub } from './hub.ts';
 import { excerptLine, MIN, R19, ROOT, WELCOME_CLS, wt } from './shared.ts';
 import { sampleUpdates } from './updates.ts';
+import { sampleCriteria, sampleCriteriaUpdate } from './criteria.ts';
 
 const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', content: [{ type: 'text', text, ...(marks ? { marks: marks.map((type) => ({ type })) } : {}) }] });
 
@@ -20,7 +21,8 @@ const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', con
 export type TicketSample = 'ACME-12' | 'ACME-19' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35' | 'ACME-44' | 'ACME-50';
 
 /** A Jira ticket with everything a description can hold, and the acc task working on it. With edits, ACME-19's tracker allows edits (T-80). */
-export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false): TicketModel {
+/** criteria: ACME-19 with its drafted acceptance criteria (T-81), and with the draft opened as an update. */
+export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false, criteria: 'drafted' | 'update' | null = null): TicketModel {
   if (which === 'ACME-29') return sampleStoppedTicket(now);
   if (which === 'ACME-44') return sampleCloudTicket(now);
   if (which === 'ACME-50') return sampleNoFieldsTicket(now);
@@ -28,7 +30,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', 
   if (which === 'ACME-33') return sampleChecksTicket(now);
   if (which === 'ACME-35') return sampleWaitingTicket(now);
   if (which === 'ACME-20') return sampleNoteTicket(now);
-  if (which === 'ACME-19') return sampleReviewTicket(now, edits);
+  if (which === 'ACME-19') return sampleReviewTicket(now, edits, criteria);
   if (which !== 'ACME-12') return sampleTodoTicket(now, which);
   const hub = sampleHub(now);
   // Back with its builder after its pull request stopped merging into dev.
@@ -314,7 +316,7 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23'): TicketModel 
  * one comes first on the page with the lines of the change around it; one is about unchanged code, with the
  * file's lines at the reviewed commit; and one names no file.
  */
-function sampleReviewTicket(now: number, edits: boolean): TicketModel {
+function sampleReviewTicket(now: number, edits: boolean, criteria: 'drafted' | 'update' | null): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-19')!;
   const ticket: Ticket = {
     key: 'ACME-19', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-19', title: row.title, type: 'Bug',
@@ -337,7 +339,8 @@ function sampleReviewTicket(now: number, edits: boolean): TicketModel {
   } as unknown as Task;
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-19', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
-    trackerEdits: edits, updates: [], boards: sampleBoards(), github: 'jordan-kim', now,
+    trackerEdits: edits, updates: criteria === 'update' ? [sampleCriteriaUpdate(now)] : [], boards: sampleBoards(), github: 'jordan-kim', now,
+    draft: criteria ? sampleCriteria(now) : null,
     checks: [
       { gate: 'format', status: 'pass', summary: '2 changed files formatted.' },
       { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: WelcomeEmailServiceTest, 6 of 6 passing.', counts: '6 run, 0 skipped' },
