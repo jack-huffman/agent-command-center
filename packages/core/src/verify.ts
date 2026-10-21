@@ -176,7 +176,7 @@ export function verifying(paths: Pick<RepoPaths, 'stateDir'>, task: string): Ver
  * Why a task's pull request can't be verified, or null: it must be there, come from a tracker, not be
  * one acc's own builder made (acc review judges those), and the project must have a GitHub repo.
  */
-export function verifyRefusal(task: Pick<Task, 'id' | 'source' | 'run'> | undefined, id: string, config: Pick<Config, 'github'>): string | null {
+export function verifyRefusal(task: (Pick<Task, 'id' | 'source'> & { run?: Task['run'] }) | undefined, id: string, config: Pick<Config, 'github'>): string | null {
   if (!task) return `No task ${id}.`;
   if (!ticketOf(task)) return `${id} has no tracker ticket, so there is no developer's pull request to find.`;
   if (task.run) return `${id} is a task acc's own builder made, and ${OWN_WORK}: acc review ${id}.`;

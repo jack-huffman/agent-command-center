@@ -89,7 +89,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/closing.ts': ['GH_CALL_MS', 'editsTracker', 'firstLine', 'closeWords'],
   'packages/core/src/config.ts': ['PROFILES', 'ENV_TYPES', 'AUTONOMY', 'PERMISSION_MODES', 'MODEL_NAME', 'AGENT_ROLES', 'RATCHET_LIMITS', 'RATCHET_NAME', 'TEMPLATE_DIGEST', 'DEFAULT_HEAVY', 'parseEnvironments', 'environmentByBranch', 'STRAY_FILES', 'withStrayFiles'],
   'packages/core/src/deploy.ts': ['deployRecordPath'],
-  'packages/core/src/dispatch.ts': ['mainCheckout', 'isClaudeWorktree', 'claudeStatePath', 'isTrusted', 'builderModel'],
+  'packages/core/src/dispatch.ts': ['isClaudeWorktree', 'claudeStatePath', 'isTrusted', 'builderModel'],
   'packages/core/src/drift.ts': ['BASELINE_MANIFEST', 'environmentNamed'],
   'packages/core/src/efforts.ts': ['effortSourceWords', 'checkEffortName', 'checkEffortPick', 'modelTakes', 'effortFixWords', 'dispatchEffort'],
   'packages/core/src/exec.ts': ['ghEnv', 'isGh'],

@@ -1,7 +1,7 @@
 // acc's Agents commands that take a task on from its build: analyze, analysis, review, land, autopilot
 // and sync.
 
-import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, clearBranchMoves, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, clearBranchMoves, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, pruneVerifications, readAnalysis, review, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, steps, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
@@ -199,6 +199,14 @@ function cmdSync(o: Opts): number {
     const cleared = clearBranchMoves(paths);
     out(o, () => (cleared.length ? `Cleared the move${cleared.length === 1 ? '' : 's'} on ${cleared.join(', ')}. The next sync starts from where each branch stands now.` : 'No environment branch has a move waiting for a person.'), { cleared });
     return 0;
+  }
+  if (!plan) {
+    try {
+      // A verification whose task left the board goes with it (T-84): its worktree and what it kept.
+      pruneVerifications(paths, config, run);
+    } catch (e) {
+      process.stderr.write(tone(`! Couldn't clear the verification of a task that left the board: ${(e as Error).message}`, 'orange') + '\n');
+    }
   }
   // --plan only looks, so it doesn't sync either: a sync writes the ledger, and may close an issue.
   const r = closeDone && plan ? { checked: 0, changes: [], cloud: [], branches: [] } : followingCards(paths, config, () => sync(paths, config, { run, now, env: process.env }));
