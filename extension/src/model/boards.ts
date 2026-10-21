@@ -11,7 +11,7 @@ import { inProcessWords } from '../logic/processes.ts';
 import { movedOut } from '../logic/moved-out.ts';
 import { exampleLink, type PasteState, pasteHint, type SlackPlace } from '../logic/slack-link.ts';
 import { type Action, displayLook, KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
-import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, filesLook, stoppedLook } from './cards.ts';
+import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, cloudReviewLook, filesLook, stoppedLook } from './cards.ts';
 
 // ---------------------------------------------------------------- tracker boards (D-026)
 
@@ -179,6 +179,9 @@ export function accLook(row: TaskRow, full = false): Look {
   const stopped = stoppedLook(row, full ? Infinity : CARD_SAID);
   if (stopped) return stopped;
   if (row.agent && row.display === 'needs-you') return row.agent;
+  // Its review runs in the cloud (T-86): reviewing, or needing you with why.
+  const cloudReview = cloudReviewLook(row);
+  if (cloudReview) return cloudReview;
   const analysis = analysisLook(row);
   if (analysis && (row.display === 'needs-you' || row.analyzing)) return analysis;
   // A task a person dispatched waits for others' files, or its start failed (D-093), in a few words: the

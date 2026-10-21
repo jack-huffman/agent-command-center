@@ -50,6 +50,7 @@ export function rowInWords(r: TaskRow): TaskRow {
     ...(f?.held?.failed ? { files: { ...f, held: { ...f.held, failed: inProcessWords(f.held.failed) } } } : {}),
     ...(r.queue?.why ? { queue: { ...r.queue, why: inProcessWords(r.queue.why) } } : {}),
     ...(r.review?.summary ? { review: { ...r.review, summary: inProcessWords(r.review.summary) } } : {}),
+    ...(r.cloudReview?.wait ? { cloudReview: { ...r.cloudReview, wait: inProcessWords(r.cloudReview.wait) } } : {}),
     ...(r.stopped?.said ? { stopped: { ...r.stopped, said: inProcessWords(r.stopped.said) } } : {}),
   };
 }

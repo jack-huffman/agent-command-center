@@ -853,6 +853,10 @@
           "when": "false"
         },
         {
+          "command": "acc.task.reviewLocal",
+          "when": "false"
+        },
+        {
           "command": "acc.task.analyze",
           "when": "false"
         },

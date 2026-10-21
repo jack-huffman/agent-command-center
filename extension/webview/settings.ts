@@ -63,7 +63,7 @@ function agentProject(s: AgentRunProject, folded: readonly string[]): HTMLElemen
     // What GitHub enforces behind the guard, a row per environment branch, with why in full on hover (GH-69).
     const protection = c.protection.length ? el('ul', 'settings-needs', ...c.protection.map((p) => Object.assign(el('li', `settings-need${p.look.tone === 'blue' ? ' ok' : ''}`, status(p.look), p.look.tone === 'blue' ? null : el('span', 'muted small', ` ${p.why}`)), { title: p.why }))) : null;
     const value = el('div', '',
-      el('div', 'settings-now', status(c.look), from(c.from), c.defaultPlace ? el('span', 'settings-from muted small', icon(c.defaultPlace.icon), `plain dispatch: ${c.defaultPlace.label}`) : null),
+      el('div', 'settings-now', status(c.look), from(c.from), c.defaultPlace ? el('span', 'settings-from muted small', icon(c.defaultPlace.icon), `plain dispatch: ${c.defaultPlace.label}`) : null, c.reviewPlace ? el('span', 'settings-from muted small', icon(c.reviewPlace.icon), `reviews: ${c.reviewPlace.label}`) : null),
       whatThisMeans(`cloud:${s.root}`, c.meaning, folded),
       c.look.label === 'off' ? null : needs,
       protection,

@@ -35,6 +35,8 @@ export const N28 = named('ACME-28', 'Send a renewal reminder a month before the 
 export const N29 = named('ACME-29', 'Reassign open cases when an owner leaves');
 export const N43 = named('ACME-43', 'Archive closed cases older than two years');
 export const N44 = named('ACME-44', 'Round-robin new leads across the inside sales team');
+/** Its reviewer in the cloud (T-86), named as acc names a review. */
+export const N47 = sessionName({ project: 'Acme Service', key: 'ACME-47', title: 'Send a survey when a case closes', role: 'review' });
 export const N10 = named('ACME-10', 'Add a CHANGELOG');
 // ACME-12's first builder, before the rework that dispatched its second.
 export const N12a = named('ACME-12', 'Case escalation rules for the premium tier');

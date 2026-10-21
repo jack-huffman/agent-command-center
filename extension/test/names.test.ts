@@ -92,7 +92,7 @@ function actions(o: unknown, out: { label: string; name: string }[] = []): { lab
 
 test('every action a page draws has a name that holds its label: every sample page, cloud builders in each state, GitHub\'s and the plugin\'s (T-59)', () => {
   const p = (github: boolean, cloud: { routine: string | null; default: 'local' | 'cloud'; quietMinutes: number; max: number } | null) => ({ name: 'P', root: '/p', branch: null, worktrees: [], config: { github: github ? { repo: 'o/r', account: 'a' } : null, environments: [], profile: 'generic', agents: { cloud } } });
-  const cloud = { routine: 'trig_0123456789', default: 'local' as const, quietMinutes: 120, max: 3 };
+  const cloud = { routine: 'trig_0123456789', default: 'local' as const, quietMinutes: 120, max: 3, review: 'local' as const };
   const id = { account: 'a', projectAccount: 'a', from: 'project', signedIn: true, projects: false, commit: 'a <a@b>', problem: null };
   const plugin = (version: string | null, enabled = true): AboutFacts['plugin'] => ({ ok: true, value: { version, enabled } });
   const facts = (over: Partial<AboutFacts>): AboutFacts => ({ ...sampleAbout(0), ...over });

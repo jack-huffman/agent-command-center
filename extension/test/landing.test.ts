@@ -57,7 +57,7 @@ test('Needs you shows three lines and Show all; every other list shows none on t
     assert.deepEqual(g.opens, g.key === 'history' ? { kind: 'history' } : { kind: 'list', group: g.key }, g.key);
   }
   // Ready and In progress hold every line now, not their first five; History every item, which its detail draws in full.
-  assert.deepEqual([group(m, 'ready').total, group(m, 'progress').total, group(m, 'history').total, group(m, 'history').all.length], [6, 6, 13, m.overview.history.items.length]);
+  assert.deepEqual([group(m, 'ready').total, group(m, 'progress').total, group(m, 'history').total, group(m, 'history').all.length], [6, 7, 13, m.overview.history.items.length], 'ACME-47\'s cloud review is in progress too (T-86)');
   // Three or fewer in Needs you: no Show all. With nothing in it, its empty line says so.
   const few = landing({ ...m.overview, questions: m.overview.questions.slice(0, 2), attention: [] }, NOW).find((g) => g.key === 'needs-you')!;
   assert.deepEqual([few.rows.length, few.total, few.more], [2, 2, null]);
@@ -88,7 +88,7 @@ test('each line opens its detail with the actions it had before (GH-160)', () =>
   assert.deepEqual([acme13.look.label, acme13.facts.map((f) => f.text), acme13.action?.label, acme13.open?.kind], ['Working', ['14 min', '2 checks, 1 waiting'], 'Watch', 'task']);
   assert.deepEqual(acme13.menu?.flags, { taskWatch: true, taskClaude: true, taskStop: true });
   assert.deepEqual(JSON.parse(acme13.menu!.ref.stops!).map((x: { label: string }) => x.label), ['Builder: Stop']);
-  assert.deepEqual(p.map((r) => r.facts[1]?.text).sort(), ['2 checks, 1 waiting', 'near-tests running', 'tests running', 'validate running', 'validate running', 'validate running'], 'each task\'s checks, one fact each');
+  assert.deepEqual(p.map((r) => r.facts[1]?.text).sort(), ['2 checks, 1 waiting', 'near-tests running', 'reading the branch on GitHub; its verdict comes back by a push, which the next sync takes', 'tests running', 'validate running', 'validate running', 'validate running'], 'each task\'s checks, one fact each; a cloud review\'s (T-86) is what it does');
   // Asking, a builder's line answers: its question opens here.
   assert.deepEqual(p.find((r) => r.id === 'ACME-12')?.action?.do, { kind: 'detail', detail: { kind: 'question', id: 'm1-aaaa0002' } });
   // Ready, the merge queue and History open their task; an answer in History opens History at it.

@@ -13,7 +13,7 @@ import { area, defaultPlace, dispatchChoiceArgs, dispatchSheet, effortSegments, 
 import { pageDom } from './page-dom.ts';
 import { pageSource, row } from './support.ts';
 
-const CLOUD = { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', default: 'local' as const, quietMinutes: 120, max: 3 };
+const CLOUD = { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', default: 'local' as const, quietMinutes: 120, max: 3, review: 'local' as const };
 const ON = { github: { repo: 'o/r' }, agents: { cloud: CLOUD } };
 const OFF = { github: { repo: 'o/r' }, agents: { cloud: null } };
 const builder = (model = 'claude-opus-5-5', effort: string | null = null) => ({ model, effort, from: { model: 'project', effort: effort ? 'clone' : 'default' } });

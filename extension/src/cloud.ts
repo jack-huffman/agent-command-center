@@ -26,6 +26,7 @@ class CloudCommands extends Sidebar {
     reg('acc.cloud.disable', (root?: unknown) => this.disable(typeof root === 'string' ? root : undefined));
     reg('acc.cloud.token', (root?: unknown) => this.token(typeof root === 'string' ? root : undefined));
     reg('acc.cloud.default', (root?: unknown) => this.setDefault(typeof root === 'string' ? root : undefined));
+    reg('acc.cloud.review', (root?: unknown) => this.setReview(typeof root === 'string' ? root : undefined));
     reg('acc.cloud.routine', (root?: unknown) => this.routine(typeof root === 'string' ? root : undefined));
   }
 
@@ -107,6 +108,18 @@ class CloudCommands extends Sidebar {
     const pick = await vscode.window.showQuickPick(BUILDER_PLACES.map((w) => ({ label: w === 'local' ? '$(device-desktop) This Mac' : '$(cloud) Cloud', description: w === now ? 'Now' : undefined, detail: w === 'local' ? 'A dispatch runs the builder here unless its sheet\'s Where picks the cloud.' : 'A dispatch fires the routine unless its sheet\'s Where picks This Mac.', value: w as BuilderPlace })), { title: `Where ${project.name}'s builders go by default` });
     if (!pick || pick.value === now) return;
     await this.runAcc(project, ['cloud', 'enable', '--default-place', pick.value], () => `${project.name}'s builders go to ${pick.value === 'cloud' ? 'the cloud' : 'this Mac'} unless a dispatch says otherwise.`);
+    await this.hub.loadProjects();
+  }
+
+  /** Where a plain review runs (T-86): this Mac, or the cloud, where a cloud-built task can reach reviewed with no Mac awake. */
+  private async setReview(root?: string): Promise<void> {
+    const project = await this.projectOf(root);
+    if (!project) return;
+    if (!project.config.agents.cloud) return void vscode.window.showInformationMessage(`Cloud builders are off for ${project.name}: turn them on first, under Settings, and reviews can run in the cloud too.`);
+    const now = project.config.agents.cloud.review ?? 'local';
+    const pick = await vscode.window.showQuickPick(BUILDER_PLACES.map((w) => ({ label: w === 'local' ? '$(device-desktop) This Mac' : '$(cloud) Cloud', description: w === now ? 'Now' : undefined, detail: w === 'local' ? 'A review runs a reviewer here, in the output panel.' : 'A review fires the routine with the reviewer\'s prompt; the verdict comes back through GitHub, with no Mac awake. Analyses stay here.', value: w as BuilderPlace })), { title: `Where ${project.name}'s reviews run` });
+    if (!pick || pick.value === now) return;
+    await this.runAcc(project, ['cloud', 'enable', '--review', pick.value], () => `${project.name}'s reviews run ${pick.value === 'cloud' ? 'in the cloud' : 'on this Mac'} unless a review says otherwise.`);
     await this.hub.loadProjects();
   }
 

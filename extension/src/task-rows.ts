@@ -16,6 +16,8 @@ import { envOpen, IN_FLIGHT_STATES, inFlight, nulPaths, plannedFiles, sharedFile
 import { runFile } from './run.ts';
 import { analysisWait, rowAnalysis } from './logic/tasks.ts';
 import { cloudWait } from '../../packages/core/src/cloud.ts';
+import { cloudReviewWait } from '../../packages/core/src/cloud-review.ts';
+import { sessionName } from '../../packages/core/src/names.ts';
 import { rowInWords } from './logic/relayed.ts';
 // The Tasks area's rows as the hub reads them (D-099): each task's agent, analysis, review, pull request, place
 // in the merge queue, and files beside other tasks'.
@@ -73,6 +75,9 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
     // A cloud builder (GH-69): no local session to read; its branch on GitHub says whether it's quiet.
     const cloud = t.run?.where === 'cloud' && t.run.cloud ? { url: t.run.cloud.url, wait: p ? cloudWait(t, p.config, now) : null, finished: !!t.run.cloud.finished } : null;
     const cloudInfo: SessionInfo | undefined = cloud ? { quiet: !!cloud.wait } : undefined;
+    // A review in the cloud (T-86): no local reviewer to watch; it needs you when it's quiet or its verdict couldn't be read.
+    const cr = t.state === 'review' && t.cloudReview ? t.cloudReview : null;
+    const cloudReview = cr ? { url: cr.url, firedAt: cr.firedAt, wait: p ? cloudReviewWait(t, p.config, now) : null, failed: !!cr.failed } : null;
     // What acc and its agents wrote in it reaches a person in process words (GH-163).
     return rowInWords({
       id: t.id,
@@ -80,7 +85,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       state: t.state,
       // A question waiting in the Command Center makes the agent wait on you, though it reads as busy.
       // So does an analysis with questions for a person, or one that says it's too big for one task.
-      display: waits ? 'needs-you' : displayState(ledger, t, cloudInfo ?? info, p?.config) as TaskRow['display'],
+      display: waits || cloudReview?.wait ? 'needs-you' : displayState(ledger, t, cloudInfo ?? info, p?.config) as TaskRow['display'],
       environment: t.environment,
       deps: t.deps.filter((d) => ledger.tasks.find((x) => x.id === d)?.state !== 'done'),
       source: { kind: t.source.kind, url: t.source.url },
@@ -95,7 +100,8 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       // Current on its latest commit, or carried there by the merge queue's merge commit (GH-73).
       review: verdict ? { verdict: verdict.verdict, summary: verdict.summary, current: !!head && !!reviews && reviewCurrent(reviews, t, verdict, head), at: verdict.at } : null,
       // Each agent under way with the name acc gave it (D-087); the builder's is on its run.
-      reviewing: live ? { sessionId: live.sessionId, name: live.name } : null,
+      reviewing: live ? { sessionId: live.sessionId, name: live.name } : cr && !cr.failed ? { sessionId: cr.sessionId, name: sessionName({ project: p?.name ?? '', key: t.id, title: t.title, role: 'review' }), where: 'cloud', url: cr.url } : null,
+      cloudReview,
       pr: t.pr ? { number: t.pr.number, url: t.pr.url, state: t.pr.state, ci: t.pr.ci ?? null, changesRequested: t.pr.changesRequested ?? false, conflicts: t.pr.conflicts ?? [] } : null,
       promoting: (t.promotions ?? []).some((x) => x.state === 'open'),
       closing: t.pr?.issue?.state === 'pending',

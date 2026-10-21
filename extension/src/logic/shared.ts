@@ -54,8 +54,13 @@ export interface TaskRow {
   question?: string | null;
   /** Its newest review (D-032): current when it's for the branch's latest commit. When it was made, so Slack can tell one from the next. */
   review?: { verdict: 'pass' | 'changes'; summary: string; current: boolean; at?: string } | null;
-  /** A review under way, to watch, and its reviewer's name (D-087). */
-  reviewing?: { sessionId: string; name?: string } | null;
+  /** A review under way, to watch, and its reviewer's name (D-087); in the cloud (T-86), its page on claude.ai. */
+  reviewing?: { sessionId: string; name?: string; where?: BuilderPlace; url?: string | null } | null;
+  /**
+   * Its review in a cloud session (T-86), while the task is in review: its page, when it was fired, why it
+   * needs you if it does (no verdict for too long, or one acc couldn't read), and whether it failed.
+   */
+  cloudReview?: { url: string; firedAt: string; wait: string | null; failed: boolean } | null;
   /** Its pull request (D-033). */
   pr?: { number: number; url: string; state: string; ci?: string | null; changesRequested?: boolean; conflicts?: string[] } | null;
   /** A promotion taking its change on to another environment is open (D-075). */

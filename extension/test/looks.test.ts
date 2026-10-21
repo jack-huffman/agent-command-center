@@ -15,7 +15,7 @@ import { type AgentSession, TASK_GROUPS, type TaskRow, type Tone } from '../src/
 import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/about.ts';
 import { billingLook } from '../src/model/agents.ts';
 import { accLook, CATEGORY_LOOK, columnLook } from '../src/model/boards.ts';
-import { analysisLook, autopilotLook, closedPrLook, filesLook, placeLook, stoppedLook } from '../src/model/cards.ts';
+import { analysisLook, autopilotLook, closedPrLook, cloudReviewLook, filesLook, placeLook, stoppedLook } from '../src/model/cards.ts';
 import { BUILDER_PLACE_LOOK } from '../../packages/core/src/cloud.ts';
 import { cloudSetting, protectionLook } from '../src/model/settings.ts';
 import { moveLook as branchMoveLook } from '../src/model/branches.ts';
@@ -168,11 +168,18 @@ export const TABLES: Table[] = [
   { name: 'where a builder runs', sources: ['packages/core/src/cloud.ts#BUILDER_PLACE_LOOK'], states: () => Object.entries(BUILDER_PLACE_LOOK).map(([k, v]) => [k, { ...v, tone: 'neutral' }]) },
   { name: 'where a task\'s builder runs, on its card', sources: ['extension/src/model/cards.ts#placeLook'], states: () => [['local', placeLook({ state: 'running', run: { where: 'local' } })!], ['cloud', placeLook({ state: 'running', run: { where: 'cloud' } })!], ['older run', placeLook({ state: 'review', run: {} })!]] },
   {
+    name: 'a task\'s review in the cloud, on its card and on In progress (T-86)', sources: ['extension/src/model/cards.ts#cloudReviewLook'],
+    states: () => {
+      const c = (wait: string | null, failed: boolean) => ({ cloudReview: { url: 'https://claude.ai/code/s', firedAt: '2026-10-09T12:00:00Z', wait, failed } });
+      return [['reviewing', cloudReviewLook(c(null, false))!], ['quiet', cloudReviewLook(c('no verdict from its cloud reviewer for 150 minutes: review it on this Mac', false))!], ['failed', cloudReviewLook(c('its cloud reviewer\'s review.json isn\'t a verdict acc can read (not JSON): review it on this Mac', true))!]];
+    },
+  },
+  {
     name: 'cloud builders, in Settings', sources: ['extension/src/model/settings.ts#cloudSetting'],
     states: () => {
-      const p = (github: boolean, cloud: { routine: string | null; default: 'local' | 'cloud'; quietMinutes: number; max: number } | null) => ({ name: 'P', root: '/p', branch: null, worktrees: [], config: { github: github ? { repo: 'o/r', account: 'a' } : null, environments: [], profile: 'generic', agents: { cloud } } });
-      const cloud = { routine: 'trig_0123456789', default: 'local' as const, quietMinutes: 120, max: 3 };
-      return [['no github', cloudSetting(p(false, null))!.look], ['off', cloudSetting(p(true, null))!.look], ['on, no routine', cloudSetting(p(true, { ...cloud, routine: null }))!.look], ['on', cloudSetting(p(true, cloud))!.look], ['default cloud', cloudSetting(p(true, { ...cloud, default: 'cloud' }))!.defaultPlace!]];
+      const p = (github: boolean, cloud: { routine: string | null; default: 'local' | 'cloud'; quietMinutes: number; max: number; review: 'local' | 'cloud' } | null) => ({ name: 'P', root: '/p', branch: null, worktrees: [], config: { github: github ? { repo: 'o/r', account: 'a' } : null, environments: [], profile: 'generic', agents: { cloud } } });
+      const cloud = { routine: 'trig_0123456789', default: 'local' as const, quietMinutes: 120, max: 3, review: 'local' as const };
+      return [['no github', cloudSetting(p(false, null))!.look], ['off', cloudSetting(p(true, null))!.look], ['on, no routine', cloudSetting(p(true, { ...cloud, routine: null }))!.look], ['on', cloudSetting(p(true, cloud))!.look], ['default cloud', cloudSetting(p(true, { ...cloud, default: 'cloud' }))!.defaultPlace!], ['reviews local', cloudSetting(p(true, cloud))!.reviewPlace!], ['reviews cloud', cloudSetting(p(true, { ...cloud, review: 'cloud' }))!.reviewPlace!]];
     },
   },
   // GitHub's rules behind the cloud guard, per branch (GH-69): enforced in blue, anything else in orange.
