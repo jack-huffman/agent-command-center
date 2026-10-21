@@ -8154,7 +8154,16 @@ stays the default; analysts stay on the Mac, since a Salesforce analysis needs t
   One acc can't read (no `review.json`, not JSON, off the schema) fails the review, written on the task
   with why, and the task needs a person. The branch is deleted on origin after it is read, whatever it
   held. A branch not there yet leaves the review under way; origin not answering leaves everything as it
-  was.
+  was. The file is anyone's, so its parts are capped (`VERDICT_LIMITS`, `review.ts`: 2,000 characters of
+  summary, client words and a finding's message, 1,000 of a criterion and its evidence, 400 of a file,
+  200 of a rule, 80 of a kind, 50 criteria, 100 findings; longer text ends in an ellipsis), since the
+  summary goes whole into the rework's reason, and a `review.json` over 4 MB (`VERDICT_MAX_BYTES`) isn't
+  read at all: the review fails saying it was too large, not that the file was missing. A cloud review
+  ends when a verdict is kept for the task's head, whichever commit it was fired on (`recordVerdict`),
+  and when the task leaves review (`applyMove`): a person's move to rework, done, or by hand. Left, the
+  record would refuse the next cloud review and, once quiet, keep the task at Needs you with no way out.
+  A verdict branch for a cloud review ended that way stays on origin until the task is next followed,
+  and is a follow-up.
 - **The guard allows that one push and nothing else.** Both lines of D-140's guard read the role. The
   record is now the three lines, and fails closed: no `Acc-Role`, a role that is neither builder nor
   reviewer, or a reviewer without a verdict branch allows no push and no checkout, as no record did. For
@@ -8162,7 +8171,17 @@ stays the default; analysts stay on the Mac, since a Salesforce analysis needs t
   fetch`, checkout of the recorded task branch, `git add review.json` (that file alone), `git commit -m`
   (nothing that widens the index: no `-a`, `--include`, a pathspec), and `git push origin
   HEAD:<verdict>`; every other program, wrapper, path to git, and git command is refused, naming what a
-  reviewer runs. Edit, Write and MultiEdit may touch `review.json` at the root of the clone alone;
+  reviewer runs. A reviewer's `git fetch` and `git grep` take only the options on an allow-list (quiet,
+  a depth, no tags; what narrows a search), from origin alone and with no refspec, since `--upload-pack`
+  and `-O` take a program, and a push from inside one with `--no-verify` would have skipped both lines;
+  an option before git's command (`-c`, `-C`, `--exec-path`), `--output`, `--ext-diff`, a redirect, and
+  a checkout that restores a path (`git checkout <ref> -- <path>`, `git checkout -- <path>`) are refused
+  too. For every role, `gitProblem` now refuses the git options and commands whose value is a program:
+  `--upload-pack`, `--receive-pack`, `--exec`, `--extcmd`, `--tool`, `--open-files-in-pager`,
+  `--ext-diff`, grep's `-O`, rebase's `-x`, difftool's and mergetool's `-x` and `-t`, `git bisect run`
+  and `git submodule foreach`; `--no-verify` inside an option's value is refused as the word is; and a
+  program in another program's `--option=value` (`flock --command='sh -c …'`) is read as the command it
+  is. Edit, Write and MultiEdit may touch `review.json` at the root of the clone alone;
   NotebookEdit never; the guard's own files as before. The pre-push hook's record is the verdict branch,
   and it refuses any other ref, the task branch and main among them, whatever ran git. The guard script
   changed, so a project that committed it runs `acc cloud enable` again and commits; this repo has.
@@ -8180,10 +8199,16 @@ stays the default; analysts stay on the Mac, since a Salesforce analysis needs t
   (its fixtures moved to `cloud-support.ts`, shared): the setting, the fire's text, a fire for a
   cloud-built task and a local one, a verdict taken (pass, then changes to rework), stale, bad in four
   forms, a branch without the file, one already kept here, the branch deleted each time, the quiet rule,
-  and the cap. `cloud-guard.test.ts`: the reviewer's allowed and refused commands, files and pushes, in
-  the guard and through the pre-push hook on a real origin, and the record's four ways of failing closed.
-  CLI tests cover `acc review --cloud`, with `--json`, its refusal where the project hasn't opted in, and
-  `acc cloud enable --review`. Extension tests cover the setting, the card, the row and the In progress job.
+  the cap, the verdict's caps with a 1 MB summary and a file over the size, and the cloud review cleared
+  by a move and by a verdict here for the head. `cloud-guard.test.ts`: the reviewer's allowed and refused
+  commands, files and pushes, in the guard and through the pre-push hook on a real origin, the two
+  exploits above and each new refusal in the refused tables (a builder's and a reviewer's), the record's
+  four ways of failing closed, and the role record's variants (another case, a space before the colon, a
+  later message, a tool result). `autopilot-cloud.test.ts`: autopilot's review step firing in the cloud,
+  staying here where a need is unmet or the setting is local, and its rules waiting on a cloud review
+  under way and on a failed one. CLI tests cover `acc review --cloud`, with `--json`, its refusal where
+  the project hasn't opted in, and `acc cloud enable --review`. Extension tests cover the setting, the
+  card, the row and the In progress job.
 - **Not built, and next:** cloud analysts. An analysis reads the orgs through the person's own Salesforce
   login (D-052), which never goes to a cloud session (D-140), so an analyst there could read only the
   repo. Worth doing for a generic project, where there is no org, and not before.

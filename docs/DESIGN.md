@@ -601,15 +601,21 @@ then the standing instructions and prompt of [section 10](#10-review), with
 the base and head shas in place of the diff and the verdict's schema. The task
 stays in review with its `cloudReview` on it. The reviewer reads the pushed
 branch, never edits it, writes `review.json` alone and pushes it to the verdict
-branch alone: the guard allows a reviewer plain git from a short list, Edit and
-Write of that file, and that one push; the pre-push hook refuses every other
-ref. `acc sync` finds the branch, checks the file against the schema, keeps the
+branch alone: the guard allows a reviewer plain git from a short list, with no
+option that names a program (`--upload-pack`, `-O`), no option before git's
+command, no redirect or `--output`, and no checkout that restores a path; Edit
+and Write of that file; and that one push; the pre-push hook refuses every
+other ref. For every role the guard refuses the git options and commands whose
+value is a program (`--receive-pack`, `--exec`, `bisect run`, `submodule
+foreach`, …). `acc sync` finds the branch, checks the file against the schema
+and caps each part (`VERDICT_LIMITS`; a file over 4 MB isn't read), keeps the
 verdict and moves the task as a local review would, keeps a stale one without
 moving, fails the review on one it can't read, and deletes the branch. No
 verdict for `quietMinutes` shows the task as needing you, with **Review on this
-Mac** as the way on. A cloud review counts against `agents.cloud.max`. Analysts
-stay on the Mac. The builder's fire text now says `Acc-Role: builder`, and a
-record without a role fails closed.
+Mac** as the way on. A verdict kept here for the head, or a move out of review,
+ends the cloud review. A cloud review counts against `agents.cloud.max`.
+Analysts stay on the Mac. The builder's fire text now says `Acc-Role: builder`,
+and a record without a role fails closed.
 
 **Why background sessions (D-009).** Claude Code's supervisor keeps them running
 after the terminal closes. They report `working`, `blocked`, `done`, `failed` or
