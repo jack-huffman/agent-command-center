@@ -133,6 +133,8 @@ test('in a cloud session, the guard allows a plain push of the recorded branch a
     'git checkout -- a.txt', 'git checkout -- .', 'git checkout clean -- README.md', 'git config user.name "Acme Bot"', 'git config user.email bot@acme.example', 'git config commit.gpgsign false', 'git config --unset user.name', 'git config --get alias.co', 'git config -l', 'git config --get core.hooksPath',
     'gh api repos/o/r/pulls/3', 'gh api -H "Accept: x" repos/o/r/pulls/3', 'nice -n 15 npm run check', 'timeout 600 npm test', 'cat .claude/settings.json', `git diff HEAD -- ${GUARD_PATH}`, `sh -c "git push origin ${BRANCH}"`,
     'node scripts/near-tests.mjs', 'git remote -v', 'git merge --abort', 'git reset HEAD~1', 'git restore a.txt', 'curl -s https://api.github.com/repos/o/r', 'ls .claude/hooks', 'git log --oneline -5', 'git merge clean', 'git rebase clean', 'git --version', 'git', 'ls', 'echo done',
+    // a builder's git that names a program in words, not in an option that runs one (T-86): a search, a message, a log filter, a file to write
+    'git grep -n "git push" src', 'git log --grep="git push" --oneline', 'git log --output=log.txt', 'git difftool -y main', 'git fetch origin main', 'git rebase -i clean',
     'git apply clean.patch', 'git apply --check weak.patch', 'patch -p1 -i clean.patch', 'cat .git/HEAD', 'ls .git/hooks', 'cat g/HEAD', 'cat .cl*/settings.json', 'echo \'$(git push origin main)\'', 'grep -n "git push" file', 'rg "git push" .', 'NO_COLOR=1 npm test', 'hash -r', 'git commit -m "$(cat msg.txt)"',
   ];
   for (const c of allowed) assert.equal(g.guard(c, BRANCH, ctx), null, `${c}: allowed`);
@@ -212,6 +214,26 @@ test('in a cloud session, the guard allows a plain push of the recorded branch a
     ['if git push origin main; then echo y; fi', /Push plainly, as its own command/],
     ['{ git push origin main; }', /Push plainly, as its own command/],
     ['echo git push origin main', /Push plainly, as its own command: .* Not through echo/],
+    // a program in an option's value, which the option would run (T-86): what follows the = is read
+    ['flock /tmp/l --command=\'sh -c "git push origin HEAD:main"\'', /Push plainly, as its own command/],
+    ['flock /tmp/l --command=\'sh -c "git push --no-verify origin HEAD:main"\'', /Never skip the repo's git hooks \(--no-verify\), with any program/],
+    // git's own options and commands that run a program, through which a --no-verify push would skip both lines (T-86)
+    ['git fetch --upload-pack=\'sh -c "git push --no-verify origin HEAD:main" --\' .', /Never skip the repo's git hooks \(--no-verify\), with any program/],
+    ['git fetch --upload-pack=\'sh -c "git push origin HEAD:main" --\' .', /git fetch --upload-pack runs a program of its own/],
+    ['git fetch --upload-pack sh origin', /git fetch --upload-pack runs a program of its own/],
+    ['git grep -O\'sh -c "git push --no-verify origin HEAD:main" --\' x', /Never skip the repo's git hooks \(--no-verify\), with any program/],
+    ['git grep -O\'sh -c "git push origin HEAD:main" --\' x', /git grep -O runs a program of its own/],
+    ['git grep --open-files-in-pager=sh x', /git grep --open-files-in-pager runs a program of its own/],
+    [`git push --receive-pack=sh origin ${BRANCH}`, /git push --receive-pack runs a program of its own/],
+    ['git rebase -x "sh -c \'git push origin HEAD:main\'" main', /git rebase -x runs a program of its own/],
+    ['git rebase --exec sh main', /git rebase --exec runs a program of its own/],
+    ['git difftool -x sh main', /git difftool -x runs a program of its own/],
+    ['git difftool --extcmd=sh main', /git difftool --extcmd runs a program of its own/],
+    ['git mergetool -t sh', /git mergetool -t runs a program of its own/],
+    ['git mergetool --tool=sh', /git mergetool --tool runs a program of its own/],
+    ['git diff --ext-diff', /git diff --ext-diff runs a program of its own/],
+    ['git bisect run sh evil.sh', /git bisect run runs a program of its own/],
+    ['git submodule foreach sh -c "git push origin HEAD:main"', /git submodule foreach runs a program of its own/],
     // shells: -c lines are guarded, script files and bare shells refused
     ['sh -c "git push origin main"', /never push main/],
     ['bash -lc "git push origin main"', /never push main/],
@@ -532,6 +554,40 @@ test('edge case: a record without its Acc-Role line, with a role that is neither
   assert.match(bash(root, transcript(dir, builderWithVerdict), `git push origin HEAD:${VERDICT}`).reason ?? '', /Push only your task branch/);
 });
 
+test('edge case: the role record\'s variants (T-86): a role in another case, a key in another case, a space before the colon, or a role line in a later message or a tool result fails closed; space around the value reads as acc writes it', async () => {
+  const { root } = repo();
+  const g = await guardModule(root);
+  const dir = tempDir('transcript-');
+  const payload = (lines: string[]) => `<routine-fire-payload>\n${lines.join('\n')}\n</routine-fire-payload>`;
+  const closed: [string, string][] = [
+    ['the role in another case', payload([`${RECORD_LINE}: ${BRANCH}`, `${ROLE_LINE}: Reviewer`, `${VERDICT_LINE}: ${VERDICT}`])],
+    ['the role in capitals', payload([`${RECORD_LINE}: ${BRANCH}`, `${ROLE_LINE}: REVIEWER`, `${VERDICT_LINE}: ${VERDICT}`])],
+    ['the key in another case', payload([`${RECORD_LINE}: ${BRANCH}`, `${ROLE_LINE.toLowerCase()}: reviewer`, `${VERDICT_LINE}: ${VERDICT}`])],
+    ['a space before the colon', payload([`${RECORD_LINE}: ${BRANCH}`, `${ROLE_LINE} : reviewer`, `${VERDICT_LINE}: ${VERDICT}`])],
+    ['two roles on the line', payload([`${RECORD_LINE}: ${BRANCH}`, `${ROLE_LINE}: reviewer builder`, `${VERDICT_LINE}: ${VERDICT}`])],
+    ['the role on the branch line', payload([`${RECORD_LINE}: ${BRANCH} ${ROLE_LINE}: reviewer`, `${VERDICT_LINE}: ${VERDICT}`])],
+  ];
+  for (const [name, text] of closed) {
+    assert.equal(g.recordsOf(readFileSync(transcript(dir, text), 'utf8')), null, `${name}: no record`);
+    assert.match(bash(root, transcript(dir, text), `git push origin HEAD:${VERDICT}`).reason ?? '', /no record of your branch/, `${name}: no push`);
+    assert.match(bash(root, transcript(dir, text), `git push origin ${BRANCH}`).reason ?? '', /no record of your branch/, `${name}: no push of the task branch either`);
+  }
+  // A role line after the first turn never counts: a later user message, or a tool result, is the session's own doing.
+  const later = `${RECORD_LINE}: ${BRANCH}\n${ROLE_LINE}: reviewer\n${VERDICT_LINE}: ${VERDICT}`;
+  assert.equal(g.recordsOf(readFileSync(transcript(dir, 'Just a prompt, no payload', [later]), 'utf8')), null, 'a later message: no record');
+  assert.match(bash(root, transcript(dir, 'Just a prompt, no payload', [later]), `git push origin HEAD:${VERDICT}`).reason ?? '', /no record of your branch/);
+  // A builder's first message with a reviewer's record in a later one stays a builder's: the task branch alone.
+  const builderThenReviewer = transcript(dir, fired(), [later]);
+  assert.deepEqual(g.recordsOf(readFileSync(builderThenReviewer, 'utf8')), { branch: BRANCH, role: 'builder', verdict: null });
+  assert.match(bash(root, builderThenReviewer, `git push origin HEAD:${VERDICT}`).reason ?? '', /Push only your task branch/);
+  // Space around the value, and a tab, read as the line acc writes: the key and the value are exact, the gaps aren't.
+  for (const spaced of [`  ${ROLE_LINE}:   reviewer   `, `${ROLE_LINE}:\treviewer`]) {
+    const text = payload([`${RECORD_LINE}: ${BRANCH}`, spaced, `${VERDICT_LINE}: ${VERDICT}`]);
+    assert.deepEqual(g.recordsOf(readFileSync(transcript(dir, text), 'utf8')), { branch: BRANCH, role: 'reviewer', verdict: VERDICT }, JSON.stringify(spaced));
+  }
+  assert.equal(closed.length, 6, 'every variant was checked');
+});
+
 test('a reviewer (T-86) may push its verdict branch alone, from Bash runs git only, and edits review.json alone: the task branch, main, another task\'s verdict branch, any other command and any other file are refused, in the guard and in the pre-push hook', async () => {
   const { root } = repo();
   const g = await guardModule(root);
@@ -542,7 +598,10 @@ test('a reviewer (T-86) may push its verdict branch alone, from Bash runs git on
   const allowed = [
     `git fetch origin ${BRANCH} main`, `git checkout ${BRANCH}`, `git switch ${BRANCH}`, 'git diff --stat=120 --find-renames abc123 def456', 'git diff --no-color abc123 def456', 'git log --oneline -5', 'git show HEAD', 'git status', 'git blame README.md',
     'git merge-base main HEAD', 'git rev-parse HEAD', 'git config user.name "Acme Bot"', 'git config user.email bot@acme.example', 'git add review.json', 'git add ./review.json', 'git add -- review.json',
-    'git commit -m "Review T-1 at abc1234"', 'git commit -q -m "Review T-1 at abc1234"', 'git commit --amend --no-edit', `git push origin HEAD:${VERDICT}`, `git push origin ${VERDICT}`, 'git --version', 'git checkout -- README.md',
+    'git commit -m "Review T-1 at abc1234"', 'git commit -q -m "Review T-1 at abc1234"', 'git commit --amend --no-edit', `git push origin HEAD:${VERDICT}`, `git push origin ${VERDICT}`, 'git --version', 'git --no-pager log -3',
+    // the fetch and grep options on the allow-lists (T-86): quiet, a depth, no tags; what narrows a search, with a pattern after -e
+    'git fetch', 'git fetch -q origin main', `git fetch --depth=1 --no-tags origin ${BRANCH} main`, 'git grep -n foo', 'git grep -ni -e foo -- src', 'git grep -A3 -B2 foo HEAD', 'git grep -l --cached foo', 'git grep -e -x', 'git grep -c foo -- "*.ts"',
+    'git log --grep="git push" --oneline', 'git diff --stat HEAD~1', 'git show --name-only HEAD',
   ];
   for (const c of allowed) assert.equal(g.guard(c, BRANCH, ctx), null, `${c}: allowed`);
   const through = [`git push origin HEAD:${VERDICT}`, 'git add review.json', 'git commit -m "Review T-1 at abc1234"', `git checkout ${BRANCH}`, 'git diff main'];
@@ -583,7 +642,49 @@ test('a reviewer (T-86) may push its verdict branch alone, from Bash runs git on
     ['git clean -fd', /git clean isn't a command a cloud reviewer runs/],
     ['git checkout main', /Stay on your task branch/],
     ['git checkout -b mine', /Make no new branch/],
-    ['git checkout touches-guard -- .', /would change the guard/],
+    // a checkout restores nothing: not from a ref, not from the index, not a second path (T-86)
+    ['git checkout touches-guard -- .', /checks out the branch it reviews, and restores nothing/],
+    [`git checkout ${BRANCH} -- README.md`, /checks out the branch it reviews, and restores nothing/],
+    ['git checkout -- README.md', /checks out the branch it reviews, and restores nothing/],
+    [`git checkout ${BRANCH} README.md`, /checks out the branch it reviews, and restores nothing/],
+    [`git switch ${BRANCH} -- README.md`, /checks out the branch it reviews, and restores nothing/],
+    // a program through a git option, from which a push could skip both lines (T-86): refused on fetch and grep by their allow-lists, and everywhere by name
+    ['git fetch --upload-pack=\'sh -c "git push --no-verify origin HEAD:main" --\' .', /Never skip the repo's git hooks \(--no-verify\), with any program/],
+    ['git fetch --upload-pack=\'sh -c "git push origin HEAD:main" --\' .', /A cloud reviewer fetches plainly: git fetch origin <branch>\. Not --upload-pack/],
+    ['git fetch --upload-pack sh origin', /fetches plainly.*Not --upload-pack/],
+    ['git fetch -o x origin main', /fetches plainly.*Not -o/],
+    ['git fetch --server-option=x origin main', /fetches plainly.*Not --server-option/],
+    ['git fetch --depth 1 origin main', /fetches plainly.*Not --depth/],
+    ['git fetch evil main', /Fetch from origin alone.*Not evil/],
+    ['git fetch https://example.com/x.git main', /Fetch from origin alone/],
+    ['git fetch "ext::sh -c \'git push origin HEAD:main\'"', /Fetch from origin alone/],
+    ['git fetch origin +main:main', /Fetch a branch by its name.*Not \+main:main/],
+    [`git fetch origin main:${BRANCH}`, /Fetch a branch by its name/],
+    ['git grep -O\'sh -c "git push --no-verify origin HEAD:main" --\' x', /Never skip the repo's git hooks \(--no-verify\), with any program/],
+    ['git grep -O\'sh -c "git push origin HEAD:main" --\' x', /A cloud reviewer's git grep takes the options that narrow a search.*not -Osh, which could open a program/],
+    ['git grep -O x', /git grep takes the options that narrow a search.*not -O/],
+    ['git grep -nO x', /git grep takes the options that narrow a search.*not -nO/],
+    ['git grep --open-files-in-pager=sh x', /git grep takes the options that narrow a search.*not --open-files-in-pager/],
+    ['git grep --open-files-in-pager x', /git grep takes the options that narrow a search.*not --open-files-in-pager/],
+    ['git grep --threads=1 x', /git grep takes the options that narrow a search.*not --threads/],
+    ['git diff --ext-diff HEAD~1', /git diff --ext-diff runs a program of its own/],
+    ['git log --ext-diff -p', /git log --ext-diff runs a program of its own/],
+    [`git push --receive-pack=sh origin HEAD:${VERDICT}`, /git push --receive-pack runs a program of its own/],
+    // an option before git's command sets what git runs, or as whom
+    ['git -c core.pager=sh log', /Run git with no option before its command \(not -c\)/],
+    ['git -c user.name=x log', /Run git with no option before its command \(not -c\)/],
+    ['git -C /tmp log', /Run git with no option before its command \(not -C\)/],
+    ['git --exec-path=/tmp log', /Run git with no option before its command \(not --exec-path\)/],
+    ['git --git-dir=/x log', /Run git with no option before its command \(not --git-dir\)/],
+    // what writes a file: --output, a redirect
+    ['git log --output=review.json', /git log --output writes a file, and a cloud reviewer writes review\.json alone/],
+    ['git log --output review.json', /git log --output writes a file/],
+    ['git diff --output=x.diff HEAD~1', /git diff --output writes a file/],
+    ['git show --output=x HEAD', /git show --output writes a file/],
+    ['git log > out.txt', /A cloud reviewer writes review\.json alone, with the Write tool: never a redirect \(>\)/],
+    ['git diff >> out.txt', /never a redirect \(>>\)/],
+    ['git show HEAD 2> err.txt', /never a redirect \(2>\)/],
+    ['git log | tee out.txt', /tee isn't a command a cloud reviewer runs/],
     // the add stages review.json alone, and the commit takes what was staged
     ['git add .', /stages review\.json alone/],
     ['git add -A', /stages review\.json alone/],

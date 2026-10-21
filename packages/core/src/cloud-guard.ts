@@ -510,6 +510,28 @@ function isAlias(sub, ctx) {
   }
 }
 
+/** The git options whose value is a program git would run, on any command: the guard can't see what it would do. */
+const RUNS_PROGRAM = /^(--upload-pack|--receive-pack|--exec|--extcmd|--tool|--open-files-in-pager|--ext-diff)(=|$)/;
+
+/**
+ * Why this git command may not run for anyone (T-86): an option whose value is a program (--upload-pack,
+ * --receive-pack, --exec, --extcmd, --tool, --open-files-in-pager, --ext-diff; grep's -O; rebase's -x;
+ * difftool's and mergetool's -x and -t), git bisect run, or git submodule foreach. Each runs what it's
+ * given, outside the guard's sight, and a push from there with --no-verify would skip the pre-push hook too.
+ */
+export function programProblem(sub, rest) {
+  const says = (what) => \`git \${sub} \${what} runs a program of its own, which the guard can't see: run git without it, and the program plainly, as its own command.\`;
+  for (const a of rest) {
+    if (RUNS_PROGRAM.test(a)) return says(a.split('=')[0]);
+    if (sub === 'grep' && /^-O/.test(a)) return says('-O');
+    if (sub === 'rebase' && /^-[a-zA-Z]*x/.test(a)) return says('-x');
+    if ((sub === 'difftool' || sub === 'mergetool') && /^-[a-zA-Z]*[xt]/.test(a)) return says(a.slice(0, 2));
+  }
+  if (sub === 'bisect' && rest[0] === 'run') return says('run');
+  if (sub === 'submodule' && rest.includes('foreach')) return says('foreach');
+  return null;
+}
+
 /** Why this git command may not run, or null. \`wrapped\` says a wrapper, an assignment or a path led here: a push then never passes. */
 export function gitProblem(args, record, ctx, wrapped, raw) {
   let i = 0;
@@ -532,6 +554,8 @@ export function gitProblem(args, record, ctx, wrapped, raw) {
   if (!sub || sub === '--version' || sub === '--help') return null;
   if (!/^[a-z][a-z0-9-]*$/i.test(sub)) return \`The guard doesn't know the git command "\${sub}". Run a plain git command.\`;
   if (rest.includes('--no-verify') || (sub === 'commit' && rest.some((a) => /^-[a-zA-Z]*n[a-zA-Z]*$/.test(a)))) return 'Never skip the repo\\'s git hooks (--no-verify): the clone\\'s pre-push hook is the guard\\'s last line. If a hook fails, fix what it found.';
+  const program = programProblem(sub, rest);
+  if (program) return program;
   if (sub === 'clone' || sub === 'init') return \`Work in this clone: a repo from git \${sub} has none of the guard's hooks, so nothing would check a push from it.\`;
   if (sub === 'push') {
     const target = pushableOf(record, ctx);
@@ -723,16 +747,61 @@ function unwrap(words) {
 
 /** The git commands a reviewer may run (T-86), besides the reads: what fetches and checks out the task branch, and what commits and pushes review.json. */
 const REVIEWER_GIT = new Set([...GIT_READS, 'fetch', 'merge-base', 'rev-list', 'describe', 'name-rev', 'shortlog', 'for-each-ref', 'show-ref', 'checkout', 'switch', 'add', 'commit', 'push']);
-const REVIEWER_HOW = \`A cloud reviewer runs only git from Bash, plainly: reads (git diff, git log, git show, git status, git blame), git fetch, git checkout of the branch it reviews, git add \${VERDICT_FILE}, git commit -m, and git push origin HEAD:<its verdict branch>. It reads files with Read, Grep and Glob, and writes \${VERDICT_FILE} with the Write tool.\`;
+const REVIEWER_HOW = \`A cloud reviewer runs only git from Bash, plainly: reads (git diff, git log, git show, git status, git blame), git fetch origin <branch>, git checkout of the branch it reviews, git add \${VERDICT_FILE}, git commit -m, and git push origin HEAD:<its verdict branch>. It reads files with Read, Grep and Glob, and writes \${VERDICT_FILE} with the Write tool.\`;
+/** The options a reviewer's git fetch may take: nothing that names a program (--upload-pack) or a remote. */
+const REVIEWER_FETCH = /^(-q|--quiet|-v|--verbose|-p|--prune|--tags|--no-tags|--unshallow|--no-recurse-submodules|--depth=\\d+|--deepen=\\d+)$/;
+/** The options a reviewer's git grep may take, as flags or with a value attached: what narrows or shapes a search, and nothing that opens a program (-O). */
+const REVIEWER_GREP = /^(-[niwlLcEFGPhHIvqraWp]+|-[ABCm]\\d+|--(cached|no-index|untracked|line-number|ignore-case|word-regexp|files-with-matches|files-without-match|count|extended-regexp|fixed-strings|basic-regexp|perl-regexp|no-color|color=never|and|or|not|all-match|name-only|heading|break|show-function|function-context|full-name|null|only-matching|column|text|invert-match|quiet|max-depth=\\d+|max-count=\\d+|context=\\d+|after-context=\\d+|before-context=\\d+))$/;
+/** The git grep options whose value is the next word: a pattern, a file of patterns, or a count of lines. */
+const GREP_VALUED = new Set(['-e', '-f', '-A', '-B', '-C', '-m', '--max-depth', '--max-count', '--context', '--after-context', '--before-context']);
+/** An option that writes a file, which git log, show and diff take: a reviewer's git never writes one. */
+const WRITES_FILE = /^--output(=|$)/;
+/** The option before git's command a reviewer may give: a version, help, or no pager. */
+const REVIEWER_GIT_OPTS = new Set(['--version', '--help', '-h', '--no-pager', '-P']);
 
-/** Why a reviewer may not run this command, or null: anything but plain git, a git command off its list, an add of anything but review.json, or a commit that would take more than the index. */
-function reviewerProblem(prog, rest, wrapped, viaPath) {
+/**
+ * Why a reviewer may not run this command, or null: anything but plain git; a redirect, which writes a file;
+ * an option before git's command, which can set what git runs; a git command off its list; an option that
+ * writes a file (--output) or runs a program (--ext-diff); a fetch with an option off its list, from
+ * anything but origin, or with a refspec; a grep with an option off its list; a checkout of anything but the
+ * branch, or that restores a path; an add of anything but review.json; or a commit that would take more than
+ * the index.
+ */
+function reviewerProblem(prog, rest, wrapped, viaPath, raw) {
   if (prog !== 'git') return \`\${prog} isn't a command a cloud reviewer runs. \${REVIEWER_HOW}\`;
   if (wrapped || viaPath) return \`Run git plainly, not through a wrapper, an assignment or a path. \${REVIEWER_HOW}\`;
+  // What git writes to a file the reviewer never does: its one file is review.json, by the Write tool.
+  const redirect = raw.find(isRedirect);
+  if (redirect) return \`A cloud reviewer writes \${VERDICT_FILE} alone, with the Write tool: never a redirect (\${redirect}). \${REVIEWER_HOW}\`;
+  const first = rest[0] ?? '';
+  if (first.startsWith('-') && !REVIEWER_GIT_OPTS.has(first)) return \`Run git with no option before its command (not \${first.split('=')[0]}): an option there can set what git runs, or as whom. \${REVIEWER_HOW}\`;
   const sub = rest.find((a) => !a.startsWith('-'));
   if (!sub) return null;
   if (!REVIEWER_GIT.has(sub)) return \`git \${sub} isn't a command a cloud reviewer runs. \${REVIEWER_HOW}\`;
   const after = rest.slice(rest.indexOf(sub) + 1);
+  const writes = after.find((a) => WRITES_FILE.test(a));
+  if (writes) return \`git \${sub} \${writes.split('=')[0]} writes a file, and a cloud reviewer writes \${VERDICT_FILE} alone, with the Write tool: read with git \${sub} as it is.\`;
+  if (after.includes('--ext-diff')) return \`git \${sub} --ext-diff runs a program of its own, which the guard can't see: read with git \${sub} as it is.\`;
+  if (sub === 'fetch') {
+    const option = after.find((a) => a.startsWith('-') && !REVIEWER_FETCH.test(a));
+    if (option) return \`A cloud reviewer fetches plainly: git fetch origin <branch>. Not \${option.split('=')[0]}: on fetch the guard allows -q, -v, -p, --tags, --no-tags and a depth, and no option that could name a program.\`;
+    const names = after.filter((a) => !a.startsWith('-'));
+    if (names.length && names[0] !== 'origin') return \`Fetch from origin alone: git fetch origin <branch>. Not \${names[0]}.\`;
+    const spec = names.slice(1).find((s) => s.startsWith('+') || s.includes(':'));
+    if (spec) return \`Fetch a branch by its name: git fetch origin <branch>. Not \${spec}: a refspec could overwrite a branch in the clone.\`;
+  }
+  if (sub === 'grep') {
+    for (let i = 0; i < after.length; i++) {
+      const a = after[i];
+      if (a === '--') break;
+      if (GREP_VALUED.has(a)) { i++; continue; }
+      if (a.startsWith('-') && !REVIEWER_GREP.test(a)) return \`A cloud reviewer's git grep takes the options that narrow a search (-n, -i, -w, -l, -c, -E, -F, -P, -A, -B, -C, -e, --cached) and no other: not \${a.split(/[=\\s]/)[0]}, which could open a program.\`;
+    }
+  }
+  if (sub === 'checkout' || sub === 'switch') {
+    const names = after.filter((a) => !a.startsWith('-'));
+    if (after.includes('--') || names.length > 1) return \`A cloud reviewer checks out the branch it reviews, and restores nothing: git \${sub} <branch>. Not git \${sub} \${after.join(' ')}: the code stays as the builder left it.\`;
+  }
   if (sub === 'add') {
     const files = after.filter((a) => a !== '--');
     if (files.some((a) => a.startsWith('-')) || files.length !== 1 || (files[0] !== VERDICT_FILE && files[0] !== \`./\${VERDICT_FILE}\`)) return \`A cloud reviewer stages \${VERDICT_FILE} alone: git add \${VERDICT_FILE}. Not: git add \${after.join(' ')}.\`;
@@ -763,8 +832,9 @@ function commandProblem(given, record, ctx, depth, wrappedOuter, line) {
   }
   // A \`$\` left over from an older splitter's \`$( … )\`: what's inside is read as its own command.
   if (first === '$') return null;
-  // --no-verify with any program: npm, a script runner or a wrapper could pass it on to git.
-  if (raw.some((w) => w === '--no-verify' || w.startsWith('--no-verify='))) return 'Never skip the repo\\'s git hooks (--no-verify), with any program: the clone\\'s pre-push hook is the guard\\'s last line. If a hook fails, fix what it found.';
+  // --no-verify with any program: npm, a script runner or a wrapper could pass it on to git. Inside an
+  // option's value too (--upload-pack='sh -c "git push --no-verify …"'), where the option would run it.
+  if (raw.some((w) => w === '--no-verify' || w.startsWith('--no-verify=') || (w.startsWith('-') && w.includes('--no-verify')))) return 'Never skip the repo\\'s git hooks (--no-verify), with any program: the clone\\'s pre-push hook is the guard\\'s last line. If a hook fails, fix what it found.';
   if (first.includes('$')) return \`The guard can't tell what \${first} runs: write the program's name, plainly.\`;
   for (let i = 0; i < raw.length; i++) {
     if ((isRedirect(raw[i]) && (raw[i].length > (/^\\d*>>?/.exec(raw[i])?.[0].length ?? 0) ? raw[i] : raw[i + 1] ?? '').includes('$')) || (['tee', 'cp', 'mv', 'ln', 'dd', 'install', 'rsync'].includes(name(first)) && i > 0 && raw[i].includes('$'))) return \`The guard can't tell where \${raw[i]} writes: name the file plainly.\`;
@@ -774,7 +844,7 @@ function commandProblem(given, record, ctx, depth, wrappedOuter, line) {
   const wrap = wrapped || viaPath || wrappedOuter;
   // A reviewer (T-86) runs git alone, from a short list; what passes here is then read as any git command is.
   if (ctx.role === 'reviewer') {
-    const why = reviewerProblem(prog, rest, wrapped || wrappedOuter, viaPath);
+    const why = reviewerProblem(prog, rest, wrapped || wrappedOuter, viaPath, raw);
     if (why) return why;
   }
   // What would change the program a later command's name runs: an alias, or hash -p.
@@ -815,8 +885,12 @@ function commandProblem(given, record, ctx, depth, wrappedOuter, line) {
     for (let j = 1; j < words.length; j++) {
       const w = words[j];
       const tokens = w.split(/\\s+/).filter(Boolean);
-      if (!tokens.length || !HANDLED.has(name(tokens[0]))) continue;
-      const why = tokens.length > 1 ? guard(w, record, ctx, depth + 1, true) : commandProblem(words.slice(j), record, ctx, depth + 1, true, line);
+      if (!tokens.length) continue;
+      // An option's value can be the program (flock --command='sh -c …'): what follows the = is what's read.
+      const head = tokens[0].replace(/^--[^=]+=/, '');
+      if (!HANDLED.has(name(head))) continue;
+      const inner = [head, ...tokens.slice(1)].join(' ');
+      const why = tokens.length > 1 || head !== tokens[0] ? guard(inner, record, ctx, depth + 1, true) : commandProblem(words.slice(j), record, ctx, depth + 1, true, line);
       if (why) return why;
     }
   }
