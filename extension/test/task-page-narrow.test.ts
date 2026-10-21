@@ -24,6 +24,15 @@ test('at 760 px and below the facts come first: the conflict and analysis, the d
   for (const c of ['block related-block', 'block activity', 'side-details', 'side-panel side-agent']) assert.ok(src.includes(`'${c}`) || src.includes(`\`${c}`), c);
 });
 
+test('Details\' names sit on the first line of their value, a rule the list of fields\' centring can\'t outrank (T-94)', () => {
+  // `.fields` centres a name against its value, at one class; Details names two, so its own alignment wins.
+  const rule = (sel: string) => new RegExp(`(^|\\n)${sel.replace(/\./g, '\\.')} \\{[^}]*\\}`).exec(css)?.[0] ?? '';
+  assert.match(rule('.fields'), /align-items: center/, 'the list of fields centres');
+  assert.match(rule('.fields.details-list'), /align-items: (first )?baseline|align-items: start/, 'Details top-aligns');
+  // Edge case: a one-class `.details-list` alignment would lose to `.fields`, which comes later at the same weight.
+  assert.ok(!/align-items/.test(rule('.details-list')), 'no one-class Details alignment for `.fields` to beat');
+});
+
 test('edge case: the order check reads a rule naming one selector, or several, and gives 0 to one never named', () => {
   assert.equal(orderOf('.ticket-top'), -1);
   assert.equal(orderOf('.activity'), orderOf('.related-block'));
