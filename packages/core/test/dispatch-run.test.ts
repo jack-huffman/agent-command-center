@@ -2,7 +2,7 @@
 // kept awake. These were dispatch.test.ts's; they're their own file so npm test runs them beside it (T-57).
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
@@ -12,6 +12,7 @@ import { dispatch, findSession } from '../src/dispatch.ts';
 import { run } from '../src/exec.ts';
 import { DONE_COMMAND, mutate, type RunNote, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
+import { reviewPath } from '../src/review.ts';
 import { acc, fakeClaude, IGNORE, NOTE, QUIET, tasksOf, trustingHome } from './dispatch-support.ts';
 import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
@@ -288,4 +289,43 @@ test('dispatch refuses before touching anything when Claude Code doesn\'t trust 
   assert.equal(existsSync(join(repo, '.claude', 'worktrees', 'T-1')), false, 'no worktree was made');
   assert.equal(claude.calls().length, 0, 'claude was never called');
   assert.equal(tasksOf(repo)[0]!.state, 'todo');
+});
+
+test('a rework a person sent back gets the passed review\'s findings in the written packet only while the review is of the branch head (T-76)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
+  const claude = fakeClaude();
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const paths = repoPaths(repo, run);
+  assert.equal(acc(repo, ['add', 'Write the changelog']).code, 0);
+  const first = acc(repo, ['dispatch', 'T-1', '--json'], env);
+  assert.equal(first.code, 0, first.err);
+  const wt = first.json().worktree as string;
+  writeFileSync(join(wt, 'CHANGELOG.md'), 'one\n');
+  gitIn(wt, 'add', '.');
+  gitIn(wt, 'commit', '-m', 'T-1: changelog');
+  const head = gitIn(wt, 'rev-parse', 'HEAD');
+  mkdirSync(paths.reviews, { recursive: true });
+  const at = new Date().toISOString();
+  const findings = [{ file: 'CHANGELOG.md', line: 3, message: 'Date the entry.', must: true }];
+  writeFileSync(reviewPath(paths, 'T-1', head), JSON.stringify({ v: 1, task: 'T-1', sha: head, env: 'main', verdict: 'pass', summary: 'Adds it.', criteria: [], findings, sessionId: 's', at, durationMs: 1, costUsd: null }));
+  const backToBuilder = (reason: string) => {
+    const toReview = acc(repo, ['set', 'T-1', 'review']);
+    assert.equal(toReview.code, 0, toReview.err);
+    const back = acc(repo, ['set', 'T-1', 'rework', '--reason', reason]);
+    assert.equal(back.code, 0, back.err);
+    const r = acc(repo, ['dispatch', 'T-1'], env);
+    assert.equal(r.code, 0, r.err);
+    return readFileSync(join(paths.packets, 'T-1.md'), 'utf8');
+  };
+
+  const same = backToBuilder('Fix the findings.');
+  assert.ok(same.includes('> Fix the findings.') && same.includes('listed these findings') && same.includes('- **Must fix:** `CHANGELOG.md:3`: Date the entry.'), 'the review is of the branch head');
+  assert.ok(same.indexOf('> Fix the findings.') < same.indexOf('Date the entry.'), 'the person\'s reason comes first');
+
+  // The branch has a newer commit than the one reviewed: nothing is said about the review.
+  writeFileSync(join(wt, 'CHANGELOG.md'), 'one\ntwo\n');
+  gitIn(wt, 'commit', '-am', 'T-1: more');
+  const newer = backToBuilder('Again.');
+  assert.ok(newer.includes('> Again.'));
+  assert.ok(!newer.includes('Date the entry.') && !newer.includes('listed these findings'), 'the review is of an older commit');
 });
