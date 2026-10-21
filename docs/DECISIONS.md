@@ -8363,3 +8363,44 @@ stays the default; analysts stay on the Mac, since a Salesforce analysis needs t
 - Not chosen: a verdict posted back through the session's own message channel, which nothing reads; a
   verdict committed on the task branch, which the guard must keep a reviewer from touching; a wider hook
   matcher for the reviewer, which would run the guard on every Read of every cloud builder for no safety.
+- **Note (T-88, 2026-10-21): abbreviated options.** git takes any unique prefix of a long option, so
+  `git fetch --upl=sh` was `--upload-pack=sh` to git and the guard, matching full names alone, let a
+  builder's fetch, archive, ls-remote and grep run a program. `programOption` in the guard now reads
+  every prefix of a program option (`--upload-pack`, `--receive-pack`, `--exec`, `--extcmd`, `--tool`,
+  `--open-files-in-pager`, `--ext-diff`) as the option it shortens, for every role, and says so ("--upl
+  (short for --upload-pack) runs a program of its own"). The reviewer's fetch and grep allow-lists refused
+  the prefixes already; the builder's tables have the rows.
+- **Note (T-88, 2026-10-21): `<transport>::` remotes.** `git fetch "ext::sh -c …"` runs sh through
+  git-remote-ext, and `fd::` reads a descriptor; neither names `--no-verify` as a word, so the backstop
+  didn't see a push inside one. `transportProblem` refuses, for every role, any `<transport>::` remote or
+  URL (as a word or an option's value, `--remote=ext::…`) on fetch, pull, push, ls-remote, archive, clone,
+  remote and submodule. git's own `protocol.allow` refuses ext by default, but a `-c` or `GIT_ALLOW_PROTOCOL`
+  could lift it, so the guard doesn't lean on it.
+- **Note (T-88, 2026-10-21): `$'…'` quoting.** The splitters read bash's ANSI-C quoting as bash does, with
+  its escapes decoded (`\nnn`, `\xHH`, `\uHHHH`, `\UHHHHHHHH`, `\cX` and the named ones), so
+  `$'\x2d-upload-pack=sh'` is `--upload-pack=sh` and `$'git' push` is `git push`; `$"…"` reads as `"…"`.
+  Both `rawCommandsOf` and `hooks.ts` `commandsOf` have the same `ansiC`, and the parity test pins seven
+  more lines. Chosen over refusing any word that holds `$'`, which would have refused a plain
+  `echo $'a\tb'` and still left `$"…"` unread. The guard script changed, so this repo's committed guard is
+  written again.
+- **Note (T-88, 2026-10-21): autopilot with the cloud full.** `realSteps.review` went to the cloud
+  whenever the setting said so and the needs were met, and `reviewInCloud`'s `cloud-cap` then failed the
+  step, which was written on the task. `temporary` now reads `cloud-cap` as a wait, with the cap's words
+  ("1 cloud session is running for this project, and its cap is 1 (agents.cloud.max)") and "Autopilot
+  looks again next pass", as it waits on the project's and the machine's caps. `autopilot-cloud.test.ts`
+  drives a pass with the cloud full, then frees it with a person's move of the builder and sees the next
+  pass fire; its cleared case now goes through `recordVerdict`, not a hand-made ledger change.
+- **Note (T-88, 2026-10-21): a verdict ends only its own cloud review.** `recordVerdict` cleared
+  `cloudReview` for any verdict it kept, so a verdict for an older commit ended a cloud review of the
+  head. It clears it only when the verdict's commit is the cloud review's, or the task's head as the
+  caller read it (`who.head`: `review()` passes the commit it reviewed, the cloud follow the branch's
+  head). A verdict for an older commit is kept and ends nothing; tested in `cloud-review.test.ts`.
+- **Note (T-88, 2026-10-21): no verdict branch left behind.** A cloud review ended by a move or by a
+  local verdict left `acc/review/<task>-<sha>` on origin (the follow-up above). `acc sync` now lists
+  origin's `acc/review/*` once (`verdictHeads` in `followGithub`, handed to `followCloudReviews`), and
+  `pruneVerdictBranches` deletes each head that no cloud review under way waits on and the follow didn't
+  handle, reporting each as a `pruned` review follow ("deleted acc/review/T-1-… on origin: no cloud review
+  waits on it"), which `acc sync` prints with the others. A cloud project's sync lists once a run where
+  it listed only with a review under way; origin not answering deletes nothing. Tested on the bare-origin
+  fake GitHub: a late push after a move, a branch for a task not in the ledger, a review under way keeping
+  its own, and origin offline.
