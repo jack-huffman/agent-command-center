@@ -86,8 +86,10 @@
    their avatars a little over each other. */
 .tcard-foot { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .tcard-foot > .labels { flex: 1; }
-/* The labels' row never wraps (T-91): a narrow card cuts its names short, each whole in its title, and +N keeps its place. */
+/* The labels' row never wraps (T-91): it shows the labels that fit whole and folds the rest into +N (T-94).
+   Only a first label wider than the card is cut short, whole in its title. */
 .tcard-foot .labels { flex-wrap: nowrap; }
+.tcard-foot .label[hidden] { display: none; }
 .tcard-foot .label { flex: 0 1 auto; }
 .tcard-foot .label-more { flex: none; }
 .tcard-foot .label-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -6,7 +6,8 @@ import { boardKeys, liveLine } from './board-nav.ts';
 import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
 import { shows } from './person-filter.ts';
 import { personFilter } from './person-menu.ts';
-import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, stateChip, status, titled, toolbarButton } from './dom.ts';
+import { fitLabels } from './fit-labels.ts';
+import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChips, peekable, plural, stateChip, status, titled, toolbarButton } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
 export function renderTasks(m: TasksModel): Node[] {
@@ -78,13 +79,14 @@ export function renderTasks(m: TasksModel): Node[] {
           // Its files beside other tasks' (D-093): it waits for them (a clock, in blue), its start failed (the
           // bell, in orange), it shares them, or a Ready task's aren't known.
           card.files ? el('div', 'card-agent', status(card.files)) : null,
-          card.agent ? titled(el('div', 'card-agent', el('span', 'muted', 'Agent: '), status(card.agent)), card.agentName) : null,
+          // Its agent's state and its analysis's are state chips, as every board's states are (T-94).
+          card.agent ? titled(el('div', 'card-agent', el('span', 'muted', 'Agent: '), stateChip(card.agent)), card.agentName) : null,
           // Where its builder runs (GH-69): This Mac or Cloud, an icon and a label, beside the agent line.
           card.place ? el('div', 'card-where card-place', icon(card.place.icon), el('span', 'muted', card.place.label)) : null,
           // The model it runs with (D-086), in plain mono text: a name, not a state.
           card.agent && card.model ? el('div', 'card-where card-model', icon('sparkle'), el('span', 'mono muted', card.model)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
-          card.analysis ? el('div', 'card-agent', status(card.analysis)) : null,
+          card.analysis ? el('div', 'card-agent', stateChip(card.analysis)) : null,
           cardFoot(card),
         );
         // Everything but the next step sits behind ⋯, in the card's corner (D-062).
@@ -142,7 +144,7 @@ const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'gith
 export const KIND_ICON: Record<string, string> = { github: 'github', jira: 'issues', azure: 'azure-devops', monday: 'table', slack: 'comment-discussion', acc: 'checklist' };
 export const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps', monday: 'monday.com', slack: 'Slack' };
 
-/** How many labels, and how many people, a tracker's card shows (T-91). */
+/** How many people a tracker's card shows (T-91), and how many labels where nothing measures them (T-94). */
 const CARD_MOST = 3;
 
 export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement {
@@ -150,9 +152,11 @@ export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTML
   kind.title = c.type ?? 'Issue';
   const prio = c.priorityIcon ? el('span', 'tcard-prio', icon(c.priorityIcon)) : null;
   if (prio) prio.title = `Priority: ${c.priority}`;
-  // Up to three labels (T-91), each named whole in its title, as a narrow card cuts it short; the rest are "+2", named in its title.
-  const rest = c.labels.slice(CARD_MOST);
-  const more = rest.length ? titled(el('span', 'label label-more', `+${rest.length}`), rest.map((l) => l.name).join(', ')) : null;
+  // As many labels as fit whole (T-94), each named in its title; the rest are "+2", named in its title.
+  const chips = labelChips(c.labels).map((chip, i) => titled(chip, c.labels[i]!.name));
+  const more = el('span', 'label label-more');
+  const labels = c.labels.length ? el('span', 'labels', ...chips, more) : null;
+  if (labels) fitLabels(labels, chips, more, c.labels.map((l) => l.name), CARD_MOST);
   const people = c.assignees.length ? el('span', 'tcard-people', ...c.assignees.slice(0, CARD_MOST).map(avatar)) : null;
   // The card (T-91): its kind and key, then the people who have it and its priority at the right; its title, up to
   // three lines, whole in its title; then its labels, with their +N, on a row of their own so the +N never wraps
@@ -160,7 +164,7 @@ export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTML
   const card = el('article', `card tcard${c.acc?.needsYou ? ' attention' : ''}`,
     el('div', 'tcard-top', kind, el('span', 'tcard-key', c.key), el('span', 'spacer'), people, prio),
     titled(el('div', 'card-title tcard-title', c.title), c.fullTitle ?? c.title),
-    c.labels.length ? el('div', 'tcard-foot', el('span', 'labels', ...c.labels.slice(0, CARD_MOST).map((l) => titled(labelChip(l), l.name)), more)) : null,
+    labels ? el('div', 'tcard-foot', labels) : null,
     c.acc ? el('div', 'tcard-acc', stateChip(c.acc.look), el('span', 'spacer'), c.acc.action ? nextStep(c.acc.action) : null) : null,
     c.acc?.conflicts ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', c.acc.conflicts)) : null,
     c.acc?.failedChecks ? el('div', 'card-note conflict tcard-conflict', icon('github-action'), el('span', '', c.acc.failedChecks)) : null,

@@ -145,6 +145,6 @@ test('the scan finds a hex, rgb(), hsl() and a named colour, with file and line,
 
 test('theme.css holds every colour of both palettes, and nothing else does (GH-109, GH-105)', () => {
   const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
-  // 50 a palette, and five of each for the label and avatar tints (T-91).
-  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 110);
+  // 50 a palette, and eight of each for the label and avatar tints (T-91, T-94).
+  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 116);
 });

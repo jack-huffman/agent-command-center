@@ -8,7 +8,7 @@ import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts
 import { api, go, memory, remember, state } from './state.ts';
 import { panelLook } from './looks.ts';
 import { inlineMarks } from './inline.ts';
-import { labelTint, tintOf } from './tints.ts';
+import { labelTint, labelTints, type Tint, tintOf } from './tints.ts';
 
 export type Child = Node | string | null | undefined | false;
 
@@ -111,15 +111,24 @@ export function person(p: PersonChip): HTMLElement {
  * Tints a chip or an avatar (T-91): --tint-colour is the tracker's own colour, its data and not the page's
  * palette, or one of the palette's tints. The stylesheet mixes the fill and the edge from it.
  */
-function tinted<T extends HTMLElement>(e: T, t: { colour: string } | { tint: number }): T {
+function tinted<T extends HTMLElement>(e: T, t: Tint): T {
   if ('colour' in t) e.style.setProperty('--tint-colour', `#${t.colour}`);
   else e.style.setProperty('--tint-colour', `var(--tint-${t.tint})`);
   return e;
 }
 
-/** A label chip: its name always, tinted by the tracker's colour when it has one, else by its name (T-91), with a dot of that tint. */
-export function labelChip(l: { name: string; color: string | null }): HTMLElement {
-  return tinted(el('span', 'label', el('span', 'label-dot'), el('span', 'label-name', l.name)), labelTint(l));
+/**
+ * A label chip: its name always, tinted by the tracker's colour when it has one, else by its name (T-91), with a
+ * dot of that tint. Drawn with others, it takes the tint labelChips gives it, so its neighbours differ (T-94).
+ */
+export function labelChip(l: { name: string; color: string | null }, tint: Tint = labelTint(l)): HTMLElement {
+  return tinted(el('span', 'label', el('span', 'label-dot'), el('span', 'label-name', l.name)), tint);
+}
+
+/** One card's or one ticket's label chips (T-94): two different labels share a tint only once every tint is used. */
+export function labelChips(labels: readonly { name: string; color: string | null }[]): HTMLElement[] {
+  const tints = labelTints(labels);
+  return labels.map((l, i) => labelChip(l, tints[i]));
 }
 
 /**
