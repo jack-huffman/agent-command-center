@@ -4,8 +4,9 @@
  * fired as for a builder (D-140), with the reviewer's prompt as the fire's text; the reviewer reads the
  * pushed task branch, never edits it, and pushes one file, review.json, to a branch of its own,
  * acc/review/<task>-<sha>. acc sync finds that branch, checks the verdict against the reviewer's schema,
- * keeps it as a local review's verdict is kept, moves the task the same way, and deletes the branch.
- * Local stays the default; analysts stay on the Mac.
+ * keeps it as a local review's verdict is kept, moves the task the same way, and deletes the branch; a
+ * verdict branch no cloud review waits on any more (one ended by a move, or by a verdict here) is deleted
+ * on the same sync (T-88). Local stays the default; analysts stay on the Mac.
  */
 import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { type BuilderPlace, CLOUD_QUIET_MINUTES, type CloudAgents, type Config } from './config.ts';
@@ -159,8 +160,10 @@ export function reviewInCloud(paths: RepoPaths, config: Config, id: string, deps
 
 export interface ReviewFollow {
   task: string;
-  /** What acc did about the verdict branch. */
-  outcome: 'waiting' | 'taken' | 'stale' | 'bad' | 'unreachable';
+  /** The verdict branch on origin this is about. */
+  branch: string;
+  /** What acc did about the verdict branch: pruned is one no cloud review waited on, deleted (T-88). */
+  outcome: 'waiting' | 'taken' | 'stale' | 'bad' | 'unreachable' | 'pruned';
   /** rework when a verdict with changes moved the task; null otherwise. */
   moved: 'rework' | null;
   note: string;
@@ -181,6 +184,26 @@ function deleteVerdictBranch(run: Runner, root: string, branch: string, env: Nod
   return r.code === 0 ? null : (r.stderr || r.stdout).trim().split('\n').at(-1) ?? `git exited ${r.code}`;
 }
 
+/** The task a verdict branch is for: acc/review/<task>-<sha> without its ends. */
+const taskOfVerdictBranch = (branch: string): string => branch.replace(/^acc\/review\//, '').replace(/-[0-9a-f]{7,64}$/, '');
+
+/**
+ * Deletes each verdict branch on origin that no cloud review under way waits on (T-88): one left by a
+ * cloud review that a move or a verdict here ended, a session's late push, or a task gone from the ledger.
+ * `heads` is origin's acc/review/* as acc sync listed them, and `handled` the branches followCloudReviews
+ * acted on this sync, which it deleted itself.
+ */
+export function pruneVerdictBranches(paths: RepoPaths, deps: { run: Runner; env: NodeJS.ProcessEnv }, heads: Map<string, string>, handled: Set<string> = new Set()): ReviewFollow[] {
+  const out: ReviewFollow[] = [];
+  const waiting = new Set(readLedger(paths.ledger).tasks.filter((t) => t.state === 'review' && t.cloudReview && !t.cloudReview.failed).map((t) => t.cloudReview!.branch));
+  for (const branch of [...heads.keys()].sort()) {
+    if (waiting.has(branch) || handled.has(branch)) continue;
+    const gone = deleteVerdictBranch(deps.run, paths.root, branch, deps.env);
+    out.push({ task: taskOfVerdictBranch(branch), branch, outcome: 'pruned', moved: null, note: gone ? `${branch} on origin is waited on by no cloud review, and couldn't be deleted: ${gone}` : `deleted ${branch} on origin: no cloud review waits on it` });
+  }
+  return out;
+}
+
 /** A stale verdict is kept for its commit without moving anything: the file alone, written whole. */
 function keepVerdict(paths: RepoPaths, verdict: Verdict): void {
   const file = reviewPath(paths, verdict.task, verdict.sha);
@@ -196,25 +219,26 @@ function keepVerdict(paths: RepoPaths, verdict: Verdict): void {
  * review is treated; one that can't be read fails the review, which then needs a person. The branch is
  * deleted on origin once read, whatever it held. A branch not there yet leaves the review under way.
  */
-export function followCloudReviews(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }, opts: { only?: string; by?: string } = {}): ReviewFollow[] {
+export function followCloudReviews(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }, opts: { only?: string; by?: string; heads?: Map<string, string> | null } = {}): ReviewFollow[] {
   const { run, now, env } = deps;
   const out: ReviewFollow[] = [];
   const tasks = readLedger(paths.ledger).tasks.filter((t) => t.state === 'review' && t.cloudReview && !t.cloudReview.failed && (!opts.only || t.id === opts.only));
   if (!tasks.length) return out;
-  const heads = verdictHeads(run, paths.root, env);
+  // The heads as the caller listed them (acc sync lists once, for the prune too, T-88), else listed here; null is origin not answering.
+  const heads = opts.heads === undefined ? verdictHeads(run, paths.root, env) : opts.heads;
   for (const t of tasks) {
     const c = t.cloudReview!;
     if (!heads) {
-      out.push({ task: t.id, outcome: 'unreachable', moved: null, note: `origin didn't answer for ${c.branch}` });
+      out.push({ task: t.id, branch: c.branch, outcome: 'unreachable', moved: null, note: `origin didn't answer for ${c.branch}` });
       continue;
     }
     const head = heads.get(c.branch);
     if (!head) {
-      out.push({ task: t.id, outcome: 'waiting', moved: null, note: `no verdict on ${c.branch} yet` });
+      out.push({ task: t.id, branch: c.branch, outcome: 'waiting', moved: null, note: `no verdict on ${c.branch} yet` });
       continue;
     }
     if (!fetchBranches(run, paths.root, [c.branch], env)) {
-      out.push({ task: t.id, outcome: 'unreachable', moved: null, note: `couldn't fetch ${c.branch}` });
+      out.push({ task: t.id, branch: c.branch, outcome: 'unreachable', moved: null, note: `couldn't fetch ${c.branch}` });
       continue;
     }
     const by = opts.by ?? `reviewer:${t.id} (cloud)`;
@@ -232,7 +256,7 @@ export function followCloudReviews(paths: RepoPaths, config: Config, deps: { run
         x.updatedAt = at.toISOString();
         emit({ type: 'task.updated', task: t.id, actor: 'sync', by, data: { cloudReview: x.cloudReview } });
       });
-      out.push({ task: t.id, outcome: 'bad', moved: null, note: `${reason}${deleted()}` });
+      out.push({ task: t.id, branch: c.branch, outcome: 'bad', moved: null, note: `${reason}${deleted()}` });
     };
     // The file's size first (T-86): a verdict too large isn't read, and is said to be that, not missing.
     const size = run('git', ['cat-file', '-s', `${head}:${VERDICT_FILE}`], { cwd: paths.root });
@@ -272,15 +296,15 @@ export function followCloudReviews(paths: RepoPaths, config: Config, deps: { run
     if (existsSync(reviewPath(paths, t.id, c.sha))) {
       // A verdict for the commit is here already: a person reviewed it on this Mac meanwhile, and that one stands.
       end({});
-      out.push({ task: t.id, outcome: 'taken', moved: null, note: `a verdict for ${c.sha.slice(0, 7)} was already on this Mac, and it stands${deleted()}` });
+      out.push({ task: t.id, branch: c.branch, outcome: 'taken', moved: null, note: `a verdict for ${c.sha.slice(0, 7)} was already on this Mac, and it stands${deleted()}` });
     } else if (current !== c.sha) {
       // Stale (T-86): kept for its commit, as a local review of an older commit is, and the task stays where it is.
       keepVerdict(paths, verdict);
       end({ reviewed: { sha: c.sha, verdict: verdict.verdict, stale: true } });
-      out.push({ task: t.id, outcome: 'stale', moved: null, note: `its cloud review ${verdict.verdict === 'pass' ? 'passed' : 'asked for changes'} on ${c.sha.slice(0, 7)}, but the branch is at ${current.slice(0, 7) || 'no commit'} now: the verdict is kept, and the task stays in review${deleted()}` });
+      out.push({ task: t.id, branch: c.branch, outcome: 'stale', moved: null, note: `its cloud review ${verdict.verdict === 'pass' ? 'passed' : 'asked for changes'} on ${c.sha.slice(0, 7)}, but the branch is at ${current.slice(0, 7) || 'no commit'} now: the verdict is kept, and the task stays in review${deleted()}` });
     } else {
-      const moved = recordVerdict(paths, config, verdict, now, { actor: 'reviewer', by });
-      out.push({ task: t.id, outcome: 'taken', moved, note: `${verdict.verdict === 'pass' ? `its cloud review passed on ${c.sha.slice(0, 7)}` : `its cloud review asked for changes on ${c.sha.slice(0, 7)}${moved ? ', so it went to rework' : ''}`}: ${verdict.summary}${deleted()}` });
+      const moved = recordVerdict(paths, config, verdict, now, { actor: 'reviewer', by, head: current });
+      out.push({ task: t.id, branch: c.branch, outcome: 'taken', moved, note: `${verdict.verdict === 'pass' ? `its cloud review passed on ${c.sha.slice(0, 7)}` : `its cloud review asked for changes on ${c.sha.slice(0, 7)}${moved ? ', so it went to rework' : ''}`}: ${verdict.summary}${deleted()}` });
     }
   }
   return out;
