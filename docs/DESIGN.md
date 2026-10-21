@@ -2002,7 +2002,8 @@ already exists.
 - a Developer sandbox for each agent
 
 Slack as a ticket source was left out of v1 and is built now: D-145 (the
-tracker), D-146 (its Connect page) and D-148 (tracking a thread by its link).
+tracker), D-146 (its Connect page), D-148 (tracking a thread by its link) and
+D-??? (a board of the channel's messages marked with a reaction).
 
 ## 20. Open questions
 
