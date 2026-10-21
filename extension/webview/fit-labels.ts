@@ -40,8 +40,16 @@ function show(chips: readonly HTMLElement[], more: HTMLElement, names: readonly 
 export function fitLabels(row: HTMLElement, chips: readonly HTMLElement[], more: HTMLElement, names: readonly string[], first: number): void {
   show(chips, more, names, Math.min(first, chips.length));
   if (typeof ResizeObserver === 'undefined') return;
+  // A board redraws on every state message: a row that was on the page and left it lets its observer go.
+  let drawn = false;
+  const observer = new ResizeObserver(() => fit());
   const fit = () => {
-    if (!row.isConnected || !row.clientWidth) return;
+    if (!row.isConnected) {
+      if (drawn) observer.disconnect();
+      return;
+    }
+    drawn = true;
+    if (!row.clientWidth) return;
     // Measured whole: every chip shown and kept from shrinking, and the +N at its widest.
     for (const c of chips) { c.hidden = false; c.style.flex = 'none'; }
     more.hidden = false;
@@ -55,5 +63,5 @@ export function fitLabels(row: HTMLElement, chips: readonly HTMLElement[], more:
   };
   // Fitted once it is drawn, as reading a width lays the page out, and again whenever its width changes.
   setTimeout(fit, 0);
-  new ResizeObserver(fit).observe(row);
+  observer.observe(row);
 }

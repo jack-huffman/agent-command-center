@@ -8572,7 +8572,7 @@ The ticket header isn't sticky, so it needs no translucent material. Tested in
   nothing measures the card, as in a test's small document.
 - **Eight tints, and none shared on one card.** The palette is `--tint-1` to `--tint-8`: the five above, then
   the git extension's `gitDecoration.modifiedResourceForeground` (tan), and the registry's
-  `debugTokenExpression.boolean` and `.name`. None is red, green or orange. `labelTints` gives one card's or
+  `debugTokenExpression.boolean` and `.name`. None is red or green. Light's tint 6 (`gitDecoration.modifiedResourceForeground`) is a tan that reads orange-brown, close to the page's attention orange; a label always carries its name, so the tint is never the only signal. `labelTints` gives one card's or
   one ticket's labels different tints while a tint is free. `looks.test.ts` checks that the text on a chip
   and on an avatar keeps AA contrast on each surface in both palettes, and that every two tints are at least
   15 ΔE apart. That check found the git extension's submodule blue 4.8 ΔE from `ansiBlue` in Light, so it is

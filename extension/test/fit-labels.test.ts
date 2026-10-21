@@ -55,3 +55,31 @@ test('the +N names each label it holds, in order, and is none when every label s
   assert.equal(foldedLabels(names, 5), null);
   assert.equal(foldedLabels([], 0), null, 'edge case: no labels');
 });
+
+test('edge case: a row that leaves the page lets its observer go, and one not yet drawn keeps it', () => {
+  const made: { fire: () => void; disconnected: boolean }[] = [];
+  const g = globalThis as { ResizeObserver?: unknown };
+  const before = g.ResizeObserver;
+  g.ResizeObserver = class {
+    disconnected = false;
+    constructor(cb: () => void) { made.push(Object.assign(this, { fire: cb })); }
+    observe(): void {}
+    disconnect(): void { this.disconnected = true; }
+  };
+  try {
+    const row = { isConnected: false, clientWidth: 0 };
+    const chip = { hidden: false, style: { flex: '' } };
+    const more = { hidden: true, replaceChildren: () => {}, title: '' };
+    fitLabels(row as never, [chip] as never, more as never, ['service'], 3);
+    const o = made[0]!;
+    o.fire();
+    assert.equal(o.disconnected, false, 'not drawn yet: kept');
+    row.isConnected = true;
+    o.fire();
+    row.isConnected = false;
+    o.fire();
+    assert.equal(o.disconnected, true, 'drawn, then removed by a redraw: let go');
+  } finally {
+    g.ResizeObserver = before;
+  }
+});
