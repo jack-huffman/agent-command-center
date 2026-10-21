@@ -118,11 +118,14 @@ export function sampleMondayBoards(): BoardInput[] {
  * A GitHub repo's issues with no Project (the Tasks header's cleanup): its columns are Open and Closed, its
  * place is the whole repo, which its title already names, and its account can't read Projects yet.
  */
+/** GitHub's own label colours, as its API gives them (T-91): a label chip takes the tracker's colour over the palette. */
+export const GITHUB_LABELS: Record<string, string> = { bug: 'd73a4a', enhancement: 'a2eeef', documentation: '0075ca', 'good first issue': '7057ff', reporting: 'fbca04' };
+
 export function sampleGithubBoards(): BoardInput[] {
   const OPEN = { id: 'OPEN', name: 'Open' };
   const CLOSED = { id: 'CLOSED', name: 'Closed' };
   const card = (n: number, title: string, s: { id: string; name: string }, labels: string[] = []) =>
-    ({ key: `GH-${n}`, title, url: `https://github.com/acme/tool/issues/${n}`, status: s, type: null, assignees: [], labels: labels.map((name) => ({ name, color: null })), priority: null });
+    ({ key: `GH-${n}`, title, url: `https://github.com/acme/tool/issues/${n}`, status: s, type: null, assignees: [], labels: labels.map((name) => ({ name, color: GITHUB_LABELS[name] ?? null })), priority: null });
   return [{
     index: 0, kind: 'github', title: 'GitHub · acme/tool', error: null, connect: null, loading: false, signedInAs: 'jordan-kim', place: 'GitHub · acme/tool', left: [],
     board: {

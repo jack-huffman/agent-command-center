@@ -133,6 +133,9 @@ export interface TicketAcc {
   noteMissing: string | null;
 }
 
+/** A ticket's state as its chip draws it (T-91): the tracker's own name for it, its icon and tone, and quiet when done. */
+export interface TicketState { name: string; icon: string; tone: Tone; quiet?: boolean }
+
 export interface TicketModel {
   kind: 'ticket';
   project: string;
@@ -149,7 +152,8 @@ export interface TicketModel {
   connect: { command: string; label: string; arg: string } | null;
   type: string | null;
   typeIcon: string;
-  status: { name: string; icon: string; tone: Tone } | null;
+  /** Its state, drawn as the state chip (T-91): quiet when done. */
+  status: TicketState | null;
   assignees: PersonChip[];
   reporter: PersonChip | null;
   labels: { name: string; color: string | null }[];
@@ -159,7 +163,8 @@ export interface TicketModel {
   updated: string | null;
   body: Doc;
   comments: { id: string; author: PersonChip; created: string; body: Doc; url: string | null }[];
-  related: { key: string; title: string; relation: string; url: string | null }[];
+  /** Parent, sub-tasks and links (T-91): each with its kind's icon and its state chip, where its tracker says; null where it doesn't. */
+  related: { key: string; title: string; relation: string; url: string | null; typeIcon: string | null; status: TicketState | null }[];
   /**
    * What the page may change in the tracker. Nothing, for a task acc alone keeps. A ticket's status,
    * assignee and labels only when its tracker says "edits": true; comments always (D-066).
@@ -480,7 +485,8 @@ export function ticketModel(i: TicketInput): TicketModel {
     created: t?.created ?? i.task?.createdAt ?? null, updated: t?.updated ?? i.task?.updatedAt ?? null,
     body: t?.body ?? (own ? fromMarkdown(i.task!.brief) : { blocks: [] }),
     comments: (t?.comments ?? []).map((c) => ({ id: c.id, author: chip(c.author), created: c.created, body: c.body, url: c.url })),
-    related: t?.related ?? (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null })),
+    related: t ? t.related.map((r) => ({ key: r.key, title: r.title, relation: r.relation, url: r.url, typeIcon: r.typeKind ? typeIcon(r.typeKind) : null, status: r.status ? { name: r.status.name, ...statusLook(r.status) } : null }))
+      : (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null, typeIcon: null, status: null })),
     // A client's tracker is theirs: the page changes its fields only where the tracker opts in (D-066).
     can: { status: !!t && !!i.trackerEdits && has('status'), assign: !!t && !!i.trackerEdits && has('assignee'), labels: !!t && !!i.trackerEdits && has('labels'), comment: !!t },
     editText: t && i.trackerEdits && i.task ? editTextAction(i.project, i.task) : null,

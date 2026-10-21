@@ -8,6 +8,7 @@ import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts
 import { api, go, memory, remember, state } from './state.ts';
 import { panelLook } from './looks.ts';
 import { inlineMarks } from './inline.ts';
+import { labelTint, tintOf } from './tints.ts';
 
 export type Child = Node | string | null | undefined | false;
 
@@ -95,14 +96,38 @@ export function avatar(p: PersonChip): HTMLElement {
   const a = el('span', 'avatar', p.initials);
   a.title = p.name;
   a.setAttribute('aria-label', p.name);
-  return a;
+  // Its tint comes from the person's key, so one person has one tint on every page (T-91).
+  return tinted(a, { tint: tintOf(p.key) });
 }
 
-/** A label chip: its name always, plus the tracker's colour as a dot when it has one. */
+/** A person: their avatar, then their name, with their email in the name's title where the tracker gives one (T-91). */
+export function person(p: PersonChip): HTMLElement {
+  const name = el('span', 'person-label', p.name);
+  if (p.email) name.title = p.email;
+  return el('span', 'person', avatar(p), name);
+}
+
+/**
+ * Tints a chip or an avatar (T-91): --tint-colour is the tracker's own colour, its data and not the page's
+ * palette, or one of the palette's tints. The stylesheet mixes the fill and the edge from it.
+ */
+function tinted<T extends HTMLElement>(e: T, t: { colour: string } | { tint: number }): T {
+  if ('colour' in t) e.style.setProperty('--tint-colour', `#${t.colour}`);
+  else e.style.setProperty('--tint-colour', `var(--tint-${t.tint})`);
+  return e;
+}
+
+/** A label chip: its name always, tinted by the tracker's colour when it has one, else by its name (T-91), with a dot of that tint. */
 export function labelChip(l: { name: string; color: string | null }): HTMLElement {
-  const dot = el('span', 'label-dot');
-  if (l.color && /^[0-9a-f]{6}$/i.test(l.color)) dot.style.background = `#${l.color}`;
-  return el('span', 'label', l.color ? dot : null, l.name);
+  return tinted(el('span', 'label', el('span', 'label-dot'), el('span', 'label-name', l.name)), labelTint(l));
+}
+
+/**
+ * A state chip (T-91): a soft fill in its tone, its icon and its label. One component wherever a state shows: a
+ * ticket's page, a card, a related row and a column's heading. A quiet one, done work, is drawn subdued.
+ */
+export function stateChip(s: { label: string; icon: string; tone: string; quiet?: boolean }): HTMLElement {
+  return el('span', `state-chip tone-${s.tone}${s.quiet ? ' quiet' : ''}`, icon(s.icon, s.tone), s.label);
 }
 
 export function when(iso: string | null): HTMLElement {

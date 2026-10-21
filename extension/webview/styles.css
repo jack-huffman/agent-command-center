@@ -14,6 +14,22 @@
   --blue: var(--vscode-charts-blue);
   --line: var(--vscode-panel-border, var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 35%, transparent)));
   --card: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+  /* The scale a ticket's page and cards are built from (T-91): spacing in rem, so larger text keeps its room;
+     radii; type sizes in em, from VSCode's own size; and how tight a title and how loose meta text sits. */
+  --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem; --space-5: 1.5rem; --space-6: 2rem;
+  --radius-s: 4px; --radius-m: 6px; --radius-l: 10px; --radius-full: 999px;
+  --text-meta: 0.85em; --text-read: 1.04em; --text-title: 1.85em;
+  --leading-title: 1.15; --leading-read: 1.6;
+  --track-title: -0.015em; --track-meta: 0.01em;
+  /* A press shows at once on a card: it shrinks a little, over 100 ms (T-91). */
+  --press-scale: 0.98; --press-time: 100ms;
+  /* The label and avatar tints (T-91): theme colours that are neither red nor green, set for Light and Dark in
+     theme.css. A tracker's own label colour takes a tint's place. */
+  --tint-1: var(--vscode-charts-purple);
+  --tint-2: var(--vscode-terminal-ansiCyan);
+  --tint-3: var(--vscode-charts-yellow);
+  --tint-4: var(--vscode-terminal-ansiMagenta);
+  --tint-5: var(--vscode-terminal-ansiBlue);
 }
 
 /*
@@ -186,6 +202,21 @@ table.grid { width: 100%; border-collapse: collapse; }
 .openable:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 
 .avatar { display: inline-flex; align-items: center; justify-content: center; width: 2.104em; height: 2.104em; border-radius: 50%; font-size: 0.731em; font-weight: 600; letter-spacing: 0.02em; background: var(--accent-soft); color: var(--accent); flex: none; }
+/* A person's avatar takes their tint (T-91): a soft fill mixed from it, with the theme's text on top, so it
+   reads on every tint. One with no tint, such as an account's, keeps the accent. */
+.avatar[style*="--tint-colour"] { background: color-mix(in srgb, var(--tint-colour) 32%, var(--vscode-editor-background)); color: var(--vscode-foreground); }
+.person { display: inline-flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.person-label { min-width: 0; overflow-wrap: anywhere; }
+
+/* A state chip (T-91): one component wherever a state shows. A soft fill in its tone, not an outline; its
+   words stay in the theme's text colour, so they keep their contrast on every fill, and its icon carries the
+   tone. Done work is quiet: a fainter fill and muted words. */
+.state-chip { display: inline-flex; align-items: center; gap: var(--space-1); padding: 0 var(--space-2); border-radius: var(--radius-full); font-size: var(--text-meta); font-weight: 600; line-height: 1.7; letter-spacing: var(--track-meta); white-space: nowrap; color: var(--vscode-foreground); background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent); }
+.state-chip .codicon { font-size: 13px; }
+.state-chip.tone-blue { color: var(--vscode-foreground); background: color-mix(in srgb, var(--blue) 20%, transparent); }
+.state-chip.tone-orange { color: var(--vscode-foreground); background: color-mix(in srgb, var(--orange) 22%, transparent); }
+.state-chip.tone-neutral .codicon { color: var(--vscode-descriptionForeground); }
+.state-chip.quiet { font-weight: 500; color: var(--vscode-descriptionForeground); background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent); }
 
 /* Long text shows its first lines; Show all opens the rest. */
 .clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines, 4); overflow: hidden; }
@@ -240,6 +271,8 @@ a.ext:hover { text-decoration: underline; }
 
 .acting { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82em; font-weight: 400; color: var(--vscode-descriptionForeground); }
 .composer-bar .acting { font-size: inherit; }
+/* Who comments, and how to post: two parts with a gap, wrapping as a pair when the bar is narrow (T-91). */
+.composer-hint { display: inline-flex; align-items: center; flex-wrap: wrap; column-gap: var(--space-4); row-gap: var(--space-1); min-width: 0; }
 
 /* ---------------------------------------------------------------- the Command Center page (D-029) */
 body[data-view="home"] { padding: 0; height: 100vh; overflow: hidden; }

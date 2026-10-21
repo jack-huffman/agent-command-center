@@ -6,7 +6,7 @@ import { boardKeys, liveLine } from './board-nav.ts';
 import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
 import { shows } from './person-filter.ts';
 import { personFilter } from './person-menu.ts';
-import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, status, titled, toolbarButton } from './dom.ts';
+import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChip, peekable, plural, stateChip, status, titled, toolbarButton } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
 export function renderTasks(m: TasksModel): Node[] {
@@ -53,7 +53,8 @@ export function renderTasks(m: TasksModel): Node[] {
     const moveTask = (task: string, to: string): void => api.postMessage({ type: 'move-task', project: p.root, task, to });
     for (const c of p.columns) {
       const cards = c.cards.filter(showing);
-      const col = el('section', `column tone-edge-${c.tone}`, el('h2', '', icon(c.icon, c.tone), c.label, el('span', 'count', String(cards.length))));
+      // Its heading is its state chip (T-91), as a tracker board's columns are.
+      const col = el('section', `column tone-edge-${c.tone}`, el('h2', 'column-head', stateChip(c), el('span', 'count', String(cards.length))));
       col.setAttribute('aria-label', `${c.label}: ${plural(cards.length, 'task')}`);
       col.dataset.group = c.group;
       if (!cards.length) col.append(el('p', 'muted drop-hint', 'Nothing here'));
@@ -141,16 +142,26 @@ const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'gith
 export const KIND_ICON: Record<string, string> = { github: 'github', jira: 'issues', azure: 'azure-devops', monday: 'table', slack: 'comment-discussion', acc: 'checklist' };
 export const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps', monday: 'monday.com', slack: 'Slack' };
 
-function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement {
+/** How many labels, and how many people, a tracker's card shows (T-91). */
+const CARD_MOST = 3;
+
+export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement {
   const kind = el('span', 'tcard-type', icon(c.typeIcon));
   kind.title = c.type ?? 'Issue';
   const prio = c.priorityIcon ? el('span', 'tcard-prio', icon(c.priorityIcon)) : null;
   if (prio) prio.title = `Priority: ${c.priority}`;
+  // Up to three labels (T-91), each named whole in its title, as a narrow card cuts it short; the rest are "+2", named in its title.
+  const rest = c.labels.slice(CARD_MOST);
+  const more = rest.length ? titled(el('span', 'label label-more', `+${rest.length}`), rest.map((l) => l.name).join(', ')) : null;
+  const people = c.assignees.length ? el('span', 'tcard-people', ...c.assignees.slice(0, CARD_MOST).map(avatar)) : null;
+  // The card (T-91): its kind and key, then the people who have it and its priority at the right; its title, up to
+  // three lines, whole in its title; then its labels, with their +N, on a row of their own so the +N never wraps
+  // away from them. A field its tracker doesn't give leaves its place out.
   const card = el('article', `card tcard${c.acc?.needsYou ? ' attention' : ''}`,
-    el('div', 'tcard-top', kind, el('span', 'tcard-key', c.key), prio, el('span', 'spacer'), ...c.assignees.slice(0, 3).map(avatar)),
-    titled(el('div', 'card-title', c.title), c.fullTitle),
-    c.labels.length ? el('div', 'labels', ...c.labels.slice(0, 4).map(labelChip)) : null,
-    c.acc ? el('div', 'tcard-acc', status(c.acc.look), el('span', 'spacer'), c.acc.action ? nextStep(c.acc.action) : null) : null,
+    el('div', 'tcard-top', kind, el('span', 'tcard-key', c.key), el('span', 'spacer'), people, prio),
+    titled(el('div', 'card-title tcard-title', c.title), c.fullTitle ?? c.title),
+    c.labels.length ? el('div', 'tcard-foot', el('span', 'labels', ...c.labels.slice(0, CARD_MOST).map((l) => titled(labelChip(l), l.name)), more)) : null,
+    c.acc ? el('div', 'tcard-acc', stateChip(c.acc.look), el('span', 'spacer'), c.acc.action ? nextStep(c.acc.action) : null) : null,
     c.acc?.conflicts ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', c.acc.conflicts)) : null,
     c.acc?.failedChecks ? el('div', 'card-note conflict tcard-conflict', icon('github-action'), el('span', '', c.acc.failedChecks)) : null,
     c.track ? el('div', 'tcard-acc', el('span', 'spacer'), trackButton(root, b, c.key, c.track.busy)) : null,
@@ -289,8 +300,9 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   // A drop and Enter on a held card (T-54) send the same move.
   const moveCard = (key: string, to: string): void => api.postMessage({ type: 'move', project: root, tracker: b.index, key, to });
   for (const c of b.columns) {
+    // Its heading is its state chip (T-91), the same as a card's and the ticket page's, with its count.
     const cards = c.cards.filter(showing);
-    const col = el('section', `column tone-edge-${c.tone}${c.done ? ' done-col' : ''}`, el('h2', '', icon(c.icon, c.tone), c.name, el('span', 'count', String(cards.length))));
+    const col = el('section', `column tone-edge-${c.tone}${c.done ? ' done-col' : ''}`, el('h2', 'column-head', stateChip({ label: c.name, icon: c.icon, tone: c.tone, quiet: c.quiet }), el('span', 'count', String(cards.length))));
     col.setAttribute('aria-label', `${c.name}: ${plural(cards.length, 'ticket')}`);
     col.dataset.col = c.id;
     for (const card of cards) col.append(trackerCard(root, b, card));

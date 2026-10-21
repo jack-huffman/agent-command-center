@@ -36,11 +36,11 @@ const board = (): BoardInput => ({
 test('a tracker board keeps the tracker\'s columns, places cards by status, and shows acc\'s side where it has a task', () => {
   const rows = [row('ACME-1', 'todo', 'ready'), row('ACME-3', 'running', 'needs-you', { run: { bgId: 'bg3' }, agent: { label: 'Needs you: permission prompt', icon: 'bell-dot', tone: 'orange' } })];
   const b = trackerBoard(board(), rows, '/r');
-  assert.deepEqual(b.columns.map((c) => [c.name, c.icon, c.tone, c.done, c.cards.map((x) => x.key)]), [['To Do', 'circle-outline', 'neutral', false, ['ACME-1', 'ACME-2']], ['Doing', 'sync', 'blue', false, ['ACME-3']], ['Done', 'check', 'neutral', true, ['ACME-4']]]);
+  assert.deepEqual(b.columns.map((c) => [c.name, c.icon, c.tone, c.done, c.cards.map((x) => x.key)]), [['To Do', 'circle-outline', 'neutral', false, ['ACME-1', 'ACME-2']], ['Doing', 'play-circle', 'blue', false, ['ACME-3']], ['Done', 'check', 'neutral', true, ['ACME-4']]]);
   const [ready, untracked] = b.columns[0]!.cards;
   assert.equal(ready!.acc!.look.label, 'Ready');
   assert.equal(ready!.acc!.action!.command, 'acc.task.dispatch', 'a ready ticket offers Dispatch right on its card');
-  assert.deepEqual(ready!.assignees, [{ name: 'Pat Lee', initials: 'PL' }]);
+  assert.deepEqual(ready!.assignees, [{ name: 'Pat Lee', initials: 'PL', key: 'Pat Lee', email: null }], 'with no id, the name is the key its tint comes from');
   assert.equal(untracked!.acc, null, 'a ticket acc doesn\'t keep has no agent badge');
   const waiting = b.columns[1]!.cards[0]!;
   assert.deepEqual([waiting.acc!.needsYou, waiting.acc!.look.label, waiting.acc!.action!.command], [true, 'Needs you: permission prompt', 'acc.task.openInClaude'], 'waiting in its own terminal: open its conversation in Claude Code');
@@ -85,8 +85,12 @@ test('icons for types and priorities, and initials for people', () => {
   // T-90: the icon reads the kind, not words in the type's name, so a type called "Debug tooling" isn't a bug.
   assert.deepEqual((['bug', 'story', 'task', 'subtask', 'feature', 'epic', 'test', 'issue', 'other', null] as const).map(typeIcon), ['bug', 'bookmark', 'tasklist', 'list-tree', 'lightbulb', 'zap', 'beaker', 'issues', 'issues', 'issues']);
   // Edge case: Medium has an icon now; no level (no priority, or a name the tracker can't place) has none.
-  assert.deepEqual(([1, 2, 3, 4, 5, null] as const).map(priorityIcon), ['chevron-up', 'arrow-up', 'dash', 'arrow-down', 'chevron-down', null]);
+  assert.deepEqual(([1, 2, 3, 4, 5, null] as const).map(priorityIcon), ['arrow-circle-up', 'arrow-up', 'dash', 'arrow-down', 'arrow-circle-down', null]);
+  // T-91: no two levels share a glyph, so Highest and High can be told apart at a glance: the ends are circled.
+  assert.equal(new Set(([1, 2, 3, 4, 5] as const).map(priorityIcon)).size, 5, 'five levels, five icons');
   assert.deepEqual(['Pat Lee', 'jordan.kim', 'ghost', 'Ana María de la Cruz', ''].map(initials), ['PL', 'JK', 'G', 'AM', '?']);
+  // Edge case (T-91): an email-shaped name loses its domain, so jordan@acme.example is J, not JA, and pat.lee@… is PL.
+  assert.deepEqual(['jordan@acme.example', 'pat.lee@acme.example', '@acme.example'].map(initials), ['J', 'PL', '?']);
 });
 
 const ticket: Ticket = {
@@ -120,12 +124,12 @@ test('a tracker with no fields: the page model shows no status, assignee or labe
   assert.deepEqual([slack.sourceKind, slack.sourceLabel, slack.lacks[0]!.line], ['slack', 'Slack · acme', 'Slack · acme has no statuses.']);
 });
 
-test('the task page draws a muted line, not a control, for each field a tracker lacks (T-28)', () => {
+test('the task page leaves out each field a tracker lacks, with no line in its place (T-28, T-91)', () => {
   const src = pageSource('task-page.ts');
-  assert.ok(src.includes("lack('status') ? el('span', 'muted', lack('status')!.line)"));
-  assert.ok(src.includes("lack('assignee') ? el('span', 'muted', lack('assignee')!.line)"));
-  assert.ok(src.includes("lack('labels') ? el('span', 'muted', lack('labels')!.line)"));
-  assert.ok(src.includes("m.status && !lack('status')"), 'the status button in the head goes too');
+  assert.ok(src.includes("m.status && !lack('status')"), 'the state chip in the head goes');
+  assert.ok(src.includes("lack('assignee') || (!m.assignees.length && !m.can.assign) ? []"), 'and the Assignee row');
+  assert.ok(src.includes("lack('labels') || (!m.labels.length && !m.can.labels) ? []"), 'and the Labels row');
+  assert.ok(!src.includes('!.line'), 'no lack line is drawn');
 });
 
 test('Track reads the ticket again and imports its title, description and labels; outside the place it\'s refused before acc runs (D-074)', async () => {
@@ -246,7 +250,7 @@ test('a ticket page: the tracker\'s ticket takes comments, and its fields change
     assert.equal(ticketActionRefusal(action, true), null, action);
   }
   assert.equal(ticketActionRefusal('comment', false), null, 'comments stay');
-  assert.deepEqual([tracked.status, tracked.sourceKind, tracked.trackable], [{ name: 'In Progress', icon: 'sync', tone: 'blue' }, 'jira', false]);
+  assert.deepEqual([tracked.status, tracked.sourceKind, tracked.trackable], [{ name: 'In Progress', icon: 'play-circle', tone: 'blue' }, 'jira', false]);
   assert.equal(tracked.acc!.history[0]!.to, 'running', 'newest history first');
   assert.ok(!tracked.acc!.actions.some((a) => a.command === 'acc.task.show'), 'no Details button on the details page');
   assert.equal(ticketModel({ ...base, ticket, row: null, task: null }).trackable, true);

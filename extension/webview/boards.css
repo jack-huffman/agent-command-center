@@ -79,7 +79,39 @@
 .tcard-type, .tcard-prio { display: inline-flex; }
 .tcard-key { font-family: var(--vscode-editor-font-family); font-size: 0.95em; color: var(--vscode-descriptionForeground); }
 .openable.tcard-key { color: var(--vscode-textLink-foreground); cursor: pointer; }
-.tcard .card-title { margin: 5px 0 6px; }
+.tcard .card-title { margin: var(--space-1) 0 var(--space-2); }
+/* A card's title shows up to three lines (T-91); its whole title is in its title. */
+.tcard-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; line-height: 1.35; }
+/* Its labels and their +N have a row of their own; the people who have it sit in its top row, before its priority,
+   their avatars a little over each other. */
+.tcard-foot { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.tcard-foot > .labels { flex: 1; }
+/* The labels' row never wraps (T-91): a narrow card cuts its names short, each whole in its title, and +N keeps its place. */
+.tcard-foot .labels { flex-wrap: nowrap; }
+.tcard-foot .label { flex: 0 1 auto; }
+.tcard-foot .label-more { flex: none; }
+.tcard-foot .label-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tcard-people { display: inline-flex; align-items: center; flex: none; }
+.tcard-people .avatar { box-shadow: 0 0 0 2px var(--raised); }
+.tcard-people .avatar + .avatar { margin-left: -0.3rem; }
+.label-more { font-weight: 600; }
+/* A card answers a press at once (T-91): it shrinks a little, lifts under the pointer, and shows focus clearly. */
+.tcard { transition: transform var(--press-time) ease-out, box-shadow var(--press-time) ease-out, border-color 0.12s; }
+.tcard:hover { transform: translateY(-1px); }
+.tcard:active { transform: scale(var(--press-scale)); }
+.tcard:focus-visible { outline: 2px solid var(--vscode-focusBorder); outline-offset: 1px; }
+/* A done card is quieter: flat in its lane, its title in a regular weight, its tints faded. Its words keep their contrast. */
+.column.done-col .tcard .card-title { font-weight: 400; }
+.column.done-col .tcard :is(.label, .avatar, .state-chip) { filter: saturate(0.35); }
+/* Under reduced motion a card neither moves nor shrinks: only its edge colour changes. */
+@media (prefers-reduced-motion: reduce) {
+  .tcard, .tcard:hover, .tcard:active { transform: none; transition: border-color 0.12s; }
+}
+/* Its Track is one size on every card, whether it says Track or Tracking… (T-91). */
+.tcard-track { min-width: 7.5rem; justify-content: center; }
+/* A column's heading is its state chip and its count (T-91). */
+.card .state-chip { white-space: normal; align-items: flex-start; overflow-wrap: anywhere; border-radius: var(--radius-m); padding: 0.125rem var(--space-2); }
+.card .state-chip .codicon { margin-top: 0.15rem; }
 .tcard-acc { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 0.92em; }
 /* Its one next step goes full width, on a row of its own under its state (D-168). */
 .tcard-acc > .ta-btn { flex: 1 0 100%; margin-top: 2px; }
@@ -89,9 +121,11 @@
 .card .openable.card-title { cursor: pointer; }
 .card .openable.card-title:hover { color: var(--vscode-textLink-foreground); }
 
-.labels { display: flex; gap: 4px; flex-wrap: wrap; }
-.label { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border-radius: 10px; font-size: 0.85em; line-height: 1.6; border: 1px solid var(--line); color: var(--vscode-foreground); }
-.label-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.labels { display: flex; gap: var(--space-1); flex-wrap: wrap; min-width: 0; }
+/* A label is a tinted chip (T-91): a soft fill and edge mixed from its tint, a dot of the tint itself, and its
+   name in the theme's text colour, which keeps its contrast on every fill. */
+.label { display: inline-flex; align-items: center; gap: var(--space-1); padding: 0 var(--space-2); border-radius: var(--radius-full); font-size: var(--text-meta); line-height: 1.6; letter-spacing: var(--track-meta); color: var(--vscode-foreground); background: color-mix(in srgb, var(--tint-colour, var(--vscode-foreground)) 14%, transparent); border: 1px solid color-mix(in srgb, var(--tint-colour, var(--vscode-foreground)) 34%, transparent); min-width: 0; overflow-wrap: anywhere; }
+.label-dot { width: 0.4rem; height: 0.4rem; border-radius: 50%; flex: none; background: var(--tint-colour, var(--vscode-descriptionForeground)); }
 
 /* A card's actions, intentionally (D-062): one next step in its footer, the rest behind ⋯ in its corner. The
    next step is full width, on a row of its own under where it lives (D-168, task-actions.css). */
