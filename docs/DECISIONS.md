@@ -7821,8 +7821,11 @@ message.
   others are optional, and listing them there would widen the rework beyond
   what the review asked. A passed review lists all its findings, because a
   person who sends it back chose to act on them, and may mean any of them.
-- **Checked** by one test in `packages/core/test/dispatch.test.ts`: a passed
+- **Checked** by two tests. One in `packages/core/test/dispatch.test.ts`: a passed
   review's findings with their files and lines and the reason first; none for
   an older commit, no review or an unknown commit; and a review that asked for
-  changes listing a finding once.
+  changes listing a finding once. One in `packages/core/test/dispatch-run.test.ts`,
+  on a real git repo: the written packet lists the findings while the review is
+  of the branch head, and leaves them out after a newer commit. It fails if
+  dispatch reads the head only for checks or queue reworks.
 - Not chosen: listing the non-must findings in "What the review asked for".

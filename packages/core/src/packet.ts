@@ -77,7 +77,7 @@ function depsSection(deps: PacketInput['deps']): string[] {
   ];
 }
 
-const where = (f: { file?: string; line?: number }) => (f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : '');
+const findingAt = (f: { file?: string; line?: number }) => (f.file ? `\`${f.file}${f.line ? `:${f.line}` : ''}\`: ` : '');
 
 /** On a rework: what the review asked for, so the next run fixes that and leaves the rest. */
 function reviewSection(v: Verdict | null | undefined): string[] {
@@ -89,7 +89,7 @@ function reviewSection(v: Verdict | null | undefined): string[] {
     '',
     `This is a rework. The reviewer looked at ${v.sha.slice(0, 7)} and asked for changes: ${v.summary}`,
     '',
-    ...must.map((f) => `- ${where(f)}${f.message}${f.rule ? ` (rule: ${f.rule})` : ''}`),
+    ...must.map((f) => `- ${findingAt(f)}${f.message}${f.rule ? ` (rule: ${f.rule})` : ''}`),
     ...unmet.map((c) => `- Not met yet: ${c.text}. ${c.evidence}`),
     ...(must.length || unmet.length ? [''] : []),
     'Fix these, and keep the rest of the change as it is. Then finish as below.',
@@ -107,7 +107,7 @@ function passedFindings(v: Verdict | null | undefined, head: string | undefined)
   return [
     `The review of ${v.sha.slice(0, 7)} passed, and listed these findings:`,
     '',
-    ...v.findings.map((f) => `- ${f.must ? '**Must fix:** ' : ''}${where(f)}${f.message}${f.rule ? ` (rule: ${f.rule})` : ''}`),
+    ...v.findings.map((f) => `- ${f.must ? '**Must fix:** ' : ''}${findingAt(f)}${f.message}${f.rule ? ` (rule: ${f.rule})` : ''}`),
     '',
   ];
 }
