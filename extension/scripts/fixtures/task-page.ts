@@ -1,5 +1,6 @@
 /** A ticket's page: being built, to do with its analysis, stopped, sent back, being tracked, and waiting. */
 import type { Task } from '../../../packages/core/src/ledger.ts';
+import { UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
 import { type AdfNode, fromAdf } from '../../../packages/core/src/trackers/doc.ts';
 import type { Ticket } from '../../../packages/core/src/trackers/types.ts';
 import { ticketModel, type TicketModel } from '../../src/model/task-page.ts';
@@ -216,7 +217,7 @@ function sampleChecksTicket(now: number): TicketModel {
  */
 function sampleMissingTicket(now: number): TicketModel {
   const hubRow = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-48')!;
-  const row = { ...hubRow, unseen: 'missing' as const };
+  const row = { ...hubRow, unseen: 'missing' as const, agent: { label: UNSEEN_WORDS.missing.label, icon: 'eye-closed', tone: 'orange' as const } };
   const ticket: Ticket = {
     key: 'ACME-48', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-48', title: row.title, type: 'Story', typeKind: 'story',
     status: DOING, assignees: [{ id: 'a2', name: 'Pat Lee' }], reporter: { id: 'a1', name: 'Jordan Kim' }, labels: [{ name: 'service', color: null }, { name: 'audit', color: null }], priority: 'Medium', priorityLevel: 3,
