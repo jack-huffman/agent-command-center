@@ -8163,7 +8163,9 @@ needs a task in review with acc's worktree.
   verify clear <id>` removes the worktree, the stored results and the choice;
   the QA comment's draft stays. Each takes `--json`. A builder, reviewer or
   analyst can't verify or clear. `acc verify` and `acc sync` clear the
-  verification of a task that left the ledger (`pruneVerifications`).
+  verification of a task that left the ledger (`pruneVerifications`). An id
+  longer than 100 characters isn't a task id (`fileId`, `TASK_ID_MAX`), so
+  a junk one is refused before a path is built from it.
 - **The task page.** Each task's page has a "Verify the developer's work"
   section (`ticketVerify`, `extension/src/model/verify.ts`): the pull request
   found, or the choice with Verify this one for each, each check with its icon
@@ -8186,5 +8188,10 @@ needs a task in review with acc's worktree.
   choice, Open the QA comment, the logic's calls to acc, and the messages.
   That is 38 tests. The screenshot run adds three pages over ACME-21's tab: a
   passed verification, one that needs changes, and the pull-request choice.
+- **Near tests.** The new `extension/src/verify.ts` left `extension.ts`
+  gathering under half of its folder, so near-tests stopped guessing it as the
+  folder's index. `gates.nearIndexes` now names `extension/src/extension.ts`
+  and `extension/src/areas.ts`, so a change there still runs `activate.test.ts`
+  and the area tests.
 - Not chosen: Bitbucket and Azure DevOps pull requests; posting the comment
   or moving the ticket's status; and a manual test checklist.

@@ -133,12 +133,18 @@ export const ANALYSIS_SCHEMA = {
   },
 } as const;
 
+/** The longest task id a file is named for, as the Command Center's messages take it. */
+export const TASK_ID_MAX = 100;
+
 /**
- * A task id as a file name under .git/acc/analyses, or .git/acc/criteria (T-81). An id that could leave
- * that folder, such as ../../X, is refused before any path is built from it (GH-106).
+ * A task id as a file name under .git/acc/analyses, .git/acc/criteria (T-81) or .git/acc/verifications
+ * (T-84). An id that could leave that folder, such as ../../X, or one too long for a file name, is refused
+ * before any path is built from it (GH-106).
  */
 export function fileId(task: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(task) || task.includes('..')) throw new AccError('usage', `${task} isn't a task id.`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(task) || task.includes('..') || task.length > TASK_ID_MAX) {
+    throw new AccError('usage', `${task.length > TASK_ID_MAX ? `${task.slice(0, 40)}…` : task} isn't a task id.`);
+  }
   return task;
 }
 
