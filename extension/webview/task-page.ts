@@ -9,10 +9,11 @@ import { renderVerify } from './verify.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
 import { dayName } from './days.ts';
-import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, labelChip, linkTo, md, openable, person, renderDoc, stateChip, status, when, work } from './dom.ts';
+import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, labelChips, linkTo, md, openable, person, renderDoc, stateChip, status, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { updateDraft } from './updates.ts';
+import { upper } from './upper.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -52,8 +53,9 @@ function descEdit(a: Action): HTMLElement {
   return b;
 }
 
-function field(name: string, ...value: Child[]): HTMLElement[] {
-  return [el('dt', '', name), el('dd', '', ...value)];
+/** A row of a list of fields: its name, with an icon before it where one is given, as Details has (T-91), then its value. */
+function field(name: string | { icon: string; name: string }, ...value: Child[]): HTMLElement[] {
+  return [typeof name === 'string' ? el('dt', '', name) : el('dt', '', icon(name.icon), name.name), el('dd', '', ...value)];
 }
 
 function composer(m: TicketModel): HTMLElement {
@@ -89,14 +91,6 @@ function fact(iconName: string | null, text: string, what: string): HTMLElement 
   return Object.assign(el('span', 'ticket-fact', iconName ? icon(iconName) : null, text), { title: `${what}: ${text}` });
 }
 
-/** A row of Details (T-91): its icon and name, then its value. */
-function detail(iconName: string, name: string, ...value: Child[]): HTMLElement[] {
-  return [el('dt', '', icon(iconName), name), el('dd', '', ...value)];
-}
-
-/** A relation's name as a heading over its rows: "parent" reads Parent. */
-const relationName = (r: string): string => r.charAt(0).toUpperCase() + r.slice(1);
-
 /**
  * The ticket's related items (T-91), grouped by how they relate: each row its kind's icon, its key, its title
  * and its state chip, where its tracker says. A tracker's key opens that ticket's page in place.
@@ -106,7 +100,7 @@ function renderRelated(m: TicketModel): HTMLElement {
   for (const r of m.related) groups.set(r.relation, [...(groups.get(r.relation) ?? []), r]);
   const section = el('section', 'block related-block', el('h2', '', 'Related'));
   for (const [relation, rows] of groups) {
-    section.append(el('h3', 'related-group', relationName(relation)), el('ul', 'related', ...rows.map((r) => {
+    section.append(el('h3', 'related-group', upper(relation)), el('ul', 'related', ...rows.map((r) => {
       const name = /^[A-Z][A-Z0-9_]*-\d+$/i.test(r.key) ? openable(el('span', 'tcard-key', r.key), { type: 'ticket', project: m.project, tracker: m.tracker, key: r.key }) : el('span', 'tcard-key', r.key);
       const title = r.title ? Object.assign(el('span', 'related-title', r.title), { title: r.title }) : el('span', 'related-title');
       return el('li', 'related-row', el('span', 'related-type', r.typeIcon ? icon(r.typeIcon) : null), name, title, r.status ? stateChip({ label: r.status.name, icon: r.status.icon, tone: r.status.tone, quiet: r.status.quiet }) : null);
@@ -200,22 +194,23 @@ export function renderTicket(m: TicketModel): Node[] {
   // something for (T-91); a row with nothing in it stays only to hold its Change or Add.
   const people = (list: PersonChip[]) => el('span', 'people', ...list.map(person));
   const details = [
-    ...(lack('assignee') || (!m.assignees.length && !m.can.assign) ? [] : detail('account', m.assignees.length > 1 ? 'Assignees' : 'Assignee', m.assignees.length ? people(m.assignees) : null, m.can.assign ? editButton(m.assignees.length ? 'Change' : 'Assign', 'assign') : null)),
-    ...(m.reporter ? detail('person', 'Reporter', person(m.reporter)) : []),
-    ...(lack('labels') || (!m.labels.length && !m.can.labels) ? [] : detail('tag', 'Labels', m.labels.length ? el('span', 'labels', ...m.labels.map(labelChip)) : null, m.can.labels ? editButton(m.labels.length ? 'Edit' : 'Add', 'labels') : null)),
-    ...(m.created ? detail('calendar', 'Created', when(m.created)) : []),
-    ...(m.updated ? detail('history', 'Updated', when(m.updated)) : []),
+    ...(lack('assignee') || (!m.assignees.length && !m.can.assign) ? [] : field({ icon: 'account', name: m.assignees.length > 1 ? 'Assignees' : 'Assignee' }, m.assignees.length ? people(m.assignees) : null, m.can.assign ? editButton(m.assignees.length ? 'Change' : 'Assign', 'assign') : null)),
+    ...(m.reporter ? field({ icon: 'person', name: 'Reporter' }, person(m.reporter)) : []),
+    ...(lack('labels') || (!m.labels.length && !m.can.labels) ? [] : field({ icon: 'tag', name: 'Labels' }, m.labels.length ? el('span', 'labels', ...labelChips(m.labels)) : null, m.can.labels ? editButton(m.labels.length ? 'Edit' : 'Add', 'labels') : null)),
+    ...(m.created ? field({ icon: 'calendar', name: 'Created' }, when(m.created)) : []),
+    ...(m.updated ? field({ icon: 'history', name: 'Updated' }, when(m.updated)) : []),
   ];
   const side = el('aside', 'ticket-side', details.length ? el('section', 'side-details', el('h2', '', 'Details'), el('dl', 'fields details-list', ...details)) : null);
   if (m.acc) {
     const a = m.acc;
     side.append(el('section', `side-panel side-agent${a.look.tone === 'orange' ? ' attention' : ''}`, el('h2', '', icon('hubot'), 'Agent'),
       el('dl', 'fields',
-        ...field('State', status(a.look)),
+        // Its state as the one state chip, its icon and its label, as every board and ticket draws one (T-94).
+        ...field('State', stateChip(a.look)),
         ...field('Environment', el('span', 'mono', a.environment)),
         ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
 
-        ...(a.agent && a.agent.label !== a.look.label ? field('Session', status(a.agent)) : []),
+        ...(a.agent && a.agent.label !== a.look.label ? field('Session', stateChip(a.agent)) : []),
         // Its effort beside it, when it isn't the model's default (D-128).
         ...(a.agent && a.model ? field('Model', el('span', '', el('span', 'mono', a.model), a.effort ? el('span', 'muted', ` · ${a.effort} effort`) : null)) : []),
         // What its builder is called, in Claude Code and the Command Center alike (D-087).

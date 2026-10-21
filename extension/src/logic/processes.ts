@@ -14,6 +14,7 @@
  */
 
 import { escapeRegExp, inConfigWords } from './config-words.ts';
+import { upper } from '../../webview/upper.ts';
 
 export interface Process {
   /** acc's commands this process is, as the CLI names them: a command, or a command and its subcommand. */
@@ -155,7 +156,6 @@ export function fileName(path: string): string {
   return f.name;
 }
 
-const upper = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 const lower = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1);
 
 /** acc's commands, longest first, so "gate run" is found before "gate". */
