@@ -73,6 +73,8 @@ export const READ_IN: Partial<Record<ConfigPath, ReadPlace[]>> = {
   'trackers[].account': TRACKER_CLIENTS,
   'trackers[].workspace': TRACKER_CLIENTS,
   'trackers[].channel': TRACKER_CLIENTS,
+  'trackers[].reaction': TRACKER_CLIENTS,
+  'trackers[].doneReaction': TRACKER_CLIENTS,
   'trackers[].team': TRACKER_CLIENTS,
   'trackers[].board': TRACKER_CLIENTS,
   'trackers[].statusColumn': TRACKER_CLIENTS,

@@ -104,11 +104,16 @@ export interface BoardCard {
   priority: string | null;
   /** GitHub Projects' id for the card itself, which is what a move changes. */
   itemId?: string;
+  /** The whole title, where `title` is cut short, as a Slack message's long first line is (T-85). */
+  fullTitle?: string;
 }
 
 export interface Board {
-  /** What the columns come from: a Jira board, a GitHub Project, GitHub's open and closed, or a monday.com board's status column. */
-  source: 'jira-board' | 'github-project' | 'github-state' | 'azure-board' | 'monday-board';
+  /**
+   * What the columns come from: a Jira board, a GitHub Project, GitHub's open and closed, a monday.com board's
+   * status column, or a Slack channel's messages marked with a reaction, Open and Done (T-85).
+   */
+  source: 'jira-board' | 'github-project' | 'github-state' | 'azure-board' | 'monday-board' | 'slack';
   title: string;
   url: string | null;
   columns: BoardColumn[];

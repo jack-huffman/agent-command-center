@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { AccError } from './exec.ts';
 import { writeAtomic } from './atomic.ts';
-import { SLACK_CHANNEL, SLACK_PREFIX, SLACK_WORKSPACE } from './trackers/slack.ts';
+import { SLACK_CHANNEL, SLACK_PREFIX, SLACK_REACTION, SLACK_WORKSPACE } from './trackers/slack.ts';
 import { isTrackerKind, orList, TRACKER_KINDS, type TrackerKind } from './trackers/types.ts';
 
 export const PROFILES = ['generic', 'salesforce'] as const;
@@ -97,6 +97,13 @@ export interface Tracker {
   workspace: string | null;
   /** Slack: the channel's id, such as C0123ABCD. Its threads are the tracker's tickets. */
   channel: string | null;
+  /**
+   * Slack: the reaction, by its name without colons (ticket), that marks a message for the board (T-85). Unset,
+   * the board is off and a thread is tracked by its link only.
+   */
+  reaction: string | null;
+  /** Slack: the reaction, such as white_check_mark, that puts a marked message in the board's Done column. */
+  doneReaction: string | null;
   /** Azure DevOps: the team whose board to show. By default, the project's default team. */
   team: string | null;
   /**
@@ -262,7 +269,7 @@ export const CONFIG_KEYS = [
   'environments[].name', 'environments[].branch', 'environments[].type', 'environments[].org', 'environments[].default',
   'environments[].protected', 'environments[].promotesTo', 'environmentSpecific', 'knownDrift',
   'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
-  'trackers[].workspace', 'trackers[].channel', 'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
+  'trackers[].workspace', 'trackers[].channel', 'trackers[].reaction', 'trackers[].doneReaction', 'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
   'trackers[].epic', 'trackers[].sprint', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'trackers[].statusFor',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
@@ -430,6 +437,17 @@ export function parseConfig(raw: unknown): ParseResult {
           errors.push(`trackers[${i}]: "channel" must be a Slack channel's id, such as C0123ABCD, not its name.`);
           return;
         }
+        // The board's reactions (T-85): each a reaction's name without colons, and the two different.
+        const badReaction = (['reaction', 'doneReaction'] as const).find((k) => t[k] !== undefined && t[k] !== null && !(isStr(t[k]) && SLACK_REACTION.test(t[k].trim())));
+        if (badReaction) {
+          errors.push(`trackers[${i}]: "${badReaction}" must be a Slack reaction's name without colons, such as ${badReaction === 'reaction' ? 'ticket' : 'white_check_mark'}.`);
+          return;
+        }
+        if (isStr(t.reaction) && isStr(t.doneReaction) && t.reaction.trim() === t.doneReaction.trim()) {
+          errors.push(`trackers[${i}]: "doneReaction" must be another reaction than "reaction", or every marked message would be done.`);
+          return;
+        }
+        if (isStr(t.doneReaction) && !isStr(t.reaction)) warnings.push(`trackers[${i}]: "doneReaction" needs "reaction" too, so it's ignored: without a reaction there is no board.`);
       }
       if (t.kind === 'azure' && (!isStr(t.organization) || !isStr(t.project))) {
         errors.push(`trackers[${i}]: an Azure DevOps tracker needs "organization" and "project".`);
@@ -459,6 +477,8 @@ export function parseConfig(raw: unknown): ParseResult {
         { key: 'statusColumn', kind: 'monday', on: 'a monday.com', ok: isStr(t.statusColumn), error: '"statusColumn" must be a monday.com status column\'s id, such as "status".' },
         { key: 'workspace', kind: 'slack', on: 'a Slack', ok: isStr(t.workspace), error: '"workspace" must be a Slack workspace\'s domain, as in acme.slack.com.' },
         { key: 'channel', kind: 'slack', on: 'a Slack', ok: isStr(t.channel), error: '"channel" must be a Slack channel\'s id, such as C0123ABCD.' },
+        { key: 'reaction', kind: 'slack', on: 'a Slack', ok: isStr(t.reaction), error: '"reaction" must be a Slack reaction\'s name, such as ticket.' },
+        { key: 'doneReaction', kind: 'slack', on: 'a Slack', ok: isStr(t.doneReaction), error: '"doneReaction" must be a Slack reaction\'s name, such as white_check_mark.' },
       ];
       const set = placeKeys.filter((p) => t[p.key] !== undefined && t[p.key] !== null);
       const bad = set.filter((p) => !p.ok);
@@ -506,6 +526,8 @@ export function parseConfig(raw: unknown): ParseResult {
         account: t.kind === 'monday' && isStr(t.account) ? t.account.trim().toLowerCase() : null,
         workspace: t.kind === 'slack' && isStr(t.workspace) ? t.workspace.trim().toLowerCase() : null,
         channel: t.kind === 'slack' && isStr(t.channel) ? t.channel.trim().toUpperCase() : null,
+        reaction: t.kind === 'slack' && isStr(t.reaction) ? t.reaction.trim() : null,
+        doneReaction: t.kind === 'slack' && isStr(t.reaction) && isStr(t.doneReaction) ? t.doneReaction.trim() : null,
         team: isStr(t.team) ? t.team : null,
         board: Number.isInteger(t.board) || isStr(t.board) ? (t.board as number | string) : null,
         statusColumn: t.kind === 'monday' && isStr(t.statusColumn) ? t.statusColumn.trim() : null,

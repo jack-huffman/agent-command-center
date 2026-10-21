@@ -209,7 +209,7 @@ test('a reply posts in the thread as the app, escaped so it mentions no channel 
 
 // ---------------------------------------------------------------- what a thread hasn't got
 
-test('a thread has no statuses, people to assign, labels or board: lists are empty and changes are refused', async () => {
+test('a thread has no statuses, people to assign or labels, and no board without a reaction: lists are empty and changes are refused', async () => {
   const { fetch: f, calls } = fakeSlack(threadRoutes([]));
   const c = client(f);
   assert.deepEqual(await c.transitions(), []);
@@ -219,7 +219,7 @@ test('a thread has no statuses, people to assign, labels or board: lists are emp
   await assert.rejects(c.transition(), refused(/no statuses/));
   await assert.rejects(c.assign(), refused(/no people to assign/));
   await assert.rejects(c.setLabels(), refused(/no labels/));
-  await assert.rejects(c.board(), refused(/Track a thread by its link/));
+  await assert.rejects(c.board(), refused(/names no reaction.*Choose a reaction with Change/));
   assert.equal(calls.length, 0, 'none of them asks Slack');
   assert.deepEqual(await c.me(), { id: 'U0BOT', name: 'acc-bot' });
   assert.equal(c.title, 'Slack · acme');
