@@ -234,6 +234,43 @@ test('in a cloud session, the guard allows a plain push of the recorded branch a
     ['git diff --ext-diff', /git diff --ext-diff runs a program of its own/],
     ['git bisect run sh evil.sh', /git bisect run runs a program of its own/],
     ['git submodule foreach sh -c "git push origin HEAD:main"', /git submodule foreach runs a program of its own/],
+    // the same options by any prefix git would take for them (T-88): --upl=sh is --upload-pack=sh to git fetch
+    ['git fetch --upl=sh .', /git fetch --upl \(short for --upload-pack\) runs a program of its own/],
+    ['git fetch --upload-p=sh origin', /git fetch --upload-p \(short for --upload-pack\) runs a program of its own/],
+    ['git fetch --upload-p sh origin', /short for --upload-pack/],
+    ['git ls-remote --upl=sh origin', /git ls-remote --upl \(short for --upload-pack\) runs a program of its own/],
+    ['git grep --open-files-in-p=sh x', /git grep --open-files-in-p \(short for --open-files-in-pager\) runs a program of its own/],
+    [`git push --receive-p=sh origin ${BRANCH}`, /git push --receive-p \(short for --receive-pack\) runs a program of its own/],
+    ['git archive --ex=sh --remote=. HEAD', /git archive --ex \(short for --exec\) runs a program of its own/],
+    ['git rebase --ex=sh main', /git rebase --ex \(short for --exec\) runs a program of its own/],
+    ['git difftool --extc=sh main', /git difftool --extc \(short for --extcmd\) runs a program of its own/],
+    ['git mergetool --to=sh', /git mergetool --to \(short for --tool\) runs a program of its own/],
+    ['git diff --ext-d', /git diff --ext-d \(short for --ext-diff\) runs a program of its own/],
+    // a remote or URL of the <transport>:: form (T-88): git runs git-remote-<transport>, and ext:: runs what follows the ::
+    ['git fetch "ext::sh -c \'git push --no-verify origin HEAD:main\'"', /git fetch ext:: runs a program of its own \(git-remote-ext, or what follows the ::\)/],
+    ['git fetch "ext::sh -c \'git push origin HEAD:main\'"', /git fetch ext:: runs a program of its own/],
+    ['git fetch "ext::sh -c \'echo hi\'" main', /git fetch ext:: runs a program of its own/],
+    ['git fetch " ext::sh -c \'echo hi\'" main', /git fetch ext:: runs a program of its own/],
+    ['git pull "ext::sh -c \'echo hi\'" main', /git pull ext:: runs a program of its own/],
+    ['git push "ext::sh -c \'echo hi\'" HEAD:main', /git push ext:: runs a program of its own/],
+    ['git ls-remote "ext::sh -c \'echo hi\'"', /git ls-remote ext:: runs a program of its own/],
+    ['git ls-remote fd::3', /git ls-remote fd:: runs a program of its own \(git-remote-fd/],
+    ['git archive --remote="ext::sh -c \'echo hi\'" HEAD', /git archive ext:: runs a program of its own/],
+    ['git archive --remote "ext::sh" HEAD', /git archive ext:: runs a program of its own/],
+    ['git clone "ext::sh -c \'echo hi\'" x', /git clone ext:: runs a program of its own/],
+    ['git remote add evil "ext::sh -c \'echo hi\'"', /git remote ext:: runs a program of its own/],
+    ['git remote set-url origin "ext::sh -c \'echo hi\'"', /git remote ext:: runs a program of its own/],
+    ['git fetch foo::bar', /git fetch foo:: runs a program of its own \(git-remote-foo/],
+    // bash's $'…' quoting (T-88): read as bash reads it, escapes and all, so the word is seen as git would see it
+    ["git fetch $'--upload-pack=sh' .", /git fetch --upload-pack runs a program of its own/],
+    ["git fetch $'\\x2d-upload-pack=sh' .", /git fetch --upload-pack runs a program of its own/],
+    ["git fetch $'\\055-upl=sh' .", /git fetch --upl \(short for --upload-pack\) runs a program of its own/],
+    ["git fetch $'ext::sh'", /git fetch ext:: runs a program of its own/],
+    ["$'git' push origin main", /never push main/],
+    ["git $'push' origin main", /never push main/],
+    ["git push origin $'main'", /never push main/],
+    ["git push $'--no-verify' origin main", /Never skip the repo's git hooks/],
+    ["$'\\x67it' push origin main", /never push main/],
     // shells: -c lines are guarded, script files and bare shells refused
     ['sh -c "git push origin main"', /never push main/],
     ['bash -lc "git push origin main"', /never push main/],
@@ -386,7 +423,8 @@ test('in a cloud session, the guard allows a plain push of the recorded branch a
   // names and the launchers go through here above all, since the hook reads the line whole.
   const through = new Set(['git push origin main', `git -C ../x push origin ${BRANCH}`, `timeout 10 git push origin ${BRANCH}`, 'sh -c "git push origin main"', 'gh api -X POST repos/o/r/pulls', 'git checkout main', `echo x > ${SETTINGS_PATH}`,
     "'g'it push --force origin main", 'g""it push origin main', 'g\\it push origin main', 'find . -maxdepth 0 -exec git push -f origin main \\;', 'echo "$(git push origin main)"', 'git checkout touches-guard -- .', 'git apply weak.patch',
-    'echo x > .git/hooks/pre-push', `GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/x git push origin ${BRANCH}`, `git push origin ${BRANCH} --no-verify`, 'echo x > g/hooks/pre-push', 'rm -rf .cl*']);
+    'echo x > .git/hooks/pre-push', `GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/x git push origin ${BRANCH}`, `git push origin ${BRANCH} --no-verify`, 'echo x > g/hooks/pre-push', 'rm -rf .cl*',
+    'git fetch --upl=sh .', "git fetch $'\\x2d-upload-pack=sh' .", 'git ls-remote fd::3']);
   const picked = refused.filter(([c]) => through.has(c));
   assert.equal(picked.length, through.size, 'each form picked for the hook is in the list');
   for (const [c, why] of picked) {
@@ -670,6 +708,28 @@ test('a reviewer (T-86) may push its verdict branch alone, from Bash runs git on
     ['git diff --ext-diff HEAD~1', /git diff --ext-diff runs a program of its own/],
     ['git log --ext-diff -p', /git log --ext-diff runs a program of its own/],
     [`git push --receive-pack=sh origin HEAD:${VERDICT}`, /git push --receive-pack runs a program of its own/],
+    // the same by any prefix git takes for a program option (T-88): off the fetch and grep allow-lists, and a program by name elsewhere
+    ['git fetch --upl=sh origin main', /fetches plainly.*Not --upl/],
+    ['git fetch --upload-p sh origin main', /fetches plainly.*Not --upload-p/],
+    ['git grep --open-files-in-p=sh x', /git grep takes the options that narrow a search.*not --open-files-in-p/],
+    ['git diff --ext-d HEAD~1', /git diff --ext-d \(short for --ext-diff\) runs a program of its own/],
+    ['git log --ext-d -p', /git log --ext-d \(short for --ext-diff\) runs a program of its own/],
+    [`git push --receive-p=sh origin HEAD:${VERDICT}`, /git push --receive-p \(short for --receive-pack\) runs a program of its own/],
+    // a remote or URL of the <transport>:: form (T-88): off origin for a fetch, and a program by name on a push
+    ['git fetch "ext::sh -c \'echo hi\'" main', /Fetch from origin alone/],
+    ['git fetch origin "ext::sh -c \'echo hi\'"', /Fetch a branch by its name/],
+    [`git push "ext::sh -c 'echo hi'" HEAD:${VERDICT}`, /git push ext:: runs a program of its own \(git-remote-ext/],
+    ['git ls-remote fd::3', /git ls-remote isn't a command a cloud reviewer runs/],
+    ['git archive --remote=ext::sh HEAD', /git archive isn't a command a cloud reviewer runs/],
+    ['git archive --ex=sh --remote=. HEAD', /git archive isn't a command a cloud reviewer runs/],
+    // bash's $'…' quoting (T-88): read as bash reads it, so the word is seen as git would see it
+    ["git fetch $'--upload-pack=sh' origin main", /fetches plainly.*Not --upload-pack/],
+    ["git fetch $'\\x2d-upload-pack=sh' origin main", /fetches plainly.*Not --upload-pack/],
+    ["git fetch $'\\055-upl=sh' origin main", /fetches plainly.*Not --upl/],
+    [`git push $'--receive-pack=sh' origin HEAD:${VERDICT}`, /git push --receive-pack runs a program of its own/],
+    ["$'npm' test", /npm isn't a command a cloud reviewer runs/],
+    [`git $'push' origin HEAD:${BRANCH}`, /Push only your verdict branch/],
+    ["git push origin $'HEAD:main'", /Push only your verdict branch/],
     // an option before git's command sets what git runs, or as whom
     ['git -c core.pager=sh log', /Run git with no option before its command \(not -c\)/],
     ['git -c user.name=x log', /Run git with no option before its command \(not -c\)/],
@@ -859,9 +919,11 @@ test('the guard\'s command splitter and acc\'s hooks.ts commandsOf give the same
     'git commit -m \'it\'"\'"\'s\'', 'FOO="a b" git status', 'nice -5 git push', 'nice git push', 'acc done --landed "a; b" --open none',
     'echo "$(git push origin main)"', 'echo "`git push origin main`"', 'echo \'$(git push origin main)\'', 'echo "a $(b) c"', 'git push origin "x$(echo :main)"', 'x `y` z', 'echo $(a', '(a; b) c', 'echo "x $(y "z $(w)") v"', 'echo ""', HEREDOC_COMMIT,
     'cat <<EOF\ngit push origin main\nEOF\necho after', 'cat << \'EOF\'\n\tx\nEOF', 'cat <<-EOF\n\tbody\n\tEOF\nls', 'cat <<EOF >out\nbody\nEOF',
+    // bash's $'…' (T-88): escapes decoded, literal inside double and single quotes, left open, empty, inside a substitution; $"…" is "…"
+    "$'git' push origin main", "git fetch $'\\x2d-upload-pack=sh' .", "echo $'a\\tb' \"$'c'\" '$'", "echo $'unterminated", "echo $'\\101\\u0041\\cA\\q\\\\' $\"x y\" z", "echo \"$(echo $'a b')\"", "echo $''",
   ];
   for (const c of cases) assert.deepEqual(g.commandsOf(c), commandsOf(c), JSON.stringify(c));
-  assert.equal(cases.length, 37, 'every case ran');
+  assert.equal(cases.length, 44, 'every case ran');
   // What the shared cases say: the substitution is its own command, first, and leaves its placeholder in the
   // command around it, which stays whole; the single quotes keep theirs; the heredoc's body is skipped.
   assert.deepEqual(commandsOf('echo "$(git push origin main)"'), [['git', 'push', 'origin', 'main'], ['echo', SUBSTITUTED]]);
@@ -875,6 +937,14 @@ test('the guard\'s command splitter and acc\'s hooks.ts commandsOf give the same
   assert.deepEqual(commandsOf(HEREDOC_COMMIT), [['cat', '<<EOF'], ['git', 'commit', '-m', SUBSTITUTED]]);
   assert.deepEqual(commandsOf('cat <<EOF\ngit push origin main\nEOF\necho after'), [['cat', '<<EOF'], ['echo', 'after']]);
   assert.deepEqual(commandsOf('cat <<-EOF\n\tbody\n\tEOF\nls'), [['cat', '<<-EOF'], ['ls']]);
+  // $'…' is read as bash reads it (T-88): the word git would see, with its escapes decoded; a $' inside quotes is literal.
+  assert.deepEqual(commandsOf("$'git' push origin main"), [['git', 'push', 'origin', 'main']]);
+  assert.deepEqual(commandsOf("git fetch $'\\x2d-upload-pack=sh' ."), [['git', 'fetch', '--upload-pack=sh', '.']]);
+  assert.deepEqual(commandsOf("echo $'a\\tb' \"$'c'\" '$'"), [['echo', 'a\tb', "$'c'", '$']]);
+  assert.deepEqual(commandsOf("echo $'unterminated"), [['echo', 'unterminated']], 'left open, the word runs to the line\'s end');
+  assert.deepEqual(commandsOf("echo $'\\101\\u0041\\cA\\q\\\\' $\"x y\" z"), [['echo', 'AA\u0001\\q\\', 'x y', 'z']], 'octal, unicode, control, an escape bash keeps, a backslash');
+  assert.deepEqual(commandsOf("echo \"$(echo $'a b')\""), [['echo', 'a b'], ['echo', SUBSTITUTED]]);
+  assert.deepEqual(commandsOf("echo $''"), [['echo', '']], 'empty: a word with nothing in it');
 });
 
 test('installGuard writes both scripts and the hooks on every tool it guards and at SessionStart, from the project root and failing closed, keeps other settings, replaces older entries of its own, and writes again only when something changed', () => {

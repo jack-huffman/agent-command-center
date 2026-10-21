@@ -8,7 +8,7 @@ import type { RepoPaths } from './paths.ts';
 import { discardUpdate, draftUpdate, listUpdates } from './updates.ts';
 import { type BranchMove, branchMoves, followBranches } from './branches.ts';
 import { type FollowChange, followCloud } from './cloud.ts';
-import { followCloudReviews, type ReviewFollow } from './cloud-review.ts';
+import { followCloudReviews, pruneVerdictBranches, type ReviewFollow, verdictHeads } from './cloud-review.ts';
 import { fetchBranches } from './fetch.ts';
 
 /**
@@ -107,10 +107,13 @@ function followGithub(paths: RepoPaths, config: Config, deps: { run: Runner; now
   if (!config.github || !config.agents.cloud) return { cloud: [], reviews: [], branches: [] };
   const ledger = readLedger(paths.ledger);
   const cloud = ledger.tasks.some((t) => t.state === 'running' && t.run?.where === 'cloud') ? followCloud(paths, config, deps) : [];
-  // A review under way in the cloud (T-86): its verdict branch, after the builders' branches.
-  const reviews = ledger.tasks.some((t) => t.state === 'review' && t.cloudReview && !t.cloudReview.failed) ? followCloudReviews(paths, config, deps) : [];
+  // Origin's verdict branches, listed once (T-86, T-88): a review under way in the cloud reads its own, after
+  // the builders' branches, and any left that no cloud review waits on is deleted. Origin not answering (null) leaves both alone.
+  const heads = verdictHeads(deps.run, paths.root, deps.env);
+  const reviews = ledger.tasks.some((t) => t.state === 'review' && t.cloudReview && !t.cloudReview.failed) ? followCloudReviews(paths, config, deps, { heads }) : [];
+  const pruned = heads ? pruneVerdictBranches(paths, deps, heads, new Set(reviews.map((r) => r.branch))) : [];
   followBranches(paths, config, ledger, deps);
-  return { cloud, reviews, branches: branchMoves(paths) };
+  return { cloud, reviews: [...reviews, ...pruned], branches: branchMoves(paths) };
 }
 
 export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): SyncResult {

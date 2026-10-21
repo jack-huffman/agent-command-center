@@ -3,14 +3,15 @@
 // for the reviewer's session, and what it does with a good verdict, a stale one, a bad one, a missing branch
 // and a verdict already kept here; a quiet review needs you; a cloud review counts against the cloud cap;
 // a verdict's parts are capped and a file too large isn't read; a move out of review, or a verdict kept
-// here for the head, ends the cloud review.
+// here for the head, ends the cloud review, and a verdict for an older commit doesn't (T-88); acc sync
+// deletes a verdict branch on origin that no cloud review waits on (T-88).
 import assert from 'node:assert/strict';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { cloudGuard } from '../src/cloud.ts';
 import { RECORD_LINE, ROLE_LINE, VERDICT_LINE } from '../src/cloud-guard.ts';
-import { cloudReviewQuiet, cloudReviewText, cloudReviewWait, followCloudReviews, reviewInCloud, reviewPlace, VERDICT_FILE, VERDICT_MAX_BYTES, verdictBranch, verdictHeads } from '../src/cloud-review.ts';
+import { cloudReviewQuiet, cloudReviewText, cloudReviewWait, followCloudReviews, pruneVerdictBranches, reviewInCloud, reviewPlace, VERDICT_FILE, VERDICT_MAX_BYTES, verdictBranch, verdictHeads } from '../src/cloud-review.ts';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { FETCH_TIMEOUT_MS, fetchBranches } from '../src/fetch.ts';
@@ -377,9 +378,14 @@ test('edge case: a cloud review is cleared by a move out of review, and by a ver
   const c = gitIn(wt, 'rev-parse', 'HEAD');
   const late = new Date('2026-10-09T15:00:00Z');
   assert.match(cloudReviewWait(task(paths), config, late) ?? '', /no verdict from its cloud reviewer/);
+  // A verdict for an older commit, A, kept now: it ends nothing (T-88), since the cloud review of B, and the head C, are each another commit.
+  const older = { v: 1 as const, task: 'T-1', sha: first.sha, env: 'main', ...checkVerdict(PASS), sessionId: 'local', at: now().toISOString(), durationMs: 1, costUsd: null };
+  assert.equal(recordVerdict(paths, config, older, now, { actor: 'reviewer', by: 'reviewer:T-1', head: c }), null);
+  assert.equal(task(paths).cloudReview?.sha, second.sha, 'a verdict for an older commit leaves the cloud review under way');
+  assert.equal(readVerdict(paths, 'T-1', first.sha)!.verdict, 'pass', 'and is kept for its commit');
   // The way on, a review on this Mac, is of C: its verdict ends the cloud review of B, though the commits differ.
   const kept = { v: 1 as const, task: 'T-1', sha: c, env: 'main', ...checkVerdict(PASS), sessionId: 'local', at: now().toISOString(), durationMs: 1, costUsd: null };
-  assert.equal(recordVerdict(paths, config, kept, now, { actor: 'reviewer', by: 'reviewer:T-1' }), null);
+  assert.equal(recordVerdict(paths, config, kept, now, { actor: 'reviewer', by: 'reviewer:T-1', head: c }), null);
   assert.equal(task(paths).cloudReview, null, 'a verdict for the head ends a cloud review fired on an older commit');
   assert.equal(cloudReviewWait(task(paths), config, late), null, 'nothing waits on it');
   assert.equal(task(paths).state, 'review');
@@ -395,4 +401,56 @@ test('edge case: a cloud review is cleared by a move out of review, and by a ver
   assert.equal(cloudReviewWait(task(paths), config, late), 'not JSON');
   moveTask(paths, config, 'T-1', { to: 'rework', actor: 'human', by: 'h', reason: 'By hand.' }, noGateHooks, now);
   assert.equal(task(paths).cloudReview, null, 'a move clears a failed cloud review');
+});
+
+test('edge case: acc sync deletes a verdict branch on origin that no cloud review waits on (T-88): one a move ended and the session pushed late, one for a task not in the ledger; a review under way keeps its own; origin not answering deletes nothing', () => {
+  const { paths, config, origin, branch, follow } = reviewed();
+  const deps = { run: fakeRunner(CLOUD_FIXTURES), now, env: follow.env };
+  const first = reviewInCloud(paths, config, 'T-1', deps, {});
+  // A person moves it to rework: the cloud review is over, and the reviewer's session pushes its verdict anyway, late.
+  moveTask(paths, config, 'T-1', { to: 'rework', actor: 'human', by: 'h', reason: 'Not yet.' }, noGateHooks, now);
+  const reviewer = cloudClone(origin, branch);
+  pushVerdict(reviewer, branch, PASS, first.branch);
+  // And a verdict branch for a task this ledger never had.
+  const stray = `acc/review/T-9-${first.sha}`;
+  gitIn(reviewer, 'push', '-q', 'origin', `HEAD:${stray}`);
+  assert.deepEqual([...verdictHeads(deps.run, paths.root, follow.env)!.keys()].sort(), [first.branch, stray].sort());
+  // Nothing in review waits in the cloud, so the follow has nothing; the sync still lists origin's verdict branches, and deletes both.
+  assert.deepEqual(followCloudReviews(paths, config, deps), []);
+  const synced = sync(paths, config, deps);
+  assert.deepEqual(synced.reviews.map((r) => [r.task, r.branch, r.outcome, r.moved]), [['T-1', first.branch, 'pruned', null], ['T-9', stray, 'pruned', null]]);
+  assert.equal(synced.reviews[0]!.note, `deleted ${first.branch} on origin: no cloud review waits on it`);
+  assert.deepEqual(verdictHeads(deps.run, paths.root, follow.env), new Map(), 'both gone from origin');
+  assert.equal(task(paths).state, 'rework', 'and the task is as it was');
+  assert.equal(readVerdict(paths, 'T-1', first.sha), null, 'the late verdict isn\'t kept: nothing waited on it');
+  assert.equal(gitIn(origin, 'rev-parse', branch), first.sha, 'the task branch on origin is untouched');
+  // Back in review with a new commit, a review under way keeps its branch while a stray one goes, whether the follow or the prune looks first.
+  const wt = task(paths).run!.worktree!;
+  writeFileSync(join(wt, 'b.txt'), 'B\n');
+  gitIn(wt, 'add', '-A');
+  gitIn(wt, 'commit', '-q', '-m', 'T-1: B');
+  mutate(paths, now, (l, emit) => {
+    l.tasks[0]!.state = 'review';
+    emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'h', data: {} });
+  });
+  const second = reviewInCloud(paths, config, 'T-1', deps, {});
+  pushVerdict(cloudClone(origin, branch), branch, PASS, second.branch);
+  gitIn(reviewer, 'push', '-q', 'origin', `HEAD:${stray}`);
+  const heads = verdictHeads(deps.run, paths.root, follow.env)!;
+  assert.deepEqual([...heads.keys()].sort(), [second.branch, stray].sort());
+  assert.deepEqual(pruneVerdictBranches(paths, deps, heads, new Set([stray])), [], 'a branch the follow handled is left to it');
+  assert.deepEqual(pruneVerdictBranches(paths, deps, heads).map((r) => [r.task, r.branch, r.outcome]), [['T-9', stray, 'pruned']]);
+  assert.deepEqual([...verdictHeads(deps.run, paths.root, follow.env)!.keys()], [second.branch], 'the review under way keeps its branch');
+  // Through sync: the verdict is taken, and its branch is deleted by the follow, not pruned a second time.
+  const taken = sync(paths, config, deps);
+  assert.deepEqual(taken.reviews.map((r) => [r.task, r.branch, r.outcome]), [['T-1', second.branch, 'taken']]);
+  assert.deepEqual(verdictHeads(deps.run, paths.root, follow.env), new Map());
+  assert.equal(task(paths).cloudReview, null);
+  // Origin not answering: nothing is deleted, and the review under way is said to be unreachable.
+  const third = reviewInCloud(paths, config, 'T-1', deps, {});
+  pushVerdict(cloudClone(origin, branch), branch, PASS, third.branch);
+  gitIn(reviewer, 'push', '-q', 'origin', `HEAD:${stray}`);
+  const offline = sync(paths, config, { ...deps, run: fakeRunner({ ...CLOUD_FIXTURES, 'git ls-remote': bad('could not read from remote') }) });
+  assert.deepEqual(offline.reviews.map((r) => [r.outcome, r.branch]), [['unreachable', third.branch]]);
+  assert.deepEqual([...verdictHeads(deps.run, paths.root, follow.env)!.keys()].sort(), [third.branch, stray].sort(), 'both still there');
 });

@@ -210,13 +210,16 @@ function landStep(r: LandResult): StepRun {
 /**
  * Why a step's error is only for now, or null when it's a real failure. Only these wait: the ledger was
  * busy, the project's cap or this machine's total filled up between the look and the dispatch, a stopped builder's agent came back,
- * a pull request's checks changed between the look and the send-back (D-076), or a pull request moved on,
- * or wasn't settled, between the look and the merge (GH-67). Anything else is recorded, a heavy-check slot
- * that stayed taken for hours among them (D-069).
+ * a pull request's checks changed between the look and the send-back (D-076), a pull request moved on,
+ * or wasn't settled, between the look and the merge (GH-67), or the cloud is full of builders when a
+ * review would go there (T-88). Anything else is recorded, a heavy-check slot that stayed taken for hours
+ * among them (D-069).
  */
 function temporary(e: unknown, paths: RepoPaths, config: Config, id: string, machine: MachineLoad | null): string | null {
   const code = (e as AccError).code;
   if (code === 'lock-timeout') return 'The ledger was busy. Autopilot tries again next pass.';
+  // The cloud cap is full, so a cloud review can't be fired yet (T-88): it waits, as a dispatch waits on a cap, with the cap's words.
+  if (code === 'cloud-cap') return `${sentence((e as Error).message)} Autopilot looks again next pass.`;
   // Its agent came back between the look and the resume, or its checks or pull request moved on: nothing to do after all.
   if (code === 'agent-active' || code === 'checks-moved' || code === 'merge-waits') return `${(e as Error).message} Autopilot looks again next pass.`;
   // A held task that still waits after all, or whose start was claimed elsewhere (D-093).

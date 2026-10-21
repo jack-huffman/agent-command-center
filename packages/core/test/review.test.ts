@@ -104,6 +104,34 @@ test('a review that asks for changes sends the task to rework, and the next run 
   assert.ok(!packet.includes('Consider JSDoc'), 'only what must be fixed');
 });
 
+test('edge case: the branch moves while a local review runs, and a cloud review fired on the new head outlives the older verdict', () => {
+  const { dir, paths, config, sha } = setup();
+  let moved = '';
+  const cloud = (at: string) => mutate(paths, now, (l, emit) => {
+    l.tasks[0]!.cloudReview = { sessionId: 's', url: 'u', firedAt: NOW, sha: at, branch: `acc/review/T-1-${at}` };
+    emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'h', data: {} });
+  });
+  const pass = result({ verdict: 'pass', summary: 'ok', criteria: [], findings: [] });
+  // While the reviewer reads sha, the builder commits again and autopilot fires a cloud review on the new head.
+  const runner = fakeRunner({ claude: () => {
+    writeFileSync(join(dir, 'more.js'), 'x\n');
+    gitIn(dir, 'add', '-A');
+    gitIn(dir, 'commit', '-q', '-m', 'more');
+    moved = gitIn(dir, 'rev-parse', 'HEAD').trim();
+    cloud(moved);
+    return pass;
+  } });
+  const r = review(paths, config, 'T-1', { run: runner, now, env: {} });
+  assert.equal(r.verdict.sha, sha, 'the verdict is for the commit reviewed');
+  assert.notEqual(moved, sha);
+  assert.equal(readLedger(paths.ledger).tasks[0]!.cloudReview?.sha, moved, 'the newer cloud review still runs');
+  // With the head unmoved, a local verdict for the head ends a cloud review of an older commit, as before.
+  waiveGates(paths, config, { sha: moved, env: config.environments[0]!, gates: ['test'], reason: 'a test', by: 'human:t', now });
+  cloud(sha);
+  review(paths, config, 'T-1', { run: fakeRunner({ claude: pass }), now, env: {} });
+  assert.equal(readLedger(paths.ledger).tasks[0]!.cloudReview, null, 'a verdict for the head ends it');
+});
+
 test('a review needs the task in review with its checks settled; a waived check counts as settled', () => {
   const running = setup('running');
   assert.throws(() => review(running.paths, running.config, 'T-1', { run: fakeRunner({}), now, env: {} }), /T-1 is running/);

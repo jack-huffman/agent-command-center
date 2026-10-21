@@ -88,12 +88,41 @@ export function guardEdit(b: Builder, filePath: string, envSpecific: string[]): 
 /** What a `$( )` or backtick pair leaves in the word it stood in. */
 export const SUBSTITUTED = '$(...)';
 
+/** What a backslash escapes inside bash's $'…' (T-88): the characters it names, besides \nnn, \xHH, \uHHHH, \UHHHHHHHH and \cX. */
+const ANSI_C: Record<string, string> = { a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\\': '\\', "'": "'", '"': '"', '?': '?' };
+
+/**
+ * Reads bash's $'…' quoting from just after its opening quote (T-88), as bash does: each backslash escape
+ * decoded, so $'\x2d-upload-pack=sh' is --upload-pack=sh, the word git would see. `add` takes each
+ * character. Returns the index of the closing quote, or the line's end when it never closes. The cloud
+ * guard's rawCommandsOf has the same, and cloud-guard.test.ts keeps the two the same.
+ */
+function ansiC(line: string, from: number, add: (c: string) => void): number {
+  let i = from;
+  while (i < line.length && line[i] !== "'") {
+    const c = line[i]!;
+    if (c !== '\\' || i + 1 >= line.length) { add(c); i++; continue; }
+    const e = line[i + 1]!;
+    let m: RegExpExecArray | null;
+    if (ANSI_C[e] !== undefined) { add(ANSI_C[e]); i += 2; }
+    else if ((m = /^[0-7]{1,3}/.exec(line.slice(i + 1, i + 4)))) { add(String.fromCharCode(parseInt(m[0], 8) & 0xff)); i += 1 + m[0].length; }
+    else if (e === 'x' && (m = /^[0-9a-fA-F]{1,2}/.exec(line.slice(i + 2, i + 4)))) { add(String.fromCharCode(parseInt(m[0], 16))); i += 2 + m[0].length; }
+    else if (e === 'u' && (m = /^[0-9a-fA-F]{1,4}/.exec(line.slice(i + 2, i + 6)))) { add(String.fromCodePoint(parseInt(m[0], 16))); i += 2 + m[0].length; }
+    else if (e === 'U' && (m = /^[0-9a-fA-F]{1,8}/.exec(line.slice(i + 2, i + 10)))) { add(String.fromCodePoint(Math.min(parseInt(m[0], 16), 0x10ffff))); i += 2 + m[0].length; }
+    else if (e === 'c' && i + 2 < line.length) { add(String.fromCharCode(line.charCodeAt(i + 2) & 0x1f)); i += 3; }
+    // A backslash before anything else stays, as bash keeps it.
+    else { add(c); i++; }
+  }
+  return i;
+}
+
 /**
  * A command line split into its commands, and each into words, as far as matters for these rules: quotes
  * kept together, separators cut, a `$( )` or backtick read as its own command even inside double quotes
- * (only single quotes are literal), a heredoc's body skipped. The command around a substitution stays
- * whole, with SUBSTITUTED where the substitution stood; the substitution's own commands come first. The
- * cloud guard's rawCommandsOf splits the same way (GH-69), and cloud-guard.test.ts keeps the two the same.
+ * (only single quotes are literal), a heredoc's body skipped, bash's `$'…'` read with its escapes decoded
+ * (T-88). The command around a substitution stays whole, with SUBSTITUTED where the substitution stood;
+ * the substitution's own commands come first. The cloud guard's rawCommandsOf splits the same way (GH-69),
+ * and cloud-guard.test.ts keeps the two the same.
  */
 export function commandsOf(line: string): string[][] {
   const out: string[][] = [];
@@ -136,6 +165,9 @@ export function commandsOf(line: string): string[][] {
       any = true;
       continue;
     }
+    // bash's $'…' (T-88): its escapes decoded into the word; $"…" is "…" for the shell's locale.
+    if (c === '$' && line[i + 1] === "'") { i = ansiC(line, i + 2, (ch) => { word += ch; }); any = true; continue; }
+    if (c === '$' && line[i + 1] === '"') { quote = '"'; any = true; i++; continue; }
     if (c === '"' || c === "'") { quote = c; any = true; continue; }
     if (c === '\\' && i + 1 < line.length) { word += line[++i]; any = true; continue; }
     if (c === '`') {
