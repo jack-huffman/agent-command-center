@@ -5,6 +5,21 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.43.0
+
+- Draft a ticket's acceptance criteria (D-179): a ticket's page and the task
+  sheet have **Draft acceptance criteria**. A read-only agent reads the
+  ticket, its comments, related tickets and the repo, and drafts acceptance
+  criteria, test steps, edge cases and open questions for the ticket's
+  author, in plain words. Add it below the description, or open it as an
+  update to post as a comment. Nothing reaches the tracker until you save or
+  post. `acc draft criteria` does the same from the command line.
+- A builder sent back after a passed review gets that review's findings
+  (D-180), each with its file and line, after your reason, so a rework knows
+  what to fix.
+- Every place that writes the project's settings writes the file whole, and a
+  check over all of acc's code holds it to that.
+
 ## 0.42.0
 
 - Follow a sprint (D-178): a Jira tracker's place can be the board's active
