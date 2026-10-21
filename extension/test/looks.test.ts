@@ -15,7 +15,7 @@ import { type AgentSession, TASK_GROUPS, type TaskRow, type Tone } from '../src/
 import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/about.ts';
 import { billingLook } from '../src/model/agents.ts';
 import { accLook, CATEGORY_LOOK, columnLook } from '../src/model/boards.ts';
-import { analysisLook, autopilotLook, closedPrLook, cloudReviewLook, filesLook, placeLook, stoppedLook } from '../src/model/cards.ts';
+import { analysisLook, autopilotLook, closedPrLook, cloudReviewLook, filesLook, placeLook, stoppedLook, unseenLook } from '../src/model/cards.ts';
 import { BUILDER_PLACE_LOOK } from '../../packages/core/src/cloud.ts';
 import { cloudSetting, protectionLook } from '../src/model/settings.ts';
 import { moveLook as branchMoveLook } from '../src/model/branches.ts';
@@ -166,6 +166,15 @@ export const TABLES: Table[] = [
   },
   { name: 'autopilot needs you', sources: ['extension/src/model/cards.ts#autopilotLook'], states: () => AUTOPILOT_STEPS.flatMap((step) => [true, false].map((why): [string, Shown] => [`${step}${why ? ', why' : ''}`, autopilotLook({ autopilot: { step, reason: 'no' } }, why)!])) },
   { name: 'a closed pull request', sources: ['extension/src/model/cards.ts#closedPrLook'], states: () => [['closed', closedPrLook({ state: 'review', pr: { number: 7, url: 'https://x/7', state: 'closed' } })!]] },
+  {
+    name: 'a builder that didn\'t start, or one acc can\'t see (T-92)', sources: ['extension/src/model/cards.ts#unseenLook'],
+    states: () => [
+      ['didn\'t start, to do', unseenLook({ state: 'todo', notStarted: { reason: 'Its builder didn\'t start', at: '2026-10-21T00:00:00Z' } })!],
+      ['didn\'t start, in rework', unseenLook({ state: 'rework', notStarted: { reason: 'Its builder didn\'t start', at: '2026-10-21T00:00:00Z' } })!],
+      ['claude agents doesn\'t answer', unseenLook({ state: 'running', unseen: 'unanswered' })!],
+      ['quiet too', unseenLook({ state: 'running', unseen: 'quiet' })!],
+    ],
+  },
   { name: 'a stopped builder', sources: ['extension/src/model/cards.ts#stoppedLook'], states: () => [['said nothing', stoppedLook({ stopped: { said: null } })!], ['said something', stoppedLook({ stopped: { said: 'API Error' } })!]] },
   // Where a builder runs (GH-69): on the card, the page and acc show alike.
   { name: 'where a builder runs', sources: ['packages/core/src/cloud.ts#BUILDER_PLACE_LOOK'], states: () => Object.entries(BUILDER_PLACE_LOOK).map(([k, v]) => [k, { ...v, tone: 'neutral' }]) },

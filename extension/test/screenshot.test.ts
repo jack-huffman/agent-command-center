@@ -122,9 +122,9 @@ test('every section of the page, and a ticket, has sample data built by the real
       const list = OVERVIEW_LISTS[kind];
       if (list) assert.deepEqual(startState(kind), { detail: { kind: 'list', group: list } });
       if (list) assert.ok(o.landing.find((g) => g.key === list)!.total > 3, `${kind}: more than Needs you would show`);
-      assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.counts.all], ['home', 'overview', 10, 7, 3, 2, 13]);
-      // A review in the cloud runs no check on this Mac (T-86): every other group is a build with its checks.
-      assert.ok(o.inProgress.groups.filter((g) => !g.jobs.some((j) => j.kind === 'review')).every((g) => g.jobs.some((j) => j.kind === 'check')), 'each building task has its checks');
+      assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.counts.all], ['home', 'overview', 10, 9, 3, 2, 13]);
+      // A review in the cloud runs no check on this Mac (T-86), nor does a builder acc can't see (T-92): every other group is a build with its checks.
+      assert.ok(o.inProgress.groups.filter((g) => !g.jobs.some((j) => j.kind === 'review' || j.look.label === 'Not answering')).every((g) => g.jobs.some((j) => j.kind === 'check')), 'each building task has its checks');
     }
     // History with more than two pages (D-170): the first 40 of 100 entries, three days of them, opened over the Overview.
     else if (kind === 'overview-pages') {

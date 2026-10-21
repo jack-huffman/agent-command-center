@@ -80,7 +80,7 @@ interface Open {
 }
 
 /** Commands a ticket page may run: the ones its task's card offers, and Dispatch with… and Dispatch to the cloud, kept for one release to open the sheet (D-168). */
-const ALLOWED = new Set(['acc.task.edit', 'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.attach', 'acc.task.openInClaude', 'acc.task.watch', 'acc.task.resume', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.trackers.signIn']);
+const ALLOWED = new Set(['acc.task.edit', 'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.dispatchAgain', 'acc.task.attach', 'acc.task.openInClaude', 'acc.task.watch', 'acc.task.resume', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.trackers.signIn']);
 
 /**
  * One editor tab per ticket, like the tracker's own ticket page: rendered description and comments,

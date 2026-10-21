@@ -3,6 +3,7 @@ import { cpus, homedir, loadavg } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { profileView, type ProfileView } from '../../packages/core/src/agents.ts';
+import { SERVICE_DOWN } from '../../packages/core/src/started.ts';
 import { type Analysis, analyzing, readAnalysis } from '../../packages/core/src/analyze.ts';
 import { type AutopilotLog, type AutopilotRecord, readAutopilotLog } from '../../packages/core/src/autopilot-log.ts';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
@@ -119,6 +120,8 @@ export class Hub implements vscode.Disposable {
   agentsError: string | null = null;
   /** When `claude agents` last answered, so a question can tell a fresh look from an old one. */
   agentsAt = 0;
+  /** Since when `claude agents` hasn't answered, in ms, or null while it answers (T-92): past the grace, acc can't see a local builder. */
+  agentsSilentSince: number | null = null;
   /** Agents' questions waiting in the Command Center (D-030), set by Questions. */
   questions: Question[] = [];
   /** How earlier questions ended, newest last (D-037), set by Questions. */
@@ -585,6 +588,8 @@ export class Hub implements vscode.Disposable {
       this.agentsError = 'The Claude Code CLI (claude) isn\'t on PATH.';
     } else {
       try {
+        // Its service's socket missing is no answer, whatever it printed (T-92).
+        if (SERVICE_DOWN.test(r.stderr)) throw new Error(r.stderr);
         const list = JSON.parse(r.stdout) as AgentSession[];
         this.agents = Array.isArray(list) ? list : [];
         this.agentsError = null;
@@ -593,6 +598,7 @@ export class Hub implements vscode.Disposable {
         this.agentsError = (r.stderr || r.stdout).trim().split('\n')[0] || 'Claude Code\'s list of background sessions didn\'t answer.';
       }
     }
+    this.agentsSilentSince = this.agentsError ? this.agentsSilentSince ?? Date.now() : null;
     this.emitter.fire('agents');
     // Agent state feeds task display (Needs you), so re-derive the rows.
     for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: deriveRows(this, cached.ledger, this.project(root)) });

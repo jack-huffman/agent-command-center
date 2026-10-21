@@ -232,7 +232,7 @@ function dispatched(o: Opts, r: DispatchOutcome, dropped: string): number {
       r.notStarted!.stopped ? `  Stopped its half-started background session ${r.notStarted!.stopped}.` : '',
       `  The worktree is kept at ${r.worktree}.`,
       `  Open a terminal and run claude agents, or restart Claude Code. Then ${DISPATCH_AGAIN.toLowerCase()}: acc dispatch ${r.task.id} --again`,
-    ].filter(Boolean).join('\n'), r);
+    ].filter(Boolean).join('\n'), { ...r, message: `${r.task.id} needs you. ${r.notStarted.reason}. Open a terminal and run claude agents, or restart Claude Code, then ${DISPATCH_AGAIN.toLowerCase()}.` });
     return 1;
   }
   out(o, () => [

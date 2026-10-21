@@ -8,6 +8,7 @@ import type { Approach } from '../../../packages/core/src/analyze.ts';
 import type { BuilderPlace, Effort } from '../../../packages/core/src/config.ts';
 import { isObj } from '../../../packages/core/src/text.ts';
 import type { AutopilotStepName, CloudRun, FileShare, QueuePhase } from '../../../packages/core/src/ledger.ts';
+import type { Unseen } from '../../../packages/core/src/started.ts';
 
 // ---------------------------------------------------------------- sidebar (views)
 
@@ -86,6 +87,13 @@ export interface TaskRow {
   checks?: string[] | null;
   /** Its builder stopped before acc done or acc block, and the last thing it said, if that could be read (D-067). */
   stopped?: { said: string | null } | null;
+  /**
+   * acc can't see its local builder (T-92): Claude Code's background sessions haven't answered for longer
+   * than the grace, and, when quiet, its conversation hasn't been written for longer than the quiet limit.
+   */
+  unseen?: Unseen | null;
+  /** Its last dispatch's builder didn't start (T-92): why, and when. */
+  notStarted?: { reason: string; at: string } | null;
   /** A resume of its builder is under way. */
   resuming?: boolean;
   /** Its place in its repo's merge queue (GH-73): 1 is the head, which is in `phase`, and held says `why`; the rest wait behind `ahead`. */

@@ -5,6 +5,7 @@
  * read, as plain data. No vscode import, so it's testable.
  */
 import { type Job, jobsUnderWay } from '../../packages/core/src/jobs.ts';
+import { UNSEEN_WORDS } from '../../packages/core/src/started.ts';
 import type { AutopilotStepName, Ledger } from '../../packages/core/src/ledger.ts';
 import type { HeavyState, SlotHolder, SlotWaiter } from '../../packages/core/src/semaphore.ts';
 import { fileList, isUnder, isWebviewMenuContext, stateOf, type TaskRow } from './logic/shared.ts';
@@ -323,7 +324,9 @@ export function inProgress(i: ProgressInput): ProgressModel {
       const session = sessionFor(r, hub.agents);
       const step = r.run?.sessionId ? hub.stepOf?.(r.run.sessionId) ?? null : null;
       const question = r.asking ? hub.questions?.find((q) => q.sessionId && (q.sessionId === r.run?.sessionId || q.sessionId === session?.sessionId)) : undefined;
-      const look = r.stopped ? LOOK('Stopped', 'debug-disconnect', 'orange')
+      // acc can't see it (T-92): Claude Code's background sessions don't answer, so nothing here is known of it.
+      const look = r.unseen ? LOOK('Not answering', 'eye-closed', 'orange')
+        : r.stopped ? LOOK('Stopped', 'debug-disconnect', 'orange')
         : r.asking ? LOOK('Waiting on you', 'bell', 'orange')
           : r.agent?.tone === 'orange' ? (r.agent.label === 'Failed' ? LOOK('Failed', 'warning', 'orange') : LOOK('Waiting on you', 'bell', 'orange'))
             : r.agent?.label === 'Working' || r.agent?.label === 'Resumed: working' ? LOOK('Working', 'sync~spin', 'blue')
@@ -333,7 +336,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
       const model = step?.model ?? (setting ? `${setting} (its setting)` : null);
       const b = r.branchStats;
       const branch = b ? `${plural(b.commits, 'commit')}, ${plural(b.files, 'file')} changed${b.uncommitted ? `, ${b.uncommitted} not committed` : ''}` : null;
-      const doing = r.stopped ? (r.stopped.said ? `its turn ended: ${clip(r.stopped.said.replace(/\s+/g, ' '), 90)}` : 'its turn ended before it finished or blocked')
+      const doing = r.unseen ? UNSEEN_WORDS[r.unseen].line : r.stopped ? (r.stopped.said ? `its turn ended: ${clip(r.stopped.said.replace(/\s+/g, ' '), 90)}` : 'its turn ended before it finished or blocked')
         : !r.asking && r.agent?.tone === 'orange' && r.agent.label !== 'Failed' ? 'waiting in its own terminal'
           : step?.step ? clip(step.step.title, 90) : null;
       const live = session?.kind === 'background' && !!session.id && !!session.pid && !['done', 'stopped', 'failed'].includes(session.state ?? '');

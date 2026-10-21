@@ -117,7 +117,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/ratchets.ts': ['writeFloors', 'floorsAt', 'limitOf', 'valueOf', 'isWorse', 'num', 'ratchetGate', 'relaxCounts', 'relaxedTo'],
   'packages/core/src/receipts.ts': ['ratchetOf', 'receiptPath', 'EARLIER_LIMIT', 'earlierCounts'],
   'packages/core/src/refresh.ts': ['resolvedWords', 'fetchBase', 'undoMerge'],
-  'packages/core/src/resume.ts': ['listSessions', 'clipSaid'],
+  'packages/core/src/resume.ts': ['clipSaid'],
   'packages/core/src/review.ts': ['carriedVerdict'],
   'packages/core/src/rule-suggestions.ts': ['OFFER_FINDINGS', 'OFFER_TASKS', 'RETURN_FINDINGS', 'RULE_JOIN', 'WORDING_JOIN', 'RULE_LINE_MAX', 'RULE_TITLE_MAX', 'RULE_NOTE_MAX', 'SUGGESTION_ID', 'WRITTEN_RULE_FILES', 'firstSentence', 'writtenRules', 'whereWritten', 'CHECK_ASKS', 'defaultCheck', 'draftTitle', 'sourceLine'],
   'packages/core/src/rules.ts': ['RULES_DIR', 'OWN_RULES', 'RULES_TOTAL_MAX_BYTES', 'rulesName', 'prepareImport', 'prepareImports', 'writeImport', 'reimportCommand'],

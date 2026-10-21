@@ -88,6 +88,12 @@
     "icon": "$(rocket)"
   },
   {
+    "command": "acc.task.dispatchAgain",
+    "title": "Dispatch again: a builder that didn't start, or one acc can't see",
+    "category": "Agent Command Center",
+    "icon": "$(debug-restart)"
+  },
+  {
     "command": "acc.task.stopWaiting",
     "title": "Stop waiting for other tasks' files",
     "category": "Agent Command Center",

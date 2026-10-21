@@ -6,6 +6,7 @@
 import { BUILDER_PLACE_LOOK, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
 import type { BuilderPlace, CloudAgents } from '../../../packages/core/src/config.ts';
 import { editRefusal } from '../../../packages/core/src/edit.ts';
+import { DISPATCH_AGAIN, UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
 import type { State } from '../../../packages/core/src/ledger.ts';
 import { analysisReady, analysisWait, filesUnknown, sharesLine, waitLine } from '../logic/tasks.ts';
 import { questionsWord, saidLine, taskNames, type TaskRow } from '../logic/shared.ts';
@@ -83,6 +84,16 @@ export function stoppedLook(t: Pick<TaskRow, 'stopped'>, max = CARD_SAID): Look 
 }
 
 /**
+ * Why a task needs you when its builder didn't start, or acc can't see its builder (T-92): the line and the
+ * way on, in orange, with a plug for one that never started and a shut eye for one acc can't see. Else null.
+ */
+export function unseenLook(t: Pick<TaskRow, 'state' | 'unseen' | 'notStarted'>): Look | null {
+  if (t.notStarted && (t.state === 'todo' || t.state === 'rework')) return { label: `Needs you: ${t.notStarted.reason}. ${DISPATCH_AGAIN} starts a new builder with the same model, effort and place.`, icon: 'plug', tone: 'orange' };
+  if (t.unseen && t.state === 'running') return { label: `Needs you: ${UNSEEN_WORDS[t.unseen].line}. ${UNSEEN_WORDS[t.unseen].wayOn}`, icon: 'eye-closed', tone: 'orange' };
+  return null;
+}
+
+/**
  * What a task says about its files beside other tasks' (D-093). A task a person dispatched that waits for
  * them: a clock, in blue, naming each task and its files, short on a card and in full on its page, and the
  * Ready tasks that go first. Its start failed: the bell, in orange. One that shares them, to do or started
@@ -133,6 +144,11 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   // Its questions are answered on its page, where it shows them.
   else if (wait === 'questions') a.push({ command: 'acc.task.show', label: 'Answer', icon: 'question', ref, primary: true });
   else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref, primary: true });
+  // Its builder didn't start, or acc can't see it (T-92): Dispatch again leads where it didn't start or has gone
+  // quiet; where Claude Code only doesn't answer, the builder may still be at work, so it's behind ⋯.
+  const notStarted = !!t.notStarted && (todo || t.state === 'rework');
+  const unseen = t.state === 'running' ? t.unseen ?? null : null;
+  if (notStarted || unseen) a.push({ command: 'acc.task.dispatchAgain', label: DISPATCH_AGAIN, icon: 'debug-restart', ref, primary: (notStarted || unseen === 'quiet') && !a.some((x) => x.primary) });
   // A task a person dispatched already waits for others' files (D-093): its next step is starting it anyway.
   const held = todo && !!t.files?.held;
   // Its sheet asks for the model, the effort and where it runs (D-168), so there's one Dispatch.
@@ -166,8 +182,8 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   const answer = !inCloud && !stopped && !!t.asking && !!t.question;
   if (answer) a.push({ command: 'acc.task.show', label: 'Answer', icon: 'bell', ref, primary: true, question: t.question! });
   // Waiting in its own terminal, it's answered by attaching; anything else is seen on its page.
-  const inTerminal = !stopped && t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
-  if (!inCloud && (t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !inTerminal && !stopped && !answer });
+  const inTerminal = !stopped && !unseen && t.display === 'needs-you' && !t.asking && !!t.run?.bgId;
+  if (!inCloud && (t.state === 'running' || t.state === 'review' || t.state === 'blocked') && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !inTerminal && !stopped && !answer && !unseen });
   // Its conversation in a Claude Code tab (D-040); the terminal is the fallback when that isn't installed.
   if (!inCloud && t.state === 'running' && (t.run?.bgId || t.run?.sessionId)) a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, primary: inTerminal });
   if (t.run?.worktree && t.state !== 'todo') a.push({ command: 'acc.task.openWorktree', label: 'Worktree', icon: 'empty-window', ref });

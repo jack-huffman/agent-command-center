@@ -19,6 +19,8 @@ import { cloudWait } from '../../packages/core/src/cloud.ts';
 import { cloudReviewWait } from '../../packages/core/src/cloud-review.ts';
 import { sessionName } from '../../packages/core/src/names.ts';
 import { rowInWords } from './logic/relayed.ts';
+import { builderUnseen, quietMs, transcriptWrittenAt, UNSEEN_WORDS } from '../../packages/core/src/started.ts';
+import { claudeProjectsDir } from '../../packages/core/src/transcript.ts';
 // The Tasks area's rows as the hub reads them (D-099): each task's agent, analysis, review, pull request, place
 // in the merge queue, and files beside other tasks'.
 
@@ -29,7 +31,8 @@ export const analysesOf = (p: Pick<Project, 'ledgerPath'>): RepoPaths => ({ anal
  * Task rows with each running task's agent state, so a waiting agent shows as Needs you, and each task's
  * analysis, so one with questions for a person does too (D-052). A running task whose builder stopped
  * before acc done or acc block needs you too, with the last thing it said (D-067): judged only once
- * `claude agents` has answered, and not while it fails.
+ * `claude agents` has answered, and not while it fails. While it fails past the grace, a running local task
+ * needs you because acc can't see its builder (T-92); so does one whose builder didn't start.
  */
 export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
   // Reviews sit beside the ledger (D-032). A branch's latest commit is its worktree's HEAD.
@@ -63,10 +66,14 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
     const asking = session ? hub.askingFor(session) : null;
     const resumed = stateDir && t.state === 'running' ? resuming({ stateDir }, t.id) : null;
     const stopped = builderStopped(t, sessions, { resuming: !!resumed, now });
+    // Its conversation is read only while acc can't see it, to tell a quiet builder from one Claude Code hides.
+    const silent = t.state === 'running' && t.run?.where !== 'cloud' ? hub.agentsSilentSince : null;
+    const written = silent !== null && t.run?.worktree ? transcriptWrittenAt(claudeProjectsDir(), { worktree: t.run.worktree, sessionId: t.run.sessionId, since: 0 }) : null;
+    const unseen = builderUnseen(t, { silentSince: silent, now, resuming: !!resumed, writtenAt: written, quietMs: quietMs(p?.config) });
     // A resume just started isn't listed yet, and its old background session may still say blocked.
     const carrying = !!resumed && !session?.pid;
     const look = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue' as const } : session ? agentLook(session, asking, hub.tieFor(session)) : null;
-    const info: SessionInfo | undefined = stopped ? { stopped: true } : carrying ? { status: 'busy' } : session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined;
+    const info: SessionInfo | undefined = unseen ? { unseen: true } : stopped ? { stopped: true } : carrying ? { status: 'busy' } : session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined;
     const said = stopped && t.run?.sessionId ? hub.lastSaid(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null;
     // The model its agent runs with (D-086): what it last answered with, else what acc started it with.
     const model = look && t.run ? (t.run.sessionId ? hub.lastModel(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null) ?? t.run.model ?? null : null;
@@ -92,7 +99,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       run: t.run,
       cloud,
       // A cloud builder's state is its branch's (GH-69): working while it pushes, needs you when it's quiet.
-      agent: cloud ? (cloud.finished ? { label: 'Finished: collecting', icon: 'cloud-download', tone: 'blue' } : cloud.wait ? { label: `Needs you: ${cloud.wait}`, icon: 'bell', tone: 'orange' } : { label: 'Working in the cloud', icon: 'cloud', tone: 'blue' }) : look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
+      agent: unseen ? { label: UNSEEN_WORDS[unseen].label, icon: 'eye-closed', tone: 'orange' } : cloud ? (cloud.finished ? { label: 'Finished: collecting', icon: 'cloud-download', tone: 'blue' } : cloud.wait ? { label: `Needs you: ${cloud.wait}`, icon: 'bell', tone: 'orange' } : { label: 'Working in the cloud', icon: 'cloud', tone: 'blue' }) : look ? { label: look.label, icon: look.icon, tone: look.tone } : null,
       model,
       effort: model ? effortShown(model, t.run?.effort) : null,
       asking: !!asking,
@@ -111,6 +118,8 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       autopilot: failed ? { step: failed.step, reason: failed.reason } : null,
       checks: failedChecks(t),
       stopped: stopped ? { said } : null,
+      unseen,
+      notStarted: t.notStarted && (t.state === 'todo' || t.state === 'rework') ? { reason: t.notStarted.reason, at: t.notStarted.at } : null,
       resuming: !!resumed,
       queue: queued ? { place: queued.place, of: queued.of, ahead: queued.ahead, phase: queued.phase, why: queued.why } : null,
       dispatchedBy: t.history.findLast((h) => h.from === 'todo' && h.to === 'running')?.by ?? null,

@@ -4,6 +4,7 @@
  */
 
 import { AUTOPILOT_BY, DISPLAY, findRule, type State } from '../../../packages/core/src/ledger.ts';
+import { DISPATCH_AGAIN, UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
 import { analysisWait, conflictLine, failedChecksLine, groupTasks } from '../logic/tasks.ts';
 import { BOARD_LANES, fileList, prConflicts, saidLine, shortPath, TASK_GROUPS, type TaskRow } from '../logic/shared.ts';
 import { type BoardInput, trackerBoard, type TrackerBoard, type Who } from './boards.ts';
@@ -120,7 +121,7 @@ export type Message =
 
 export const area: ModelArea = {
   commands: [
-    'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.message', 'acc.task.collect', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
+    'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.message', 'acc.task.collect', 'acc.task.dispatchAnyway', 'acc.task.dispatchAgain', 'acc.task.stopWaiting', 'acc.task.attach', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup',
     'acc.task.add', 'acc.task.importGithub', 'acc.task.importJira', 'acc.task.show', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.openTicket',
     'acc.task.watch', 'acc.task.resume', 'acc.task.openInClaude', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr',
     'acc.task.analyze', 'acc.task.watchAnalysis',
@@ -155,6 +156,14 @@ export const area: ModelArea = {
           if (r.state === 'todo' && r.files?.held?.failed) {
             const anyway = acts.find((a) => a.command === 'acc.task.dispatchAnyway');
             attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(r.files.held.byAutopilot ? 'Needs you: autopilot couldn\'t start it' : 'Needs you: its start failed', 'bell', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.files.held.failed.replace(/([^.!?])$/, '$1.')} Dispatch it anyway, or stop it waiting.`, project: p.name, actions: [...(anyway ? [anyway] : []), details] });
+            continue;
+          }
+          // Its builder didn't start, or acc can't see it (T-92): why, what to try, and Dispatch again.
+          if (r.notStarted || r.unseen) {
+            const again = acts.find((a) => a.command === 'acc.task.dispatchAgain');
+            const look = r.notStarted ? LOOK('Needs you: its builder didn\'t start', 'plug', 'orange') : LOOK(UNSEEN_WORDS[r.unseen!].label, 'eye-closed', 'orange');
+            const why = r.notStarted ? `${r.notStarted.reason}. ${DISPATCH_AGAIN} starts a new builder with the same model, effort and place.` : `${UNSEEN_WORDS[r.unseen!].line}. ${UNSEEN_WORDS[r.unseen!].wayOn}`;
+            attention.push({ key: `t:${p.root}:${r.id}`, look, title: `${r.id} ${r.title}`, detail: `${p.name} · ${why}`, project: p.name, actions: [...(again ? [{ ...again, primary: again.primary ?? false }] : []), details] });
             continue;
           }
           // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
