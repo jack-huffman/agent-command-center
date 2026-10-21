@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.ts';
 import { criteriaPath } from '../src/criteria.ts';
-import { mainCheckout } from '../src/dispatch.ts';
+import { mainCheckout, setupWorktree } from '../src/dispatch.ts';
+import { baseRef } from '../src/review.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
@@ -316,7 +317,7 @@ test('verifying again at a new head replaces the worktree; a branch already at i
   const next = gitIn(tmp, 'rev-parse', 'HEAD');
   gitIn(tmp, 'push', '-q', '-f', 'origin', 'HEAD:refs/pull/7/head');
   const r2 = runner({ lists: { search: [pr(7, next)], all: [] } });
-  const v2 = verify(paths, config, 'ACME-7', deps(r2), { by: 'human:tester' });
+  const v2 = verify(paths, config, 'ACME-7', deps(r2, { now: () => new Date('2026-10-21T13:00:00Z') }), { by: 'human:tester' });
   assert.equal(gitIn(wt, 'rev-parse', 'HEAD'), next);
   assert.equal(readVerifications(paths, 'ACME-7').length, 2);
   assert.equal(latestVerification(paths, 'ACME-7')?.sha, v2.sha);
@@ -355,6 +356,25 @@ test('clearing removes the worktree, each stored verification and the choice; a 
   const fresh = setup();
   assert.deepEqual(pruneVerifications(fresh.paths, fresh.config, quiet.run), []);
   assert.deepEqual(quiet.calls, [], 'no verification stored: no git');
+});
+
+test('the verification\'s worktree is set up as a builder\'s is: node_modules linked and the setup commands run; a failing one stops it (edge case)', () => {
+  const { dir, config, paths, sha } = setup({ ...RAW, worktrees: { setup: ['touch made-by-setup'] } });
+  mkdirSync(join(dir, 'node_modules'));
+  const r = runner({ lists: { search: [pr(7, sha)], all: [] } });
+  verify(paths, config, 'ACME-7', deps(r), { by: 'human:tester' });
+  const wt = verifyWorktree(config, mainCheckout(run, dir), 'ACME-7');
+  assert.ok(existsSync(join(wt, 'made-by-setup')));
+  assert.ok(existsSync(join(wt, 'node_modules')));
+  const env = baseEnvironment(config, { environment: 'main' }, 'main');
+  assert.throws(() => setupWorktree(r.run, { ...config, worktrees: { ...config.worktrees, setup: ['exit 3'] } }, env, dir, wt), /Setup command failed in the worktree: exit 3/);
+});
+
+test('the diff compares with origin\'s base once it is fetched, and with the local branch before (edge case)', () => {
+  const { dir } = setup();
+  assert.equal(baseRef(run, makeRepo(), 'main'), 'main', 'no origin: the local branch');
+  gitIn(dir, 'fetch', '-q', 'origin');
+  assert.equal(baseRef(run, dir, 'main'), 'origin/main');
 });
 
 test('the prompt says when no criteria were drafted, and a diff too long to include is read from the worktree (edge case)', () => {
