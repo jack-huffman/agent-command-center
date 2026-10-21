@@ -33,7 +33,7 @@ function show(chips: readonly HTMLElement[], more: HTMLElement, names: readonly 
 }
 
 /**
- * Fits a card's row of labels as it is drawn and again whenever its width changes: each chip is measured
+ * Fits a card's row of labels just after it is drawn and again whenever its width changes: each chip is measured
  * at its whole width, then the ones that don't fit are hidden into the +N. Without a layout, as in a test's
  * small document, it shows the first `first` and folds the rest.
  */
@@ -53,5 +53,7 @@ export function fitLabels(row: HTMLElement, chips: readonly HTMLElement[], more:
     for (const c of chips) c.style.flex = '';
     show(chips, more, names, labelsThatFit(widths, room, gap, plus));
   };
+  // Fitted once it is drawn, as reading a width lays the page out, and again whenever its width changes.
+  setTimeout(fit, 0);
   new ResizeObserver(fit).observe(row);
 }
