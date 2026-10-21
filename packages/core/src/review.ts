@@ -13,6 +13,7 @@ import { sessionName } from './names.ts';
 import { notesSection } from './packet.ts';
 import { rulesText } from './rules.ts';
 import { testsText } from './test-counts.ts';
+import { clip } from './text.ts';
 
 /**
  * The review (D-032): a fresh agent reads the task, the diff, the checks and the project's rules, and
@@ -339,9 +340,6 @@ export type Answered = Pick<Verdict, 'verdict' | 'summary' | 'client' | 'criteri
  * limit, with an ellipsis; longer lists keep their first entries.
  */
 export const VERDICT_LIMITS = { summary: 2000, client: 2000, message: 2000, file: 400, rule: 200, kind: 80, text: 1000, evidence: 1000, criteria: 50, findings: 100 } as const;
-
-/** The text cut to a limit, ending in an ellipsis where it was cut. */
-const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
 /**
  * A reviewer's answer checked against VERDICT_SCHEMA's shape, as Claude Code checks the local reviewer's
