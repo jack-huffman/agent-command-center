@@ -14,7 +14,7 @@ import { repoPaths } from '../src/paths.ts';
 import { listSessions } from '../src/resume.ts';
 import { awaitStart, builderUnseen, DISPATCH_AGAIN, noteAnswer, NOT_STARTED, quietMs, SERVICE_DOWN, START_WAIT_MS, transcriptWrittenAt, UNSEEN_WORDS } from '../src/started.ts';
 import { transcriptDir } from '../src/transcript.ts';
-import { runWrittenAt, unseenFrom, unseenNow } from '../src/unseen.ts';
+import { runWrittenAt, unseenFrom, unseenNow, unseenOf } from '../src/unseen.ts';
 import { acc, fakeClaude, IGNORE, trustingHome } from './dispatch-support.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, launchedSessions, makeRepo, ok, tempDir } from './support.ts';
 
@@ -286,6 +286,9 @@ test('unseenNow judges just now: claude answering is seen, no answer past the gr
   assert.equal(unseenNow(s.paths, s.config, t0, { ...s.deps, run: silent, now: later(40) }, started + 25 * 60_000), 'unanswered', 'a clock the caller kept counts too');
   assert.equal(unseenNow(s.paths, s.config, t0, { ...s.deps, now: later(50) }), null, 'it answers again, and the silence ends');
   assert.equal(unseenNow(s.paths, s.config, { ...t0, state: 'done' }, s.deps), null, 'edge: a task that isn\'t running');
+  unseenOf(s.paths, s.config, 'T-1', { ...s.deps, run: silent, now: later(51) });
+  assert.equal(unseenOf(s.paths, s.config, 'T-1', { ...s.deps, run: silent, now: later(70) }), 'unanswered', 'by id');
+  assert.equal(unseenOf(s.paths, s.config, 'T-9', s.deps), null, 'edge: no such task');
 });
 
 test('an earlier run\'s conversation in a reused worktree isn\'t this run\'s writing (T-93)', () => {
