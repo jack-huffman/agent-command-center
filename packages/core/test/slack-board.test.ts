@@ -228,3 +228,10 @@ test('Save writes both reactions, and a done reaction without a reaction is left
   assert.deepEqual(chosen({ reaction: 'ticket', doneReaction: 'white_check_mark' }), { kind: 'slack', workspace: 'acme', channel: 'C0123ABCD', reaction: 'ticket', doneReaction: 'white_check_mark' });
   assert.deepEqual(chosen({ reaction: null, doneReaction: 'white_check_mark' }), { kind: 'slack', workspace: 'acme', channel: 'C0123ABCD', reaction: null, doneReaction: null });
 });
+
+test('a board and a thread read a person through one helper, and the mention loop is written once (T-87)', () => {
+  const src = readFileSync(new URL('../src/trackers/slack.ts', import.meta.url), 'utf8');
+  assert.equal(src.split("'users.info'").length - 1, 1, 'one users.info call');
+  assert.equal(src.split('<@([A-Z0-9]+)').length - 1, 1, 'one loop over the mentions');
+  assert.equal(src.split('this.namesIn(').length - 1, 2, 'the board and the thread both use it');
+});
