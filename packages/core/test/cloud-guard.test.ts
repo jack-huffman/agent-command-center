@@ -250,6 +250,7 @@ test('in a cloud session, the guard allows a plain push of the recorded branch a
     ['git fetch "ext::sh -c \'git push --no-verify origin HEAD:main\'"', /git fetch ext:: runs a program of its own \(git-remote-ext, or what follows the ::\)/],
     ['git fetch "ext::sh -c \'git push origin HEAD:main\'"', /git fetch ext:: runs a program of its own/],
     ['git fetch "ext::sh -c \'echo hi\'" main', /git fetch ext:: runs a program of its own/],
+    ['git fetch " ext::sh -c \'echo hi\'" main', /git fetch ext:: runs a program of its own/],
     ['git pull "ext::sh -c \'echo hi\'" main', /git pull ext:: runs a program of its own/],
     ['git push "ext::sh -c \'echo hi\'" HEAD:main', /git push ext:: runs a program of its own/],
     ['git ls-remote "ext::sh -c \'echo hi\'"', /git ls-remote ext:: runs a program of its own/],
@@ -720,6 +721,7 @@ test('a reviewer (T-86) may push its verdict branch alone, from Bash runs git on
     [`git push "ext::sh -c 'echo hi'" HEAD:${VERDICT}`, /git push ext:: runs a program of its own \(git-remote-ext/],
     ['git ls-remote fd::3', /git ls-remote isn't a command a cloud reviewer runs/],
     ['git archive --remote=ext::sh HEAD', /git archive isn't a command a cloud reviewer runs/],
+    ['git archive --ex=sh --remote=. HEAD', /git archive isn't a command a cloud reviewer runs/],
     // bash's $'…' quoting (T-88): read as bash reads it, so the word is seen as git would see it
     ["git fetch $'--upload-pack=sh' origin main", /fetches plainly.*Not --upload-pack/],
     ["git fetch $'\\x2d-upload-pack=sh' origin main", /fetches plainly.*Not --upload-pack/],

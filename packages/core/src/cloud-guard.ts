@@ -570,8 +570,8 @@ const TRANSPORT = /^([A-Za-z][A-Za-z0-9+.-]*)::/;
 export function transportProblem(sub, rest) {
   if (!TAKES_REMOTE.has(sub)) return null;
   for (const a of rest) {
-    // The URL may be an option's value too: git archive --remote=ext::…
-    const v = a.replace(/^--[^=]+=/, '');
+    // The URL may be an option's value too: git archive --remote=ext::…; a leading space is trimmed, so " ext::…" is ext:: too.
+    const v = a.replace(/^--[^=]+=/, '').trim();
     const m = TRANSPORT.exec(v);
     if (m) return \`git \${sub} \${m[1]}:: runs a program of its own (git-remote-\${m[1]}, or what follows the ::), which the guard can't see: use origin, by name.\`;
   }

@@ -8373,7 +8373,7 @@ stays the default; analysts stay on the Mac, since a Salesforce analysis needs t
 - **Note (T-88, 2026-10-21): `<transport>::` remotes.** `git fetch "ext::sh -c …"` runs sh through
   git-remote-ext, and `fd::` reads a descriptor; neither names `--no-verify` as a word, so the backstop
   didn't see a push inside one. `transportProblem` refuses, for every role, any `<transport>::` remote or
-  URL (as a word or an option's value, `--remote=ext::…`) on fetch, pull, push, ls-remote, archive, clone,
+  URL (as a word or an option's value, `--remote=ext::…`, trimmed first, so `" ext::…"` counts) on fetch, pull, push, ls-remote, archive, clone,
   remote and submodule. git's own `protocol.allow` refuses ext by default, but a `-c` or `GIT_ALLOW_PROTOCOL`
   could lift it, so the guard doesn't lean on it.
 - **Note (T-88, 2026-10-21): `$'…'` quoting.** The splitters read bash's ANSI-C quoting as bash does, with
