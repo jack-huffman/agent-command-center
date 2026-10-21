@@ -1735,7 +1735,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'the sheet leaves out why the cloud is off', file: 'dispatch-sheet.ts', find: "off ? el('p', 'ds-note muted', icon('info'), el('span', '', off.disabled!)) : null", replace: 'null', kills: [caseNamed('dispatch sheet: the task page')] },
   { name: 'a redraw drops the focused card\'s focus', file: 'board-nav.ts', find: 'if (again) focusOf(again).focus({ preventScroll: true });', replace: '', kills: [caseNamed('board keys: focus stays')] },
   { name: 'a card shows every label, cut short, whatever its width', file: 'fit-labels.ts', find: 'show(chips, more, names, labelsThatFit(widths, room, gap, plus));', replace: 'show(chips, more, names, chips.length);', kills: [caseNamed('narrow card:')] },
-  { name: 'a card never measures its labels', file: 'fit-labels.ts', find: '  setTimeout(fit, 0);\n  new ResizeObserver(fit).observe(row);\n', replace: '', kills: [caseNamed('narrow card:')] },
+  { name: 'a card never measures its labels', file: 'fit-labels.ts', find: '  setTimeout(fit, 0);\n  observer.observe(row);\n', replace: '', kills: [caseNamed('narrow card:')] },
 ];
 
 /** How many times `find` is in `source`: a mutant applies only where it's there exactly once. */
