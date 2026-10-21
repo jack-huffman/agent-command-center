@@ -36,6 +36,12 @@
     "icon": "$(cloud)"
   },
   {
+    "command": "acc.cloud.review",
+    "title": "Choose where a project's reviews run…",
+    "category": "Agent Command Center",
+    "icon": "$(checklist)"
+  },
+  {
     "command": "acc.cloud.routine",
     "title": "Copy the routine prompt for cloud builders",
     "category": "Agent Command Center",

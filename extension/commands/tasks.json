@@ -130,6 +130,12 @@
     "icon": "$(pulse)"
   },
   {
+    "command": "acc.task.reviewLocal",
+    "title": "Review on this Mac",
+    "category": "Agent Command Center",
+    "icon": "$(checklist)"
+  },
+  {
     "command": "acc.task.analyze",
     "title": "Analyze before the build",
     "category": "Agent Command Center",
