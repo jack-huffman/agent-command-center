@@ -124,7 +124,6 @@ test('writeJsonKey writes through writeAtomic, and leaves no temp file', () => {
 /** Writes in core that may use writeFileSync in a function that names the config: one file and the path text it writes, with why. Each reaches only the writes it names (T-83). May only shrink (T-82). */
 const NOT_THE_SETTINGS: { file: string; path: RegExp; why: string }[] = [
   { file: 'dispatch.ts', path: /'\.sf'/, why: "writes the Salesforce CLI's own .sf/config.json into a new worktree, not the project's settings" },
-  { file: 'setup.ts', path: /^file$/, why: 'writes the README and other files the project is set up with, in functions that take the config only to read from it' },
 ];
 
 /** Whether a write is one the list excuses. */
@@ -255,4 +254,17 @@ test('each writer moved to writeAtomic changes the file and leaves no temp file 
   saveTracker(file, null, { kind: 'github' });
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).trackers.length, 1);
   settled('saveTracker');
+});
+
+test('setup.ts has no exception, and a new writeFileSync(file, …) added there is stray (T-87)', () => {
+  assert.ok(!NOT_THE_SETTINGS.some((e) => e.file === 'setup.ts'), 'each of its writes names what it writes, so none looks like the settings');
+  const src = readFileSync(new URL('../src/setup.ts', import.meta.url), 'utf8');
+  const real = writesIn('setup.ts', src);
+  assert.deepEqual(real.map((w) => w.arg).sort(), ['list', 'manifest', 'readme', 'readme', 'readme'], 'the five writes, each with a path named for what it writes');
+  assert.deepEqual(real.filter(writesSettings), [], 'none looks like the settings as it is');
+  // One more, as a variable called file, in a function that takes the config.
+  const added = src.replace("  return { file: readme, created: false, replaced: false };\n}", "  writeFileSync(file, 'x');\n  return { file: readme, created: false, replaced: false };\n}");
+  assert.notEqual(added, src, 'the added write went in');
+  const stray = writesIn('setup.ts', added).filter((w) => writesSettings(w) && !excused(w));
+  assert.deepEqual(stray.map((w) => w.arg), ['file']);
 });
