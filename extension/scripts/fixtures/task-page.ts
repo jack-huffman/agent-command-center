@@ -66,7 +66,8 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', 
       { id: '1', author: { id: 'a2', name: 'Pat Lee' }, created: new Date(now - 5 * 86_400_000).toISOString(), url: null, body: fromAdf({ type: 'doc', content: [p('Support confirmed the 2-hour threshold for High. Medium is still being decided.')] }) },
       { id: '2', author: { id: 'a1', name: 'Jordan Kim' }, created: new Date(now - 3 * 3_600_000).toISOString(), url: null, body: fromAdf({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Going with 8 hours for Medium, per ' }, { type: 'mention', attrs: { text: '@Pat Lee' } }, { type: 'text', text: '. Handed to an agent.' }] }] }) },
     ],
-    related: [{ key: 'ACME-17', title: 'Dashboards for the escalation rules', relation: 'blocks', url: null, status: null, typeKind: null }, { key: 'ACME-3', title: 'Premium Support', relation: 'parent', url: null, status: null, typeKind: null }],
+    // Each with its state and kind, as Jira gives them (T-90), drawn as a row with its chip (T-91).
+    related: [{ key: 'ACME-17', title: 'Dashboards for the escalation rules', relation: 'blocks', url: null, status: TODO, typeKind: 'task' }, { key: 'ACME-3', title: 'Premium Support', relation: 'parent', url: null, status: DOING, typeKind: 'epic' }],
   };
   const task = {
     id: 'ACME-12', title: ticket.title, brief: '', source: { kind: 'jira', key: 'ACME-12', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'running', blocker: null,

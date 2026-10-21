@@ -9,7 +9,7 @@ import { renderVerify } from './verify.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
 import { dayName } from './days.ts';
-import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, iconed, labelChip, linkTo, md, openable, renderDoc, status, when, work } from './dom.ts';
+import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, labelChip, linkTo, md, openable, person, renderDoc, stateChip, status, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { updateDraft } from './updates.ts';
@@ -83,14 +83,43 @@ function composer(m: TicketModel): HTMLElement {
   return el('div', 'composer', box, el('div', 'composer-bar', hint, el('span', 'spacer'), send));
 }
 
+/** One fact in the ticket's head (T-91): an icon and the tracker's word, with what it is in its title. */
+function fact(iconName: string | null, text: string, what: string): HTMLElement {
+  return Object.assign(el('span', 'ticket-fact', iconName ? icon(iconName) : null, text), { title: `${what}: ${text}` });
+}
+
+/** A row of Details (T-91): its icon and name, then its value. */
+function detail(iconName: string, name: string, ...value: Child[]): HTMLElement[] {
+  return [el('dt', '', icon(iconName), name), el('dd', '', ...value)];
+}
+
+/** A relation's name as a heading over its rows: "parent" reads Parent. */
+const relationName = (r: string): string => r.charAt(0).toUpperCase() + r.slice(1);
+
+/**
+ * The ticket's related items (T-91), grouped by how they relate: each row its kind's icon, its key, its title
+ * and its state chip, where its tracker says. A tracker's key opens that ticket's page in place.
+ */
+function renderRelated(m: TicketModel): HTMLElement {
+  const groups = new Map<string, TicketModel['related']>();
+  for (const r of m.related) groups.set(r.relation, [...(groups.get(r.relation) ?? []), r]);
+  const section = el('section', 'block related-block', el('h2', '', 'Related'));
+  for (const [relation, rows] of groups) {
+    section.append(el('h3', 'related-group', relationName(relation)), el('ul', 'related', ...rows.map((r) => {
+      const name = /^[A-Z][A-Z0-9_]*-\d+$/i.test(r.key) ? openable(el('span', 'tcard-key', r.key), { type: 'ticket', project: m.project, tracker: m.tracker, key: r.key }) : el('span', 'tcard-key', r.key);
+      const title = r.title ? Object.assign(el('span', 'related-title', r.title), { title: r.title }) : el('span', 'related-title');
+      return el('li', 'related-row', el('span', 'related-type', r.typeIcon ? icon(r.typeIcon) : null), name, title, r.status ? stateChip({ label: r.status.name, icon: r.status.icon, tone: r.status.tone, quiet: r.status.quiet }) : null);
+    })));
+  }
+  return section;
+}
+
 export function renderTicket(m: TicketModel): Node[] {
   const sourceIcon = KIND_ICON[m.sourceKind] ?? 'checklist';
-  const crumbs = el('div', 'crumbs', icon(sourceIcon), el('span', '', m.sourceLabel), el('span', 'muted', '/'), m.url ? linkTo(m.url, m.key) : el('span', '', m.key));
-  // A field its tracker lacks gets one muted line in place of its control (T-28).
+  // A field its tracker lacks, or one with nothing in it, leaves its place out (T-91): no line, no placeholder.
   const lack = (f: 'status' | 'assignee' | 'labels') => m.lacks.find((l) => l.field === f);
-  const statusEl = m.status && !lack('status') ? el('span', `pill tone-${m.status.tone}`, icon(m.status.icon, m.status.tone), m.status.name) : null;
-  // No pill (the tracker can't give a status, or none came) says so in the head, now Details no longer has the row.
-  let statusCtl: Child = statusEl ?? (lack('status') ? el('span', 'muted', lack('status')!.line) : el('span', 'muted', '—'));
+  const statusEl = m.status && !lack('status') ? stateChip({ label: m.status.name, icon: m.status.icon, tone: m.status.tone, quiet: m.status.quiet }) : null;
+  let statusCtl: Child = statusEl;
   if (statusEl && m.can.status) {
     const b = el('button', 'btn status-btn', statusEl, icon('chevron-down')) as HTMLButtonElement;
     b.type = 'button';
@@ -98,7 +127,8 @@ export function renderTicket(m: TicketModel): Node[] {
     b.addEventListener('click', () => ticketAction('status'));
     statusCtl = b;
   }
-  const type = m.type ? el('span', 'chip-lg', icon(m.typeIcon), m.type) : null;
+  const type = m.type ? fact(m.typeIcon, m.type, 'Type') : null;
+  const priority = m.priority ? fact(m.priorityIcon, m.priority, 'Priority') : null;
   const tools: Child[] = [];
   if (m.url) {
     const open = el('button', 'btn ghost', icon('link-external'), KIND_NAME[m.sourceKind] ? `Open in ${KIND_NAME[m.sourceKind]}` : 'Open ticket') as HTMLButtonElement;
@@ -110,7 +140,12 @@ export function renderTicket(m: TicketModel): Node[] {
   refresh.type = 'button';
   refresh.addEventListener('click', () => ticketAction('refresh'));
   tools.push(refresh);
-  const out: Node[] = [el('header', 'ticket-head', crumbs, el('h1', 'ticket-title', m.title), el('div', 'ticket-bar', statusCtl, type, el('span', 'spacer'), ...tools))];
+  // The head (T-91): the tracker's mark and the key, with the ticket's tools at the right; the title, large; then
+  // one row of its state, kind and priority.
+  const mark = Object.assign(el('span', 'ticket-mark', icon(sourceIcon)), { title: KIND_NAME[m.sourceKind] ?? 'Task kept by acc' });
+  const crumbs = el('div', 'crumbs', mark, el('span', 'crumb-source', m.sourceLabel), el('span', 'muted', '/'), m.url ? linkTo(m.url, m.key) : el('span', '', m.key));
+  const facts = statusCtl || type || priority ? el('div', 'ticket-facts', statusCtl, type, priority) : null;
+  const out: Node[] = [el('header', 'ticket-head', el('div', 'ticket-source', crumbs, el('span', 'spacer'), el('div', 'ticket-tools', ...tools)), el('h1', 'ticket-title', m.title), facts)];
   if (m.error) {
     const fix = m.connect ? argButton(m.connect.command, m.connect.label, 'plug', m.connect.arg, true) : null;
     out.push(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', m.error), fix));
@@ -156,27 +191,21 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.acc?.notes) main.append(el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)));
   const note = renderNote(m);
   if (note) main.append(note);
-  if (m.related.length) {
-    main.append(el('section', 'block', el('h2', '', 'Related'), el('ul', 'related', ...m.related.map((r) => {
-      const name = /^[A-Z][A-Z0-9_]*-\d+$/i.test(r.key) ? openable(el('span', 'tcard-key', r.key), { type: 'ticket', project: m.project, tracker: m.tracker, key: r.key }) : el('span', 'tcard-key', r.key);
-      return el('li', '', el('span', 'muted rel', r.relation), name, r.title ? el('span', '', r.title) : null);
-    }))));
-  }
+  if (m.related.length) main.append(renderRelated(m));
   const activity = renderActivity(m);
   if (activity) main.append(activity);
 
-  // The side column: the ticket's fields, then acc's side of it.
-  const people = (list: PersonChip[]) => (list.length ? el('span', 'people', ...list.map((p) => el('span', 'person', avatar(p), p.name))) : el('span', 'muted', 'Unassigned'));
-  const details = el('dl', 'fields',
-    ...field(m.assignees.length > 1 ? 'Assignees' : 'Assignee', lack('assignee') ? el('span', 'muted', lack('assignee')!.line) : people(m.assignees), m.can.assign ? editButton('Change', 'assign') : null),
-    ...(m.reporter ? field('Reporter', el('span', 'person', avatar(m.reporter), m.reporter.name)) : []),
-    ...field('Labels', lack('labels') ? el('span', 'muted', lack('labels')!.line) : m.labels.length ? el('span', 'labels', ...m.labels.map(labelChip)) : el('span', 'muted', 'None'), m.can.labels ? editButton('Edit', 'labels') : null),
-    ...(m.priority ? field('Priority', m.priorityIcon ? iconed(m.priorityIcon, m.priority) : el('span', '', m.priority)) : []),
-    ...(m.type ? field('Type', iconed(m.typeIcon, m.type)) : []),
-    ...field('Created', when(m.created)),
-    ...field('Updated', when(m.updated)),
-  );
-  const side = el('aside', 'ticket-side', el('section', 'side-panel side-details', el('h2', '', 'Details'), details));
+  // The side column: the ticket's fields, then acc's side of it. Details lists only the rows its tracker has
+  // something for (T-91); a row with nothing in it stays only to hold its Change or Add.
+  const people = (list: PersonChip[]) => el('span', 'people', ...list.map(person));
+  const details = [
+    ...(lack('assignee') || (!m.assignees.length && !m.can.assign) ? [] : detail('account', m.assignees.length > 1 ? 'Assignees' : 'Assignee', m.assignees.length ? people(m.assignees) : null, m.can.assign ? editButton(m.assignees.length ? 'Change' : 'Assign', 'assign') : null)),
+    ...(m.reporter ? detail('person', 'Reporter', person(m.reporter)) : []),
+    ...(lack('labels') || (!m.labels.length && !m.can.labels) ? [] : detail('tag', 'Labels', m.labels.length ? el('span', 'labels', ...m.labels.map(labelChip)) : null, m.can.labels ? editButton(m.labels.length ? 'Edit' : 'Add', 'labels') : null)),
+    ...(m.created ? detail('calendar', 'Created', when(m.created)) : []),
+    ...(m.updated ? detail('history', 'Updated', when(m.updated)) : []),
+  ];
+  const side = el('aside', 'ticket-side', details.length ? el('section', 'side-details', el('h2', '', 'Details'), el('dl', 'fields details-list', ...details)) : null);
   if (m.acc) {
     const a = m.acc;
     side.append(el('section', `side-panel side-agent${a.look.tone === 'orange' ? ' attention' : ''}`, el('h2', '', icon('hubot'), 'Agent'),
@@ -285,9 +314,11 @@ const FEED_FIRST = 6;
  */
 function renderActivity(m: TicketModel): HTMLElement | null {
   const items: { at: string; node: HTMLElement }[] = [];
+  // A comment (T-91): its author's avatar, their name, with their email in its title, and when; then its body as reading text.
   for (const c of m.comments) {
+    const name = Object.assign(el('strong', 'act-name', c.author.name), c.author.email ? { title: c.author.email } : {});
     items.push({ at: c.created, node: feedItem(el('span', 'act-icon act-avatar', avatar(c.author)),
-      [el('strong', '', c.author.name), el('span', 'muted', 'commented'), el('span', 'muted', '·'), when(c.created), c.url ? linkTo(c.url, icon('link-external')) : null],
+      [name, el('span', 'muted', '·'), when(c.created), c.url ? linkTo(c.url, icon('link-external')) : null],
       el('div', 'act-comment', renderDoc(c.body, ''))) });
   }
   for (const h of m.acc?.history ?? []) {

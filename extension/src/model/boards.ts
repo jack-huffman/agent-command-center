@@ -15,26 +15,30 @@ import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, clou
 
 // ---------------------------------------------------------------- tracker boards (D-026)
 
+/** How a tracker's state shows on its chip (T-91): an icon and a tone, and quiet for done work, which the chip draws subdued. */
+export interface StateTone { icon: string; tone: Tone; quiet?: boolean }
+
 /**
  * A tracker's status by its category (GH-105): an icon beside the tracker's own name for it, and its tone, as acc's own states show.
- * Blue while a ticket is moving; to-do and done stay neutral, so orange keeps meaning a person is needed.
+ * Blue while a ticket is moving; to-do and done stay neutral, so orange keeps meaning a person is needed. Doing's icon
+ * is a play mark, not sync, as nothing is syncing (T-91); done is quiet.
  */
-export const CATEGORY_LOOK: Record<StatusCategory, { icon: string; tone: Tone }> = { todo: { icon: 'circle-outline', tone: 'neutral' }, doing: { icon: 'sync', tone: 'blue' }, done: { icon: 'check', tone: 'neutral' } };
+export const CATEGORY_LOOK: Record<StatusCategory, StateTone> = { todo: { icon: 'circle-outline', tone: 'neutral' }, doing: { icon: 'play-circle', tone: 'blue' }, done: { icon: 'check', tone: 'neutral', quiet: true } };
 
 /**
  * A tracker's status closed without the work (T-90), as GitHub's "Closed as not planned" and Azure DevOps' Removed
  * are: a slashed circle, neutral, where its category's look would say done.
  */
-export const NOT_PLANNED_LOOK: { icon: string; tone: Tone } = { icon: 'circle-slash', tone: 'neutral' };
+export const NOT_PLANNED_LOOK: StateTone = { icon: 'circle-slash', tone: 'neutral' };
 
 /** A tracker's status's look on the ticket page: not planned's own, else its category's. */
-export const statusLook = (s: Pick<Status, 'category' | 'reason'>): { icon: string; tone: Tone } => (s.reason === 'not-planned' ? NOT_PLANNED_LOOK : CATEGORY_LOOK[s.category]);
+export const statusLook = (s: Pick<Status, 'category' | 'reason'>): StateTone => (s.reason === 'not-planned' ? NOT_PLANNED_LOOK : CATEGORY_LOOK[s.category]);
 
 /** A tracker's column that holds work waiting on someone, by its name: under way to the tracker, but not moving. */
 const WAITING = /\b(block|blocked|stuck|on hold|waiting|impeded)\b/i;
 
 /** A column's look: orange and blocked when its name says the work waits, else its category's. */
-export function columnLook(name: string, category: StatusCategory): { icon: string; tone: Tone } {
+export function columnLook(name: string, category: StatusCategory): StateTone {
   return category !== 'done' && WAITING.test(name) ? { icon: 'circle-slash', tone: 'orange' } : CATEGORY_LOOK[category];
 }
 
@@ -47,13 +51,20 @@ export interface Who {
 /** A person's key on a board: the tracker's id for them, else their name. */
 export const whoKey = (p: { id?: string; name: string }): Who => ({ key: p.id ?? p.name, name: p.name });
 
+/**
+ * A person as the page draws them: their name and initials, the key their avatar's tint comes from (the tracker's id,
+ * else their name), so one person keeps one tint on every page (T-91), and their email for the name's title, or null.
+ */
 export interface PersonChip {
   name: string;
   initials: string;
+  key: string;
+  email: string | null;
 }
 
-export const initials = (name: string): string => name.replace(/[^\p{L}\p{N}\s.-]/gu, '').split(/[\s.-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') || '?';
-export const chip = (p: { name: string }): PersonChip => ({ name: p.name, initials: initials(p.name) });
+/** A name's initials: an email's domain is no part of a name, so jordan@acme.example is J, not JA (T-91). */
+export const initials = (name: string): string => name.replace(/@.*$/, '').replace(/[^\p{L}\p{N}\s.-]/gu, '').split(/[\s.-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') || '?';
+export const chip = (p: { id?: string; name: string; email?: string }): PersonChip => ({ name: p.name, initials: initials(p.name), key: p.id || p.name, email: p.email ?? null });
 
 /** A codicon for each kind of ticket (T-90), so a bug reads as a bug at a glance. */
 export const TYPE_ICON: Record<TypeKind, string> = {
@@ -74,7 +85,7 @@ export interface BoardInput {
   index: number;
   kind: TrackerKind;
   title: string;
-  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; typeKind?: TypeKind | null; assignees: { id?: string; name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null; priorityLevel?: PriorityLevel | null; fullTitle?: string }[] } | null;
+  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; typeKind?: TypeKind | null; assignees: { id?: string; name: string; email?: string }[]; labels: { name: string; color: string | null }[]; priority: string | null; priorityLevel?: PriorityLevel | null; fullTitle?: string }[] } | null;
   error: string | null;
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
@@ -124,6 +135,8 @@ export interface TrackerColumn {
   name: string;
   icon: string;
   tone: Tone;
+  /** A done column's chip is drawn quiet (T-91). */
+  quiet?: boolean;
   done: boolean;
   cards: TrackerCard[];
 }

@@ -8451,3 +8451,57 @@ fills every field its tracker gives, in one form, so a later redraw (T-91) can d
 The extension's `BoardInput` takes `typeKind` and `priorityLevel` as optional, so a card without them
 draws the plain icons. Tested in `packages/core/test/tracker-fields.test.ts` (15 tests: each client
 through a fake of its API, with the fallbacks) and `extension/test/tracker-fields.test.ts` (5 tests).
+
+## D-??? Tickets look considered on every tracker: one state chip, tinted labels and avatars (2026-10-21)
+
+The person asked for the ticket page and the board to look beautiful for Jira, GitHub, Azure DevOps,
+monday.com and Slack alike, guided by Apple's design principles. A ticket page was a stack of same-weight
+grey boxes, every state an outline, every label a grey pill, every avatar the same blue, and a card showed
+no priority or person beside its title. T-91 draws the fields D-185 fills, with one visual system.
+
+- **One scale, defined once.** `styles.css`'s `:root` holds it: spacing `--space-1` to `--space-6` (0.25,
+  0.5, 0.75, 1, 1.5 and 2 rem, so larger text keeps its room); radii `--radius-s` 4 px, `--radius-m` 6 px,
+  `--radius-l` 10 px and `--radius-full`; type `--text-meta` 0.85em, `--text-read` 1.04em and
+  `--text-title` 1.85em; leading `--leading-title` 1.15 and `--leading-read` 1.6; tracking `--track-title`
+  -0.015em and `--track-meta` 0.01em; a card's press `--press-scale` 0.98 over `--press-time` 100 ms. The
+  new rules on the ticket page and the cards take their sizes from it.
+- **The palette.** Five tints, `--tint-1` to `--tint-5`: VSCode's `charts.purple`, `terminal.ansiCyan`,
+  `charts.yellow`, `terminal.ansiMagenta` and `terminal.ansiBlue`. None is red or green, nor orange, which
+  keeps meaning a person is needed. Light and Dark set each in `theme.css` from the colour registry's
+  defaults in VSCode 1.143.0 (D-098); Match VSCode takes the theme's own. `looks.test.ts` resolves each in
+  both palettes and fails on a red, a green or a grey one.
+- **One state chip.** `stateChip` in `dom.ts` is a soft fill in its tone, its icon and its label, with the
+  words in the theme's text colour so they keep their contrast. It draws a ticket's state on its page, each
+  related row's, every board's column headings (the agent board's too) and acc's state on a tracker's card.
+  Doing's icon is `play-circle`, not `sync`, since nothing is syncing; done is `quiet` (a fainter fill and
+  muted words); closed as not planned keeps `circle-slash`, neutral. `looks.test.ts` walks the chip in
+  each place from the screenshot fixtures.
+- **Labels and avatars are tinted.** A label chip takes the tracker's own colour where it gives six hex
+  digits, else the tint its name picks, the same in any case (`labelTint` in `extension/webview/tints.ts`).
+  An avatar's tint comes from the person's key: the tracker's id, else the name (`PersonChip.key`), so one
+  person keeps one tint on every page. The text stays in the theme's colour on a soft fill. Initials drop an
+  email's domain, and a person's name carries their email in its title.
+- **The ticket page.** The head is the tracker's mark, where the ticket lives and its key, with Open and
+  Refresh at the right; the title in the large style; then one row of the state chip, the type and the
+  priority, each with its icon. The main column's sections now sit on the page, parted by space and a
+  hairline, not in raised panels (this changes D-127 for the ticket page's main column); Details is an
+  aligned list with an icon per row, on the page; the Agent panel stays the one raised surface beside them.
+  Related items are grouped by relation, each row its type icon, key, title and state chip, and a tracker
+  key opens in place. A comment is its author's avatar, name and time, then its body as reading text.
+- **A missing field leaves its place out.** A field the tracker lacks, or one with nothing in it, draws no
+  row and no line: no "None", no "Unassigned", no dash, and no T-28 line naming what the tracker lacks
+  (`lacks` still reaches the model). A row with nothing in it stays only where it holds a Change or Add.
+  `extension/test/ticket-look.test.ts` draws every tracker's page in page-dom.ts's small document and fails
+  on such a placeholder.
+- **The board's cards.** The top row is the type icon, the key and the priority icon; the title shows up to
+  three lines, whole in its title; then up to three label chips, "+2" naming the rest in its title, and up
+  to three avatars at the right. Done cards are quieter. A card shrinks to 0.98 on press, lifts a pixel
+  under the pointer and shows a 2 px focus ring; under reduced motion only its edge colour changes. Track
+  is one width on every card, whether it says Track or Tracking….
+- **Every tracker is drawn.** The screenshot run gains a GitHub issue's page, an Azure DevOps Product
+  Backlog Item's page, a monday.com item's page and an Azure DevOps board
+  (`extension/scripts/fixtures/tracker-tickets.ts`), and the GitHub board's labels carry GitHub's own
+  colours.
+
+The ticket header isn't sticky, so it needs no translucent material. Tested in
+`extension/test/ticket-look.test.ts` (10 tests) and two more in `extension/test/looks.test.ts`.

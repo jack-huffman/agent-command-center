@@ -2,6 +2,13 @@
 // attributes, classes, listeners and focus, and the VSCode API the page posts its messages to. It is no
 // browser: what a browser does with layout, keys and dialogs is the behaviour run's (scripts/behaviour.ts).
 
+/** An element's inline style (T-91): the custom properties the page sets on it, such as a chip's --tint-colour. */
+export class PageStyle {
+  readonly properties = new Map<string, string>();
+  setProperty(name: string, value: string): void { this.properties.set(name, value); }
+  getPropertyValue(name: string): string { return this.properties.get(name) ?? ''; }
+}
+
 /** An element: its tag, attributes, children and listeners; focus() makes it the document's active element. */
 export class PageElement {
   readonly tagName: string;
@@ -9,16 +16,26 @@ export class PageElement {
   readonly children: (PageElement | string)[] = [];
   readonly dataset: Record<string, string> = {};
   readonly listeners = new Map<string, ((e: unknown) => void)[]>();
+  readonly style = new PageStyle();
   className = '';
   type = '';
   title = '';
   disabled = false;
+  tabIndex = -1;
+  /** Its classes, read from and written to className, as a browser's classList is. */
+  readonly classList = {
+    add: (...c: string[]): void => { this.className = [...new Set([...this.classes(), ...c])].join(' '); },
+    remove: (...c: string[]): void => { this.className = this.classes().filter((x) => !c.includes(x)).join(' '); },
+    contains: (c: string): boolean => this.classes().includes(c),
+    toggle: (c: string, on?: boolean): boolean => { const want = on ?? !this.classes().includes(c); if (want) this.classList.add(c); else this.classList.remove(c); return want; },
+  };
   private readonly doc: PageDocument;
   constructor(tag: string, doc: PageDocument) {
     this.tagName = tag.toUpperCase();
     this.doc = doc;
   }
   append(...nodes: (PageElement | string)[]): void { this.children.push(...nodes); }
+  replaceChildren(...nodes: (PageElement | string)[]): void { this.children.splice(0, this.children.length, ...nodes); }
   setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
   addEventListener(type: string, f: (e: unknown) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), f]); }
@@ -26,6 +43,15 @@ export class PageElement {
   click(): void { if (!this.disabled) for (const f of this.listeners.get('click') ?? []) f({ type: 'click', stopPropagation: () => undefined }); }
   focus(): void { this.doc.activeElement = this; }
   get textContent(): string { return this.children.map((c) => (typeof c === 'string' ? c : c.textContent)).join(''); }
+  get childElementCount(): number { return this.children.filter((c) => typeof c !== 'string').length; }
+  private classes(): string[] { return this.className.split(/\s+/).filter(Boolean); }
+  /** Every element under it, depth first, as a selector of one class would find them. */
+  all(cls?: string): PageElement[] {
+    const under = this.children.flatMap((c) => (typeof c === 'string' ? [] : [c, ...c.all()]));
+    return cls ? under.filter((e) => e.classList.contains(cls)) : under;
+  }
+  /** The first element under it with one class, written as .name: the only selector the page's drawing asks of it. */
+  querySelector(selector: string): PageElement | null { return /^\.[\w-]+$/.test(selector) ? this.all(selector.slice(1))[0] ?? null : null; }
 }
 
 export class PageDocument {
@@ -34,6 +60,9 @@ export class PageDocument {
   activeElement: PageElement = this.body;
   createElement(tag: string): PageElement { return new PageElement(tag, this); }
   createTextNode(text: string): string { return text; }
+  /** Listeners the page sets on the document as it loads, such as the ⋯ menus' close on a click elsewhere. */
+  readonly listeners = new Map<string, ((e: unknown) => void)[]>();
+  addEventListener(type: string, f: (e: unknown) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), f]); }
   private readonly byId = new Map<string, PageElement>();
   /** One element per id, made on first ask, so a module that looks an id up twice gets the same one. */
   getElementById(id: string): PageElement {
@@ -55,5 +84,7 @@ export function pageDom(): Page {
   const g = globalThis as Record<string, unknown>;
   g.document = page.document;
   g.acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => undefined, setState: () => {} });
+  // A fold checks after a frame whether it needs its toggle (dom.ts's foldable); here no frame comes.
+  g.requestAnimationFrame ??= () => 0;
   return page;
 }

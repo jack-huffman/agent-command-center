@@ -1,6 +1,16 @@
 /* ---------------------------------------------------------------- a ticket's page */
 body[data-view="ticket"] { padding-top: 18px; }
-.ticket-head { padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+.ticket-head { padding-bottom: var(--space-5); margin-bottom: var(--space-5); border-bottom: 1px solid color-mix(in srgb, var(--vscode-foreground) 8%, transparent); }
+/* The head's first line (T-91): the tracker's mark, where the ticket lives and its key, with the ticket's tools at the right. */
+.ticket-source { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-2); }
+.ticket-source .crumbs { margin: 0; min-width: 0; flex-wrap: wrap; }
+.ticket-tools { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; }
+.ticket-mark { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; border-radius: var(--radius-m); background: color-mix(in srgb, var(--vscode-foreground) 8%, transparent); color: var(--vscode-foreground); flex: none; }
+.crumb-source { letter-spacing: var(--track-meta); }
+/* One row under the title (T-91): its state chip, then its kind and priority, each an icon and the tracker's word. */
+.ticket-facts { display: flex; align-items: center; gap: var(--space-2) var(--space-4); flex-wrap: wrap; }
+.ticket-fact { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--vscode-descriptionForeground); font-size: 0.93em; letter-spacing: var(--track-meta); }
+.ticket-fact .codicon { color: var(--vscode-foreground); }
 
 .notice.why { align-items: flex-start; margin-bottom: 4px; }
 .notice.why > .codicon, .notice.recap > .codicon { margin-top: 2px; flex: none; min-width: 0; }
@@ -13,23 +23,21 @@ body[data-view="ticket"] { padding-top: 18px; }
 /* An agent's name (D-087): one line, clipped with … in a narrow tab, in full on hover. */
 .crumb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .openable.crumb-name { color: var(--vscode-textLink-foreground); cursor: pointer; }
-.ticket-title { font-size: 1.65em; line-height: 1.25; margin: 0 0 10px; word-break: break-word; letter-spacing: -0.01em; }
+.ticket-title { font-size: var(--text-title); font-weight: 600; line-height: var(--leading-title); margin: 0 0 var(--space-3); word-break: break-word; letter-spacing: var(--track-title); }
 .ticket-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.pill { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; border-radius: 3px; font-size: 0.85em; font-weight: 600; line-height: 1.8; border: 1px solid var(--line); background: var(--card); color: var(--vscode-foreground); }
-.pill.tone-blue { border-color: var(--blue); color: var(--blue); }
-.pill.tone-orange { border-color: var(--orange); color: var(--orange); }
-.pill .codicon { font-size: 13px; }
-.btn.status-btn { padding: 2px 6px 2px 2px; gap: 4px; background: transparent; }
+/* Where the tracker allows it, the state chip is a button that changes the status, with a caret beside it. */
+.btn.status-btn { padding: 1px 6px 1px 1px; gap: 4px; background: transparent; border-color: transparent; box-shadow: none; border-radius: var(--radius-full); }
 .btn.status-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
-.chip-lg { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 3px; border: 1px solid var(--line); font-size: 0.92em; color: var(--vscode-descriptionForeground); }
 
 .ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: auto 1fr; gap: 0 28px; align-items: start; }
 /* Why it's stuck and its analysis come first, above the description; the side column runs beside both. */
 .ticket-top { grid-column: 1; grid-row: 1; min-width: 0; margin-bottom: 20px; }
 .ticket-main { grid-column: 1; grid-row: 2; min-width: 0; }
-/* The main column's sections are raised panels, as the side panels and the other pages' are (D-127). */
-.ticket-main > section.block { background: var(--raised); border: 1px solid var(--edge); border-radius: var(--radius); box-shadow: var(--lift); padding: 12px 16px; margin-bottom: 16px; }
-.ticket-main > section.block > h2:first-child { margin-top: 0; }
+/* The main column's sections sit on the page, not in boxes (T-91): space and a hairline between them group
+   them, and the side column's Agent panel is the one raised surface beside them. */
+.ticket-main > section.block { padding: 0 0 var(--space-5); margin-bottom: var(--space-5); border-bottom: 1px solid color-mix(in srgb, var(--vscode-foreground) 8%, transparent); }
+.ticket-main > section.block:last-child { border-bottom: 0; }
+.ticket-main > section.block > h2:first-child { margin-top: 0; margin-bottom: var(--space-3); }
 /* The description's heading, with its Edit at the right where the tracker allows edits (T-80). */
 .desc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .desc-head > h2 { margin: 0; }
@@ -44,14 +52,23 @@ body[data-view="ticket"] { padding-top: 18px; }
   .ticket-side { display: contents; }
   /* The grid's gap spaces the panels. The base rule for a panel after a panel comes later in this file, so this names the grid to win: without it, the Agent panel, second in the DOM, kept 14px above it (T-47). */
   .ticket-grid .side-panel + .side-panel { margin-top: 0; }
+  .ticket-grid .side-details + .side-panel { margin-top: 0; }
   .side-agent { order: -2; }
   .ticket-top { order: -1; }
   .side-details { order: 1; }
 }
-.ticket-main h2, .side-panel h2, .analysis h2 { font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
+.ticket-main h2, .side-panel h2, .side-details h2, .analysis h2 { font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
 .ticket-main h3 { font-size: 0.95em; margin: 18px 0 8px; color: var(--vscode-foreground); }
 .side-panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--card); }
 .side-panel + .side-panel { margin-top: 14px; }
+/* Details sits on the page (T-91): an aligned list, an icon and a name beside each value, with the Agent panel under it. */
+.side-details { padding: 0 0 var(--space-4); }
+.side-details > h2 { margin: 0 0 var(--space-3); }
+.side-details + .side-panel { margin-top: var(--space-2); }
+.details-list { gap: var(--space-3) var(--space-4); align-items: baseline; }
+.details-list dt { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.details-list dt .codicon { color: var(--vscode-descriptionForeground); }
+.details-list dd { align-items: center; }
 .side-panel.attention { border-left: 3px solid var(--orange); }
 .fields { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; margin: 0; align-items: center; }
 .fields dt { color: var(--vscode-descriptionForeground); font-size: 0.93em; }
@@ -62,8 +79,7 @@ body[data-view="ticket"] { padding-top: 18px; }
 /* Its label stays beside the first line, as a stopped agent's last words can run long (D-067), and so
    can an agent's name (D-087). */
 .fields dt:has(+ dd > .status), .fields dt:has(+ dd > .agent-name) { align-self: start; padding-top: 1px; }
-.people { display: flex; flex-direction: column; gap: 4px; }
-.person { display: inline-flex; align-items: center; gap: 6px; }
+.people { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 .clip-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-block; }
 .checks { margin-top: 12px; }
 .checks h3 { font-size: 0.93em; margin: 0 0 6px; color: var(--vscode-descriptionForeground); }
@@ -89,9 +105,16 @@ body[data-view="ticket"] { padding-top: 18px; }
 .note-open .note-lines li + li { border-top: 1px solid var(--line); }
 .note-line { flex: 1 1 240px; min-width: 0; }
 .note-task { flex: none; padding: 0 6px; }
+/* Related items (T-91), under a heading per relation: each row its kind's icon, its key, its title cut to one
+   line with the whole of it in its title, and its state chip at the right. */
+.ticket-main .related-group { margin: var(--space-3) 0 var(--space-1); font-size: var(--text-meta); font-weight: 600; letter-spacing: var(--track-meta); color: var(--vscode-descriptionForeground); }
 .related { list-style: none; margin: 0; padding: 0; }
-.related li { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
-.related .rel { min-width: 90px; font-size: 0.9em; }
+.related-row { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-1) 0; min-width: 0; }
+.related-row + .related-row { border-top: 1px solid color-mix(in srgb, var(--vscode-foreground) 6%, transparent); }
+.related-type { display: inline-flex; width: 1rem; flex: none; color: var(--vscode-descriptionForeground); }
+.related-row > .tcard-key { flex: none; }
+.related-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.related-row > .state-chip { flex: none; }
 
 .comment { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
 .comment .avatar { width: 2.475em; height: 2.475em; font-size: 0.808em; }
@@ -120,5 +143,9 @@ body[data-view="ticket"] { padding-top: 18px; }
 .act-reason-text.clamped { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), rgba(0, 0, 0, 0.35)); mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4em), rgba(0, 0, 0, 0.35)); }
 .act-body .foldable { margin-bottom: 2px; }
 .act-body .fold-toggle { margin: 2px 0 0 10px; }
-.act-comment { margin: 4px 0 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+/* A comment's body is reading text (T-91): no box, a little larger and looser, and a line no longer than reads well. */
+.act-comment { margin: var(--space-1) 0 var(--space-2); max-width: 44rem; font-size: var(--text-read); }
+.act-comment .doc { line-height: var(--leading-read); }
+.act-comment .doc p:last-child { margin-bottom: 0; }
+.act-name { font-weight: 600; }
 .act-more { margin: 4px 0 0 38px; }

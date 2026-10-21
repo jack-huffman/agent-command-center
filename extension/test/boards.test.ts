@@ -34,10 +34,10 @@ test('a board says each thing once: a repo\'s issues are "Issues" on the switch,
 
 test('a tracker column whose name says its work waits is orange and blocked, not under way', () => {
   for (const name of ['Blocked', 'On hold', 'Stuck', 'Waiting on client', 'Impeded']) assert.deepEqual(columnLook(name, 'doing'), { icon: 'circle-slash', tone: 'orange' }, name);
-  assert.deepEqual(columnLook('In Progress', 'doing'), { icon: 'sync', tone: 'blue' });
-  assert.deepEqual(columnLook('Testing', 'doing'), { icon: 'sync', tone: 'blue' });
-  assert.deepEqual(columnLook('Unblocked', 'doing'), { icon: 'sync', tone: 'blue' }, 'a word, not part of one');
-  assert.deepEqual(columnLook('Done', 'done'), { icon: 'check', tone: 'neutral' });
+  assert.deepEqual(columnLook('In Progress', 'doing'), { icon: 'play-circle', tone: 'blue' });
+  assert.deepEqual(columnLook('Testing', 'doing'), { icon: 'play-circle', tone: 'blue' });
+  assert.deepEqual(columnLook('Unblocked', 'doing'), { icon: 'play-circle', tone: 'blue' }, 'a word, not part of one');
+  assert.deepEqual(columnLook('Done', 'done'), { icon: 'check', tone: 'neutral', quiet: true });
 });
 
 test('T-42: Change carries the sign-in in its title, scope first, then the bare account, then nothing (edge: not signed in)', () => {

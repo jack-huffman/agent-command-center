@@ -168,7 +168,9 @@ test('large titles sit a little tighter, and body text has no letter spacing of 
   const rules = cssRules(pageStyles());
   const spacing = (sel: string) => rules.filter((r) => selectors(r.selector).includes(sel)).flatMap((r) => r.declarations).find((d) => d.name === 'letter-spacing')?.value;
   assert.equal(spacing('h1'), '-0.01em');
-  assert.equal(spacing('.ticket-title'), '-0.01em');
+  // A ticket's title takes the scale's title tracking (T-91).
+  assert.equal(spacing('.ticket-title'), 'var(--track-title)');
+  assert.equal(rules.find((r) => r.selector === ':root' && r.declarations.some((d) => d.name === '--track-title'))?.declarations.find((d) => d.name === '--track-title')?.value, '-0.015em');
   assert.equal(spacing('body'), undefined, 'body text stays at 0');
 });
 

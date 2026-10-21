@@ -14,7 +14,7 @@ import { agentLook } from '../src/logic/agents.ts';
 import { type AgentSession, TASK_GROUPS, type TaskRow, type Tone } from '../src/logic/shared.ts';
 import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/about.ts';
 import { billingLook } from '../src/model/agents.ts';
-import { accLook, CATEGORY_LOOK, columnLook, PRIORITY_ICON, priorityIcon, statusLook, TYPE_ICON } from '../src/model/boards.ts';
+import { accLook, CATEGORY_LOOK, columnLook, PRIORITY_ICON, priorityIcon, statusLook, trackerBoard, TYPE_ICON } from '../src/model/boards.ts';
 import { analysisLook, autopilotLook, closedPrLook, cloudReviewLook, filesLook, placeLook, stoppedLook } from '../src/model/cards.ts';
 import { BUILDER_PLACE_LOOK } from '../../packages/core/src/cloud.ts';
 import { cloudSetting, protectionLook } from '../src/model/settings.ts';
@@ -37,8 +37,14 @@ import { worktreeLook } from '../src/model/worktrees.ts';
 import { loadWord, taskLook } from '../src/progress.ts';
 import { SLACK_KIND_WORDS, SLACK_KINDS, slackCard } from '../src/slack.ts';
 import { PANEL, panelLook } from '../webview/looks.ts';
+import { TINTS } from '../webview/tints.ts';
 import { MOVE_LOOK } from '../webview/board-keys.ts';
 import { sampleAbout } from '../scripts/fixtures/about.ts';
+import { sampleBoards, sampleGithubBoards, sampleMondayBoards, sampleSlackBoards, sampleSprintBoards } from '../scripts/fixtures/boards.ts';
+import { sampleHub } from '../scripts/fixtures/hub.ts';
+import { ROOT } from '../scripts/fixtures/shared.ts';
+import { sampleTicket } from '../scripts/fixtures/task-page.ts';
+import { sampleAzureBoards, sampleTrackerTicket } from '../scripts/fixtures/tracker-tickets.ts';
 import { cssRules, PALETTE_THEMES, type PaletteTheme, pageStyles, palettes } from '../scripts/styles.ts';
 import { root, row } from './support.ts';
 
@@ -68,6 +74,25 @@ const files = (o: Partial<NonNullable<TaskRow['files']>>): NonNullable<TaskRow['
 const share = { task: 'T-2', files: ['a.ts'] };
 const held = { at: '2026-10-07T00:00:00Z', failed: null, byAutopilot: false };
 const product = <A, B>(as: readonly A[], bs: readonly B[]): [A, B][] => as.flatMap((a) => bs.map((b): [A, B] => [a, b]));
+
+/**
+ * What the state chip shows in each place it's drawn (T-91): the ticket page's state on every tracker, each
+ * related row's, every board's column headings, and acc's state on a tracker's cards. The agent board's
+ * headings are core's DISPLAY, which its own table walks.
+ */
+function chipStates(): [string, Shown][] {
+  const now = Date.now();
+  const pages = [...(['ACME-12', 'ACME-31', 'ACME-50'] as const).map((k) => sampleTicket(now, k)), ...(['github', 'azure', 'monday'] as const).map((k) => sampleTrackerTicket(now, k))];
+  const rows = sampleHub(now).taskRows(ROOT);
+  const boards = [sampleBoards(), sampleGithubBoards(), sampleMondayBoards(), sampleAzureBoards(), sampleSprintBoards(), sampleSlackBoards('board')].flat().map((b) => trackerBoard(b, rows, ROOT));
+  const state = (s: { name: string; icon: string; tone: string; quiet?: boolean }): Shown => ({ label: s.name, icon: s.icon, tone: s.tone });
+  return [
+    ...pages.flatMap((m): [string, Shown][] => (m.status ? [[`${m.key}'s page`, state(m.status)]] : [])),
+    ...pages.flatMap((m) => m.related.flatMap((r): [string, Shown][] => (r.status ? [[`${m.key}'s related ${r.key}`, state(r.status)]] : []))),
+    ...boards.flatMap((b) => b.columns.map((c): [string, Shown] => [`${b.tab}'s column ${c.name}`, { label: c.name, icon: c.icon, tone: c.tone }])),
+    ...boards.flatMap((b) => b.columns.flatMap((c) => c.cards.flatMap((x): [string, Shown][] => (x.acc ? [[`${b.tab}'s card ${x.key}`, x.acc.look]] : [])))),
+  ];
+}
 
 /** Every table and function that maps a state to how it shows, with every value it takes. */
 export const TABLES: Table[] = [
@@ -121,6 +146,9 @@ export const TABLES: Table[] = [
     ],
   },
   { name: 'a setup step', sources: ['extension/src/model/setup.ts#STATUS'], states: () => Object.entries(STATUS) },
+  // The state chip (T-91), in every place it's drawn, from the screenshot run's fixtures: each tracker's ticket
+  // page, its related rows, every board's columns, and acc's state on a tracker's cards.
+  { name: 'the state chip, wherever it\'s drawn', sources: [], states: () => chipStates() },
   // The task page's Review block (T-53): its verdict and each finding's state, as the block shows them.
   {
     name: 'a review and its findings', sources: ['extension/src/model/task-page.ts#REVIEW_LOOK', 'extension/src/model/task-page.ts#ticketReview'],
@@ -413,6 +441,37 @@ test('no colour the page\'s styles read is red or green in Light or Dark (GH-105
   assert.deepEqual(found, []);
   t.diagnostic(`read ${read} colours`);
   assert.ok(read >= 750, `read ${read} colours`);
+});
+
+test('the label and avatar tints are each a colour in both palettes, and none is red or green (T-91)', (t) => {
+  const tints = Object.keys(rootVars).filter((v) => /^--tint-\d+$/.test(v));
+  assert.equal(tints.length, TINTS, `styles.css defines ${tints.length} tints, and tints.ts picks from ${TINTS}`);
+  let read = 0;
+  for (const theme of PALETTE_THEMES) {
+    for (const v of tints) {
+      const colours = colourTokens(resolve(`var(${v})`, theme));
+      assert.equal(colours.length, 1, `${v} is one colour in ${theme}`);
+      const hue = hueOf(colours[0]!);
+      assert.ok(hue === 'other', `${v} in ${theme} is ${colours[0]}, ${hue}: a tint is a colour, neither red nor green, nor grey`);
+      read++;
+    }
+  }
+  t.diagnostic(`read ${read} tints`);
+  assert.equal(read, TINTS * PALETTE_THEMES.length);
+});
+
+test('the page draws each state with the one state chip: a ticket\'s page, its related rows, every board\'s columns and a card\'s state (T-91)', () => {
+  const page = readFileSync(join(repo, 'extension', 'webview', 'task-page.ts'), 'utf8');
+  const tasks = readFileSync(join(repo, 'extension', 'webview', 'tasks.ts'), 'utf8');
+  assert.ok(page.includes('stateChip({ label: m.status.name'), 'the ticket\'s state');
+  assert.ok(page.includes('stateChip({ label: r.status.name'), 'a related row\'s');
+  assert.ok(tasks.includes("el('h2', 'column-head', stateChip({ label: c.name"), 'a tracker board\'s columns');
+  assert.ok(tasks.includes("el('h2', 'column-head', stateChip(c)"), 'the agent board\'s columns');
+  assert.ok(tasks.includes('stateChip(c.acc.look)'), 'acc\'s state on a tracker\'s card');
+  assert.ok(!page.includes("'pill tone-"), 'no other chip for a state');
+  // Doing's icon isn't sync: nothing is syncing.
+  assert.notEqual(CATEGORY_LOOK.doing.icon, 'sync');
+  assert.deepEqual([CATEGORY_LOOK.done.quiet, CATEGORY_LOOK.doing.quiet, CATEGORY_LOOK.todo.quiet], [true, undefined, undefined], 'done is quiet, the rest aren\'t');
 });
 
 // ---------------------------------------------------------------- nothing is skipped

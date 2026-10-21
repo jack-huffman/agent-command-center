@@ -110,7 +110,7 @@ export const COLOUR_EXCEPTIONS: { name: string; matches: (h: ColourHit) => boole
   },
   {
     name: 'a tracker label\'s colour', matches: (h) => h.file === 'dom.ts' && h.text === '#${',
-    reason: 'The dot beside a tracker\'s label is the colour the tracker gave it: its data, not the page\'s palette. The label\'s name always shows beside it.',
+    reason: 'A tracker\'s label chip is tinted with the colour the tracker gave it (T-91): its data, not the page\'s palette. The label\'s name always shows on it, in the theme\'s text colour.',
   },
 ];
 
@@ -145,5 +145,6 @@ test('the scan finds a hex, rgb(), hsl() and a named colour, with file and line,
 
 test('theme.css holds every colour of both palettes, and nothing else does (GH-109, GH-105)', () => {
   const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
-  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 100);
+  // 50 a palette, and five of each for the label and avatar tints (T-91).
+  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 110);
 });

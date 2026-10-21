@@ -49,8 +49,8 @@ test('Commenting as asks no client for a tracker whose sign-in words say who it 
 test('the ticket page\'s status: closed as not planned has its own look, beside the category\'s (edge case)', () => {
   assert.deepEqual(NOT_PLANNED_LOOK, { icon: 'circle-slash', tone: 'neutral' });
   assert.deepEqual(statusLook({ category: 'done', reason: 'not-planned' }), NOT_PLANNED_LOOK);
-  assert.deepEqual(statusLook({ category: 'done', reason: 'completed' }), { icon: 'check', tone: 'neutral' });
-  assert.deepEqual(statusLook({ category: 'done' }), { icon: 'check', tone: 'neutral' }, 'no reason: the category\'s');
+  assert.deepEqual(statusLook({ category: 'done', reason: 'completed' }), { icon: 'check', tone: 'neutral', quiet: true });
+  assert.deepEqual(statusLook({ category: 'done' }), { icon: 'check', tone: 'neutral', quiet: true }, 'no reason: the category\'s');
   const ticket: Ticket = {
     key: 'GH-9', kind: 'github', url: 'u', title: 'T', type: 'Bug', typeKind: 'bug', status: { id: 'CLOSED', name: 'Closed as not planned', category: 'done', reason: 'not-planned' },
     assignees: [], reporter: null, labels: [], priority: 'Medium', priorityLevel: 3, created: '', updated: '', body: { blocks: [] }, markdown: '', comments: [], related: [],

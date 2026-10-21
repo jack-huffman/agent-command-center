@@ -14,13 +14,13 @@ test('at 760 px and below the Agent panel comes first, then the conflict and ana
   assert.ok(agent < top && top < 0 && 0 < details, `agent ${agent}, top ${top}, main 0, details ${details}`);
 });
 
-test('the page draws its status once, as the tracker writes it, and Details has no Status row', () => {
+test('the page draws its status once, as the tracker writes it, as the state chip, and Details has no Status row', () => {
   const src = pageSource('task-page.ts');
-  assert.equal(src.match(/pill tone-\$\{m\.status\.tone\}/g)?.length, 1, 'one pill');
-  assert.ok(!src.includes("field('Status'"), 'no Status row');
+  assert.equal(src.match(/stateChip\(\{ label: m\.status\.name/g)?.length, 1, 'one state chip for the ticket');
+  assert.ok(!src.includes("field('Status'") && !src.includes("detail('status'"), 'no Status row');
   assert.ok(src.includes('side-details') && src.includes('side-agent'));
-  const pill = /\.pill \{[^}]*\}/.exec(css)?.[0] ?? '';
-  assert.ok(pill && !/text-transform/.test(pill), 'the pill keeps the tracker\'s case');
+  const chip = /\.state-chip \{[^}]*\}/.exec(styleFile('styles.css'))?.[0] ?? '';
+  assert.ok(chip && !/text-transform/.test(chip), 'the chip keeps the tracker\'s case');
 });
 
 test('at 760 px and below the Agent panel sits where the content starts: no panel-after-panel margin reaches it (T-47)', () => {
@@ -29,8 +29,10 @@ test('at 760 px and below the Agent panel sits where the content starts: no pane
   assert.ok(!/(^|\n)\s*\.side-panel \+ \.side-panel \{ margin-top: 0/.test(narrow), 'not the plain selector, which the base rule beats');
 });
 
-test('edge case: a tracker that gives no status says so in the head (or shows a dash), not in a Details row', () => {
-  assert.ok(pageSource('task-page.ts').includes("let statusCtl: Child = statusEl ?? (lack('status') ? el('span', 'muted', lack('status')!.line) : el('span', 'muted', '—'))"));
+test('edge case: a tracker that gives no status leaves the state out of the head, with no line or dash in its place (T-91)', () => {
+  const src = pageSource('task-page.ts');
+  assert.ok(src.includes('let statusCtl: Child = statusEl;'));
+  assert.ok(!src.includes("el('span', 'muted', '—')"), 'no dash');
 });
 
 test('the activity feed heads its days with History\'s dayName, and keeps no day namer of its own (T-70)', () => {
