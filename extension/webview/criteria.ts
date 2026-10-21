@@ -4,7 +4,7 @@
 
 import type { TicketCriteria, CriteriaButton } from '../src/model/criteria.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
-import { button, el, foldable, icon, renderDoc, status, when } from './dom.ts';
+import { button, el, foldable, icon, peekKey, renderDoc, status, when } from './dom.ts';
 import { api, type PageArea, state } from './state.ts';
 
 type Ask = 'criteria-draft' | 'criteria-update' | 'criteria-sheet';
@@ -12,10 +12,9 @@ type Ask = 'criteria-draft' | 'criteria-update' | 'criteria-sheet';
 /** What's on its way, by project and task, and why the last one didn't go. */
 const asked = new Map<string, Ask>();
 const failed = new Map<string, string>();
-const keyOf = (project: string, task: string): string => `${project}#${task.toUpperCase()}`;
 
 function ask(m: TicketModel, c: TicketCriteria, type: Ask): void {
-  const key = keyOf(m.project, c.task);
+  const key = peekKey(m.project, c.task);
   if (asked.has(key)) return;
   asked.set(key, type);
   failed.delete(key);
@@ -25,7 +24,7 @@ function ask(m: TicketModel, c: TicketCriteria, type: Ask): void {
 
 /** A button of the section: off with why, or while another of its buttons is on its way. */
 function action(m: TicketModel, c: TicketCriteria, b: CriteriaButton, type: Ask, iconName: string, primary: boolean): HTMLButtonElement {
-  const busy = asked.get(keyOf(m.project, c.task));
+  const busy = asked.get(peekKey(m.project, c.task));
   const label = busy === type ? (type === 'criteria-draft' ? 'Drafting…' : 'Opening…') : b.label;
   const x = button(label, busy === type ? 'loading~spin' : iconName, () => ask(m, c, type), primary ? 'primary' : '');
   const why = b.disabled ?? (busy ? 'Wait for the one on its way' : null);
@@ -36,7 +35,7 @@ function action(m: TicketModel, c: TicketCriteria, b: CriteriaButton, type: Ask,
 
 /** The section: its state, the draft, what it was drafted from, and its buttons. */
 export function renderCriteria(m: TicketModel, c: TicketCriteria): HTMLElement {
-  const key = keyOf(m.project, c.task);
+  const key = peekKey(m.project, c.task);
   const sec = el('section', `analysis criteria tone-edge-${c.look.tone}`,
     el('div', 'an-head', el('h2', '', 'Acceptance criteria draft'), status(c.look), c.wording ? status(c.wording) : null, el('span', 'spacer'), c.at ? when(c.at) : null));
   sec.setAttribute('aria-label', `Acceptance criteria draft: ${c.look.label}`);
@@ -54,7 +53,7 @@ export function renderCriteria(m: TicketModel, c: TicketCriteria): HTMLElement {
 
 /** How a button went: done redraws with what acc did; a refusal shows why, to try again. */
 function done(msg: { action?: string; project?: string; task?: string; ok?: boolean; error?: string }): void {
-  const key = keyOf(msg.project ?? '', msg.task ?? '');
+  const key = peekKey(msg.project ?? '', msg.task ?? '');
   if (!asked.has(key)) return;
   asked.delete(key);
   if (msg.ok) failed.delete(key);

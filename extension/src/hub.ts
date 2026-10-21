@@ -21,7 +21,7 @@ import type { Protection } from '../../packages/core/src/protection.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
 import { claudeProjectsDir, lastModelIn, lastSaidIn, transcriptFile } from '../../packages/core/src/transcript.ts';
 import { readUpdate, type Update, UPDATE_ID } from '../../packages/core/src/updates.ts';
-import { type AgentSession, isUnder, type TaskRow } from './logic/shared.ts';
+import { type AgentSession, isUnder, stateOf, type TaskRow } from './logic/shared.ts';
 import { askingLabel, commonDirOf, repoRoot, sessionFor, sessionLedger } from './logic/agents.ts';
 import { parseWorktrees, type Worktree } from './logic/worktrees.ts';
 import { stepInWords } from './logic/relayed.ts';
@@ -278,7 +278,7 @@ export class Hub implements vscode.Disposable {
       // A verdict on a task that moved meanwhile writes no event, so the reviews folder is watched too (GH-102).
       const store = suggestionsOf(p);
       // acc sync writes a moved environment branch beside the ledger too (GH-69), which the ledger doesn't see.
-      const stamp = [p.ledgerPath, analysesOf(p).analyses, updatesOf(p).updates, tidyFile({ stateDir: dirname(p.ledgerPath) }), branchesPath({ stateDir: dirname(p.ledgerPath) }), store.reviews, store.suggestions].map((f) => stampOf(f) ?? 0).join('|');
+      const stamp = [p.ledgerPath, analysesOf(p).analyses, updatesOf(p).updates, tidyFile(stateOf(p)), branchesPath(stateOf(p)), store.reviews, store.suggestions].map((f) => stampOf(f) ?? 0).join('|');
       const cached = this.tasks.get(p.root);
       if (!force && cached && cached.stamp === stamp) continue;
       // A task that moved can finish its agents (D-095).
@@ -296,8 +296,8 @@ export class Hub implements vscode.Disposable {
         if (log) this.steps.set(p.ledgerPath, log);
         else this.steps.delete(p.ledgerPath);
         this.repoUpdates.set(p.ledgerPath, this.readUpdates(p));
-        this.repoTidy.set(p.ledgerPath, readTidy({ stateDir: dirname(p.ledgerPath) }));
-        this.repoBranches.set(p.ledgerPath, readBranchMoves({ stateDir: dirname(p.ledgerPath) }));
+        this.repoTidy.set(p.ledgerPath, readTidy(stateOf(p)));
+        this.repoBranches.set(p.ledgerPath, readBranchMoves(stateOf(p)));
       }
       const rows = deriveRows(this, ledger, p);
       // The git answers of tidy() last as long as this read of the ledger, so a render starts no git process twice.

@@ -7,7 +7,7 @@
 import { type Job, jobsUnderWay } from '../../packages/core/src/jobs.ts';
 import type { AutopilotStepName, Ledger } from '../../packages/core/src/ledger.ts';
 import type { HeavyState, SlotHolder, SlotWaiter } from '../../packages/core/src/semaphore.ts';
-import { fileList, isUnder, isWebviewMenuContext, type TaskRow } from './logic/shared.ts';
+import { fileList, isUnder, isWebviewMenuContext, stateOf, type TaskRow } from './logic/shared.ts';
 import { sessionFor } from './logic/agents.ts';
 import { displayLook, type HubLike, LOOK, type Look, type ProjectLike, type Ref } from './model/shared.ts';
 import type { RunInput } from './model/runs.ts';
@@ -621,7 +621,7 @@ export const area: ExtensionArea = {
         await hub.loadAgents();
       } else if (a.kind === 'resume' && p && task) {
         if (!(await ask(`Stop ${task}'s resumed builder?`, 'The resumed conversation ends where it is. The task stays Running, with Resume to carry it on again.', 'Stop'))) return;
-        endResume({ stateDir: dirname(p.ledgerPath) }, task);
+        endResume(stateOf(p), task);
         await Promise.all([hub.loadJobs(true), hub.loadAgents()]);
       } else if (a.kind === 'run' && typeof a.run === 'string') {
         const run = runs.views().find((r) => r.id === a.run && r.endedAt === null);

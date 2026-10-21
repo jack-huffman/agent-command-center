@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
@@ -20,6 +20,7 @@ import { accImport, accSetTracker, cardTracking, credInUse, credSite, credWrites
 import { inProcessWords } from './logic/processes.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
+import { stateOf } from './logic/shared.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
 
@@ -354,7 +355,7 @@ export class Trackers implements vscode.Disposable {
     const outside = await outsideKeys(keys, (k) => client.outside(k));
     const t = this.trackers(p)[s.index];
     const tracker = t?.kind === 'jira' && t.sprint !== null ? sprintTracker(t) : null;
-    const sprint = tracker ? await lookAtSprint(readSprints({ stateDir: dirname(p.ledgerPath) })[tracker], s.board, client, new Date()) : null;
+    const sprint = tracker ? await lookAtSprint(readSprints(stateOf(p))[tracker], s.board, client, new Date()) : null;
     if (!outside.length && !sprint?.moved) {
       s.left = [];
       return;
