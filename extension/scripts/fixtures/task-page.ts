@@ -313,7 +313,8 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: Verif
   const updates = [...sampleUpdates(now), ...(verification ? [sampleQaUpdate(now, verification)] : [])];
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key, ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
-    analysis: sampleAnalyses(now)[key], trackerEdits: false, updates, boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
+    // A ticket a developer built is verified with no analysis of acc's (T-84).
+    analysis: verify ? null : sampleAnalyses(now)[key], trackerEdits: false, updates, boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
     verify: verify ? ticketVerify({ task, github: 'acme/acme-service', verification, choice: verify === 'choice' ? sampleChoice(now) : null, verifying: false, updates }) : null,
   });
 }
