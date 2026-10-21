@@ -19,6 +19,28 @@ as the notes.
   what to fix.
 - Every place that writes the project's settings writes the file whole, and a
   check over all of acc's code holds it to that.
+- Verify a developer's pull request (D-182, D-183): a tracked ticket's page has
+  **Verify the developer's work**. acc finds the ticket's open pull request on
+  GitHub, or lets you choose one, and checks out its head with no branch. It
+  runs the project's checks there, and a read-only agent reviews the change
+  against the ticket and its drafted criteria. A check that can't run says why,
+  and is never counted as passed. You get a QA comment to edit and post. Nothing
+  is posted, pushed or committed, and the task's state doesn't move.
+  `acc verify` does the same from the command line.
+- A Slack board (D-181): name a reaction, such as `ticket`, on the Connect
+  page, and the Tasks tab shows the channel's messages marked with it from the
+  last 30 days. An optional done reaction puts a message in Done. Track a
+  message from its card, and filter the board by who wrote it. A missing Slack
+  scope is named, with where to add it.
+- Reviews in the cloud (D-184): a project that runs builders in the cloud can
+  run their reviews there too, so a cloud task gets reviewed while the Mac
+  sleeps. Turn it on in Settings, or with `acc review --cloud`. A cloud reviewer
+  can change only its verdict file and push only its own verdict branch.
+- The cloud guard is stricter for every cloud session: a git option or address
+  that runs a program is refused, however it is shortened or quoted, and so is
+  `--no-verify` hidden inside an option.
+- A sprint line that arrives just after the Command Center loses focus is no
+  longer dropped from **Since you last looked**.
 
 ## 0.42.0
 

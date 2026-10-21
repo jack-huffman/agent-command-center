@@ -1,6 +1,6 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-20**. Version 0.42.0 is
+Where each piece of the build stands, as of **2026-10-21**. Version 0.42.0 is
 the latest release (2026-10-20). 0.41.0 (2026-10-16) was the first with a
 `.sha256` beside its `.vsix`. Version 0.43.0 is prepared and waits on a person
 to release it.
