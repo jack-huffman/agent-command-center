@@ -83,7 +83,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/agents.ts': ['checkModelName', 'SETTABLE_AUTONOMY', 'describeProfile'],
   'packages/core/src/analyze.ts': ['SIZE_MEANING', 'ANALYSIS_SCHEMA', 'ANALYST_COMMANDS'],
   'packages/core/src/autopilot-rules.ts': ['resumedByAutopilot', 'inQueueAt', 'firstLines'],
-  'packages/core/src/autopilot.ts': ['AUTOPILOT_MIN_EVERY_S', 'AUTOPILOT_REVIEW_DOES', 'autopilotDoes', 'realSteps', 'startedWords'],
+  'packages/core/src/autopilot.ts': ['AUTOPILOT_MIN_EVERY_S', 'AUTOPILOT_REVIEW_DOES', 'autopilotDoes', 'startedWords'],
   'packages/core/src/cards.ts': ['cardState'],
   'packages/core/src/checks.ts': ['MAX_LOGS', 'NO_ACTIONS_LOG', 'tailText', 'readChecksReport', 'queueReportPath', 'sendBack'],
   'packages/core/src/closing.ts': ['GH_CALL_MS', 'editsTracker', 'firstLine', 'closeWords'],
