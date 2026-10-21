@@ -10,7 +10,7 @@ import { azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenant
 import { GithubClient } from './github.ts';
 import { JiraClient, jiraBoards, jiraEpics, jiraProjects, jiraSprints } from './jira.ts';
 import { mondayBoards, mondayGroups, mondayMe, mondayStatusColumns, mondayTokenPage } from './monday.ts';
-import { slackApp, slackChannels } from './slack.ts';
+import { SLACK_APPS, SLACK_REACTIONS, slackApp, slackCanRead, slackChannels } from './slack.ts';
 import { type Exec, type Person, type Sprint, sprintDates, TrackerError } from './types.ts';
 
 /** One thing to type: an email, or a token, which the page shows as a password field and never keeps. */
@@ -147,6 +147,11 @@ export interface TrackerDescription {
   listsTitle?: string;
   /** Who the sign-in is, or a TrackerError saying why not. */
   verify: (ctx: Ctx) => Promise<Person>;
+  /**
+   * A last check of the choices, with the sign-in, before Save writes them, such as a Slack board's scope (T-85).
+   * It throws why Save can't go yet, which the page shows beside Save.
+   */
+  beforeSave?: (ctx: Ctx) => Promise<void>;
   /** The tracker as .acc/config.json keeps it. A key set to null is taken out of an existing one. */
   toConfig: (c: Chosen) => Record<string, unknown>;
   /** An existing tracker's host and choices, to open it on the page. */
@@ -360,8 +365,8 @@ export const MONDAY: TrackerDescription = {
   fromConfig: (t) => ({ host: t.account ?? '', values: { board: t.board === null ? null : String(t.board), group: t.group, statusColumn: t.statusColumn } }),
 };
 
-/** Where a Slack app is made, and its bot token copied from (its OAuth & Permissions page). */
-export const SLACK_APPS = 'https://api.slack.com/apps';
+/** Where a Slack app is made, and its bot token copied from (its OAuth & Permissions page). It's slack.ts's, as the board's scope error names it too. */
+export { SLACK_APPS };
 /** What a Slack app's bot token starts with. A user token (xoxp-) would post as the person, not the app. */
 export const SLACK_BOT_TOKEN = 'xoxb-';
 
@@ -385,12 +390,35 @@ export const SLACK: TrackerDescription = {
     key: 'channel', label: 'Channel', dependsOn: [], identifies: true, idValues: true,
     hint: 'Its threads are the tracker\'s tickets. Only channels the app is in are listed.',
     load: async (ctx) => (await slackChannels(tokenOf(ctx), ctx.fetch)).map((c) => ({ value: c.id, label: `#${c.name}`, detail: c.private ? 'private' : 'public' })),
+  }, {
+    // The board's reactions (T-85): a fixed list, so they ask Slack nothing until Save checks the scope.
+    key: 'reaction', label: 'Reaction', dependsOn: ['channel'], whole: () => 'None: no board, and a thread is tracked by its link',
+    hint: 'The channel\'s messages with this reaction are the Tasks tab\'s board. The app then needs the channels:history scope, or groups:history for a private channel.',
+    load: async () => reactionOptions(),
+  }, {
+    key: 'doneReaction', label: 'Done reaction', dependsOn: ['channel'], whole: () => 'None: every marked message stays Open',
+    hint: 'A marked message with this reaction too is in the board\'s Done column.',
+    load: async () => reactionOptions(),
   }],
   place: { key: 'channel', words: 'In Slack, the channel stands in for an epic: only its threads are this project\'s.' },
   verify: (ctx) => slackApp(ctx.host, tokenOf(ctx), ctx.fetch),
-  toConfig: (c) => ({ kind: 'slack', workspace: c.host, channel: one(c.values.channel) }),
-  fromConfig: (t) => ({ host: t.workspace ?? '', values: { channel: t.channel } }),
+  // With a reaction, the board reads the channel's history: Save checks the app may, and names a missing scope.
+  beforeSave: async (ctx) => {
+    const reaction = one(ctx.values.reaction);
+    if (!reaction) return;
+    if (reaction === one(ctx.values.doneReaction)) throw new TrackerError('refused', 'Choose another done reaction than the reaction, or every marked message is done.');
+    await slackCanRead(tokenOf(ctx), one(ctx.values.channel) ?? '', ctx.fetch);
+  },
+  toConfig: (c) => ({
+    kind: 'slack', workspace: c.host, channel: one(c.values.channel), reaction: one(c.values.reaction),
+    // A done reaction means nothing without a reaction, so it goes with it.
+    doneReaction: one(c.values.reaction) ? one(c.values.doneReaction) : null,
+  }),
+  fromConfig: (t) => ({ host: t.workspace ?? '', values: { channel: t.channel, reaction: t.reaction, doneReaction: t.doneReaction } }),
 };
+
+/** The reactions a Slack board's lists offer (T-85), by name between colons, as Slack shows them. */
+export const reactionOptions = (): Option[] => SLACK_REACTIONS.map((r) => ({ value: r, label: `:${r}:` }));
 
 /** Every tracker the Connect page offers, in the order it lists them. */
 export const DESCRIPTIONS: TrackerDescription[] = [JIRA, GITHUB, AZURE, MONDAY, SLACK];

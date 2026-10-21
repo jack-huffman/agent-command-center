@@ -32,7 +32,7 @@ export const OLDER: Record<string, string[]> = {
   'extension/src/logic/shared.ts': ['BOARD_LANES', 'taskNames', 'questionsWord', 'prConflicts', 'fileList', 'shortPath', 'saidLine'],
   'extension/src/logic/tasks.ts': ['whileFirst', 'failedChecksLine', 'conflictLine'],
   'extension/src/model/about.ts': ['tagVersion'],
-  'extension/src/model/boards.ts': ['chip', 'BOARD_WORD'],
+  'extension/src/model/boards.ts': ['chip'],
   'extension/src/model/cards.ts': ['canDispatch', 'AUTOPILOT_STEP', 'CARD_SAID'],
   'extension/src/model/connect.ts': ['connectValues', 'CONNECT', 'connectValue'],
   'extension/src/model/limits.ts': ['dollars'],

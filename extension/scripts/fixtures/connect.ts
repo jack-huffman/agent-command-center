@@ -1,5 +1,5 @@
 /** The Connect page (GH-51) at each of its steps. */
-import { AZURE, GITHUB, JIRA, jiraSprintOptions, MONDAY, SLACK } from '../../../packages/core/src/trackers/connect.ts';
+import { AZURE, GITHUB, JIRA, jiraSprintOptions, MONDAY, reactionOptions, SLACK } from '../../../packages/core/src/trackers/connect.ts';
 import { blankConnect, connectModel, type ConnectModel, type ConnectState } from '../../src/model/connect.ts';
 import { ROOT } from './shared.ts';
 
@@ -24,7 +24,7 @@ export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | '
  * existing Jira tracker opened to change, signed in for this project only, its epic done now but kept; and
  * a monday.com board signed in for this project only, with Sign in again open, so its token field, token
  * page and the tick (off) show beside its board, group and two status columns (GH-70). A Slack workspace
- * with its token not typed yet, so no field warns (T-43), and then signed in as the app for every project on it, a channel picked
+ * with its token not typed yet, so no field warns (T-43), and then signed in as the app for every project on it, a channel and its board's reactions picked
  * (T-29). The existing Jira tracker again, following the active sprint, picked from its board's sprints (T-78). Then a project
  * started from Setup (GH-81): from a Jira epic, signed in for every project on the site, its epics listed
  * and none picked yet; with an epic another repo here uses picked, marked; from an Azure DevOps area path
@@ -86,6 +86,9 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
       { value: 'C0ESCALATE', label: '#premium-support-escalations-and-renewals', detail: 'public' },
       { value: 'C0SUPPORT1', label: '#premium-support', detail: 'public' },
     ], ['C0SUPPORT1']);
+    // Its board's reactions (T-85): messages marked :ticket:, done with :white_check_mark:.
+    s.pickers.reaction = ready(reactionOptions(), ['ticket']);
+    s.pickers.doneReaction = ready(reactionOptions(), ['white_check_mark']);
     return connectModel(s);
   }
   if (which === 'monday') {

@@ -7,7 +7,7 @@
 import { type Block, type Doc, type Inline, toMarkdown } from './doc.ts';
 import { clip, slackEscape } from '../text.ts';
 import {
-  type Board, inBatches, type Label, type Outside, outsideError, type Person, placeText, type Status, type Ticket, type TrackerClient, TrackerError,
+  type Board, type BoardCard, type BoardColumn, inBatches, type Label, type Outside, outsideError, type Person, placeText, type Status, type Ticket, type TrackerClient, TrackerError,
   textRefused, type Transition,
 } from './types.ts';
 
@@ -20,6 +20,17 @@ export const SLACK_WORKSPACE = /^[a-z0-9][a-z0-9-]*$/i;
 export const SLACK_CHANNEL = /^[CGD](?=[A-Z0-9]*\d)[A-Z0-9]{6,}$/i;
 /** The most characters a thread's title holds: the first line of its first message. */
 export const SLACK_TITLE_MAX = 150;
+/** A reaction's name, as Slack writes it without colons: ticket, white_check_mark, +1, man-raising-hand. */
+export const SLACK_REACTION = /^[a-z0-9_+'-]{1,100}$/;
+/** The most characters a board card's title holds (T-85): the first line of its message. Its full text is the card's hover title. */
+export const SLACK_CARD_MAX = 120;
+/** How far back the board reads the channel, in days, and the most messages it reads (T-85). */
+export const SLACK_BOARD_DAYS = 30;
+export const SLACK_BOARD_MAX = 1000;
+/** The reactions the Connect page offers for the board (T-85). The settings take any reaction's name, a team's own emoji too. */
+export const SLACK_REACTIONS = ['ticket', 'eyes', 'bug', 'pushpin', 'raising_hand', 'sos', 'hammer_and_wrench', 'white_check_mark', 'heavy_check_mark', 'ballot_box_with_check'] as const;
+/** Where a Slack app is made, and its bot token and scopes are set (its OAuth & Permissions page). */
+export const SLACK_APPS = 'https://api.slack.com/apps';
 
 export interface SlackOptions {
   /** The workspace, as in acme.slack.com. */
@@ -30,7 +41,13 @@ export interface SlackOptions {
   prefix?: string;
   /** The Slack app's bot token. */
   token: string;
+  /** The reaction that marks a message for the board (T-85). Without one, the board is off. */
+  reaction?: string | null;
+  /** The reaction that puts a marked message in the board's Done column. */
+  doneReaction?: string | null;
   fetch?: typeof fetch;
+  /** The time now, in ms: the board reads the last SLACK_BOARD_DAYS days before it. */
+  now?: () => number;
 }
 
 /** A thread: the channel it's in, and its first message's timestamp. A key names no channel, so it reads as null: the tracker's own. */
@@ -47,6 +64,9 @@ interface SlackMessage {
   username?: string;
   bot_profile?: { name?: string } | null;
   subtype?: string;
+  /** A reply's thread, which conversations.history gives for a reply sent to the channel too. */
+  thread_ts?: string;
+  reactions?: { name: string; count?: number }[];
 }
 interface SlackUser { id: string; name?: string; real_name?: string; deleted?: boolean; profile?: { display_name?: string; real_name?: string } }
 
@@ -59,6 +79,11 @@ const NO_STATUS: Status = { id: 'none', name: 'No status', category: 'todo' };
 const NO_STATUSES = 'A Slack thread has no statuses to move between.';
 const NO_PEOPLE = 'A Slack thread has no people to assign.';
 const NO_LABELS = 'A Slack thread has no labels.';
+/** Why a Slack tracker has no board until it names a reaction (T-85), and how to turn it on. */
+export const NO_REACTION = 'The Slack board is off: this tracker names no reaction. Choose a reaction with Change, such as ticket, and the channel\'s messages with it are the board\'s cards. Until then, track a thread by its link.';
+/** The Slack board's columns (T-85): a marked message is Open, and one with the done reaction too is Done. */
+const OPEN: Status = { id: 'open', name: 'Open', category: 'todo' };
+const DONE: Status = { id: 'done', name: 'Done', category: 'done' };
 
 /** Slack's answers whose meaning is that the token is wrong, not the request. */
 const AUTH_ERRORS = new Set(['invalid_auth', 'not_authed', 'account_inactive', 'token_revoked', 'token_expired', 'no_permission']);
@@ -142,7 +167,7 @@ export async function slackCall<T>(token: string, method: string, params: Record
     throw new TrackerError('other', `Slack's rate limit for this app was reached${Number.isFinite(wait) && wait > 0 ? `: try again in ${Math.ceil(wait)} seconds` : ': try again in a minute'}.`);
   }
   if (res.status === 401 || (json?.error && AUTH_ERRORS.has(json.error))) throw new TrackerError('auth', `Slack didn't accept this repo's app token (${json?.error ?? `HTTP ${res.status}`}). Connect the Slack app again.`);
-  if (json?.error === 'missing_scope') throw new TrackerError('scope', `The Slack app needs the ${json.needed ?? 'missing'} scope for ${method}. Add it to the app and install it again.`);
+  if (json?.error === 'missing_scope') throw new TrackerError('scope', `The Slack app needs the ${json.needed ?? 'missing'} scope for ${method}. Add it on the app's OAuth & Permissions page at ${SLACK_APPS}, then install the app again.`);
   if (json?.error && GONE_ERRORS.has(json.error)) throw new TrackerError('not-found', `Slack: ${json.error}.`);
   if (json && json.ok === false) throw new TrackerError('other', `Slack: ${json.error ?? 'an unknown error'}.`);
   if (!res.ok || !json) throw new TrackerError('other', `Slack answered HTTP ${res.status}.`);
@@ -180,6 +205,14 @@ async function appOf(token: string, d: SlackAuth, f: typeof fetch): Promise<Pers
     ? await slackCall<{ bot?: { name?: string } }>(token, 'bots.info', { bot: d.bot_id }, f).then((b) => b.bot?.name?.trim() || null).catch(() => null)
     : null;
   return { id: d.user_id, name: noEmail(name ?? d.user) };
+}
+
+/**
+ * Whether the app can read the channel's messages, as the board does (T-85): one message of conversations.history.
+ * A missing channels:history or groups:history scope fails with a 'scope' error that names it and where to add it.
+ */
+export async function slackCanRead(token: string, channel: string, f: typeof fetch = fetch): Promise<void> {
+  await slackCall(token, 'conversations.history', { channel, limit: 1 }, f);
 }
 
 /** The most pages of channels read, so a large workspace never floods Slack. */
@@ -295,8 +328,68 @@ export class SlackClient implements TrackerClient {
     return out.slice(0, MAX_MESSAGES).sort((a, b) => Number(a.ts) - Number(b.ts));
   }
 
+  /**
+   * The channel's messages marked with the tracker's reaction (T-85), from conversations.history: the last
+   * SLACK_BOARD_DAYS days, a page at a time, and at most SLACK_BOARD_MAX messages. Only a top-level message
+   * counts, not a reply sent to the channel too. One with the done reaction as well is Done, the rest Open.
+   * A card's person is the message's writer, read once a board; its link is Slack's permalink. Nothing is
+   * written to Slack. With no reaction, it refuses, saying how to turn the board on.
+   */
   async board(): Promise<Board> {
-    throw new TrackerError('refused', `A Slack channel has no board. Track a thread by its link instead.`);
+    const reaction = this.o.reaction?.trim();
+    if (!reaction) throw new TrackerError('refused', NO_REACTION);
+    const done = this.o.doneReaction?.trim() || null;
+    const oldest = Math.floor(((this.o.now ?? Date.now)() - SLACK_BOARD_DAYS * 86_400_000) / 1000);
+    const read: SlackMessage[] = [];
+    let cursor = '';
+    do {
+      const d = await this.call<{ messages?: SlackMessage[]; has_more?: boolean; response_metadata?: { next_cursor?: string } }>('conversations.history', {
+        channel: this.channel, oldest, limit: PAGE, ...(cursor ? { cursor } : {}),
+      });
+      read.push(...(d.messages ?? []));
+      cursor = d.response_metadata?.next_cursor ?? '';
+    } while (cursor && read.length < SLACK_BOARD_MAX);
+    const full = read.length >= SLACK_BOARD_MAX && !!cursor;
+    // A reaction with a skin tone is named ticket::skin-tone-2, and is the same reaction.
+    const has = (m: SlackMessage, name: string) => (m.reactions ?? []).some((r) => r.name === name || r.name.startsWith(`${name}::`));
+    const marked = read.slice(0, SLACK_BOARD_MAX)
+      .filter((m) => (!m.thread_ts || m.thread_ts === m.ts) && m.subtype !== 'tombstone' && has(m, reaction))
+      .sort((a, b) => Number(b.ts) - Number(a.ts));
+    // Each writer read once a board, so a renamed person shows their new name on the next load.
+    const people = new Map<string, Promise<string>>();
+    const nameOf = (id: string): Promise<string> => {
+      let p = people.get(id);
+      if (!p) {
+        p = this.call<{ user: SlackUser }>('users.info', { user: id }).then((d) => slackName(d.user)).catch(() => 'Someone');
+        people.set(id, p);
+      }
+      return p;
+    };
+    const ids = new Set<string>();
+    for (const m of marked) for (const [, id] of (m.text ?? '').matchAll(/<@([A-Z0-9]+)(?:\|[^>]*)?>/gi)) ids.add(id!);
+    for (const m of marked) if (m.user) ids.add(m.user);
+    const names = new Map<string, string>(await Promise.all([...ids].map(async (id) => [id, await nameOf(id)] as [string, string])));
+    const cards = await inBatches(marked, BATCH, async (m): Promise<BoardCard> => {
+      const thread = { channel: this.channel, ts: m.ts };
+      const first = slackText(m.text ?? '', names).split('\n').map((l) => l.trim()).find(Boolean) ?? 'A message with no text';
+      const link = await this.call<{ permalink?: string }>('chat.getPermalink', { channel: this.channel, message_ts: m.ts }).then((d) => d.permalink ?? null).catch(() => null);
+      const author: Person = m.user ? { id: m.user, name: names.get(m.user) ?? 'Someone' } : { id: m.bot_id ?? '', name: await this.writer(m) };
+      return {
+        key: slackKey(thread, this.prefix), title: clip(first, SLACK_CARD_MAX), ...(first.length > SLACK_CARD_MAX ? { fullTitle: first } : {}),
+        url: link ?? `https://${this.workspace}.slack.com/archives/${this.channel}/p${m.ts.replace('.', '')}`,
+        status: done && has(m, done) ? DONE : OPEN, type: null, assignees: [author], labels: [], priority: null,
+      };
+    });
+    const columns: BoardColumn[] = [
+      { id: OPEN.id, name: OPEN.name, category: OPEN.category, statusIds: [OPEN.id] },
+      ...(done ? [{ id: DONE.id, name: DONE.name, category: DONE.category, statusIds: [DONE.id] }] : []),
+    ];
+    const notice = full ? `Only the newest ${SLACK_BOARD_MAX.toLocaleString('en-US')} messages of the last ${SLACK_BOARD_DAYS} days were read, so an older marked message isn't on the board.`
+      : !cards.length ? `No message from the last ${SLACK_BOARD_DAYS} days has the :${reaction}: reaction. Add it to a message in Slack, and it's on the board after a refresh.` : null;
+    return {
+      source: 'slack', title: `Messages marked :${reaction}:`, url: `https://${this.workspace}.slack.com/archives/${this.channel}`,
+      columns, cards, notice, place: this.place,
+    };
   }
 
   /** The thread: its first message's first line is the title, and the body holds every message with its writer. */

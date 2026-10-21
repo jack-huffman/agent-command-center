@@ -182,10 +182,10 @@ test('a second Track while one is on its way starts nothing, and the box doesn\'
 test('a Slack tracker shows a box for a thread\'s link in place of a board, which names the channel, and no refusal', () => {
   const [input] = sampleSlackBoards();
   const b = trackerBoard(input!, [], '/r');
-  assert.deepEqual([b.kind, b.error, b.columns, b.tab], ['slack', null, [], 'Slack thread']);
+  assert.deepEqual([b.kind, b.error, b.columns, b.tab], ['slack', null, [], 'Slack board']);
   assert.deepEqual(b.paste, { hint: pasteHint(PLACE), example: exampleLink(PLACE), link: null, busy: false, error: null, tracked: null });
   assert.match(b.paste!.hint, /^Paste the link to a thread in channel C0123ABCD of acme\.slack\.com\./);
-  const refused = trackerBoard(sampleSlackBoards(true)[0]!, [], '/r').paste!;
+  const refused = trackerBoard(sampleSlackBoards('refused')[0]!, [], '/r').paste!;
   assert.deepEqual([refused.link, refused.error], ['https://acme.slack.com/archives/C0999WXYZ/p1696512345123456', 'That thread is in channel C0999WXYZ, not C0123ABCD. This tracker takes threads in channel C0123ABCD only.']);
   // The edge case of a Slack tracker not signed in: its error and Sign in show, and no box that can't work.
   const out: BoardInput = { ...input!, error: 'Sign in to Slack (acme) for this repo to read its channel\'s threads.', connect: { command: 'acc.trackers.signIn', label: 'Sign in to Slack', arg: '{}' } };

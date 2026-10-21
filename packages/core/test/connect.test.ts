@@ -4,7 +4,7 @@ import { replaceTracker, type Tracker, withTracker } from '../src/config.ts';
 import { AZURE, declaredKeys, DESCRIPTIONS, describe, GITHUB, JIRA, MONDAY, parseHost, parseRepo, type SignIn, SLACK, SLACK_APPS, SLACK_BOT_TOKEN } from '../src/trackers/connect.ts';
 import { TrackerError } from '../src/trackers/types.ts';
 
-const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
+const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, reaction: null, doneReaction: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
 const SITE = 'acme.atlassian.net';
 
 test('a Jira tracker is written as the config keeps it, and the whole project takes its epic out', () => {
@@ -46,7 +46,8 @@ test('an existing tracker opens with its own choices, and saves them back as the
     [GITHUB, tracker({ kind: 'github', labels: ['billing'] }), { kind: 'github', repo: null, labels: ['billing'] }],
     [AZURE, tracker({ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }), { kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }],
     [MONDAY, tracker({ kind: 'monday', account: 'acme', board: 1234567890, group: 'topics', statusColumn: 'priority' }), { kind: 'monday', account: 'acme', board: 1234567890, group: 'topics', statusColumn: 'priority' }],
-    [SLACK, tracker({ kind: 'slack', workspace: 'acme', channel: 'C0123ABCD' }), { kind: 'slack', workspace: 'acme', channel: 'C0123ABCD' }],
+    [SLACK, tracker({ kind: 'slack', workspace: 'acme', channel: 'C0123ABCD' }), { kind: 'slack', workspace: 'acme', channel: 'C0123ABCD', reaction: null, doneReaction: null }],
+    [SLACK, tracker({ kind: 'slack', workspace: 'acme', channel: 'C0123ABCD', reaction: 'ticket', doneReaction: 'white_check_mark' }), { kind: 'slack', workspace: 'acme', channel: 'C0123ABCD', reaction: 'ticket', doneReaction: 'white_check_mark' }],
   ];
   for (const [d, t, want] of cases) {
     const { host, values } = d.fromConfig(t, 'acme/service');
@@ -130,7 +131,7 @@ test('every tracker the page offers is described, and its keys are declared for 
   assert.equal(describe('linear'), undefined);
   const keys = declaredKeys();
   assert.deepEqual([...keys.fields].sort(), ['account', 'email', 'organization', 'repo', 'site', 'token', 'workspace']);
-  assert.deepEqual([...keys.pickers].sort(), ['areaPath', 'board', 'channel', 'epic', 'group', 'labels', 'project', 'sprint', 'statusColumn', 'team']);
+  assert.deepEqual([...keys.pickers].sort(), ['areaPath', 'board', 'channel', 'doneReaction', 'epic', 'group', 'labels', 'project', 'reaction', 'sprint', 'statusColumn', 'team']);
   assert.deepEqual([...keys.methods].sort(), ['gh', 'microsoft', 'pat', 'token']);
   // Each tracker's project names which tracker it is, so an existing one shows it fixed. monday.com's is its board, and Slack's its channel.
   assert.deepEqual(DESCRIPTIONS.map((d) => d.pickers.filter((p) => p.identifies).map((p) => p.key)), [['project'], [], ['project'], ['board'], ['channel']]);
@@ -253,13 +254,13 @@ test('Slack: a workspace from any link, a bot token that starts xoxb-, and the c
   await assert.rejects(SLACK.verify({ ...ctx, fetch: slackApi({ workspace: 'globex' }).fetch }), (e: unknown) => e instanceof TrackerError && e.kind === 'auth' && /workspace globex, not acme/.test(e.message), 'a token for another workspace is refused, naming it');
   await assert.rejects(SLACK.verify({ ...ctx, signIn: { ...signIn, fields: { token: 'xoxb-wrong-0000000000' } } }), (e: unknown) => e instanceof TrackerError && e.kind === 'auth');
 
-  assert.deepEqual(SLACK.pickers.map((p) => [p.key, p.dependsOn, !!p.identifies, !!p.idValues, !!p.whole]), [['channel', [], true, true, false]]);
+  assert.deepEqual(SLACK.pickers.map((p) => [p.key, p.dependsOn, !!p.identifies, !!p.idValues, !!p.whole]), [['channel', [], true, true, false], ['reaction', ['channel'], false, false, true], ['doneReaction', ['channel'], false, false, true]]);
   assert.deepEqual(await SLACK.pickers[0]!.load(ctx), [
     { value: 'G0BILLING1', label: '#billing', detail: 'private' },
     { value: 'C0SUPPORT1', label: '#premium-support', detail: 'public' },
   ], 'by name, and not a channel the app isn\'t in');
-  assert.deepEqual(SLACK.toConfig({ host: 'acme', values: { channel: 'C0SUPPORT1' }, defaults: [], ownRepo: null }), { kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' });
-  assert.deepEqual(SLACK.fromConfig(tracker({ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' }), null), { host: 'acme', values: { channel: 'C0SUPPORT1' } });
+  assert.deepEqual(SLACK.toConfig({ host: 'acme', values: { channel: 'C0SUPPORT1' }, defaults: [], ownRepo: null }), { kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', reaction: null, doneReaction: null });
+  assert.deepEqual(SLACK.fromConfig(tracker({ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' }), null), { host: 'acme', values: { channel: 'C0SUPPORT1', reaction: null, doneReaction: null } });
 });
 
 test('Slack: a second channel is a second tracker with its own prefix, and the same channel again replaces the first, keeping its settings', () => {

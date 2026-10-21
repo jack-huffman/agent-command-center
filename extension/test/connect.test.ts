@@ -25,7 +25,7 @@ const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) 
 
 const full = (t: Record<string, unknown>): Tracker => ({
   kind: t.kind as Tracker['kind'], site: (t.site as string) ?? null, project: (t.project as string) ?? null, repo: (t.repo as string) ?? null, organization: (t.organization as string) ?? null,
-  account: (t.account as string) ?? null, workspace: (t.workspace as string) ?? null, channel: (t.channel as string) ?? null, team: (t.team as string) ?? null, board: (t.board as number | string) ?? null, statusColumn: (t.statusColumn as string) ?? null, prefix: (t.prefix as string) ?? null,
+  account: (t.account as string) ?? null, workspace: (t.workspace as string) ?? null, channel: (t.channel as string) ?? null, reaction: (t.reaction as string) ?? null, doneReaction: (t.doneReaction as string) ?? null, team: (t.team as string) ?? null, board: (t.board as number | string) ?? null, statusColumn: (t.statusColumn as string) ?? null, prefix: (t.prefix as string) ?? null,
   skipLabels: (t.skipLabels as string[]) ?? [], epic: (t.epic as string) ?? null, sprint: (t.sprint as 'active' | number) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true, statusFor: (t.statusFor as Record<string, string>) ?? null,
 });
 
@@ -1030,11 +1030,13 @@ test('monday.com: a token from another account is refused, naming it, and an exi
   assert.deepEqual(h.raw, [{ kind: 'monday', account: 'acme', board: 111, edits: true }], 'the whole board now, keeping edits');
 });
 
-/** Slack's Web API, answering only this bot token: the app, its workspace, and the channels it's in. */
+/** Slack's Web API, answering only this bot token: the app, its workspace, and the channels it's in. `asked` records each method called. */
 const SLACK_TOKEN = 'xoxb-1234-5678-slacktokenforconnect';
-function slack(o: { workspace?: string } = {}): typeof fetch {
+function slack(o: { workspace?: string; history?: Record<string, unknown>; asked?: string[] } = {}): typeof fetch {
   return (async (url: string, init: { headers: Record<string, string> }) => {
     const u = new URL(url);
+    o.asked?.push(u.pathname.replace('/api/', ''));
+    if (u.pathname === '/api/conversations.history' && init.headers.Authorization === `Bearer ${SLACK_TOKEN}`) return Response.json(o.history ?? { ok: true, messages: [] });
     if (init.headers.Authorization !== `Bearer ${SLACK_TOKEN}`) return Response.json({ ok: false, error: 'invalid_auth' });
     if (u.pathname === '/api/auth.test') return Response.json({ ok: true, url: `https://${o.workspace ?? 'acme'}.slack.com/`, team: 'Acme', user: 'acc', user_id: 'U0BOT', bot_id: 'B0APP' });
     if (u.pathname === '/api/bots.info') return Response.json({ ok: true, bot: { id: 'B0APP', name: 'Acme Command Center' } });
@@ -1085,9 +1087,48 @@ test('Slack: a workspace from any link, a bot token kept only in secret storage,
   h.send({ type: 'connect-test', host: 'acme', fields: { token: SLACK_TOKEN } });
   await settle();
   h.send({ type: 'connect-pick', key: 'channel', value: 'G0BILLING1' });
+  // Its reaction lists load once the channel is chosen (T-85), and Save waits for them.
+  await settle();
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(h.raw, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' }, { kind: 'slack', workspace: 'acme', channel: 'G0BILLING1', prefix: 'SL2' }]);
+});
+
+test('Slack\'s board (T-85): Connect asks for a reaction and a done reaction, checks the history scope on Save, and names a missing one', async () => {
+  const asked: string[] = [];
+  const h = harness({ fetch: slack({ history: { ok: false, error: 'missing_scope', needed: 'channels:history' }, asked }) });
+  await h.session.open({ root: ROOT, kind: 'slack', from: 'tasks' });
+  h.send({ type: 'connect-test', host: 'acme', fields: { token: SLACK_TOKEN } });
+  await settle();
+  let m = h.model();
+  assert.deepEqual([picker(m, 'reaction').disabled, picker(m, 'doneReaction').disabled], [true, true], 'the edge case before a channel is chosen: both wait for it');
+  h.send({ type: 'connect-pick', key: 'channel', value: 'C0SUPPORT1' });
+  await settle();
+  m = h.model();
+  assert.deepEqual([picker(m, 'reaction').label, picker(m, 'reaction').whole, picker(m, 'reaction').required, picker(m, 'reaction').options[0]], ['Reaction', 'None: no board, and a thread is tracked by its link', false, { value: 'ticket', label: ':ticket:', detail: null, usedBy: null }]);
+  assert.deepEqual([picker(m, 'doneReaction').label, picker(m, 'doneReaction').whole], ['Done reaction', 'None: every marked message stays Open']);
+  assert.equal(m.save.can, true, 'no reaction is a choice: the board stays off');
+  h.send({ type: 'connect-pick', key: 'reaction', value: 'ticket' });
+  h.send({ type: 'connect-pick', key: 'doneReaction', value: 'white_check_mark' });
+  h.send({ type: 'connect-save' });
+  await settle();
+  m = h.model();
+  assert.deepEqual([m.save.look?.label, m.save.look?.tone, m.save.can], [`Couldn't save: The Slack app needs the channels:history scope for conversations.history. Add it on the app's OAuth & Permissions page at https://api.slack.com/apps, then install the app again.`, 'orange', true]);
+  assert.deepEqual(h.raw, [], 'nothing written while the app can\'t read the channel');
+  assert.deepEqual(asked.filter((x) => !['auth.test', 'bots.info', 'conversations.list', 'conversations.history'].includes(x)), [], 'the page makes no write call to Slack');
+
+  // With the scope, Save writes both reactions.
+  const ok = harness({ fetch: slack() });
+  await ok.session.open({ root: ROOT, kind: 'slack', from: 'tasks' });
+  ok.send({ type: 'connect-test', host: 'acme', fields: { token: SLACK_TOKEN } });
+  await settle();
+  ok.send({ type: 'connect-pick', key: 'channel', value: 'C0SUPPORT1' });
+  await settle();
+  ok.send({ type: 'connect-pick', key: 'reaction', value: 'ticket' });
+  ok.send({ type: 'connect-pick', key: 'doneReaction', value: 'white_check_mark' });
+  ok.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(ok.raw, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', reaction: 'ticket', doneReaction: 'white_check_mark' }]);
 });
 
 test('Slack: a token for another workspace is refused, naming it, and an existing tracker opens signed in with its channel fixed by name', async () => {

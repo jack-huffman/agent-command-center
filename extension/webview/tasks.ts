@@ -38,8 +38,8 @@ export function renderTasks(m: TasksModel): Node[] {
       tools.unshift(toggle);
       if (mode === 'tracker') {
         const cards = p.boards.reduce((n, b) => n + b.columns.reduce((k, c) => k + c.cards.length, 0), 0);
-        // A Slack channel has no board to count (T-31): its tasks are counted instead.
-        const counted = p.boards.some((b) => !b.paste) ? `${p.name}: ${plural(cards, 'ticket')} on the board${ready ? `, ${ready} ready for an agent` : ''}${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.` : summary;
+        // A Slack channel with no board to count (T-31) counts its tasks instead; one with a board (T-85) counts its cards.
+        const counted = p.boards.some((b) => !b.paste || b.columns.length) ? `${p.name}: ${plural(cards, 'ticket')} on the board${ready ? `, ${ready} ready for an agent` : ''}${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.` : summary;
         const head = header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', counted, ...tools);
         return el('div', 'project', head, ...p.boards.map((b) => renderTrackerBoard(p.root, b)));
       }
@@ -137,7 +137,7 @@ export function renderTasks(m: TasksModel): Node[] {
   });
 }
 
-const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'github-project': 'GitHub Project', 'github-state': 'Open and closed columns', 'azure-board': 'Azure board', 'monday-board': 'monday.com board' };
+const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'github-project': 'GitHub Project', 'github-state': 'Open and closed columns', 'azure-board': 'Azure board', 'monday-board': 'monday.com board', slack: 'Messages marked with its reaction' };
 export const KIND_ICON: Record<string, string> = { github: 'github', jira: 'issues', azure: 'azure-devops', monday: 'table', slack: 'comment-discussion', acc: 'checklist' };
 export const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps', monday: 'monday.com', slack: 'Slack' };
 
@@ -148,7 +148,7 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
   if (prio) prio.title = `Priority: ${c.priority}`;
   const card = el('article', `card tcard${c.acc?.needsYou ? ' attention' : ''}`,
     el('div', 'tcard-top', kind, el('span', 'tcard-key', c.key), prio, el('span', 'spacer'), ...c.assignees.slice(0, 3).map(avatar)),
-    el('div', 'card-title', c.title),
+    titled(el('div', 'card-title', c.title), c.fullTitle),
     c.labels.length ? el('div', 'labels', ...c.labels.slice(0, 4).map(labelChip)) : null,
     c.acc ? el('div', 'tcard-acc', status(c.acc.look), el('span', 'spacer'), c.acc.action ? nextStep(c.acc.action) : null) : null,
     c.acc?.conflicts ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', c.acc.conflicts)) : null,
@@ -157,7 +157,8 @@ function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement
     c.track?.error ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', `Couldn't track it: ${c.track.error}`)) : null,
   );
   card.dataset.key = c.key;
-  card.draggable = true;
+  // A Slack board's cards stay in their columns (T-85): acc changes no reaction.
+  card.draggable = b.moves;
   // No aria-label (T-59): what the card shows names it, its labels, people and Moving badge too. Its status,
   // which its column may share with others, is its description, before the board's keys add theirs.
   card.setAttribute('aria-description', `${c.status}.`);
@@ -235,8 +236,8 @@ function threadLink(root: string, b: TrackerBoard, paste: NonNullable<TrackerBoa
 
 function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   const tools: Child[] = [];
-  // Its person filter (T-79): Everyone, Mine, Unassigned, or one person. A Slack box and a board with no columns have no cards to filter.
-  const filter = b.columns.length && !b.paste ? personFilter(`tracker:${root}#${b.index}`, b.columns.flatMap((c) => c.cards), b.me) : null;
+  // Its person filter (T-79): Everyone, Mine, Unassigned, or one person. A board with no columns, as a Slack box without a board, has no cards to filter.
+  const filter = b.columns.length ? personFilter(`tracker:${root}#${b.index}`, b.columns.flatMap((c) => c.cards), b.me) : null;
   if (filter) tools.push(filter.control);
   if (b.url) {
     const open = el('button', 'btn ghost', icon('link-external'), `Open in ${KIND_NAME[b.kind] ?? 'the tracker'}`) as HTMLButtonElement;
@@ -269,10 +270,12 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
     out.append(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', b.error), fix));
   }
   if (b.notice) out.append(el('div', 'notice info', icon('info', 'blue'), el('span', '', b.notice)));
-  // A Slack channel has no board (T-31): a box for a thread's link stands in its place.
+  // A Slack board that is off says why, and how to turn it on (T-85).
+  if (b.off) out.append(el('div', 'notice info slack-off', icon('circle-slash', 'blue'), el('span', '', b.off)));
+  // A Slack channel's box for a thread's link (T-31), above its board when it has one (T-85), else in its place.
   if (b.paste) {
     out.append(threadLink(root, b, b.paste));
-    return out;
+    if (!b.columns.length) return out;
   }
   if (!b.columns.length) {
     if (!b.error) out.append(el('p', 'muted', b.loading ? 'Loading the board…' : 'This board has no columns.'));
@@ -316,7 +319,7 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   const live = liveLine(`tracker:${root}#${b.index}`);
   boardKeys(board, live, {
     key: `tracker:${root}#${b.index}`, column: (col) => col.dataset.col ?? '', card: (art) => art.dataset.key ?? '',
-    lanes: (art) => b.columns.map((c) => c.id).filter((id) => id !== art.closest<HTMLElement>('.column')?.dataset.col), move: moveCard,
+    lanes: (art) => (b.moves ? b.columns.map((c) => c.id).filter((id) => id !== art.closest<HTMLElement>('.column')?.dataset.col) : []), move: moveCard,
   });
   out.append(live, board);
   return out;
