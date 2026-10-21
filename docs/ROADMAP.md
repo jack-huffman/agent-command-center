@@ -109,8 +109,9 @@ where each one's done-when is written out.
   done. Checked 2026-10-20. Evidence: D-177. Jira and GitHub only; Azure
   DevOps, monday.com and Slack refuse, with why.
 - **Help for a person who reviews other people's tickets**: under way. Checked
-  2026-10-20. Evidence: D-176, D-177, D-179. Drafted acceptance criteria are
-  done. Verifying a developer's pull request waits on a person's answers.
+  2026-10-21. Evidence: D-176, D-177, D-179, D-???. Drafted acceptance
+  criteria are done. Verifying a developer's pull request is done, for pull
+  requests on GitHub. A view of developers' notes is not started.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
