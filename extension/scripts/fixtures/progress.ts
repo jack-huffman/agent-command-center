@@ -63,7 +63,8 @@ export const sampleAnalyzeRun = (now = Date.now()): RunInput => ({
 export function sampleIdleHub(now = Date.now()): HubLike {
   const hub = sampleHub(now);
   const root = hub.projects[0]!.root;
-  const rows = hub.taskRows(root).filter((r) => r.state !== 'running').map((r) => ({ ...r, analyzing: null }));
+  // Nothing under way: no builder, and no review in the cloud either (T-86).
+  const rows = hub.taskRows(root).filter((r) => r.state !== 'running').map((r) => ({ ...r, analyzing: null, reviewing: null, cloudReview: null }));
   return {
     ...hub, taskRows: () => rows, agents: hub.agents.filter((a) => a.kind === 'interactive'), questions: [],
     heavy: { dir: '/Users/me/.acc/heavy', slots: 2, held: [], waiting: [] }, machine: { load: 1.2, cpus: 10 },

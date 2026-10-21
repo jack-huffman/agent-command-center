@@ -97,7 +97,7 @@ test('what the cases expect comes from the same fixtures the pages draw: ten rul
   assert.ok((d.rules[1]?.sources ?? 0) > 4, 'the second rule has more reviews than its fold shows');
   assert.deepEqual(d.list, { key: 'needs-you', title: 'Needs you', shown: 3, total: 19 });
   // The cards the Overview case opens (T-36): every list but Needs you, each with every line, History in full.
-  assert.deepEqual(d.cards.map((c) => [c.key, c.lines, c.history]), [['progress', 6, false], ['ready', 6, false], ['moment', 4, false], ['history', 13, true]]);
+  assert.deepEqual(d.cards.map((c) => [c.key, c.lines, c.history]), [['progress', 7, false], ['ready', 6, false], ['moment', 5, false], ['history', 13, true]]);
   assert.ok(d.cards.every((c) => /^.+, \d+: .+$/.test(c.name)), 'each card\'s name holds its count');
   assert.ok(d.machine >= 2, `${d.machine} facts on the machine line`);
   assert.equal(d.rulesOpens, '{"kind":"rules"}');

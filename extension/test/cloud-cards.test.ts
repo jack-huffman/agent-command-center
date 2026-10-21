@@ -95,38 +95,34 @@ test('a task reviewed in the cloud says so on its card, with an icon and a label
 });
 
 test('deriveRows reads a task\'s cloud review from the ledger: its reviewer to watch on claude.ai, and needs you once it is quiet or failed; a task with none has no cloud review (T-86 edge cases)', () => {
-  const at = (iso: string) => new Date(iso);
-  const cr = { sessionId: 'session_01R', url: 'https://claude.ai/code/session_01R', firedAt: '2026-10-09T12:00:00Z', sha: 'abc', branch: 'acc/review/AV-9-abc', failed: null };
-  const read = (cloudReview: Task['cloudReview'], now: Date): TaskRow => {
+  // deriveRows reads the clock itself, so the fire is placed that many minutes before now.
+  const firedAgo = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
+  const cr = (firedAt: string, failed: { at: string; reason: string } | null = null) => ({ sessionId: 'session_01R', url: 'https://claude.ai/code/session_01R', firedAt, sha: 'abc', branch: 'acc/review/AV-9-abc', failed });
+  const read = (cloudReview: Task['cloudReview']): TaskRow => {
     const task = {
       id: 'AV-9', title: 'Task AV-9', brief: '', source: { kind: 'manual', url: null }, environment: 'devbox', deps: [], labels: [], state: 'review', blocker: null,
       run: { worktree: '/w', branch: 'task/AV-9' }, pr: null, history: [], createdAt: '', updatedAt: '', cloudReview,
     } as unknown as Task;
-    const project = { name: 'Acme', root: '/r', config: { github: { repo: 'o/r', account: 'me' }, environments: [], profile: 'generic', agents: { cloud: CLOUD } }, worktrees: [] };
-    const fake = { agentsAt: 1, agentsError: null, agents: [], questions: [], askingFor: () => null, tieFor: () => null, lastSaid: () => null, lastModel: () => null, changed: () => null, limits: null } as unknown as Hub;
-    const real = Date.now;
-    Date.now = () => now.getTime();
-    try {
-      return deriveRows(fake, { ...emptyLedger(), tasks: [task] }, project as never)[0]!;
-    } finally {
-      Date.now = real;
-    }
+    const project = { name: 'Acme', root: '/r', ledgerPath: '/r/.git/acc/ledger.json', config: { github: { repo: 'o/r', account: 'me' }, environments: [], profile: 'generic', agents: { cloud: CLOUD } }, worktrees: [] };
+    const fake = { agentsAt: 1, agentsError: null, agents: [], questions: [], askingFor: () => null, tieFor: () => null, lastSaid: () => null, lastModel: () => null, changed: new Map(), limits: null } as unknown as Hub;
+    return deriveRows(fake, { ...emptyLedger(), tasks: [task] }, project as never)[0]!;
   };
-  const live = read(cr, at('2026-10-09T12:30:00Z'));
-  assert.deepEqual(live.reviewing, { sessionId: 'session_01R', name: 'Acme · AV-9 Task AV-9 · review', where: 'cloud', url: cr.url });
-  assert.deepEqual(live.cloudReview, { url: cr.url, firedAt: cr.firedAt, wait: null, failed: false });
+  const fresh = firedAgo(30);
+  const live = read(cr(fresh));
+  assert.deepEqual(live.reviewing, { sessionId: 'session_01R', name: 'Acme · AV-9 Task AV-9 · review', where: 'cloud', url: 'https://claude.ai/code/session_01R' });
+  assert.deepEqual(live.cloudReview, { url: 'https://claude.ai/code/session_01R', firedAt: fresh, wait: null, failed: false });
   assert.equal(live.display, 'review');
-  const quiet = read(cr, at('2026-10-09T14:30:00Z'));
+  const quiet = read(cr(firedAgo(150)));
   assert.equal(quiet.display, 'needs-you');
   assert.equal(quiet.cloudReview?.wait, QUIET);
   assert.ok(quiet.reviewing, 'still to watch');
-  const failed = read({ ...cr, failed: { at: '2026-10-09T12:40:00Z', reason: 'its cloud reviewer pushed acc/review/AV-9-abc without review.json: review it on this Mac' } }, at('2026-10-09T12:45:00Z'));
+  const failed = read(cr(firedAgo(5), { at: firedAgo(1), reason: 'its cloud reviewer pushed acc/review/AV-9-abc without review.json: review it on this Mac' }));
   assert.equal(failed.display, 'needs-you');
   assert.equal(failed.reviewing, null, 'nothing to watch: it gave what it gave');
   assert.deepEqual([failed.cloudReview?.failed, failed.cloudReview?.wait], [true, 'its cloud reviewer pushed acc/review/AV-9-abc without review.json: review it on this Mac']);
-  const none = read(null, at('2026-10-09T12:30:00Z'));
+  const none = read(null);
   assert.deepEqual([none.reviewing, none.cloudReview, none.display], [null, null, 'review']);
-  assert.deepEqual([read(undefined, at('2026-10-09T12:30:00Z')).cloudReview, read(undefined, at('2026-10-09T12:30:00Z')).reviewing], [null, null], 'an older ledger with no field');
+  assert.deepEqual([read(undefined).cloudReview, read(undefined).reviewing], [null, null], 'an older ledger with no field');
 });
 
 test('Settings shows where reviews run beside where a plain dispatch goes, with a button to change it; off with why until the project opts in to cloud builders (T-86)', () => {

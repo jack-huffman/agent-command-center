@@ -84,10 +84,10 @@ where each one's done-when is written out.
   the base (D-058), and a pull request whose checks fail goes back to its
   builder once a commit (D-076).
 - **A merge queue**: done. Checked 2026-10-10. Evidence: D-096.
-- **Cloud reviewers**: done. Checked 2026-10-21. Evidence: T-86, D-???. Where a
+- **Cloud reviewers**: done. Checked 2026-10-21. Evidence: D-140, D-??? (T-86). Where a
   project opts in (`agents.cloud.review`), a task's review runs in a cloud
   session and its verdict comes back by a push; local stays the default.
-- **Cloud analysts**: not started. Checked 2026-10-21. Evidence: D-???. An
+- **Cloud analysts**: not started. Checked 2026-10-21. Evidence: D-140, D-??? (T-86). An
   analysis reads the orgs through the person's own login, which never goes to
   a cloud session, so an analyst there could read only the repo; worth doing
   for a generic project first.
