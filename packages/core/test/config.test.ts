@@ -541,7 +541,7 @@ const EVERY_KEY = {
     builder: { model: 'sonnet', effort: 'high', fallbackModel: 'haiku' },
     reviewer: { model: 'opus', effort: 'max', fallbackModel: 'sonnet' },
     // Cloud builders (GH-69): opted in, with every key.
-    cloud: { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', default: 'local', quietMinutes: 90, max: 2 },
+    cloud: { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', default: 'local', quietMinutes: 90, max: 2, review: 'cloud' },
   },
   autonomy: 'review',
   worktrees: { root: '.claude/worktrees', setup: ['npm ci'] },

@@ -3,8 +3,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFi
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { type BuilderPlace, type Config, type Effort, type Environment, environmentByBranch } from './config.ts';
-import { cloudChecks, cloudNeeds, cloudText, type Fired, fireRoutine, readCloudToken } from './cloud.ts';
-import { guardCommitted } from './cloud-guard.ts';
+import { cloudChecks, cloudGuard, cloudNeeds, cloudText, type Fired, fireRoutine, readCloudToken } from './cloud.ts';
 import { environmentProtection, protectionWarnings } from './protection.ts';
 import { PUSH_TIMEOUT_MS } from './land.ts';
 import { fetchBranches } from './sync.ts';
@@ -420,14 +419,9 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       // starts on, the repo's default branch on origin, and the task branch it then checks out. Read from
       // the commits, never the files on disk: an uncommitted guard never reaches the cloud.
       const gitEnv = { ...deps.env, GIT_TERMINAL_PROMPT: '0' };
-      const head0 = git(run, main, 'symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD').stdout.trim();
-      const base = head0.startsWith('origin/') ? head0.slice('origin/'.length) : env.branch;
-      fetchBranches(run, main, [base], gitEnv);
-      const baseRef = git(run, main, 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}`).code === 0 ? `refs/remotes/origin/${base}` : `refs/heads/${base}`;
-      for (const ref of [baseRef, `refs/heads/${branch}`]) {
-        const committed = guardCommitted(run, main, ref);
-        if (!committed.ok) throw new AccError('cloud-unguarded', `Can't dispatch ${id} to the cloud: the push guard isn't committed where the cloud session would load it. ${committed.why} The worktree is kept at ${wt}, and nothing was pushed or started.`);
-      }
+      const guard = cloudGuard(run, main, env.branch, branch, gitEnv);
+      if (guard.why) throw new AccError('cloud-unguarded', `Can't dispatch ${id} to the cloud: the push guard isn't committed where the cloud session would load it. ${guard.why} The worktree is kept at ${wt}, and nothing was pushed or started.`);
+      const base = guard.base;
       // GitHub's rules are the line behind the guard: where it enforces none, say so, and go on (a person decided).
       const warnings = protectionWarnings(environmentProtection(run, config.github!.repo, config.github!.account, [...new Set([base, env.branch])], deps.env));
       steps.done('guard', warnings.length ? `${warnings.length} warning(s) about GitHub's rules` : undefined);

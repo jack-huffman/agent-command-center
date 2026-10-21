@@ -214,7 +214,7 @@ doesn't know, at any level (GH-107).
 | `trackers` | Where intake reads from. Several are allowed, each of a `kind`: `jira`, `github`, `azure`, `monday` or `slack`. A Jira tracker names its `site` and `project` key; a GitHub one its `repo`, the project's own by default; an Azure DevOps one its `organization` and `project`, and may name the `team` whose board to show; a monday.com one its `account` and `board`, and may name a `statusColumn` (D-085); a Slack one its `workspace`, as in acme.slack.com, and its `channel`, a channel's id such as `C0123ABCD`, whose threads are its tickets (D-145). A Slack tracker's `reaction`, a reaction's name without colons such as `ticket`, turns on its board on the Tasks tab: the channel's messages from the last 30 days with that reaction, Open, and Done when they also have its `doneReaction`, such as `white_check_mark` (D-181). Without a `reaction` the board is off, and a thread is tracked by its link. An Azure DevOps, monday.com or Slack tracker's keys start with its `prefix`, `AB`, `MON` or `SL` by default, so two trackers never give the same keys. A GitHub tracker's `skipLabels` lists labels whose issues aren't tasks, such as `["milestone"]` (D-048). Each tracker's place holds every read to this repo's tickets: its project, repo or monday.com `board`, narrowed by a Jira `epic`, GitHub `labels` (any one counts), an Azure `areaPath` or a monday.com `group` (D-072). A Jira tracker's `sprint` narrows it to a sprint, alone or with its `epic` (D-178): `"active"` for the board's open sprints, whichever they are now, or a sprint's id; unset, the whole board, its backlog and every sprint. A `sprint` on another kind of tracker, or one of the wrong type, is an error. Elsewhere, `board` is the board the Tasks tab shows: a Jira board id, a GitHub Project number or an Azure board's name. `edits`, when `true`, lets the task page change a ticket's status, assignee and labels, `acc sync` close a GitHub issue when its work merges, and acc move a task's card on its GitHub Project as the task changes state; it's off by default (D-066, D-082, D-126). A GitHub tracker's `statusFor` names the Project column a task's card moves to for each state, such as `{ "review": "QA" }`: its keys are `todo`, `ready`, `running`, `review`, `rework`, `blocked` and `done`, and a state it leaves out goes to its usual column ([section 11](#11-landing)) |
 | `agents.max` | Most builder sessions at once, default 3. `acc agents max <n>` and Settings' Limits and checks change it; this machine's total, if it has one (`acc machine agents`), caps every repo's builders together (GH-111) |
 | `agents.permissionMode` | The permission mode builders run in: `default`, `acceptEdits` (the default), `plan`, `auto` or `dontAsk`. `bypassPermissions` is never allowed |
-| `agents.cloud` | Cloud builders (GH-69): present only once a person opted the project in, with `acc cloud enable` or Settings. `routine` is the API trigger id of the routine acc fires at claude.ai/code/routines; `default` is where a plain dispatch goes, `local` (the default) or `cloud`; `quietMinutes` (default 120) is how long a cloud builder may push nothing before its task needs you; `max` (default 3) is how many may run at once, counted apart from `agents.max`. The routine's token lives in the macOS keychain, never here. Left out, nothing offers the cloud ([section 7](#7-dispatch)) |
+| `agents.cloud` | Cloud builders (GH-69): present only once a person opted the project in, with `acc cloud enable` or Settings. `routine` is the API trigger id of the routine acc fires at claude.ai/code/routines; `default` is where a plain dispatch goes, `local` (the default) or `cloud`; `quietMinutes` (default 120) is how long a cloud builder may push nothing before its task needs you; `max` (default 3) is how many may run at once, counted apart from `agents.max`, cloud reviews among them; `review` is where a task's review runs when no flag says, `local` (the default) or `cloud` (T-86). The routine's token lives in the macOS keychain, never here. Left out, nothing offers the cloud ([section 7](#7-dispatch)) |
 | `agents.builder`, `agents.reviewer` | The `model`, `effort` and `fallbackModel` builders and reviewers run with (D-036). A `model` is an alias, such as `opus`, or a full name; left out, acc's default, `claude-opus-5-5` (D-086). `effort` is `low`, `medium`, `high`, `xhigh` or `max`, and `fallbackModel` is the model Claude Code turns to when the first is overloaded; either left out is Claude Code's own default. A clone's own choice, made with `acc agents set`, wins over these ([section 7](#7-dispatch)) |
 | `autonomy` | How much the loop does on its own ([section 12](#12-the-orchestrator-loop)) |
 | `autopilot.appendOnly` | Files, or folders, where autopilot may resolve a conflict with the base when both sides only added to the end, such as a decision log. Left out, there are none ([section 12](#12-the-orchestrator-loop)) |
@@ -592,6 +592,30 @@ acc's own merges, by their commit (sync's `mergeCommit.oid`, a landed head as a
 merge's second parent, a rebase's copies by `git cherry`, and GitHub's squash
 subject as a fallback), on the Overview until a person has seen it (`acc sync
 --branches-seen`).
+
+**Cloud reviewers (T-86).** Where `agents.cloud.review` is `cloud`, or `acc
+review <id> --cloud` says so, the review fires the same routine with the
+reviewer's prompt as its text: three guard records first (`Acc-Branch`, the
+task branch; `Acc-Role: reviewer`; `Acc-Verdict: acc/review/<task>-<sha>`),
+then the standing instructions and prompt of [section 10](#10-review), with
+the base and head shas in place of the diff and the verdict's schema. The task
+stays in review with its `cloudReview` on it. The reviewer reads the pushed
+branch, never edits it, writes `review.json` alone and pushes it to the verdict
+branch alone: the guard allows a reviewer plain git from a short list, with no
+option that names a program (`--upload-pack`, `-O`), no option before git's
+command, no redirect or `--output`, and no checkout that restores a path; Edit
+and Write of that file; and that one push; the pre-push hook refuses every
+other ref. For every role the guard refuses the git options and commands whose
+value is a program (`--receive-pack`, `--exec`, `bisect run`, `submodule
+foreach`, …). `acc sync` finds the branch, checks the file against the schema
+and caps each part (`VERDICT_LIMITS`; a file over 4 MB isn't read), keeps the
+verdict and moves the task as a local review would, keeps a stale one without
+moving, fails the review on one it can't read, and deletes the branch. No
+verdict for `quietMinutes` shows the task as needing you, with **Review on this
+Mac** as the way on. A verdict kept here for the head, or a move out of review,
+ends the cloud review. A cloud review counts against `agents.cloud.max`.
+Analysts stay on the Mac. The builder's fire text now says `Acc-Role: builder`,
+and a record without a role fails closed.
 
 **Why background sessions (D-009).** Claude Code's supervisor keeps them running
 after the terminal closes. They report `working`, `blocked`, `done`, `failed` or
@@ -1996,8 +2020,8 @@ already exists.
 ## 19. Left out of v1
 
 - destructive Salesforce changes
-- cloud reviewers and analysts: builders can run in the cloud where a project
-  opts in (GH-69, D-140); the rest stay local, as does the ledger
+- cloud analysts: builders and reviewers can run in the cloud where a project
+  opts in (GH-69, D-140, T-86); analyses stay local, as does the ledger
 - sharing a ledger across machines
 - a Developer sandbox for each agent
 

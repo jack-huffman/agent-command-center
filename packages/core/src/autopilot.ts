@@ -18,6 +18,8 @@ import { askingUnder, pendingQuestions, type Question, questionsDir } from './qu
 import { refresh } from './refresh.ts';
 import { clipSaid, listSessions, resume, type ResumeDeps } from './resume.ts';
 import { review } from './review.ts';
+import { cloudNeeds } from './cloud.ts';
+import { reviewInCloud, reviewPlace } from './cloud-review.ts';
 import type { SlotOptions } from './semaphore.ts';
 import { type AutopilotOutcome, capWait, type Decision, type FactsGitHub, firstLines, inQueueAt, nextStep, sentence, taskFacts } from './autopilot-rules.ts';
 import { machineCapProblem, machineLoad, type MachineLoad } from './limits.ts';
@@ -151,6 +153,12 @@ export function realSteps(paths: RepoPaths, config: Config, deps: AutopilotDeps)
   const { run, now, env } = deps;
   return {
     review: (id) => {
+      // Where the project reviews in the cloud (T-86) and the cloud is ready, the routine is fired and the
+      // task stays in review until acc sync reads the verdict; otherwise the review runs here, as before.
+      if (reviewPlace(config) === 'cloud' && !cloudNeeds(config, run, env).some((n) => !n.ok)) {
+        const c = reviewInCloud(paths, config, id, { run, now, env }, { actor: 'orchestrator', by: AUTOPILOT_BY });
+        return { reason: c.reason };
+      }
       // review → rework is the reviewer's move (RULES), so the reviewer makes it, for autopilot.
       const r = review(paths, config, id, { run, now, env }, { by: `reviewer:${id} for ${AUTOPILOT_BY}` });
       return { reason: r.verdict.verdict === 'pass' ? `Review passed: ${r.verdict.summary}` : `Review asked for changes, so it went to rework: ${r.verdict.summary}` };

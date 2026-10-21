@@ -6,8 +6,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { mutate, parseConfig, readLedger, repoPaths, run, upsertTasks } from '../../core/src/index.ts';
-import { GENERIC_CONFIG } from '../../core/test/support.ts';
+import { installGuard, mutate, parseConfig, readLedger, repoPaths, run, upsertTasks } from '../../core/src/index.ts';
+import { GENERIC_CONFIG, gitIn, tempDir } from '../../core/test/support.ts';
 import { cli, repoWithConfig, UNCHECKED } from './support.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
@@ -66,7 +66,7 @@ test('acc sync --close-done closes the issues of tasks already done, listing eac
   assert.deepEqual(tasks.map((t) => [t.id, t.pr?.issue?.state, t.pr?.issue?.reason]), [['GH-3', 'closed', undefined], ['GH-4', 'left', 'it was already closed']]);
 
   const again = acc(dir, ['sync', '--close-done', '--json'], undefined, env);
-  assert.deepEqual(again.json(), { checked: 0, changes: [], cloud: [], branches: [], closeDone: [] }, 'a second run does nothing');
+  assert.deepEqual(again.json(), { checked: 0, changes: [], cloud: [], reviews: [], branches: [], closeDone: [] }, 'a second run does nothing');
   assert.match(acc(dir, ['sync', '--close-done'], undefined, env).out, /No done task's issue is waiting to close\./);
 });
 
@@ -224,4 +224,108 @@ test('acc autopilot --every stops by itself once the Command Center that started
   assert.match(r.out, /Nothing for autopilot to do\./, 'it did its pass first');
   assert.match(r.err, /The Command Center that started autopilot closed, so it stops\./);
   assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')), 'and let go of its lock');
+});
+
+// ---------------------------------------------------------------- a review in the cloud (T-86)
+
+/**
+ * A project on GitHub (a bare origin) that opted in to cloud builders, its guard committed, T-1 in review
+ * on a branch with a worktree, and on PATH a claude that is signed in and answers a review, and a curl
+ * whose fire names a session. The routine's token comes from the environment.
+ */
+function cloudRepo(raw: Record<string, unknown>) {
+  const dir = repoWithConfig(raw);
+  installGuard(dir);
+  gitIn(dir, 'add', '-A');
+  gitIn(dir, 'commit', '-q', '-m', 'the guard');
+  const origin = join(tempDir('origin-'), 'repo.git');
+  run('git', ['init', '-q', '--bare', origin]);
+  gitIn(dir, 'remote', 'add', 'origin', origin);
+  gitIn(dir, 'push', '-q', '-u', 'origin', 'main');
+  gitIn(dir, 'remote', 'set-head', 'origin', 'main');
+  assert.equal(acc(dir, ['add', 'A thing']).code, 0);
+  const wt = join(dir, '.claude', 'worktrees', 'T-1');
+  gitIn(dir, 'worktree', 'add', '-q', '-b', 'task/T-1-a-thing', wt, 'main');
+  writeFileSync(join(wt, 'a.txt'), 'built\n');
+  gitIn(wt, 'add', '-A');
+  gitIn(wt, 'commit', '-q', '-m', 'T-1: built');
+  const now = () => new Date('2026-10-21T12:00:00Z');
+  mutate(repoPaths(dir, run), now, (l, emit) => { const t = l.tasks[0]!; t.state = 'review'; t.run = { worktree: wt, branch: 'task/T-1-a-thing' }; emit({ type: 'task.updated', task: t.id, actor: 'human', by: 'h', data: {} }); });
+  const fired = JSON.stringify({ type: 'routine_fire', claude_code_session_id: 'session_01CLI', claude_code_session_url: 'https://claude.ai/code/session_01CLI' });
+  const verdict = JSON.stringify({ structured_output: { verdict: 'pass', summary: 'Fine.', client: 'Done.', criteria: [], findings: [] }, session_id: 'local-review' });
+  // Both stand-ins in one folder, first on PATH, so neither the real claude nor the real curl is ever run.
+  const bin = join(tempDir('cloud-bin-'), 'bin');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'claude'), `#!/bin/sh\ncase "$1 $2" in\n  "auth status") echo '{"loggedIn":true,"authMethod":"claude.ai"}' ;;\n  *) echo '${verdict}' ;;\nesac\n`);
+  writeFileSync(join(bin, 'curl'), `#!/bin/sh\nprintf '%s\\n200\\n' '${fired}'\n`);
+  chmodSync(join(bin, 'claude'), 0o755);
+  chmodSync(join(bin, 'curl'), 0o755);
+  return { dir, origin, env: { PATH: `${bin}:${process.env.PATH}`, ACC_CLOUD_TOKEN: 'tok_0123456789abcdefghij' }, ledger: repoPaths(dir, run).ledger };
+}
+
+const CLOUD_RAW = { ...UNCHECKED, github: { repo: 'acme/tool', account: 'acme-bot' }, agents: { max: 2, cloud: { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW' } } };
+
+test('acc review --cloud fires the routine with the reviewer\'s prompt and says where its verdict comes back; --json carries the session; a second fire is refused while it reads; --cloud with --local is a usage error (T-86)', () => {
+  const { dir, origin, env, ledger } = cloudRepo(CLOUD_RAW);
+  const r = acc(dir, ['review', 'T-1', '--cloud'], undefined, env);
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /T-1 is being reviewed in the cloud, at [0-9a-f]{7}\. Session session_01CLI: https:\/\/claude\.ai\/code\/session_01CLI/);
+  assert.match(r.out, /sends its verdict back on acc\/review\/T-1-[0-9a-f]{40}\. acc sync takes it from there/);
+  assert.match(r.out, /No verdict after 120 minutes shows the task as needing you: acc review T-1 --local reviews it here\./);
+  const sha = gitIn(dir, 'rev-parse', 'task/T-1-a-thing');
+  assert.equal(gitIn(origin, 'rev-parse', 'task/T-1-a-thing'), sha, 'the local builder\'s branch was pushed for the reviewer');
+  const t = JSON.parse(readFileSync(ledger, 'utf8')).tasks[0];
+  assert.equal(t.state, 'review');
+  assert.deepEqual([t.cloudReview.sessionId, t.cloudReview.sha, t.cloudReview.branch, t.cloudReview.failed], ['session_01CLI', sha, `acc/review/T-1-${sha}`, null]);
+  const again = acc(dir, ['review', 'T-1', '--cloud', '--json'], undefined, env);
+  assert.equal(again.code, 1);
+  assert.match(again.out + again.err, /T-1 is being reviewed in the cloud already/);
+  assert.match(acc(dir, ['review', 'T-1', '--cloud', '--local'], undefined, env).err, /Give --cloud or --local, not both\./);
+  // acc cloud lists it, and acc show says it's in review still.
+  const status = acc(dir, ['cloud', '--json'], undefined, env);
+  assert.deepEqual(status.json().reviewing, [{ id: 'T-1', url: 'https://claude.ai/code/session_01CLI', wait: null }]);
+  assert.match(acc(dir, ['cloud'], undefined, env).out, /T-1 is reviewed in the cloud: https:\/\/claude\.ai\/code\/session_01CLI/);
+});
+
+test('acc review --cloud --json carries the session, the commit and the verdict branch (T-86)', () => {
+  const { dir, env } = cloudRepo(CLOUD_RAW);
+  const r = acc(dir, ['review', 'T-1', '--cloud', '--json'], undefined, env);
+  assert.equal(r.code, 0, r.err);
+  const j = r.json();
+  assert.deepEqual([j.task, j.where, j.sessionId, j.url], ['T-1', 'cloud', 'session_01CLI', 'https://claude.ai/code/session_01CLI']);
+  assert.match(j.sha, /^[0-9a-f]{40}$/);
+  assert.equal(j.branch, `acc/review/T-1-${j.sha}`);
+  assert.match(j.reason, /^Reviewing [0-9a-f]{7} in the cloud/);
+});
+
+test('acc review --cloud is refused where the project hasn\'t opted in, naming each need, and nothing is fired; a plain review under the setting falls back to this Mac when a need is unmet, saying why (T-86)', () => {
+  const off = cloudRepo({ ...UNCHECKED, github: { repo: 'acme/tool', account: 'acme-bot' } });
+  const r = acc(off.dir, ['review', 'T-1', '--cloud'], undefined, off.env);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /Can't review T-1 in the cloud:\n- The project has opted in: Cloud builders are off until a person opts the project in/);
+  assert.equal(JSON.parse(readFileSync(off.ledger, 'utf8')).tasks[0].cloudReview, undefined, 'nothing recorded');
+  assert.equal(run('git', ['rev-parse', '--verify', '--quiet', 'refs/heads/task/T-1-a-thing'], { cwd: off.origin }).code, 1, 'nothing pushed');
+  // Set to the cloud, with no token: the review runs here, and says why it didn't go.
+  const set = cloudRepo({ ...CLOUD_RAW, agents: { max: 2, cloud: { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', review: 'cloud' } } });
+  const local = acc(set.dir, ['review', 'T-1'], undefined, { PATH: set.env.PATH, ACC_CLOUD_TOKEN: '' });
+  assert.equal(local.code, 0, local.err);
+  assert.match(local.err, /Reviews are set to the cloud, but Cloud builders need the routine's token: Setup says how: reviewing T-1 on this Mac\./);
+  assert.match(local.out, /Review passed: Fine\./);
+  assert.equal(JSON.parse(readFileSync(set.ledger, 'utf8')).tasks[0].cloudReview, undefined);
+  // Set to the cloud and ready: a plain review goes there; --local keeps it here.
+  const ready = cloudRepo({ ...CLOUD_RAW, agents: { max: 2, cloud: { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', review: 'cloud' } } });
+  assert.match(acc(ready.dir, ['review', 'T-1', '--local'], undefined, ready.env).out, /Review passed: Fine\./);
+  assert.match(acc(ready.dir, ['review', 'T-1'], undefined, ready.env).out, /T-1 is being reviewed in the cloud/);
+});
+
+test('acc cloud enable --review writes agents.cloud.review alone, refuses a bad value, and acc cloud says where reviews run (T-86)', () => {
+  const dir = repoWithConfig({ ...UNCHECKED, github: { repo: 'acme/tool', account: 'acme-bot' } });
+  assert.equal(acc(dir, ['cloud', 'enable', '--review', 'cloud']).code, 0);
+  const cfg = JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8'));
+  assert.deepEqual(cfg.agents.cloud, { default: 'local', quietMinutes: 120, max: 3, review: 'cloud' });
+  assert.match(acc(dir, ['cloud']).out, /Reviews: Cloud \(acc review --local keeps one on this Mac\)/);
+  assert.equal(acc(dir, ['cloud', 'enable', '--review', 'local']).code, 0);
+  assert.equal(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')).agents.cloud.review, 'local');
+  assert.match(acc(dir, ['cloud']).out, /Reviews: This Mac \(acc review --cloud sends one to the cloud\)/);
+  assert.match(acc(dir, ['cloud', 'enable', '--review', 'mars']).err, /Reviews run in one of local, cloud\./);
 });

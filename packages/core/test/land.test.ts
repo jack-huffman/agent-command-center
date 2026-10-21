@@ -295,7 +295,7 @@ test('sync: a merged pull request makes its task done, and a closed one blocks i
   // Merged into its environment: a draft for the ticket, which sync, running unattended, never posts (D-066).
   assert.deepEqual(listUpdates(merged.paths).map((u) => [u.event, u.env, u.state, u.by, u.text]), [['merged', merged.config.environments[0]!.name, 'draft', 'acc sync', `The change was approved and merged into ${merged.config.environments[0]!.name}.`]]);
   assert.ok(!calls.some((c) => c.startsWith('gh issue') || c.startsWith('gh api')), 'nothing is posted');
-  assert.deepEqual(sync(merged.paths, merged.config, { run: view('MERGED'), now, env: {} }), { checked: 0, changes: [], cloud: [], branches: [] }, 'nothing left to follow');
+  assert.deepEqual(sync(merged.paths, merged.config, { run: view('MERGED'), now, env: {} }), { checked: 0, changes: [], cloud: [], reviews: [], branches: [] }, 'nothing left to follow');
   assert.equal(listUpdates(merged.paths).length, 1, 'drafted once');
 
   const open = withPr(42);

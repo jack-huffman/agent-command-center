@@ -358,7 +358,7 @@ test('acc sync follows an open promotion: once it merges, each ticket hears its 
   draftUpdate(paths, taskIn(paths, 'ACME-1'), { event: 'merged', env: 'Dev' }, 'acc sync', now);
   draftUpdate(paths, taskIn(paths, 'ACME-1'), { event: 'promotion-opened', env: 'UAT', pr: PR9 }, 'human:jordan', now);
   const calls: string[] = [];
-  assert.deepEqual(sync(paths, c, { run: ghView('OPEN', calls), now, env: {} }), { checked: 1, changes: [], cloud: [], branches: [] }, 'still open: nothing changes');
+  assert.deepEqual(sync(paths, c, { run: ghView('OPEN', calls), now, env: {} }), { checked: 1, changes: [], cloud: [], reviews: [], branches: [] }, 'still open: nothing changes');
   assert.equal(listUpdates(paths).length, 2);
 
   const r = sync(paths, c, { run: ghView('MERGED', calls, merge), now, env: {} });
@@ -375,7 +375,7 @@ test('acc sync follows an open promotion: once it merges, each ticket hears its 
     ['ACME-1.3', 'promoted', 'UAT', 'acc sync', 'The change is now in UAT.', ['ACME-1.2']],
   ], 'it stands in for the draft saying it was ready to go');
 
-  assert.deepEqual(sync(paths, c, { run: ghView('MERGED', calls, merge), now, env: {} }), { checked: 0, changes: [], cloud: [], branches: [] }, 'followed until it merged, and no further');
+  assert.deepEqual(sync(paths, c, { run: ghView('MERGED', calls, merge), now, env: {} }), { checked: 0, changes: [], cloud: [], reviews: [], branches: [] }, 'followed until it merged, and no further');
   assert.equal(listUpdates(paths).length, 2);
   assert.deepEqual([...new Set(calls.map((x) => x.split(' ').slice(0, 3).join(' ')))], ['gh auth token', 'gh pr view'], 'nothing is posted, and a project not opted in to cloud builders looks at no branch (GH-69)');
 });

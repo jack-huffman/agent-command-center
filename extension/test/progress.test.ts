@@ -68,6 +68,8 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
       row('T-5', 'review', 'review'),
       row('T-6', 'review', 'review'),
       row('T-7', 'todo', 'ready'),
+      // A review in the cloud (T-86): no marker on this Mac; the row says so.
+      row('T-8', 'review', 'review', { reviewing: { sessionId: 'session_01R', name: 'acme · T-8 · review', where: 'cloud', url: 'https://claude.ai/code/session_01R' }, cloudReview: { url: 'https://claude.ai/code/session_01R', firedAt: at(7), wait: null, failed: false } }),
     ],
     agents: [{ cwd: wt('T-1'), kind: 'background', startedAt: 1, id: 'bg1', sessionId: 's-1', state: 'working', pid: 41 }],
     jobs: {
@@ -95,6 +97,11 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
   assert.deepEqual(brief(group(m, 'T-2')!.jobs), [['analysis', 'Analyzing', 'Analysis']]);
   assert.deepEqual(brief(group(m, 'T-3')!.jobs), [['review', 'Reviewing', 'Review']]);
   assert.equal(group(m, 'T-3')!.jobs[0]!.detail, 'reading abcdef1');
+  // The cloud review (T-86): its own look, how long, and Watch on claude.ai.
+  const t8 = group(m, 'T-8')!;
+  assert.deepEqual(brief(t8.jobs), [['review', 'Reviewing in the cloud', 'Review']]);
+  assert.deepEqual([t8.jobs[0]!.look.icon, t8.jobs[0]!.since, t8.jobs[0]!.detail], ['cloud', '7 min', 'reading the branch on GitHub; its verdict comes back by a push, which the next sync takes']);
+  assert.deepEqual(t8.jobs[0]!.actions.map((a) => [a.label, a.command]), [['Watch', 'acc.task.watchReview']]);
   // A resumed builder, its resume, and a check found by its folder: the builder's worktree.
   assert.deepEqual(brief(group(m, 'T-4')!.jobs), [['builder', 'Working', 'Builder'], ['resume', 'Resumed', 'Resume'], ['check', '1st in line', 'Check: validate']]);
   assert.equal(group(m, 'T-4')!.jobs[0]!.detail, '');
@@ -105,6 +112,23 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
   assert.equal(group(m, 'T-7'), undefined, 'a task with nothing under way isn\'t listed');
   // Every state has words and an icon; only what waits on a person is orange.
   for (const g of m.groups) for (const j of g.jobs) assert.ok(j.look.label && j.look.icon && j.look.tone !== 'orange', `${g.id} ${j.kind}`);
+});
+
+test('a cloud review quiet for too long, or one whose verdict acc couldn\'t read, waits on you on In progress, with why and Review on this Mac; one that failed with its reason gone, or a task with none, has no row (T-86 edge cases)', () => {
+  const quiet = row('T-9', 'review', 'needs-you', { reviewing: { sessionId: 'session_01Q', where: 'cloud', url: 'https://claude.ai/code/session_01Q' }, cloudReview: { url: 'https://claude.ai/code/session_01Q', firedAt: at(150), wait: 'no verdict from its cloud reviewer for 150 minutes: review it on this Mac', failed: false } });
+  const failed = row('T-10', 'review', 'needs-you', { cloudReview: { url: 'https://claude.ai/code/session_01F', firedAt: at(20), wait: 'its cloud reviewer pushed acc/review/T-10-abc without review.json: review it on this Mac', failed: true } });
+  const gone = row('T-11', 'review', 'review', { cloudReview: { url: 'https://claude.ai/code/session_01G', firedAt: at(20), wait: null, failed: true } });
+  const m = inProgress({ hub: hub({ rows: [quiet, failed, gone, row('T-12', 'review', 'review')] }), runs: [], autopilot: () => null, now: NOW });
+  const t9 = group(m, 'T-9')!;
+  assert.deepEqual(brief(t9.jobs), [['review', 'Waiting on you', 'Review']]);
+  assert.deepEqual([t9.jobs[0]!.look.icon, t9.jobs[0]!.look.tone, t9.jobs[0]!.since], ['bell', 'orange', '2 h 30 min']);
+  assert.equal(t9.jobs[0]!.detail, 'no verdict from its cloud reviewer for 150 minutes: review it on this Mac');
+  assert.deepEqual(t9.jobs[0]!.actions.map((a) => [a.label, a.command]), [['Watch', 'acc.task.watchReview'], ['Review on this Mac', 'acc.task.reviewLocal']]);
+  const t10 = group(m, 'T-10')!;
+  assert.deepEqual(brief(t10.jobs), [['review', 'Waiting on you', 'Review']]);
+  assert.deepEqual(t10.jobs[0]!.actions.map((a) => a.label), ['Review on this Mac'], 'nothing to watch: it gave what it gave');
+  assert.equal(group(m, 'T-11'), undefined, 'a failed review with no reason to show isn\'t a job');
+  assert.equal(group(m, 'T-12'), undefined);
 });
 
 test('each row offers what applies to it, each saying what it does; Stop goes through acc.job.stop, which asks first (D-092)', () => {

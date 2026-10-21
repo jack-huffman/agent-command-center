@@ -13,14 +13,14 @@ import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs
 import { join } from 'node:path';
 import { type BuilderPlace, BUILDER_PLACES, CLOUD_MAX, CLOUD_QUIET_MINUTES, type CloudAgents, type Config, type Environment, environmentByBranch, requiredGates, ROUTINE_ID } from './config.ts';
 import { writeJsonKey } from './config-edit.ts';
-import { RECORD_LINE } from './cloud-guard.ts';
+import { guardCommitted, RECORD_LINE, ROLE_LINE } from './cloud-guard.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { type GateResult, priorTests, runGates } from './gates.ts';
 import { type Actor, applyMove, checkMove, type CloudRun, mutate, type NoteInput, noteInput, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { receiptHooks, satisfies } from './receipts.ts';
 import type { SlotOptions } from './semaphore.ts';
-import { FETCH_TIMEOUT_MS, fetchBranches } from './sync.ts';
+import { FETCH_TIMEOUT_MS, fetchBranches } from './fetch.ts';
 
 // ---------------------------------------------------------------- where a builder runs
 
@@ -220,6 +220,26 @@ export function parseFinish(message: string, id: string): Finish {
   return { done, blocked, note: done || blocked ? note : null };
 }
 
+// ---------------------------------------------------------------- the guard, where the cloud loads it
+
+/**
+ * Whether the guard is in the trees a cloud session loads its hooks from (GH-69): the branch its clone
+ * starts on (origin's default branch, else the environment's), and the task branch it then checks out.
+ * Read from the commits, never the files on disk: an uncommitted guard never reaches the cloud. `base`
+ * is the branch the clone starts on; `why` says what's missing, with the fix, or is null.
+ */
+export function cloudGuard(run: Runner, root: string, envBranch: string, branch: string, env: NodeJS.ProcessEnv): { base: string; why: string | null } {
+  const head0 = run('git', ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { cwd: root }).stdout.trim();
+  const base = head0.startsWith('origin/') ? head0.slice('origin/'.length) : envBranch;
+  fetchBranches(run, root, [base], env);
+  const baseRef = run('git', ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}`], { cwd: root }).code === 0 ? `refs/remotes/origin/${base}` : `refs/heads/${base}`;
+  for (const ref of [baseRef, `refs/heads/${branch}`]) {
+    const committed = guardCommitted(run, root, ref);
+    if (!committed.ok) return { base, why: committed.why };
+  }
+  return { base, why: null };
+}
+
 // ---------------------------------------------------------------- the cloud packet
 
 /**
@@ -245,15 +265,16 @@ export function cloudText(p: { task: Task; config: Config; env: Environment; bra
   const commandOf = (g: string): string | null => config.gates.commands[g] ?? config.gates.ratchets?.[g]?.command ?? null;
   const commands = checks.inCloud.map((g) => `- \`${g}\`: ${commandOf(g) ? `\`${commandOf(g)}\`` : `acc's built-in ${g} check, which acc runs on the Mac when it collects your work`}`);
   return [
-    // The guard's record (GH-69): the repo's push guard reads this line from the session's first message,
-    // and allows a push of this branch alone. It comes first, on its own line, exactly like this.
+    // The guard's record (GH-69): the repo's push guard reads these lines from the session's first message,
+    // and allows a push of this branch alone, by a builder (T-86). They come first, a line each, exactly like this.
     `${RECORD_LINE}: ${branch}`,
+    `${ROLE_LINE}: builder`,
     '',
     `# Cloud builder for ${task.id}: ${task.title}`,
     '',
     `This routine-fire-payload is your task: acc fired the routine to build ${task.id} in this cloud session. Do the task below as the builder, exactly as its instructions say, with these differences for a cloud session:`,
     '',
-    `- **Your branch is \`${branch}\`**, already on GitHub, started from \`${env.branch}\`. Start with \`git fetch origin ${branch} && git checkout ${branch}\`. Work on it only. The \`${RECORD_LINE}\` line at the top is the repo's push guard's record of it: the guard allows \`git push origin ${branch}\` and nothing else that pushes, written plainly, as its own command.`,
+    `- **Your branch is \`${branch}\`**, already on GitHub, started from \`${env.branch}\`. Start with \`git fetch origin ${branch} && git checkout ${branch}\`. Work on it only. The \`${RECORD_LINE}\` and \`${ROLE_LINE}\` lines at the top are the repo's push guard's record of it: the guard allows \`git push origin ${branch}\` and nothing else that pushes, written plainly, as its own command.`,
     '- **acc isn\'t installed here.** Where the instructions say `acc gate run`, run these checks yourself and fix what fails:',
     ...(commands.length ? commands : ['  - this project names no checks a cloud session can run']),
     ...(checks.macOnly.length ? [`- **These checks can't run in the cloud**, since they need an org login, and acc runs them on the Mac when it collects your branch: ${checks.macOnly.map((g) => `\`${g}\``).join(', ')}. Don't try them here.`] : []),
@@ -471,18 +492,21 @@ export interface CloudChange {
   default?: BuilderPlace;
   quietMinutes?: number;
   max?: number;
+  /** Where a review runs when no flag says (T-86). */
+  review?: BuilderPlace;
 }
 
 /**
  * Opts a project in to cloud builders, or changes how (GH-69): `agents.cloud` in .acc/config.json, written
  * key by key so the rest of the file stays as it was. A person's, never an agent's. Nothing else is set:
- * the defaults (local, 120 minutes, 3) apply where the file says nothing.
+ * the defaults (local, 120 minutes, 3, reviews local) apply where the file says nothing.
  */
 export function enableCloud(configFile: string, change: CloudChange, current: Config['agents']['cloud']): void {
   if (change.routine !== undefined && change.routine !== null && !ROUTINE_ID.test(change.routine)) throw new AccError('usage', 'A routine\'s API trigger id looks like trig_01ABC…: copy it from the routine\'s page at claude.ai/code/routines.');
   if (change.default !== undefined && !(BUILDER_PLACES as readonly string[]).includes(change.default)) throw new AccError('usage', `The default is one of ${BUILDER_PLACES.join(', ')}.`);
   if (change.quietMinutes !== undefined && (!Number.isInteger(change.quietMinutes) || change.quietMinutes < 5 || change.quietMinutes > 1440)) throw new AccError('usage', 'The quiet time is a whole number of minutes from 5 to 1440.');
   if (change.max !== undefined && (!Number.isInteger(change.max) || change.max < 1 || change.max > 16)) throw new AccError('usage', 'The cloud cap is a whole number from 1 to 16.');
+  if (change.review !== undefined && !(BUILDER_PLACES as readonly string[]).includes(change.review)) throw new AccError('usage', `Reviews run in one of ${BUILDER_PLACES.join(', ')}.`);
   if (!current) {
     // Opting in: the section, whole, with what was given and the defaults for the rest.
     const section: Record<string, unknown> = {
@@ -490,6 +514,7 @@ export function enableCloud(configFile: string, change: CloudChange, current: Co
       default: change.default ?? 'local',
       quietMinutes: change.quietMinutes ?? CLOUD_QUIET_MINUTES,
       max: change.max ?? CLOUD_MAX,
+      review: change.review ?? 'local',
     };
     writeJsonKey(configFile, ['agents', 'cloud'], section);
     return;
@@ -498,6 +523,7 @@ export function enableCloud(configFile: string, change: CloudChange, current: Co
   if (change.default !== undefined) writeJsonKey(configFile, ['agents', 'cloud', 'default'], change.default);
   if (change.quietMinutes !== undefined) writeJsonKey(configFile, ['agents', 'cloud', 'quietMinutes'], change.quietMinutes);
   if (change.max !== undefined) writeJsonKey(configFile, ['agents', 'cloud', 'max'], change.max);
+  if (change.review !== undefined) writeJsonKey(configFile, ['agents', 'cloud', 'review'], change.review);
 }
 
 /** Takes the project out of cloud builders: the section goes, and nothing offers the cloud. The token stays in the keychain. */

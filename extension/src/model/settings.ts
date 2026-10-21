@@ -111,6 +111,8 @@ export interface CloudSetting {
   needs: { label: string; ok: boolean; fix: string }[];
   /** Where a plain dispatch goes, with an icon, while it's on. */
   defaultPlace: Look | null;
+  /** Where a plain review runs (T-86), with an icon: This Mac unless the project says cloud. Null while it's off. */
+  reviewPlace: Look | null;
   /**
    * What GitHub enforces on each environment branch, while it's on (GH-69): a row per branch, orange where
    * nothing is enforced, since a push the guard didn't catch would then be caught after the fact, not
@@ -217,11 +219,15 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
       action('acc.cloud.enable', cloud?.routine ? 'Change routine…' : 'Add the routine…', 'edit', `${cloud?.routine ? 'Change routine' : 'Add the routine'}: give acc ${p.name}'s routine`, !cloud?.routine),
       action('acc.cloud.token', 'Token…', 'key', `Token: keep the routine's token for ${p.name}`),
       action('acc.cloud.default', 'Default…', 'arrow-swap', `Default: choose where ${p.name}'s builders go`),
+      action('acc.cloud.review', 'Reviews…', 'checklist', `Reviews: choose where ${p.name}'s reviews run`),
       action('acc.cloud.disable', 'Turn off', 'circle-slash', `Turn off cloud builders for ${p.name}`),
     ];
+  // Where reviews run (T-86) is a cloud setting: off with why until the project opts in to cloud builders.
+  if (!on) actions.push(action('acc.cloud.review', 'Reviews…', 'checklist', `Reviews: choose where ${p.name}'s reviews run`, false, reason ?? 'Cloud builders are off for this project'));
   return {
     key: 'agents.cloud.routine', look, from: PROJECT, meaning, needs: needs.map((n) => ({ label: n.label, ok: n.ok, fix: n.fix })),
     defaultPlace: cloud ? { ...BUILDER_PLACE_LOOK[cloud.default], tone: 'neutral' } : null,
+    reviewPlace: cloud ? { ...BUILDER_PLACE_LOOK[cloud.review ?? 'local'], tone: 'neutral' } : null,
     protection: on ? (protection ?? []).map((x) => ({ branch: x.branch, look: protectionLook(x), why: x.why })) : [],
     actions,
   };
@@ -691,7 +697,7 @@ export const area: ModelArea = {
   // How agents run's Change… buttons run the Agents area's commands, which this section draws now (GH-110).
   // A tracker's Sign out is drawn only here (GH-112); its Sign in and Change place are the boards' too.
   // GitHub accounts' Switch… and Sign in are Environments' commands, which its account cards draw too (GH-113).
-  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.routine'],
+  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.review', 'acc.cloud.routine'],
   home: {
     // Last in the rail, after every other area's.
     order: 90,

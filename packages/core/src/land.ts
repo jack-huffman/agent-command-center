@@ -11,7 +11,8 @@ import { type GateStatus, ratchetOf, type Receipt, receiptHooks, receiptsAt } fr
 import { resolvedWords } from './refresh.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { carriedVerdict, readVerdict, type Verdict } from './review.ts';
-import { conflictsOf, FETCH_TIMEOUT_MS, fetchBranches } from './sync.ts';
+import { FETCH_TIMEOUT_MS, fetchBranches } from './fetch.ts';
+import { conflictsOf } from './sync.ts';
 import { testsText } from './test-counts.ts';
 import { draftUpdate } from './updates.ts';
 

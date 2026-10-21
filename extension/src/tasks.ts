@@ -75,6 +75,8 @@ class TaskCommands extends Sidebar {
     reg('acc.task.watch', (n: TaskNode) => this.watchTask(n));
     reg('acc.task.resume', (n: TaskNode) => this.resumeTask(n));
     reg('acc.task.review', (n: TaskNode) => this.reviewTask(n));
+    // A review on this Mac, whatever the project's setting says (T-86): the way on when a cloud review needs you.
+    reg('acc.task.reviewLocal', (n: TaskNode) => this.reviewTask(n, true));
     reg('acc.task.watchReview', (n: TaskNode) => this.watchReview(n));
     reg('acc.task.analyze', (n: TaskNode) => this.analyzeTask(n));
     reg('acc.task.watchAnalysis', (n: TaskNode) => this.watchAnalysis(n));
@@ -430,10 +432,12 @@ class TaskCommands extends Sidebar {
    * The reviewer runs in the output panel; its session can be watched while it reads. The panel shows it as a
    * review (T-63): once it ends, the verdict it wrote, with the lines around each finding, read as its page reads them.
    */
-  private reviewTask(n: TaskNode): void {
+  private reviewTask(n: TaskNode, local = false): void {
     if (n?.kind !== 'task') return;
     const { project, task } = n;
     const acc = this.helpers.accCommand ?? 'acc';
+    // --local keeps the review here (T-86); a plain review follows the project's setting, which may be the cloud.
+    const flag = local ? ' --local' : '';
     const done = () => void this.hub.loadTasks(true);
     if (this.helpers.run) {
       const reviews = join(dirname(project.ledgerPath), 'reviews');
@@ -446,16 +450,19 @@ class TaskCommands extends Sidebar {
       // acc review exits 1 when it asks for changes: a verdict written is a review that worked.
       const startedAt = Date.now();
       const made = (code: number | null) => code === 0 || !('why' in verdictFrom(newestVerdictText(reviews, task.id), startedAt));
-      this.helpers.run(`${acc} review ${task.id}`, project.root, `Review ${task.id}`, done, made, { run: { project: project.root, task: task.id, sha }, read });
+      this.helpers.run(`${acc} review ${task.id}${flag}`, project.root, `Review ${task.id}`, done, made, { run: { project: project.root, task: task.id, sha }, read });
       // The reviewer's session shows once acc has started it.
       setTimeout(done, 2_000);
     } else {
-      this.send(project.root, `acc review ${task.id}`);
+      this.send(project.root, `acc review ${task.id}${flag}`);
     }
   }
 
   private watchReview(n: TaskNode): void {
-    if (n?.kind !== 'task' || !n.task.reviewing || !n.task.run?.worktree) return;
+    if (n?.kind !== 'task' || !n.task.reviewing) return;
+    // A cloud reviewer's session lives on claude.ai (T-86): Watch opens it there.
+    if (n.task.reviewing.url) return void vscode.env.openExternal(vscode.Uri.parse(n.task.reviewing.url));
+    if (!n.task.run?.worktree) return;
     const { sessionId, name } = n.task.reviewing;
     const root = n.project.root;
     const id = n.task.id;

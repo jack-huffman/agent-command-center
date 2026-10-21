@@ -70,6 +70,7 @@ export const CONFIG_WORDS: Record<ConfigKey, string> = {
   'agents.cloud.default': 'where its builders go by default',
   'agents.cloud.quietMinutes': 'how long a cloud builder may be quiet',
   'agents.cloud.max': 'its cloud builder limit',
+  'agents.cloud.review': 'where its reviews run',
   autonomy: 'what autopilot may do',
   'worktrees.root': 'where its worktrees are kept',
   'worktrees.setup': 'how a worktree is set up',

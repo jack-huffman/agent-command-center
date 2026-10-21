@@ -56,6 +56,8 @@ export interface CloudAgents {
   default: BuilderPlace;
   quietMinutes: number;
   max: number;
+  /** Where a task's review runs when neither --cloud nor --local says (T-86): local unless it says cloud. */
+  review: BuilderPlace;
 }
 
 export const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,79}$/;
@@ -163,8 +165,9 @@ export interface Config {
   /**
    * cloud: the project has opted in to cloud builders (GH-69): the routine acc fires for a task, where a
    * builder goes when neither --cloud nor --local says (local unless it says cloud), how many minutes a
-   * cloud builder may go without pushing before its task needs you, and how many may run at once. Null
-   * where the project hasn't opted in, so nothing offers the cloud.
+   * cloud builder may go without pushing before its task needs you, and how many may run at once, and
+   * where a review runs when no flag says (T-86). Null where the project hasn't opted in, so nothing offers
+   * the cloud.
    */
   agents: { max: number; permissionMode: string; builder: AgentProfile; reviewer: AgentProfile; cloud: CloudAgents | null };
   autonomy: Autonomy;
@@ -274,7 +277,7 @@ export const CONFIG_KEYS = [
   'trackers[].statusFor',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel',
-  'agents.cloud.routine', 'agents.cloud.default', 'agents.cloud.quietMinutes', 'agents.cloud.max', 'autonomy',
+  'agents.cloud.routine', 'agents.cloud.default', 'agents.cloud.quietMinutes', 'agents.cloud.max', 'agents.cloud.review', 'autonomy',
   'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
   'gates.ratchets', 'gates.nearIndexes',
   'secretScan.paths', 'secretScan.exclude', 'strayFiles.required', 'strayFiles.allow', 'strayFiles.data', 'analysis.required', 'sourceTracking', 'autopilot.appendOnly', 'autopilot.autoMerge',
@@ -583,7 +586,7 @@ export function parseConfig(raw: unknown): ParseResult {
   // Cloud builders (GH-69): off unless the project says so. A section that's there opts in, even empty.
   let cloud: CloudAgents | null = null;
   if (a.cloud !== undefined && a.cloud !== null) {
-    if (!isObj(a.cloud)) errors.push('"agents.cloud" must be an object: { "routine": "trig_…", "default": "local" | "cloud", "quietMinutes": 120, "max": 3 }.');
+    if (!isObj(a.cloud)) errors.push('"agents.cloud" must be an object: { "routine": "trig_…", "default": "local" | "cloud", "quietMinutes": 120, "max": 3, "review": "local" | "cloud" }.');
     else {
       const c = a.cloud;
       if (c.routine !== undefined && c.routine !== null && (typeof c.routine !== 'string' || !ROUTINE_ID.test(c.routine))) errors.push('"agents.cloud.routine" must be a routine\'s API trigger id, such as trig_01ABC…, from claude.ai/code/routines.');
@@ -593,7 +596,10 @@ export function parseConfig(raw: unknown): ParseResult {
       if (typeof quiet !== 'number' || !Number.isInteger(quiet) || quiet < 5 || quiet > 1440) errors.push('"agents.cloud.quietMinutes" must be a whole number of minutes from 5 to 1440.');
       const cmax = c.max ?? CLOUD_MAX;
       if (typeof cmax !== 'number' || !Number.isInteger(cmax) || cmax < 1 || cmax > 16) errors.push('"agents.cloud.max" must be a whole number from 1 to 16.');
-      cloud = { routine: typeof c.routine === 'string' ? c.routine : null, default: where as BuilderPlace, quietMinutes: quiet as number, max: cmax as number };
+      // Where a review runs (T-86): local unless the project says cloud.
+      const review = c.review ?? 'local';
+      if (!(BUILDER_PLACES as readonly unknown[]).includes(review)) errors.push(`"agents.cloud.review" must be one of ${BUILDER_PLACES.join(', ')}.`);
+      cloud = { routine: typeof c.routine === 'string' ? c.routine : null, default: where as BuilderPlace, quietMinutes: quiet as number, max: cmax as number, review: review as BuilderPlace };
     }
   }
 
@@ -867,7 +873,7 @@ export function writeConfig(file: string, config: Config): void {
   const profile = (p: AgentProfile) => Object.fromEntries(Object.entries(p).filter(([, v]) => v !== null));
   const { builder, reviewer, cloud, ...agents } = config.agents;
   // The cloud section is written only where the project opted in (GH-69), as it was given: a routine it has none of stays out.
-  const cloudOut = cloud ? { cloud: { ...(cloud.routine ? { routine: cloud.routine } : {}), default: cloud.default, quietMinutes: cloud.quietMinutes, max: cloud.max } } : {};
+  const cloudOut = cloud ? { cloud: { ...(cloud.routine ? { routine: cloud.routine } : {}), default: cloud.default, quietMinutes: cloud.quietMinutes, max: cloud.max, review: cloud.review } } : {};
   const out = {
     ...config,
     environments: config.environments.map(({ branch: _branch, ...e }) => e),

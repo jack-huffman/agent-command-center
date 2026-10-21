@@ -1,7 +1,7 @@
 // acc's Cloud commands (GH-69): opting a project in to cloud builders, the routine's token, what the cloud
 // still needs, and collecting a cloud builder's work. A person's, never an agent's.
 
-import { AccError, BUILDER_PLACE_LOOK, type BuilderPlace, cloudNeeds, cloudReason, cloudWait, collect, deleteCloudToken, disableCloud, enableCloud, environmentProtection, guardCommitted, installGuard, loadConfig, readLedger, run, ROUTINES_URL, writeCloudToken } from '../../../core/src/index.ts';
+import { AccError, BUILDER_PLACE_LOOK, type BuilderPlace, cloudNeeds, cloudReason, cloudReviewWait, cloudWait, collect, deleteCloudToken, disableCloud, enableCloud, environmentProtection, guardCommitted, installGuard, loadConfig, readLedger, run, ROUTINES_URL, writeCloudToken } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, project, readFileArg } from '../shared.ts';
 
@@ -16,6 +16,8 @@ function cmdStatus(o: Opts): number {
   const cloud = config.agents.cloud;
   const ledger = readLedger(paths.ledger);
   const running = ledger.tasks.filter((t) => t.state === 'running' && t.run?.where === 'cloud');
+  // Reviews under way in the cloud (T-86), beside the builders.
+  const reviewing = ledger.tasks.filter((t) => t.state === 'review' && t.cloudReview && !t.cloudReview.failed);
   const reason = cloudReason(needs);
   // The guard as a cloud session would see it: in HEAD's tree, not the files on disk (GH-69).
   const guard = guardCommitted(run, paths.root, 'HEAD');
@@ -23,14 +25,15 @@ function cmdStatus(o: Opts): number {
   const protection = cloud && config.github ? environmentProtection(run, config.github.repo, config.github.account, config.environments.map((e) => e.branch), process.env) : [];
   out(o, () => [
     cloud
-      ? `Cloud builders: on for this project. Default ${BUILDER_PLACE_LOOK[cloud.default].label}${cloud.default === 'cloud' ? ' (acc dispatch --local keeps a task on this Mac)' : ' (acc dispatch --cloud sends a task to the cloud)'}; up to ${cloud.max} at once; a task needs you after ${cloud.quietMinutes} minutes with no push.`
+      ? `Cloud builders: on for this project. Default ${BUILDER_PLACE_LOOK[cloud.default].label}${cloud.default === 'cloud' ? ' (acc dispatch --local keeps a task on this Mac)' : ' (acc dispatch --cloud sends a task to the cloud)'}; up to ${cloud.max} at once, reviews among them; a task needs you after ${cloud.quietMinutes} minutes with no push. Reviews: ${BUILDER_PLACE_LOOK[cloud.review].label}${cloud.review === 'cloud' ? ' (acc review --local keeps one on this Mac)' : ' (acc review --cloud sends one to the cloud)'}.`
       : 'Cloud builders: off for this project. A local builder is the default everywhere: acc cloud enable opts in.',
     reason ? tone(`  ${reason}.`, 'orange') : tone('  Everything the cloud needs is there.', 'blue'),
     guard.ok ? tone('  The push guard is committed on HEAD, in .claude/hooks/ and .claude/settings.json.', 'dim') : cloud ? tone(`  ! ${guard.why}`, 'orange') : '',
     ...needLines(needs),
     ...protection.map((p) => (p.state === 'enforced' ? tone(`  ✓ ${p.why}`, 'blue') : tone(`  ! ${p.why}${p.state === 'unknown' ? ' Whether a push the guard didn\'t catch would be prevented isn\'t known.' : ''}`, 'orange'))),
     ...running.map((t) => tone(`  ${t.id} runs in the cloud: ${t.run?.cloud?.url ?? ''}${cloudWait(t, config, now()) ? ` (${cloudWait(t, config, now())})` : ''}`, 'blue')),
-  ].filter(Boolean).join('\n'), { cloud, needs, reason, guard: guard.ok, guardWhy: guard.why, protection, running: running.map((t) => ({ id: t.id, url: t.run?.cloud?.url ?? null, wait: cloudWait(t, config, now()) })) });
+    ...reviewing.map((t) => tone(`  ${t.id} is reviewed in the cloud: ${t.cloudReview?.url ?? ''}${cloudReviewWait(t, config, now()) ? ` (${cloudReviewWait(t, config, now())})` : ''}`, 'blue')),
+  ].filter(Boolean).join('\n'), { cloud, needs, reason, guard: guard.ok, guardWhy: guard.why, protection, running: running.map((t) => ({ id: t.id, url: t.run?.cloud?.url ?? null, wait: cloudWait(t, config, now()) })), reviewing: reviewing.map((t) => ({ id: t.id, url: t.cloudReview?.url ?? null, wait: cloudReviewWait(t, config, now()) })) });
   return 0;
 }
 
@@ -44,6 +47,7 @@ function cmdEnable(o: Opts): number {
     ...(typeof o['default-place'] === 'string' ? { default: o['default-place'] as BuilderPlace } : {}),
     ...(num('quiet-minutes') !== undefined ? { quietMinutes: num('quiet-minutes')! } : {}),
     ...(num('max') !== undefined ? { max: num('max')! } : {}),
+    ...(typeof o.review === 'string' ? { review: o.review as BuilderPlace } : {}),
   }, config.agents.cloud);
   // The guard the cloud session runs (GH-69): committed with the config, so it loads there.
   const guard = installGuard(paths.root);
@@ -104,11 +108,12 @@ export const area: CommandArea = {
     order: 32,
     lines: `  acc cloud                             Whether this project's builders may run in the cloud, what that still
                                         needs, and each task running there
-  acc cloud enable [--routine <trig_id>] [--default-place local|cloud] [--max <n>] [--quiet-minutes <n>]
+  acc cloud enable [--routine <trig_id>] [--default-place local|cloud] [--max <n>] [--quiet-minutes <n>] [--review local|cloud]
                                         Opt the project in: "agents.cloud" in .acc/config.json, and the push guard
                                         in .claude/settings.json, both to commit. Needs the repo on GitHub, a
                                         routine for it (claude.ai/code/routines), its token (acc cloud token), and
-                                        claude auth login. Local stays the default unless --default-place cloud
+                                        claude auth login. Local stays the default unless --default-place cloud;
+                                        reviews stay on this Mac unless --review cloud
   acc cloud disable                     Turn cloud builders off for the project
   acc cloud token [--forget]            Keep the routine's API token in this Mac's keychain, read from stdin, never
                                         from the command line; --forget takes it out
@@ -121,6 +126,7 @@ export const area: CommandArea = {
     'default-place': { type: 'string' },
     max: { type: 'string' },
     'quiet-minutes': { type: 'string' },
+    review: { type: 'string' },
     forget: { type: 'boolean', default: false },
     'from-env': { type: 'boolean', default: false },
   },

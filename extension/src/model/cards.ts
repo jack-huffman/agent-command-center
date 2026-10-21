@@ -53,6 +53,18 @@ export function placeLook(t: Pick<TaskRow, 'state' | 'run'>): Look | null {
   return { ...BUILDER_PLACE_LOOK[where], tone: 'neutral' };
 }
 
+/**
+ * A task's review in the cloud, on its card and on In progress (T-86): reviewing while its verdict is
+ * awaited, needs you once it's quiet for too long or its verdict couldn't be read. Null for a review here.
+ */
+export function cloudReviewLook(t: Pick<TaskRow, 'cloudReview'>): Look | null {
+  const c = t.cloudReview;
+  if (!c) return null;
+  if (c.wait) return { label: `Needs you: ${c.wait}`, icon: 'bell', tone: 'orange' };
+  if (c.failed) return null;
+  return { label: 'Reviewing in the cloud', icon: 'cloud', tone: 'blue' };
+}
+
 /** Why cloud builders aren't offered for a project (GH-69), or null when they are: from its config alone. */
 export const cloudDisabled = (config: { github: { repo: string } | null; agents?: { cloud?: CloudAgents | null } | null } | null | undefined): string | null =>
   cloudReason(cloudOffered({ github: config?.github ?? null, agents: { cloud: config?.agents?.cloud ?? null } }));
@@ -129,7 +141,10 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   // In review (D-032, D-033): watch the reviewer, review it, land it, or follow its pull request.
   if (t.state === 'review') {
     const open = t.pr?.state === 'open';
-    if (t.reviewing) a.push({ command: 'acc.task.watchReview', label: 'Watch the review', icon: 'pulse', ref, primary: true });
+    // A cloud review that needs you (T-86): the way on is a review on this Mac, whatever the project's setting.
+    if (t.cloudReview?.wait) a.push({ command: 'acc.task.reviewLocal', label: 'Review on this Mac', icon: 'checklist', ref, primary: true });
+    if (t.reviewing) a.push({ command: 'acc.task.watchReview', label: 'Watch the review', icon: 'pulse', ref, primary: !a.some((x) => x.primary) });
+    else if (t.cloudReview?.wait) { /* a quiet or failed cloud review: Review on this Mac leads, above */ }
     else if (open) a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr!.number}`, icon: 'git-pull-request', ref, primary: true });
     else if (t.review?.current && t.review.verdict === 'pass') a.push({ command: 'acc.task.land', label: 'Land', icon: 'git-pull-request-create', ref, primary: true });
     else a.push({ command: 'acc.task.review', label: t.review?.current ? 'Review again' : 'Review', icon: 'checklist', ref, primary: true });

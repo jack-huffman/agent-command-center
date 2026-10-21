@@ -59,7 +59,7 @@ test('Settings is a section like the others, last in the rail with a gear', () =
   // The page may ask for the theme, How agents run's Change… (GH-110) and a tracker's Sign out (GH-112), and
   // Limits and checks' changes, which the limits area asks for (GH-111), and the page's own preferences
   // (GH-113): its Refresh is the header's. GitHub accounts' Switch… and Sign in are Environments' to claim.
-  assert.deepEqual(settingsArea.commands, ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.routine']);
+  assert.deepEqual(settingsArea.commands, ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.review', 'acc.cloud.routine']);
   assert.ok(settingsArea.commands!.every((c) => PAGE_COMMANDS.includes(c)));
   assert.ok(['acc.github.switch', 'acc.github.signIn'].every((c) => PAGE_COMMANDS.includes(c)));
   assert.ok(!PAGE_COMMANDS.includes('acc.settings.refresh'));

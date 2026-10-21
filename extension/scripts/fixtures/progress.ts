@@ -9,8 +9,9 @@ import { MIN } from './shared.ts';
 /**
  * In progress when it's busy (D-092): five builders of five, ACME-13 resumed by autopilot with its validate
  * in slot 1, ACME-12 asking you with its validate first in line, a promotion from Dev to QA validating in
- * slot 2, autopilot landing ACME-20, and ACME-24's analysis, which this window started. With `before`, it's
- * the look 20 seconds earlier, while autopilot was still reviewing ACME-20: the two looks leave its done line.
+ * slot 2, autopilot landing ACME-20, ACME-24's analysis, which this window started, and ACME-47's review in
+ * the cloud (T-86). With `before`, it's the look 20 seconds earlier, while autopilot was still reviewing
+ * ACME-20: the two looks leave its done line.
  */
 export function sampleBusyHub(now = Date.now(), before = false): HubLike {
   const hub = sampleHub(now);
@@ -33,7 +34,7 @@ export function sampleBusyHub(now = Date.now(), before = false): HubLike {
     's-acme-14': { step: { icon: 'terminal', title: 'Validate the routing against the Dev org', at: at(3) }, model: 'claude-sonnet-5-5' },
   };
   // The tasks In progress is about, and nothing else, so Needs you above it stays short enough to see it.
-  const shown = new Set(['ACME-14', 'ACME-12', 'ACME-13', 'ACME-28', 'ACME-20', 'ACME-24', 'ACME-16', 'ACME-15', 'ACME-10']);
+  const shown = new Set(['ACME-14', 'ACME-12', 'ACME-13', 'ACME-28', 'ACME-20', 'ACME-24', 'ACME-16', 'ACME-15', 'ACME-10', 'ACME-47']);
   const rows = hub.taskRows(root).filter((r) => shown.has(r.id));
   return {
     ...hub,
@@ -62,7 +63,8 @@ export const sampleAnalyzeRun = (now = Date.now()): RunInput => ({
 export function sampleIdleHub(now = Date.now()): HubLike {
   const hub = sampleHub(now);
   const root = hub.projects[0]!.root;
-  const rows = hub.taskRows(root).filter((r) => r.state !== 'running').map((r) => ({ ...r, analyzing: null }));
+  // Nothing under way: no builder, and no review in the cloud either (T-86).
+  const rows = hub.taskRows(root).filter((r) => r.state !== 'running').map((r) => ({ ...r, analyzing: null, reviewing: null, cloudReview: null }));
   return {
     ...hub, taskRows: () => rows, agents: hub.agents.filter((a) => a.kind === 'interactive'), questions: [],
     heavy: { dir: '/Users/me/.acc/heavy', slots: 2, held: [], waiting: [] }, machine: { load: 1.2, cpus: 10 },

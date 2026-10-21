@@ -67,6 +67,23 @@ export interface CloudRun {
   collect?: { at: string; reason: string } | null;
 }
 
+/**
+ * A task's review in a cloud session (T-86): the session the routine's fire started, and the branch acc
+ * looks for its verdict on, since Claude Code reports no state for a cloud session.
+ */
+export interface CloudReview {
+  /** The cloud session's id and its page on claude.ai, from the fire's reply. */
+  sessionId: string;
+  url: string;
+  firedAt: string;
+  /** The commit it reviews: the task branch's head when the routine was fired. */
+  sha: string;
+  /** The branch its verdict comes back on: acc/review/<task>-<sha>, pushed from the cloud and deleted once read. */
+  branch: string;
+  /** Why acc couldn't take its verdict, if it couldn't: a person reviews on this Mac. */
+  failed?: { at: string; reason: string } | null;
+}
+
 export interface Run {
   bgId?: string;
   sessionId?: string;
@@ -308,6 +325,8 @@ export interface Task {
   card?: CardMove | null;
   /** What a person wrote for its builder (T-74): acc keeps it, and intake never changes it. */
   notes?: string;
+  /** Its review under way in a cloud session (T-86), while it is in review; null once the verdict is read. */
+  cloudReview?: CloudReview | null;
   /** Each edit a person made to its fields (T-74), oldest first. A move is in `history`. */
   edits?: EditEntry[];
   history: HistoryEntry[];
@@ -612,8 +631,13 @@ export const builders = (ledger: Pick<Ledger, 'tasks'>, except: string, where: B
 /** A start that would pass the project's cap, in words that name it, beside this machine's total (GH-111). */
 export const projectCapWords = (n: number, max: number): string => `${n} ${n === 1 ? 'builder is' : 'builders are'} running in this project, and its cap is ${max} (agents.max).`;
 
-/** A cloud start that would pass the project's cloud cap, in words that name it (GH-69). */
-const cloudCapWords = (n: number, max: number): string => `${n} cloud ${n === 1 ? 'builder is' : 'builders are'} running for this project, and its cap is ${max} (agents.cloud.max).`;
+/** The reviews under way in cloud sessions (T-86), but `except`'s: a cloud review counts against the cloud cap as a builder does. */
+export const cloudReviews = (ledger: Pick<Ledger, 'tasks'>, except: string): number => ledger.tasks.filter((t) => t.state === 'review' && t.id !== except && !!t.cloudReview && !t.cloudReview.failed).length;
+
+/** A cloud start that would pass the project's cloud cap, in words that name it (GH-69); the reviews among them are named (T-86). */
+const cloudCapWords = (n: number, reviews: number, max: number): string => (reviews
+  ? `${n} cloud ${n === 1 ? 'session is' : 'sessions are'} running for this project (${n - reviews} ${n - reviews === 1 ? 'builder' : 'builders'}, ${reviews} ${reviews === 1 ? 'review' : 'reviews'}), and its cap is ${max} (agents.cloud.max).`
+  : `${n} cloud ${n === 1 ? 'builder is' : 'builders are'} running for this project, and its cap is ${max} (agents.cloud.max).`);
 
 /** Everything that stops this move. Empty means it's allowed. */
 export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveRequest, hooks: Hooks): string[] {
@@ -652,9 +676,10 @@ export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveR
       // A cloud builder counts against the cloud cap alone (GH-69): the Mac's CPU isn't what it uses.
       if (req.where === 'cloud') {
         const max = config.agents.cloud?.max ?? 0;
-        const running = builders(ledger, task.id, 'cloud');
+        const reviews = cloudReviews(ledger, task.id);
+        const running = builders(ledger, task.id, 'cloud') + reviews;
         if (!config.agents.cloud) problems.push('This project hasn\'t opted in to cloud builders (agents.cloud).');
-        else if (running >= max) problems.push(cloudCapWords(running, max));
+        else if (running >= max) problems.push(cloudCapWords(running, reviews, max));
       } else {
         const running = builders(ledger, task.id);
         if (running >= config.agents.max) problems.push(projectCapWords(running, config.agents.max));
@@ -687,6 +712,10 @@ export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => D
   if (task.autopilot?.carried) task.autopilot.carried = null;
   // So was a wait for another task's files (D-093): a dispatch, a block or done ends it.
   if (task.held) task.held = null;
+  // So was a review in the cloud (T-86): it was of the commit the task had in review, and a move out of review
+  // (to rework, to done, by a person) ends it; its verdict, if one comes, is stale. Left, the record would
+  // refuse the next cloud review and keep the task at Needs you with no way out.
+  if (task.cloudReview) task.cloudReview = null;
   // The builder's note stays with the run it ended (D-106), and its event carries it too.
   const note: RunNote | null = noteGiven(req.note) && task.run && (req.to === 'review' || req.to === 'blocked')
     ? { landed: req.note.landed ?? [], moved: req.note.moved ?? [], open: req.note.open ?? [], at, by: req.by, ended: req.to }

@@ -66,11 +66,11 @@ test('enableCloud opts in with the defaults, changes one key at a time after, re
   const file = configFile();
   assert.equal(parsed(file).config!.agents.cloud, null, 'off until a person opts in');
   enableCloud(file, {}, null);
-  assert.deepEqual(parsed(file).config!.agents.cloud, { routine: null, default: 'local', quietMinutes: CLOUD_QUIET_MINUTES, max: CLOUD_MAX });
+  assert.deepEqual(parsed(file).config!.agents.cloud, { routine: null, default: 'local', quietMinutes: CLOUD_QUIET_MINUTES, max: CLOUD_MAX, review: 'local' });
   assert.deepEqual([CLOUD_QUIET_MINUTES, CLOUD_MAX], [120, 3]);
   const current = parsed(file).config!.agents.cloud;
   enableCloud(file, { routine: ROUTINE, default: 'cloud', max: 5 }, current);
-  assert.deepEqual(parsed(file).config!.agents.cloud, { routine: ROUTINE, default: 'cloud', quietMinutes: CLOUD_QUIET_MINUTES, max: 5 });
+  assert.deepEqual(parsed(file).config!.agents.cloud, { routine: ROUTINE, default: 'cloud', quietMinutes: CLOUD_QUIET_MINUTES, max: 5, review: 'local' });
   assert.throws(() => enableCloud(file, { routine: 'trig_bad' }, current), /looks like trig_01ABC/);
   assert.throws(() => enableCloud(file, { default: 'moon' as never }, current), new RegExp(`The default is one of ${BUILDER_PLACES.join(', ')}\\.`));
   assert.deepEqual([...BUILDER_PLACES], ['local', 'cloud']);

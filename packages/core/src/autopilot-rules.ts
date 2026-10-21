@@ -21,7 +21,7 @@ export interface TaskFacts {
   head: string;
   /** The review's verdict on that commit, if there is one. */
   verdict: 'pass' | 'changes' | null;
-  /** A review under way for the task, by its session. */
+  /** A review under way for the task, by its session: here, or in the cloud (T-86). */
   reviewing: string | null;
   /** The commit its open pull request was last landed at, if acc knows it. */
   landed: string | null;
@@ -137,6 +137,8 @@ export function nextStep(ledger: Ledger, config: StepConfig, task: Task, facts: 
   const none = (outcome: 'waiting' | 'skipped', reason: string): Decision => ({ step: null, outcome, reason });
 
   if (task.state === 'review') {
+    // Its cloud review gave no verdict acc could read (T-86): a person reviews it on this Mac.
+    if (task.cloudReview?.failed) return none('waiting', `Its cloud review gave no verdict acc could take: ${sentence(task.cloudReview.failed.reason)} A person reviews it on this Mac.`);
     if (facts.reviewing) return none('waiting', `A review is running (session ${facts.reviewing}).`);
     if (!facts.verdict) return step('review', `Nothing has reviewed ${short(facts.head)} yet.`);
     if (facts.verdict === 'changes') return none('waiting', `Its review on ${short(facts.head)} asked for changes, and it's still in review: a person decides.`);
@@ -344,7 +346,8 @@ export function taskFacts(paths: RepoPaths, task: Task, run: Runner, sessions: C
     return facts;
   }
   if (task.state !== 'review') return facts;
-  facts.reviewing = reviewing(paths, task.id)?.sessionId ?? null;
+  // A review under way here, or in a cloud session (T-86), whose verdict acc sync reads.
+  facts.reviewing = reviewing(paths, task.id)?.sessionId ?? (task.cloudReview && !task.cloudReview.failed ? task.cloudReview.sessionId : null);
   // Its own review, or the one the merge queue's merge commit carries (GH-73).
   facts.verdict = facts.head ? readVerdict(paths, task.id, facts.head)?.verdict ?? (carriedVerdict(paths, task, facts.head) ? 'pass' : null) : null;
   // A pull request landed before acc recorded the commit: what GitHub last had, as this clone saw it.

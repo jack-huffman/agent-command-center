@@ -56,7 +56,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     } else if (kind === 'tasks-agents') {
       // The agent board, with two builders in the cloud (GH-69): the page starts on it, and the cards say where each runs.
       const cards = (m as HomeModel).tasks.projects[0]!.columns.flatMap((c) => c.cards);
-      assert.deepEqual([m.kind, (m as HomeModel).section, (startState(kind) as { modes: Record<string, string> }).modes[ROOT], cards.filter((c) => c.place?.label === 'Cloud').map((c) => c.id)], ['home', 'tasks', 'agents', ['ACME-43', 'ACME-44']]);
+      assert.deepEqual([m.kind, (m as HomeModel).section, (startState(kind) as { modes: Record<string, string> }).modes[ROOT], cards.filter((c) => c.place?.label === 'Cloud').map((c) => c.id)], ['home', 'tasks', 'agents', ['ACME-43', 'ACME-44', 'ACME-47']]);
     } else if (kind.startsWith('dispatch-sheet') || kind === 'tasks-card-menu') {
       // Dispatch's sheet over the Tasks board, for an analysed task, and a card's ⋯ menu open on the agent board (D-168).
       const [after] = afterModel(kind);
@@ -122,8 +122,9 @@ test('every section of the page, and a ticket, has sample data built by the real
       const list = OVERVIEW_LISTS[kind];
       if (list) assert.deepEqual(startState(kind), { detail: { kind: 'list', group: list } });
       if (list) assert.ok(o.landing.find((g) => g.key === list)!.total > 3, `${kind}: more than Needs you would show`);
-      assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.counts.all], ['home', 'overview', 10, 6, 3, 2, 13]);
-      assert.ok(o.inProgress.groups.every((g) => g.jobs.some((j) => j.kind === 'check')), 'each building task has its checks');
+      assert.deepEqual([m.kind, (m as HomeModel).section, o.attention.filter((a) => a.rule).length, o.inProgress.groups.length, o.questions.length, o.attention.filter((a) => a.update).length, o.history.counts.all], ['home', 'overview', 10, 7, 3, 2, 13]);
+      // A review in the cloud runs no check on this Mac (T-86): every other group is a build with its checks.
+      assert.ok(o.inProgress.groups.filter((g) => !g.jobs.some((j) => j.kind === 'review')).every((g) => g.jobs.some((j) => j.kind === 'check')), 'each building task has its checks');
     }
     // History with more than two pages (D-170): the first 40 of 100 entries, three days of them, opened over the Overview.
     else if (kind === 'overview-pages') {
