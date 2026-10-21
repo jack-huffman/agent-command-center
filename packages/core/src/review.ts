@@ -364,8 +364,8 @@ export interface ReviewResult {
 
 const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
 
-/** The ref a task's branch is compared with: the environment branch on GitHub, else the local one. */
-function baseRef(run: Runner, root: string, branch: string): string {
+/** The ref a branch is compared with: the environment branch on GitHub, else the local one. A verification's too (T-84). */
+export function baseRef(run: Runner, root: string, branch: string): string {
   return git(run, root, 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`).code === 0 ? `origin/${branch}` : branch;
 }
 

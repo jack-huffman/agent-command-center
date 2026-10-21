@@ -57,6 +57,7 @@ export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
     case 'blocked': return 'Blocked on a question only the client can answer';
     case 'question': return 'A question from its analysis';
     case 'criteria': return 'Drafted acceptance criteria, test steps and edge cases';
+    case 'verify': return `QA of the developer's pull request${u.pr ? ` #${u.pr.number}` : ''}`;
   }
 }
 

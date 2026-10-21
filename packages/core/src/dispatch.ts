@@ -165,7 +165,8 @@ function ensureWorktree(run: Runner, main: string, wt: string, branch: string, e
   return false;
 }
 
-function setupWorktree(run: Runner, config: Config, env: Environment, main: string, wt: string): void {
+/** A worktree's setup: the org it targets, the main checkout's node_modules, and the project's setup commands. A verification's too (T-84). */
+export function setupWorktree(run: Runner, config: Config, env: Environment, main: string, wt: string): void {
   if (config.profile === 'salesforce' && env.org) {
     mkdirSync(join(wt, '.sf'), { recursive: true });
     writeFileSync(join(wt, '.sf', 'config.json'), JSON.stringify({ 'target-org': env.org }, null, 2) + '\n');
