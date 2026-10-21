@@ -7,12 +7,13 @@ import { criteriaPath } from '../src/criteria.ts';
 import { mainCheckout, setupWorktree } from '../src/dispatch.ts';
 import { baseRef } from '../src/review.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
+import { receiptsAt } from '../src/receipts.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { steLint } from '../src/ste.ts';
 import { listUpdates } from '../src/updates.ts';
 import {
-  baseEnvironment, CHECK_WORDS, checkoutHead, clearVerification, findPullRequests, latestVerification, namedPr, namesKey, OWN_WORK, prWords, pruneVerifications, qaComment, qaWording,
+  baseEnvironment, CHECK_WORDS, DIRTY_GATE, DIRTY_SUMMARY, checkoutHead, clearVerification, findPullRequests, latestVerification, namedPr, namesKey, OWN_WORK, prWords, pruneVerifications, qaComment, qaWording,
   readPrChoice, readVerification, readVerifications, verificationPath, verificationsDir, verify, VERIFY_TIMEOUT_MS, verifyCheck, verifyFixPrompt, verifying, verifyPrompt, verifyRefusal, verifyWorktree,
   type Verification, type VerifyPr,
 } from '../src/verify.ts';
@@ -141,6 +142,10 @@ test('one pull request found: its head is checked out with no branch, the checks
     { gate: 'org', status: 'skip', summary: 'It couldn\'t run here: needs an org: name one' },
   ]);
   assert.ok(r.calls.some((c) => c.endsWith('sh -c true')));
+  // D-182: receipts by sha, one for each check, as for any commit.
+  const receipts = receiptsAt(repoPaths(wt, run), sha);
+  assert.deepEqual(Object.keys(receipts).sort(), ['lint', 'org']);
+  assert.deepEqual([receipts.lint!.status, receipts.lint!.sha], ['pass', sha]);
   // The verifier: read-only, with the reviewer's model and effort, in the worktree.
   const call = r.agentCalls[0]!;
   assert.equal(call.opts?.cwd, wt);
@@ -355,7 +360,49 @@ test('clearing removes the worktree, each stored verification and the choice; a 
   const quiet = runner();
   const fresh = setup();
   assert.deepEqual(pruneVerifications(fresh.paths, fresh.config, quiet.run), []);
-  assert.deepEqual(quiet.calls, [], 'no verification stored: no git');
+  assert.ok(quiet.calls.every((c) => !/worktree (remove|add)/.test(c)), 'no verification stored: nothing removed');
+});
+
+test('a verification that fails after the checkout removes the worktree it added, and prune finds a verify folder with no stored file (edge case)', () => {
+  const { dir, config, paths, sha } = setup();
+  const wt = verifyWorktree(config, mainCheckout(run, dir), 'ACME-7');
+  // The verifier times out: the worktree was added, no file was stored, and nothing is left.
+  const slow = runner({ lists: { search: [pr(7, sha)], all: [] }, answers: [{ code: 1, stdout: '', stderr: '', timedOut: true } as RunResult] });
+  assert.throws(() => verify(paths, config, 'ACME-7', deps(slow), { by: 'human:tester' }), /didn't finish within/);
+  assert.ok(slow.calls.some((c) => c.startsWith('git worktree add --detach')), 'it was added');
+  assert.ok(!existsSync(wt), 'and removed');
+  assert.doesNotMatch(gitIn(dir, 'worktree', 'list', '--porcelain'), /verify-ACME-7/);
+  assert.equal(verifying(paths, 'ACME-7'), null);
+  // A setup that fails does the same.
+  const bad = setup({ ...RAW, worktrees: { setup: ['exit 3'] } });
+  const badWt = verifyWorktree(bad.config, mainCheckout(run, bad.dir), 'ACME-7');
+  const r2 = runner({ lists: { search: [pr(7, bad.sha)], all: [] } });
+  assert.throws(() => verify(bad.paths, bad.config, 'ACME-7', deps(r2), { by: 'human:tester' }), /Setup command failed/);
+  assert.ok(!existsSync(badWt));
+
+  // An older leftover: a verify folder with no stored file, for a task that left the board.
+  const left = setup();
+  const gone = verifyWorktree(left.config, mainCheckout(run, left.dir), 'ACME-99');
+  gitIn(left.dir, 'worktree', 'add', '-q', '--detach', gone, 'HEAD');
+  assert.ok(existsSync(gone));
+  assert.deepEqual(pruneVerifications(left.paths, left.config, run), ['ACME-99']);
+  assert.ok(!existsSync(gone));
+  const onBoard = verifyWorktree(left.config, mainCheckout(run, left.dir), 'ACME-7');
+  gitIn(left.dir, 'worktree', 'add', '-q', '--detach', onBoard, 'HEAD');
+  assert.deepEqual(pruneVerifications(left.paths, left.config, run), [], 'a task still on the board keeps its folder');
+  assert.ok(existsSync(onBoard));
+});
+
+test('a worktree left dirty by setup writes no receipt, and the verification says so as a check line with its reason (edge case)', () => {
+  const { dir, config, paths, sha } = setup({ ...RAW, worktrees: { setup: ['touch made-by-setup'] } });
+  const r = runner({ lists: { search: [pr(7, sha)], all: [] } });
+  const v = verify(paths, config, 'ACME-7', deps(r), { by: 'human:tester' });
+  const wt = verifyWorktree(config, mainCheckout(run, dir), 'ACME-7');
+  assert.deepEqual(v.checks.at(-1), { gate: DIRTY_GATE, status: 'skip', summary: DIRTY_SUMMARY });
+  assert.deepEqual(receiptsAt(repoPaths(wt, run), sha), {}, 'no receipt, as the line says');
+  const clean = setup();
+  const v2 = verify(clean.paths, clean.config, 'ACME-7', deps(runner({ lists: { search: [pr(7, clean.sha)], all: [] } })), { by: 'human:tester' });
+  assert.ok(!v2.checks.some((c) => c.gate === DIRTY_GATE), 'a clean worktree has no such line');
 });
 
 test('the verification\'s worktree is set up as a builder\'s is: node_modules linked and the setup commands run; a failing one stops it (edge case)', () => {

@@ -44,6 +44,10 @@ export interface VerifyPr {
   sha: string;
 }
 
+/** The line a verification adds when its worktree is left dirty, so no check wrote a receipt. */
+export const DIRTY_GATE = 'receipts';
+export const DIRTY_SUMMARY = 'The worktree\'s setup left files in it, so no check wrote a receipt for this commit.';
+
 /** One check's result in a verification: a check that couldn't run there is skipped, with its reason. */
 export interface VerifyCheck {
   gate: string;
@@ -453,6 +457,8 @@ export function verify(paths: RepoPaths, config: Config, id: string, deps: Verif
   writeFileSync(marker, JSON.stringify({ sessionId, name, startedAt: startedAt.toISOString(), pid: process.pid } satisfies Verifying));
   // The verifier is a child of this acc, so the Mac stays awake while acc lives (D-067).
   const awake = holdAwake(process.pid, deps.awake);
+  let added: { main: string; wt: string } | null = null;
+  let kept = false;
   try {
     const ghEnv = { ...deps.env, GH_TOKEN: steps.step('github', `Sign in to GitHub as ${gh.account}`, () => ghToken(run, gh.account)) };
     const ghRun: GhRun = (args) => run('gh', args, { cwd: paths.root, env: ghEnv, timeoutMs: GH_TIMEOUT_MS });
@@ -469,7 +475,10 @@ export function verify(paths: RepoPaths, config: Config, id: string, deps: Verif
     const main = mainCheckout(run, paths.root);
     const wt = verifyWorktree(config, main, id);
     const env = baseEnvironment(config, task, pr.base);
-    steps.step('checkout', `Check out #${pr.number}'s head with no branch`, () => checkoutHead(run, main, wt, pr, deps.env));
+    const reused = steps.step('checkout', `Check out #${pr.number}'s head with no branch`, () => checkoutHead(run, main, wt, pr, deps.env));
+    // A worktree this run added is its to remove if a later step throws (setup, the verifier timing out, Claude Code not starting):
+    // with no stored file, nothing else would find it. One it found there already is left, as before.
+    if (!reused) added = { main, wt };
     steps.step('setup', 'Set up the worktree', () => setupWorktree(run, config, env, main, wt));
 
     // The project's required checks, on the pull request's head against its base. Receipts are kept by sha,
@@ -477,6 +486,8 @@ export function verify(paths: RepoPaths, config: Config, id: string, deps: Verif
     steps.start('checks', 'Run the project\'s checks', `Against ${pr.base}`);
     const gates = runGates(repoPaths(wt, run), config, env, [], [], { run, now, task: id, ...(deps.slots ? { slots: deps.slots } : {}) });
     const checks = gates.results.map(verifyCheck);
+    // runGates writes no receipt for a worktree left dirty, and the worktree's setup can leave files (an org's .sf config, a setup command's output).
+    if (gates.dirty) checks.push({ gate: DIRTY_GATE, status: 'skip', summary: DIRTY_SUMMARY });
     const counts = (s: GateStatus) => checks.filter((c) => c.status === s).length;
     steps.done('checks', [`${counts('pass')} passed`, counts('fail') ? `${counts('fail')} failed` : '', counts('skip') ? `${counts('skip')} skipped` : '', counts('hold') ? `${counts('hold')} not settled` : ''].filter(Boolean).join(', '));
 
@@ -523,8 +534,10 @@ export function verify(paths: RepoPaths, config: Config, id: string, deps: Verif
       sessionId: parsed.sessionId ?? sessionId, name, at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: cost,
     };
     steps.step('save', 'Keep the verification with the task', () => writeAtomic(verificationPath(paths, id, pr.sha), JSON.stringify(v, null, 2) + '\n'));
+    kept = true;
     return v;
   } finally {
+    if (added && !kept) run('git', ['worktree', 'remove', '--force', added.wt], { cwd: added.main });
     awake?.release();
     rmSync(marker, { force: true });
   }
@@ -565,14 +578,22 @@ export function clearVerification(paths: RepoPaths, config: Pick<Config, 'worktr
  * choose from, whose task the ledger no longer holds. Nothing runs when there is none.
  */
 export function pruneVerifications(paths: RepoPaths, config: Pick<Config, 'worktrees'>, run: Runner): string[] {
-  let names: string[];
+  let names: string[] = [];
   try {
     names = readdirSync(verificationsDir(paths));
   } catch {
-    return [];
+    // No store: a failed verification can still have left a worktree, found below.
   }
   const tasks = new Set(readLedger(paths.ledger).tasks.map((t) => t.id));
   const stored = new Set(names.filter((n) => n.endsWith('.json') && !n.endsWith('.running.json')).map((n) => /^(.+?)(?:-[0-9a-f]{7,64}|\.found)\.json$/.exec(n)?.[1]).filter((t): t is string => !!t));
+  // A `verify-<task>` folder with no stored file: a verification that failed before it kept one (T-87).
+  let folders: string[] = [];
+  try {
+    folders = readdirSync(worktreeRoot(config, mainCheckout(run, paths.root)));
+  } catch {
+    // No worktree root: nothing was added.
+  }
+  for (const f of folders) if (f.startsWith('verify-')) stored.add(f.slice('verify-'.length));
   const gone = [...stored].filter((t) => !tasks.has(t)).sort();
   for (const t of gone) clearVerification(paths, config, t, run);
   return gone;

@@ -1164,3 +1164,20 @@ test('the prompts are gone, and the page draws every tracker without knowing one
   assert.ok(start > 0 && end > start);
   assert.doesNotMatch(main.slice(start, end), /jira|azure|github|monday|slack/i, 'no tracker named in the Connect page\'s drawing');
 });
+
+test('Slack\'s history-scope check can\'t be skipped: with a reaction set and no sign-in, Save is off and nothing is read or written (edge case, T-87)', async () => {
+  const asked: string[] = [];
+  const h = harness({ fetch: slack({ asked }), trackers: [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', reaction: 'ticket', edits: true }] });
+  await h.session.open({ root: ROOT, index: 0, from: 'tasks' });
+  await settle();
+  let m = h.model();
+  assert.notEqual(m.signIn.look.label.startsWith('Signed in'), true, 'no stored sign-in: not signed in');
+  assert.equal(m.save.can, false);
+  assert.match(m.save.why?.label ?? '', /Sign in first/);
+  h.send({ type: 'connect-save' });
+  await settle();
+  m = h.model();
+  assert.deepEqual(h.raw, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', reaction: 'ticket', edits: true }], 'nothing written');
+  assert.equal(h.writes, 0);
+  assert.ok(!asked.includes('conversations.history'));
+});

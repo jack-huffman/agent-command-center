@@ -126,13 +126,13 @@ export function buildBaseline(paths: RepoPaths, config: Config, deps: SetupDeps)
   }
   if (!xmls.length) throw new AccError('refused', 'There\'s no Salesforce source on any environment branch, or in this checkout, to list.');
   const xml = unionManifests(xmls);
-  const file = join(paths.root, BASELINE_MANIFEST);
+  const manifest = join(paths.root, BASELINE_MANIFEST);
   steps.step('write', 'Write the baseline', () => {
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, xml);
+    mkdirSync(dirname(manifest), { recursive: true });
+    writeFileSync(manifest, xml);
   });
   const parsed = parseManifest(xml);
-  return { file, from, types: parsed.types.size, members: [...parsed.types.values()].reduce((n, s) => n + s.size, 0) };
+  return { file: manifest, from, types: parsed.types.size, members: [...parsed.types.values()].reduce((n, s) => n + s.size, 0) };
 }
 
 // ---------------------------------------------------------------- B6: a branch per environment
@@ -309,14 +309,14 @@ export function draftLists(paths: RepoPaths, config: Config, deps: SetupDeps): L
     steps.done(`compare-${e.branch}`, files.length ? `${files.length} difference(s), ${rest.length} that neither list explains` : 'No differences');
   }
   const draft = (rel: string, found: Set<string>): ListDraft => {
-    const file = join(paths.root, rel);
+    const list = join(paths.root, rel);
     const have = readList(paths.root, rel);
     const entries = [...found].filter((f) => !listed(f, have)).sort();
-    if (existsSync(file)) return { file, written: false, entries };
-    mkdirSync(dirname(file), { recursive: true });
+    if (existsSync(list)) return { file: list, written: false, entries };
+    mkdirSync(dirname(list), { recursive: true });
     // One path per line and no blank lines: a blank line in a grep pattern file matches everything.
-    writeFileSync(file, entries.length ? `${entries.join('\n')}\n` : '');
-    return { file, written: true, entries };
+    writeFileSync(list, entries.length ? `${entries.join('\n')}\n` : '');
+    return { file: list, written: true, entries };
   };
   const lists = steps.step('write', 'Write the lists', () => ({ environmentSpecific: draft(config.environmentSpecific!, specific), knownDrift: draft(config.knownDrift!, drift) }));
   return { ...lists, unexplained };
@@ -405,20 +405,20 @@ export function writeReadme(paths: RepoPaths, config: Config, steps: Steps = NO_
 }
 
 function writeReadmeNow(paths: RepoPaths, config: Config): { file: string; created: boolean; replaced: boolean } {
-  const file = join(paths.root, 'README.md');
+  const readme = join(paths.root, 'README.md');
   const section = environmentsSection(config);
-  if (!existsSync(file)) {
-    writeFileSync(file, `# ${config.project}\n\n${section}\n`);
-    return { file, created: true, replaced: false };
+  if (!existsSync(readme)) {
+    writeFileSync(readme, `# ${config.project}\n\n${section}\n`);
+    return { file: readme, created: true, replaced: false };
   }
-  const text = readFileSync(file, 'utf8');
+  const text = readFileSync(readme, 'utf8');
   const a = text.indexOf(README_START);
   const b = text.indexOf(README_END);
   if (a >= 0 && b > a) {
-    writeFileSync(file, `${text.slice(0, a)}${section}${text.slice(b + README_END.length)}`);
-    return { file, created: false, replaced: true };
+    writeFileSync(readme, `${text.slice(0, a)}${section}${text.slice(b + README_END.length)}`);
+    return { file: readme, created: false, replaced: true };
   }
-  writeFileSync(file, `${text.replace(/\s*$/, '')}\n\n${section}\n`);
-  return { file, created: false, replaced: false };
+  writeFileSync(readme, `${text.replace(/\s*$/, '')}\n\n${section}\n`);
+  return { file: readme, created: false, replaced: false };
 }
 

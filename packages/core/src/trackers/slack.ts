@@ -299,14 +299,24 @@ export class SlackClient implements TrackerClient {
     return t;
   }
 
-  /** A person's Slack name by their id, read once. One that can't be read is Someone. */
-  private name(id: string): Promise<string> {
-    let p = this.users.get(id);
+  /** A person's Slack name by their id, read once into `cache` (the tracker's own, unless a board passes its). One that can't be read is Someone. */
+  private name(id: string, cache: Map<string, Promise<string>> = this.users): Promise<string> {
+    let p = cache.get(id);
     if (!p) {
       p = this.call<{ user: SlackUser }>('users.info', { user: id }).then((d) => slackName(d.user)).catch(() => 'Someone');
-      this.users.set(id, p);
+      cache.set(id, p);
     }
     return p;
+  }
+
+  /** The names of every writer and every person mentioned in the messages, each read once into `cache`. */
+  private async namesIn(messages: SlackMessage[], cache?: Map<string, Promise<string>>): Promise<Map<string, string>> {
+    const ids = new Set<string>();
+    for (const m of messages) {
+      if (m.user) ids.add(m.user);
+      for (const [, id] of (m.text ?? '').matchAll(/<@([A-Z0-9]+)(?:\|[^>]*)?>/gi)) ids.add(id!);
+    }
+    return new Map<string, string>(await Promise.all([...ids].map(async (id) => [id, await this.name(id, cache)] as [string, string])));
   }
 
   private async writer(m: SlackMessage): Promise<string> {
@@ -356,19 +366,7 @@ export class SlackClient implements TrackerClient {
       .filter((m) => (!m.thread_ts || m.thread_ts === m.ts) && m.subtype !== 'tombstone' && has(m, reaction))
       .sort((a, b) => Number(b.ts) - Number(a.ts));
     // Each writer read once a board, so a renamed person shows their new name on the next load.
-    const people = new Map<string, Promise<string>>();
-    const nameOf = (id: string): Promise<string> => {
-      let p = people.get(id);
-      if (!p) {
-        p = this.call<{ user: SlackUser }>('users.info', { user: id }).then((d) => slackName(d.user)).catch(() => 'Someone');
-        people.set(id, p);
-      }
-      return p;
-    };
-    const ids = new Set<string>();
-    for (const m of marked) for (const [, id] of (m.text ?? '').matchAll(/<@([A-Z0-9]+)(?:\|[^>]*)?>/gi)) ids.add(id!);
-    for (const m of marked) if (m.user) ids.add(m.user);
-    const names = new Map<string, string>(await Promise.all([...ids].map(async (id) => [id, await nameOf(id)] as [string, string])));
+    const names = await this.namesIn(marked, new Map());
     const cards = await inBatches(marked, BATCH, async (m): Promise<BoardCard> => {
       const thread = { channel: this.channel, ts: m.ts };
       const first = slackText(m.text ?? '', names).split('\n').map((l) => l.trim()).find(Boolean) ?? 'A message with no text';
@@ -400,12 +398,7 @@ export class SlackClient implements TrackerClient {
     const root = all.find((m) => m.ts === ts);
     if (!root) throw new TrackerError('not-found', `${k} isn't a thread the Slack app can read. It may be too old for the workspace's plan, or in a channel the app isn't in.`);
     if (root.subtype === 'tombstone') throw new TrackerError('not-found', `${k}'s first message was deleted in Slack, so the thread has no title.`);
-    const ids = new Set<string>();
-    for (const m of all) {
-      if (m.user) ids.add(m.user);
-      for (const [, id] of (m.text ?? '').matchAll(/<@([A-Z0-9]+)(?:\|[^>]*)?>/gi)) ids.add(id!);
-    }
-    const names = new Map<string, string>(await Promise.all([...ids].map(async (id) => [id, await this.name(id)] as [string, string])));
+    const names = await this.namesIn(all);
     const blocks: Block[] = [];
     for (const m of all.filter((x) => x.subtype !== 'tombstone')) {
       const said = slackText(m.text ?? '', names);

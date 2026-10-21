@@ -576,6 +576,7 @@ export class ConnectSession {
     this.bump();
     try {
       // A last check with the sign-in, such as a Slack board's scope (T-85): its reason stays beside Save.
+      // Save is off until the sign-in is ok, and signedIn() sets this.signIn then, so the check always runs (T-87).
       if (d.beforeSave && this.signIn) await d.beforeSave(this.ctx(this.signIn));
       const defaults = d.pickers.filter((p) => s.pickers[p.key]!.options.find((o) => o.value === s.pickers[p.key]!.selected[0])?.default).map((p) => p.key);
       const record = d.toConfig({ host: s.host, values: connectValues(s, d), defaults, ownRepo: s.ownRepo });
