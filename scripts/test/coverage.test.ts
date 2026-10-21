@@ -80,7 +80,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/cli/src/format.ts': ['stateLabel', 'checkLabel', 'gateLabel'],
   'packages/cli/src/main.ts': ['WORD_MAX'],
   'packages/cli/src/shared.ts': ['readFileArg', 'followingCards', 'actorFrom', 'taskIdFrom', 'stepWords', 'personOnly', 'noAgent'],
-  'packages/core/src/agents.ts': ['checkModelName', 'SETTABLE_AUTONOMY', 'setAutoMerge', 'describeProfile'],
+  'packages/core/src/agents.ts': ['checkModelName', 'SETTABLE_AUTONOMY', 'describeProfile'],
   'packages/core/src/analyze.ts': ['SIZE_MEANING', 'ANALYSIS_SCHEMA', 'ANALYST_COMMANDS'],
   'packages/core/src/autopilot-rules.ts': ['resumedByAutopilot', 'inQueueAt', 'firstLines'],
   'packages/core/src/autopilot.ts': ['AUTOPILOT_MIN_EVERY_S', 'AUTOPILOT_REVIEW_DOES', 'autopilotDoes', 'realSteps', 'startedWords'],
