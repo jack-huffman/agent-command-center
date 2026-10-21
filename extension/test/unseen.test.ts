@@ -2,8 +2,6 @@
 // silence, the card's and the page's Needs you line names why and what to try, and Dispatch again runs
 // acc dispatch --again.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { test } from 'node:test';
 import { emptyLedger, type Task } from '../../packages/core/src/ledger.ts';
 import { NOT_STARTED, UNSEEN_WORDS } from '../../packages/core/src/started.ts';
@@ -14,7 +12,7 @@ import { cardActions, unseenLook } from '../src/model/cards.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import { sampleModel } from '../scripts/screenshot.ts';
 import { deriveRows } from '../src/task-rows.ts';
-import { root, row } from './support.ts';
+import { row } from './support.ts';
 
 const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
@@ -86,11 +84,15 @@ test('the Overview\'s Needs you lists each, with why and Dispatch again where it
   assert.deepEqual([never.look.label, never.actions[0]!.command, !!never.actions[0]!.primary], ['Needs you: its builder didn\'t start', 'acc.task.dispatchAgain', true]);
 });
 
-test('Dispatch again runs acc dispatch <id> --again and looks at Claude Code\'s sessions after; the hub\'s silence starts once and clears on an answer (T-92)', () => {
-  const tasks = readFileSync(join(root, 'src', 'tasks.ts'), 'utf8');
-  assert.match(tasks, /reg\('acc\.task\.dispatchAgain', \(n: TaskNode\) => this\.dispatchAgain\(n\)\);/);
-  assert.match(tasks, /this\.runAcc\(n\.project, \['dispatch', n\.task\.id, '--again'\]/);
-  const hub = readFileSync(join(root, 'src', 'hub.ts'), 'utf8');
-  assert.match(hub, /this\.agentsSilentSince = this\.agentsError \? this\.agentsSilentSince \?\? Date\.now\(\) : null;/);
-  assert.match(hub, /if \(SERVICE_DOWN\.test\(r\.stderr\)\) throw/);
+test('a running local task with no claude on PATH reads as missing at once, in its own words, and a cloud one never does (T-93)', () => {
+  const hubOf = (extra: object) => ({ agentsAt: 0, agentsError: 'The Claude Code CLI (claude) isn\'t on PATH.', agentsSilentSince: null, claudeMissing: true, agents: [], questions: [], askingFor: () => null, tieFor: () => null, lastSaid: () => null, lastModel: () => null, changed: new Map(), limits: null, ...extra }) as unknown as Hub;
+  const t = { id: 'T-1', title: 'Task T-1', brief: '', source: { kind: 'manual', url: null }, environment: 'devbox', deps: [], labels: [], state: 'running', blocker: null, run: { worktree: '/no/such/worktree-T-93', branch: 'task/T-1', startedAt: ago(30), bgId: 'bg1' }, pr: null, history: [], createdAt: '', updatedAt: '' } as unknown as Task;
+  const project = { name: 'Acme', root: '/r', ledgerPath: '/r/.git/acc/ledger.json', config: { github: null, environments: [], profile: 'generic', agents: {} }, worktrees: [] };
+  const r = deriveRows(hubOf({}), { ...emptyLedger(), tasks: [t] }, project as never)[0]!;
+  assert.equal(r.unseen, 'missing');
+  assert.equal(r.display, 'needs-you');
+  assert.deepEqual(r.agent, { label: UNSEEN_WORDS.missing.label, icon: 'eye-closed', tone: 'orange' });
+  assert.doesNotMatch(accLook(r).label, /aren't answering/, 'it isn\'t called silence');
+  const cloud = deriveRows(hubOf({}), { ...emptyLedger(), tasks: [{ ...t, run: { ...t.run, where: 'cloud' } } as Task] }, project as never)[0]!;
+  assert.equal(cloud.unseen, null);
 });

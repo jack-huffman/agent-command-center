@@ -122,6 +122,8 @@ export class Hub implements vscode.Disposable {
   agentsAt = 0;
   /** Since when `claude agents` hasn't answered, in ms, or null while it answers (T-92): past the grace, acc can't see a local builder. */
   agentsSilentSince: number | null = null;
+  /** The Claude Code CLI isn't on PATH (T-93): kept out of the silence clock, its own state with its own words. */
+  claudeMissing = false;
   /** Agents' questions waiting in the Command Center (D-030), set by Questions. */
   questions: Question[] = [];
   /** How earlier questions ended, newest last (D-037), set by Questions. */
@@ -583,6 +585,7 @@ export class Hub implements vscode.Disposable {
     this.repos.clear();
     this.forgetTies(true);
     this.otherWindows = listeners(questionsDir()).filter((l) => l.pid !== process.pid).flatMap((l) => l.roots.filter((x) => typeof x === 'string'));
+    this.claudeMissing = r.code === 127;
     if (r.code === 127) {
       this.agents = [];
       this.agentsError = 'The Claude Code CLI (claude) isn\'t on PATH.';
@@ -598,7 +601,8 @@ export class Hub implements vscode.Disposable {
         this.agentsError = (r.stderr || r.stdout).trim().split('\n')[0] || 'Claude Code\'s list of background sessions didn\'t answer.';
       }
     }
-    this.agentsSilentSince = this.agentsError ? this.agentsSilentSince ?? Date.now() : null;
+    // A missing claude isn't silence (T-93): it never answers, and waiting changes nothing.
+    this.agentsSilentSince = this.agentsError && !this.claudeMissing ? this.agentsSilentSince ?? Date.now() : null;
     this.emitter.fire('agents');
     // Agent state feeds task display (Needs you), so re-derive the rows.
     for (const [root, cached] of this.tasks) this.tasks.set(root, { ...cached, rows: deriveRows(this, cached.ledger, this.project(root)) });

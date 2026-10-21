@@ -25,7 +25,7 @@ import { machineCapProblem, machineLoad } from './limits.ts';
 import { builderSettings, renderPacket } from './packet.ts';
 import { rulesText } from './rules.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
-import { awaitStart, NOT_STARTED, START_WAIT_MS, transcriptWrittenAt } from './started.ts';
+import { awaitStart, type FoundSession, NOT_STARTED, START_WAIT_MS, transcriptWrittenAt } from './started.ts';
 import { claudeProjectsDir } from './transcript.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
@@ -219,12 +219,12 @@ export interface FindSessionOptions {
  * can be listed a moment before its process is, so it's asked again, within the same wait, until the pid
  * shows: without it nothing keeps the Mac awake for the builder (D-067).
  */
-export function findSession(run: Runner, cwd: string, name: string, waitMs: number, o: FindSessionOptions = {}): { bgId: string | null; sessionId: string | null; pid: number | null } {
+export function findSession(run: Runner, cwd: string, name: string, waitMs: number, o: FindSessionOptions = {}): FoundSession {
   const until = Date.now() + waitMs;
-  let found: { bgId: string | null; sessionId: string | null; pid: number | null } | null = null;
+  let found: FoundSession | null = null;
   const ours = (x: { name?: string; cwd?: string; kind?: string; startedAt?: number }): boolean =>
     x.name === name && x.kind === 'background'
-    && (o.since === undefined || (x.startedAt ?? 0) >= o.since)
+    && (o.since === undefined || (x.startedAt !== undefined && x.startedAt >= o.since))
     && (!o.places || !x.cwd || o.places.some((p) => samePath(x.cwd!, p)));
   do {
     const r = run('claude', ['agents', '--json'], { cwd, timeoutMs: 20_000 });

@@ -18,6 +18,7 @@ import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDu
 import { dispatchChoiceArgs, type Message as SheetGo, SHEET_COMMANDS } from './model/dispatch-sheet.ts';
 import { openSheet, type SheetAsk, sheetInput } from './dispatch-sheet.ts';
 import { editRefusal } from '../../packages/core/src/edit.ts';
+import { dispatchAgainOff } from './model/cards.ts';
 import { type Message as TaskSheetMessage, openTaskSheet, TASK_SHEET_DONE, TASK_SHEET_ROWS, taskSheetArgs, taskSheetInput } from './model/task-sheet.ts';
 import type { TicketEdits } from './ticket-edits.ts';
 import { verdictFrom } from './model/dock-review.ts';
@@ -30,7 +31,7 @@ import { Sidebar } from './sidebar.ts';
 import { sheetDress } from './criteria.ts';
 
 /** The Tasks area's commands: adding, moving, dispatching, reviewing and landing tasks, all through acc. */
-class TaskCommands extends Sidebar {
+export class TaskCommands extends Sidebar {
   /** Opens Dispatch's sheet over the Command Center (D-168): false when the task isn't there. */
   private readonly sheet: (root: string, id: string, ask?: SheetAsk) => boolean;
 
@@ -367,7 +368,15 @@ class TaskCommands extends Sidebar {
    */
   private async dispatchAgain(n: TaskNode): Promise<void> {
     if (n?.kind !== 'task') return;
-    const ran = await this.runAcc(n.project, ['dispatch', n.task.id, '--again'], () => `${n.task.id} was dispatched again.`);
+    // Only where acc can't see the builder (T-93): else it would stop one at work. The row says, as the card does.
+    const row = this.hub.taskRows(n.project.root).find((t) => t.id === n.task.id) ?? n.task;
+    const off = dispatchAgainOff(row);
+    if (off) {
+      void vscode.window.showWarningMessage(off);
+      return;
+    }
+    const silent = this.hub.agentsSilentSince;
+    const ran = await this.runAcc(n.project, ['dispatch', n.task.id, '--again', ...(row.state === 'running' && silent ? ['--silent-since', String(silent)] : [])], () => `${n.task.id} was dispatched again.`);
     if (ran) await this.hub.loadAgents();
   }
 
