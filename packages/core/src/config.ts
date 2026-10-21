@@ -1,7 +1,8 @@
 import { isObj } from './text.ts';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { AccError } from './exec.ts';
+import { writeAtomic } from './atomic.ts';
 import { SLACK_CHANNEL, SLACK_PREFIX, SLACK_WORKSPACE } from './trackers/slack.ts';
 import { isTrackerKind, orList, TRACKER_KINDS, type TrackerKind } from './trackers/types.ts';
 
@@ -856,7 +857,7 @@ export function writeConfig(file: string, config: Config): void {
     })),
     agents: { ...agents, ...(Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}), ...(Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {}), ...cloudOut },
   };
-  writeFileSync(file, JSON.stringify(out, null, 2) + '\n');
+  writeAtomic(file, JSON.stringify(out, null, 2) + '\n');
 }
 
 /** How many tasks merge in a repo before a tidy-up is offered, when the config doesn't say (GH-104). */
@@ -1047,7 +1048,7 @@ export function saveTracker(file: string, index: number | null, record: Record<s
   const wanted = { ...raw, trackers };
   const checked = parseConfig(wanted);
   if (!checked.config) throw new AccError('bad-config', `That tracker would leave ${file} with problems, so nothing was written:\n- ${checked.errors.join('\n- ')}`);
-  writeFileSync(file, JSON.stringify(wanted, null, 2) + '\n');
+  writeAtomic(file, JSON.stringify(wanted, null, 2) + '\n');
   // Added, it's where withTracker put it: in place of the one it describes, or last. Either is a new object.
   return { index: index ?? trackers.findIndex((t, k) => was[k] !== t), warnings: checked.warnings };
 }

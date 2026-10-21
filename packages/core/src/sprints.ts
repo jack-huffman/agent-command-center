@@ -7,7 +7,7 @@
 
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { writeAtomic } from './ledger.ts';
+import { writeAtomic } from './atomic.ts';
 import { taskList } from './overlap.ts';
 import type { RepoPaths } from './paths.ts';
 import { isObj, plural } from './text.ts';

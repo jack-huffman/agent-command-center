@@ -2,6 +2,7 @@
 // Don't edit it: npm run build writes it again, and scripts/test/areas.test.ts fails when it's stale.
 export * from './agents.ts';
 export * from './analyze.ts';
+export * from './atomic.ts';
 export * from './autopilot-log.ts';
 // autopilot-rules.ts shares its wording helpers with autopilot.ts; these are its own.
 export { type AutopilotOutcome, type Decision, type FactsGitHub, failedChecks, inQueueAt, nextStep, resumedByAutopilot, reworkedByAutopilot, type StepConfig, type TaskFacts, taskFacts } from './autopilot-rules.ts';

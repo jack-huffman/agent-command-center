@@ -12,7 +12,8 @@ import { dirname } from 'node:path';
 import type { Config, RatchetLimit, RatchetSpec } from './config.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
 import type { Gate, GateInput, Outcome } from './gates.ts';
-import { type Ledger, writeAtomic } from './ledger.ts';
+import { writeAtomic } from './atomic.ts';
+import { type Ledger } from './ledger.ts';
 import type { RatchetDetails, Receipt } from './receipts.ts';
 
 /** Where the floors live, from the checkout's top: committed, beside the config. */
