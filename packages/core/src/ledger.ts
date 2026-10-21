@@ -1,5 +1,6 @@
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { writeAtomic } from './atomic.ts';
 import { releaseAwake } from './awake.ts';
 import { autoMergeFor, type BuilderPlace, type Config, defaultEnvironment, environmentByBranch, type Effort, type GateScope } from './config.ts';
 import type { EffortPick } from './efforts.ts';
@@ -341,13 +342,6 @@ export function readLedger(file: string): Ledger {
   const l = JSON.parse(readFileSync(file, 'utf8')) as Ledger;
   if (l.schema !== 1 || !Array.isArray(l.tasks)) throw new AccError('bad-ledger', `${file} isn't a ledger this version understands.`);
   return l;
-}
-
-/** Writes a file whole: a temp file beside it, then a rename, so a reader never sees it half-written. */
-export function writeAtomic(file: string, text: string): void {
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, text);
-  renameSync(tmp, file);
 }
 
 /**

@@ -2,7 +2,7 @@ import { isObj } from './text.ts';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { AccError } from './exec.ts';
-import { writeAtomic } from './ledger.ts';
+import { writeAtomic } from './atomic.ts';
 import { SLACK_CHANNEL, SLACK_PREFIX, SLACK_WORKSPACE } from './trackers/slack.ts';
 import { isTrackerKind, orList, TRACKER_KINDS, type TrackerKind } from './trackers/types.ts';
 

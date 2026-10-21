@@ -2,7 +2,7 @@
 
 import { readFileSync } from 'node:fs';
 import { AccError } from './exec.ts';
-import { writeAtomic } from './ledger.ts';
+import { writeAtomic } from './atomic.ts';
 
 /** Where a value sits in the text: from its first character to just after its last. */
 interface Span {

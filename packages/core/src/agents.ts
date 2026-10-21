@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { AccError, type Runner } from './exec.ts';
 import { type AgentProfile, type AgentRole, type Config, DEFAULT_MODEL, type Effort, isEffort, MODEL_NAME, noProfile } from './config.ts';
 import { checkEffortName } from './efforts.ts';
-import { writeAtomic } from './ledger.ts';
+import { writeAtomic } from './atomic.ts';
 
 /**
  * The model and effort each kind of agent runs with (D-036). The project can set a default in

@@ -123,7 +123,8 @@ test('writeJsonKey writes through writeAtomic, and leaves no temp file', () => {
 
 /** Files in core that may write something with writeFileSync in a function that names the config, with why. May only shrink (T-82). */
 const NOT_THE_SETTINGS: Record<string, string> = {
-  'setup.ts': 'writes the README and other files the project is set up with, in functions that take the config only to read from it',
+  'dispatch.ts': "writes the Salesforce CLI's own .sf/config.json into a new worktree, not the project's settings",
+  'setup.ts':'writes the README and other files the project is set up with, in functions that take the config only to read from it',
 };
 
 type Write = { file: string; line: number; unit: string; arg: string };
@@ -133,19 +134,46 @@ function writesSettings(w: Pick<Write, 'unit' | 'arg'>): boolean {
   return /config|\.acc\b/i.test(w.arg) || (/^\w+$/.test(w.arg) && new RegExp(`\\b${w.arg}\\b`).test(w.unit.split('{\n')[0] ?? '') && /config/i.test(w.unit));
 }
 
-/** Every writeFileSync in core's source, with the top-level function or constant it sits in. */
-function writes(): Write[] {
-  const out: Write[] = [];
-  for (const f of readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String).filter((p) => p.endsWith('.ts'))) {
-    const lines = readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8').split('\n');
-    lines.forEach((l, i) => {
-      if (!/\bwriteFileSync\(/.test(l)) return;
-      let s = i;
-      while (s > 0 && !/^(export )?(async )?(function|const) /.test(lines[s] ?? '')) s--;
-      out.push({ file: f, line: i + 1, unit: lines.slice(s, i + 1).join('\n'), arg: /writeFileSync\(\s*([^,]+?)\s*,/.exec(l)?.[1] ?? '' });
-    });
+/** The first argument of each writeFileSync( call in a source text, read to its top-level comma, so a path built in place (join(root, '.acc', 'config.json')) or split over lines comes out whole. */
+function writeArgs(text: string): { line: number; arg: string }[] {
+  const out: { line: number; arg: string }[] = [];
+  for (const m of text.matchAll(/\bwriteFileSync\(/g)) {
+    let depth = 0;
+    let i = m.index + m[0].length;
+    const start = i;
+    for (; i < text.length; i++) {
+      const c = text[i];
+      if (c === '(' || c === '[' || c === '{') depth++;
+      else if (c === ')' || c === ']' || c === '}') {
+        if (depth === 0) break;
+        depth--;
+      } else if (c === ',' && depth === 0) break;
+    }
+    const line = text.slice(0, m.index).split('\n').length;
+    const arg = text.slice(start, i).trim();
+    // A call the reader can't take apart fails the scan; it never passes it unseen.
+    if (!arg) throw new Error(`the scan couldn't read the path of the writeFileSync on line ${line}`);
+    out.push({ line, arg });
   }
   return out;
+}
+
+/** Every writeFileSync in a source text, with the top-level function or constant it sits in. */
+function writesIn(file: string, text: string): Write[] {
+  const lines = text.split('\n');
+  return writeArgs(text).map(({ line, arg }) => {
+    let s = line - 1;
+    while (s > 0 && !/^(export )?(async )?(function|const) /.test(lines[s] ?? '')) s--;
+    return { file, line, unit: lines.slice(s, line).join('\n'), arg };
+  });
+}
+
+/** Every writeFileSync in core's source. */
+function writes(): Write[] {
+  return readdirSync(new URL('../src/', import.meta.url), { recursive: true })
+    .map(String)
+    .filter((p) => p.endsWith('.ts'))
+    .flatMap((f) => writesIn(f, readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8')));
 }
 
 test('no file in core writes the project settings with writeFileSync, whatever the variable is called (T-82)', () => {
@@ -168,6 +196,13 @@ test('the scan takes a write of the settings for one whatever the path is called
   // A local path in a function that never takes it in, and a function with nothing to do with the config.
   assert.ok(!writesSettings({ arg: 'marker', unit: unit('dir: string', 'const marker = join(dir, \'m\');\n  writeFileSync(marker, text);') }));
   assert.ok(!writesSettings({ arg: 'f', unit: unit('f: string', 'writeFileSync(f, text);') }));
+  // Real source through the extractor: a path built in place, a path split onto the next line, a plain local, and a call it can't read.
+  const real = (src: string): boolean => writesIn('x.ts', `export function save(root: string, configFile: string): void {\n  ${src}\n}`).some(writesSettings);
+  assert.ok(real("writeFileSync(join(root, '.acc', 'config.json'), text);"));
+  assert.ok(real("writeFileSync(\n    join(root, '.acc', 'config.json'),\n    text,\n  );"));
+  assert.ok(real('writeFileSync(\n    configFile,\n    text,\n  );'));
+  assert.ok(!real("writeFileSync(join(root, 'notes.md'), text);"));
+  assert.throws(() => writesIn('x.ts', 'writeFileSync(\n'), /couldn't read the path/);
 });
 
 test('each writer moved to writeAtomic changes the file and leaves no temp file beside it (T-82)', () => {
