@@ -117,7 +117,7 @@ export function ticketVerify(i: VerifyIn): TicketVerify {
     criteria: (v?.criteria ?? []).map((c) => ({ text: c.text, evidence: c.evidence, look: c.met ? CRITERION_LOOK.met : CRITERION_LOOK.unmet })),
     findings: (v?.findings ?? []).map((f) => ({ message: f.message, place: f.file ? `${f.file}${f.line ? `:${f.line}` : ''}` : null, look: f.must ? REVIEW_LOOK.must : REVIEW_LOOK.worth })),
     wording: v?.wording.length ? { label: `Wording: ${plural(v.wording.length, 'finding')}`, icon: 'whole-word', tone: 'orange' } : null,
-    verify: { label: v || choosing ? 'Verify again' : 'Verify the developer\'s work', disabled: busy },
+    verify: { label: v ? 'Verify again' : choosing ? 'Look again' : 'Verify the developer\'s work', disabled: busy },
     comment: v ? { label: 'Open the QA comment', update: v.update, disabled: busy ?? commentRefusal(v, i.updates) } : null,
     clear: v || choosing ? { label: 'Clear', disabled: busy } : null,
   };
@@ -127,7 +127,7 @@ export function ticketVerify(i: VerifyIn): TicketVerify {
 export const VERIFY_ACTIONS = ['verify-run', 'verify-clear'] as const;
 
 export type Message =
-  /** A task page's Verify the developer's work, Verify again, or Verify this one with its number (T-84). */
+  /** A task page's Verify the developer's work, Verify again, Look again, or Verify this one with its number (T-84). */
   | { type: 'verify-run'; project: string; task: string; pr?: number }
   /** A task page's Clear: the verification's worktree and what it kept (T-84). */
   | { type: 'verify-clear'; project: string; task: string };

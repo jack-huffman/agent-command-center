@@ -88,7 +88,7 @@ test('edge: Open the QA comment is off, with why, once its draft is posted, disc
 test('two pull requests found are a choice, each with Verify this one; none found says so; a choice older than the verification is spent', () => {
   const choice: PrChoice = { v: 1, task: 'ACME-7', at: '2026-10-21T13:00:00Z', found: [pr(7), pr(8)] };
   const v = ticketVerify(input({ choice }));
-  assert.deepEqual([v.look, v.choice?.map((c) => c.number), v.verify.label], [VERIFY_LOOK.choose, [7, 8], 'Verify again']);
+  assert.deepEqual([v.look, v.choice?.map((c) => c.number), v.verify.label], [VERIFY_LOOK.choose, [7, 8], 'Look again']);
   assert.match(v.note!, /2 open pull requests name ACME-7\. Choose the one to verify\./);
   const none = ticketVerify(input({ choice: { ...choice, found: [] } }));
   assert.deepEqual(none.choice, []);
