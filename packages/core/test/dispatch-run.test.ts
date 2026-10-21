@@ -308,7 +308,7 @@ test('a rework a person sent back gets the passed review\'s findings in the writ
   const at = new Date().toISOString();
   const findings = [{ file: 'CHANGELOG.md', line: 3, message: 'Date the entry.', must: true }];
   writeFileSync(reviewPath(paths, 'T-1', head), JSON.stringify({ v: 1, task: 'T-1', sha: head, env: 'main', verdict: 'pass', summary: 'Adds it.', criteria: [], findings, sessionId: 's', at, durationMs: 1, costUsd: null }));
-  const sendBack = (reason: string) => {
+  const backToBuilder = (reason: string) => {
     const toReview = acc(repo, ['set', 'T-1', 'review']);
     assert.equal(toReview.code, 0, toReview.err);
     const back = acc(repo, ['set', 'T-1', 'rework', '--reason', reason]);
@@ -318,14 +318,14 @@ test('a rework a person sent back gets the passed review\'s findings in the writ
     return readFileSync(join(paths.packets, 'T-1.md'), 'utf8');
   };
 
-  const same = sendBack('Fix the findings.');
+  const same = backToBuilder('Fix the findings.');
   assert.ok(same.includes('> Fix the findings.') && same.includes('listed these findings') && same.includes('- **Must fix:** `CHANGELOG.md:3`: Date the entry.'), 'the review is of the branch head');
   assert.ok(same.indexOf('> Fix the findings.') < same.indexOf('Date the entry.'), 'the person\'s reason comes first');
 
   // The branch has a newer commit than the one reviewed: nothing is said about the review.
   writeFileSync(join(wt, 'CHANGELOG.md'), 'one\ntwo\n');
   gitIn(wt, 'commit', '-am', 'T-1: more');
-  const newer = sendBack('Again.');
+  const newer = backToBuilder('Again.');
   assert.ok(newer.includes('> Again.'));
   assert.ok(!newer.includes('Date the entry.') && !newer.includes('listed these findings'), 'the review is of an older commit');
 });
