@@ -4,19 +4,22 @@ import { type Config } from './config.ts';
 import { moveTask, noGateHooks, readLedger } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { endResume } from './resume.ts';
-import { DISPATCH_AGAIN } from './started.ts';
+import { DISPATCH_AGAIN, type Silent } from './started.ts';
 
 /** Why a running task is dispatched again when no reason is given: acc couldn't see its builder (T-92). */
 export const AGAIN_REASON = 'Claude Code\'s background sessions weren\'t answering, so acc couldn\'t see its builder';
 
+/** Why a running builder acc can see isn't dispatched again (T-93): stopping it would end work that is going on. */
+export const againRefusal = (id: string): string => `${id}'s builder is working where acc can see it, so ${DISPATCH_AGAIN} would stop work that's going on. It is for a builder that didn't start, or one acc can't see.`;
+
 /**
  * Dispatch again (T-92), a person's, in one step: a task whose builder didn't start is dispatched with the
- * model, effort and place it was dispatched with. A running one whose builder acc can't see is first set
- * back to To do, its background session stopped where it's listed and any resume ended, then dispatched
+ * model, effort and place it was dispatched with. A running one whose builder acc can't see (`opts.unseen`, from builderUnseen; any other is refused, T-93) is first
+ * set back to To do, its background session stopped where it's listed and any resume ended, then dispatched
  * with its run's place; its run keeps a picked model and effort (D-086, D-128). Both moves carry the reason
  * in its History.
  */
-export function dispatchAgain(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: Pick<DispatchOptions, 'actor' | 'by'> & { reason?: string }): DispatchOutcome {
+export function dispatchAgain(paths: RepoPaths, config: Config, id: string, deps: DispatchDeps, opts: Pick<DispatchOptions, 'actor' | 'by'> & { reason?: string; unseen?: Silent | null }): DispatchOutcome {
   if (opts.actor !== 'human') throw new AccError('refused', `${DISPATCH_AGAIN} is a person's: it sets a running task back.`);
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
@@ -29,6 +32,7 @@ export function dispatchAgain(paths: RepoPaths, config: Config, id: string, deps
   }
   if (task.state !== 'running') throw new AccError('refused', `${id} is ${task.state}, and its builder didn't fail to start: dispatch it as usual.`);
   if (task.run?.where === 'cloud') throw new AccError('refused', `${id}'s builder runs in the cloud: its branch says whether it's quiet, and ${DISPATCH_AGAIN} is for a builder on this Mac.`);
+  if (!opts.unseen) throw new AccError('refused', againRefusal(id));
   if (task.run?.bgId) deps.run('claude', ['stop', task.run.bgId], { cwd: task.run.worktree ?? paths.root, timeoutMs: 20_000 });
   endResume(paths, id);
   moveTask(paths, config, id, { to: 'todo', actor: opts.actor, by: opts.by, reason }, noGateHooks, deps.now);

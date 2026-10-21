@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
@@ -192,7 +192,10 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
   // Dispatch again (T-92): a builder that didn't start, or one acc can't see, in one step.
   if (o.again) {
     if (o.cloud === true || o.foreground || o.model !== undefined || o.effort !== undefined) throw new AccError('usage', 'acc dispatch <id> --again starts it with the model, effort and place it had: give it none of --cloud, --foreground, --model or --effort.');
-    const r = followingCards(paths, config, () => dispatchAgain(paths, config, id.toUpperCase(), { ...deps, steps: steps() }, { actor, by, reason: typeof o.reason === 'string' ? o.reason : undefined }));
+    // Only a builder acc can't see is stopped (T-93): the Command Center says since when it saw none, with --silent-since.
+    const silent = typeof o['silent-since'] === 'string' ? Number(o['silent-since']) : null;
+    const unseen = unseenOf(paths, config, id.toUpperCase(), deps, Number.isFinite(silent) ? silent : null);
+    const r = followingCards(paths, config, () => dispatchAgain(paths, config, id.toUpperCase(), { ...deps, steps: steps() }, { actor, by, reason: typeof o.reason === 'string' ? o.reason : undefined, unseen }));
     return dispatched(o, r, '');
   }
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
@@ -320,8 +323,9 @@ export const area: CommandArea = {
   acc dispatch <id> --stop-waiting      It stops waiting, and stays to do
   acc dispatch <id> --again [--reason "<why>"]
                                         Dispatch again: a task whose builder didn't start, with the model,
-                                        effort and place it was dispatched with; or a running one acc can't
-                                        see, set back to do and dispatched, its session stopped. A person's
+                                        effort and place it was dispatched with; or a running one, only where acc
+                                        can't see its builder, set back to do and dispatched, its session
+                                        stopped. Refused for one acc can see. A person's
   acc done [<id>] --landed "<line>"... --moved "<line>"... --open "<line>"...
                                         A builder's finish line: moves its task to review, with a note for
                                         whoever comes next: what landed, which numbers moved (tests, checks,
@@ -361,6 +365,7 @@ export const area: CommandArea = {
     anyway: { type: 'boolean', default: false },
     held: { type: 'boolean', default: false },
     again: { type: 'boolean', default: false },
+    'silent-since': { type: 'string' },
     'stop-waiting': { type: 'boolean', default: false },
     model: { type: 'string' },
     effort: { type: 'string' },

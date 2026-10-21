@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, builderUnseen, DISPATCH_AGAIN, noteAnswer, quietMs, transcriptWrittenAt, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, unseenFrom, DISPATCH_AGAIN, noteAnswer, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -180,8 +180,7 @@ function cmdShow(o: Opts, id: string): number {
   // Or that acc can't see it: Claude Code hasn't answered since the last look that got none (T-92).
   const local = t.state === 'running' && t.run?.where !== 'cloud';
   const silentSince = local ? noteAnswer(paths, sessions !== null, now()) : null;
-  const written = local && silentSince !== null && t.run?.worktree ? transcriptWrittenAt(claudeProjectsDir(), { worktree: t.run.worktree, sessionId: t.run.sessionId, since: 0 }) : null;
-  const unseen = builderUnseen(t, { silentSince, now: now(), resuming: resumed, writtenAt: written, quietMs: quietMs(config) });
+  const unseen = unseenFrom(t, config, { silentSince, now: now(), resuming: resumed });
   const said = stopped && t.run?.sessionId ? lastSaid(claudeProjectsDir(), t.run.sessionId, [t.run.worktree, paths.root]) : null;
   const quote = said ? clipSaid(said, 600) : null;
   // A task to do: what it shares with work in flight, or that its files aren't known (D-093).

@@ -74,6 +74,7 @@ export * from './test-counts.ts';
 export * from './text.ts';
 export * from './tidy.ts';
 export * from './transcript.ts';
+export * from './unseen.ts';
 export * from './updates.ts';
 export * from './verify.ts';
 export * from './onboarding/types.ts';

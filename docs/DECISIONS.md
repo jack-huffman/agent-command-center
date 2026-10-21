@@ -8486,3 +8486,20 @@ stopped", and the dispatch recorded the session's id anyway.
   name is never taken for it; ids recorded on the run are matched as before.
 - Out of scope: restarting Claude Code's service from acc, and cloud builders, whose branch says whether
   they're quiet (D-140).
+
+**Note, 2026-10-21 (T-93): Dispatch again never stops a builder acc can see.**
+
+- `dispatchAgain` takes `unseen` (from `builderUnseen`, by way of `unseenNow` in `unseen.ts`) and refuses
+  a running task without it, with `againRefusal`, before it stops or moves anything. `acc dispatch --again`
+  looks at `claude agents` just before; the Command Center passes the silence it has kept
+  (`--silent-since`), so the two agree. Its `acc.task.dispatchAgain` shows the same reason as a warning
+  where the row isn't `unseen` or `notStarted` (`dispatchAgainOff`), and runs nothing.
+- A missing `claude` is its own state, `claudeMissing` in the hub: kept out of the silence clock, shown at
+  once as `missing` with its own words ("Claude Code isn't found" and what to install), with no Dispatch
+  again, which needs `claude` to start another builder. It no longer reads as "background sessions aren't
+  answering".
+- Only this run's conversation counts: the rows, `acc show` and Dispatch again read it through
+  `unseenFrom`, which passes the run's start (`runWrittenAt`), not 0. An earlier run's conversation in a
+  reused worktree is never taken for this run's writing.
+- `sessionsOf` and `findSession` both drop a same-named session with no start time once the run has one,
+  and `findSession` returns `FoundSession`.

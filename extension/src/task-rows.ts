@@ -19,8 +19,8 @@ import { cloudWait } from '../../packages/core/src/cloud.ts';
 import { cloudReviewWait } from '../../packages/core/src/cloud-review.ts';
 import { sessionName } from '../../packages/core/src/names.ts';
 import { rowInWords } from './logic/relayed.ts';
-import { builderUnseen, quietMs, transcriptWrittenAt, UNSEEN_WORDS } from '../../packages/core/src/started.ts';
-import { claudeProjectsDir } from '../../packages/core/src/transcript.ts';
+import { UNSEEN_WORDS } from '../../packages/core/src/started.ts';
+import { unseenFrom } from '../../packages/core/src/unseen.ts';
 // The Tasks area's rows as the hub reads them (D-099): each task's agent, analysis, review, pull request, place
 // in the merge queue, and files beside other tasks'.
 
@@ -68,8 +68,8 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
     const stopped = builderStopped(t, sessions, { resuming: !!resumed, now });
     // Its conversation is read only while acc can't see it, to tell a quiet builder from one Claude Code hides.
     const silent = t.state === 'running' && t.run?.where !== 'cloud' ? hub.agentsSilentSince : null;
-    const written = silent !== null && t.run?.worktree ? transcriptWrittenAt(claudeProjectsDir(), { worktree: t.run.worktree, sessionId: t.run.sessionId, since: 0 }) : null;
-    const unseen = builderUnseen(t, { silentSince: silent, now, resuming: !!resumed, writtenAt: written, quietMs: quietMs(p?.config) });
+    const missing = hub.claudeMissing && t.state === 'running' && t.run?.where !== 'cloud' && !resumed ? 'missing' as const : null;
+    const unseen = missing ?? unseenFrom(t, p?.config, { silentSince: silent, now, resuming: !!resumed });
     // A resume just started isn't listed yet, and its old background session may still say blocked.
     const carrying = !!resumed && !session?.pid;
     const look = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue' as const } : session ? agentLook(session, asking, hub.tieFor(session)) : null;

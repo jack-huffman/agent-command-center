@@ -360,7 +360,7 @@ test('a running builder counts as stopped when its session ended, went idle, or 
   assert.equal(builderStopped({ ...t, state: 'review' }, [], { resuming: false, now }), false, 'only a running task');
   // A builder started some other way, before its session was linked, is found by name.
   const unlinked = { ...t, run: { worktree: '/wt/GH-41', startedAt: t.run.startedAt } };
-  assert.equal(builderStopped(unlinked, bg({ state: 'working', pid: 9, status: 'busy' }), { resuming: false, now }), false);
+  assert.equal(builderStopped(unlinked, bg({ state: 'working', pid: 9, status: 'busy', startedAt: Date.parse('2026-10-05T21:52:20Z') }), { resuming: false, now }), false);
   assert.equal(builderStopped(unlinked, [], { resuming: false, now }), true);
 });
 
@@ -369,7 +369,7 @@ test('a builder is found by its session, else by the name its run recorded, else
   const mine: ClaudeSession = { id: 'bg1', sessionId: 'sess-1', kind: 'background', name, pid: 7 };
   const resumed: ClaudeSession = { sessionId: 'sess-1', kind: 'interactive', name, pid: 8 };
   const other: ClaudeSession = { id: 'bg2', sessionId: 'sess-2', kind: 'background', name: 'Acme Service · GH-45 Something else · builder', pid: 9 };
-  const legacy: ClaudeSession = { id: 'bg3', sessionId: 'sess-3', kind: 'background', name: 'GH-44', pid: 10 };
+  const legacy: ClaudeSession = { id: 'bg3', sessionId: 'sess-3', kind: 'background', name: 'GH-44', pid: 10, startedAt: Date.parse('2026-10-01T09:00:30Z') };
   const all = [mine, resumed, other, legacy];
   assert.deepEqual(sessionsOf({ id: 'GH-44', run: { bgId: 'bg1' } }, all), [mine], 'by its background id');
   assert.deepEqual(sessionsOf({ id: 'GH-44', run: { sessionId: 'sess-1' } }, all), [mine, resumed], 'by its session id, a resume of it included');
@@ -388,7 +388,7 @@ test('a builder is found by its session, else by the name its run recorded, else
   assert.deepEqual(sessionsOf({ id: 'GH-44' }, all), [legacy]);
   const at = { resuming: false, now: new Date('2026-10-05T22:00:00Z') };
   const named = { id: 'GH-44', state: 'running' as State, run: { startedAt: '2026-10-05T21:00:00Z', name } };
-  assert.equal(builderStopped(named, [mine], at), false, 'at work, found by its name');
+  assert.equal(builderStopped(named, [{ ...mine, startedAt: Date.parse('2026-10-05T21:00:30Z') }], at), false, 'at work, found by its name');
   assert.equal(builderStopped(named, [legacy], at), true, 'a session named after the task isn\'t it');
 });
 

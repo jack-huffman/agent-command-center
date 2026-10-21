@@ -76,8 +76,11 @@ export function awaitStart(first: FoundSession, look: () => FoundSession, writte
   }
 }
 
-/** Why acc can't see a running task's builder: `claude agents` doesn't answer, and, worse, its conversation has gone quiet too. */
-export type Unseen = 'unanswered' | 'quiet';
+/** Why acc can't see a running task's builder, where `claude agents` doesn't answer: and, worse, its conversation has gone quiet too. */
+export type Silent = 'unanswered' | 'quiet';
+
+/** The same, or that there is no `claude` to ask (T-93): then nothing is silent, and nothing a person can click starts it. */
+export type Unseen = Silent | 'missing';
 
 /** How long a builder may write nothing before it counts as quiet: the cloud's quiet setting, the only one acc has (GH-69). */
 export const quietMs = (config: { agents?: { cloud?: { quietMinutes?: number } | null } | null } | null | undefined): number =>
@@ -90,7 +93,7 @@ export const quietMs = (config: { agents?: { cloud?: { quietMinutes?: number } |
  * `claude agents` answers (builderStopped judges then), for a cloud builder (its branch says, D-140),
  * and while a resume runs.
  */
-export function builderUnseen(task: Pick<Task, 'state' | 'run'>, o: { silentSince: number | null; now: Date; resuming: boolean; writtenAt: number | null; quietMs: number; graceMs?: number }): Unseen | null {
+export function builderUnseen(task: Pick<Task, 'state' | 'run'>, o: { silentSince: number | null; now: Date; resuming: boolean; writtenAt: number | null; quietMs: number; graceMs?: number }): Silent | null {
   if (task.state !== 'running' || o.resuming || o.silentSince === null || task.run?.where === 'cloud') return null;
   const grace = o.graceMs ?? STOPPED_GRACE_MS;
   const now = o.now.getTime();
@@ -111,6 +114,11 @@ export const UNSEEN_WORDS: Record<Unseen, { label: string; line: string; wayOn: 
     label: 'Needs you: its builder has gone quiet',
     line: 'Claude Code\'s background sessions aren\'t answering, and this builder hasn\'t written to its conversation for longer than the quiet limit',
     wayOn: 'Dispatch again: it starts a new builder with the same model, effort and place.',
+  },
+  missing: {
+    label: 'Needs you: Claude Code isn\'t found',
+    line: 'Claude Code isn\'t on this Mac\'s path, so acc can\'t see this builder',
+    wayOn: 'Install Claude Code, or start VS Code from a terminal where Claude Code runs, then reload the window.',
   },
 };
 

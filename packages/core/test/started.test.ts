@@ -4,16 +4,17 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { AGAIN_REASON, dispatchAgain } from '../src/again.ts';
+import { AGAIN_REASON, againRefusal, dispatchAgain } from '../src/again.ts';
 import { nextStep } from '../src/autopilot-rules.ts';
 import { parseConfig } from '../src/config.ts';
-import { dispatch } from '../src/dispatch.ts';
+import { dispatch, findSession } from '../src/dispatch.ts';
 import { run, type RunResult } from '../src/exec.ts';
 import { builderStopped, displayState, mutate, readLedger, RUN_SLACK_MS, sessionsOf, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { listSessions } from '../src/resume.ts';
 import { awaitStart, builderUnseen, DISPATCH_AGAIN, noteAnswer, NOT_STARTED, quietMs, SERVICE_DOWN, START_WAIT_MS, transcriptWrittenAt, UNSEEN_WORDS } from '../src/started.ts';
 import { transcriptDir } from '../src/transcript.ts';
+import { runWrittenAt, unseenFrom, unseenNow, unseenOf } from '../src/unseen.ts';
 import { acc, fakeClaude, IGNORE, trustingHome } from './dispatch-support.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, launchedSessions, makeRepo, ok, tempDir } from './support.ts';
 
@@ -98,7 +99,7 @@ test('Dispatch again starts a task whose builder didn\'t start with the same mod
 test('Dispatch again on a running task acc can\'t see sets it back, stops its session and dispatches, in one step (T-92)', () => {
   const s = setup(launchedSessions);
   s.go();
-  const r = dispatchAgain(s.paths, s.config, 'T-1', s.deps, { actor: 'human', by: 'human:test' });
+  const r = dispatchAgain(s.paths, s.config, 'T-1', s.deps, { actor: 'human', by: 'human:test', unseen: 'quiet' });
   assert.ok(!r.held && !r.notStarted);
   const t = s.task();
   assert.equal(t.state, 'running');
@@ -218,7 +219,7 @@ test('sessionsOf: by name, only this run\'s session counts, not an old blocked o
   const old = { id: 'bg-old', name, kind: 'background', state: 'blocked', startedAt: at(-3 * 24 * 60).getTime() };
   const fresh = { id: 'bg-new', name, kind: 'background', state: 'working', pid: 4, startedAt: at(100).getTime() - RUN_SLACK_MS + 1 };
   const undated = { id: 'bg-?', name, kind: 'background' };
-  assert.deepEqual(sessionsOf({ id: 'T-1', run }, [old, fresh, undated]).map((s) => s.id), ['bg-new', 'bg-?']);
+  assert.deepEqual(sessionsOf({ id: 'T-1', run }, [old, fresh, undated]).map((s) => s.id), ['bg-new'], 'an undated one is dropped too (T-93)');
   assert.deepEqual(sessionsOf({ id: 'T-1', run: { ...run, startedAt: undefined as never } }, [old]).map((s) => s.id), ['bg-old'], 'a run with no start time can\'t be told apart');
 });
 
@@ -258,4 +259,66 @@ test('acc dispatch --again refuses a pick of its own and a task with nothing to 
   assert.equal(acc(repo, ['add', 'Write the changelog']).code, 0);
   assert.match(acc(repo, ['dispatch', 'T-1', '--again', '--model', 'claude-opus-5-5']).err, /--again starts it with the model, effort and place it had/);
   assert.match(acc(repo, ['dispatch', 'T-1', '--again']).err, /dispatch it as usual/);
+});
+
+test('Dispatch again on a running builder acc can see is refused with the reason, and stops nothing (T-93)', () => {
+  const s = setup(launchedSessions);
+  s.go();
+  const before = s.task();
+  for (const unseen of [undefined, null] as const) {
+    assert.throws(() => dispatchAgain(s.paths, s.config, 'T-1', s.deps, { actor: 'human', by: 'human:test', unseen }), (e: Error) => e.message === againRefusal('T-1'));
+  }
+  assert.ok(!s.calls.some((c) => c.startsWith('claude stop')), 'the working builder isn\'t stopped');
+  assert.deepEqual(s.task().run, before.run, 'edge: its run is untouched');
+  assert.equal(s.task().history.length, before.history.length, 'and nothing is recorded');
+});
+
+test('unseenNow judges just now: claude answering is seen, no answer past the grace is unanswered, an answer clears it (T-93)', () => {
+  const s = setup(launchedSessions);
+  s.go();
+  const t0 = s.task();
+  const started = Date.parse(t0.run!.startedAt!);
+  const later = (min: number) => () => new Date(started + min * 60_000);
+  assert.equal(unseenNow(s.paths, s.config, t0, { ...s.deps, now: later(30) }), null, 'it answers');
+  const silent = fakeRunner({ 'claude agents --json': bad('connect ENOENT control.sock') });
+  assert.equal(unseenNow(s.paths, s.config, t0, { ...s.deps, run: silent, now: later(20) }), null, 'edge: the first silence only starts the clock');
+  assert.equal(unseenNow(s.paths, s.config, t0, { ...s.deps, run: silent, now: later(40) }), 'unanswered');
+  assert.equal(unseenNow(s.paths, s.config, t0, { ...s.deps, run: silent, now: later(40) }, started + 25 * 60_000), 'unanswered', 'a clock the caller kept counts too');
+  assert.equal(unseenNow(s.paths, s.config, t0, { ...s.deps, now: later(50) }), null, 'it answers again, and the silence ends');
+  assert.equal(unseenNow(s.paths, s.config, { ...t0, state: 'done' }, s.deps), null, 'edge: a task that isn\'t running');
+  unseenOf(s.paths, s.config, 'T-1', { ...s.deps, run: silent, now: later(51) });
+  assert.equal(unseenOf(s.paths, s.config, 'T-1', { ...s.deps, run: silent, now: later(70) }), 'unanswered', 'by id');
+  assert.equal(unseenOf(s.paths, s.config, 'T-9', s.deps), null, 'edge: no such task');
+});
+
+test('an earlier run\'s conversation in a reused worktree isn\'t this run\'s writing (T-93)', () => {
+  const s = setup(launchedSessions);
+  s.go();
+  const t = s.task();
+  const started = Date.parse(t.run!.startedAt!);
+  const env = { CLAUDE_CONFIG_DIR: tempDir('claude-') };
+  const dir = transcriptDir(join(env.CLAUDE_CONFIG_DIR, 'projects'), t.run!.worktree!);
+  mkdirSync(dir, { recursive: true });
+  const old = join(dir, 'earlier-run.jsonl');
+  writeFileSync(old, '{}\n');
+  utimesSync(old, new Date(started - 3_600_000), new Date(started - 3_600_000));
+  const asTask = { ...t, run: { ...t.run!, sessionId: undefined } };
+  assert.equal(runWrittenAt(asTask, env), null, 'only an older conversation: nothing written by this run');
+  const fresh = join(dir, 'this-run.jsonl');
+  writeFileSync(fresh, '{}\n');
+  assert.ok((runWrittenAt(asTask, env) ?? 0) >= started, 'this run\'s own conversation counts');
+  assert.equal(unseenFrom(asTask as never, s.config, { silentSince: null, now: new Date(), resuming: false, env }), null, 'edge: nothing is read while claude answers');
+});
+
+test('findSession and sessionsOf both drop a same-named session with no start time once the run has one (T-93)', () => {
+  const name = 'Tool · T-1 · builder';
+  const listed = [{ id: 'old', sessionId: 's-old', name, kind: 'background', cwd: '/w', pid: 4 }, { id: 'new', sessionId: 's-new', name, kind: 'background', cwd: '/w', startedAt: Date.now(), pid: 5 }];
+  const runner = fakeRunner({ 'claude agents --json': ok(JSON.stringify(listed)) });
+  const found = findSession(runner, '/w', name, 0, { since: Date.now() - 60_000 });
+  assert.deepEqual(found, { bgId: 'new', sessionId: 's-new', pid: 5 });
+  const only = findSession(fakeRunner({ 'claude agents --json': ok(JSON.stringify(listed.slice(0, 1))) }), '/w', name, 0, { since: Date.now() - 60_000 });
+  assert.equal(only.bgId, null, 'an undated old session alone is no session of this run');
+  const task = { id: 'T-1', run: { name, startedAt: new Date().toISOString() } as never };
+  assert.deepEqual(sessionsOf(task, listed as never).map((x) => x.id), ['new']);
+  assert.deepEqual(sessionsOf({ id: 'T-1', run: { name } as never }, listed as never).map((x) => x.id), ['old', 'new'], 'edge: a run with no start time keeps both');
 });

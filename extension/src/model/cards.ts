@@ -6,6 +6,7 @@
 import { BUILDER_PLACE_LOOK, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
 import type { BuilderPlace, CloudAgents } from '../../../packages/core/src/config.ts';
 import { editRefusal } from '../../../packages/core/src/edit.ts';
+import { againRefusal } from '../../../packages/core/src/again.ts';
 import { DISPATCH_AGAIN, UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
 import type { State } from '../../../packages/core/src/ledger.ts';
 import { analysisReady, analysisWait, filesUnknown, sharesLine, waitLine } from '../logic/tasks.ts';
@@ -148,7 +149,8 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   // quiet; where Claude Code only doesn't answer, the builder may still be at work, so it's behind ⋯.
   const notStarted = !!t.notStarted && (todo || t.state === 'rework');
   const unseen = t.state === 'running' ? t.unseen ?? null : null;
-  if (notStarted || unseen) a.push({ command: 'acc.task.dispatchAgain', label: DISPATCH_AGAIN, icon: 'debug-restart', ref, primary: (notStarted || unseen === 'quiet') && !a.some((x) => x.primary) });
+  // No claude to start one with (T-93): nothing to click.
+  if (notStarted || (unseen && unseen !== 'missing')) a.push({ command: 'acc.task.dispatchAgain', label: DISPATCH_AGAIN, icon: 'debug-restart', ref, primary: (notStarted || unseen === 'quiet') && !a.some((x) => x.primary) });
   // A task a person dispatched already waits for others' files (D-093): its next step is starting it anyway.
   const held = todo && !!t.files?.held;
   // Its sheet asks for the model, the effort and where it runs (D-168), so there's one Dispatch.
@@ -204,4 +206,15 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   if (t.source.url) a.push({ command: 'acc.task.openTicket', label: 'Ticket', icon: 'link-external', ref });
   a.push({ command: 'acc.task.show', label: 'Details', icon: 'note', ref });
   return a;
+}
+
+/**
+ * Why Dispatch again is off for a task (T-93), or null where it's on: its builder didn't start, or acc can't
+ * see it. A running builder acc can see, or one with no claude to start another, is never stopped by it.
+ */
+export function dispatchAgainOff(t: Pick<TaskRow, 'id' | 'state' | 'notStarted' | 'unseen'>): string | null {
+  if (t.notStarted && (t.state === 'todo' || t.state === 'rework')) return null;
+  if (t.state === 'running' && (t.unseen === 'unanswered' || t.unseen === 'quiet')) return null;
+  if (t.state === 'running' && t.unseen === 'missing') return `${UNSEEN_WORDS.missing.line}, and ${DISPATCH_AGAIN} needs it to start another. ${UNSEEN_WORDS.missing.wayOn}`;
+  return againRefusal(t.id);
 }

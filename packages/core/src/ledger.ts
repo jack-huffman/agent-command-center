@@ -842,9 +842,9 @@ export function sessionsOf<S extends ClaudeSession>(task: { id: string; run?: Ru
   if (run?.where === 'cloud') return [];
   if (run?.bgId || run?.sessionId) return sessions.filter((s) => (!!run.bgId && s.id === run.bgId) || (!!run.sessionId && s.sessionId === run.sessionId));
   const name = run?.name ?? task.id;
-  // Only this run's (T-92): `claude agents` keeps old background sessions of the same name for days.
+  // Only this run's (T-92): `claude agents` keeps old background sessions of the same name for days; one with no start can't be dated, so with a run start it's dropped (T-93).
   const since = run?.startedAt ? Date.parse(run.startedAt) - RUN_SLACK_MS : null;
-  return sessions.filter((s) => s.kind === 'background' && s.name === name && (since === null || s.startedAt === undefined || s.startedAt >= since));
+  return sessions.filter((s) => s.kind === 'background' && s.name === name && (since === null || (s.startedAt !== undefined && s.startedAt >= since)));
 }
 
 /** A run a task's builder had, as its dispatch recorded it in events.jsonl: the task keeps only its current one. */
