@@ -15,7 +15,7 @@ import { machineDir, machineJson } from '../src/machine.ts';
 import { emptyLedger, type Ledger, mutate, projectCapWords, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { run } from '../src/exec.ts';
-import { fakeRunner, GENERIC_CONFIG, makeRepo, ok, tempDir } from './support.ts';
+import { fakeRunner, GENERIC_CONFIG, launchedSessions, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-07T12:00:00.000Z');
 
@@ -151,7 +151,7 @@ test('a dispatch, and a held start, wait for this machine\'s total across every 
   registerLedger(other.paths.ledger, 'Other', env);
   const here = repoWith('Here', ['T-1', 'T-2', 'T-3'], [], { agents: { max: 5 } });
   const calls: string[] = [];
-  const runner = fakeRunner({ 'claude --bg': ok('backgrounded'), 'claude agents --json': ok('[]'), 'claude stop': ok() }, calls);
+  const runner = fakeRunner({ 'claude --bg': ok('backgrounded'), 'claude agents --json': launchedSessions(calls), 'claude stop': ok() }, calls);
   const deps = { run: runner, now, accBinDir: '/acc/bin', env: { ...env, PATH: '/usr/bin' }, findSessionMs: 0 };
   const go = (id: string) => dispatch(here.paths, here.config, id, deps, { actor: 'human', by: 'human:test' });
   setMachineAgents(3, env);

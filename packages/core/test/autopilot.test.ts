@@ -19,7 +19,7 @@ import { withSlot } from '../src/semaphore.ts';
 import { listUpdates } from '../src/updates.ts';
 import { sync } from '../src/sync.ts';
 import { transcriptDir } from '../src/transcript.ts';
-import { bad, fakeAwake, fakeRunner, GENERIC_CONFIG, gh41Lines, gitIn, makeRepo, ok, SLEPT, tempDir, writePlan } from './support.ts';
+import { bad, fakeAwake, fakeRunner, GENERIC_CONFIG, gh41Lines, gitIn, launchedSessions, makeRepo, ok, SLEPT, tempDir, writePlan } from './support.ts';
 
 const now = () => new Date('2026-10-05T12:00:00Z');
 const BRANCH = 'task/T-1-add-sum';
@@ -94,7 +94,8 @@ function deps(calls: string[], over: Record<string, RunResult | ((o?: RunOptions
       'gh pr edit': ok(''),
       'claude -p': verdictOut('pass'),
       'claude --bg': ok('bg1\n'),
-      'claude agents --json': () => ok(JSON.stringify([{ id: 'bg1', sessionId: 'sess-1', name: 'Tool · T-1 Add a sum function · builder 2', kind: 'background', startedAt: Date.now(), pid: 4_000_001 }])),
+      // Each builder it starts is listed with a process, so it started (T-92).
+      'claude agents --json': launchedSessions(calls),
       ...over,
     }, calls),
     now, env: {}, accBinDir: '/opt/acc/bin',

@@ -70,6 +70,7 @@ class TaskCommands extends Sidebar {
     reg('acc.task.dispatch', (n: TaskNode) => this.ask(n));
     reg('acc.task.dispatchAnyway', (n: TaskNode) => this.ask(n, { anyway: true }));
     reg('acc.task.stopWaiting', (n: TaskNode) => this.stopWaiting(n));
+    reg('acc.task.dispatchAgain', (n: TaskNode) => this.dispatchAgain(n));
     reg('acc.task.dispatchWith', (n: TaskNode) => this.ask(n));
     reg('acc.task.dispatchCloud', (n: TaskNode) => this.ask(n, { where: 'cloud' }));
     reg('acc.task.watch', (n: TaskNode) => this.watchTask(n));
@@ -358,6 +359,16 @@ class TaskCommands extends Sidebar {
     const q = anywayQuestion(shares?.length ? { id: row.id, files: { shares } } : row);
     const ok = await vscode.window.showWarningMessage(q.message, { modal: true, detail: q.detail }, 'Dispatch anyway');
     if (ok) await this.dispatchTask({ ...n, task: row }, extra, true);
+  }
+
+  /**
+   * Dispatch again (T-92): a task whose builder didn't start, with the model, effort and place it had; or a
+   * running one acc can't see, set back and dispatched in one step, its History saying why.
+   */
+  private async dispatchAgain(n: TaskNode): Promise<void> {
+    if (n?.kind !== 'task') return;
+    const ran = await this.runAcc(n.project, ['dispatch', n.task.id, '--again'], () => `${n.task.id} was dispatched again.`);
+    if (ran) await this.hub.loadAgents();
   }
 
   /** It stops waiting for others' files, and stays to do (D-093). */

@@ -15,7 +15,7 @@ import { reviewPrompt } from '../src/review.ts';
 import {
   BASE_RULES, importedRules, importRules, parseRulesFile, PROFILE_RULES, renderHeader, RULES_ORDER, rulesDiff, rulesDigest, rulesStatus, rulesText, templateRulesProblem, withoutHeader,
 } from '../src/rules.ts';
-import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
+import { bad, fakeRunner, GENERIC_CONFIG, gitIn, launchedSessions, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
 const ACME = '# ACME rules\n\n- Every Apex class has a test class named <Class>Test.\n- Name custom fields in PascalCase, with no underscores but __c.\n';
 const now = () => new Date(2026, 9, 7, 9, 30);
@@ -211,7 +211,7 @@ test('a source that moves changes nothing for the repo: the packet is the same, 
   const home = tempDir('home-');
   writeFileSync(join(home, '.claude.json'), JSON.stringify({ projects: { [repo]: { hasTrustDialogAccepted: true } } }));
   const calls: string[] = [];
-  const runner = fakeRunner({ 'claude --bg': ok('backgrounded'), 'claude agents --json': ok('[]') }, calls);
+  const runner = fakeRunner({ 'claude --bg': ok('backgrounded'), 'claude agents --json': launchedSessions(calls) }, calls);
   const deps = { run: runner, now, accBinDir: '/acc/bin', env: { HOME: home, PATH: '/usr/bin' }, findSessionMs: 0 };
   const go = () => dispatch(paths, config, 'T-1', deps, { actor: 'human', by: 'human:test' });
   const packetOf = () => readFileSync(join(paths.packets, 'T-1.md'), 'utf8');

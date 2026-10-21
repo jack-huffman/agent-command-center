@@ -11,7 +11,7 @@ import { inProcessWords } from '../logic/processes.ts';
 import { movedOut } from '../logic/moved-out.ts';
 import { exampleLink, type PasteState, pasteHint, type SlackPlace } from '../logic/slack-link.ts';
 import { type Action, displayLook, KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
-import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, cloudReviewLook, filesLook, stoppedLook } from './cards.ts';
+import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, cloudReviewLook, filesLook, stoppedLook, unseenLook } from './cards.ts';
 
 // ---------------------------------------------------------------- tracker boards (D-026)
 
@@ -188,6 +188,9 @@ export function accLook(row: TaskRow, full = false): Look {
   if (closed) return closed;
   const stopped = stoppedLook(row, full ? Infinity : CARD_SAID);
   if (stopped) return stopped;
+  // Its builder didn't start, or acc can't see it (T-92).
+  const unseen = unseenLook(row);
+  if (unseen) return unseen;
   if (row.agent && row.display === 'needs-you') return row.agent;
   // Its review runs in the cloud (T-86): reviewing, or needing you with why.
   const cloudReview = cloudReviewLook(row);
@@ -205,7 +208,7 @@ export function accLook(row: TaskRow, full = false): Look {
 }
 
 /** The steps a tracker's card offers for its task: start it, its analysis (D-052), or watch its agent. */
-const NEXT_STEPS = ['acc.task.dispatch', 'acc.task.dispatchAnyway', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude', 'acc.task.resume'];
+const NEXT_STEPS = ['acc.task.dispatchAgain', 'acc.task.dispatch', 'acc.task.dispatchAnyway', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show', 'acc.task.watch', 'acc.task.openInClaude', 'acc.task.resume'];
 
 /**
  * Whether a place narrows its board, and so is worth a line: labels, an epic, a group or an area, past the

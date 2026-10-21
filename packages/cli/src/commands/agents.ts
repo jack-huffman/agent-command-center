@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
@@ -189,6 +189,12 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
     out(o, () => `${t.id} stopped waiting. It stays to do, and nothing starts it on its own.`, t);
     return 0;
   }
+  // Dispatch again (T-92): a builder that didn't start, or one acc can't see, in one step.
+  if (o.again) {
+    if (o.cloud === true || o.foreground || o.model !== undefined || o.effort !== undefined) throw new AccError('usage', 'acc dispatch <id> --again starts it with the model, effort and place it had: give it none of --cloud, --foreground, --model or --effort.');
+    const r = followingCards(paths, config, () => dispatchAgain(paths, config, id.toUpperCase(), { ...deps, steps: steps() }, { actor, by, reason: typeof o.reason === 'string' ? o.reason : undefined }));
+    return dispatched(o, r, '');
+  }
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.\n`);
   const model = typeof o.model === 'string' ? o.model : undefined;
   const effort = typeof o.effort === 'string' ? o.effort as EffortPick : undefined;
@@ -207,6 +213,27 @@ function cmdDispatch(o: Opts, id: string | undefined): number {
       `  Start it now: acc dispatch ${r.task.id} --anyway`,
     ].filter(Boolean).join('\n'), r);
     return 0;
+  }
+  return dispatched(o, r, dropped);
+}
+
+/** What a dispatch that wasn't held did: it runs, or its builder didn't start (T-92), which needs a person. */
+function dispatched(o: Opts, r: DispatchOutcome, dropped: string): number {
+  if (r.held) {
+    steps().result(true, `${r.task.id} waits for others' files.`);
+    out(o, () => tone(`${r.task.id} waits for ${filesOf(r.waitsFor)}.`, 'blue'), r);
+    return 0;
+  }
+  if (r.notStarted) {
+    steps().result(false, `${r.notStarted.reason}.`);
+    out(o, () => [
+      tone(`! ${r.task.id} → ${stateLabel('needs-you')}. ${r.notStarted!.reason}.`, 'orange'),
+      dropped,
+      r.notStarted!.stopped ? `  Stopped its half-started background session ${r.notStarted!.stopped}.` : '',
+      `  The worktree is kept at ${r.worktree}.`,
+      `  Open a terminal and run claude agents, or restart Claude Code. Then ${DISPATCH_AGAIN.toLowerCase()}: acc dispatch ${r.task.id} --again`,
+    ].filter(Boolean).join('\n'), { ...r, message: `${r.task.id} needs you. ${r.notStarted.reason}. ${UNSEEN_WORDS.unanswered.wayOn} Then ${DISPATCH_AGAIN.toLowerCase()}.` });
+    return 1;
   }
   out(o, () => [
     `${r.task.id} → ${stateLabel('running')}`,
@@ -291,6 +318,10 @@ export const area: CommandArea = {
                                         picked before that it doesn't take
   acc dispatch --held                   Start the tasks that wait for others' files and may go now
   acc dispatch <id> --stop-waiting      It stops waiting, and stays to do
+  acc dispatch <id> --again [--reason "<why>"]
+                                        Dispatch again: a task whose builder didn't start, with the model,
+                                        effort and place it was dispatched with; or a running one acc can't
+                                        see, set back to do and dispatched, its session stopped. A person's
   acc done [<id>] --landed "<line>"... --moved "<line>"... --open "<line>"...
                                         A builder's finish line: moves its task to review, with a note for
                                         whoever comes next: what landed, which numbers moved (tests, checks,
@@ -329,6 +360,7 @@ export const area: CommandArea = {
     'without-analysis': { type: 'boolean', default: false },
     anyway: { type: 'boolean', default: false },
     held: { type: 'boolean', default: false },
+    again: { type: 'boolean', default: false },
     'stop-waiting': { type: 'boolean', default: false },
     model: { type: 'string' },
     effort: { type: 'string' },

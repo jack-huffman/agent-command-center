@@ -74,7 +74,7 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
     // A notice about the agent names it (D-087).
     if (t.stopped && !p.stopped && t.state === 'running') out.push({ kind: 'stopped', task: t.id, text: stoppedNotice(builderName(t), t.stopped.said), urgent: true, actions: [['Resume', 'acc.task.resume']] });
-    else if (t.display === 'needs-you' && p.display !== 'needs-you' && t.state === 'running' && !t.asking && !t.stopped && !t.autopilot) say('waiting', `${builderName(t)} is waiting for you in its own prompt.`, true);
+    else if (t.display === 'needs-you' && p.display !== 'needs-you' && t.state === 'running' && !t.asking && !t.stopped && !t.unseen && !t.autopilot) say('waiting', `${builderName(t)} is waiting for you in its own prompt.`, true);
     const passed = (r: TaskRow) => r.state === 'review' && r.review?.verdict === 'pass' && r.review.current && !r.pr;
     if (passed(t) && !passed(p)) say('passed', `The review passed ${t.id}. It's ready to land.`, false);
     const pr = t.pr;

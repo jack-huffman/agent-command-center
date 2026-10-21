@@ -29,6 +29,8 @@ if (args[0] === '--bg') {
   fs.writeFileSync(path.join(dir, 'sessions.json'), JSON.stringify(sessions));
   console.log('bg' + n);
 } else if (args[0] === 'agents') {
+  // Its background service down (T-92): its socket is gone, and it says so.
+  if (fs.existsSync(path.join(dir, 'down'))) { console.error('Error: connect ENOENT /tmp/cc-daemon-502/x/control.sock'); process.exit(1); }
   console.log(JSON.stringify(sessions));
 }
 `);

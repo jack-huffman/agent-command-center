@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, builderUnseen, DISPATCH_AGAIN, noteAnswer, quietMs, transcriptWrittenAt, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -174,7 +174,14 @@ function cmdShow(o: Opts, id: string): number {
   // Its place in the repo's merge queue, and what it waits on (GH-73).
   const place = queuePlaces(ledger, config).find((p) => p.id === t.id);
   // Whether its builder stopped before acc done or acc block (D-067): only a running task asks Claude Code.
-  const stopped = t.state === 'running' && builderStopped(t, listSessions(run, paths.root), { resuming: !!resuming(paths, t.id), now: now() });
+  const sessions = t.state === 'running' ? listSessions(run, paths.root) : null;
+  const resumed = t.state === 'running' && !!resuming(paths, t.id);
+  const stopped = t.state === 'running' && builderStopped(t, sessions, { resuming: resumed, now: now() });
+  // Or that acc can't see it: Claude Code hasn't answered since the last look that got none (T-92).
+  const local = t.state === 'running' && t.run?.where !== 'cloud';
+  const silentSince = local ? noteAnswer(paths, sessions !== null, now()) : null;
+  const written = local && silentSince !== null && t.run?.worktree ? transcriptWrittenAt(claudeProjectsDir(), { worktree: t.run.worktree, sessionId: t.run.sessionId, since: 0 }) : null;
+  const unseen = builderUnseen(t, { silentSince, now: now(), resuming: resumed, writtenAt: written, quietMs: quietMs(config) });
   const said = stopped && t.run?.sessionId ? lastSaid(claudeProjectsDir(), t.run.sessionId, [t.run.worktree, paths.root]) : null;
   const quote = said ? clipSaid(said, 600) : null;
   // A task to do: what it shares with work in flight, or that its files aren't known (D-093).
@@ -188,7 +195,7 @@ function cmdShow(o: Opts, id: string): number {
   // The wording check on its analysis's requirements (T-12): advice for a person, never a hold.
   const wording = readAnalysis(paths, t.id)?.wording ?? [];
   out(o, () => [
-    `${t.id}  ${stateLabel(displayState(ledger, t, { stopped, quiet: !!waiting }, config))}  ${t.title}`,
+    `${t.id}  ${stateLabel(displayState(ledger, t, { stopped, quiet: !!waiting, unseen: !!unseen }, config))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
     t.run?.name ? `Agent: ${t.run.name}${t.run.where ? ` · runs on ${BUILDER_PLACE_LOOK[t.run.where].label}` : ''}` : '',
     cloud ? `Cloud session: ${cloud.url}${t.state === 'running' ? ` (branch last moved ${cloud.lastPushAt}${cloud.finished ? ', finished' : ''})` : ''}` : '',
@@ -200,6 +207,8 @@ function cmdShow(o: Opts, id: string): number {
     place ? tone(`In the merge queue: ${place.ahead ? `${ordinal(place.place)} of ${place.of}, behind ${place.ahead}` : place.phase === 'held' ? `first of ${place.of}, waiting: ${phaseWords(place.phase, t.environment, place.why)}` : `first of ${place.of}: ${phaseWords(place.phase, t.environment).toLowerCase()}`}.`, 'blue') : '',
     card ? tone(`! Its card couldn't move on its GitHub Project: ${card}.`, 'orange') : '',
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
+    unseen ? tone(`! ${UNSEEN_WORDS[unseen].line}. ${UNSEEN_WORDS[unseen].wayOn}${unseen === 'quiet' ? ` acc dispatch ${t.id} --again` : ' In a terminal: claude agents'}`, 'orange') : '',
+    t.notStarted && t.state !== 'running' ? tone(`! ${t.notStarted.reason}. ${DISPATCH_AGAIN}: acc dispatch ${t.id} --again`, 'orange') : '',
     stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
     ...files.lines,
     ...(wording.length ? [tone(`! ${wordingWords(wording.length)} in its analysis's requirements. They're advice: they never hold a dispatch.`, 'orange'), ...wording.flatMap((f) => [`  ${wordingPlace(f)}: ${f.message}${wordingMatch(f) ? ` [${f.match}]` : ''}`, tone(`    ${f.text}`, 'dim')])] : []),
@@ -213,7 +222,7 @@ function cmdShow(o: Opts, id: string): number {
       ...t.history.map((h) => ({ at: h.at, line: `  ${h.at}  ${h.from ?? '–'} → ${h.to}  by ${h.by}${h.reason ? `: ${h.reason}` : ''}${h.override ? ' (override)' : ''}` })),
       ...(t.edits ?? []).map((e) => ({ at: e.at, line: `  ${e.at}  edited its ${editedWords(e.fields)}  by ${e.by}` })),
     ].sort((a, b) => a.at.localeCompare(b.at)).map((x) => x.line),
-  ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null, files: files.data, cloudWait: waiting, wording });
+  ].filter(Boolean).join('\n'), { ...t, stopped: stopped ? { said } : null, unseen, files: files.data, cloudWait: waiting, wording });
   return 0;
 }
 
