@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Config, environmentByBranch } from './config.ts';
+import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, noteMarkdown, readLedger, type Task } from './ledger.ts';
 import { alive } from './lock.ts';
@@ -209,6 +209,8 @@ export interface ReviewInput {
   rules: string | null;
   /** The kinds of finding earlier reviews named, to reuse (GH-102). */
   kinds?: string[];
+  /** A reviewer in a cloud session (T-86) reads the diff itself, from the base commit to the head: the prompt says how, and carries none. */
+  cloud?: { base: string };
 }
 
 /**
@@ -307,19 +309,58 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     ...(i.kinds?.length ? ['## Kinds of finding earlier reviews named', '', ...i.kinds.map((k) => `- ${k}`), ''] : []),
     '## What changed',
     '',
-    '```',
-    i.stat.trim() || '(no files changed)',
-    '```',
-    '',
-    i.diff.length > DIFF_MAX
-      ? 'The diff is too long to include here. Read the changed files listed above.'
-      : ['```diff', i.diff.trim(), '```'].join('\n'),
+    // A cloud reviewer has the branch in its clone and no acc to hand it the diff (T-86): it reads the diff itself.
+    ...(i.cloud ? [
+      `The base commit is ${i.cloud.base} and the commit under review is ${i.sha}, both in your clone once you have fetched the branch. Read what changed with:`,
+      '',
+      '```',
+      `git diff --stat=120 --find-renames ${i.cloud.base} ${i.sha}`,
+      `git diff --no-color --find-renames ${i.cloud.base} ${i.sha}`,
+      '```',
+    ] : [
+      '```',
+      i.stat.trim() || '(no files changed)',
+      '```',
+      '',
+      i.diff.length > DIFF_MAX
+        ? 'The diff is too long to include here. Read the changed files listed above.'
+        : ['```diff', i.diff.trim(), '```'].join('\n'),
+    ]),
   ].join('\n');
   return { system, prompt };
 }
 
+/** What a reviewer answered, as the verdict keeps it. */
+export type Answered = Pick<Verdict, 'verdict' | 'summary' | 'client' | 'criteria' | 'findings'>;
+
+/**
+ * A reviewer's answer checked against VERDICT_SCHEMA's shape, as Claude Code checks the local reviewer's
+ * and as acc checks a cloud reviewer's review.json (T-86): a verdict of pass or changes and a summary, or
+ * it's refused with why; the lists keep what has the right shape. A pass with something that must be
+ * fixed isn't a pass.
+ */
+export function checkVerdict(s: unknown): Answered {
+  const a = s as Record<string, any> | null;
+  if (!a || typeof a !== 'object' || Array.isArray(a)) throw new AccError('review', 'The verdict isn\'t an object.');
+  if (a.verdict !== 'pass' && a.verdict !== 'changes') throw new AccError('review', `The verdict's "verdict" is ${JSON.stringify(a.verdict) ?? 'missing'}, not "pass" or "changes".`);
+  if (typeof a.summary !== 'string' || !a.summary.trim()) throw new AccError('review', 'The verdict has no "summary".');
+  if (a.criteria !== undefined && !Array.isArray(a.criteria)) throw new AccError('review', 'The verdict\'s "criteria" isn\'t a list.');
+  if (a.findings !== undefined && !Array.isArray(a.findings)) throw new AccError('review', 'The verdict\'s "findings" isn\'t a list.');
+  const criteria = (Array.isArray(a.criteria) ? a.criteria : []).filter((c: any) => typeof c?.text === 'string').map((c: any) => ({ text: c.text, met: c.met === true, evidence: String(c.evidence ?? '') }));
+  const findings = (Array.isArray(a.findings) ? a.findings : []).filter((f: any) => typeof f?.message === 'string').map((f: any): Finding => ({
+    message: f.message, must: f.must === true,
+    ...(typeof f.file === 'string' && f.file ? { file: f.file } : {}),
+    ...(Number.isInteger(f.line) ? { line: f.line } : {}),
+    ...(typeof f.rule === 'string' && f.rule ? { rule: f.rule } : {}),
+    ...(typeof f.kind === 'string' && f.kind.trim() ? { kind: f.kind.trim().slice(0, 80) } : {}),
+  }));
+  const verdict = a.verdict === 'pass' && findings.some((f: Finding) => f.must) ? 'changes' : a.verdict;
+  const client = typeof a.client === 'string' && a.client.trim() ? { client: a.client.trim() } : {};
+  return { verdict, summary: a.summary, ...client, criteria, findings };
+}
+
 /** The verdict from Claude Code's JSON result. Anything else is an error that says what came back. */
-export function parseReview(stdout: string): { verdict: Pick<Verdict, 'verdict' | 'summary' | 'client' | 'criteria' | 'findings'>; sessionId: string | null; costUsd: number | null } {
+export function parseReview(stdout: string): { verdict: Answered; sessionId: string | null; costUsd: number | null } {
   let r: Record<string, any>;
   try {
     r = JSON.parse(stdout.trim().split('\n').filter(Boolean).pop() ?? '');
@@ -330,18 +371,7 @@ export function parseReview(stdout: string): { verdict: Pick<Verdict, 'verdict' 
   if (r.is_error || !s || (s.verdict !== 'pass' && s.verdict !== 'changes') || typeof s.summary !== 'string') {
     throw new AccError('review', `The review didn't finish with a verdict (${r.subtype ?? 'no result'}): ${String(r.result ?? '').slice(0, 300)}`);
   }
-  const criteria = (Array.isArray(s.criteria) ? s.criteria : []).filter((c: any) => typeof c?.text === 'string').map((c: any) => ({ text: c.text, met: c.met === true, evidence: String(c.evidence ?? '') }));
-  const findings = (Array.isArray(s.findings) ? s.findings : []).filter((f: any) => typeof f?.message === 'string').map((f: any): Finding => ({
-    message: f.message, must: f.must === true,
-    ...(typeof f.file === 'string' && f.file ? { file: f.file } : {}),
-    ...(Number.isInteger(f.line) ? { line: f.line } : {}),
-    ...(typeof f.rule === 'string' && f.rule ? { rule: f.rule } : {}),
-    ...(typeof f.kind === 'string' && f.kind.trim() ? { kind: f.kind.trim().slice(0, 80) } : {}),
-  }));
-  // A pass with something that must be fixed isn't a pass.
-  const verdict = s.verdict === 'pass' && findings.some((f: Finding) => f.must) ? 'changes' : s.verdict;
-  const client = typeof s.client === 'string' && s.client.trim() ? { client: s.client.trim() } : {};
-  return { verdict: { verdict, summary: s.summary, ...client, criteria, findings }, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
+  return { verdict: checkVerdict(s), sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
 }
 
 export interface ReviewDeps {
@@ -369,8 +399,27 @@ function baseRef(run: Runner, root: string, branch: string): string {
   return git(run, root, 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`).code === 0 ? `origin/${branch}` : branch;
 }
 
-export function review(paths: RepoPaths, config: Config, id: string, deps: ReviewDeps, opts: { actor?: Actor; by?: string } = {}): ReviewResult {
-  const { run, now } = deps;
+/** What a review reads before it starts (T-86): the task, its commit, and the reviewer's prompt, shared by a local review and a cloud one. */
+export interface ReviewPrepared {
+  task: Task;
+  env: Environment;
+  branch: string;
+  worktree: string;
+  sha: string;
+  /** The ref the branch is compared with: the environment branch on GitHub, else the local one. */
+  base: string;
+  packet: string;
+  rules: string | null;
+  checks: string[];
+  kinds: string[];
+  name: string;
+}
+
+/**
+ * Reads what a review needs, refusing what review() always refused: a task not in review, a missing
+ * environment, branch or worktree, a branch not in this clone, and checks not settled on its commit.
+ */
+export function prepareReview(paths: RepoPaths, config: Config, id: string, run: Runner): ReviewPrepared {
   const ledger = readLedger(paths.ledger);
   const task = ledger.tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
@@ -385,19 +434,56 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   if (!sha) throw new AccError('review', `The branch ${branch} isn't in this clone.`);
   const missing = receiptHooks(paths, config, run).missingGates(task);
   if (missing.length) throw new AccError('refused', `${id}'s checks aren't settled on ${sha.slice(0, 7)}: ${missing.join(', ')}. Run acc gate run in its worktree, or waive them, then review.`);
-
   const base = baseRef(run, paths.root, env.branch);
-  const diff = git(run, paths.root, 'diff', '--no-color', '--find-renames', `${base}...${sha}`).stdout;
-  const stat = git(run, paths.root, 'diff', '--stat=120', '--find-renames', `${base}...${sha}`).stdout;
   const receipts = receiptsAt(paths, sha);
   const checks = Object.values(receipts).map(checkLine);
   const packetFile = join(paths.packets, `${id}.md`);
   const packet = existsSync(packetFile) ? readFileSync(packetFile, 'utf8') : [`# ${task.id}: ${task.title}`, '', task.brief, '', ...notesSection(task)].join('\n');
   const rules = rulesText(worktree, config.profile);
-  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet, diff, stat, checks, rules, kinds: knownKinds(paths) });
+  const name = sessionName({ project: config.project, key: id, title: task.title, role: 'review' });
+  return { task, env, branch, worktree, sha, base, packet, rules, checks, kinds: knownKinds(paths), name };
+}
+
+/**
+ * Keeps a verdict beside the receipts and moves the task as the verdict says (T-86 shares this with a
+ * cloud review): changes moves it to rework; a pass leaves it in review, ready to land, and clears what
+ * autopilot couldn't do before (D-055). A task moved meanwhile is left: the verdict still stands for its
+ * commit. A cloud review of the same commit is over once a verdict is kept.
+ */
+export function recordVerdict(paths: RepoPaths, config: Config, verdict: Verdict, now: () => Date, who: { actor: Actor; by: string }): 'rework' | null {
+  const file = reviewPath(paths, verdict.task, verdict.sha);
+  mkdirSync(paths.reviews, { recursive: true });
+  writeFileSync(`${file}.tmp`, JSON.stringify(verdict, null, 2) + '\n');
+  renameSync(`${file}.tmp`, file);
+  const { actor, by } = who;
+  const id = verdict.task;
+  return mutate(paths, now, (l, emit) => {
+    const t = l.tasks.find((x) => x.id === id)!;
+    if (t.cloudReview && t.cloudReview.sha === verdict.sha) t.cloudReview = null;
+    if (t.state !== 'review') return null; // someone moved it meanwhile; the verdict still stands for its commit
+    if (verdict.verdict === 'changes') {
+      const req = { to: 'rework' as const, actor, by, reason: `Review asked for changes: ${verdict.summary}` };
+      const problems = checkMove(l, config, t, req, noGateHooks);
+      if (problems.length) throw new AccError('move-refused', problems.join(' '));
+      applyMove(t, req, emit, now);
+      return 'rework' as const;
+    }
+    // Reviewed, by autopilot or by hand: whatever autopilot couldn't do before is behind it (D-055).
+    if (t.autopilot?.failed) t.autopilot.failed = null;
+    emit({ type: 'task.updated', task: id, actor, by, data: { reviewed: { sha: verdict.sha, verdict: verdict.verdict } } });
+    return null;
+  });
+}
+
+export function review(paths: RepoPaths, config: Config, id: string, deps: ReviewDeps, opts: { actor?: Actor; by?: string } = {}): ReviewResult {
+  const { run, now } = deps;
+  const r = prepareReview(paths, config, id, run);
+  const { task, env, sha, worktree, name } = r;
+  const diff = git(run, paths.root, 'diff', '--no-color', '--find-renames', `${r.base}...${sha}`).stdout;
+  const stat = git(run, paths.root, 'diff', '--stat=120', '--find-renames', `${r.base}...${sha}`).stdout;
+  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet: r.packet, diff, stat, checks: r.checks, rules: r.rules, kinds: r.kinds });
 
   const sessionId = (deps.uuid ?? randomUUID)();
-  const name = sessionName({ project: config.project, key: id, title: task.title, role: 'review' });
   mkdirSync(paths.reviews, { recursive: true });
   const marker = runningPath(paths, id);
   const startedAt = now();
@@ -426,26 +512,6 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
     v: 1, task: id, sha, env: env.branch, ...parsed.verdict, sessionId: parsed.sessionId ?? sessionId, name,
     at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: parsed.costUsd,
   };
-  const file = reviewPath(paths, id, sha);
-  writeFileSync(`${file}.tmp`, JSON.stringify(verdict, null, 2) + '\n');
-  renameSync(`${file}.tmp`, file);
-
-  const actor = opts.actor ?? 'reviewer';
-  const by = opts.by ?? `reviewer:${id}`;
-  const moved = mutate(paths, now, (l, emit) => {
-    const t = l.tasks.find((x) => x.id === id)!;
-    if (t.state !== 'review') return null; // someone moved it meanwhile; the verdict still stands for its commit
-    if (verdict.verdict === 'changes') {
-      const req = { to: 'rework' as const, actor, by, reason: `Review asked for changes: ${verdict.summary}` };
-      const problems = checkMove(l, config, t, req, noGateHooks);
-      if (problems.length) throw new AccError('move-refused', problems.join(' '));
-      applyMove(t, req, emit, now);
-      return 'rework' as const;
-    }
-    // Reviewed, by autopilot or by hand: whatever autopilot couldn't do before is behind it (D-055).
-    if (t.autopilot?.failed) t.autopilot.failed = null;
-    emit({ type: 'task.updated', task: id, actor, by, data: { reviewed: { sha, verdict: verdict.verdict } } });
-    return null;
-  });
+  const moved = recordVerdict(paths, config, verdict, now, { actor: opts.actor ?? 'reviewer', by: opts.by ?? `reviewer:${id}` });
   return { verdict, moved };
 }

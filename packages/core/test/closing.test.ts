@@ -67,7 +67,7 @@ test('a task merged to done has its issue closed as the repo\'s account, with a 
 
   // Once only: a later sync never asks about it again, even when a person reopened it.
   const later = github(issue('OPEN', { stateReason: 'REOPENED' }));
-  assert.deepEqual(sync(s.paths, s.config, { run: later.fake, now, env: {} }), { checked: 0, changes: [], cloud: [], branches: [] });
+  assert.deepEqual(sync(s.paths, s.config, { run: later.fake, now, env: {} }), { checked: 0, changes: [], cloud: [], reviews: [], branches: [] });
   assert.deepEqual(later.issueCalls(), [], 'a reopened issue isn\'t closed again by the same merge');
 });
 
@@ -134,7 +134,7 @@ test('a close that fails is named, stays pending, and the next sync tries again 
   assert.equal(fixed.calls.filter((c) => c.startsWith('gh issue close')).length, 1);
   t = task(s);
   assert.deepEqual(t.pr?.issue, { state: 'closed', at: AT });
-  assert.deepEqual(sync(s.paths, s.config, { run: fixed.fake, now, env: {} }), { checked: 0, changes: [], cloud: [], branches: [] }, 'settled: nothing left to follow');
+  assert.deepEqual(sync(s.paths, s.config, { run: fixed.fake, now, env: {} }), { checked: 0, changes: [], cloud: [], reviews: [], branches: [] }, 'settled: nothing left to follow');
 });
 
 test('a pending close waits while its task is back in rework: the issue stays open (D-082)', () => {
@@ -174,7 +174,7 @@ test('an issue that moved to another repo, or that GitHub can\'t find, is left a
     assert.ok(!gh.calls.some((c) => c.startsWith('gh issue close')), reason);
     assert.deepEqual(task(s).pr?.issue, { state: 'left', at: AT, reason });
     const later = github(issue('OPEN'));
-    assert.deepEqual(sync(s.paths, s.config, { run: later.fake, now, env: {} }), { checked: 0, changes: [], cloud: [], branches: [] }, reason);
+    assert.deepEqual(sync(s.paths, s.config, { run: later.fake, now, env: {} }), { checked: 0, changes: [], cloud: [], reviews: [], branches: [] }, reason);
     assert.deepEqual(later.issueCalls(), []);
   }
 });

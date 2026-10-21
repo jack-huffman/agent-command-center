@@ -8,6 +8,8 @@ import type { RepoPaths } from './paths.ts';
 import { discardUpdate, draftUpdate, listUpdates } from './updates.ts';
 import { type BranchMove, branchMoves, followBranches } from './branches.ts';
 import { type FollowChange, followCloud } from './cloud.ts';
+import { followCloudReviews, type ReviewFollow } from './cloud-review.ts';
+import { fetchBranches } from './fetch.ts';
 
 /**
  * Keeps tasks in step with their pull requests (D-033): merged is done, closed without merging is
@@ -66,17 +68,8 @@ export function failingOf(rollup: GhPr['statusCheckRollup']): string[] {
   return [...new Set(failed.map((c) => c.name || c.context || c.workflowName || '').filter(Boolean))];
 }
 
-/** How long a fetch may take before acc stops it. */
-export const FETCH_TIMEOUT_MS = 2 * 60_000;
-
-/**
- * Brings the branches' latest commits from origin into its remote-tracking refs. Never a local branch,
- * a checkout or the working tree. False when it couldn't: offline, or a branch gone.
- */
-export function fetchBranches(run: Runner, root: string, branches: string[], env: NodeJS.ProcessEnv): boolean {
-  const refs = [...new Set(branches)].map((b) => `+refs/heads/${b}:refs/remotes/origin/${b}`);
-  return run('git', ['fetch', '--quiet', '--no-tags', 'origin', ...refs], { cwd: root, env, timeoutMs: FETCH_TIMEOUT_MS }).code === 0;
-}
+// The fetch itself lives in fetch.ts (T-86), a leaf the modules that follow GitHub share; it's exported from here as it always was.
+export { FETCH_TIMEOUT_MS, fetchBranches } from './fetch.ts';
 
 /**
  * The files a pull request conflicts in with its base: git merges origin's two branches in memory and
@@ -95,6 +88,8 @@ export interface SyncResult {
   changes: SyncChange[];
   /** Each cloud builder's branch followed on GitHub (GH-69): pushed, collected, blocked, or nothing new. */
   cloud: FollowChange[];
+  /** Each cloud review's verdict branch looked for on GitHub (T-86): taken, stale, bad, or nothing yet. */
+  reviews: ReviewFollow[];
   /**
    * Every environment branch move still waiting for a person (GH-69): one that moved by anything but acc's
    * own merges, found on this sync or an earlier one, until acc sync --branches-seen clears it.
@@ -108,12 +103,14 @@ export interface SyncResult {
  * before. The environment branches are read after the pull requests, so a merge sync has just recorded
  * explains the move it made.
  */
-function followGithub(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): Pick<SyncResult, 'cloud' | 'branches'> {
-  if (!config.github || !config.agents.cloud) return { cloud: [], branches: [] };
+function followGithub(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): Pick<SyncResult, 'cloud' | 'reviews' | 'branches'> {
+  if (!config.github || !config.agents.cloud) return { cloud: [], reviews: [], branches: [] };
   const ledger = readLedger(paths.ledger);
   const cloud = ledger.tasks.some((t) => t.state === 'running' && t.run?.where === 'cloud') ? followCloud(paths, config, deps) : [];
+  // A review under way in the cloud (T-86): its verdict branch, after the builders' branches.
+  const reviews = ledger.tasks.some((t) => t.state === 'review' && t.cloudReview && !t.cloudReview.failed) ? followCloudReviews(paths, config, deps) : [];
   followBranches(paths, config, ledger, deps);
-  return { cloud, branches: branchMoves(paths) };
+  return { cloud, reviews, branches: branchMoves(paths) };
 }
 
 export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now: () => Date; env: NodeJS.ProcessEnv }): SyncResult {

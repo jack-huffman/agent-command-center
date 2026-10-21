@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { branchMoves, clearBranchMoves, followBranches, knownMerges, moveUrl, moveWords, readBranches, squashOf, unexplained } from '../src/branches.ts';
 import { BLOCKED_TRAILER, CLOUD_TOKEN_ENV, cloudChecks, cloudNeeds, cloudOffered, cloudQuiet, cloudReason, cloudText, cloudWait, collect, DONE_TRAILER, fireRoutine, followCloud, parseFinish, readCloudToken, remoteHead, ROUTINE_BETA, writeCloudToken } from '../src/cloud.ts';
-import { GUARD_PATH, installGuard, RECORD_LINE } from '../src/cloud-guard.ts';
+import { GUARD_PATH, installGuard, RECORD_LINE, ROLE_LINE } from '../src/cloud-guard.ts';
 import { parseConfig } from '../src/config.ts';
 import { builderPlace, dispatch } from '../src/dispatch.ts';
 import { run } from '../src/exec.ts';
@@ -19,63 +19,7 @@ import { repoPaths } from '../src/paths.ts';
 import { branchProtection, environmentProtection, protectionWarnings } from '../src/protection.ts';
 import { sync } from '../src/sync.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
-
-const now = () => new Date('2026-10-09T12:00:00Z');
-const CLOUD = { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', default: 'local' as const, quietMinutes: 120, max: 3 };
-/** A generic project on GitHub that opted in, with no checks, so a collect needs none (GH-103 off). */
-const RAW = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'acme-bot' }, commitIdentity: { name: 'Acme Bot', email: 'bot@example.com' }, agents: { max: 2, cloud: CLOUD }, strayFiles: { required: false } };
-const cfg = (raw: Record<string, unknown> = RAW) => parseConfig(JSON.parse(JSON.stringify(raw))).config!;
-const FIRED = JSON.stringify({ type: 'routine_fire', claude_code_session_id: 'session_01TEST', claude_code_session_url: 'https://claude.ai/code/session_01TEST' });
-/** The commands a cloud dispatch runs besides git: claude's sign-in, the keychain, and curl's fire. */
-const CLOUD_FIXTURES = {
-  'claude auth status': ok(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', email: 'me@example.com' })),
-  'security find-generic-password': ok('tok_0123456789abcdefghij\n'),
-  curl: ok(`${FIRED}\n200`),
-};
-
-/**
- * A repo whose origin is a local bare repo, as a dispatch leaves it: the config committed, T-1 to do. A
- * second clone stands in for the cloud session, which pushes to origin.
- */
-function repoWithOrigin(raw: Record<string, unknown> = RAW, opts: { guard?: boolean } = {}) {
-  const origin = join(tempDir('origin-'), 'repo.git');
-  run('git', ['init', '-q', '--bare', origin]);
-  const root = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(raw, null, 2), '.gitignore': '.claude/worktrees/\n' }));
-  // The push guard, committed as acc cloud enable leaves it to commit (GH-69): the cloud loads it from the commit.
-  if (opts.guard !== false) {
-    installGuard(root);
-    gitIn(root, 'add', '-A');
-    gitIn(root, 'commit', '-q', '-m', 'the push guard');
-  }
-  gitIn(root, 'remote', 'add', 'origin', origin);
-  gitIn(root, 'push', '-q', '-u', 'origin', 'main');
-  gitIn(root, 'remote', 'set-head', 'origin', 'main');
-  const config = cfg(raw);
-  const paths = repoPaths(root, run);
-  mutate(paths, now, (l, emit) => upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-1' }, title: 'A thing', brief: 'Do it.' }], 'human', 'h', emit, now));
-  return { root, origin, config, paths };
-}
-
-/** The cloud session's clone: it checks the task branch out, commits, and pushes it, as the session does. */
-function cloudClone(origin: string, branch: string): string {
-  const dir = tempDir('cloud-');
-  run('git', ['clone', '-q', origin, dir]);
-  gitIn(dir, 'config', 'user.name', 'Cloud');
-  gitIn(dir, 'config', 'user.email', 'cloud@example.com');
-  gitIn(dir, 'config', 'commit.gpgsign', 'false');
-  gitIn(dir, 'switch', '-q', branch);
-  return dir;
-}
-
-const commitAndPush = (dir: string, branch: string, file: string, message: string): string => {
-  writeFileSync(join(dir, file), `${message}\n`);
-  gitIn(dir, 'add', '-A');
-  gitIn(dir, 'commit', '-q', '-m', message);
-  gitIn(dir, 'push', '-q', 'origin', branch);
-  return gitIn(dir, 'rev-parse', 'HEAD');
-};
-
-const task = (paths: ReturnType<typeof repoPaths>, id = 'T-1'): Task => readLedger(paths.ledger).tasks.find((t) => t.id === id)!;
+import { cfg, CLOUD, CLOUD_FIXTURES, cloudClone, commitAndPush, FIRED, fired, now, RAW, repoWithOrigin, task } from './cloud-support.ts';
 
 // ---------------------------------------------------------------- off by default
 
@@ -98,7 +42,7 @@ test('off by default: a project with no agents.cloud offers no cloud, says why, 
 
 test('agents.cloud parses with its defaults, refuses bad values, and round-trips; a section that\'s there opts in even empty', () => {
   const c = cfg({ ...RAW, agents: { cloud: {} } });
-  assert.deepEqual(c.agents.cloud, { routine: null, default: 'local', quietMinutes: 120, max: 3 });
+  assert.deepEqual(c.agents.cloud, { routine: null, default: 'local', quietMinutes: 120, max: 3, review: 'local' as const });
   assert.deepEqual(cfg().agents.cloud, CLOUD);
   const errors = (cloud: unknown) => parseConfig({ ...RAW, agents: { cloud } }).errors;
   assert.match(errors({ routine: 'nope' }).join(' '), /agents\.cloud\.routine/);
@@ -189,6 +133,7 @@ test('the fire\'s text wraps the packet: the branch on GitHub, the checks by com
   const text = cloudText({ task: l.tasks[0]!, config: sf, env, branch: 'task/ACME-7-add-a-field', packet, checks });
   // The guard's record comes first, on its own line, exactly as the guard reads it.
   assert.equal(text.split('\n')[0], `${RECORD_LINE}: task/ACME-7-add-a-field`);
+  assert.equal(text.split('\n')[1], `${ROLE_LINE}: builder`, 'and its role beside it (T-86): the guard reads both');
   assert.ok(!text.includes('/Users/someone'));
   for (const must of [
     'routine-fire-payload is your task', '`git fetch origin task/ACME-7-add-a-field && git checkout task/ACME-7-add-a-field`', 'acc isn\'t installed here',
@@ -334,17 +279,6 @@ test('what GitHub enforces on a branch, through gh api: protection, a ruleset, n
 });
 
 // ---------------------------------------------------------------- following by branch, and collecting
-
-/** A cloud dispatch of T-1, done, with the clone that stands in for its session. */
-function fired(raw: Record<string, unknown> = RAW) {
-  const repo = repoWithOrigin(raw);
-  const r = fakeRunner(CLOUD_FIXTURES);
-  const deps = { run: r, now, accBinDir: '/acc/bin', env: { ...process.env, PATH: '/usr/bin' } as NodeJS.ProcessEnv, awake: { platform: 'darwin' as const, spawn: () => ({ pid: 4_100_002, unref: () => undefined }), kill: () => undefined } };
-  const out = dispatch(repo.paths, repo.config, 'T-1', deps, { actor: 'human', by: 'h', where: 'cloud' });
-  assert.equal(out.held, false);
-  const branch = task(repo.paths).run!.branch!;
-  return { ...repo, branch, clone: cloudClone(repo.origin, branch), follow: { run: r, now, env: deps.env } };
-}
 
 test('acc follows a cloud builder through its branch: a push is noted, no push for the set time needs you, an Acc-Done head is collected into the worktree and the task goes to review with the note', () => {
   const { paths, config, branch, clone, follow } = fired();
@@ -594,5 +528,5 @@ test('sync follows a running cloud builder\'s branch too, and a project with no 
   const plain = cfg(GENERIC_CONFIG);
   const local = repoPaths(realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) })), run);
   mkdirSync(local.stateDir, { recursive: true });
-  assert.deepEqual(sync(local, plain, { run: r, now, env: process.env }), { checked: 0, changes: [], cloud: [], branches: [] });
+  assert.deepEqual(sync(local, plain, { run: r, now, env: process.env }), { checked: 0, changes: [], cloud: [], reviews: [], branches: [] });
 });

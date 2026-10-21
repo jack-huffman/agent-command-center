@@ -11,6 +11,7 @@ import { RECORD_LINE, ROLE_LINE, VERDICT_LINE } from '../src/cloud-guard.ts';
 import { cloudReviewQuiet, cloudReviewText, cloudReviewWait, followCloudReviews, reviewInCloud, reviewPlace, VERDICT_FILE, verdictBranch, verdictHeads } from '../src/cloud-review.ts';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
+import { FETCH_TIMEOUT_MS, fetchBranches } from '../src/fetch.ts';
 import { checkMove, cloudReviews, mutate, noGateHooks, readLedger, upsertTasks } from '../src/ledger.ts';
 import { checkVerdict, prepareReview, readVerdict, recordVerdict, reviewPath, VERDICT_SCHEMA } from '../src/review.ts';
 import { sync } from '../src/sync.ts';
@@ -263,6 +264,16 @@ test('a verdict for a commit that is no longer the branch\'s head is kept but mo
   assert.equal(recordVerdict(paths, config, kept, now, { actor: 'reviewer', by: 'reviewer:T-1' }), null);
   assert.equal(task(paths).cloudReview, null, 'a verdict kept here for the commit ends the cloud review');
   assert.ok(existsSync(reviewPath(paths, 'T-1', newer)));
+});
+
+test('the fetch the follows share (T-86 edge case): a branch on origin comes into its remote-tracking ref, a branch gone says false, and the timeout is a bound', () => {
+  const { paths, origin, branch, clone, follow } = fired();
+  const head = commitAndPush(clone, branch, 'f.txt', 'T-1: fetched');
+  assert.equal(fetchBranches(run, paths.root, [branch], follow.env), true);
+  assert.equal(gitIn(paths.root, 'rev-parse', `refs/remotes/origin/${branch}`), head);
+  assert.equal(fetchBranches(run, paths.root, ['task/T-9-nowhere'], follow.env), false, 'origin has no such branch');
+  assert.ok(FETCH_TIMEOUT_MS >= 60_000 && FETCH_TIMEOUT_MS <= 10 * 60_000, `${FETCH_TIMEOUT_MS}`);
+  assert.equal(gitIn(origin, 'rev-parse', branch), head);
 });
 
 test('a cloud review with no verdict after agents.cloud.quietMinutes needs you, with the reason and a review on this Mac as the way on; one that has answered, or a task not in review, waits on nobody', () => {

@@ -1,15 +1,45 @@
 // acc's Agents commands that take a task on from its build: analyze, analysis, review, land, autopilot
 // and sync.
 
-import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, clearBranchMoves, closesIssues, closeWords, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, readAnalysis, review, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, type BuilderPlace, clearBranchMoves, closesIssues, closeWords, cloudNeeds, cloudReason, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, readAnalysis, review, reviewInCloud, reviewPlace, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, steps, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
+
+/**
+ * Where this review runs (T-86): --cloud or --local, else the project's setting. The setting's cloud is
+ * read only where the cloud is ready: with a need unmet, a plain review stays on this Mac and says why,
+ * while an explicit --cloud is refused naming each need.
+ */
+function reviewWhere(o: Opts, config: Parameters<typeof cloudNeeds>[0] & Parameters<typeof reviewPlace>[0]): { where: BuilderPlace; fellBack: string | null } {
+  if (o.cloud === true && o.local === true) throw new AccError('usage', 'Give --cloud or --local, not both.');
+  const flag: BuilderPlace | undefined = o.cloud === true ? 'cloud' : o.local === true ? 'local' : undefined;
+  const where = reviewPlace(config, flag);
+  if (where !== 'cloud' || flag === 'cloud') return { where, fellBack: null };
+  const reason = cloudReason(cloudNeeds(config, run, process.env));
+  return reason ? { where: 'local', fellBack: reason } : { where: 'cloud', fellBack: null };
+}
+
+/** A review in a cloud session (T-86): the routine fired with the reviewer's prompt; acc sync reads the verdict. */
+function cmdReviewInCloud(o: Opts, id: string): number {
+  const { paths, config } = project(process.cwd());
+  const { actor, by } = actorFrom(o);
+  const r = followingCards(paths, config, () => reviewInCloud(paths, config, id, { run, now, env: process.env }, { actor, by }));
+  out(o, () => [
+    tone(`${id} is being reviewed in the cloud, at ${r.sha.slice(0, 7)}. Session ${r.sessionId}: ${r.url}`, 'blue'),
+    `  The reviewer reads the branch on GitHub and sends its verdict back on ${r.branch}. acc sync takes it from there, as a review on this Mac would, and deletes the branch.`,
+    `  No verdict after ${config.agents.cloud?.quietMinutes ?? 120} minutes shows the task as needing you: acc review ${id} --local reviews it here.`,
+  ].join('\n'), { task: r.task.id, sha: r.sha, where: 'cloud', sessionId: r.sessionId, url: r.url, branch: r.branch, reason: r.reason });
+  return 0;
+}
 
 function cmdReview(o: Opts, id: string): number {
   const { paths, config } = project(process.cwd());
   const { by } = actorFrom(o);
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
+  const place = reviewWhere(o, config);
+  if (place.where === 'cloud') return cmdReviewInCloud(o, id.toUpperCase());
+  if (place.fellBack) say(tone(`Reviews are set to the cloud, but ${place.fellBack}: reviewing ${id.toUpperCase()} on this Mac.`, 'orange'));
   const r = followingCards(paths, config, () => review(paths, config, id.toUpperCase(), {
     run, now, env: process.env,
     onStart: (session, sha, name) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}, named ${name}.`, 'dim')),
@@ -201,12 +231,14 @@ function cmdSync(o: Opts): number {
     return 0;
   }
   // --plan only looks, so it doesn't sync either: a sync writes the ledger, and may close an issue.
-  const r = closeDone && plan ? { checked: 0, changes: [], cloud: [], branches: [] } : followingCards(paths, config, () => sync(paths, config, { run, now, env: process.env }));
+  const r = closeDone && plan ? { checked: 0, changes: [], cloud: [], reviews: [], branches: [] } : followingCards(paths, config, () => sync(paths, config, { run, now, env: process.env }));
   const lines = [
     ...(r.checked ? [`Checked ${r.checked} open pull request${r.checked === 1 ? '' : 's'}.`] : []),
     ...r.changes.map((c) => `  ${c.task}: ${c.note}${c.moved ? ` → ${stateLabel(c.moved.to)}` : ''}${c.update ? `. Drafted an update for ${c.update.key} (${c.update.id})` : ''}`),
     // Each cloud builder's branch (GH-69), and each environment branch that moved by anything but acc's merges.
     ...r.cloud.filter((c) => c.outcome !== 'unchanged').map((c) => tone(`  ${c.task} (cloud): ${c.note}`, c.outcome === 'collect-failed' || c.outcome === 'unreachable' ? 'orange' : 'blue')),
+    // Each cloud review's verdict branch (T-86): taken, stale or bad; nothing is said while it waits.
+    ...r.reviews.filter((c) => c.outcome !== 'waiting').map((c) => tone(`  ${c.task} (cloud review): ${c.note}`, c.outcome === 'bad' || c.outcome === 'unreachable' ? 'orange' : 'blue')),
     // Every move still waiting for a person, each run, until acc sync --branches-seen (GH-69).
     ...r.branches.map((m) => tone(`! ${moveWords(m)}${config.github ? ` ${moveUrl(config.github.repo, m)}` : ''} Once you have: acc sync --branches-seen`, 'orange')),
   ];
@@ -237,8 +269,10 @@ export const area: CommandArea = {
                                         there now (the code, and on Salesforce the orgs), the approach, and questions
   acc analysis <id>                     What the task's analysis found
   acc analysis answer <id> <q> "<text>" Answer one of its questions; when the last is answered, it's ready to build
-  acc review <id>                       A read-only reviewer agent judges the task's latest commit:
-                                        pass, or changes (back to rework, with its findings)
+  acc review <id> [--cloud | --local]   A read-only reviewer agent judges the task's latest commit:
+                                        pass, or changes (back to rework, with its findings). --cloud reviews it
+                                        in a cloud session where the project opted in (agents.cloud.review says
+                                        where a plain review goes); acc sync takes the verdict from its branch
   acc land <id>                         Push a reviewed task's branch and open its pull request; it never merges it
   acc autopilot [--once | --every <seconds>]
                                         With "autonomy": "review", take each task's next step on its own: review it,
@@ -256,6 +290,8 @@ export const area: CommandArea = {
                                         them, under the same rule, listing each. --plan lists them, changing nothing`,
   },
   options: {
+    cloud: { type: 'boolean', default: false },
+    local: { type: 'boolean', default: false },
     once: { type: 'boolean', default: false },
     every: { type: 'string' },
     plan: { type: 'boolean', default: false },
@@ -277,7 +313,7 @@ export const area: CommandArea = {
       return cmdShowAnalysis(o, rest[0]);
     },
     review: (o, rest) => {
-      if (!rest[0]) throw new AccError('usage', 'acc review <id>');
+      if (!rest[0]) throw new AccError('usage', 'acc review <id> [--cloud | --local]');
       return cmdReview(o, rest[0]);
     },
     land: (o, rest) => {
