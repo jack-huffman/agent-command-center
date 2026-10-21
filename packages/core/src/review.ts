@@ -527,7 +527,9 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
     v: 1, task: id, sha, env: env.branch, ...parsed.verdict, sessionId: parsed.sessionId ?? sessionId, name,
     at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: parsed.costUsd,
   };
-  // The commit reviewed is the branch's head, as prepareReview read it: a cloud review of an older commit ends with this verdict.
-  const moved = recordVerdict(paths, config, verdict, now, { actor: opts.actor ?? 'reviewer', by: opts.by ?? `reviewer:${id}`, head: sha });
+  // The branch's head is read again here, not taken from prepareReview: the branch can move while the reviewer runs,
+  // and a cloud review fired on the new head must outlive this verdict for the older commit (T-88).
+  const head = git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${r.branch}`).stdout.trim();
+  const moved = recordVerdict(paths, config, verdict, now, { actor: opts.actor ?? 'reviewer', by: opts.by ?? `reviewer:${id}`, head });
   return { verdict, moved };
 }

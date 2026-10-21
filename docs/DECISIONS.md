@@ -8393,8 +8393,10 @@ stays the default; analysts stay on the Mac, since a Salesforce analysis needs t
 - **Note (T-88, 2026-10-21): a verdict ends only its own cloud review.** `recordVerdict` cleared
   `cloudReview` for any verdict it kept, so a verdict for an older commit ended a cloud review of the
   head. It clears it only when the verdict's commit is the cloud review's, or the task's head as the
-  caller read it (`who.head`: `review()` passes the commit it reviewed, the cloud follow the branch's
-  head). A verdict for an older commit is kept and ends nothing; tested in `cloud-review.test.ts`.
+  caller read it (`who.head`: `review()` reads the branch's head again once its reviewer is done, since
+  the branch can move while it runs, and the cloud follow passes the branch's head). A verdict for an
+  older commit is kept and ends nothing; tested in `cloud-review.test.ts`, and through `review()` with
+  the branch moved mid-review in `review.test.ts`.
 - **Note (T-88, 2026-10-21): no verdict branch left behind.** A cloud review ended by a move or by a
   local verdict left `acc/review/<task>-<sha>` on origin (the follow-up above). `acc sync` now lists
   origin's `acc/review/*` once (`verdictHeads` in `followGithub`, handed to `followCloudReviews`), and
