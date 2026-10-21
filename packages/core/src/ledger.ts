@@ -804,6 +804,8 @@ export interface SessionInfo {
   stopped?: boolean;
   /** Its cloud builder has pushed nothing for longer than the project allows (GH-69): it may be waiting, or gone. */
   quiet?: boolean;
+  /** `claude agents` hasn't answered for longer than the grace, so acc can't see its local builder (builderUnseen, T-92). */
+  unseen?: boolean;
 }
 
 /** A Claude Code session, as `claude agents --json` lists it. Background sessions have an id and a state. */
@@ -1072,8 +1074,8 @@ export function displayState(ledger: Ledger, task: Task, session?: SessionInfo, 
   // A step autopilot couldn't take waits on you, or on a new commit (D-055).
   if (autopilotFailure(task)) return 'needs-you';
   // Its builder stopped before acc done or acc block (D-067), or waits in its own prompt; or its cloud
-  // builder has pushed nothing for too long (GH-69).
-  if (task.state === 'running' && (session?.stopped || session?.quiet || session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
+  // builder has pushed nothing for too long (GH-69); or acc can't see its local builder (T-92).
+  if (task.state === 'running' && (session?.stopped || session?.quiet || session?.unseen || session?.state === 'blocked' || session?.status === 'waiting')) return 'needs-you';
   // An open pull request whose checks fail, that a person asked to change, or that conflicts with its
   // base, waits on you (D-033, D-049). Checks that fail on a commit autopilot already sent back don't:
   // its fix is on the way, and a second failure there is recorded as autopilot's (D-076). Nor does a

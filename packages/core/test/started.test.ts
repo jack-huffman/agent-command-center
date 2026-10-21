@@ -1,7 +1,7 @@
 // A builder that never started (T-92): the dispatch proves it started, or leaves the task at Needs you and
 // stops what half-started; "can't tell" is a state of its own; Dispatch again; and stale sessions don't count.
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { AGAIN_REASON, dispatchAgain } from '../src/again.ts';
@@ -14,7 +14,7 @@ import { repoPaths } from '../src/paths.ts';
 import { listSessions } from '../src/resume.ts';
 import { awaitStart, builderUnseen, DISPATCH_AGAIN, noteAnswer, NOT_STARTED, quietMs, SERVICE_DOWN, START_WAIT_MS, transcriptWrittenAt, UNSEEN_WORDS } from '../src/started.ts';
 import { transcriptDir } from '../src/transcript.ts';
-import { IGNORE, trustingHome } from './dispatch-support.ts';
+import { acc, fakeClaude, IGNORE, trustingHome } from './dispatch-support.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, launchedSessions, makeRepo, ok, tempDir } from './support.ts';
 
 /** A repo with T-1 to do, a stand-in claude whose `claude agents` answers as `agents` says, and a projects folder. */
@@ -220,4 +220,42 @@ test('sessionsOf: by name, only this run\'s session counts, not an old blocked o
   const undated = { id: 'bg-?', name, kind: 'background' };
   assert.deepEqual(sessionsOf({ id: 'T-1', run }, [old, fresh, undated]).map((s) => s.id), ['bg-new', 'bg-?']);
   assert.deepEqual(sessionsOf({ id: 'T-1', run: { ...run, startedAt: undefined as never } }, [old]).map((s) => s.id), ['bg-old'], 'a run with no start time can\'t be told apart');
+});
+
+// ---------------------------------------------------------------- acc show and acc dispatch --again
+
+test('acc show: no answer past the grace shows the Needs you line, an answer again clears it, and a builder that didn\'t start says Dispatch again (T-92)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const claude = fakeClaude();
+  // Claude Code's config folder holds its trust and its projects, where no conversation is saved for it.
+  const home = trustingHome(repo);
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: home, CLAUDE_CONFIG_DIR: home };
+  assert.equal(acc(repo, ['add', 'Write the changelog'], env).code, 0);
+  const d = acc(repo, ['dispatch', 'T-1'], env);
+  assert.equal(d.code, 0, d.err + d.out);
+  const paths = repoPaths(repo, run);
+  // It started ten minutes ago, and Claude Code went quiet five minutes ago.
+  mutate(paths, () => new Date(), (l, emit) => { l.tasks[0]!.run!.startedAt = new Date(Date.now() - 10 * 60_000).toISOString(); emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'human:test', data: {} }); });
+  writeFileSync(join(claude.dir, 'down'), '');
+  const first = acc(repo, ['show', 'T-1'], env);
+  assert.doesNotMatch(first.out, /can't see this builder/, 'the first look without an answer starts the clock');
+  writeFileSync(join(paths.stateDir, 'agents-silent.json'), JSON.stringify({ since: Date.now() - 5 * 60_000 }));
+  const blind = acc(repo, ['show', 'T-1'], env);
+  assert.match(blind.out, /T-1 {2}! Needs you/);
+  assert.match(blind.out, /Claude Code's background sessions aren't answering, so acc can't see this builder\. Open a terminal and run claude agents, or restart Claude Code\./);
+  assert.equal(acc(repo, ['show', 'T-1', '--json'], env).json().unseen, 'unanswered');
+  rmSync(join(claude.dir, 'down'));
+  const back = acc(repo, ['show', 'T-1'], env);
+  assert.doesNotMatch(back.out, /can't see this builder/, 'it answered again');
+  assert.match(back.out, /T-1 {2}.*Running/);
+  // A builder that didn't start: its line names the way on.
+  mutate(paths, () => new Date(), (l, emit) => { const t = l.tasks[0]!; t.state = 'todo'; t.notStarted = { at: new Date().toISOString(), by: 'human:test', reason: NOT_STARTED, where: 'local' }; emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'human:test', data: {} }); });
+  assert.match(acc(repo, ['show', 'T-1'], env).out, /! Its builder didn't start: Claude Code's background sessions aren't answering\. Dispatch again: acc dispatch T-1 --again/);
+});
+
+test('acc dispatch --again refuses a pick of its own and a task with nothing to dispatch again (T-92)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  assert.equal(acc(repo, ['add', 'Write the changelog']).code, 0);
+  assert.match(acc(repo, ['dispatch', 'T-1', '--again', '--model', 'claude-opus-5-5']).err, /--again starts it with the model, effort and place it had/);
+  assert.match(acc(repo, ['dispatch', 'T-1', '--again']).err, /dispatch it as usual/);
 });
