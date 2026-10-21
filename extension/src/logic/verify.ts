@@ -5,11 +5,11 @@
  * reads them back for the page. Nothing here posts or pushes. Like the rest of logic/, no `vscode` import,
  * so it can be tested with node:test.
  */
-import { dirname } from 'node:path';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { latestVerification, type PrChoice, readPrChoice, type Verification, verifying, verifyRefusal } from '../../../packages/core/src/verify.ts';
 import { accRefusal } from './connect.ts';
 import { inProcessWords } from './processes.ts';
+import { stateOf } from './shared.ts';
 
 type Result = { code: number; stdout: string; stderr: string };
 
@@ -31,7 +31,6 @@ export interface VerifyState {
   verifying: boolean;
 }
 
-const stateOf = (p: { ledgerPath: string }) => ({ stateDir: dirname(p.ledgerPath) });
 
 export class Verifications {
   private readonly host: VerifyHost;

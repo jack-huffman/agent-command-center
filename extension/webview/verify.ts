@@ -5,7 +5,7 @@
 
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { TicketVerify, VerifyButton } from '../src/model/verify.ts';
-import { button, el, icon, linkTo, status, when, work } from './dom.ts';
+import { button, el, icon, linkTo, peekKey, status, when, work } from './dom.ts';
 import { api, type PageArea, state } from './state.ts';
 
 type Ask = 'verify-run' | 'verify-clear';
@@ -13,10 +13,9 @@ type Ask = 'verify-run' | 'verify-clear';
 /** What's on its way, by project and task, and why the last one didn't go. */
 const asked = new Map<string, Ask>();
 const failed = new Map<string, string>();
-const keyOf = (project: string, task: string): string => `${project}#${task.toUpperCase()}`;
 
 function ask(m: TicketModel, v: TicketVerify, type: Ask, pr?: number): void {
-  const key = keyOf(m.project, v.task);
+  const key = peekKey(m.project, v.task);
   if (asked.has(key)) return;
   asked.set(key, type);
   failed.delete(key);
@@ -26,7 +25,7 @@ function ask(m: TicketModel, v: TicketVerify, type: Ask, pr?: number): void {
 
 /** A button of the section: off with why, or while another of its buttons is on its way. */
 function action(m: TicketModel, v: TicketVerify, b: VerifyButton, type: Ask, iconName: string, cls: string, pr?: number): HTMLButtonElement {
-  const busy = asked.get(keyOf(m.project, v.task));
+  const busy = asked.get(peekKey(m.project, v.task));
   const label = busy === type && !pr ? (type === 'verify-run' ? 'Verifying…' : 'Clearing…') : b.label;
   const x = button(label, busy === type && !pr ? 'loading~spin' : iconName, () => ask(m, v, type, pr), cls);
   const why = b.disabled ?? (busy ? 'Wait for the one on its way' : null);
@@ -53,7 +52,7 @@ const row = (look: TicketVerify['checks'][number]['look'], main: HTMLElement, su
 
 /** The section: its state, the pull request, the checks, criteria and findings, and its buttons. */
 export function renderVerify(m: TicketModel, v: TicketVerify): HTMLElement {
-  const key = keyOf(m.project, v.task);
+  const key = peekKey(m.project, v.task);
   const sec = el('section', `analysis verify tone-edge-${v.look.tone}`,
     el('div', 'an-head', el('h2', '', 'Verify the developer\'s work'), status(v.look), v.wording ? status(v.wording) : null, el('span', 'spacer'), v.at ? when(v.at) : null));
   sec.setAttribute('aria-label', `Verify the developer's work: ${v.look.label}`);
@@ -100,7 +99,7 @@ export function renderVerify(m: TicketModel, v: TicketVerify): HTMLElement {
 
 /** How a button went: done redraws with what acc did; a refusal shows why, to try again. */
 function done(msg: { action?: string; project?: string; task?: string; ok?: boolean; error?: string }): void {
-  const key = keyOf(msg.project ?? '', msg.task ?? '');
+  const key = peekKey(msg.project ?? '', msg.task ?? '');
   if (!asked.has(key)) return;
   asked.delete(key);
   if (msg.ok) failed.delete(key);

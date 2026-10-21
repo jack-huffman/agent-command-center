@@ -7,7 +7,7 @@
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { criteriaRefusal, criteriaSection, criteriaTicket, type CriteriaDraft, drafting, readCriteria } from '../../../packages/core/src/criteria.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import type { Ticket } from '../../../packages/core/src/trackers/types.ts';
@@ -15,6 +15,7 @@ import { withSheetCriteria } from '../model/criteria.ts';
 import type { TaskSheet } from '../model/task-sheet.ts';
 import { accRefusal } from './connect.ts';
 import { inProcessWords } from './processes.ts';
+import { stateOf } from './shared.ts';
 
 type Result = { code: number; stdout: string; stderr: string };
 
@@ -31,7 +32,6 @@ export interface CriteriaHost {
 /** How a draft, or its update, went: done, or why not. A draft's reply holds the draft under its heading. */
 export type CriteriaReply = { ok: true; section?: string } | { ok: false; error: string };
 
-const stateOf = (p: { ledgerPath: string }) => ({ stateDir: dirname(p.ledgerPath) });
 
 export class CriteriaDrafts {
   private readonly host: CriteriaHost;

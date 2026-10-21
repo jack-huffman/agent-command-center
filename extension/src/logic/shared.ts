@@ -3,6 +3,7 @@
  * Everything in logic/ has no `vscode` import, so it can be tested with node:test.
  */
 
+import { dirname } from 'node:path';
 import type { Approach } from '../../../packages/core/src/analyze.ts';
 import type { BuilderPlace, Effort } from '../../../packages/core/src/config.ts';
 import { isObj } from '../../../packages/core/src/text.ts';
@@ -217,3 +218,6 @@ export function saidLine(said: string, max = 200): string {
   const one = said.replace(/\s+/g, ' ').trim();
   return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
 }
+
+/** Where acc keeps a project's state, from its ledger's path. */
+export const stateOf = (p: { ledgerPath: string }): { stateDir: string } => ({ stateDir: dirname(p.ledgerPath) });

@@ -11,6 +11,7 @@ import { tempDir } from '../../packages/core/test/temp-root.ts';
 import { OWN_WORK, type PrChoice, qaComment, type Verification, verificationPath, verificationsDir } from '../../packages/core/src/verify.ts';
 import { Verifications, type VerifyHost } from '../src/logic/verify.ts';
 import { PROCESSES } from '../src/logic/processes.ts';
+import { stateOf } from '../src/logic/shared.ts';
 import type { FromWebview } from '../src/model/messages.ts';
 import { modalTakes } from '../src/model/task-modal.ts';
 import { ticketModel } from '../src/model/task-page.ts';
@@ -240,4 +241,8 @@ test('the process words name each verify command, and the extension waits for th
   assert.ok(accTimeoutMs(['verify', 'ACME-7']) > 2 * 60 * 60_000);
   assert.equal(accTimeoutMs(['verify', 'clear', 'ACME-7']), accTimeoutMs(['set', 'ACME-7', 'todo']));
   assert.equal(accTimeoutMs(['verify', 'show', 'ACME-7']), accTimeoutMs(['set', 'ACME-7', 'todo']));
+});
+
+test('stateOf: the state directory is the one beside the ledger, for any project path', () => {
+  assert.deepEqual(stateOf({ ledgerPath: '/work/acme/.acc/ledger.json' }), { stateDir: '/work/acme/.acc' });
 });
