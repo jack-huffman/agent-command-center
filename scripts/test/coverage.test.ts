@@ -128,7 +128,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/sync.ts': ['conflictsOf'],
   'packages/core/src/template.ts': ['TEMPLATE_MAX_BYTES', 'TEMPLATE_AUTONOMY', 'overlayEnvironments', 'overlaySettings', 'templateTrackers', 'pickedTracker', 'trackerWords'],
   'packages/core/src/test-counts.ts': ['testsText'],
-  'packages/core/src/trackers/azure.ts': ['azureWhoAmI', 'azureProjects', 'azureTeams', 'azureBoards'],
+  'packages/core/src/trackers/azure.ts': ['azureProjects', 'azureTeams', 'azureBoards'],
   'packages/core/src/trackers/connect.ts': ['JIRA_TOKENS', 'AZURE_SCOPE'],
   'packages/core/src/trackers/doc.ts': ['emptyDoc'],
   'packages/core/src/trackers/github.ts': ['issueRepo', 'hasPlaceLabel', 'githubOutside', 'issueNumber', 'pickProject'],
