@@ -72,6 +72,11 @@ export function startHeld(paths: RepoPaths, config: Config, deps: DispatchDeps, 
     try {
       const r = dispatch(paths, config, id, deps, { actor: opts.actor, by: opts.by, fromHold: { shares: go.look.shares } });
       if (r.held) continue;
+      // Its builder didn't start (T-92): the task needs a person, as a failed start does.
+      if (r.notStarted) {
+        out.failed.push({ task: id, reason: r.notStarted.reason });
+        continue;
+      }
       out.started.push({ task: id, worktree: r.worktree, bgId: r.bgId, shares: r.shares, waitedFor });
     } catch (e) {
       const reason = (e as Error).message.trim().split('\n').slice(0, 3).join(' ').replace(/\s+/g, ' ');

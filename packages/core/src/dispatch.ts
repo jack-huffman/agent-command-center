@@ -10,7 +10,7 @@ import { fetchBranches } from './sync.ts';
 import { readList } from './gates.ts';
 import { sleep } from './lock.ts';
 import { AccError, type Runner } from './exec.ts';
-import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
+import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, type NotStarted, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
 import { type RepoPaths, samePath } from './paths.ts';
 import { analysisProblems, readAnalysis } from './analyze.ts';
 import { plannedFiles, startLook, waits } from './overlap.ts';
@@ -25,6 +25,8 @@ import { machineCapProblem, machineLoad } from './limits.ts';
 import { builderSettings, renderPacket } from './packet.ts';
 import { rulesText } from './rules.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
+import { awaitStart, NOT_STARTED, START_WAIT_MS, transcriptWrittenAt } from './started.ts';
+import { claudeProjectsDir } from './transcript.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -100,6 +102,10 @@ export interface DispatchDeps {
   findSessionMs?: number;
   /** For tests: how the Mac is kept awake while the builder runs (D-067). */
   awake?: AwakeDeps;
+  /** For tests: how long to wait for the builder to show it started (T-92). START_WAIT_MS by default. */
+  startWaitMs?: number;
+  /** For tests: Claude Code's projects folder, where the builder's conversation is saved. */
+  projectsDir?: string;
   /** Where its steps are reported (T-65). */
   steps?: Steps;
 }
@@ -122,6 +128,11 @@ export interface DispatchResult {
   cloud?: Fired;
   /** What a person should know but needn't act on now (GH-69): GitHub enforcing no protection on a branch the cloud builder could reach. */
   warnings?: string[];
+  /**
+   * Its builder never started (T-92): the task wasn't moved to Running, and needs a person. Why, and the
+   * half-started background session acc stopped, if one was listed.
+   */
+  notStarted?: { reason: string; stopped: string | null };
 }
 
 /** A dispatch that waits for other tasks' files instead of starting (D-093). Nothing was created or launched. */
@@ -254,6 +265,8 @@ export interface DispatchOptions {
   effort?: EffortPick;
   /** Where the builder runs (GH-69): --cloud or --local. Left out, the project's agents.cloud.default, else local. */
   where?: BuilderPlace;
+  /** Why it's dispatched, kept on its move in History: Dispatch again's reason (T-92). */
+  reason?: string;
 }
 
 /** Where a task's builder goes (GH-69): the flag, else the project's choice, else this Mac. No config, or none for agents, is this Mac too. */
@@ -402,7 +415,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
         ...(overrode ? { anyway: true } : {}),
         ...(opts.fromHold && hold ? { held: { at: hold.at, by: hold.by, waitedFor: hold.waitsFor.map((w) => w.task) } } : {}),
       };
-      applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename(wt)}` : null }, emit, now, data);
+      applyMove(task, { ...req, reason: opts.reason ?? (reused ? `re-dispatched in ${basename(wt)}` : null) }, emit, now, data);
       // The last run's note, or that it left none (D-106): the run it was is replaced here.
       const last = task.run ? { before: task.run.note ?? null } : {};
       const at = now().toISOString();
@@ -457,8 +470,21 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     steps.start('start', 'Start the builder');
     const launched = run('claude', ['--bg', ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 60_000 });
     if (launched.code !== 0) throw new AccError('dispatch', `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split('\n')[0]}. The worktree is kept at ${wt}.`);
-    const { bgId, sessionId, pid } = findSession(run, launchDir, name, deps.findSessionMs ?? 8_000, { since, places: [launchDir, wt] });
-    steps.done('start', bgId ? `Background session ${bgId}` : 'Its session wasn\'t found yet');
+    const places = { since, places: [launchDir, wt] };
+    const first = findSession(run, launchDir, name, deps.findSessionMs ?? 8_000, places);
+    // It proves it started (T-92): listed with a process, or its conversation written. Else Claude Code's
+    // background sessions aren't answering, and nothing works on the task.
+    const projectsDir = deps.projectsDir ?? claudeProjectsDir(deps.env);
+    const { bgId, sessionId, pid, started } = awaitStart(first, () => findSession(run, launchDir, name, 0, places),
+      () => transcriptWrittenAt(projectsDir, { worktree: wt, sessionId: first.sessionId, since }) !== null, deps.startWaitMs ?? START_WAIT_MS);
+    if (!started) {
+      steps.fail('start', `${NOT_STARTED}.`);
+      // A half-started session is stopped, so it never starts late beside the next dispatch.
+      const stopped = bgId && run('claude', ['stop', bgId], { cwd: wt, timeoutMs: 20_000 }).code === 0 ? bgId : null;
+      const task = notStartedOn(paths, now, id, opts, { where, model: picked ? model : undefined, effort: effortPicked && effort ? effort : undefined });
+      return { held: false, task, worktree: wt, branch, reused, packetPath, bgId: null, sessionId: null, name, shares, where, notStarted: { reason: NOT_STARTED, stopped }, ...effortDropped };
+    }
+    steps.done('start', bgId ? `Background session ${bgId}` : 'Its conversation was written');
     try {
       const task = record(bgId, sessionId);
       // acc exits now, so the Mac is kept awake for the background session's own process (D-067).
@@ -472,6 +498,19 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     if (claim) releaseHeld(paths, now, id, opts, null);
     throw e;
   }
+}
+
+/** Writes on the task that its builder didn't start (T-92), with what it was dispatched with: it needs a person. Its hold ends. */
+function notStartedOn(paths: RepoPaths, now: () => Date, id: string, opts: DispatchOptions, with_: Pick<NotStarted, 'where' | 'model' | 'effort'>): Task {
+  return mutate(paths, now, (ledger, emit) => {
+    const task = ledger.tasks.find((t) => t.id === id)!;
+    const at = now().toISOString();
+    task.notStarted = { at, by: opts.by, reason: NOT_STARTED, where: with_.where, ...(with_.model ? { model: with_.model } : {}), ...(with_.effort ? { effort: with_.effort } : {}) };
+    task.held = null;
+    task.updatedAt = at;
+    emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { notStarted: task.notStarted } });
+    return task;
+  });
 }
 
 // ---------------------------------------------------------------- cleanup (D-013)

@@ -11,7 +11,7 @@ import { run } from '../src/exec.ts';
 import { displayState, moveTask, mutate, noGateHooks, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { acc, fakeClaude, IGNORE, tasksOf, trustingHome } from './dispatch-support.ts';
-import { bad, fakeRunner, GENERIC_CONFIG, makeRepo, ok, writePlan } from './support.ts';
+import { bad, fakeRunner, GENERIC_CONFIG, launchedSessions, makeRepo, ok, writePlan } from './support.ts';
 
 // ---------------------------------------------------------------- conflict-aware dispatch (D-093)
 
@@ -31,7 +31,7 @@ function swarm(plans: Record<string, string[] | null>, o: { max?: number } = {})
   for (const [id, files] of Object.entries(plans)) if (files) writePlan(paths.analyses, id, files);
   const calls: string[] = [];
   let launch = ok('backgrounded');
-  const runner = fakeRunner({ 'claude --bg': () => launch, 'claude agents --json': ok('[]'), 'claude stop': ok() }, calls);
+  const runner = fakeRunner({ 'claude --bg': () => launch, 'claude agents --json': launchedSessions(calls), 'claude stop': ok() }, calls);
   // Each step a second apart, so the oldest hold is plain.
   let clock = Date.parse('2026-10-06T10:00:00.000Z');
   const now = () => new Date((clock += 1000));

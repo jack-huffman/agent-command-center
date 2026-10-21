@@ -13,6 +13,7 @@ import { type Actor, type ClaudeSession, DONE_COMMAND, mutate, readLedger, sessi
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { claudeProjectsDir, lastSaid, savedFolder } from './transcript.ts';
+import { SERVICE_DOWN } from './started.ts';
 
 /**
  * Resume (D-067): a running task whose builder stopped before acc done or acc block, as GH-41's did when
@@ -63,7 +64,8 @@ export function endResume(paths: Pick<RepoPaths, 'stateDir'>, id: string): boole
 /** Claude Code's sessions, or null when `claude agents` didn't answer: then nobody can tell what stopped. */
 export function listSessions(run: Runner, cwd: string): ClaudeSession[] | null {
   const r = run('claude', ['agents', '--json'], { cwd, timeoutMs: 20_000 });
-  if (r.code !== 0) return null;
+  // Its service's socket missing is no answer, whatever it printed (T-92).
+  if (r.code !== 0 || SERVICE_DOWN.test(r.stderr ?? '')) return null;
   try {
     const list = parseJsonOutput<unknown>(r.stdout);
     return Array.isArray(list) ? (list as ClaudeSession[]) : null;

@@ -171,6 +171,8 @@ export function realSteps(paths: RepoPaths, config: Config, deps: AutopilotDeps)
       const r = dispatch(paths, config, id, { run, now, env, accBinDir: deps.accBinDir, accCommand: deps.accCommand }, { actor: 'orchestrator', by: AUTOPILOT_BY, cause });
       // A rework is never held: its branch already holds its change (D-093).
       if (r.held) throw new AccError('start-waits', `${holdWords({ shares: r.waitsFor, first: r.first })}.`);
+      // Its builder didn't start (T-92): the step failed, and the task needs a person.
+      if (r.notStarted) throw new AccError('dispatch', `${r.notStarted.reason}.`);
       return { reason: `Re-dispatched${cause === 'checks' ? ' for its failing checks' : cause === 'queue' ? ' with what the merge queue found' : ''} in ${r.worktree}${r.bgId ? `, background session ${r.bgId}` : ''}.` };
     },
     // A conflict only: where auto-merge is on, the merge queue brings a pull request up to date at its turn (GH-73).

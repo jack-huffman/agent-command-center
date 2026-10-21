@@ -160,6 +160,8 @@ export function nextStep(ledger: Ledger, config: StepConfig, task: Task, facts: 
     }
     return step('land', `Its review passed on ${short(facts.head)}, and pull request #${pr.number} is behind it.`);
   }
+  // Its builder didn't start (T-92): Claude Code's background sessions may still be down, so a person dispatches it again.
+  if ((task.state === 'rework' || task.state === 'todo') && task.notStarted) return none('waiting', `${sentence(task.notStarted.reason)} It waits for a person.`);
   if (task.state === 'rework') {
     // Its own send-back, for failing checks (D-076) or from the merge queue (GH-73), is re-dispatched, whatever came before.
     const cause = reworkCause(task);

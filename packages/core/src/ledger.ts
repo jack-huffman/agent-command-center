@@ -165,6 +165,20 @@ export interface Hold {
   effort?: EffortPick;
 }
 
+/**
+ * A dispatch whose builder never started (T-92): when, by whom and why, and the model, effort and place it
+ * was dispatched with, which Dispatch again starts with. A model or effort only where it was picked for the
+ * task (D-086, D-128): otherwise the builder's own applies again.
+ */
+export interface NotStarted {
+  at: string;
+  by: string;
+  reason: string;
+  where: BuilderPlace;
+  model?: string;
+  effort?: EffortPick;
+}
+
 export interface PullRequest {
   number: number;
   url: string;
@@ -321,6 +335,8 @@ export interface Task {
   autopilot?: { failed: AutopilotFailure | null; sentBack?: SentBack | null; merged?: AutopilotMerge | null; queued?: Queued | null; carried?: CarriedReview | null };
   /** It waits for another task's files, since a person dispatched it (D-093). Any move ends it. */
   held?: Hold | null;
+  /** Its last dispatch's builder never started (T-92): it needs a person, who dispatches it again. Any move ends it. */
+  notStarted?: NotStarted | null;
   /** Where acc last moved its card on the GitHub Project, or why it couldn't (GH-146). */
   card?: CardMove | null;
   /** What a person wrote for its builder (T-74): acc keeps it, and intake never changes it. */
@@ -712,6 +728,8 @@ export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => D
   if (task.autopilot?.carried) task.autopilot.carried = null;
   // So was a wait for another task's files (D-093): a dispatch, a block or done ends it.
   if (task.held) task.held = null;
+  // So was a builder that didn't start (T-92): a dispatch, a block or a person's move ends it.
+  if (task.notStarted) task.notStarted = null;
   // So was a review in the cloud (T-86): it was of the commit the task had in review, and a move out of review
   // (to rework, to done, by a person) ends it; its verdict, if one comes, is stale. Left, the record would
   // refuse the next cloud review and keep the task at Needs you with no way out.
@@ -800,7 +818,15 @@ export interface ClaudeSession {
   state?: string;
   /** busy, waiting or idle, while it has a process. */
   status?: string;
+  /** When it started, in ms. */
+  startedAt?: number;
 }
+
+/**
+ * How long before its run was recorded a builder's session may have started: the dispatch launches it, waits
+ * for it to show it started (up to a minute, T-92), then records the run.
+ */
+export const RUN_SLACK_MS = 2 * 60_000;
 
 /**
  * The sessions that are a task's builder: its background session, and any carrying on its conversation,
@@ -814,7 +840,9 @@ export function sessionsOf<S extends ClaudeSession>(task: { id: string; run?: Ru
   if (run?.where === 'cloud') return [];
   if (run?.bgId || run?.sessionId) return sessions.filter((s) => (!!run.bgId && s.id === run.bgId) || (!!run.sessionId && s.sessionId === run.sessionId));
   const name = run?.name ?? task.id;
-  return sessions.filter((s) => s.kind === 'background' && s.name === name);
+  // Only this run's (T-92): `claude agents` keeps old background sessions of the same name for days.
+  const since = run?.startedAt ? Date.parse(run.startedAt) - RUN_SLACK_MS : null;
+  return sessions.filter((s) => s.kind === 'background' && s.name === name && (since === null || s.startedAt === undefined || s.startedAt >= since));
 }
 
 /** A run a task's builder had, as its dispatch recorded it in events.jsonl: the task keeps only its current one. */
@@ -1038,6 +1066,8 @@ export const inQueue = (task: Pick<Task, 'state' | 'autopilot' | 'environment'>,
 export function displayState(ledger: Ledger, task: Task, session?: SessionInfo, config?: QueueCover): DisplayState {
   // A held task whose start on its own failed waits on you (D-093).
   if (task.state === 'todo' && task.held?.failed) return 'needs-you';
+  // So does one whose builder didn't start (T-92).
+  if ((task.state === 'todo' || task.state === 'rework') && task.notStarted) return 'needs-you';
   if (task.state === 'todo' && isReady(ledger, task)) return 'ready';
   // A step autopilot couldn't take waits on you, or on a new commit (D-055).
   if (autopilotFailure(task)) return 'needs-you';

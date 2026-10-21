@@ -37,6 +37,13 @@ export function fakeRunner(fixtures: Record<string, RunResult | ((opts?: RunOpti
   };
 }
 
+/**
+ * `claude agents --json` listing a background session with a process for each builder `claude --bg` started,
+ * by the name it was given: a builder that started (T-92).
+ */
+export const launchedSessions = (calls: string[]) => (): RunResult => ok(JSON.stringify(calls.filter((c) => c.startsWith('claude --bg ')).map((c, i) => (
+  { id: `bg${i + 1}`, sessionId: `sess-${i + 1}`, name: / --name (.+?) --permission-mode /.exec(c)?.[1], kind: 'background', startedAt: Date.now(), state: 'working', status: 'busy', pid: 4_000_001 + i }))));
+
 /** A stand-in program on PATH: a shell script, and the env that finds it first. */
 export function fakeBin(name: string, script: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const bin = join(tempDir('fake-bin-'), 'bin');
