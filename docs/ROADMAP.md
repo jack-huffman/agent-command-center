@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-21**. Version 0.42.0 is
-the latest release (2026-10-20). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.43.0 is prepared and waits on a person
+Where each piece of the build stands, as of **2026-10-21**. Version 0.43.0 is
+the latest release (2026-10-21). 0.41.0 (2026-10-16) was the first with a
+`.sha256` beside its `.vsix`. Version 0.44.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -116,6 +116,12 @@ where each one's done-when is written out.
   2026-10-21. Evidence: D-176, D-177, D-179, D-182. Drafted acceptance
   criteria are done. Verifying a developer's pull request is done, for pull
   requests on GitHub. A view of developers' notes is not started.
+- **Tickets that look considered on every tracker**: done. Checked 2026-10-21.
+  Evidence: D-185, D-187. Every tracker fills the same fields, and Jira,
+  GitHub, Azure DevOps, monday.com and Slack tickets share one state chip,
+  tinted labels and avatars, one ticket page and richer cards.
+- **A builder that never started needs a person, never shows as running**:
+  done. Checked 2026-10-21. Evidence: D-186.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).

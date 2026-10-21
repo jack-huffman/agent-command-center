@@ -5,6 +5,28 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.44.0
+
+- Tickets look considered on every tracker (D-185, D-187). One soft state
+  chip, with an icon and a label, wherever a ticket's state shows. Labels and
+  avatars take stable tints, with no red or green in acc's own palette. The
+  ticket page leads with the title, then state, type and priority, then an
+  aligned Details list that leaves out what a tracker doesn't have. Related
+  items show their type and state. Board cards show type, priority and
+  people, and as many whole labels as fit, with the rest in +N. Cards respond
+  when pressed, and stay still when reduced motion is on.
+- Azure DevOps tickets carry what Azure DevOps has: names that read as names
+  (not an address split by a space), priority as a word with an icon, an
+  icon for each work item type, child and parent items with their state, and
+  your name after **Commenting as**. Every tracker's priority, type and related
+  items now come in one form, and GitHub's **Closed as not planned** keeps its
+  own look.
+- A builder that never started needs you instead of showing as running
+  (D-186). A dispatch waits for its builder to start. If it doesn't, the task
+  says why and offers **Dispatch again**, which never stops a builder acc can
+  still see. When Claude Code's background sessions stop answering, or
+  `claude` isn't found, acc says so.
+
 ## 0.43.0
 
 - Draft a ticket's acceptance criteria (D-179): a ticket's page and the task
