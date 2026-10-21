@@ -25,6 +25,8 @@ export const verdictBranch = (task: string, sha: string): string => `acc/review/
 const VERDICT_BRANCHES = 'refs/heads/acc/review/*';
 /** How long a push of the task branch, or a delete of a verdict branch, may take. */
 const PUSH_TIMEOUT_MS = 120_000;
+/** The most a review.json may weigh (T-86): a verdict is a page of JSON, and a larger file isn't read at all. */
+export const VERDICT_MAX_BYTES = 4 * 1024 * 1024;
 
 /** Where a review runs (T-86): the flag, else the project's setting, local unless it says cloud. */
 export function reviewPlace(config: { agents: { cloud: Pick<CloudAgents, 'review'> | null } }, flag?: BuilderPlace): BuilderPlace {
@@ -232,9 +234,22 @@ export function followCloudReviews(paths: RepoPaths, config: Config, deps: { run
       });
       out.push({ task: t.id, outcome: 'bad', moved: null, note: `${reason}${deleted()}` });
     };
+    // The file's size first (T-86): a verdict too large isn't read, and is said to be that, not missing.
+    const size = run('git', ['cat-file', '-s', `${head}:${VERDICT_FILE}`], { cwd: paths.root });
+    if (size.code !== 0) {
+      fail(`its cloud reviewer pushed ${c.branch} without ${VERDICT_FILE}: review it on this Mac`);
+      continue;
+    }
+    const bytes = Number(size.stdout.trim());
+    if (!Number.isFinite(bytes) || bytes > VERDICT_MAX_BYTES) {
+      fail(`its cloud reviewer's ${VERDICT_FILE} is ${Number.isFinite(bytes) ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : 'of a size git couldn\'t say'}, more than a verdict can be (${VERDICT_MAX_BYTES / 1024 / 1024} MB at most): review it on this Mac`);
+      continue;
+    }
     const shown = run('git', ['show', `${head}:${VERDICT_FILE}`], { cwd: paths.root });
     if (shown.code !== 0) {
-      fail(`its cloud reviewer pushed ${c.branch} without ${VERDICT_FILE}: review it on this Mac`);
+      // Read-fails after the size passed: more than git show could hand over (ENOBUFS), else what git said, and never that the file was missing.
+      const why = /ENOBUFS/.test(shown.stderr) ? 'too large to read' : (shown.stderr || shown.stdout).trim().split('\n')[0] || `git exited ${shown.code}`;
+      fail(`its cloud reviewer's ${VERDICT_FILE} couldn't be read from ${c.branch} (${why}): review it on this Mac`);
       continue;
     }
     let answered: ReturnType<typeof checkVerdict>;

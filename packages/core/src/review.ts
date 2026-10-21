@@ -334,10 +334,20 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
 export type Answered = Pick<Verdict, 'verdict' | 'summary' | 'client' | 'criteria' | 'findings'>;
 
 /**
+ * The most each part of a verdict may hold (T-86): a cloud reviewer's review.json is anyone's file, and
+ * the summary goes whole into the task's history and the rework's reason. Longer text is cut to the
+ * limit, with an ellipsis; longer lists keep their first entries.
+ */
+export const VERDICT_LIMITS = { summary: 2000, client: 2000, message: 2000, file: 400, rule: 200, kind: 80, text: 1000, evidence: 1000, criteria: 50, findings: 100 } as const;
+
+/** The text cut to a limit, ending in an ellipsis where it was cut. */
+const clip = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
+
+/**
  * A reviewer's answer checked against VERDICT_SCHEMA's shape, as Claude Code checks the local reviewer's
  * and as acc checks a cloud reviewer's review.json (T-86): a verdict of pass or changes and a summary, or
- * it's refused with why; the lists keep what has the right shape. A pass with something that must be
- * fixed isn't a pass.
+ * it's refused with why; the lists keep what has the right shape, and each text and list is cut to
+ * VERDICT_LIMITS. A pass with something that must be fixed isn't a pass.
  */
 export function checkVerdict(s: unknown): Answered {
   const a = s as Record<string, any> | null;
@@ -346,17 +356,19 @@ export function checkVerdict(s: unknown): Answered {
   if (typeof a.summary !== 'string' || !a.summary.trim()) throw new AccError('review', 'The verdict has no "summary".');
   if (a.criteria !== undefined && !Array.isArray(a.criteria)) throw new AccError('review', 'The verdict\'s "criteria" isn\'t a list.');
   if (a.findings !== undefined && !Array.isArray(a.findings)) throw new AccError('review', 'The verdict\'s "findings" isn\'t a list.');
-  const criteria = (Array.isArray(a.criteria) ? a.criteria : []).filter((c: any) => typeof c?.text === 'string').map((c: any) => ({ text: c.text, met: c.met === true, evidence: String(c.evidence ?? '') }));
-  const findings = (Array.isArray(a.findings) ? a.findings : []).filter((f: any) => typeof f?.message === 'string').map((f: any): Finding => ({
-    message: f.message, must: f.must === true,
-    ...(typeof f.file === 'string' && f.file ? { file: f.file } : {}),
+  const L = VERDICT_LIMITS;
+  const criteria = (Array.isArray(a.criteria) ? a.criteria : []).filter((c: any) => typeof c?.text === 'string').slice(0, L.criteria)
+    .map((c: any) => ({ text: clip(c.text, L.text), met: c.met === true, evidence: clip(String(c.evidence ?? ''), L.evidence) }));
+  const findings = (Array.isArray(a.findings) ? a.findings : []).filter((f: any) => typeof f?.message === 'string').slice(0, L.findings).map((f: any): Finding => ({
+    message: clip(f.message, L.message), must: f.must === true,
+    ...(typeof f.file === 'string' && f.file ? { file: clip(f.file, L.file) } : {}),
     ...(Number.isInteger(f.line) ? { line: f.line } : {}),
-    ...(typeof f.rule === 'string' && f.rule ? { rule: f.rule } : {}),
-    ...(typeof f.kind === 'string' && f.kind.trim() ? { kind: f.kind.trim().slice(0, 80) } : {}),
+    ...(typeof f.rule === 'string' && f.rule ? { rule: clip(f.rule, L.rule) } : {}),
+    ...(typeof f.kind === 'string' && f.kind.trim() ? { kind: clip(f.kind.trim(), L.kind) } : {}),
   }));
   const verdict = a.verdict === 'pass' && findings.some((f: Finding) => f.must) ? 'changes' : a.verdict;
-  const client = typeof a.client === 'string' && a.client.trim() ? { client: a.client.trim() } : {};
-  return { verdict, summary: a.summary, ...client, criteria, findings };
+  const client = typeof a.client === 'string' && a.client.trim() ? { client: clip(a.client.trim(), L.client) } : {};
+  return { verdict, summary: clip(a.summary, L.summary), ...client, criteria, findings };
 }
 
 /** The verdict from Claude Code's JSON result. Anything else is an error that says what came back. */
@@ -448,7 +460,8 @@ export function prepareReview(paths: RepoPaths, config: Config, id: string, run:
  * Keeps a verdict beside the receipts and moves the task as the verdict says (T-86 shares this with a
  * cloud review): changes moves it to rework; a pass leaves it in review, ready to land, and clears what
  * autopilot couldn't do before (D-055). A task moved meanwhile is left: the verdict still stands for its
- * commit. A cloud review of the same commit is over once a verdict is kept.
+ * commit. A cloud review is over once a verdict is kept for the task's head, whichever commit it was fired
+ * on: what it gives later is stale, and nothing waits on it.
  */
 export function recordVerdict(paths: RepoPaths, config: Config, verdict: Verdict, now: () => Date, who: { actor: Actor; by: string }): 'rework' | null {
   const file = reviewPath(paths, verdict.task, verdict.sha);
@@ -459,7 +472,9 @@ export function recordVerdict(paths: RepoPaths, config: Config, verdict: Verdict
   const id = verdict.task;
   return mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id)!;
-    if (t.cloudReview && t.cloudReview.sha === verdict.sha) t.cloudReview = null;
+    // A verdict for the head ends any cloud review, even one fired on an older commit (T-86): without this, a
+    // cloud session that never answers would keep the task at Needs you, and a review here couldn't clear it.
+    if (t.cloudReview) t.cloudReview = null;
     if (t.state !== 'review') return null; // someone moved it meanwhile; the verdict still stands for its commit
     if (verdict.verdict === 'changes') {
       const req = { to: 'rework' as const, actor, by, reason: `Review asked for changes: ${verdict.summary}` };

@@ -712,6 +712,10 @@ export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => D
   if (task.autopilot?.carried) task.autopilot.carried = null;
   // So was a wait for another task's files (D-093): a dispatch, a block or done ends it.
   if (task.held) task.held = null;
+  // So was a review in the cloud (T-86): it was of the commit the task had in review, and a move out of review
+  // (to rework, to done, by a person) ends it; its verdict, if one comes, is stale. Left, the record would
+  // refuse the next cloud review and keep the task at Needs you with no way out.
+  if (task.cloudReview) task.cloudReview = null;
   // The builder's note stays with the run it ended (D-106), and its event carries it too.
   const note: RunNote | null = noteGiven(req.note) && task.run && (req.to === 'review' || req.to === 'blocked')
     ? { landed: req.note.landed ?? [], moved: req.note.moved ?? [], open: req.note.open ?? [], at, by: req.by, ended: req.to }

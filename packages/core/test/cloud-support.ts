@@ -1,10 +1,11 @@
 // What the cloud tests share (T-86): a generic project on GitHub that opted in, the commands a cloud
 // dispatch runs besides git, a repo whose origin is a local bare repo standing in for GitHub, a second
-// clone standing in for the cloud session, and T-1 dispatched to the cloud. cloud.test.ts (builders) and
-// cloud-review.test.ts (reviewers) both build on these.
+// clone standing in for the cloud session, T-1 dispatched to the cloud, and T-1 collected into review.
+// cloud.test.ts (builders), cloud-review.test.ts (reviewers) and autopilot-cloud.test.ts build on these.
 import assert from 'node:assert/strict';
 import { realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DONE_TRAILER, followCloud } from '../src/cloud.ts';
 import { installGuard } from '../src/cloud-guard.ts';
 import { parseConfig } from '../src/config.ts';
 import { dispatch } from '../src/dispatch.ts';
@@ -79,5 +80,15 @@ export function fired(raw: Record<string, unknown> = RAW) {
   assert.equal(out.held, false);
   const branch = task(repo.paths).run!.branch!;
   return { ...repo, branch, clone: cloudClone(repo.origin, branch), follow: { run: r, now, env: deps.env } };
+}
+
+/** A cloud-built T-1, collected into review: the cloud session's clone pushed its finish, and acc took it. */
+export function reviewed(raw: Record<string, unknown> = RAW) {
+  const repo = fired(raw);
+  commitAndPush(repo.clone, repo.branch, 'a.txt', `T-1: the thing\n\n${DONE_TRAILER}: T-1\nAcc-Landed: a.txt\nAcc-Moved: none\nAcc-Open: none\n`);
+  const followed = followCloud(repo.paths, repo.config, repo.follow);
+  assert.equal(followed[0]?.outcome, 'collected', followed[0]?.note ?? 'nothing followed');
+  assert.equal(task(repo.paths).state, 'review');
+  return repo;
 }
 

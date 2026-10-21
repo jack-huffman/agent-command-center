@@ -1,32 +1,24 @@
 // Cloud reviewers (T-86): where a review runs, the fire's text, a review fired for a cloud-built task and for
 // a local one, acc reading the verdict branch on the fake GitHub (a bare origin) from a clone that stands in
 // for the reviewer's session, and what it does with a good verdict, a stale one, a bad one, a missing branch
-// and a verdict already kept here; a quiet review needs you; a cloud review counts against the cloud cap.
+// and a verdict already kept here; a quiet review needs you; a cloud review counts against the cloud cap;
+// a verdict's parts are capped and a file too large isn't read; a move out of review, or a verdict kept
+// here for the head, ends the cloud review.
 import assert from 'node:assert/strict';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { cloudGuard, DONE_TRAILER, followCloud } from '../src/cloud.ts';
+import { cloudGuard } from '../src/cloud.ts';
 import { RECORD_LINE, ROLE_LINE, VERDICT_LINE } from '../src/cloud-guard.ts';
-import { cloudReviewQuiet, cloudReviewText, cloudReviewWait, followCloudReviews, reviewInCloud, reviewPlace, VERDICT_FILE, verdictBranch, verdictHeads } from '../src/cloud-review.ts';
+import { cloudReviewQuiet, cloudReviewText, cloudReviewWait, followCloudReviews, reviewInCloud, reviewPlace, VERDICT_FILE, VERDICT_MAX_BYTES, verdictBranch, verdictHeads } from '../src/cloud-review.ts';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { FETCH_TIMEOUT_MS, fetchBranches } from '../src/fetch.ts';
-import { checkMove, cloudReviews, mutate, noGateHooks, readLedger, upsertTasks } from '../src/ledger.ts';
-import { checkVerdict, prepareReview, readVerdict, recordVerdict, reviewPath, VERDICT_SCHEMA } from '../src/review.ts';
+import { checkMove, cloudReviews, moveTask, mutate, noGateHooks, readLedger, upsertTasks } from '../src/ledger.ts';
+import { checkVerdict, prepareReview, readVerdict, recordVerdict, reviewPath, VERDICT_LIMITS, VERDICT_SCHEMA } from '../src/review.ts';
 import { sync } from '../src/sync.ts';
 import { bad, fakeRunner, gitIn, ok, tempDir } from './support.ts';
-import { cfg, CLOUD, CLOUD_FIXTURES, cloudClone, commitAndPush, fired, now, RAW, repoWithOrigin, task } from './cloud-support.ts';
-
-/** A cloud-built T-1, collected into review: the cloud session's clone pushed its finish, and acc took it. */
-function reviewed(raw: Record<string, unknown> = RAW) {
-  const repo = fired(raw);
-  commitAndPush(repo.clone, repo.branch, 'a.txt', `T-1: the thing\n\n${DONE_TRAILER}: T-1\nAcc-Landed: a.txt\nAcc-Moved: none\nAcc-Open: none\n`);
-  const followed = followCloud(repo.paths, repo.config, repo.follow);
-  assert.equal(followed[0]?.outcome, 'collected', followed[0]?.note ?? 'nothing followed');
-  assert.equal(task(repo.paths).state, 'review');
-  return repo;
-}
+import { cfg, CLOUD, CLOUD_FIXTURES, cloudClone, commitAndPush, fired, now, RAW, repoWithOrigin, reviewed, task } from './cloud-support.ts';
 
 /** The reviewer's clone pushes its verdict as the cloud reviewer does: review.json alone, on its own branch. */
 function pushVerdict(clone: string, branch: string, verdict: unknown, to: string): string {
@@ -299,4 +291,108 @@ test('the verdict check reads what the reviewer answered as Claude Code checks i
   for (const [bad, why] of [[null, /isn't an object/], ['x', /isn't an object/], [{ verdict: 'maybe', summary: 'x' }, /"verdict" is "maybe"/], [{ verdict: 'pass', summary: '  ' }, /no "summary"/], [{ verdict: 'pass', summary: 'x', criteria: 'none' }, /"criteria" isn't a list/], [{ verdict: 'pass', summary: 'x', findings: {} }, /"findings" isn't a list/]] as const) {
     assert.throws(() => checkVerdict(bad), why);
   }
+});
+
+test('edge case: a verdict\'s parts are capped (T-86): a 1 MB summary is cut to VERDICT_LIMITS.summary, and the rework reason with it; long lists keep their first entries; a review.json over VERDICT_MAX_BYTES isn\'t read, and is said to be too large, not missing', () => {
+  const big = 'x'.repeat(1024 * 1024);
+  const L = VERDICT_LIMITS;
+  const capped = checkVerdict({
+    verdict: 'changes', summary: big, client: big,
+    // The first entry of each list is long in every part; the rest only make the lists long.
+    criteria: Array.from({ length: L.criteria + 10 }, (_, i) => (i ? { text: `c${i}`, met: true, evidence: '' } : { text: big, met: true, evidence: big })),
+    findings: Array.from({ length: L.findings + 20 }, (_, i) => (i ? { message: `f${i}`, must: false } : { message: big, must: false, file: big, rule: big, kind: big })),
+  });
+  assert.equal(capped.summary.length, L.summary);
+  assert.ok(capped.summary.endsWith('…'), 'cut, and says so');
+  assert.equal(capped.client!.length, L.client);
+  assert.equal(capped.criteria.length, L.criteria);
+  assert.deepEqual([capped.criteria[0]!.text.length, capped.criteria[0]!.evidence.length], [L.text, L.evidence]);
+  assert.equal(capped.findings.length, L.findings);
+  const f = capped.findings[0]!;
+  assert.deepEqual([f.message.length, f.file!.length, f.rule!.length, f.kind!.length], [L.message, L.file, L.rule, L.kind]);
+  assert.equal(checkVerdict({ verdict: 'pass', summary: 'short', findings: [{ message: 'm', must: false, kind: 'k'.repeat(L.kind) }] }).findings[0]!.kind, 'k'.repeat(L.kind), 'at the limit: as it was');
+  for (const [k, n] of Object.entries(L)) assert.ok(n >= 50 && n <= 2000, `${k}: ${n}`);
+  // On the fake GitHub: a 1 MB summary comes back capped, moves the task, and the rework's reason fits.
+  const first = reviewed();
+  const deps = { run: fakeRunner(CLOUD_FIXTURES), now, env: first.follow.env };
+  const start = reviewInCloud(first.paths, first.config, 'T-1', deps, {});
+  pushVerdict(cloudClone(first.origin, first.branch), first.branch, { ...CHANGES, summary: big }, start.branch);
+  const taken = followCloudReviews(first.paths, first.config, deps);
+  assert.deepEqual(taken.map((c) => [c.outcome, c.moved]), [['taken', 'rework']]);
+  assert.ok(taken[0]!.note.length < L.summary + 200, `the note is bounded: ${taken[0]!.note.length}`);
+  const t = task(first.paths);
+  assert.equal(t.state, 'rework');
+  assert.ok(t.history.at(-1)!.reason!.length <= L.summary + 40, `the rework reason carries the capped summary: ${t.history.at(-1)!.reason!.length}`);
+  assert.equal(readVerdict(first.paths, 'T-1', start.sha)!.summary.length, L.summary);
+  // A review.json over the cap isn't read at all: the review fails saying it was too large, and the branch goes.
+  assert.ok(VERDICT_MAX_BYTES >= 2 * 1024 * 1024 && VERDICT_MAX_BYTES <= 16 * 1024 * 1024, `${VERDICT_MAX_BYTES}`);
+  const second = reviewed();
+  const deps2 = { run: fakeRunner(CLOUD_FIXTURES), now, env: second.follow.env };
+  const huge = reviewInCloud(second.paths, second.config, 'T-1', deps2, {});
+  pushVerdict(cloudClone(second.origin, second.branch), second.branch, JSON.stringify({ ...PASS, summary: 'x'.repeat(VERDICT_MAX_BYTES + 1024) }), huge.branch);
+  const refused = followCloudReviews(second.paths, second.config, deps2);
+  assert.deepEqual(refused.map((c) => [c.outcome, c.moved]), [['bad', null]]);
+  assert.match(refused[0]!.note, /its cloud reviewer's review\.json is 4\.0 MB, more than a verdict can be \(4 MB at most\): review it on this Mac/);
+  assert.ok(!/without review\.json/.test(refused[0]!.note), 'not said to be missing');
+  assert.match(task(second.paths).cloudReview?.failed?.reason ?? '', /more than a verdict can be/);
+  assert.equal(run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${huge.branch}`], { cwd: second.origin }).code, 1, 'the branch is deleted on origin');
+  // git show handing back more than it could (ENOBUFS), with the size under the cap: said to be too large to read, with git's words kept otherwise.
+  const third = reviewed();
+  const deps3 = { run: fakeRunner(CLOUD_FIXTURES), now, env: third.follow.env };
+  const fired3 = reviewInCloud(third.paths, third.config, 'T-1', deps3, {});
+  pushVerdict(cloudClone(third.origin, third.branch), third.branch, PASS, fired3.branch);
+  const overflow = followCloudReviews(third.paths, third.config, { ...deps3, run: fakeRunner({ ...CLOUD_FIXTURES, 'git show': bad('spawnSync git ENOBUFS') }) });
+  assert.deepEqual(overflow.map((c) => [c.outcome, c.moved]), [['bad', null]]);
+  assert.match(overflow[0]!.note, /review\.json couldn't be read from acc\/review\/T-1-[0-9a-f]+ \(too large to read\): review it on this Mac/);
+});
+
+test('edge case: a cloud review is cleared by a move out of review, and by a verdict kept here for the head (T-86): moved to rework and back with a new commit, a new cloud review is accepted; with the head moved on, a review on this Mac ends the old one, so the task isn\'t stuck at Needs you', () => {
+  const { paths, config, origin, branch, follow } = reviewed();
+  const deps = { run: fakeRunner(CLOUD_FIXTURES), now, env: follow.env };
+  const first = reviewInCloud(paths, config, 'T-1', deps, {});
+  assert.ok(task(paths).cloudReview, 'under way');
+  // A person moves it to rework: the record went with the state it was about, and nothing waits on it.
+  moveTask(paths, config, 'T-1', { to: 'rework', actor: 'human', by: 'h', reason: 'Not yet.' }, noGateHooks, now);
+  const moved = task(paths);
+  assert.equal(moved.state, 'rework');
+  assert.equal(moved.cloudReview, null, 'a move out of review ends the cloud review');
+  assert.equal(cloudReviewWait(moved, config, new Date('2026-10-10T12:00:00Z')), null);
+  assert.equal(cloudReviews(readLedger(paths.ledger), ''), 0, 'and it no longer counts against the cloud cap');
+  // The builder's new commit comes back to review, and a cloud review of it is accepted, not refused as under way already.
+  const wt = moved.run!.worktree!;
+  writeFileSync(join(wt, 'b.txt'), 'B\n');
+  gitIn(wt, 'add', '-A');
+  gitIn(wt, 'commit', '-q', '-m', 'T-1: B');
+  mutate(paths, now, (l, emit) => {
+    l.tasks[0]!.state = 'review';
+    emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'h', data: {} });
+  });
+  const second = reviewInCloud(paths, config, 'T-1', deps, {});
+  assert.notEqual(second.sha, first.sha);
+  assert.equal(task(paths).cloudReview?.sha, second.sha);
+  // The head moves on to C here while the cloud reads B, and the session never answers: quiet, it needs you.
+  writeFileSync(join(wt, 'c.txt'), 'C\n');
+  gitIn(wt, 'add', '-A');
+  gitIn(wt, 'commit', '-q', '-m', 'T-1: C');
+  const c = gitIn(wt, 'rev-parse', 'HEAD');
+  const late = new Date('2026-10-09T15:00:00Z');
+  assert.match(cloudReviewWait(task(paths), config, late) ?? '', /no verdict from its cloud reviewer/);
+  // The way on, a review on this Mac, is of C: its verdict ends the cloud review of B, though the commits differ.
+  const kept = { v: 1 as const, task: 'T-1', sha: c, env: 'main', ...checkVerdict(PASS), sessionId: 'local', at: now().toISOString(), durationMs: 1, costUsd: null };
+  assert.equal(recordVerdict(paths, config, kept, now, { actor: 'reviewer', by: 'reviewer:T-1' }), null);
+  assert.equal(task(paths).cloudReview, null, 'a verdict for the head ends a cloud review fired on an older commit');
+  assert.equal(cloudReviewWait(task(paths), config, late), null, 'nothing waits on it');
+  assert.equal(task(paths).state, 'review');
+  // Its verdict for B, coming later, is followed by nothing: no cloud review is on the task.
+  pushVerdict(cloudClone(origin, branch), branch, CHANGES, second.branch);
+  assert.deepEqual(followCloudReviews(paths, config, deps), []);
+  assert.equal(task(paths).state, 'review', 'and moves nothing');
+  // A failed cloud review is cleared by a move too: the person's way on needn't be a review.
+  mutate(paths, now, (l, emit) => {
+    l.tasks[0]!.cloudReview = { sessionId: 's', url: 'u', firedAt: now().toISOString(), sha: c, branch: verdictBranch('T-1', c), failed: { at: now().toISOString(), reason: 'not JSON' } };
+    emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'h', data: {} });
+  });
+  assert.equal(cloudReviewWait(task(paths), config, late), 'not JSON');
+  moveTask(paths, config, 'T-1', { to: 'rework', actor: 'human', by: 'h', reason: 'By hand.' }, noGateHooks, now);
+  assert.equal(task(paths).cloudReview, null, 'a move clears a failed cloud review');
 });
