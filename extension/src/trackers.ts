@@ -57,6 +57,8 @@ interface Loaded {
   me?: { id: string; name: string } | null;
   /** Where its sign-in is kept (GH-79): for every project on its host, or this one only. Null for GitHub, and when it has none. */
   signInScope: { shared: boolean; host: string } | null;
+  /** Why a Slack tracker's board is off, and how to turn it on (T-85): it names no reaction. Null when it has a board. */
+  off?: string | null;
 }
 
 /** Runs gh and friends with an argument list, feeding stdin when asked: comments travel that way, never as arguments. gh runs as acc's runner runs it (D-051). */
@@ -255,7 +257,7 @@ export class Trackers implements vscode.Disposable {
     const c = found?.cred ?? null;
     if (t.kind === 'slack') {
       if (!c || c.kind !== 'slack') throw new TrackerError('auth', `Sign in to Slack (${t.workspace}) for this repo to read its channel's threads.`);
-      return new SlackClient({ workspace: t.workspace!, channel: t.channel!, prefix: t.prefix ?? SLACK_PREFIX, token: c.token });
+      return new SlackClient({ workspace: t.workspace!, channel: t.channel!, prefix: t.prefix ?? SLACK_PREFIX, token: c.token, reaction: t.reaction, doneReaction: t.doneReaction });
     }
     if (t.kind === 'jira') {
       if (!c || c.kind !== 'jira') throw new TrackerError('auth', `Sign in to Jira (${t.site}) for this repo to see its board and tickets.`);
@@ -298,7 +300,7 @@ export class Trackers implements vscode.Disposable {
         return {
           // The last board's place, with its epic's name, until this load says otherwise: no flicker every refresh.
           index, kind: t.kind, title: this.title(t), place: prev[index]?.board?.place ?? this.place(t), left: prev[index]?.left ?? [], board: prev[index]?.board ?? null,
-          error: null, connect: null, loading: true, signedInAs: as?.who ?? null, signInScope: as?.scope ?? null, me: prev[index]?.me ?? null,
+          error: null, connect: null, loading: true, signedInAs: as?.who ?? null, signInScope: as?.scope ?? null, me: prev[index]?.me ?? null, off: null,
         };
       }));
       this.boards.set(p.root, states);
@@ -306,11 +308,17 @@ export class Trackers implements vscode.Disposable {
       await Promise.all(states.map(async (s) => {
         try {
           const client = await this.client(p, s.index);
-          // A Slack channel has no board (T-31): its box takes a thread's link, so its client's refusal isn't shown.
-          if (s.kind === 'slack') return;
+          // A Slack channel names its messages' reaction for a board (T-85). Without one, its client refuses with
+          // why and how to turn it on, which the box for a thread's link shows above itself, never as an error.
+          if (s.kind === 'slack' && !list[s.index]!.reaction) {
+            s.board = null;
+            s.off = await client.board().then(() => null, (e: Error) => inProcessWords(e.message));
+            return;
+          }
           s.board = await client.board();
           // Who Mine means (T-79). A tracker that can't say leaves Mine off, with its reason, rather than failing the board.
-          s.me = await Promise.resolve().then(() => client.me()).catch(() => null);
+          // A Slack board's cards are people's messages, and its client is the app, so Mine has nobody to mean there.
+          s.me = s.kind === 'slack' ? null : await Promise.resolve().then(() => client.me()).catch(() => null);
           s.place = s.board.place;
           s.error = null;
           await this.followPlace(p, s, client);

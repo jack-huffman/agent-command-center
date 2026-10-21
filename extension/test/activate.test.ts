@@ -401,11 +401,12 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     const setSlack = spawnSync(process.execPath, [accBin, 'trackers', 'set', '--file', slackFile, '--json'], { cwd: repo, encoding: 'utf8' });
     assert.equal(setSlack.status, 0, setSlack.stderr);
     type SlackBoard = {
-      index: number; title: string; error: string | null; connect: { command: string; label: string; arg: string } | null; signedInAs: string | null;
-      paste: { hint: string; error: string | null } | null;
+      index: number; kind: string; title: string; error: string | null; connect: { command: string; label: string; arg: string } | null; signedInAs: string | null;
+      paste: { hint: string; error: string | null } | null; off: string | null; source: string | null; moves: boolean;
+      columns: { id: string; cards: { key: string; title: string; people: { name: string }[]; acc: unknown; track: unknown }[] }[];
     };
     type WithBoards = { model?: { tasks: { projects: { root: string; boards: SlackBoard[] }[] } } };
-    const slackBoard = () => (tab.posted.filter((x) => (x as WithBoards).model).at(-1) as WithBoards).model!.tasks.projects[0]?.boards.find((b) => b.title === 'Slack · acme');
+    const slackBoard = () => (tab.posted.filter((x) => (x as WithBoards).model).at(-1) as WithBoards).model!.tasks.projects[0]?.boards.find((b) => b.kind === 'slack');
     await calls.commands.get('acc.settings.refresh')!();
     await until(() => !!slackBoard()?.error);
     assert.deepEqual([slackBoard()!.error, slackBoard()!.connect?.command, slackBoard()!.connect?.label], ['Sign in to Slack (acme) for this repo to read its channel\'s threads.', 'acc.trackers.signIn', 'Sign in to Slack']);
@@ -448,6 +449,50 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     tab.receive!({ type: 'track-link', project: slackRoot, tracker: slackBoard()!.index, link: 'https://acme.slack.com/archives/C0999WXYZ/p1696512345123456' });
     await until(() => !!slackBoard()?.paste?.error);
     assert.match(slackBoard()!.paste!.error!, /^That thread is in channel C0999WXYZ, not C0123ABCD\./);
+    // A Slack tracker that names no reaction (T-85): its board is off, saying why and how to turn it on, beside the box.
+    assert.match(slackBoard()!.off ?? '', /names no reaction\. Choose a reaction with Change/);
+    assert.deepEqual([slackBoard()!.error, slackBoard()!.columns], [null, []]);
+    // With a reaction, the channel's marked messages are its board, and Track on a card makes its task. Every
+    // method the stand-in Slack is asked is recorded, and none of them writes.
+    writeFileSync(slackFile, JSON.stringify({ kind: 'slack', workspace: 'acme', channel: 'C0123ABCD', reaction: 'ticket', doneReaction: 'white_check_mark' }));
+    const setReaction = spawnSync(process.execPath, [accBin, 'trackers', 'set', '--file', slackFile, '--json'], { cwd: repo, encoding: 'utf8' });
+    assert.equal(setReaction.status, 0, setReaction.stderr);
+    const slackAsked: string[] = [];
+    const marked = { ts: '1760000300.000300', user: 'U01', text: 'Export drops the last row\nSince Monday.', reactions: [{ name: 'ticket', count: 1 }] };
+    const boardApi = (async (url: string) => {
+      const u = new URL(url);
+      const m = u.pathname.replace('/api/', '');
+      slackAsked.push(m);
+      if (m === 'conversations.history') {
+        return Response.json({ ok: true, messages: [marked, { ts: '1760000200.000200', user: 'U02', text: 'Login is slow', reactions: [{ name: 'ticket' }, { name: 'white_check_mark' }] }, { ts: '1760000100.000100', user: 'U02', text: 'Lunch?' }] });
+      }
+      if (m === 'conversations.replies') return Response.json({ ok: true, messages: [marked] });
+      if (m === 'users.info') return Response.json({ ok: true, user: { id: u.searchParams.get('user'), profile: { display_name: u.searchParams.get('user') === 'U01' ? 'Jordan' : 'Sam' } } });
+      if (m === 'chat.getPermalink') return Response.json({ ok: true, permalink: `https://acme.slack.com/archives/C0123ABCD/p${u.searchParams.get('message_ts')!.replace('.', '')}` });
+      return slackApi(url);
+    }) as unknown as typeof fetch;
+    globalThis.fetch = boardApi;
+    try {
+      await calls.commands.get('acc.settings.refresh')!();
+      await calls.commands.get('acc.trackers.refresh')!();
+      await until(() => !!slackBoard()?.columns.length);
+      const b = slackBoard()!;
+      assert.deepEqual([b.source, b.off, b.moves, b.columns.map((c) => [c.id, c.cards.map((k) => [k.key, k.title, k.people.map((p) => p.name)])])], ['slack', null, false, [
+        ['open', [['SL-1760000300000300', 'Export drops the last row', ['Jordan']]]],
+        ['done', [['SL-1760000200000200', 'Login is slow', ['Sam']]]],
+      ]]);
+      assert.deepEqual([b.columns[0]!.cards[0]!.track, b.columns[1]!.cards[0]!.track], [{ busy: false, error: null }, null], 'Track on an open card; none in Done');
+      assert.ok(b.paste, 'the box for a thread\'s link stays above the board');
+      tab.receive!({ type: 'track', project: slackRoot, tracker: b.index, key: 'SL-1760000300000300' });
+      await until(() => !!slackBoard()?.columns[0]?.cards[0]?.acc);
+      assert.equal(slackBoard()!.columns[0]!.cards[0]!.track, null, 'a tracked message shows its task, not Track');
+      const ledger = JSON.parse(readFileSync(join(repo, '.git', 'acc', 'ledger.json'), 'utf8')) as { tasks: { id: string; title: string }[] };
+      assert.equal(ledger.tasks.find((t) => t.id === 'SL-1760000300000300')?.title, 'Export drops the last row');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    assert.ok(slackAsked.includes('conversations.history') && slackAsked.includes('conversations.replies'), slackAsked.join(', '));
+    assert.deepEqual(slackAsked.filter((m) => !['auth.test', 'bots.info', 'conversations.history', 'conversations.replies', 'users.info', 'chat.getPermalink'].includes(m)), [], 'the board and Track make no write call');
     assert.ok(!tab.posted.some((x) => JSON.stringify(x).includes(slackToken)), 'the token is never in the page model');
     assert.ok(!readFileSync(join(repo, '.acc', 'config.json'), 'utf8').includes('xoxb-'), 'nor in the project\'s settings');
 

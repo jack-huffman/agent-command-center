@@ -1,5 +1,7 @@
 /** Tracker boards (D-026): a Jira board and a monday.com board, with acc's tasks for some of their cards, and a Slack channel's box. */
 import { NO_PASTE, slackLinkKey } from '../../src/logic/slack-link.ts';
+import { NO_REACTION, SLACK_APPS, SLACK_CARD_MAX } from '../../../packages/core/src/trackers/slack.ts';
+import { clip } from '../../../packages/core/src/text.ts';
 import { placeText } from '../../../packages/core/src/trackers/types.ts';
 import type { BoardInput } from '../../src/model/boards.ts';
 
@@ -130,18 +132,47 @@ export function sampleGithubBoards(): BoardInput[] {
   }];
 }
 
+/** The ways a Slack tracker's Tasks tab is drawn (T-31, T-85). */
+export type SlackBoardSample = 'off' | 'refused' | 'board' | 'empty' | 'scope';
+
 /**
- * A Slack channel (T-31): no board, so a box takes a thread's link in its place, and says which channel
- * the thread must be in. Empty, or with a link to a thread in another channel, which Track refused.
+ * A Slack channel (T-31, T-85). `off`: it names no reaction, so its board is off, saying why, over the box for
+ * a thread's link. `refused`: the same, with a link Track refused. `board`: the messages marked :ticket:,
+ * Open and Done, one with a long first line, one on its way to acc. `empty`: a board no message is on yet.
+ * `scope`: the app lacks the scope to read the channel's history, which the board names.
  */
-export function sampleSlackBoards(refused = false): BoardInput[] {
+export function sampleSlackBoards(sample: SlackBoardSample = 'off'): BoardInput[] {
   const place = { workspace: 'acme', channel: 'C0123ABCD', prefix: null };
   const link = 'https://acme.slack.com/archives/C0999WXYZ/p1696512345123456';
   const read = slackLinkKey(link, place);
+  const open = { id: 'open', name: 'Open', category: 'todo' as const };
+  const done = { id: 'done', name: 'Done', category: 'done' as const };
+  const card = (ts: string, title: string, s: typeof open | typeof done, who: { id: string; name: string }, fullTitle?: string) => ({
+    key: `SL-${ts}`, title, url: `https://acme.slack.com/archives/C0123ABCD/p${ts}`, status: s, type: null, assignees: [who], labels: [], priority: null, ...(fullTitle ? { fullTitle } : {}),
+  });
+  const jordan = { id: 'U01', name: 'Jordan Kim' };
+  const sam = { id: 'U02', name: 'Sam Lee' };
+  const long = 'The invoice export drops the last row of every report since the Monday release, and the totals at the bottom no longer match the dashboard';
+  const columns = [{ id: 'open', name: 'Open', category: 'todo' as const, statusIds: ['open'] }, { id: 'done', name: 'Done', category: 'done' as const, statusIds: ['done'] }];
+  const board = sample === 'board' || sample === 'empty' ? {
+    source: 'slack', title: 'Messages marked :ticket:', url: 'https://acme.slack.com/archives/C0123ABCD', columns,
+    notice: sample === 'empty' ? 'No message from the last 30 days has the :ticket: reaction. Add it to a message in Slack, and it\'s on the board after a refresh.' : null,
+    cards: sample === 'empty' ? [] : [
+      card('1760000300000300', clip(long, SLACK_CARD_MAX), open, jordan, long),
+      card('1760000250000250', 'Login page takes ten seconds on the first visit', open, sam),
+      card('1760000220000220', 'Password reset email has the wrong logo', open, jordan),
+      card('1760000200000200', 'Export button missing for read-only users', done, sam),
+      card('1760000100000100', 'Typo on the pricing page', done, jordan),
+    ],
+  } : null;
   return [{
-    index: 0, kind: 'slack', title: 'Slack · acme', error: null, connect: null, loading: false, signedInAs: 'Acme Command Center',
-    signInScope: { shared: false, host: 'acme' }, place: 'Slack · acme · channel C0123ABCD', left: [], board: null,
-    paste: { ...place, ...(refused ? { link, busy: false, error: read.ok ? null : read.error, tracked: null } : NO_PASTE) },
+    index: 0, kind: 'slack', title: 'Slack · acme',
+    error: sample === 'scope' ? `The Slack app needs the channels:history scope for conversations.history. Add it on the app's OAuth & Permissions page at ${SLACK_APPS}, then install the app again.` : null,
+    connect: null, loading: false, signedInAs: 'Acme Command Center',
+    signInScope: { shared: false, host: 'acme' }, place: 'Slack · acme · channel C0123ABCD', left: [], board,
+    off: sample === 'off' || sample === 'refused' ? NO_REACTION : null,
+    tracking: sample === 'board' ? { 'SL-1760000250000250': { busy: true, error: null } } : {},
+    paste: { ...place, ...(sample === 'refused' ? { link, busy: false, error: read.ok ? null : read.error, tracked: null } : NO_PASTE) },
   }];
 }
 

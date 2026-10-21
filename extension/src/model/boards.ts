@@ -75,7 +75,7 @@ export interface BoardInput {
   index: number;
   kind: TrackerKind;
   title: string;
-  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; assignees: { id?: string; name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null }[] } | null;
+  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; assignees: { id?: string; name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null; fullTitle?: string }[] } | null;
   error: string | null;
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
@@ -93,11 +93,15 @@ export interface BoardInput {
   tracking?: Record<string, { busy: boolean; error: string | null }>;
   /** A Slack tracker's box for a thread's link (T-31): its channel, and its Track's state. */
   paste?: (SlackPlace & PasteState) | null;
+  /** Why a Slack tracker's board is off, and how to turn it on (T-85). */
+  off?: string | null;
 }
 
 export interface TrackerCard {
   key: string;
   title: string;
+  /** The whole title, for its hover title, where `title` is cut short (T-85). Null when it isn't. */
+  fullTitle: string | null;
   type: string | null;
   typeIcon: string;
   priority: string | null;
@@ -159,6 +163,13 @@ export interface TrackerBoard {
   movedOut: string | null;
   /** The hover title of its Change button: what Change does, then who it's signed in as when known (T-42). */
   changeTitle: string;
+  /**
+   * Whether a card moves between its columns, by a drag or the board's keys. A Slack board's columns are its
+   * messages' reactions, which acc doesn't change (T-85), so its cards stay put.
+   */
+  moves: boolean;
+  /** Why a Slack tracker's board is off, and how to turn it on (T-85), drawn above its box for a thread's link. Null otherwise. */
+  off: string | null;
   columns: TrackerColumn[];
   /**
    * A Slack tracker's box for a thread's link, in place of a board (T-31): which channel the thread must be
@@ -206,7 +217,7 @@ export function placeAdds(place: string, title: string): boolean {
 }
 
 /** What a tracker's board is called on the Tasks tab's switch, beside the Agent board: by its kind, never its title. */
-export const BOARD_WORD: Record<TrackerKind, string> = { github: 'GitHub board', jira: 'Jira board', azure: 'Azure DevOps board', monday: 'monday.com board', slack: 'Slack thread' };
+export const BOARD_WORD: Record<TrackerKind, string> = { github: 'GitHub board', jira: 'Jira board', azure: 'Azure DevOps board', monday: 'monday.com board', slack: 'Slack board' };
 
 /** Change's title: the sign-in moved here from its own row, "Signed in as jordan@acme.example, for every project on acme.atlassian.net." (T-42). */
 export function changeTitle(signIn: Look | null, signedInAs: string | null): string {
@@ -223,7 +234,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
       const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && NEXT_STEPS.includes(a.command)) ?? null : null;
       const tracking = b.tracking?.[card.key];
       return {
-        key: card.key, title: card.title, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
+        key: card.key, title: card.title, fullTitle: card.fullTitle ?? null, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
         labels: card.labels, assignees: card.assignees.map(chip), people: card.assignees.map(whoKey), status: card.status.name,
         acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next, conflicts: conflictLine(row), failedChecks: failedChecksLine(row) } : null,
         track: row || c.category === 'done' ? null : { busy: !!tracking?.busy, error: tracking?.error ?? null },
@@ -237,7 +248,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
     notice: b.board?.notice ? inProcessWords(b.board.notice) : null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null, me: b.me ? whoKey(b.me).key : null,
     signIn,
     place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], movedOut: movedOut(b.place ?? null, b.left ?? []), columns,
-    changeTitle: changeTitle(signIn, b.signedInAs ?? null),
+    changeTitle: changeTitle(signIn, b.signedInAs ?? null), moves: b.board?.source !== 'slack', off: b.off && !b.error ? inProcessWords(b.off) : null,
     paste: b.paste && !b.error ? { hint: pasteHint(b.paste), example: exampleLink(b.paste), link: b.paste.link, busy: b.paste.busy, error: b.paste.error ? inProcessWords(b.paste.error) : null, tracked: b.paste.tracked } : null,
   };
 }
