@@ -22,7 +22,9 @@
 //    script, parallel), a shell with -c, whose inner line is guarded the same way, or a script file; `git`
 //    followed by `push` or `send-pack` anywhere else in a command's words, or with a substitution's
 //    placeholder where the branch would be; an alias, git's or the shell's, and hash -p; --no-verify with
-//    any program; git clone and git init; core.hooksPath set by any means; a git config key off a short
+//    any program; a git option whose value is a program (--upload-pack, --exec and the rest, by any prefix
+//    git would take for it, T-88), a remote or URL of the `<transport>::` form (ext::, fd::), with bash's
+//    `$'…'` read as bash reads it; git clone and git init; core.hooksPath set by any means; a git config key off a short
 //    allow-list (user.name, user.email, commit.gpgsign and the like: core.editor, diff.external, filter.*,
 //    sequence.editor and gpg.program run code); a remote changed; gh off its allow-list (pr view|list|diff|checks, issue view,
 //    run view|list, api with GET, auth status); curl or wget writing to GitHub; a deploy. It also refuses
@@ -71,12 +73,41 @@ export const PRE_PUSH_RECORD = 'acc-task-branch';
 /** What a `$( )` or backtick pair leaves in the word it stood in: it names nothing the guard allows. */
 export const SUBSTITUTED = '$(...)';
 
+/** What a backslash escapes inside bash's $'…' (T-88): the characters it names, besides \nnn, \xHH, \uHHHH, \UHHHHHHHH and \cX. */
+const ANSI_C = { a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\\': '\\', "'": "'", '"': '"', '?': '?' };
+
+/**
+ * Reads bash's $'…' quoting from just after its opening quote (T-88), as bash does: each backslash escape
+ * decoded, so $'\x2d-upload-pack=sh' is --upload-pack=sh, the word git would see. `add` takes each
+ * character. Returns the index of the closing quote, or the line's end when it never closes. hooks.ts
+ * has the same, and the splitter test keeps the two the same.
+ */
+function ansiC(line, from, add) {
+  let i = from;
+  while (i < line.length && line[i] !== "'") {
+    const c = line[i];
+    if (c !== '\\' || i + 1 >= line.length) { add(c); i++; continue; }
+    const e = line[i + 1];
+    let m;
+    if (ANSI_C[e] !== undefined) { add(ANSI_C[e]); i += 2; }
+    else if ((m = /^[0-7]{1,3}/.exec(line.slice(i + 1, i + 4)))) { add(String.fromCharCode(parseInt(m[0], 8) & 0xff)); i += 1 + m[0].length; }
+    else if (e === 'x' && (m = /^[0-9a-fA-F]{1,2}/.exec(line.slice(i + 2, i + 4)))) { add(String.fromCharCode(parseInt(m[0], 16))); i += 2 + m[0].length; }
+    else if (e === 'u' && (m = /^[0-9a-fA-F]{1,4}/.exec(line.slice(i + 2, i + 6)))) { add(String.fromCodePoint(parseInt(m[0], 16))); i += 2 + m[0].length; }
+    else if (e === 'U' && (m = /^[0-9a-fA-F]{1,8}/.exec(line.slice(i + 2, i + 10)))) { add(String.fromCodePoint(Math.min(parseInt(m[0], 16), 0x10ffff))); i += 2 + m[0].length; }
+    else if (e === 'c' && i + 2 < line.length) { add(String.fromCharCode(line.charCodeAt(i + 2) & 0x1f)); i += 3; }
+    // A backslash before anything else stays, as bash keeps it.
+    else { add(c); i++; }
+  }
+  return i;
+}
+
 /**
  * A command line split into its commands, and each into words: quotes kept together, separators cut, a
  * `$( )` or backtick read as its own command even inside double quotes (only single quotes are literal), a
  * heredoc's body skipped. The command around a substitution stays whole, with SUBSTITUTED where the
  * substitution stood, so `git push origin "task/x$(echo :main)"` reads as a push of `task/x$(...)`, never
- * of `task/x`; the substitution's own commands come first. Nothing stripped. acc's hooks.ts commandsOf splits the same way, and a test keeps
+ * of `task/x`; the substitution's own commands come first. bash's `$'…'` is read as bash reads it, its
+ * escapes decoded (T-88). Nothing stripped. acc's hooks.ts commandsOf splits the same way, and a test keeps
  * the two the same.
  */
 export function rawCommandsOf(line) {
@@ -120,6 +151,9 @@ export function rawCommandsOf(line) {
       any = true;
       continue;
     }
+    // bash's $'…' (T-88): its escapes decoded into the word; $"…" is "…" for the shell's locale.
+    if (c === '$' && line[i + 1] === "'") { i = ansiC(line, i + 2, (ch) => { word += ch; }); any = true; continue; }
+    if (c === '$' && line[i + 1] === '"') { quote = '"'; any = true; i++; continue; }
     if (c === '"' || c === "'") { quote = c; any = true; continue; }
     if (c === '\\' && i + 1 < line.length) { word += line[++i]; any = true; continue; }
     if (c === '`') {
@@ -473,18 +507,51 @@ function isAlias(sub, ctx) {
 }
 
 /** The git options whose value is a program git would run, on any command: the guard can't see what it would do. */
-const RUNS_PROGRAM = /^(--upload-pack|--receive-pack|--exec|--extcmd|--tool|--open-files-in-pager|--ext-diff)(=|$)/;
+export const RUNS_PROGRAM = ['--upload-pack', '--receive-pack', '--exec', '--extcmd', '--tool', '--open-files-in-pager', '--ext-diff'];
+
+/**
+ * The program option a word is, by its full name, or null (T-88): git takes any unique prefix of a long
+ * option, so `--upl=sh` is `--upload-pack=sh` to git fetch, and every prefix is read as the option it
+ * shortens, with its value after = or in the next word.
+ */
+export function programOption(word) {
+  const m = /^--([^=]+)(=|$)/.exec(word);
+  if (!m) return null;
+  return RUNS_PROGRAM.find((o) => o.startsWith(`--${m[1]}`)) ?? null;
+}
+
+/**
+ * The git commands that take a remote or a URL, on which `<transport>::<address>` runs git-remote-<transport>
+ * (T-88): `ext::sh -c …` runs sh, and `fd::` reads from a descriptor. A remote's name or a URL git speaks
+ * itself has no `::`.
+ */
+const TAKES_REMOTE = new Set(['fetch', 'pull', 'push', 'ls-remote', 'archive', 'clone', 'remote', 'fetch-pack', 'submodule']);
+const TRANSPORT = /^([A-Za-z][A-Za-z0-9+.-]*)::/;
+
+/** Why this git command may not run for anyone (T-88): a remote or URL that names a transport helper, which is a program. */
+export function transportProblem(sub, rest) {
+  if (!TAKES_REMOTE.has(sub)) return null;
+  for (const a of rest) {
+    // The URL may be an option's value too: git archive --remote=ext::…
+    const v = a.replace(/^--[^=]+=/, '');
+    const m = TRANSPORT.exec(v);
+    if (m) return `git ${sub} ${m[1]}:: runs a program of its own (git-remote-${m[1]}, or what follows the ::), which the guard can't see: use origin, by name.`;
+  }
+  return null;
+}
 
 /**
  * Why this git command may not run for anyone (T-86): an option whose value is a program (--upload-pack,
- * --receive-pack, --exec, --extcmd, --tool, --open-files-in-pager, --ext-diff; grep's -O; rebase's -x;
- * difftool's and mergetool's -x and -t), git bisect run, or git submodule foreach. Each runs what it's
- * given, outside the guard's sight, and a push from there with --no-verify would skip the pre-push hook too.
+ * --receive-pack, --exec, --extcmd, --tool, --open-files-in-pager, --ext-diff, or any prefix git would take
+ * for one, T-88; grep's -O; rebase's -x; difftool's and mergetool's -x and -t), git bisect run, or git
+ * submodule foreach. Each runs what it's given, outside the guard's sight, and a push from there with
+ * --no-verify would skip the pre-push hook too.
  */
 export function programProblem(sub, rest) {
   const says = (what) => `git ${sub} ${what} runs a program of its own, which the guard can't see: run git without it, and the program plainly, as its own command.`;
   for (const a of rest) {
-    if (RUNS_PROGRAM.test(a)) return says(a.split('=')[0]);
+    const option = programOption(a);
+    if (option) return says(a.split('=')[0] === option ? option : `${a.split('=')[0]} (short for ${option})`);
     if (sub === 'grep' && /^-O/.test(a)) return says('-O');
     if (sub === 'rebase' && /^-[a-zA-Z]*x/.test(a)) return says('-x');
     if ((sub === 'difftool' || sub === 'mergetool') && /^-[a-zA-Z]*[xt]/.test(a)) return says(a.slice(0, 2));
@@ -518,6 +585,8 @@ export function gitProblem(args, record, ctx, wrapped, raw) {
   if (rest.includes('--no-verify') || (sub === 'commit' && rest.some((a) => /^-[a-zA-Z]*n[a-zA-Z]*$/.test(a)))) return 'Never skip the repo\'s git hooks (--no-verify): the clone\'s pre-push hook is the guard\'s last line. If a hook fails, fix what it found.';
   const program = programProblem(sub, rest);
   if (program) return program;
+  const transport = transportProblem(sub, rest);
+  if (transport) return transport;
   if (sub === 'clone' || sub === 'init') return `Work in this clone: a repo from git ${sub} has none of the guard's hooks, so nothing would check a push from it.`;
   if (sub === 'push') {
     const target = pushableOf(record, ctx);
