@@ -10,6 +10,7 @@ import { editRefusal, trackerFields, trackerOwns } from '../../../packages/core/
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { unkeptRefusal } from '../../../packages/core/src/trackers/doc.ts';
 import { textRefusal, type Ticket, type TrackerField, type TrackerKind, trackerName } from '../../../packages/core/src/trackers/types.ts';
+import type { SheetCriteria } from './criteria.ts';
 import { KEY, type ModelArea, short } from './shared.ts';
 import { SHEET_TICKET_FIELDS, type SheetRow, sheetRows, type TicketTextBase } from './ticket-text.ts';
 
@@ -55,6 +56,10 @@ export interface TaskSheet {
    * read-only, and Save writes only its title. Null where edits are off.
    */
   ticketEdits: { base: TicketTextBase | null; rows: SheetRow[]; unkept: string | null } | null;
+  /** Its drafting of acceptance criteria (T-81), where Save writes its description to the ticket. Not set: none. */
+  criteria?: SheetCriteria;
+  /** It opened with drafted acceptance criteria below the description's text (T-81). */
+  drafted?: boolean;
 }
 
 /** A tracker task's ticket as the sheet sees it (T-80): whether the project allows edits, and the ticket as read when the sheet opened, or why it couldn't be. */
@@ -187,13 +192,14 @@ export type SheetTicketRead = (root: string, key: string) => Promise<SheetTicket
  * posts to the page that asked, a task's tab or the modal; without it, `tell` shows it over the Command
  * Center, which opens first when it's closed. False when the project or task isn't there, or the task
  * can't be edited now. A tracker's task, given `read`, opens once its ticket is read (T-80); a read that
- * fails still opens it, read-only, saying why.
+ * fails still opens it, read-only, saying why. `dress` changes each sheet before it's posted.
  */
-export function openTaskSheet(hub: TaskSheetHub, tell: (msg: Record<string, unknown>) => void, root: string, id: string | null, say?: (msg: Record<string, unknown>) => void, read?: SheetTicketRead): boolean {
+export function openTaskSheet(hub: TaskSheetHub, tell: (msg: Record<string, unknown>) => void, root: string, id: string | null, say?: (msg: Record<string, unknown>) => void, read?: SheetTicketRead, dress?: (s: TaskSheet) => TaskSheet): boolean {
   const i = taskSheetInput(hub, root, id);
   const sheet = i ? taskSheet(i) : null;
   if (!i || !sheet) return false;
-  const post = (s: TaskSheet | null) => { if (s) (say ?? tell)({ type: TASK_SHEET_MESSAGE, sheet: s }); };
+  // dress adds what another area shows in it, such as drafted acceptance criteria (T-81).
+  const post = (s: TaskSheet | null) => { if (s) (say ?? tell)({ type: TASK_SHEET_MESSAGE, sheet: dress ? dress(s) : s }); };
   if (!read || !i.task || i.task.source.kind === 'manual') {
     post(sheet);
     return true;

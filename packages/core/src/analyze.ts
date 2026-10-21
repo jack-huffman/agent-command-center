@@ -134,10 +134,10 @@ export const ANALYSIS_SCHEMA = {
 } as const;
 
 /**
- * A task id as a file name under .git/acc/analyses. An id that could leave that folder, such as ../../X, is
- * refused before any path is built from it (GH-106).
+ * A task id as a file name under .git/acc/analyses, or .git/acc/criteria (T-81). An id that could leave
+ * that folder, such as ../../X, is refused before any path is built from it (GH-106).
  */
-function fileId(task: string): string {
+export function fileId(task: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(task) || task.includes('..')) throw new AccError('usage', `${task} isn't a task id.`);
   return task;
 }

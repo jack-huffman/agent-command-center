@@ -48,6 +48,8 @@ import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
 import { taskSheetOff } from '../src/model/task-sheet.ts';
+import { withSheetCriteria } from '../src/model/criteria.ts';
+import { sampleCriteria } from './fixtures/criteria.ts';
 import { dispatchChoiceArgs, dispatchSheet } from '../src/model/dispatch-sheet.ts';
 import { ROOT } from './fixtures/shared.ts';
 import { sampleLongHub } from './fixtures/landing.ts';
@@ -193,7 +195,14 @@ export interface BehaviourData {
      * reason, the ticket's text a colleague wrote meanwhile, and the rows after a Change of its status.
      */
     edits: { message: Record<string, unknown>; project: string; base: Record<string, unknown>; title: string; error: string; theirs: Record<string, unknown>; rows: { field: string; value: string }[] };
+    /**
+     * Drafted acceptance criteria (T-81): ACME-19's sheet with edits on and a stored draft, its description
+     * as it opened, the stored draft's section, a failed draft's reason, and a second draft's section.
+     */
+    criteria: { message: Record<string, unknown>; project: string; brief: string; section: string; error: string; again: string };
   };
+  /** A task page's drafted acceptance criteria (T-81): ACME-19's page with a draft, and a refused update's reason. */
+  criteria: { model: Model; project: string; error: string };
   /**
    * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
    * its state, name and time; each row's words in order; its command; how many of its paths are outside its
@@ -1433,6 +1442,55 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task sheet: drafted acceptance criteria go below the description, a failed draft says why, and nothing is saved until Save',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.taskSheet.criteria;
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.task-sheet');
+      const brief = () => t.all<HTMLTextAreaElement>('textarea.ts-box', dialog)[0]!;
+      const named = (label: string) => t.all<HTMLButtonElement>('button', dialog).find((b) => b.textContent?.trim() === label);
+      t.check('the description opens as its ticket has it', brief().value === d.brief, brief().value);
+      await t.click(named('Add the draft')!);
+      t.check('Add the draft puts the draft below the text, under its own heading', brief().value === `${d.brief}\n\n${d.section}`, brief().value);
+      t.check('it says nothing reaches the ticket until Save, and Add the draft goes', dialog.textContent!.includes('nothing reaches the ticket until you save') && !named('Add the draft'));
+      t.check('nothing was sent: the draft is in the box only', t.sent('task-sheet-go').length === 0 && t.sent('task-sheet-criteria').length === 0);
+      await t.click(named('Draft again')!);
+      t.check('Draft again asks the extension for a draft of this task', JSON.stringify(t.sent('task-sheet-criteria').at(-1)) === JSON.stringify({ type: 'task-sheet-criteria', project: d.project, task: 'ACME-19' }), t.sent('task-sheet-criteria'));
+      t.check('while it drafts, its button is off and says so', !!named('Drafting…')?.disabled);
+      // Edge: the draft failed. The sheet says why, keeps the text, and can draft again.
+      await t.post({ type: 'task-sheet-draft', project: d.project, task: 'ACME-19', ok: false, error: d.error });
+      t.check('a failed draft says why, and the text stays', dialog.textContent!.includes(d.error) && brief().value === `${d.brief}\n\n${d.section}`);
+      await t.click(named('Draft again')!);
+      await t.post({ type: 'task-sheet-draft', project: d.project, task: 'ACME-19', ok: true, section: d.again });
+      t.check('a new draft goes below what is written', brief().value === `${d.brief}\n\n${d.section}\n\n${d.again}`, brief().value);
+      t.check('a reply for another task changes nothing', await (async () => { await t.post({ type: 'task-sheet-draft', project: d.project, task: 'ACME-20', ok: true, section: 'x' }); return !brief().value.endsWith('x'); })());
+      await t.click(t.find('.ts-go', dialog));
+      const go = t.sent('task-sheet-go');
+      t.check('Save sends the description with the draft in it, once', go.length === 1 && go[0]!.brief === `${d.brief}\n\n${d.section}\n\n${d.again}`, go);
+    },
+  },
+  {
+    name: 'task page: a draft shows with Add to the description and Open as an update, each asks for its task, and a refusal says why',
+    page: 'ticket-review',
+    async run(t) {
+      const d = t.data.criteria;
+      await t.post({ type: 'state', model: d.model });
+      const sec = t.find('section.criteria');
+      const named = (label: string) => t.all<HTMLButtonElement>('button', sec).find((b) => b.textContent?.trim() === label);
+      t.check('the draft shows, with what it was drafted from', sec.textContent!.includes('A new contact gets the welcome email one time.') && sec.textContent!.includes('Drafted from the ticket, 2 comments and 1 related ticket.'), sec.textContent);
+      await t.click(named('Open as an update')!);
+      t.check('Open as an update asks for an update draft of this task', JSON.stringify(t.sent('criteria-update').at(-1)) === JSON.stringify({ type: 'criteria-update', project: d.project, task: 'ACME-19' }), t.sent('criteria-update'));
+      const busy = t.find('section.criteria');
+      t.check('while it goes, the others wait', t.all<HTMLButtonElement>('.an-actions button', busy).every((b) => b.disabled), t.all('.an-actions button', busy).map((b) => b.textContent));
+      await t.post({ type: 'criteria-done', action: 'criteria-update', project: d.project, task: 'ACME-19', ok: false, error: d.error });
+      const again = t.find('section.criteria');
+      t.check('a refusal says why, and the buttons are on again', again.textContent!.includes(d.error) && t.all<HTMLButtonElement>('.an-actions button', again).every((b) => !b.disabled));
+      await t.click(t.all<HTMLButtonElement>('button', again).find((b) => b.textContent?.trim() === 'Add to the description')!);
+      t.check('Add to the description asks for the sheet with the draft', JSON.stringify(t.sent('criteria-sheet').at(-1)) === JSON.stringify({ type: 'criteria-sheet', project: d.project, task: 'ACME-19' }), t.sent('criteria-sheet'));
+    },
+  },
+  {
     name: 'board keys: focus stays on the same card after a redraw, in its new column',
     page: 'tasks',
     async run(t) {
@@ -1614,6 +1672,10 @@ export const MUTANTS: Mutant[] = [
   { name: 'the task sheet\'s Save drops the notes typed', file: 'task-sheet.ts', find: "labels: v('labels'), notes: v('notes') };", replace: "labels: v('labels'), notes: s.fields.notes };", kills: [caseNamed('task sheet: a manual task')] },
   { name: 'the task sheet saves with no title', file: 'task-sheet.ts', find: "written().title.trim() ? null : 'A task needs a title');", replace: 'null);', kills: [caseNamed('task sheet: a new task')] },
   { name: 'the task sheet closes before its ticket answers', file: 'task-sheet.ts', find: '  if (!open.base) return shut();\n', replace: '  return shut();\n', kills: [caseNamed('task sheet: with edits on')] },
+  { name: 'Add the draft leaves the description as it was', file: 'task-sheet.ts', find: '  open.sheet = { ...open.sheet, fields: { ...written(), brief: below(written().brief, section) } };', replace: '  open.sheet = { ...open.sheet, fields: written() };', kills: [caseNamed('task sheet: drafted acceptance criteria')] },
+  { name: 'a failed draft says nothing', file: 'task-sheet.ts', find: "  open.error = msg.error || 'The draft didn\\'t come back.';", replace: '  open.error = null;', kills: [caseNamed('task sheet: drafted acceptance criteria')] },
+  { name: 'Open as an update asks for the sheet', file: 'criteria.ts', find: "    ...(c.update ? [action(m, c, c.update, 'criteria-update', 'comment-draft', false)] : []),", replace: "    ...(c.update ? [action(m, c, c.update, 'criteria-sheet', 'comment-draft', false)] : []),", kills: [caseNamed('task page: a draft shows')] },
+  { name: 'a failed draft section button forgets why', file: 'criteria.ts', find: "  else failed.set(key, msg.error?.trim() || 'It didn\\'t go, and acc didn\\'t say why.');", replace: '  else failed.delete(key);', kills: [caseNamed('task page: a draft shows')] },
   { name: 'a failed Save closes the task sheet', file: 'task-sheet.ts', find: '  if (msg.ok) return shut();\n', replace: '  return shut();\n', kills: [caseNamed('task sheet: with edits on')] },
   { name: 'Keep mine saves against the text the sheet opened with', file: 'task-sheet.ts', find: '  open.base = open.theirs;\n  open.theirs = null;\n  save();', replace: '  open.theirs = null;\n  save();', kills: [caseNamed('task sheet: with edits on')] },
   { name: 'Escape on the sheet dispatches', file: 'dispatch-sheet.ts', find: "const m = makeModal('dispatch-sheet', [title], shut);", replace: "const m = makeModal('dispatch-sheet', [title], dispatch);", kills: [caseNamed('dispatch sheet: the task page')] },
@@ -1683,6 +1745,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     people: peopleData(models.tasks),
     sheet: sheetData(now),
     taskSheet: taskSheetData(now),
+    criteria: { model: sampleTicket(now, 'ACME-19', true, 'drafted'), project: ROOT, error: 'ACME-19\'s ticket can\'t take an update.' },
   };
 }
 
@@ -1757,6 +1820,8 @@ function taskSheetData(now: number): BehaviourData['taskSheet'] {
   const tracker = sampleTaskSheet(now, 'tracker');
   const edits = sampleTaskSheet(now, 'edits');
   if (!edits.ticketEdits?.base) throw new Error('The edits case needs a Jira task whose ticket text the sheet writes.');
+  const drafted = withSheetCriteria(edits, sampleCriteria(now), false);
+  if (!drafted.criteria?.section) throw new Error('The criteria case needs a sheet with a stored draft.');
   if (!tracker.ticket || !tracker.locked) throw new Error('The task sheet case needs a Jira task with its ticket\'s link.');
   const title = 'Write the release notes';
   const brief = 'One page for the sales team.';
@@ -1769,6 +1834,10 @@ function taskSheetData(now: number): BehaviourData['taskSheet'] {
       message: { type: 'task-sheet', sheet: edits }, project: ROOT, base: { ...edits.ticketEdits!.base! }, title: 'Send the welcome email once per contact',
       error: 'Its ticket wasn\'t changed. Jira said: HTTP 500', theirs: { ...SAMPLE_THEIRS },
       rows: edits.ticketEdits!.rows.map((r) => (r.field === 'status' ? { ...r, value: 'In Review' } : r)),
+    },
+    criteria: {
+      message: { type: 'task-sheet', sheet: drafted }, project: ROOT, brief: drafted.fields.brief, section: drafted.criteria!.section!,
+      error: 'The draft held no acceptance criteria.', again: '## Drafted acceptance criteria\n\n### Acceptance criteria\n\n1. A new contact gets one welcome email.',
     },
   };
 }

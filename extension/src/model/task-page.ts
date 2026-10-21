@@ -25,6 +25,7 @@ import { accLook, type BoardInput, CATEGORY_LOOK, chip, type PersonChip, priorit
 import { type Action, displayLook, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
 import { cardActions, filesLook, placeLook } from './cards.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
+import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -181,6 +182,8 @@ export interface TicketModel {
   analysis: TicketAnalysis | null;
   /** Its latest review and each finding (T-53), under the Agent panel. Null when ticketReview shows none. */
   review: TicketReview | null;
+  /** Its drafted acceptance criteria (T-81), with Draft and the two ways out. Null for a task with no ticket. */
+  criteria: TicketCriteria | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
   /** It's being tracked now, from this page or its card (D-074). */
@@ -256,6 +259,9 @@ export interface TicketInput {
   tracking?: boolean;
   /** Its latest review, with the excerpts the extension read for its findings (T-53). */
   review?: ReviewIn | null;
+  /** Its drafted acceptance criteria, and whether a draft is under way (T-81). */
+  draft?: CriteriaIn['draft'];
+  drafting?: boolean;
   now?: number;
 }
 
@@ -477,6 +483,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, i.now) : [],
     acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
     review: i.task ? ticketReview(i.project, i.task.state, i.review) : null,
+    criteria: i.task ? ticketCriteria({ task: i.task, draft: i.draft ?? null, drafting: !!i.drafting, edits: !!i.trackerEdits, kind: i.trackerKind, unkept: t?.unkept }) : null,
     trackable: !!t && !i.task, tracking: !!i.tracking, signedInAs: i.signedInAs ?? null,
   };
 }

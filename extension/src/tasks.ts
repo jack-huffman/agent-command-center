@@ -27,6 +27,7 @@ import { accRunner, runFile } from './run.ts';
 import type { TaskNode } from './nodes.ts';
 import type { ExtensionArea } from './area.ts';
 import { Sidebar } from './sidebar.ts';
+import { sheetDress } from './criteria.ts';
 
 /** The Tasks area's commands: adding, moving, dispatching, reviewing and landing tasks, all through acc. */
 class TaskCommands extends Sidebar {
@@ -546,7 +547,7 @@ class TaskCommands extends Sidebar {
 export const area: ExtensionArea = {
   register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets, ticketEdits: edits }) {
     const read = (root: string, key: string) => edits.sheetTicket(root, key);
-    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id, undefined, read), edits);
+    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id, undefined, read, sheetDress(root, id)), edits);
     tasks.register(regNode);
     // Dispatch's sheet (D-168): its Dispatch from the Command Center's page. A task's own tab, and the modal
     // over the board, show the sheet over that page, and send its Dispatch here too.
@@ -556,7 +557,7 @@ export const area: ExtensionArea = {
     // Change on the sheet's status, assignee or labels (T-80), over the Command Center or its modal.
     receive('task-sheet-field', (m) => void tasks.sheetField(m, (msg) => panels.reply(msg)));
     tickets.dispatch = {
-      open: (command, ref, say) => (command === 'acc.task.edit' && !!ref.project && !!ref.task ? openTaskSheet(hub, (m) => void panels.tell(m), ref.project, ref.task, say, read)
+      open: (command, ref, say) => (command === 'acc.task.edit' && !!ref.project && !!ref.task ? openTaskSheet(hub, (m) => void panels.tell(m), ref.project, ref.task, say, read, sheetDress(ref.project, ref.task))
         : SHEET_COMMANDS.includes(command) && !!ref.project && !!ref.task
         && openSheet(hub, panels, ref.project, ref.task, command === 'acc.task.dispatchAnyway' ? { anyway: true } : command === 'acc.task.dispatchCloud' ? { where: 'cloud' } : {}, say)),
       go: (m) => void tasks.go(m),

@@ -4,6 +4,7 @@ import type { Action, Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
 import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
+import { renderCriteria } from './criteria.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
 import { dayName } from './days.ts';
@@ -146,6 +147,8 @@ export function renderTicket(m: TicketModel): Node[] {
   // Where the tracker allows edits, Edit opens the task sheet, which writes the ticket's title and description (T-80).
   const descHead = m.editText ? el('div', 'desc-head', el('h2', '', 'Description'), descEdit(m.editText)) : el('h2', '', 'Description');
   main.append(el('section', 'block', descHead, m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
+  // Its drafted acceptance criteria (T-81), under the description they'd join.
+  if (m.criteria) main.append(renderCriteria(m, m.criteria));
   // What a person wrote for its builder (T-74), which a tracker's intake never changes.
   if (m.acc?.notes) main.append(el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)));
   const note = renderNote(m);

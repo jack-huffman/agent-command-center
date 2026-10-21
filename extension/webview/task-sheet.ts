@@ -7,7 +7,8 @@
 // the extension works out acc's arguments. Where the project allows edits (T-80), a tracker's task has its
 // ticket's title and description to edit, and its status, assignee and labels each with a Change. Its Save
 // waits for the extension: a ticket changed since the sheet opened shows both versions to pick from, and a
-// failed write says why. Either way the sheet stays open with what the person wrote.
+// failed write says why. Either way the sheet stays open with what the person wrote. There, its description
+// can take drafted acceptance criteria (T-81): Draft acceptance criteria puts the draft below its text.
 
 import type { TaskSheet, TaskSheetFields } from '../src/model/task-sheet.ts';
 import type { SheetRow, TicketTextBase } from '../src/model/ticket-text.ts';
@@ -29,6 +30,9 @@ let open: {
   error: string | null;
   theirs: TicketTextBase | null;
   changing: SheetRow['field'] | null;
+  /** Drafting acceptance criteria for its description (T-81): on its way, and whether a draft is in the box. */
+  drafting: boolean;
+  added: boolean;
 } | null = null;
 let parts: { dialog: HTMLDialogElement; heading: HTMLElement; body: HTMLElement; go: HTMLButtonElement } | null = null;
 /** What had focus when it opened, which gets it back when it closes. */
@@ -137,6 +141,45 @@ function keepMine(): void {
   save();
 }
 
+/**
+ * A description with drafted acceptance criteria below its text (T-81). The page can't import core's
+ * withCriteria, so this is its copy; the section comes from the extension with its heading.
+ */
+const below = (text: string, section: string): string => (text.trim() ? `${text.trimEnd()}\n\n${section}` : section);
+
+/** The draft goes in the description box, below what's written, and the box takes focus. */
+function addDraft(section: string): void {
+  if (!open) return;
+  open.sheet = { ...open.sheet, fields: { ...written(), brief: below(written().brief, section) } };
+  open.added = true;
+  draw();
+  open.boxes.brief?.focus();
+}
+
+/** Draft acceptance criteria from the sheet: the extension drafts, and gives the draft back for the box. */
+function draftCriteria(): void {
+  if (!open?.sheet.task || open.drafting) return;
+  open.drafting = true;
+  open.error = null;
+  api.postMessage({ type: 'task-sheet-criteria', project: open.sheet.project, task: open.sheet.task });
+  redraw();
+}
+
+/** The line under the description where the sheet drafts acceptance criteria (T-81), or adds the stored draft. */
+function criteriaRow(): HTMLElement | null {
+  const c = open?.sheet.criteria;
+  if (!open || !c) return null;
+  const busy = open.drafting || c.drafting;
+  const draft = button(busy ? 'Drafting…' : c.section ? 'Draft again' : 'Draft acceptance criteria', busy ? 'loading~spin' : 'sparkle', () => draftCriteria(), 'ghost small');
+  draft.disabled = busy;
+  if (busy) draft.title = 'An agent is reading the ticket, its comments and the code. It changes nothing.';
+  const add = c.section && !open.added ? button('Add the draft', 'add', () => addDraft(c.section!), 'ghost small') : null;
+  const said = open.added || open.sheet.drafted ? 'The draft is below your text, under its own heading. Edit it: nothing reaches the ticket until you save.'
+    : busy ? 'An agent is reading the ticket, its comments and the code. The draft goes below your text.'
+      : 'An agent can draft acceptance criteria, test steps and edge cases for you to edit.';
+  return el('div', 'ts-field', el('div', 'ts-row', el('p', 'ts-hint muted', said), add, draft));
+}
+
 /** Draws again with what's written kept: a draw starts from the sheet's own fields. */
 function redraw(): void {
   if (!open) return;
@@ -174,6 +217,7 @@ function draw(): void {
     text ? field('Title', box('title', s.fields.title, 'What needs doing'), null) : kept('Title', s.fields.title),
     text && s.ticketEdits?.unkept ? trouble(s.ticketEdits.unkept) : null,
     text && s.ticketEdits?.unkept ? kept('Description', s.fields.brief) : text ? field('Description', box('brief', s.fields.brief, 'The goal, what to build, and how a person will know it is done', 8), open.base ? `Markdown works here. Save writes it to the ticket in ${trackerWord()}.` : 'Markdown works here: headings, lists and code.') : kept('Description', s.fields.brief),
+    text && !s.ticketEdits?.unkept ? criteriaRow() : null,
     s.locked ? kept('Dependencies', s.fields.deps) : field('Dependencies', box('deps', s.fields.deps, 'Such as T-3, ACME-12'), 'The tasks to finish first, with commas between them.'),
     field('Environment', env, 'The branch it builds from and lands on.'),
     ...(s.ticketEdits ? rows(s.ticketEdits.rows) : [s.locked ? kept('Labels', s.fields.labels) : field('Labels', box('labels', s.fields.labels, 'Such as ui, docs'), 'With commas between them.')]),
@@ -229,6 +273,25 @@ function changed(msg: { project?: string; task?: string; ok?: boolean; error?: s
   redraw();
 }
 
+/**
+ * How the sheet's drafting went (T-81): on its way; the draft, which goes below the description's text; or
+ * why not. Only a reply for this sheet's task counts.
+ */
+function drafted(msg: { project?: string; task?: string; drafting?: boolean; ok?: boolean; section?: string; error?: string }): void {
+  if (!open?.sheet.criteria || msg.project !== open.sheet.project || msg.task?.toUpperCase() !== open.sheet.task) return;
+  if (msg.drafting) {
+    open.drafting = true;
+    return redraw();
+  }
+  open.drafting = false;
+  if (msg.ok && msg.section) {
+    open.sheet = { ...open.sheet, criteria: { ...open.sheet.criteria, section: msg.section, drafting: false } };
+    return addDraft(msg.section);
+  }
+  open.error = msg.error || 'The draft didn\'t come back.';
+  redraw();
+}
+
 function make(): NonNullable<typeof parts> {
   const heading = el('h2', 'ts-heading');
   const m = makeModal('task-sheet', [heading], shut);
@@ -251,7 +314,7 @@ function make(): NonNullable<typeof parts> {
 function openSheet(sheet: TaskSheet): void {
   parts ??= make();
   if (!parts.dialog.open) opener = focusedElement();
-  open = { sheet, boxes: {}, base: sheet.ticketEdits?.base ?? null, saving: false, error: null, theirs: null, changing: null };
+  open = { sheet, boxes: {}, base: sheet.ticketEdits?.base ?? null, saving: false, error: null, theirs: null, changing: null, drafting: !!sheet.criteria?.drafting, added: !!sheet.drafted };
   draw();
   if (!parts.dialog.open) parts.dialog.showModal();
   (open.boxes.title ?? open.boxes.environment)?.focus();
@@ -278,5 +341,6 @@ export const area: PageArea = {
     'task-sheet': (msg: { sheet?: TaskSheet }) => { if (msg.sheet?.fields) openSheet(msg.sheet); },
     'task-sheet-done': saved,
     'task-sheet-rows': changed,
+    'task-sheet-draft': drafted,
   },
 };

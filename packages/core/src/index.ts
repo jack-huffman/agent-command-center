@@ -16,6 +16,7 @@ export * from './cloud-guard.ts';
 export * from './cloud.ts';
 export * from './config-edit.ts';
 export * from './config.ts';
+export * from './criteria.ts';
 export * from './deploy.ts';
 export * from './dispatch.ts';
 export * from './drift.ts';
