@@ -1,7 +1,8 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { AccError, type Runner } from './exec.ts';
 import { type AgentProfile, type AgentRole, type Config, DEFAULT_MODEL, type Effort, isEffort, MODEL_NAME, noProfile } from './config.ts';
 import { checkEffortName } from './efforts.ts';
+import { writeAtomic } from './ledger.ts';
 
 /**
  * The model and effort each kind of agent runs with (D-036). The project can set a default in
@@ -118,7 +119,7 @@ export function setProfile(run: Runner, root: string, configFile: string, role: 
   }
   if (Object.keys(p).length) raw.agents[role] = p;
   else delete raw.agents[role];
-  writeFileSync(configFile, JSON.stringify(raw, null, 2) + '\n');
+  writeAtomic(configFile, JSON.stringify(raw, null, 2) + '\n');
 }
 
 /** The levels a person can choose for autopilot: dispatch and full aren't built yet (D-055). */
@@ -149,14 +150,14 @@ export function setAutonomy(configFile: string, value: string): void {
     const edited = text.replace(/("autonomy"\s*:\s*)"[^"\\]*"/, `$1${JSON.stringify(value)}`);
     try {
       if (JSON.stringify(JSON.parse(edited)) === JSON.stringify(wanted)) {
-        writeFileSync(configFile, edited);
+        writeAtomic(configFile, edited);
         return;
       }
     } catch {
       // not the key we thought: write the whole file instead
     }
   }
-  writeFileSync(configFile, JSON.stringify(wanted, null, 2) + '\n');
+  writeAtomic(configFile, JSON.stringify(wanted, null, 2) + '\n');
 }
 
 /**
@@ -197,7 +198,7 @@ export function setAutoMerge(configFile: string, on: boolean): void {
   if (block.test(text)) tries.push(text.replace(block, (_m, open: string, gap: string) => `${open}${gap}"autoMerge": ${on},${gap}`));
   const indent = /^\{\s*?\n([ \t]+)"/.exec(text)?.[1] ?? '  ';
   if (!was) tries.push(text.replace(/(\S)(\s*)\}\s*$/, (_m, last: string, gap: string) => `${last},\n${indent}"autopilot": {\n${indent}${indent}"autoMerge": ${on}\n${indent}}${gap}}\n`));
-  writeFileSync(configFile, tries.find(fits) ?? JSON.stringify(wanted, null, 2) + '\n');
+  writeAtomic(configFile, tries.find(fits) ?? JSON.stringify(wanted, null, 2) + '\n');
 }
 
 export const describeProfile = (p: AgentProfile): string =>

@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { setAutoMerge, setAutonomy, setProfile } from '../src/agents.ts';
+import { parseConfig, saveTracker, writeConfig } from '../src/config.ts';
+import { run } from '../src/exec.ts';
 import { editJsonKey, sameJson, writeJsonKey } from '../src/config-edit.ts';
-import { tempDir } from './support.ts';
+import { GENERIC_CONFIG, tempDir } from './support.ts';
 
 /** As this repo keeps .acc/config.json: two spaces, a key a line, arrays a value a line. */
 const TWO = `{
@@ -105,25 +108,88 @@ test('writeJsonKey changes the file only when the value does, and refuses a file
   assert.equal(readFileSync(file, 'utf8'), '{ "a": 1, }', 'left alone');
 });
 
-test('every setter that uses writeJsonKey writes through writeAtomic, and leaves no temp file', () => {
+test('writeJsonKey writes through writeAtomic, and leaves no temp file', () => {
   const src = readFileSync(new URL('../src/config-edit.ts', import.meta.url), 'utf8');
   const body = src.slice(src.indexOf('export function writeJsonKey'));
   assert.match(body, /writeAtomic\(file, edited\)/);
   assert.doesNotMatch(body, /writeFileSync/);
-  // The setters, found by a scan of core's source rather than listed: each file that calls writeJsonKey writes
-  // the project's settings through it, and none of them writes the config itself with writeFileSync.
-  const files = readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String).filter((f) => f.endsWith('.ts') && f !== 'config-edit.ts');
-  const setters = files.filter((f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8').includes('writeJsonKey('));
-  assert.ok(files.length > 0 && setters.length > 0, `the scan checked ${files.length} files and found ${setters.length} that call writeJsonKey`);
-  for (const f of setters) {
-    // Other files a setter writes (a cloud request's headers, a lock) aren't the settings; a line that names the config is.
-    assert.doesNotMatch(readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8'), /writeFileSync\([^\n]*[cC]onfig/, `${f} writes the settings through writeJsonKey, not writeFileSync`);
-  }
-  assert.ok(setters.includes('source-tracking.ts') && setters.includes('limits.ts') && setters.includes('cloud.ts'), `the scan found ${setters.join(', ')}`);
   const dir = tempDir('atomic-');
   const file = join(dir, 'config.json');
   writeFileSync(file, '{\n  "a": 1\n}\n');
   writeJsonKey(file, ['a'], 2);
   assert.equal(readFileSync(file, 'utf8'), '{\n  "a": 2\n}\n');
   assert.deepEqual(readdirSync(dir), ['config.json'], 'no temp file is left');
+});
+
+/** Files in core that may write something with writeFileSync in a function that names the config, with why. May only shrink (T-82). */
+const NOT_THE_SETTINGS: Record<string, string> = {
+  'setup.ts': 'writes the README and other files the project is set up with, in functions that take the config only to read from it',
+};
+
+type Write = { file: string; line: number; unit: string; arg: string };
+
+/** A write is the settings when its path names the config, or is a parameter of a function that deals in the config: whatever the variable is called. */
+function writesSettings(w: Pick<Write, 'unit' | 'arg'>): boolean {
+  return /config|\.acc\b/i.test(w.arg) || (/^\w+$/.test(w.arg) && new RegExp(`\\b${w.arg}\\b`).test(w.unit.split('{\n')[0]) && /config/i.test(w.unit));
+}
+
+/** Every writeFileSync in core's source, with the top-level function or constant it sits in. */
+function writes(): Write[] {
+  const out: Write[] = [];
+  for (const f of readdirSync(new URL('../src/', import.meta.url), { recursive: true }).map(String).filter((p) => p.endsWith('.ts'))) {
+    const lines = readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8').split('\n');
+    lines.forEach((l, i) => {
+      if (!/\bwriteFileSync\(/.test(l)) return;
+      let s = i;
+      while (s > 0 && !/^(export )?(async )?(function|const) /.test(lines[s])) s--;
+      out.push({ file: f, line: i + 1, unit: lines.slice(s, i + 1).join('\n'), arg: /writeFileSync\(\s*([^,]+?)\s*,/.exec(l)?.[1] ?? '' });
+    });
+  }
+  return out;
+}
+
+test('no file in core writes the project settings with writeFileSync, whatever the variable is called (T-82)', () => {
+  const all = writes();
+  const files = new Set(all.map((w) => w.file));
+  assert.ok(all.length > 0 && files.size > 0, 'the scan found no writeFileSync to check');
+  const hits = all.filter(writesSettings);
+  const stray = hits.filter((w) => !(w.file in NOT_THE_SETTINGS));
+  assert.deepEqual(stray.map((w) => `${w.file}:${w.line}`), [], `these write the settings in place: use writeJsonKey or writeAtomic (scanned ${all.length} writes in ${files.size} files)`);
+  // The list names only files that still write; an entry nothing needs is deleted.
+  for (const f of Object.keys(NOT_THE_SETTINGS)) assert.ok(hits.some((w) => w.file === f), `${f} is on the list but no longer needs to be`);
+});
+
+test('the scan takes a write of the settings for one whatever the path is called, and not a write of something else (T-82)', () => {
+  const unit = (sig: string, write: string): string => `export function save(${sig}): void {\n  const raw = JSON.parse('{}');\n  ${write}`;
+  // The old writers: a parameter called configFile, a parameter called file in a function that checks the config, a path built in place.
+  assert.ok(writesSettings({ arg: 'configFile', unit: unit('configFile: string', 'writeFileSync(configFile, text);') }));
+  assert.ok(writesSettings({ arg: 'f', unit: unit('f: string, cfg: Config', 'writeFileSync(f, text);') }));
+  assert.ok(writesSettings({ arg: 'join(dir, \'.acc\', \'x.json\')', unit: unit('dir: string', 'writeFileSync(...)') }));
+  // A local path in a function that never takes it in, and a function with nothing to do with the config.
+  assert.ok(!writesSettings({ arg: 'marker', unit: unit('dir: string', 'const marker = join(dir, \'m\');\n  writeFileSync(marker, text);') }));
+  assert.ok(!writesSettings({ arg: 'f', unit: unit('f: string', 'writeFileSync(f, text);') }));
+});
+
+test('each writer moved to writeAtomic changes the file and leaves no temp file beside it (T-82)', () => {
+  const dir = tempDir('moved-');
+  const file = join(dir, 'config.json');
+  const fresh = (): void => writeFileSync(file, JSON.stringify(GENERIC_CONFIG, null, 2) + '\n');
+  const settled = (what: string): void => assert.deepEqual(readdirSync(dir), ['config.json'], `${what} left a temp file`);
+  fresh();
+  setProfile(run, dir, file, 'builder', { model: 'opus' }, 'project');
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).agents.builder.model, 'opus');
+  settled('setProfile');
+  setAutonomy(file, 'review');
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).autonomy, 'review');
+  settled('setAutonomy');
+  setAutoMerge(file, true);
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).autopilot.autoMerge, true);
+  settled('setAutoMerge');
+  fresh();
+  writeConfig(file, parseConfig(GENERIC_CONFIG).config!);
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).project, 'Tool');
+  settled('writeConfig');
+  saveTracker(file, null, { kind: 'github' });
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).trackers.length, 1);
+  settled('saveTracker');
 });
