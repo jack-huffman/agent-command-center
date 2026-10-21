@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-20**. Version 0.41.0 is
-the latest release (2026-10-16), the first with a `.sha256` beside its `.vsix`.
-Version 0.42.0 is prepared and waits on a person to release it.
+Where each piece of the build stands, as of **2026-10-20**. Version 0.42.0 is
+the latest release (2026-10-20). 0.41.0 (2026-10-16) was the first with a
+`.sha256` beside its `.vsix`.
 
 Every bullet below is one status line, in this form:
 
@@ -56,7 +56,7 @@ where each one's done-when is written out.
 - **The extension updates itself**: done. Checked 2026-10-16. Evidence: D-166.
   It looks for a newer release, offers it, and installs it after checking its
   `.sha256`, and refuses a release with none (D-173). 0.41.0's checksum was checked against its `.vsix` on 2026-10-16.
-  Its first real offer comes with the next release after 0.41.0.
+  0.42.0 (2026-10-20) is the first release it can offer.
 - **The first run on a fresh machine**: waiting on a person. Checked
   2026-10-16. Evidence: D-088, GH-88. [FIRST-RUN.md](FIRST-RUN.md) is the
   checklist. It needs a Mac that has never run acc and someone to fill it in. A
