@@ -3,6 +3,7 @@ import type * as vscode from 'vscode';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
 import { LAND_TIMEOUT_MS, UPDATE_POST_TIMEOUT_MS } from '../../packages/core/src/land.ts';
 import { CRITERIA_TIMEOUT_MS } from '../../packages/core/src/criteria.ts';
+import { VERIFY_TIMEOUT_MS } from '../../packages/core/src/verify.ts';
 
 export interface RunResult {
   code: number;
@@ -30,9 +31,12 @@ export function runFile(file: string, args: string[], cwd: string, env: NodeJS.P
  * How long the extension waits for an acc command. A land pushes and calls gh several times, and posting
  * an update calls gh twice, so each gets as long as those can take (D-053). Drafting acceptance criteria
  * runs an agent, which may fix its wording once (T-81), so it gets two of the drafter's limits and a minute.
+ * Verifying a developer's pull request runs the checks first, as long as a heavy one may take, then an agent
+ * that may fix its wording once (T-84): the checks' 90 minutes and two of the verifier's limits.
  */
 export const accTimeoutMs = (args: string[]): number => (args[0] === 'land' ? LAND_TIMEOUT_MS : args[0] === 'update' && args[1] === 'post' ? UPDATE_POST_TIMEOUT_MS
-  : args[0] === 'draft' && args[1] === 'criteria' ? 2 * CRITERIA_TIMEOUT_MS + 60_000 : RUN_TIMEOUT_MS);
+  : args[0] === 'draft' && args[1] === 'criteria' ? 2 * CRITERIA_TIMEOUT_MS + 60_000
+    : args[0] === 'verify' && args[1] !== 'show' && args[1] !== 'clear' ? 90 * 60_000 + 2 * VERIFY_TIMEOUT_MS : RUN_TIMEOUT_MS);
 
 /** The bundled acc, run by VSCode's own runtime so it works even before Node is on PATH. */
 export function accRunner(script: string) {

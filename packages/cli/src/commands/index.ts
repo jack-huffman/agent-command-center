@@ -16,5 +16,6 @@ import { area as tidy } from './tidy.ts';
 import { area as trackers } from './trackers.ts';
 import { area as tracking } from './tracking.ts';
 import { area as updates } from './updates.ts';
+import { area as verify } from './verify.ts';
 
-export const AREAS = [agents, checks, cloud, draft, environments, github, hooks, pipeline, rules, setup, ste, tasks, tidy, trackers, tracking, updates];
+export const AREAS = [agents, checks, cloud, draft, environments, github, hooks, pipeline, rules, setup, ste, tasks, tidy, trackers, tracking, updates, verify];

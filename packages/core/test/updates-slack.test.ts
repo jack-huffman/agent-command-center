@@ -13,10 +13,10 @@ const jira: Pick<Task, 'id' | 'source'> = { id: 'ACME-12', source: { kind: 'jira
 const input = (event: (typeof UPDATE_EVENTS)[number]) => ({ event, env: 'Dev', pr: { number: 38, url: 'https://github.com/acme/service/pull/38' }, question: 'q1', text: 'x' });
 const got = (task: Pick<Task, 'id' | 'source'>) => UPDATE_EVENTS.map((e) => draftUpdate(store(), task, input(e), 'acc land', now)?.event ?? null);
 
-test('a Slack task drafts at merged, deployed, blocked, question and drafted criteria (T-81) only, and a Jira task at every event as before', () => {
-  assert.deepEqual(got(slack), [null, null, 'merged', null, null, 'deployed', 'blocked', 'question', 'criteria']);
+test('a Slack task drafts at merged, deployed, blocked, question, drafted criteria (T-81) and a QA comment (T-84) only, and a Jira task at every event as before', () => {
+  assert.deepEqual(got(slack), [null, null, 'merged', null, null, 'deployed', 'blocked', 'question', 'criteria', 'verify']);
   assert.deepEqual(got(jira), [...UPDATE_EVENTS]);
-  assert.deepEqual([...SLACK_UPDATE_EVENTS], ['merged', 'deployed', 'blocked', 'question', 'criteria']);
+  assert.deepEqual([...SLACK_UPDATE_EVENTS], ['merged', 'deployed', 'blocked', 'question', 'criteria', 'verify']);
 });
 
 test('the edge case of a skipped event for a Slack task: it writes no file', () => {

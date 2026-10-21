@@ -193,6 +193,7 @@ test('every draft reads plainly for a client: no word of agents, worktrees, acc,
   assert.equal(updateText('blocked', context), 'We need your input before we can go on:\nShould Gold customers count as Premium.');
   assert.equal(updateText('question', { question: 'Which queue?' }), 'Before we start, a question for you:\nWhich queue?');
   assert.equal(updateText('criteria', {}), 'Proposed acceptance criteria, test steps and edge cases, for you to check:');
+  assert.equal(updateText('verify', { pr: { url: 'https://github.com/acme/service/pull/7' } }), 'QA of the pull request: https://github.com/acme/service/pull/7');
 });
 
 test('a GitHub issue is found from its link, or the project\'s repo and its number', () => {

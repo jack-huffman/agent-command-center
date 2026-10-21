@@ -27,6 +27,7 @@ import { area as tasks } from './tasks.ts';
 import { area as ticket } from './ticket.ts';
 import { area as tidy } from './tidy.ts';
 import { area as trackers } from './trackers.ts';
+import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agents, autopilot, branches, cloud, connect, criteria, dockReview, environments, history, identity, limits, notices, palette, progress, questions, rules, runs, selfUpdate, settings, setup, slack, taskModal, tasks, ticket, tidy, trackers, worktrees];
+export const AREAS = [about, agents, autopilot, branches, cloud, connect, criteria, dockReview, environments, history, identity, limits, notices, palette, progress, questions, rules, runs, selfUpdate, settings, setup, slack, taskModal, tasks, ticket, tidy, trackers, verify, worktrees];

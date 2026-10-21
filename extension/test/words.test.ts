@@ -78,6 +78,8 @@ const MARKS: Record<string, Record<string, number>> = {
   'run-view.ts': { output: 1 },
   'setup.ts': { output: 1 },
   'task-page.ts': { files: 2, branch: 2, output: 1, transcript: 1 },
+  // Verify the developer's work (T-84): the pull request's branches and commit, each check's own words, what the verifier wrote, and a finding's file.
+  'verify.ts': { 'agent-text': 4, branch: 3, files: 1, output: 2 },
   'worktrees.ts': { branch: 1 },
 };
 

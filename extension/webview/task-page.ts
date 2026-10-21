@@ -5,6 +5,7 @@ import type { PersonChip } from '../src/model/boards.ts';
 import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
 import { renderCriteria } from './criteria.ts';
+import { renderVerify } from './verify.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
 import { dayName } from './days.ts';
@@ -149,6 +150,8 @@ export function renderTicket(m: TicketModel): Node[] {
   main.append(el('section', 'block', descHead, m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
   // Its drafted acceptance criteria (T-81), under the description they'd join.
   if (m.criteria) main.append(renderCriteria(m, m.criteria));
+  // Verify the developer's work (T-84): under the criteria it reviews against, over the Activity its QA comment joins.
+  if (m.verify) main.append(renderVerify(m, m.verify));
   // What a person wrote for its builder (T-74), which a tracker's intake never changes.
   if (m.acc?.notes) main.append(el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)));
   const note = renderNote(m);

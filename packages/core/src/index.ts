@@ -71,6 +71,7 @@ export * from './text.ts';
 export * from './tidy.ts';
 export * from './transcript.ts';
 export * from './updates.ts';
+export * from './verify.ts';
 export * from './onboarding/types.ts';
 // The setup steps' helpers that the CLI and the extension use too.
 export { makeContext, parseOrgUrl, SECRET_PATTERN, versionAtLeast } from './onboarding/helpers.ts';

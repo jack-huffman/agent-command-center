@@ -98,6 +98,8 @@
       "repo-rules"
     ],
     "nearIndexes": [
+      "extension/src/areas.ts",
+      "extension/src/extension.ts",
       "extension/webview/areas.ts"
     ]
   },

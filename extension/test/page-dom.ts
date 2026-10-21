@@ -22,8 +22,8 @@ export class PageElement {
   setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
   addEventListener(type: string, f: (e: unknown) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), f]); }
-  /** Runs its listeners for a click, as a person's click does. */
-  click(): void { if (!this.disabled) for (const f of this.listeners.get('click') ?? []) f({ type: 'click' }); }
+  /** Runs its listeners for a click, as a person's click does: a button's stops it going further. */
+  click(): void { if (!this.disabled) for (const f of this.listeners.get('click') ?? []) f({ type: 'click', stopPropagation: () => undefined }); }
   focus(): void { this.doc.activeElement = this; }
   get textContent(): string { return this.children.map((c) => (typeof c === 'string' ? c : c.textContent)).join(''); }
 }

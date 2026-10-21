@@ -5,8 +5,8 @@
  * agent by its session first, by that record second, and never by a name worked out again.
  */
 
-/** What the agent is: a task's builder, its reviewer, or its analyst. */
-export type NameRole = 'builder' | 'review' | 'analysis' | 'criteria';
+/** What the agent is: a task's builder, its reviewer, its analyst, its criteria's drafter, or the verifier of a developer's pull request (T-84). */
+export type NameRole = 'builder' | 'review' | 'analysis' | 'criteria' | 'verify';
 
 /** The longest a title or a project's name gets in an agent's name, its `…` included. */
 export const NAME_PART_MAX = 40;

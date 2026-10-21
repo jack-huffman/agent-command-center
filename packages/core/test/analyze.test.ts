@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { analysisPath, analysisProblems, analysisSection, analyze, analyzing, answerAnalysis, fileId, openQuestions, parseAnalysis, readAnalysis } from '../src/analyze.ts';
+import { analysisPath, analysisProblems, analysisSection, analyze, analyzing, answerAnalysis, fileId, openQuestions, parseAnalysis, readAnalysis, TASK_ID_MAX } from '../src/analyze.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { dispatch } from '../src/dispatch.ts';
 import { renderPacket } from '../src/packet.ts';
@@ -191,4 +191,7 @@ test('an analysis\'s file is named by a task id, never by a path out of .git/acc
 test('fileId, which analyses and drafted criteria share, keeps a task id and refuses one that could leave its folder (T-81)', () => {
   for (const id of ['T-81', 'GH-106', 'ACME-19', 'a_b.c']) assert.equal(fileId(id), id);
   for (const id of ['../X', '../../X', '/etc/passwd', 'a/b', '', '.', '-T', 'X..Y']) assert.throws(() => fileId(id), /isn't a task id/, id);
+  // Too long for a file name (T-84): refused, its message cut short.
+  assert.equal(fileId('X'.repeat(TASK_ID_MAX)), 'X'.repeat(TASK_ID_MAX));
+  assert.throws(() => fileId('X'.repeat(102_400)), (e: Error) => /^X{40}… isn't a task id\.$/.test(e.message));
 });
