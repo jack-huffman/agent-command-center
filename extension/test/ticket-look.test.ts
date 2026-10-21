@@ -7,7 +7,7 @@ import { type BoardInput, chip, trackerBoard } from '../src/model/boards.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import { sampleTicket } from '../scripts/fixtures/task-page.ts';
 import { sampleAzureBoards, sampleTrackerTicket } from '../scripts/fixtures/tracker-tickets.ts';
-import { labelTint, TINTS, tintOf } from '../webview/tints.ts';
+import { labelTint, labelTints, TINTS, tintOf } from '../webview/tints.ts';
 import { pageDom, type PageElement } from './page-dom.ts';
 
 /** The page's drawing modules, imported once the small document is up, as state.ts reads it as it loads. */
@@ -33,11 +33,48 @@ test('edge case: a tracker colour that isn\'t six hex digits, or an empty one, g
 });
 
 test('every tint is one the palette holds, a key keeps its tint, and names spread over the palette', () => {
-  const names = ['bug', 'sla', 'service', 'sales', 'reporting', 'premium', 'audit', 'history', 'contacts', 'testing', 'enhancement', 'documentation', 'jordan-kim', 'pat-lee', 'Sam Rivera', '', '日本'];
+  const names = ['bug', 'sla', 'service', 'sales', 'reporting', 'premium', 'audit', 'history', 'contacts', 'testing', 'enhancement', 'documentation', 'docs', 'jordan-kim', 'pat-lee', 'Sam Rivera', '', '日本'];
   const tints = names.map(tintOf);
   for (const t of tints) assert.ok(Number.isInteger(t) && t >= 1 && t <= TINTS, `tint ${t}`);
   assert.deepEqual(names.map(tintOf), tints, 'the same keys give the same tints again');
   assert.equal(new Set(tints).size, TINTS, `${names.length} names use every one of the ${TINTS} tints`);
+});
+
+/** Labels with no colour of their own, by name. */
+const named = (...names: string[]) => names.map((name) => ({ name, color: null }));
+
+/** Each palette tint that two different names here hold, with the names. */
+function shared(labels: { name: string; color: string | null }[]): string[] {
+  const tints = labelTints(labels);
+  const by = new Map<number, Set<string>>();
+  labels.forEach((l, i) => { const t = tints[i]!; if ('tint' in t) by.set(t.tint, (by.get(t.tint) ?? new Set()).add(l.name.toLowerCase())); });
+  return [...by].filter(([, n]) => n.size > 1).map(([t, n]) => `${t}: ${[...n].join(', ')}`);
+}
+
+const TEN = ['bug', 'sla', 'service', 'sales', 'reporting', 'premium', 'audit', 'history', 'contacts', 'docs'];
+
+test('two different labels on one card or ticket never share a tint while one is free (T-94)', (t) => {
+  // "frontend", "bug" and "data" all pick one tint by name: the first keeps it, the others take the next free.
+  const clash = named('frontend', 'bug', 'data');
+  assert.equal(new Set(clash.map((l) => tintOf(l.name))).size, 1, 'the three names pick one tint by name');
+  assert.deepEqual(labelTints(clash)[0], { tint: tintOf('frontend') }, 'the first keeps its own');
+  assert.deepEqual(shared(clash), []);
+  let checked = 0;
+  for (let n = 1; n <= TINTS; n++) {
+    assert.deepEqual(shared(named(...TEN.slice(0, n))), [], `${n} labels`);
+    checked++;
+  }
+  t.diagnostic(`checked ${checked} sets of labels`);
+  assert.equal(checked, TINTS);
+});
+
+test('edge case: the same name twice keeps one tint, a tracker colour holds none, no labels give no tints, and past eight names a tint is shared', () => {
+  assert.deepEqual(labelTints([]), []);
+  assert.deepEqual(labelTints(named('bug', 'BUG')), [{ tint: tintOf('bug') }, { tint: tintOf('bug') }]);
+  assert.deepEqual(labelTints([{ name: 'bug', color: 'd73a4a' }, { name: 'frontend', color: null }]), [{ colour: 'd73a4a' }, { tint: tintOf('frontend') }]);
+  const nine = labelTints(named(...TEN.slice(0, 9)));
+  assert.equal(new Set(nine.map((x) => ('tint' in x ? x.tint : 0))).size, TINTS, 'nine names use all eight tints');
+  assert.deepEqual(nine[8], { tint: tintOf(TEN[8]!) }, 'the ninth keeps its own, which another holds');
 });
 
 test('a label chip draws its tint: the tracker\'s colour, or its name\'s tint from the palette', async () => {
@@ -160,22 +197,47 @@ async function azureCard(key: string, change: (c: NonNullable<BoardInput['board'
   return trackerCard('/r', b, c) as unknown as PageElement;
 }
 
-test('a card shows three labels and a +N chip naming the rest, on the labels\' own row', async () => {
+/** A card's label chips that show, not the +N, and not one folded into it. */
+const shownLabels = (card: PageElement): PageElement[] => card.all('label').filter((l) => !l.classList.contains('label-more') && !l.hidden);
+
+test('a card with nothing to measure it shows three labels and a +N chip naming the rest, on the labels\' own row', async () => {
   const card = await azureCard('AB-1213');
   const foot = card.all('tcard-foot');
   assert.equal(foot.length, 1);
-  assert.deepEqual(foot[0]!.all('label').filter((l) => !l.classList.contains('label-more')).map((l) => l.textContent), ['service', 'history', 'premium']);
-  assert.deepEqual(foot[0]!.all('label').filter((l) => !l.classList.contains('label-more')).map((l) => l.title), ['service', 'history', 'premium'], 'each whole in its title, as a narrow card cuts it short');
+  assert.deepEqual(shownLabels(foot[0]!).map((l) => l.textContent), ['service', 'history', 'premium']);
+  assert.deepEqual(shownLabels(foot[0]!).map((l) => l.title), ['service', 'history', 'premium'], 'each whole in its title');
   const more = card.all('label-more');
   assert.deepEqual(more.map((m) => [m.textContent, m.title]), [['+2', 'audit, reporting']]);
   assert.equal(foot[0]!.all('tcard-people').length, 0, 'no avatars on the labels\' row, so +2 has the room it needs');
   assert.equal(card.all('tcard-top')[0]!.all('tcard-people').length, 1, 'the person sits in the top row');
 });
 
-test('edge case: a card with exactly three labels has no +N chip', async () => {
+test('edge case: a card with exactly three labels shows no +N chip', async () => {
   const card = await azureCard('AB-1204');
-  assert.equal(card.all('label').length, 3);
-  assert.equal(card.all('label-more').length, 0);
+  assert.equal(shownLabels(card).length, 3);
+  assert.deepEqual(card.all('label-more').map((m) => [m.hidden, m.textContent, m.title]), [[true, '', '']]);
+});
+
+test('labelChips draws each label with the tint labelTints gives it, and a tracker\'s own colour as it is (T-94)', async () => {
+  const { labelChips } = await page();
+  const labels = [...named('frontend', 'bug'), { name: 'docs', color: '0e8a16' }];
+  const chips = labelChips(labels) as unknown as PageElement[];
+  assert.deepEqual(chips.map((c) => c.textContent), ['frontend', 'bug', 'docs']);
+  assert.deepEqual(chips.map(tint), labelTints(labels).map((t) => ('colour' in t ? `#${t.colour}` : `var(--tint-${t.tint})`)));
+  assert.notEqual(tint(chips[0]!), tint(chips[1]!), 'two names that pick one tint take two');
+  assert.deepEqual(labelChips([]), [], 'edge case: no labels, no chips');
+});
+
+test('a card\'s and a ticket\'s label chips each take a different tint, where their names pick one (T-94)', async () => {
+  const five = await azureCard('AB-1213', (c) => { c.labels = named('frontend', 'bug', 'data', 'api', 'backend'); });
+  const tints = five.all('label').filter((l) => !l.classList.contains('label-more')).map(tint);
+  assert.equal(new Set(tints).size, 5, `a card's five labels: ${tints.join(' ')}`);
+  const { renderTicket } = await page();
+  const ticket = (renderTicket({ ...sampleTrackerTicket(Date.now(), 'azure'), labels: named('frontend', 'bug', 'data') }) as unknown as PageElement[]).flatMap((n) => n.all('label')).map(tint);
+  assert.equal(new Set(ticket).size, 3, `a ticket's three labels: ${ticket.join(' ')}`);
+  // The Jira sample's service and sla, which shared a tint among five (T-91), differ on their card.
+  const jira = (sampleTicket(Date.now(), 'ACME-31').labels).filter((l) => ['service', 'sla'].includes(l.name));
+  assert.equal(new Set(labelTints(jira).map((x) => JSON.stringify(x))).size, jira.length);
 });
 
 test('edge case: a card shows at most three avatars, beside its priority in the top row', async () => {

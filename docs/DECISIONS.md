@@ -8563,3 +8563,31 @@ no priority or person beside its title. T-91 draws the fields D-185 fills, with 
 
 The ticket header isn't sticky, so it needs no translucent material. Tested in
 `extension/test/ticket-look.test.ts` (14 tests) and two more in `extension/test/looks.test.ts`.
+
+**Note (2026-10-21, T-94): the polish T-91's builder named.** What T-91 drew now reads as it meant to:
+
+- **A narrow card shows whole labels.** A card's labels row shows as many labels as fit whole, at least one,
+  and folds the rest into +N, which names each in its title (`extension/webview/fit-labels.ts`). It fits just
+  after it is drawn and again when its width changes. "Up to three label chips" above now holds only where
+  nothing measures the card, as in a test's small document.
+- **Eight tints, and none shared on one card.** The palette is `--tint-1` to `--tint-8`: the five above, then
+  the git extension's `gitDecoration.modifiedResourceForeground` (tan), and the registry's
+  `debugTokenExpression.boolean` and `.name`. None is red, green or orange. `labelTints` gives one card's or
+  one ticket's labels different tints while a tint is free. `looks.test.ts` checks that the text on a chip
+  and on an avatar keeps AA contrast on each surface in both palettes, and that every two tints are at least
+  15 ΔE apart. That check found the git extension's submodule blue 4.8 ΔE from `ansiBlue` in Light, so it is
+  not in the palette.
+- **Details' names sit on the first line of their value.** `.fields` centred each row, and it outranked
+  Details' own alignment. Details now names both classes, and a name takes its text's baseline, not its icon's.
+- **The facts come first on a narrow page.** At 760 px and below, the order is: why it's stuck and the
+  analysis, the description and what sits under it, then Details and the Agent panel, then Related and
+  Activity. This replaces T-41's order, where the Agent panel came first and Details came last.
+- **One state chip in two more places.** The Agent panel's State and Session, and an agent board card's
+  agent and analysis states, are drawn as the state chip.
+
+Read in the shots at 1000, 620 and 500 px, in both themes: the Azure board's AB-1213 shows "service",
+"history" and "+3", all whole, at 500 and at 1000 px, where its lane is about 265 px wide. On the GitHub,
+Azure DevOps and Jira ticket pages at 620 and 500 px, Details follows the description and comes before
+Related and Activity. In Light, `premium` and `service` are now two blues that are easy to tell apart. The
+Claude Code isn't found page (`ticket-missing`) wraps its long state chip inside the Agent panel at 500 px.
+The screenshot run passed with no findings: 708 drawings, 56 behaviour cases and 100 mutants, all caught.

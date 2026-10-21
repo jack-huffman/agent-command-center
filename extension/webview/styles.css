@@ -30,6 +30,9 @@
   --tint-3: var(--vscode-charts-yellow);
   --tint-4: var(--vscode-terminal-ansiMagenta);
   --tint-5: var(--vscode-terminal-ansiBlue);
+  --tint-6: var(--vscode-gitDecoration-modifiedResourceForeground);
+  --tint-7: var(--vscode-debugTokenExpression-boolean);
+  --tint-8: var(--vscode-debugTokenExpression-name);
 }
 
 /*

@@ -18,7 +18,7 @@ import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
 import { accImport, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
 import { inProcessWords } from './logic/processes.ts';
-import { signInName } from './logic/sign-in-name.ts';
+import { credWho, signedInWho } from './logic/sign-in-name.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
 import { stateOf } from './logic/shared.ts';
@@ -85,10 +85,6 @@ type SlackCred = { kind: 'slack'; method: 'token'; token: string };
 type Cred = JiraCred | AzureCred | MondayCred | SlackCred;
 
 const hostOf = trackerHost;
-
-/** Who a sign-in acts as: the Jira email, the Microsoft account, or a token. */
-const credWho = (c: Cred): string => (c.kind === 'jira' ? c.email : c.kind === 'monday' ? 'a personal API token' : c.kind === 'slack' ? 'a Slack app\'s bot token'
-  : c.method === 'microsoft' ? c.account.label : 'a personal access token');
 
 /**
  * The trackers each repo names in .acc/config.json, with their clients and boards. A sign-in is a repo's
@@ -202,8 +198,7 @@ export class Trackers implements vscode.Disposable {
     if (!c) return null;
     // A Slack reply posts as the app, so it says the app's name, as the Connect page does; an Azure DevOps sign-in says the
     // person's name (T-90). A client that can't say leaves the sign-in's own words.
-    const named = await signInName(t.kind, () => this.client(p, index));
-    return { who: named ?? credWho(c.cred), scope: { shared: c.shared, host: hostOf(t) } };
+    return { who: await signedInWho(t.kind, c.cred, () => this.client(p, index)), scope: { shared: c.shared, host: hostOf(t) } };
   }
 
   /** The trackers this repo names but hasn't signed in to yet. GitHub signs in through gh, so it's never listed. */

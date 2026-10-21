@@ -47,15 +47,18 @@ body[data-view="ticket"] { padding-top: 18px; }
   .ticket-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; gap: 24px; }
   .ticket-top, .ticket-main, .ticket-side { grid-column: 1; grid-row: auto; }
   .ticket-top { margin-bottom: 0; }
-  /* One column, in the order a person needs it: the Agent panel (what waits on them), the conflict and
-     analysis, the main column, then Details last. The side column's panels join the grid as its items. */
-  .ticket-side { display: contents; }
-  /* The grid's gap spaces the panels. The base rule for a panel after a panel comes later in this file, so this names the grid to win: without it, the Agent panel, second in the DOM, kept 14px above it (T-47). */
+  /* One column, facts first (T-94): the conflict and analysis, the description and what sits under it, then
+     Details and the Agent panel, then Related and Activity. Both columns' sections join the grid as its items. */
+  .ticket-side, .ticket-main { display: contents; }
+  .ticket-main > *, .ticket-side > * { min-width: 0; }
+  /* The grid's gap spaces the sections, so a section keeps no margin of its own under it. */
+  .ticket-main > section.block { margin-bottom: 0; }
+  /* The base rule for a panel after a panel comes later in this file, so this names the grid to win: without it, the Agent panel, second in the DOM, kept 14px above it (T-47). */
   .ticket-grid .side-panel + .side-panel { margin-top: 0; }
   .ticket-grid .side-details + .side-panel { margin-top: 0; }
-  .side-agent { order: -2; }
   .ticket-top { order: -1; }
-  .side-details { order: 1; }
+  .side-details, .side-panel { order: 1; }
+  .related-block, .activity { order: 2; }
 }
 .ticket-main h2, .side-panel h2, .side-details h2, .analysis h2 { font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
 .ticket-main h3 { font-size: 0.95em; margin: 18px 0 8px; color: var(--vscode-foreground); }
@@ -65,20 +68,25 @@ body[data-view="ticket"] { padding-top: 18px; }
 .side-details { padding: 0 0 var(--space-4); }
 .side-details > h2 { margin: 0 0 var(--space-3); }
 .side-details + .side-panel { margin-top: var(--space-2); }
-.details-list { gap: var(--space-3) var(--space-4); align-items: baseline; }
-.details-list dt { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
-.details-list dt .codicon { color: var(--vscode-descriptionForeground); }
+/* A name sits on the first line of its value (T-94), however many lines the value takes. Two classes, so the
+   list of fields' centring below, at one class, can't win over it. */
+.fields.details-list { gap: var(--space-3) var(--space-4); align-items: first baseline; }
+/* A plain line, so its baseline is its name's, not its icon's: the icon sits inline, centred on the text. */
+.details-list dt { display: block; white-space: nowrap; }
+.details-list dt .codicon { color: var(--vscode-descriptionForeground); vertical-align: middle; margin-right: var(--space-2); }
 .details-list dd { align-items: center; }
 .side-panel.attention { border-left: 3px solid var(--orange); }
 .fields { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px 12px; margin: 0; align-items: center; }
 .fields dt { color: var(--vscode-descriptionForeground); font-size: 0.93em; }
 .fields dd { margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-/* A long state, such as an analysis's questions, wraps inside the panel. */
-.fields dd .status { white-space: normal; align-items: flex-start; }
+/* A long state, such as an analysis's questions, wraps inside the panel: a state chip too (T-94), squarer as it wraps. */
+.fields dd .status, .fields dd .state-chip { white-space: normal; align-items: flex-start; }
+.fields dd .state-chip { overflow-wrap: anywhere; border-radius: var(--radius-m); padding: 0.125rem var(--space-2); }
 .fields dd .status .codicon { margin-top: 2px; flex: none; }
+.fields dd .state-chip .codicon { margin-top: 0.15rem; flex: none; }
 /* Its label stays beside the first line, as a stopped agent's last words can run long (D-067), and so
    can an agent's name (D-087). */
-.fields dt:has(+ dd > .status), .fields dt:has(+ dd > .agent-name) { align-self: start; padding-top: 1px; }
+.fields dt:has(+ dd > .status), .fields dt:has(+ dd > .state-chip), .fields dt:has(+ dd > .agent-name) { align-self: start; padding-top: 1px; }
 .people { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
 .clip-inline { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; display: inline-block; }
 .checks { margin-top: 12px; }

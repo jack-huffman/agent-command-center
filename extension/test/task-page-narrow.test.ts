@@ -6,12 +6,37 @@ import { pageSource } from './support.ts';
 
 const css = styleFile('task-page.css');
 const narrow = css.slice(css.indexOf('@media (max-width: 760px)'), css.indexOf('.ticket-main h2'));
-const order = (sel: string) => Number(new RegExp(`${sel.replace('.', '\\.')} \\{ order: (-?\\d+); \\}`).exec(narrow)?.[1]);
 
-test('at 760 px and below the Agent panel comes first, then the conflict and analysis, the main column, and Details last', () => {
-  assert.ok(narrow.includes('.ticket-side { display: contents; }'), 'the side column\'s panels order with the rest');
-  const [agent, top, details] = [order('.side-agent'), order('.ticket-top'), order('.side-details')];
-  assert.ok(agent < top && top < 0 && 0 < details, `agent ${agent}, top ${top}, main 0, details ${details}`);
+/** The order a rule in the narrow block gives a selector, where it is one of a list such as `.a, .b { order: 1; }`. */
+const orderOf = (sel: string): number => {
+  for (const m of narrow.matchAll(/([^{}]+)\{ order: (-?\d+); \}/g)) if (m[1]!.split(',').map((s) => s.trim()).includes(sel)) return Number(m[2]);
+  return 0;
+};
+
+test('at 760 px and below the facts come first: the conflict and analysis, the description, then Details and the Agent panel, then Related and Activity (T-94)', () => {
+  assert.ok(narrow.includes('.ticket-side, .ticket-main { display: contents; }'), 'both columns\' sections order with the rest');
+  const [top, details, agent, related, activity] = ['.ticket-top', '.side-details', '.side-panel', '.related-block', '.activity'].map(orderOf);
+  assert.ok(top! < 0, `top ${top}, before the description's 0`);
+  assert.ok(details! > 0 && agent === details, `Details ${details} and the Agent panel ${agent} after the description`);
+  assert.ok(related! > details! && activity! > details!, `Related ${related} and Activity ${activity} after Details`);
+  // The page draws the classes the order names, so a renamed class can't drop a section back to 0.
+  const src = pageSource('task-page.ts');
+  for (const c of ['block related-block', 'block activity', 'side-details', 'side-panel side-agent']) assert.ok(src.includes(`'${c}`) || src.includes(`\`${c}`), c);
+});
+
+test('Details\' names sit on the first line of their value, a rule the list of fields\' centring can\'t outrank (T-94)', () => {
+  // `.fields` centres a name against its value, at one class; Details names two, so its own alignment wins.
+  const rule = (sel: string) => new RegExp(`(^|\\n)${sel.replace(/\./g, '\\.')} \\{[^}]*\\}`).exec(css)?.[0] ?? '';
+  assert.match(rule('.fields'), /align-items: center/, 'the list of fields centres');
+  assert.match(rule('.fields.details-list'), /align-items: (first )?baseline|align-items: start/, 'Details top-aligns');
+  // Edge case: a one-class `.details-list` alignment would lose to `.fields`, which comes later at the same weight.
+  assert.ok(!/align-items/.test(rule('.details-list')), 'no one-class Details alignment for `.fields` to beat');
+});
+
+test('edge case: the order check reads a rule naming one selector, or several, and gives 0 to one never named', () => {
+  assert.equal(orderOf('.ticket-top'), -1);
+  assert.equal(orderOf('.activity'), orderOf('.related-block'));
+  assert.equal(orderOf('.description-nobody-orders'), 0);
 });
 
 test('the page draws its status once, as the tracker writes it, as the state chip, and Details has no Status row', () => {

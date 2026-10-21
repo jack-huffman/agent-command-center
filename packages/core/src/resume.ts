@@ -61,18 +61,24 @@ export function endResume(paths: Pick<RepoPaths, 'stateDir'>, id: string): boole
   return true;
 }
 
-/** Claude Code's sessions, or null when `claude agents` didn't answer: then nobody can tell what stopped. */
-export function listSessions(run: Runner, cwd: string): ClaudeSession[] | null {
+/**
+ * What `claude agents` answered (T-94): Claude Code's sessions, or null when it didn't answer; and whether
+ * there is no `claude` to ask at all, exit 127 that isn't a timeout, as the Command Center reads it (T-93).
+ */
+export function askAgents(run: Runner, cwd: string): { sessions: ClaudeSession[] | null; missing: boolean } {
   const r = run('claude', ['agents', '--json'], { cwd, timeoutMs: 20_000 });
   // Its service's socket missing is no answer, whatever it printed (T-92).
-  if (r.code !== 0 || SERVICE_DOWN.test(r.stderr ?? '')) return null;
+  if (r.code !== 0 || SERVICE_DOWN.test(r.stderr ?? '')) return { sessions: null, missing: r.code === 127 && !r.timedOut };
   try {
     const list = parseJsonOutput<unknown>(r.stdout);
-    return Array.isArray(list) ? (list as ClaudeSession[]) : null;
+    return { sessions: Array.isArray(list) ? (list as ClaudeSession[]) : null, missing: false };
   } catch {
-    return null;
+    return { sessions: null, missing: false };
   }
 }
+
+/** Claude Code's sessions, or null when `claude agents` didn't answer: then nobody can tell what stopped. */
+export const listSessions = (run: Runner, cwd: string): ClaudeSession[] | null => askAgents(run, cwd).sessions;
 
 /** The last thing an agent said, short enough for a card, a notice or an event. */
 export const clipSaid = (said: string, max = 300): string => {

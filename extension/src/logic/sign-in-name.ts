@@ -29,3 +29,18 @@ export async function signInName(kind: TrackerKind, client: () => Promise<{ me()
   }
   return name;
 }
+
+/** A sign-in as credWho reads it: the Jira email, the Microsoft account's label, or which kind of token. */
+export type SignInCred = { kind: 'jira'; email: string } | { kind: 'monday' } | { kind: 'slack' } | { kind: 'azure'; method: 'microsoft'; account: { label: string } } | { kind: 'azure'; method: 'pat' };
+
+/** Who a sign-in acts as, in its own words: the Jira email, the Microsoft account, or a token (T-90). */
+export const credWho = (c: SignInCred): string => (c.kind === 'jira' ? c.email : c.kind === 'monday' ? 'a personal API token' : c.kind === 'slack' ? 'a Slack app\'s bot token'
+  : c.method === 'microsoft' ? c.account.label : 'a personal access token');
+
+/**
+ * What Commenting as says (T-94): the name the tracker's client gives the sign-in, or, where it gives none or
+ * its me() fails, the sign-in's own words, such as "a personal access token" for an Azure DevOps token.
+ */
+export async function signedInWho(kind: TrackerKind, cred: SignInCred, client: () => Promise<{ me(): Promise<Person> }>): Promise<string> {
+  return (await signInName(kind, client)) ?? credWho(cred);
+}

@@ -1590,6 +1590,38 @@ export const CASES: Case[] = [
       t.check('the board is not made a group for that line', board.getAttribute('role') !== 'group', board.getAttribute('role'));
     },
   },
+  {
+    name: 'narrow card: a card of five labels shows as many as fit whole, at least one, and +N names the rest in its title (T-94)',
+    page: 'tasks',
+    async run(t) {
+      const model = structuredClone(t.model) as typeof t.model;
+      if (model.kind !== 'home') throw new Error('The narrow card case needs a home model.');
+      const names = ['service', 'history', 'premium', 'audit', 'reporting'];
+      const card = model.tasks.projects.flatMap((p) => p.boards).flatMap((b) => b.columns).flatMap((c) => c.cards)[0];
+      if (!card) throw new Error('not found: a tracker\'s card on the Tasks board');
+      card.labels = names.map((name) => ({ name, color: null }));
+      // The card's width is set before each draw, as a narrow page's lane sets it, and the page draws it again.
+      const sized = document.head.appendChild(document.createElement('style'));
+      const draw = async (width: number) => {
+        sized.textContent = `article.tcard[data-key="${CSS.escape(card.key)}"] { width: ${width}px; }`;
+        await t.post({ type: 'state', model });
+        const row = t.find(`article.tcard[data-key="${CSS.escape(card.key)}"] .tcard-foot .labels`);
+        return { row, shown: t.all('.label:not(.label-more)', row).filter((c) => !c.hidden), more: t.find('.label-more', row) };
+      };
+      const whole = (c: HTMLElement) => { const n = c.querySelector<HTMLElement>('.label-name')!; return n.scrollWidth <= n.clientWidth; };
+      for (const width of [150, 190, 240]) {
+        const { row, shown: s, more: m } = await draw(width);
+        t.check(`at ${width}px it shows at least one label and fewer than five`, s.length >= 1 && s.length < names.length, s.length);
+        t.check(`at ${width}px each label it shows is whole`, s.every(whole), s.map((c) => c.textContent));
+        t.check(`at ${width}px +N counts the rest and names each in its title`, !m.hidden && m.textContent === `+${names.length - s.length}` && m.title === names.slice(s.length).join(', '), [m.textContent, m.title]);
+        t.check(`at ${width}px the row holds them and the +N without spilling over`, row.scrollWidth <= row.clientWidth + 1, [row.scrollWidth, row.clientWidth]);
+      }
+      // Edge case: a card that grows again shows every label, and no +N.
+      const wide = await draw(640);
+      t.check('a wide card shows all five whole, and no +N', wide.shown.length === names.length && wide.shown.every(whole) && wide.more.hidden === true, wide.shown.length);
+      sized.remove();
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -1702,6 +1734,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'the sheet dispatches with no model name', file: 'dispatch-sheet.ts', find: "const goOff = (): string | null => (modelName() === null ?", replace: "const goOff = (): string | null => (modelName() === undefined ?", kills: [caseNamed('dispatch sheet: Another model')] },
   { name: 'the sheet leaves out why the cloud is off', file: 'dispatch-sheet.ts', find: "off ? el('p', 'ds-note muted', icon('info'), el('span', '', off.disabled!)) : null", replace: 'null', kills: [caseNamed('dispatch sheet: the task page')] },
   { name: 'a redraw drops the focused card\'s focus', file: 'board-nav.ts', find: 'if (again) focusOf(again).focus({ preventScroll: true });', replace: '', kills: [caseNamed('board keys: focus stays')] },
+  { name: 'a card shows every label, cut short, whatever its width', file: 'fit-labels.ts', find: 'show(chips, more, names, labelsThatFit(widths, room, gap, plus));', replace: 'show(chips, more, names, chips.length);', kills: [caseNamed('narrow card:')] },
+  { name: 'a card never measures its labels', file: 'fit-labels.ts', find: '  setTimeout(fit, 0);\n  new ResizeObserver(fit).observe(row);\n', replace: '', kills: [caseNamed('narrow card:')] },
 ];
 
 /** How many times `find` is in `source`: a mutant applies only where it's there exactly once. */

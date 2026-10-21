@@ -122,6 +122,9 @@ export const UNSEEN_WORDS: Record<Unseen, { label: string; line: string; wayOn: 
   },
 };
 
+/** Why Dispatch again can't start a builder with no `claude` (T-93, T-94): the Command Center's words and acc's alike. */
+export const MISSING_WORDS = `${UNSEEN_WORDS.missing.line}, and ${DISPATCH_AGAIN} needs it to start another. ${UNSEEN_WORDS.missing.wayOn}`;
+
 /** Where acc keeps since when `claude agents` hasn't answered, so one look after another can tell how long. */
 const silenceFile = (paths: Pick<RepoPaths, 'stateDir'>): string => join(paths.stateDir, 'agents-silent.json');
 

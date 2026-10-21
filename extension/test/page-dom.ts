@@ -21,6 +21,7 @@ export class PageElement {
   type = '';
   title = '';
   disabled = false;
+  hidden = false;
   tabIndex = -1;
   /** Its classes, read from and written to className, as a browser's classList is. */
   readonly classList = {
@@ -38,6 +39,7 @@ export class PageElement {
   replaceChildren(...nodes: (PageElement | string)[]): void { this.children.splice(0, this.children.length, ...nodes); }
   setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
+  removeAttribute(name: string): void { this.attributes.delete(name); }
   addEventListener(type: string, f: (e: unknown) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), f]); }
   /** Runs its listeners for a click, as a person's click does: a button's stops it going further. */
   click(): void { if (!this.disabled) for (const f of this.listeners.get('click') ?? []) f({ type: 'click', stopPropagation: () => undefined }); }

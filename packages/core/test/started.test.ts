@@ -1,7 +1,7 @@
 // A builder that never started (T-92): the dispatch proves it started, or leaves the task at Needs you and
 // stops what half-started; "can't tell" is a state of its own; Dispatch again; and stale sessions don't count.
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { AGAIN_REASON, againRefusal, dispatchAgain } from '../src/again.ts';
@@ -11,8 +11,8 @@ import { dispatch, findSession } from '../src/dispatch.ts';
 import { run, type RunResult } from '../src/exec.ts';
 import { builderStopped, displayState, mutate, readLedger, RUN_SLACK_MS, sessionsOf, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { listSessions } from '../src/resume.ts';
-import { awaitStart, builderUnseen, DISPATCH_AGAIN, noteAnswer, NOT_STARTED, quietMs, SERVICE_DOWN, START_WAIT_MS, transcriptWrittenAt, UNSEEN_WORDS } from '../src/started.ts';
+import { askAgents, listSessions } from '../src/resume.ts';
+import { awaitStart, builderUnseen, DISPATCH_AGAIN, MISSING_WORDS, noteAnswer, NOT_STARTED, quietMs, SERVICE_DOWN, START_WAIT_MS, transcriptWrittenAt, UNSEEN_WORDS } from '../src/started.ts';
 import { transcriptDir } from '../src/transcript.ts';
 import { runWrittenAt, unseenFrom, unseenNow, unseenOf } from '../src/unseen.ts';
 import { acc, fakeClaude, IGNORE, trustingHome } from './dispatch-support.ts';
@@ -321,4 +321,63 @@ test('findSession and sessionsOf both drop a same-named session with no start ti
   const task = { id: 'T-1', run: { name, startedAt: new Date().toISOString() } as never };
   assert.deepEqual(sessionsOf(task, listed as never).map((x) => x.id), ['new']);
   assert.deepEqual(sessionsOf({ id: 'T-1', run: { name } as never }, listed as never).map((x) => x.id), ['old', 'new'], 'edge: a run with no start time keeps both');
+});
+
+// ---------------------------------------------------------------- no claude at all (T-94)
+
+test('askAgents: exit 127 is no claude, a timeout or another failure is only no answer, and an answer lists the sessions (T-94)', () => {
+  assert.deepEqual(askAgents(fakeRunner({}), '/'), { sessions: null, missing: true }, 'no claude: the runner\'s 127');
+  assert.deepEqual(askAgents(fakeRunner({ 'claude agents --json': { code: 127, stdout: '', stderr: 'stopped', timedOut: true } }), '/'), { sessions: null, missing: false }, 'edge: a timeout is no answer, not a missing claude');
+  assert.deepEqual(askAgents(fakeRunner({ 'claude agents --json': bad('connect ENOENT control.sock') }), '/'), { sessions: null, missing: false });
+  assert.deepEqual(askAgents(fakeRunner({ 'claude agents --json': ok('[]') }), '/'), { sessions: [], missing: false });
+  assert.deepEqual(askAgents(fakeRunner({ 'claude agents --json': ok('not json') }), '/'), { sessions: null, missing: false }, 'edge: an answer it can\'t read');
+});
+
+test('unseenNow judges from sessions it is given, asking claude nothing, and unseenOf says missing with no claude (T-94)', () => {
+  const s = setup(launchedSessions);
+  s.go();
+  const t0 = s.task();
+  const started = Date.parse(t0.run!.startedAt!);
+  const later = (min: number) => () => new Date(started + min * 60_000);
+  const calls: string[] = [];
+  const counting = fakeRunner({}, calls);
+  assert.equal(unseenNow(s.paths, s.config, t0, { ...s.deps, run: counting, now: later(30) }, null, []), null, 'given an answer, it is seen');
+  unseenNow(s.paths, s.config, t0, { ...s.deps, run: counting, now: later(31) }, null, null);
+  assert.equal(unseenNow(s.paths, s.config, t0, { ...s.deps, run: counting, now: later(50) }, null, null), 'unanswered', 'given no answer, past the grace');
+  assert.deepEqual(calls, [], 'claude was never asked');
+  assert.equal(unseenOf(s.paths, s.config, 'T-1', { ...s.deps, run: fakeRunner({}), now: later(51) }), 'missing');
+  // Edge cases: a task Dispatch again wouldn't start a builder for here asks nothing.
+  const asked: string[] = [];
+  mutate(s.paths, () => new Date(), (l, emit) => { l.tasks[0]!.run!.where = 'cloud'; emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'human:test', data: {} }); });
+  assert.equal(unseenOf(s.paths, s.config, 'T-1', { ...s.deps, run: fakeRunner({}, asked) }), null, 'a cloud builder');
+  assert.equal(unseenOf(s.paths, s.config, 'T-9', { ...s.deps, run: fakeRunner({}, asked) }), null, 'no such task');
+  assert.deepEqual(asked, []);
+});
+
+test('Dispatch again with no claude is refused in the Command Center\'s words, for a running task and one that didn\'t start, and stops nothing (T-94)', () => {
+  const s = setup(launchedSessions);
+  s.go();
+  const before = s.task();
+  assert.match(MISSING_WORDS, /^Claude Code isn't on this Mac's path, so acc can't see this builder, and Dispatch again needs it to start another\. Install Claude Code/);
+  assert.throws(() => dispatchAgain(s.paths, s.config, 'T-1', s.deps, { actor: 'human', by: 'human:test', unseen: 'missing' }), (e: Error) => e.message === MISSING_WORDS);
+  assert.ok(!s.calls.some((c) => c.startsWith('claude stop')), 'nothing is stopped');
+  assert.equal(s.task().history.length, before.history.length, 'and nothing is recorded');
+  mutate(s.paths, () => new Date(), (l, emit) => { const t = l.tasks[0]!; t.state = 'todo'; t.notStarted = { at: new Date().toISOString(), by: 'human:test', reason: NOT_STARTED, where: 'local' }; emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'human:test', data: {} }); });
+  assert.equal(unseenOf(s.paths, s.config, 'T-1', { ...s.deps, run: fakeRunner({}) }), 'missing', 'a builder that didn\'t start asks too');
+  assert.throws(() => dispatchAgain(s.paths, s.config, 'T-1', s.deps, { actor: 'human', by: 'human:test', unseen: 'missing' }), (e: Error) => e.message === MISSING_WORDS);
+});
+
+test('acc dispatch --again with no claude on the path refuses with the missing words (T-94)', () => {
+  const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
+  const claude = fakeClaude();
+  const home = trustingHome(repo);
+  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: home, CLAUDE_CONFIG_DIR: home };
+  assert.equal(acc(repo, ['add', 'Write the changelog'], env).code, 0);
+  assert.equal(acc(repo, ['dispatch', 'T-1'], env).code, 0);
+  // The path without any claude: the stand-in's folder and every folder that holds one are left out.
+  const bare = (process.env.PATH ?? '').split(':').filter((d) => d && !existsSync(join(d, 'claude'))).join(':');
+  const r = acc(repo, ['dispatch', 'T-1', '--again'], { ...env, PATH: bare });
+  assert.notEqual(r.code, 0);
+  assert.ok(r.err.includes(MISSING_WORDS), r.err);
+  assert.equal(readLedger(repoPaths(repo, run).ledger).tasks[0]!.state, 'running', 'it stays running');
 });

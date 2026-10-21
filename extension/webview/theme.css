@@ -12,10 +12,11 @@
    light_modern.json, and the colour registry's defaults in out/vs/workbench/workbench.desktop.main.js where
    those themes leave one unset. A newer VSCode may read more: check again on an upgrade.
 
-   The last five of each, the label and avatar tints (T-91), are the colour registry's defaults, which Dark
-   Modern and Light Modern leave unset, copied from VSCode 1.143.0's out/vs/workbench/workbench.desktop.main.js
-   on 2026-10-21 (D-098): charts.purple, charts.yellow (editorWarning.foreground's), and terminal.ansiCyan,
-   ansiMagenta and ansiBlue. */
+   The last eight of each, the label and avatar tints (T-91, T-94), are defaults that Dark Modern and Light
+   Modern leave unset, copied from VSCode 1.143.0 on 2026-10-21 (D-098). The colour registry's, in
+   out/vs/workbench/workbench.desktop.main.js: charts.purple, charts.yellow (editorWarning.foreground's),
+   terminal.ansiCyan, ansiMagenta and ansiBlue, and debugTokenExpression.name and .boolean. The git
+   extension's, in extensions/git/package.json: gitDecoration.modifiedResourceForeground. */
 
 html[data-theme="dark"] {
   color-scheme: dark;
@@ -76,6 +77,9 @@ html[data-theme="dark"] {
   --vscode-terminal-ansiCyan: #11a8cd !important;
   --vscode-terminal-ansiMagenta: #bc3fbc !important;
   --vscode-terminal-ansiBlue: #2472c8 !important;
+  --vscode-gitDecoration-modifiedResourceForeground: #e2c08d !important;
+  --vscode-debugTokenExpression-boolean: #4e94ce !important;
+  --vscode-debugTokenExpression-name: #c586c0 !important;
 }
 
 html[data-theme="light"] {
@@ -137,4 +141,7 @@ html[data-theme="light"] {
   --vscode-terminal-ansiCyan: #0598bc !important;
   --vscode-terminal-ansiMagenta: #bc05bc !important;
   --vscode-terminal-ansiBlue: #0451a5 !important;
+  --vscode-gitDecoration-modifiedResourceForeground: #895503 !important;
+  --vscode-debugTokenExpression-boolean: #0000ff !important;
+  --vscode-debugTokenExpression-name: #9b46b0 !important;
 }

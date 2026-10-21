@@ -469,6 +469,85 @@ test('the label and avatar tints are each a colour in both palettes, and none is
   assert.equal(read, TINTS * PALETTE_THEMES.length);
 });
 
+/** A hex colour as its red, green and blue, 0 to 255. */
+const rgbOf = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+/** WCAG's contrast ratio of two colours given as red, green and blue. */
+function contrast(a: number[], b: number[]): number {
+  const lum = (c: number[]) => {
+    const [r, g, bl] = c.map((v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi! + 0.05) / (lo! + 0.05);
+}
+
+test('edge case: the contrast ratio is 21 for black on white, 1 for a colour on itself, and the same either way round', () => {
+  assert.equal(contrast([0, 0, 0], [255, 255, 255]), 21);
+  assert.equal(contrast(rgbOf('#1f1f1f'), rgbOf('#1f1f1f')), 1);
+  assert.equal(contrast(rgbOf('#cccccc'), rgbOf('#1f1f1f')), contrast(rgbOf('#1f1f1f'), rgbOf('#cccccc')));
+});
+
+/** How far apart two colours look: CIE76's ΔE, the distance between them in CIELAB. Under 10 or so reads as one colour. */
+function deltaE(a: number[], b: number[]): number {
+  const lab = (c: number[]) => {
+    const [r, g, bl] = c.map((v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }) as [number, number, number];
+    const f = (v: number) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116);
+    const [x, y, z] = [(r * 0.4124 + g * 0.3576 + bl * 0.1805) / 0.95047, r * 0.2126 + g * 0.7152 + bl * 0.0722, (r * 0.0193 + g * 0.1192 + bl * 0.9505) / 1.08883];
+    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+  };
+  const [p, q] = [lab(a), lab(b)];
+  return Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!, p[2]! - q[2]!);
+}
+
+test('edge case: ΔE is 0 for a colour and itself, and far apart for black and white', () => {
+  assert.equal(deltaE(rgbOf('#0451a5'), rgbOf('#0451a5')), 0);
+  assert.ok(deltaE([0, 0, 0], [255, 255, 255]) > 99);
+  assert.ok(deltaE(rgbOf('#0451a5'), rgbOf('#1258a7')) < 10, 'the two blues T-94 found reading as one');
+});
+
+test('no two tints read as one colour in either palette: each pair is at least 15 ΔE apart (T-94)', (t) => {
+  const colour = (v: string, theme: PaletteTheme) => rgbOf(colourTokens(resolve(`var(${v})`, theme))[0]!);
+  const close: string[] = [];
+  let pairs = 0;
+  for (const theme of PALETTE_THEMES) {
+    for (let a = 1; a <= TINTS; a++) {
+      for (let b = a + 1; b <= TINTS; b++) {
+        const d = deltaE(colour(`--tint-${a}`, theme), colour(`--tint-${b}`, theme));
+        pairs++;
+        if (d < 15) close.push(`--tint-${a} and --tint-${b} in ${theme}: ${d.toFixed(1)}`);
+      }
+    }
+  }
+  assert.deepEqual(close, []);
+  t.diagnostic(`compared ${pairs} pairs`);
+  assert.equal(pairs, (TINTS * (TINTS - 1)) / 2 * PALETTE_THEMES.length);
+});
+
+test('every tint keeps the text on a label chip and an avatar at AA contrast, on each surface in both palettes (T-94)', (t) => {
+  // A chip mixes 14% of its tint into the surface under it, an avatar 32%; both draw the theme's text on top.
+  const mix = (tint: number[], under: number[], part: number) => tint.map((v, i) => v * part + under[i]! * (1 - part));
+  const colour = (v: string, theme: PaletteTheme) => rgbOf(colourTokens(resolve(`var(${v})`, theme))[0]!);
+  const low: string[] = [];
+  let read = 0;
+  for (const theme of PALETTE_THEMES) {
+    const text = colour('--vscode-foreground', theme);
+    for (let n = 1; n <= TINTS; n++) {
+      const tint = colour(`--tint-${n}`, theme);
+      for (const surface of ['--vscode-editor-background', '--vscode-sideBar-background', '--vscode-editorWidget-background']) {
+        for (const part of [0.14, 0.32]) {
+          const ratio = contrast(text, mix(tint, colour(surface, theme), part));
+          read++;
+          if (ratio < 4.5) low.push(`--tint-${n} at ${part * 100}% on ${surface} in ${theme}: ${ratio.toFixed(2)}:1`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(low, []);
+  t.diagnostic(`checked ${read} fills`);
+  assert.equal(read, TINTS * PALETTE_THEMES.length * 6);
+});
+
 test('the page draws each state with the one state chip: a ticket\'s page, its related rows, every board\'s columns and a card\'s state (T-91)', () => {
   const page = readFileSync(join(repo, 'extension', 'webview', 'task-page.ts'), 'utf8');
   const tasks = readFileSync(join(repo, 'extension', 'webview', 'tasks.ts'), 'utf8');
@@ -477,6 +556,10 @@ test('the page draws each state with the one state chip: a ticket\'s page, its r
   assert.ok(tasks.includes("el('h2', 'column-head', stateChip({ label: c.name"), 'a tracker board\'s columns');
   assert.ok(tasks.includes("el('h2', 'column-head', stateChip(c)"), 'the agent board\'s columns');
   assert.ok(tasks.includes('stateChip(c.acc.look)'), 'acc\'s state on a tracker\'s card');
+  // T-94: the Agent panel's State and Session, and the agent board's cards' agent and analysis.
+  assert.ok(page.includes("field('State', stateChip(a.look))") && page.includes("field('Session', stateChip(a.agent))"), 'the Agent panel\'s states');
+  assert.ok(tasks.includes('stateChip(card.agent)') && tasks.includes('stateChip(card.analysis)'), 'an agent board card\'s states');
+  assert.ok(!/status\((?:a\.look|a\.agent|card\.agent|card\.analysis)\)/.test(page + tasks), 'no plain status for those states');
   assert.ok(!page.includes("'pill tone-"), 'no other chip for a state');
   // Doing's icon isn't sync: nothing is syncing.
   assert.notEqual(CATEGORY_LOOK.doing.icon, 'sync');

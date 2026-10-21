@@ -7,7 +7,7 @@ import { BUILDER_PLACE_LOOK, cloudOffered, cloudReason } from '../../../packages
 import type { BuilderPlace, CloudAgents } from '../../../packages/core/src/config.ts';
 import { editRefusal } from '../../../packages/core/src/edit.ts';
 import { againRefusal } from '../../../packages/core/src/again.ts';
-import { DISPATCH_AGAIN, UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
+import { DISPATCH_AGAIN, MISSING_WORDS, UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
 import type { State } from '../../../packages/core/src/ledger.ts';
 import { analysisReady, analysisWait, filesUnknown, sharesLine, waitLine } from '../logic/tasks.ts';
 import { questionsWord, saidLine, taskNames, type TaskRow } from '../logic/shared.ts';
@@ -215,6 +215,6 @@ function offered(t: TaskRow, ref: Ref): Action[] {
 export function dispatchAgainOff(t: Pick<TaskRow, 'id' | 'state' | 'notStarted' | 'unseen'>): string | null {
   if (t.notStarted && (t.state === 'todo' || t.state === 'rework')) return null;
   if (t.state === 'running' && (t.unseen === 'unanswered' || t.unseen === 'quiet')) return null;
-  if (t.state === 'running' && t.unseen === 'missing') return `${UNSEEN_WORDS.missing.line}, and ${DISPATCH_AGAIN} needs it to start another. ${UNSEEN_WORDS.missing.wayOn}`;
+  if (t.state === 'running' && t.unseen === 'missing') return MISSING_WORDS;
   return againRefusal(t.id);
 }

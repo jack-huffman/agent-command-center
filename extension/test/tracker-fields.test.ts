@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Person, Ticket } from '../../packages/core/src/trackers/types.ts';
-import { NAMED_SIGN_INS, signInName } from '../src/logic/sign-in-name.ts';
+import { credWho, NAMED_SIGN_INS, signedInWho, signInName } from '../src/logic/sign-in-name.ts';
 import { type BoardInput, NOT_PLANNED_LOOK, statusLook, trackerBoard } from '../src/model/boards.ts';
 import { ticketModel } from '../src/model/task-page.ts';
 
@@ -36,6 +36,19 @@ test('Commenting as keeps the token\'s words when me() fails, and asks again nex
   assert.equal(await signInName('azure', () => made), 'Jordan Kim', 'a failure isn\'t kept');
   assert.equal(await signInName('azure', () => Promise.reject(new Error('no sign-in'))), null, 'a client that can\'t start');
   assert.equal(await signInName('azure', async () => client(async () => ({ id: '', name: '' }))), null, 'a person with no name');
+});
+
+test('edge case: when Azure DevOps\'s me() fails, Commenting as says "a personal access token" for a token, and the account for a Microsoft sign-in (T-94)', async () => {
+  const failing = async () => client(async () => { throw new Error('Azure DevOps didn\'t accept this repo\'s sign-in.'); });
+  assert.equal(await signedInWho('azure', { kind: 'azure', method: 'pat' }, failing), 'a personal access token');
+  assert.equal(await signedInWho('azure', { kind: 'azure', method: 'microsoft', account: { label: 'jordan@acme.example' } }, failing), 'jordan@acme.example');
+  assert.equal(await signedInWho('azure', { kind: 'azure', method: 'pat' }, () => Promise.reject(new Error('no sign-in'))), 'a personal access token', 'a client that can\'t start');
+  assert.equal(await signedInWho('azure', { kind: 'azure', method: 'pat' }, async () => client(async () => ({ id: 'x', name: 'Jordan Kim' }))), 'Jordan Kim', 'a me() that answers names the person');
+  // Every other sign-in's own words.
+  assert.equal(credWho({ kind: 'jira', email: 'jordan@acme.example' }), 'jordan@acme.example');
+  assert.equal(credWho({ kind: 'monday' }), 'a personal API token');
+  assert.equal(credWho({ kind: 'slack' }), 'a Slack app\'s bot token');
+  assert.equal(await signedInWho('jira', { kind: 'jira', email: 'jordan@acme.example' }, failing), 'jordan@acme.example', 'Jira never asks its client');
 });
 
 test('Commenting as asks no client for a tracker whose sign-in words say who it is (edge case)', async () => {
