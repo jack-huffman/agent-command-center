@@ -85,7 +85,9 @@ test('icons for types and priorities, and initials for people', () => {
   // T-90: the icon reads the kind, not words in the type's name, so a type called "Debug tooling" isn't a bug.
   assert.deepEqual((['bug', 'story', 'task', 'subtask', 'feature', 'epic', 'test', 'issue', 'other', null] as const).map(typeIcon), ['bug', 'bookmark', 'tasklist', 'list-tree', 'lightbulb', 'zap', 'beaker', 'issues', 'issues', 'issues']);
   // Edge case: Medium has an icon now; no level (no priority, or a name the tracker can't place) has none.
-  assert.deepEqual(([1, 2, 3, 4, 5, null] as const).map(priorityIcon), ['chevron-up', 'arrow-up', 'dash', 'arrow-down', 'chevron-down', null]);
+  assert.deepEqual(([1, 2, 3, 4, 5, null] as const).map(priorityIcon), ['arrow-circle-up', 'arrow-up', 'dash', 'arrow-down', 'arrow-circle-down', null]);
+  // T-91: no two levels share a glyph, so Highest and High can be told apart at a glance: the ends are circled.
+  assert.equal(new Set(([1, 2, 3, 4, 5] as const).map(priorityIcon)).size, 5, 'five levels, five icons');
   assert.deepEqual(['Pat Lee', 'jordan.kim', 'ghost', 'Ana María de la Cruz', ''].map(initials), ['PL', 'JK', 'G', 'AM', '?']);
   // Edge case (T-91): an email-shaped name loses its domain, so jordan@acme.example is J, not JA, and pat.lee@… is PL.
   assert.deepEqual(['jordan@acme.example', 'pat.lee@acme.example', '@acme.example'].map(initials), ['J', 'PL', '?']);

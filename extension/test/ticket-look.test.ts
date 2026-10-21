@@ -3,10 +3,10 @@
 // The page's drawing runs in page-dom.ts's small document, from the screenshot run's fixtures.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { chip } from '../src/model/boards.ts';
+import { type BoardInput, chip, trackerBoard } from '../src/model/boards.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import { sampleTicket } from '../scripts/fixtures/task-page.ts';
-import { sampleTrackerTicket } from '../scripts/fixtures/tracker-tickets.ts';
+import { sampleAzureBoards, sampleTrackerTicket } from '../scripts/fixtures/tracker-tickets.ts';
 import { labelTint, TINTS, tintOf } from '../webview/tints.ts';
 import { pageDom, type PageElement } from './page-dom.ts';
 
@@ -146,4 +146,54 @@ test('a related row draws its kind, key, title and state chip, quiet when done, 
   const bare = { ...sampleTrackerTicket(Date.now(), 'azure'), related: [{ key: 'AB-1', title: 'Bare', relation: 'related', url: null, typeIcon: null, status: null }] };
   const row = (renderTicket(bare) as unknown as PageElement[]).flatMap((n) => [n, ...n.all()]).find((e) => e.classList.contains('related-row'))!;
   assert.deepEqual([row.all('state-chip').length, row.all('codicon').length, row.textContent], [0, 0, 'AB-1Bare']);
+});
+
+/** A tracker card drawn from the Azure DevOps board's fixture, by key, after `change` alters its input. */
+async function azureCard(key: string, change: (c: NonNullable<BoardInput['board']>['cards'][number]) => void = () => undefined): Promise<PageElement> {
+  pageDom();
+  const { trackerCard } = await import('../webview/tasks.ts');
+  const input = sampleAzureBoards()[0]!;
+  const found = input.board!.cards.find((c) => c.key === key)!;
+  change(found);
+  const b = trackerBoard(input, [], '/r');
+  const c = b.columns.flatMap((col) => col.cards).find((x) => x.key === key)!;
+  return trackerCard('/r', b, c) as unknown as PageElement;
+}
+
+test('a card shows three labels and a +N chip naming the rest, on the labels\' own row', async () => {
+  const card = await azureCard('AB-1213');
+  const foot = card.all('tcard-foot');
+  assert.equal(foot.length, 1);
+  assert.deepEqual(foot[0]!.all('label').filter((l) => !l.classList.contains('label-more')).map((l) => l.textContent), ['service', 'history', 'premium']);
+  assert.deepEqual(foot[0]!.all('label').filter((l) => !l.classList.contains('label-more')).map((l) => l.title), ['service', 'history', 'premium'], 'each whole in its title, as a narrow card cuts it short');
+  const more = card.all('label-more');
+  assert.deepEqual(more.map((m) => [m.textContent, m.title]), [['+2', 'audit, reporting']]);
+  assert.equal(foot[0]!.all('tcard-people').length, 0, 'no avatars on the labels\' row, so +2 has the room it needs');
+  assert.equal(card.all('tcard-top')[0]!.all('tcard-people').length, 1, 'the person sits in the top row');
+});
+
+test('edge case: a card with exactly three labels has no +N chip', async () => {
+  const card = await azureCard('AB-1204');
+  assert.equal(card.all('label').length, 3);
+  assert.equal(card.all('label-more').length, 0);
+});
+
+test('edge case: a card shows at most three avatars, beside its priority in the top row', async () => {
+  const four = await azureCard('AB-1206', (c) => { c.assignees = [...c.assignees, { id: 'acme-4', name: 'Lee Park' }]; });
+  const people = four.all('tcard-people');
+  assert.equal(people.length, 1);
+  assert.deepEqual(people[0]!.all('avatar').map((a) => a.title), ['Jordan Kim', 'Pat Lee', 'Sam Rivera']);
+  const top = four.all('tcard-top')[0]!;
+  assert.deepEqual(top.children.filter((x): x is PageElement => typeof x !== 'string').map((x) => x.className), ['tcard-type', 'tcard-key', 'spacer', 'tcard-people', 'tcard-prio']);
+});
+
+test('edge case: a card with no labels and no people has no foot row and no people, and its title falls back to the title', async () => {
+  const bare = await azureCard('AB-1211', (c) => { c.labels = []; c.assignees = []; c.fullTitle = undefined; });
+  assert.equal(bare.all('tcard-foot').length, 0);
+  assert.equal(bare.all('tcard-people').length, 0);
+  const title = bare.all('tcard-title')[0]!;
+  assert.equal(title.title, 'Let agents merge duplicate contacts from the account page');
+  // People but no labels still leaves the foot row out: the people are in the top row.
+  const someone = await azureCard('AB-1208');
+  assert.deepEqual([someone.all('tcard-foot').length, someone.all('avatar').length], [0, 1]);
 });

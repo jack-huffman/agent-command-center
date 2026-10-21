@@ -145,21 +145,22 @@ export const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira
 /** How many labels, and how many people, a tracker's card shows (T-91). */
 const CARD_MOST = 3;
 
-function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement {
+export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement {
   const kind = el('span', 'tcard-type', icon(c.typeIcon));
   kind.title = c.type ?? 'Issue';
   const prio = c.priorityIcon ? el('span', 'tcard-prio', icon(c.priorityIcon)) : null;
   if (prio) prio.title = `Priority: ${c.priority}`;
-  // Up to three labels (T-91); the rest are "+2", named in its title.
+  // Up to three labels (T-91), each named whole in its title, as a narrow card cuts it short; the rest are "+2", named in its title.
   const rest = c.labels.slice(CARD_MOST);
   const more = rest.length ? titled(el('span', 'label label-more', `+${rest.length}`), rest.map((l) => l.name).join(', ')) : null;
   const people = c.assignees.length ? el('span', 'tcard-people', ...c.assignees.slice(0, CARD_MOST).map(avatar)) : null;
-  // The card (T-91): its kind, key and priority; its title, up to three lines, whole in its title; then its labels,
-  // and the people who have it at the right. A field its tracker doesn't give leaves its place out.
+  // The card (T-91): its kind and key, then the people who have it and its priority at the right; its title, up to
+  // three lines, whole in its title; then its labels, with their +N, on a row of their own so the +N never wraps
+  // away from them. A field its tracker doesn't give leaves its place out.
   const card = el('article', `card tcard${c.acc?.needsYou ? ' attention' : ''}`,
-    el('div', 'tcard-top', kind, el('span', 'tcard-key', c.key), el('span', 'spacer'), prio),
+    el('div', 'tcard-top', kind, el('span', 'tcard-key', c.key), el('span', 'spacer'), people, prio),
     titled(el('div', 'card-title tcard-title', c.title), c.fullTitle ?? c.title),
-    c.labels.length || people ? el('div', 'tcard-foot', el('span', 'labels', ...c.labels.slice(0, CARD_MOST).map(labelChip), more), people) : null,
+    c.labels.length ? el('div', 'tcard-foot', el('span', 'labels', ...c.labels.slice(0, CARD_MOST).map((l) => titled(labelChip(l), l.name)), more)) : null,
     c.acc ? el('div', 'tcard-acc', stateChip(c.acc.look), el('span', 'spacer'), c.acc.action ? nextStep(c.acc.action) : null) : null,
     c.acc?.conflicts ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', c.acc.conflicts)) : null,
     c.acc?.failedChecks ? el('div', 'card-note conflict tcard-conflict', icon('github-action'), el('span', '', c.acc.failedChecks)) : null,

@@ -8493,9 +8493,9 @@ no priority or person beside its title. T-91 draws the fields D-185 fills, with 
   (`lacks` still reaches the model). A row with nothing in it stays only where it holds a Change or Add.
   `extension/test/ticket-look.test.ts` draws every tracker's page in page-dom.ts's small document and fails
   on such a placeholder.
-- **The board's cards.** The top row is the type icon, the key and the priority icon; the title shows up to
-  three lines, whole in its title; then up to three label chips, "+2" naming the rest in its title, and up
-  to three avatars at the right. Done cards are quieter. A card shrinks to 0.98 on press, lifts a pixel
+- **The board's cards.** The top row is the type icon, the key, up to three avatars and the priority icon;
+  the title shows up to three lines, whole in its title; then up to three label chips, "+2" naming the rest
+  in its title, on a row of their own, so the "+2" never wraps away from them beside an avatar. Done cards are quieter. A card shrinks to 0.98 on press, lifts a pixel
   under the pointer and shows a 2 px focus ring; under reduced motion only its edge colour changes. Track
   is one width on every card, whether it says Track or Tracking….
 - **Every tracker is drawn.** The screenshot run gains a GitHub issue's page, an Azure DevOps Product
@@ -8503,5 +8503,11 @@ no priority or person beside its title. T-91 draws the fields D-185 fills, with 
   (`extension/scripts/fixtures/tracker-tickets.ts`), and the GitHub board's labels carry GitHub's own
   colours.
 
+- **Priority icons read as an order.** Highest is `arrow-circle-up`, High `arrow-up`, Medium `dash`, Low
+  `arrow-down` and Lowest `arrow-circle-down`: no two levels share an up or down glyph, and each icon's title
+  names its level's word.
+- **The comment box's hint is two parts.** "Commenting as …" and how to post sit apart with a gap, not
+  joined by a dot in a run of text.
+
 The ticket header isn't sticky, so it needs no translucent material. Tested in
-`extension/test/ticket-look.test.ts` (10 tests) and two more in `extension/test/looks.test.ts`.
+`extension/test/ticket-look.test.ts` (14 tests) and two more in `extension/test/looks.test.ts`.

@@ -271,6 +271,8 @@ a.ext:hover { text-decoration: underline; }
 
 .acting { display: inline-flex; align-items: center; gap: 4px; font-size: 0.82em; font-weight: 400; color: var(--vscode-descriptionForeground); }
 .composer-bar .acting { font-size: inherit; }
+/* Who comments, and how to post: two parts with a gap, wrapping as a pair when the bar is narrow (T-91). */
+.composer-hint { display: inline-flex; align-items: center; flex-wrap: wrap; column-gap: var(--space-4); row-gap: var(--space-1); min-width: 0; }
 
 /* ---------------------------------------------------------------- the Command Center page (D-029) */
 body[data-view="home"] { padding: 0; height: 100vh; overflow: hidden; }

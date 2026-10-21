@@ -66,7 +66,8 @@ function composer(m: TicketModel): HTMLElement {
   send.type = 'button';
   send.disabled = !box.value.trim();
   const keys = navigator.platform.includes('Mac') ? '⌘ Enter to post' : 'Ctrl+Enter to post';
-  const hint = el('span', 'muted small', m.signedInAs ? el('span', 'acting', icon('account'), `Commenting as ${m.signedInAs}`) : null, m.signedInAs ? ' · ' : null, keys);
+  // Who comments and how to post are two parts with a gap between them, not a dot in a run of text.
+  const hint = el('span', 'muted small composer-hint', m.signedInAs ? el('span', 'acting', icon('account'), `Commenting as ${m.signedInAs}`) : null, el('span', '', keys));
   const post = () => {
     if (!box.value.trim() || send.disabled) return;
     send.disabled = true;

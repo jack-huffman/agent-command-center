@@ -119,7 +119,7 @@ function tinted<T extends HTMLElement>(e: T, t: { colour: string } | { tint: num
 
 /** A label chip: its name always, tinted by the tracker's colour when it has one, else by its name (T-91), with a dot of that tint. */
 export function labelChip(l: { name: string; color: string | null }): HTMLElement {
-  return tinted(el('span', 'label', el('span', 'label-dot'), l.name), labelTint(l));
+  return tinted(el('span', 'label', el('span', 'label-dot'), el('span', 'label-name', l.name)), labelTint(l));
 }
 
 /**

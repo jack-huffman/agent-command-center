@@ -74,8 +74,9 @@ export const TYPE_ICON: Record<TypeKind, string> = {
 /** A ticket's kind's codicon; a ticket with no type gets the plain issue's. */
 export const typeIcon = (kind: TypeKind | null): string => TYPE_ICON[kind ?? 'other'];
 
-/** A codicon for each priority level (T-90), 1 the highest. Medium has one too, so every level reads alike. */
-export const PRIORITY_ICON: Record<PriorityLevel, string> = { 1: 'chevron-up', 2: 'arrow-up', 3: 'dash', 4: 'arrow-down', 5: 'chevron-down' };
+/** A codicon for each priority level (T-90), 1 the highest. Medium has one too, so every level reads alike, and the
+ * ends are circled arrows (T-91), so no two levels share one up or down glyph. */
+export const PRIORITY_ICON: Record<PriorityLevel, string> = { 1: 'arrow-circle-up', 2: 'arrow-up', 3: 'dash', 4: 'arrow-down', 5: 'arrow-circle-down' };
 
 /** A priority level's codicon, or null for a ticket with no level: no priority, or one its tracker can't place. */
 export const priorityIcon = (level: PriorityLevel | null): string | null => (level ? PRIORITY_ICON[level] : null);

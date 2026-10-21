@@ -82,10 +82,16 @@
 .tcard .card-title { margin: var(--space-1) 0 var(--space-2); }
 /* A card's title shows up to three lines (T-91); its whole title is in its title. */
 .tcard-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; line-height: 1.35; }
-/* Its labels, then the people who have it at the right, their avatars a little over each other. */
+/* Its labels and their +N have a row of their own; the people who have it sit in its top row, before its priority,
+   their avatars a little over each other. */
 .tcard-foot { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
 .tcard-foot > .labels { flex: 1; }
-.tcard-people { display: inline-flex; align-items: center; margin-left: auto; flex: none; }
+/* The labels' row never wraps (T-91): a narrow card cuts its names short, each whole in its title, and +N keeps its place. */
+.tcard-foot .labels { flex-wrap: nowrap; }
+.tcard-foot .label { flex: 0 1 auto; }
+.tcard-foot .label-more { flex: none; }
+.tcard-foot .label-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tcard-people { display: inline-flex; align-items: center; flex: none; }
 .tcard-people .avatar { box-shadow: 0 0 0 2px var(--raised); }
 .tcard-people .avatar + .avatar { margin-left: -0.3rem; }
 .label-more { font-weight: 600; }

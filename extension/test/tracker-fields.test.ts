@@ -67,5 +67,5 @@ test('a board\'s card draws its kind\'s and level\'s icons, and a card from a tr
     board: { source: 'azure-board', title: 'B', url: null, notice: null, columns: [{ id: '1', name: 'To Do', category: 'todo', statusIds: ['1'] }], cards: [card('AB-1', { typeKind: 'task', priorityLevel: 1 }), card('AB-2', {})] },
   };
   const cards = trackerBoard(input, [], '/r').columns[0]!.cards;
-  assert.deepEqual(cards.map((c) => [c.key, c.typeIcon, c.priorityIcon]), [['AB-1', 'tasklist', 'chevron-up'], ['AB-2', 'issues', null]], '"Debug tooling" isn\'t read as a bug');
+  assert.deepEqual(cards.map((c) => [c.key, c.typeIcon, c.priorityIcon]), [['AB-1', 'tasklist', 'arrow-circle-up'], ['AB-2', 'issues', null]], '"Debug tooling" isn\'t read as a bug');
 });
