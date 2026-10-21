@@ -2,7 +2,8 @@
 // browser's half, measuring a drawn card, is the behaviour run's case "narrow card: …".
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { foldedLabels, labelsThatFit } from '../webview/fit-labels.ts';
+import { fitLabels, foldedLabels, labelsThatFit } from '../webview/fit-labels.ts';
+import { pageDom } from './page-dom.ts';
 
 /** Five labels' widths at 13px, as the Azure sample's card draws them: service, history, premium, audit, reporting. */
 const FIVE = [62, 60, 66, 50, 70];
@@ -32,6 +33,19 @@ test('edge case: the last label needs no room for +N, so it fits where +N would 
   // All five take 308 + 16 of gap: 324px fits them whole, though four and +N would need 280.
   assert.equal(labelsThatFit(FIVE, 324, GAP, PLUS), 5);
   assert.equal(labelsThatFit(FIVE, 323, GAP, PLUS), 4);
+});
+
+test('edge case: with no layout to measure, fitLabels shows the first labels it may and folds the rest, or hides the +N', () => {
+  const { document } = pageDom();
+  const make = (n: number) => ({ row: document.createElement('span'), chips: Array.from({ length: n }, () => document.createElement('span')), more: document.createElement('span') });
+  const names = ['service', 'history', 'premium', 'audit', 'reporting'];
+  const five = make(5);
+  fitLabels(five.row as never, five.chips as never, five.more as never, names, 3);
+  assert.deepEqual(five.chips.map((c) => c.hidden), [false, false, false, true, true]);
+  assert.deepEqual([five.more.hidden, five.more.textContent, five.more.title], [false, '+2', 'audit, reporting']);
+  const two = make(2);
+  fitLabels(two.row as never, two.chips as never, two.more as never, names.slice(0, 2), 3);
+  assert.deepEqual([two.chips.map((c) => c.hidden), two.more.hidden, two.more.title], [[false, false], true, ''], 'fewer than it may show: no +N');
 });
 
 test('the +N names each label it holds, in order, and is none when every label shows', () => {

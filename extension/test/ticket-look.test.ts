@@ -218,6 +218,16 @@ test('edge case: a card with exactly three labels shows no +N chip', async () =>
   assert.deepEqual(card.all('label-more').map((m) => [m.hidden, m.textContent, m.title]), [[true, '', '']]);
 });
 
+test('labelChips draws each label with the tint labelTints gives it, and a tracker\'s own colour as it is (T-94)', async () => {
+  const { labelChips } = await page();
+  const labels = [...named('frontend', 'bug'), { name: 'docs', color: '0e8a16' }];
+  const chips = labelChips(labels) as unknown as PageElement[];
+  assert.deepEqual(chips.map((c) => c.textContent), ['frontend', 'bug', 'docs']);
+  assert.deepEqual(chips.map(tint), labelTints(labels).map((t) => ('colour' in t ? `#${t.colour}` : `var(--tint-${t.tint})`)));
+  assert.notEqual(tint(chips[0]!), tint(chips[1]!), 'two names that pick one tint take two');
+  assert.deepEqual(labelChips([]), [], 'edge case: no labels, no chips');
+});
+
 test('a card\'s and a ticket\'s label chips each take a different tint, where their names pick one (T-94)', async () => {
   const five = await azureCard('AB-1213', (c) => { c.labels = named('frontend', 'bug', 'data', 'api', 'backend'); });
   const tints = five.all('label').filter((l) => !l.classList.contains('label-more')).map(tint);
