@@ -5,18 +5,19 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { emptyLedger, type Task } from '../../packages/core/src/ledger.ts';
 import type { Hub } from '../src/hub.ts';
-import { trackerBoard, type TrackerCard, whoKey } from '../src/model/boards.ts';
+import { trackerBoard, type TrackerCard, type Who, whoKey } from '../src/model/boards.ts';
 import { dispatcher, dispatcherKey, tasksModel } from '../src/model/tasks.ts';
 import { deriveRows } from '../src/task-rows.ts';
-import { effective, EVERYONE, headerLine, MINE, NO_ME, noMatch, PERSON, choicesFor, shows, UNASSIGNED, type Person } from '../webview/person-filter.ts';
+import { effective, EVERYONE, headerLine, MINE, NO_ME, noMatch, PERSON, choicesFor, shows, UNASSIGNED } from '../webview/person-filter.ts';
 import { sampleBoards } from '../scripts/fixtures/boards.ts';
 import { sampleHub } from '../scripts/fixtures/hub.ts';
+import { CASES, MUTANTS } from '../scripts/behaviour.ts';
 import { pageSource } from './support.ts';
 
-const jordan: Person = { key: 'jordan', name: 'Jordan Kim' };
-const pat: Person = { key: 'pat', name: 'Pat Lee' };
+const jordan: Who = { key: 'jordan', name: 'Jordan Kim' };
+const pat: Who = { key: 'pat', name: 'Pat Lee' };
 /** Five cards: two of Jordan's, one of Pat's, one both have, and one nobody has. */
-const CARDS = [{ people: [jordan] }, { people: [jordan] }, { people: [pat] }, { people: [jordan, pat] }, { people: [] as Person[] }];
+const CARDS = [{ people: [jordan] }, { people: [jordan] }, { people: [pat] }, { people: [jordan, pat] }, { people: [] as Who[] }];
 
 test('each choice shows the cards it names: Everyone all, Mine the signed-in person\'s, Unassigned the ones nobody has, a person theirs', () => {
   const ids = (choice: string, me: string | null = 'jordan') => CARDS.flatMap((c, i) => (shows(choice, c.people, me) ? [i] : []));
@@ -121,6 +122,7 @@ test('both boards draw the filter and only the cards it shows, and a board with 
   assert.match(pageSource('person-menu.ts'), /remember\(\(m\) => \{[\s\S]*m\.filters = filters;/, 'the choice is kept in the window\'s state, by the board\'s key');
 });
 
-test('edge case: a tracker board with columns but no card at all says nothing about the choice, on Everyone too', () => {
-  assert.match(pageSource('tasks.ts'), /b\.columns\.some\(\(c\) => c\.cards\.length\) && !b\.columns\.some\(\(c\) => c\.cards\.some\(showing\)\)\) out\.append\(filter!\.none\(board\)\)/, 'the line comes only where cards exist and the choice hides them all');
+test('edge case: a tracker board with columns but no card says nothing about the choice, on Everyone too (drawn in the behaviour run, with a mutant that removes the guard)', () => {
+  assert.ok(CASES.some((c) => c.name.startsWith('person filter: edge case: a tracker board')), 'the behaviour run draws that board');
+  assert.ok(MUTANTS.some((m) => m.file === 'tasks.ts' && m.kills.some((k) => k.startsWith('person filter: edge case: a tracker board'))), 'a mutant removes the guard and the case fails on it');
 });

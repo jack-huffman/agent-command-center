@@ -1573,6 +1573,23 @@ export const CASES: Case[] = [
       t.check('the choice is cleared from the tab\'s memory', !(t.memory().filters as Record<string, string> | undefined)?.[p.board], t.memory().filters);
     },
   },
+  {
+    name: 'person filter: edge case: a tracker board with columns and no card says nothing about the choice, on a choice that hides everything too',
+    page: 'tasks',
+    async run(t) {
+      const p = t.data.people;
+      const model = structuredClone(t.model) as typeof t.model;
+      if (model.kind !== 'home') throw new Error('The person filter cases need a home model.');
+      for (const c of model.tasks.projects[0]!.boards[0]!.columns) c.cards = [];
+      t.remember({ filters: { [p.board]: 'person:gone' } });
+      await t.post({ type: 'state', model });
+      const board = t.find(`.board[data-keys="${CSS.escape(p.board)}"]`);
+      t.check('the board draws its columns', t.all('section.column', board).length > 0);
+      t.check('no card is drawn', t.all('article.card', board).length === 0);
+      t.check('no line says a choice hides the cards', t.all('.person-none').length === 0, t.all('.person-none').length);
+      t.check('the board is not made a group for that line', board.getAttribute('role') !== 'group', board.getAttribute('role'));
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -1664,6 +1681,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'a person\'s choice shows every card', file: 'person-filter.ts', find: 'return people.some((p) => PERSON + p.key === c);', replace: 'return true;', kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right')] },
   { name: 'a board draws every card, whatever the filter shows', file: 'tasks.ts', find: "const cards = c.cards.filter(showing);\n    const col = el('section', `column tone-edge-${c.tone}${c.done ?", replace: "const cards = c.cards;\n    const col = el('section', `column tone-edge-${c.tone}${c.done ?", kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right'), caseNamed('person filter: a board where no card')] },
   { name: 'a board forgets its choice on a redraw', file: 'person-menu.ts', find: 'const kept = memory().filters?.[key];', replace: 'const kept: string | undefined = undefined;', kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right')] },
+  { name: 'a board with no card says a choice hides them', file: 'tasks.ts', find: 'if (b.columns.some((c) => c.cards.length) && !b.columns.some((c) => c.cards.some(showing))) out.append', replace: 'if (!b.columns.some((c) => c.cards.some(showing))) out.append', kills: [caseNamed('person filter: edge case: a tracker board')] },
   { name: 'Show everyone does nothing', file: 'person-menu.ts', find: "back.addEventListener('click', () => keep(key, null));", replace: "back.addEventListener('click', () => {});", kills: [caseNamed('person filter: a board where no card')] },
   { name: 'the board\'s live line stays silent', file: 'board-nav.ts', find: "live.replaceChildren(icon(look.icon, look.tone), el('span', '', text));", replace: 'void look;', kills: [caseNamed('board keys: Space, Right and Enter'), caseNamed('board keys: Escape'), caseNamed('board keys: Space on a card')] },
   { name: 'Dispatch goes without the sheet', file: 'dispatch-sheet.ts', find: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) openSheet(msg.sheet); } },", replace: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) api.postMessage({ type: 'dispatch-sheet-go', project: msg.sheet.project, task: msg.sheet.task, model: msg.sheet.models[0]!.value, where: msg.sheet.place }); } },", kills: [caseNamed('dispatch sheet: a card'), caseNamed('dispatch sheet: the task page')] },

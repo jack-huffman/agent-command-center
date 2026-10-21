@@ -127,7 +127,7 @@ test('every notice kind has a look on Since you last looked, and the Overview dr
 test('a sprint change joins Since you last looked whether or not the person is away, with no task, and its line opens the Tasks tab (T-78)', () => {
   const a = new Away(true, 0);
   const sprint: ProjectNotice = { root: '/a', notice: { kind: 'sprint', task: '', text: 'Sprint 13 started after Sprint 12: 2 tickets carried into it, 1 went back to the backlog.', urgent: false } };
-  a.note(sprint);
+  a.note(sprint, 0);
   assert.deepEqual(a.since(), [sprint], 'held with focus, never shown as a notification');
   assert.equal(a.focus(true, 20 * MIN), null, 'focus that never left says nothing');
   const g = sinceGroup(a.since(), [{ name: 'a', root: '/a' }])!;
@@ -136,4 +136,14 @@ test('a sprint change joins Since you last looked whether or not the person is a
   assert.equal(noticeCounts([sprint, { ...sprint }]), '2 sprints changed');
   a.clear();
   assert.deepEqual(a.since(), [], 'Clear takes it off too');
+});
+
+test('edge case: a sprint line that arrives after focus is lost but before away() first passes the limit is still shown (T-83)', () => {
+  const a = new Away(true, 0);
+  const sprint: ProjectNotice = { root: '/a', notice: { kind: 'sprint', task: '', text: 'Sprint 13 started.', urgent: false } };
+  a.focus(false, 0);
+  a.note(sprint, 12 * MIN);
+  assert.equal(a.away(13 * MIN), true, 'the span starts now');
+  assert.deepEqual(a.since(), [sprint], 'the first away() does not reset it');
+  assert.deepEqual(a.focus(true, 14 * MIN), [sprint], 'and coming back brings it');
 });

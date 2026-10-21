@@ -3,7 +3,8 @@
 // The choice is kept in this window's state by the board's key, so it outlasts a redraw.
 
 import { el, icon } from './dom.ts';
-import { type Choice, choicesFor, effective, headerLine, noMatch, type Person } from './person-filter.ts';
+import type { Who } from '../src/model/boards.ts';
+import { type Choice, choicesFor, effective, headerLine, noMatch } from './person-filter.ts';
 import { api, memory, remember, state } from './state.ts';
 
 // The screenshot harness can start with a filter's menu open, to see it laid out.
@@ -32,7 +33,7 @@ const keep = (key: string, choice: string | null): void => {
  * The filter for one board. `key` names it ("tracker:<root>#<index>", "agents:<root>"); `cards` is every card
  * on it, before filtering; `me` is the key Mine means, or null when the tracker can't say.
  */
-export function personFilter(key: string, cards: readonly { people: readonly Person[] }[], me: string | null): PersonFilter {
+export function personFilter(key: string, cards: readonly { people: readonly Who[] }[], me: string | null): PersonFilter {
   const kept = memory().filters?.[key];
   const choices = choicesFor(cards, me, kept);
   const { choice: at, text } = headerLine(choices, kept, me, cards.length);
