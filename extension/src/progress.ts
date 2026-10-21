@@ -367,7 +367,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
       if (!c || (c.failed && !c.wait)) continue;
       const wait = !!c.wait;
       add(taskGroup(p, r), {
-        key: 'review', kind: 'review', look: wait ? LOOK('Waiting on you', 'bell', 'orange') : LOOK('Reviewing in the cloud', 'cloud', 'blue'), label: 'Review', detail: c.wait ?? 'reading the branch on GitHub; its verdict comes back by a push, which the next sync takes', since: ago(time(c.firedAt)),
+        key: 'review', kind: 'review', look: wait ? LOOK('Waiting on you', 'bell', 'orange') : LOOK('Cloud review', 'cloud', 'blue'), label: 'Review', detail: c.wait ?? 'reading the branch on GitHub; its verdict comes back by a push, which the next sync takes', since: ago(time(c.firedAt)),
         actions: [
           ...(r.reviewing ? [{ label: 'Watch', icon: 'pulse', tip: 'Follow the reviewer on its page on claude.ai', command: 'acc.task.watchReview', ref: ref(r.id) }] : []),
           ...(wait ? [{ label: 'Review on this Mac', icon: 'checklist', tip: 'Review it here, now: a reviewer on this Mac gives the verdict', command: 'acc.task.reviewLocal', ref: ref(r.id) }] : []),

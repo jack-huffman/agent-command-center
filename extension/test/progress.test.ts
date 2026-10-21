@@ -99,7 +99,7 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
   assert.equal(group(m, 'T-3')!.jobs[0]!.detail, 'reading abcdef1');
   // The cloud review (T-86): its own look, how long, and Watch on claude.ai.
   const t8 = group(m, 'T-8')!;
-  assert.deepEqual(brief(t8.jobs), [['review', 'Reviewing in the cloud', 'Review']]);
+  assert.deepEqual(brief(t8.jobs), [['review', 'Cloud review', 'Review']]);
   assert.deepEqual([t8.jobs[0]!.look.icon, t8.jobs[0]!.since, t8.jobs[0]!.detail], ['cloud', '7 min', 'reading the branch on GitHub; its verdict comes back by a push, which the next sync takes']);
   assert.deepEqual(t8.jobs[0]!.actions.map((a) => [a.label, a.command]), [['Watch', 'acc.task.watchReview']]);
   // A resumed builder, its resume, and a check found by its folder: the builder's worktree.
