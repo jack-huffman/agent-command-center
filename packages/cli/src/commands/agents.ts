@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { cmdSet } from './tasks.ts';
@@ -232,7 +232,7 @@ function dispatched(o: Opts, r: DispatchOutcome, dropped: string): number {
       r.notStarted!.stopped ? `  Stopped its half-started background session ${r.notStarted!.stopped}.` : '',
       `  The worktree is kept at ${r.worktree}.`,
       `  Open a terminal and run claude agents, or restart Claude Code. Then ${DISPATCH_AGAIN.toLowerCase()}: acc dispatch ${r.task.id} --again`,
-    ].filter(Boolean).join('\n'), { ...r, message: `${r.task.id} needs you. ${r.notStarted.reason}. Open a terminal and run claude agents, or restart Claude Code, then ${DISPATCH_AGAIN.toLowerCase()}.` });
+    ].filter(Boolean).join('\n'), { ...r, message: `${r.task.id} needs you. ${r.notStarted.reason}. ${UNSEEN_WORDS.unanswered.wayOn} Then ${DISPATCH_AGAIN.toLowerCase()}.` });
     return 1;
   }
   out(o, () => [

@@ -100,12 +100,12 @@ export function builderUnseen(task: Pick<Task, 'state' | 'run'>, o: { silentSinc
   return now - last > o.quietMs ? 'quiet' : 'unanswered';
 }
 
-/** What a person reads for each: a label, the line, and the way on, in process words (D-132). */
+/** What a person reads for each: a label, the line, and the way on, in process words (D-132): no command is named. */
 export const UNSEEN_WORDS: Record<Unseen, { label: string; line: string; wayOn: string }> = {
   unanswered: {
     label: 'Needs you: acc can\'t see its builder',
     line: 'Claude Code\'s background sessions aren\'t answering, so acc can\'t see this builder',
-    wayOn: 'Open a terminal and run claude agents, or restart Claude Code.',
+    wayOn: 'Open a terminal and check that Claude Code lists its background agents, or restart Claude Code.',
   },
   quiet: {
     label: 'Needs you: its builder has gone quiet',

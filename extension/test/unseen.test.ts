@@ -35,7 +35,7 @@ test('claude agents not answering past the grace shows the Needs you line; answe
   assert.equal(blind.display, 'needs-you');
   assert.deepEqual(blind.agent, { label: UNSEEN_WORDS.unanswered.label, icon: 'eye-closed', tone: 'orange' });
   assert.deepEqual(accLook(blind), { label: `Needs you: ${UNSEEN_WORDS.unanswered.line}. ${UNSEEN_WORDS.unanswered.wayOn}`, icon: 'eye-closed', tone: 'orange' });
-  assert.match(accLook(blind).label, /Open a terminal and run claude agents, or restart Claude Code\./, 'it names what to try');
+  assert.match(accLook(blind).label, /Open a terminal and check that Claude Code lists its background agents, or restart Claude Code\./, 'it names what to try');
   const back = read({}, null);
   assert.equal(back.unseen, null);
   assert.equal(back.display, 'running', 'its session answers and works');
@@ -80,7 +80,7 @@ test('the Overview\'s Needs you lists each, with why and Dispatch again where it
   const quiet = lines.find((a) => a.title.startsWith('ACME-50'))!;
   const never = lines.find((a) => a.title.startsWith('ACME-49'))!;
   assert.deepEqual([blind.look.label, blind.look.icon, blind.look.tone], [UNSEEN_WORDS.unanswered.label, 'eye-closed', 'orange']);
-  assert.match(blind.detail, /aren't answering, so acc can't see this builder\. Open a terminal and run claude agents, or restart Claude Code\./);
+  assert.match(blind.detail, /aren't answering, so acc can't see this builder\. Open a terminal and check that Claude Code lists its background agents, or restart Claude Code\./);
   assert.ok(!blind.actions.some((a) => a.primary), 'nothing leads where the builder may still be at work');
   assert.deepEqual(quiet.actions.filter((a) => a.primary).map((a) => a.command), ['acc.task.dispatchAgain']);
   assert.deepEqual([never.look.label, never.actions[0]!.command, !!never.actions[0]!.primary], ['Needs you: its builder didn\'t start', 'acc.task.dispatchAgain', true]);

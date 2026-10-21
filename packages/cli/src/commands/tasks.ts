@@ -207,7 +207,7 @@ function cmdShow(o: Opts, id: string): number {
     place ? tone(`In the merge queue: ${place.ahead ? `${ordinal(place.place)} of ${place.of}, behind ${place.ahead}` : place.phase === 'held' ? `first of ${place.of}, waiting: ${phaseWords(place.phase, t.environment, place.why)}` : `first of ${place.of}: ${phaseWords(place.phase, t.environment).toLowerCase()}`}.`, 'blue') : '',
     card ? tone(`! Its card couldn't move on its GitHub Project: ${card}.`, 'orange') : '',
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, 'orange') : '',
-    unseen ? tone(`! ${UNSEEN_WORDS[unseen].line}. ${UNSEEN_WORDS[unseen].wayOn}${unseen === 'quiet' ? ` acc dispatch ${t.id} --again` : ''}`, 'orange') : '',
+    unseen ? tone(`! ${UNSEEN_WORDS[unseen].line}. ${UNSEEN_WORDS[unseen].wayOn}${unseen === 'quiet' ? ` acc dispatch ${t.id} --again` : ' In a terminal: claude agents'}`, 'orange') : '',
     t.notStarted && t.state !== 'running' ? tone(`! ${t.notStarted.reason}. ${DISPATCH_AGAIN}: acc dispatch ${t.id} --again`, 'orange') : '',
     stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
     ...files.lines,

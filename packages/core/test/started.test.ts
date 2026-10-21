@@ -186,7 +186,7 @@ test('builderUnseen: a running task with an old conversation, or none at all, an
   assert.equal(quietMs({ agents: { cloud: { quietMinutes: 30 } } }), 30 * 60_000, 'the project\'s quiet setting');
   assert.equal(Q, 120 * 60_000, 'else the default');
   assert.match(UNSEEN_WORDS.quiet.wayOn, new RegExp(`^${DISPATCH_AGAIN}`));
-  assert.match(UNSEEN_WORDS.unanswered.wayOn, /claude agents.*restart Claude Code/);
+  assert.match(UNSEEN_WORDS.unanswered.wayOn, /Claude Code lists its background agents, or restart Claude Code/);
   // builderStopped still reads no answer as "can't judge stopped": builderUnseen is what says so.
   assert.equal(builderStopped({ id: 'T-1', ...t }, null, { resuming: false, now: late }), false);
 });
@@ -242,7 +242,7 @@ test('acc show: no answer past the grace shows the Needs you line, an answer aga
   writeFileSync(join(paths.stateDir, 'agents-silent.json'), JSON.stringify({ since: Date.now() - 5 * 60_000 }));
   const blind = acc(repo, ['show', 'T-1'], env);
   assert.match(blind.out, /T-1 {2}! Needs you/);
-  assert.match(blind.out, /Claude Code's background sessions aren't answering, so acc can't see this builder\. Open a terminal and run claude agents, or restart Claude Code\./);
+  assert.match(blind.out, /Claude Code's background sessions aren't answering, so acc can't see this builder\. Open a terminal and check that Claude Code lists its background agents, or restart Claude Code\. In a terminal: claude agents/);
   assert.equal(acc(repo, ['show', 'T-1', '--json'], env).json().unseen, 'unanswered');
   rmSync(join(claude.dir, 'down'));
   const back = acc(repo, ['show', 'T-1'], env);
