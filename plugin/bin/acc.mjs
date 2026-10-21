@@ -4,8 +4,23 @@ import { resolve as resolve5 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual, parseArgs } from "node:util";
 
-// packages/core/src/agents.ts
-import { readFileSync as readFileSync2 } from "node:fs";
+// packages/core/src/dispatch.ts
+import { spawnSync as spawnSync3 } from "node:child_process";
+import { existsSync as existsSync17, mkdirSync as mkdirSync23, readFileSync as readFileSync25, realpathSync as realpathSync3, symlinkSync, writeFileSync as writeFileSync21 } from "node:fs";
+import { homedir as homedir6 } from "node:os";
+import { basename as basename5, dirname as dirname8, isAbsolute as isAbsolute4, join as join23, resolve as resolve2, sep as sep2 } from "node:path";
+
+// packages/core/src/text.ts
+var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var firstSaid = (r) => (r.stderr || r.stdout).trim().split("\n")[0]?.trim() || `exit ${r.code}`;
+var sentence = (text) => text.trim().replace(/([^.!?])$/, "$1.");
+var clip = (s, max) => s.length > max ? `${s.slice(0, max - 1).trimEnd()}\u2026` : s;
+var plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+var escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// packages/core/src/config.ts
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 // packages/core/src/exec.ts
 import { spawnSync } from "node:child_process";
@@ -60,18 +75,6 @@ function parseJsonOutput(text) {
     return JSON.parse(plain.slice(start));
   }
 }
-
-// packages/core/src/text.ts
-var isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
-var firstSaid = (r) => (r.stderr || r.stdout).trim().split("\n")[0]?.trim() || `exit ${r.code}`;
-var sentence = (text) => text.trim().replace(/([^.!?])$/, "$1.");
-var clip = (s, max) => s.length > max ? `${s.slice(0, max - 1).trimEnd()}\u2026` : s;
-var plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-var escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-// packages/core/src/config.ts
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
 
 // packages/core/src/atomic.ts
 import { renameSync, writeFileSync } from "node:fs";
@@ -2147,2104 +2150,12 @@ function saveTracker(file, index, record2) {
   return { index: index ?? trackers.findIndex((t, k2) => was[k2] !== t), warnings: checked.warnings };
 }
 
-// packages/core/src/efforts.ts
-var EFFORT_SOURCE = { url: "https://platform.claude.com/docs/en/build-with-claude/effort", read: "2026-10-09" };
-var ALL = EFFORTS;
-var NO_XHIGH = ["low", "medium", "high", "max"];
-var MODEL_EFFORTS = {
-  "claude-fable-5-1": { levels: ALL, default: "high" },
-  "claude-mythos-5-1": { levels: ALL, default: "high" },
-  "claude-fable-5": { levels: ALL, default: "high" },
-  "claude-mythos-5": { levels: ALL, default: "high" },
-  "claude-mythos-preview": { levels: NO_XHIGH, default: "high" },
-  "claude-opus-5-5": { levels: ALL, default: "medium" },
-  "claude-opus-5": { levels: ALL, default: "high" },
-  "claude-opus-4-8": { levels: ALL, default: "high" },
-  "claude-opus-4-7": { levels: ALL, default: "high" },
-  "claude-opus-4-6": { levels: NO_XHIGH, default: "high" },
-  "claude-opus-4-5": { levels: ["low", "medium", "high"], default: "high" },
-  "claude-sonnet-5-5": { levels: ALL, default: "high" },
-  "claude-sonnet-5": { levels: ALL, default: "high" },
-  "claude-sonnet-4-6": { levels: NO_XHIGH, default: "high" },
-  "claude-haiku-5-5": { levels: ALL, default: "medium" },
-  "claude-haiku-4-5": { levels: [], default: null }
-};
-function modelEfforts(model) {
-  const base = model.replace(/\[[^\]]*\]$/, "").replace(/-\d{8}$/, "");
-  return Object.hasOwn(MODEL_EFFORTS, base) ? MODEL_EFFORTS[base] : null;
-}
-var effortSourceWords = () => `acc's list of each model's levels is from ${EFFORT_SOURCE.url}, read ${EFFORT_SOURCE.read}`;
-function checkEffortName(v, also = "") {
-  if (!isEffort(v)) throw new AccError("usage", `"${v}" isn't an effort level. Effort is one of ${EFFORTS.join(", ")}${also}.`);
-}
-function checkEffortPick(v) {
-  if (v !== "default") checkEffortName(v, ", or default for the builder's own");
-}
-var modelTakes = (model, effort) => modelEfforts(model)?.levels.includes(effort) ?? true;
-function checkModelEffort(model, effort, fix) {
-  if (!effort || modelTakes(model, effort)) return;
-  const m = modelEfforts(model);
-  const takes = m.levels.length ? `It takes ${m.levels.join(", ")}.` : "It takes no effort level: leave effort unset for it.";
-  throw new AccError("usage", `${model} doesn't take effort ${effort}. ${takes}${fix ? ` ${fix}` : ""} (${effortSourceWords()}.)`);
-}
-function effortFixWords(id, picked, model, on = "dispatch") {
-  const another = (modelEfforts(model)?.levels.length ?? 1) > 0;
-  if (on === "resume") {
-    return picked ? `It was picked for ${id}, and the builder's model has changed since: set it back with acc agents set builder --model <m>.` : `It's the builder's own: change it with acc agents set builder ${another ? "--effort <level> or " : ""}--clear effort.`;
-  }
-  return picked ? `It was picked for ${id}: ${another ? `pick another with acc dispatch ${id} --effort <level>, or ` : ""}drop it with acc dispatch ${id} --effort default.` : `It's the builder's own: ${another ? `pick one for ${id} with acc dispatch ${id} --effort <level>, or ` : ""}clear it with acc agents set builder --clear effort.`;
-}
-function builderEffort(task, config, chosen) {
-  const picked = chosen ?? (task.run?.effortPicked ? task.run.effort : void 0);
-  return picked && picked !== "default" ? { effort: picked, picked: true } : { effort: config.agents.builder.effort, picked: false };
-}
-var effortDroppedWords = (effort, model) => `Its effort ${effort}, picked for it before, was dropped: ${model} doesn't take it. The builder's own applies.`;
-function dispatchEffort(task, config, model, opts) {
-  const earlier = task.held?.effort ?? (task.run?.effortPicked ? task.run.effort : void 0);
-  if (opts.effort === void 0 && earlier && earlier !== "default" && opts.modelPicked && !modelTakes(model, earlier)) {
-    return { ...builderEffort(task, config, "default"), keep: "default", dropped: earlier };
-  }
-  const keep = opts.effort ?? earlier;
-  return { ...builderEffort(task, config, keep ?? "default"), keep, dropped: null };
-}
-
-// packages/core/src/agents.ts
-var KEYS = { model: "model", effort: "effort", fallbackModel: "fallbackmodel" };
-var gitKey = (role, field) => `acc.${role}.${KEYS[field]}`;
-function cloneProfile(run2, root, role) {
-  const out3 = {};
-  for (const field of Object.keys(KEYS)) {
-    const r = run2("git", ["config", "--get", gitKey(role, field)], { cwd: root });
-    const v = r.code === 0 ? r.stdout.trim() : "";
-    if (!v) continue;
-    if (field === "effort") {
-      if (isEffort(v)) out3.effort = v;
-    } else if (MODEL_NAME.test(v)) out3[field] = v;
-  }
-  return out3;
-}
-var modelOf = (p) => p?.model ?? DEFAULT_MODEL;
-function profileView(config, run2, root, role) {
-  const project2 = config.agents[role];
-  const mine = cloneProfile(run2, root, role);
-  const pick = (f) => mine[f] != null ? { v: mine[f], from: "clone" } : project2[f] != null ? { v: project2[f], from: "project" } : { v: null, from: "default" };
-  const m = pick("model");
-  const e = pick("effort");
-  const fb = pick("fallbackModel");
-  return {
-    model: m.v ?? DEFAULT_MODEL,
-    effort: e.v,
-    fallbackModel: fb.v,
-    from: { model: m.from === "default" ? "acc" : m.from, effort: e.from, fallbackModel: fb.from }
-  };
-}
-function withCloneAgents(config, root, run2) {
-  const merge = (role) => ({ ...config.agents[role], ...cloneProfile(run2, root, role) });
-  return { ...config, agents: { ...config.agents, builder: merge("builder"), reviewer: merge("reviewer") } };
-}
-function agentArgs(p) {
-  const model = modelOf(p);
-  return ["--model", model, ...p?.effort ? ["--effort", p.effort] : [], ...p?.fallbackModel && p.fallbackModel !== model ? ["--fallback-model", p.fallbackModel] : []];
-}
-function checkModelName(v) {
-  if (!MODEL_NAME.test(v)) throw new AccError("usage", `"${v}" isn't a model name. Use an alias such as opus, sonnet or fable, or a full model name.`);
-}
-function check(change2) {
-  for (const f of ["model", "fallbackModel"]) {
-    const v = change2[f];
-    if (v != null) checkModelName(v);
-  }
-  if (change2.effort != null) checkEffortName(change2.effort);
-}
-function setProfile(run2, root, configFile, role, change2, scope) {
-  check(change2);
-  if (scope === "clone") {
-    for (const f of Object.keys(change2)) {
-      const v = change2[f];
-      if (v === void 0) continue;
-      const r = v === null ? run2("git", ["config", "--unset", gitKey(role, f)], { cwd: root }) : run2("git", ["config", gitKey(role, f), v], { cwd: root });
-      if (r.code !== 0 && !(v === null && r.code === 5)) throw new AccError("git", `git config refused ${gitKey(role, f)}: ${r.stderr.trim()}`);
-    }
-    return;
-  }
-  let raw;
-  try {
-    raw = JSON.parse(readFileSync2(configFile, "utf8"));
-  } catch (e) {
-    throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
-  }
-  raw.agents ??= {};
-  const p = { ...raw.agents[role] ?? {} };
-  for (const f of Object.keys(change2)) {
-    const v = change2[f];
-    if (v === void 0) continue;
-    if (v === null) delete p[f];
-    else p[f] = v;
-  }
-  if (Object.keys(p).length) raw.agents[role] = p;
-  else delete raw.agents[role];
-  writeAtomic(configFile, JSON.stringify(raw, null, 2) + "\n");
-}
-var SETTABLE_AUTONOMY = ["manual", "review"];
-function setAutonomy(configFile, value) {
-  if (value === "dispatch" || value === "full") {
-    throw new AccError("refused", `autonomy "${value}" isn't built yet: autopilot would also start Ready tasks (D-055). Choose manual or review.`);
-  }
-  if (!SETTABLE_AUTONOMY.includes(value)) throw new AccError("usage", `Autonomy is ${SETTABLE_AUTONOMY.join(" or ")}.`);
-  let text;
-  let raw;
-  try {
-    text = readFileSync2(configFile, "utf8");
-    raw = JSON.parse(text);
-  } catch (e) {
-    throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
-  }
-  const wanted = { ...raw, autonomy: value };
-  const at2 = [...text.matchAll(/("autonomy"\s*:\s*)"[^"\\]*"/g)];
-  if (at2.length === 1) {
-    const edited = text.replace(/("autonomy"\s*:\s*)"[^"\\]*"/, `$1${JSON.stringify(value)}`);
-    try {
-      if (JSON.stringify(JSON.parse(edited)) === JSON.stringify(wanted)) {
-        writeAtomic(configFile, edited);
-        return;
-      }
-    } catch {
-    }
-  }
-  writeAtomic(configFile, JSON.stringify(wanted, null, 2) + "\n");
-}
-function setAutoMerge(configFile, on) {
-  let text;
-  let raw;
-  try {
-    text = readFileSync2(configFile, "utf8");
-    raw = JSON.parse(text);
-  } catch (e) {
-    throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
-  }
-  if (on && raw.profile === "salesforce") throw new AccError("refused", "A Salesforce project never auto-merges: a person merges every pull request there.");
-  const was = raw.autopilot && typeof raw.autopilot === "object" && !Array.isArray(raw.autopilot) ? raw.autopilot : null;
-  if (!on && was?.autoMerge === void 0) return;
-  const wanted = { ...raw, autopilot: { ...was ?? {}, autoMerge: on } };
-  const canon2 = (v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canon2(v[k2])])) : Array.isArray(v) ? v.map(canon2) : v;
-  const fits = (edited) => {
-    try {
-      return JSON.stringify(canon2(JSON.parse(edited))) === JSON.stringify(canon2(wanted));
-    } catch {
-      return false;
-    }
-  };
-  const tries = [];
-  const value = /("autoMerge"\s*:\s*)(true|false)/;
-  if ([...text.matchAll(new RegExp(value, "g"))].length === 1) tries.push(text.replace(value, `$1${on}`));
-  const block = /("autopilot"\s*:\s*\{)(\s*)(?=")/;
-  if (block.test(text)) tries.push(text.replace(block, (_m, open, gap) => `${open}${gap}"autoMerge": ${on},${gap}`));
-  const indent = /^\{\s*?\n([ \t]+)"/.exec(text)?.[1] ?? "  ";
-  if (!was) tries.push(text.replace(/(\S)(\s*)\}\s*$/, (_m, last, gap) => `${last},
-${indent}"autopilot": {
-${indent}${indent}"autoMerge": ${on}
-${indent}}${gap}}
-`));
-  writeAtomic(configFile, tries.find(fits) ?? JSON.stringify(wanted, null, 2) + "\n");
-}
-
-// packages/core/src/analyze.ts
-import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync as existsSync5, mkdirSync as mkdirSync6, readFileSync as readFileSync8, renameSync as renameSync4, rmSync as rmSync5, writeFileSync as writeFileSync6 } from "node:fs";
-import { join as join5 } from "node:path";
-
-// packages/core/src/awake.ts
-import { spawn, spawnSync as spawnSync2 } from "node:child_process";
-import { mkdirSync as mkdirSync3, readFileSync as readFileSync4, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
-import { basename as basename2, join as join2 } from "node:path";
-
-// packages/core/src/lock.ts
-import { mkdirSync as mkdirSync2, readFileSync as readFileSync3, rmSync, statSync, writeFileSync as writeFileSync2 } from "node:fs";
-import { join } from "node:path";
-var sleep = (ms) => {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-};
-function alive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return e.code === "EPERM";
-  }
-}
-function withLock(lockDir, fn2, opts = {}) {
-  const timeoutMs = opts.timeoutMs ?? 15e3;
-  const staleMs = opts.staleMs ?? 6e4;
-  const started = Date.now();
-  for (; ; ) {
-    try {
-      mkdirSync2(lockDir);
-      writeFileSync2(join(lockDir, "owner"), JSON.stringify({ pid: process.pid, at: Date.now() }));
-      break;
-    } catch (e) {
-      if (e.code !== "EEXIST") throw e;
-      let owner = null;
-      try {
-        owner = JSON.parse(readFileSync3(join(lockDir, "owner"), "utf8"));
-      } catch {
-        owner = null;
-      }
-      let age = 0;
-      try {
-        age = Date.now() - (owner?.at ?? statSync(lockDir).mtimeMs);
-      } catch {
-        continue;
-      }
-      if (owner && !alive(owner.pid) || age > staleMs) {
-        rmSync(lockDir, { recursive: true, force: true });
-        continue;
-      }
-      if (Date.now() - started > timeoutMs) {
-        throw new AccError("lock-timeout", `Another acc process is holding ${lockDir}. Try again in a moment.`);
-      }
-      sleep(20 + Math.floor(Math.random() * 40));
-    }
-  }
-  try {
-    return fn2();
-  } finally {
-    rmSync(lockDir, { recursive: true, force: true });
-  }
-}
-
-// packages/core/src/awake.ts
-var detached = (cmd, args) => {
-  const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
-  child.on("error", () => void 0);
-  return child;
-};
-var stop = (pid) => {
-  try {
-    process.kill(pid);
-  } catch {
-  }
-};
-function holdAwake(watchPid, deps = {}) {
-  if ((deps.platform ?? process.platform) !== "darwin" || !Number.isInteger(watchPid) || watchPid <= 0) return null;
-  const child = (deps.spawn ?? detached)("caffeinate", ["-i", "-w", String(watchPid)]);
-  child.unref();
-  const pid = child.pid;
-  if (!pid) return null;
-  const kill = deps.kill ?? stop;
-  return { pid, release: () => kill(pid) };
-}
-var awakePath = (paths, id) => join2(paths.stateDir, "awake", `${id}.pid`);
-function isCaffeinate(pid) {
-  if (!alive(pid)) return false;
-  const r = spawnSync2("ps", ["-p", String(pid), "-o", "comm="], { encoding: "utf8" });
-  return r.status === 0 && basename2(r.stdout.trim()) === "caffeinate";
-}
-function keepAwakeFor(paths, id, watchPid, deps = {}) {
-  releaseAwake(paths, id, deps);
-  const held = holdAwake(watchPid, deps);
-  if (!held) return null;
-  try {
-    mkdirSync3(join2(paths.stateDir, "awake"), { recursive: true });
-    writeFileSync3(awakePath(paths, id), JSON.stringify({ pid: held.pid, watch: watchPid }));
-  } catch {
-  }
-  return held;
-}
-function releaseAwake(paths, id, deps = {}) {
-  const file = awakePath(paths, id);
-  let rec;
-  try {
-    rec = JSON.parse(readFileSync4(file, "utf8"));
-  } catch {
-    return false;
-  }
-  rmSync2(file, { force: true });
-  if (!Number.isInteger(rec.pid) || rec.pid <= 0) return false;
-  if (deps.kill) deps.kill(rec.pid);
-  else if (isCaffeinate(rec.pid)) stop(rec.pid);
-  return true;
-}
-
-// packages/core/src/names.ts
-var NAME_PART_MAX = 40;
-var NAME_SEP = " \xB7 ";
-var SECRET_PREFIX = /^(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox|AKIA|eyJ)/;
-var tokenLike = (word) => SECRET_PREFIX.test(word) || word.length >= 20 && new RegExp("\\p{L}", "u").test(word) && new RegExp("\\p{N}", "u").test(word);
-function cleanName(text) {
-  return text.normalize("NFC").replace(/[\p{Cc}\p{Z}\s/\\~·]+/gu, " ").replace(/[^\p{L}\p{M}\p{N} _.,:()+#-]/gu, "").split(" ").filter((w) => w && !tokenLike(w)).join(" ");
-}
-function shortTitle(text, max = NAME_PART_MAX) {
-  const chars = Array.from(text);
-  if (chars.length <= max) return text;
-  const head = chars.slice(0, max).join("");
-  const hard = chars.slice(0, max - 1).join("");
-  const space = head.lastIndexOf(" ");
-  const cut3 = (space > 0 ? head.slice(0, space) : hard).replace(/[\s.,:(+#_-]+$/u, "");
-  return `${cut3 || hard}\u2026`;
-}
-var cleanKey = (key) => /^[A-Z][A-Z0-9_]*-\d+$/.test(key) ? key : key.replace(/[^A-Za-z0-9_-]/g, "");
-function sessionName(p) {
-  const project2 = shortTitle(cleanName(p.project));
-  const title = shortTitle(cleanName(p.title));
-  const key = cleanKey(p.key);
-  const task = [key, title].filter(Boolean).join(" ");
-  const role = p.role === "builder" && p.n && p.n > 1 ? `${p.role} ${p.n}` : p.role;
-  return [project2, task, role].filter(Boolean).join(NAME_SEP);
-}
-
-// packages/core/src/ledger.ts
-import { appendFileSync, closeSync, existsSync as existsSync2, mkdirSync as mkdirSync4, openSync, readFileSync as readFileSync5, readSync, statSync as statSync2 } from "node:fs";
-import { dirname as dirname2 } from "node:path";
-var STATES = ["todo", "running", "review", "rework", "blocked", "done"];
-var ACTORS = ["human", "orchestrator", "builder", "reviewer", "sync"];
-var SOURCE_KINDS = [...TRACKER_KINDS, "manual"];
-var AUTOPILOT_STEPS = ["review", "land", "dispatch", "refresh", "resume", "checks", "merge", "start", "queue"];
-var emptyLedger = () => ({ schema: 1, seq: 0, tasks: [] });
-function readLedger(file) {
-  if (!existsSync2(file)) return emptyLedger();
-  const l3 = JSON.parse(readFileSync5(file, "utf8"));
-  if (l3.schema !== 1 || !Array.isArray(l3.tasks)) throw new AccError("bad-ledger", `${file} isn't a ledger this version understands.`);
-  return l3;
-}
-function mutate(paths, now2, fn2) {
-  mkdirSync4(paths.stateDir, { recursive: true });
-  return withLock(paths.lock, () => {
-    const ledger = readLedger(paths.ledger);
-    const events = [];
-    const emit = (e) => events.push({ ...e, seq: ++ledger.seq, at: now2().toISOString() });
-    const result = fn2(ledger, emit);
-    if (events.length) {
-      mkdirSync4(dirname2(paths.events), { recursive: true });
-      appendFileSync(paths.events, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-      writeAtomic(paths.ledger, JSON.stringify(ledger, null, 2) + "\n");
-    }
-    return result;
-  });
-}
-var JIRA_KEY = /^[A-Z][A-Z0-9_]*-\d+$/;
-function normalizeId(ref, defaultKind = "jira") {
-  const r = ref.trim();
-  const gh = /^(?:#|GH-)?(\d+)$/i.exec(r);
-  if (gh && (defaultKind === "github" || /^(#|GH-)/i.test(r))) return `GH-${gh[1]}`;
-  return r.toUpperCase();
-}
-function isValidId(id) {
-  return JIRA_KEY.test(id);
-}
-function nextManualId(ledger) {
-  const n = ledger.tasks.map((t) => /^T-(\d+)$/.exec(t.id)?.[1]).filter(Boolean).map(Number);
-  return `T-${(n.length ? Math.max(...n) : 0) + 1}`;
-}
-function environmentProblem(config, env) {
-  const def = environmentByBranch(config, env);
-  if (!def) return `environment "${env}" isn't in the config.`;
-  if (def.protected) return `"${env}" is protected, so no task can build on it directly.`;
-  return null;
-}
-var taskDeps = (deps, kind) => deps.map((d) => normalizeId(d, kind));
-function upsertTasks(ledger, config, inputs, actor, by, emit, now2) {
-  const res = { added: [], updated: [], unchanged: [], errors: [] };
-  const defaultEnv = defaultEnvironment(config).branch;
-  inputs.forEach((input, i) => {
-    const at2 = `item ${i + 1}`;
-    if (!input || typeof input.title !== "string" || !input.title.trim()) {
-      res.errors.push(`${at2}: needs a title.`);
-      return;
-    }
-    const kind = input.source?.kind;
-    if (!SOURCE_KINDS.includes(kind)) {
-      res.errors.push(`${at2}: source kind must be ${SOURCE_KINDS.join(", ")}.`);
-      return;
-    }
-    let id;
-    if (kind === "manual") id = input.source.key ? normalizeId(input.source.key) : nextManualId(ledger);
-    else {
-      if (!input.source.key) {
-        res.errors.push(`${at2}: a ${kind} task needs its tracker key.`);
-        return;
-      }
-      id = normalizeId(input.source.key, kind);
-    }
-    if (!isValidId(id)) {
-      res.errors.push(`${at2}: "${id}" isn't a valid task id.`);
-      return;
-    }
-    const env = input.environment ?? defaultEnv;
-    const envWhy = environmentProblem(config, env);
-    if (envWhy) {
-      res.errors.push(`${id}: ${envWhy}`);
-      return;
-    }
-    const deps = taskDeps(input.deps ?? [], kind);
-    const fields = {
-      title: input.title.trim(),
-      brief: (input.brief ?? "").trim(),
-      deps,
-      labels: input.labels ?? [],
-      url: input.source.url ?? null
-    };
-    const existing = ledger.tasks.find((t) => t.id === id);
-    const stamp = now2().toISOString();
-    if (!existing) {
-      const task = {
-        id,
-        title: fields.title,
-        brief: fields.brief,
-        source: { kind, key: kind === "manual" ? null : input.source.key ?? null, url: fields.url },
-        environment: env,
-        deps,
-        labels: fields.labels,
-        state: "todo",
-        blocker: null,
-        run: null,
-        pr: null,
-        history: [{ at: stamp, actor, by, from: null, to: "todo", reason: null }],
-        createdAt: stamp,
-        updatedAt: stamp
-      };
-      ledger.tasks.push(task);
-      emit({ type: "task.added", task: id, actor, by, data: { title: task.title, source: task.source } });
-      res.added.push(id);
-      return;
-    }
-    const changed = {};
-    if (existing.title !== fields.title) changed.title = existing.title = fields.title;
-    if (existing.brief !== fields.brief) changed.brief = existing.brief = fields.brief;
-    if (existing.source.url !== fields.url) changed.url = existing.source.url = fields.url;
-    if (JSON.stringify(existing.deps) !== JSON.stringify(deps)) changed.deps = existing.deps = deps;
-    if (JSON.stringify(existing.labels) !== JSON.stringify(fields.labels)) changed.labels = existing.labels = fields.labels;
-    if (Object.keys(changed).length) {
-      existing.updatedAt = stamp;
-      emit({ type: "task.updated", task: id, actor, by, data: changed });
-      res.updated.push(id);
-    } else res.unchanged.push(id);
-  });
-  return res;
-}
-var DONE_COMMAND = `acc done --landed "<what landed>" --moved "<tests, checks, ratchets that moved>" --open "<what's still open, or none>"`;
-var NOTE_LIMITS = { lines: 10, chars: 300 };
-var NOTE_PARTS = ["landed", "moved", "open"];
-function noteInput(parts) {
-  const out3 = {};
-  for (const k2 of NOTE_PARTS) {
-    const given2 = parts[k2];
-    if (given2 === void 0) continue;
-    out3[k2] = given2.map((l3) => l3.replace(/\s+/g, " ").trim()).filter((l3) => l3 && l3.toLowerCase() !== "none");
-  }
-  return out3;
-}
-var NOTE_LABELS = { landed: "What landed", moved: "Numbers that moved", open: "Still open" };
-function noteMarkdown(n) {
-  return NOTE_PARTS.flatMap((k2, i) => [...i ? [""] : [], `**${NOTE_LABELS[k2]}**`, "", ...n[k2].length ? n[k2].map((l3) => `- ${l3}`) : ["- none"]]);
-}
-function shownNote(task) {
-  const r = task.run;
-  if (!r) return { note: null, fromLast: false, missing: false };
-  if (r.note) return { note: r.note, fromLast: false, missing: false };
-  if (task.state === "running") return { note: r.before ?? null, fromLast: true, missing: r.before === null };
-  return { note: null, fromLast: false, missing: task.state !== "done" };
-}
-var noteGiven = (n) => !!n && NOTE_PARTS.some((k2) => n[k2] !== void 0);
-function noteProblems(n, required) {
-  const p = [];
-  for (const k2 of NOTE_PARTS) {
-    const lines = n?.[k2] ?? [];
-    if (lines.length > NOTE_LIMITS.lines) p.push(`The note's --${k2} has ${lines.length} lines. It takes at most ${NOTE_LIMITS.lines}.`);
-    const long = lines.filter((l3) => l3.length > NOTE_LIMITS.chars).length;
-    if (long) p.push(`${long === 1 ? "A line" : `${long} lines`} in the note's --${k2} ${long === 1 ? "is" : "are"} over ${NOTE_LIMITS.chars} characters. Say it shorter.`);
-  }
-  if (required) {
-    const missing = NOTE_PARTS.filter((k2) => n?.[k2] === void 0 || k2 === "landed" && !n[k2].length);
-    if (missing.length) {
-      p.push(`A builder finishes with a note for whoever comes next: what landed, which numbers moved, and what's still open (it says nothing about ${missing.map((k2) => `--${k2}`).join(", ")}). Run: ${DONE_COMMAND}. Give a flag again for each further line. --moved none and --open none say there was nothing.`);
-    }
-  }
-  return p;
-}
-var RULES = [
-  { from: "todo", to: "running", actors: ["human", "orchestrator"], requires: ["depsDone", "underCap", "envNotProtected"] },
-  { from: "running", to: "review", actors: ["builder", "human"], requires: ["gatesPassed", "note"] },
-  // The orchestrator is autopilot sending back a pull request whose checks failed on GitHub (D-076).
-  { from: "review", to: "rework", actors: ["reviewer", "human", "orchestrator"], requires: ["reason"] },
-  { from: "rework", to: "running", actors: ["human", "orchestrator"], requires: ["underCap", "envNotProtected"] },
-  { from: "review", to: "done", actors: ["sync", "human"], requires: [] },
-  // Its issue was closed on GitHub before anyone started it: acc intake moves it.
-  { from: "todo", to: "done", actors: ["sync"], requires: [] },
-  { from: "running", to: "todo", actors: ["human"], requires: ["reason"] },
-  { from: "done", to: "rework", actors: ["human", "sync"], requires: ["reason"] },
-  { from: "blocked", to: "todo", actors: ["human"], requires: [] },
-  // A person settled what blocked finished work, such as by waiving a check (D-031).
-  { from: "blocked", to: "review", actors: ["human"], requires: ["gatesPassed"] },
-  { from: "any", to: "blocked", actors: [...ACTORS], requires: ["reason"] }
-];
-var noGateHooks = { missingGates: () => [] };
-function findRule(from, to) {
-  return RULES.find((r) => r.from === from && r.to === to) ?? RULES.find((r) => r.from === "any" && r.to === to && from !== "blocked" && from !== "done");
-}
-var runPlace = (run2) => run2?.where === "cloud" ? "cloud" : "local";
-var builders = (ledger, except, where = "local") => ledger.tasks.filter((t) => t.state === "running" && t.id !== except && runPlace(t.run) === where).length;
-var projectCapWords = (n, max) => `${n} ${n === 1 ? "builder is" : "builders are"} running in this project, and its cap is ${max} (agents.max).`;
-var cloudReviews = (ledger, except) => ledger.tasks.filter((t) => t.state === "review" && t.id !== except && !!t.cloudReview && !t.cloudReview.failed).length;
-var cloudCapWords = (n, reviews, max) => reviews ? `${n} cloud ${n === 1 ? "session is" : "sessions are"} running for this project (${n - reviews} ${n - reviews === 1 ? "builder" : "builders"}, ${reviews} ${reviews === 1 ? "review" : "reviews"}), and its cap is ${max} (agents.cloud.max).` : `${n} cloud ${n === 1 ? "builder is" : "builders are"} running for this project, and its cap is ${max} (agents.cloud.max).`;
-function checkMove(ledger, config, task, req, hooks) {
-  if (!STATES.includes(req.to)) return [`"${req.to}" isn't a state. States: ${STATES.join(", ")}.`];
-  if (!ACTORS.includes(req.actor)) return [`"${req.actor}" isn't an actor.`];
-  if (task.state === req.to) return [`${task.id} is already ${req.to}.`];
-  const reason = req.reason?.trim() ?? "";
-  if (noteGiven(req.note)) {
-    if (!task.run || req.to !== "review" && req.to !== "blocked") return [`A note goes with a run's end: acc done, or acc block. ${task.id} ${task.run ? `is moving to ${req.to}` : "has no run"}.`];
-    const over = noteProblems(req.note, false);
-    if (over.length) return over;
-  }
-  if (req.force) {
-    const p = [];
-    if (req.actor !== "human") p.push("Only a person can force a move.");
-    if (!reason) p.push("A forced move needs --reason.");
-    return p;
-  }
-  const rule = findRule(task.state, req.to);
-  if (!rule) return [`There's no rule for ${task.state} \u2192 ${req.to}. A person can force it with --force --reason.`];
-  if (!rule.actors.includes(req.actor)) {
-    return [`A ${req.actor} can't move a task from ${task.state} to ${req.to}. Allowed: ${rule.actors.join(", ")}.`];
-  }
-  const problems = [];
-  for (const r of rule.requires) {
-    if (r === "reason" && !reason) problems.push(`Moving to ${req.to} needs a reason.`);
-    if (r === "depsDone") {
-      for (const d of task.deps) {
-        const dep = ledger.tasks.find((t) => t.id === d);
-        if (!dep) problems.push(`It depends on ${d}, which isn't in the ledger.`);
-        else if (dep.state !== "done") problems.push(`It's waiting on ${d}, which is ${dep.state}.`);
-      }
-    }
-    if (r === "underCap") {
-      if (req.where === "cloud") {
-        const max = config.agents.cloud?.max ?? 0;
-        const reviews = cloudReviews(ledger, task.id);
-        const running = builders(ledger, task.id, "cloud") + reviews;
-        if (!config.agents.cloud) problems.push("This project hasn't opted in to cloud builders (agents.cloud).");
-        else if (running >= max) problems.push(cloudCapWords(running, reviews, max));
-      } else {
-        const running = builders(ledger, task.id);
-        if (running >= config.agents.max) problems.push(projectCapWords(running, config.agents.max));
-      }
-    }
-    if (r === "envNotProtected") {
-      const env = environmentByBranch(config, task.environment);
-      if (!env) problems.push(`Its environment "${task.environment}" isn't in the config.`);
-      else if (env.protected) problems.push(`"${env.name}" is protected. Agents never work on it directly.`);
-    }
-    if (r === "gatesPassed") {
-      const missing = hooks.missingGates(task);
-      if (missing.length) problems.push(`These required checks haven't passed on the current commit: ${missing.join(", ")}. Commit everything, then run: acc gate run`);
-    }
-    if (r === "note" && req.actor === "builder") problems.push(...noteProblems(req.note, true));
-  }
-  return problems;
-}
-function applyMove(task, req, emit, now2, data = {}) {
-  const at2 = now2().toISOString();
-  const entry = { at: at2, actor: req.actor, by: req.by, from: task.state, to: req.to, reason: req.reason?.trim() || null };
-  if (req.force) entry.override = true;
-  task.blocker = req.to === "blocked" ? entry.reason ?? null : null;
-  if (task.autopilot?.failed) task.autopilot.failed = null;
-  if (task.autopilot?.queued) task.autopilot.queued = null;
-  if (task.autopilot?.carried) task.autopilot.carried = null;
-  if (task.held) task.held = null;
-  if (task.cloudReview) task.cloudReview = null;
-  const note = noteGiven(req.note) && task.run && (req.to === "review" || req.to === "blocked") ? { landed: req.note.landed ?? [], moved: req.note.moved ?? [], open: req.note.open ?? [], at: at2, by: req.by, ended: req.to } : null;
-  if (note) task.run.note = note;
-  task.state = req.to;
-  task.updatedAt = at2;
-  task.history.push(entry);
-  emit({ type: "task.moved", task: task.id, actor: req.actor, by: req.by, data: { from: entry.from, to: entry.to, reason: entry.reason, override: req.force ?? false, ...note ? { note } : {}, ...data } });
-  return entry;
-}
-function moveTask(paths, config, id, req, hooks, now2) {
-  const moved = mutate(paths, now2, (ledger, emit) => {
-    const task = ledger.tasks.find((t) => t.id === id);
-    if (!task) throw new AccError("no-task", `No task ${id}.`);
-    const problems = checkMove(ledger, config, task, req, hooks);
-    if (problems.length) throw new AccError("move-refused", `Can't move ${id} to ${req.to}:
-- ${problems.join("\n- ")}`);
-    const entry = applyMove(task, req, emit, now2);
-    return { task, entry };
-  });
-  if (moved.entry.from === "running") releaseAwake(paths, id);
-  return moved;
-}
-function isReady(ledger, task) {
-  return task.state === "todo" && task.deps.every((d) => ledger.tasks.find((t) => t.id === d)?.state === "done");
-}
-var autopilotFailure = (task) => task.autopilot?.failed && task.autopilot.failed.state === task.state ? task.autopilot.failed : null;
-function sessionsOf(task, sessions) {
-  const run2 = task.run;
-  if (run2?.where === "cloud") return [];
-  if (run2?.bgId || run2?.sessionId) return sessions.filter((s) => !!run2.bgId && s.id === run2.bgId || !!run2.sessionId && s.sessionId === run2.sessionId);
-  const name = run2?.name ?? task.id;
-  return sessions.filter((s) => s.kind === "background" && s.name === name);
-}
-function sessionActive(s) {
-  if (!s.pid) return false;
-  if (s.kind !== "background") return true;
-  if (s.state === "done" || s.state === "failed" || s.state === "stopped") return false;
-  return s.status !== "idle";
-}
-var STOPPED_GRACE_MS = 2 * 6e4;
-function runStartedAt(task) {
-  const times = [task.run?.startedAt, ...(task.run?.resumes ?? []).map((r) => r.at)].filter((t) => !!t);
-  return times.sort().at(-1) ?? null;
-}
-function builderStopped(task, sessions, o) {
-  if (task.state !== "running" || !sessions || o.resuming) return false;
-  if (task.run?.where === "cloud") return false;
-  const started = runStartedAt(task);
-  if (!started || o.now.getTime() - Date.parse(started) < (o.graceMs ?? STOPPED_GRACE_MS)) return false;
-  return !sessionsOf(task, sessions).some(sessionActive);
-}
-var closedPr = (task) => task.state === "review" && task.pr?.state === "closed" ? task.pr : null;
-var AUTOPILOT_BY = "orchestrator:autopilot";
-var sentBackByAutopilot = (h2) => h2.from === "review" && h2.to === "rework" && h2.by === AUTOPILOT_BY;
-function reworkCause(task) {
-  const h2 = task.history.findLast((x2) => x2.to === "rework");
-  if (!h2) return null;
-  return sentBackByAutopilot(h2) ? task.autopilot?.sentBack?.kind ?? "checks" : "review";
-}
-var SEND_BACKS = 3;
-var sendBacks = (task) => task.history.filter(sentBackByAutopilot).length;
-var sentBackAt = (task, sha) => !!sha && task.autopilot?.sentBack?.sha === sha;
-var inQueue = (task, config) => task.state === "review" && !!task.autopilot?.queued && autoMergeFor(config, task.environment);
-function displayState(ledger, task, session, config) {
-  if (task.state === "todo" && task.held?.failed) return "needs-you";
-  if (task.state === "todo" && isReady(ledger, task)) return "ready";
-  if (autopilotFailure(task)) return "needs-you";
-  if (task.state === "running" && (session?.stopped || session?.quiet || session?.state === "blocked" || session?.status === "waiting")) return "needs-you";
-  if (task.state === "review" && task.pr?.state === "open" && (task.pr.ci === "failing" && !sentBackAt(task, task.pr.sha) || task.pr.changesRequested || !!task.pr.conflicts?.length && !(config && inQueue(task, config)))) return "needs-you";
-  if (closedPr(task)) return "needs-you";
-  return task.state;
-}
-var DISPLAY = {
-  todo: { label: "To do", icon: "circle-outline", glyph: "\u25CB", tone: "neutral" },
-  ready: { label: "Ready", icon: "play-circle", glyph: "\u25B7", tone: "blue" },
-  running: { label: "Running", icon: "sync", glyph: "\u21BB", tone: "blue" },
-  "needs-you": { label: "Needs you", icon: "bell", glyph: "!", tone: "orange" },
-  review: { label: "In review", icon: "eye", glyph: "\u25CE", tone: "blue" },
-  rework: { label: "Rework", icon: "debug-restart", glyph: "\u21BA", tone: "orange" },
-  blocked: { label: "Blocked", icon: "circle-slash", glyph: "\u2298", tone: "orange" },
-  done: { label: "Done", icon: "check", glyph: "\u2713", tone: "neutral" }
-};
-
-// packages/core/src/rules.ts
-import { createHash } from "node:crypto";
-import { existsSync as existsSync4, mkdirSync as mkdirSync5, mkdtempSync as mkdtempSync2, readdirSync, readFileSync as readFileSync7, renameSync as renameSync2, rmSync as rmSync4, writeFileSync as writeFileSync4 } from "node:fs";
-import { homedir as homedir2, tmpdir as tmpdir2 } from "node:os";
-import { basename as basename3, dirname as dirname3, isAbsolute as isAbsolute2, join as join4 } from "node:path";
-
-// packages/core/src/source.ts
-import { existsSync as existsSync3, mkdtempSync, readFileSync as readFileSync6, rmSync as rmSync3, statSync as statSync3 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { isAbsolute, join as join3, relative, resolve, sep } from "node:path";
-var COPY_KINDS = {
-  template: {
-    noun: "team template",
-    short: "template",
-    recordedIn: "the project's config",
-    example: "templates/salesforce.json",
-    maxBytes: 64 * 1024,
-    bad: "bad-template",
-    missing: "no-template"
-  },
-  rules: {
-    noun: "rules file",
-    short: "rules file",
-    recordedIn: "the copy's header",
-    example: "rules/salesforce.md",
-    maxBytes: 64 * 1024,
-    bad: "bad-rules",
-    missing: "no-rules"
-  }
-};
-var FETCH_TIMEOUT_MS = 2 * 6e4;
-var a = (s) => /^[aeiou]/i.test(s) ? `an ${s}` : `a ${s}`;
-var possessive = (s) => `${s[0].toUpperCase()}${s.slice(1)}'s`;
-function sourceProblem(source, kind = "template") {
-  const k2 = COPY_KINDS[kind];
-  const s = source.trim();
-  if (!s) return "Give a path, a GitHub file URL, or <git-url>#<path>.";
-  if (s.startsWith("-")) return `${possessive(a(k2.short))} source can't start with "-", which git would read as an option. For a file, start it with ./`;
-  if (/^http:\/\//i.test(s)) return `Use https://: acc doesn't fetch ${a(k2.short)} over plain http.`;
-  const userinfo = /^[a-z][a-z0-9+.-]*:\/\/([^/@#?]*)@/i.exec(s);
-  if (userinfo && (/^https:/i.test(s) || userinfo[1].includes(":"))) return `Take the sign-in out of the URL: gh and git sign in for you, and the source is written into ${k2.recordedIn}.`;
-  return null;
-}
-var GITHUB_BLOB = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:blob|raw)\/([^/?#]+)\/([^?#]+)(?:[?#].*)?$/;
-var GITHUB_RAW = /^https:\/\/raw\.githubusercontent\.com\/([\w.-]+)\/([\w.-]+)\/(?:refs\/(?:heads|tags)\/)?([^/?#]+)\/([^?#]+)(?:[?#].*)?$/;
-function parseSource(source, base = process.cwd(), home = homedir(), kind = "template") {
-  const k2 = COPY_KINDS[kind];
-  const s = source.trim();
-  const problem = sourceProblem(s, kind);
-  if (problem) throw new AccError(k2.bad, problem);
-  const gh = GITHUB_BLOB.exec(s) ?? GITHUB_RAW.exec(s);
-  if (gh) return { kind: "github", owner: gh[1], repo: gh[2], ref: decodeURIComponent(gh[3]), path: decodeURIComponent(gh[4]) };
-  const hash = s.lastIndexOf("#");
-  if (hash > 0) {
-    const path = s.slice(hash + 1).replace(/^\/+/, "");
-    if (!path || path.split("/").includes("..")) throw new AccError(k2.bad, `"${s}" needs a file's path in the repo after the #, such as #${k2.example}.`);
-    return { kind: "git", url: s.slice(0, hash), path };
-  }
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
-    throw new AccError(k2.bad, `acc fetches ${a(k2.short)} only with gh or git. Give a github.com file URL, <git-url>#<path>, or a path. "${s}" is neither.`);
-  }
-  const expanded = s === "~" ? home : s.startsWith("~/") ? join3(home, s.slice(2)) : s;
-  return { kind: "file", path: resolve(base, expanded) };
-}
-function recordedSource(source, opts = {}) {
-  const src = parseSource(source, opts.base, opts.home, opts.kind);
-  if (src.kind !== "file") return source.trim();
-  const inside2 = (dir) => {
-    const rel = relative(dir, src.path);
-    return rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel.split(sep).join("/") : null;
-  };
-  const inRepo2 = opts.root ? inside2(opts.root) : null;
-  if (inRepo2) return inRepo2.startsWith("-") ? `./${inRepo2}` : inRepo2;
-  const inHome = inside2(opts.home ?? homedir());
-  return inHome ? `~/${inHome}` : src.path;
-}
-var firstLine = (s) => s.trim().split("\n")[0] ?? "";
-function fetchSource(run2, source, kind, opts = {}) {
-  const k2 = COPY_KINDS[kind];
-  const src = parseSource(source, opts.base, opts.home, kind);
-  const total = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
-  const deadline = opts.deadline ?? Date.now() + total;
-  const timeoutMs = () => {
-    const left = deadline - Date.now();
-    const secs = Math.ceil(total / 1e3);
-    if (left <= 0) throw new AccError(k2.missing, `Couldn't read ${source} within ${secs} second${secs === 1 ? "" : "s"}, so acc stopped.`);
-    return left;
-  };
-  const tooBig = () => new AccError(k2.bad, `${source} is over ${k2.maxBytes / 1024} KB, too big for ${a(k2.noun)}.`);
-  const env = opts.env ?? process.env;
-  if (src.kind === "file") {
-    if (!existsSync3(src.path)) throw new AccError(k2.missing, `There's no ${k2.noun} at ${source}.`);
-    const stat = statSync3(src.path);
-    if (!stat.isFile()) throw new AccError(k2.bad, `${source} isn't a file, so it can't be ${a(k2.noun)}.`);
-    if (stat.size > k2.maxBytes) throw tooBig();
-    return { text: readFileSync6(src.path, "utf8"), commit: null };
-  }
-  if (src.kind === "github") {
-    const who = opts.account ?? "gh's active account";
-    let ghEnv3 = env;
-    if (opts.account) {
-      const t = run2("gh", ["auth", "token", "-u", opts.account], { env, timeoutMs: timeoutMs() });
-      if (t.code !== 0 || !t.stdout.trim()) throw new AccError("no-github", `gh isn't logged in as ${opts.account}, the account that reads ${source}. Sign in from Setup, or run gh auth login.`);
-      ghEnv3 = { ...env, GH_TOKEN: t.stdout.trim() };
-    }
-    const path = src.path.split("/").map(encodeURIComponent).join("/");
-    const r = run2("gh", ["api", `repos/${src.owner}/${src.repo}/contents/${path}?ref=${encodeURIComponent(src.ref)}`, "-H", "Accept: application/vnd.github.raw"], { env: ghEnv3, timeoutMs: timeoutMs() });
-    if (r.code !== 0) {
-      const why = firstLine(r.stderr || r.stdout);
-      if (/\b404\b|not found/i.test(why)) throw new AccError(k2.missing, `${source} wasn't found as ${who}. Check the address, and that ${who} can read ${src.owner}/${src.repo}.`);
-      throw new AccError(k2.missing, `Couldn't read ${source} as ${who}: ${why || `gh exited ${r.code}`}`);
-    }
-    if (Buffer.byteLength(r.stdout) > k2.maxBytes) throw tooBig();
-    if (!opts.commit) return { text: r.stdout, commit: null };
-    const c = run2("gh", ["api", `repos/${src.owner}/${src.repo}/commits?path=${encodeURIComponent(src.path)}&sha=${encodeURIComponent(src.ref)}&per_page=1`, "--jq", ".[0].sha"], { env: ghEnv3, timeoutMs: timeoutMs() });
-    const sha = c.stdout.trim();
-    return { text: r.stdout, commit: c.code === 0 && /^[0-9a-f]{40}$/.test(sha) ? sha : null };
-  }
-  const dir = mkdtempSync(join3(tmpdir(), `acc-${kind}-`));
-  try {
-    const gitEnv = { ...env, GIT_TERMINAL_PROMPT: "0", ...env.GIT_SSH_COMMAND ? {} : { GIT_SSH_COMMAND: "ssh -o BatchMode=yes" } };
-    const clone = run2("git", ["clone", "--quiet", "--depth", "1", "--filter=blob:none", "--no-checkout", "--", src.url, join3(dir, "repo")], { env: gitEnv, timeoutMs: timeoutMs() });
-    if (clone.code !== 0) throw new AccError(k2.missing, `Couldn't fetch ${src.url} with git: ${firstLine(clone.stderr || clone.stdout) || `git exited ${clone.code}`}`);
-    const show = run2("git", ["show", `HEAD:${src.path}`], { cwd: join3(dir, "repo"), env: gitEnv, timeoutMs: timeoutMs() });
-    if (show.code !== 0) throw new AccError(k2.missing, `${src.url} has no ${src.path} on its default branch.`);
-    if (Buffer.byteLength(show.stdout) > k2.maxBytes) throw tooBig();
-    if (!opts.commit) return { text: show.stdout, commit: null };
-    const head = run2("git", ["rev-parse", "HEAD"], { cwd: join3(dir, "repo"), env: gitEnv, timeoutMs: timeoutMs() }).stdout.trim();
-    return { text: show.stdout, commit: /^[0-9a-f]{40,64}$/.test(head) ? head : null };
-  } finally {
-    rmSync3(dir, { recursive: true, force: true });
-  }
-}
-
-// packages/core/src/rules.ts
-var RULES_DIR = ".acc/rules";
-var OWN_RULES = ".acc/rules.md";
-var RULES_TOTAL_MAX_BYTES = 128 * 1024;
-var BASE_RULES = [
-  "Put new behaviour in its own file. Where a list must name every area, such as an index or a registry, register it there with one line. Parallel tasks then rarely change the same lines, so their work merges.",
-  "If another task's change breaks your build, block with the reason (`acc block \"<what broke, and which change>\"`); don't edit its files. That task fixes its own breakage, and two fixes to one breakage conflict.",
-  "Write a manifest or config file whole: write a temp file beside it, then rename it into place. Never leave one half-written for another process, or a crash, to find."
-];
-var PROFILE_RULES = {
-  generic: [],
-  salesforce: [
-    "Apex is bulk-safe: no SOQL or DML inside loops, and triggers handle 200 records.",
-    "Apex respects sharing and object and field access where the data calls for it.",
-    "Apex tests assert outcomes, cover the changed paths, and don't depend on org data they don't create.",
-    "Metadata carries no values that belong to one org: user names, record ids, org URLs."
-  ]
-};
-var PROFILE_NAME = { generic: "generic", salesforce: "Salesforce" };
-var RULES_ORDER = "These come in a fixed order: every project's rules, then the profile's, then rules copied in from elsewhere, then this repo's own. Where two disagree, the later one wins, so this repo's own rules win over the others.";
-var rulesDigest = (text) => createHash("sha256").update(text).digest("hex");
-var MARK = "<!-- acc-rules v1:";
-var NOTE = "copied in by acc rules import. This repo keeps its own copy and may edit it; acc rules diff compares it with the source.";
-var KEYS2 = ["source", "commit", "copied", "sha256"];
-function renderHeader(h2) {
-  return [`${MARK} ${NOTE}`, `source: ${h2.source}`, ...h2.commit ? [`commit: ${h2.commit}`] : [], `copied: ${h2.copied}`, `sha256: ${h2.sha256}`, "-->", ""].join("\n");
-}
-function parseRulesFile(text) {
-  if (!text.startsWith(MARK)) return { header: null, problem: null, body: text };
-  const end = text.indexOf("\n-->");
-  const bad = (why) => ({ header: null, problem: `Its header can't be read: ${why}`, body: text });
-  if (end < 0) return bad("it has no closing -->.");
-  const after = text.slice(end + 4);
-  if (after && !after.startsWith("\n")) return bad("its --> isn't on a line of its own.");
-  const lines = text.slice(0, end).split("\n").slice(1);
-  const seen = {};
-  for (const line of lines) {
-    const m = /^([a-z0-9]+): (.+)$/.exec(line);
-    const key = m?.[1];
-    if (!m || !key || !KEYS2.includes(key)) return bad(`"${line.slice(0, 60)}" isn't a line acc writes.`);
-    if (seen[key] !== void 0) return bad(`it says ${key} twice.`);
-    seen[key] = m[2].trim();
-  }
-  if (!seen.source) return bad("it names no source.");
-  if (seen.commit !== void 0 && !/^[0-9a-f]{40,64}$/.test(seen.commit)) return bad(`its commit, "${seen.commit}", isn't a commit id.`);
-  if (!seen.copied || !/^\d{4}-\d{2}-\d{2}$/.test(seen.copied)) return bad("its copied date isn't a YYYY-MM-DD date.");
-  if (!seen.sha256 || !/^[0-9a-f]{64}$/.test(seen.sha256)) return bad("its sha256 isn't a sha256.");
-  return { header: { source: seen.source, commit: seen.commit ?? null, copied: seen.copied, sha256: seen.sha256 }, problem: null, body: after.slice(1) };
-}
-function importedRules(dir) {
-  const at2 = join4(dir, RULES_DIR);
-  if (!existsSync4(at2)) return [];
-  return readdirSync(at2, { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith(".md")).map((e) => e.name).sort().map((n) => {
-    const path = join4(at2, n);
-    const text = readFileSync7(path, "utf8");
-    const f = parseRulesFile(text);
-    return { ...f, name: n.slice(0, -3), file: `${RULES_DIR}/${n}`, path, edited: !!f.header && rulesDigest(f.body) !== f.header.sha256, bytes: Buffer.byteLength(text) };
-  });
-}
-function withoutHeader(body) {
-  if (!body.startsWith(MARK)) return body;
-  const end = body.indexOf("\n-->");
-  return end >= 0 ? body.slice(end + 4).replace(/^\n/, "") : body.split("\n").slice(1).join("\n");
-}
-function rulesText(dir, profile) {
-  const parts = ["### Every project's rules", "", ...BASE_RULES.map((r) => `- ${r}`), ""];
-  const own = PROFILE_RULES[profile];
-  if (own.length) parts.push(`### The ${PROFILE_NAME[profile]} profile's rules`, "", ...own.map((r) => `- ${r}`), "");
-  for (const c of importedRules(dir)) {
-    const body = withoutHeader(c.body).trim();
-    if (!body) continue;
-    const heading = c.header ? `Copied in from ${c.header.source}` : c.problem ? "Copied in, but its header can't be read" : "Kept in this repo";
-    parts.push(`### ${heading} (\`${c.file}\`)`, "", body, "");
-  }
-  const ownFile = join4(dir, OWN_RULES);
-  const mine = existsSync4(ownFile) ? readFileSync7(ownFile, "utf8").trim() : "";
-  if (mine) parts.push(`### This repo's own rules (\`${OWN_RULES}\`)`, "", mine, "");
-  return [RULES_ORDER, "", ...parts].join("\n").trim();
-}
-var NAME = /^[a-z0-9][a-z0-9._-]{0,59}$/;
-function rulesName(source, base, home) {
-  const src = parseSource(source, base, home, "rules");
-  const n = basename3(src.path).replace(/\.(md|markdown|txt)$/i, "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-._]+|-+$/g, "").slice(0, 60);
-  return n || "rules";
-}
-function checkName(name) {
-  const n = name.trim().replace(/\.md$/i, "").toLowerCase();
-  if (!NAME.test(n)) throw new AccError("usage", `"${name}" can't be a rules file's name: use lower-case letters, digits, dots, dashes and underscores, such as acme-salesforce.`);
-  return n;
-}
-function templateRulesProblem(source) {
-  const problem = sourceProblem(source, "rules");
-  if (problem) return problem;
-  try {
-    const src = parseSource(source, "/", homedir2(), "rules");
-    const s = source.trim();
-    if (src.kind === "file" && !isAbsolute2(s) && s !== "~" && !s.startsWith("~/")) return `${s} is a relative path, which would mean a different file on each machine. Give a GitHub file URL, <git-url>#<path>, or a path from / or ~/.`;
-  } catch (e) {
-    return e.message;
-  }
-  return null;
-}
-var localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-function prepareImport(run2, root, source, opts = {}) {
-  const s = source.trim();
-  const problem = sourceProblem(s, "rules") ?? (/[\r\n]|-->/.test(s) ? "A rules file's source is one line, with no -->, since its copy's header holds it." : null);
-  if (problem) throw new AccError("bad-rules", problem);
-  const name = opts.name ? checkName(opts.name) : rulesName(s, opts.base, opts.home);
-  const fetched = fetchSource(run2, s, "rules", { ...opts, commit: true });
-  const text = fetched.text;
-  if (!text.trim()) throw new AccError("bad-rules", `${s} is empty: there are no rules in it to copy in.`);
-  if (text.includes("\0")) throw new AccError("bad-rules", `${s} isn't text, so it can't be rules.`);
-  const file = `${RULES_DIR}/${name}.md`;
-  const path = join4(root, RULES_DIR, `${name}.md`);
-  const copies = importedRules(root);
-  const there = copies.find((c) => c.name === name);
-  const header = { source: recordedSource(s, { base: opts.base, home: opts.home, root, kind: "rules" }), commit: fetched.commit, copied: localDay((opts.now ?? (() => /* @__PURE__ */ new Date()))()), sha256: rulesDigest(text) };
-  const imp = { name, file, path, header, text, replaces: there ? { source: there.header?.source ?? null, copied: there.header?.copied ?? null, edited: there.edited } : null };
-  checkTotal(root, [imp], s);
-  return imp;
-}
-function checkTotal(root, imps, what) {
-  const names3 = new Set(imps.map((i) => i.name));
-  const total = importedRules(root).filter((c) => !names3.has(c.name)).reduce((n, c) => n + c.bytes, 0) + imps.reduce((n, i) => n + Buffer.byteLength(renderHeader(i.header) + i.text), 0);
-  if (total > RULES_TOTAL_MAX_BYTES) {
-    throw new AccError("bad-rules", `With ${what}, the copied-in rules would come to ${Math.ceil(total / 1024)} KB, over the ${RULES_TOTAL_MAX_BYTES / 1024} KB every packet, review and analysis can carry. Copy in less, or remove a copy from ${RULES_DIR}/ first.`);
-  }
-}
-function prepareImports(run2, root, sources, opts = {}) {
-  const imps = sources.map((s) => prepareImport(run2, root, s, opts));
-  checkTotal(root, imps.filter((i) => !i.replaces), sources.length === 1 ? sources[0] : "the template's rules");
-  return imps;
-}
-function writeImport(imp) {
-  mkdirSync5(dirname3(imp.path), { recursive: true });
-  writeFileSync4(`${imp.path}.tmp`, renderHeader(imp.header) + imp.text);
-  renameSync2(`${imp.path}.tmp`, imp.path);
-}
-function importRules(run2, root, source, opts = {}) {
-  const imp = prepareImport(run2, root, source, opts);
-  if (imp.replaces && !opts.force && !opts.dryRun) {
-    const from = imp.replaces.source ? `, copied from ${imp.replaces.source}${imp.replaces.copied ? ` on ${imp.replaces.copied}` : ""}` : "";
-    throw new AccError("exists", `${imp.file} is already here${from}. To replace it with ${source.trim()} as it is now, add --force; git shows the change before you commit it. Or give this copy another name with --name.`);
-  }
-  if (!opts.dryRun) writeImport(imp);
-  return { ...imp, written: !opts.dryRun };
-}
-var RULES_TIMEOUT_MS = 6e4;
-function rulesStatus(run2, root, opts = {}, only) {
-  const total = opts.timeoutMs ?? RULES_TIMEOUT_MS;
-  const deadline = Date.now() + total;
-  const home = opts.home ?? opts.env?.HOME ?? homedir2();
-  return importedRules(root).filter((c) => only === void 0 || c.name === only).map((c) => {
-    const base = { name: c.name, file: c.file, source: c.header?.source ?? null, commit: c.header?.commit ?? null, copied: c.header?.copied ?? null, edited: c.edited, body: c.body, now: null };
-    if (c.problem) return { ...base, state: "bad-header", reason: c.problem };
-    if (!c.header) return { ...base, state: "local", reason: null };
-    const src = c.header.source;
-    const problem = sourceProblem(src, "rules");
-    if (problem) return { ...base, state: "bad-header", reason: `Its header's source, ${src}, can't be read: ${problem}` };
-    let local = null;
-    try {
-      const parsed = parseSource(src, root, home, "rules");
-      if (parsed.kind === "file") local = parsed.path;
-    } catch (e) {
-      return { ...base, state: "bad-header", reason: `Its header's source, ${src}, can't be read: ${e.message}` };
-    }
-    if (local && !existsSync4(local)) return { ...base, state: "not-here", reason: `It came from ${src}, which isn't on this machine.` };
-    if (Date.now() >= deadline) return { ...base, state: "unchecked", reason: `The ${Math.ceil(total / 1e3)} seconds ran out before ${src} was read.` };
-    let text;
-    try {
-      text = fetchSource(run2, src, "rules", { ...opts, base: root, home, timeoutMs: total, deadline }).text;
-    } catch (e) {
-      return { ...base, state: "unreachable", reason: `Couldn't read ${src}: ${e.message}` };
-    }
-    return { ...base, now: text, state: rulesDigest(text) === c.header.sha256 ? "unchanged" : "changed", reason: null };
-  });
-}
-function unifiedDiff(run2, from, to, labels) {
-  if (from === to) return "";
-  const dir = mkdtempSync2(join4(tmpdir2(), "acc-rules-diff-"));
-  try {
-    mkdirSync5(join4(dir, "copy"));
-    mkdirSync5(join4(dir, "source"));
-    writeFileSync4(join4(dir, "copy", "rules.md"), from);
-    writeFileSync4(join4(dir, "source", "rules.md"), to);
-    const r = run2("git", ["-c", "core.quotepath=off", "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-prefix", "--", "copy/rules.md", "source/rules.md"], { cwd: dir });
-    if (r.code !== 0 && r.code !== 1) throw new AccError("rules", `git couldn't compare the copy with its source: ${r.stderr.trim().split("\n")[0] ?? `git exited ${r.code}`}`);
-    const lines = r.stdout.split("\n");
-    const at2 = lines.findIndex((l3) => l3.startsWith("@@"));
-    return [`--- ${labels.from}`, `+++ ${labels.to}`, ...lines.slice(at2 < 0 ? lines.length : at2)].join("\n").trimEnd();
-  } finally {
-    rmSync4(dir, { recursive: true, force: true });
-  }
-}
-function rulesDiff(run2, root, name, opts = {}) {
-  const only = name ? name.trim().replace(/\.md$/i, "") : void 0;
-  const wanted = rulesStatus(run2, root, opts, only);
-  if (name && !wanted.length) throw new AccError("usage", `There's no ${RULES_DIR}/${name}.md. acc rules list shows the copies.`);
-  return wanted.map((c) => ({
-    name: c.name,
-    file: c.file,
-    source: c.source,
-    state: c.state,
-    edited: c.edited,
-    reason: c.reason,
-    diff: c.state === "changed" || c.now !== null && c.edited ? unifiedDiff(run2, c.body, c.now ?? "", { from: `${c.file} (this repo's copy)`, to: `${c.source} (the source now)` }) || null : null
-  }));
-}
-var reimportCommand = (c) => `acc rules import '${(c.source ?? "").replace(/'/g, `'\\''`)}' --name ${c.name} --force`;
-
-// packages/core/src/ste.ts
-var W2 = "[\\p{L}\\p{N}_]";
-var B2 = `(?:(?<=${W2})(?!${W2})|(?<!${W2})(?=${W2}))`;
-function py(source, flags = "") {
-  return new RegExp(source.replace(/\\b/g, B2).replace(/\\w/g, W2), `u${flags}`);
-}
-var cpLen = (s) => {
-  let n = 0;
-  for (const _2 of s) n++;
-  return n;
-};
-var words = (s) => s.split(/\s+/u).filter(Boolean);
-function splitLines(text) {
-  const lines = text.split(/\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/u);
-  if (lines.length && lines[lines.length - 1] === "") lines.pop();
-  return lines;
-}
-var IRREGULAR_PARTICIPLES = "given|taken|made|done|found|seen|known|shown|written|built|sent|set|run|read|kept|held|left|put|cut|hit|let|shut|split|spread|begun|become|come|gone|got|gotten|lost|met|paid|said|sold|told|thought|brought|bought|caught|taught|won|worn|torn|born|drawn|grown|thrown|flown|driven|risen|chosen|broken|spoken|frozen|hidden|ridden|forgotten|fallen|eaten|beaten|understood|stood|struck|stuck|swung|hung|led|fed|bled|fled|sped|bound|wound|dug|spun|slid|bit|lit|quit";
-var PASSIVE_PARTICIPLES = "given|taken|made|done|found|seen|known|shown|written|built|sent|set|run|read|kept|held|left|put";
-var MODAL_PERFECT_PREFIX = py("\\b(?:may|might|could|should|would|must|can|will|shall)(?:\\s+not|n['\u2019]t)?\\s+$", "i");
-var STE_RULES = [
-  { id: "semicolon", level: "hard", pattern: py(";", "g"), message: "STE bans the semicolon (Rule 8.1). Split into separate sentences." },
-  {
-    id: "phrasal-verb",
-    level: "hard",
-    pattern: py("\\b(spin(?:ning|s)? up|spun up|reach(?:ing|es|ed)? out|div(?:e|es|ing|ed) into|dove into|kick(?:ing|s|ed)? off|circl(?:e|es|ing|ed) back|touch(?:ing|es|ed)? base)\\b", "gi"),
-    message: "Soft phrasal verb. Use the single plain verb (start, contact, read, begin)."
-  },
-  {
-    id: "marketing-adjective",
-    level: "hard",
-    pattern: py("\\b(seamless(?:ly)?|robust(?:ly)?|cutting-edge|effortless(?:ly)?|blazing[- ]fast|world-class|state-of-the-art|game-chang(?:ing|er))\\b", "gi"),
-    message: "Marketing adjective. Delete, or replace with the measurement that earns the claim."
-  },
-  {
-    id: "nominalization",
-    level: "hard",
-    pattern: py("\\b(perform|performs|performed|conduct|conducts|conducted|carry out|carries out|carried out)\\s+(?:a|an|the)\\s+\\w+(?:tion|sion|ment|ance|ence|ysis)\\b", "gi"),
-    message: "Action frozen into a noun. Use the verb (analyze, not perform an analysis of)."
-  },
-  {
-    id: "passive-voice",
-    level: "advisory",
-    pattern: py(`\\b(is|are|was|were|been|being)\\s+(\\w+ed|${PASSIVE_PARTICIPLES})\\b(?!\\s+(?:to|for|by)\\s+\\w+ing)`, "gi"),
-    message: "Possible passive voice. Name the actor and use an active verb, unless the actor is unknown or irrelevant."
-  },
-  {
-    id: "present-perfect",
-    level: "advisory",
-    // A modal and a perfect infinitive ("may have failed") is a hedge, which this never flags.
-    pattern: py(`(?<!\\bmay )(?<!\\bmight )(?<!\\bcould )(?<!\\bshould )(?<!\\bwould )(?<!\\bmust )\\b(has|have|had)\\s+(?:been\\s+)?(?:\\w+(?:ed|en)|${IRREGULAR_PARTICIPLES})\\b`, "gi"),
-    message: "Compound tense. Use simple past/present unless current relevance is the point (then keep and flag)."
-  }
-];
-var SYNONYM_GROUPS = [
-  ["check", "verify", "confirm", "validate"],
-  ["delete", "remove", "erase"],
-  ["start", "launch", "begin", "initiate"],
-  ["stop", "halt", "terminate"],
-  ["show", "display"],
-  ["use", "utilize", "employ"],
-  ["fix", "repair", "correct"],
-  ["send", "transmit"],
-  ["get", "retrieve", "fetch", "obtain"],
-  ["change", "modify", "alter"]
-];
-var STE_MAX_WORDS = 25;
-var CODE_FENCE = /^(```|~~~)/u;
-var INLINE_CODE = /`[^`]*`/gu;
-var LIST_ITEM_START = /^( {0,3})([-*+]|[0-9]+[.)])( +)(.*)$/u;
-var CONJUNCTION_END = py("\\b(?:and|or)\\s*$", "i");
-var TABLE_SEPARATOR_CELL = /^:?-{3,}:?$/u;
-var SENTENCE_BREAK = /(?<=[.!?])\s+/u;
-var wordRes = /* @__PURE__ */ new Map();
-var wordRe = (base) => {
-  let re2 = wordRes.get(base);
-  if (!re2) wordRes.set(base, re2 = py(`\\b${base}(?:s|es|ed|d|ing)?\\b`, "i"));
-  return re2;
-};
-var leadingSpaces = (line) => line.length - line.replace(/^ +/, "").length;
-function isListContinuation(line, contentIndent) {
-  if (!line.trim()) return true;
-  if (LIST_ITEM_START.test(line)) return false;
-  return leadingSpaces(line) >= contentIndent;
-}
-function splitTableRow(line) {
-  const lead = line.length - line.trimStart().length;
-  const right = line.trimEnd().length;
-  let content = right > lead ? line.slice(lead, right) : "";
-  if (!content.includes("|")) return null;
-  let left = cpLen(line.slice(0, lead));
-  if (content.startsWith("|")) {
-    content = content.slice(1);
-    left += 1;
-  }
-  if (content.endsWith("|")) content = content.slice(0, -1);
-  const raw = content.split(/(?<!\\)\|/u);
-  if (raw.length < 2) return null;
-  const cells = [];
-  let column = left;
-  for (const cell2 of raw) {
-    const leading = cell2.length - cell2.trimStart().length;
-    cells.push([cell2.trim(), column + cpLen(cell2.slice(0, leading))]);
-    column += cpLen(cell2) + 1;
-  }
-  return cells;
-}
-function tableCells(lines) {
-  const cells = /* @__PURE__ */ new Map();
-  let index = 1;
-  while (index < lines.length) {
-    const separator = splitTableRow(lines[index]);
-    const header = splitTableRow(lines[index - 1]);
-    if (!separator || !header || separator.length !== header.length || !separator.every(([c]) => TABLE_SEPARATOR_CELL.test(c))) {
-      index++;
-      continue;
-    }
-    cells.set(index - 1, header);
-    cells.set(index, []);
-    index++;
-    while (index < lines.length) {
-      const row = splitTableRow(lines[index]);
-      if (!row || row.length !== separator.length) break;
-      cells.set(index, row);
-      index++;
-    }
-  }
-  return cells;
-}
-function danglingConjunctions(text, file) {
-  const lines = splitLines(text);
-  const found = [];
-  let inFence = false;
-  let index = 0;
-  while (index < lines.length) {
-    const line = lines[index];
-    if (CODE_FENCE.test(line.trim())) {
-      inFence = !inFence;
-      index++;
-      continue;
-    }
-    if (inFence) {
-      index++;
-      continue;
-    }
-    const start = LIST_ITEM_START.exec(line);
-    if (!start) {
-      index++;
-      continue;
-    }
-    const [, indent, marker, gap, body] = start;
-    const contentIndent = indent.length + marker.length + gap.length;
-    const item = [[index, body]];
-    let next = index + 1;
-    let itemFence = false;
-    while (next < lines.length) {
-      const candidate = lines[next];
-      if (CODE_FENCE.test(candidate.trim())) {
-        itemFence = !itemFence;
-        next++;
-        continue;
-      }
-      if (itemFence) {
-        next++;
-        continue;
-      }
-      if (!isListContinuation(candidate, contentIndent)) break;
-      item.push([next, candidate]);
-      next++;
-    }
-    const meaningful = item.map(([i, l3]) => [i, l3.replace(INLINE_CODE, " CODE ").trim()]).filter(([, l3]) => l3);
-    const last = meaningful[meaningful.length - 1];
-    if (last && CONJUNCTION_END.test(last[1])) {
-      const [endIndex, endLine] = last;
-      let line1;
-      let col;
-      if (endIndex === index) {
-        line1 = index + 1;
-        col = indent.length + 1;
-      } else {
-        const raw = item.find(([i]) => i === endIndex)[1];
-        const masked = raw.replace(INLINE_CODE, (m) => " ".repeat(cpLen(m)));
-        const at2 = CONJUNCTION_END.exec(masked);
-        line1 = endIndex + 1;
-        col = at2 ? cpLen(masked.slice(0, at2.index)) + 1 : 1;
-      }
-      found.push({
-        file,
-        line: line1,
-        col,
-        rule: "dangling-conjunction",
-        level: "hard",
-        match: endLine,
-        message: "List item ends with a coordinating conjunction. Complete the item or join it with the next item."
-      });
-    }
-    index = next;
-  }
-  return found;
-}
-var placeOrder = (a2, b) => a2[0] - b[0] || a2[1] - b[1] || (a2[2] < b[2] ? -1 : a2[2] > b[2] ? 1 : a2[3] < b[3] ? -1 : a2[3] > b[3] ? 1 : 0);
-function steLint(text, file = "<stdin>") {
-  const findings = [];
-  let total = 0;
-  let inFence = false;
-  const lines = splitLines(text);
-  const table2 = tableCells(lines);
-  const seen = /* @__PURE__ */ new Map();
-  lines.forEach((raw, i) => {
-    const lineNo = i + 1;
-    if (CODE_FENCE.test(raw.trim())) {
-      inFence = !inFence;
-      return;
-    }
-    if (inFence) return;
-    for (const [segment, column] of table2.get(i) ?? [[raw, 0]]) {
-      const line = segment.replace(INLINE_CODE, "");
-      total += words(line).length;
-      const col = (at2) => column + cpLen(line.slice(0, at2)) + 1;
-      for (const r of STE_RULES) {
-        for (const m of line.matchAll(r.pattern)) {
-          if (r.id === "present-perfect" && MODAL_PERFECT_PREFIX.test(line.slice(0, m.index))) continue;
-          findings.push({ file, line: lineNo, col: col(m.index), rule: r.id, level: r.level, match: m[0], message: r.message });
-        }
-      }
-      SYNONYM_GROUPS.forEach((group, g) => {
-        for (const base of group) {
-          if (seen.has(`${g}:${base}`)) continue;
-          const m = wordRe(base).exec(line);
-          if (m) seen.set(`${g}:${base}`, [lineNo, col(m.index), m[0]]);
-        }
-      });
-      for (const sentence3 of line.split(SENTENCE_BREAK)) {
-        const n = words(sentence3).length;
-        if (n > STE_MAX_WORDS) {
-          findings.push({ file, line: lineNo, col: column + 1, rule: "long-sentence", level: "hard", match: `${n} words`, message: `Sentence has ${n} words (cap ${STE_MAX_WORDS}). Split it.` });
-        }
-      }
-    }
-  });
-  SYNONYM_GROUPS.forEach((group, g) => {
-    const present = group.filter((b) => seen.has(`${g}:${b}`)).map((b) => [...seen.get(`${g}:${b}`), b]).sort(placeOrder);
-    if (present.length < 2) return;
-    const keeper = present[0][3];
-    for (const [line, col, match, base] of present.slice(1)) {
-      findings.push({ file, line, col, rule: "synonym-rotation", level: "hard", match, message: `'${base}' and '${keeper}' name the same action. Pick one and use it every time.` });
-    }
-  });
-  findings.push(...danglingConjunctions(text, file));
-  findings.sort((a2, b) => a2.line - b.line || a2.col - b.col);
-  return { findings, words: total };
-}
-var steLine = (f) => `${f.file}:${f.line}:${f.col} ${f.rule}: ${f.message} [${f.match}]`;
-function requirementWording(r) {
-  const lines = [
-    ...r.goal.trim() ? [["goal", 0, r.goal]] : [],
-    ...["criteria", "assumptions", "outOfScope"].flatMap((part) => r[part].map((text, i) => [part, i, text]))
-  ];
-  return lines.flatMap(([part, index, text]) => steLint(part === "goal" ? text : `- ${text}`).findings.filter((f) => f.level === "hard").map((f) => ({ part, index, text, rule: f.rule, match: f.match, message: f.message })));
-}
-var wordingWords = (n) => n ? `Wording: ${n} finding${n === 1 ? "" : "s"}` : null;
-var PART_WORDS = { goal: "Goal", criteria: "Criterion", assumptions: "Assumption", outOfScope: "Out of scope" };
-var wordingMatch = (f) => f.match.trim() === f.text.trim() ? null : f.match;
-var wordingPlace = (f) => f.part === "goal" ? PART_WORDS.goal : `${PART_WORDS[f.part]} ${f.index + 1}`;
-
-// packages/core/src/steps.ts
-import { renameSync as renameSync3, writeFileSync as writeFileSync5 } from "node:fs";
-var STEPS_VAR = "ACC_STEPS";
-var NOTE_MAX = 300;
-var cut = (s) => clip(s.replace(/\s+/g, " ").trim(), NOTE_MAX);
-function stepsTo(file, now2 = () => /* @__PURE__ */ new Date()) {
-  const lines = [];
-  const labels = /* @__PURE__ */ new Map();
-  const open = /* @__PURE__ */ new Set();
-  let used = false;
-  let ended = false;
-  const write = (e) => {
-    if (ended || !file) return;
-    if (e.kind === "result") ended = true;
-    else used = true;
-    lines.push(JSON.stringify(e));
-    try {
-      writeFileSync5(`${file}.tmp`, `${lines.join("\n")}
-`);
-      renameSync3(`${file}.tmp`, file);
-    } catch {
-    }
-  };
-  const at2 = () => now2().toISOString();
-  const event = (id, state, note) => {
-    if (state === "started") open.add(id);
-    else open.delete(id);
-    write({ kind: "step", id, label: labels.get(id) ?? id, state, ...note?.trim() ? { note: cut(note) } : {}, at: at2() });
-  };
-  const steps2 = {
-    get on() {
-      return file !== null;
-    },
-    get used() {
-      return used;
-    },
-    get ended() {
-      return ended;
-    },
-    start(id, label, note) {
-      labels.set(id, label);
-      event(id, "started", note);
-    },
-    done(id, note) {
-      event(id, "done", note);
-    },
-    skip(id, label, note) {
-      labels.set(id, label);
-      event(id, "skipped", note);
-    },
-    fail(id, note) {
-      event(id, "failed", note);
-    },
-    result(ok, sentence3) {
-      if (ended) return;
-      for (const id of [...open]) event(id, ok ? "done" : "failed", ok ? void 0 : sentence3);
-      write({ kind: "result", ok, sentence: cut(sentence3), at: at2() });
-    },
-    step(id, label, fn2) {
-      steps2.start(id, label);
-      let out3;
-      try {
-        out3 = fn2();
-      } catch (e) {
-        steps2.fail(id, e?.message ?? String(e));
-        throw e;
-      }
-      steps2.done(id);
-      return out3;
-    }
-  };
-  return steps2;
-}
-var stepsFrom = (env, now2) => stepsTo(env[STEPS_VAR]?.trim() || null, now2);
-var NO_STEPS = stepsTo(null);
-
-// packages/core/src/analyze.ts
-var SIZE_MEANING = { S: "an hour or two", M: "a day", L: "a few days", XL: "split it" };
-var strings = { type: "array", items: { type: "string" } };
-var ANALYSIS_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["verdict", "summary", "requirements", "questions", "findings", "approach", "split"],
-  properties: {
-    verdict: { type: "string", enum: ["ready", "questions", "split"], description: "questions when a person must answer something before it can be built well; split when it is too big for one task" },
-    summary: { type: "string", description: "Two or three plain sentences: what the task needs, what is already there, and how to build it" },
-    requirements: {
-      type: "object",
-      additionalProperties: false,
-      required: ["goal", "criteria", "assumptions", "outOfScope"],
-      properties: {
-        goal: { type: "string", description: "What the person asking wants, in a sentence. Write it in STE Strict mode" },
-        criteria: { ...strings, description: "Acceptance criteria, each one testable. Write each in STE Strict mode" },
-        assumptions: { ...strings, description: "What you assumed that the ticket does not say. Write each in STE Strict mode" },
-        outOfScope: { ...strings, description: "What this task should not do. Write each in STE Strict mode" }
-      }
-    },
-    questions: {
-      type: "array",
-      description: "Only what a person must decide, and nothing you could find out yourself",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        required: ["question", "why", "suggested"],
-        properties: { question: { type: "string" }, why: { type: "string", description: "What changes depending on the answer" }, suggested: { type: "string", description: "What you would assume if nobody answers" } }
-      }
-    },
-    findings: {
-      type: "array",
-      description: "What is already there that this task touches or depends on",
-      items: { type: "object", additionalProperties: false, required: ["area", "detail", "source"], properties: { area: { type: "string" }, detail: { type: "string" }, source: { type: "string", description: "A file path, or the org alias and the query or command" } } }
-    },
-    approach: {
-      type: "object",
-      additionalProperties: false,
-      required: ["plan", "files", "refactors", "risks", "tests", "size"],
-      properties: {
-        plan: { ...strings, description: "The steps to build it, in order" },
-        files: {
-          type: "array",
-          items: { type: "object", additionalProperties: false, required: ["path", "change", "why"], properties: { path: { type: "string" }, change: { type: "string", enum: ["create", "update", "delete"] }, why: { type: "string" } } }
-        },
-        refactors: {
-          type: "array",
-          description: "Changes to what is there that the task needs first, and why",
-          items: { type: "object", additionalProperties: false, required: ["what", "why"], properties: { what: { type: "string" }, why: { type: "string" } } }
-        },
-        risks: strings,
-        tests: { ...strings, description: "How to prove it works: the tests to write or run" },
-        size: { type: "string", enum: ["S", "M", "L", "XL"], description: Object.entries(SIZE_MEANING).map(([s, m]) => `${s}: ${m}`).join(". ") }
-      }
-    },
-    split: { ...strings, description: "When the verdict is split: the smaller tasks, one line each. Otherwise empty" }
-  }
-};
-var TASK_ID_MAX = 100;
-function fileId(task) {
-  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(task) || task.includes("..") || task.length > TASK_ID_MAX) {
-    throw new AccError("usage", `${task.length > TASK_ID_MAX ? `${task.slice(0, 40)}\u2026` : task} isn't a task id.`);
-  }
-  return task;
-}
-var analysisPath = (paths, task) => join5(paths.analyses, `${fileId(task)}.json`);
-var runningPath = (paths, task) => join5(paths.analyses, `${fileId(task)}.running.json`);
-function readAnalysis(paths, task) {
-  try {
-    const a2 = JSON.parse(readFileSync8(analysisPath(paths, task), "utf8"));
-    return a2.v === 1 && a2.task === task ? a2 : null;
-  } catch {
-    return null;
-  }
-}
-function writeAnalysis(paths, a2) {
-  mkdirSync6(paths.analyses, { recursive: true });
-  const file = analysisPath(paths, a2.task);
-  writeFileSync6(`${file}.tmp`, JSON.stringify(a2, null, 2) + "\n");
-  renameSync4(`${file}.tmp`, file);
-}
-var openQuestions = (a2) => (a2?.questions ?? []).filter((q2) => !q2.answer);
-var analysisRequired = (config) => config.analysis?.required ?? config.profile === "salesforce";
-function analysisProblems(paths, config, task) {
-  if (task.state !== "todo" || !analysisRequired(config)) return [];
-  const a2 = readAnalysis(paths, task.id);
-  if (!a2) return [`${task.id} hasn't been analyzed. This project wants an analysis before a build: acc analyze ${task.id}.`];
-  if (a2.verdict === "split") return [`${task.id}'s analysis says it's too big for one task. Split it into: ${a2.split.join("; ")}. Or a person dispatches it anyway with --without-analysis.`];
-  const open = openQuestions(a2);
-  if (open.length) return [`${open.length} question${open.length === 1 ? "" : "s"} from ${task.id}'s analysis ${open.length === 1 ? "is" : "are"} unanswered: ${open.map((q2) => `${q2.id}. ${q2.question}`).join(" ")} Answer with acc analysis answer ${task.id} <q> "<answer>".`];
-  return [];
-}
-var SALESFORCE_COOKBOOK = [
-  "Reading the org. Every command takes --target-org <alias> and --json. You can only read: nothing you run changes an org.",
-  '- Which org, for sure: `sf org display --target-org <alias> --json`, and `sf data query --target-org <alias> --query "SELECT IsSandbox, Name, OrganizationType FROM Organization"`. Say which org each finding came from.',
-  "- An object's fields and picklists: `sf sobject describe --sobject <Object> --target-org <alias> --json`.",
-  "- Automation on an object, which runs in this order on save: validation rules, before-save flows, before triggers, after triggers, after-save flows. With --use-tooling-api:",
-  "  - `SELECT ValidationName, Active, ErrorMessage FROM ValidationRule WHERE EntityDefinition.QualifiedApiName = '<Object>'`",
-  "  - `SELECT Name, Status, UsageBeforeInsert, UsageAfterInsert, UsageBeforeUpdate, UsageAfterUpdate FROM ApexTrigger WHERE TableEnumOrId = '<Object>'`",
-  "  - `SELECT Name, TableEnumOrId FROM WorkflowRule WHERE TableEnumOrId = '<Object>'`",
-  "  - and without the tooling API: `SELECT ApiName, Label, ProcessType, TriggerType, RecordTriggerType, TriggerObjectOrEventLabel, IsActive FROM FlowDefinitionView WHERE TriggerObjectOrEventLabel = '<Object label>'`",
-  "- What uses a component (tooling API): `SELECT MetadataComponentName, MetadataComponentType FROM MetadataComponentDependency WHERE RefMetadataComponentName = '<Name>'`.",
-  "- Code and its tests: `SELECT Name, LastModifiedDate, LastModifiedBy.Name FROM ApexClass WHERE Name LIKE '%<word>%'`, and coverage with `SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered FROM ApexCodeCoverageAggregate` (tooling API).",
-  "- Volumes and limits: `sf limits recordcounts display --sobject <Object> --target-org <alias>` and `sf limits api display --target-org <alias>`.",
-  "- A component's source as the org has it: `sf project retrieve start --metadata <Type>:<Name> --target-org <alias>` from your working folder, which is a scratch project. It never touches the repo.",
-  "- Records: you may read a few to learn their shape (LIMIT 5, only the fields you need). Don't copy names, emails or other personal details into your analysis: describe patterns instead.",
-  "Compare the org with the repo: the repo's branch is meant to match its org. Say where they differ for what this task touches."
-];
-var SALESFORCE_FOCUS = [
-  "What automation already runs on the objects this touches, in order, and whether the change should join it (an existing flow or trigger handler) instead of adding one more.",
-  "Bulk safety and limits at the volumes you found: SOQL and DML out of loops, 200 records a transaction.",
-  "Sharing and field access, permission sets and profiles that would need the new fields or classes.",
-  "Tests: which test classes cover what changes, and what new tests prove it.",
-  "Environment-specific files (D-016) and anything that would differ between orgs."
-];
-var STE_STRICT = [
-  "Write the goal, each acceptance criterion, each assumption and each out-of-scope item in Simplified Technical English (ASD-STE100), Strict mode. A builder agent reads them, and each must have one meaning only:",
-  '- Use the active voice. Name who or what does the action: "acc writes the file", not "the file is written".',
-  "- Use one instruction or one statement in each sentence. Use no more than 20 words in an instruction and no more than 25 in a description.",
-  "- Do not use a semicolon. Write two sentences.",
-  '- Use simple tenses: the simple present, past or future. Do not use the present perfect ("has failed") or other compound tenses. Keep a hedge as it is ("may have failed" stays).',
-  '- Do not use phrasal verbs ("set up", "spin up", "carry out"). Use one plain verb (start, make, do).',
-  '- Use the verb for an action, not a noun made from it: "analyze the log", not "perform an analysis of the log".',
-  '- Use one word for one thing, and use it every time. Do not change between "check", "verify" and "confirm" for the same action.',
-  "- Do not use marketing adjectives (seamless, robust, powerful, cutting-edge). Give the measurement instead.",
-  "- Use no more than 3 nouns together as one name. Do not leave out the subject, the verb or the article to make a sentence shorter.",
-  '- Do not end an item on "and" or "or".'
-];
-function analysisPrompt(i) {
-  const sf = i.config.profile === "salesforce";
-  const system = [
-    `You are the analyst for ${i.task.id}. Before anyone builds it, you work out what it asks for, what is already there, and how it should be built. A builder agent is given your analysis; a person answers your questions first.`,
-    `You can read the repo at ${i.root} (Read, Grep, Glob, and git log, show, diff and grep)${sf ? ", and read the Salesforce orgs listed below with the sf CLI" : ""}. You can't change anything: no edits, no writes, no deploys.`,
-    "Work like a careful senior consultant on a new ticket:",
-    "- Read the ticket. Restate the goal. Turn what it asks for into testable acceptance criteria. Name your assumptions and what is out of scope.",
-    `- Investigate before you decide: find the code${sf ? " and the org configuration" : ""} this touches, what depends on it, and how it behaves today. Every finding names its source.`,
-    "- Decide the approach: the steps, the files, any refactor the task needs first and why, the risks, and the tests that prove it.",
-    "- Ask only what a person must decide: business rules, priorities, trade-offs. Never ask what you could find out yourself. Give each question your suggested answer.",
-    "- If it is too big for one task (more than a few days), say split and list the smaller tasks.",
-    ...sf ? ["", "For a Salesforce project, also cover:", ...SALESFORCE_FOCUS.map((f) => `- ${f}`), "", ...SALESFORCE_COOKBOOK] : [],
-    "",
-    ...STE_STRICT,
-    "",
-    "Be concrete and brief: names, files, numbers. No filler."
-  ].join("\n");
-  const prompt = [
-    `# Analyze ${i.task.id}: ${i.task.title}`,
-    "",
-    `For the ${i.env.name} environment (branch \`${i.env.branch}\`).${i.checkedOut ? ` The repo is checked out on \`${i.checkedOut}\`: read the environment's files with git show ${i.env.branch}:<path>.` : ""}`,
-    i.task.source.url ? `Ticket: ${i.task.source.url}` : `Source: ${i.task.source.kind}`,
-    "",
-    "## The ticket",
-    "",
-    i.task.brief.trim() || "_Only the title was given._",
-    "",
-    ...sf && i.orgs.length ? ["## The orgs you may read", "", ...i.orgs.map((o) => `- \`${o.alias}\`: ${o.name} (${o.type})`), ""] : [],
-    ...i.previous?.questions.some((q2) => q2.answer) ? [
-      "## What a person already answered",
-      "",
-      ...i.previous.questions.filter((q2) => q2.answer).map((q2) => `- ${q2.question} **${q2.answer.text}**`),
-      "",
-      "Don't ask these again.",
-      ""
-    ] : [],
-    ...i.rules?.trim() ? ["## Rules", "", i.rules.trim(), ""] : []
-  ].join("\n");
-  return { system, prompt };
-}
-function parseAnalysis(stdout) {
-  let r;
-  try {
-    r = JSON.parse(stdout.trim().split("\n").filter(Boolean).pop() ?? "");
-  } catch {
-    throw new AccError("analyze", `The analyst gave no result Claude Code could read: ${stdout.trim().slice(0, 200) || "(nothing)"}`);
-  }
-  const s = r.structured_output;
-  if (r.is_error || !s || !["ready", "questions", "split"].includes(s.verdict) || typeof s.summary !== "string") {
-    throw new AccError("analyze", `The analysis didn't finish (${r.subtype ?? "no result"}): ${String(r.result ?? "").slice(0, 300)}`);
-  }
-  const list = (v) => Array.isArray(v) ? v.filter((x2) => typeof x2 === "string" && !!x2.trim()) : [];
-  const req = s.requirements ?? {};
-  const ap = s.approach ?? {};
-  const questions = (Array.isArray(s.questions) ? s.questions : []).filter((q2) => typeof q2?.question === "string" && q2.question.trim()).map((q2, n) => ({ id: `q${n + 1}`, question: q2.question, why: String(q2.why ?? ""), suggested: String(q2.suggested ?? "") }));
-  const analysis = {
-    // A ready verdict with questions waiting isn't ready.
-    verdict: s.verdict === "ready" && questions.length ? "questions" : s.verdict,
-    summary: s.summary,
-    requirements: { goal: String(req.goal ?? ""), criteria: list(req.criteria), assumptions: list(req.assumptions), outOfScope: list(req.outOfScope) },
-    questions,
-    findings: (Array.isArray(s.findings) ? s.findings : []).filter((f) => typeof f?.detail === "string").map((f) => ({ area: String(f.area ?? ""), detail: f.detail, source: String(f.source ?? "") })),
-    approach: {
-      plan: list(ap.plan),
-      files: (Array.isArray(ap.files) ? ap.files : []).filter((f) => typeof f?.path === "string" && ["create", "update", "delete"].includes(f.change)).map((f) => ({ path: f.path, change: f.change, why: String(f.why ?? "") })),
-      refactors: (Array.isArray(ap.refactors) ? ap.refactors : []).filter((x2) => typeof x2?.what === "string").map((x2) => ({ what: x2.what, why: String(x2.why ?? "") })),
-      risks: list(ap.risks),
-      tests: list(ap.tests),
-      size: ["S", "M", "L", "XL"].includes(ap.size) ? ap.size : "M"
-    },
-    split: list(s.split)
-  };
-  return { analysis: { ...analysis, wording: requirementWording(analysis.requirements) }, sessionId: typeof r.session_id === "string" ? r.session_id : null, costUsd: typeof r.total_cost_usd === "number" ? r.total_cost_usd : null };
-}
-var ANALYST_COMMANDS = {
-  any: ["git log", "git show", "git diff", "git grep", "git ls-files"],
-  salesforce: [
-    "sf org display",
-    "sf org list metadata",
-    "sf org list metadata-types",
-    "sf data query",
-    "sf sobject describe",
-    "sf sobject list",
-    "sf limits api display",
-    "sf limits recordcounts display",
-    "sf project retrieve start",
-    "sf apex list log",
-    "sf apex get log"
-  ]
-};
-var git = (run2, cwd, ...args) => run2("git", args, { cwd });
-function scratchProject(paths, id) {
-  const dir = join5(paths.analyses, `${fileId(id)}.work`);
-  rmSync5(dir, { recursive: true, force: true });
-  mkdirSync6(join5(dir, "force-app"), { recursive: true });
-  const project2 = join5(paths.root, "sfdx-project.json");
-  if (existsSync5(project2)) {
-    try {
-      const p = JSON.parse(readFileSync8(project2, "utf8"));
-      writeFileSync6(join5(dir, "sfdx-project.json"), JSON.stringify({ ...p, packageDirectories: [{ path: "force-app", default: true }] }, null, 2));
-    } catch {
-      copyFileSync(project2, join5(dir, "sfdx-project.json"));
-    }
-  } else {
-    writeFileSync6(join5(dir, "sfdx-project.json"), JSON.stringify({ packageDirectories: [{ path: "force-app", default: true }], sourceApiVersion: "62.0" }, null, 2));
-  }
-  return dir;
-}
-function analyze(paths, config, id, deps, opts = {}) {
-  const { run: run2, now: now2 } = deps;
-  const steps2 = deps.steps ?? NO_STEPS;
-  const { task, env } = steps2.step("task", "Check the task", () => {
-    const task2 = readLedger(paths.ledger).tasks.find((t) => t.id === id);
-    if (!task2) throw new AccError("no-task", `No task ${id}.`);
-    if (task2.state === "done") throw new AccError("refused", `${id} is done. There's nothing left to analyze.`);
-    if (task2.state === "running") throw new AccError("refused", `${id} is being built. Analyze before dispatch, or after it's abandoned.`);
-    const env2 = environmentByBranch(config, task2.environment);
-    if (!env2) throw new AccError("analyze", `${id}'s environment "${task2.environment}" isn't in the config.`);
-    return { task: task2, env: env2 };
-  });
-  const sf = config.profile === "salesforce";
-  steps2.start("gather", "Gather what the analyst reads");
-  const base = git(run2, paths.root, "rev-parse", "--verify", "--quiet", env.branch).stdout.trim() || git(run2, paths.root, "rev-parse", "HEAD").stdout.trim();
-  const current3 = git(run2, paths.root, "branch", "--show-current").stdout.trim();
-  const orgs = sf ? config.environments.filter((e) => e.org).map((e) => ({ alias: e.org, name: e.name, type: e.type })) : [];
-  const previous = readAnalysis(paths, id);
-  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current3 && current3 !== env.branch ? current3 : null, orgs, rules: rulesText(paths.root, config.profile), previous });
-  const allowed = [...ANALYST_COMMANDS.any, ...sf ? ANALYST_COMMANDS.salesforce : []].map((c) => `Bash(${c}:*)`);
-  const settings = deps.accCommand ? { hooks: { PreToolUse: [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit", hooks: [{ type: "command", command: `${deps.accCommand} hook pre-tool-use` }] }] } } : null;
-  const cwd = sf ? scratchProject(paths, id) : paths.root;
-  steps2.done("gather", orgs.length ? `The code and ${orgs.length} org(s)` : "The code");
-  const sessionId = (deps.uuid ?? randomUUID)();
-  const name = sessionName({ project: config.project, key: id, title: task.title, role: "analysis" });
-  mkdirSync6(paths.analyses, { recursive: true });
-  const marker = runningPath(paths, id);
-  const startedAt = now2();
-  writeFileSync6(marker, JSON.stringify({ sessionId, name, startedAt: startedAt.toISOString(), pid: process.pid }));
-  deps.onStart?.(sessionId, name);
-  steps2.start("analyze", `Analyze ${id}`, "The analyst reads, and changes nothing");
-  const awake = holdAwake(process.pid, deps.awake);
-  let out3;
-  try {
-    out3 = run2("claude", [
-      "-p",
-      "--session-id",
-      sessionId,
-      "--name",
-      name,
-      "--permission-mode",
-      "dontAsk",
-      ...agentArgs(config.agents.reviewer),
-      "--output-format",
-      "json",
-      "--json-schema",
-      JSON.stringify(ANALYSIS_SCHEMA),
-      "--append-system-prompt",
-      system,
-      ...cwd !== paths.root ? ["--add-dir", paths.root] : [],
-      ...settings ? ["--settings", JSON.stringify(settings)] : [],
-      "--allowedTools",
-      "Read",
-      "Grep",
-      "Glob",
-      ...allowed,
-      "--disallowedTools",
-      "Edit",
-      "Write",
-      "NotebookEdit",
-      "WebFetch",
-      "WebSearch"
-    ], { cwd, input: prompt, env: { ...sf ? sfEnv(deps.env) : deps.env, ACC_ROLE: "analyst", ACC_TASK: id }, timeoutMs: 45 * 6e4 });
-  } finally {
-    awake?.release();
-    rmSync5(marker, { force: true });
-  }
-  if (out3.timedOut) throw new AccError("analyze", `The analysis didn't finish within 45 minutes, so acc stopped it.`);
-  if (out3.code === 127 && !out3.stdout) throw new AccError("analyze", `Claude Code didn't start: ${out3.stderr.trim().split("\n")[0] ?? "claude not found"}`);
-  steps2.done("analyze");
-  const parsed = steps2.step("read", "Read the analysis", () => parseAnalysis(out3.stdout));
-  steps2.start("save", "Save the analysis");
-  const finished = now2();
-  const answered = new Map((previous?.questions ?? []).filter((q2) => q2.answer).map((q2) => [q2.question.trim().toLowerCase(), q2.answer]));
-  const questions = parsed.analysis.questions.map((q2) => answered.has(q2.question.trim().toLowerCase()) ? { ...q2, answer: answered.get(q2.question.trim().toLowerCase()) } : q2);
-  const analysis = {
-    v: 1,
-    task: id,
-    env: env.branch,
-    base,
-    ...parsed.analysis,
-    questions,
-    verdict: parsed.analysis.verdict === "questions" && !questions.some((q2) => !q2.answer) ? "ready" : parsed.analysis.verdict,
-    orgs: orgs.map((o) => o.alias),
-    sessionId: parsed.sessionId ?? sessionId,
-    name,
-    at: finished.toISOString(),
-    durationMs: finished.getTime() - startedAt.getTime(),
-    costUsd: parsed.costUsd
-  };
-  writeAnalysis(paths, analysis);
-  mutate(paths, now2, (_l, emit) => {
-    emit({ type: "task.updated", task: id, actor: opts.actor ?? "human", by: opts.by ?? `analyst:${id}`, data: { analyzed: { verdict: analysis.verdict, questions: analysis.questions.length } } });
-  });
-  steps2.done("save");
-  return analysis;
-}
-function answerAnalysis(paths, id, question, text, by, now2) {
-  const a2 = readAnalysis(paths, id);
-  if (!a2) throw new AccError("no-analysis", `${id} hasn't been analyzed yet: acc analyze ${id}.`);
-  const q2 = a2.questions.find((x2) => x2.id === question.toLowerCase() || x2.id === `q${question}`);
-  if (!q2) throw new AccError("usage", `${id}'s analysis has no question ${question}. It has: ${a2.questions.map((x2) => x2.id).join(", ") || "none"}.`);
-  if (!text.trim()) throw new AccError("usage", "Give an answer.");
-  q2.answer = { text: text.trim(), by, at: now2().toISOString() };
-  if (a2.verdict === "questions" && !openQuestions(a2).length) a2.verdict = "ready";
-  writeAnalysis(paths, a2);
-  mutate(paths, now2, (_l, emit) => {
-    emit({ type: "task.updated", task: id, actor: "human", by, data: { answered: { question: q2.id } } });
-  });
-  return a2;
-}
-function analysisSection(a2) {
-  if (!a2) return [];
-  const bullets = (xs) => xs.map((x2) => `- ${x2}`);
-  return [
-    "## What the analysis found",
-    "",
-    `An analyst read the ticket${a2.orgs.length ? `, the code and the orgs (${a2.orgs.join(", ")})` : " and the code"} before you. Build from this, and check what it says as you go: if something here turns out to be wrong, say so in your final message.`,
-    "",
-    a2.summary,
-    "",
-    ...a2.requirements.criteria.length ? ["**Acceptance criteria**", "", ...bullets(a2.requirements.criteria), ""] : [],
-    ...a2.questions.length ? ["**Decided by a person**", "", ...a2.questions.map((q2) => `- ${q2.question} ${q2.answer ? `**${q2.answer.text}**` : `Nobody answered; assume: ${q2.suggested}`}`), ""] : [],
-    ...a2.requirements.assumptions.length ? ["**Assumptions**", "", ...bullets(a2.requirements.assumptions), ""] : [],
-    ...a2.requirements.outOfScope.length ? ["**Out of scope**", "", ...bullets(a2.requirements.outOfScope), ""] : [],
-    ...a2.findings.length ? ["**What is there now**", "", ...a2.findings.map((f) => `- ${f.area}: ${f.detail}${f.source ? ` (${f.source})` : ""}`), ""] : [],
-    ...a2.approach.plan.length ? ["**The approach**", "", ...a2.approach.plan.map((s, i) => `${i + 1}. ${s}`), ""] : [],
-    ...a2.approach.refactors.length ? ["**Refactors first**", "", ...a2.approach.refactors.map((r) => `- ${r.what}: ${r.why}`), ""] : [],
-    ...a2.approach.files.length ? ["**Files**", "", ...a2.approach.files.map((f) => `- ${f.change} \`${f.path}\`: ${f.why}`), ""] : [],
-    ...a2.approach.risks.length ? ["**Risks**", "", ...bullets(a2.approach.risks), ""] : [],
-    ...a2.approach.tests.length ? ["**Tests**", "", ...bullets(a2.approach.tests), ""] : []
-  ];
-}
-
-// packages/core/src/autopilot-log.ts
-var byAutopilot = (by) => by === AUTOPILOT_BY || by.endsWith(` for ${AUTOPILOT_BY}`);
-var EVENTS_TAIL_BYTES = 256 * 1024;
-
-// packages/core/src/checks.ts
-import { mkdirSync as mkdirSync22, readFileSync as readFileSync23, writeFileSync as writeFileSync21 } from "node:fs";
-import { join as join21 } from "node:path";
-
-// packages/core/src/land.ts
-import { mkdtempSync as mkdtempSync3, rmSync as rmSync13, writeFileSync as writeFileSync20 } from "node:fs";
-import { tmpdir as tmpdir3 } from "node:os";
-import { join as join20 } from "node:path";
-
-// packages/core/src/jobs.ts
-import { mkdirSync as mkdirSync7, readdirSync as readdirSync2, readFileSync as readFileSync9, renameSync as renameSync5, rmSync as rmSync6, writeFileSync as writeFileSync7 } from "node:fs";
-import { join as join6 } from "node:path";
-var JOB_KINDS = ["land", "refresh", "promote", "deploy", "autopilot"];
-var jobsDir = (paths) => join6(paths.stateDir, "jobs");
-var marked = 0;
-function readJobs(paths) {
-  const dir = jobsDir(paths);
-  let names3 = [];
-  try {
-    names3 = readdirSync2(dir).filter((n) => n.endsWith(".json"));
-  } catch {
-    return [];
-  }
-  const out3 = [];
-  for (const n of names3) {
-    try {
-      const j2 = JSON.parse(readFileSync9(join6(dir, n), "utf8"));
-      if (!JOB_KINDS.includes(j2.kind) || !Number.isInteger(j2.pid) || j2.pid <= 0 || typeof j2.startedAt !== "string") continue;
-      if (j2.step !== void 0 && !AUTOPILOT_STEPS.includes(j2.step)) continue;
-      out3.push({ ...j2, key: n.slice(0, -5) });
-    } catch {
-    }
-  }
-  return out3;
-}
-function startJob(paths, job, now2 = () => /* @__PURE__ */ new Date()) {
-  const dir = jobsDir(paths);
-  mkdirSync7(dir, { recursive: true });
-  for (const old of readJobs(paths)) if (!alive(old.pid)) rmSync6(join6(dir, `${old.key}.json`), { force: true });
-  const key = `${job.kind}-${job.task ?? job.env ?? "repo"}-${process.pid}-${++marked}`.replace(/[^\w.-]/g, "_");
-  const file = join6(dir, `${key}.json`);
-  writeFileSync7(`${file}.tmp`, JSON.stringify({ ...job, key, pid: process.pid, startedAt: now2().toISOString() }) + "\n");
-  renameSync5(`${file}.tmp`, file);
-  return key;
-}
-function endJob(paths, key) {
-  rmSync6(join6(jobsDir(paths), `${key}.json`), { force: true });
-}
-function withJob(paths, job, fn2, now2) {
-  let key = null;
-  try {
-    key = startJob(paths, job, now2);
-  } catch {
-    key = null;
-  }
-  try {
-    return fn2();
-  } finally {
-    if (key) endJob(paths, key);
-  }
-}
-
-// packages/core/src/ratchets.ts
-import { appendFileSync as appendFileSync2, existsSync as existsSync6, mkdirSync as mkdirSync8, readFileSync as readFileSync10, renameSync as renameSync6, writeFileSync as writeFileSync8 } from "node:fs";
-import { dirname as dirname4 } from "node:path";
-var FLOORS_FILE = ".acc/floors.json";
-var isRelaxed = (v) => isObj(v) && typeof v.by === "string" && typeof v.reason === "string" && typeof v.at === "string" && (v.was === null || typeof v.was === "number");
-function parseFloors(text) {
-  let raw;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    return null;
-  }
-  if (!isObj(raw)) return null;
-  const out3 = {};
-  for (const [name, e] of Object.entries(raw)) {
-    if (!isObj(e)) return null;
-    const keys = Object.keys(e);
-    const limits = keys.filter((k2) => k2 === "floor" || k2 === "ceiling");
-    if (limits.length !== 1 || keys.some((k2) => k2 !== limits[0] && k2 !== "relaxed")) return null;
-    const value = e[limits[0]];
-    if (typeof value !== "number" || !Number.isFinite(value)) return null;
-    if (e.relaxed !== void 0 && !isRelaxed(e.relaxed)) return null;
-    out3[name] = { [limits[0]]: value, ...e.relaxed ? { relaxed: e.relaxed } : {} };
-  }
-  return out3;
-}
-var formatFloors = (floors) => `${JSON.stringify(floors, null, 2)}
-`;
-function readFloors(file) {
-  if (!existsSync6(file)) return {};
-  const floors = parseFloors(readFileSync10(file, "utf8"));
-  if (!floors) throw new AccError("bad-floors", `${file} isn't a list of floors: each entry needs a "floor" or a "ceiling", a number.`);
-  return floors;
-}
-function writeFloors(file, floors) {
-  mkdirSync8(dirname4(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync8(tmp, formatFloors(floors));
-  renameSync6(tmp, file);
-}
-function floorsAt(run2, root, ref) {
-  const r = run2("git", ["show", `${ref}:${FLOORS_FILE}`], { cwd: root });
-  if (r.code !== 0) return {};
-  const floors = parseFloors(r.stdout);
-  if (!floors) throw new AccError("bad-floors", `${FLOORS_FILE} at ${ref.slice(0, 7)} isn't a list of floors: each entry needs a "floor" or a "ceiling", a number.`);
-  return floors;
-}
-var limitOf = (e) => e.ceiling !== void 0 ? "ceiling" : "floor";
-var valueOf = (e, limit) => e && limitOf(e) === limit ? e[limit] ?? null : null;
-var isWorse = (limit, a2, than) => limit === "floor" ? a2 < than : a2 > than;
-var num = (n) => Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));
-var signed = (n) => n > 0 ? `+${num(n)}` : n < 0 ? `\u2212${num(-n)}` : "\xB10";
-function parseNumber(stdout) {
-  const line = stdout.replace(/\x1b\[[0-9;]*m/g, "").split("\n").map((l3) => l3.trim()).filter(Boolean).at(-1) ?? "";
-  return /^[-+]?(\d+(\.\d+)?|\.\d+)$/.test(line) ? Number(line) : null;
-}
-function ratchetLine(d) {
-  return d.base === null ? `${d.label} ${num(d.value)} (first floor)` : `${d.label} ${num(d.base)} \u2192 ${num(d.value)} (${signed(d.diff ?? d.value - d.base)})`;
-}
-var words2 = (limit) => limit === "floor" ? { limit: "floor", worse: "below", lowers: "lowers" } : { limit: "ceiling", worse: "above", lowers: "raises" };
-function judgeRatchet(name, spec, value, floors, env) {
-  const { label, limit } = spec;
-  const w = words2(limit);
-  const headEntry = floors.head[name];
-  if (headEntry && limitOf(headEntry) !== limit) {
-    return { status: "error", summary: `${FLOORS_FILE} gives ${name} a ${limitOf(headEntry)}, but .acc/config.json says it has a ${limit}. Make them agree.` };
-  }
-  const head = valueOf(headEntry, limit);
-  const base = valueOf(floors.base[name], limit);
-  const details = (floor2, raised) => ({
-    ratchet: { label, limit, value, floor: floor2, base, diff: base === null ? null : value - base, ...raised ? { raised } : {} }
-  });
-  if (base !== null && (head === null || isWorse(limit, head, base)) && !(head !== null && relaxedTo(floors.relaxed, name, limit, head, base))) {
-    const what = head === null ? `drops ${name}'s ${w.limit}` : `${w.lowers} ${name}'s ${w.limit} to ${num(head)}`;
-    return { status: "fail", summary: `${FLOORS_FILE} ${what}, from ${num(base)} on ${env}, and no person relaxed it. Put it back to ${num(base)}: only a person relaxes a ${w.limit}, with acc gate relax.`, details: details(base) };
-  }
-  const floor = head ?? base;
-  if (floor === null) {
-    if (floors.raise) return { status: "pass", summary: `${label} ${num(value)}, the first ${w.limit}: wrote it in ${FLOORS_FILE}. Commit that file, then run acc gate run again.`, details: details(null, { from: null, to: value }) };
-    return { status: "pass", summary: `${label} ${num(value)}. No ${w.limit} yet.`, details: details(null) };
-  }
-  if (isWorse(limit, value, floor)) {
-    return { status: "fail", summary: `${label} ${num(value)} is ${w.worse} its ${w.limit} ${num(floor)}, by ${num(Math.abs(value - floor))}. Make it ${num(floor)} or better. If this change has to make it worse, block and say why: only a person relaxes a ${w.limit}.`, details: details(floor) };
-  }
-  if (value === floor) return { status: "pass", summary: `${label} ${num(value)}, at its ${w.limit}.`, details: details(floor) };
-  if (floors.raise) {
-    return { status: "pass", summary: `${label} ${num(value)} beats the ${w.limit} ${num(floor)}: raised it in ${FLOORS_FILE}. Commit that file, then run acc gate run again.`, details: details(floor, { from: floor, to: value }) };
-  }
-  return { status: "pass", summary: `${label} ${num(value)} beats the ${w.limit} ${num(floor)} by ${num(Math.abs(value - floor))}.`, details: details(floor) };
-}
-function readRatchet(name, spec, r, floors, env) {
-  const last = (t) => t.replace(/\x1b\[[0-9;]*m/g, "").split("\n").map((l3) => l3.trim()).filter(Boolean).at(-1) ?? "";
-  if (r.code !== 0) return { status: "error", summary: `${spec.label} couldn't be measured: ${last(r.stderr) || last(r.stdout) || `the command exited with ${r.code}`}.` };
-  const value = parseNumber(r.stdout);
-  if (value === null) return { status: "error", summary: `${spec.label} couldn't be measured: the command's last line isn't a number${last(r.stdout) ? ` ("${last(r.stdout).slice(0, 80)}")` : ""}.` };
-  return judgeRatchet(name, spec, value, floors, env);
-}
-function ratchetGate(name, spec, heavy) {
-  return {
-    name,
-    heavy,
-    about: `${spec.command} (${spec.label}, which may only go ${spec.limit === "floor" ? "up" : "down"})`,
-    plan: (input) => {
-      const floors = input.floors?.();
-      if (!floors || "problem" in floors) return { outcome: { status: "error", summary: floors?.problem ?? `${name}'s floors weren't read.` } };
-      return { cmd: "sh", args: ["-c", spec.command], env: { ACC_CHANGED: input.changes.files.join("\n") }, read: (r) => readRatchet(name, spec, r, floors, input.env.branch) };
-    }
-  };
-}
-function withRaises(floors, raises) {
-  const out3 = { ...floors };
-  for (const r of raises) out3[r.gate] = { [r.limit]: r.to };
-  return out3;
-}
-function carriesOver(parentFloors, headFloors, parentReceipts) {
-  const same2 = (a2, b) => JSON.stringify(a2) === JSON.stringify(b);
-  if (Object.keys(parentFloors).some((k2) => !(k2 in headFloors))) return false;
-  const changed = Object.keys(headFloors).filter((k2) => !same2(parentFloors[k2], headFloors[k2]));
-  if (!changed.length) return false;
-  return changed.every((k2) => {
-    const e = headFloors[k2];
-    const measured = parentReceipts[k2]?.details?.ratchet;
-    return !e.relaxed && !!measured?.raised && measured.limit === limitOf(e) && measured.value === valueOf(e, measured.limit) && measured.raised.to === measured.value;
-  });
-}
-function mergeFloors(common, ours, theirs) {
-  const [c, o, t] = [common.trim() ? parseFloors(common) : {}, parseFloors(ours), parseFloors(theirs)];
-  if (!c || !o || !t) return null;
-  const out3 = {};
-  for (const name of [.../* @__PURE__ */ new Set([...Object.keys(t), ...Object.keys(o), ...Object.keys(c)])]) {
-    const [ce2, oe2, te2] = [c[name], o[name], t[name]];
-    if (ce2 && (!oe2 || !te2)) return null;
-    const limit = limitOf(oe2 ?? te2);
-    if ([ce2, oe2, te2].some((e) => e && limitOf(e) !== limit)) return null;
-    const [cv, ov, tv] = [valueOf(ce2, limit), valueOf(oe2, limit), valueOf(te2, limit)];
-    if (cv !== null && (ov !== null && isWorse(limit, ov, cv) || tv !== null && isWorse(limit, tv, cv))) return null;
-    out3[name] = ov === null ? te2 : tv === null ? oe2 : isWorse(limit, ov, tv) ? te2 : oe2;
-  }
-  return formatFloors(out3);
-}
-function readRelaxed(file) {
-  if (!existsSync6(file)) return [];
-  return readFileSync10(file, "utf8").split("\n").filter(Boolean).flatMap((l3) => {
-    try {
-      const r = JSON.parse(l3);
-      return typeof r.ratchet === "string" && typeof r.to === "number" && (r.limit === "floor" || r.limit === "ceiling") ? [r] : [];
-    } catch {
-      return [];
-    }
-  });
-}
-function relaxCounts(r, ledger) {
-  const task = r.task ? ledger.tasks.find((t) => t.id === r.task) : void 0;
-  return !!task && task.state !== "done";
-}
-function relaxesFor(records, ledger, task, branch) {
-  const t = task ? ledger.tasks.find((x2) => x2.id === task) : void 0;
-  if (!t || !branch || t.run?.branch !== branch) return [];
-  return records.filter((r) => r.task === t.id && relaxCounts(r, ledger));
-}
-function pruneRelaxed(file, ledger) {
-  const all = readRelaxed(file);
-  const kept = all.filter((r) => relaxCounts(r, ledger));
-  const lines = existsSync6(file) ? readFileSync10(file, "utf8").split("\n").filter(Boolean).length : 0;
-  if (kept.length === lines) return 0;
-  writeAtomic(file, kept.map((r) => `${JSON.stringify(r)}
-`).join(""));
-  return lines - kept.length;
-}
-function relaxedTo(records, name, limit, value, base) {
-  const mine = records.filter((r) => r.ratchet === name && r.limit === limit);
-  const from = /* @__PURE__ */ new Set([base]);
-  for (let grew = true; grew; ) {
-    grew = false;
-    for (const r of mine) if (from.has(r.was) && !from.has(r.to)) {
-      from.add(r.to);
-      grew = true;
-    }
-  }
-  return mine.some((r) => from.has(r.was) && (r.to === value || isWorse(limit, r.to, value)));
-}
-function relaxFloor(relaxedFile, floorsFile, root, config, req) {
-  const ratchets = config.gates.ratchets ?? {};
-  const spec = ratchets[req.ratchet];
-  if (!spec) throw new AccError("usage", `No ratchet ${req.ratchet}. This project's ratchets: ${Object.keys(ratchets).join(", ") || "none"}.`);
-  const reason = req.reason.trim();
-  if (!reason) throw new AccError("usage", `Say why it's relaxed: acc gate relax ${req.ratchet} --to <n> --reason "<why>". The reason is kept with the floor.`);
-  if (!Number.isFinite(req.to)) throw new AccError("usage", `--to takes the ${spec.limit} as a number, such as --to 640.`);
-  const floors = readFloors(floorsFile);
-  const was = valueOf(floors[req.ratchet], spec.limit);
-  const w = words2(spec.limit);
-  if (was === null) throw new AccError("refused", `${req.ratchet} has no ${w.limit} in ${floorsFile} yet, so there's nothing to relax.`);
-  if (!isWorse(spec.limit, req.to, was)) throw new AccError("refused", `${num(req.to)} isn't ${w.worse} ${req.ratchet}'s ${w.limit}, ${num(was)}, so it doesn't relax it. acc raises a ${w.limit} itself when a change beats it.`);
-  const at2 = req.now().toISOString();
-  writeFloors(floorsFile, { ...floors, [req.ratchet]: { [spec.limit]: req.to, relaxed: { by: req.by, reason, at: at2, was } } });
-  const record2 = { ratchet: req.ratchet, limit: spec.limit, to: req.to, was, by: req.by, reason, at: at2, task: req.task, root };
-  mkdirSync8(dirname4(relaxedFile), { recursive: true });
-  appendFileSync2(relaxedFile, `${JSON.stringify(record2)}
-`);
-  return record2;
-}
-
-// packages/core/src/receipts.ts
-import { existsSync as existsSync7, mkdirSync as mkdirSync9, readdirSync as readdirSync3, readFileSync as readFileSync11, renameSync as renameSync7, writeFileSync as writeFileSync9 } from "node:fs";
-import { join as join7 } from "node:path";
-function ratchetOf(r) {
-  const d = r?.details?.ratchet;
-  return d && typeof d.value === "number" && typeof d.label === "string" && (d.limit === "floor" || d.limit === "ceiling") ? d : null;
-}
-var satisfies = (r) => (r?.status === "pass" || r?.status === "skip") && !ratchetOf(r)?.raised;
-function receiptPath(paths, sha, gate) {
-  return join7(paths.receipts, sha, `${gate}.json`);
-}
-function readReceipt(paths, sha, gate) {
-  const f = receiptPath(paths, sha, gate);
-  if (!existsSync7(f)) return null;
-  try {
-    return JSON.parse(readFileSync11(f, "utf8"));
-  } catch {
-    return null;
-  }
-}
-function receiptsAt(paths, sha) {
-  const dir = join7(paths.receipts, sha);
-  if (!existsSync7(dir)) return {};
-  const out3 = {};
-  for (const f of readdirSync3(dir).filter((n) => n.endsWith(".json"))) {
-    const r = readReceipt(paths, sha, f.slice(0, -5));
-    if (r) out3[r.gate] = r;
-  }
-  return out3;
-}
-var EARLIER_LIMIT = 500;
-function earlierCounts(paths, run2, base, gate, command, sha) {
-  const kept = existsSync7(paths.receipts) ? new Set(readdirSync3(paths.receipts)) : /* @__PURE__ */ new Set();
-  kept.delete(sha);
-  if (!kept.size) return null;
-  const nearest = (range, ok) => {
-    const r = run2("git", ["rev-list", `--max-count=${EARLIER_LIMIT}`, ...range], { cwd: paths.root });
-    for (const at2 of r.code === 0 ? r.stdout.split("\n").map((l3) => l3.trim()).filter((l3) => kept.has(l3)) : []) {
-      const receipt = readReceipt(paths, at2, gate);
-      if (receipt?.counts && receipt.command === command && ok(receipt)) return receipt;
-    }
-    return null;
-  };
-  return nearest([sha, `^${base}`], (r) => !!r.waived) ?? nearest([base], () => true);
-}
-function writeReceipt(paths, receipt) {
-  const f = receiptPath(paths, receipt.sha, receipt.gate);
-  mkdirSync9(join7(paths.receipts, receipt.sha), { recursive: true });
-  const tmp = `${f}.${process.pid}.tmp`;
-  writeFileSync9(tmp, JSON.stringify(receipt, null, 2) + "\n");
-  renameSync7(tmp, f);
-  return f;
-}
-function receiptHooks(paths, config, run2) {
-  return {
-    missingGates(task, scope = "builder") {
-      const required = requiredGates(config, task.environment, scope);
-      if (!required.length) return [];
-      const branch = task.run?.branch;
-      if (!branch) return required;
-      const sha = run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: paths.root });
-      if (sha.code !== 0) return required;
-      const head = sha.stdout.trim();
-      const passed = (g) => satisfies(readReceipt(paths, head, g));
-      const missing = required.filter((g) => !passed(g));
-      const full = fullGates(config);
-      if (missing.length && full.length && full.every(passed)) return [];
-      return missing;
-    }
-  };
-}
-
-// packages/core/src/refresh.ts
-import { existsSync as existsSync16 } from "node:fs";
-
-// packages/core/src/dispatch.ts
-import { spawnSync as spawnSync3 } from "node:child_process";
-import { existsSync as existsSync15, mkdirSync as mkdirSync21, readFileSync as readFileSync22, realpathSync as realpathSync3, symlinkSync, writeFileSync as writeFileSync19 } from "node:fs";
-import { homedir as homedir5 } from "node:os";
-import { basename as basename5, dirname as dirname8, isAbsolute as isAbsolute4, join as join19, resolve as resolve2, sep as sep2 } from "node:path";
-
 // packages/core/src/cloud.ts
-import { chmodSync, existsSync as existsSync10, mkdirSync as mkdirSync14, rmSync as rmSync8, writeFileSync as writeFileSync14 } from "node:fs";
-import { join as join12 } from "node:path";
+import { chmodSync, existsSync as existsSync7, mkdirSync as mkdirSync11, rmSync as rmSync4, writeFileSync as writeFileSync10 } from "node:fs";
+import { join as join8 } from "node:path";
 
 // packages/core/src/config-edit.ts
-import { readFileSync as readFileSync12 } from "node:fs";
+import { readFileSync as readFileSync2 } from "node:fs";
 var Scanner = class {
   i = 0;
   text;
@@ -4434,7 +2345,7 @@ function removeMember(text, obj, m) {
 function writeJsonKey(file, path, value) {
   let text;
   try {
-    text = readFileSync12(file, "utf8");
+    text = readFileSync2(file, "utf8");
     JSON.parse(text);
   } catch (e) {
     throw new AccError("bad-config", `Couldn't read ${file}: ${e.message}`);
@@ -4444,8 +2355,8 @@ function writeJsonKey(file, path, value) {
 }
 
 // packages/core/src/cloud-guard.ts
-import { existsSync as existsSync8, mkdirSync as mkdirSync10, readFileSync as readFileSync13, writeFileSync as writeFileSync10, renameSync as renameSync8 } from "node:fs";
-import { dirname as dirname5, join as join8 } from "node:path";
+import { existsSync as existsSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, writeFileSync as writeFileSync2, renameSync as renameSync2 } from "node:fs";
+import { dirname as dirname2, join } from "node:path";
 var GUARD_PATH = ".claude/hooks/acc-push-guard.mjs";
 var PRE_PUSH_PATH = ".claude/hooks/acc-pre-push";
 var SETTINGS_PATH = ".claude/settings.json";
@@ -5574,23 +3485,23 @@ function guardCommitted(run2, root, ref) {
 function installGuard(root) {
   const written = [];
   for (const [path, text] of [[GUARD_PATH, GUARD_SCRIPT], [PRE_PUSH_PATH, PRE_PUSH_SCRIPT]]) {
-    const file2 = join8(root, path);
-    mkdirSync10(dirname5(file2), { recursive: true });
-    if (!existsSync8(file2) || readFileSync13(file2, "utf8") !== text) {
+    const file2 = join(root, path);
+    mkdirSync2(dirname2(file2), { recursive: true });
+    if (!existsSync2(file2) || readFileSync3(file2, "utf8") !== text) {
       writeWhole(file2, text);
       written.push(path);
     }
   }
-  const file = join8(root, SETTINGS_PATH);
+  const file = join(root, SETTINGS_PATH);
   let settings = {};
-  if (existsSync8(file)) {
+  if (existsSync2(file)) {
     try {
-      settings = JSON.parse(readFileSync13(file, "utf8"));
+      settings = JSON.parse(readFileSync3(file, "utf8"));
     } catch (e) {
       throw new Error(`${SETTINGS_PATH} isn't valid JSON: ${e.message}`);
     }
   }
-  if (!existsSync8(file) || !settingsRunGuard(readFileSync13(file, "utf8"))) {
+  if (!existsSync2(file) || !settingsRunGuard(readFileSync3(file, "utf8"))) {
     const hooks = settings.hooks ?? {};
     const ours = (x2) => !!x2.command && /acc-push-guard\.mjs/.test(x2.command);
     const pre = (hooks.PreToolUse ?? []).filter((h2) => !(h2.hooks ?? []).some(ours));
@@ -5605,36 +3516,770 @@ function installGuard(root) {
 }
 function writeWhole(file, text) {
   const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync10(tmp, text);
-  renameSync8(tmp, file);
+  writeFileSync2(tmp, text);
+  renameSync2(tmp, file);
 }
 
 // packages/core/src/gates.ts
-import { existsSync as existsSync9, mkdirSync as mkdirSync13, readFileSync as readFileSync16, writeFileSync as writeFileSync13 } from "node:fs";
-import { join as join11, posix } from "node:path";
+import { existsSync as existsSync6, mkdirSync as mkdirSync10, readFileSync as readFileSync11, writeFileSync as writeFileSync9 } from "node:fs";
+import { join as join7, posix } from "node:path";
+
+// packages/core/src/ledger.ts
+import { appendFileSync, closeSync, existsSync as existsSync3, mkdirSync as mkdirSync5, openSync, readFileSync as readFileSync6, readSync, statSync as statSync2 } from "node:fs";
+import { dirname as dirname3 } from "node:path";
+
+// packages/core/src/awake.ts
+import { spawn, spawnSync as spawnSync2 } from "node:child_process";
+import { mkdirSync as mkdirSync4, readFileSync as readFileSync5, rmSync as rmSync2, writeFileSync as writeFileSync4 } from "node:fs";
+import { basename as basename2, join as join3 } from "node:path";
+
+// packages/core/src/lock.ts
+import { mkdirSync as mkdirSync3, readFileSync as readFileSync4, rmSync, statSync, writeFileSync as writeFileSync3 } from "node:fs";
+import { join as join2 } from "node:path";
+var sleep = (ms) => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === "EPERM";
+  }
+}
+function withLock(lockDir, fn2, opts = {}) {
+  const timeoutMs = opts.timeoutMs ?? 15e3;
+  const staleMs = opts.staleMs ?? 6e4;
+  const started = Date.now();
+  for (; ; ) {
+    try {
+      mkdirSync3(lockDir);
+      writeFileSync3(join2(lockDir, "owner"), JSON.stringify({ pid: process.pid, at: Date.now() }));
+      break;
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      let owner = null;
+      try {
+        owner = JSON.parse(readFileSync4(join2(lockDir, "owner"), "utf8"));
+      } catch {
+        owner = null;
+      }
+      let age = 0;
+      try {
+        age = Date.now() - (owner?.at ?? statSync(lockDir).mtimeMs);
+      } catch {
+        continue;
+      }
+      if (owner && !alive(owner.pid) || age > staleMs) {
+        rmSync(lockDir, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() - started > timeoutMs) {
+        throw new AccError("lock-timeout", `Another acc process is holding ${lockDir}. Try again in a moment.`);
+      }
+      sleep(20 + Math.floor(Math.random() * 40));
+    }
+  }
+  try {
+    return fn2();
+  } finally {
+    rmSync(lockDir, { recursive: true, force: true });
+  }
+}
+
+// packages/core/src/awake.ts
+var detached = (cmd, args) => {
+  const child = spawn(cmd, args, { detached: true, stdio: "ignore" });
+  child.on("error", () => void 0);
+  return child;
+};
+var stop = (pid) => {
+  try {
+    process.kill(pid);
+  } catch {
+  }
+};
+function holdAwake(watchPid, deps = {}) {
+  if ((deps.platform ?? process.platform) !== "darwin" || !Number.isInteger(watchPid) || watchPid <= 0) return null;
+  const child = (deps.spawn ?? detached)("caffeinate", ["-i", "-w", String(watchPid)]);
+  child.unref();
+  const pid = child.pid;
+  if (!pid) return null;
+  const kill = deps.kill ?? stop;
+  return { pid, release: () => kill(pid) };
+}
+var awakePath = (paths, id) => join3(paths.stateDir, "awake", `${id}.pid`);
+function isCaffeinate(pid) {
+  if (!alive(pid)) return false;
+  const r = spawnSync2("ps", ["-p", String(pid), "-o", "comm="], { encoding: "utf8" });
+  return r.status === 0 && basename2(r.stdout.trim()) === "caffeinate";
+}
+function keepAwakeFor(paths, id, watchPid, deps = {}) {
+  releaseAwake(paths, id, deps);
+  const held = holdAwake(watchPid, deps);
+  if (!held) return null;
+  try {
+    mkdirSync4(join3(paths.stateDir, "awake"), { recursive: true });
+    writeFileSync4(awakePath(paths, id), JSON.stringify({ pid: held.pid, watch: watchPid }));
+  } catch {
+  }
+  return held;
+}
+function releaseAwake(paths, id, deps = {}) {
+  const file = awakePath(paths, id);
+  let rec;
+  try {
+    rec = JSON.parse(readFileSync5(file, "utf8"));
+  } catch {
+    return false;
+  }
+  rmSync2(file, { force: true });
+  if (!Number.isInteger(rec.pid) || rec.pid <= 0) return false;
+  if (deps.kill) deps.kill(rec.pid);
+  else if (isCaffeinate(rec.pid)) stop(rec.pid);
+  return true;
+}
+
+// packages/core/src/ledger.ts
+var STATES = ["todo", "running", "review", "rework", "blocked", "done"];
+var ACTORS = ["human", "orchestrator", "builder", "reviewer", "sync"];
+var SOURCE_KINDS = [...TRACKER_KINDS, "manual"];
+var AUTOPILOT_STEPS = ["review", "land", "dispatch", "refresh", "resume", "checks", "merge", "start", "queue"];
+var emptyLedger = () => ({ schema: 1, seq: 0, tasks: [] });
+function readLedger(file) {
+  if (!existsSync3(file)) return emptyLedger();
+  const l3 = JSON.parse(readFileSync6(file, "utf8"));
+  if (l3.schema !== 1 || !Array.isArray(l3.tasks)) throw new AccError("bad-ledger", `${file} isn't a ledger this version understands.`);
+  return l3;
+}
+function mutate(paths, now2, fn2) {
+  mkdirSync5(paths.stateDir, { recursive: true });
+  return withLock(paths.lock, () => {
+    const ledger = readLedger(paths.ledger);
+    const events = [];
+    const emit = (e) => events.push({ ...e, seq: ++ledger.seq, at: now2().toISOString() });
+    const result = fn2(ledger, emit);
+    if (events.length) {
+      mkdirSync5(dirname3(paths.events), { recursive: true });
+      appendFileSync(paths.events, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+      writeAtomic(paths.ledger, JSON.stringify(ledger, null, 2) + "\n");
+    }
+    return result;
+  });
+}
+var JIRA_KEY = /^[A-Z][A-Z0-9_]*-\d+$/;
+function normalizeId(ref, defaultKind = "jira") {
+  const r = ref.trim();
+  const gh = /^(?:#|GH-)?(\d+)$/i.exec(r);
+  if (gh && (defaultKind === "github" || /^(#|GH-)/i.test(r))) return `GH-${gh[1]}`;
+  return r.toUpperCase();
+}
+function isValidId(id) {
+  return JIRA_KEY.test(id);
+}
+function nextManualId(ledger) {
+  const n = ledger.tasks.map((t) => /^T-(\d+)$/.exec(t.id)?.[1]).filter(Boolean).map(Number);
+  return `T-${(n.length ? Math.max(...n) : 0) + 1}`;
+}
+function environmentProblem(config, env) {
+  const def = environmentByBranch(config, env);
+  if (!def) return `environment "${env}" isn't in the config.`;
+  if (def.protected) return `"${env}" is protected, so no task can build on it directly.`;
+  return null;
+}
+var taskDeps = (deps, kind) => deps.map((d) => normalizeId(d, kind));
+function upsertTasks(ledger, config, inputs, actor, by, emit, now2) {
+  const res = { added: [], updated: [], unchanged: [], errors: [] };
+  const defaultEnv = defaultEnvironment(config).branch;
+  inputs.forEach((input, i) => {
+    const at2 = `item ${i + 1}`;
+    if (!input || typeof input.title !== "string" || !input.title.trim()) {
+      res.errors.push(`${at2}: needs a title.`);
+      return;
+    }
+    const kind = input.source?.kind;
+    if (!SOURCE_KINDS.includes(kind)) {
+      res.errors.push(`${at2}: source kind must be ${SOURCE_KINDS.join(", ")}.`);
+      return;
+    }
+    let id;
+    if (kind === "manual") id = input.source.key ? normalizeId(input.source.key) : nextManualId(ledger);
+    else {
+      if (!input.source.key) {
+        res.errors.push(`${at2}: a ${kind} task needs its tracker key.`);
+        return;
+      }
+      id = normalizeId(input.source.key, kind);
+    }
+    if (!isValidId(id)) {
+      res.errors.push(`${at2}: "${id}" isn't a valid task id.`);
+      return;
+    }
+    const env = input.environment ?? defaultEnv;
+    const envWhy = environmentProblem(config, env);
+    if (envWhy) {
+      res.errors.push(`${id}: ${envWhy}`);
+      return;
+    }
+    const deps = taskDeps(input.deps ?? [], kind);
+    const fields = {
+      title: input.title.trim(),
+      brief: (input.brief ?? "").trim(),
+      deps,
+      labels: input.labels ?? [],
+      url: input.source.url ?? null
+    };
+    const existing = ledger.tasks.find((t) => t.id === id);
+    const stamp = now2().toISOString();
+    if (!existing) {
+      const task = {
+        id,
+        title: fields.title,
+        brief: fields.brief,
+        source: { kind, key: kind === "manual" ? null : input.source.key ?? null, url: fields.url },
+        environment: env,
+        deps,
+        labels: fields.labels,
+        state: "todo",
+        blocker: null,
+        run: null,
+        pr: null,
+        history: [{ at: stamp, actor, by, from: null, to: "todo", reason: null }],
+        createdAt: stamp,
+        updatedAt: stamp
+      };
+      ledger.tasks.push(task);
+      emit({ type: "task.added", task: id, actor, by, data: { title: task.title, source: task.source } });
+      res.added.push(id);
+      return;
+    }
+    const changed = {};
+    if (existing.title !== fields.title) changed.title = existing.title = fields.title;
+    if (existing.brief !== fields.brief) changed.brief = existing.brief = fields.brief;
+    if (existing.source.url !== fields.url) changed.url = existing.source.url = fields.url;
+    if (JSON.stringify(existing.deps) !== JSON.stringify(deps)) changed.deps = existing.deps = deps;
+    if (JSON.stringify(existing.labels) !== JSON.stringify(fields.labels)) changed.labels = existing.labels = fields.labels;
+    if (Object.keys(changed).length) {
+      existing.updatedAt = stamp;
+      emit({ type: "task.updated", task: id, actor, by, data: changed });
+      res.updated.push(id);
+    } else res.unchanged.push(id);
+  });
+  return res;
+}
+var DONE_COMMAND = `acc done --landed "<what landed>" --moved "<tests, checks, ratchets that moved>" --open "<what's still open, or none>"`;
+var NOTE_LIMITS = { lines: 10, chars: 300 };
+var NOTE_PARTS = ["landed", "moved", "open"];
+function noteInput(parts) {
+  const out3 = {};
+  for (const k2 of NOTE_PARTS) {
+    const given2 = parts[k2];
+    if (given2 === void 0) continue;
+    out3[k2] = given2.map((l3) => l3.replace(/\s+/g, " ").trim()).filter((l3) => l3 && l3.toLowerCase() !== "none");
+  }
+  return out3;
+}
+var NOTE_LABELS = { landed: "What landed", moved: "Numbers that moved", open: "Still open" };
+function noteMarkdown(n) {
+  return NOTE_PARTS.flatMap((k2, i) => [...i ? [""] : [], `**${NOTE_LABELS[k2]}**`, "", ...n[k2].length ? n[k2].map((l3) => `- ${l3}`) : ["- none"]]);
+}
+function shownNote(task) {
+  const r = task.run;
+  if (!r) return { note: null, fromLast: false, missing: false };
+  if (r.note) return { note: r.note, fromLast: false, missing: false };
+  if (task.state === "running") return { note: r.before ?? null, fromLast: true, missing: r.before === null };
+  return { note: null, fromLast: false, missing: task.state !== "done" };
+}
+var noteGiven = (n) => !!n && NOTE_PARTS.some((k2) => n[k2] !== void 0);
+function noteProblems(n, required) {
+  const p = [];
+  for (const k2 of NOTE_PARTS) {
+    const lines = n?.[k2] ?? [];
+    if (lines.length > NOTE_LIMITS.lines) p.push(`The note's --${k2} has ${lines.length} lines. It takes at most ${NOTE_LIMITS.lines}.`);
+    const long = lines.filter((l3) => l3.length > NOTE_LIMITS.chars).length;
+    if (long) p.push(`${long === 1 ? "A line" : `${long} lines`} in the note's --${k2} ${long === 1 ? "is" : "are"} over ${NOTE_LIMITS.chars} characters. Say it shorter.`);
+  }
+  if (required) {
+    const missing = NOTE_PARTS.filter((k2) => n?.[k2] === void 0 || k2 === "landed" && !n[k2].length);
+    if (missing.length) {
+      p.push(`A builder finishes with a note for whoever comes next: what landed, which numbers moved, and what's still open (it says nothing about ${missing.map((k2) => `--${k2}`).join(", ")}). Run: ${DONE_COMMAND}. Give a flag again for each further line. --moved none and --open none say there was nothing.`);
+    }
+  }
+  return p;
+}
+var RULES = [
+  { from: "todo", to: "running", actors: ["human", "orchestrator"], requires: ["depsDone", "underCap", "envNotProtected"] },
+  { from: "running", to: "review", actors: ["builder", "human"], requires: ["gatesPassed", "note"] },
+  // The orchestrator is autopilot sending back a pull request whose checks failed on GitHub (D-076).
+  { from: "review", to: "rework", actors: ["reviewer", "human", "orchestrator"], requires: ["reason"] },
+  { from: "rework", to: "running", actors: ["human", "orchestrator"], requires: ["underCap", "envNotProtected"] },
+  { from: "review", to: "done", actors: ["sync", "human"], requires: [] },
+  // Its issue was closed on GitHub before anyone started it: acc intake moves it.
+  { from: "todo", to: "done", actors: ["sync"], requires: [] },
+  { from: "running", to: "todo", actors: ["human"], requires: ["reason"] },
+  { from: "done", to: "rework", actors: ["human", "sync"], requires: ["reason"] },
+  { from: "blocked", to: "todo", actors: ["human"], requires: [] },
+  // A person settled what blocked finished work, such as by waiving a check (D-031).
+  { from: "blocked", to: "review", actors: ["human"], requires: ["gatesPassed"] },
+  { from: "any", to: "blocked", actors: [...ACTORS], requires: ["reason"] }
+];
+var noGateHooks = { missingGates: () => [] };
+function findRule(from, to) {
+  return RULES.find((r) => r.from === from && r.to === to) ?? RULES.find((r) => r.from === "any" && r.to === to && from !== "blocked" && from !== "done");
+}
+var runPlace = (run2) => run2?.where === "cloud" ? "cloud" : "local";
+var builders = (ledger, except, where = "local") => ledger.tasks.filter((t) => t.state === "running" && t.id !== except && runPlace(t.run) === where).length;
+var projectCapWords = (n, max) => `${n} ${n === 1 ? "builder is" : "builders are"} running in this project, and its cap is ${max} (agents.max).`;
+var cloudReviews = (ledger, except) => ledger.tasks.filter((t) => t.state === "review" && t.id !== except && !!t.cloudReview && !t.cloudReview.failed).length;
+var cloudCapWords = (n, reviews, max) => reviews ? `${n} cloud ${n === 1 ? "session is" : "sessions are"} running for this project (${n - reviews} ${n - reviews === 1 ? "builder" : "builders"}, ${reviews} ${reviews === 1 ? "review" : "reviews"}), and its cap is ${max} (agents.cloud.max).` : `${n} cloud ${n === 1 ? "builder is" : "builders are"} running for this project, and its cap is ${max} (agents.cloud.max).`;
+function checkMove(ledger, config, task, req, hooks) {
+  if (!STATES.includes(req.to)) return [`"${req.to}" isn't a state. States: ${STATES.join(", ")}.`];
+  if (!ACTORS.includes(req.actor)) return [`"${req.actor}" isn't an actor.`];
+  if (task.state === req.to) return [`${task.id} is already ${req.to}.`];
+  const reason = req.reason?.trim() ?? "";
+  if (noteGiven(req.note)) {
+    if (!task.run || req.to !== "review" && req.to !== "blocked") return [`A note goes with a run's end: acc done, or acc block. ${task.id} ${task.run ? `is moving to ${req.to}` : "has no run"}.`];
+    const over = noteProblems(req.note, false);
+    if (over.length) return over;
+  }
+  if (req.force) {
+    const p = [];
+    if (req.actor !== "human") p.push("Only a person can force a move.");
+    if (!reason) p.push("A forced move needs --reason.");
+    return p;
+  }
+  const rule = findRule(task.state, req.to);
+  if (!rule) return [`There's no rule for ${task.state} \u2192 ${req.to}. A person can force it with --force --reason.`];
+  if (!rule.actors.includes(req.actor)) {
+    return [`A ${req.actor} can't move a task from ${task.state} to ${req.to}. Allowed: ${rule.actors.join(", ")}.`];
+  }
+  const problems = [];
+  for (const r of rule.requires) {
+    if (r === "reason" && !reason) problems.push(`Moving to ${req.to} needs a reason.`);
+    if (r === "depsDone") {
+      for (const d of task.deps) {
+        const dep = ledger.tasks.find((t) => t.id === d);
+        if (!dep) problems.push(`It depends on ${d}, which isn't in the ledger.`);
+        else if (dep.state !== "done") problems.push(`It's waiting on ${d}, which is ${dep.state}.`);
+      }
+    }
+    if (r === "underCap") {
+      if (req.where === "cloud") {
+        const max = config.agents.cloud?.max ?? 0;
+        const reviews = cloudReviews(ledger, task.id);
+        const running = builders(ledger, task.id, "cloud") + reviews;
+        if (!config.agents.cloud) problems.push("This project hasn't opted in to cloud builders (agents.cloud).");
+        else if (running >= max) problems.push(cloudCapWords(running, reviews, max));
+      } else {
+        const running = builders(ledger, task.id);
+        if (running >= config.agents.max) problems.push(projectCapWords(running, config.agents.max));
+      }
+    }
+    if (r === "envNotProtected") {
+      const env = environmentByBranch(config, task.environment);
+      if (!env) problems.push(`Its environment "${task.environment}" isn't in the config.`);
+      else if (env.protected) problems.push(`"${env.name}" is protected. Agents never work on it directly.`);
+    }
+    if (r === "gatesPassed") {
+      const missing = hooks.missingGates(task);
+      if (missing.length) problems.push(`These required checks haven't passed on the current commit: ${missing.join(", ")}. Commit everything, then run: acc gate run`);
+    }
+    if (r === "note" && req.actor === "builder") problems.push(...noteProblems(req.note, true));
+  }
+  return problems;
+}
+function applyMove(task, req, emit, now2, data = {}) {
+  const at2 = now2().toISOString();
+  const entry = { at: at2, actor: req.actor, by: req.by, from: task.state, to: req.to, reason: req.reason?.trim() || null };
+  if (req.force) entry.override = true;
+  task.blocker = req.to === "blocked" ? entry.reason ?? null : null;
+  if (task.autopilot?.failed) task.autopilot.failed = null;
+  if (task.autopilot?.queued) task.autopilot.queued = null;
+  if (task.autopilot?.carried) task.autopilot.carried = null;
+  if (task.held) task.held = null;
+  if (task.notStarted) task.notStarted = null;
+  if (task.cloudReview) task.cloudReview = null;
+  const note = noteGiven(req.note) && task.run && (req.to === "review" || req.to === "blocked") ? { landed: req.note.landed ?? [], moved: req.note.moved ?? [], open: req.note.open ?? [], at: at2, by: req.by, ended: req.to } : null;
+  if (note) task.run.note = note;
+  task.state = req.to;
+  task.updatedAt = at2;
+  task.history.push(entry);
+  emit({ type: "task.moved", task: task.id, actor: req.actor, by: req.by, data: { from: entry.from, to: entry.to, reason: entry.reason, override: req.force ?? false, ...note ? { note } : {}, ...data } });
+  return entry;
+}
+function moveTask(paths, config, id, req, hooks, now2) {
+  const moved = mutate(paths, now2, (ledger, emit) => {
+    const task = ledger.tasks.find((t) => t.id === id);
+    if (!task) throw new AccError("no-task", `No task ${id}.`);
+    const problems = checkMove(ledger, config, task, req, hooks);
+    if (problems.length) throw new AccError("move-refused", `Can't move ${id} to ${req.to}:
+- ${problems.join("\n- ")}`);
+    const entry = applyMove(task, req, emit, now2);
+    return { task, entry };
+  });
+  if (moved.entry.from === "running") releaseAwake(paths, id);
+  return moved;
+}
+function isReady(ledger, task) {
+  return task.state === "todo" && task.deps.every((d) => ledger.tasks.find((t) => t.id === d)?.state === "done");
+}
+var autopilotFailure = (task) => task.autopilot?.failed && task.autopilot.failed.state === task.state ? task.autopilot.failed : null;
+var RUN_SLACK_MS = 2 * 6e4;
+function sessionsOf(task, sessions) {
+  const run2 = task.run;
+  if (run2?.where === "cloud") return [];
+  if (run2?.bgId || run2?.sessionId) return sessions.filter((s) => !!run2.bgId && s.id === run2.bgId || !!run2.sessionId && s.sessionId === run2.sessionId);
+  const name = run2?.name ?? task.id;
+  const since = run2?.startedAt ? Date.parse(run2.startedAt) - RUN_SLACK_MS : null;
+  return sessions.filter((s) => s.kind === "background" && s.name === name && (since === null || s.startedAt !== void 0 && s.startedAt >= since));
+}
+function sessionActive(s) {
+  if (!s.pid) return false;
+  if (s.kind !== "background") return true;
+  if (s.state === "done" || s.state === "failed" || s.state === "stopped") return false;
+  return s.status !== "idle";
+}
+var STOPPED_GRACE_MS = 2 * 6e4;
+function runStartedAt(task) {
+  const times = [task.run?.startedAt, ...(task.run?.resumes ?? []).map((r) => r.at)].filter((t) => !!t);
+  return times.sort().at(-1) ?? null;
+}
+function builderStopped(task, sessions, o) {
+  if (task.state !== "running" || !sessions || o.resuming) return false;
+  if (task.run?.where === "cloud") return false;
+  const started = runStartedAt(task);
+  if (!started || o.now.getTime() - Date.parse(started) < (o.graceMs ?? STOPPED_GRACE_MS)) return false;
+  return !sessionsOf(task, sessions).some(sessionActive);
+}
+var closedPr = (task) => task.state === "review" && task.pr?.state === "closed" ? task.pr : null;
+var AUTOPILOT_BY = "orchestrator:autopilot";
+var sentBackByAutopilot = (h2) => h2.from === "review" && h2.to === "rework" && h2.by === AUTOPILOT_BY;
+function reworkCause(task) {
+  const h2 = task.history.findLast((x2) => x2.to === "rework");
+  if (!h2) return null;
+  return sentBackByAutopilot(h2) ? task.autopilot?.sentBack?.kind ?? "checks" : "review";
+}
+var SEND_BACKS = 3;
+var sendBacks = (task) => task.history.filter(sentBackByAutopilot).length;
+var sentBackAt = (task, sha) => !!sha && task.autopilot?.sentBack?.sha === sha;
+var inQueue = (task, config) => task.state === "review" && !!task.autopilot?.queued && autoMergeFor(config, task.environment);
+function displayState(ledger, task, session, config) {
+  if (task.state === "todo" && task.held?.failed) return "needs-you";
+  if ((task.state === "todo" || task.state === "rework") && task.notStarted) return "needs-you";
+  if (task.state === "todo" && isReady(ledger, task)) return "ready";
+  if (autopilotFailure(task)) return "needs-you";
+  if (task.state === "running" && (session?.stopped || session?.quiet || session?.unseen || session?.state === "blocked" || session?.status === "waiting")) return "needs-you";
+  if (task.state === "review" && task.pr?.state === "open" && (task.pr.ci === "failing" && !sentBackAt(task, task.pr.sha) || task.pr.changesRequested || !!task.pr.conflicts?.length && !(config && inQueue(task, config)))) return "needs-you";
+  if (closedPr(task)) return "needs-you";
+  return task.state;
+}
+var DISPLAY = {
+  todo: { label: "To do", icon: "circle-outline", glyph: "\u25CB", tone: "neutral" },
+  ready: { label: "Ready", icon: "play-circle", glyph: "\u25B7", tone: "blue" },
+  running: { label: "Running", icon: "sync", glyph: "\u21BB", tone: "blue" },
+  "needs-you": { label: "Needs you", icon: "bell", glyph: "!", tone: "orange" },
+  review: { label: "In review", icon: "eye", glyph: "\u25CE", tone: "blue" },
+  rework: { label: "Rework", icon: "debug-restart", glyph: "\u21BA", tone: "orange" },
+  blocked: { label: "Blocked", icon: "circle-slash", glyph: "\u2298", tone: "orange" },
+  done: { label: "Done", icon: "check", glyph: "\u2713", tone: "neutral" }
+};
+
+// packages/core/src/ratchets.ts
+import { appendFileSync as appendFileSync2, existsSync as existsSync4, mkdirSync as mkdirSync6, readFileSync as readFileSync7, renameSync as renameSync3, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname4 } from "node:path";
+var FLOORS_FILE = ".acc/floors.json";
+var isRelaxed = (v) => isObj(v) && typeof v.by === "string" && typeof v.reason === "string" && typeof v.at === "string" && (v.was === null || typeof v.was === "number");
+function parseFloors(text) {
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isObj(raw)) return null;
+  const out3 = {};
+  for (const [name, e] of Object.entries(raw)) {
+    if (!isObj(e)) return null;
+    const keys = Object.keys(e);
+    const limits = keys.filter((k2) => k2 === "floor" || k2 === "ceiling");
+    if (limits.length !== 1 || keys.some((k2) => k2 !== limits[0] && k2 !== "relaxed")) return null;
+    const value = e[limits[0]];
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    if (e.relaxed !== void 0 && !isRelaxed(e.relaxed)) return null;
+    out3[name] = { [limits[0]]: value, ...e.relaxed ? { relaxed: e.relaxed } : {} };
+  }
+  return out3;
+}
+var formatFloors = (floors) => `${JSON.stringify(floors, null, 2)}
+`;
+function readFloors(file) {
+  if (!existsSync4(file)) return {};
+  const floors = parseFloors(readFileSync7(file, "utf8"));
+  if (!floors) throw new AccError("bad-floors", `${file} isn't a list of floors: each entry needs a "floor" or a "ceiling", a number.`);
+  return floors;
+}
+function writeFloors(file, floors) {
+  mkdirSync6(dirname4(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync5(tmp, formatFloors(floors));
+  renameSync3(tmp, file);
+}
+function floorsAt(run2, root, ref) {
+  const r = run2("git", ["show", `${ref}:${FLOORS_FILE}`], { cwd: root });
+  if (r.code !== 0) return {};
+  const floors = parseFloors(r.stdout);
+  if (!floors) throw new AccError("bad-floors", `${FLOORS_FILE} at ${ref.slice(0, 7)} isn't a list of floors: each entry needs a "floor" or a "ceiling", a number.`);
+  return floors;
+}
+var limitOf = (e) => e.ceiling !== void 0 ? "ceiling" : "floor";
+var valueOf = (e, limit) => e && limitOf(e) === limit ? e[limit] ?? null : null;
+var isWorse = (limit, a2, than) => limit === "floor" ? a2 < than : a2 > than;
+var num = (n) => Number.isInteger(n) ? String(n) : String(Number(n.toFixed(2)));
+var signed = (n) => n > 0 ? `+${num(n)}` : n < 0 ? `\u2212${num(-n)}` : "\xB10";
+function parseNumber(stdout) {
+  const line = stdout.replace(/\x1b\[[0-9;]*m/g, "").split("\n").map((l3) => l3.trim()).filter(Boolean).at(-1) ?? "";
+  return /^[-+]?(\d+(\.\d+)?|\.\d+)$/.test(line) ? Number(line) : null;
+}
+function ratchetLine(d) {
+  return d.base === null ? `${d.label} ${num(d.value)} (first floor)` : `${d.label} ${num(d.base)} \u2192 ${num(d.value)} (${signed(d.diff ?? d.value - d.base)})`;
+}
+var words = (limit) => limit === "floor" ? { limit: "floor", worse: "below", lowers: "lowers" } : { limit: "ceiling", worse: "above", lowers: "raises" };
+function judgeRatchet(name, spec, value, floors, env) {
+  const { label, limit } = spec;
+  const w = words(limit);
+  const headEntry = floors.head[name];
+  if (headEntry && limitOf(headEntry) !== limit) {
+    return { status: "error", summary: `${FLOORS_FILE} gives ${name} a ${limitOf(headEntry)}, but .acc/config.json says it has a ${limit}. Make them agree.` };
+  }
+  const head = valueOf(headEntry, limit);
+  const base = valueOf(floors.base[name], limit);
+  const details = (floor2, raised) => ({
+    ratchet: { label, limit, value, floor: floor2, base, diff: base === null ? null : value - base, ...raised ? { raised } : {} }
+  });
+  if (base !== null && (head === null || isWorse(limit, head, base)) && !(head !== null && relaxedTo(floors.relaxed, name, limit, head, base))) {
+    const what = head === null ? `drops ${name}'s ${w.limit}` : `${w.lowers} ${name}'s ${w.limit} to ${num(head)}`;
+    return { status: "fail", summary: `${FLOORS_FILE} ${what}, from ${num(base)} on ${env}, and no person relaxed it. Put it back to ${num(base)}: only a person relaxes a ${w.limit}, with acc gate relax.`, details: details(base) };
+  }
+  const floor = head ?? base;
+  if (floor === null) {
+    if (floors.raise) return { status: "pass", summary: `${label} ${num(value)}, the first ${w.limit}: wrote it in ${FLOORS_FILE}. Commit that file, then run acc gate run again.`, details: details(null, { from: null, to: value }) };
+    return { status: "pass", summary: `${label} ${num(value)}. No ${w.limit} yet.`, details: details(null) };
+  }
+  if (isWorse(limit, value, floor)) {
+    return { status: "fail", summary: `${label} ${num(value)} is ${w.worse} its ${w.limit} ${num(floor)}, by ${num(Math.abs(value - floor))}. Make it ${num(floor)} or better. If this change has to make it worse, block and say why: only a person relaxes a ${w.limit}.`, details: details(floor) };
+  }
+  if (value === floor) return { status: "pass", summary: `${label} ${num(value)}, at its ${w.limit}.`, details: details(floor) };
+  if (floors.raise) {
+    return { status: "pass", summary: `${label} ${num(value)} beats the ${w.limit} ${num(floor)}: raised it in ${FLOORS_FILE}. Commit that file, then run acc gate run again.`, details: details(floor, { from: floor, to: value }) };
+  }
+  return { status: "pass", summary: `${label} ${num(value)} beats the ${w.limit} ${num(floor)} by ${num(Math.abs(value - floor))}.`, details: details(floor) };
+}
+function readRatchet(name, spec, r, floors, env) {
+  const last = (t) => t.replace(/\x1b\[[0-9;]*m/g, "").split("\n").map((l3) => l3.trim()).filter(Boolean).at(-1) ?? "";
+  if (r.code !== 0) return { status: "error", summary: `${spec.label} couldn't be measured: ${last(r.stderr) || last(r.stdout) || `the command exited with ${r.code}`}.` };
+  const value = parseNumber(r.stdout);
+  if (value === null) return { status: "error", summary: `${spec.label} couldn't be measured: the command's last line isn't a number${last(r.stdout) ? ` ("${last(r.stdout).slice(0, 80)}")` : ""}.` };
+  return judgeRatchet(name, spec, value, floors, env);
+}
+function ratchetGate(name, spec, heavy) {
+  return {
+    name,
+    heavy,
+    about: `${spec.command} (${spec.label}, which may only go ${spec.limit === "floor" ? "up" : "down"})`,
+    plan: (input) => {
+      const floors = input.floors?.();
+      if (!floors || "problem" in floors) return { outcome: { status: "error", summary: floors?.problem ?? `${name}'s floors weren't read.` } };
+      return { cmd: "sh", args: ["-c", spec.command], env: { ACC_CHANGED: input.changes.files.join("\n") }, read: (r) => readRatchet(name, spec, r, floors, input.env.branch) };
+    }
+  };
+}
+function withRaises(floors, raises) {
+  const out3 = { ...floors };
+  for (const r of raises) out3[r.gate] = { [r.limit]: r.to };
+  return out3;
+}
+function carriesOver(parentFloors, headFloors, parentReceipts) {
+  const same2 = (a2, b) => JSON.stringify(a2) === JSON.stringify(b);
+  if (Object.keys(parentFloors).some((k2) => !(k2 in headFloors))) return false;
+  const changed = Object.keys(headFloors).filter((k2) => !same2(parentFloors[k2], headFloors[k2]));
+  if (!changed.length) return false;
+  return changed.every((k2) => {
+    const e = headFloors[k2];
+    const measured = parentReceipts[k2]?.details?.ratchet;
+    return !e.relaxed && !!measured?.raised && measured.limit === limitOf(e) && measured.value === valueOf(e, measured.limit) && measured.raised.to === measured.value;
+  });
+}
+function mergeFloors(common, ours, theirs) {
+  const [c, o, t] = [common.trim() ? parseFloors(common) : {}, parseFloors(ours), parseFloors(theirs)];
+  if (!c || !o || !t) return null;
+  const out3 = {};
+  for (const name of [.../* @__PURE__ */ new Set([...Object.keys(t), ...Object.keys(o), ...Object.keys(c)])]) {
+    const [ce2, oe2, te2] = [c[name], o[name], t[name]];
+    if (ce2 && (!oe2 || !te2)) return null;
+    const limit = limitOf(oe2 ?? te2);
+    if ([ce2, oe2, te2].some((e) => e && limitOf(e) !== limit)) return null;
+    const [cv, ov, tv] = [valueOf(ce2, limit), valueOf(oe2, limit), valueOf(te2, limit)];
+    if (cv !== null && (ov !== null && isWorse(limit, ov, cv) || tv !== null && isWorse(limit, tv, cv))) return null;
+    out3[name] = ov === null ? te2 : tv === null ? oe2 : isWorse(limit, ov, tv) ? te2 : oe2;
+  }
+  return formatFloors(out3);
+}
+function readRelaxed(file) {
+  if (!existsSync4(file)) return [];
+  return readFileSync7(file, "utf8").split("\n").filter(Boolean).flatMap((l3) => {
+    try {
+      const r = JSON.parse(l3);
+      return typeof r.ratchet === "string" && typeof r.to === "number" && (r.limit === "floor" || r.limit === "ceiling") ? [r] : [];
+    } catch {
+      return [];
+    }
+  });
+}
+function relaxCounts(r, ledger) {
+  const task = r.task ? ledger.tasks.find((t) => t.id === r.task) : void 0;
+  return !!task && task.state !== "done";
+}
+function relaxesFor(records, ledger, task, branch) {
+  const t = task ? ledger.tasks.find((x2) => x2.id === task) : void 0;
+  if (!t || !branch || t.run?.branch !== branch) return [];
+  return records.filter((r) => r.task === t.id && relaxCounts(r, ledger));
+}
+function pruneRelaxed(file, ledger) {
+  const all = readRelaxed(file);
+  const kept = all.filter((r) => relaxCounts(r, ledger));
+  const lines = existsSync4(file) ? readFileSync7(file, "utf8").split("\n").filter(Boolean).length : 0;
+  if (kept.length === lines) return 0;
+  writeAtomic(file, kept.map((r) => `${JSON.stringify(r)}
+`).join(""));
+  return lines - kept.length;
+}
+function relaxedTo(records, name, limit, value, base) {
+  const mine = records.filter((r) => r.ratchet === name && r.limit === limit);
+  const from = /* @__PURE__ */ new Set([base]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const r of mine) if (from.has(r.was) && !from.has(r.to)) {
+      from.add(r.to);
+      grew = true;
+    }
+  }
+  return mine.some((r) => from.has(r.was) && (r.to === value || isWorse(limit, r.to, value)));
+}
+function relaxFloor(relaxedFile, floorsFile, root, config, req) {
+  const ratchets = config.gates.ratchets ?? {};
+  const spec = ratchets[req.ratchet];
+  if (!spec) throw new AccError("usage", `No ratchet ${req.ratchet}. This project's ratchets: ${Object.keys(ratchets).join(", ") || "none"}.`);
+  const reason = req.reason.trim();
+  if (!reason) throw new AccError("usage", `Say why it's relaxed: acc gate relax ${req.ratchet} --to <n> --reason "<why>". The reason is kept with the floor.`);
+  if (!Number.isFinite(req.to)) throw new AccError("usage", `--to takes the ${spec.limit} as a number, such as --to 640.`);
+  const floors = readFloors(floorsFile);
+  const was = valueOf(floors[req.ratchet], spec.limit);
+  const w = words(spec.limit);
+  if (was === null) throw new AccError("refused", `${req.ratchet} has no ${w.limit} in ${floorsFile} yet, so there's nothing to relax.`);
+  if (!isWorse(spec.limit, req.to, was)) throw new AccError("refused", `${num(req.to)} isn't ${w.worse} ${req.ratchet}'s ${w.limit}, ${num(was)}, so it doesn't relax it. acc raises a ${w.limit} itself when a change beats it.`);
+  const at2 = req.now().toISOString();
+  writeFloors(floorsFile, { ...floors, [req.ratchet]: { [spec.limit]: req.to, relaxed: { by: req.by, reason, at: at2, was } } });
+  const record2 = { ratchet: req.ratchet, limit: spec.limit, to: req.to, was, by: req.by, reason, at: at2, task: req.task, root };
+  mkdirSync6(dirname4(relaxedFile), { recursive: true });
+  appendFileSync2(relaxedFile, `${JSON.stringify(record2)}
+`);
+  return record2;
+}
+
+// packages/core/src/receipts.ts
+import { existsSync as existsSync5, mkdirSync as mkdirSync7, readdirSync, readFileSync as readFileSync8, renameSync as renameSync4, writeFileSync as writeFileSync6 } from "node:fs";
+import { join as join4 } from "node:path";
+function ratchetOf(r) {
+  const d = r?.details?.ratchet;
+  return d && typeof d.value === "number" && typeof d.label === "string" && (d.limit === "floor" || d.limit === "ceiling") ? d : null;
+}
+var satisfies = (r) => (r?.status === "pass" || r?.status === "skip") && !ratchetOf(r)?.raised;
+function receiptPath(paths, sha, gate) {
+  return join4(paths.receipts, sha, `${gate}.json`);
+}
+function readReceipt(paths, sha, gate) {
+  const f = receiptPath(paths, sha, gate);
+  if (!existsSync5(f)) return null;
+  try {
+    return JSON.parse(readFileSync8(f, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function receiptsAt(paths, sha) {
+  const dir = join4(paths.receipts, sha);
+  if (!existsSync5(dir)) return {};
+  const out3 = {};
+  for (const f of readdirSync(dir).filter((n) => n.endsWith(".json"))) {
+    const r = readReceipt(paths, sha, f.slice(0, -5));
+    if (r) out3[r.gate] = r;
+  }
+  return out3;
+}
+var EARLIER_LIMIT = 500;
+function earlierCounts(paths, run2, base, gate, command, sha) {
+  const kept = existsSync5(paths.receipts) ? new Set(readdirSync(paths.receipts)) : /* @__PURE__ */ new Set();
+  kept.delete(sha);
+  if (!kept.size) return null;
+  const nearest = (range, ok) => {
+    const r = run2("git", ["rev-list", `--max-count=${EARLIER_LIMIT}`, ...range], { cwd: paths.root });
+    for (const at2 of r.code === 0 ? r.stdout.split("\n").map((l3) => l3.trim()).filter((l3) => kept.has(l3)) : []) {
+      const receipt = readReceipt(paths, at2, gate);
+      if (receipt?.counts && receipt.command === command && ok(receipt)) return receipt;
+    }
+    return null;
+  };
+  return nearest([sha, `^${base}`], (r) => !!r.waived) ?? nearest([base], () => true);
+}
+function writeReceipt(paths, receipt) {
+  const f = receiptPath(paths, receipt.sha, receipt.gate);
+  mkdirSync7(join4(paths.receipts, receipt.sha), { recursive: true });
+  const tmp = `${f}.${process.pid}.tmp`;
+  writeFileSync6(tmp, JSON.stringify(receipt, null, 2) + "\n");
+  renameSync4(tmp, f);
+  return f;
+}
+function receiptHooks(paths, config, run2) {
+  return {
+    missingGates(task, scope = "builder") {
+      const required = requiredGates(config, task.environment, scope);
+      if (!required.length) return [];
+      const branch = task.run?.branch;
+      if (!branch) return required;
+      const sha = run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: paths.root });
+      if (sha.code !== 0) return required;
+      const head = sha.stdout.trim();
+      const passed = (g) => satisfies(readReceipt(paths, head, g));
+      const missing = required.filter((g) => !passed(g));
+      const full = fullGates(config);
+      if (missing.length && full.length && full.every(passed)) return [];
+      return missing;
+    }
+  };
+}
 
 // packages/core/src/semaphore.ts
-import { mkdirSync as mkdirSync12, readdirSync as readdirSync4, readFileSync as readFileSync15, rmSync as rmSync7, statSync as statSync4, utimesSync, writeFileSync as writeFileSync12 } from "node:fs";
-import { homedir as homedir3 } from "node:os";
-import { join as join10 } from "node:path";
+import { mkdirSync as mkdirSync9, readdirSync as readdirSync2, readFileSync as readFileSync10, rmSync as rmSync3, statSync as statSync3, utimesSync, writeFileSync as writeFileSync8 } from "node:fs";
+import { homedir } from "node:os";
+import { join as join6 } from "node:path";
 
 // packages/core/src/machine.ts
-import { mkdirSync as mkdirSync11, readFileSync as readFileSync14, renameSync as renameSync9, writeFileSync as writeFileSync11 } from "node:fs";
-import { dirname as dirname6, join as join9 } from "node:path";
+import { mkdirSync as mkdirSync8, readFileSync as readFileSync9, renameSync as renameSync5, writeFileSync as writeFileSync7 } from "node:fs";
+import { dirname as dirname5, join as join5 } from "node:path";
 function machineDir(env = process.env) {
-  if (env.ACC_MACHINE_FILE) return dirname6(env.ACC_MACHINE_FILE);
+  if (env.ACC_MACHINE_FILE) return dirname5(env.ACC_MACHINE_FILE);
   const home = env.HOME || env.USERPROFILE;
-  return home ? join9(home, ".acc") : null;
+  return home ? join5(home, ".acc") : null;
 }
 function machineJson(env = process.env) {
   const dir = machineDir(env);
-  return env.ACC_MACHINE_FILE || (dir ? join9(dir, "machine.json") : null);
+  return env.ACC_MACHINE_FILE || (dir ? join5(dir, "machine.json") : null);
 }
 function readMachineKey(key, env = process.env) {
   const file = machineJson(env);
   if (!file) return void 0;
   try {
-    return JSON.parse(readFileSync14(file, "utf8"))?.[key];
+    return JSON.parse(readFileSync9(file, "utf8"))?.[key];
   } catch {
     return void 0;
   }
@@ -5646,22 +4291,22 @@ function machineJsonToWrite(env = process.env) {
 }
 function setMachineKey(key, value, env = process.env) {
   const file = machineJsonToWrite(env);
-  mkdirSync11(dirname6(file), { recursive: true });
+  mkdirSync8(dirname5(file), { recursive: true });
   withLock(`${file}.lock`, () => {
     let current3 = {};
     try {
-      current3 = JSON.parse(readFileSync14(file, "utf8"));
+      current3 = JSON.parse(readFileSync9(file, "utf8"));
     } catch {
     }
     const { [key]: _was, ...rest } = current3;
     const tmp = `${file}.${process.pid}.tmp`;
-    writeFileSync11(tmp, JSON.stringify(value === void 0 ? rest : { ...rest, [key]: value }, null, 2) + "\n");
-    renameSync9(tmp, file);
+    writeFileSync7(tmp, JSON.stringify(value === void 0 ? rest : { ...rest, [key]: value }, null, 2) + "\n");
+    renameSync5(tmp, file);
   });
 }
 
 // packages/core/src/semaphore.ts
-var heavyDir = (env = process.env) => env.ACC_HEAVY_DIR || join10(homedir3(), ".acc", "heavy");
+var heavyDir = (env = process.env) => env.ACC_HEAVY_DIR || join6(homedir(), ".acc", "heavy");
 var MAX_HEAVY_SLOTS = 8;
 var slotCount = (v) => {
   const n = Math.floor(Number(v));
@@ -5681,59 +4326,59 @@ function setHeavySlots(n, env = process.env) {
 var UNOWNED_GRACE_MS = 1e4;
 function take(slot, owner) {
   try {
-    mkdirSync12(slot);
+    mkdirSync9(slot);
   } catch (e) {
     if (e.code !== "EEXIST") throw e;
     return false;
   }
-  writeFileSync12(join10(slot, "owner"), JSON.stringify({ ...owner, pid: process.pid, at: Date.now() }));
+  writeFileSync8(join6(slot, "owner"), JSON.stringify({ ...owner, pid: process.pid, at: Date.now() }));
   return true;
 }
 function reclaim(slot) {
   let owner = null;
   try {
-    owner = JSON.parse(readFileSync15(join10(slot, "owner"), "utf8"));
+    owner = JSON.parse(readFileSync10(join6(slot, "owner"), "utf8"));
   } catch {
     owner = null;
   }
   let age = 0;
   try {
-    age = Date.now() - statSync4(slot).mtimeMs;
+    age = Date.now() - statSync3(slot).mtimeMs;
   } catch {
     return;
   }
-  if (owner ? !alive(owner.pid) : age > UNOWNED_GRACE_MS) rmSync7(slot, { recursive: true, force: true });
+  if (owner ? !alive(owner.pid) : age > UNOWNED_GRACE_MS) rmSync3(slot, { recursive: true, force: true });
 }
 function freeSlots(dir, slots) {
   const free = [];
   for (let i = 0; i < slots; i++) {
-    const slot = join10(dir, `slot-${i}`);
+    const slot = join6(dir, `slot-${i}`);
     reclaim(slot);
     try {
-      statSync4(slot);
+      statSync3(slot);
     } catch {
       free.push(slot);
     }
   }
   return free;
 }
-var waitingDir = (dir) => join10(dir, "waiting");
+var waitingDir = (dir) => join6(dir, "waiting");
 var STALE_WAIT_MS = 15e3;
 var waited = 0;
 function liveWaiters(dir, staleMs, now2 = Date.now()) {
   const folder = waitingDir(dir);
   let names3 = [];
   try {
-    names3 = readdirSync4(folder).filter((n) => n.endsWith(".json"));
+    names3 = readdirSync2(folder).filter((n) => n.endsWith(".json"));
   } catch {
     return [];
   }
   const out3 = [];
   for (const name of names3) {
-    const file = join10(folder, name);
+    const file = join6(folder, name);
     try {
-      if (now2 - statSync4(file).mtimeMs > staleMs) continue;
-      const w = JSON.parse(readFileSync15(file, "utf8"));
+      if (now2 - statSync3(file).mtimeMs > staleMs) continue;
+      const w = JSON.parse(readFileSync10(file, "utf8"));
       if (Number.isInteger(w.pid) && w.pid > 0 && typeof w.at === "number" && alive(w.pid)) out3.push({ ...w, file });
     } catch {
     }
@@ -5746,7 +4391,7 @@ function withSlot(fn2, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? 3 * 60 * 6e4;
   const pollMs = opts.pollMs ?? 500;
   const staleMs = Math.max(STALE_WAIT_MS, pollMs * 10);
-  mkdirSync12(dir, { recursive: true });
+  mkdirSync9(dir, { recursive: true });
   const started = Date.now();
   let mine = null;
   let told = false;
@@ -5760,20 +4405,20 @@ function withSlot(fn2, opts = {}) {
       if (ahead < free.length) {
         for (const slot of free) {
           if (!take(slot, opts.owner)) continue;
-          if (mine) rmSync7(mine, { force: true });
+          if (mine) rmSync3(mine, { force: true });
           mine = null;
           if (told) opts.onTake?.();
           try {
             return fn2();
           } finally {
-            rmSync7(slot, { recursive: true, force: true });
+            rmSync3(slot, { recursive: true, force: true });
           }
         }
       }
       if (!mine) {
-        mkdirSync12(waitingDir(dir), { recursive: true });
-        const file = join10(waitingDir(dir), `${process.pid}-${++waited}.json`);
-        writeFileSync12(file, JSON.stringify({ ...opts.owner, pid: process.pid, at: Date.now() }));
+        mkdirSync9(waitingDir(dir), { recursive: true });
+        const file = join6(waitingDir(dir), `${process.pid}-${++waited}.json`);
+        writeFileSync8(file, JSON.stringify({ ...opts.owner, pid: process.pid, at: Date.now() }));
         mine = file;
         if (!told) {
           told = true;
@@ -5793,7 +4438,7 @@ function withSlot(fn2, opts = {}) {
       sleep(pollMs);
     }
   } finally {
-    if (mine) rmSync7(mine, { force: true });
+    if (mine) rmSync3(mine, { force: true });
   }
 }
 
@@ -6047,11 +4692,11 @@ function nearTests(changed, tracked, read2, indexes = []) {
   }
   return [...out3].sort();
 }
-var nodeBin = (root, name) => join11(root, "node_modules", ".bin", name);
+var nodeBin = (root, name) => join7(root, "node_modules", ".bin", name);
 var missingTool = (root, name) => error(`${name} isn't installed in this repo. Run npm install in the main checkout, then try again.`);
 function packageDirs(root) {
   try {
-    const p = JSON.parse(readFileSync16(join11(root, "sfdx-project.json"), "utf8"));
+    const p = JSON.parse(readFileSync11(join7(root, "sfdx-project.json"), "utf8"));
     const dirs = (p.packageDirectories ?? []).map((d) => d.path?.replace(/\/+$/, "")).filter((d) => !!d);
     return dirs.length ? dirs : ["force-app"];
   } catch {
@@ -6071,7 +4716,7 @@ var format = {
     const files = changes.files.filter((f) => FORMATTED.test(f));
     if (!files.length) return { outcome: skip("No Apex or LWC code has changed.") };
     const bin = nodeBin(root, "prettier");
-    if (!existsSync9(bin)) return { outcome: missingTool(root, "prettier") };
+    if (!existsSync6(bin)) return { outcome: missingTool(root, "prettier") };
     return {
       cmd: bin,
       args: ["--check", ...files],
@@ -6092,7 +4737,7 @@ var lint = {
     const files = changes.files.filter((f) => COMPONENT_JS.test(f));
     if (!files.length) return { outcome: skip("No LWC or Aura JavaScript has changed.") };
     const bin = nodeBin(root, "eslint");
-    if (!existsSync9(bin)) return { outcome: missingTool(root, "eslint") };
+    if (!existsSync6(bin)) return { outcome: missingTool(root, "eslint") };
     return {
       cmd: bin,
       args: files,
@@ -6109,7 +4754,7 @@ var lwcTests = {
     const files = changes.files.filter((f) => LWC.test(f));
     if (!files.length) return { outcome: skip("No LWC has changed.") };
     const bin = nodeBin(root, "sfdx-lwc-jest");
-    if (!existsSync9(bin)) return { outcome: missingTool(root, "sfdx-lwc-jest") };
+    if (!existsSync6(bin)) return { outcome: missingTool(root, "sfdx-lwc-jest") };
     return {
       cmd: bin,
       args: ["--", "--findRelatedTests", ...files, "--passWithNoTests"],
@@ -6119,7 +4764,7 @@ var lwcTests = {
 };
 function readAnalyzer(file, severity, root) {
   try {
-    const j2 = JSON.parse(readFileSync16(file, "utf8"));
+    const j2 = JSON.parse(readFileSync11(file, "utf8"));
     const all = j2.violations ?? [];
     const worst = all.filter((v) => (v.severity ?? 5) <= severity).map((v) => {
       const at2 = v.locations?.[v.primaryLocationIndex ?? 0];
@@ -6139,7 +4784,7 @@ var staticGate = {
     const files = under(changes.files, packageDirs(root));
     if (!files.length) return { outcome: skip("No Salesforce source has changed.") };
     const severity = config.gates.severity;
-    const results = join11(scratch, "code-analyzer.json");
+    const results = join7(scratch, "code-analyzer.json");
     return {
       cmd: "sf",
       args: ["code-analyzer", "run", "--workspace", ".", ...files.flatMap((f) => ["--target", f]), "--severity-threshold", String(severity), "--view", "table", "--output-file", results],
@@ -6237,23 +4882,23 @@ var listLines = (text) => text.split("\n").map((l3) => l3.trim()).filter((l3) =>
 function readList(root, rel) {
   if (!rel) return [];
   try {
-    return listLines(readFileSync16(join11(root, rel), "utf8"));
+    return listLines(readFileSync11(join7(root, rel), "utf8"));
   } catch {
     return [];
   }
 }
 var listed = (path, list) => list.some((p) => path === p || path.startsWith(`${p.replace(/\/+$/, "")}/`));
-var git2 = (run2, root, args) => run2("git", args, { cwd: root });
+var git = (run2, root, args) => run2("git", args, { cwd: root });
 function baseFor(run2, root, env, head = "HEAD") {
   for (const ref of [`origin/${env.branch}`, env.branch]) {
-    if (git2(run2, root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).code !== 0) continue;
-    const mb = git2(run2, root, ["merge-base", head, ref]);
+    if (git(run2, root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).code !== 0) continue;
+    const mb = git(run2, root, ["merge-base", head, ref]);
     if (mb.code === 0 && mb.stdout.trim()) return mb.stdout.trim();
   }
   throw new AccError("no-base", `There's no ${env.branch} or origin/${env.branch} branch here to compare with.`);
 }
 function changedPaths(run2, cwd, base, head) {
-  const r = git2(run2, cwd, ["diff", "--name-status", "--no-renames", "-z", base, ...head ? [head] : []]);
+  const r = git(run2, cwd, ["diff", "--name-status", "--no-renames", "-z", base, ...head ? [head] : []]);
   if (r.code !== 0) throw new AccError("git", `git diff failed: ${lastLine(r.stderr)}`);
   const parts = r.stdout.split("\0").filter(Boolean);
   const out3 = [];
@@ -6324,10 +4969,10 @@ function runGates(paths, config, env, names3, tests, deps) {
     const known = all.map((g) => g.name).join(", ") || "none yet";
     throw new AccError("usage", `No gate ${unknownNames.join(", ")}. This project's gates: ${known}.${config.profile === "generic" ? ' Add commands under "gates.commands" in .acc/config.json.' : ""}`);
   }
-  const head = git2(deps.run, root, ["rev-parse", "HEAD"]);
+  const head = git(deps.run, root, ["rev-parse", "HEAD"]);
   if (head.code !== 0) throw new AccError("git", "This checkout has no commit to check yet.");
   const sha = head.stdout.trim();
-  const dirty = git2(deps.run, root, ["status", "--porcelain"]).stdout.trim() !== "";
+  const dirty = git(deps.run, root, ["status", "--porcelain"]).stdout.trim() !== "";
   let changes = null;
   let unknownBase = null;
   try {
@@ -6345,10 +4990,10 @@ function runGates(paths, config, env, names3, tests, deps) {
     changes: changes ?? { base: sha, files: [], added: [], deleted: [], envSpecific: [] },
     unknownBase,
     git: (args, gitInput) => deps.run("git", args, { cwd: root, ...gitInput === void 0 ? {} : { input: gitInput } }),
-    scratch: join11(paths.logs, "gates", sha),
-    near: () => near ??= nearTests(input.changes.files, git2(deps.run, root, ["ls-files", "-z"]).stdout.split("\0").filter(Boolean), (f) => {
+    scratch: join7(paths.logs, "gates", sha),
+    near: () => near ??= nearTests(input.changes.files, git(deps.run, root, ["ls-files", "-z"]).stdout.split("\0").filter(Boolean), (f) => {
       try {
-        return readFileSync16(join11(root, f), "utf8");
+        return readFileSync11(join7(root, f), "utf8");
       } catch {
         return null;
       }
@@ -6357,14 +5002,14 @@ function runGates(paths, config, env, names3, tests, deps) {
   let floors = null;
   input.floors = () => floors ??= (() => {
     try {
-      const on = git2(deps.run, root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).stdout.trim() || null;
+      const on = git(deps.run, root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).stdout.trim() || null;
       const relaxed = relaxesFor(readRelaxed(paths.relaxed), readLedger(paths.ledger), deps.task, on);
       return { head: floorsAt(deps.run, root, sha), base: floorsAt(deps.run, root, input.changes.base), relaxed, raise: !!deps.raise && !dirty };
     } catch (e) {
       return { problem: e.message };
     }
   })();
-  mkdirSync13(input.scratch, { recursive: true });
+  mkdirSync10(input.scratch, { recursive: true });
   const carryFrom = carriedFrom(paths, config, deps.run, sha);
   const results = [];
   for (const name of wanted) {
@@ -6401,11 +5046,11 @@ function runGates(paths, config, env, names3, tests, deps) {
       assertCheckOnly(plan.cmd, plan.args);
       command = shellLine(plan.cmd, plan.args);
       const [cmd, args] = niced(plan.cmd, plan.args);
-      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 6e4, env: plan.cmd === "sf" ? sfEnv() : { ...checkEnv(process.env, gate.heavy ? join11(input.scratch, "heavy") : void 0), ...plan.env } });
+      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 6e4, env: plan.cmd === "sf" ? sfEnv() : { ...checkEnv(process.env, gate.heavy ? join7(input.scratch, "heavy") : void 0), ...plan.env } });
       const owner = { what: gate.name, ...deps.task ? { task: deps.task } : {}, project: config.project, cwd: root };
       const r = gate.heavy ? withSlot(exec, { owner, ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
-      log = join11(input.scratch, `${gate.name}.log`);
-      writeFileSync13(log, `$ ${command}
+      log = join7(input.scratch, `${gate.name}.log`);
+      writeFileSync9(log, `$ ${command}
 # exit ${r.code}
 
 ${r.stdout}${r.stderr ? `
@@ -6450,10 +5095,10 @@ ${r.stderr}` : ""}`);
 }
 function carriedFrom(paths, config, run2, sha) {
   if (!Object.keys(config.gates.ratchets ?? {}).length) return null;
-  const parents = git2(run2, paths.root, ["rev-list", "--parents", "-n", "1", sha]).stdout.trim().split(/\s+/).slice(1);
+  const parents = git(run2, paths.root, ["rev-list", "--parents", "-n", "1", sha]).stdout.trim().split(/\s+/).slice(1);
   if (parents.length !== 1) return null;
   const parent = parents[0];
-  const diff = git2(run2, paths.root, ["diff", "--name-only", "--no-renames", parent, sha]);
+  const diff = git(run2, paths.root, ["diff", "--name-only", "--no-renames", parent, sha]);
   if (diff.code !== 0 || diff.stdout.trim() !== FLOORS_FILE) return null;
   try {
     return carriesOver(floorsAt(run2, paths.root, parent), floorsAt(run2, paths.root, sha), receiptsAt(paths, parent)) ? parent : null;
@@ -6513,10 +5158,10 @@ function waiveGates(paths, config, req) {
 }
 
 // packages/core/src/fetch.ts
-var FETCH_TIMEOUT_MS2 = 2 * 6e4;
+var FETCH_TIMEOUT_MS = 2 * 6e4;
 function fetchBranches(run2, root, branches, env) {
   const refs = [...new Set(branches)].map((b) => `+refs/heads/${b}:refs/remotes/origin/${b}`);
-  return run2("git", ["fetch", "--quiet", "--no-tags", "origin", ...refs], { cwd: root, env, timeoutMs: FETCH_TIMEOUT_MS2 }).code === 0;
+  return run2("git", ["fetch", "--quiet", "--no-tags", "origin", ...refs], { cwd: root, env, timeoutMs: FETCH_TIMEOUT_MS }).code === 0;
 }
 
 // packages/core/src/cloud.ts
@@ -6588,15 +5233,15 @@ var ROUTINE_BETA = "experimental-cc-routine-2026-04-01";
 var ROUTINE_VERSION = "2023-06-01";
 var FIRE_TIMEOUT_MS = 6e4;
 function fireRoutine(paths, run2, routine, token, text, env) {
-  const dir = join12(paths.stateDir, "cloud");
-  mkdirSync14(dir, { recursive: true, mode: 448 });
+  const dir = join8(paths.stateDir, "cloud");
+  mkdirSync11(dir, { recursive: true, mode: 448 });
   const stamp = `${process.pid}-${Date.now()}`;
-  const headers = join12(dir, `fire-${stamp}.headers`);
-  const body = join12(dir, `fire-${stamp}.json`);
+  const headers = join8(dir, `fire-${stamp}.headers`);
+  const body = join8(dir, `fire-${stamp}.json`);
   try {
-    writeFileSync14(headers, [`Authorization: Bearer ${token}`, `anthropic-beta: ${ROUTINE_BETA}`, `anthropic-version: ${ROUTINE_VERSION}`, "Content-Type: application/json", ""].join("\n"), { mode: 384 });
+    writeFileSync10(headers, [`Authorization: Bearer ${token}`, `anthropic-beta: ${ROUTINE_BETA}`, `anthropic-version: ${ROUTINE_VERSION}`, "Content-Type: application/json", ""].join("\n"), { mode: 384 });
     chmodSync(headers, 384);
-    writeFileSync14(body, JSON.stringify({ text }), { mode: 384 });
+    writeFileSync10(body, JSON.stringify({ text }), { mode: 384 });
     const r = run2("curl", ["-sS", "-X", "POST", ROUTINE_FIRE_URL(routine), "-H", `@${headers}`, "--data-binary", `@${body}`, "-w", "\n%{http_code}"], { env, timeoutMs: FIRE_TIMEOUT_MS });
     if (r.code === 127) throw new AccError("cloud", "curl isn't on PATH, and acc fires the routine with it.");
     if (r.code !== 0) throw new AccError("cloud", `The routine couldn't be fired: ${(r.stderr || r.stdout).trim().split("\n")[0] || `curl exited ${r.code}`}`);
@@ -6615,8 +5260,8 @@ function fireRoutine(paths, run2, routine, token, text, env) {
     if (!sessionId || !url) throw new AccError("cloud", `The routine's reply named no session: ${reply.trim().slice(0, 200)}`);
     return { sessionId, url };
   } finally {
-    rmSync8(headers, { force: true });
-    rmSync8(body, { force: true });
+    rmSync4(headers, { force: true });
+    rmSync4(body, { force: true });
   }
 }
 var DONE_TRAILER = "Acc-Done";
@@ -6704,7 +5349,7 @@ function cloudWait(task, config, now2) {
   return null;
 }
 function remoteHead(run2, root, branch, env) {
-  const r = run2("git", ["ls-remote", "--heads", "origin", branch], { cwd: root, env: { ...env, GIT_TERMINAL_PROMPT: "0" }, timeoutMs: FETCH_TIMEOUT_MS2 });
+  const r = run2("git", ["ls-remote", "--heads", "origin", branch], { cwd: root, env: { ...env, GIT_TERMINAL_PROMPT: "0" }, timeoutMs: FETCH_TIMEOUT_MS });
   if (r.code !== 0) return null;
   const m = /^([0-9a-f]{40,64})\s+refs\/heads\//m.exec(r.stdout);
   return m?.[1] ?? null;
@@ -6782,7 +5427,7 @@ function collect(paths, config, id, deps, opts) {
     });
     throw new AccError("collect", `Couldn't collect ${id}: ${reason}`);
   };
-  if (!existsSync10(wt2)) return fail3(`its worktree ${wt2} isn't on disk any more.`);
+  if (!existsSync7(wt2)) return fail3(`its worktree ${wt2} isn't on disk any more.`);
   const git10 = (...args) => run2("git", args, { cwd: wt2 });
   const on = git10("symbolic-ref", "--quiet", "--short", "HEAD").stdout.trim();
   if (on !== branch) return fail3(`${wt2} is on ${on || "a detached commit"}, not ${branch}.`);
@@ -6849,67 +5494,107 @@ function disableCloud(configFile) {
   writeJsonKey(configFile, ["agents", "cloud"], void 0);
 }
 
-// packages/core/src/protection.ts
-var GH_TIMEOUT_MS = 3e4;
-function read(run2, path, env) {
-  const r = run2("gh", ["api", path, "--include"], { env, timeoutMs: GH_TIMEOUT_MS });
-  const m = /^HTTP\/[\d.]+ (\d{3})/.exec(r.stdout);
-  const status = m ? Number(m[1]) : r.code === 0 ? 200 : 0;
-  const body = r.stdout.includes("\r\n\r\n") ? r.stdout.slice(r.stdout.indexOf("\r\n\r\n") + 4) : r.stdout.includes("\n\n") ? r.stdout.slice(r.stdout.indexOf("\n\n") + 2) : r.stdout;
-  return { status, body, error: (r.stderr || "").trim().split("\n")[0] ?? "" };
-}
-var message = (body) => {
+// packages/core/src/land.ts
+import { mkdtempSync as mkdtempSync3, rmSync as rmSync12, writeFileSync as writeFileSync19 } from "node:fs";
+import { tmpdir as tmpdir3 } from "node:os";
+import { join as join19 } from "node:path";
+
+// packages/core/src/jobs.ts
+import { mkdirSync as mkdirSync12, readdirSync as readdirSync3, readFileSync as readFileSync12, renameSync as renameSync6, rmSync as rmSync5, writeFileSync as writeFileSync11 } from "node:fs";
+import { join as join9 } from "node:path";
+var JOB_KINDS = ["land", "refresh", "promote", "deploy", "autopilot"];
+var jobsDir = (paths) => join9(paths.stateDir, "jobs");
+var marked = 0;
+function readJobs(paths) {
+  const dir = jobsDir(paths);
+  let names3 = [];
   try {
-    const j2 = JSON.parse(body);
-    return typeof j2.message === "string" ? j2.message : "";
+    names3 = readdirSync3(dir).filter((n) => n.endsWith(".json"));
   } catch {
-    return "";
+    return [];
   }
-};
-function branchProtection(run2, repo, branch, env) {
-  const protection = read(run2, `repos/${repo}/branches/${encodeURIComponent(branch)}/protection`, env);
-  if (protection.status === 200) {
-    const rules2 = [];
+  const out3 = [];
+  for (const n of names3) {
     try {
-      const p = JSON.parse(protection.body);
-      if (p.required_pull_request_reviews) rules2.push("a pull request with reviews");
-      if (p.required_status_checks) rules2.push("passing checks");
-      if (p.enforce_admins?.enabled) rules2.push("no admin bypass");
-      if (p.restrictions) rules2.push("who may push");
-      if (p.allow_force_pushes?.enabled === false) rules2.push("no force pushes");
-      if (p.allow_deletions?.enabled === false) rules2.push("no deletion");
+      const j2 = JSON.parse(readFileSync12(join9(dir, n), "utf8"));
+      if (!JOB_KINDS.includes(j2.kind) || !Number.isInteger(j2.pid) || j2.pid <= 0 || typeof j2.startedAt !== "string") continue;
+      if (j2.step !== void 0 && !AUTOPILOT_STEPS.includes(j2.step)) continue;
+      out3.push({ ...j2, key: n.slice(0, -5) });
     } catch {
     }
-    return { branch, state: "enforced", why: `GitHub protects ${branch}${rules2.length ? `: ${rules2.join(", ")}` : ""}.` };
   }
-  const upgrade = (r) => r.status === 403 && /upgrade to github pro|make this repository public/i.test(message(r.body));
-  if (upgrade(protection)) return { branch, state: "unavailable", why: `GitHub doesn't offer branch protection or rulesets on ${repo}: a private repo on the free plan. A push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented.` };
-  if (protection.status !== 404) return { branch, state: "unknown", why: `gh couldn't read ${branch}'s protection: ${message(protection.body) || protection.error || `HTTP ${protection.status || "?"}`}.` };
-  const rules = read(run2, `repos/${repo}/rules/branches/${encodeURIComponent(branch)}`, env);
-  if (rules.status === 200) {
-    let applied = [];
-    try {
-      applied = JSON.parse(rules.body);
-    } catch {
-      applied = [];
-    }
-    if (Array.isArray(applied) && applied.length) return { branch, state: "enforced", why: `A ruleset applies to ${branch}: ${[...new Set(applied.map((r) => String(r.type ?? "rule").replace(/_/g, " ")))].join(", ")}.` };
-    return { branch, state: "none", why: `GitHub enforces no protection and no ruleset on ${branch}: a push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.` };
-  }
-  if (upgrade(rules)) return { branch, state: "unavailable", why: `GitHub doesn't offer branch protection or rulesets on ${repo}: a private repo on the free plan. A push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented.` };
-  return { branch, state: "unknown", why: `gh couldn't read ${branch}'s rulesets: ${message(rules.body) || rules.error || `HTTP ${rules.status || "?"}`}.` };
+  return out3;
 }
-function environmentProtection(run2, repo, account, branches, env) {
-  let ghEnv3;
+function startJob(paths, job, now2 = () => /* @__PURE__ */ new Date()) {
+  const dir = jobsDir(paths);
+  mkdirSync12(dir, { recursive: true });
+  for (const old of readJobs(paths)) if (!alive(old.pid)) rmSync5(join9(dir, `${old.key}.json`), { force: true });
+  const key = `${job.kind}-${job.task ?? job.env ?? "repo"}-${process.pid}-${++marked}`.replace(/[^\w.-]/g, "_");
+  const file = join9(dir, `${key}.json`);
+  writeFileSync11(`${file}.tmp`, JSON.stringify({ ...job, key, pid: process.pid, startedAt: now2().toISOString() }) + "\n");
+  renameSync6(`${file}.tmp`, file);
+  return key;
+}
+function endJob(paths, key) {
+  rmSync5(join9(jobsDir(paths), `${key}.json`), { force: true });
+}
+function withJob(paths, job, fn2, now2) {
+  let key = null;
   try {
-    ghEnv3 = { ...env, GH_TOKEN: ghToken(run2, account) };
-  } catch (e) {
-    return branches.map((branch) => ({ branch, state: "unknown", why: `gh couldn't read ${branch}'s protection: ${e.message}` }));
+    key = startJob(paths, job, now2);
+  } catch {
+    key = null;
   }
-  return branches.map((branch) => branchProtection(run2, repo, branch, ghEnv3));
+  try {
+    return fn2();
+  } finally {
+    if (key) endJob(paths, key);
+  }
 }
-function protectionWarnings(found) {
-  return found.filter((p) => p.state !== "enforced").map((p) => p.state === "unknown" ? `${p.why} Whether a push the guard didn't catch would be prevented isn't known.` : p.why);
+
+// packages/core/src/refresh.ts
+import { existsSync as existsSync14 } from "node:fs";
+
+// packages/core/src/paths.ts
+import { realpathSync } from "node:fs";
+import { join as join10 } from "node:path";
+function repoPaths(cwd, run2) {
+  const top = run2("git", ["rev-parse", "--show-toplevel"], { cwd });
+  if (top.code !== 0) throw new AccError("not-a-repo", `${cwd} isn't inside a git repository.`);
+  const common = run2("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd });
+  if (common.code !== 0) throw new AccError("not-a-repo", `Couldn't find the git directory for ${cwd}.`);
+  const root = top.stdout.trim();
+  const commonDir = common.stdout.trim();
+  const stateDir = join10(commonDir, "acc");
+  return {
+    root,
+    commonDir,
+    stateDir,
+    ledger: join10(stateDir, "ledger.json"),
+    events: join10(stateDir, "events.jsonl"),
+    lock: join10(stateDir, "ledger.lock"),
+    autopilotLock: join10(stateDir, "autopilot.lock"),
+    receipts: join10(stateDir, "receipts"),
+    reviews: join10(stateDir, "reviews"),
+    analyses: join10(stateDir, "analyses"),
+    updates: join10(stateDir, "updates"),
+    checks: join10(stateDir, "checks"),
+    queue: join10(stateDir, "queue"),
+    suggestions: join10(stateDir, "rules"),
+    packets: join10(stateDir, "packets"),
+    logs: join10(stateDir, "logs"),
+    config: join10(root, ".acc", "config.json"),
+    floors: join10(root, ".acc", "floors.json"),
+    relaxed: join10(stateDir, "relaxed.jsonl")
+  };
+}
+function samePath(a2, b) {
+  if (a2 === b) return true;
+  try {
+    return realpathSync(a2) === realpathSync(b);
+  } catch {
+    return false;
+  }
 }
 
 // packages/core/src/carried.ts
@@ -6918,21 +5603,21 @@ function arrivedAt(t, branch) {
   const merged = (t.promotions ?? []).filter((p) => p.to === branch && p.state === "merged" && p.mergeSha);
   return merged.sort((a2, b) => (a2.mergedAt ?? a2.at).localeCompare(b.mergedAt ?? b.at))[0]?.mergeSha;
 }
-var git3 = (run2, root, ...args) => run2("git", args, { cwd: root });
+var git2 = (run2, root, ...args) => run2("git", args, { cwd: root });
 function carriedTasks(paths, run2, plan) {
-  const on = (sha, tip) => git3(run2, paths.root, "merge-base", "--is-ancestor", sha, tip).code === 0;
+  const on = (sha, tip) => git2(run2, paths.root, "merge-base", "--is-ancestor", sha, tip).code === 0;
   const reached = readLedger(paths.ledger).tasks.filter((t) => {
     const at2 = arrivedAt(t, plan.from.branch);
     return !!at2 && !arrivedAt(t, plan.to.branch) && on(at2, plan.fromSha);
   });
   if (!reached.length) return [];
   const others = [...new Set(reached.map((t) => t.environment).filter((b) => b !== plan.from.branch))];
-  if (others.length) git3(run2, paths.root, "fetch", "--quiet", "origin", ...others);
+  if (others.length) git2(run2, paths.root, "fetch", "--quiet", "origin", ...others);
   const moving = /* @__PURE__ */ new Set([...plan.files, ...plan.deleted]);
   return reached.filter((t) => {
     const own = t.pr?.state === "merged" ? t.pr.mergeSha ?? t.pr.sha : void 0;
     if (!own) return true;
-    const r = git3(run2, paths.root, "diff-tree", "-r", "-z", "--no-commit-id", "--name-only", "-m", "--first-parent", own);
+    const r = git2(run2, paths.root, "diff-tree", "-r", "-z", "--no-commit-id", "--name-only", "-m", "--first-parent", own);
     if (r.code !== 0) return true;
     return r.stdout.split("\0").some((f) => moving.has(f));
   });
@@ -6957,14 +5642,14 @@ function pickProject(nodes, board) {
 }
 
 // packages/core/src/updates.ts
-import { mkdirSync as mkdirSync15, readdirSync as readdirSync5, readFileSync as readFileSync17, rmSync as rmSync9 } from "node:fs";
-import { join as join13 } from "node:path";
+import { mkdirSync as mkdirSync13, readdirSync as readdirSync4, readFileSync as readFileSync13, rmSync as rmSync6 } from "node:fs";
+import { join as join11 } from "node:path";
 var SLACK_UPDATE_EVENTS = ["merged", "deployed", "blocked", "question", "criteria", "verify"];
 var STALE_POSTING_MS = 5 * 6e4;
 var UPDATE_TEXT_MAX = 65536;
 var UPDATE_ID = /^[A-Z][A-Z0-9_]*-\d+\.\d{1,6}$/;
 var REPLACES_MAX = 20;
-var updateFile = (paths, id) => join13(paths.updates, `${id}.json`);
+var updateFile = (paths, id) => join11(paths.updates, `${id}.json`);
 var EVENT_WORDS = {
   "pr-opened": "ready for review",
   "pr-updated": "updated for review",
@@ -7019,7 +5704,7 @@ ${sentence(c.question ?? "")}`;
 function readUpdate(paths, id) {
   if (!UPDATE_ID.test(id)) return null;
   try {
-    const u = JSON.parse(readFileSync17(updateFile(paths, id), "utf8"));
+    const u = JSON.parse(readFileSync13(updateFile(paths, id), "utf8"));
     return u.v === 1 && u.id === id ? u : null;
   } catch {
     return null;
@@ -7028,7 +5713,7 @@ function readUpdate(paths, id) {
 function listUpdates(paths) {
   let names3;
   try {
-    names3 = readdirSync5(paths.updates);
+    names3 = readdirSync4(paths.updates);
   } catch {
     return [];
   }
@@ -7042,7 +5727,7 @@ function writeUpdate(paths, u) {
   writeAtomic(file, JSON.stringify(u, null, 2) + "\n");
 }
 function locked(paths, fn2) {
-  mkdirSync15(paths.updates, { recursive: true });
+  mkdirSync13(paths.updates, { recursive: true });
   return withLock(`${paths.updates}.lock`, fn2);
 }
 var sameNews = (a2, b) => {
@@ -7087,7 +5772,7 @@ function draftUpdate(paths, task, input, by, now2) {
       ...gone.length ? { replaces: gone.flatMap((r) => [r.id, ...r.replaces ?? []]).slice(0, REPLACES_MAX) } : {}
     };
     writeUpdate(paths, u);
-    for (const r of gone) rmSync9(updateFile(paths, r.id), { force: true });
+    for (const r of gone) rmSync6(updateFile(paths, r.id), { force: true });
     return u;
   });
 }
@@ -7151,11 +5836,11 @@ function closeText(config, task, repo) {
   const ref = prRepo && prRepo.toLowerCase() !== repo.toLowerCase() ? `${prRepo}#${task.pr.number}` : `#${task.pr.number}`;
   return `Done: pull request ${ref} merged into ${env}.`;
 }
-var firstLine2 = (r) => (r.stderr || r.stdout).trim().split("\n")[0] || `gh exited with ${r.code}.`;
+var firstLine = (r) => (r.stderr || r.stdout).trim().split("\n")[0] || `gh exited with ${r.code}.`;
 function look(run2, env, repo, n, leaveReopened) {
   const r = run2("gh", ["issue", "view", String(n), "-R", repo, "--json", "state,stateReason,url"], { env, timeoutMs: GH_CALL_MS });
   if (r.code !== 0) {
-    const why = firstLine2(r);
+    const why = firstLine(r);
     return /could not resolve to an issue/i.test(why) ? { close: false, outcome: "left", reason: "GitHub can't find it" } : { close: false, outcome: "failed", reason: why };
   }
   let issue;
@@ -7175,7 +5860,7 @@ function look(run2, env, repo, n, leaveReopened) {
 function close(run2, env, repo, n, text) {
   const r = run2("gh", ["issue", "close", String(n), "-R", repo, "--reason", "completed", "--comment", text], { env, timeoutMs: GH_CALL_MS });
   if (r.code === 0) return { outcome: "closed" };
-  return { outcome: "failed", reason: r.timedOut ? `gh stopped at its timeout, and may have closed it: ${firstLine2(r)}` : firstLine2(r) };
+  return { outcome: "failed", reason: r.timedOut ? `gh stopped at its timeout, and may have closed it: ${firstLine(r)}` : firstLine(r) };
 }
 function settleCloses(paths, config, deps, opts = {}) {
   const { run: run2, now: now2, env } = deps;
@@ -7238,21 +5923,21 @@ function closeWords(r, plan = false) {
 }
 
 // packages/core/src/branches.ts
-import { existsSync as existsSync11, mkdirSync as mkdirSync16, readFileSync as readFileSync18 } from "node:fs";
-import { join as join14 } from "node:path";
-var branchesPath = (paths) => join14(paths.stateDir, "branches.json");
+import { existsSync as existsSync8, mkdirSync as mkdirSync14, readFileSync as readFileSync14 } from "node:fs";
+import { join as join12 } from "node:path";
+var branchesPath = (paths) => join12(paths.stateDir, "branches.json");
 function readBranches(paths) {
   const file = branchesPath(paths);
-  if (!existsSync11(file)) return {};
+  if (!existsSync8(file)) return {};
   try {
-    const raw = JSON.parse(readFileSync18(file, "utf8"));
+    const raw = JSON.parse(readFileSync14(file, "utf8"));
     return raw && typeof raw === "object" ? raw : {};
   } catch {
     return {};
   }
 }
 function writeBranches(paths, records) {
-  mkdirSync16(paths.stateDir, { recursive: true });
+  mkdirSync14(paths.stateDir, { recursive: true });
   writeAtomic(branchesPath(paths), JSON.stringify(records, null, 2) + "\n");
 }
 var branchMoves = (paths) => Object.values(readBranches(paths)).flatMap((r) => r.moved ? [r.moved] : []);
@@ -7356,19 +6041,250 @@ function moveWords(m) {
 var moveUrl = (repo, m) => `https://github.com/${repo}/compare/${m.from}...${m.to}`;
 
 // packages/core/src/cloud-review.ts
-import { existsSync as existsSync13, mkdirSync as mkdirSync19, renameSync as renameSync12, writeFileSync as writeFileSync17 } from "node:fs";
+import { existsSync as existsSync13, mkdirSync as mkdirSync20, renameSync as renameSync12, writeFileSync as writeFileSync18 } from "node:fs";
+
+// packages/core/src/names.ts
+var NAME_PART_MAX = 40;
+var NAME_SEP = " \xB7 ";
+var SECRET_PREFIX = /^(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox|AKIA|eyJ)/;
+var tokenLike = (word) => SECRET_PREFIX.test(word) || word.length >= 20 && new RegExp("\\p{L}", "u").test(word) && new RegExp("\\p{N}", "u").test(word);
+function cleanName(text) {
+  return text.normalize("NFC").replace(/[\p{Cc}\p{Z}\s/\\~·]+/gu, " ").replace(/[^\p{L}\p{M}\p{N} _.,:()+#-]/gu, "").split(" ").filter((w) => w && !tokenLike(w)).join(" ");
+}
+function shortTitle(text, max = NAME_PART_MAX) {
+  const chars = Array.from(text);
+  if (chars.length <= max) return text;
+  const head = chars.slice(0, max).join("");
+  const hard = chars.slice(0, max - 1).join("");
+  const space = head.lastIndexOf(" ");
+  const cut3 = (space > 0 ? head.slice(0, space) : hard).replace(/[\s.,:(+#_-]+$/u, "");
+  return `${cut3 || hard}\u2026`;
+}
+var cleanKey = (key) => /^[A-Z][A-Z0-9_]*-\d+$/.test(key) ? key : key.replace(/[^A-Za-z0-9_-]/g, "");
+function sessionName(p) {
+  const project2 = shortTitle(cleanName(p.project));
+  const title = shortTitle(cleanName(p.title));
+  const key = cleanKey(p.key);
+  const task = [key, title].filter(Boolean).join(" ");
+  const role = p.role === "builder" && p.n && p.n > 1 ? `${p.role} ${p.n}` : p.role;
+  return [project2, task, role].filter(Boolean).join(NAME_SEP);
+}
 
 // packages/core/src/review.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
-import { existsSync as existsSync12, mkdirSync as mkdirSync18, readdirSync as readdirSync7, readFileSync as readFileSync20, renameSync as renameSync11, rmSync as rmSync11, writeFileSync as writeFileSync16 } from "node:fs";
-import { join as join16 } from "node:path";
+import { existsSync as existsSync12, mkdirSync as mkdirSync19, readdirSync as readdirSync7, readFileSync as readFileSync21, renameSync as renameSync11, rmSync as rmSync11, writeFileSync as writeFileSync17 } from "node:fs";
+import { join as join18 } from "node:path";
+
+// packages/core/src/agents.ts
+import { readFileSync as readFileSync15 } from "node:fs";
+
+// packages/core/src/efforts.ts
+var EFFORT_SOURCE = { url: "https://platform.claude.com/docs/en/build-with-claude/effort", read: "2026-10-09" };
+var ALL = EFFORTS;
+var NO_XHIGH = ["low", "medium", "high", "max"];
+var MODEL_EFFORTS = {
+  "claude-fable-5-1": { levels: ALL, default: "high" },
+  "claude-mythos-5-1": { levels: ALL, default: "high" },
+  "claude-fable-5": { levels: ALL, default: "high" },
+  "claude-mythos-5": { levels: ALL, default: "high" },
+  "claude-mythos-preview": { levels: NO_XHIGH, default: "high" },
+  "claude-opus-5-5": { levels: ALL, default: "medium" },
+  "claude-opus-5": { levels: ALL, default: "high" },
+  "claude-opus-4-8": { levels: ALL, default: "high" },
+  "claude-opus-4-7": { levels: ALL, default: "high" },
+  "claude-opus-4-6": { levels: NO_XHIGH, default: "high" },
+  "claude-opus-4-5": { levels: ["low", "medium", "high"], default: "high" },
+  "claude-sonnet-5-5": { levels: ALL, default: "high" },
+  "claude-sonnet-5": { levels: ALL, default: "high" },
+  "claude-sonnet-4-6": { levels: NO_XHIGH, default: "high" },
+  "claude-haiku-5-5": { levels: ALL, default: "medium" },
+  "claude-haiku-4-5": { levels: [], default: null }
+};
+function modelEfforts(model) {
+  const base = model.replace(/\[[^\]]*\]$/, "").replace(/-\d{8}$/, "");
+  return Object.hasOwn(MODEL_EFFORTS, base) ? MODEL_EFFORTS[base] : null;
+}
+var effortSourceWords = () => `acc's list of each model's levels is from ${EFFORT_SOURCE.url}, read ${EFFORT_SOURCE.read}`;
+function checkEffortName(v, also = "") {
+  if (!isEffort(v)) throw new AccError("usage", `"${v}" isn't an effort level. Effort is one of ${EFFORTS.join(", ")}${also}.`);
+}
+function checkEffortPick(v) {
+  if (v !== "default") checkEffortName(v, ", or default for the builder's own");
+}
+var modelTakes = (model, effort) => modelEfforts(model)?.levels.includes(effort) ?? true;
+function checkModelEffort(model, effort, fix) {
+  if (!effort || modelTakes(model, effort)) return;
+  const m = modelEfforts(model);
+  const takes = m.levels.length ? `It takes ${m.levels.join(", ")}.` : "It takes no effort level: leave effort unset for it.";
+  throw new AccError("usage", `${model} doesn't take effort ${effort}. ${takes}${fix ? ` ${fix}` : ""} (${effortSourceWords()}.)`);
+}
+function effortFixWords(id, picked, model, on = "dispatch") {
+  const another = (modelEfforts(model)?.levels.length ?? 1) > 0;
+  if (on === "resume") {
+    return picked ? `It was picked for ${id}, and the builder's model has changed since: set it back with acc agents set builder --model <m>.` : `It's the builder's own: change it with acc agents set builder ${another ? "--effort <level> or " : ""}--clear effort.`;
+  }
+  return picked ? `It was picked for ${id}: ${another ? `pick another with acc dispatch ${id} --effort <level>, or ` : ""}drop it with acc dispatch ${id} --effort default.` : `It's the builder's own: ${another ? `pick one for ${id} with acc dispatch ${id} --effort <level>, or ` : ""}clear it with acc agents set builder --clear effort.`;
+}
+function builderEffort(task, config, chosen) {
+  const picked = chosen ?? (task.run?.effortPicked ? task.run.effort : void 0);
+  return picked && picked !== "default" ? { effort: picked, picked: true } : { effort: config.agents.builder.effort, picked: false };
+}
+var effortDroppedWords = (effort, model) => `Its effort ${effort}, picked for it before, was dropped: ${model} doesn't take it. The builder's own applies.`;
+function dispatchEffort(task, config, model, opts) {
+  const earlier = task.held?.effort ?? (task.run?.effortPicked ? task.run.effort : void 0);
+  if (opts.effort === void 0 && earlier && earlier !== "default" && opts.modelPicked && !modelTakes(model, earlier)) {
+    return { ...builderEffort(task, config, "default"), keep: "default", dropped: earlier };
+  }
+  const keep = opts.effort ?? earlier;
+  return { ...builderEffort(task, config, keep ?? "default"), keep, dropped: null };
+}
+
+// packages/core/src/agents.ts
+var KEYS = { model: "model", effort: "effort", fallbackModel: "fallbackmodel" };
+var gitKey = (role, field) => `acc.${role}.${KEYS[field]}`;
+function cloneProfile(run2, root, role) {
+  const out3 = {};
+  for (const field of Object.keys(KEYS)) {
+    const r = run2("git", ["config", "--get", gitKey(role, field)], { cwd: root });
+    const v = r.code === 0 ? r.stdout.trim() : "";
+    if (!v) continue;
+    if (field === "effort") {
+      if (isEffort(v)) out3.effort = v;
+    } else if (MODEL_NAME.test(v)) out3[field] = v;
+  }
+  return out3;
+}
+var modelOf = (p) => p?.model ?? DEFAULT_MODEL;
+function profileView(config, run2, root, role) {
+  const project2 = config.agents[role];
+  const mine = cloneProfile(run2, root, role);
+  const pick = (f) => mine[f] != null ? { v: mine[f], from: "clone" } : project2[f] != null ? { v: project2[f], from: "project" } : { v: null, from: "default" };
+  const m = pick("model");
+  const e = pick("effort");
+  const fb = pick("fallbackModel");
+  return {
+    model: m.v ?? DEFAULT_MODEL,
+    effort: e.v,
+    fallbackModel: fb.v,
+    from: { model: m.from === "default" ? "acc" : m.from, effort: e.from, fallbackModel: fb.from }
+  };
+}
+function withCloneAgents(config, root, run2) {
+  const merge = (role) => ({ ...config.agents[role], ...cloneProfile(run2, root, role) });
+  return { ...config, agents: { ...config.agents, builder: merge("builder"), reviewer: merge("reviewer") } };
+}
+function agentArgs(p) {
+  const model = modelOf(p);
+  return ["--model", model, ...p?.effort ? ["--effort", p.effort] : [], ...p?.fallbackModel && p.fallbackModel !== model ? ["--fallback-model", p.fallbackModel] : []];
+}
+function checkModelName(v) {
+  if (!MODEL_NAME.test(v)) throw new AccError("usage", `"${v}" isn't a model name. Use an alias such as opus, sonnet or fable, or a full model name.`);
+}
+function check(change2) {
+  for (const f of ["model", "fallbackModel"]) {
+    const v = change2[f];
+    if (v != null) checkModelName(v);
+  }
+  if (change2.effort != null) checkEffortName(change2.effort);
+}
+function setProfile(run2, root, configFile, role, change2, scope) {
+  check(change2);
+  if (scope === "clone") {
+    for (const f of Object.keys(change2)) {
+      const v = change2[f];
+      if (v === void 0) continue;
+      const r = v === null ? run2("git", ["config", "--unset", gitKey(role, f)], { cwd: root }) : run2("git", ["config", gitKey(role, f), v], { cwd: root });
+      if (r.code !== 0 && !(v === null && r.code === 5)) throw new AccError("git", `git config refused ${gitKey(role, f)}: ${r.stderr.trim()}`);
+    }
+    return;
+  }
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync15(configFile, "utf8"));
+  } catch (e) {
+    throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
+  }
+  raw.agents ??= {};
+  const p = { ...raw.agents[role] ?? {} };
+  for (const f of Object.keys(change2)) {
+    const v = change2[f];
+    if (v === void 0) continue;
+    if (v === null) delete p[f];
+    else p[f] = v;
+  }
+  if (Object.keys(p).length) raw.agents[role] = p;
+  else delete raw.agents[role];
+  writeAtomic(configFile, JSON.stringify(raw, null, 2) + "\n");
+}
+var SETTABLE_AUTONOMY = ["manual", "review"];
+function setAutonomy(configFile, value) {
+  if (value === "dispatch" || value === "full") {
+    throw new AccError("refused", `autonomy "${value}" isn't built yet: autopilot would also start Ready tasks (D-055). Choose manual or review.`);
+  }
+  if (!SETTABLE_AUTONOMY.includes(value)) throw new AccError("usage", `Autonomy is ${SETTABLE_AUTONOMY.join(" or ")}.`);
+  let text;
+  let raw;
+  try {
+    text = readFileSync15(configFile, "utf8");
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
+  }
+  const wanted = { ...raw, autonomy: value };
+  const at2 = [...text.matchAll(/("autonomy"\s*:\s*)"[^"\\]*"/g)];
+  if (at2.length === 1) {
+    const edited = text.replace(/("autonomy"\s*:\s*)"[^"\\]*"/, `$1${JSON.stringify(value)}`);
+    try {
+      if (JSON.stringify(JSON.parse(edited)) === JSON.stringify(wanted)) {
+        writeAtomic(configFile, edited);
+        return;
+      }
+    } catch {
+    }
+  }
+  writeAtomic(configFile, JSON.stringify(wanted, null, 2) + "\n");
+}
+function setAutoMerge(configFile, on) {
+  let text;
+  let raw;
+  try {
+    text = readFileSync15(configFile, "utf8");
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new AccError("bad-config", `Couldn't read ${configFile}: ${e.message}`);
+  }
+  if (on && raw.profile === "salesforce") throw new AccError("refused", "A Salesforce project never auto-merges: a person merges every pull request there.");
+  const was = raw.autopilot && typeof raw.autopilot === "object" && !Array.isArray(raw.autopilot) ? raw.autopilot : null;
+  if (!on && was?.autoMerge === void 0) return;
+  const wanted = { ...raw, autopilot: { ...was ?? {}, autoMerge: on } };
+  const canon2 = (v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canon2(v[k2])])) : Array.isArray(v) ? v.map(canon2) : v;
+  const fits = (edited) => {
+    try {
+      return JSON.stringify(canon2(JSON.parse(edited))) === JSON.stringify(canon2(wanted));
+    } catch {
+      return false;
+    }
+  };
+  const tries = [];
+  const value = /("autoMerge"\s*:\s*)(true|false)/;
+  if ([...text.matchAll(new RegExp(value, "g"))].length === 1) tries.push(text.replace(value, `$1${on}`));
+  const block = /("autopilot"\s*:\s*\{)(\s*)(?=")/;
+  if (block.test(text)) tries.push(text.replace(block, (_m, open, gap) => `${open}${gap}"autoMerge": ${on},${gap}`));
+  const indent = /^\{\s*?\n([ \t]+)"/.exec(text)?.[1] ?? "  ";
+  if (!was) tries.push(text.replace(/(\S)(\s*)\}\s*$/, (_m, last, gap) => `${last},
+${indent}"autopilot": {
+${indent}${indent}"autoMerge": ${on}
+${indent}}${gap}}
+`));
+  writeAtomic(configFile, tries.find(fits) ?? JSON.stringify(wanted, null, 2) + "\n");
+}
 
 // packages/core/src/questions.ts
-import { chmodSync as chmodSync2, closeSync as closeSync2, fstatSync, linkSync, mkdirSync as mkdirSync17, openSync as openSync2, readdirSync as readdirSync6, readFileSync as readFileSync19, readSync as readSync2, renameSync as renameSync10, rmSync as rmSync10, statSync as statSync5, writeFileSync as writeFileSync15, writeSync } from "node:fs";
+import { chmodSync as chmodSync2, closeSync as closeSync2, fstatSync, linkSync, mkdirSync as mkdirSync15, openSync as openSync2, readdirSync as readdirSync5, readFileSync as readFileSync16, readSync as readSync2, renameSync as renameSync7, rmSync as rmSync7, statSync as statSync4, writeFileSync as writeFileSync12, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { homedir as homedir4 } from "node:os";
-import { join as join15 } from "node:path";
-var questionsDir = (env = process.env) => env.ACC_QUESTIONS_DIR || join15(homedir4(), ".acc", "questions");
+import { homedir as homedir2 } from "node:os";
+import { join as join13 } from "node:path";
+var questionsDir = (env = process.env) => env.ACC_QUESTIONS_DIR || join13(homedir2(), ".acc", "questions");
 var ALLOWED_MODES = ["auto", "acceptEdits", "default"];
 var LISTENER_STALE_MS = 45e3;
 var HOOK_TIMEOUT_S = 3600;
@@ -7376,18 +6292,18 @@ var MAX_WAIT_MS = (HOOK_TIMEOUT_S - 120) * 1e3;
 var isUnder = (path, root) => path === root || path.startsWith(root.endsWith("/") ? root : `${root}/`);
 function readJson(file) {
   try {
-    return JSON.parse(readFileSync19(file, "utf8"));
+    return JSON.parse(readFileSync16(file, "utf8"));
   } catch {
     return null;
   }
 }
 function writePrivate(file, data) {
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  writeFileSync15(tmp, JSON.stringify(data), { mode: 384 });
-  renameSync10(tmp, file);
+  writeFileSync12(tmp, JSON.stringify(data), { mode: 384 });
+  renameSync7(tmp, file);
 }
 function ensureDir(dir) {
-  mkdirSync17(join15(dir, "listeners"), { recursive: true, mode: 448 });
+  mkdirSync15(join13(dir, "listeners"), { recursive: true, mode: 448 });
   try {
     chmodSync2(dir, 448);
   } catch {
@@ -7399,12 +6315,12 @@ var HISTORY_TRIM_EVERY_BYTES = 64 * 1024;
 var HISTORY_LOCK = { timeoutMs: 1e4, staleMs: 5e3 };
 function appendHistory(dir, rec, trimEvery = HISTORY_TRIM_EVERY_BYTES) {
   ensureDir(dir);
-  const file = join15(dir, "history.jsonl");
-  withLock(join15(dir, "history.lock"), () => {
+  const file = join13(dir, "history.jsonl");
+  withLock(join13(dir, "history.lock"), () => {
     appendLine(file, JSON.stringify(rec));
     try {
-      const size = statSync5(file).size;
-      if (size > trimmedSize(dir, size) + trimEvery) writePrivateText(join15(dir, "history.trimmed"), `${trimHistory(file)}
+      const size = statSync4(file).size;
+      if (size > trimmedSize(dir, size) + trimEvery) writePrivateText(join13(dir, "history.trimmed"), `${trimHistory(file)}
 `);
     } catch {
     }
@@ -7424,14 +6340,14 @@ function appendLine(file, line) {
 }
 function trimmedSize(dir, size) {
   try {
-    const n = Number(readFileSync19(join15(dir, "history.trimmed"), "utf8"));
+    const n = Number(readFileSync16(join13(dir, "history.trimmed"), "utf8"));
     return Number.isSafeInteger(n) && n >= 0 && n <= size ? n : 0;
   } catch {
     return 0;
   }
 }
 function trimHistory(file) {
-  const data = readFileSync19(file);
+  const data = readFileSync16(file);
   const lines = data.toString("utf8").split("\n").filter(Boolean);
   const kept = [];
   let bytes = 0;
@@ -7450,8 +6366,8 @@ function trimHistory(file) {
 }
 function writePrivateText(file, text) {
   const tmp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  writeFileSync15(tmp, text, { mode: 384 });
-  renameSync10(tmp, file);
+  writeFileSync12(tmp, text, { mode: 384 });
+  renameSync7(tmp, file);
 }
 function readRecord(line) {
   try {
@@ -7462,16 +6378,16 @@ function readRecord(line) {
   }
 }
 var PREAPPROVAL_MS = 10 * 6e4;
-var preapprovalFile = (dir, sessionId) => join15(dir, "approved", `${sessionId.replace(/[^A-Za-z0-9-]/g, "")}.json`);
+var preapprovalFile = (dir, sessionId) => join13(dir, "approved", `${sessionId.replace(/[^A-Za-z0-9-]/g, "")}.json`);
 function preapprove(dir, sessionId, command, now2 = Date.now()) {
-  mkdirSync17(join15(dir, "approved"), { recursive: true, mode: 448 });
+  mkdirSync15(join13(dir, "approved"), { recursive: true, mode: 448 });
   writePrivate(preapprovalFile(dir, sessionId), { command, until: now2 + PREAPPROVAL_MS });
 }
 function takePreapproval(dir, sessionId, command, now2 = Date.now()) {
   const file = preapprovalFile(dir, sessionId);
   const p = readJson(file);
   if (!p || p.command !== command || typeof p.until !== "number" || now2 > p.until) return false;
-  rmSync10(file, { force: true });
+  rmSync7(file, { force: true });
   return true;
 }
 var editedMessage = (command) => `The user edited this command in the Command Center. Run exactly this instead, as it is, and carry on:
@@ -7492,12 +6408,12 @@ function outcomeOf(q2, a2) {
 function listeners(dir, now2 = Date.now()) {
   let names3 = [];
   try {
-    names3 = readdirSync6(join15(dir, "listeners")).filter((n) => n.endsWith(".json"));
+    names3 = readdirSync5(join13(dir, "listeners")).filter((n) => n.endsWith(".json"));
   } catch {
     return [];
   }
   return names3.flatMap((n) => {
-    const l3 = readJson(join15(dir, "listeners", n));
+    const l3 = readJson(join13(dir, "listeners", n));
     const ok = !!l3 && Number.isInteger(l3.pid) && typeof l3.at === "number" && Array.isArray(l3.roots) && now2 - l3.at < LISTENER_STALE_MS && alive(l3.pid);
     return ok ? [l3] : [];
   });
@@ -7505,7 +6421,7 @@ function listeners(dir, now2 = Date.now()) {
 var covered = (ls, cwd) => ls.some((l3) => l3.roots.some((r) => typeof r === "string" && isUnder(cwd, r)));
 function existsQuestionsDir(dir) {
   try {
-    return statSync5(join15(dir, "listeners")).isDirectory();
+    return statSync4(join13(dir, "listeners")).isDirectory();
   } catch {
     return false;
   }
@@ -7591,8 +6507,8 @@ async function ask(input, opts = {}) {
     input: input.tool_input,
     suggestions: input.permission_suggestions ?? []
   };
-  const file = join15(dir, `${question.id}.json`);
-  const answerFile = join15(dir, `${question.id}.answer.json`);
+  const file = join13(dir, `${question.id}.json`);
+  const answerFile = join13(dir, `${question.id}.answer.json`);
   writePrivate(file, question);
   const started = now2();
   try {
@@ -7618,8 +6534,8 @@ async function ask(input, opts = {}) {
       await wait(pollMs);
     }
   } finally {
-    rmSync10(file, { force: true });
-    rmSync10(answerFile, { force: true });
+    rmSync7(file, { force: true });
+    rmSync7(answerFile, { force: true });
   }
 }
 function hookOutput(q2, a2) {
@@ -7646,17 +6562,17 @@ function permissionHook(command) {
 function pendingQuestions(dir) {
   let names3 = [];
   try {
-    names3 = readdirSync6(dir).filter((n) => n.endsWith(".json") && !n.endsWith(".answer.json"));
+    names3 = readdirSync5(dir).filter((n) => n.endsWith(".json") && !n.endsWith(".answer.json"));
   } catch {
     return [];
   }
   const out3 = [];
   for (const n of names3) {
-    const q2 = readJson(join15(dir, n));
+    const q2 = readJson(join13(dir, n));
     if (!q2 || q2.v !== 1 || typeof q2.id !== "string" || `${q2.id}.json` !== n || !Number.isInteger(q2.pid)) continue;
     if (!alive(q2.pid)) {
-      rmSync10(join15(dir, n), { force: true });
-      rmSync10(join15(dir, `${q2.id}.answer.json`), { force: true });
+      rmSync7(join13(dir, n), { force: true });
+      rmSync7(join13(dir, `${q2.id}.answer.json`), { force: true });
       continue;
     }
     out3.push(q2);
@@ -7664,6 +6580,1279 @@ function pendingQuestions(dir) {
   return out3.sort((a2, b) => a2.at - b.at);
 }
 var askingUnder = (questions, dir) => questions.some((q2) => q2.cwd === dir || q2.cwd.startsWith(dir.endsWith("/") ? dir : `${dir}/`));
+
+// packages/core/src/analyze.ts
+import { randomUUID } from "node:crypto";
+import { copyFileSync, existsSync as existsSync11, mkdirSync as mkdirSync17, readFileSync as readFileSync19, renameSync as renameSync10, rmSync as rmSync10, writeFileSync as writeFileSync15 } from "node:fs";
+import { join as join16 } from "node:path";
+
+// packages/core/src/rules.ts
+import { createHash } from "node:crypto";
+import { existsSync as existsSync10, mkdirSync as mkdirSync16, mkdtempSync as mkdtempSync2, readdirSync as readdirSync6, readFileSync as readFileSync18, renameSync as renameSync8, rmSync as rmSync9, writeFileSync as writeFileSync13 } from "node:fs";
+import { homedir as homedir4, tmpdir as tmpdir2 } from "node:os";
+import { basename as basename3, dirname as dirname6, isAbsolute as isAbsolute2, join as join15 } from "node:path";
+
+// packages/core/src/source.ts
+import { existsSync as existsSync9, mkdtempSync, readFileSync as readFileSync17, rmSync as rmSync8, statSync as statSync5 } from "node:fs";
+import { homedir as homedir3, tmpdir } from "node:os";
+import { isAbsolute, join as join14, relative, resolve, sep } from "node:path";
+var COPY_KINDS = {
+  template: {
+    noun: "team template",
+    short: "template",
+    recordedIn: "the project's config",
+    example: "templates/salesforce.json",
+    maxBytes: 64 * 1024,
+    bad: "bad-template",
+    missing: "no-template"
+  },
+  rules: {
+    noun: "rules file",
+    short: "rules file",
+    recordedIn: "the copy's header",
+    example: "rules/salesforce.md",
+    maxBytes: 64 * 1024,
+    bad: "bad-rules",
+    missing: "no-rules"
+  }
+};
+var FETCH_TIMEOUT_MS2 = 2 * 6e4;
+var a = (s) => /^[aeiou]/i.test(s) ? `an ${s}` : `a ${s}`;
+var possessive = (s) => `${s[0].toUpperCase()}${s.slice(1)}'s`;
+function sourceProblem(source, kind = "template") {
+  const k2 = COPY_KINDS[kind];
+  const s = source.trim();
+  if (!s) return "Give a path, a GitHub file URL, or <git-url>#<path>.";
+  if (s.startsWith("-")) return `${possessive(a(k2.short))} source can't start with "-", which git would read as an option. For a file, start it with ./`;
+  if (/^http:\/\//i.test(s)) return `Use https://: acc doesn't fetch ${a(k2.short)} over plain http.`;
+  const userinfo = /^[a-z][a-z0-9+.-]*:\/\/([^/@#?]*)@/i.exec(s);
+  if (userinfo && (/^https:/i.test(s) || userinfo[1].includes(":"))) return `Take the sign-in out of the URL: gh and git sign in for you, and the source is written into ${k2.recordedIn}.`;
+  return null;
+}
+var GITHUB_BLOB = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:blob|raw)\/([^/?#]+)\/([^?#]+)(?:[?#].*)?$/;
+var GITHUB_RAW = /^https:\/\/raw\.githubusercontent\.com\/([\w.-]+)\/([\w.-]+)\/(?:refs\/(?:heads|tags)\/)?([^/?#]+)\/([^?#]+)(?:[?#].*)?$/;
+function parseSource(source, base = process.cwd(), home = homedir3(), kind = "template") {
+  const k2 = COPY_KINDS[kind];
+  const s = source.trim();
+  const problem = sourceProblem(s, kind);
+  if (problem) throw new AccError(k2.bad, problem);
+  const gh = GITHUB_BLOB.exec(s) ?? GITHUB_RAW.exec(s);
+  if (gh) return { kind: "github", owner: gh[1], repo: gh[2], ref: decodeURIComponent(gh[3]), path: decodeURIComponent(gh[4]) };
+  const hash = s.lastIndexOf("#");
+  if (hash > 0) {
+    const path = s.slice(hash + 1).replace(/^\/+/, "");
+    if (!path || path.split("/").includes("..")) throw new AccError(k2.bad, `"${s}" needs a file's path in the repo after the #, such as #${k2.example}.`);
+    return { kind: "git", url: s.slice(0, hash), path };
+  }
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) {
+    throw new AccError(k2.bad, `acc fetches ${a(k2.short)} only with gh or git. Give a github.com file URL, <git-url>#<path>, or a path. "${s}" is neither.`);
+  }
+  const expanded = s === "~" ? home : s.startsWith("~/") ? join14(home, s.slice(2)) : s;
+  return { kind: "file", path: resolve(base, expanded) };
+}
+function recordedSource(source, opts = {}) {
+  const src = parseSource(source, opts.base, opts.home, opts.kind);
+  if (src.kind !== "file") return source.trim();
+  const inside2 = (dir) => {
+    const rel = relative(dir, src.path);
+    return rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel.split(sep).join("/") : null;
+  };
+  const inRepo2 = opts.root ? inside2(opts.root) : null;
+  if (inRepo2) return inRepo2.startsWith("-") ? `./${inRepo2}` : inRepo2;
+  const inHome = inside2(opts.home ?? homedir3());
+  return inHome ? `~/${inHome}` : src.path;
+}
+var firstLine2 = (s) => s.trim().split("\n")[0] ?? "";
+function fetchSource(run2, source, kind, opts = {}) {
+  const k2 = COPY_KINDS[kind];
+  const src = parseSource(source, opts.base, opts.home, kind);
+  const total = opts.timeoutMs ?? FETCH_TIMEOUT_MS2;
+  const deadline = opts.deadline ?? Date.now() + total;
+  const timeoutMs = () => {
+    const left = deadline - Date.now();
+    const secs = Math.ceil(total / 1e3);
+    if (left <= 0) throw new AccError(k2.missing, `Couldn't read ${source} within ${secs} second${secs === 1 ? "" : "s"}, so acc stopped.`);
+    return left;
+  };
+  const tooBig = () => new AccError(k2.bad, `${source} is over ${k2.maxBytes / 1024} KB, too big for ${a(k2.noun)}.`);
+  const env = opts.env ?? process.env;
+  if (src.kind === "file") {
+    if (!existsSync9(src.path)) throw new AccError(k2.missing, `There's no ${k2.noun} at ${source}.`);
+    const stat = statSync5(src.path);
+    if (!stat.isFile()) throw new AccError(k2.bad, `${source} isn't a file, so it can't be ${a(k2.noun)}.`);
+    if (stat.size > k2.maxBytes) throw tooBig();
+    return { text: readFileSync17(src.path, "utf8"), commit: null };
+  }
+  if (src.kind === "github") {
+    const who = opts.account ?? "gh's active account";
+    let ghEnv3 = env;
+    if (opts.account) {
+      const t = run2("gh", ["auth", "token", "-u", opts.account], { env, timeoutMs: timeoutMs() });
+      if (t.code !== 0 || !t.stdout.trim()) throw new AccError("no-github", `gh isn't logged in as ${opts.account}, the account that reads ${source}. Sign in from Setup, or run gh auth login.`);
+      ghEnv3 = { ...env, GH_TOKEN: t.stdout.trim() };
+    }
+    const path = src.path.split("/").map(encodeURIComponent).join("/");
+    const r = run2("gh", ["api", `repos/${src.owner}/${src.repo}/contents/${path}?ref=${encodeURIComponent(src.ref)}`, "-H", "Accept: application/vnd.github.raw"], { env: ghEnv3, timeoutMs: timeoutMs() });
+    if (r.code !== 0) {
+      const why = firstLine2(r.stderr || r.stdout);
+      if (/\b404\b|not found/i.test(why)) throw new AccError(k2.missing, `${source} wasn't found as ${who}. Check the address, and that ${who} can read ${src.owner}/${src.repo}.`);
+      throw new AccError(k2.missing, `Couldn't read ${source} as ${who}: ${why || `gh exited ${r.code}`}`);
+    }
+    if (Buffer.byteLength(r.stdout) > k2.maxBytes) throw tooBig();
+    if (!opts.commit) return { text: r.stdout, commit: null };
+    const c = run2("gh", ["api", `repos/${src.owner}/${src.repo}/commits?path=${encodeURIComponent(src.path)}&sha=${encodeURIComponent(src.ref)}&per_page=1`, "--jq", ".[0].sha"], { env: ghEnv3, timeoutMs: timeoutMs() });
+    const sha = c.stdout.trim();
+    return { text: r.stdout, commit: c.code === 0 && /^[0-9a-f]{40}$/.test(sha) ? sha : null };
+  }
+  const dir = mkdtempSync(join14(tmpdir(), `acc-${kind}-`));
+  try {
+    const gitEnv = { ...env, GIT_TERMINAL_PROMPT: "0", ...env.GIT_SSH_COMMAND ? {} : { GIT_SSH_COMMAND: "ssh -o BatchMode=yes" } };
+    const clone = run2("git", ["clone", "--quiet", "--depth", "1", "--filter=blob:none", "--no-checkout", "--", src.url, join14(dir, "repo")], { env: gitEnv, timeoutMs: timeoutMs() });
+    if (clone.code !== 0) throw new AccError(k2.missing, `Couldn't fetch ${src.url} with git: ${firstLine2(clone.stderr || clone.stdout) || `git exited ${clone.code}`}`);
+    const show = run2("git", ["show", `HEAD:${src.path}`], { cwd: join14(dir, "repo"), env: gitEnv, timeoutMs: timeoutMs() });
+    if (show.code !== 0) throw new AccError(k2.missing, `${src.url} has no ${src.path} on its default branch.`);
+    if (Buffer.byteLength(show.stdout) > k2.maxBytes) throw tooBig();
+    if (!opts.commit) return { text: show.stdout, commit: null };
+    const head = run2("git", ["rev-parse", "HEAD"], { cwd: join14(dir, "repo"), env: gitEnv, timeoutMs: timeoutMs() }).stdout.trim();
+    return { text: show.stdout, commit: /^[0-9a-f]{40,64}$/.test(head) ? head : null };
+  } finally {
+    rmSync8(dir, { recursive: true, force: true });
+  }
+}
+
+// packages/core/src/rules.ts
+var RULES_DIR = ".acc/rules";
+var OWN_RULES = ".acc/rules.md";
+var RULES_TOTAL_MAX_BYTES = 128 * 1024;
+var BASE_RULES = [
+  "Put new behaviour in its own file. Where a list must name every area, such as an index or a registry, register it there with one line. Parallel tasks then rarely change the same lines, so their work merges.",
+  "If another task's change breaks your build, block with the reason (`acc block \"<what broke, and which change>\"`); don't edit its files. That task fixes its own breakage, and two fixes to one breakage conflict.",
+  "Write a manifest or config file whole: write a temp file beside it, then rename it into place. Never leave one half-written for another process, or a crash, to find."
+];
+var PROFILE_RULES = {
+  generic: [],
+  salesforce: [
+    "Apex is bulk-safe: no SOQL or DML inside loops, and triggers handle 200 records.",
+    "Apex respects sharing and object and field access where the data calls for it.",
+    "Apex tests assert outcomes, cover the changed paths, and don't depend on org data they don't create.",
+    "Metadata carries no values that belong to one org: user names, record ids, org URLs."
+  ]
+};
+var PROFILE_NAME = { generic: "generic", salesforce: "Salesforce" };
+var RULES_ORDER = "These come in a fixed order: every project's rules, then the profile's, then rules copied in from elsewhere, then this repo's own. Where two disagree, the later one wins, so this repo's own rules win over the others.";
+var rulesDigest = (text) => createHash("sha256").update(text).digest("hex");
+var MARK = "<!-- acc-rules v1:";
+var NOTE = "copied in by acc rules import. This repo keeps its own copy and may edit it; acc rules diff compares it with the source.";
+var KEYS2 = ["source", "commit", "copied", "sha256"];
+function renderHeader(h2) {
+  return [`${MARK} ${NOTE}`, `source: ${h2.source}`, ...h2.commit ? [`commit: ${h2.commit}`] : [], `copied: ${h2.copied}`, `sha256: ${h2.sha256}`, "-->", ""].join("\n");
+}
+function parseRulesFile(text) {
+  if (!text.startsWith(MARK)) return { header: null, problem: null, body: text };
+  const end = text.indexOf("\n-->");
+  const bad = (why) => ({ header: null, problem: `Its header can't be read: ${why}`, body: text });
+  if (end < 0) return bad("it has no closing -->.");
+  const after = text.slice(end + 4);
+  if (after && !after.startsWith("\n")) return bad("its --> isn't on a line of its own.");
+  const lines = text.slice(0, end).split("\n").slice(1);
+  const seen = {};
+  for (const line of lines) {
+    const m = /^([a-z0-9]+): (.+)$/.exec(line);
+    const key = m?.[1];
+    if (!m || !key || !KEYS2.includes(key)) return bad(`"${line.slice(0, 60)}" isn't a line acc writes.`);
+    if (seen[key] !== void 0) return bad(`it says ${key} twice.`);
+    seen[key] = m[2].trim();
+  }
+  if (!seen.source) return bad("it names no source.");
+  if (seen.commit !== void 0 && !/^[0-9a-f]{40,64}$/.test(seen.commit)) return bad(`its commit, "${seen.commit}", isn't a commit id.`);
+  if (!seen.copied || !/^\d{4}-\d{2}-\d{2}$/.test(seen.copied)) return bad("its copied date isn't a YYYY-MM-DD date.");
+  if (!seen.sha256 || !/^[0-9a-f]{64}$/.test(seen.sha256)) return bad("its sha256 isn't a sha256.");
+  return { header: { source: seen.source, commit: seen.commit ?? null, copied: seen.copied, sha256: seen.sha256 }, problem: null, body: after.slice(1) };
+}
+function importedRules(dir) {
+  const at2 = join15(dir, RULES_DIR);
+  if (!existsSync10(at2)) return [];
+  return readdirSync6(at2, { withFileTypes: true }).filter((e) => e.isFile() && e.name.endsWith(".md")).map((e) => e.name).sort().map((n) => {
+    const path = join15(at2, n);
+    const text = readFileSync18(path, "utf8");
+    const f = parseRulesFile(text);
+    return { ...f, name: n.slice(0, -3), file: `${RULES_DIR}/${n}`, path, edited: !!f.header && rulesDigest(f.body) !== f.header.sha256, bytes: Buffer.byteLength(text) };
+  });
+}
+function withoutHeader(body) {
+  if (!body.startsWith(MARK)) return body;
+  const end = body.indexOf("\n-->");
+  return end >= 0 ? body.slice(end + 4).replace(/^\n/, "") : body.split("\n").slice(1).join("\n");
+}
+function rulesText(dir, profile) {
+  const parts = ["### Every project's rules", "", ...BASE_RULES.map((r) => `- ${r}`), ""];
+  const own = PROFILE_RULES[profile];
+  if (own.length) parts.push(`### The ${PROFILE_NAME[profile]} profile's rules`, "", ...own.map((r) => `- ${r}`), "");
+  for (const c of importedRules(dir)) {
+    const body = withoutHeader(c.body).trim();
+    if (!body) continue;
+    const heading = c.header ? `Copied in from ${c.header.source}` : c.problem ? "Copied in, but its header can't be read" : "Kept in this repo";
+    parts.push(`### ${heading} (\`${c.file}\`)`, "", body, "");
+  }
+  const ownFile = join15(dir, OWN_RULES);
+  const mine = existsSync10(ownFile) ? readFileSync18(ownFile, "utf8").trim() : "";
+  if (mine) parts.push(`### This repo's own rules (\`${OWN_RULES}\`)`, "", mine, "");
+  return [RULES_ORDER, "", ...parts].join("\n").trim();
+}
+var NAME = /^[a-z0-9][a-z0-9._-]{0,59}$/;
+function rulesName(source, base, home) {
+  const src = parseSource(source, base, home, "rules");
+  const n = basename3(src.path).replace(/\.(md|markdown|txt)$/i, "").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^[-._]+|-+$/g, "").slice(0, 60);
+  return n || "rules";
+}
+function checkName(name) {
+  const n = name.trim().replace(/\.md$/i, "").toLowerCase();
+  if (!NAME.test(n)) throw new AccError("usage", `"${name}" can't be a rules file's name: use lower-case letters, digits, dots, dashes and underscores, such as acme-salesforce.`);
+  return n;
+}
+function templateRulesProblem(source) {
+  const problem = sourceProblem(source, "rules");
+  if (problem) return problem;
+  try {
+    const src = parseSource(source, "/", homedir4(), "rules");
+    const s = source.trim();
+    if (src.kind === "file" && !isAbsolute2(s) && s !== "~" && !s.startsWith("~/")) return `${s} is a relative path, which would mean a different file on each machine. Give a GitHub file URL, <git-url>#<path>, or a path from / or ~/.`;
+  } catch (e) {
+    return e.message;
+  }
+  return null;
+}
+var localDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function prepareImport(run2, root, source, opts = {}) {
+  const s = source.trim();
+  const problem = sourceProblem(s, "rules") ?? (/[\r\n]|-->/.test(s) ? "A rules file's source is one line, with no -->, since its copy's header holds it." : null);
+  if (problem) throw new AccError("bad-rules", problem);
+  const name = opts.name ? checkName(opts.name) : rulesName(s, opts.base, opts.home);
+  const fetched = fetchSource(run2, s, "rules", { ...opts, commit: true });
+  const text = fetched.text;
+  if (!text.trim()) throw new AccError("bad-rules", `${s} is empty: there are no rules in it to copy in.`);
+  if (text.includes("\0")) throw new AccError("bad-rules", `${s} isn't text, so it can't be rules.`);
+  const file = `${RULES_DIR}/${name}.md`;
+  const path = join15(root, RULES_DIR, `${name}.md`);
+  const copies = importedRules(root);
+  const there = copies.find((c) => c.name === name);
+  const header = { source: recordedSource(s, { base: opts.base, home: opts.home, root, kind: "rules" }), commit: fetched.commit, copied: localDay((opts.now ?? (() => /* @__PURE__ */ new Date()))()), sha256: rulesDigest(text) };
+  const imp = { name, file, path, header, text, replaces: there ? { source: there.header?.source ?? null, copied: there.header?.copied ?? null, edited: there.edited } : null };
+  checkTotal(root, [imp], s);
+  return imp;
+}
+function checkTotal(root, imps, what) {
+  const names3 = new Set(imps.map((i) => i.name));
+  const total = importedRules(root).filter((c) => !names3.has(c.name)).reduce((n, c) => n + c.bytes, 0) + imps.reduce((n, i) => n + Buffer.byteLength(renderHeader(i.header) + i.text), 0);
+  if (total > RULES_TOTAL_MAX_BYTES) {
+    throw new AccError("bad-rules", `With ${what}, the copied-in rules would come to ${Math.ceil(total / 1024)} KB, over the ${RULES_TOTAL_MAX_BYTES / 1024} KB every packet, review and analysis can carry. Copy in less, or remove a copy from ${RULES_DIR}/ first.`);
+  }
+}
+function prepareImports(run2, root, sources, opts = {}) {
+  const imps = sources.map((s) => prepareImport(run2, root, s, opts));
+  checkTotal(root, imps.filter((i) => !i.replaces), sources.length === 1 ? sources[0] : "the template's rules");
+  return imps;
+}
+function writeImport(imp) {
+  mkdirSync16(dirname6(imp.path), { recursive: true });
+  writeFileSync13(`${imp.path}.tmp`, renderHeader(imp.header) + imp.text);
+  renameSync8(`${imp.path}.tmp`, imp.path);
+}
+function importRules(run2, root, source, opts = {}) {
+  const imp = prepareImport(run2, root, source, opts);
+  if (imp.replaces && !opts.force && !opts.dryRun) {
+    const from = imp.replaces.source ? `, copied from ${imp.replaces.source}${imp.replaces.copied ? ` on ${imp.replaces.copied}` : ""}` : "";
+    throw new AccError("exists", `${imp.file} is already here${from}. To replace it with ${source.trim()} as it is now, add --force; git shows the change before you commit it. Or give this copy another name with --name.`);
+  }
+  if (!opts.dryRun) writeImport(imp);
+  return { ...imp, written: !opts.dryRun };
+}
+var RULES_TIMEOUT_MS = 6e4;
+function rulesStatus(run2, root, opts = {}, only) {
+  const total = opts.timeoutMs ?? RULES_TIMEOUT_MS;
+  const deadline = Date.now() + total;
+  const home = opts.home ?? opts.env?.HOME ?? homedir4();
+  return importedRules(root).filter((c) => only === void 0 || c.name === only).map((c) => {
+    const base = { name: c.name, file: c.file, source: c.header?.source ?? null, commit: c.header?.commit ?? null, copied: c.header?.copied ?? null, edited: c.edited, body: c.body, now: null };
+    if (c.problem) return { ...base, state: "bad-header", reason: c.problem };
+    if (!c.header) return { ...base, state: "local", reason: null };
+    const src = c.header.source;
+    const problem = sourceProblem(src, "rules");
+    if (problem) return { ...base, state: "bad-header", reason: `Its header's source, ${src}, can't be read: ${problem}` };
+    let local = null;
+    try {
+      const parsed = parseSource(src, root, home, "rules");
+      if (parsed.kind === "file") local = parsed.path;
+    } catch (e) {
+      return { ...base, state: "bad-header", reason: `Its header's source, ${src}, can't be read: ${e.message}` };
+    }
+    if (local && !existsSync10(local)) return { ...base, state: "not-here", reason: `It came from ${src}, which isn't on this machine.` };
+    if (Date.now() >= deadline) return { ...base, state: "unchecked", reason: `The ${Math.ceil(total / 1e3)} seconds ran out before ${src} was read.` };
+    let text;
+    try {
+      text = fetchSource(run2, src, "rules", { ...opts, base: root, home, timeoutMs: total, deadline }).text;
+    } catch (e) {
+      return { ...base, state: "unreachable", reason: `Couldn't read ${src}: ${e.message}` };
+    }
+    return { ...base, now: text, state: rulesDigest(text) === c.header.sha256 ? "unchanged" : "changed", reason: null };
+  });
+}
+function unifiedDiff(run2, from, to, labels) {
+  if (from === to) return "";
+  const dir = mkdtempSync2(join15(tmpdir2(), "acc-rules-diff-"));
+  try {
+    mkdirSync16(join15(dir, "copy"));
+    mkdirSync16(join15(dir, "source"));
+    writeFileSync13(join15(dir, "copy", "rules.md"), from);
+    writeFileSync13(join15(dir, "source", "rules.md"), to);
+    const r = run2("git", ["-c", "core.quotepath=off", "diff", "--no-index", "--no-color", "--no-ext-diff", "--no-prefix", "--", "copy/rules.md", "source/rules.md"], { cwd: dir });
+    if (r.code !== 0 && r.code !== 1) throw new AccError("rules", `git couldn't compare the copy with its source: ${r.stderr.trim().split("\n")[0] ?? `git exited ${r.code}`}`);
+    const lines = r.stdout.split("\n");
+    const at2 = lines.findIndex((l3) => l3.startsWith("@@"));
+    return [`--- ${labels.from}`, `+++ ${labels.to}`, ...lines.slice(at2 < 0 ? lines.length : at2)].join("\n").trimEnd();
+  } finally {
+    rmSync9(dir, { recursive: true, force: true });
+  }
+}
+function rulesDiff(run2, root, name, opts = {}) {
+  const only = name ? name.trim().replace(/\.md$/i, "") : void 0;
+  const wanted = rulesStatus(run2, root, opts, only);
+  if (name && !wanted.length) throw new AccError("usage", `There's no ${RULES_DIR}/${name}.md. acc rules list shows the copies.`);
+  return wanted.map((c) => ({
+    name: c.name,
+    file: c.file,
+    source: c.source,
+    state: c.state,
+    edited: c.edited,
+    reason: c.reason,
+    diff: c.state === "changed" || c.now !== null && c.edited ? unifiedDiff(run2, c.body, c.now ?? "", { from: `${c.file} (this repo's copy)`, to: `${c.source} (the source now)` }) || null : null
+  }));
+}
+var reimportCommand = (c) => `acc rules import '${(c.source ?? "").replace(/'/g, `'\\''`)}' --name ${c.name} --force`;
+
+// packages/core/src/ste.ts
+var W2 = "[\\p{L}\\p{N}_]";
+var B2 = `(?:(?<=${W2})(?!${W2})|(?<!${W2})(?=${W2}))`;
+function py(source, flags = "") {
+  return new RegExp(source.replace(/\\b/g, B2).replace(/\\w/g, W2), `u${flags}`);
+}
+var cpLen = (s) => {
+  let n = 0;
+  for (const _2 of s) n++;
+  return n;
+};
+var words2 = (s) => s.split(/\s+/u).filter(Boolean);
+function splitLines(text) {
+  const lines = text.split(/\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/u);
+  if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+var IRREGULAR_PARTICIPLES = "given|taken|made|done|found|seen|known|shown|written|built|sent|set|run|read|kept|held|left|put|cut|hit|let|shut|split|spread|begun|become|come|gone|got|gotten|lost|met|paid|said|sold|told|thought|brought|bought|caught|taught|won|worn|torn|born|drawn|grown|thrown|flown|driven|risen|chosen|broken|spoken|frozen|hidden|ridden|forgotten|fallen|eaten|beaten|understood|stood|struck|stuck|swung|hung|led|fed|bled|fled|sped|bound|wound|dug|spun|slid|bit|lit|quit";
+var PASSIVE_PARTICIPLES = "given|taken|made|done|found|seen|known|shown|written|built|sent|set|run|read|kept|held|left|put";
+var MODAL_PERFECT_PREFIX = py("\\b(?:may|might|could|should|would|must|can|will|shall)(?:\\s+not|n['\u2019]t)?\\s+$", "i");
+var STE_RULES = [
+  { id: "semicolon", level: "hard", pattern: py(";", "g"), message: "STE bans the semicolon (Rule 8.1). Split into separate sentences." },
+  {
+    id: "phrasal-verb",
+    level: "hard",
+    pattern: py("\\b(spin(?:ning|s)? up|spun up|reach(?:ing|es|ed)? out|div(?:e|es|ing|ed) into|dove into|kick(?:ing|s|ed)? off|circl(?:e|es|ing|ed) back|touch(?:ing|es|ed)? base)\\b", "gi"),
+    message: "Soft phrasal verb. Use the single plain verb (start, contact, read, begin)."
+  },
+  {
+    id: "marketing-adjective",
+    level: "hard",
+    pattern: py("\\b(seamless(?:ly)?|robust(?:ly)?|cutting-edge|effortless(?:ly)?|blazing[- ]fast|world-class|state-of-the-art|game-chang(?:ing|er))\\b", "gi"),
+    message: "Marketing adjective. Delete, or replace with the measurement that earns the claim."
+  },
+  {
+    id: "nominalization",
+    level: "hard",
+    pattern: py("\\b(perform|performs|performed|conduct|conducts|conducted|carry out|carries out|carried out)\\s+(?:a|an|the)\\s+\\w+(?:tion|sion|ment|ance|ence|ysis)\\b", "gi"),
+    message: "Action frozen into a noun. Use the verb (analyze, not perform an analysis of)."
+  },
+  {
+    id: "passive-voice",
+    level: "advisory",
+    pattern: py(`\\b(is|are|was|were|been|being)\\s+(\\w+ed|${PASSIVE_PARTICIPLES})\\b(?!\\s+(?:to|for|by)\\s+\\w+ing)`, "gi"),
+    message: "Possible passive voice. Name the actor and use an active verb, unless the actor is unknown or irrelevant."
+  },
+  {
+    id: "present-perfect",
+    level: "advisory",
+    // A modal and a perfect infinitive ("may have failed") is a hedge, which this never flags.
+    pattern: py(`(?<!\\bmay )(?<!\\bmight )(?<!\\bcould )(?<!\\bshould )(?<!\\bwould )(?<!\\bmust )\\b(has|have|had)\\s+(?:been\\s+)?(?:\\w+(?:ed|en)|${IRREGULAR_PARTICIPLES})\\b`, "gi"),
+    message: "Compound tense. Use simple past/present unless current relevance is the point (then keep and flag)."
+  }
+];
+var SYNONYM_GROUPS = [
+  ["check", "verify", "confirm", "validate"],
+  ["delete", "remove", "erase"],
+  ["start", "launch", "begin", "initiate"],
+  ["stop", "halt", "terminate"],
+  ["show", "display"],
+  ["use", "utilize", "employ"],
+  ["fix", "repair", "correct"],
+  ["send", "transmit"],
+  ["get", "retrieve", "fetch", "obtain"],
+  ["change", "modify", "alter"]
+];
+var STE_MAX_WORDS = 25;
+var CODE_FENCE = /^(```|~~~)/u;
+var INLINE_CODE = /`[^`]*`/gu;
+var LIST_ITEM_START = /^( {0,3})([-*+]|[0-9]+[.)])( +)(.*)$/u;
+var CONJUNCTION_END = py("\\b(?:and|or)\\s*$", "i");
+var TABLE_SEPARATOR_CELL = /^:?-{3,}:?$/u;
+var SENTENCE_BREAK = /(?<=[.!?])\s+/u;
+var wordRes = /* @__PURE__ */ new Map();
+var wordRe = (base) => {
+  let re2 = wordRes.get(base);
+  if (!re2) wordRes.set(base, re2 = py(`\\b${base}(?:s|es|ed|d|ing)?\\b`, "i"));
+  return re2;
+};
+var leadingSpaces = (line) => line.length - line.replace(/^ +/, "").length;
+function isListContinuation(line, contentIndent) {
+  if (!line.trim()) return true;
+  if (LIST_ITEM_START.test(line)) return false;
+  return leadingSpaces(line) >= contentIndent;
+}
+function splitTableRow(line) {
+  const lead = line.length - line.trimStart().length;
+  const right = line.trimEnd().length;
+  let content = right > lead ? line.slice(lead, right) : "";
+  if (!content.includes("|")) return null;
+  let left = cpLen(line.slice(0, lead));
+  if (content.startsWith("|")) {
+    content = content.slice(1);
+    left += 1;
+  }
+  if (content.endsWith("|")) content = content.slice(0, -1);
+  const raw = content.split(/(?<!\\)\|/u);
+  if (raw.length < 2) return null;
+  const cells = [];
+  let column = left;
+  for (const cell2 of raw) {
+    const leading = cell2.length - cell2.trimStart().length;
+    cells.push([cell2.trim(), column + cpLen(cell2.slice(0, leading))]);
+    column += cpLen(cell2) + 1;
+  }
+  return cells;
+}
+function tableCells(lines) {
+  const cells = /* @__PURE__ */ new Map();
+  let index = 1;
+  while (index < lines.length) {
+    const separator = splitTableRow(lines[index]);
+    const header = splitTableRow(lines[index - 1]);
+    if (!separator || !header || separator.length !== header.length || !separator.every(([c]) => TABLE_SEPARATOR_CELL.test(c))) {
+      index++;
+      continue;
+    }
+    cells.set(index - 1, header);
+    cells.set(index, []);
+    index++;
+    while (index < lines.length) {
+      const row = splitTableRow(lines[index]);
+      if (!row || row.length !== separator.length) break;
+      cells.set(index, row);
+      index++;
+    }
+  }
+  return cells;
+}
+function danglingConjunctions(text, file) {
+  const lines = splitLines(text);
+  const found = [];
+  let inFence = false;
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (CODE_FENCE.test(line.trim())) {
+      inFence = !inFence;
+      index++;
+      continue;
+    }
+    if (inFence) {
+      index++;
+      continue;
+    }
+    const start = LIST_ITEM_START.exec(line);
+    if (!start) {
+      index++;
+      continue;
+    }
+    const [, indent, marker, gap, body] = start;
+    const contentIndent = indent.length + marker.length + gap.length;
+    const item = [[index, body]];
+    let next = index + 1;
+    let itemFence = false;
+    while (next < lines.length) {
+      const candidate = lines[next];
+      if (CODE_FENCE.test(candidate.trim())) {
+        itemFence = !itemFence;
+        next++;
+        continue;
+      }
+      if (itemFence) {
+        next++;
+        continue;
+      }
+      if (!isListContinuation(candidate, contentIndent)) break;
+      item.push([next, candidate]);
+      next++;
+    }
+    const meaningful = item.map(([i, l3]) => [i, l3.replace(INLINE_CODE, " CODE ").trim()]).filter(([, l3]) => l3);
+    const last = meaningful[meaningful.length - 1];
+    if (last && CONJUNCTION_END.test(last[1])) {
+      const [endIndex, endLine] = last;
+      let line1;
+      let col;
+      if (endIndex === index) {
+        line1 = index + 1;
+        col = indent.length + 1;
+      } else {
+        const raw = item.find(([i]) => i === endIndex)[1];
+        const masked = raw.replace(INLINE_CODE, (m) => " ".repeat(cpLen(m)));
+        const at2 = CONJUNCTION_END.exec(masked);
+        line1 = endIndex + 1;
+        col = at2 ? cpLen(masked.slice(0, at2.index)) + 1 : 1;
+      }
+      found.push({
+        file,
+        line: line1,
+        col,
+        rule: "dangling-conjunction",
+        level: "hard",
+        match: endLine,
+        message: "List item ends with a coordinating conjunction. Complete the item or join it with the next item."
+      });
+    }
+    index = next;
+  }
+  return found;
+}
+var placeOrder = (a2, b) => a2[0] - b[0] || a2[1] - b[1] || (a2[2] < b[2] ? -1 : a2[2] > b[2] ? 1 : a2[3] < b[3] ? -1 : a2[3] > b[3] ? 1 : 0);
+function steLint(text, file = "<stdin>") {
+  const findings = [];
+  let total = 0;
+  let inFence = false;
+  const lines = splitLines(text);
+  const table2 = tableCells(lines);
+  const seen = /* @__PURE__ */ new Map();
+  lines.forEach((raw, i) => {
+    const lineNo = i + 1;
+    if (CODE_FENCE.test(raw.trim())) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence) return;
+    for (const [segment, column] of table2.get(i) ?? [[raw, 0]]) {
+      const line = segment.replace(INLINE_CODE, "");
+      total += words2(line).length;
+      const col = (at2) => column + cpLen(line.slice(0, at2)) + 1;
+      for (const r of STE_RULES) {
+        for (const m of line.matchAll(r.pattern)) {
+          if (r.id === "present-perfect" && MODAL_PERFECT_PREFIX.test(line.slice(0, m.index))) continue;
+          findings.push({ file, line: lineNo, col: col(m.index), rule: r.id, level: r.level, match: m[0], message: r.message });
+        }
+      }
+      SYNONYM_GROUPS.forEach((group, g) => {
+        for (const base of group) {
+          if (seen.has(`${g}:${base}`)) continue;
+          const m = wordRe(base).exec(line);
+          if (m) seen.set(`${g}:${base}`, [lineNo, col(m.index), m[0]]);
+        }
+      });
+      for (const sentence3 of line.split(SENTENCE_BREAK)) {
+        const n = words2(sentence3).length;
+        if (n > STE_MAX_WORDS) {
+          findings.push({ file, line: lineNo, col: column + 1, rule: "long-sentence", level: "hard", match: `${n} words`, message: `Sentence has ${n} words (cap ${STE_MAX_WORDS}). Split it.` });
+        }
+      }
+    }
+  });
+  SYNONYM_GROUPS.forEach((group, g) => {
+    const present = group.filter((b) => seen.has(`${g}:${b}`)).map((b) => [...seen.get(`${g}:${b}`), b]).sort(placeOrder);
+    if (present.length < 2) return;
+    const keeper = present[0][3];
+    for (const [line, col, match, base] of present.slice(1)) {
+      findings.push({ file, line, col, rule: "synonym-rotation", level: "hard", match, message: `'${base}' and '${keeper}' name the same action. Pick one and use it every time.` });
+    }
+  });
+  findings.push(...danglingConjunctions(text, file));
+  findings.sort((a2, b) => a2.line - b.line || a2.col - b.col);
+  return { findings, words: total };
+}
+var steLine = (f) => `${f.file}:${f.line}:${f.col} ${f.rule}: ${f.message} [${f.match}]`;
+function requirementWording(r) {
+  const lines = [
+    ...r.goal.trim() ? [["goal", 0, r.goal]] : [],
+    ...["criteria", "assumptions", "outOfScope"].flatMap((part) => r[part].map((text, i) => [part, i, text]))
+  ];
+  return lines.flatMap(([part, index, text]) => steLint(part === "goal" ? text : `- ${text}`).findings.filter((f) => f.level === "hard").map((f) => ({ part, index, text, rule: f.rule, match: f.match, message: f.message })));
+}
+var wordingWords = (n) => n ? `Wording: ${n} finding${n === 1 ? "" : "s"}` : null;
+var PART_WORDS = { goal: "Goal", criteria: "Criterion", assumptions: "Assumption", outOfScope: "Out of scope" };
+var wordingMatch = (f) => f.match.trim() === f.text.trim() ? null : f.match;
+var wordingPlace = (f) => f.part === "goal" ? PART_WORDS.goal : `${PART_WORDS[f.part]} ${f.index + 1}`;
+
+// packages/core/src/steps.ts
+import { renameSync as renameSync9, writeFileSync as writeFileSync14 } from "node:fs";
+var STEPS_VAR = "ACC_STEPS";
+var NOTE_MAX = 300;
+var cut = (s) => clip(s.replace(/\s+/g, " ").trim(), NOTE_MAX);
+function stepsTo(file, now2 = () => /* @__PURE__ */ new Date()) {
+  const lines = [];
+  const labels = /* @__PURE__ */ new Map();
+  const open = /* @__PURE__ */ new Set();
+  let used = false;
+  let ended = false;
+  const write = (e) => {
+    if (ended || !file) return;
+    if (e.kind === "result") ended = true;
+    else used = true;
+    lines.push(JSON.stringify(e));
+    try {
+      writeFileSync14(`${file}.tmp`, `${lines.join("\n")}
+`);
+      renameSync9(`${file}.tmp`, file);
+    } catch {
+    }
+  };
+  const at2 = () => now2().toISOString();
+  const event = (id, state, note) => {
+    if (state === "started") open.add(id);
+    else open.delete(id);
+    write({ kind: "step", id, label: labels.get(id) ?? id, state, ...note?.trim() ? { note: cut(note) } : {}, at: at2() });
+  };
+  const steps2 = {
+    get on() {
+      return file !== null;
+    },
+    get used() {
+      return used;
+    },
+    get ended() {
+      return ended;
+    },
+    start(id, label, note) {
+      labels.set(id, label);
+      event(id, "started", note);
+    },
+    done(id, note) {
+      event(id, "done", note);
+    },
+    skip(id, label, note) {
+      labels.set(id, label);
+      event(id, "skipped", note);
+    },
+    fail(id, note) {
+      event(id, "failed", note);
+    },
+    result(ok, sentence3) {
+      if (ended) return;
+      for (const id of [...open]) event(id, ok ? "done" : "failed", ok ? void 0 : sentence3);
+      write({ kind: "result", ok, sentence: cut(sentence3), at: at2() });
+    },
+    step(id, label, fn2) {
+      steps2.start(id, label);
+      let out3;
+      try {
+        out3 = fn2();
+      } catch (e) {
+        steps2.fail(id, e?.message ?? String(e));
+        throw e;
+      }
+      steps2.done(id);
+      return out3;
+    }
+  };
+  return steps2;
+}
+var stepsFrom = (env, now2) => stepsTo(env[STEPS_VAR]?.trim() || null, now2);
+var NO_STEPS = stepsTo(null);
+
+// packages/core/src/analyze.ts
+var SIZE_MEANING = { S: "an hour or two", M: "a day", L: "a few days", XL: "split it" };
+var strings = { type: "array", items: { type: "string" } };
+var ANALYSIS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["verdict", "summary", "requirements", "questions", "findings", "approach", "split"],
+  properties: {
+    verdict: { type: "string", enum: ["ready", "questions", "split"], description: "questions when a person must answer something before it can be built well; split when it is too big for one task" },
+    summary: { type: "string", description: "Two or three plain sentences: what the task needs, what is already there, and how to build it" },
+    requirements: {
+      type: "object",
+      additionalProperties: false,
+      required: ["goal", "criteria", "assumptions", "outOfScope"],
+      properties: {
+        goal: { type: "string", description: "What the person asking wants, in a sentence. Write it in STE Strict mode" },
+        criteria: { ...strings, description: "Acceptance criteria, each one testable. Write each in STE Strict mode" },
+        assumptions: { ...strings, description: "What you assumed that the ticket does not say. Write each in STE Strict mode" },
+        outOfScope: { ...strings, description: "What this task should not do. Write each in STE Strict mode" }
+      }
+    },
+    questions: {
+      type: "array",
+      description: "Only what a person must decide, and nothing you could find out yourself",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["question", "why", "suggested"],
+        properties: { question: { type: "string" }, why: { type: "string", description: "What changes depending on the answer" }, suggested: { type: "string", description: "What you would assume if nobody answers" } }
+      }
+    },
+    findings: {
+      type: "array",
+      description: "What is already there that this task touches or depends on",
+      items: { type: "object", additionalProperties: false, required: ["area", "detail", "source"], properties: { area: { type: "string" }, detail: { type: "string" }, source: { type: "string", description: "A file path, or the org alias and the query or command" } } }
+    },
+    approach: {
+      type: "object",
+      additionalProperties: false,
+      required: ["plan", "files", "refactors", "risks", "tests", "size"],
+      properties: {
+        plan: { ...strings, description: "The steps to build it, in order" },
+        files: {
+          type: "array",
+          items: { type: "object", additionalProperties: false, required: ["path", "change", "why"], properties: { path: { type: "string" }, change: { type: "string", enum: ["create", "update", "delete"] }, why: { type: "string" } } }
+        },
+        refactors: {
+          type: "array",
+          description: "Changes to what is there that the task needs first, and why",
+          items: { type: "object", additionalProperties: false, required: ["what", "why"], properties: { what: { type: "string" }, why: { type: "string" } } }
+        },
+        risks: strings,
+        tests: { ...strings, description: "How to prove it works: the tests to write or run" },
+        size: { type: "string", enum: ["S", "M", "L", "XL"], description: Object.entries(SIZE_MEANING).map(([s, m]) => `${s}: ${m}`).join(". ") }
+      }
+    },
+    split: { ...strings, description: "When the verdict is split: the smaller tasks, one line each. Otherwise empty" }
+  }
+};
+var TASK_ID_MAX = 100;
+function fileId(task) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(task) || task.includes("..") || task.length > TASK_ID_MAX) {
+    throw new AccError("usage", `${task.length > TASK_ID_MAX ? `${task.slice(0, 40)}\u2026` : task} isn't a task id.`);
+  }
+  return task;
+}
+var analysisPath = (paths, task) => join16(paths.analyses, `${fileId(task)}.json`);
+var runningPath = (paths, task) => join16(paths.analyses, `${fileId(task)}.running.json`);
+function readAnalysis(paths, task) {
+  try {
+    const a2 = JSON.parse(readFileSync19(analysisPath(paths, task), "utf8"));
+    return a2.v === 1 && a2.task === task ? a2 : null;
+  } catch {
+    return null;
+  }
+}
+function writeAnalysis(paths, a2) {
+  mkdirSync17(paths.analyses, { recursive: true });
+  const file = analysisPath(paths, a2.task);
+  writeFileSync15(`${file}.tmp`, JSON.stringify(a2, null, 2) + "\n");
+  renameSync10(`${file}.tmp`, file);
+}
+var openQuestions = (a2) => (a2?.questions ?? []).filter((q2) => !q2.answer);
+var analysisRequired = (config) => config.analysis?.required ?? config.profile === "salesforce";
+function analysisProblems(paths, config, task) {
+  if (task.state !== "todo" || !analysisRequired(config)) return [];
+  const a2 = readAnalysis(paths, task.id);
+  if (!a2) return [`${task.id} hasn't been analyzed. This project wants an analysis before a build: acc analyze ${task.id}.`];
+  if (a2.verdict === "split") return [`${task.id}'s analysis says it's too big for one task. Split it into: ${a2.split.join("; ")}. Or a person dispatches it anyway with --without-analysis.`];
+  const open = openQuestions(a2);
+  if (open.length) return [`${open.length} question${open.length === 1 ? "" : "s"} from ${task.id}'s analysis ${open.length === 1 ? "is" : "are"} unanswered: ${open.map((q2) => `${q2.id}. ${q2.question}`).join(" ")} Answer with acc analysis answer ${task.id} <q> "<answer>".`];
+  return [];
+}
+var SALESFORCE_COOKBOOK = [
+  "Reading the org. Every command takes --target-org <alias> and --json. You can only read: nothing you run changes an org.",
+  '- Which org, for sure: `sf org display --target-org <alias> --json`, and `sf data query --target-org <alias> --query "SELECT IsSandbox, Name, OrganizationType FROM Organization"`. Say which org each finding came from.',
+  "- An object's fields and picklists: `sf sobject describe --sobject <Object> --target-org <alias> --json`.",
+  "- Automation on an object, which runs in this order on save: validation rules, before-save flows, before triggers, after triggers, after-save flows. With --use-tooling-api:",
+  "  - `SELECT ValidationName, Active, ErrorMessage FROM ValidationRule WHERE EntityDefinition.QualifiedApiName = '<Object>'`",
+  "  - `SELECT Name, Status, UsageBeforeInsert, UsageAfterInsert, UsageBeforeUpdate, UsageAfterUpdate FROM ApexTrigger WHERE TableEnumOrId = '<Object>'`",
+  "  - `SELECT Name, TableEnumOrId FROM WorkflowRule WHERE TableEnumOrId = '<Object>'`",
+  "  - and without the tooling API: `SELECT ApiName, Label, ProcessType, TriggerType, RecordTriggerType, TriggerObjectOrEventLabel, IsActive FROM FlowDefinitionView WHERE TriggerObjectOrEventLabel = '<Object label>'`",
+  "- What uses a component (tooling API): `SELECT MetadataComponentName, MetadataComponentType FROM MetadataComponentDependency WHERE RefMetadataComponentName = '<Name>'`.",
+  "- Code and its tests: `SELECT Name, LastModifiedDate, LastModifiedBy.Name FROM ApexClass WHERE Name LIKE '%<word>%'`, and coverage with `SELECT ApexClassOrTrigger.Name, NumLinesCovered, NumLinesUncovered FROM ApexCodeCoverageAggregate` (tooling API).",
+  "- Volumes and limits: `sf limits recordcounts display --sobject <Object> --target-org <alias>` and `sf limits api display --target-org <alias>`.",
+  "- A component's source as the org has it: `sf project retrieve start --metadata <Type>:<Name> --target-org <alias>` from your working folder, which is a scratch project. It never touches the repo.",
+  "- Records: you may read a few to learn their shape (LIMIT 5, only the fields you need). Don't copy names, emails or other personal details into your analysis: describe patterns instead.",
+  "Compare the org with the repo: the repo's branch is meant to match its org. Say where they differ for what this task touches."
+];
+var SALESFORCE_FOCUS = [
+  "What automation already runs on the objects this touches, in order, and whether the change should join it (an existing flow or trigger handler) instead of adding one more.",
+  "Bulk safety and limits at the volumes you found: SOQL and DML out of loops, 200 records a transaction.",
+  "Sharing and field access, permission sets and profiles that would need the new fields or classes.",
+  "Tests: which test classes cover what changes, and what new tests prove it.",
+  "Environment-specific files (D-016) and anything that would differ between orgs."
+];
+var STE_STRICT = [
+  "Write the goal, each acceptance criterion, each assumption and each out-of-scope item in Simplified Technical English (ASD-STE100), Strict mode. A builder agent reads them, and each must have one meaning only:",
+  '- Use the active voice. Name who or what does the action: "acc writes the file", not "the file is written".',
+  "- Use one instruction or one statement in each sentence. Use no more than 20 words in an instruction and no more than 25 in a description.",
+  "- Do not use a semicolon. Write two sentences.",
+  '- Use simple tenses: the simple present, past or future. Do not use the present perfect ("has failed") or other compound tenses. Keep a hedge as it is ("may have failed" stays).',
+  '- Do not use phrasal verbs ("set up", "spin up", "carry out"). Use one plain verb (start, make, do).',
+  '- Use the verb for an action, not a noun made from it: "analyze the log", not "perform an analysis of the log".',
+  '- Use one word for one thing, and use it every time. Do not change between "check", "verify" and "confirm" for the same action.',
+  "- Do not use marketing adjectives (seamless, robust, powerful, cutting-edge). Give the measurement instead.",
+  "- Use no more than 3 nouns together as one name. Do not leave out the subject, the verb or the article to make a sentence shorter.",
+  '- Do not end an item on "and" or "or".'
+];
+function analysisPrompt(i) {
+  const sf = i.config.profile === "salesforce";
+  const system = [
+    `You are the analyst for ${i.task.id}. Before anyone builds it, you work out what it asks for, what is already there, and how it should be built. A builder agent is given your analysis; a person answers your questions first.`,
+    `You can read the repo at ${i.root} (Read, Grep, Glob, and git log, show, diff and grep)${sf ? ", and read the Salesforce orgs listed below with the sf CLI" : ""}. You can't change anything: no edits, no writes, no deploys.`,
+    "Work like a careful senior consultant on a new ticket:",
+    "- Read the ticket. Restate the goal. Turn what it asks for into testable acceptance criteria. Name your assumptions and what is out of scope.",
+    `- Investigate before you decide: find the code${sf ? " and the org configuration" : ""} this touches, what depends on it, and how it behaves today. Every finding names its source.`,
+    "- Decide the approach: the steps, the files, any refactor the task needs first and why, the risks, and the tests that prove it.",
+    "- Ask only what a person must decide: business rules, priorities, trade-offs. Never ask what you could find out yourself. Give each question your suggested answer.",
+    "- If it is too big for one task (more than a few days), say split and list the smaller tasks.",
+    ...sf ? ["", "For a Salesforce project, also cover:", ...SALESFORCE_FOCUS.map((f) => `- ${f}`), "", ...SALESFORCE_COOKBOOK] : [],
+    "",
+    ...STE_STRICT,
+    "",
+    "Be concrete and brief: names, files, numbers. No filler."
+  ].join("\n");
+  const prompt = [
+    `# Analyze ${i.task.id}: ${i.task.title}`,
+    "",
+    `For the ${i.env.name} environment (branch \`${i.env.branch}\`).${i.checkedOut ? ` The repo is checked out on \`${i.checkedOut}\`: read the environment's files with git show ${i.env.branch}:<path>.` : ""}`,
+    i.task.source.url ? `Ticket: ${i.task.source.url}` : `Source: ${i.task.source.kind}`,
+    "",
+    "## The ticket",
+    "",
+    i.task.brief.trim() || "_Only the title was given._",
+    "",
+    ...sf && i.orgs.length ? ["## The orgs you may read", "", ...i.orgs.map((o) => `- \`${o.alias}\`: ${o.name} (${o.type})`), ""] : [],
+    ...i.previous?.questions.some((q2) => q2.answer) ? [
+      "## What a person already answered",
+      "",
+      ...i.previous.questions.filter((q2) => q2.answer).map((q2) => `- ${q2.question} **${q2.answer.text}**`),
+      "",
+      "Don't ask these again.",
+      ""
+    ] : [],
+    ...i.rules?.trim() ? ["## Rules", "", i.rules.trim(), ""] : []
+  ].join("\n");
+  return { system, prompt };
+}
+function parseAnalysis(stdout) {
+  let r;
+  try {
+    r = JSON.parse(stdout.trim().split("\n").filter(Boolean).pop() ?? "");
+  } catch {
+    throw new AccError("analyze", `The analyst gave no result Claude Code could read: ${stdout.trim().slice(0, 200) || "(nothing)"}`);
+  }
+  const s = r.structured_output;
+  if (r.is_error || !s || !["ready", "questions", "split"].includes(s.verdict) || typeof s.summary !== "string") {
+    throw new AccError("analyze", `The analysis didn't finish (${r.subtype ?? "no result"}): ${String(r.result ?? "").slice(0, 300)}`);
+  }
+  const list = (v) => Array.isArray(v) ? v.filter((x2) => typeof x2 === "string" && !!x2.trim()) : [];
+  const req = s.requirements ?? {};
+  const ap = s.approach ?? {};
+  const questions = (Array.isArray(s.questions) ? s.questions : []).filter((q2) => typeof q2?.question === "string" && q2.question.trim()).map((q2, n) => ({ id: `q${n + 1}`, question: q2.question, why: String(q2.why ?? ""), suggested: String(q2.suggested ?? "") }));
+  const analysis = {
+    // A ready verdict with questions waiting isn't ready.
+    verdict: s.verdict === "ready" && questions.length ? "questions" : s.verdict,
+    summary: s.summary,
+    requirements: { goal: String(req.goal ?? ""), criteria: list(req.criteria), assumptions: list(req.assumptions), outOfScope: list(req.outOfScope) },
+    questions,
+    findings: (Array.isArray(s.findings) ? s.findings : []).filter((f) => typeof f?.detail === "string").map((f) => ({ area: String(f.area ?? ""), detail: f.detail, source: String(f.source ?? "") })),
+    approach: {
+      plan: list(ap.plan),
+      files: (Array.isArray(ap.files) ? ap.files : []).filter((f) => typeof f?.path === "string" && ["create", "update", "delete"].includes(f.change)).map((f) => ({ path: f.path, change: f.change, why: String(f.why ?? "") })),
+      refactors: (Array.isArray(ap.refactors) ? ap.refactors : []).filter((x2) => typeof x2?.what === "string").map((x2) => ({ what: x2.what, why: String(x2.why ?? "") })),
+      risks: list(ap.risks),
+      tests: list(ap.tests),
+      size: ["S", "M", "L", "XL"].includes(ap.size) ? ap.size : "M"
+    },
+    split: list(s.split)
+  };
+  return { analysis: { ...analysis, wording: requirementWording(analysis.requirements) }, sessionId: typeof r.session_id === "string" ? r.session_id : null, costUsd: typeof r.total_cost_usd === "number" ? r.total_cost_usd : null };
+}
+var ANALYST_COMMANDS = {
+  any: ["git log", "git show", "git diff", "git grep", "git ls-files"],
+  salesforce: [
+    "sf org display",
+    "sf org list metadata",
+    "sf org list metadata-types",
+    "sf data query",
+    "sf sobject describe",
+    "sf sobject list",
+    "sf limits api display",
+    "sf limits recordcounts display",
+    "sf project retrieve start",
+    "sf apex list log",
+    "sf apex get log"
+  ]
+};
+var git3 = (run2, cwd, ...args) => run2("git", args, { cwd });
+function scratchProject(paths, id) {
+  const dir = join16(paths.analyses, `${fileId(id)}.work`);
+  rmSync10(dir, { recursive: true, force: true });
+  mkdirSync17(join16(dir, "force-app"), { recursive: true });
+  const project2 = join16(paths.root, "sfdx-project.json");
+  if (existsSync11(project2)) {
+    try {
+      const p = JSON.parse(readFileSync19(project2, "utf8"));
+      writeFileSync15(join16(dir, "sfdx-project.json"), JSON.stringify({ ...p, packageDirectories: [{ path: "force-app", default: true }] }, null, 2));
+    } catch {
+      copyFileSync(project2, join16(dir, "sfdx-project.json"));
+    }
+  } else {
+    writeFileSync15(join16(dir, "sfdx-project.json"), JSON.stringify({ packageDirectories: [{ path: "force-app", default: true }], sourceApiVersion: "62.0" }, null, 2));
+  }
+  return dir;
+}
+function analyze(paths, config, id, deps, opts = {}) {
+  const { run: run2, now: now2 } = deps;
+  const steps2 = deps.steps ?? NO_STEPS;
+  const { task, env } = steps2.step("task", "Check the task", () => {
+    const task2 = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+    if (!task2) throw new AccError("no-task", `No task ${id}.`);
+    if (task2.state === "done") throw new AccError("refused", `${id} is done. There's nothing left to analyze.`);
+    if (task2.state === "running") throw new AccError("refused", `${id} is being built. Analyze before dispatch, or after it's abandoned.`);
+    const env2 = environmentByBranch(config, task2.environment);
+    if (!env2) throw new AccError("analyze", `${id}'s environment "${task2.environment}" isn't in the config.`);
+    return { task: task2, env: env2 };
+  });
+  const sf = config.profile === "salesforce";
+  steps2.start("gather", "Gather what the analyst reads");
+  const base = git3(run2, paths.root, "rev-parse", "--verify", "--quiet", env.branch).stdout.trim() || git3(run2, paths.root, "rev-parse", "HEAD").stdout.trim();
+  const current3 = git3(run2, paths.root, "branch", "--show-current").stdout.trim();
+  const orgs = sf ? config.environments.filter((e) => e.org).map((e) => ({ alias: e.org, name: e.name, type: e.type })) : [];
+  const previous = readAnalysis(paths, id);
+  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current3 && current3 !== env.branch ? current3 : null, orgs, rules: rulesText(paths.root, config.profile), previous });
+  const allowed = [...ANALYST_COMMANDS.any, ...sf ? ANALYST_COMMANDS.salesforce : []].map((c) => `Bash(${c}:*)`);
+  const settings = deps.accCommand ? { hooks: { PreToolUse: [{ matcher: "Bash|Edit|Write|MultiEdit|NotebookEdit", hooks: [{ type: "command", command: `${deps.accCommand} hook pre-tool-use` }] }] } } : null;
+  const cwd = sf ? scratchProject(paths, id) : paths.root;
+  steps2.done("gather", orgs.length ? `The code and ${orgs.length} org(s)` : "The code");
+  const sessionId = (deps.uuid ?? randomUUID)();
+  const name = sessionName({ project: config.project, key: id, title: task.title, role: "analysis" });
+  mkdirSync17(paths.analyses, { recursive: true });
+  const marker = runningPath(paths, id);
+  const startedAt = now2();
+  writeFileSync15(marker, JSON.stringify({ sessionId, name, startedAt: startedAt.toISOString(), pid: process.pid }));
+  deps.onStart?.(sessionId, name);
+  steps2.start("analyze", `Analyze ${id}`, "The analyst reads, and changes nothing");
+  const awake = holdAwake(process.pid, deps.awake);
+  let out3;
+  try {
+    out3 = run2("claude", [
+      "-p",
+      "--session-id",
+      sessionId,
+      "--name",
+      name,
+      "--permission-mode",
+      "dontAsk",
+      ...agentArgs(config.agents.reviewer),
+      "--output-format",
+      "json",
+      "--json-schema",
+      JSON.stringify(ANALYSIS_SCHEMA),
+      "--append-system-prompt",
+      system,
+      ...cwd !== paths.root ? ["--add-dir", paths.root] : [],
+      ...settings ? ["--settings", JSON.stringify(settings)] : [],
+      "--allowedTools",
+      "Read",
+      "Grep",
+      "Glob",
+      ...allowed,
+      "--disallowedTools",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch"
+    ], { cwd, input: prompt, env: { ...sf ? sfEnv(deps.env) : deps.env, ACC_ROLE: "analyst", ACC_TASK: id }, timeoutMs: 45 * 6e4 });
+  } finally {
+    awake?.release();
+    rmSync10(marker, { force: true });
+  }
+  if (out3.timedOut) throw new AccError("analyze", `The analysis didn't finish within 45 minutes, so acc stopped it.`);
+  if (out3.code === 127 && !out3.stdout) throw new AccError("analyze", `Claude Code didn't start: ${out3.stderr.trim().split("\n")[0] ?? "claude not found"}`);
+  steps2.done("analyze");
+  const parsed = steps2.step("read", "Read the analysis", () => parseAnalysis(out3.stdout));
+  steps2.start("save", "Save the analysis");
+  const finished = now2();
+  const answered = new Map((previous?.questions ?? []).filter((q2) => q2.answer).map((q2) => [q2.question.trim().toLowerCase(), q2.answer]));
+  const questions = parsed.analysis.questions.map((q2) => answered.has(q2.question.trim().toLowerCase()) ? { ...q2, answer: answered.get(q2.question.trim().toLowerCase()) } : q2);
+  const analysis = {
+    v: 1,
+    task: id,
+    env: env.branch,
+    base,
+    ...parsed.analysis,
+    questions,
+    verdict: parsed.analysis.verdict === "questions" && !questions.some((q2) => !q2.answer) ? "ready" : parsed.analysis.verdict,
+    orgs: orgs.map((o) => o.alias),
+    sessionId: parsed.sessionId ?? sessionId,
+    name,
+    at: finished.toISOString(),
+    durationMs: finished.getTime() - startedAt.getTime(),
+    costUsd: parsed.costUsd
+  };
+  writeAnalysis(paths, analysis);
+  mutate(paths, now2, (_l, emit) => {
+    emit({ type: "task.updated", task: id, actor: opts.actor ?? "human", by: opts.by ?? `analyst:${id}`, data: { analyzed: { verdict: analysis.verdict, questions: analysis.questions.length } } });
+  });
+  steps2.done("save");
+  return analysis;
+}
+function answerAnalysis(paths, id, question, text, by, now2) {
+  const a2 = readAnalysis(paths, id);
+  if (!a2) throw new AccError("no-analysis", `${id} hasn't been analyzed yet: acc analyze ${id}.`);
+  const q2 = a2.questions.find((x2) => x2.id === question.toLowerCase() || x2.id === `q${question}`);
+  if (!q2) throw new AccError("usage", `${id}'s analysis has no question ${question}. It has: ${a2.questions.map((x2) => x2.id).join(", ") || "none"}.`);
+  if (!text.trim()) throw new AccError("usage", "Give an answer.");
+  q2.answer = { text: text.trim(), by, at: now2().toISOString() };
+  if (a2.verdict === "questions" && !openQuestions(a2).length) a2.verdict = "ready";
+  writeAnalysis(paths, a2);
+  mutate(paths, now2, (_l, emit) => {
+    emit({ type: "task.updated", task: id, actor: "human", by, data: { answered: { question: q2.id } } });
+  });
+  return a2;
+}
+function analysisSection(a2) {
+  if (!a2) return [];
+  const bullets = (xs) => xs.map((x2) => `- ${x2}`);
+  return [
+    "## What the analysis found",
+    "",
+    `An analyst read the ticket${a2.orgs.length ? `, the code and the orgs (${a2.orgs.join(", ")})` : " and the code"} before you. Build from this, and check what it says as you go: if something here turns out to be wrong, say so in your final message.`,
+    "",
+    a2.summary,
+    "",
+    ...a2.requirements.criteria.length ? ["**Acceptance criteria**", "", ...bullets(a2.requirements.criteria), ""] : [],
+    ...a2.questions.length ? ["**Decided by a person**", "", ...a2.questions.map((q2) => `- ${q2.question} ${q2.answer ? `**${q2.answer.text}**` : `Nobody answered; assume: ${q2.suggested}`}`), ""] : [],
+    ...a2.requirements.assumptions.length ? ["**Assumptions**", "", ...bullets(a2.requirements.assumptions), ""] : [],
+    ...a2.requirements.outOfScope.length ? ["**Out of scope**", "", ...bullets(a2.requirements.outOfScope), ""] : [],
+    ...a2.findings.length ? ["**What is there now**", "", ...a2.findings.map((f) => `- ${f.area}: ${f.detail}${f.source ? ` (${f.source})` : ""}`), ""] : [],
+    ...a2.approach.plan.length ? ["**The approach**", "", ...a2.approach.plan.map((s, i) => `${i + 1}. ${s}`), ""] : [],
+    ...a2.approach.refactors.length ? ["**Refactors first**", "", ...a2.approach.refactors.map((r) => `- ${r.what}: ${r.why}`), ""] : [],
+    ...a2.approach.files.length ? ["**Files**", "", ...a2.approach.files.map((f) => `- ${f.change} \`${f.path}\`: ${f.why}`), ""] : [],
+    ...a2.approach.risks.length ? ["**Risks**", "", ...bullets(a2.approach.risks), ""] : [],
+    ...a2.approach.tests.length ? ["**Tests**", "", ...bullets(a2.approach.tests), ""] : []
+  ];
+}
+
+// packages/core/src/checks.ts
+import { mkdirSync as mkdirSync18, readFileSync as readFileSync20, writeFileSync as writeFileSync16 } from "node:fs";
+import { join as join17 } from "node:path";
+var LOG_TAIL_LINES = 100;
+var LOG_TAIL_BYTES = 10 * 1024;
+var MAX_LOGS = 5;
+var NO_ACTIONS_LOG = "GitHub keeps no log for it: it isn't a GitHub Actions job.";
+var short = (sha) => sha.slice(0, 7) || "no commit";
+var said = (r) => `${r.stderr}
+${r.stdout}`;
+var JOB_LINK = /^https?:\/\/([^/]+)\/([^/]+\/[^/]+)\/actions\/runs\/\d+\/job\/(\d+)(?:[/?#]|$)/;
+function actionsJob(link) {
+  const m = JOB_LINK.exec(link);
+  if (!m) return null;
+  return { repo: m[1] === "github.com" ? m[2] : `${m[1]}/${m[2]}`, id: m[3] };
+}
+function headOf(run2, repo, pr, env) {
+  const r = run2("gh", ["pr", "view", String(pr), "-R", repo, "--json", "headRefOid"], { env, timeoutMs: GH_TIMEOUT_MS });
+  let sha = "";
+  try {
+    sha = parseJsonOutput(r.stdout).headRefOid ?? "";
+  } catch {
+    sha = "";
+  }
+  if (r.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) throw new AccError("checks", `gh couldn't read pull request #${pr}: ${firstSaid(r)}`);
+  return sha;
+}
+function listOf2(r) {
+  try {
+    const list = parseJsonOutput(r.stdout);
+    return Array.isArray(list) ? list : null;
+  } catch {
+    return null;
+  }
+}
+function readChecks(run2, repo, pr, env) {
+  const sha = headOf(run2, repo, pr, env);
+  const checks = (...more) => run2("gh", ["pr", "checks", String(pr), "-R", repo, ...more, "--json", "name,bucket,link,workflow,state"], { env, timeoutMs: GH_TIMEOUT_MS });
+  let required = true;
+  let r = checks("--required");
+  let list = listOf2(r);
+  if (!list && /no required checks reported/i.test(said(r))) {
+    required = false;
+    r = checks();
+    list = listOf2(r);
+  }
+  if (!list && /no checks reported/i.test(said(r))) {
+    required = false;
+    list = [];
+  }
+  if (!list) throw new AccError("checks", `gh couldn't read pull request #${pr}'s checks: ${firstSaid(r)}`);
+  const name = (c) => c.name || c.workflow || "a check";
+  const failed = list.filter((c) => c.bucket === "fail").map((c) => ({ name: name(c), workflow: c.workflow ?? "", link: c.link ?? "", job: actionsJob(c.link ?? "") }));
+  const pending = list.filter((c) => c.bucket === "pending").map(name);
+  const cancelled = list.filter((c) => c.bucket === "cancel").map(name);
+  return { sha, required, failed, pending, cancelled, count: list.length };
+}
+var CSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
+var PREFIX = /^[^\t\n]*\t[^\t\n]*\t/;
+var STAMP = /^﻿?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?/;
+function tailLog(text, lines = LOG_TAIL_LINES, bytes = LOG_TAIL_BYTES) {
+  return tailOf(text.replace(/\r\n?/g, "\n").split("\n").map((l3) => l3.replace(CSI, "").replace(PREFIX, "").replace(STAMP, "").trimEnd()), lines, bytes);
+}
+function tailText(text, lines = LOG_TAIL_LINES, bytes = LOG_TAIL_BYTES) {
+  return tailOf(text.replace(/\r\n?/g, "\n").split("\n").map((l3) => l3.replace(CSI, "").trimEnd()), lines, bytes);
+}
+function tailOf(all, lines, bytes) {
+  while (all.length && !all.at(-1)) all.pop();
+  const kept = [];
+  let size = 0;
+  for (const line of all.slice(-lines).reverse()) {
+    const b = Buffer.byteLength(line) + (kept.length ? 1 : 0);
+    if (size + b > bytes) {
+      if (!kept.length) kept.push(Buffer.from(line).subarray(-bytes).toString("utf8").replace(/^�+/, ""));
+      break;
+    }
+    kept.push(line);
+    size += b;
+  }
+  return kept.reverse().join("\n");
+}
+function fetchLog(run2, job, env) {
+  const view = (flag) => run2("gh", ["run", "view", "--job", job.id, flag, "-R", job.repo], { env, timeoutMs: GH_TIMEOUT_MS });
+  let r = view("--log-failed");
+  if (r.code === 0 && !tailLog(r.stdout)) r = view("--log");
+  if (r.code !== 0) return { error: firstSaid(r) };
+  const log = tailLog(r.stdout);
+  return log ? { log } : { error: "GitHub gave an empty log." };
+}
+var checksPath = (paths, task, sha) => join17(paths.checks, `${task}-${sha}.json`);
+function readChecksReport(paths, task, sha) {
+  try {
+    const r = JSON.parse(readFileSync20(checksPath(paths, task, sha), "utf8"));
+    return r.v === 1 && r.task === task && Array.isArray(r.checks) ? r : null;
+  } catch {
+    return null;
+  }
+}
+var fence = (text) => "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
+function checksSection(r) {
+  if (!r?.checks.length) return [];
+  const which = r.required ? "checks its base branch requires" : "its checks";
+  const lines = [
+    "## What GitHub's checks said",
+    "",
+    `This is a rework. Your change is pull request #${r.pr.number}, and ${which} failed on GitHub on ${short(r.sha)}: ${r.checks.map((c) => c.name).join(", ")}. Its review passed: these failures are all there is to fix.`,
+    "",
+    "Reproduce each failure here and fix it, keeping the rest of the change as it is. Then finish as below: commit, run `acc gate run`, then `acc done`. If a failure isn't caused by this change, such as a check that fails on the base branch too or a service that was down, don't work around it: run `acc block \"<what you found>\"` and stop.",
+    ""
+  ];
+  for (const c of r.checks) {
+    lines.push(`### ${c.name}${c.workflow && c.workflow !== c.name ? ` (${c.workflow})` : ""}`, "");
+    if (c.link) lines.push(`Link: ${c.link}`, "");
+    if (c.log) {
+      const f = fence(c.log);
+      lines.push("The end of its log:", "", `${f}text`, c.log, f, "");
+    } else lines.push(`Couldn't fetch its log: ${sentence(c.noLog ?? "GitHub gave none")}`, "");
+  }
+  return lines;
+}
+var queueReportPath = (paths, task, sha) => join17(paths.queue, `${task}-${sha}.json`);
+function readQueueReport(paths, task, sha) {
+  try {
+    const r = JSON.parse(readFileSync20(queueReportPath(paths, task, sha), "utf8"));
+    return r.v === 1 && r.task === task && Array.isArray(r.checks) && Array.isArray(r.conflicts) ? r : null;
+  } catch {
+    return null;
+  }
+}
+function queueSection(r) {
+  if (!r) return [];
+  const base = `\`${r.base}\``;
+  const lines = ["## What the merge queue found", ""];
+  if (r.kind === "conflict") {
+    lines.push(
+      `This is a rework. Your change is pull request #${r.pr.number}. Its review passed, and the merge queue took it to merge into ${base}, but ${base} has moved on, and merging it into ${short(r.sha)} conflicts in: ${r.conflicts.map((f) => `\`${f}\``).join(", ")}.`,
+      "",
+      `Merge it in here: run \`git merge origin/${r.base}\`, resolve each of those files so that both your change and what ${base} added hold, then commit the merge. Keep the rest of your change as it is. Then finish as below: run \`acc gate run\`, then \`acc done\`. If a conflict can't be resolved without a choice that isn't yours, run \`acc block "<what you found>"\` and stop.`,
+      ""
+    );
+    return lines;
+  }
+  const where = r.merge ? `after merging ${base} in (as ${short(r.merge)}, put back since)` : `on ${short(r.sha)}`;
+  lines.push(
+    `This is a rework. Your change is pull request #${r.pr.number}. Its review passed, and the merge queue took it to merge into ${base}, but the full check failed ${where}: ${r.checks.map((c) => c.gate).join(", ")}. You ran the lighter checks; the full one runs once, in the queue.`,
+    "",
+    `Reproduce each failure here and fix it, keeping the rest of the change as it is.${r.merge ? ` Merge ${base} in first, with \`git merge origin/${r.base}\`, since the failure may come from the two together.` : ""} Run the failing check by name, such as \`acc gate run ${r.checks[0]?.gate ?? "check"}\`, then finish as below: commit, run \`acc gate run\`, then \`acc done\`. If a failure isn't caused by this change, such as a check that fails on ${base} too, don't work around it: run \`acc block "<what you found>"\` and stop.`,
+    ""
+  );
+  for (const c of r.checks) {
+    lines.push(`### ${c.gate}`, "", sentence(c.summary), "");
+    if (c.file) lines.push(`Its whole log: \`${c.file}\``, "");
+    if (c.log) {
+      const f = fence(c.log);
+      lines.push("The end of its log:", "", `${f}text`, c.log, f, "");
+    }
+  }
+  return lines;
+}
+function sendBack(paths, config, id, deps, opts) {
+  const { run: run2, now: now2 } = deps;
+  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+  if (!task) throw new AccError("no-task", `No task ${id}.`);
+  const pr = task.pr;
+  if (task.state !== "review" || pr?.state !== "open") throw new AccError("refused", `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : " with no pull request"}. Autopilot sends back the open pull request of a task in review.`);
+  const gh = config.github;
+  if (!gh) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json, so there are no checks to read.');
+  const branch = task.run?.branch;
+  const head = branch ? run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: paths.root }).stdout.trim() : "";
+  if (!head) throw new AccError("checks", `${id}'s branch isn't in this clone.`);
+  const moved = (why) => new AccError("checks-moved", why);
+  if (pr.sha !== head) throw moved(`Pull request #${pr.number} was landed at ${short(pr.sha ?? "")}, not ${short(head)}: a land comes first.`);
+  const env = { ...deps.env, GH_TOKEN: ghToken(run2, gh.account) };
+  const read2 = readChecks(run2, gh.repo, pr.number, env);
+  const away = (sha) => moved(`Pull request #${pr.number} is at ${short(sha)} on GitHub, not ${short(head)}.`);
+  if (read2.sha !== head) throw away(read2.sha);
+  if (read2.pending.length) throw moved(`Checks are still running on GitHub: ${read2.pending.join(", ")}.`);
+  if (!read2.failed.some((c) => c.job)) throw moved(read2.failed.length ? `Checks failed on GitHub with no log there: ${read2.failed.map((c) => c.name).join(", ")}.` : "Its checks no longer fail on GitHub.");
+  let fetched = 0;
+  const checks = read2.failed.map((c) => {
+    const base = { name: c.name, workflow: c.workflow, link: c.link };
+    if (!c.job) return { ...base, log: null, noLog: NO_ACTIONS_LOG };
+    if (fetched >= MAX_LOGS) return { ...base, log: null, noLog: `Not fetched: autopilot reads the logs of ${MAX_LOGS} checks at most.` };
+    fetched++;
+    const got = fetchLog(run2, c.job, env);
+    return "log" in got ? { ...base, log: got.log, noLog: null } : { ...base, log: null, noLog: got.error };
+  });
+  const still = headOf(run2, gh.repo, pr.number, env);
+  if (still !== head) throw away(still);
+  const names3 = checks.map((c) => c.name);
+  const at2 = now2().toISOString();
+  const report = { v: 1, task: id, sha: head, pr: { number: pr.number, url: pr.url }, required: read2.required, checks, at: at2 };
+  mkdirSync18(paths.checks, { recursive: true });
+  const file = checksPath(paths, id, head);
+  writeFileSync16(file, JSON.stringify(report, null, 2) + "\n");
+  const reason = `Checks failed on GitHub on ${short(head)}: ${names3.join(", ")}.`;
+  mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
+    if (!t) throw new AccError("no-task", `No task ${id}.`);
+    if (t.pr?.sha !== head) throw moved(`Pull request #${pr.number} was landed again meanwhile.`);
+    const req = { to: "rework", actor: opts.actor, by: opts.by, reason };
+    const problems = checkMove(l3, config, t, req, noGateHooks);
+    if (problems.length) throw new AccError("move-refused", `Can't send ${id} back:
+- ${problems.join("\n- ")}`);
+    applyMove(t, req, emit, now2, { checks: names3, sha: head });
+    const sentBack = { sha: head, checks: names3, at: at2 };
+    t.autopilot = { failed: null, ...t.autopilot, sentBack };
+    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { autopilot: { sentBack } } });
+  });
+  return { sha: head, checks: names3, report: file, reason: `Sent it back to its builder: ${reason[0].toLowerCase()}${reason.slice(1)}` };
+}
 
 // packages/core/src/packet.ts
 function lastRunSection(task, env) {
@@ -7972,11 +8161,11 @@ var VERDICT_SCHEMA = {
   }
 };
 var DIFF_MAX = 15e4;
-var reviewPath = (paths, task, sha) => join16(paths.reviews, `${task}-${sha}.json`);
-var runningPath2 = (paths, task) => join16(paths.reviews, `${task}.running.json`);
+var reviewPath = (paths, task, sha) => join18(paths.reviews, `${task}-${sha}.json`);
+var runningPath2 = (paths, task) => join18(paths.reviews, `${task}.running.json`);
 function readVerdict(paths, task, sha) {
   try {
-    return JSON.parse(readFileSync20(reviewPath(paths, task, sha), "utf8"));
+    return JSON.parse(readFileSync21(reviewPath(paths, task, sha), "utf8"));
   } catch {
     return null;
   }
@@ -8003,7 +8192,7 @@ function readVerdicts(paths, task) {
   for (const n of names3) {
     if (!n.endsWith(".json") || n.endsWith(".running.json") || task && !n.startsWith(`${task}-`)) continue;
     try {
-      const v = JSON.parse(readFileSync20(join16(paths.reviews, n), "utf8"));
+      const v = JSON.parse(readFileSync21(join18(paths.reviews, n), "utf8"));
       if (typeof v?.task !== "string" || typeof v.sha !== "string" || typeof v.at !== "string" || !Array.isArray(v.findings)) continue;
       if (`${v.task}-${v.sha}.json` === n && (!task || v.task === task)) all.push(v);
     } catch {
@@ -8022,7 +8211,7 @@ function knownKinds(paths) {
 }
 function reviewing(paths, task) {
   try {
-    const r = JSON.parse(readFileSync20(runningPath2(paths, task), "utf8"));
+    const r = JSON.parse(readFileSync21(runningPath2(paths, task), "utf8"));
     return alive(r.pid) ? r : null;
   } catch {
     return null;
@@ -8173,16 +8362,16 @@ function prepareReview(paths, config, id, run2) {
   const base = baseRef(run2, paths.root, env.branch);
   const receipts = receiptsAt(paths, sha);
   const checks = Object.values(receipts).map(checkLine);
-  const packetFile = join16(paths.packets, `${id}.md`);
-  const packet = existsSync12(packetFile) ? readFileSync20(packetFile, "utf8") : [`# ${task.id}: ${task.title}`, "", task.brief, "", ...notesSection(task)].join("\n");
+  const packetFile = join18(paths.packets, `${id}.md`);
+  const packet = existsSync12(packetFile) ? readFileSync21(packetFile, "utf8") : [`# ${task.id}: ${task.title}`, "", task.brief, "", ...notesSection(task)].join("\n");
   const rules = rulesText(worktree, config.profile);
   const name = sessionName({ project: config.project, key: id, title: task.title, role: "review" });
   return { task, env, branch, worktree, sha, base, packet, rules, checks, kinds: knownKinds(paths), name };
 }
 function recordVerdict(paths, config, verdict, now2, who) {
   const file = reviewPath(paths, verdict.task, verdict.sha);
-  mkdirSync18(paths.reviews, { recursive: true });
-  writeFileSync16(`${file}.tmp`, JSON.stringify(verdict, null, 2) + "\n");
+  mkdirSync19(paths.reviews, { recursive: true });
+  writeFileSync17(`${file}.tmp`, JSON.stringify(verdict, null, 2) + "\n");
   renameSync11(`${file}.tmp`, file);
   const { actor, by } = who;
   const id = verdict.task;
@@ -8210,10 +8399,10 @@ function review(paths, config, id, deps, opts = {}) {
   const stat = git4(run2, paths.root, "diff", "--stat=120", "--find-renames", `${r.base}...${sha}`).stdout;
   const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet: r.packet, diff, stat, checks: r.checks, rules: r.rules, kinds: r.kinds });
   const sessionId = (deps.uuid ?? randomUUID2)();
-  mkdirSync18(paths.reviews, { recursive: true });
+  mkdirSync19(paths.reviews, { recursive: true });
   const marker = runningPath2(paths, id);
   const startedAt = now2();
-  writeFileSync16(marker, JSON.stringify({ sessionId, name, sha, startedAt: startedAt.toISOString(), pid: process.pid }));
+  writeFileSync17(marker, JSON.stringify({ sessionId, name, sha, startedAt: startedAt.toISOString(), pid: process.pid }));
   deps.onStart?.(sessionId, sha, name);
   const awake = holdAwake(process.pid, deps.awake);
   let out3;
@@ -8352,7 +8541,7 @@ function reviewInCloud(paths, config, id, deps, opts = {}) {
   const gitEnv = { ...env, GIT_TERMINAL_PROMPT: "0" };
   const guard = cloudGuard(run2, paths.root, r.env.branch, branch, gitEnv);
   if (guard.why) throw new AccError("cloud-unguarded", `Can't review ${id} in the cloud: the push guard isn't committed where the cloud session would load it. ${guard.why}`);
-  const remote = run2("git", ["ls-remote", "--heads", "origin", branch], { cwd: paths.root, env: gitEnv, timeoutMs: FETCH_TIMEOUT_MS2 });
+  const remote = run2("git", ["ls-remote", "--heads", "origin", branch], { cwd: paths.root, env: gitEnv, timeoutMs: FETCH_TIMEOUT_MS });
   if (remote.code !== 0) throw new AccError("cloud", `origin didn't answer for ${branch}: ${(remote.stderr || remote.stdout).trim().split("\n")[0]}`);
   if (!remote.stdout.startsWith(sha)) {
     const push = run2("git", ["push", "origin", `${branch}:${branch}`], { cwd: paths.root, env: gitEnv, timeoutMs: PUSH_TIMEOUT_MS });
@@ -8374,7 +8563,7 @@ function reviewInCloud(paths, config, id, deps, opts = {}) {
   return { task: moved, sha, sessionId: fired.sessionId, url: fired.url, branch: cloudReview.branch, reason: `Reviewing ${sha.slice(0, 7)} in the cloud: ${fired.url}. acc sync reads its verdict from ${cloudReview.branch}.` };
 }
 function verdictHeads(run2, root, env) {
-  const r = run2("git", ["ls-remote", "--heads", "origin", VERDICT_BRANCHES], { cwd: root, env: { ...env, GIT_TERMINAL_PROMPT: "0" }, timeoutMs: FETCH_TIMEOUT_MS2 });
+  const r = run2("git", ["ls-remote", "--heads", "origin", VERDICT_BRANCHES], { cwd: root, env: { ...env, GIT_TERMINAL_PROMPT: "0" }, timeoutMs: FETCH_TIMEOUT_MS });
   if (r.code !== 0) return null;
   const heads = /* @__PURE__ */ new Map();
   for (const m of r.stdout.matchAll(/^([0-9a-f]{40,64})\s+refs\/heads\/(\S+)$/gm)) heads.set(m[2], m[1]);
@@ -8397,8 +8586,8 @@ function pruneVerdictBranches(paths, deps, heads, handled = /* @__PURE__ */ new 
 }
 function keepVerdict(paths, verdict) {
   const file = reviewPath(paths, verdict.task, verdict.sha);
-  mkdirSync19(paths.reviews, { recursive: true });
-  writeFileSync17(`${file}.tmp`, JSON.stringify(verdict, null, 2) + "\n");
+  mkdirSync20(paths.reviews, { recursive: true });
+  writeFileSync18(`${file}.tmp`, JSON.stringify(verdict, null, 2) + "\n");
   renameSync12(`${file}.tmp`, file);
 }
 function followCloudReviews(paths, config, deps, opts = {}) {
@@ -8691,50 +8880,405 @@ function sync(paths, config, deps) {
   return { checked: seen.size + promoted.size, changes, ...followGithub(paths, config, deps) };
 }
 
-// packages/core/src/paths.ts
-import { realpathSync } from "node:fs";
-import { join as join17 } from "node:path";
-function repoPaths(cwd, run2) {
-  const top = run2("git", ["rev-parse", "--show-toplevel"], { cwd });
-  if (top.code !== 0) throw new AccError("not-a-repo", `${cwd} isn't inside a git repository.`);
-  const common = run2("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd });
-  if (common.code !== 0) throw new AccError("not-a-repo", `Couldn't find the git directory for ${cwd}.`);
-  const root = top.stdout.trim();
-  const commonDir = common.stdout.trim();
-  const stateDir = join17(commonDir, "acc");
-  return {
-    root,
-    commonDir,
-    stateDir,
-    ledger: join17(stateDir, "ledger.json"),
-    events: join17(stateDir, "events.jsonl"),
-    lock: join17(stateDir, "ledger.lock"),
-    autopilotLock: join17(stateDir, "autopilot.lock"),
-    receipts: join17(stateDir, "receipts"),
-    reviews: join17(stateDir, "reviews"),
-    analyses: join17(stateDir, "analyses"),
-    updates: join17(stateDir, "updates"),
-    checks: join17(stateDir, "checks"),
-    queue: join17(stateDir, "queue"),
-    suggestions: join17(stateDir, "rules"),
-    packets: join17(stateDir, "packets"),
-    logs: join17(stateDir, "logs"),
-    config: join17(root, ".acc", "config.json"),
-    floors: join17(root, ".acc", "floors.json"),
-    relaxed: join17(stateDir, "relaxed.jsonl")
-  };
+// packages/core/src/refresh.ts
+var short2 = (sha) => sha.slice(0, 7);
+var lastLines = (r) => (r.stderr || r.stdout).trim().split("\n").slice(-2).join(" ");
+function appendOnlyMerge(common, ours, theirs) {
+  if (!ours.startsWith(common) || !theirs.startsWith(common)) return null;
+  let start = common;
+  let mine = ours.slice(common.length);
+  let added = theirs.slice(common.length);
+  if (start && !start.endsWith("\n") && (mine || added)) {
+    if ([mine, added].some((t) => t && !t.startsWith("\n"))) return null;
+    start += "\n";
+    mine = mine.slice(1);
+    added = added.slice(1);
+  }
+  if (mine === added) return start + mine;
+  if (added.startsWith(mine)) return start + added;
+  if (mine.startsWith(added)) return start + mine;
+  return start + added + (added && mine && !added.endsWith("\n") ? "\n" : "") + mine;
 }
-function samePath(a2, b) {
-  if (a2 === b) return true;
+function unmerged(run2, wt2) {
+  const out3 = /* @__PURE__ */ new Map();
+  for (const entry of run2("git", ["ls-files", "-u", "-z"], { cwd: wt2 }).stdout.split("\0")) {
+    const m = /^(\d+) ([0-9a-f]+) ([123])\t(.+)$/s.exec(entry);
+    if (!m) continue;
+    const stages = out3.get(m[4]) ?? /* @__PURE__ */ new Map();
+    stages.set(Number(m[3]), { mode: m[1], sha: m[2] });
+    out3.set(m[4], stages);
+  }
+  return out3;
+}
+var isText = (s) => !s.includes("\0") && !s.includes("\uFFFD");
+function resolveWith(run2, wt2, mergeBase, path, stages, merge, added = false) {
+  const git10 = (...args) => run2("git", args, { cwd: wt2 });
+  const [common, ours, theirs] = [stages.get(1), stages.get(2), stages.get(3)];
+  if (!common && !added || !ours || !theirs) return false;
+  if (![common, ours, theirs].every((s) => !s || s.mode === "100644" || s.mode === "100755")) return false;
+  const at2 = (ref) => git10("rev-parse", "--verify", "--quiet", `${ref}:${path}`).stdout.trim();
+  if (at2(mergeBase) !== (common?.sha ?? "") || at2("HEAD") !== ours.sha || at2("MERGE_HEAD") !== theirs.sha) return false;
+  const blobs = [common, ours, theirs].map((s) => s ? git10("cat-file", "blob", s.sha) : { code: 0, stdout: "", stderr: "" });
+  if (blobs.some((b) => b.code !== 0 || !isText(b.stdout))) return false;
+  const merged = merge(blobs[0].stdout, blobs[1].stdout, blobs[2].stdout);
+  if (merged === null) return false;
+  const blob = run2("git", ["hash-object", "-w", "--stdin"], { cwd: wt2, input: merged });
+  if (blob.code !== 0) return false;
+  if (git10("update-index", "--cacheinfo", `${ours.mode},${blob.stdout.trim()},${path}`).code !== 0) return false;
+  return git10("checkout", "--", path).code === 0;
+}
+function resolvedWords(resolved, verb = "kept", file = (f) => f) {
+  const added = resolved.filter((f) => f !== FLOORS_FILE);
+  return [
+    ...added.length ? [`${verb} both sides' additions to ${added.map(file).join(", ")}`] : [],
+    ...resolved.includes(FLOORS_FILE) ? [`${verb} the better of each ratchet's floors in ${file(FLOORS_FILE)}`] : []
+  ].join(", and ");
+}
+var MergeConflict = class extends AccError {
+  files;
+  constructor(message2, files) {
+    super("refresh", message2);
+    this.files = files;
+  }
+};
+var CheckFailure = class extends AccError {
+  failed;
+  constructor(message2, failed) {
+    super("refresh", message2);
+    this.failed = failed;
+  }
+};
+var gitIn = (run2, wt2) => (...args) => run2("git", args, { cwd: wt2 });
+var midMerge = (run2, wt2) => gitIn(run2, wt2)("rev-parse", "--verify", "--quiet", "MERGE_HEAD").code === 0;
+var dirtyIn = (run2, wt2, untracked = true) => gitIn(run2, wt2)("status", "--porcelain", ...untracked ? [] : ["--untracked-files=no"]).stdout.trim() !== "";
+function mergePlace(paths, config, task, run2) {
+  const id = task.id;
+  const env = environmentByBranch(config, task.environment);
+  if (!env) throw new AccError("refresh", `${id}'s environment "${task.environment}" isn't in the config.`);
+  const branch = task.run?.branch;
+  const wt2 = task.run?.worktree;
+  if (!branch) throw new AccError("refresh", `${id} has no branch.`);
+  if (!wt2 || !existsSync14(wt2)) throw new AccError("refresh", `${id}'s worktree isn't on disk any more, so there's nowhere to merge ${env.branch} in.`);
+  if (samePath(wt2, mainCheckout(run2, paths.root))) throw new AccError("refresh", `${id}'s worktree is the main checkout. Autopilot merges only in a task's own worktree.`);
+  const git10 = gitIn(run2, wt2);
+  const on = git10("symbolic-ref", "--quiet", "--short", "HEAD").stdout.trim();
+  if (on !== branch) throw new AccError("refresh", `${wt2} is on ${on || "a detached commit"}, not ${branch}.`);
+  if (dirtyIn(run2, wt2) || midMerge(run2, wt2)) throw new AccError("refresh", `${id}'s worktree has changes nobody committed, so autopilot leaves it alone.`);
+  return { id, env, branch, wt: wt2, from: git10("rev-parse", "HEAD").stdout.trim() };
+}
+function fetchBase(paths, place2, run2, env) {
+  const { branch, from } = place2;
+  if (!fetchBranches(run2, paths.root, [place2.env.branch, branch], { ...env, GIT_TERMINAL_PROMPT: "0" })) {
+    throw new AccError("refresh", `Couldn't fetch ${place2.env.branch} and ${branch} from origin.`);
+  }
+  if (gitIn(run2, place2.wt)("merge-base", "--is-ancestor", `refs/remotes/origin/${branch}`, from).code !== 0) {
+    throw new AccError("refresh", `origin's ${branch} has commits this clone's branch doesn't, perhaps from GitHub. Bring them in by hand.`);
+  }
+}
+var merging = (config, run2, wt2) => {
+  const who = config.commitIdentity ? ["-c", `user.name=${config.commitIdentity.name}`, "-c", `user.email=${config.commitIdentity.email}`] : [];
+  return (...args) => run2("git", ["-c", "rerere.enabled=false", ...who, ...args], { cwd: wt2 });
+};
+function putBack(config, place2, run2, how) {
+  const { wt: wt2, from } = place2;
+  merging(config, run2, wt2)(...how);
+  const back = gitIn(run2, wt2)("rev-parse", "HEAD").stdout.trim() === from && !dirtyIn(run2, wt2, false) && !midMerge(run2, wt2);
+  return back ? `The branch is as it was, at ${short2(from)}, and nothing was pushed.` : `Putting the branch back at ${short2(from)} didn't work: look at ${wt2} before anything else.`;
+}
+var undoMerge = (config, place2, run2) => putBack(config, place2, run2, ["reset", "--hard", place2.from]);
+function mergeBaseIn(config, place2, run2) {
+  const { env, branch, wt: wt2 } = place2;
+  const git10 = gitIn(run2, wt2);
+  const merge = merging(config, run2, wt2);
+  const merged = merge("merge", "--no-ff", "--no-commit", `origin/${env.branch}`);
+  if (!midMerge(run2, wt2)) {
+    if (merged.code === 0) return null;
+    throw new AccError("refresh", `git wouldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(config, place2, run2, ["reset", "--merge"])}`);
+  }
+  const appendOnly = config.autopilot?.appendOnly ?? [];
+  const mergeBase = git10("merge-base", "HEAD", "MERGE_HEAD").stdout.trim();
+  const resolved = [];
+  const left = [];
+  for (const [path, stages] of unmerged(run2, wt2)) {
+    if (path === FLOORS_FILE ? resolveWith(run2, wt2, mergeBase, path, stages, mergeFloors, true) : listed(path, appendOnly) && resolveWith(run2, wt2, mergeBase, path, stages, appendOnlyMerge)) resolved.push(path);
+    else left.push(path);
+  }
+  if (left.length) throw new MergeConflict(`Conflicts with ${env.branch} that autopilot can't resolve: ${left.join(", ")}. ${putBack(config, place2, run2, ["merge", "--abort"])}`, left);
+  if (merged.code !== 0 && !resolved.length) throw new AccError("refresh", `git couldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(config, place2, run2, ["merge", "--abort"])}`);
+  const message2 = [`Merge ${env.branch} into ${branch}`, ...resolved.length ? ["", `Autopilot ${resolvedWords(resolved)}.`] : []].join("\n");
+  const commit = merge("commit", "-m", message2);
+  if (commit.code !== 0) throw new AccError("refresh", `The merge commit was refused: ${lastLines(commit)} ${putBack(config, place2, run2, ["merge", "--abort"])}`);
+  return { sha: git10("rev-parse", "HEAD").stdout.trim(), resolved };
+}
+function checkCommit(paths, config, place2, sha, gates, deps) {
+  const { env, wt: wt2, from } = place2;
+  const { run: run2 } = deps;
+  const what = sha === from ? "Its checks" : `Merged ${env.branch} in, but its checks`;
+  let failed = [];
   try {
-    return realpathSync(a2) === realpathSync(b);
-  } catch {
-    return false;
+    if (gates.length) {
+      const ran = runGates(repoPaths(wt2, run2), config, env, gates, priorTests(paths, config, from), { run: run2, now: deps.now, slots: deps.slots, task: place2.id, onWait: deps.onWait, onStart: deps.onStart, waivedOn: from });
+      failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt));
+    }
+  } catch (e) {
+    const err = e;
+    throw new AccError(err.code ?? "refresh", `${what} couldn't run: ${err.message} ${putBack(config, place2, run2, ["reset", "--hard", from])}`);
+  }
+  if (failed.length) {
+    const said2 = failed.map((r) => `${r.gate} ${!r.recorded ? "wasn't recorded" : r.status === "fail" ? "failed" : r.status === "hold" ? "needs a person" : "couldn't run"}: ${r.summary.replace(/[.!?]$/, "")}${r.receipt.log ? ` (log ${r.receipt.log})` : ""}`);
+    throw new CheckFailure(`${what} failed on ${short2(sha)}: ${said2.join("; ")}. ${putBack(config, place2, run2, ["reset", "--hard", from])}`, failed);
+  }
+}
+function refresh(paths, config, id, deps, opts) {
+  return withJob(paths, { kind: "refresh", task: id, by: opts.by }, () => refreshNow(paths, config, id, deps, opts), deps.now);
+}
+function refreshNow(paths, config, id, deps, opts) {
+  const { run: run2, now: now2 } = deps;
+  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+  if (!task) throw new AccError("no-task", `No task ${id}.`);
+  const pr = task.pr;
+  if (task.state !== "review" || pr?.state !== "open") throw new AccError("refused", `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : " with no pull request"}. Autopilot updates the open pull request of a task in review.`);
+  const place2 = mergePlace(paths, config, task, run2);
+  const { env, branch, from } = place2;
+  fetchBase(paths, place2, run2, deps.env);
+  const record2 = (change2) => mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
+    if (!t) return;
+    const data = change2(t);
+    t.updatedAt = now2().toISOString();
+    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data });
+  });
+  const settled = () => {
+    record2((t) => {
+      if (t.pr) t.pr = { ...t.pr, conflicts: [] };
+      return { pr: t.pr };
+    });
+    return { sha: null, from, resolved: [], reason: `Pull request #${pr.number} no longer conflicts with ${env.branch}, so nothing was merged.` };
+  };
+  if (conflictsOf(run2, paths.root, env.branch, branch)?.length === 0) return settled();
+  const made = mergeBaseIn(config, place2, run2);
+  if (!made) return settled();
+  const { sha, resolved } = made;
+  const required = fullGates(config);
+  checkCommit(paths, config, place2, sha, required, { run: run2, now: now2, slots: deps.slots });
+  const refreshed = { base: env.branch, from, to: sha, resolved };
+  record2((t) => {
+    if (t.autopilot?.failed) t.autopilot.failed = null;
+    return { refreshed };
+  });
+  const kept = resolved.length ? `, ${resolvedWords(resolved, "keeping")}` : "";
+  return { sha, from, resolved, reason: `Merged ${env.branch} into ${short2(from)} as ${short2(sha)}${kept}.${required.length ? " Its checks passed." : ""} It's reviewed next pass, then landed.` };
+}
+
+// packages/core/src/land.ts
+var PUSH_TIMEOUT_MS2 = 5 * 6e4;
+var GH_TIMEOUT_MS = 2 * 6e4;
+var LAND_TIMEOUT_MS = PUSH_TIMEOUT_MS2 + FETCH_TIMEOUT_MS + 3 * GH_TIMEOUT_MS + 6e4;
+var UPDATE_POST_TIMEOUT_MS = 2 * GH_TIMEOUT_MS + 6e4;
+var STATUS_WORD = { pass: "Passed", fail: "Failed", error: "Couldn't run", skip: "Didn't apply", hold: "Needs a person" };
+var cell = (s) => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
+function mergesWords(autoMerge) {
+  return autoMerge ? "With autopilot running, it merges once its checks pass on GitHub and nothing waits on a person: auto-merge is on for this repo. Ask for changes to hold it." : "It merges only when a person merges it.";
+}
+function prBody(task, env, sha, verdict, receipts, autoMerge = false, carried = null) {
+  const ticket = task.source.url ? `[${task.source.key ?? task.id}](${task.source.url})` : null;
+  const counted = Object.values(receipts).some((r) => testsText(r));
+  const lines = [
+    verdict.summary.trim(),
+    "",
+    ...ticket ? [`Ticket: ${ticket}${task.source.kind === "github" && task.source.key ? ` (refs ${task.source.key})` : ""}`, ""] : [],
+    "## Acceptance criteria",
+    "",
+    ...verdict.criteria.length ? verdict.criteria.map((c) => `- [${c.met ? "x" : " "}] ${c.text}${c.evidence ? ` (${c.evidence})` : ""}`) : ["_The reviewer listed none._"],
+    "",
+    `## Checks on ${sha.slice(0, 7)}`,
+    "",
+    counted ? "| Check | Result | Tests | Detail |" : "| Check | Result | Detail |",
+    counted ? "|---|---|---|---|" : "|---|---|---|",
+    // A ratchet shows its numbers, from the environment's floor to this commit's: tests 669 → 674 (+5) (GH-99).
+    ...Object.values(receipts).map((r) => `| \`${r.gate}\` | ${r.waived ? `Waived by ${r.waived.by.replace(/^human:/, "")}` : STATUS_WORD[r.status] ?? r.status} |${counted ? ` ${testsText(r)} |` : ""} ${cell(r.waived ? r.waived.reason : ratchetOf(r) ? ratchetLine(ratchetOf(r)) : r.summary)} |`),
+    "",
+    "## Review",
+    "",
+    carried ? `Passed on ${carried.from.slice(0, 7)} by a reviewer agent that read the change and couldn't edit it. The merge queue then merged \`${carried.base}\` in as ${sha.slice(0, 7)}${carried.resolved.length ? `, ${resolvedWords(carried.resolved, "keeping", (f) => `\`${f}\``)}` : ""}, and ran the full check on it: the review carries over.` : `Passed by a reviewer agent that read the change and couldn't edit it.`,
+    ...verdict.findings.length ? ["", "Worth a look, not blocking:", "", ...verdict.findings.map((f) => `- ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ""}\`: ` : ""}${f.message}`)] : [],
+    "",
+    // Its builder's handoff note (D-106), as its own account: the review above is what checked the change.
+    "## Builder's note",
+    "",
+    ...task.run?.note ? [`In its builder's own words, ${task.run.note.ended === "blocked" ? "when it blocked" : "as it finished"}. The review above is what checked the change.`, "", ...noteMarkdown(task.run.note)] : ["_Its builder left no note._"],
+    "",
+    "---",
+    `Built by a Claude Code agent and opened by \`acc land\` into \`${env.branch}\` (${env.name}). ${mergesWords(autoMerge)}`
+  ];
+  return lines.join("\n") + "\n";
+}
+function ghToken(run2, account) {
+  const t = run2("gh", ["auth", "token", "-u", account], { timeoutMs: GH_TIMEOUT_MS });
+  if (t.code !== 0 || !t.stdout.trim()) throw new AccError("no-github", `gh isn't logged in as ${account}, the account this repo works as. Sign in from the Command Center, or run gh auth login.`);
+  return t.stdout.trim();
+}
+function land(paths, config, id, deps, opts = {}) {
+  return withJob(paths, { kind: "land", task: id, by: opts.by ?? "acc land" }, () => landNow(paths, config, id, deps, opts), deps.now);
+}
+function landNow(paths, config, id, deps, opts) {
+  const { run: run2, now: now2 } = deps;
+  const steps2 = deps.steps ?? NO_STEPS;
+  const { task, gh, env, branch, sha, own, verdict } = steps2.step("task", "Check its review and checks", () => {
+    const task2 = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+    if (!task2) throw new AccError("no-task", `No task ${id}.`);
+    if (task2.state !== "review") throw new AccError("refused", `${id} is ${task2.state}. A task lands from review, once its review has passed.`);
+    const gh2 = config.github;
+    if (!gh2) throw new AccError("no-github", 'acc land opens a pull request on GitHub, and this project has no "github" section in .acc/config.json.');
+    const env2 = environmentByBranch(config, task2.environment);
+    if (!env2) throw new AccError("land", `${id}'s environment "${task2.environment}" isn't in the config.`);
+    const branch2 = task2.run?.branch;
+    if (!branch2) throw new AccError("land", `${id} has no branch to land.`);
+    const sha2 = run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch2}`], { cwd: paths.root }).stdout.trim();
+    if (!sha2) throw new AccError("land", `The branch ${branch2} isn't in this clone.`);
+    const missing = receiptHooks(paths, config, run2).missingGates(task2, opts.gates);
+    if (missing.length) throw new AccError("refused", `${id}'s checks aren't settled on ${sha2.slice(0, 7)}: ${missing.join(", ")}.`);
+    const own2 = readVerdict(paths, id, sha2);
+    const verdict2 = own2 ?? carriedVerdict(paths, task2, sha2);
+    if (!verdict2) throw new AccError("refused", `${id} hasn't been reviewed on ${sha2.slice(0, 7)}. Run acc review ${id} first.`);
+    if (verdict2.verdict !== "pass") throw new AccError("refused", `${id}'s review on ${sha2.slice(0, 7)} asked for changes: ${verdict2.summary}`);
+    return { task: task2, gh: gh2, env: env2, branch: branch2, sha: sha2, own: own2, verdict: verdict2 };
+  });
+  const ghEnv3 = { ...deps.env, GH_TOKEN: steps2.step("github", `Sign in to GitHub as ${gh.account}`, () => ghToken(run2, gh.account)) };
+  const ghRun = (args) => run2("gh", args, { cwd: paths.root, env: ghEnv3, timeoutMs: GH_TIMEOUT_MS });
+  const existing = steps2.step("find", "Look for its pull request", () => {
+    const open = ghRun(["pr", "list", "-R", gh.repo, "--head", branch, "--state", "open", "--json", "number,url"]);
+    const existing2 = open.code === 0 ? JSON.parse(open.stdout || "[]")[0] : void 0;
+    if (!existing2 && task.pr && opts.actor === "orchestrator") {
+      const seen = open.code === 0 ? "isn't open on GitHub" : `may not be open on GitHub: gh couldn't list the branch's pull requests (${(open.stderr || open.stdout).trim().split("\n")[0] || `exit ${open.code}`})`;
+      throw new AccError("land", `Pull request #${task.pr.number} ${seen}. Autopilot won't open another: a person decides.`);
+    }
+    return existing2;
+  });
+  steps2.step("push", `Push ${branch}`, () => {
+    const push = run2("git", ["push", "--set-upstream", "origin", `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS2 });
+    if (push.code !== 0) throw new AccError("land", `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split("\n").slice(-2).join(" ")}`);
+  });
+  const receipts = receiptsAt(paths, sha);
+  const body = prBody(task, env, sha, verdict, receipts, autoMergeFor(config, env.branch), own ? null : task.autopilot?.carried ?? null);
+  const dir = mkdtempSync3(join19(tmpdir3(), "acc-land-"));
+  let pr;
+  let opened;
+  steps2.start("pr", existing ? `Update pull request #${existing.number}` : `Open the pull request into ${env.branch}`);
+  try {
+    const bodyFile = join19(dir, "body.md");
+    writeFileSync19(bodyFile, body);
+    if (existing) {
+      const edit = ghRun(["pr", "edit", String(existing.number), "-R", gh.repo, "--body-file", bodyFile]);
+      if (edit.code !== 0) throw new AccError("land", `Couldn't update pull request #${existing.number}: ${edit.stderr.trim().split("\n")[0]}`);
+      pr = { number: existing.number, url: existing.url, state: "open", landedAt: now2().toISOString(), sha };
+      opened = false;
+    } else {
+      const create = ghRun(["pr", "create", "-R", gh.repo, "--base", env.branch, "--head", branch, "--title", `${task.id}: ${task.title}`, "--body-file", bodyFile]);
+      const url = create.stdout.trim().split("\n").find((l3) => /^https:\/\/github\.com\/.+\/pull\/\d+/.test(l3.trim()))?.trim();
+      if (create.code !== 0 || !url) throw new AccError("land", `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split("\n")[0]}`);
+      pr = { number: Number(/\/pull\/(\d+)/.exec(url)[1]), url, state: "open", landedAt: now2().toISOString(), sha };
+      opened = true;
+    }
+  } catch (e) {
+    steps2.fail("pr", e.message);
+    throw e;
+  } finally {
+    rmSync12(dir, { recursive: true, force: true });
+  }
+  steps2.done("pr", `#${pr.number}`);
+  steps2.start("conflicts", `Check it merges into ${env.branch}`);
+  const conflicts = fetchBranches(run2, paths.root, [env.branch, branch], deps.env) ? conflictsOf(run2, paths.root, env.branch, branch) : null;
+  if (conflicts) pr = { ...pr, conflicts };
+  steps2.done("conflicts", conflicts?.length ? `It conflicts in ${conflicts.join(", ")}` : void 0);
+  const updated = steps2.step("record", "Record the pull request", () => mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
+    t.pr = pr;
+    if (t.autopilot?.failed) t.autopilot.failed = null;
+    t.updatedAt = now2().toISOString();
+    emit({ type: "task.updated", task: id, actor: opts.actor ?? "human", by: opts.by ?? "acc land", data: { pr, sha, opened } });
+    return t;
+  }));
+  steps2.start("update", "Draft the ticket's update");
+  try {
+    const update = draftUpdate(paths, task, {
+      event: opened ? "pr-opened" : "pr-updated",
+      pr: { number: pr.number, url: pr.url },
+      context: { summary: verdict.client?.trim() || task.title }
+    }, opts.by ?? "acc land", now2);
+    steps2.done("update", update ? void 0 : "It has no ticket");
+    return { task: updated, sha, pr, opened, update: update ? { id: update.id, key: update.key } : null };
+  } catch (e) {
+    steps2.fail("update", e.message);
+    return { task: updated, sha, pr, opened, update: null, updateError: e.message };
   }
 }
 
+// packages/core/src/protection.ts
+var GH_TIMEOUT_MS2 = 3e4;
+function read(run2, path, env) {
+  const r = run2("gh", ["api", path, "--include"], { env, timeoutMs: GH_TIMEOUT_MS2 });
+  const m = /^HTTP\/[\d.]+ (\d{3})/.exec(r.stdout);
+  const status = m ? Number(m[1]) : r.code === 0 ? 200 : 0;
+  const body = r.stdout.includes("\r\n\r\n") ? r.stdout.slice(r.stdout.indexOf("\r\n\r\n") + 4) : r.stdout.includes("\n\n") ? r.stdout.slice(r.stdout.indexOf("\n\n") + 2) : r.stdout;
+  return { status, body, error: (r.stderr || "").trim().split("\n")[0] ?? "" };
+}
+var message = (body) => {
+  try {
+    const j2 = JSON.parse(body);
+    return typeof j2.message === "string" ? j2.message : "";
+  } catch {
+    return "";
+  }
+};
+function branchProtection(run2, repo, branch, env) {
+  const protection = read(run2, `repos/${repo}/branches/${encodeURIComponent(branch)}/protection`, env);
+  if (protection.status === 200) {
+    const rules2 = [];
+    try {
+      const p = JSON.parse(protection.body);
+      if (p.required_pull_request_reviews) rules2.push("a pull request with reviews");
+      if (p.required_status_checks) rules2.push("passing checks");
+      if (p.enforce_admins?.enabled) rules2.push("no admin bypass");
+      if (p.restrictions) rules2.push("who may push");
+      if (p.allow_force_pushes?.enabled === false) rules2.push("no force pushes");
+      if (p.allow_deletions?.enabled === false) rules2.push("no deletion");
+    } catch {
+    }
+    return { branch, state: "enforced", why: `GitHub protects ${branch}${rules2.length ? `: ${rules2.join(", ")}` : ""}.` };
+  }
+  const upgrade = (r) => r.status === 403 && /upgrade to github pro|make this repository public/i.test(message(r.body));
+  if (upgrade(protection)) return { branch, state: "unavailable", why: `GitHub doesn't offer branch protection or rulesets on ${repo}: a private repo on the free plan. A push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented.` };
+  if (protection.status !== 404) return { branch, state: "unknown", why: `gh couldn't read ${branch}'s protection: ${message(protection.body) || protection.error || `HTTP ${protection.status || "?"}`}.` };
+  const rules = read(run2, `repos/${repo}/rules/branches/${encodeURIComponent(branch)}`, env);
+  if (rules.status === 200) {
+    let applied = [];
+    try {
+      applied = JSON.parse(rules.body);
+    } catch {
+      applied = [];
+    }
+    if (Array.isArray(applied) && applied.length) return { branch, state: "enforced", why: `A ruleset applies to ${branch}: ${[...new Set(applied.map((r) => String(r.type ?? "rule").replace(/_/g, " ")))].join(", ")}.` };
+    return { branch, state: "none", why: `GitHub enforces no protection and no ruleset on ${branch}: a push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.` };
+  }
+  if (upgrade(rules)) return { branch, state: "unavailable", why: `GitHub doesn't offer branch protection or rulesets on ${repo}: a private repo on the free plan. A push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented.` };
+  return { branch, state: "unknown", why: `gh couldn't read ${branch}'s rulesets: ${message(rules.body) || rules.error || `HTTP ${rules.status || "?"}`}.` };
+}
+function environmentProtection(run2, repo, account, branches, env) {
+  let ghEnv3;
+  try {
+    ghEnv3 = { ...env, GH_TOKEN: ghToken(run2, account) };
+  } catch (e) {
+    return branches.map((branch) => ({ branch, state: "unknown", why: `gh couldn't read ${branch}'s protection: ${e.message}` }));
+  }
+  return branches.map((branch) => branchProtection(run2, repo, branch, ghEnv3));
+}
+function protectionWarnings(found) {
+  return found.filter((p) => p.state !== "enforced").map((p) => p.state === "unknown" ? `${p.why} Whether a push the guard didn't catch would be prevented isn't known.` : p.why);
+}
+
 // packages/core/src/overlap.ts
-import { existsSync as existsSync14 } from "node:fs";
+import { existsSync as existsSync15 } from "node:fs";
 import { isAbsolute as isAbsolute3, relative as relative2 } from "node:path";
 function repoPath(path, root) {
   let p = path.trim().replace(/\\/g, "/");
@@ -8790,7 +9334,7 @@ function branchFiles(run2, root, env, branch, worktree) {
     for (const c of changedPaths(run2, root, base, ref)) files.add(c.path);
   } catch {
   }
-  if (worktree && existsSync14(worktree)) {
+  if (worktree && existsSync15(worktree)) {
     try {
       for (const c of changedPaths(run2, worktree, base)) files.add(c.path);
     } catch {
@@ -8888,8 +9432,8 @@ function releaseHeld(paths, now2, id, opts, reason) {
 
 // packages/core/src/limits.ts
 import { createHash as createHash2 } from "node:crypto";
-import { mkdirSync as mkdirSync20, readdirSync as readdirSync8, readFileSync as readFileSync21, realpathSync as realpathSync2, renameSync as renameSync13, rmSync as rmSync12, statSync as statSync6, writeFileSync as writeFileSync18 } from "node:fs";
-import { basename as basename4, dirname as dirname7, join as join18 } from "node:path";
+import { mkdirSync as mkdirSync21, readdirSync as readdirSync8, readFileSync as readFileSync22, realpathSync as realpathSync2, renameSync as renameSync13, rmSync as rmSync13, statSync as statSync6, writeFileSync as writeFileSync20 } from "node:fs";
+import { basename as basename4, dirname as dirname7, join as join20 } from "node:path";
 var MAX_AGENTS = 16;
 function setAgentsMax(configFile, n) {
   if (!Number.isInteger(n) || n < 1 || n > MAX_AGENTS) throw new AccError("usage", `A project's builder cap is a whole number from 1 to ${MAX_AGENTS}.`);
@@ -8898,7 +9442,7 @@ function setAgentsMax(configFile, n) {
 }
 function configSets(configFile, key) {
   try {
-    let v = JSON.parse(readFileSync21(configFile, "utf8"));
+    let v = JSON.parse(readFileSync22(configFile, "utf8"));
     for (const k2 of key) v = v && typeof v === "object" && Object.hasOwn(v, k2) ? v[k2] : void 0;
     return v !== void 0;
   } catch {
@@ -8945,10 +9489,10 @@ function setMachineAgents(n, env = process.env) {
   setMachineKey("agents", n ?? void 0, env);
   return n;
 }
-var ledgersDir = (env = process.env) => machineDir(env) ? join18(machineDir(env), "ledgers") : null;
+var ledgersDir = (env = process.env) => machineDir(env) ? join20(machineDir(env), "ledgers") : null;
 function realLedger(file) {
   try {
-    return join18(realpathSync2(dirname7(file)), basename4(file));
+    return join20(realpathSync2(dirname7(file)), basename4(file));
   } catch {
     return file;
   }
@@ -8958,15 +9502,15 @@ function registerLedger(ledger, project2, env = process.env) {
   const dir = ledgersDir(env);
   if (!dir) return;
   const path = realLedger(ledger);
-  const file = join18(dir, entryName(path));
+  const file = join20(dir, entryName(path));
   try {
     statSync6(file);
     return;
   } catch {
   }
   try {
-    mkdirSync20(dir, { recursive: true });
-    writeFileSync18(`${file}.${process.pid}.tmp`, JSON.stringify({ ledger: path, project: project2 }) + "\n");
+    mkdirSync21(dir, { recursive: true });
+    writeFileSync20(`${file}.${process.pid}.tmp`, JSON.stringify({ ledger: path, project: project2 }) + "\n");
     renameSync13(`${file}.${process.pid}.tmp`, file);
   } catch {
   }
@@ -8985,7 +9529,7 @@ function machineRepos(env = process.env, { except, prune = false } = {}) {
   for (const n of names3.sort()) {
     let entry;
     try {
-      entry = JSON.parse(readFileSync21(join18(dir, n), "utf8"));
+      entry = JSON.parse(readFileSync22(join20(dir, n), "utf8"));
     } catch {
       continue;
     }
@@ -8994,7 +9538,7 @@ function machineRepos(env = process.env, { except, prune = false } = {}) {
     try {
       statSync6(entry.ledger);
     } catch {
-      if (prune) rmSync12(join18(dir, n), { force: true });
+      if (prune) rmSync13(join20(dir, n), { force: true });
       continue;
     }
     try {
@@ -9020,6 +9564,191 @@ function machineCapProblem(ledger, except, machine) {
   return n >= machine.max ? machineCapWords(n, machine.max) : null;
 }
 
+// packages/core/src/started.ts
+import { mkdirSync as mkdirSync22, readdirSync as readdirSync10, readFileSync as readFileSync24, statSync as statSync8 } from "node:fs";
+import { join as join22 } from "node:path";
+
+// packages/core/src/transcript.ts
+import { closeSync as closeSync3, existsSync as existsSync16, openSync as openSync3, readdirSync as readdirSync9, readFileSync as readFileSync23, readSync as readSync3, statSync as statSync7 } from "node:fs";
+import { homedir as homedir5 } from "node:os";
+import { join as join21 } from "node:path";
+function claudeProjectsDir(env = process.env) {
+  return env.CLAUDE_CONFIG_DIR ? join21(env.CLAUDE_CONFIG_DIR, "projects") : join21(env.HOME || homedir5(), ".claude", "projects");
+}
+var transcriptDir = (projectsDir, cwd) => `${projectsDir}/${cwd.replace(/[^A-Za-z0-9]/g, "-")}`;
+function savedDir(projectsDir, file, likely) {
+  for (const f of new Set(likely.filter((c) => !!c))) {
+    const dir2 = transcriptDir(projectsDir, f);
+    if (existsSync16(join21(dir2, file))) return { dir: dir2, folder: f };
+  }
+  let dirs;
+  try {
+    dirs = readdirSync9(projectsDir);
+  } catch {
+    return null;
+  }
+  const dir = dirs.find((d) => existsSync16(join21(projectsDir, d, file)));
+  return dir ? { dir: `${projectsDir}/${dir}`, folder: null } : null;
+}
+function transcriptFile(projectsDir, sessionId, likely) {
+  const file = `${sessionId}.jsonl`;
+  const found = savedDir(projectsDir, file, likely);
+  return found ? join21(found.dir, file) : null;
+}
+function savedFolder(projectsDir, sessionId, likely) {
+  const file = `${sessionId}.jsonl`;
+  const found = savedDir(projectsDir, file, likely);
+  if (!found) return null;
+  if (found.folder) return found.folder;
+  let text;
+  try {
+    text = readFileSync23(join21(found.dir, file), "utf8");
+  } catch {
+    return null;
+  }
+  for (const m of text.matchAll(/"cwd":("(?:[^"\\]|\\.)*")/g)) {
+    let cwd;
+    try {
+      cwd = JSON.parse(m[1]);
+    } catch {
+      continue;
+    }
+    if (typeof cwd === "string" && transcriptDir(projectsDir, cwd) === found.dir) return cwd;
+  }
+  return null;
+}
+var TAIL_BYTES = 256 * 1024;
+function* assistantTurns(file) {
+  let fd;
+  try {
+    fd = openSync3(file, "r");
+  } catch {
+    return;
+  }
+  let text;
+  try {
+    const size = statSync7(file).size;
+    const from = Math.max(0, size - TAIL_BYTES);
+    const buf = Buffer.alloc(size - from);
+    readSync3(fd, buf, 0, buf.length, from);
+    text = buf.toString("utf8");
+    if (from > 0) text = text.slice(text.indexOf("\n") + 1);
+  } catch {
+    return;
+  } finally {
+    closeSync3(fd);
+  }
+  const lines = text.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line.includes('"assistant"')) continue;
+    let r;
+    try {
+      r = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (r?.type === "assistant" && !r.isSidechain) yield r;
+  }
+}
+function lastSaidIn(file) {
+  for (const r of assistantTurns(file)) {
+    if (!Array.isArray(r.message?.content)) continue;
+    const said2 = r.message.content.filter((b) => b?.type === "text" && typeof b.text === "string" && b.text.trim()).map((b) => b.text.trim());
+    if (said2.length) return said2[said2.length - 1];
+  }
+  return null;
+}
+function lastSaid(projectsDir, sessionId, likely) {
+  const file = transcriptFile(projectsDir, sessionId, likely);
+  return file ? lastSaidIn(file) : null;
+}
+
+// packages/core/src/started.ts
+var NOT_STARTED = "Its builder didn't start: Claude Code's background sessions aren't answering";
+var DISPATCH_AGAIN = "Dispatch again";
+var START_WAIT_MS = 6e4;
+function transcriptWrittenAt(projectsDir, o) {
+  const times = [];
+  const own = o.sessionId ? transcriptFile(projectsDir, o.sessionId, [o.worktree]) : null;
+  if (own) {
+    try {
+      times.push(statSync8(own).mtimeMs);
+    } catch {
+    }
+  }
+  const dir = transcriptDir(projectsDir, o.worktree);
+  let files = [];
+  try {
+    files = readdirSync10(dir).filter((f) => f.endsWith(".jsonl"));
+  } catch {
+  }
+  for (const f of files) {
+    try {
+      const t = statSync8(join22(dir, f)).mtimeMs;
+      if (t >= o.since) times.push(t);
+    } catch {
+    }
+  }
+  return times.length ? Math.max(...times) : null;
+}
+function awaitStart(first, look2, written, waitMs) {
+  const until = Date.now() + waitMs;
+  let found = first;
+  for (; ; ) {
+    if (found.pid || written()) return { ...found, started: true };
+    if (Date.now() >= until) return { ...found, started: false };
+    sleep(1e3);
+    const again = look2();
+    if (again.bgId || again.pid) found = again;
+  }
+}
+var quietMs = (config) => (config?.agents?.cloud?.quietMinutes ?? CLOUD_QUIET_MINUTES) * 6e4;
+function builderUnseen(task, o) {
+  if (task.state !== "running" || o.resuming || o.silentSince === null || task.run?.where === "cloud") return null;
+  const grace = o.graceMs ?? STOPPED_GRACE_MS;
+  const now2 = o.now.getTime();
+  const started = runStartedAt(task);
+  if (!started || now2 - o.silentSince <= grace || now2 - Date.parse(started) <= grace) return null;
+  const last = Math.max(o.writtenAt ?? 0, Date.parse(started));
+  return now2 - last > o.quietMs ? "quiet" : "unanswered";
+}
+var UNSEEN_WORDS = {
+  unanswered: {
+    label: "Needs you: acc can't see its builder",
+    line: "Claude Code's background sessions aren't answering, so acc can't see this builder",
+    wayOn: "Open a terminal and check that Claude Code lists its background agents, or restart Claude Code."
+  },
+  quiet: {
+    label: "Needs you: its builder has gone quiet",
+    line: "Claude Code's background sessions aren't answering, and this builder hasn't written to its conversation for longer than the quiet limit",
+    wayOn: "Dispatch again: it starts a new builder with the same model, effort and place."
+  },
+  missing: {
+    label: "Needs you: Claude Code isn't found",
+    line: "Claude Code isn't on this Mac's path, so acc can't see this builder",
+    wayOn: "Install Claude Code, or start VS Code from a terminal where Claude Code runs, then reload the window."
+  }
+};
+var MISSING_WORDS = `${UNSEEN_WORDS.missing.line}, and ${DISPATCH_AGAIN} needs it to start another. ${UNSEEN_WORDS.missing.wayOn}`;
+var silenceFile = (paths) => join22(paths.stateDir, "agents-silent.json");
+function noteAnswer(paths, answered, now2) {
+  const file = silenceFile(paths);
+  let since = null;
+  try {
+    const v = JSON.parse(readFileSync24(file, "utf8"));
+    since = typeof v.since === "number" ? v.since : null;
+  } catch {
+  }
+  const next = answered ? null : since ?? now2.getTime();
+  if (next !== since) {
+    mkdirSync22(paths.stateDir, { recursive: true });
+    writeAtomic(file, JSON.stringify({ since: next }) + "\n");
+  }
+  return next;
+}
+var SERVICE_DOWN = /control\.sock|cc-daemon/;
+
 // packages/core/src/dispatch.ts
 function slugify(title, max = 40) {
   const words4 = title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
@@ -9040,17 +9769,17 @@ function mainCheckout(run2, cwd) {
 }
 function worktreeRoot(config, main2) {
   const root = config.worktrees.root;
-  if (!root) return join19(main2, ".claude", "worktrees");
+  if (!root) return join23(main2, ".claude", "worktrees");
   return isAbsolute4(root) ? root : resolve2(main2, root);
 }
-var isClaudeWorktree = (main2, wt2) => wt2.startsWith(join19(main2, ".claude", "worktrees") + sep2);
+var isClaudeWorktree = (main2, wt2) => wt2.startsWith(join23(main2, ".claude", "worktrees") + sep2);
 function claudeStatePath(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR ? join19(env.CLAUDE_CONFIG_DIR, ".claude.json") : join19(env.HOME || homedir5(), ".claude.json");
+  return env.CLAUDE_CONFIG_DIR ? join23(env.CLAUDE_CONFIG_DIR, ".claude.json") : join23(env.HOME || homedir6(), ".claude.json");
 }
 function isTrusted(folder, env = process.env) {
   let state;
   try {
-    state = JSON.parse(readFileSync22(claudeStatePath(env), "utf8"));
+    state = JSON.parse(readFileSync25(claudeStatePath(env), "utf8"));
   } catch {
     return false;
   }
@@ -9063,13 +9792,13 @@ function isTrusted(folder, env = process.env) {
 }
 var git5 = (run2, cwd, ...args) => run2("git", args, { cwd });
 function ensureWorktree(run2, main2, wt2, branch, env) {
-  if (existsSync15(wt2)) {
+  if (existsSync17(wt2)) {
     const inside2 = git5(run2, wt2, "rev-parse", "--abbrev-ref", "HEAD");
     if (inside2.code !== 0) throw new AccError("dispatch", `${wt2} exists but isn't a git worktree. Move it aside and dispatch again.`);
     if (inside2.stdout.trim() !== branch) throw new AccError("dispatch", `${wt2} is on ${inside2.stdout.trim()}, not ${branch}.`);
     return true;
   }
-  mkdirSync21(dirname8(wt2), { recursive: true });
+  mkdirSync23(dirname8(wt2), { recursive: true });
   git5(run2, main2, "fetch", "--quiet", "origin", env.branch);
   const hasLocal = git5(run2, main2, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).code === 0;
   let r;
@@ -9085,11 +9814,11 @@ function ensureWorktree(run2, main2, wt2, branch, env) {
 }
 function setupWorktree(run2, config, env, main2, wt2) {
   if (config.profile === "salesforce" && env.org) {
-    mkdirSync21(join19(wt2, ".sf"), { recursive: true });
-    writeFileSync19(join19(wt2, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
+    mkdirSync23(join23(wt2, ".sf"), { recursive: true });
+    writeFileSync21(join23(wt2, ".sf", "config.json"), JSON.stringify({ "target-org": env.org }, null, 2) + "\n");
   }
-  if (existsSync15(join19(main2, "node_modules")) && !existsSync15(join19(wt2, "node_modules"))) {
-    symlinkSync(join19(main2, "node_modules"), join19(wt2, "node_modules"), "dir");
+  if (existsSync17(join23(main2, "node_modules")) && !existsSync17(join23(wt2, "node_modules"))) {
+    symlinkSync(join23(main2, "node_modules"), join23(wt2, "node_modules"), "dir");
     excludeEverywhere(run2, main2, "node_modules");
   }
   for (const cmd of config.worktrees.setup) {
@@ -9101,18 +9830,18 @@ ${(r.stderr || r.stdout).trim()}`);
 function excludeEverywhere(run2, main2, pattern) {
   const common = run2("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: main2 }).stdout.trim();
   if (!common) return;
-  const file = join19(common, "info", "exclude");
-  const text = existsSync15(file) ? readFileSync22(file, "utf8") : "";
+  const file = join23(common, "info", "exclude");
+  const text = existsSync17(file) ? readFileSync25(file, "utf8") : "";
   if (text.split("\n").some((l3) => l3.trim() === pattern)) return;
-  mkdirSync21(dirname8(file), { recursive: true });
-  writeFileSync19(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
+  mkdirSync23(dirname8(file), { recursive: true });
+  writeFileSync21(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}# Added by acc: worktrees link node_modules from the main checkout.
 ${pattern}
 `);
 }
 function findSession(run2, cwd, name, waitMs, o = {}) {
   const until = Date.now() + waitMs;
   let found = null;
-  const ours = (x2) => x2.name === name && x2.kind === "background" && (o.since === void 0 || (x2.startedAt ?? 0) >= o.since) && (!o.places || !x2.cwd || o.places.some((p) => samePath(x2.cwd, p)));
+  const ours = (x2) => x2.name === name && x2.kind === "background" && (o.since === void 0 || x2.startedAt !== void 0 && x2.startedAt >= o.since) && (!o.places || !x2.cwd || o.places.some((p) => samePath(x2.cwd, p)));
   do {
     const r = run2("claude", ["agents", "--json"], { cwd, timeoutMs: 2e4 });
     try {
@@ -9198,7 +9927,7 @@ function dispatch(paths, config, id, deps, opts) {
     const env = environmentByBranch(config, found.environment);
     if (!env) throw new AccError("dispatch", `${id}'s environment "${found.environment}" isn't in the config.`);
     const main2 = mainCheckout(run2, paths.root);
-    const wt2 = join19(worktreeRoot(config, main2), found.id);
+    const wt2 = join23(worktreeRoot(config, main2), found.id);
     const enter = isClaudeWorktree(main2, wt2);
     const launchDir = enter ? main2 : wt2;
     if (where === "local" && !opts.foreground && enter && !isTrusted(main2, deps.env)) {
@@ -9224,7 +9953,7 @@ function dispatch(paths, config, id, deps, opts) {
       enterWorktree: where === "local" && enter && !opts.foreground,
       cloud: where === "cloud",
       // The Mac's acc path names the home folder, and means nothing in the cloud (GH-69): only a local builder gets it.
-      ...where === "local" ? { accPath: join19(deps.accBinDir, "acc") } : {},
+      ...where === "local" ? { accPath: join23(deps.accBinDir, "acc") } : {},
       review: rework ? latestVerdict(paths, found.id) : null,
       head: head || void 0,
       analysis: readAnalysis(paths, found.id),
@@ -9234,9 +9963,9 @@ function dispatch(paths, config, id, deps, opts) {
       // The notes the tasks it builds on left (D-106).
       deps: found.deps.flatMap((d) => before.tasks.filter((t) => t.id === d))
     });
-    mkdirSync21(paths.packets, { recursive: true });
-    const packetPath = join19(paths.packets, `${found.id}.md`);
-    writeFileSync19(packetPath, packet);
+    mkdirSync23(paths.packets, { recursive: true });
+    const packetPath = join23(paths.packets, `${found.id}.md`);
+    writeFileSync21(packetPath, packet);
     steps2.done("packet");
     const settings = JSON.stringify(builderSettings(found, config, deps.accBinDir, deps.env.PATH ?? "", deps.accCommand));
     const prompt = `Read your task instructions below and do the task.
@@ -9257,7 +9986,7 @@ ${packet}`;
         ...overrode ? { anyway: true } : {},
         ...opts.fromHold && hold ? { held: { at: hold.at, by: hold.by, waitedFor: hold.waitsFor.map((w) => w.task) } } : {}
       };
-      applyMove(task, { ...req, reason: reused ? `re-dispatched in ${basename5(wt2)}` : null }, emit, now2, data);
+      applyMove(task, { ...req, reason: opts.reason ?? (reused ? `re-dispatched in ${basename5(wt2)}` : null) }, emit, now2, data);
       const last = task.run ? { before: task.run.note ?? null } : {};
       const at2 = now2().toISOString();
       const place2 = cloud ? { where: "cloud", cloud: { sessionId: cloud.sessionId, url: cloud.url, firedAt: at2, head: cloud.head, lastPushAt: at2 } } : {};
@@ -9299,8 +10028,22 @@ ${packet}`;
     steps2.start("start", "Start the builder");
     const launched = run2("claude", ["--bg", ...base, prompt], { cwd: launchDir, env: deps.env, timeoutMs: 6e4 });
     if (launched.code !== 0) throw new AccError("dispatch", `Claude Code didn't start the agent: ${(launched.stderr || launched.stdout).trim().split("\n")[0]}. The worktree is kept at ${wt2}.`);
-    const { bgId, sessionId, pid } = findSession(run2, launchDir, name, deps.findSessionMs ?? 8e3, { since, places: [launchDir, wt2] });
-    steps2.done("start", bgId ? `Background session ${bgId}` : "Its session wasn't found yet");
+    const places = { since, places: [launchDir, wt2] };
+    const first = findSession(run2, launchDir, name, deps.findSessionMs ?? 8e3, places);
+    const projectsDir = deps.projectsDir ?? claudeProjectsDir(deps.env);
+    const { bgId, sessionId, pid, started } = awaitStart(
+      first,
+      () => findSession(run2, launchDir, name, 0, places),
+      () => transcriptWrittenAt(projectsDir, { worktree: wt2, sessionId: first.sessionId, since }) !== null,
+      deps.startWaitMs ?? START_WAIT_MS
+    );
+    if (!started) {
+      steps2.fail("start", `${NOT_STARTED}.`);
+      const stopped = bgId && run2("claude", ["stop", bgId], { cwd: wt2, timeoutMs: 2e4 }).code === 0 ? bgId : null;
+      const task = notStartedOn(paths, now2, id, opts, { where, model: picked ? model : void 0, effort: effortPicked && effort ? effort : void 0 });
+      return { held: false, task, worktree: wt2, branch, reused, packetPath, bgId: null, sessionId: null, name, shares, where, notStarted: { reason: NOT_STARTED, stopped }, ...effortDropped };
+    }
+    steps2.done("start", bgId ? `Background session ${bgId}` : "Its conversation was written");
     try {
       const task = record2(bgId, sessionId);
       if (pid) keepAwakeFor(paths, id, pid, deps.awake);
@@ -9314,12 +10057,23 @@ ${packet}`;
     throw e;
   }
 }
+function notStartedOn(paths, now2, id, opts, with_) {
+  return mutate(paths, now2, (ledger, emit) => {
+    const task = ledger.tasks.find((t) => t.id === id);
+    const at2 = now2().toISOString();
+    task.notStarted = { at: at2, by: opts.by, reason: NOT_STARTED, where: with_.where, ...with_.model ? { model: with_.model } : {}, ...with_.effort ? { effort: with_.effort } : {} };
+    task.held = null;
+    task.updatedAt = at2;
+    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { notStarted: task.notStarted } });
+    return task;
+  });
+}
 function cleanup(paths, config, id, run2, now2) {
   const ledger = readLedger(paths.ledger);
   const task = ledger.tasks.find((t) => t.id === id);
   if (!task) throw new AccError("no-task", `No task ${id}.`);
   const wt2 = task.run?.worktree ?? null;
-  if (!wt2 || !existsSync15(wt2)) return { removed: false, reasons: ["It has no worktree on disk."], worktree: wt2 };
+  if (!wt2 || !existsSync17(wt2)) return { removed: false, reasons: ["It has no worktree on disk."], worktree: wt2 };
   const reasons = [];
   if (task.state === "running") reasons.push(`${id} is still running. Abandon it or let it finish first.`);
   const dirty = git5(run2, wt2, "status", "--porcelain").stdout.trim();
@@ -9347,749 +10101,18 @@ function cleanup(paths, config, id, run2, now2) {
   return { removed: true, reasons: [], worktree: wt2 };
 }
 
-// packages/core/src/refresh.ts
-var short = (sha) => sha.slice(0, 7);
-var lastLines = (r) => (r.stderr || r.stdout).trim().split("\n").slice(-2).join(" ");
-function appendOnlyMerge(common, ours, theirs) {
-  if (!ours.startsWith(common) || !theirs.startsWith(common)) return null;
-  let start = common;
-  let mine = ours.slice(common.length);
-  let added = theirs.slice(common.length);
-  if (start && !start.endsWith("\n") && (mine || added)) {
-    if ([mine, added].some((t) => t && !t.startsWith("\n"))) return null;
-    start += "\n";
-    mine = mine.slice(1);
-    added = added.slice(1);
-  }
-  if (mine === added) return start + mine;
-  if (added.startsWith(mine)) return start + added;
-  if (mine.startsWith(added)) return start + mine;
-  return start + added + (added && mine && !added.endsWith("\n") ? "\n" : "") + mine;
-}
-function unmerged(run2, wt2) {
-  const out3 = /* @__PURE__ */ new Map();
-  for (const entry of run2("git", ["ls-files", "-u", "-z"], { cwd: wt2 }).stdout.split("\0")) {
-    const m = /^(\d+) ([0-9a-f]+) ([123])\t(.+)$/s.exec(entry);
-    if (!m) continue;
-    const stages = out3.get(m[4]) ?? /* @__PURE__ */ new Map();
-    stages.set(Number(m[3]), { mode: m[1], sha: m[2] });
-    out3.set(m[4], stages);
-  }
-  return out3;
-}
-var isText = (s) => !s.includes("\0") && !s.includes("\uFFFD");
-function resolveWith(run2, wt2, mergeBase, path, stages, merge, added = false) {
-  const git10 = (...args) => run2("git", args, { cwd: wt2 });
-  const [common, ours, theirs] = [stages.get(1), stages.get(2), stages.get(3)];
-  if (!common && !added || !ours || !theirs) return false;
-  if (![common, ours, theirs].every((s) => !s || s.mode === "100644" || s.mode === "100755")) return false;
-  const at2 = (ref) => git10("rev-parse", "--verify", "--quiet", `${ref}:${path}`).stdout.trim();
-  if (at2(mergeBase) !== (common?.sha ?? "") || at2("HEAD") !== ours.sha || at2("MERGE_HEAD") !== theirs.sha) return false;
-  const blobs = [common, ours, theirs].map((s) => s ? git10("cat-file", "blob", s.sha) : { code: 0, stdout: "", stderr: "" });
-  if (blobs.some((b) => b.code !== 0 || !isText(b.stdout))) return false;
-  const merged = merge(blobs[0].stdout, blobs[1].stdout, blobs[2].stdout);
-  if (merged === null) return false;
-  const blob = run2("git", ["hash-object", "-w", "--stdin"], { cwd: wt2, input: merged });
-  if (blob.code !== 0) return false;
-  if (git10("update-index", "--cacheinfo", `${ours.mode},${blob.stdout.trim()},${path}`).code !== 0) return false;
-  return git10("checkout", "--", path).code === 0;
-}
-function resolvedWords(resolved, verb = "kept", file = (f) => f) {
-  const added = resolved.filter((f) => f !== FLOORS_FILE);
-  return [
-    ...added.length ? [`${verb} both sides' additions to ${added.map(file).join(", ")}`] : [],
-    ...resolved.includes(FLOORS_FILE) ? [`${verb} the better of each ratchet's floors in ${file(FLOORS_FILE)}`] : []
-  ].join(", and ");
-}
-var MergeConflict = class extends AccError {
-  files;
-  constructor(message2, files) {
-    super("refresh", message2);
-    this.files = files;
-  }
-};
-var CheckFailure = class extends AccError {
-  failed;
-  constructor(message2, failed) {
-    super("refresh", message2);
-    this.failed = failed;
-  }
-};
-var gitIn = (run2, wt2) => (...args) => run2("git", args, { cwd: wt2 });
-var midMerge = (run2, wt2) => gitIn(run2, wt2)("rev-parse", "--verify", "--quiet", "MERGE_HEAD").code === 0;
-var dirtyIn = (run2, wt2, untracked = true) => gitIn(run2, wt2)("status", "--porcelain", ...untracked ? [] : ["--untracked-files=no"]).stdout.trim() !== "";
-function mergePlace(paths, config, task, run2) {
-  const id = task.id;
-  const env = environmentByBranch(config, task.environment);
-  if (!env) throw new AccError("refresh", `${id}'s environment "${task.environment}" isn't in the config.`);
-  const branch = task.run?.branch;
-  const wt2 = task.run?.worktree;
-  if (!branch) throw new AccError("refresh", `${id} has no branch.`);
-  if (!wt2 || !existsSync16(wt2)) throw new AccError("refresh", `${id}'s worktree isn't on disk any more, so there's nowhere to merge ${env.branch} in.`);
-  if (samePath(wt2, mainCheckout(run2, paths.root))) throw new AccError("refresh", `${id}'s worktree is the main checkout. Autopilot merges only in a task's own worktree.`);
-  const git10 = gitIn(run2, wt2);
-  const on = git10("symbolic-ref", "--quiet", "--short", "HEAD").stdout.trim();
-  if (on !== branch) throw new AccError("refresh", `${wt2} is on ${on || "a detached commit"}, not ${branch}.`);
-  if (dirtyIn(run2, wt2) || midMerge(run2, wt2)) throw new AccError("refresh", `${id}'s worktree has changes nobody committed, so autopilot leaves it alone.`);
-  return { id, env, branch, wt: wt2, from: git10("rev-parse", "HEAD").stdout.trim() };
-}
-function fetchBase(paths, place2, run2, env) {
-  const { branch, from } = place2;
-  if (!fetchBranches(run2, paths.root, [place2.env.branch, branch], { ...env, GIT_TERMINAL_PROMPT: "0" })) {
-    throw new AccError("refresh", `Couldn't fetch ${place2.env.branch} and ${branch} from origin.`);
-  }
-  if (gitIn(run2, place2.wt)("merge-base", "--is-ancestor", `refs/remotes/origin/${branch}`, from).code !== 0) {
-    throw new AccError("refresh", `origin's ${branch} has commits this clone's branch doesn't, perhaps from GitHub. Bring them in by hand.`);
-  }
-}
-var merging = (config, run2, wt2) => {
-  const who = config.commitIdentity ? ["-c", `user.name=${config.commitIdentity.name}`, "-c", `user.email=${config.commitIdentity.email}`] : [];
-  return (...args) => run2("git", ["-c", "rerere.enabled=false", ...who, ...args], { cwd: wt2 });
-};
-function putBack(config, place2, run2, how) {
-  const { wt: wt2, from } = place2;
-  merging(config, run2, wt2)(...how);
-  const back = gitIn(run2, wt2)("rev-parse", "HEAD").stdout.trim() === from && !dirtyIn(run2, wt2, false) && !midMerge(run2, wt2);
-  return back ? `The branch is as it was, at ${short(from)}, and nothing was pushed.` : `Putting the branch back at ${short(from)} didn't work: look at ${wt2} before anything else.`;
-}
-var undoMerge = (config, place2, run2) => putBack(config, place2, run2, ["reset", "--hard", place2.from]);
-function mergeBaseIn(config, place2, run2) {
-  const { env, branch, wt: wt2 } = place2;
-  const git10 = gitIn(run2, wt2);
-  const merge = merging(config, run2, wt2);
-  const merged = merge("merge", "--no-ff", "--no-commit", `origin/${env.branch}`);
-  if (!midMerge(run2, wt2)) {
-    if (merged.code === 0) return null;
-    throw new AccError("refresh", `git wouldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(config, place2, run2, ["reset", "--merge"])}`);
-  }
-  const appendOnly = config.autopilot?.appendOnly ?? [];
-  const mergeBase = git10("merge-base", "HEAD", "MERGE_HEAD").stdout.trim();
-  const resolved = [];
-  const left = [];
-  for (const [path, stages] of unmerged(run2, wt2)) {
-    if (path === FLOORS_FILE ? resolveWith(run2, wt2, mergeBase, path, stages, mergeFloors, true) : listed(path, appendOnly) && resolveWith(run2, wt2, mergeBase, path, stages, appendOnlyMerge)) resolved.push(path);
-    else left.push(path);
-  }
-  if (left.length) throw new MergeConflict(`Conflicts with ${env.branch} that autopilot can't resolve: ${left.join(", ")}. ${putBack(config, place2, run2, ["merge", "--abort"])}`, left);
-  if (merged.code !== 0 && !resolved.length) throw new AccError("refresh", `git couldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(config, place2, run2, ["merge", "--abort"])}`);
-  const message2 = [`Merge ${env.branch} into ${branch}`, ...resolved.length ? ["", `Autopilot ${resolvedWords(resolved)}.`] : []].join("\n");
-  const commit = merge("commit", "-m", message2);
-  if (commit.code !== 0) throw new AccError("refresh", `The merge commit was refused: ${lastLines(commit)} ${putBack(config, place2, run2, ["merge", "--abort"])}`);
-  return { sha: git10("rev-parse", "HEAD").stdout.trim(), resolved };
-}
-function checkCommit(paths, config, place2, sha, gates, deps) {
-  const { env, wt: wt2, from } = place2;
-  const { run: run2 } = deps;
-  const what = sha === from ? "Its checks" : `Merged ${env.branch} in, but its checks`;
-  let failed = [];
-  try {
-    if (gates.length) {
-      const ran = runGates(repoPaths(wt2, run2), config, env, gates, priorTests(paths, config, from), { run: run2, now: deps.now, slots: deps.slots, task: place2.id, onWait: deps.onWait, onStart: deps.onStart, waivedOn: from });
-      failed = ran.results.filter((r) => !r.recorded || !satisfies(r.receipt));
-    }
-  } catch (e) {
-    const err = e;
-    throw new AccError(err.code ?? "refresh", `${what} couldn't run: ${err.message} ${putBack(config, place2, run2, ["reset", "--hard", from])}`);
-  }
-  if (failed.length) {
-    const said2 = failed.map((r) => `${r.gate} ${!r.recorded ? "wasn't recorded" : r.status === "fail" ? "failed" : r.status === "hold" ? "needs a person" : "couldn't run"}: ${r.summary.replace(/[.!?]$/, "")}${r.receipt.log ? ` (log ${r.receipt.log})` : ""}`);
-    throw new CheckFailure(`${what} failed on ${short(sha)}: ${said2.join("; ")}. ${putBack(config, place2, run2, ["reset", "--hard", from])}`, failed);
-  }
-}
-function refresh(paths, config, id, deps, opts) {
-  return withJob(paths, { kind: "refresh", task: id, by: opts.by }, () => refreshNow(paths, config, id, deps, opts), deps.now);
-}
-function refreshNow(paths, config, id, deps, opts) {
-  const { run: run2, now: now2 } = deps;
-  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
-  if (!task) throw new AccError("no-task", `No task ${id}.`);
-  const pr = task.pr;
-  if (task.state !== "review" || pr?.state !== "open") throw new AccError("refused", `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : " with no pull request"}. Autopilot updates the open pull request of a task in review.`);
-  const place2 = mergePlace(paths, config, task, run2);
-  const { env, branch, from } = place2;
-  fetchBase(paths, place2, run2, deps.env);
-  const record2 = (change2) => mutate(paths, now2, (l3, emit) => {
-    const t = l3.tasks.find((x2) => x2.id === id);
-    if (!t) return;
-    const data = change2(t);
-    t.updatedAt = now2().toISOString();
-    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data });
-  });
-  const settled = () => {
-    record2((t) => {
-      if (t.pr) t.pr = { ...t.pr, conflicts: [] };
-      return { pr: t.pr };
-    });
-    return { sha: null, from, resolved: [], reason: `Pull request #${pr.number} no longer conflicts with ${env.branch}, so nothing was merged.` };
-  };
-  if (conflictsOf(run2, paths.root, env.branch, branch)?.length === 0) return settled();
-  const made = mergeBaseIn(config, place2, run2);
-  if (!made) return settled();
-  const { sha, resolved } = made;
-  const required = fullGates(config);
-  checkCommit(paths, config, place2, sha, required, { run: run2, now: now2, slots: deps.slots });
-  const refreshed = { base: env.branch, from, to: sha, resolved };
-  record2((t) => {
-    if (t.autopilot?.failed) t.autopilot.failed = null;
-    return { refreshed };
-  });
-  const kept = resolved.length ? `, ${resolvedWords(resolved, "keeping")}` : "";
-  return { sha, from, resolved, reason: `Merged ${env.branch} into ${short(from)} as ${short(sha)}${kept}.${required.length ? " Its checks passed." : ""} It's reviewed next pass, then landed.` };
-}
-
-// packages/core/src/land.ts
-var PUSH_TIMEOUT_MS2 = 5 * 6e4;
-var GH_TIMEOUT_MS2 = 2 * 6e4;
-var LAND_TIMEOUT_MS = PUSH_TIMEOUT_MS2 + FETCH_TIMEOUT_MS2 + 3 * GH_TIMEOUT_MS2 + 6e4;
-var UPDATE_POST_TIMEOUT_MS = 2 * GH_TIMEOUT_MS2 + 6e4;
-var STATUS_WORD = { pass: "Passed", fail: "Failed", error: "Couldn't run", skip: "Didn't apply", hold: "Needs a person" };
-var cell = (s) => s.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ").trim();
-function mergesWords(autoMerge) {
-  return autoMerge ? "With autopilot running, it merges once its checks pass on GitHub and nothing waits on a person: auto-merge is on for this repo. Ask for changes to hold it." : "It merges only when a person merges it.";
-}
-function prBody(task, env, sha, verdict, receipts, autoMerge = false, carried = null) {
-  const ticket = task.source.url ? `[${task.source.key ?? task.id}](${task.source.url})` : null;
-  const counted = Object.values(receipts).some((r) => testsText(r));
-  const lines = [
-    verdict.summary.trim(),
-    "",
-    ...ticket ? [`Ticket: ${ticket}${task.source.kind === "github" && task.source.key ? ` (refs ${task.source.key})` : ""}`, ""] : [],
-    "## Acceptance criteria",
-    "",
-    ...verdict.criteria.length ? verdict.criteria.map((c) => `- [${c.met ? "x" : " "}] ${c.text}${c.evidence ? ` (${c.evidence})` : ""}`) : ["_The reviewer listed none._"],
-    "",
-    `## Checks on ${sha.slice(0, 7)}`,
-    "",
-    counted ? "| Check | Result | Tests | Detail |" : "| Check | Result | Detail |",
-    counted ? "|---|---|---|---|" : "|---|---|---|",
-    // A ratchet shows its numbers, from the environment's floor to this commit's: tests 669 → 674 (+5) (GH-99).
-    ...Object.values(receipts).map((r) => `| \`${r.gate}\` | ${r.waived ? `Waived by ${r.waived.by.replace(/^human:/, "")}` : STATUS_WORD[r.status] ?? r.status} |${counted ? ` ${testsText(r)} |` : ""} ${cell(r.waived ? r.waived.reason : ratchetOf(r) ? ratchetLine(ratchetOf(r)) : r.summary)} |`),
-    "",
-    "## Review",
-    "",
-    carried ? `Passed on ${carried.from.slice(0, 7)} by a reviewer agent that read the change and couldn't edit it. The merge queue then merged \`${carried.base}\` in as ${sha.slice(0, 7)}${carried.resolved.length ? `, ${resolvedWords(carried.resolved, "keeping", (f) => `\`${f}\``)}` : ""}, and ran the full check on it: the review carries over.` : `Passed by a reviewer agent that read the change and couldn't edit it.`,
-    ...verdict.findings.length ? ["", "Worth a look, not blocking:", "", ...verdict.findings.map((f) => `- ${f.file ? `\`${f.file}${f.line ? `:${f.line}` : ""}\`: ` : ""}${f.message}`)] : [],
-    "",
-    // Its builder's handoff note (D-106), as its own account: the review above is what checked the change.
-    "## Builder's note",
-    "",
-    ...task.run?.note ? [`In its builder's own words, ${task.run.note.ended === "blocked" ? "when it blocked" : "as it finished"}. The review above is what checked the change.`, "", ...noteMarkdown(task.run.note)] : ["_Its builder left no note._"],
-    "",
-    "---",
-    `Built by a Claude Code agent and opened by \`acc land\` into \`${env.branch}\` (${env.name}). ${mergesWords(autoMerge)}`
-  ];
-  return lines.join("\n") + "\n";
-}
-function ghToken(run2, account) {
-  const t = run2("gh", ["auth", "token", "-u", account], { timeoutMs: GH_TIMEOUT_MS2 });
-  if (t.code !== 0 || !t.stdout.trim()) throw new AccError("no-github", `gh isn't logged in as ${account}, the account this repo works as. Sign in from the Command Center, or run gh auth login.`);
-  return t.stdout.trim();
-}
-function land(paths, config, id, deps, opts = {}) {
-  return withJob(paths, { kind: "land", task: id, by: opts.by ?? "acc land" }, () => landNow(paths, config, id, deps, opts), deps.now);
-}
-function landNow(paths, config, id, deps, opts) {
-  const { run: run2, now: now2 } = deps;
-  const steps2 = deps.steps ?? NO_STEPS;
-  const { task, gh, env, branch, sha, own, verdict } = steps2.step("task", "Check its review and checks", () => {
-    const task2 = readLedger(paths.ledger).tasks.find((t) => t.id === id);
-    if (!task2) throw new AccError("no-task", `No task ${id}.`);
-    if (task2.state !== "review") throw new AccError("refused", `${id} is ${task2.state}. A task lands from review, once its review has passed.`);
-    const gh2 = config.github;
-    if (!gh2) throw new AccError("no-github", 'acc land opens a pull request on GitHub, and this project has no "github" section in .acc/config.json.');
-    const env2 = environmentByBranch(config, task2.environment);
-    if (!env2) throw new AccError("land", `${id}'s environment "${task2.environment}" isn't in the config.`);
-    const branch2 = task2.run?.branch;
-    if (!branch2) throw new AccError("land", `${id} has no branch to land.`);
-    const sha2 = run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch2}`], { cwd: paths.root }).stdout.trim();
-    if (!sha2) throw new AccError("land", `The branch ${branch2} isn't in this clone.`);
-    const missing = receiptHooks(paths, config, run2).missingGates(task2, opts.gates);
-    if (missing.length) throw new AccError("refused", `${id}'s checks aren't settled on ${sha2.slice(0, 7)}: ${missing.join(", ")}.`);
-    const own2 = readVerdict(paths, id, sha2);
-    const verdict2 = own2 ?? carriedVerdict(paths, task2, sha2);
-    if (!verdict2) throw new AccError("refused", `${id} hasn't been reviewed on ${sha2.slice(0, 7)}. Run acc review ${id} first.`);
-    if (verdict2.verdict !== "pass") throw new AccError("refused", `${id}'s review on ${sha2.slice(0, 7)} asked for changes: ${verdict2.summary}`);
-    return { task: task2, gh: gh2, env: env2, branch: branch2, sha: sha2, own: own2, verdict: verdict2 };
-  });
-  const ghEnv3 = { ...deps.env, GH_TOKEN: steps2.step("github", `Sign in to GitHub as ${gh.account}`, () => ghToken(run2, gh.account)) };
-  const ghRun = (args) => run2("gh", args, { cwd: paths.root, env: ghEnv3, timeoutMs: GH_TIMEOUT_MS2 });
-  const existing = steps2.step("find", "Look for its pull request", () => {
-    const open = ghRun(["pr", "list", "-R", gh.repo, "--head", branch, "--state", "open", "--json", "number,url"]);
-    const existing2 = open.code === 0 ? JSON.parse(open.stdout || "[]")[0] : void 0;
-    if (!existing2 && task.pr && opts.actor === "orchestrator") {
-      const seen = open.code === 0 ? "isn't open on GitHub" : `may not be open on GitHub: gh couldn't list the branch's pull requests (${(open.stderr || open.stdout).trim().split("\n")[0] || `exit ${open.code}`})`;
-      throw new AccError("land", `Pull request #${task.pr.number} ${seen}. Autopilot won't open another: a person decides.`);
-    }
-    return existing2;
-  });
-  steps2.step("push", `Push ${branch}`, () => {
-    const push = run2("git", ["push", "--set-upstream", "origin", `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS2 });
-    if (push.code !== 0) throw new AccError("land", `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split("\n").slice(-2).join(" ")}`);
-  });
-  const receipts = receiptsAt(paths, sha);
-  const body = prBody(task, env, sha, verdict, receipts, autoMergeFor(config, env.branch), own ? null : task.autopilot?.carried ?? null);
-  const dir = mkdtempSync3(join20(tmpdir3(), "acc-land-"));
-  let pr;
-  let opened;
-  steps2.start("pr", existing ? `Update pull request #${existing.number}` : `Open the pull request into ${env.branch}`);
-  try {
-    const bodyFile = join20(dir, "body.md");
-    writeFileSync20(bodyFile, body);
-    if (existing) {
-      const edit = ghRun(["pr", "edit", String(existing.number), "-R", gh.repo, "--body-file", bodyFile]);
-      if (edit.code !== 0) throw new AccError("land", `Couldn't update pull request #${existing.number}: ${edit.stderr.trim().split("\n")[0]}`);
-      pr = { number: existing.number, url: existing.url, state: "open", landedAt: now2().toISOString(), sha };
-      opened = false;
-    } else {
-      const create = ghRun(["pr", "create", "-R", gh.repo, "--base", env.branch, "--head", branch, "--title", `${task.id}: ${task.title}`, "--body-file", bodyFile]);
-      const url = create.stdout.trim().split("\n").find((l3) => /^https:\/\/github\.com\/.+\/pull\/\d+/.test(l3.trim()))?.trim();
-      if (create.code !== 0 || !url) throw new AccError("land", `gh couldn't open the pull request: ${(create.stderr || create.stdout).trim().split("\n")[0]}`);
-      pr = { number: Number(/\/pull\/(\d+)/.exec(url)[1]), url, state: "open", landedAt: now2().toISOString(), sha };
-      opened = true;
-    }
-  } catch (e) {
-    steps2.fail("pr", e.message);
-    throw e;
-  } finally {
-    rmSync13(dir, { recursive: true, force: true });
-  }
-  steps2.done("pr", `#${pr.number}`);
-  steps2.start("conflicts", `Check it merges into ${env.branch}`);
-  const conflicts = fetchBranches(run2, paths.root, [env.branch, branch], deps.env) ? conflictsOf(run2, paths.root, env.branch, branch) : null;
-  if (conflicts) pr = { ...pr, conflicts };
-  steps2.done("conflicts", conflicts?.length ? `It conflicts in ${conflicts.join(", ")}` : void 0);
-  const updated = steps2.step("record", "Record the pull request", () => mutate(paths, now2, (l3, emit) => {
-    const t = l3.tasks.find((x2) => x2.id === id);
-    t.pr = pr;
-    if (t.autopilot?.failed) t.autopilot.failed = null;
-    t.updatedAt = now2().toISOString();
-    emit({ type: "task.updated", task: id, actor: opts.actor ?? "human", by: opts.by ?? "acc land", data: { pr, sha, opened } });
-    return t;
-  }));
-  steps2.start("update", "Draft the ticket's update");
-  try {
-    const update = draftUpdate(paths, task, {
-      event: opened ? "pr-opened" : "pr-updated",
-      pr: { number: pr.number, url: pr.url },
-      context: { summary: verdict.client?.trim() || task.title }
-    }, opts.by ?? "acc land", now2);
-    steps2.done("update", update ? void 0 : "It has no ticket");
-    return { task: updated, sha, pr, opened, update: update ? { id: update.id, key: update.key } : null };
-  } catch (e) {
-    steps2.fail("update", e.message);
-    return { task: updated, sha, pr, opened, update: null, updateError: e.message };
-  }
-}
-
-// packages/core/src/checks.ts
-var LOG_TAIL_LINES = 100;
-var LOG_TAIL_BYTES = 10 * 1024;
-var MAX_LOGS = 5;
-var NO_ACTIONS_LOG = "GitHub keeps no log for it: it isn't a GitHub Actions job.";
-var short2 = (sha) => sha.slice(0, 7) || "no commit";
-var said = (r) => `${r.stderr}
-${r.stdout}`;
-var JOB_LINK = /^https?:\/\/([^/]+)\/([^/]+\/[^/]+)\/actions\/runs\/\d+\/job\/(\d+)(?:[/?#]|$)/;
-function actionsJob(link) {
-  const m = JOB_LINK.exec(link);
-  if (!m) return null;
-  return { repo: m[1] === "github.com" ? m[2] : `${m[1]}/${m[2]}`, id: m[3] };
-}
-function headOf(run2, repo, pr, env) {
-  const r = run2("gh", ["pr", "view", String(pr), "-R", repo, "--json", "headRefOid"], { env, timeoutMs: GH_TIMEOUT_MS2 });
-  let sha = "";
-  try {
-    sha = parseJsonOutput(r.stdout).headRefOid ?? "";
-  } catch {
-    sha = "";
-  }
-  if (r.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) throw new AccError("checks", `gh couldn't read pull request #${pr}: ${firstSaid(r)}`);
-  return sha;
-}
-function listOf2(r) {
-  try {
-    const list = parseJsonOutput(r.stdout);
-    return Array.isArray(list) ? list : null;
-  } catch {
-    return null;
-  }
-}
-function readChecks(run2, repo, pr, env) {
-  const sha = headOf(run2, repo, pr, env);
-  const checks = (...more) => run2("gh", ["pr", "checks", String(pr), "-R", repo, ...more, "--json", "name,bucket,link,workflow,state"], { env, timeoutMs: GH_TIMEOUT_MS2 });
-  let required = true;
-  let r = checks("--required");
-  let list = listOf2(r);
-  if (!list && /no required checks reported/i.test(said(r))) {
-    required = false;
-    r = checks();
-    list = listOf2(r);
-  }
-  if (!list && /no checks reported/i.test(said(r))) {
-    required = false;
-    list = [];
-  }
-  if (!list) throw new AccError("checks", `gh couldn't read pull request #${pr}'s checks: ${firstSaid(r)}`);
-  const name = (c) => c.name || c.workflow || "a check";
-  const failed = list.filter((c) => c.bucket === "fail").map((c) => ({ name: name(c), workflow: c.workflow ?? "", link: c.link ?? "", job: actionsJob(c.link ?? "") }));
-  const pending = list.filter((c) => c.bucket === "pending").map(name);
-  const cancelled = list.filter((c) => c.bucket === "cancel").map(name);
-  return { sha, required, failed, pending, cancelled, count: list.length };
-}
-var CSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
-var PREFIX = /^[^\t\n]*\t[^\t\n]*\t/;
-var STAMP = /^﻿?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z ?/;
-function tailLog(text, lines = LOG_TAIL_LINES, bytes = LOG_TAIL_BYTES) {
-  return tailOf(text.replace(/\r\n?/g, "\n").split("\n").map((l3) => l3.replace(CSI, "").replace(PREFIX, "").replace(STAMP, "").trimEnd()), lines, bytes);
-}
-function tailText(text, lines = LOG_TAIL_LINES, bytes = LOG_TAIL_BYTES) {
-  return tailOf(text.replace(/\r\n?/g, "\n").split("\n").map((l3) => l3.replace(CSI, "").trimEnd()), lines, bytes);
-}
-function tailOf(all, lines, bytes) {
-  while (all.length && !all.at(-1)) all.pop();
-  const kept = [];
-  let size = 0;
-  for (const line of all.slice(-lines).reverse()) {
-    const b = Buffer.byteLength(line) + (kept.length ? 1 : 0);
-    if (size + b > bytes) {
-      if (!kept.length) kept.push(Buffer.from(line).subarray(-bytes).toString("utf8").replace(/^�+/, ""));
-      break;
-    }
-    kept.push(line);
-    size += b;
-  }
-  return kept.reverse().join("\n");
-}
-function fetchLog(run2, job, env) {
-  const view = (flag) => run2("gh", ["run", "view", "--job", job.id, flag, "-R", job.repo], { env, timeoutMs: GH_TIMEOUT_MS2 });
-  let r = view("--log-failed");
-  if (r.code === 0 && !tailLog(r.stdout)) r = view("--log");
-  if (r.code !== 0) return { error: firstSaid(r) };
-  const log = tailLog(r.stdout);
-  return log ? { log } : { error: "GitHub gave an empty log." };
-}
-var checksPath = (paths, task, sha) => join21(paths.checks, `${task}-${sha}.json`);
-function readChecksReport(paths, task, sha) {
-  try {
-    const r = JSON.parse(readFileSync23(checksPath(paths, task, sha), "utf8"));
-    return r.v === 1 && r.task === task && Array.isArray(r.checks) ? r : null;
-  } catch {
-    return null;
-  }
-}
-var fence = (text) => "`".repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map((m) => m[0].length + 1)));
-function checksSection(r) {
-  if (!r?.checks.length) return [];
-  const which = r.required ? "checks its base branch requires" : "its checks";
-  const lines = [
-    "## What GitHub's checks said",
-    "",
-    `This is a rework. Your change is pull request #${r.pr.number}, and ${which} failed on GitHub on ${short2(r.sha)}: ${r.checks.map((c) => c.name).join(", ")}. Its review passed: these failures are all there is to fix.`,
-    "",
-    "Reproduce each failure here and fix it, keeping the rest of the change as it is. Then finish as below: commit, run `acc gate run`, then `acc done`. If a failure isn't caused by this change, such as a check that fails on the base branch too or a service that was down, don't work around it: run `acc block \"<what you found>\"` and stop.",
-    ""
-  ];
-  for (const c of r.checks) {
-    lines.push(`### ${c.name}${c.workflow && c.workflow !== c.name ? ` (${c.workflow})` : ""}`, "");
-    if (c.link) lines.push(`Link: ${c.link}`, "");
-    if (c.log) {
-      const f = fence(c.log);
-      lines.push("The end of its log:", "", `${f}text`, c.log, f, "");
-    } else lines.push(`Couldn't fetch its log: ${sentence(c.noLog ?? "GitHub gave none")}`, "");
-  }
-  return lines;
-}
-var queueReportPath = (paths, task, sha) => join21(paths.queue, `${task}-${sha}.json`);
-function readQueueReport(paths, task, sha) {
-  try {
-    const r = JSON.parse(readFileSync23(queueReportPath(paths, task, sha), "utf8"));
-    return r.v === 1 && r.task === task && Array.isArray(r.checks) && Array.isArray(r.conflicts) ? r : null;
-  } catch {
-    return null;
-  }
-}
-function queueSection(r) {
-  if (!r) return [];
-  const base = `\`${r.base}\``;
-  const lines = ["## What the merge queue found", ""];
-  if (r.kind === "conflict") {
-    lines.push(
-      `This is a rework. Your change is pull request #${r.pr.number}. Its review passed, and the merge queue took it to merge into ${base}, but ${base} has moved on, and merging it into ${short2(r.sha)} conflicts in: ${r.conflicts.map((f) => `\`${f}\``).join(", ")}.`,
-      "",
-      `Merge it in here: run \`git merge origin/${r.base}\`, resolve each of those files so that both your change and what ${base} added hold, then commit the merge. Keep the rest of your change as it is. Then finish as below: run \`acc gate run\`, then \`acc done\`. If a conflict can't be resolved without a choice that isn't yours, run \`acc block "<what you found>"\` and stop.`,
-      ""
-    );
-    return lines;
-  }
-  const where = r.merge ? `after merging ${base} in (as ${short2(r.merge)}, put back since)` : `on ${short2(r.sha)}`;
-  lines.push(
-    `This is a rework. Your change is pull request #${r.pr.number}. Its review passed, and the merge queue took it to merge into ${base}, but the full check failed ${where}: ${r.checks.map((c) => c.gate).join(", ")}. You ran the lighter checks; the full one runs once, in the queue.`,
-    "",
-    `Reproduce each failure here and fix it, keeping the rest of the change as it is.${r.merge ? ` Merge ${base} in first, with \`git merge origin/${r.base}\`, since the failure may come from the two together.` : ""} Run the failing check by name, such as \`acc gate run ${r.checks[0]?.gate ?? "check"}\`, then finish as below: commit, run \`acc gate run\`, then \`acc done\`. If a failure isn't caused by this change, such as a check that fails on ${base} too, don't work around it: run \`acc block "<what you found>"\` and stop.`,
-    ""
-  );
-  for (const c of r.checks) {
-    lines.push(`### ${c.gate}`, "", sentence(c.summary), "");
-    if (c.file) lines.push(`Its whole log: \`${c.file}\``, "");
-    if (c.log) {
-      const f = fence(c.log);
-      lines.push("The end of its log:", "", `${f}text`, c.log, f, "");
-    }
-  }
-  return lines;
-}
-function sendBack(paths, config, id, deps, opts) {
-  const { run: run2, now: now2 } = deps;
-  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
-  if (!task) throw new AccError("no-task", `No task ${id}.`);
-  const pr = task.pr;
-  if (task.state !== "review" || pr?.state !== "open") throw new AccError("refused", `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : " with no pull request"}. Autopilot sends back the open pull request of a task in review.`);
-  const gh = config.github;
-  if (!gh) throw new AccError("no-github", 'This project has no "github" section in .acc/config.json, so there are no checks to read.');
-  const branch = task.run?.branch;
-  const head = branch ? run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: paths.root }).stdout.trim() : "";
-  if (!head) throw new AccError("checks", `${id}'s branch isn't in this clone.`);
-  const moved = (why) => new AccError("checks-moved", why);
-  if (pr.sha !== head) throw moved(`Pull request #${pr.number} was landed at ${short2(pr.sha ?? "")}, not ${short2(head)}: a land comes first.`);
-  const env = { ...deps.env, GH_TOKEN: ghToken(run2, gh.account) };
-  const read2 = readChecks(run2, gh.repo, pr.number, env);
-  const away = (sha) => moved(`Pull request #${pr.number} is at ${short2(sha)} on GitHub, not ${short2(head)}.`);
-  if (read2.sha !== head) throw away(read2.sha);
-  if (read2.pending.length) throw moved(`Checks are still running on GitHub: ${read2.pending.join(", ")}.`);
-  if (!read2.failed.some((c) => c.job)) throw moved(read2.failed.length ? `Checks failed on GitHub with no log there: ${read2.failed.map((c) => c.name).join(", ")}.` : "Its checks no longer fail on GitHub.");
-  let fetched = 0;
-  const checks = read2.failed.map((c) => {
-    const base = { name: c.name, workflow: c.workflow, link: c.link };
-    if (!c.job) return { ...base, log: null, noLog: NO_ACTIONS_LOG };
-    if (fetched >= MAX_LOGS) return { ...base, log: null, noLog: `Not fetched: autopilot reads the logs of ${MAX_LOGS} checks at most.` };
-    fetched++;
-    const got = fetchLog(run2, c.job, env);
-    return "log" in got ? { ...base, log: got.log, noLog: null } : { ...base, log: null, noLog: got.error };
-  });
-  const still = headOf(run2, gh.repo, pr.number, env);
-  if (still !== head) throw away(still);
-  const names3 = checks.map((c) => c.name);
-  const at2 = now2().toISOString();
-  const report = { v: 1, task: id, sha: head, pr: { number: pr.number, url: pr.url }, required: read2.required, checks, at: at2 };
-  mkdirSync22(paths.checks, { recursive: true });
-  const file = checksPath(paths, id, head);
-  writeFileSync21(file, JSON.stringify(report, null, 2) + "\n");
-  const reason = `Checks failed on GitHub on ${short2(head)}: ${names3.join(", ")}.`;
-  mutate(paths, now2, (l3, emit) => {
-    const t = l3.tasks.find((x2) => x2.id === id);
-    if (!t) throw new AccError("no-task", `No task ${id}.`);
-    if (t.pr?.sha !== head) throw moved(`Pull request #${pr.number} was landed again meanwhile.`);
-    const req = { to: "rework", actor: opts.actor, by: opts.by, reason };
-    const problems = checkMove(l3, config, t, req, noGateHooks);
-    if (problems.length) throw new AccError("move-refused", `Can't send ${id} back:
-- ${problems.join("\n- ")}`);
-    applyMove(t, req, emit, now2, { checks: names3, sha: head });
-    const sentBack = { sha: head, checks: names3, at: at2 };
-    t.autopilot = { failed: null, ...t.autopilot, sentBack };
-    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { autopilot: { sentBack } } });
-  });
-  return { sha: head, checks: names3, report: file, reason: `Sent it back to its builder: ${reason[0].toLowerCase()}${reason.slice(1)}` };
-}
-
-// packages/core/src/held.ts
-function holdWords(look2) {
-  return `Waits for ${filesOf(look2.shares)}, while ${taskList(look2.first)} ${look2.first.length === 1 ? "is" : "are"} ready to start`;
-}
-var FOR_NOW = /* @__PURE__ */ new Set(["move-refused", "lock-timeout"]);
-function startHeld(paths, config, deps, opts) {
-  const out3 = { started: [], waiting: [], failed: [] };
-  const tried = /* @__PURE__ */ new Set();
-  const shared = sharedFiles(config);
-  let fetched = false;
-  const machine = machineLoad(paths, config.project, deps.env);
-  for (; ; ) {
-    const ledger = readLedger(paths.ledger);
-    const held = ledger.tasks.filter((t) => t.state === "todo" && t.held && !t.held.failed && !tried.has(t.id) && (!opts.only || t.id === opts.only)).sort((a2, b) => a2.held.at.localeCompare(b.held.at));
-    if (!held.length) break;
-    const flying = inFlightFiles(paths, ledger, deps.run, { fetch: !fetched });
-    fetched = true;
-    const candidates = startCandidates(paths, config, ledger);
-    const looks = held.map((t) => {
-      const look2 = startOrder({ id: t.id, files: candidates.find((c) => c.id === t.id)?.files ?? null }, candidates, flying, shared);
-      const over = machineCapProblem(ledger, t.id, machine);
-      const problems = [...checkMove(ledger, config, t, { to: "running", actor: opts.actor, by: opts.by }, noGateHooks), ...over ? [over] : [], ...analysisProblems(paths, config, t)];
-      const claimed = startingNow(t, deps.now());
-      return { t, look: look2, problems, claimed };
-    });
-    const ok = looks.filter((l3) => !l3.problems.length && !l3.claimed);
-    const go = ok.find((l3) => !l3.look.shares.length) ?? ok.find((l3) => !waits(l3.look));
-    if (!go) {
-      for (const l3 of looks) {
-        const reason = l3.problems[0] ?? (l3.claimed ? `${l3.claimed.by} is starting it.` : `${holdWords(l3.look)}.`);
-        out3.waiting.push({ task: l3.t.id, reason, waitsFor: l3.look.shares, first: l3.look.first });
-      }
-      break;
-    }
-    const id = go.t.id;
-    tried.add(id);
-    if (!claimHeld(paths, deps.now, id, opts)) continue;
-    const waitedFor = go.t.held.waitsFor.map((w) => w.task);
-    try {
-      const r = dispatch(paths, config, id, deps, { actor: opts.actor, by: opts.by, fromHold: { shares: go.look.shares } });
-      if (r.held) continue;
-      out3.started.push({ task: id, worktree: r.worktree, bgId: r.bgId, shares: r.shares, waitedFor });
-    } catch (e) {
-      const reason = e.message.trim().split("\n").slice(0, 3).join(" ").replace(/\s+/g, " ");
-      if (FOR_NOW.has(e.code)) {
-        releaseHeld(paths, deps.now, id, opts, null);
-        out3.waiting.push({ task: id, reason, waitsFor: go.look.shares, first: go.look.first });
-      } else {
-        releaseHeld(paths, deps.now, id, opts, reason);
-        out3.failed.push({ task: id, reason });
-      }
-    }
-  }
-  return out3;
-}
-function stopWaiting(paths, now2, id, actor, by) {
-  return mutate(paths, now2, (ledger, emit) => {
-    const t = ledger.tasks.find((x2) => x2.id === id);
-    if (!t) throw new AccError("no-task", `No task ${id}.`);
-    if (!t.held) throw new AccError("not-held", `${id} isn't waiting for anything.`);
-    t.held = null;
-    t.updatedAt = now2().toISOString();
-    emit({ type: "task.updated", task: id, actor, by, data: { held: null } });
-    return t;
-  });
-}
-
-// packages/core/src/merge.ts
-var NO_CHECKS_GRACE_MS = 2 * 6e4;
-var BLOCKED_NO_CHECKS_MS = 15 * 6e4;
-var MERGE_METHODS = ["merge", "squash", "rebase"];
-var MERGEABLE = /* @__PURE__ */ new Set(["CLEAN", "UNSTABLE", "HAS_HOOKS"]);
-var short3 = (sha) => sha.slice(0, 7) || "no commit";
-function viewPr(run2, repo, n, env) {
-  const r = run2("gh", ["pr", "view", String(n), "-R", repo, "--json", "state,headRefOid,mergeable,mergeStateStatus,reviewDecision,baseRefName,isDraft"], { env, timeoutMs: GH_TIMEOUT_MS2 });
-  if (r.code !== 0) return null;
-  try {
-    return parseJsonOutput(r.stdout);
-  } catch {
-    return null;
-  }
-}
-function mergeMethod(run2, repo, env) {
-  const r = run2("gh", ["repo", "view", repo, "--json", "mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"], { env, timeoutMs: GH_TIMEOUT_MS2 });
-  let allowed = null;
-  try {
-    allowed = r.code === 0 ? parseJsonOutput(r.stdout) : null;
-  } catch {
-    allowed = null;
-  }
-  if (!allowed) throw new AccError("merge", `gh couldn't read how ${repo} merges pull requests: ${firstSaid(r)}`);
-  const key = { merge: "mergeCommitAllowed", squash: "squashMergeAllowed", rebase: "rebaseMergeAllowed" };
-  const method = MERGE_METHODS.find((m) => allowed[key[m]] === true);
-  if (!method) throw new AccError("merge", `${repo} allows no way to merge a pull request.`);
-  return method;
-}
-function notCovered(config, env) {
-  if (config.profile === "salesforce") return "A Salesforce project never auto-merges: a person merges every pull request there.";
-  if (env.protected) return `"${env.name}" is protected: a person merges into it.`;
-  if (config.autonomy !== "review") return `autonomy is "${config.autonomy}": autopilot merges only under review.`;
-  return "Auto-merge is off for this project: a person merges its pull requests.";
-}
-function mergePr(paths, config, id, deps, opts) {
-  const { run: run2, now: now2 } = deps;
-  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
-  if (!task) throw new AccError("no-task", `No task ${id}.`);
-  const pr = task.pr;
-  if (task.state !== "review" || pr?.state !== "open") throw new AccError("refused", `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : " with no pull request"}. Autopilot merges the open pull request of a task in review.`);
-  const gh = config.github;
-  if (!gh) throw new AccError("no-github", `This project has no "github" section in .acc/config.json, so there's no pull request to merge.`);
-  const env = environmentByBranch(config, task.environment);
-  if (!env) throw new AccError("merge", `${id}'s environment "${task.environment}" isn't in the config.`);
-  if (!autoMergeFor(config, env.branch)) throw new AccError("refused", notCovered(config, env));
-  const branch = task.run?.branch;
-  const head = branch ? run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: paths.root }).stdout.trim() : "";
-  if (!branch || !head) throw new AccError("merge", `${id}'s branch isn't in this clone.`);
-  const wait = (why) => new AccError("merge-waits", why);
-  const waitChecks = (why) => Object.assign(wait(why), { checks: true });
-  if (task.autopilot?.merged?.sha === head) throw wait(`Autopilot already merged pull request #${pr.number}: acc sync moves ${id} to done.`);
-  if (pr.sha !== head) throw wait(`Pull request #${pr.number} was landed at ${short3(pr.sha ?? "")}, not ${short3(head)}: a land comes first.`);
-  if (!reviewedAt(paths, task, head)) throw wait(`${id}'s review hasn't passed on ${short3(head)}.`);
-  const missing = receiptHooks(paths, config, run2).missingGates(task, "merge");
-  if (missing.length) throw new AccError("merge", `Its checks aren't settled on ${short3(head)}: ${missing.join(", ")}.`);
-  const wt2 = task.run?.worktree;
-  if (wt2 && askingUnder(pendingQuestions(questionsDir(deps.env)), wt2)) throw wait(`An agent in ${id}'s worktree is waiting for your answer.`);
-  if (!fetchBranches(run2, paths.root, [env.branch, branch], { ...deps.env, GIT_TERMINAL_PROMPT: "0" })) throw wait(`Couldn't fetch ${env.branch} and ${branch} from origin.`);
-  const git10 = (...args) => run2("git", args, { cwd: paths.root });
-  if (git10("merge-base", "--is-ancestor", `refs/remotes/origin/${env.branch}`, head).code !== 0) throw wait(`${env.branch} moved on since ${short3(head)}: autopilot merges it in first.`);
-  const changed = git10("diff", "--name-only", "--no-renames", `refs/remotes/origin/${env.branch}...${head}`, "--", ".acc");
-  if (changed.code !== 0) throw new AccError("merge", `git couldn't list what pull request #${pr.number} changes: ${firstSaid(changed)}`);
-  const acc = changed.stdout.split("\n").filter(Boolean);
-  if (acc.length) throw new AccError("merge", `It changes .acc/, which a person merges: ${acc.join(", ")}.`);
-  const ghEnv3 = { ...deps.env, GH_TOKEN: ghToken(run2, gh.account) };
-  const seen = viewPr(run2, gh.repo, pr.number, ghEnv3);
-  if (!seen) throw wait(`gh couldn't read pull request #${pr.number}.`);
-  if (seen.state === "MERGED") throw wait(`Pull request #${pr.number} is already merged on GitHub: acc sync moves ${id} to done.`);
-  if (seen.state !== "OPEN") throw wait(`Pull request #${pr.number} is ${String(seen.state ?? "not open").toLowerCase()} on GitHub: acc sync follows it.`);
-  if (seen.headRefOid !== head) throw wait(`Pull request #${pr.number} is at ${short3(seen.headRefOid ?? "")} on GitHub, not ${short3(head)}: a land or a person comes first.`);
-  if (seen.baseRefName !== env.branch) throw new AccError("merge", `Pull request #${pr.number} merges into ${seen.baseRefName || "another branch"} on GitHub, not ${env.branch}: a person merges it.`);
-  if (seen.reviewDecision === "CHANGES_REQUESTED") throw wait(`A person asked for changes on pull request #${pr.number}.`);
-  if (seen.isDraft) throw new AccError("merge", `Pull request #${pr.number} is a draft on GitHub.`);
-  let checks;
-  try {
-    checks = readChecks(run2, gh.repo, pr.number, ghEnv3);
-  } catch (e) {
-    throw wait(e.message);
-  }
-  if (checks.sha !== head) throw wait(`Pull request #${pr.number} is at ${short3(checks.sha)} on GitHub, not ${short3(head)}.`);
-  if (checks.pending.length) throw waitChecks(`Checks are still running on GitHub: ${checks.pending.join(", ")}.`);
-  if (checks.failed.length) throw new AccError("merge", `Checks failed on GitHub: ${checks.failed.map((c) => c.name).join(", ")}.`);
-  if (checks.cancelled.length) throw new AccError("merge", `Checks were cancelled on GitHub: ${checks.cancelled.join(", ")}. Run them again, or merge it yourself.`);
-  const landed = Date.parse(pr.landedAt ?? "");
-  const since = (ms) => Number.isFinite(landed) && now2().getTime() - landed < ms;
-  if (!checks.count) {
-    if (checks.required) throw waitChecks(`No checks ${env.branch} requires are reported on GitHub yet.`);
-    if (since(NO_CHECKS_GRACE_MS)) throw waitChecks("No checks are reported on GitHub yet: autopilot gives them 2 minutes after a land.");
-  }
-  if (seen.mergeable === "CONFLICTING" || seen.mergeStateStatus === "DIRTY") throw new AccError("merge", `GitHub says pull request #${pr.number} conflicts with ${env.branch}.`);
-  if (seen.mergeable !== "MERGEABLE" || !seen.mergeStateStatus || seen.mergeStateStatus === "UNKNOWN") throw wait(`GitHub is still working out whether pull request #${pr.number} can merge.`);
-  if (seen.mergeStateStatus === "BEHIND") throw wait(`GitHub says pull request #${pr.number} is behind ${env.branch}: autopilot merges it in first.`);
-  if (seen.mergeStateStatus === "BLOCKED" && !checks.count) {
-    if (since(BLOCKED_NO_CHECKS_MS)) throw waitChecks(`GitHub says ${env.branch}'s rules block pull request #${pr.number}, and no checks are reported on it yet: autopilot waits for the checks ${env.branch} requires.`);
-    throw new AccError("merge", `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, and no checks were reported on it in the 15 minutes after its land. It may need an approving review: merge it yourself.`);
-  }
-  if (seen.mergeStateStatus === "BLOCKED") throw new AccError("merge", `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, such as a required approving review.`);
-  if (!MERGEABLE.has(seen.mergeStateStatus)) throw new AccError("merge", `GitHub says pull request #${pr.number} can't merge (${seen.mergeStateStatus}).`);
-  const method = mergeMethod(run2, gh.repo, ghEnv3);
-  const r = run2("gh", ["pr", "merge", String(pr.number), "-R", gh.repo, `--${method}`, "--match-head-commit", head], { env: ghEnv3, timeoutMs: GH_TIMEOUT_MS2 });
-  if (r.code !== 0) {
-    const after = viewPr(run2, gh.repo, pr.number, ghEnv3);
-    if (after?.state !== "MERGED") {
-      if (after?.headRefOid && after.headRefOid !== head) throw wait(`Pull request #${pr.number} moved on to ${short3(after.headRefOid)} on GitHub while autopilot merged it.`);
-      throw new AccError("merge", `gh couldn't merge pull request #${pr.number}: ${firstSaid(r)}${after ? "" : " GitHub didn't say afterwards whether it merged."}`);
-    }
-  }
-  const merged = { sha: head, pr: { number: pr.number, url: pr.url }, method, at: now2().toISOString() };
-  mutate(paths, now2, (l3, emit) => {
-    const t = l3.tasks.find((x2) => x2.id === id);
-    if (!t) return;
-    t.autopilot = { ...t.autopilot, failed: null, merged };
-    if (t.autopilot.queued) t.autopilot.queued = null;
-    t.updatedAt = merged.at;
-    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { merged } });
-  });
-  return { sha: head, pr: merged.pr, method, reason: `Merged pull request #${pr.number} into ${env.branch} at ${short3(head)}. acc sync moves ${id} to done.` };
-}
-
 // packages/core/src/resume.ts
 import { spawn as spawn2 } from "node:child_process";
-import { appendFileSync as appendFileSync3, closeSync as closeSync4, existsSync as existsSync19, mkdirSync as mkdirSync24, openSync as openSync4, readFileSync as readFileSync25, rmSync as rmSync14, writeFileSync as writeFileSync23 } from "node:fs";
-import { dirname as dirname10, join as join24 } from "node:path";
+import { appendFileSync as appendFileSync3, closeSync as closeSync4, existsSync as existsSync19, mkdirSync as mkdirSync25, openSync as openSync4, readFileSync as readFileSync26, rmSync as rmSync14, writeFileSync as writeFileSync23 } from "node:fs";
+import { dirname as dirname10, join as join25 } from "node:path";
 
 // packages/core/src/hooks.ts
-import { existsSync as existsSync17, mkdirSync as mkdirSync23, realpathSync as realpathSync4, writeFileSync as writeFileSync22 } from "node:fs";
-import { dirname as dirname9, join as join22, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
+import { existsSync as existsSync18, mkdirSync as mkdirSync24, realpathSync as realpathSync4, writeFileSync as writeFileSync22 } from "node:fs";
+import { dirname as dirname9, join as join24, relative as relative3, resolve as resolve3, sep as sep3 } from "node:path";
 function findAccRoot(cwd) {
   let dir = resolve3(cwd);
   for (; ; ) {
-    if (existsSync17(join22(dir, ".acc", "config.json"))) return dir;
+    if (existsSync18(join24(dir, ".acc", "config.json"))) return dir;
     const up = dirname9(dir);
     if (up === dir) return null;
     dir = up;
@@ -10414,7 +10437,7 @@ function preToolUseHook(input, ctx) {
   if (["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(tool)) {
     let list = [];
     try {
-      list = readList(b.worktree, loadConfig(join22(b.worktree, ".acc", "config.json")).config.environmentSpecific);
+      list = readList(b.worktree, loadConfig(join24(b.worktree, ".acc", "config.json")).config.environmentSpecific);
     } catch {
       list = [];
     }
@@ -10458,7 +10481,7 @@ function sessionStartHook(input, ctx) {
   let gates = [];
   let full = [];
   try {
-    const config = loadConfig(join22(b.root, ".acc", "config.json")).config;
+    const config = loadConfig(join24(b.root, ".acc", "config.json")).config;
     gates = requiredGates(config, b.task.environment, "builder");
     full = builderGatesFor(config, b.task.environment) ? fullGates(config).filter((g) => !gates.includes(g)) : [];
   } catch {
@@ -10466,16 +10489,16 @@ function sessionStartHook(input, ctx) {
   }
   return { hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: shortPacket(b.task, gates, full) } };
 }
-var remindedPath = (stateDir, sessionId) => join22(stateDir, "hooks", `${(sessionId ?? "session").replace(/[^A-Za-z0-9-]/g, "")}.reminded`);
+var remindedPath = (stateDir, sessionId) => join24(stateDir, "hooks", `${(sessionId ?? "session").replace(/[^A-Za-z0-9-]/g, "")}.reminded`);
 function stopHook(input, ctx) {
   if (input.stop_hook_active) return null;
   const b = builderFor(ctx);
   if (!b || b.task.state !== "running") return null;
   const paths = repoPaths(b.root, ctx.run);
   const mark = remindedPath(paths.stateDir, input.session_id);
-  if (existsSync17(mark)) return null;
+  if (existsSync18(mark)) return null;
   try {
-    mkdirSync23(dirname9(mark), { recursive: true });
+    mkdirSync24(dirname9(mark), { recursive: true });
     writeFileSync22(mark, ctx.now().toISOString());
   } catch {
     return null;
@@ -10494,107 +10517,11 @@ function parseEventInput(text) {
   }
 }
 
-// packages/core/src/transcript.ts
-import { closeSync as closeSync3, existsSync as existsSync18, openSync as openSync3, readdirSync as readdirSync9, readFileSync as readFileSync24, readSync as readSync3, statSync as statSync7 } from "node:fs";
-import { homedir as homedir6 } from "node:os";
-import { join as join23 } from "node:path";
-function claudeProjectsDir(env = process.env) {
-  return env.CLAUDE_CONFIG_DIR ? join23(env.CLAUDE_CONFIG_DIR, "projects") : join23(env.HOME || homedir6(), ".claude", "projects");
-}
-var transcriptDir = (projectsDir, cwd) => `${projectsDir}/${cwd.replace(/[^A-Za-z0-9]/g, "-")}`;
-function savedDir(projectsDir, file, likely) {
-  for (const f of new Set(likely.filter((c) => !!c))) {
-    const dir2 = transcriptDir(projectsDir, f);
-    if (existsSync18(join23(dir2, file))) return { dir: dir2, folder: f };
-  }
-  let dirs;
-  try {
-    dirs = readdirSync9(projectsDir);
-  } catch {
-    return null;
-  }
-  const dir = dirs.find((d) => existsSync18(join23(projectsDir, d, file)));
-  return dir ? { dir: `${projectsDir}/${dir}`, folder: null } : null;
-}
-function transcriptFile(projectsDir, sessionId, likely) {
-  const file = `${sessionId}.jsonl`;
-  const found = savedDir(projectsDir, file, likely);
-  return found ? join23(found.dir, file) : null;
-}
-function savedFolder(projectsDir, sessionId, likely) {
-  const file = `${sessionId}.jsonl`;
-  const found = savedDir(projectsDir, file, likely);
-  if (!found) return null;
-  if (found.folder) return found.folder;
-  let text;
-  try {
-    text = readFileSync24(join23(found.dir, file), "utf8");
-  } catch {
-    return null;
-  }
-  for (const m of text.matchAll(/"cwd":("(?:[^"\\]|\\.)*")/g)) {
-    let cwd;
-    try {
-      cwd = JSON.parse(m[1]);
-    } catch {
-      continue;
-    }
-    if (typeof cwd === "string" && transcriptDir(projectsDir, cwd) === found.dir) return cwd;
-  }
-  return null;
-}
-var TAIL_BYTES = 256 * 1024;
-function* assistantTurns(file) {
-  let fd;
-  try {
-    fd = openSync3(file, "r");
-  } catch {
-    return;
-  }
-  let text;
-  try {
-    const size = statSync7(file).size;
-    const from = Math.max(0, size - TAIL_BYTES);
-    const buf = Buffer.alloc(size - from);
-    readSync3(fd, buf, 0, buf.length, from);
-    text = buf.toString("utf8");
-    if (from > 0) text = text.slice(text.indexOf("\n") + 1);
-  } catch {
-    return;
-  } finally {
-    closeSync3(fd);
-  }
-  const lines = text.split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!line.includes('"assistant"')) continue;
-    let r;
-    try {
-      r = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (r?.type === "assistant" && !r.isSidechain) yield r;
-  }
-}
-function lastSaidIn(file) {
-  for (const r of assistantTurns(file)) {
-    if (!Array.isArray(r.message?.content)) continue;
-    const said2 = r.message.content.filter((b) => b?.type === "text" && typeof b.text === "string" && b.text.trim()).map((b) => b.text.trim());
-    if (said2.length) return said2[said2.length - 1];
-  }
-  return null;
-}
-function lastSaid(projectsDir, sessionId, likely) {
-  const file = transcriptFile(projectsDir, sessionId, likely);
-  return file ? lastSaidIn(file) : null;
-}
-
 // packages/core/src/resume.ts
-var resumingPath = (paths, id) => join24(paths.stateDir, "resumes", `${id}.json`);
+var resumingPath = (paths, id) => join25(paths.stateDir, "resumes", `${id}.json`);
 function resuming(paths, id) {
   try {
-    const r = JSON.parse(readFileSync25(resumingPath(paths, id), "utf8"));
+    const r = JSON.parse(readFileSync26(resumingPath(paths, id), "utf8"));
     return Number.isInteger(r.pid) && r.pid > 0 && alive(r.pid) ? r : null;
   } catch {
     return null;
@@ -10616,16 +10543,17 @@ function endResume(paths, id) {
   }
   return true;
 }
-function listSessions(run2, cwd) {
+function askAgents(run2, cwd) {
   const r = run2("claude", ["agents", "--json"], { cwd, timeoutMs: 2e4 });
-  if (r.code !== 0) return null;
+  if (r.code !== 0 || SERVICE_DOWN.test(r.stderr ?? "")) return { sessions: null, missing: r.code === 127 && !r.timedOut };
   try {
     const list = parseJsonOutput(r.stdout);
-    return Array.isArray(list) ? list : null;
+    return { sessions: Array.isArray(list) ? list : null, missing: false };
   } catch {
-    return null;
+    return { sessions: null, missing: false };
   }
 }
+var listSessions = (run2, cwd) => askAgents(run2, cwd).sessions;
 var clipSaid = (said2, max = 300) => {
   const one = said2.replace(/\s+/g, " ").trim();
   return one.length > max ? `${one.slice(0, max - 1).trimEnd()}\u2026` : one;
@@ -10680,7 +10608,7 @@ function resume(paths, config, id, deps, opts) {
   const worktree = task.run?.worktree;
   if (!worktree || !existsSync19(worktree)) throw new AccError("refused", `${id}'s worktree isn't on disk any more, so there's nowhere to carry on.`);
   const marker = resumingPath(paths, id);
-  const log = join24(paths.logs, `${id}.resume.log`);
+  const log = join25(paths.logs, `${id}.resume.log`);
   claimResume(paths, id, { sessionId, pid: process.pid, startedAt: now2().toISOString(), by: opts.by, log });
   try {
     return resumeClaimed(paths, config, id, deps, opts, { task, sessionId, worktree, marker, log });
@@ -10691,14 +10619,14 @@ function resume(paths, config, id, deps, opts) {
 }
 function readMarker(file) {
   try {
-    return JSON.parse(readFileSync25(file, "utf8"));
+    return JSON.parse(readFileSync26(file, "utf8"));
   } catch {
     return null;
   }
 }
 function claimResume(paths, id, claim) {
   const file = resumingPath(paths, id);
-  mkdirSync24(dirname10(file), { recursive: true });
+  mkdirSync25(dirname10(file), { recursive: true });
   for (let tries = 0; tries < 2; tries++) {
     try {
       writeFileSync23(file, JSON.stringify(claim), { flag: "wx" });
@@ -10734,7 +10662,7 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
     if (r.code !== 0) throw new AccError("refused", `${id}'s background session ${s.id} wouldn't stop: ${(r.stderr || r.stdout).trim().split("\n")[0]}`);
     stopped = s.id;
   }
-  mkdirSync24(dirname10(log), { recursive: true });
+  mkdirSync25(dirname10(log), { recursive: true });
   const at2 = now2().toISOString();
   appendFileSync3(log, `
 --- ${at2}: ${id} resumed by ${opts.by}, in ${folder} ---
@@ -10762,6 +10690,225 @@ function resumeClaimed(paths, config, id, deps, opts, c) {
     endResume(paths, id);
     throw e;
   }
+}
+
+// packages/core/src/again.ts
+var AGAIN_REASON = "Claude Code's background sessions weren't answering, so acc couldn't see its builder";
+var againRefusal = (id) => `${id}'s builder is working where acc can see it, so ${DISPATCH_AGAIN} would stop work that's going on. It is for a builder that didn't start, or one acc can't see.`;
+function dispatchAgain(paths, config, id, deps, opts) {
+  if (opts.actor !== "human") throw new AccError("refused", `${DISPATCH_AGAIN} is a person's: it sets a running task back.`);
+  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+  if (!task) throw new AccError("no-task", `No task ${id}.`);
+  if (opts.unseen === "missing") throw new AccError("refused", MISSING_WORDS);
+  const why = opts.reason?.trim() || (task.notStarted ? task.notStarted.reason : AGAIN_REASON);
+  const reason = `Dispatched again: ${why}`;
+  const base = { actor: opts.actor, by: opts.by, reason };
+  if (task.notStarted) {
+    const n = task.notStarted;
+    return dispatch(paths, config, id, deps, { ...base, where: n.where, ...n.model ? { model: n.model } : {}, ...n.effort ? { effort: n.effort } : {} });
+  }
+  if (task.state !== "running") throw new AccError("refused", `${id} is ${task.state}, and its builder didn't fail to start: dispatch it as usual.`);
+  if (task.run?.where === "cloud") throw new AccError("refused", `${id}'s builder runs in the cloud: its branch says whether it's quiet, and ${DISPATCH_AGAIN} is for a builder on this Mac.`);
+  if (!opts.unseen) throw new AccError("refused", againRefusal(id));
+  if (task.run?.bgId) deps.run("claude", ["stop", task.run.bgId], { cwd: task.run.worktree ?? paths.root, timeoutMs: 2e4 });
+  endResume(paths, id);
+  moveTask(paths, config, id, { to: "todo", actor: opts.actor, by: opts.by, reason }, noGateHooks, deps.now);
+  return dispatch(paths, config, id, deps, { ...base, where: "local" });
+}
+
+// packages/core/src/autopilot-log.ts
+var byAutopilot = (by) => by === AUTOPILOT_BY || by.endsWith(` for ${AUTOPILOT_BY}`);
+var EVENTS_TAIL_BYTES = 256 * 1024;
+
+// packages/core/src/held.ts
+function holdWords(look2) {
+  return `Waits for ${filesOf(look2.shares)}, while ${taskList(look2.first)} ${look2.first.length === 1 ? "is" : "are"} ready to start`;
+}
+var FOR_NOW = /* @__PURE__ */ new Set(["move-refused", "lock-timeout"]);
+function startHeld(paths, config, deps, opts) {
+  const out3 = { started: [], waiting: [], failed: [] };
+  const tried = /* @__PURE__ */ new Set();
+  const shared = sharedFiles(config);
+  let fetched = false;
+  const machine = machineLoad(paths, config.project, deps.env);
+  for (; ; ) {
+    const ledger = readLedger(paths.ledger);
+    const held = ledger.tasks.filter((t) => t.state === "todo" && t.held && !t.held.failed && !tried.has(t.id) && (!opts.only || t.id === opts.only)).sort((a2, b) => a2.held.at.localeCompare(b.held.at));
+    if (!held.length) break;
+    const flying = inFlightFiles(paths, ledger, deps.run, { fetch: !fetched });
+    fetched = true;
+    const candidates = startCandidates(paths, config, ledger);
+    const looks = held.map((t) => {
+      const look2 = startOrder({ id: t.id, files: candidates.find((c) => c.id === t.id)?.files ?? null }, candidates, flying, shared);
+      const over = machineCapProblem(ledger, t.id, machine);
+      const problems = [...checkMove(ledger, config, t, { to: "running", actor: opts.actor, by: opts.by }, noGateHooks), ...over ? [over] : [], ...analysisProblems(paths, config, t)];
+      const claimed = startingNow(t, deps.now());
+      return { t, look: look2, problems, claimed };
+    });
+    const ok = looks.filter((l3) => !l3.problems.length && !l3.claimed);
+    const go = ok.find((l3) => !l3.look.shares.length) ?? ok.find((l3) => !waits(l3.look));
+    if (!go) {
+      for (const l3 of looks) {
+        const reason = l3.problems[0] ?? (l3.claimed ? `${l3.claimed.by} is starting it.` : `${holdWords(l3.look)}.`);
+        out3.waiting.push({ task: l3.t.id, reason, waitsFor: l3.look.shares, first: l3.look.first });
+      }
+      break;
+    }
+    const id = go.t.id;
+    tried.add(id);
+    if (!claimHeld(paths, deps.now, id, opts)) continue;
+    const waitedFor = go.t.held.waitsFor.map((w) => w.task);
+    try {
+      const r = dispatch(paths, config, id, deps, { actor: opts.actor, by: opts.by, fromHold: { shares: go.look.shares } });
+      if (r.held) continue;
+      if (r.notStarted) {
+        out3.failed.push({ task: id, reason: r.notStarted.reason });
+        continue;
+      }
+      out3.started.push({ task: id, worktree: r.worktree, bgId: r.bgId, shares: r.shares, waitedFor });
+    } catch (e) {
+      const reason = e.message.trim().split("\n").slice(0, 3).join(" ").replace(/\s+/g, " ");
+      if (FOR_NOW.has(e.code)) {
+        releaseHeld(paths, deps.now, id, opts, null);
+        out3.waiting.push({ task: id, reason, waitsFor: go.look.shares, first: go.look.first });
+      } else {
+        releaseHeld(paths, deps.now, id, opts, reason);
+        out3.failed.push({ task: id, reason });
+      }
+    }
+  }
+  return out3;
+}
+function stopWaiting(paths, now2, id, actor, by) {
+  return mutate(paths, now2, (ledger, emit) => {
+    const t = ledger.tasks.find((x2) => x2.id === id);
+    if (!t) throw new AccError("no-task", `No task ${id}.`);
+    if (!t.held) throw new AccError("not-held", `${id} isn't waiting for anything.`);
+    t.held = null;
+    t.updatedAt = now2().toISOString();
+    emit({ type: "task.updated", task: id, actor, by, data: { held: null } });
+    return t;
+  });
+}
+
+// packages/core/src/merge.ts
+var NO_CHECKS_GRACE_MS = 2 * 6e4;
+var BLOCKED_NO_CHECKS_MS = 15 * 6e4;
+var MERGE_METHODS = ["merge", "squash", "rebase"];
+var MERGEABLE = /* @__PURE__ */ new Set(["CLEAN", "UNSTABLE", "HAS_HOOKS"]);
+var short3 = (sha) => sha.slice(0, 7) || "no commit";
+function viewPr(run2, repo, n, env) {
+  const r = run2("gh", ["pr", "view", String(n), "-R", repo, "--json", "state,headRefOid,mergeable,mergeStateStatus,reviewDecision,baseRefName,isDraft"], { env, timeoutMs: GH_TIMEOUT_MS });
+  if (r.code !== 0) return null;
+  try {
+    return parseJsonOutput(r.stdout);
+  } catch {
+    return null;
+  }
+}
+function mergeMethod(run2, repo, env) {
+  const r = run2("gh", ["repo", "view", repo, "--json", "mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed"], { env, timeoutMs: GH_TIMEOUT_MS });
+  let allowed = null;
+  try {
+    allowed = r.code === 0 ? parseJsonOutput(r.stdout) : null;
+  } catch {
+    allowed = null;
+  }
+  if (!allowed) throw new AccError("merge", `gh couldn't read how ${repo} merges pull requests: ${firstSaid(r)}`);
+  const key = { merge: "mergeCommitAllowed", squash: "squashMergeAllowed", rebase: "rebaseMergeAllowed" };
+  const method = MERGE_METHODS.find((m) => allowed[key[m]] === true);
+  if (!method) throw new AccError("merge", `${repo} allows no way to merge a pull request.`);
+  return method;
+}
+function notCovered(config, env) {
+  if (config.profile === "salesforce") return "A Salesforce project never auto-merges: a person merges every pull request there.";
+  if (env.protected) return `"${env.name}" is protected: a person merges into it.`;
+  if (config.autonomy !== "review") return `autonomy is "${config.autonomy}": autopilot merges only under review.`;
+  return "Auto-merge is off for this project: a person merges its pull requests.";
+}
+function mergePr(paths, config, id, deps, opts) {
+  const { run: run2, now: now2 } = deps;
+  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+  if (!task) throw new AccError("no-task", `No task ${id}.`);
+  const pr = task.pr;
+  if (task.state !== "review" || pr?.state !== "open") throw new AccError("refused", `${id} is ${task.state}${pr ? ` with pull request #${pr.number} ${pr.state}` : " with no pull request"}. Autopilot merges the open pull request of a task in review.`);
+  const gh = config.github;
+  if (!gh) throw new AccError("no-github", `This project has no "github" section in .acc/config.json, so there's no pull request to merge.`);
+  const env = environmentByBranch(config, task.environment);
+  if (!env) throw new AccError("merge", `${id}'s environment "${task.environment}" isn't in the config.`);
+  if (!autoMergeFor(config, env.branch)) throw new AccError("refused", notCovered(config, env));
+  const branch = task.run?.branch;
+  const head = branch ? run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], { cwd: paths.root }).stdout.trim() : "";
+  if (!branch || !head) throw new AccError("merge", `${id}'s branch isn't in this clone.`);
+  const wait = (why) => new AccError("merge-waits", why);
+  const waitChecks = (why) => Object.assign(wait(why), { checks: true });
+  if (task.autopilot?.merged?.sha === head) throw wait(`Autopilot already merged pull request #${pr.number}: acc sync moves ${id} to done.`);
+  if (pr.sha !== head) throw wait(`Pull request #${pr.number} was landed at ${short3(pr.sha ?? "")}, not ${short3(head)}: a land comes first.`);
+  if (!reviewedAt(paths, task, head)) throw wait(`${id}'s review hasn't passed on ${short3(head)}.`);
+  const missing = receiptHooks(paths, config, run2).missingGates(task, "merge");
+  if (missing.length) throw new AccError("merge", `Its checks aren't settled on ${short3(head)}: ${missing.join(", ")}.`);
+  const wt2 = task.run?.worktree;
+  if (wt2 && askingUnder(pendingQuestions(questionsDir(deps.env)), wt2)) throw wait(`An agent in ${id}'s worktree is waiting for your answer.`);
+  if (!fetchBranches(run2, paths.root, [env.branch, branch], { ...deps.env, GIT_TERMINAL_PROMPT: "0" })) throw wait(`Couldn't fetch ${env.branch} and ${branch} from origin.`);
+  const git10 = (...args) => run2("git", args, { cwd: paths.root });
+  if (git10("merge-base", "--is-ancestor", `refs/remotes/origin/${env.branch}`, head).code !== 0) throw wait(`${env.branch} moved on since ${short3(head)}: autopilot merges it in first.`);
+  const changed = git10("diff", "--name-only", "--no-renames", `refs/remotes/origin/${env.branch}...${head}`, "--", ".acc");
+  if (changed.code !== 0) throw new AccError("merge", `git couldn't list what pull request #${pr.number} changes: ${firstSaid(changed)}`);
+  const acc = changed.stdout.split("\n").filter(Boolean);
+  if (acc.length) throw new AccError("merge", `It changes .acc/, which a person merges: ${acc.join(", ")}.`);
+  const ghEnv3 = { ...deps.env, GH_TOKEN: ghToken(run2, gh.account) };
+  const seen = viewPr(run2, gh.repo, pr.number, ghEnv3);
+  if (!seen) throw wait(`gh couldn't read pull request #${pr.number}.`);
+  if (seen.state === "MERGED") throw wait(`Pull request #${pr.number} is already merged on GitHub: acc sync moves ${id} to done.`);
+  if (seen.state !== "OPEN") throw wait(`Pull request #${pr.number} is ${String(seen.state ?? "not open").toLowerCase()} on GitHub: acc sync follows it.`);
+  if (seen.headRefOid !== head) throw wait(`Pull request #${pr.number} is at ${short3(seen.headRefOid ?? "")} on GitHub, not ${short3(head)}: a land or a person comes first.`);
+  if (seen.baseRefName !== env.branch) throw new AccError("merge", `Pull request #${pr.number} merges into ${seen.baseRefName || "another branch"} on GitHub, not ${env.branch}: a person merges it.`);
+  if (seen.reviewDecision === "CHANGES_REQUESTED") throw wait(`A person asked for changes on pull request #${pr.number}.`);
+  if (seen.isDraft) throw new AccError("merge", `Pull request #${pr.number} is a draft on GitHub.`);
+  let checks;
+  try {
+    checks = readChecks(run2, gh.repo, pr.number, ghEnv3);
+  } catch (e) {
+    throw wait(e.message);
+  }
+  if (checks.sha !== head) throw wait(`Pull request #${pr.number} is at ${short3(checks.sha)} on GitHub, not ${short3(head)}.`);
+  if (checks.pending.length) throw waitChecks(`Checks are still running on GitHub: ${checks.pending.join(", ")}.`);
+  if (checks.failed.length) throw new AccError("merge", `Checks failed on GitHub: ${checks.failed.map((c) => c.name).join(", ")}.`);
+  if (checks.cancelled.length) throw new AccError("merge", `Checks were cancelled on GitHub: ${checks.cancelled.join(", ")}. Run them again, or merge it yourself.`);
+  const landed = Date.parse(pr.landedAt ?? "");
+  const since = (ms) => Number.isFinite(landed) && now2().getTime() - landed < ms;
+  if (!checks.count) {
+    if (checks.required) throw waitChecks(`No checks ${env.branch} requires are reported on GitHub yet.`);
+    if (since(NO_CHECKS_GRACE_MS)) throw waitChecks("No checks are reported on GitHub yet: autopilot gives them 2 minutes after a land.");
+  }
+  if (seen.mergeable === "CONFLICTING" || seen.mergeStateStatus === "DIRTY") throw new AccError("merge", `GitHub says pull request #${pr.number} conflicts with ${env.branch}.`);
+  if (seen.mergeable !== "MERGEABLE" || !seen.mergeStateStatus || seen.mergeStateStatus === "UNKNOWN") throw wait(`GitHub is still working out whether pull request #${pr.number} can merge.`);
+  if (seen.mergeStateStatus === "BEHIND") throw wait(`GitHub says pull request #${pr.number} is behind ${env.branch}: autopilot merges it in first.`);
+  if (seen.mergeStateStatus === "BLOCKED" && !checks.count) {
+    if (since(BLOCKED_NO_CHECKS_MS)) throw waitChecks(`GitHub says ${env.branch}'s rules block pull request #${pr.number}, and no checks are reported on it yet: autopilot waits for the checks ${env.branch} requires.`);
+    throw new AccError("merge", `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, and no checks were reported on it in the 15 minutes after its land. It may need an approving review: merge it yourself.`);
+  }
+  if (seen.mergeStateStatus === "BLOCKED") throw new AccError("merge", `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, such as a required approving review.`);
+  if (!MERGEABLE.has(seen.mergeStateStatus)) throw new AccError("merge", `GitHub says pull request #${pr.number} can't merge (${seen.mergeStateStatus}).`);
+  const method = mergeMethod(run2, gh.repo, ghEnv3);
+  const r = run2("gh", ["pr", "merge", String(pr.number), "-R", gh.repo, `--${method}`, "--match-head-commit", head], { env: ghEnv3, timeoutMs: GH_TIMEOUT_MS });
+  if (r.code !== 0) {
+    const after = viewPr(run2, gh.repo, pr.number, ghEnv3);
+    if (after?.state !== "MERGED") {
+      if (after?.headRefOid && after.headRefOid !== head) throw wait(`Pull request #${pr.number} moved on to ${short3(after.headRefOid)} on GitHub while autopilot merged it.`);
+      throw new AccError("merge", `gh couldn't merge pull request #${pr.number}: ${firstSaid(r)}${after ? "" : " GitHub didn't say afterwards whether it merged."}`);
+    }
+  }
+  const merged = { sha: head, pr: { number: pr.number, url: pr.url }, method, at: now2().toISOString() };
+  mutate(paths, now2, (l3, emit) => {
+    const t = l3.tasks.find((x2) => x2.id === id);
+    if (!t) return;
+    t.autopilot = { ...t.autopilot, failed: null, merged };
+    if (t.autopilot.queued) t.autopilot.queued = null;
+    t.updatedAt = merged.at;
+    emit({ type: "task.updated", task: id, actor: opts.actor, by: opts.by, data: { merged } });
+  });
+  return { sha: head, pr: merged.pr, method, reason: `Merged pull request #${pr.number} into ${env.branch} at ${short3(head)}. acc sync moves ${id} to done.` };
 }
 
 // packages/core/src/autopilot-rules.ts
@@ -10817,6 +10964,7 @@ function nextStep(ledger, config, task, facts) {
     }
     return step("land", `Its review passed on ${short4(facts.head)}, and pull request #${pr.number} is behind it.`);
   }
+  if ((task.state === "rework" || task.state === "todo") && task.notStarted) return none("waiting", `${sentence2(task.notStarted.reason)} It waits for a person.`);
   if (task.state === "rework") {
     const cause = reworkCause(task);
     const own = cause === "checks" || cause === "queue";
@@ -10966,11 +11114,11 @@ function taskFacts(paths, task, run2, sessions = null, now2 = /* @__PURE__ */ ne
 var firstLines = (text) => text.trim().split("\n").slice(0, 3).join(" ").replace(/\s+/g, " ");
 
 // packages/core/src/autopilot.ts
-import { mkdirSync as mkdirSync26, readFileSync as readFileSync27 } from "node:fs";
-import { join as join25 } from "node:path";
+import { mkdirSync as mkdirSync27, readFileSync as readFileSync28 } from "node:fs";
+import { join as join26 } from "node:path";
 
 // packages/core/src/queue.ts
-import { mkdirSync as mkdirSync25, readFileSync as readFileSync26, writeFileSync as writeFileSync24 } from "node:fs";
+import { mkdirSync as mkdirSync26, readFileSync as readFileSync27, writeFileSync as writeFileSync24 } from "node:fs";
 var short5 = (sha) => sha.slice(0, 7) || "no commit";
 function queueOrder(ledger, config) {
   const index = new Map(ledger.tasks.map((t, i) => [t.id, i]));
@@ -11132,7 +11280,7 @@ function queueTurn(paths, config, id, deps, who) {
 function tailOfFile(file) {
   if (!file) return null;
   try {
-    return tailText(readFileSync26(file, "utf8")) || null;
+    return tailText(readFileSync27(file, "utf8")) || null;
   } catch {
     return null;
   }
@@ -11154,7 +11302,7 @@ function sendBackFromQueue(paths, config, task, deps, who, f, base, head) {
   const checks = f.kind === "check" ? f.failed.map((r) => ({ gate: r.gate, status: r.status, summary: r.summary, file: r.receipt.log, log: tailOfFile(r.receipt.log) })) : [];
   const conflicts = f.kind === "conflict" ? f.conflicts : [];
   const report = { v: 1, task: task.id, sha: head, base, pr: { number: pr.number, url: pr.url }, kind: f.kind, conflicts, checks, merge: f.kind === "check" ? f.merge : null, at: at2 };
-  mkdirSync25(paths.queue, { recursive: true });
+  mkdirSync26(paths.queue, { recursive: true });
   writeFileSync24(queueReportPath(paths, task.id, head), JSON.stringify(report, null, 2) + "\n");
   const reason = `The merge queue sent it back: ${why}.`;
   mutate(paths, deps.now, (l3, emit) => {
@@ -11208,6 +11356,7 @@ function realSteps(paths, config, deps) {
       const cause = (t && reworkCause(t)) ?? "review";
       const r = dispatch(paths, config, id, { run: run2, now: now2, env, accBinDir: deps.accBinDir, accCommand: deps.accCommand }, { actor: "orchestrator", by: AUTOPILOT_BY, cause });
       if (r.held) throw new AccError("start-waits", `${holdWords({ shares: r.waitsFor, first: r.first })}.`);
+      if (r.notStarted) throw new AccError("dispatch", `${r.notStarted.reason}.`);
       return { reason: `Re-dispatched${cause === "checks" ? " for its failing checks" : cause === "queue" ? " with what the merge queue found" : ""} in ${r.worktree}${r.bgId ? `, background session ${r.bgId}` : ""}.` };
     },
     // A conflict only: where auto-merge is on, the merge queue brings a pull request up to date at its turn (GH-73).
@@ -11392,7 +11541,7 @@ function queueTurns(paths, config, deps, steps2, queued, take2) {
   });
 }
 function holdAutopilot(paths, fn2) {
-  mkdirSync26(paths.stateDir, { recursive: true });
+  mkdirSync27(paths.stateDir, { recursive: true });
   let held = false;
   try {
     return withLock(paths.autopilotLock, () => {
@@ -11403,7 +11552,7 @@ function holdAutopilot(paths, fn2) {
     if (held || e.code !== "lock-timeout") throw e;
     let pid = null;
     try {
-      pid = JSON.parse(readFileSync27(join25(paths.autopilotLock, "owner"), "utf8")).pid;
+      pid = JSON.parse(readFileSync28(join26(paths.autopilotLock, "owner"), "utf8")).pid;
     } catch {
       pid = null;
     }
@@ -11448,7 +11597,7 @@ function graphql(run2, env, query, vars) {
   for (const [k2, v] of Object.entries(vars)) args.push(typeof v === "number" ? "-F" : "-f", `${k2}=${v}`);
   const r = run2("gh", args, { env, timeoutMs: GH_CALL_MS });
   if (r.code !== 0) {
-    const why = firstLine2(r);
+    const why = firstLine(r);
     return { error: /scope|INSUFFICIENT_SCOPES/i.test(why) ? `${why}. Give the account access to Projects: gh auth refresh -h github.com -s project` : why };
   }
   try {
@@ -11521,8 +11670,8 @@ var cardWords = (r) => `Couldn't move ${r.task}'s card${r.column ? ` to ${r.colu
 
 // packages/core/src/criteria.ts
 import { randomUUID as randomUUID3 } from "node:crypto";
-import { mkdirSync as mkdirSync27, readFileSync as readFileSync28, rmSync as rmSync15, writeFileSync as writeFileSync25 } from "node:fs";
-import { join as join26 } from "node:path";
+import { mkdirSync as mkdirSync28, readFileSync as readFileSync29, rmSync as rmSync15, writeFileSync as writeFileSync25 } from "node:fs";
+import { join as join27 } from "node:path";
 var strings2 = (description) => ({ type: "array", items: { type: "string" }, description });
 var CRITERIA_SCHEMA = {
   type: "object",
@@ -11541,12 +11690,12 @@ var CRITERIA_TEXT_MAX = 3e4;
 var CRITERIA_COMMENTS_MAX = 40;
 var COMMENT_MAX = 4e3;
 var CRITERIA_TIMEOUT_MS = 20 * 6e4;
-var criteriaDir = (paths) => join26(paths.stateDir, "criteria");
-var criteriaPath = (paths, task) => join26(criteriaDir(paths), `${fileId(task)}.json`);
-var runningPath3 = (paths, task) => join26(criteriaDir(paths), `${fileId(task)}.running.json`);
+var criteriaDir = (paths) => join27(paths.stateDir, "criteria");
+var criteriaPath = (paths, task) => join27(criteriaDir(paths), `${fileId(task)}.json`);
+var runningPath3 = (paths, task) => join27(criteriaDir(paths), `${fileId(task)}.running.json`);
 function readCriteria(paths, task) {
   try {
-    const d = JSON.parse(readFileSync28(criteriaPath(paths, task), "utf8"));
+    const d = JSON.parse(readFileSync29(criteriaPath(paths, task), "utf8"));
     return d.v === 1 && d.task === task && typeof d.markdown === "string" ? d : null;
   } catch {
     return null;
@@ -11667,7 +11816,7 @@ function draftCriteria(paths, config, id, ticket, deps, rules = null) {
   const { system, prompt } = criteriaPrompt({ task, ticket: read2, root: paths.root, rules });
   const sessionId = (deps.uuid ?? randomUUID3)();
   const name = sessionName({ project: config.project, key: id, title: task.title, role: "criteria" });
-  mkdirSync27(criteriaDir(paths), { recursive: true });
+  mkdirSync28(criteriaDir(paths), { recursive: true });
   const marker = runningPath3(paths, id);
   const startedAt = now2();
   writeFileSync25(marker, JSON.stringify({ sessionId, name, startedAt: startedAt.toISOString(), pid: process.pid }));
@@ -11747,14 +11896,14 @@ function criteriaUpdate(paths, id, by, now2) {
 }
 
 // packages/core/src/deploy.ts
-import { existsSync as existsSync20, mkdirSync as mkdirSync29, mkdtempSync as mkdtempSync5, readFileSync as readFileSync29, renameSync as renameSync14, rmSync as rmSync17, writeFileSync as writeFileSync27 } from "node:fs";
+import { existsSync as existsSync20, mkdirSync as mkdirSync30, mkdtempSync as mkdtempSync5, readFileSync as readFileSync30, renameSync as renameSync14, rmSync as rmSync17, writeFileSync as writeFileSync27 } from "node:fs";
 import { tmpdir as tmpdir5 } from "node:os";
-import { join as join28 } from "node:path";
+import { join as join29 } from "node:path";
 
 // packages/core/src/promote.ts
-import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync28, mkdtempSync as mkdtempSync4, rmSync as rmSync16, writeFileSync as writeFileSync26 } from "node:fs";
+import { appendFileSync as appendFileSync4, mkdirSync as mkdirSync29, mkdtempSync as mkdtempSync4, rmSync as rmSync16, writeFileSync as writeFileSync26 } from "node:fs";
 import { tmpdir as tmpdir4 } from "node:os";
-import { join as join27 } from "node:path";
+import { join as join28 } from "node:path";
 var git6 = (run2, cwd, ...args) => run2("git", args, { cwd });
 var must = (r, what) => {
   if (r.code !== 0) throw new AccError("git", `${what}: ${(r.stderr || r.stdout).trim().split("\n").pop() ?? ""}`);
@@ -11916,8 +12065,8 @@ function promoteNow(paths, config, fromName, toName, deps, opts) {
   });
   const stamp = now2().toISOString().replace(/[-:]/g, "").slice(0, 13).replace("T", "-");
   const branch = `promote/${plan.from.branch}-to-${plan.to.branch}-${stamp}`;
-  const dir = mkdtempSync4(join27(tmpdir4(), "acc-promote-"));
-  const wt2 = join27(dir, "wt");
+  const dir = mkdtempSync4(join28(tmpdir4(), "acc-promote-"));
+  const wt2 = join28(dir, "wt");
   let validation = null;
   try {
     deps.onStep?.(`Building ${branch} from ${plan.to.branch}`);
@@ -11952,7 +12101,7 @@ function promoteNow(paths, config, fromName, toName, deps, opts) {
     const pr = steps2.step("open", `Open the pull request into ${plan.to.branch}`, () => {
       const token = run2("gh", ["auth", "token", "-u", gh.account]);
       if (token.code !== 0) throw new AccError("no-github", `gh isn't logged in as ${gh.account}. The branch ${branch} is pushed; open its pull request on GitHub.`);
-      const bodyFile = join27(dir, "body.md");
+      const bodyFile = join28(dir, "body.md");
       writeFileSync26(bodyFile, promotionBody(plan, validation));
       const title = `Promote ${plan.from.name} to ${plan.to.name}${plan.skipped.length ? ` (skips ${plan.skipped.map((e) => e.branch).join(", ")})` : ""}`;
       const create = run2("gh", ["pr", "create", "-R", gh.repo, "--base", plan.to.branch, "--head", branch, "--title", title, "--body-file", bodyFile], { cwd: paths.root, env: { ...deps.env, GH_TOKEN: token.stdout.trim() }, timeoutMs: 2 * 6e4 });
@@ -11961,9 +12110,9 @@ function promoteNow(paths, config, fromName, toName, deps, opts) {
       return { number: Number(/\/pull\/(\d+)/.exec(url)[1]), url };
     });
     steps2.start("record", "Record what it carries");
-    mkdirSync28(paths.stateDir, { recursive: true });
+    mkdirSync29(paths.stateDir, { recursive: true });
     const tasks = carried.map((t) => t.id);
-    appendFileSync4(join27(paths.stateDir, "promotions.jsonl"), JSON.stringify({ at: now2().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch), tasks }) + "\n");
+    appendFileSync4(join28(paths.stateDir, "promotions.jsonl"), JSON.stringify({ at: now2().toISOString(), from: plan.from.branch, to: plan.to.branch, fromSha: plan.fromSha, branch, pr, files: plan.files.length, deleted: plan.deleted.length, skipped: plan.skipped.map((e) => e.branch), tasks }) + "\n");
     const recorded = recordCarried(paths, plan, pr, carried, opts.by ?? "acc promote", now2);
     if (recorded.warning) steps2.fail("record", recorded.warning);
     else steps2.done("record", tasks.length ? `${tasks.length} task(s)` : "No task's change");
@@ -11978,10 +12127,10 @@ function promoteNow(paths, config, fromName, toName, deps, opts) {
 var skipWarning = describeSkip;
 
 // packages/core/src/deploy.ts
-var deployRecordPath = (paths, env) => join28(paths.stateDir, "deploys", `${env}.json`);
+var deployRecordPath = (paths, env) => join29(paths.stateDir, "deploys", `${env}.json`);
 function lastDeploy(paths, env) {
   try {
-    return JSON.parse(readFileSync29(deployRecordPath(paths, env), "utf8"));
+    return JSON.parse(readFileSync30(deployRecordPath(paths, env), "utf8"));
   } catch {
     return null;
   }
@@ -12015,9 +12164,9 @@ function deployChanges(paths, config, run2, env, base, head, opts) {
   const sfdx = show("sfdx-project.json");
   const dirs = (() => {
     if (sfdx.code !== 0) return ["force-app"];
-    const tmp = mkdtempSync5(join28(tmpdir5(), "acc-sfdx-"));
+    const tmp = mkdtempSync5(join29(tmpdir5(), "acc-sfdx-"));
     try {
-      writeFileSync27(join28(tmp, "sfdx-project.json"), sfdx.stdout);
+      writeFileSync27(join29(tmp, "sfdx-project.json"), sfdx.stdout);
       return packageDirs(tmp);
     } finally {
       rmSync17(tmp, { recursive: true, force: true });
@@ -12063,8 +12212,8 @@ function deployNow(paths, config, envName, deps, opts) {
     if (plan.confirm && !opts.confirmed) throw new AccError("refused", `${plan.env.name} is protected. Deploying to it needs a person's confirmation: add --confirm-production.`);
   });
   if (!plan.files.length) return { plan, deployed: false, jobId: null, summary: "Nothing deployable changed.", updates: [] };
-  const dir = mkdtempSync5(join28(tmpdir5(), "acc-deploy-"));
-  const wt2 = join28(dir, "wt");
+  const dir = mkdtempSync5(join29(tmpdir5(), "acc-deploy-"));
+  const wt2 = join29(dir, "wt");
   try {
     steps2.step("checkout", `Check out ${plan.env.branch} at ${plan.head.slice(0, 7)}`, () => {
       const add2 = git7(run2, paths.root, "worktree", "add", "--quiet", "--detach", wt2, plan.head);
@@ -12092,7 +12241,7 @@ function deployNow(paths, config, envName, deps, opts) {
     steps2.step("record", "Record the deploy", () => {
       const record2 = { env: plan.env.branch, org: plan.org, sha: plan.head, at: now2().toISOString(), by: opts.by, jobId, files: plan.files.length };
       const file = deployRecordPath(paths, plan.env.branch);
-      mkdirSync29(join28(paths.stateDir, "deploys"), { recursive: true });
+      mkdirSync30(join29(paths.stateDir, "deploys"), { recursive: true });
       writeFileSync27(`${file}.tmp`, JSON.stringify(record2, null, 2) + "\n");
       renameSync14(`${file}.tmp`, file);
     });
@@ -12117,15 +12266,15 @@ function deployNow(paths, config, envName, deps, opts) {
 }
 
 // packages/core/src/drift.ts
-import { existsSync as existsSync21, mkdirSync as mkdirSync30, rmSync as rmSync18, writeFileSync as writeFileSync28 } from "node:fs";
-import { join as join29 } from "node:path";
+import { existsSync as existsSync21, mkdirSync as mkdirSync31, rmSync as rmSync18, writeFileSync as writeFileSync28 } from "node:fs";
+import { join as join30 } from "node:path";
 var BASELINE_MANIFEST = "manifest/baseline-package.xml";
 function environmentNamed(config, name) {
   const env = config.environments.find((e) => e.branch === name.toLowerCase() || e.name.toLowerCase() === name.toLowerCase());
   if (!env) throw new AccError("usage", `No environment "${name}". The config has: ${config.environments.map((e) => e.branch).join(", ")}.`);
   return env;
 }
-var driftReportPath = (paths, branch) => join29(paths.stateDir, "drift", `${branch}.json`);
+var driftReportPath = (paths, branch) => join30(paths.stateDir, "drift", `${branch}.json`);
 var FOLDER = {
   ApexClass: "classes",
   ApexTrigger: "triggers",
@@ -12211,16 +12360,16 @@ function drift(paths, config, envName, deps, opts = {}) {
   const base = git10(["rev-parse", ref]).stdout.trim();
   if (git10(["cat-file", "-e", `${base}:${manifest}`]).code !== 0) throw new AccError("usage", `${ref} has no ${manifest}. Make the baseline manifest first (ONBOARDING.md, B5), or pass --manifest.`);
   deps.onRetrieve?.(env);
-  const dir = join29(paths.stateDir, "drift", `${env.branch}-${deps.now().getTime()}`);
-  mkdirSync30(join29(paths.stateDir, "drift"), { recursive: true });
+  const dir = join30(paths.stateDir, "drift", `${env.branch}-${deps.now().getTime()}`);
+  mkdirSync31(join30(paths.stateDir, "drift"), { recursive: true });
   const add2 = git10(["worktree", "add", "--detach", "--quiet", dir, base]);
   if (add2.code !== 0) throw new AccError("git", `Couldn't make a throwaway worktree: ${lastLine(add2.stderr)}`);
   try {
     const args = ["project", "retrieve", "start", "--manifest", manifest, "--target-org", env.org, "--ignore-conflicts", "--wait", "60", "--json"];
     const retrieve = () => deps.run(...niced("sf", args), { cwd: dir, timeoutMs: 70 * 6e4, env: sfEnv() });
     const r = withSlot(retrieve, { owner: { what: `Drift check on ${env.branch}`, env: env.branch, project: config.project }, ...deps.slots, onWait: deps.onWait });
-    const log = join29(paths.logs, "drift", `${env.branch}.log`);
-    mkdirSync30(join29(paths.logs, "drift"), { recursive: true });
+    const log = join30(paths.logs, "drift", `${env.branch}.log`);
+    mkdirSync31(join30(paths.logs, "drift"), { recursive: true });
     writeFileSync28(log, `$ ${shellLine("sf", args)}
 # exit ${r.code}
 
@@ -12421,11 +12570,11 @@ function useGithubAccount(config, root, run2, account, env = process.env) {
 
 // packages/core/src/init.ts
 import { existsSync as existsSync23 } from "node:fs";
-import { join as join31 } from "node:path";
+import { join as join32 } from "node:path";
 
 // packages/core/src/onboarding/helpers.ts
-import { existsSync as existsSync22, readFileSync as readFileSync30 } from "node:fs";
-import { join as join30 } from "node:path";
+import { existsSync as existsSync22, readFileSync as readFileSync31 } from "node:fs";
+import { join as join31 } from "node:path";
 var pass2 = (detail) => ({ status: "pass", detail });
 var fail2 = (detail, fix) => fix ? { status: "fail", detail, fix } : { status: "fail", detail };
 var unknown = (detail) => ({ status: "unknown", detail });
@@ -12441,7 +12590,7 @@ function makeContext(cwd, run2, env = process.env, version = null) {
   let configErrors = [];
   if (paths && existsSync22(paths.config)) {
     try {
-      const r = parseConfig(JSON.parse(readFileSync30(paths.config, "utf8")));
+      const r = parseConfig(JSON.parse(readFileSync31(paths.config, "utf8")));
       config = r.config;
       configErrors = r.errors;
     } catch (e) {
@@ -12508,8 +12657,8 @@ var LICENSE_TO_TYPE = {
   FULL: "full"
 };
 function readText(root, rel) {
-  const f = join30(root, rel);
-  return existsSync22(f) ? readFileSync30(f, "utf8") : null;
+  const f = join31(root, rel);
+  return existsSync22(f) ? readFileSync31(f, "utf8") : null;
 }
 var SECRET_PATTERN = [
   "force://[A-Za-z0-9._~-]+:[^@[:space:]]+@",
@@ -12998,7 +13147,7 @@ function planInit(run2, opts) {
     if (t.agents) fromTemplate.push("agents");
   }
   if (opts.tracker) trackers = [pickedTracker(opts.tracker, { template: t?.tracker ?? null, jiraSite: opts.jiraSite, jiraProject: opts.jiraProject }, notes)];
-  const listIfPresent = (rel) => existsSync23(join31(root, rel)) ? rel : void 0;
+  const listIfPresent = (rel) => existsSync23(join32(root, rel)) ? rel : void 0;
   const raw = {
     schema: 1,
     project: opts.project ?? root.split("/").filter(Boolean).pop() ?? "project",
@@ -13155,14 +13304,14 @@ function intakeOutside(paths, kind, outside, now2) {
 
 // packages/core/src/repos.ts
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { existsSync as existsSync24, mkdirSync as mkdirSync31, readFileSync as readFileSync31, realpathSync as realpathSync5, renameSync as renameSync15, rmSync as rmSync19, statSync as statSync8, writeFileSync as writeFileSync29 } from "node:fs";
+import { existsSync as existsSync24, mkdirSync as mkdirSync32, readFileSync as readFileSync32, realpathSync as realpathSync5, renameSync as renameSync15, rmSync as rmSync19, statSync as statSync9, writeFileSync as writeFileSync29 } from "node:fs";
 import { homedir as homedir7 } from "node:os";
-import { dirname as dirname11, join as join32, resolve as resolve4 } from "node:path";
-var reposFile = (env = process.env) => env.ACC_REPOS_FILE || join32(homedir7(), ".acc", "repos.json");
-var configOf = (root) => join32(root, ".acc", "config.json");
+import { dirname as dirname11, join as join33, resolve as resolve4 } from "node:path";
+var reposFile = (env = process.env) => env.ACC_REPOS_FILE || join33(homedir7(), ".acc", "repos.json");
+var configOf = (root) => join33(root, ".acc", "config.json");
 function listedRepos(env = process.env) {
   try {
-    const j2 = JSON.parse(readFileSync31(reposFile(env), "utf8"));
+    const j2 = JSON.parse(readFileSync32(reposFile(env), "utf8"));
     return Array.isArray(j2.repos) ? [...new Set(j2.repos.filter((r) => typeof r === "string" && r.startsWith("/")))] : [];
   } catch {
     return [];
@@ -13176,7 +13325,7 @@ function rememberRepo(root, env = process.env) {
   const file = reposFile(env);
   const tmp = `${file}.${process.pid}.${randomBytes2(4).toString("hex")}.tmp`;
   try {
-    mkdirSync31(dirname11(file), { recursive: true, mode: 448 });
+    mkdirSync32(dirname11(file), { recursive: true, mode: 448 });
     writeFileSync29(tmp, `${JSON.stringify({ schema: 1, repos: next }, null, 2)}
 `, { mode: 384 });
     renameSync15(tmp, file);
@@ -13192,8 +13341,8 @@ function rememberRepo(root, env = process.env) {
 
 // packages/core/src/rule-suggestions.ts
 import { createHash as createHash4 } from "node:crypto";
-import { mkdirSync as mkdirSync32, readdirSync as readdirSync10, readFileSync as readFileSync32 } from "node:fs";
-import { join as join33 } from "node:path";
+import { mkdirSync as mkdirSync33, readdirSync as readdirSync11, readFileSync as readFileSync33 } from "node:fs";
+import { join as join34 } from "node:path";
 var OFFER_FINDINGS = 3;
 var OFFER_TASKS = 2;
 var RETURN_FINDINGS = 3;
@@ -13323,7 +13472,7 @@ function rulesIn(text, file) {
 function writtenRules(root) {
   const read2 = (f) => {
     try {
-      return readFileSync32(join33(root, f), "utf8");
+      return readFileSync33(join34(root, f), "utf8");
     } catch {
       return "";
     }
@@ -13348,14 +13497,14 @@ function whereWritten(g, written) {
 function readSuggestionRecords(paths) {
   let names3;
   try {
-    names3 = readdirSync10(paths.suggestions).filter((n) => n.endsWith(".json"));
+    names3 = readdirSync11(paths.suggestions).filter((n) => n.endsWith(".json"));
   } catch {
     return [];
   }
   const out3 = [];
   for (const n of names3) {
     try {
-      const r = JSON.parse(readFileSync32(join33(paths.suggestions, n), "utf8"));
+      const r = JSON.parse(readFileSync33(join34(paths.suggestions, n), "utf8"));
       if (r?.v === 1 && Array.isArray(r.findings) && Array.isArray(r.places) && (r.outcome === "accepted" || r.outcome === "dismissed")) out3.push(r);
     } catch {
     }
@@ -13484,9 +13633,9 @@ function record(paths, s, outcome, by, now2, task) {
     places: [...new Set(s.sources.map(placeOf))],
     ...task ? { task } : {}
   };
-  mkdirSync32(paths.suggestions, { recursive: true });
-  const n = readdirSync10(paths.suggestions).filter((x2) => x2.startsWith(`${s.id}.`) && x2.endsWith(".json")).length + 1;
-  const file = join33(paths.suggestions, `${s.id}.${n}.json`);
+  mkdirSync33(paths.suggestions, { recursive: true });
+  const n = readdirSync11(paths.suggestions).filter((x2) => x2.startsWith(`${s.id}.`) && x2.endsWith(".json")).length + 1;
+  const file = join34(paths.suggestions, `${s.id}.${n}.json`);
   writeAtomic(file, JSON.stringify(r, null, 2) + "\n");
   return r;
 }
@@ -13506,9 +13655,9 @@ function acceptSuggestion(paths, config, id, edits, actor, by, now2) {
 }
 
 // packages/core/src/setup.ts
-import { copyFileSync as copyFileSync2, existsSync as existsSync25, mkdirSync as mkdirSync33, mkdtempSync as mkdtempSync6, readFileSync as readFileSync33, rmSync as rmSync20, writeFileSync as writeFileSync30 } from "node:fs";
+import { copyFileSync as copyFileSync2, existsSync as existsSync25, mkdirSync as mkdirSync34, mkdtempSync as mkdtempSync6, readFileSync as readFileSync34, rmSync as rmSync20, writeFileSync as writeFileSync30 } from "node:fs";
 import { tmpdir as tmpdir6 } from "node:os";
-import { dirname as dirname12, join as join34 } from "node:path";
+import { dirname as dirname12, join as join35 } from "node:path";
 function fetchStep(run2, root, steps2) {
   steps2.step("fetch", "Fetch the branches", () => {
     if (git8(run2, root, "remote", "get-url", "origin").code === 0) git8(run2, root, "fetch", "--quiet", "origin");
@@ -13520,8 +13669,8 @@ function refFor(run2, root, branch) {
   return null;
 }
 function inWorktree(run2, root, addArgs, fn2) {
-  const tmp = mkdtempSync6(join34(tmpdir6(), "acc-setup-"));
-  const dir = join34(tmp, "wt");
+  const tmp = mkdtempSync6(join35(tmpdir6(), "acc-setup-"));
+  const dir = join35(tmp, "wt");
   const add2 = git8(run2, root, "worktree", "add", "--quiet", ...addArgs.slice(0, -1), dir, addArgs.at(-1));
   if (add2.code !== 0) {
     rmSync20(tmp, { recursive: true, force: true });
@@ -13568,19 +13717,19 @@ function buildBaseline(paths, config, deps) {
   const { run: run2 } = deps;
   const steps2 = deps.steps ?? NO_STEPS;
   fetchStep(run2, paths.root, steps2);
-  const out3 = mkdtempSync6(join34(tmpdir6(), "acc-manifests-"));
+  const out3 = mkdtempSync6(join35(tmpdir6(), "acc-manifests-"));
   const xmls = [];
   const from = [];
   const generate = (dir, name) => {
-    const dirs = packageDirs(dir).filter((d) => existsSync25(join34(dir, d)));
+    const dirs = packageDirs(dir).filter((d) => existsSync25(join35(dir, d)));
     const label = `List the components on ${name}`;
     if (!dirs.length) return steps2.skip(`list-${name}`, label, "It has no Salesforce source");
     deps.onStep?.(`Listing the components on ${name}`);
     steps2.step(`list-${name}`, label, () => {
       const r = run2(...niced("sf", ["project", "generate", "manifest", ...dirs.flatMap((d) => ["--source-dir", d]), "--output-dir", out3, "--name", name, "--json"]), { cwd: dir, env: sfEnv(), timeoutMs: 10 * 6e4 });
-      const file = join34(out3, `${name}.xml`);
+      const file = join35(out3, `${name}.xml`);
       if (r.code !== 0 || !existsSync25(file)) throw new AccError("sf", `sf couldn't list the components on ${name}: ${lastLine(r.stderr || r.stdout)}`);
-      xmls.push(readFileSync33(file, "utf8"));
+      xmls.push(readFileSync34(file, "utf8"));
       from.push(name);
     });
   };
@@ -13593,9 +13742,9 @@ function buildBaseline(paths, config, deps) {
   }
   if (!xmls.length) throw new AccError("refused", "There's no Salesforce source on any environment branch, or in this checkout, to list.");
   const xml = unionManifests(xmls);
-  const manifest = join34(paths.root, BASELINE_MANIFEST);
+  const manifest = join35(paths.root, BASELINE_MANIFEST);
   steps2.step("write", "Write the baseline", () => {
-    mkdirSync33(dirname12(manifest), { recursive: true });
+    mkdirSync34(dirname12(manifest), { recursive: true });
     writeFileSync30(manifest, xml);
   });
   const parsed = parseManifest(xml);
@@ -13614,7 +13763,7 @@ function retrieveInto(run2, dir, org, deps) {
 function seedBranches(paths, config, deps, opts = {}) {
   const { run: run2, now: now2 } = deps;
   const sf = config.profile === "salesforce";
-  const manifest = join34(paths.root, BASELINE_MANIFEST);
+  const manifest = join35(paths.root, BASELINE_MANIFEST);
   if (sf && !existsSync25(manifest)) throw new AccError("refused", `There's no ${BASELINE_MANIFEST} yet. Make it first: acc setup baseline (B5).`);
   const steps2 = deps.steps ?? NO_STEPS;
   fetchStep(run2, paths.root, steps2);
@@ -13633,11 +13782,11 @@ function seedBranches(paths, config, deps, opts = {}) {
     try {
       inWorktree(run2, paths.root, ["-b", e.branch, start], (dir) => {
         if (sf) {
-          copyFileSync2(manifest, join34(dir, BASELINE_MANIFEST));
+          copyFileSync2(manifest, join35(dir, BASELINE_MANIFEST));
           if (clear) {
-            for (const d of packageDirs(dir)) if (existsSync25(join34(dir, d))) {
+            for (const d of packageDirs(dir)) if (existsSync25(join35(dir, d))) {
               git8(run2, dir, "rm", "-r", "-q", "--", d);
-              mkdirSync33(join34(dir, d, "main", "default"), { recursive: true });
+              mkdirSync34(join35(dir, d, "main", "default"), { recursive: true });
             }
           }
           if (e.org) {
@@ -13745,11 +13894,11 @@ function draftLists(paths, config, deps) {
     steps2.done(`compare-${e.branch}`, files.length ? `${files.length} difference(s), ${rest.length} that neither list explains` : "No differences");
   }
   const draft = (rel, found) => {
-    const list = join34(paths.root, rel);
+    const list = join35(paths.root, rel);
     const have = readList(paths.root, rel);
     const entries = [...found].filter((f) => !listed(f, have)).sort();
     if (existsSync25(list)) return { file: list, written: false, entries };
-    mkdirSync33(dirname12(list), { recursive: true });
+    mkdirSync34(dirname12(list), { recursive: true });
     writeFileSync30(list, entries.length ? `${entries.join("\n")}
 ` : "");
     return { file: list, written: true, entries };
@@ -13815,7 +13964,7 @@ function writeReadme(paths, config, steps2 = NO_STEPS) {
   return steps2.step("readme", "Write the environments section", () => writeReadmeNow(paths, config));
 }
 function writeReadmeNow(paths, config) {
-  const readme = join34(paths.root, "README.md");
+  const readme = join35(paths.root, "README.md");
   const section = environmentsSection(config);
   if (!existsSync25(readme)) {
     writeFileSync30(readme, `# ${config.project}
@@ -13824,7 +13973,7 @@ ${section}
 `);
     return { file: readme, created: true, replaced: false };
   }
-  const text = readFileSync33(readme, "utf8");
+  const text = readFileSync34(readme, "utf8");
   const a2 = text.indexOf(README_START);
   const b = text.indexOf(README_END);
   if (a2 >= 0 && b > a2) {
@@ -13848,34 +13997,34 @@ function setSourceTracking(configFile, on) {
 }
 
 // packages/core/src/sprints.ts
-import { mkdirSync as mkdirSync34, readFileSync as readFileSync34 } from "node:fs";
-import { join as join35 } from "node:path";
-var sprintsFile = (paths) => join35(paths.stateDir, "sprints.json");
+import { mkdirSync as mkdirSync35, readFileSync as readFileSync35 } from "node:fs";
+import { join as join36 } from "node:path";
+var sprintsFile = (paths) => join36(paths.stateDir, "sprints.json");
 function isSprintSeen(x2) {
   return isObj(x2) && typeof x2.at === "string" && Array.isArray(x2.open) && x2.open.every((k2) => typeof k2 === "string") && Array.isArray(x2.sprints) && x2.sprints.every((s) => isObj(s) && Number.isSafeInteger(s.id) && typeof s.name === "string");
 }
 function readSprints(paths) {
   try {
-    const r = JSON.parse(readFileSync34(sprintsFile(paths), "utf8"));
+    const r = JSON.parse(readFileSync35(sprintsFile(paths), "utf8"));
     return isObj(r) ? Object.fromEntries(Object.entries(r).filter(([, v]) => isSprintSeen(v))) : {};
   } catch {
     return {};
   }
 }
 function rememberSprint(paths, tracker, seen) {
-  mkdirSync34(paths.stateDir, { recursive: true });
+  mkdirSync35(paths.stateDir, { recursive: true });
   writeAtomic(sprintsFile(paths), `${JSON.stringify({ ...readSprints(paths), [tracker]: seen }, null, 2)}
 `);
 }
 
 // packages/core/src/tidy.ts
-import { mkdirSync as mkdirSync35, readFileSync as readFileSync35 } from "node:fs";
-import { join as join36 } from "node:path";
+import { mkdirSync as mkdirSync36, readFileSync as readFileSync36 } from "node:fs";
+import { join as join37 } from "node:path";
 var TIDY_LABEL = "tidy-up";
-var tidyFile = (paths) => join36(paths.stateDir, "tidy.json");
+var tidyFile = (paths) => join37(paths.stateDir, "tidy.json");
 function readTidy(paths) {
   try {
-    const r = JSON.parse(readFileSync35(tidyFile(paths), "utf8"));
+    const r = JSON.parse(readFileSync36(tidyFile(paths), "utf8"));
     return r?.v === 1 && typeof r.at === "string" && (r.outcome === "added" || r.outcome === "skipped") && Array.isArray(r.covered) ? r : null;
   } catch {
     return null;
@@ -13988,7 +14137,7 @@ function draftTidy(status, scope) {
   return { title: `Tidy up after ${plural(n, "merge")}`, brief, labels: [TIDY_LABEL], covered: ids, files: scope.files, unknown: scope.unknown };
 }
 function writeRecord(paths, r) {
-  mkdirSync35(paths.stateDir, { recursive: true });
+  mkdirSync36(paths.stateDir, { recursive: true });
   writeAtomic(tidyFile(paths), JSON.stringify(r, null, 2) + "\n");
 }
 function addTidy(paths, config, draft, who) {
@@ -14015,10 +14164,37 @@ function skipTidy(paths, config, who) {
   });
 }
 
+// packages/core/src/unseen.ts
+function unseenNow(paths, config, task, deps, since, asked) {
+  if (task.state !== "running" || task.run?.where === "cloud") return null;
+  const now2 = deps.now();
+  const sessions = asked !== void 0 ? asked : listSessions(deps.run, paths.root);
+  const noted = noteAnswer(paths, sessions !== null, now2);
+  const silentSince = sessions !== null ? null : since != null && noted !== null ? Math.min(since, noted) : noted;
+  const resumed = !!resuming(paths, task.id);
+  return unseenFrom(task, config, { silentSince, now: now2, resuming: resumed, env: deps.env });
+}
+function unseenFrom(task, config, o) {
+  const written = o.silentSince !== null ? runWrittenAt(task, o.env) : null;
+  return builderUnseen(task, { silentSince: o.silentSince, now: o.now, resuming: o.resuming, writtenAt: written, quietMs: quietMs(config) });
+}
+var unseenOf = (paths, config, id, deps, since) => {
+  const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
+  const here = task?.notStarted ? task.notStarted.where !== "cloud" : task?.state === "running" && task.run?.where !== "cloud";
+  if (!task || !here) return null;
+  const asked = askAgents(deps.run, paths.root);
+  if (asked.missing) return "missing";
+  return unseenNow(paths, config, task, deps, since, asked.sessions);
+};
+function runWrittenAt(task, env) {
+  if (!task.run?.worktree) return null;
+  return transcriptWrittenAt(claudeProjectsDir(env), { worktree: task.run.worktree, sessionId: task.run.sessionId, since: Date.parse(runStartedAt(task) ?? "") || 0 });
+}
+
 // packages/core/src/verify.ts
 import { randomUUID as randomUUID4 } from "node:crypto";
-import { existsSync as existsSync26, mkdirSync as mkdirSync36, readdirSync as readdirSync11, readFileSync as readFileSync36, rmSync as rmSync21, writeFileSync as writeFileSync31 } from "node:fs";
-import { dirname as dirname13, join as join37 } from "node:path";
+import { existsSync as existsSync26, mkdirSync as mkdirSync37, readdirSync as readdirSync12, readFileSync as readFileSync37, rmSync as rmSync21, writeFileSync as writeFileSync31 } from "node:fs";
+import { dirname as dirname13, join as join38 } from "node:path";
 var DIRTY_GATE = "receipts";
 var DIRTY_SUMMARY = "The worktree's setup left files in it, so no check wrote a receipt for this commit.";
 var OWN_WORK = "acc reviews its own builders' work";
@@ -14026,15 +14202,15 @@ var VERIFY_TIMEOUT_MS = 45 * 6e4;
 var DIFF_MAX2 = 15e4;
 var PR_LIST_MAX = 200;
 var PR_FIELDS = "number,url,title,headRefName,baseRefName,headRefOid";
-var verificationsDir = (paths) => join37(paths.stateDir, "verifications");
-var verificationPath = (paths, task, sha) => join37(verificationsDir(paths), `${fileId(task)}-${sha}.json`);
-var runningPath4 = (paths, task) => join37(verificationsDir(paths), `${fileId(task)}.running.json`);
-var choicePath = (paths, task) => join37(verificationsDir(paths), `${fileId(task)}.found.json`);
-var verifyWorktree = (config, main2, task) => join37(worktreeRoot(config, main2), `verify-${fileId(task)}`);
+var verificationsDir = (paths) => join38(paths.stateDir, "verifications");
+var verificationPath = (paths, task, sha) => join38(verificationsDir(paths), `${fileId(task)}-${sha}.json`);
+var runningPath4 = (paths, task) => join38(verificationsDir(paths), `${fileId(task)}.running.json`);
+var choicePath = (paths, task) => join38(verificationsDir(paths), `${fileId(task)}.found.json`);
+var verifyWorktree = (config, main2, task) => join38(worktreeRoot(config, main2), `verify-${fileId(task)}`);
 var isVerification = (v, task) => !!v && v.v === 1 && v.task === task && typeof v.sha === "string" && typeof v.at === "string" && !!v.pr && Array.isArray(v.checks) && Array.isArray(v.findings);
 function readVerification(paths, task, sha) {
   try {
-    const v = JSON.parse(readFileSync36(verificationPath(paths, task, sha), "utf8"));
+    const v = JSON.parse(readFileSync37(verificationPath(paths, task, sha), "utf8"));
     return isVerification(v, task) ? v : null;
   } catch {
     return null;
@@ -14043,7 +14219,7 @@ function readVerification(paths, task, sha) {
 function readVerifications(paths, task) {
   let names3;
   try {
-    names3 = readdirSync11(verificationsDir(paths));
+    names3 = readdirSync12(verificationsDir(paths));
   } catch {
     return [];
   }
@@ -14059,7 +14235,7 @@ function readVerifications(paths, task) {
 var latestVerification = (paths, task) => readVerifications(paths, task).at(-1) ?? null;
 function readPrChoice(paths, task) {
   try {
-    const c = JSON.parse(readFileSync36(choicePath(paths, task), "utf8"));
+    const c = JSON.parse(readFileSync37(choicePath(paths, task), "utf8"));
     return c.v === 1 && c.task === task && Array.isArray(c.found) ? c : null;
   } catch {
     return null;
@@ -14067,7 +14243,7 @@ function readPrChoice(paths, task) {
 }
 function verifying(paths, task) {
   try {
-    const r = JSON.parse(readFileSync36(runningPath4(paths, task), "utf8"));
+    const r = JSON.parse(readFileSync37(runningPath4(paths, task), "utf8"));
     return alive(r.pid) ? r : null;
   } catch {
     return null;
@@ -14128,7 +14304,7 @@ function viewPr2(ghRun, repo, n) {
 var prWords = (p) => `#${p.number} ${p.title} (${p.head} into ${p.base})`;
 function checkoutHead(run2, main2, wt2, pr, env) {
   const git10 = (cwd, ...args) => run2("git", args, { cwd });
-  const f = run2("git", ["fetch", "--quiet", "--no-tags", "origin", `+refs/heads/${pr.base}:refs/remotes/origin/${pr.base}`, `refs/pull/${pr.number}/head`], { cwd: main2, env: { ...env, GIT_TERMINAL_PROMPT: "0" }, timeoutMs: GH_TIMEOUT_MS2 });
+  const f = run2("git", ["fetch", "--quiet", "--no-tags", "origin", `+refs/heads/${pr.base}:refs/remotes/origin/${pr.base}`, `refs/pull/${pr.number}/head`], { cwd: main2, env: { ...env, GIT_TERMINAL_PROMPT: "0" }, timeoutMs: GH_TIMEOUT_MS });
   if (f.code !== 0) throw new AccError("verify", `git couldn't fetch #${pr.number} from origin: ${lastLine(f.stderr) || `exit ${f.code}`}`);
   if (git10(main2, "cat-file", "-e", `${pr.sha}^{commit}`).code !== 0) throw new AccError("verify", `#${pr.number}'s head moved on GitHub while acc fetched it. Verify it again.`);
   if (existsSync26(wt2)) {
@@ -14139,7 +14315,7 @@ function checkoutHead(run2, main2, wt2, pr, env) {
     const gone = git10(main2, "worktree", "remove", "--force", wt2);
     if (gone.code !== 0) throw new AccError("verify", `git couldn't replace the worktree at ${wt2}: ${lastLine(gone.stderr)}`);
   }
-  mkdirSync36(dirname13(wt2), { recursive: true });
+  mkdirSync37(dirname13(wt2), { recursive: true });
   const r = git10(main2, "worktree", "add", "--detach", wt2, pr.sha);
   if (r.code !== 0) throw new AccError("verify", `git couldn't add the worktree: ${lastLine(r.stderr)}`);
   return false;
@@ -14237,7 +14413,7 @@ function verify(paths, config, id, deps, opts) {
   const key = task.source.key;
   const sessionId = (deps.uuid ?? randomUUID4)();
   const name = sessionName({ project: config.project, key: id, title: task.title, role: "verify" });
-  mkdirSync36(verificationsDir(paths), { recursive: true });
+  mkdirSync37(verificationsDir(paths), { recursive: true });
   const marker = runningPath4(paths, id);
   const startedAt = now2();
   writeFileSync31(marker, JSON.stringify({ sessionId, name, startedAt: startedAt.toISOString(), pid: process.pid }));
@@ -14246,7 +14422,7 @@ function verify(paths, config, id, deps, opts) {
   let kept = false;
   try {
     const ghEnv3 = { ...deps.env, GH_TOKEN: steps2.step("github", `Sign in to GitHub as ${gh.account}`, () => ghToken(run2, gh.account)) };
-    const ghRun = (args) => run2("gh", args, { cwd: paths.root, env: ghEnv3, timeoutMs: GH_TIMEOUT_MS2 });
+    const ghRun = (args) => run2("gh", args, { cwd: paths.root, env: ghEnv3, timeoutMs: GH_TIMEOUT_MS });
     const pr = steps2.step("find", "Find the developer's pull request", () => {
       if (opts.pr) return viewPr2(ghRun, gh.repo, namedPr(opts.pr, gh.repo));
       const found = findPullRequests(ghRun, gh.repo, key);
@@ -14373,14 +14549,14 @@ function clearVerification(paths, config, id, run2) {
 function pruneVerifications(paths, config, run2) {
   let names3 = [];
   try {
-    names3 = readdirSync11(verificationsDir(paths));
+    names3 = readdirSync12(verificationsDir(paths));
   } catch {
   }
   const tasks = new Set(readLedger(paths.ledger).tasks.map((t) => t.id));
   const stored = new Set(names3.filter((n) => n.endsWith(".json") && !n.endsWith(".running.json")).map((n) => /^(.+?)(?:-[0-9a-f]{7,64}|\.found)\.json$/.exec(n)?.[1]).filter((t) => !!t));
   let folders = [];
   try {
-    folders = readdirSync11(worktreeRoot(config, mainCheckout(run2, paths.root)));
+    folders = readdirSync12(worktreeRoot(config, mainCheckout(run2, paths.root)));
   } catch {
   }
   for (const f of folders) {
@@ -14396,9 +14572,9 @@ function pruneVerifications(paths, config, run2) {
 }
 
 // packages/core/src/onboarding/steps.ts
-import { existsSync as existsSync27, opendirSync, readFileSync as readFileSync37 } from "node:fs";
+import { existsSync as existsSync27, opendirSync, readFileSync as readFileSync38 } from "node:fs";
 import { homedir as homedir8, tmpdir as tmpdir7 } from "node:os";
-import { dirname as dirname14, join as join38, sep as sep4 } from "node:path";
+import { dirname as dirname14, join as join39, sep as sep4 } from "node:path";
 
 // packages/core/src/onboarding/cloud-steps.ts
 var ROUTINE_PROMPT = [
@@ -14538,11 +14714,11 @@ function needsProject(ctx) {
 }
 var NEARBY_LIMIT = 200;
 function nearbyRepo(cwd) {
-  const isRepo = (d) => existsSync27(join38(d, ".git"));
+  const isRepo = (d) => existsSync27(join39(d, ".git"));
   const parent = dirname14(cwd);
   if (samePath(parent, tmpdir7())) return null;
   const candidates = [...nearbyFolders(parent).filter((d) => d !== cwd), parent].filter(isRepo);
-  return candidates.find((d) => existsSync27(join38(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync27(join38(d, "sfdx-project.json"))) ?? null;
+  return candidates.find((d) => existsSync27(join39(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync27(join39(d, "sfdx-project.json"))) ?? null;
 }
 function nearbyFolders(parent) {
   const folders = [];
@@ -14552,7 +14728,7 @@ function nearbyFolders(parent) {
     for (let read2 = 0; read2 < NEARBY_LIMIT; read2++) {
       const e = dir.readSync();
       if (!e) break;
-      if (e.isDirectory() && !e.name.startsWith(".")) folders.push(join38(parent, e.name));
+      if (e.isDirectory() && !e.name.startsWith(".")) folders.push(join39(parent, e.name));
     }
   } catch {
     return [];
@@ -14586,7 +14762,7 @@ function billingVars(vars) {
 function claudeSettingsFiles(ctx) {
   const home = ctx.env.HOME || homedir8();
   const tilde = (f) => f.startsWith(home + sep4) ? `~${f.slice(home.length)}` : f;
-  const user = ctx.env.CLAUDE_CONFIG_DIR ? join38(ctx.env.CLAUDE_CONFIG_DIR, "settings.json") : join38(home, ".claude", "settings.json");
+  const user = ctx.env.CLAUDE_CONFIG_DIR ? join39(ctx.env.CLAUDE_CONFIG_DIR, "settings.json") : join39(home, ".claude", "settings.json");
   const files = [{ file: user, label: tilde(user) }];
   if (!ctx.paths) return files;
   let main2 = ctx.paths.root;
@@ -14596,7 +14772,7 @@ function claudeSettingsFiles(ctx) {
   }
   for (const root of /* @__PURE__ */ new Set([ctx.paths.root, main2])) {
     for (const rel of [".claude/settings.json", ".claude/settings.local.json"]) {
-      files.push({ file: join38(root, rel), label: root === ctx.paths.root ? rel : tilde(join38(root, rel)) });
+      files.push({ file: join39(root, rel), label: root === ctx.paths.root ? rel : tilde(join39(root, rel)) });
     }
   }
   return files;
@@ -14604,7 +14780,7 @@ function claudeSettingsFiles(ctx) {
 function billingSettings(file) {
   let text;
   try {
-    text = readFileSync37(file, "utf8");
+    text = readFileSync38(file, "utf8");
   } catch {
     return [];
   }
@@ -14779,7 +14955,7 @@ var STEPS = [
       if (ctx.paths) return pass2(`Repo at ${ctx.paths.root}`);
       const near = nearbyRepo(ctx.cwd);
       if (near) return { status: "fail", detail: `This folder isn't a git repo. The project's repo looks like ${near}. Open that folder instead.`, open: near };
-      const sfdx = existsSync27(join38(ctx.cwd, "sfdx-project.json"));
+      const sfdx = existsSync27(join39(ctx.cwd, "sfdx-project.json"));
       return fail2(sfdx ? "This Salesforce folder isn't a git repo yet. Onboarding starts with the client's repo (guide steps B1 and B2)." : "This folder isn't a git repo. Open the project's repo folder.");
     }
   },
@@ -15174,7 +15350,7 @@ var STEPS = [
         const lines = text.replace(/\n$/, "").split("\n");
         if (lines.some((l3) => l3.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
         const paths = lines.filter((l3) => l3.trim() && !l3.startsWith("#"));
-        const here = paths.filter((p) => !existsSync27(join38(ctx.paths.root, p)));
+        const here = paths.filter((p) => !existsSync27(join39(ctx.paths.root, p)));
         const elsewhere = here.length ? filesOnEnvironmentBranches(ctx) : /* @__PURE__ */ new Set();
         const gone = here.filter((p) => !elsewhere.has(p));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(", ")}${gone.length > 3 ? " \u2026" : ""}.`);
@@ -15304,7 +15480,7 @@ var STEPS = [
       } catch {
       }
       const TOOLS = { format: "prettier", lint: "eslint", "lwc-tests": "sfdx-lwc-jest" };
-      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync27(join38(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
+      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync27(join39(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
       if (absent.length) return fail2(`Not installed in ${main2}: ${absent.join(", ")}.`, `cd "${main2}" && npm install`);
       return pass2(`Ready: ${required.join(", ")}.`);
     }
@@ -15350,7 +15526,7 @@ var STEPS = [
       const cmd = `acc drift ${env.branch}`;
       let report = null;
       try {
-        report = JSON.parse(readFileSync37(driftReportPath(ctx.paths, env.branch), "utf8"));
+        report = JSON.parse(readFileSync38(driftReportPath(ctx.paths, env.branch), "utf8"));
       } catch {
         report = null;
       }
@@ -15421,11 +15597,11 @@ function gateLabel(s) {
 }
 
 // packages/cli/src/shared.ts
-import { readFileSync as readFileSync38, realpathSync as realpathSync6 } from "node:fs";
+import { readFileSync as readFileSync39, realpathSync as realpathSync6 } from "node:fs";
 import { dirname as dirname15 } from "node:path";
 
 // package.json
-var package_default = { version: "0.43.0" };
+var package_default = { version: "0.44.0" };
 
 // packages/cli/src/shared.ts
 var VERSION = package_default.version;
@@ -15446,7 +15622,7 @@ var READ_ERRORS = {
 };
 function readFileArg(file) {
   try {
-    return readFileSync38(file, "utf8");
+    return readFileSync39(file, "utf8");
   } catch (e) {
     const code2 = e.code ?? "";
     const why = READ_ERRORS[code2] ?? e.message;
@@ -15658,7 +15834,10 @@ function cmdShow(o, id) {
   const card = cardFailure(t)?.replace(/[.\s]+$/, "");
   const checks = failedChecks(t);
   const place2 = queuePlaces(ledger, config).find((p) => p.id === t.id);
-  const stopped = t.state === "running" && builderStopped(t, listSessions(run, paths.root), { resuming: !!resuming(paths, t.id), now: now() });
+  const sessions = t.state === "running" ? listSessions(run, paths.root) : null;
+  const resumed = t.state === "running" && !!resuming(paths, t.id);
+  const stopped = t.state === "running" && builderStopped(t, sessions, { resuming: resumed, now: now() });
+  const unseen = unseenNow(paths, config, t, { run, now }, null, sessions);
   const said2 = stopped && t.run?.sessionId ? lastSaid(claudeProjectsDir(), t.run.sessionId, [t.run.worktree, paths.root]) : null;
   const quote = said2 ? clipSaid(said2, 600) : null;
   const files = t.state === "todo" ? fileLines(paths, config, ledger, t) : { lines: [], data: null };
@@ -15668,7 +15847,7 @@ function cmdShow(o, id) {
   const waiting = cloudWait(t, config, now());
   const wording = readAnalysis(paths, t.id)?.wording ?? [];
   out(o, () => [
-    `${t.id}  ${stateLabel(displayState(ledger, t, { stopped, quiet: !!waiting }, config))}  ${t.title}`,
+    `${t.id}  ${stateLabel(displayState(ledger, t, { stopped, quiet: !!waiting, unseen: !!unseen }, config))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ""}`,
     t.run?.name ? `Agent: ${t.run.name}${t.run.where ? ` \xB7 runs on ${BUILDER_PLACE_LOOK[t.run.where].label}` : ""}` : "",
     cloud ? `Cloud session: ${cloud.url}${t.state === "running" ? ` (branch last moved ${cloud.lastPushAt}${cloud.finished ? ", finished" : ""})` : ""}` : "",
@@ -15680,6 +15859,8 @@ function cmdShow(o, id) {
     place2 ? tone(`In the merge queue: ${place2.ahead ? `${ordinal(place2.place)} of ${place2.of}, behind ${place2.ahead}` : place2.phase === "held" ? `first of ${place2.of}, waiting: ${phaseWords(place2.phase, t.environment, place2.why)}` : `first of ${place2.of}: ${phaseWords(place2.phase, t.environment).toLowerCase()}`}.`, "blue") : "",
     card ? tone(`! Its card couldn't move on its GitHub Project: ${card}.`, "orange") : "",
     closed ? tone(`! Pull request #${closed.number} was closed without merging. Reopen it on GitHub and land to update it, or land to open a new one.`, "orange") : "",
+    unseen ? tone(`! ${UNSEEN_WORDS[unseen].line}. ${UNSEEN_WORDS[unseen].wayOn}${unseen === "quiet" ? ` acc dispatch ${t.id} --again` : " In a terminal: claude agents"}`, "orange") : "",
+    t.notStarted && t.state !== "running" ? tone(`! ${t.notStarted.reason}. ${DISPATCH_AGAIN}: acc dispatch ${t.id} --again`, "orange") : "",
     stopped ? tone(`! Its agent stopped: ${quote ?? "its turn ended before acc done or acc block."}${quote && !/[.!?…]$/.test(quote) ? "." : ""} Resume it with acc resume ${t.id}.`, "orange") : "",
     ...files.lines,
     ...wording.length ? [tone(`! ${wordingWords(wording.length)} in its analysis's requirements. They're advice: they never hold a dispatch.`, "orange"), ...wording.flatMap((f) => [`  ${wordingPlace(f)}: ${f.message}${wordingMatch(f) ? ` [${f.match}]` : ""}`, tone(`    ${f.text}`, "dim")])] : [],
@@ -15697,7 +15878,7 @@ ${t.notes}
       ...t.history.map((h2) => ({ at: h2.at, line: `  ${h2.at}  ${h2.from ?? "\u2013"} \u2192 ${h2.to}  by ${h2.by}${h2.reason ? `: ${h2.reason}` : ""}${h2.override ? " (override)" : ""}` })),
       ...(t.edits ?? []).map((e) => ({ at: e.at, line: `  ${e.at}  edited its ${editedWords(e.fields)}  by ${e.by}` }))
     ].sort((a2, b) => a2.at.localeCompare(b.at)).map((x2) => x2.line)
-  ].filter(Boolean).join("\n"), { ...t, stopped: stopped ? { said: said2 } : null, files: files.data, cloudWait: waiting, wording });
+  ].filter(Boolean).join("\n"), { ...t, stopped: stopped ? { said: said2 } : null, unseen, files: files.data, cloudWait: waiting, wording });
   return 0;
 }
 function editFrom(o) {
@@ -15975,6 +16156,13 @@ function cmdDispatch(o, id) {
     out(o, () => `${t.id} stopped waiting. It stays to do, and nothing starts it on its own.`, t);
     return 0;
   }
+  if (o.again) {
+    if (o.cloud === true || o.foreground || o.model !== void 0 || o.effort !== void 0) throw new AccError("usage", "acc dispatch <id> --again starts it with the model, effort and place it had: give it none of --cloud, --foreground, --model or --effort.");
+    const silent = typeof o["silent-since"] === "string" ? Number(o["silent-since"]) : null;
+    const unseen = unseenOf(paths, config, id.toUpperCase(), deps, Number.isFinite(silent) ? silent : null);
+    const r2 = followingCards(paths, config, () => dispatchAgain(paths, config, id.toUpperCase(), { ...deps, steps: steps() }, { actor, by, reason: typeof o.reason === "string" ? o.reason : void 0, unseen }));
+    return dispatched(o, r2, "");
+  }
   if (o.foreground && !o.json) process.stdout.write(`Starting ${id.toUpperCase()} in this terminal. Leave the session when it's done.
 `);
   const model = typeof o.model === "string" ? o.model : void 0;
@@ -15992,6 +16180,25 @@ function cmdDispatch(o, id) {
       `  Start it now: acc dispatch ${r.task.id} --anyway`
     ].filter(Boolean).join("\n"), r);
     return 0;
+  }
+  return dispatched(o, r, dropped);
+}
+function dispatched(o, r, dropped) {
+  if (r.held) {
+    steps().result(true, `${r.task.id} waits for others' files.`);
+    out(o, () => tone(`${r.task.id} waits for ${filesOf(r.waitsFor)}.`, "blue"), r);
+    return 0;
+  }
+  if (r.notStarted) {
+    steps().result(false, `${r.notStarted.reason}.`);
+    out(o, () => [
+      tone(`! ${r.task.id} \u2192 ${stateLabel("needs-you")}. ${r.notStarted.reason}.`, "orange"),
+      dropped,
+      r.notStarted.stopped ? `  Stopped its half-started background session ${r.notStarted.stopped}.` : "",
+      `  The worktree is kept at ${r.worktree}.`,
+      `  Open a terminal and run claude agents, or restart Claude Code. Then ${DISPATCH_AGAIN.toLowerCase()}: acc dispatch ${r.task.id} --again`
+    ].filter(Boolean).join("\n"), { ...r, message: `${r.task.id} needs you. ${r.notStarted.reason}. ${UNSEEN_WORDS.unanswered.wayOn} Then ${DISPATCH_AGAIN.toLowerCase()}.` });
+    return 1;
   }
   out(o, () => [
     `${r.task.id} \u2192 ${stateLabel("running")}`,
@@ -16068,6 +16275,11 @@ var area2 = {
                                         picked before that it doesn't take
   acc dispatch --held                   Start the tasks that wait for others' files and may go now
   acc dispatch <id> --stop-waiting      It stops waiting, and stays to do
+  acc dispatch <id> --again [--reason "<why>"]
+                                        Dispatch again: a task whose builder didn't start, with the model,
+                                        effort and place it was dispatched with; or a running one, only where acc
+                                        can't see its builder, set back to do and dispatched, its session
+                                        stopped. Refused for one acc can see. A person's
   acc done [<id>] --landed "<line>"... --moved "<line>"... --open "<line>"...
                                         A builder's finish line: moves its task to review, with a note for
                                         whoever comes next: what landed, which numbers moved (tests, checks,
@@ -16106,6 +16318,8 @@ var area2 = {
     "without-analysis": { type: "boolean", default: false },
     anyway: { type: "boolean", default: false },
     held: { type: "boolean", default: false },
+    again: { type: "boolean", default: false },
+    "silent-since": { type: "string" },
     "stop-waiting": { type: "boolean", default: false },
     model: { type: "string" },
     effort: { type: "string" },
@@ -16152,7 +16366,7 @@ var area2 = {
 
 // packages/cli/src/commands/checks.ts
 import { existsSync as existsSync28, realpathSync as realpathSync7 } from "node:fs";
-import { join as join39 } from "node:path";
+import { join as join40 } from "node:path";
 function currentBranch(root) {
   const r = run("git", ["branch", "--show-current"], { cwd: root });
   return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
@@ -16247,7 +16461,7 @@ function cmdGateRelax(o, names3) {
   if (!where || !existsSync28(where)) throw new AccError("usage", `${task.id} has no worktree on disk, so there's no floors file to relax.`);
   const record2 = mutate(paths, now, (l3, emit) => {
     pruneRelaxed(paths.relaxed, l3);
-    const r = relaxFloor(paths.relaxed, join39(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: o.reason ?? "", by, now, task: task.id });
+    const r = relaxFloor(paths.relaxed, join40(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: o.reason ?? "", by, now, task: task.id });
     const t = l3.tasks.find((x2) => x2.id === task.id);
     if (t) {
       t.updatedAt = now().toISOString();
@@ -16256,7 +16470,7 @@ function cmdGateRelax(o, names3) {
     return r;
   });
   out(o, () => [
-    `Relaxed ${name}'s ${record2.limit} for ${task.id}, from ${record2.was === null ? "nothing" : num(record2.was)} to ${num(record2.to)}, in ${join39(where, FLOORS_FILE)}: ${record2.reason}`,
+    `Relaxed ${name}'s ${record2.limit} for ${task.id}, from ${record2.was === null ? "nothing" : num(record2.was)} to ${num(record2.to)}, in ${join40(where, FLOORS_FILE)}: ${record2.reason}`,
     // As DESIGN §9 has it: for this task alone, a worse floor passes at the number relaxed to or a better one, from the floor relaxed.
     tone(`Commit that file with ${task.id}'s change. The relax is for ${task.id} alone: ${record2.was === null ? `where its branch began with no ${record2.limit}, it passes at ${num(record2.to)} or a better number` : `where its branch began at ${record2.limit} ${num(record2.was)}, it passes with its ${record2.limit} at ${num(record2.to)} or a better one`}, on that branch and in the merge queue's merge of it, until ${task.id} is done. Another task's branch isn't backed by it, even one that began at the same ${record2.limit}.`, "dim")
   ].join("\n"), record2);
@@ -16808,7 +17022,7 @@ var area8 = {
 // packages/cli/src/commands/updates.ts
 import { mkdtempSync as mkdtempSync7, rmSync as rmSync22, writeFileSync as writeFileSync32 } from "node:fs";
 import { tmpdir as tmpdir8 } from "node:os";
-import { join as join40 } from "node:path";
+import { join as join41 } from "node:path";
 function personOnlyUpdate(o, what) {
   if (process.env.ACC_ROLE === "analyst") throw new AccError("refused", `An analyst can't ${what}. A person does that.`);
   return personOnly(o, what);
@@ -16854,7 +17068,7 @@ function cmdUpdatePost(o, id) {
   if (!issue) throw new AccError("refused", `${u.id}'s ticket ${u.key} isn't a GitHub issue acc can find.`);
   const env = { ...process.env, GH_TOKEN: ghToken(run, gh.account) };
   const repo = config.trackers.find((t) => t.kind === "github")?.repo ?? gh.repo;
-  const seen = run("gh", ["issue", "view", issue.number, "-R", issue.repo, "--json", "url"], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS2 });
+  const seen = run("gh", ["issue", "view", issue.number, "-R", issue.repo, "--json", "url"], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS });
   let lives = null;
   try {
     lives = seen.code === 0 ? issueRepo(JSON.parse(seen.stdout).url) : null;
@@ -16865,11 +17079,11 @@ function cmdUpdatePost(o, id) {
     throw new AccError("refused", `${u.key} is in ${lives} now, not this repo's ${repo}, so ${u.id} isn't posted. Discard it if it no longer applies: acc update discard ${u.id}`);
   }
   claimUpdate(paths, u.id, by, now, { again: o.again === true });
-  const dir = mkdtempSync7(join40(tmpdir8(), "acc-update-"));
+  const dir = mkdtempSync7(join41(tmpdir8(), "acc-update-"));
   try {
-    const file = join40(dir, "body.md");
+    const file = join41(dir, "body.md");
     writeFileSync32(file, text + "\n");
-    const r = run("gh", ["issue", "comment", issue.number, "-R", issue.repo, "--body-file", file], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS2 });
+    const r = run("gh", ["issue", "comment", issue.number, "-R", issue.repo, "--body-file", file], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS });
     if (r.code !== 0) {
       const why = (r.stderr || r.stdout).trim().split("\n")[0] || `gh exited with ${r.code}.`;
       if (r.timedOut) throw new AccError("unconfirmed", `${u.id} may have posted on ${u.key}: ${why} Look at the issue before you post it again with --again.`);
@@ -17460,7 +17674,7 @@ var area11 = {
 
 // packages/cli/src/commands/setup.ts
 import { existsSync as existsSync29 } from "node:fs";
-import { join as join41 } from "node:path";
+import { join as join42 } from "node:path";
 function renderSteps(results, guided) {
   const lines = [];
   let part = "";
@@ -17543,7 +17757,7 @@ function cmdInit(o) {
     tracker
   });
   const rules = plan.rules.map((source) => ({ source, name: rulesName(source) }));
-  const here = rules.filter((r) => existsSync29(join41(paths.root, RULES_DIR, `${r.name}.md`)));
+  const here = rules.filter((r) => existsSync29(join42(paths.root, RULES_DIR, `${r.name}.md`)));
   const fresh = rules.filter((r) => !here.includes(r)).map((r) => r.source);
   const copies = o["dry-run"] ? [] : prepareImports(run, paths.root, fresh, { account: plan.readAs, base: process.cwd(), now });
   const kept = o["dry-run"] ? [] : here.map((r) => ({ name: r.name, file: `${RULES_DIR}/${r.name}.md` }));
@@ -17820,7 +18034,7 @@ var area14 = {
 };
 
 // packages/cli/src/commands/trackers.ts
-import { readFileSync as readFileSync39 } from "node:fs";
+import { readFileSync as readFileSync40 } from "node:fs";
 function cmdSet2(o) {
   const file = o.file;
   if (!file) throw new AccError("usage", "acc trackers set --file <tracker.json> [--index <n>]");
@@ -17828,7 +18042,7 @@ function cmdSet2(o) {
   if (index !== null && !(Number.isInteger(index) && index >= 0 && /^\d+$/.test(String(o.index)))) throw new AccError("usage", "--index is the tracker's place in the list, from 0.");
   let record2;
   try {
-    record2 = JSON.parse(readFileSync39(file, "utf8"));
+    record2 = JSON.parse(readFileSync40(file, "utf8"));
   } catch (e) {
     throw new AccError("usage", `Couldn't read the tracker from ${file}: ${e.message}`);
   }
