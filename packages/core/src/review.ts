@@ -458,10 +458,11 @@ export function prepareReview(paths: RepoPaths, config: Config, id: string, run:
  * Keeps a verdict beside the receipts and moves the task as the verdict says (T-86 shares this with a
  * cloud review): changes moves it to rework; a pass leaves it in review, ready to land, and clears what
  * autopilot couldn't do before (D-055). A task moved meanwhile is left: the verdict still stands for its
- * commit. A cloud review is over once a verdict is kept for the task's head, whichever commit it was fired
- * on: what it gives later is stale, and nothing waits on it.
+ * commit. A cloud review is over once a verdict is kept for its own commit, or for the task's head (`who.head`,
+ * the branch's commit as the caller read it), whichever commit it was fired on: what it gives later is
+ * stale, and nothing waits on it. A verdict for an older commit ends nothing (T-88).
  */
-export function recordVerdict(paths: RepoPaths, config: Config, verdict: Verdict, now: () => Date, who: { actor: Actor; by: string }): 'rework' | null {
+export function recordVerdict(paths: RepoPaths, config: Config, verdict: Verdict, now: () => Date, who: { actor: Actor; by: string; head?: string | null }): 'rework' | null {
   const file = reviewPath(paths, verdict.task, verdict.sha);
   mkdirSync(paths.reviews, { recursive: true });
   writeFileSync(`${file}.tmp`, JSON.stringify(verdict, null, 2) + '\n');
@@ -470,9 +471,10 @@ export function recordVerdict(paths: RepoPaths, config: Config, verdict: Verdict
   const id = verdict.task;
   return mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id)!;
-    // A verdict for the head ends any cloud review, even one fired on an older commit (T-86): without this, a
-    // cloud session that never answers would keep the task at Needs you, and a review here couldn't clear it.
-    if (t.cloudReview) t.cloudReview = null;
+    // A verdict for the cloud review's own commit, or for the head, ends the cloud review, even one fired on an
+    // older commit (T-86): without this, a cloud session that never answers would keep the task at Needs you,
+    // and a review here couldn't clear it. One for an older commit is kept and ends nothing (T-88).
+    if (t.cloudReview && (verdict.sha === t.cloudReview.sha || (!!who.head && verdict.sha === who.head))) t.cloudReview = null;
     if (t.state !== 'review') return null; // someone moved it meanwhile; the verdict still stands for its commit
     if (verdict.verdict === 'changes') {
       const req = { to: 'rework' as const, actor, by, reason: `Review asked for changes: ${verdict.summary}` };
@@ -525,6 +527,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
     v: 1, task: id, sha, env: env.branch, ...parsed.verdict, sessionId: parsed.sessionId ?? sessionId, name,
     at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: parsed.costUsd,
   };
-  const moved = recordVerdict(paths, config, verdict, now, { actor: opts.actor ?? 'reviewer', by: opts.by ?? `reviewer:${id}` });
+  // The commit reviewed is the branch's head, as prepareReview read it: a cloud review of an older commit ends with this verdict.
+  const moved = recordVerdict(paths, config, verdict, now, { actor: opts.actor ?? 'reviewer', by: opts.by ?? `reviewer:${id}`, head: sha });
   return { verdict, moved };
 }
