@@ -488,6 +488,42 @@ test('edge case: the contrast ratio is 21 for black on white, 1 for a colour on 
   assert.equal(contrast(rgbOf('#cccccc'), rgbOf('#1f1f1f')), contrast(rgbOf('#1f1f1f'), rgbOf('#cccccc')));
 });
 
+/** How far apart two colours look: CIE76's ΔE, the distance between them in CIELAB. Under 10 or so reads as one colour. */
+function deltaE(a: number[], b: number[]): number {
+  const lab = (c: number[]) => {
+    const [r, g, bl] = c.map((v) => { const s = v / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }) as [number, number, number];
+    const f = (v: number) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116);
+    const [x, y, z] = [(r * 0.4124 + g * 0.3576 + bl * 0.1805) / 0.95047, r * 0.2126 + g * 0.7152 + bl * 0.0722, (r * 0.0193 + g * 0.1192 + bl * 0.9505) / 1.08883];
+    return [116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z))];
+  };
+  const [p, q] = [lab(a), lab(b)];
+  return Math.hypot(p[0]! - q[0]!, p[1]! - q[1]!, p[2]! - q[2]!);
+}
+
+test('edge case: ΔE is 0 for a colour and itself, and far apart for black and white', () => {
+  assert.equal(deltaE(rgbOf('#0451a5'), rgbOf('#0451a5')), 0);
+  assert.ok(deltaE([0, 0, 0], [255, 255, 255]) > 99);
+  assert.ok(deltaE(rgbOf('#0451a5'), rgbOf('#1258a7')) < 10, 'the two blues T-94 found reading as one');
+});
+
+test('no two tints read as one colour in either palette: each pair is at least 15 ΔE apart (T-94)', (t) => {
+  const colour = (v: string, theme: PaletteTheme) => rgbOf(colourTokens(resolve(`var(${v})`, theme))[0]!);
+  const close: string[] = [];
+  let pairs = 0;
+  for (const theme of PALETTE_THEMES) {
+    for (let a = 1; a <= TINTS; a++) {
+      for (let b = a + 1; b <= TINTS; b++) {
+        const d = deltaE(colour(`--tint-${a}`, theme), colour(`--tint-${b}`, theme));
+        pairs++;
+        if (d < 15) close.push(`--tint-${a} and --tint-${b} in ${theme}: ${d.toFixed(1)}`);
+      }
+    }
+  }
+  assert.deepEqual(close, []);
+  t.diagnostic(`compared ${pairs} pairs`);
+  assert.equal(pairs, (TINTS * (TINTS - 1)) / 2 * PALETTE_THEMES.length);
+});
+
 test('every tint keeps the text on a label chip and an avatar at AA contrast, on each surface in both palettes (T-94)', (t) => {
   // A chip mixes 14% of its tint into the surface under it, an avatar 32%; both draw the theme's text on top.
   const mix = (tint: number[], under: number[], part: number) => tint.map((v, i) => v * part + under[i]! * (1 - part));
