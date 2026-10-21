@@ -14,7 +14,7 @@ import { agentLook } from '../src/logic/agents.ts';
 import { type AgentSession, TASK_GROUPS, type TaskRow, type Tone } from '../src/logic/shared.ts';
 import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/about.ts';
 import { billingLook } from '../src/model/agents.ts';
-import { accLook, CATEGORY_LOOK, columnLook } from '../src/model/boards.ts';
+import { accLook, CATEGORY_LOOK, columnLook, PRIORITY_ICON, priorityIcon, statusLook, TYPE_ICON } from '../src/model/boards.ts';
 import { analysisLook, autopilotLook, closedPrLook, cloudReviewLook, filesLook, placeLook, stoppedLook } from '../src/model/cards.ts';
 import { BUILDER_PLACE_LOOK } from '../../packages/core/src/cloud.ts';
 import { cloudSetting, protectionLook } from '../src/model/settings.ts';
@@ -100,6 +100,19 @@ export const TABLES: Table[] = [
     ],
   },
   { name: 'a tracker\'s status, by its category', sources: ['extension/src/model/boards.ts#CATEGORY_LOOK'], states: () => Object.entries(CATEGORY_LOOK).map(([k, v]) => [k, { label: k, ...v }]) },
+  // The ticket page's status (T-90): each category with each reason, so closed as not planned shows its own look.
+  {
+    name: 'a ticket\'s status on its page, with why it closed', sources: ['extension/src/model/boards.ts#NOT_PLANNED_LOOK', 'extension/src/model/boards.ts#statusLook'],
+    states: () => product(Object.keys(CATEGORY_LOOK) as (keyof typeof CATEGORY_LOOK)[], ['completed', 'not-planned', null] as const).map(([category, reason]): [string, Shown] => [`${category}, ${reason ?? 'no reason'}`, { label: category, ...statusLook({ category, reason }) }]),
+  },
+  // A ticket's priority and kind (T-90): each beside the tracker's own word for it, in the font the page ships.
+  {
+    name: 'a ticket\'s priority and kind', sources: ['extension/src/model/boards.ts#PRIORITY_ICON', 'extension/src/model/boards.ts#TYPE_ICON'],
+    states: () => [
+      ...Object.keys(PRIORITY_ICON).map((l): [string, Shown] => [`priority ${l}`, { label: `priority ${l}`, icon: priorityIcon(Number(l) as keyof typeof PRIORITY_ICON)! }]),
+      ...Object.entries(TYPE_ICON).map(([k, icon]): [string, Shown] => [k, { label: k, icon }]),
+    ],
+  },
   {
     name: 'a check\'s result', sources: ['extension/src/model/task-page.ts#CHECK_LOOK', 'extension/src/model/task-page.ts#checkLook'],
     states: () => [

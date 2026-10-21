@@ -22,7 +22,16 @@ export interface Person {
   /** The tracker's own id: a GitHub login, a Jira accountId. */
   id: string;
   name: string;
+  /** Their email address, where the tracker gives one: Azure DevOps' uniqueName, Jira's emailAddress (T-90). Left out when it gives none. */
+  email?: string;
 }
+
+/** How urgent a ticket is, 1 the highest and 5 the lowest, whatever the tracker calls it (T-90). */
+export type PriorityLevel = 1 | 2 | 3 | 4 | 5;
+
+/** What kind of work a ticket is, whatever the tracker calls its type (T-90): Azure's User Story and Jira's Story are both a story. */
+export const TYPE_KINDS = ['bug', 'story', 'task', 'subtask', 'feature', 'epic', 'test', 'issue', 'other'] as const;
+export type TypeKind = (typeof TYPE_KINDS)[number];
 
 export interface Label {
   name: string;
@@ -37,6 +46,11 @@ export interface Status {
   id: string;
   name: string;
   category: StatusCategory;
+  /**
+   * Why a done status is done (T-90): completed, or closed without the work, as GitHub's not planned and Azure's
+   * Removed are. Left out, or null, where the tracker doesn't say.
+   */
+  reason?: 'completed' | 'not-planned' | null;
 }
 
 export interface Comment {
@@ -58,11 +72,15 @@ export interface Ticket {
   title: string;
   /** Bug, Story, Task… Null when the tracker has no types, as GitHub issues mostly don't. */
   type: string | null;
+  /** The type's kind (T-90): 'other' for a type no tracker table names, null when there's no type. */
+  typeKind: TypeKind | null;
   status: Status;
   assignees: Person[];
   reporter: Person | null;
   labels: Label[];
   priority: string | null;
+  /** The priority's level (T-90), or null when the tracker has none or a name it can't place. */
+  priorityLevel: PriorityLevel | null;
   created: string;
   updated: string;
   body: Doc;
@@ -74,8 +92,18 @@ export interface Ticket {
    */
   unkept?: string[];
   comments: Comment[];
-  /** Parent, sub-tasks and links, shown as related tickets. */
-  related: { key: string; title: string; relation: string; url: string | null }[];
+  /** Parent, sub-tasks and links, shown as related tickets, each with its status and kind where the tracker says (T-90). */
+  related: Related[];
+}
+
+/** A ticket related to another: its parent, a sub-task or a link. Status and kind are null where the tracker doesn't say. */
+export interface Related {
+  key: string;
+  title: string;
+  relation: string;
+  url: string | null;
+  status: Status | null;
+  typeKind: TypeKind | null;
 }
 
 /** A move a ticket can make: a Jira transition, a GitHub Project status, or closing and reopening. */
@@ -99,9 +127,11 @@ export interface BoardCard {
   url: string;
   status: Status;
   type: string | null;
+  typeKind: TypeKind | null;
   assignees: Person[];
   labels: Label[];
   priority: string | null;
+  priorityLevel: PriorityLevel | null;
   /** GitHub Projects' id for the card itself, which is what a move changes. */
   itemId?: string;
   /** The whole title, where `title` is cut short, as a Slack message's long first line is (T-85). */

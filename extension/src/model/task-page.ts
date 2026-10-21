@@ -21,7 +21,7 @@ import type { Excerpt } from '../logic/review-excerpts.ts';
 import { type AnalysisAsk, questionsWord, type TaskRow, type Tone } from '../logic/shared.ts';
 import { reasonInWords } from '../logic/relayed.ts';
 import { conflictLine, failedChecksLine } from '../logic/tasks.ts';
-import { accLook, type BoardInput, CATEGORY_LOOK, chip, type PersonChip, priorityIcon, typeIcon } from './boards.ts';
+import { accLook, type BoardInput, chip, type PersonChip, priorityIcon, statusLook, typeIcon } from './boards.ts';
 import { type Action, displayLook, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
 import { cardActions, filesLook, placeLook } from './cards.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
@@ -472,11 +472,11 @@ export function ticketModel(i: TicketInput): TicketModel {
     title: t?.title ?? i.task?.title ?? i.key, url: t?.url ?? i.task?.source.url ?? null,
     sourceLabel: i.trackerTitle ?? 'Task kept by acc', sourceKind: t?.kind ?? i.trackerKind ?? 'acc',
     loading: i.loading, error: i.error, outside: i.outside ?? null, connect: i.connect,
-    type: t?.type ?? null, typeIcon: typeIcon(t?.type ?? null),
-    status: t ? { name: t.status.name, ...CATEGORY_LOOK[t.status.category] } : acc ? { name: acc.look.label, icon: acc.look.icon, tone: acc.look.tone } : null,
+    type: t?.type ?? null, typeIcon: typeIcon(t?.typeKind ?? null),
+    status: t ? { name: t.status.name, ...statusLook(t.status) } : acc ? { name: acc.look.label, icon: acc.look.icon, tone: acc.look.tone } : null,
     assignees: (t?.assignees ?? []).map(chip), reporter: t?.reporter ? chip(t.reporter) : null,
     labels: t?.labels ?? (i.task?.labels ?? []).map((name) => ({ name, color: null })),
-    priority: t?.priority ?? null, priorityIcon: priorityIcon(t?.priority ?? null),
+    priority: t?.priority ?? null, priorityIcon: priorityIcon(t?.priorityLevel ?? null),
     created: t?.created ?? i.task?.createdAt ?? null, updated: t?.updated ?? i.task?.updatedAt ?? null,
     body: t?.body ?? (own ? fromMarkdown(i.task!.brief) : { blocks: [] }),
     comments: (t?.comments ?? []).map((c) => ({ id: c.id, author: chip(c.author), created: c.created, body: c.body, url: c.url })),

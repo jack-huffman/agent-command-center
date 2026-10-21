@@ -8,7 +8,7 @@ import { lookAtSprint, sprintLine } from '../src/logic/sprint-change.ts';
 
 const NOW = new Date('2026-10-20T09:00:00Z');
 const sprint = (id: number, name: string): Sprint => ({ id, name, state: 'active', start: null, end: null });
-const card = (key: string, category: 'todo' | 'doing' | 'done' = 'todo'): BoardCard => ({ key, title: key, url: '', status: { id: '1', name: category, category }, type: null, assignees: [], labels: [], priority: null });
+const card = (key: string, category: 'todo' | 'doing' | 'done' = 'todo'): BoardCard => ({ key, title: key, url: '', status: { id: '1', name: category, category }, type: null, typeKind: null, assignees: [], labels: [], priority: null, priorityLevel: null });
 const prev: SprintSeen = { sprints: [{ id: 12, name: 'Sprint 12' }], open: ['ACME-1', 'ACME-2', 'ACME-3', 'ACME-4'], at: '2026-10-19T17:00:00.000Z' };
 const left = (task: string, issue = task): LeftAlone => ({ task, issue, state: 'running', note: `${issue} left this repo's place: it isn't in the active sprint; ${task} is still running` });
 

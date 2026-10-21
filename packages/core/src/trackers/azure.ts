@@ -5,9 +5,10 @@
  * token or a personal access token, kept for one repo only.
  */
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
+import { isEmail, personName, typeKindOf } from './normal.ts';
 import {
-  type Board, type BoardCard, type BoardColumn, type Label, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
-  textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
+  type Board, type BoardCard, type BoardColumn, type Label, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Status,
+  type StatusCategory, textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export interface AzureOptions {
@@ -32,11 +33,25 @@ const COMMENTS_API = 'api-version=7.1-preview.4';
 
 /** Azure's state categories, placed in a workflow for drawing. */
 const STATE_CATEGORY: Record<string, StatusCategory> = { Proposed: 'todo', InProgress: 'doing', Resolved: 'doing', Completed: 'done', Removed: 'done' };
+/** Why a done state category is done (T-90): Removed is closed without the work. */
+const STATE_REASON: Record<string, Status['reason']> = { Completed: 'completed', Removed: 'not-planned' };
 const COLUMN_CATEGORY: Record<string, StatusCategory> = { incoming: 'todo', inProgress: 'doing', outgoing: 'done' };
-const PRIORITY: Record<number, string> = { 1: 'Highest (1)', 2: 'High (2)', 3: 'Medium (3)', 4: 'Low (4)' };
+/** Azure's priority field, 1 to 4, as a word and a level (T-90). */
+export const AZURE_PRIORITY: Record<number, { name: string; level: PriorityLevel }> = { 1: { name: 'Highest', level: 1 }, 2: { name: 'High', level: 2 }, 3: { name: 'Medium', level: 3 }, 4: { name: 'Low', level: 4 } };
+const priorityOf = (v: unknown): { priority: string | null; priorityLevel: PriorityLevel | null } => {
+  const p = AZURE_PRIORITY[Number(v)];
+  return { priority: p?.name ?? null, priorityLevel: p?.level ?? null };
+};
 
 interface Identity { displayName?: string; uniqueName?: string; id?: string }
-const person = (i: Identity | null | undefined): Person | null => (i?.displayName || i?.uniqueName ? { id: i.uniqueName ?? i.id ?? '', name: i.displayName || i.uniqueName! } : null);
+/** A person, named as a person reads it (T-90), with their address when the unique name is one. */
+const person = (i: Identity | null | undefined): Person | null => {
+  const name = personName(i?.displayName, i?.uniqueName);
+  if (!i || !name) return null;
+  return { id: i.uniqueName ?? i.id ?? '', name, ...(isEmail(i.uniqueName) ? { email: i.uniqueName.trim() } : {}) };
+};
+/** A state among its type's states, or, when they couldn't be read, the state's name under way. */
+const stateIn = (states: Status[], name: string): Status => states.find((s) => s.name === name) ?? { id: name, name, category: 'doing' };
 const tags = (s: unknown): Label[] => (typeof s === 'string' ? s.split(';').map((t) => t.trim()).filter(Boolean).map((name) => ({ name, color: null })) : []);
 const quote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 /** Whether an area path is the place's, or under it. Azure's paths ignore case. */
@@ -181,6 +196,9 @@ export class AzureClient implements TrackerClient {
     for (let i = 0; i < ids.length; i += 200) {
       items.push(...(await this.req<{ value: typeof items }>('POST', `/${this.proj}/_apis/wit/workitemsbatch?${API}`, { ids: ids.slice(i, i + 200), fields })).value);
     }
+    // Each card's type's states, read once per type, give its state's own category (T-90). One that can't be read leaves the column's.
+    const typeStates = new Map<string, Status[]>();
+    for (const type of new Set(items.map((it) => String(it.fields['System.WorkItemType'] ?? '')))) typeStates.set(type, await this.states(type).catch(() => []));
     const cards: BoardCard[] = [];
     for (const it of items) {
       const f = it.fields;
@@ -191,11 +209,13 @@ export class AzureClient implements TrackerClient {
       const col = b.columns.find((c) => c.name === recorded && c.stateMappings[type] === state) ?? b.columns.find((c) => c.stateMappings[type] === state);
       if (!col) continue;
       const assignee = person(f['System.AssignedTo'] as Identity);
+      const known = typeStates.get(type)?.find((s) => s.name === state);
       cards.push({
         key: this.keyOf(it.id), title: String(f['System.Title'] ?? ''), url: this.urlOf(it.id),
-        status: { id: col.name, name: state, category: COLUMN_CATEGORY[col.columnType] ?? 'doing' },
-        type, assignees: assignee ? [assignee] : [], labels: tags(f['System.Tags']),
-        priority: PRIORITY[Number(f['Microsoft.VSTS.Common.Priority'])] ?? null,
+        // The column is where the card sits; its state's category, where known, is how far along it is.
+        status: { id: col.name, name: state, category: known?.category ?? COLUMN_CATEGORY[col.columnType] ?? 'doing', ...(known?.reason ? { reason: known.reason } : {}) },
+        type, typeKind: typeKindOf(type), assignees: assignee ? [assignee] : [], labels: tags(f['System.Tags']),
+        ...priorityOf(f['Microsoft.VSTS.Common.Priority']),
       });
     }
     return {
@@ -222,7 +242,7 @@ export class AzureClient implements TrackerClient {
     let s = this.statesCache.get(type);
     if (!s) {
       s = this.req<{ value: { name: string; category: string }[] }>('GET', `/${this.proj}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/states?${API}`)
-        .then((r) => r.value.map((x) => ({ id: x.name, name: x.name, category: STATE_CATEGORY[x.category] ?? 'doing' })));
+        .then((r) => r.value.map((x): Status => ({ id: x.name, name: x.name, category: STATE_CATEGORY[x.category] ?? 'doing', ...(STATE_REASON[x.category] ? { reason: STATE_REASON[x.category] } : {}) })));
       this.statesCache.set(type, s);
       s.catch(() => this.statesCache.delete(type));
     }
@@ -259,24 +279,28 @@ export class AzureClient implements TrackerClient {
       const n = /\/workItems\/(\d+)$/i.exec(r.url);
       return REL[r.rel] && n ? [{ id: Number(n[1]), relation: REL[r.rel]! }] : [];
     });
-    const titles = new Map<number, string>();
+    // Each related item's title, state and type, in one call; its state's category from its type's states, read once per type (T-90).
+    const linked = new Map<number, Omit<Related, 'key' | 'relation' | 'url'>>();
     if (links.length) {
-      const got = await this.req<{ value: { id: number; fields: Record<string, unknown> }[] }>('POST', `/${this.proj}/_apis/wit/workitemsbatch?${API}`, { ids: links.map((l) => l.id), fields: ['System.Id', 'System.Title'] }).catch(() => ({ value: [] }));
-      for (const g of got.value) titles.set(g.id, String(g.fields['System.Title'] ?? ''));
+      const got = await this.req<{ value: { id: number; fields: Record<string, unknown> }[] }>('POST', `/${this.proj}/_apis/wit/workitemsbatch?${API}`, { ids: links.map((l) => l.id), fields: ['System.Id', 'System.Title', 'System.State', 'System.WorkItemType'] }).catch(() => ({ value: [] }));
+      for (const g of got.value) {
+        const t = String(g.fields['System.WorkItemType'] ?? '');
+        const s = String(g.fields['System.State'] ?? '');
+        linked.set(g.id, { title: String(g.fields['System.Title'] ?? ''), status: s ? stateIn(t ? await this.states(t).catch(() => []) : [], s) : null, typeKind: typeKindOf(t) });
+      }
     }
-    const priority = PRIORITY[Number(f['Microsoft.VSTS.Common.Priority'])] ?? null;
     return {
-      key: this.keyOf(id), kind: 'azure', url: this.urlOf(id), title: String(f['System.Title'] ?? ''), type: type || null,
-      status: states.find((s) => s.name === stateName) ?? { id: stateName, name: stateName, category: 'doing' },
+      key: this.keyOf(id), kind: 'azure', url: this.urlOf(id), title: String(f['System.Title'] ?? ''), type: type || null, typeKind: typeKindOf(type),
+      status: stateIn(states, stateName),
       assignees: [person(f['System.AssignedTo'] as Identity)].filter((p): p is Person => !!p),
-      reporter: person(f['System.CreatedBy'] as Identity), labels: tags(f['System.Tags']), priority,
+      reporter: person(f['System.CreatedBy'] as Identity), labels: tags(f['System.Tags']), ...priorityOf(f['Microsoft.VSTS.Common.Priority']),
       created: String(f['System.CreatedDate'] ?? ''), updated: String(f['System.ChangedDate'] ?? ''),
       body, markdown: toMarkdown(body),
       comments: comments.comments.map((c) => ({
         id: String(c.id), author: person(c.createdBy) ?? { id: '', name: 'Someone' }, created: c.createdDate,
         body: (c.format ?? '').toLowerCase() === 'markdown' ? fromMarkdown(c.text) : fromHtml(c.text), url: `${this.urlOf(id)}#${c.id}`,
       })),
-      related: links.map((l) => ({ key: this.keyOf(l.id), title: titles.get(l.id) ?? '', relation: l.relation, url: this.urlOf(l.id) })),
+      related: links.map((l) => ({ key: this.keyOf(l.id), relation: l.relation, url: this.urlOf(l.id), title: '', status: null, typeKind: null, ...linked.get(l.id) })),
     };
   }
 
@@ -334,7 +358,8 @@ export class AzureClient implements TrackerClient {
   async me(): Promise<Person> {
     const c = await this.req<{ authenticatedUser: { id: string; providerDisplayName?: string; properties?: { Account?: { $value?: string } } } }>('GET', '/_apis/connectionData');
     const u = c.authenticatedUser;
-    return { id: u.properties?.Account?.$value ?? u.id, name: u.providerDisplayName ?? u.properties?.Account?.$value ?? 'You' };
+    const account = u.properties?.Account?.$value;
+    return { id: account ?? u.id, name: personName(u.providerDisplayName, account) ?? 'You', ...(isEmail(account) ? { email: account.trim() } : {}) };
   }
 
   async assignable(_key: string, query: string): Promise<Person[]> {

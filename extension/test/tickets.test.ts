@@ -82,14 +82,16 @@ test('a card acc doesn\'t keep offers Track, says it\'s on its way or why it cou
 });
 
 test('icons for types and priorities, and initials for people', () => {
-  assert.deepEqual(['Bug', 'Story', 'Task', 'Sub-task', 'Epic', null].map(typeIcon), ['bug', 'bookmark', 'tasklist', 'list-tree', 'zap', 'issues']);
-  assert.deepEqual(['Highest', 'High', 'Medium', 'Low', 'Lowest', null].map(priorityIcon), ['chevron-up', 'arrow-up', null, 'arrow-down', 'chevron-down', null]);
+  // T-90: the icon reads the kind, not words in the type's name, so a type called "Debug tooling" isn't a bug.
+  assert.deepEqual((['bug', 'story', 'task', 'subtask', 'feature', 'epic', 'test', 'issue', 'other', null] as const).map(typeIcon), ['bug', 'bookmark', 'tasklist', 'list-tree', 'lightbulb', 'zap', 'beaker', 'issues', 'issues', 'issues']);
+  // Edge case: Medium has an icon now; no level (no priority, or a name the tracker can't place) has none.
+  assert.deepEqual(([1, 2, 3, 4, 5, null] as const).map(priorityIcon), ['chevron-up', 'arrow-up', 'dash', 'arrow-down', 'chevron-down', null]);
   assert.deepEqual(['Pat Lee', 'jordan.kim', 'ghost', 'Ana María de la Cruz', ''].map(initials), ['PL', 'JK', 'G', 'AM', '?']);
 });
 
 const ticket: Ticket = {
-  key: 'ACME-1', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-1', title: 'Ready one', type: 'Story', status: { id: '3', name: 'In Progress', category: 'doing' },
-  assignees: [{ id: 'a', name: 'Pat Lee' }], reporter: null, labels: [], priority: 'High', created: '2026-09-01T00:00:00Z', updated: '2026-09-02T00:00:00Z',
+  key: 'ACME-1', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-1', title: 'Ready one', type: 'Story', typeKind: 'story', status: { id: '3', name: 'In Progress', category: 'doing' },
+  assignees: [{ id: 'a', name: 'Pat Lee' }], reporter: null, labels: [], priority: 'High', priorityLevel: 2, created: '2026-09-01T00:00:00Z', updated: '2026-09-02T00:00:00Z',
   body: { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Body' }] }] }, markdown: 'Body', comments: [], related: [],
 };
 
@@ -548,8 +550,8 @@ test('a monday.com item\'s page: a field edit is refused before monday hears of 
   assert.equal(sent.length, 1);
 
   const item: Ticket = {
-    key: 'MON-101', kind: 'monday', url: 'https://acme.monday.com/boards/111/pulses/101', title: 'Escalate premium cases', type: null, status: { id: '0', name: 'Working on it', category: 'doing' },
-    assignees: [], reporter: null, labels: [], priority: null, created: '', updated: '', body: { blocks: [] }, markdown: '## Description\n\nPremium cases escalate.', comments: [], related: [],
+    key: 'MON-101', kind: 'monday', url: 'https://acme.monday.com/boards/111/pulses/101', title: 'Escalate premium cases', type: null, typeKind: null, status: { id: '0', name: 'Working on it', category: 'doing' },
+    assignees: [], reporter: null, labels: [], priority: null, priorityLevel: null, created: '', updated: '', body: { blocks: [] }, markdown: '## Description\n\nPremium cases escalate.', comments: [], related: [],
   };
   assert.deepEqual(trackInput(item), [{ source: { kind: 'monday', key: 'MON-101', url: 'https://acme.monday.com/boards/111/pulses/101' }, title: 'Escalate premium cases', brief: '## Description\n\nPremium cases escalate.', labels: [] }]);
   const model = ticketModel({ project: '/r', tracker: 0, trackerTitle: 'monday.com · acme', trackerKind: 'monday', key: 'MON-101', ticket: item, loading: false, error: null, connect: null, row: null, task: null, checks: [] });

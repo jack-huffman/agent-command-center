@@ -4,6 +4,7 @@
  */
 import { ghEnv } from '../exec.ts';
 import { fromMarkdown } from './doc.ts';
+import { typeKindOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Exec, inBatches, type Label, orList, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
   type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
@@ -47,6 +48,19 @@ export function githubOutside(issue: { url?: string | null; labels?: { name: str
 const OPEN: Status = { id: 'OPEN', name: 'Open', category: 'todo' };
 const CLOSED: Status = { id: 'CLOSED', name: 'Closed', category: 'done' };
 
+/**
+ * An issue's open or closed state as GitHub words it (T-90): closed as not planned keeps those words and its
+ * reason, closed as completed its reason. Its id stays OPEN or CLOSED, which the board's columns hold.
+ */
+export function issueState(state: string | null | undefined, reason: string | null | undefined): Status {
+  if (state === 'OPEN') return OPEN;
+  if (reason === 'NOT_PLANNED') return { ...CLOSED, name: 'Closed as not planned', reason: 'not-planned' };
+  return reason === 'COMPLETED' ? { ...CLOSED, reason: 'completed' } : CLOSED;
+}
+
+/** Whether gh refused to give an issue's type (T-90): an older gh, or GitHub Enterprise Server, doesn't know the field. */
+const noIssueType = (e: unknown): boolean => e instanceof TrackerError && /issueType/.test(e.message);
+
 /** GitHub Projects' statuses are free text; this places them in a workflow for drawing. */
 export function categoryOf(name: string): StatusCategory {
   if (/done|closed|complete|shipped|released|merged|resolved/i.test(name)) return 'done';
@@ -81,12 +95,13 @@ const PROJECTS_QUERY = `query($owner: String!, $name: String!) {
   }
 }`;
 
-const ITEMS_QUERY = `query($id: ID!, $after: String) {
+/** A Project's items, with each issue's type where GitHub has issue types (T-90). */
+const itemsQuery = (types: boolean): string => `query($id: ID!, $after: String) {
   node(id: $id) { ... on ProjectV2 { items(first: 100, after: $after) {
     pageInfo { hasNextPage endCursor }
     nodes { id
       fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { optionId name } }
-      content { __typename ... on Issue { number title url state repository { nameWithOwner }
+      content { __typename ... on Issue { number title url state${types ? ' issueType { name }' : ''} repository { nameWithOwner }
         assignees(first: 5) { nodes { login name } } labels(first: 50) { nodes { name color } } } } } } } }
 }`;
 
@@ -109,6 +124,8 @@ export class GithubClient implements TrackerClient {
   private projectCache: Promise<ProjectInfo | null> | null = null;
   /** Whether Projects could be read; false when the token lacks the scope. */
   private projectsReadable = true;
+  /** Whether gh and GitHub give issues' types (T-90); false once either refused the field, so it isn't asked for again. */
+  private issueTypes = true;
 
   constructor(o: GithubOptions) {
     this.o = o;
@@ -142,6 +159,22 @@ export class GithubClient implements TrackerClient {
     return out.data as T;
   }
 
+  /**
+   * gh's JSON for an issue command, with its type while gh gives one (T-90). A gh that doesn't know the
+   * field is asked again without it, and never asked for it again.
+   */
+  private async issueJson(args: string[], fields: string): Promise<string> {
+    if (this.issueTypes) {
+      try {
+        return await this.gh([...args, '--json', `${fields},issueType`]);
+      } catch (e) {
+        if (!noIssueType(e)) throw e;
+        this.issueTypes = false;
+      }
+    }
+    return this.gh([...args, '--json', fields]);
+  }
+
   /** The Project the board's columns come from, or null when there's none or it can't be read. */
   private project(): Promise<ProjectInfo | null> {
     this.projectCache ??= (async () => {
@@ -165,8 +198,8 @@ export class GithubClient implements TrackerClient {
     if (p) return this.projectBoard(p);
     const [open, closed] = await Promise.all([this.issues('open', 200), this.issues('closed', 30)]);
     const cards = [...open, ...closed].map((i): BoardCard => ({
-      key: `GH-${i.number}`, title: i.title, url: i.url, status: i.state === 'OPEN' ? OPEN : CLOSED,
-      type: null, assignees: i.assignees.map(person), labels: i.labels.map(label), priority: null,
+      key: `GH-${i.number}`, title: i.title, url: i.url, status: issueState(i.state, i.stateReason),
+      type: i.issueType?.name ?? null, typeKind: typeKindOf(i.issueType?.name), assignees: i.assignees.map(person), labels: i.labels.map(label), priority: null, priorityLevel: null,
     }));
     return {
       source: 'github-state', title: `Issues · ${this.o.repo}`, url: `https://github.com/${this.o.repo}/issues`,
@@ -185,9 +218,9 @@ export class GithubClient implements TrackerClient {
    * every label it's given, so an issue with any one of them takes a list per label, merged.
    */
   private async issues(state: 'open' | 'closed', limit: number) {
-    type Issue = { number: number; title: string; url: string; state: string; assignees: GhPerson[]; labels: { name: string; color: string }[] };
+    type Issue = { number: number; title: string; url: string; state: string; stateReason?: string | null; issueType?: { name: string } | null; assignees: GhPerson[]; labels: { name: string; color: string }[] };
     const runs = this.labelNames.length ? this.labelNames.map((l) => ['--label', l]) : [[]];
-    const lists = await Promise.all(runs.map(async (only) => JSON.parse(await this.gh(['issue', 'list', '-R', this.o.repo, '--state', state, '--limit', String(limit), ...only, '--json', 'number,title,url,state,assignees,labels'])) as Issue[]));
+    const lists = await Promise.all(runs.map(async (only) => JSON.parse(await this.issueJson(['issue', 'list', '-R', this.o.repo, '--state', state, '--limit', String(limit), ...only], 'number,title,url,state,assignees,labels,stateReason')) as Issue[]));
     if (lists.length === 1) return lists[0]!;
     const byNumber = new Map<number, Issue>();
     for (const i of lists.flat()) if (!byNumber.has(i.number)) byNumber.set(i.number, i);
@@ -195,11 +228,17 @@ export class GithubClient implements TrackerClient {
   }
 
   private async projectBoard(p: ProjectInfo): Promise<Board> {
-    type Item = { id: string; fieldValueByName: { optionId: string; name: string } | null; content: { __typename: string; number?: number; title?: string; url?: string; state?: string; repository?: { nameWithOwner: string }; assignees?: { nodes: GhPerson[] }; labels?: { nodes: { name: string; color: string }[] } } | null };
+    type Item = { id: string; fieldValueByName: { optionId: string; name: string } | null; content: { __typename: string; number?: number; title?: string; url?: string; state?: string; issueType?: { name: string } | null; repository?: { nameWithOwner: string }; assignees?: { nodes: GhPerson[] }; labels?: { nodes: { name: string; color: string }[] } } | null };
+    type Page = { node: { items: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: Item[] } } };
     const items: Item[] = [];
     let after: string | null = null;
     for (let page = 0; page < 5; page++) {
-      const d: { node: { items: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: Item[] } } } = await this.graphql(ITEMS_QUERY, { id: p.id, after });
+      // GitHub without issue types refuses the field: that page is asked again without it.
+      const d: Page = await this.graphql<Page>(itemsQuery(this.issueTypes), { id: p.id, after }).catch((e: unknown) => {
+        if (!this.issueTypes || !noIssueType(e)) throw e;
+        this.issueTypes = false;
+        return this.graphql<Page>(itemsQuery(false), { id: p.id, after });
+      });
       items.push(...d.node.items.nodes);
       if (!d.node.items.pageInfo.hasNextPage) break;
       after = d.node.items.pageInfo.endCursor;
@@ -214,7 +253,7 @@ export class GithubClient implements TrackerClient {
         return {
           key: `GH-${c.number}`, title: c.title!, url: c.url!, itemId: i.id,
           status: v ? { id: v.optionId, name: v.name, category: categoryOf(v.name) } : { id: '', name: 'No status', category: 'todo' },
-          type: null, assignees: (c.assignees?.nodes ?? []).map(person), labels: (c.labels?.nodes ?? []).map(label), priority: null,
+          type: c.issueType?.name ?? null, typeKind: typeKindOf(c.issueType?.name), assignees: (c.assignees?.nodes ?? []).map(person), labels: (c.labels?.nodes ?? []).map(label), priority: null, priorityLevel: null,
         };
       });
     if (cards.some((c) => c.status.id === '')) columns.unshift({ id: '', name: 'No status', category: 'todo', statusIds: [''] });
@@ -223,24 +262,24 @@ export class GithubClient implements TrackerClient {
 
   async ticket(key: string): Promise<Ticket> {
     const n = issueNumber(key);
-    const raw = JSON.parse(await this.gh(['issue', 'view', String(n), '-R', this.o.repo, '--json', 'number,title,body,state,stateReason,author,assignees,labels,comments,createdAt,updatedAt,url,milestone']));
+    const raw = JSON.parse(await this.issueJson(['issue', 'view', String(n), '-R', this.o.repo], 'number,title,body,state,stateReason,author,assignees,labels,comments,createdAt,updatedAt,url,milestone'));
     const why = githubOutside(raw, this.o.repo, this.labelNames);
     if (why) throw outsideError({ key: `GH-${n}`, why }, this.place);
     const md = { issueUrl: (x: number) => `https://github.com/${this.o.repo}/issues/${x}`, userUrl: (u: string) => `https://github.com/${u}` };
     const item = await this.issueItem(n).catch(() => null);
-    const closed = raw.state !== 'OPEN';
-    const status: Status = item?.status ?? (closed ? { ...CLOSED, name: raw.stateReason === 'NOT_PLANNED' ? 'Closed as not planned' : 'Closed' } : OPEN);
+    const status: Status = item?.status ?? issueState(raw.state, raw.stateReason);
+    const type: string | null = raw.issueType?.name ?? null;
     return {
-      key: `GH-${n}`, kind: 'github', url: raw.url, title: raw.title, type: null, status,
+      key: `GH-${n}`, kind: 'github', url: raw.url, title: raw.title, type, typeKind: typeKindOf(type), status,
       assignees: (raw.assignees ?? []).map(person), reporter: raw.author ? person(raw.author) : null,
-      labels: (raw.labels ?? []).map(label), priority: null,
+      labels: (raw.labels ?? []).map(label), priority: null, priorityLevel: null,
       created: raw.createdAt, updated: raw.updatedAt,
       body: fromMarkdown(raw.body, md),
       markdown: raw.body ?? '',
       comments: (raw.comments ?? []).map((c: { id: string; author: GhPerson | null; body: string; createdAt: string; url?: string }) => ({
         id: c.id, author: c.author ? person(c.author) : { id: 'ghost', name: 'ghost' }, created: c.createdAt, body: fromMarkdown(c.body, md), url: c.url ?? null,
       })),
-      related: raw.milestone?.title ? [{ key: raw.milestone.title, title: 'Milestone', relation: 'milestone', url: null }] : [],
+      related: raw.milestone?.title ? [{ key: raw.milestone.title, title: 'Milestone', relation: 'milestone', url: null, status: null, typeKind: null }] : [],
     };
   }
 

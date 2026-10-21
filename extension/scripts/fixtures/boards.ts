@@ -3,6 +3,8 @@ import { NO_PASTE, slackLinkKey } from '../../src/logic/slack-link.ts';
 import { NO_REACTION, SLACK_APPS, SLACK_CARD_MAX } from '../../../packages/core/src/trackers/slack.ts';
 import { clip } from '../../../packages/core/src/text.ts';
 import { placeText } from '../../../packages/core/src/trackers/types.ts';
+import { JIRA_PRIORITY } from '../../../packages/core/src/trackers/jira.ts';
+import { typeKindOf } from '../../../packages/core/src/trackers/normal.ts';
 import type { BoardInput } from '../../src/model/boards.ts';
 
 const status = (id: string, name: string, category: 'todo' | 'doing' | 'done') => ({ id, name, category });
@@ -18,8 +20,11 @@ export const DONE = status('10', 'Done', 'done');
  * Track (D-074): ready, on its way, and refused because the ticket has since left the epic. One that's done has none.
  */
 export function sampleBoards(): BoardInput[] {
-  const card = (n: number, title: string, s: { id: string; name: string }, type: string, extra: Partial<NonNullable<BoardInput['board']>['cards'][number]> = {}) =>
-    ({ key: `ACME-${n}`, title, url: `https://acme.atlassian.net/browse/ACME-${n}`, status: s, type, assignees: [], labels: [], priority: 'Medium', ...extra });
+  // Each card's kind and priority level as Jira's client gives them (T-90).
+  const card = (n: number, title: string, s: { id: string; name: string }, type: string, extra: Partial<NonNullable<BoardInput['board']>['cards'][number]> = {}) => {
+    const c = { key: `ACME-${n}`, title, url: `https://acme.atlassian.net/browse/ACME-${n}`, status: s, type, assignees: [], labels: [], priority: 'Medium', ...extra };
+    return { ...c, typeKind: typeKindOf(c.type), priorityLevel: c.priority ? JIRA_PRIORITY[c.priority.toLowerCase()] ?? null : null };
+  };
   return [{
     index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example', me: { id: 'jordan', name: 'Jordan Kim' },
     // A sign-in for every project on the site (GH-79), said under the place.
