@@ -359,7 +359,7 @@ export class AzureClient implements TrackerClient {
     const c = await this.req<{ authenticatedUser: { id: string; providerDisplayName?: string; properties?: { Account?: { $value?: string } } } }>('GET', '/_apis/connectionData');
     const u = c.authenticatedUser;
     const account = u.properties?.Account?.$value;
-    return { id: account ?? u.id, name: personName(u.providerDisplayName, account) ?? 'You', ...(isEmail(account) ? { email: account.trim() } : {}) };
+    return { id: account ?? u.id, name: personName(u.providerDisplayName, account) ?? '', ...(isEmail(account) ? { email: account.trim() } : {}) };
   }
 
   async assignable(_key: string, query: string): Promise<Person[]> {
@@ -390,9 +390,13 @@ export class AzureClient implements TrackerClient {
   }
 }
 
-/** For the sign-in check: who a header belongs to, without needing a project. */
+/**
+ * For the sign-in check: who a header belongs to, without needing a project. A sign-in with nothing to name
+ * the person by is "You" here; me() leaves its name empty, so "Commenting as" keeps the sign-in's own words.
+ */
 export async function azureWhoAmI(organization: string, auth: string, f: typeof fetch = fetch): Promise<Person> {
-  return new AzureClient({ organization, project: '_', auth: async () => auth, fetch: f }).me();
+  const p = await new AzureClient({ organization, project: '_', auth: async () => auth, fetch: f }).me();
+  return p.name ? p : { ...p, name: 'You' };
 }
 
 /** A plain GET for setting up a tracker, before there's a project to make a client for. */

@@ -2,7 +2,7 @@
 // fallbacks included: no display name, an email-shaped one, an unknown priority or type, and a states call that fails.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AZURE_PRIORITY, AzureClient } from '../src/trackers/azure.ts';
+import { AZURE_PRIORITY, AzureClient, azureWhoAmI } from '../src/trackers/azure.ts';
 import { GithubClient, issueState } from '../src/trackers/github.ts';
 import { JIRA_PRIORITY, JiraClient } from '../src/trackers/jira.ts';
 import { MondayClient } from '../src/trackers/monday.ts';
@@ -163,7 +163,8 @@ test('Azure\'s me names the person, with their address, and an email-shaped name
   const me = (user: unknown) => azure(fakeAzure([['GET /_apis/connectionData', { authenticatedUser: user }]]).fetch).me();
   assert.deepEqual(await me({ id: 'g1', providerDisplayName: 'Jordan Kim', properties: { Account: { $value: 'jordan@acme.example' } } }), { id: 'jordan@acme.example', name: 'Jordan Kim', email: 'jordan@acme.example' });
   assert.deepEqual(await me({ id: 'g1', providerDisplayName: 'jordan acme.example', properties: { Account: { $value: 'jordan@acme.example' } } }), { id: 'jordan@acme.example', name: 'jordan', email: 'jordan@acme.example' });
-  assert.deepEqual(await me({ id: 'g1' }), { id: 'g1', name: 'You' }, 'nothing to name them by');
+  assert.deepEqual(await me({ id: 'g1' }), { id: 'g1', name: '' }, 'nothing to name them by: Commenting as keeps the sign-in\'s words');
+  assert.deepEqual(await azureWhoAmI('acme', 'Basic x', fakeAzure([['GET /_apis/connectionData', { authenticatedUser: { id: 'g1' } }]]).fetch), { id: 'g1', name: 'You' }, 'the sign-in check still names them');
 });
 
 // ---------------------------------------------------------------- Jira

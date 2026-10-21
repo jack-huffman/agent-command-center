@@ -8407,7 +8407,7 @@ stays the default; analysts stay on the Mac, since a Salesforce analysis needs t
   fake GitHub: a late push after a move, a branch for a task not in the ledger, a review under way keeping
   its own, and origin offline.
 
-## D-??? Every tracker fills what it has, in one normal form (2026-10-21)
+## D-185 Every tracker fills what it has, in one normal form (2026-10-21)
 
 T-90. The Command Center draws every tracker with one set of rules (`extension/src/model/boards.ts`), so
 a ticket looked as rich as its tracker's client filled it, and Azure DevOps' looked flat. Each client now
