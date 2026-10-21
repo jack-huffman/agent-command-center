@@ -121,11 +121,14 @@ test('writeJsonKey writes through writeAtomic, and leaves no temp file', () => {
   assert.deepEqual(readdirSync(dir), ['config.json'], 'no temp file is left');
 });
 
-/** Files in core that may write something with writeFileSync in a function that names the config, with why. May only shrink (T-82). */
-const NOT_THE_SETTINGS: Record<string, string> = {
-  'dispatch.ts': "writes the Salesforce CLI's own .sf/config.json into a new worktree, not the project's settings",
-  'setup.ts':'writes the README and other files the project is set up with, in functions that take the config only to read from it',
-};
+/** Writes in core that may use writeFileSync in a function that names the config: one file and the path text it writes, with why. Each reaches only the writes it names (T-83). May only shrink (T-82). */
+const NOT_THE_SETTINGS: { file: string; path: RegExp; why: string }[] = [
+  { file: 'dispatch.ts', path: /'\.sf'/, why: "writes the Salesforce CLI's own .sf/config.json into a new worktree, not the project's settings" },
+  { file: 'setup.ts', path: /^file$/, why: 'writes the README and other files the project is set up with, in functions that take the config only to read from it' },
+];
+
+/** Whether a write is one the list excuses. */
+const excused = (w: Pick<Write, 'file' | 'arg'>): boolean => NOT_THE_SETTINGS.some((e) => e.file === w.file && e.path.test(w.arg));
 
 type Write = { file: string; line: number; unit: string; arg: string };
 
@@ -141,9 +144,17 @@ function writeArgs(text: string): { line: number; arg: string }[] {
     let depth = 0;
     let i = m.index + m[0].length;
     const start = i;
+    let quote: string | null = null;
     for (; i < text.length; i++) {
       const c = text[i];
-      if (c === '(' || c === '[' || c === '{') depth++;
+      // Quoted text, a template literal too, holds no brackets or commas that count.
+      if (quote) {
+        if (c === '\\') i++;
+        else if (c === quote) quote = null;
+        continue;
+      }
+      if (c === "'" || c === '"' || c === '`') quote = c;
+      else if (c === '(' || c === '[' || c === '{') depth++;
       else if (c === ')' || c === ']' || c === '}') {
         if (depth === 0) break;
         depth--;
@@ -181,10 +192,24 @@ test('no file in core writes the project settings with writeFileSync, whatever t
   const files = new Set(all.map((w) => w.file));
   assert.ok(all.length > 0 && files.size > 0, 'the scan found no writeFileSync to check');
   const hits = all.filter(writesSettings);
-  const stray = hits.filter((w) => !(w.file in NOT_THE_SETTINGS));
+  const stray = hits.filter((w) => !excused(w));
   assert.deepEqual(stray.map((w) => `${w.file}:${w.line}`), [], `these write the settings in place: use writeJsonKey or writeAtomic (scanned ${all.length} writes in ${files.size} files)`);
   // The list names only files that still write; an entry nothing needs is deleted.
-  for (const f of Object.keys(NOT_THE_SETTINGS)) assert.ok(hits.some((w) => w.file === f), `${f} is on the list but no longer needs to be`);
+  for (const e of NOT_THE_SETTINGS) assert.ok(hits.some((w) => e.file === w.file && e.path.test(w.arg)), `${e.file} ${e.path} is on the list but no longer needs to be`);
+});
+
+test('each exception reaches only the writes it names: another settings write in the same file is stray (T-83)', () => {
+  assert.ok(NOT_THE_SETTINGS.length > 0, 'the list has entries to pin');
+  for (const e of NOT_THE_SETTINGS) {
+    const own = writes().filter((w) => w.file === e.file && writesSettings(w));
+    assert.ok(own.length > 0 && own.every((w) => e.path.test(w.arg)), `${e.file}: every write that looks like the settings is one the entry names`);
+    // A settings write added to the same file, by any path text the entry doesn't name, is not excused.
+    for (const arg of ['configFile', "join(root, '.acc', 'config.json')", 'file']) {
+      if (e.path.test(arg)) continue;
+      assert.equal(excused({ file: e.file, arg }), false, `${e.file}: ${arg} is not excused`);
+    }
+    assert.equal(excused({ file: `other-${e.file}`, arg: own[0]!.arg }), false, 'the same path in another file is not excused');
+  }
 });
 
 test('the scan takes a write of the settings for one whatever the path is called, and not a write of something else (T-82)', () => {
@@ -203,6 +228,9 @@ test('the scan takes a write of the settings for one whatever the path is called
   assert.ok(real('writeFileSync(\n    configFile,\n    text,\n  );'));
   assert.ok(!real("writeFileSync(join(root, 'notes.md'), text);"));
   assert.throws(() => writesIn('x.ts', 'writeFileSync(\n'), /couldn't read the path/);
+  // Quoted text doesn't count: a comma or a bracket inside a path's quotes neither splits it nor ends it (T-83).
+  assert.ok(real("writeFileSync(join(root, 'a,b)', '.acc', 'config.json'), text);"), 'a comma and a bracket in a quoted path');
+  assert.equal(writeArgs("writeFileSync(join(root, '[x', \"y,\", `z)${a}`), text);")[0]!.arg, "join(root, '[x', \"y,\", `z)${a}`)", 'each kind of quote');
 });
 
 test('each writer moved to writeAtomic changes the file and leaves no temp file beside it (T-82)', () => {

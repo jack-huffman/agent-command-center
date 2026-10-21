@@ -116,7 +116,7 @@ export class Notices implements vscode.Disposable {
 
   /** A Jira board's sprint changed (T-78): Since you last looked says so, once, with no notification. */
   sprint(root: string, text: string): void {
-    this.away.note({ root, notice: { kind: 'sprint', task: '', text, urgent: false } });
+    this.away.note({ root, notice: { kind: 'sprint', task: '', text, urgent: false } }, this.clock());
     this.onSince();
   }
 

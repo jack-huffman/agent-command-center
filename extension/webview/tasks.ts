@@ -1,6 +1,6 @@
 // The Tasks section: acc's agent board, and each tracker's own board.
 
-import type { TrackerBoard, TrackerCard } from '../src/model/boards.ts';
+import type { TrackerBoard, TrackerCard, Who } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
 import { boardKeys, liveLine } from './board-nav.ts';
 import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
@@ -48,7 +48,7 @@ export function renderTasks(m: TasksModel): Node[] {
     // Its person filter (T-79), by who dispatched each task: Mine is this person's own dispatches.
     const filter = p.total ? personFilter(`agents:${p.root}`, p.columns.flatMap((c) => c.cards), p.me) : null;
     if (filter) tools.push(filter.control);
-    const showing = (card: { people: { key: string; name: string }[] }): boolean => !filter || shows(filter.choice, card.people, p.me);
+    const showing = (card: { people: Who[] }): boolean => !filter || shows(filter.choice, card.people, p.me);
     // A drop and Enter on a held card (T-54) send the same move.
     const moveTask = (task: string, to: string): void => api.postMessage({ type: 'move-task', project: p.root, task, to });
     for (const c of p.columns) {

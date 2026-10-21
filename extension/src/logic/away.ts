@@ -64,7 +64,9 @@ export class Away {
    * News that waits on the Overview whether or not the person is away, such as a board's sprint changing
    * (T-78): it joins the list, and is never a notification of its own.
    */
-  note(n: ProjectNotice): void {
+  note(n: ProjectNotice, now: number): void {
+    // Start the span first if it is due, so its reset cannot drop this line when away() first passes the limit.
+    this.away(now);
     this.held.push(n);
   }
 

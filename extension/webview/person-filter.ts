@@ -2,8 +2,7 @@
 // says. Pure: no page state, so node:test loads it (person-filter.test.ts). person-menu.ts draws it.
 // It sits here, not in src/logic, because the page imports no values from outside extension/webview.
 
-/** A person on a board: the key a choice matches on, and the name it shows. */
-export interface Person { key: string; name: string }
+import type { Who } from '../src/model/boards.ts';
 
 export const EVERYONE = 'everyone';
 export const MINE = 'mine';
@@ -24,7 +23,7 @@ export const NO_ME = 'The tracker did not say who is signed in, so Mine cannot t
 export const effective = (choice: string | undefined, me: string | null): string => (!choice || (choice === MINE && !me) ? EVERYONE : choice);
 
 /** Whether a card with these people shows under a choice. */
-export function shows(choice: string, people: readonly Person[], me: string | null): boolean {
+export function shows(choice: string, people: readonly Who[], me: string | null): boolean {
   const c = effective(choice, me);
   if (c === EVERYONE) return true;
   if (c === UNASSIGNED) return people.length === 0;
@@ -37,7 +36,7 @@ export function shows(choice: string, people: readonly Person[], me: string | nu
  * by name. The person already chosen stays listed with no cards, if they have none now, so the choice can be
  * seen and changed.
  */
-export function choicesFor(cards: readonly { people: readonly Person[] }[], me: string | null, chosen: string | undefined): Choice[] {
+export function choicesFor(cards: readonly { people: readonly Who[] }[], me: string | null, chosen: string | undefined): Choice[] {
   const names = new Map<string, string>();
   for (const c of cards) for (const p of c.people) if (!names.has(p.key)) names.set(p.key, p.name);
   const kept = chosen?.startsWith(PERSON) ? chosen.slice(PERSON.length) : null;

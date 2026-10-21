@@ -14,6 +14,7 @@ import { spawnSync } from 'node:child_process';
 import type { TaskSheet } from '../src/model/task-sheet.ts';
 import { EDITS_OFF, TASK_SHEET_DONE, TASK_SHEET_MESSAGE, TASK_SHEET_ROWS } from '../src/model/task-sheet.ts';
 import { ticketActionRefusal } from '../src/model/task-page.ts';
+import { inProcessWords } from '../src/logic/processes.ts';
 import { makeRepo } from '../../packages/core/test/support.ts';
 import { activate, fakeVscode, sandboxEnv, until } from './vscode.ts';
 
@@ -215,7 +216,7 @@ test('edge: edits turned off in the project\'s settings: Save and Change refuse 
   assert.deepEqual([done.ok, done.error], [false, `Its ticket can't change from here. ${EDITS_OFF}`], JSON.stringify(done));
   const r = await sendChange('GH-7');
   assert.equal(r.ok, false);
-  assert.ok(r.error?.startsWith(ticketActionRefusal('status', false)!.split('. ')[0]!), String(r.error));
+  assert.equal(r.error, inProcessWords(ticketActionRefusal('status', false)!), String(r.error));
   assert.deepEqual([edits().length, picked, readFileSync(s.issue, 'utf8')], [before, 0, was], 'nothing written, no quick pick, the issue as it was');
   calls.pick = undefined;
   writeFileSync(join(s.repo, '.acc', 'config.json'), config(true));
