@@ -3,9 +3,10 @@
  * Jira board's own columns, each mapped to the statuses it holds, and a move is a workflow transition.
  */
 import { type AdfNode, adfUnkept, fromAdf, fromMarkdown, toAdf, toMarkdown, unkeptRefusal } from './doc.ts';
+import { isEmail, typeKindOf } from './normal.ts';
 import {
-  type Board, type BoardCard, type BoardColumn, inBatches, type Label, type Outside, outsideError, type Person, placeText, type Sprint, type Status, type StatusCategory,
-  type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
+  type Board, type BoardCard, type BoardColumn, inBatches, type Label, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Sprint,
+  type Status, type StatusCategory, type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export interface JiraOptions {
@@ -31,7 +32,7 @@ const sprintOf = (s: JiraSprint): Sprint => ({
 });
 
 interface JiraStatus { id: string; name: string; statusCategory?: { key?: string } }
-interface JiraUser { accountId: string; displayName?: string }
+interface JiraUser { accountId: string; displayName?: string; emailAddress?: string }
 /** What says where an issue sits: its project, its parent, and whether it's a sub-task. */
 interface Placed { key: string; fields: { project?: { key: string }; parent?: { key: string }; issuetype?: { subtask?: boolean } } }
 type BoardIssue = { key: string; fields: Placed['fields'] & { summary: string; status: JiraStatus; assignee: JiraUser | null; issuetype?: { name: string; subtask?: boolean }; priority?: { name: string } | null; labels?: string[] } };
@@ -48,7 +49,17 @@ export const NO_ACTIVE_SPRINT = 'This board has no active sprint, so it shows no
 
 const CATEGORY: Record<string, StatusCategory> = { new: 'todo', indeterminate: 'doing', done: 'done' };
 const status = (s: JiraStatus): Status => ({ id: String(s.id), name: s.name, category: CATEGORY[s.statusCategory?.key ?? ''] ?? 'doing' });
-const person = (u: JiraUser): Person => ({ id: u.accountId, name: u.displayName || 'Unknown' });
+const person = (u: JiraUser): Person => ({ id: u.accountId, name: u.displayName || 'Unknown', ...(isEmail(u.emailAddress) ? { email: u.emailAddress.trim() } : {}) });
+/** Jira's five standard priorities by level (T-90). A priority a site named itself has no level. */
+export const JIRA_PRIORITY: Record<string, PriorityLevel> = { highest: 1, high: 2, medium: 3, low: 4, lowest: 5 };
+const priorityOf = (p: { name: string } | null | undefined): { priority: string | null; priorityLevel: PriorityLevel | null } => ({
+  priority: p?.name ?? null, priorityLevel: (p && JIRA_PRIORITY[p.name.trim().toLowerCase()]) ?? null,
+});
+/** What a linked issue, a parent or a sub-task carries with it. Each field may be left out. */
+interface Linked { key: string; fields: { summary: string; status?: JiraStatus; issuetype?: { name: string; subtask?: boolean } } }
+const related = (i: Linked, relation: string, url: string): Related => ({
+  key: i.key, title: i.fields.summary, relation, url, status: i.fields.status ? status(i.fields.status) : null, typeKind: typeKindOf(i.fields.issuetype?.name, !!i.fields.issuetype?.subtask),
+});
 
 export class JiraClient implements TrackerClient {
   readonly kind = 'jira' as const;
@@ -229,8 +240,8 @@ export class JiraClient implements TrackerClient {
     }
     const cards: BoardCard[] = issues.map((i) => ({
       key: i.key, title: i.fields.summary, url: `${this.base}/browse/${i.key}`, status: status(i.fields.status),
-      type: i.fields.issuetype?.name ?? null, assignees: i.fields.assignee ? [person(i.fields.assignee)] : [],
-      labels: (i.fields.labels ?? []).map((name): Label => ({ name, color: null })), priority: i.fields.priority?.name ?? null,
+      type: i.fields.issuetype?.name ?? null, typeKind: typeKindOf(i.fields.issuetype?.name, !!i.fields.issuetype?.subtask), assignees: i.fields.assignee ? [person(i.fields.assignee)] : [],
+      labels: (i.fields.labels ?? []).map((name): Label => ({ name, color: null })), ...priorityOf(i.fields.priority),
     }));
     // The board's filter and the place both apply, so a filter that leaves the epic's tickets out shows nothing.
     const notice = noSprint
@@ -267,12 +278,12 @@ export class JiraClient implements TrackerClient {
   }
 
   async ticket(key: string): Promise<Ticket> {
-    type Link = { type: { inward: string; outward: string }; inwardIssue?: { key: string; fields: { summary: string } }; outwardIssue?: { key: string; fields: { summary: string } } };
+    type Link = { type: { inward: string; outward: string }; inwardIssue?: Linked; outwardIssue?: Linked };
     const i = await this.req<{ key: string; fields: {
       summary: string; description: AdfNode | null; status: JiraStatus; assignee: JiraUser | null; reporter: JiraUser | null; labels?: string[];
       priority?: { name: string } | null; issuetype?: { name: string; subtask?: boolean }; created: string; updated: string;
       comment?: { comments: { id: string; author: JiraUser; created: string; body: AdfNode }[] };
-      parent?: { key: string; fields: { summary: string } }; subtasks?: { key: string; fields: { summary: string } }[]; issuelinks?: Link[];
+      parent?: Linked; subtasks?: Linked[]; issuelinks?: Link[];
       project?: { key: string };
     } }>('GET', `/rest/api/3/issue/${encodeURIComponent(key)}?fields=summary,description,status,assignee,reporter,labels,priority,issuetype,created,updated,comment,parent,subtasks,issuelinks,project`);
     const why = await this.whyOutside(i, key, false);
@@ -280,17 +291,17 @@ export class JiraClient implements TrackerClient {
     const f = i.fields;
     const browse = (k: string) => `${this.base}/browse/${k}`;
     return {
-      key: i.key, kind: 'jira', url: browse(i.key), title: f.summary, type: f.issuetype?.name ?? null, status: status(f.status),
+      key: i.key, kind: 'jira', url: browse(i.key), title: f.summary, type: f.issuetype?.name ?? null, typeKind: typeKindOf(f.issuetype?.name, !!f.issuetype?.subtask), status: status(f.status),
       assignees: f.assignee ? [person(f.assignee)] : [], reporter: f.reporter ? person(f.reporter) : null,
-      labels: (f.labels ?? []).map((name) => ({ name, color: null })), priority: f.priority?.name ?? null,
+      labels: (f.labels ?? []).map((name) => ({ name, color: null })), ...priorityOf(f.priority),
       created: f.created, updated: f.updated, body: fromAdf(f.description), markdown: toMarkdown(fromAdf(f.description)), unkept: adfUnkept(f.description),
       comments: (f.comment?.comments ?? []).map((c) => ({ id: c.id, author: person(c.author), created: c.created, body: fromAdf(c.body), url: `${browse(i.key)}?focusedCommentId=${c.id}` })),
       related: [
-        ...(f.parent ? [{ key: f.parent.key, title: f.parent.fields.summary, relation: 'parent', url: browse(f.parent.key) }] : []),
-        ...(f.subtasks ?? []).map((s) => ({ key: s.key, title: s.fields.summary, relation: 'sub-task', url: browse(s.key) })),
+        ...(f.parent ? [related(f.parent, 'parent', browse(f.parent.key))] : []),
+        ...(f.subtasks ?? []).map((s) => related(s, 'sub-task', browse(s.key))),
         ...(f.issuelinks ?? []).flatMap((l) => {
           const other = l.outwardIssue ?? l.inwardIssue;
-          return other ? [{ key: other.key, title: other.fields.summary, relation: l.outwardIssue ? l.type.outward : l.type.inward, url: browse(other.key) }] : [];
+          return other ? [related(other, l.outwardIssue ? l.type.outward : l.type.inward, browse(other.key))] : [];
         }),
       ],
     };

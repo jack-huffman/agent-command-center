@@ -45,7 +45,7 @@ interface CardItem { id: string; name: string; group?: { id: string } | null; co
 interface PlacedItem { id: string; board: { id: string; name: string } | null; group: { id: string; title: string } | null }
 interface FullItem extends PlacedItem {
   name: string; state?: string; url?: string | null; created_at: string; updated_at: string; creator: MondayPerson | null;
-  column_values: ColumnValue[]; updates: MondayUpdate[]; subitems?: { id: string; name: string; url?: string | null }[] | null; parent_item?: { id: string; name: string; url?: string | null } | null;
+  column_values: ColumnValue[]; updates: MondayUpdate[]; subitems?: { id: string; name: string; url?: string | null; column_values?: ColumnValue[] }[] | null; parent_item?: { id: string; name: string; url?: string | null } | null;
 }
 
 /** Items per page, as items_page allows at most. */
@@ -161,6 +161,18 @@ const plainDoc = (text: string): Doc => ({
 });
 
 const labelIndex = (v: ColumnValue | undefined): string | null => (v && v.index !== undefined && v.index !== null ? String(v.index) : null);
+
+/**
+ * A sub-item's status (T-90): its status column's label, done when monday marks the label done. A sub-item
+ * board has columns of its own, so its column is the one called Status, else its first. Null with no label.
+ */
+function subitemStatus(values: ColumnValue[] | null | undefined): Status | null {
+  const vs = values ?? [];
+  const column = pickStatusColumn(vs.map((v) => ({ id: v.id, title: v.column?.title ?? '', type: v.type })), null);
+  const v = column ? vs.find((x) => x.id === column.id) : undefined;
+  const index = labelIndex(v);
+  return index === null || !v?.label ? null : { id: index, name: v.label, category: v.is_done ? 'done' : 'doing' };
+}
 const personIds = (v: ColumnValue | undefined): string[] => (v?.persons_and_teams ?? []).filter((p) => p.kind === 'person').map((p) => String(p.id));
 
 export class MondayClient implements TrackerClient {
@@ -287,7 +299,7 @@ export class MondayClient implements TrackerClient {
         key: this.keyOf(String(it.id)), title: it.name, url: this.urlOf(String(it.id)),
         // A card on a label the column no longer names (its blank) has no status.
         status: statusOf(labels, index !== null && !labels.some((l) => l.id === index) ? null : index),
-        type: null, assignees: personIds(value(it, people?.id)).map((id) => ({ id, name: names.get(id) ?? 'Someone' })), labels: [], priority: null,
+        type: null, typeKind: null, assignees: personIds(value(it, people?.id)).map((id) => ({ id, name: names.get(id) ?? 'Someone' })), labels: [], priority: null, priorityLevel: null,
       };
     });
     const on = new Set(cards.map((c) => c.status.id));
@@ -311,7 +323,7 @@ export class MondayClient implements TrackerClient {
       `query ($ids: [ID!]) { items(ids: $ids) { ${PLACED_FIELDS} name state url created_at updated_at creator { id name }
         column_values { id type text column { title } ... on StatusValue { index label is_done } ... on PeopleValue { persons_and_teams { id kind } } }
         updates(limit: 100) { id body created_at creator { id name } replies { id body created_at creator { id name } } }
-        subitems { id name url } parent_item { id name url } } }`,
+        subitems { id name url column_values { id type column { title } ... on StatusValue { index label is_done } } } parent_item { id name url } } }`,
       { ids: [id] },
     );
     const it = got.items?.[0];
@@ -339,13 +351,13 @@ export class MondayClient implements TrackerClient {
     }
     if (!body.blocks.length && updates[0]) body.blocks.push(...fromHtml(updates[0].body).blocks);
     return {
-      key: this.keyOf(id), kind: 'monday', url: it.url ?? this.urlOf(id), title: it.name, type: null, status,
+      key: this.keyOf(id), kind: 'monday', url: it.url ?? this.urlOf(id), title: it.name, type: null, typeKind: null, status,
       assignees: personIds(peopleValue).map((p) => ({ id: p, name: names.get(p) ?? 'Someone' })),
-      reporter: it.creator ? { id: String(it.creator.id), name: it.creator.name } : null, labels: [], priority: null,
+      reporter: it.creator ? { id: String(it.creator.id), name: it.creator.name } : null, labels: [], priority: null, priorityLevel: null,
       created: it.created_at, updated: it.updated_at, body, markdown: toMarkdown(body), comments,
       related: [
-        ...(it.parent_item ? [{ key: this.keyOf(String(it.parent_item.id)), title: it.parent_item.name, relation: 'parent', url: it.parent_item.url ?? null }] : []),
-        ...(it.subitems ?? []).map((s) => ({ key: this.keyOf(String(s.id)), title: s.name, relation: 'sub-item', url: s.url ?? null })),
+        ...(it.parent_item ? [{ key: this.keyOf(String(it.parent_item.id)), title: it.parent_item.name, relation: 'parent', url: it.parent_item.url ?? null, status: null, typeKind: null }] : []),
+        ...(it.subitems ?? []).map((s) => ({ key: this.keyOf(String(s.id)), title: s.name, relation: 'sub-item', url: s.url ?? null, status: subitemStatus(s.column_values), typeKind: null })),
       ],
     };
   }

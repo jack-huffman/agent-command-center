@@ -18,6 +18,7 @@ import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
 import { accImport, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
 import { inProcessWords } from './logic/processes.ts';
+import { signInName } from './logic/sign-in-name.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
 import { stateOf } from './logic/shared.ts';
@@ -199,9 +200,10 @@ export class Trackers implements vscode.Disposable {
     if (t.kind === 'github') return p.config.github?.account ? { who: p.config.github.account, scope: null } : null;
     const c = await this.credFor(p, t);
     if (!c) return null;
-    // A Slack reply posts as the app, so it says the app's name, as the Connect page does; a client that can't say leaves the token's words.
-    const app = t.kind === 'slack' ? await this.client(p, index).then((x) => x.me()).then((m) => m.name).catch(() => null) : null;
-    return { who: app ?? credWho(c.cred), scope: { shared: c.shared, host: hostOf(t) } };
+    // A Slack reply posts as the app, so it says the app's name, as the Connect page does; an Azure DevOps sign-in says the
+    // person's name (T-90). A client that can't say leaves the sign-in's own words.
+    const named = await signInName(t.kind, () => this.client(p, index));
+    return { who: named ?? credWho(c.cred), scope: { shared: c.shared, host: hostOf(t) } };
   }
 
   /** The trackers this repo names but hasn't signed in to yet. GitHub signs in through gh, so it's never listed. */

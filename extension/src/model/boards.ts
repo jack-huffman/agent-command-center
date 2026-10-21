@@ -3,7 +3,7 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import type { StatusCategory, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
+import type { PriorityLevel, Status, StatusCategory, TrackerKind, TypeKind } from '../../../packages/core/src/trackers/types.ts';
 import { conflictLine, failedChecksLine, waitsForFiles, whileFirst } from '../logic/tasks.ts';
 import { taskNames, type TaskRow, type Tone } from '../logic/shared.ts';
 import { signInScope } from '../logic/connect.ts';
@@ -20,6 +20,15 @@ import { analysisLook, autopilotLook, CARD_SAID, cardActions, closedPrLook, clou
  * Blue while a ticket is moving; to-do and done stay neutral, so orange keeps meaning a person is needed.
  */
 export const CATEGORY_LOOK: Record<StatusCategory, { icon: string; tone: Tone }> = { todo: { icon: 'circle-outline', tone: 'neutral' }, doing: { icon: 'sync', tone: 'blue' }, done: { icon: 'check', tone: 'neutral' } };
+
+/**
+ * A tracker's status closed without the work (T-90), as GitHub's "Closed as not planned" and Azure DevOps' Removed
+ * are: a slashed circle, neutral, where its category's look would say done.
+ */
+export const NOT_PLANNED_LOOK: { icon: string; tone: Tone } = { icon: 'circle-slash', tone: 'neutral' };
+
+/** A tracker's status's look on the ticket page: not planned's own, else its category's. */
+export const statusLook = (s: Pick<Status, 'category' | 'reason'>): { icon: string; tone: Tone } => (s.reason === 'not-planned' ? NOT_PLANNED_LOOK : CATEGORY_LOOK[s.category]);
 
 /** A tracker's column that holds work waiting on someone, by its name: under way to the tracker, but not moving. */
 const WAITING = /\b(block|blocked|stuck|on hold|waiting|impeded)\b/i;
@@ -46,36 +55,26 @@ export interface PersonChip {
 export const initials = (name: string): string => name.replace(/[^\p{L}\p{N}\s.-]/gu, '').split(/[\s.-]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') || '?';
 export const chip = (p: { name: string }): PersonChip => ({ name: p.name, initials: initials(p.name) });
 
-/** A codicon for each kind of ticket, so a bug reads as a bug at a glance. */
-export function typeIcon(type: string | null): string {
-  const t = (type ?? '').toLowerCase();
-  if (t.includes('bug') || t.includes('defect')) return 'bug';
-  if (t.includes('epic')) return 'zap';
-  if (t.includes('story')) return 'bookmark';
-  if (t.includes('sub')) return 'list-tree';
-  if (t.includes('task')) return 'tasklist';
-  if (t.includes('improve') || t.includes('feature')) return 'lightbulb';
-  if (t.includes('backlog item') || t.includes('requirement')) return 'bookmark';
-  if (t.includes('test')) return 'beaker';
-  return 'issues';
-}
+/** A codicon for each kind of ticket (T-90), so a bug reads as a bug at a glance. */
+export const TYPE_ICON: Record<TypeKind, string> = {
+  bug: 'bug', story: 'bookmark', task: 'tasklist', subtask: 'list-tree', feature: 'lightbulb', epic: 'zap', test: 'beaker', issue: 'issues', other: 'issues',
+};
 
-export function priorityIcon(priority: string | null): string | null {
-  const p = (priority ?? '').toLowerCase();
-  if (!p) return null;
-  if (/highest|blocker|critical|urgent/.test(p)) return 'chevron-up';
-  if (/high/.test(p)) return 'arrow-up';
-  if (/lowest|trivial/.test(p)) return 'chevron-down';
-  if (/low|minor/.test(p)) return 'arrow-down';
-  return null; // medium, normal: the ordinary case needs no mark
-}
+/** A ticket's kind's codicon; a ticket with no type gets the plain issue's. */
+export const typeIcon = (kind: TypeKind | null): string => TYPE_ICON[kind ?? 'other'];
+
+/** A codicon for each priority level (T-90), 1 the highest. Medium has one too, so every level reads alike. */
+export const PRIORITY_ICON: Record<PriorityLevel, string> = { 1: 'chevron-up', 2: 'arrow-up', 3: 'dash', 4: 'arrow-down', 5: 'chevron-down' };
+
+/** A priority level's codicon, or null for a ticket with no level: no priority, or one its tracker can't place. */
+export const priorityIcon = (level: PriorityLevel | null): string | null => (level ? PRIORITY_ICON[level] : null);
 
 /** What the extension knows about one tracker's board (see trackers.ts). */
 export interface BoardInput {
   index: number;
   kind: TrackerKind;
   title: string;
-  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; assignees: { id?: string; name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null; fullTitle?: string }[] } | null;
+  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; typeKind?: TypeKind | null; assignees: { id?: string; name: string }[]; labels: { name: string; color: string | null }[]; priority: string | null; priorityLevel?: PriorityLevel | null; fullTitle?: string }[] } | null;
   error: string | null;
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
@@ -237,7 +236,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
       const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && NEXT_STEPS.includes(a.command)) ?? null : null;
       const tracking = b.tracking?.[card.key];
       return {
-        key: card.key, title: card.title, fullTitle: card.fullTitle ?? null, type: card.type, typeIcon: typeIcon(card.type), priority: card.priority, priorityIcon: priorityIcon(card.priority),
+        key: card.key, title: card.title, fullTitle: card.fullTitle ?? null, type: card.type, typeIcon: typeIcon(card.typeKind ?? null), priority: card.priority, priorityIcon: priorityIcon(card.priorityLevel ?? null),
         labels: card.labels, assignees: card.assignees.map(chip), people: card.assignees.map(whoKey), status: card.status.name,
         acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next, conflicts: conflictLine(row), failedChecks: failedChecksLine(row) } : null,
         track: row || c.category === 'done' ? null : { busy: !!tracking?.busy, error: tracking?.error ?? null },
