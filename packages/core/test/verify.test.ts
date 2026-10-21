@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.ts';
 import { criteriaPath } from '../src/criteria.ts';
@@ -391,6 +391,11 @@ test('a verification that fails after the checkout removes the worktree it added
   gitIn(left.dir, 'worktree', 'add', '-q', '--detach', onBoard, 'HEAD');
   assert.deepEqual(pruneVerifications(left.paths, left.config, run), [], 'a task still on the board keeps its folder');
   assert.ok(existsSync(onBoard));
+  // A folder whose name isn't a task id stops nothing, and stays.
+  const odd = join(dirname(onBoard), 'verify-old copy');
+  mkdirSync(odd);
+  assert.deepEqual(pruneVerifications(left.paths, left.config, run), []);
+  assert.ok(existsSync(odd), 'not a task id: left alone');
 });
 
 test('a worktree left dirty by setup writes no receipt, and the verification says so as a check line with its reason (edge case)', () => {

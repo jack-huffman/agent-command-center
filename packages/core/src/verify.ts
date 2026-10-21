@@ -574,8 +574,10 @@ export function clearVerification(paths: RepoPaths, config: Pick<Config, 'worktr
 }
 
 /**
- * Clears the verifications of every task that left the board (T-84): a stored verdict, or a list to
- * choose from, whose task the ledger no longer holds. Nothing runs when there is none.
+ * Clears the verifications of every task that left the board (T-84): a stored verdict, a list to
+ * choose from, or a `verify-<task>` folder under the worktree root with no stored file (T-87), whose
+ * task the ledger no longer holds. It asks git for the main checkout to find that root, so it runs
+ * git even when nothing is stored. A folder whose name holds no task id is left alone.
  */
 export function pruneVerifications(paths: RepoPaths, config: Pick<Config, 'worktrees'>, run: Runner): string[] {
   let names: string[] = [];
@@ -593,7 +595,14 @@ export function pruneVerifications(paths: RepoPaths, config: Pick<Config, 'workt
   } catch {
     // No worktree root: nothing was added.
   }
-  for (const f of folders) if (f.startsWith('verify-')) stored.add(f.slice('verify-'.length));
+  for (const f of folders) {
+    if (!f.startsWith('verify-')) continue;
+    try {
+      stored.add(fileId(f.slice('verify-'.length)));
+    } catch {
+      // Not a task id, such as a copy a person made: not acc's to remove, and never a reason to stop.
+    }
+  }
   const gone = [...stored].filter((t) => !tasks.has(t)).sort();
   for (const t of gone) clearVerification(paths, config, t, run);
   return gone;

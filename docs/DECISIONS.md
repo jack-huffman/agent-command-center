@@ -8243,14 +8243,14 @@ needs a task in review with acc's worktree.
 - Not chosen: Bitbucket and Azure DevOps pull requests; posting the comment
   or moving the ticket's status; and a manual test checklist.
 
-## D-??? A failed verification leaves no worktree, and a dirty one says it wrote no receipt (2026-10-21)
+## D-183 A failed verification leaves no worktree, and a dirty one says it wrote no receipt (2026-10-21)
 
 Notes on D-182, which stays as written.
 
 - **A failed verification removes the worktree it added.** When a step after
   the checkout throws (setup, the verifier timing out, Claude Code not
   starting), `verify` removes the `verify-<task>` worktree it added. A worktree
-  it found there already is left. `pruneVerifications` also lists the
+  it found already at that commit is left. `pruneVerifications` also lists the
   `verify-*` folders under the worktree root, so a leftover with no stored
   file goes with a task that left the board.
 - **Receipts: D-182 holds for a clean worktree only.** `runGates` writes no
