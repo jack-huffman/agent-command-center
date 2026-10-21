@@ -18,9 +18,10 @@ const p = (text: string, marks?: string[]): AdfNode => ({ type: 'paragraph', con
  * Which ticket page to draw: ACME-12 being built, a task to do whose analysis has questions or says to
  * split it, one whose builder stopped, ACME-31, which acc doesn't keep yet, being tracked from its card,
  * ACME-35, which a person dispatched and which waits for other tasks' files (D-093), or ACME-20, in review
- * with its builder's note (D-106), or ACME-19, sent back by its review, with its findings (T-53).
+ * with its builder's note (D-106), or ACME-19, sent back by its review, with its findings (T-53), or ACME-48,
+ * running where Claude Code isn't found (T-94).
  */
-export type TicketSample = 'ACME-12' | 'ACME-19' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35' | 'ACME-44' | 'ACME-50';
+export type TicketSample = 'ACME-12' | 'ACME-19' | 'ACME-20' | 'ACME-21' | 'ACME-23' | 'ACME-29' | 'ACME-31' | 'ACME-33' | 'ACME-35' | 'ACME-44' | 'ACME-48' | 'ACME-50';
 
 /** A Jira ticket with everything a description can hold, and the acc task working on it. With edits, ACME-19's tracker allows edits (T-80). */
 /** criteria: ACME-19 with its drafted acceptance criteria (T-81), and with the draft opened as an update. */
@@ -29,6 +30,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', 
   if (which === 'ACME-29') return sampleStoppedTicket(now);
   if (which === 'ACME-44') return sampleCloudTicket(now);
   if (which === 'ACME-50') return sampleNoFieldsTicket(now);
+  if (which === 'ACME-48') return sampleMissingTicket(now);
   if (which === 'ACME-31') return sampleUntrackedTicket(now);
   if (which === 'ACME-33') return sampleChecksTicket(now);
   if (which === 'ACME-35') return sampleWaitingTicket(now);
@@ -205,6 +207,34 @@ function sampleChecksTicket(now: number): TicketModel {
       { gate: 'format', status: 'pass', summary: '2 changed files formatted.' },
       { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: LeadScoringTest, 12 of 12 passing.', counts: '12 run, 0 skipped' },
     ],
+  });
+}
+
+/**
+ * A running task where Claude Code isn't found on this Mac's path (T-93, T-94): acc can't see its builder,
+ * and Dispatch again is off, saying why, since no builder could start.
+ */
+function sampleMissingTicket(now: number): TicketModel {
+  const hubRow = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-48')!;
+  const row = { ...hubRow, unseen: 'missing' as const };
+  const ticket: Ticket = {
+    key: 'ACME-48', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-48', title: row.title, type: 'Story', typeKind: 'story',
+    status: DOING, assignees: [{ id: 'a2', name: 'Pat Lee' }], reporter: { id: 'a1', name: 'Jordan Kim' }, labels: [{ name: 'service', color: null }, { name: 'audit', color: null }], priority: 'Medium', priorityLevel: 3,
+    created: new Date(now - 2 * 86_400_000).toISOString(), updated: new Date(now - 30 * MIN).toISOString(),
+    body: fromAdf({ type: 'doc', content: [p('Support leads can\'t tell when a case\'s priority changed, or who changed it. Log each change in the case\'s history.')] }),
+    markdown: '', comments: [], related: [],
+  };
+  const task = {
+    id: 'ACME-48', title: row.title, brief: '', source: { kind: 'jira', key: 'ACME-48', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'running', blocker: null, run: row.run, pr: null,
+    history: [
+      { at: new Date(now - 2 * 86_400_000).toISOString(), from: null, to: 'todo', by: 'human:pat' },
+      { at: new Date(now - 30 * MIN).toISOString(), from: 'todo', to: 'running', by: 'human:pat' },
+    ],
+    createdAt: new Date(now - 2 * 86_400_000).toISOString(), updatedAt: new Date(now - 30 * MIN).toISOString(),
+  } as unknown as Task;
+  return ticketModel({
+    project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-48', ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
+    trackerEdits: false, updates: [], boards: sampleBoards(), github: 'jordan-kim', now, checks: [],
   });
 }
 
