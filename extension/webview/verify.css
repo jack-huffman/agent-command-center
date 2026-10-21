@@ -1,0 +1,14 @@
+/* Verify the developer's work (T-84) wears the analysis's card, with the gap the blocks around it keep. */
+.ticket-main > .verify { margin-bottom: 16px; padding-bottom: 12px; }
+.vf-pr { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin: 0 0 6px; }
+.vf-pr > span { min-width: 0; overflow-wrap: anywhere; }
+.vf-h { margin: 10px 0 2px; font-size: 0.95em; }
+.vf-list { list-style: none; margin: 2px 0 4px; padding: 0; }
+/* Each check, criterion, finding or pull request to choose: its state, then its words over a muted line. */
+.vf-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); }
+.vf-list > .vf-row:first-child { border-top: 0; }
+.vf-row > .status { flex: none; }
+.vf-row > .codicon { flex: none; margin-top: 2px; }
+.vf-row > .btn { flex: none; margin-left: auto; }
+.vf-text { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.vf-sub { font-size: 0.92em; }

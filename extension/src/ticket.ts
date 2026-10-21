@@ -25,6 +25,8 @@ import { type Excerpt, fileInCheckout, mergeBase, reviewExcerpts } from './logic
 import { openReview } from './rules.ts';
 import { pickField } from './ticket-edits.ts';
 import type { CriteriaActions } from './criteria.ts';
+import type { VerifyActions } from './verify.ts';
+import { ticketVerify } from './model/verify.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -113,6 +115,8 @@ export class TicketPanels implements vscode.Disposable {
   } | null = null;
   /** Drafted acceptance criteria (T-81), set by its area: the section's state, its buttons, and the sheet's own Draft. */
   criteria: CriteriaActions | null = null;
+  /** Verify the developer's work (T-84), set by its area: the section's state, and its buttons. */
+  verify: VerifyActions | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
@@ -323,6 +327,7 @@ export class TicketPanels implements vscode.Disposable {
       tracking: this.trackers.trackState(p.root, o.key).busy,
       review: task ? await this.review(o, p, task) : null,
       ...(task && this.criteria ? this.criteria.state(p.root, task.id) : {}),
+      verify: task && this.verify ? ticketVerify({ task, github: p.config.github?.repo ?? null, ...this.verify.state(p.root, task.id), updates: this.hub.updates(p.root).filter((u) => u.task === task.id) }) : null,
     });
     o.view.draw(model);
   }
@@ -385,6 +390,10 @@ export class TicketPanels implements vscode.Disposable {
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.criteria?.act(m, (msg) => o.view.say(msg));
         return;
       case 'task-sheet-criteria': await this.criteria?.sheet(m, (msg) => o.view.say(msg)); return;
+      // Verify the developer's work (T-84): this page's own task only.
+      case 'verify-run': case 'verify-clear':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.verify?.act(m, (msg) => o.view.say(msg));
+        return;
       case 'toolbar':
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);
         return;

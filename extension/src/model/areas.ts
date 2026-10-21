@@ -25,9 +25,10 @@ import { area as taskSheet } from './task-sheet.ts';
 import { area as tasks } from './tasks.ts';
 import { area as tidy } from './tidy.ts';
 import { area as updates } from './updates.ts';
+import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agentPage, agents, boards, branches, connect, criteria, dispatchSheet, environments, historyPages, limits, overview, page, questions, rules, runs, settings, setup, slack, taskModal, taskPage, taskSheet, tasks, tidy, updates, worktrees];
+export const AREAS = [about, agentPage, agents, boards, branches, connect, criteria, dispatchSheet, environments, historyPages, limits, overview, page, questions, rules, runs, settings, setup, slack, taskModal, taskPage, taskSheet, tasks, tidy, updates, verify, worktrees];
 export type Message =
   | import('./agent-page.ts').Message
   | import('./agents.ts').Message
@@ -45,4 +46,5 @@ export type Message =
   | import('./task-page.ts').Message
   | import('./task-sheet.ts').Message
   | import('./tasks.ts').Message
-  | import('./updates.ts').Message;
+  | import('./updates.ts').Message
+  | import('./verify.ts').Message;

@@ -206,6 +206,8 @@ export function updateDraft(c: UpdateCard): HTMLElement {
     el('div', 'act-draft-edit', box, bar), newer);
   d.setAttribute('role', 'group');
   d.setAttribute('aria-label', `Update for ${c.key}: ${c.look.label}`);
+  // Which draft it is, so Open the QA comment goes to its own (T-84).
+  d.dataset.update = c.id;
   return d;
 }
 

@@ -22,6 +22,7 @@ import { area as taskSheet } from './task-sheet.ts';
 import { area as tasks } from './tasks.ts';
 import { area as theme } from './theme.ts';
 import { area as updates } from './updates.ts';
+import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [agentPage, agents, boardNav, connect, criteria, detail, dispatchSheet, dock, environments, history, overview, palette, questions, rules, settings, setup, taskModal, taskPage, taskSheet, tasks, theme, updates, worktrees];
+export const AREAS = [agentPage, agents, boardNav, connect, criteria, detail, dispatchSheet, dock, environments, history, overview, palette, questions, rules, settings, setup, taskModal, taskPage, taskSheet, tasks, theme, updates, verify, worktrees];
