@@ -130,7 +130,7 @@ type Write = { file: string; line: number; unit: string; arg: string };
 
 /** A write is the settings when its path names the config, or is a parameter of a function that deals in the config: whatever the variable is called. */
 function writesSettings(w: Pick<Write, 'unit' | 'arg'>): boolean {
-  return /config|\.acc\b/i.test(w.arg) || (/^\w+$/.test(w.arg) && new RegExp(`\\b${w.arg}\\b`).test(w.unit.split('{\n')[0]) && /config/i.test(w.unit));
+  return /config|\.acc\b/i.test(w.arg) || (/^\w+$/.test(w.arg) && new RegExp(`\\b${w.arg}\\b`).test(w.unit.split('{\n')[0] ?? '') && /config/i.test(w.unit));
 }
 
 /** Every writeFileSync in core's source, with the top-level function or constant it sits in. */
@@ -141,7 +141,7 @@ function writes(): Write[] {
     lines.forEach((l, i) => {
       if (!/\bwriteFileSync\(/.test(l)) return;
       let s = i;
-      while (s > 0 && !/^(export )?(async )?(function|const) /.test(lines[s])) s--;
+      while (s > 0 && !/^(export )?(async )?(function|const) /.test(lines[s] ?? '')) s--;
       out.push({ file: f, line: i + 1, unit: lines.slice(s, i + 1).join('\n'), arg: /writeFileSync\(\s*([^,]+?)\s*,/.exec(l)?.[1] ?? '' });
     });
   }
