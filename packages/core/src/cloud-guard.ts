@@ -30,6 +30,10 @@ export const GUARD_COMMAND = `node "$CLAUDE_PROJECT_DIR"/${GUARD_PATH} || exit 2
 export const SESSION_COMMAND = `node "$CLAUDE_PROJECT_DIR"/${GUARD_PATH} --session-start || exit 2`;
 /** The line in the fire's text that names the task's branch, which the guard takes as its record. */
 export const RECORD_LINE = 'Acc-Branch';
+/** The line beside it that says the session's role (T-86): a builder, or a reviewer, which pushes its verdict alone. */
+export const ROLE_LINE = 'Acc-Role';
+/** For a reviewer, the line that names the branch its verdict goes to: acc/review/<task>-<sha> (T-86). */
+export const VERDICT_LINE = 'Acc-Verdict';
 
 /** The guard, as it's written into a repo. Its tests run this same text. */
 export const GUARD_SCRIPT = `#!/usr/bin/env node
@@ -43,8 +47,13 @@ export const GUARD_SCRIPT = `#!/usr/bin/env node
 //
 // 1. Before a command runs, this script reads it. Only \`git push origin <branch>\` and \`git push origin
 //    HEAD:<branch>\` pass, with -u or --set-upstream before origin if wanted, where <branch> is the task's
-//    from the record acc put in the fire's text (an Acc-Branch line), read from the session's first message
-//    in its transcript: never from the checkout, which a builder could switch. Everything else that could
+//    from the record acc put in the fire's text (an Acc-Branch line, with an Acc-Role line that says
+//    builder or reviewer), read from the session's first message in its transcript: never from the
+//    checkout, which a builder could switch. A record missing either line, or malformed, allows no push and
+//    no checkout. A reviewer (T-86: Acc-Role: reviewer, with an Acc-Verdict line naming
+//    acc/review/<task>-<sha>) may push that verdict branch alone, never the task branch; from Bash it runs
+//    git only (reads, fetch, checkout of the task branch, add and commit of review.json, the push), and
+//    Edit, Write and MultiEdit may touch review.json alone. Everything else that could
 //    push is refused: any other push; a push reached through git's global options, a path to git, a
 //    wrapper (timeout, env, nohup, xargs, eval, exec), an assignment of GIT_*, HOME, PATH, XDG_*, LD_*,
 //    EDITOR or VISUAL, a program that runs another from its arguments (find -exec, npm exec, watch, flock,
@@ -79,8 +88,14 @@ import { fileURLToPath } from 'node:url';
 
 /** The line acc puts in the fire's text, which names the task's branch: the guard's record. */
 export const RECORD = 'Acc-Branch';
-/** What the task's branch looks like. */
+/** The line beside it that says the session's role, builder or reviewer (T-86), and for a reviewer the branch its verdict goes to. */
+export const ROLE = 'Acc-Role';
+export const VERDICT = 'Acc-Verdict';
+/** What the task's branch looks like, and a reviewer's verdict branch (T-86). */
 export const BRANCH = /^task\\/[A-Za-z0-9._/-]+$/;
+export const VERDICT_BRANCH = /^acc\\/review\\/[A-Za-z0-9._-]+-[0-9a-f]{7,64}$/;
+/** The one file a reviewer writes, commits and pushes (T-86), at the root of the clone. */
+export const VERDICT_FILE = 'review.json';
 /** Whether this is a cloud session: the documented session id, or the flag the CLI sets. */
 export const inCloud = (env = process.env) => env.CLAUDE_CODE_REMOTE === 'true' || !!env.CLAUDE_CODE_REMOTE_SESSION_ID;
 /** The tools the guard looks at; every other tool passes without a word. */
@@ -197,28 +212,45 @@ export function commandsOf(line) {
 // ---------------------------------------------------------------- the record
 
 /**
- * The task's branch from the transcript (the fire's text, in the session's first message): the first
- * Acc-Branch line in a user message before the first assistant turn. Later messages never count: a tool's
- * result comes back as a user message too, and a builder could put anything in one.
+ * The record from the transcript (the fire's text, in the session's first message): the Acc-Branch, Acc-Role
+ * and, for a reviewer, Acc-Verdict lines in a user message before the first assistant turn. Later messages
+ * never count: a tool's result comes back as a user message too, and a builder could put anything in one.
+ * Null, which allows no push and no checkout, when the branch line is missing or isn't a task branch, the
+ * role line is missing or says neither builder nor reviewer, or a reviewer's verdict line is missing or
+ * isn't a verdict branch (T-86).
  */
-export function recordOf(transcript) {
-  const pattern = new RegExp(\`^\\\\s*\${RECORD}:\\\\s*(\\\\S+)\\\\s*$\`, 'm');
+export function recordsOf(transcript) {
+  const line = (key) => new RegExp(\`^\\\\s*\${key}:\\\\s*(\\\\S+)\\\\s*$\`, 'm');
   for (const raw of transcript.split('\\n')) {
-    const line = raw.trim();
-    if (!line.startsWith('{')) continue;
+    const l = raw.trim();
+    if (!l.startsWith('{')) continue;
     let entry;
-    try { entry = JSON.parse(line); } catch { continue; }
+    try { entry = JSON.parse(l); } catch { continue; }
     if (entry?.type === 'assistant') return null;
     if (entry?.type !== 'user') continue;
     const content = entry.message?.content;
     const texts = typeof content === 'string' ? [content] : Array.isArray(content) ? content.filter((b) => b && b.type === 'text').map((b) => String(b.text ?? '')) : [];
     for (const t of texts) {
-      const m = pattern.exec(t);
-      if (m) return BRANCH.test(m[1]) ? m[1] : null;
+      const branch = line(RECORD).exec(t);
+      if (!branch) continue;
+      if (!BRANCH.test(branch[1])) return null;
+      const role = line(ROLE).exec(t)?.[1] ?? null;
+      if (role !== 'builder' && role !== 'reviewer') return null;
+      const verdict = line(VERDICT).exec(t)?.[1] ?? null;
+      if (role === 'reviewer' && !(verdict && VERDICT_BRANCH.test(verdict))) return null;
+      return { branch: branch[1], role, verdict: role === 'reviewer' ? verdict : null };
     }
   }
   return null;
 }
+
+/** The task's branch from the transcript, or null: the record's branch, with the same rules. */
+export function recordOf(transcript) {
+  return recordsOf(transcript)?.branch ?? null;
+}
+
+/** The one branch this session may push (T-86): a builder its task branch, a reviewer its verdict branch. */
+export const pushableOf = (record, ctx) => (ctx.role === 'reviewer' ? ctx.verdict : record);
 
 /** The first part of a file, enough for the session's first message. */
 function readHead(file, bytes = 4 * 1024 * 1024) {
@@ -324,15 +356,16 @@ const HANDLED = new Set(['git', 'gh', 'sf', 'curl', 'wget', 'eval', 'source', 'p
 /** The guard's own files, as paths from the repo's root. */
 export const GUARD_FILES = ['.claude/hooks', '.claude/settings.json'];
 
-const allowedPush = (record) => \`git push origin \${record} (or git push origin HEAD:\${record}, with -u before origin if you like)\`;
+const allowedPush = (record, role) => (role === 'reviewer' ? \`git push origin HEAD:\${record}\` : \`git push origin \${record} (or git push origin HEAD:\${record}, with -u before origin if you like)\`);
 
-/** Why this push may not run, given the task's branch from the record, or null for the two allowed forms. */
-export function pushProblem(args, record) {
-  if (!record) return \`The guard has no record of your branch: no \${RECORD} line in this session's first message. It allows no push without one. Commit your work and stop: a person collects it.\`;
+/** Why this push may not run, given the branch this session may push, or null for the allowed forms. A reviewer's is its verdict branch (T-86). */
+export function pushProblem(args, record, role = 'builder') {
+  if (!record) return \`The guard has no record of your branch: no \${RECORD} and \${ROLE} lines\${role === 'reviewer' ? \` (and \${VERDICT})\` : ''} in this session's first message. It allows no push without them. Commit your work and stop: a person collects it.\`;
   const words = [...args];
   if (words[0] === '-u' || words[0] === '--set-upstream') words.shift();
   if (words.length === 2 && words[0] === 'origin' && (words[1] === record || words[1] === \`HEAD:\${record}\`)) return null;
-  const how = \`Push only your task branch, plainly: \${allowedPush(record)}.\`;
+  const kind = role === 'reviewer' ? 'verdict' : 'task';
+  const how = \`Push only your \${kind} branch, plainly: \${allowedPush(record, role)}.\`;
   const redirect = words.find((a) => /^\\d*[<>]/.test(a));
   if (redirect) return \`Push plainly, with nothing after the branch (not \${redirect}). \${how}\`;
   const flag = words.find((a) => a.startsWith('-'));
@@ -349,8 +382,8 @@ export function pushProblem(args, record) {
     const [src, dst] = spec.includes(':') ? spec.split(':', 2) : [spec, spec];
     if (!src) return \`Never delete a branch (\${spec}). \${how}\`;
     const plain = (r) => r.replace(/^refs\\/heads\\//, '');
-    if (plain(dst) !== record) return \`Push only your task branch, \${record}, not \${plain(dst)}. A person lands it: never push \${plain(dst)}. \${how}\`;
-    if (plain(src) !== record && src !== 'HEAD') return \`Push only your task branch, \${record}, not \${plain(src)}. \${how}\`;
+    if (plain(dst) !== record) return \`Push only your \${kind} branch, \${record}, not \${plain(dst)}. \${role === 'reviewer' ? 'acc reads it' : 'A person lands it'}: never push \${plain(dst)}. \${how}\`;
+    if (plain(src) !== record && src !== 'HEAD') return \`Push only your \${kind} branch, \${record}, not \${plain(src)}. \${how}\`;
   }
   return \`\${how} Not: git push \${args.join(' ')}.\`;
 }
@@ -501,13 +534,14 @@ export function gitProblem(args, record, ctx, wrapped, raw) {
   if (rest.includes('--no-verify') || (sub === 'commit' && rest.some((a) => /^-[a-zA-Z]*n[a-zA-Z]*$/.test(a)))) return 'Never skip the repo\\'s git hooks (--no-verify): the clone\\'s pre-push hook is the guard\\'s last line. If a hook fails, fix what it found.';
   if (sub === 'clone' || sub === 'init') return \`Work in this clone: a repo from git \${sub} has none of the guard's hooks, so nothing would check a push from it.\`;
   if (sub === 'push') {
-    if (wrapped) return \`Push plainly, as its own command: \${allowedPush(record ?? '<your task branch>')}. Not through a wrapper, an assignment, a path to git, or git's own options.\`;
-    const why = pushProblem(rest, record);
+    const target = pushableOf(record, ctx);
+    if (wrapped) return \`Push plainly, as its own command: \${allowedPush(target ?? '<your branch>', ctx.role)}. Not through a wrapper, an assignment, a path to git, or git's own options.\`;
+    const why = pushProblem(rest, target, ctx.role ?? 'builder');
     // A push the guard allows: noted for the hook, which installs the pre-push hook before it lets it run.
     if (!why) ctx.pushes = true;
     return why;
   }
-  if (sub === 'send-pack' || sub === 'request-pull') return \`Push only with git push: \${allowedPush(record ?? '<your task branch>')}.\`;
+  if (sub === 'send-pack' || sub === 'request-pull') return \`Push only with git push: \${allowedPush(pushableOf(record, ctx) ?? '<your branch>', ctx.role)}.\`;
   if (isAlias(sub, ctx)) return \`git \${sub} is an alias here, and a cloud builder runs no aliases: run the command it stands for, plainly.\`;
   if (sub === 'config') return configProblem(rest);
   if (sub === 'remote') {
@@ -687,6 +721,33 @@ function unwrap(words) {
   return { words: w, wrapped };
 }
 
+/** The git commands a reviewer may run (T-86), besides the reads: what fetches and checks out the task branch, and what commits and pushes review.json. */
+const REVIEWER_GIT = new Set([...GIT_READS, 'fetch', 'merge-base', 'rev-list', 'describe', 'name-rev', 'shortlog', 'for-each-ref', 'show-ref', 'checkout', 'switch', 'add', 'commit', 'push']);
+const REVIEWER_HOW = \`A cloud reviewer runs only git from Bash, plainly: reads (git diff, git log, git show, git status, git blame), git fetch, git checkout of the branch it reviews, git add \${VERDICT_FILE}, git commit -m, and git push origin HEAD:<its verdict branch>. It reads files with Read, Grep and Glob, and writes \${VERDICT_FILE} with the Write tool.\`;
+
+/** Why a reviewer may not run this command, or null: anything but plain git, a git command off its list, an add of anything but review.json, or a commit that would take more than the index. */
+function reviewerProblem(prog, rest, wrapped, viaPath) {
+  if (prog !== 'git') return \`\${prog} isn't a command a cloud reviewer runs. \${REVIEWER_HOW}\`;
+  if (wrapped || viaPath) return \`Run git plainly, not through a wrapper, an assignment or a path. \${REVIEWER_HOW}\`;
+  const sub = rest.find((a) => !a.startsWith('-'));
+  if (!sub) return null;
+  if (!REVIEWER_GIT.has(sub)) return \`git \${sub} isn't a command a cloud reviewer runs. \${REVIEWER_HOW}\`;
+  const after = rest.slice(rest.indexOf(sub) + 1);
+  if (sub === 'add') {
+    const files = after.filter((a) => a !== '--');
+    if (files.some((a) => a.startsWith('-')) || files.length !== 1 || (files[0] !== VERDICT_FILE && files[0] !== \`./\${VERDICT_FILE}\`)) return \`A cloud reviewer stages \${VERDICT_FILE} alone: git add \${VERDICT_FILE}. Not: git add \${after.join(' ')}.\`;
+  }
+  if (sub === 'commit') {
+    for (let i = 0; i < after.length; i++) {
+      const a = after[i];
+      if (a === '-m' || a === '--message') { i++; continue; }
+      if (/^(-m.|--message=)/.test(a) || ['--amend', '--no-edit', '-q', '--quiet', '--allow-empty'].includes(a)) continue;
+      return \`A cloud reviewer commits what git add \${VERDICT_FILE} staged, with a message: git commit -m "<message>". Not \${a}.\`;
+    }
+  }
+  return null;
+}
+
 /** Why one command of a line may not run, or null. */
 function commandProblem(given, record, ctx, depth, wrappedOuter, line) {
   const raw = given.filter((w) => w !== '');
@@ -711,6 +772,11 @@ function commandProblem(given, record, ctx, depth, wrappedOuter, line) {
   const prog = name(first);
   const viaPath = first !== prog;
   const wrap = wrapped || viaPath || wrappedOuter;
+  // A reviewer (T-86) runs git alone, from a short list; what passes here is then read as any git command is.
+  if (ctx.role === 'reviewer') {
+    const why = reviewerProblem(prog, rest, wrapped || wrappedOuter, viaPath);
+    if (why) return why;
+  }
   // What would change the program a later command's name runs: an alias, or hash -p.
   if (prog === 'alias') return 'A cloud builder defines no shell aliases: an alias could make git, or any command, run something the guard never sees. Run the command plainly.';
   if (prog === 'hash' && rest.some((a) => /^-[a-zA-Z]*p/.test(a))) return 'Never point a command\\'s name at another program (hash -p): the guard reads names, so run the program by its own.';
@@ -787,12 +853,18 @@ export function guard(line, record, ctx, depth = 0, wrappedOuter = false) {
 }
 
 /** Why an Edit, Write, MultiEdit or NotebookEdit may not touch this file, or null: the guard's own files, any .claude/ settings or hooks, anything under .git/, and the transcript the record is read from, each resolved through symlinks. */
-export function fileProblem(input, ctx) {
+export function fileProblem(input, ctx, tool = 'Edit') {
   const given = input?.file_path ?? input?.notebook_path ?? input?.path;
   if (typeof given !== 'string' || !given) return 'The guard couldn\\'t see which file that would write: give its path.';
   const abs = resolve(ctx.cwd, given);
   if (ctx.transcript && (abs === resolve(ctx.transcript) || realDeep(abs) === realOf(ctx.transcript))) return 'The session\\'s transcript isn\\'t yours to edit: the guard reads its record there.';
   if (isGuarded(given, ctx, 'own')) return \`\${relative(ctx.projectDir, realDeep(abs)) || given} is the guard a cloud session runs, its hooks, its settings or git's own files: a cloud builder never changes them. acc cloud enable writes the guard, on the Mac.\`;
+  // A reviewer (T-86) writes its verdict alone, at the root of the clone, and never edits the code it reviews.
+  if (ctx.role === 'reviewer') {
+    if (tool === 'NotebookEdit') return \`A cloud reviewer edits no notebook: it writes \${VERDICT_FILE} alone, with the Write tool.\`;
+    const target = realDeep(abs);
+    if (target !== join(realOf(ctx.projectDir), VERDICT_FILE)) return \`A cloud reviewer changes nothing but \${VERDICT_FILE}, at the root of the clone: never \${relative(ctx.projectDir, target) || given}. Its verdict is the file; the code stays as the builder left it.\`;
+  }
   return null;
 }
 
@@ -817,19 +889,24 @@ async function main() {
     return block('the hook\\'s input wasn\\'t JSON, so the guard couldn\\'t read what would run. Nothing runs until it can.');
   }
   const cwd = typeof input?.cwd === 'string' && input.cwd ? input.cwd : process.cwd();
-  const ctx = { cwd, pushes: false, projectDir: process.env.CLAUDE_PROJECT_DIR || cwd, transcript: typeof input?.transcript_path === 'string' ? input.transcript_path : null, guardDir: dirname(fileURLToPath(import.meta.url)) };
+  const ctx = { cwd, pushes: false, projectDir: process.env.CLAUDE_PROJECT_DIR || cwd, transcript: typeof input?.transcript_path === 'string' ? input.transcript_path : null, guardDir: dirname(fileURLToPath(import.meta.url)), role: null, verdict: null };
   let record = null;
   if (ctx.transcript) {
     try {
-      record = recordOf(readHead(ctx.transcript));
+      const records = recordsOf(readHead(ctx.transcript));
+      record = records?.branch ?? null;
+      ctx.role = records?.role ?? null;
+      ctx.verdict = records?.verdict ?? null;
     } catch {
       record = null;
     }
   }
+  // The branch the pre-push hook lets through: a builder's task branch, a reviewer's verdict branch (T-86).
+  const pushable = pushableOf(record, ctx);
   // The session starting: the pre-push hook goes into the clone now, and the record with it if the fire's
   // text is already in the transcript; the first command writes it otherwise.
   if (process.argv[2] === '--session-start') {
-    const why = installPrePush(ctx, record);
+    const why = installPrePush(ctx, pushable);
     if (why) return block(\`the clone's pre-push hook isn't installed: \${why}\`);
     return;
   }
@@ -837,9 +914,9 @@ async function main() {
   if (typeof tool !== 'string') return block('the hook\\'s input named no tool.');
   if (!TOOLS.has(tool)) return;
   // Kept current on every call, so the record is in place before any push; a push insists on it.
-  try { installPrePush(ctx, record); } catch { /* the push path says why */ }
+  try { installPrePush(ctx, pushable); } catch { /* the push path says why */ }
   if (tool !== 'Bash') {
-    const why = fileProblem(input.tool_input, ctx);
+    const why = fileProblem(input.tool_input, ctx, tool);
     if (why) deny(why);
     return;
   }
@@ -849,7 +926,7 @@ async function main() {
   if (why) return deny(why);
   // A push the guard allowed: the pre-push hook in place and the record written, or the push waits.
   if (ctx.pushes) {
-    const hookWhy = prePushProblem(ctx, record);
+    const hookWhy = prePushProblem(ctx, pushable);
     if (hookWhy) deny(hookWhy);
   }
 }
@@ -875,10 +952,11 @@ export const PRE_PUSH_SCRIPT = `#!/bin/sh
 # .claude/hooks/, and installed into the clone's .git/hooks/pre-push by the guard when a cloud session
 # starts, and again before any push passes. Git runs it on every push, however git was invoked: a wrapper,
 # an alias, a renamed or copied binary, a script in any language. It reads the refs git is about to update
-# on stdin and refuses any update other than the task's own branch, any deletion, and any update that isn't
-# a fast-forward. The task's branch is in .git/acc-task-branch, written by the guard from the record acc
-# put in the fire's text. It fails closed: no record, no push. --no-verify and core.hooksPath would skip
-# it, which is why the guard refuses both before the command runs.
+# on stdin and refuses any update other than the session's own branch, any deletion, and any update that
+# isn't a fast-forward. That branch is in .git/acc-task-branch, written by the guard from the record acc
+# put in the fire's text: a builder's task branch, or a reviewer's verdict branch, acc/review/<task>-<sha>
+# (T-86). It fails closed: no record, no push. --no-verify and core.hooksPath would skip it, which is why
+# the guard refuses both before the command runs.
 refuse() {
   echo "acc's pre-push hook: $1" >&2
   exit 1
@@ -889,13 +967,14 @@ if [ -z "$record" ] || [ ! -s "$record" ]; then
 fi
 branch=$(sed -n 1p "$record" | tr -d '\\r')
 case "$branch" in
-  task/*) ;;
-  *) refuse "the record names no task branch ($branch): no push." ;;
+  task/*) kind="task"; then="A person lands it." ;;
+  acc/review/*) kind="verdict"; then="acc reads it." ;;
+  *) refuse "the record names no task or verdict branch ($branch): no push." ;;
 esac
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ -n "$remote_ref" ] || continue
   if [ "$remote_ref" != "refs/heads/$branch" ]; then
-    refuse "push only your task branch, $branch, not $remote_ref. A person lands it."
+    refuse "push only your $kind branch, $branch, not $remote_ref. $then"
   fi
   case "$local_sha" in
     *[!0]*) ;;

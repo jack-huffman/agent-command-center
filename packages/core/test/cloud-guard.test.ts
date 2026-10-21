@@ -10,7 +10,7 @@ import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync,
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
-import { GUARD_COMMAND, GUARD_MATCHER, GUARD_PATH, GUARD_SCRIPT, guardCommitted, guardInstalled, installGuard, PRE_PUSH_PATH, PRE_PUSH_SCRIPT, RECORD_LINE, SESSION_COMMAND, SETTINGS_PATH, settingsRunGuard } from '../src/cloud-guard.ts';
+import { GUARD_COMMAND, GUARD_MATCHER, GUARD_PATH, GUARD_SCRIPT, guardCommitted, guardInstalled, installGuard, PRE_PUSH_PATH, PRE_PUSH_SCRIPT, RECORD_LINE, ROLE_LINE, SESSION_COMMAND, SETTINGS_PATH, settingsRunGuard, VERDICT_LINE } from '../src/cloud-guard.ts';
 import { run } from '../src/exec.ts';
 import { commandsOf, SUBSTITUTED } from '../src/hooks.ts';
 import { gitIn, pool, spawnWith, tempDir } from './support.ts';
@@ -30,7 +30,10 @@ function transcript(dir: string, firstText: string | null, later: string[] = [])
   return file;
 }
 
-const fired = (branch = BRANCH) => `<routine-fire-payload>\n${RECORD_LINE}: ${branch}\n\n# Cloud builder for T-1\n</routine-fire-payload>`;
+const fired = (branch = BRANCH) => `<routine-fire-payload>\n${RECORD_LINE}: ${branch}\n${ROLE_LINE}: builder\n\n# Cloud builder for T-1\n</routine-fire-payload>`;
+/** A reviewer's fire text (T-86): the branch it reads, its role, and the one branch it may push. */
+const VERDICT = `acc/review/T-1-${'0123456789abcdef'.repeat(2).slice(0, 40)}`;
+const firedReviewer = (branch = BRANCH, verdict = VERDICT) => `<routine-fire-payload>\n${RECORD_LINE}: ${branch}\n${ROLE_LINE}: reviewer\n${VERDICT_LINE}: ${verdict}\n\n# Cloud reviewer for T-1\n</routine-fire-payload>`;
 
 /** A repo with the guard written and committed as acc cloud enable writes it, on main, with the task branch, two others to merge, a patch of each, and symlinks to .git and .claude. */
 function repo(): { root: string; transcript: string } {
@@ -92,11 +95,12 @@ async function hookAsync(root: string, input: unknown): Promise<Hook> {
 
 const bash = (root: string, transcript: string | null, command: string, opts?: { cloud?: boolean; env?: NodeJS.ProcessEnv }): Hook => hook(root, { tool_name: 'Bash', tool_input: { command }, cwd: root, ...(transcript ? { transcript_path: transcript } : {}) }, opts);
 
-interface Ctx { cwd: string; projectDir: string; transcript: string | null }
+interface Ctx { cwd: string; projectDir: string; transcript: string | null; role?: 'builder' | 'reviewer' | null; verdict?: string | null }
 interface GuardModule {
   guard: (line: string, record: string | null, ctx: Ctx) => string | null;
   recordOf: (t: string) => string | null;
-  fileProblem: (input: unknown, ctx: Ctx) => string | null;
+  recordsOf: (t: string) => { branch: string; role: 'builder' | 'reviewer'; verdict: string | null } | null;
+  fileProblem: (input: unknown, ctx: Ctx, tool?: string) => string | null;
   commandsOf: (line: string) => string[][];
   rawCommandsOf: (line: string) => string[][];
   installPrePush: (ctx: Ctx, record: string | null) => string | null;
@@ -490,7 +494,7 @@ test('the record is the task\'s branch from the fire\'s text in the session\'s f
   assert.equal(g.recordOf(readFileSync(transcript(dir, 'Just a prompt, no payload'), 'utf8')), null);
   assert.equal(g.recordOf(readFileSync(transcript(dir, null, [`${RECORD_LINE}: task/T-9-later`]), 'utf8')), null, 'a message after the first turn never counts: a tool result is one');
   assert.equal(g.recordOf(readFileSync(transcript(dir, fired('main')), 'utf8')), null, 'the record is a task branch or nothing');
-  assert.equal(g.recordOf(readFileSync(transcript(dir, `The routine's prompt.\n${RECORD_LINE}: ${BRANCH}`), 'utf8')), BRANCH, 'anywhere in the first message');
+  assert.equal(g.recordOf(readFileSync(transcript(dir, `The routine's prompt.\n${RECORD_LINE}: ${BRANCH}\n${ROLE_LINE}: builder`), 'utf8')), BRANCH, 'anywhere in the first message');
   assert.equal(g.recordOf('not json\n{broken'), null);
   // Through the hook: no transcript, a transcript without the line, and one with it.
   const none = bash(root, null, `git push origin ${BRANCH}`);
@@ -502,6 +506,148 @@ test('the record is the task\'s branch from the fire\'s text in the session\'s f
   gitIn(root, 'switch', '-q', 'main');
   assert.equal(bash(root, transcript(dir, fired()), `git push origin HEAD:${BRANCH}`).out, '');
   assert.match(bash(root, transcript(dir, fired()), 'git push origin main').reason ?? '', /never push main/);
+});
+
+test('edge case: a record without its Acc-Role line, with a role that is neither builder nor reviewer, or a reviewer without a verdict branch fails closed: no push and no checkout, as no record at all (T-86)', async () => {
+  const { root } = repo();
+  const g = await guardModule(root);
+  const dir = tempDir('transcript-');
+  const payload = (lines: string[]) => `<routine-fire-payload>\n${lines.join('\n')}\n</routine-fire-payload>`;
+  const noRole = payload([`${RECORD_LINE}: ${BRANCH}`]);
+  const badRole = payload([`${RECORD_LINE}: ${BRANCH}`, `${ROLE_LINE}: admin`]);
+  const noVerdict = payload([`${RECORD_LINE}: ${BRANCH}`, `${ROLE_LINE}: reviewer`]);
+  const badVerdict = payload([`${RECORD_LINE}: ${BRANCH}`, `${ROLE_LINE}: reviewer`, `${VERDICT_LINE}: main`]);
+  for (const [name, text] of [['no role', noRole], ['a bad role', badRole], ['a reviewer with no verdict branch', noVerdict], ['a reviewer with a bad verdict branch', badVerdict]] as const) {
+    assert.equal(g.recordsOf(readFileSync(transcript(dir, text), 'utf8')), null, `${name}: no record`);
+    assert.match(bash(root, transcript(dir, text), `git push origin ${BRANCH}`).reason ?? '', /no record of your branch/, `${name}: no push of the task branch`);
+    assert.match(bash(root, transcript(dir, text), `git push origin HEAD:${VERDICT}`).reason ?? '', /no record of your branch|Push only your task branch/, `${name}: no push of a verdict branch`);
+    assert.match(bash(root, transcript(dir, text), `git checkout ${BRANCH}`).reason ?? '', /no record of your branch/, `${name}: no checkout`);
+  }
+  // The records as acc writes them read whole: a builder's, and a reviewer's with its verdict branch.
+  assert.deepEqual(g.recordsOf(readFileSync(transcript(dir, fired()), 'utf8')), { branch: BRANCH, role: 'builder', verdict: null });
+  assert.deepEqual(g.recordsOf(readFileSync(transcript(dir, firedReviewer()), 'utf8')), { branch: BRANCH, role: 'reviewer', verdict: VERDICT });
+  // A builder's stray verdict line changes nothing: it still pushes its task branch alone.
+  const builderWithVerdict = payload([`${RECORD_LINE}: ${BRANCH}`, `${ROLE_LINE}: builder`, `${VERDICT_LINE}: ${VERDICT}`]);
+  assert.deepEqual(g.recordsOf(readFileSync(transcript(dir, builderWithVerdict), 'utf8')), { branch: BRANCH, role: 'builder', verdict: null });
+  assert.match(bash(root, transcript(dir, builderWithVerdict), `git push origin HEAD:${VERDICT}`).reason ?? '', /Push only your task branch/);
+});
+
+test('a reviewer (T-86) may push its verdict branch alone, from Bash runs git only, and edits review.json alone: the task branch, main, another task\'s verdict branch, any other command and any other file are refused, in the guard and in the pre-push hook', async () => {
+  const { root } = repo();
+  const g = await guardModule(root);
+  const dir = tempDir('transcript-');
+  const t = transcript(dir, firedReviewer());
+  const ctx: Ctx = { cwd: root, projectDir: root, transcript: t, role: 'reviewer', verdict: VERDICT };
+  // What a reviewer does, end to end as Claude Code runs the hook: reads, the fetch and checkout, the verdict's add, commit and push.
+  const allowed = [
+    `git fetch origin ${BRANCH} main`, `git checkout ${BRANCH}`, `git switch ${BRANCH}`, 'git diff --stat=120 --find-renames abc123 def456', 'git diff --no-color abc123 def456', 'git log --oneline -5', 'git show HEAD', 'git status', 'git blame README.md',
+    'git merge-base main HEAD', 'git rev-parse HEAD', 'git config user.name "Acme Bot"', 'git config user.email bot@acme.example', 'git add review.json', 'git add ./review.json', 'git add -- review.json',
+    'git commit -m "Review T-1 at abc1234"', 'git commit -q -m "Review T-1 at abc1234"', 'git commit --amend --no-edit', `git push origin HEAD:${VERDICT}`, `git push origin ${VERDICT}`, 'git --version', 'git checkout -- README.md',
+  ];
+  for (const c of allowed) assert.equal(g.guard(c, BRANCH, ctx), null, `${c}: allowed`);
+  const through = [`git push origin HEAD:${VERDICT}`, 'git add review.json', 'git commit -m "Review T-1 at abc1234"', `git checkout ${BRANCH}`, 'git diff main'];
+  const ended = await pool(through, 4, (c) => hookAsync(root, { tool_name: 'Bash', tool_input: { command: c }, cwd: root, transcript_path: t }));
+  assert.equal(ended.length, through.length, 'every call ran');
+  for (const [i, c] of through.entries()) assert.deepEqual([ended[i]!.code, ended[i]!.out], [0, ''], `${c}: allowed through the hook (${ended[i]!.err})`);
+  const refused: [string, RegExp][] = [
+    // the pushes a reviewer never makes: the task branch, main, another task's verdict branch, a force, a delete
+    [`git push origin ${BRANCH}`, /Push only your verdict branch, acc\/review\/T-1-[0-9a-f]+, not task\/T-1-a-thing/],
+    [`git push origin HEAD:${BRANCH}`, /Push only your verdict branch/],
+    ['git push origin main', /Push only your verdict branch.*never push main/],
+    ['git push origin HEAD:main', /Push only your verdict branch/],
+    [`git push origin HEAD:acc/review/T-2-${'ab'.repeat(20)}`, /Push only your verdict branch, acc\/review\/T-1-[0-9a-f]+, not acc\/review\/T-2-/],
+    [`git push origin HEAD:${VERDICT.replace(/0123/, '9999')}`, /Push only your verdict branch/],
+    [`git push -f origin HEAD:${VERDICT}`, /Never force-push/],
+    [`git push origin :${VERDICT}`, /delete a branch/],
+    ['git push', /bare git push could go anywhere/],
+    [`timeout 10 git push origin HEAD:${VERDICT}`, /Run git plainly/],
+    [`/usr/bin/git push origin HEAD:${VERDICT}`, /Run git plainly/],
+    [`GIT_DIR=/x git push origin HEAD:${VERDICT}`, /Run git plainly/],
+    // anything but git from Bash: the reviewer reads with Read, Grep and Glob
+    ['cat README.md', /cat isn't a command a cloud reviewer runs/],
+    ['npm test', /npm isn't a command a cloud reviewer runs/],
+    ['ls', /ls isn't a command a cloud reviewer runs/],
+    [`sh -c "git push origin HEAD:${VERDICT}"`, /sh isn't a command a cloud reviewer runs/],
+    ['echo "{}" > review.json', /echo isn't a command a cloud reviewer runs/],
+    ['git status && npm test', /npm isn't a command a cloud reviewer runs/],
+    ['git commit -m "$(cat msg.txt)"', /cat isn't a command a cloud reviewer runs/],
+    // git commands off a reviewer's list: anything that changes the checkout beyond its verdict
+    ['git rm README.md', /git rm isn't a command a cloud reviewer runs/],
+    ['git mv a b', /git mv isn't a command a cloud reviewer runs/],
+    ['git reset HEAD~1', /git reset isn't a command a cloud reviewer runs/],
+    ['git restore README.md', /git restore isn't a command a cloud reviewer runs/],
+    ['git stash', /git stash isn't a command a cloud reviewer runs/],
+    ['git merge clean', /git merge isn't a command a cloud reviewer runs/],
+    ['git rebase clean', /git rebase isn't a command a cloud reviewer runs/],
+    ['git apply clean.patch', /git apply isn't a command a cloud reviewer runs/],
+    ['git clean -fd', /git clean isn't a command a cloud reviewer runs/],
+    ['git checkout main', /Stay on your task branch/],
+    ['git checkout -b mine', /Make no new branch/],
+    ['git checkout touches-guard -- .', /would change the guard/],
+    // the add stages review.json alone, and the commit takes what was staged
+    ['git add .', /stages review\.json alone/],
+    ['git add -A', /stages review\.json alone/],
+    ['git add README.md', /stages review\.json alone/],
+    ['git add review.json README.md', /stages review\.json alone/],
+    ['git add src/review.json', /stages review\.json alone/],
+    ['git commit -am "x"', /commits what git add review\.json staged/],
+    ['git commit -a -m "x"', /commits what git add review\.json staged/],
+    ['git commit --all -m "x"', /commits what git add review\.json staged/],
+    ['git commit -m "x" README.md', /commits what git add review\.json staged/],
+    ['git commit -m "x" --include README.md', /commits what git add review\.json staged/],
+    ['git commit -m "x" --no-verify', /Never skip the repo's git hooks/],
+    ['git config core.editor vim', /Never set core\.editor/],
+    ['git -c core.hooksPath=/x commit -m x', /Never set core\.hooksPath/],
+  ];
+  for (const [c, why] of refused) {
+    const r = g.guard(c, BRANCH, ctx);
+    assert.match(r ?? '', why, `${c}: refused, saying why (got: ${r})`);
+  }
+  // A few through the hook: each a decision on stdout, exit 0.
+  for (const [c, why] of refused.filter(([c]) => [`git push origin ${BRANCH}`, 'git push origin main', 'npm test', 'git add .', 'git commit -am "x"'].includes(c))) {
+    const r = bash(root, t, c);
+    assert.equal(r.code, 0, `${c}: exits 0 (${r.err})`);
+    assert.match(r.reason ?? '', why, `${c}: refused through the hook`);
+  }
+  // Edit, Write and MultiEdit of review.json alone, at the root; every other file is refused, the code it reviews first of all; NotebookEdit never.
+  writeFileSync(join(root, 'review.json'), '{}\n');
+  for (const tool of ['Edit', 'Write', 'MultiEdit']) {
+    assert.equal(g.fileProblem({ file_path: 'review.json' }, ctx, tool), null, `${tool} review.json: allowed`);
+    assert.equal(g.fileProblem({ file_path: join(root, 'review.json') }, ctx, tool), null, `${tool} of the full path: allowed`);
+    assert.equal(g.fileProblem({ file_path: '../review.json' }, { ...ctx, cwd: join(root, 'sub') }, tool), null, `${tool} from a subfolder: allowed`);
+    for (const path of ['README.md', 'src/a.ts', 'sub/review.json', '.claude/rules/x.md', GUARD_PATH, '.gitignore', 'reviews.json']) {
+      assert.match(g.fileProblem({ file_path: path }, ctx, tool) ?? '', /changes nothing but review\.json|never changes them/, `${tool} ${path}: refused`);
+    }
+  }
+  assert.match(g.fileProblem({ notebook_path: 'review.json' }, ctx, 'NotebookEdit') ?? '', /edits no notebook/);
+  const edit = hook(root, { tool_name: 'Edit', tool_input: { file_path: 'README.md' }, cwd: root, transcript_path: t });
+  assert.deepEqual([edit.code, !!edit.reason], [0, true], 'through the hook, the code is refused');
+  assert.match(edit.reason ?? '', /changes nothing but review\.json/);
+  assert.equal(hook(root, { tool_name: 'Write', tool_input: { file_path: 'review.json' }, cwd: root, transcript_path: t }).out, '', 'through the hook, the verdict is allowed');
+  // The pre-push hook, for real, on a clone with an origin: the verdict branch lands, the task branch and main don't, whatever ran git.
+  const originDir = tempDir('origin-');
+  const origin = join(originDir, 'origin.git');
+  assert.equal(run('git', ['init', '-q', '--bare', origin], { cwd: originDir }).code, 0);
+  gitIn(root, 'remote', 'add', 'origin', origin);
+  // The branches reach origin as acc pushes them, from the Mac, where the clone's hook isn't: the hook the calls above installed is stepped round for this one push.
+  assert.equal(run('git', ['-c', 'core.hooksPath=/nonexistent', 'push', '-q', 'origin', 'main', BRANCH], { cwd: root }).code, 0, 'the branches reach origin before the session starts');
+  const start = hook(root, { hook_event_name: 'SessionStart', source: 'startup', cwd: root, transcript_path: t }, { args: ['--session-start'] });
+  assert.deepEqual([start.code, start.out], [0, ''], start.err);
+  assert.equal(readFileSync(join(root, '.git', g.PRE_PUSH_RECORD), 'utf8'), `${VERDICT}\n`, 'the record the hook reads is the verdict branch');
+  gitIn(root, 'add', 'review.json');
+  gitIn(root, 'commit', '-q', '-m', 'Review T-1 at abc1234');
+  const headOf = (b: string) => gitIn(origin, 'rev-parse', b);
+  const task0 = headOf(BRANCH);
+  const toTask = run('git', ['push', 'origin', BRANCH], { cwd: root });
+  assert.notEqual(toTask.code, 0);
+  assert.match(toTask.stderr, /acc's pre-push hook: push only your verdict branch, acc\/review\/T-1-[0-9a-f]+, not refs\/heads\/task\/T-1-a-thing\. acc reads it\./);
+  assert.equal(headOf(BRANCH), task0, 'the task branch on origin is as the builder left it');
+  assert.match(run('git', ['push', 'origin', 'HEAD:main'], { cwd: root }).stderr, /push only your verdict branch.*not refs\/heads\/main/);
+  assert.match(run('git', ['push', 'origin', `HEAD:acc/review/T-2-${'ab'.repeat(20)}`], { cwd: root }).stderr, /push only your verdict branch.*not refs\/heads\/acc\/review\/T-2-/);
+  const ok = run('git', ['push', 'origin', `HEAD:${VERDICT}`], { cwd: root });
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.equal(headOf(VERDICT), gitIn(root, 'rev-parse', 'HEAD'), 'the verdict branch is on origin');
+  assert.equal(run('git', ['show', `${VERDICT}:review.json`], { cwd: origin }).stdout, '{}\n', 'with review.json on it');
 });
 
 /** Every file and folder under a dir, .git included, with its size and when it last changed. */
