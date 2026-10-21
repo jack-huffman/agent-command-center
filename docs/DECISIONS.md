@@ -6361,6 +6361,9 @@ opted in sees no change, and a local dispatch passes exactly the arguments it di
   included, is written, changed or removed. The coverage check (D-134) no longer reads the guard script's
   own `export` lines, inside its template literal, as the module's, and every GH-69 export is named by a
   test (`packages/core/test/cloud-names.test.ts`) or, used only in its own module, no longer exported.
+- **Note (2026-10-21, T-86).** A task's review can run in the cloud too, where the project opts in
+  (D-???): the fire's text carries an `Acc-Role` line beside `Acc-Branch`, which the guard now requires,
+  and a reviewer's `Acc-Verdict` line. Analysts stay on the Mac.
 
 ## D-141 Requirements are written in Simplified Technical English, and acc checks their wording (2026-10-13)
 
@@ -8111,3 +8114,79 @@ message.
   of the branch head, and leaves them out after a newer commit. It fails if
   dispatch reads the head only for checks or queue reworks.
 - Not chosen: listing the non-must findings in "What the review asked for".
+
+## D-??? Cloud reviewers: a cloud task's review runs in the cloud too, where the project opts in (2026-10-21)
+
+T-86. A project that runs builders in the cloud (D-140) still reviewed every task on the Mac, so a
+cloud builder that finished while the Mac slept waited for it. acc now offers the review as a cloud
+session too, where the project opts in, so a cloud task can reach reviewed with no Mac awake. Local
+stays the default; analysts stay on the Mac, since a Salesforce analysis needs the person's org login.
+
+- **A setting.** `agents.cloud.review` in `.acc/config.json`, `local` (the default) or `cloud`, read
+  only where `agents.cloud` is set (it lives inside that section) and the cloud is ready: a plain
+  `acc review <id>` under `cloud` with a need unmet (`cloudNeeds`: the routine, its token, the sign-in)
+  runs on this Mac and says why, and an explicit `--cloud` is refused naming each need, as a cloud
+  dispatch is. `acc cloud enable --review local|cloud` writes it; `acc cloud` says it; Settings' Cloud
+  builders row shows it beside where a plain dispatch goes, with **Reviews…** to change it, disabled with
+  the reason until the project opts in to cloud builders. `acc review <id> --local` keeps a review here
+  whatever the setting says. Autopilot follows the setting when it starts a review, and then waits on the
+  task as it waits on a review here: a cloud review counts as a review under way (`facts.reviewing`).
+- **The fire.** `reviewInCloud` (`packages/core/src/cloud-review.ts`) runs the review's own checks
+  (`prepareReview`, shared with the local review: the task in review, its checks settled), every cloud
+  need, the cloud cap, and the guard committed where the cloud loads it (`cloudGuard`, shared with the
+  dispatch), pushes the task branch to origin only if its head isn't there (a local builder's), and fires
+  the same routine with `cloudReviewText`: three records first (`Acc-Branch: <task branch>`, `Acc-Role:
+  reviewer`, `Acc-Verdict: acc/review/<task>-<sha>`), what a cloud session needs instead of acc, then the
+  reviewer's standing instructions and prompt as `review()` builds them, with the base and head shas and
+  the `git diff` commands in place of the diff, since the reviewer has the branch in its clone, and the
+  verdict's JSON schema, which Claude Code would otherwise check for it. The task stays in review with a
+  `cloudReview` record on it: the session, when it was fired, the commit, the verdict branch. The
+  builder's fire text now says `Acc-Role: builder` too.
+- **The verdict comes back by a push to its own branch.** The reviewer commits one file, `review.json`,
+  on top of the task branch in its clone, and pushes `HEAD:acc/review/<task>-<sha>`, never the task
+  branch. `acc sync` lists origin's `acc/review/*` heads in one `git ls-remote`, fetches a verdict branch,
+  reads `review.json` from its head, checks it against the reviewer's schema (`checkVerdict`, which the
+  local review's result goes through too), and keeps it as a local verdict is kept, under the same name
+  (D-087). For the task's head now, it moves the task as a local review does (`recordVerdict`, shared):
+  changes to rework with the findings, a pass stays in review, ready to land. For a commit that is no
+  longer the head, the verdict is kept for its commit and nothing moves, as a stale local review is
+  treated. One already kept here for the commit stands, since a person reviewed it on this Mac meanwhile.
+  One acc can't read (no `review.json`, not JSON, off the schema) fails the review, written on the task
+  with why, and the task needs a person. The branch is deleted on origin after it is read, whatever it
+  held. A branch not there yet leaves the review under way; origin not answering leaves everything as it
+  was.
+- **The guard allows that one push and nothing else.** Both lines of D-140's guard read the role. The
+  record is now the three lines, and fails closed: no `Acc-Role`, a role that is neither builder nor
+  reviewer, or a reviewer without a verdict branch allows no push and no checkout, as no record did. For
+  a reviewer, the PreToolUse guard allows Bash for plain `git` alone, from a short list: the reads, `git
+  fetch`, checkout of the recorded task branch, `git add review.json` (that file alone), `git commit -m`
+  (nothing that widens the index: no `-a`, `--include`, a pathspec), and `git push origin
+  HEAD:<verdict>`; every other program, wrapper, path to git, and git command is refused, naming what a
+  reviewer runs. Edit, Write and MultiEdit may touch `review.json` at the root of the clone alone;
+  NotebookEdit never; the guard's own files as before. The pre-push hook's record is the verdict branch,
+  and it refuses any other ref, the task branch and main among them, whatever ran git. The guard script
+  changed, so a project that committed it runs `acc cloud enable` again and commits; this repo has.
+  Tools the guard's matcher doesn't name (WebFetch, TodoWrite) can change neither the repo nor GitHub;
+  the fire's text tells the reviewer which tools to use.
+- **A quiet review needs a person.** No verdict after `agents.cloud.quietMinutes` shows the task as Needs
+  you, "no verdict from its cloud reviewer for N minutes: review it on this Mac", with **Review on this
+  Mac** as the way on; so does a verdict acc couldn't read, with its reason. A cloud review counts
+  against `agents.cloud.max` as a builder does, and the cap's words name the reviews.
+- **The Command Center** shows "Reviewing in the cloud" with the cloud icon on the task's card, in the
+  Tasks line's words ("its reviewer is reading it in the cloud") and on In progress, where Watch opens the
+  session on claude.ai; `extension/test/looks.test.ts` walks the look. The sample data has ACME-47 under
+  review in the cloud, on the Tasks board and In progress.
+- **Tests.** `packages/core/test/cloud-review.test.ts`, on the bare-origin fake GitHub cloud.test.ts uses
+  (its fixtures moved to `cloud-support.ts`, shared): the setting, the fire's text, a fire for a
+  cloud-built task and a local one, a verdict taken (pass, then changes to rework), stale, bad in four
+  forms, a branch without the file, one already kept here, the branch deleted each time, the quiet rule,
+  and the cap. `cloud-guard.test.ts`: the reviewer's allowed and refused commands, files and pushes, in
+  the guard and through the pre-push hook on a real origin, and the record's four ways of failing closed.
+  CLI tests cover `acc review --cloud`, with `--json`, its refusal where the project hasn't opted in, and
+  `acc cloud enable --review`. Extension tests cover the setting, the card, the row and the In progress job.
+- **Not built, and next:** cloud analysts. An analysis reads the orgs through the person's own Salesforce
+  login (D-052), which never goes to a cloud session (D-140), so an analyst there could read only the
+  repo. Worth doing for a generic project, where there is no org, and not before.
+- Not chosen: a verdict posted back through the session's own message channel, which nothing reads; a
+  verdict committed on the task branch, which the guard must keep a reviewer from touching; a wider hook
+  matcher for the reviewer, which would run the guard on every Read of every cloud builder for no safety.

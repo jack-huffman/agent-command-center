@@ -84,9 +84,13 @@ where each one's done-when is written out.
   the base (D-058), and a pull request whose checks fail goes back to its
   builder once a commit (D-076).
 - **A merge queue**: done. Checked 2026-10-10. Evidence: D-096.
-- **Cloud reviewers and analysts**: not started. Checked 2026-10-12. Evidence:
-  D-140. Cloud builders came first (GH-69); reviews and analyses still run on
-  the Mac.
+- **Cloud reviewers**: done. Checked 2026-10-21. Evidence: T-86, D-???. Where a
+  project opts in (`agents.cloud.review`), a task's review runs in a cloud
+  session and its verdict comes back by a push; local stays the default.
+- **Cloud analysts**: not started. Checked 2026-10-21. Evidence: D-???. An
+  analysis reads the orgs through the person's own login, which never goes to
+  a cloud session, so an analyst there could read only the repo; worth doing
+  for a generic project first.
 
 - **A command palette**: done. Checked 2026-10-16. Evidence: D-156.
 - **The output panel as a designed view, with acc's steps and reviews**: done.
