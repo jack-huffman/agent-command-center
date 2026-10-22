@@ -250,7 +250,9 @@ test('nothing is lost: every action the Overview offered is still a line\'s butt
   assert.ok(checked >= 210, `checked ${checked} actions`);
   // Each kind the Overview had is among them, so the check can't pass by looking at nothing.
   const kinds = new Set(before(busy().overview).map((a) => a.split(' ')[0]));
-  for (const k of ['answer', 'run', 'toolbar', 'go', 'update-post', 'update-discard', 'rule-accept', 'rule-dismiss', 'rule-open-review', 'analysis-answer', 'update-ask', 'link']) assert.ok(kinds.has(k), k);
+  // A question for the ticket's author is asked from its task's page, not the Overview (T-97): the Overview answers yours.
+  for (const k of ['answer', 'run', 'toolbar', 'go', 'update-post', 'update-discard', 'rule-accept', 'rule-dismiss', 'rule-open-review', 'analysis-answer', 'link']) assert.ok(kinds.has(k), k);
+  assert.ok(!kinds.has('update-ask'), 'no question is sent to the client from the Overview');
 });
 
 test('the page draws each detail with the controls it had inline before (GH-160)', () => {

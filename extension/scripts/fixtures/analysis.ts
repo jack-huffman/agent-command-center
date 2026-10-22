@@ -82,7 +82,9 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
       },
       split: ['Set up the Experience Cloud site and its partner profiles', 'Share accounts and opportunities with partner users', 'Move deal registration onto a screen flow', 'Retire the old portal pages once partners have moved'],
     }),
+    // Ready to build: a person approved its plan (T-97).
     'ACME-16': make('ACME-16', 'ready', 55, {
+      approval: { version: 1, by: 'jordan', at: at(50) },
       summary: 'Turn on field history for Opportunity Stage, then add a report type and a report on it. Nothing tracks Stage history today, and the history limit has room.',
       requirements: { goal: 'Sales managers see how deals moved between stages.', criteria: ['Stage changes are tracked from the deploy on', 'A report lists each stage change with who made it and when'], assumptions: ['History before the deploy isn\'t needed'], outOfScope: [] },
       findings: [{ area: 'Opportunity history', detail: '12 of 20 tracked fields are used; Stage isn\'t one of them.', source: 'Acme Dev: sf sobject describe Opportunity' }],
