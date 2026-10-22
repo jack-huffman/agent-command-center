@@ -316,7 +316,7 @@ test('a task\'s page shows its analysis gist first: the verdict, the summary, it
   const m = ticketModel({ ...base, row: todo(), analysis: a }).analysis!;
   assert.deepEqual(m.look, { label: '1 question for you', icon: 'question', tone: 'orange' });
   assert.deepEqual([m.summary, m.size, m.at], ['Add the role on conversion.', 'M', '2026-10-05T10:00:00.000Z']);
-  assert.deepEqual(m.open, [{ id: 'q1', question: 'Every contact?', why: 'More records.', suggested: 'Only the primary.' }], 'each open question with its suggestion');
+  assert.deepEqual(m.open, [{ id: 'q1', question: 'Every contact?', why: 'More records.', suggested: 'Only the primary.', askOf: 'you' }], 'each open question with its suggestion, and who answers it');
   assert.deepEqual(m.decided, [{ question: 'Which role?', answer: 'Decision Maker', assumed: false }]);
   assert.deepEqual([m.criteria, m.assumptions, m.findings.length, m.plan, m.refactors.length, m.risks, m.tests, m.files.length], [['A primary contact has a role'], ['One handler converts'], 1, ['Insert the role'], 1, ['Duplicates'], ['HandlerTest'], 1]);
   assert.deepEqual(m.actions.map((x) => [x.label, x.command]), [['Analyze again', 'acc.task.analyze']]);

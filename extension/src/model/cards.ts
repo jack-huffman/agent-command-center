@@ -11,6 +11,7 @@ import { DISPATCH_AGAIN, MISSING_WORDS, UNSEEN_WORDS } from '../../../packages/c
 import type { State } from '../../../packages/core/src/ledger.ts';
 import { analysisReady, analysisWait, filesUnknown, sharesLine, waitLine } from '../logic/tasks.ts';
 import { questionsWord, saidLine, taskNames, type TaskRow } from '../logic/shared.ts';
+import { choicesWord, forYou } from '../logic/plan.ts';
 import type { Action, Look, Ref } from './shared.ts';
 
 /**
@@ -25,12 +26,16 @@ export function canDispatch(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing' 
 }
 
 /** What a task to do shows about its analysis (D-052): an icon and words, orange when it waits on a person. */
-export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'>): Look | null {
+export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'> & { analysisRequired?: boolean }): Look | null {
   if (t.state !== 'todo') return null;
   if (t.analyzing) return { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' };
   const wait = analysisWait(t);
   if (wait === 'split') return { label: 'Needs you: too big for one task', icon: 'split-horizontal', tone: 'orange' };
-  if (wait === 'questions') return { label: `Needs you: ${questionsWord(t.analysis!.open.length)} from its analysis`, icon: 'question', tone: 'orange' };
+  if (wait === 'questions') return { label: `Needs you: ${questionsWord(forYou(t.analysis!.open).length)} from its analysis`, icon: 'question', tone: 'orange' };
+  // Its plan's choices, then its approval (T-97).
+  if (wait === 'choices') return { label: `Needs you: ${choicesWord(t.analysis!.choices!)} to make in its plan`, icon: 'list-selection', tone: 'orange' };
+  if (wait === 'approve') return { label: 'Needs you: approve its plan', icon: 'verified', tone: 'orange' };
+  if (t.analysis?.approved) return { label: 'Plan approved: ready to build', icon: 'verified-filled', tone: 'blue' };
   return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
@@ -145,6 +150,8 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   // Its questions are answered on its page, where it shows them.
   else if (wait === 'questions') a.push({ command: 'acc.task.show', label: 'Answer', icon: 'question', ref, primary: true });
   else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref, primary: true });
+  // Its choices are made, and its plan approved, on its page (T-97).
+  else if (wait === 'choices' || wait === 'approve') a.push({ command: 'acc.task.show', label: 'See the plan', icon: 'checklist', ref, primary: true });
   // Its builder didn't start, or acc can't see it (T-92): Dispatch again leads where it didn't start or has gone
   // quiet; where Claude Code only doesn't answer, the builder may still be at work, so it's behind ⋯.
   const notStarted = !!t.notStarted && (todo || t.state === 'rework');

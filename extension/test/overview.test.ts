@@ -44,7 +44,7 @@ test('the Overview asks an analysis\'s questions in place, counts each task once
   const m = homeModel({ hub: { ...hub(), agents: [], taskRows: () => rows }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
   const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
   assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: 2 questions from its analysis', 'question', 'orange']);
-  assert.deepEqual(item.analysis, { project: '/r', task: 'AV-5', questions: asks.open, canAsk: true }, 'its questions, to answer right there, or send to the client');
+  assert.deepEqual(item.analysis, { project: '/r', task: 'AV-5', questions: asks.open, canAsk: false }, 'its questions for you, to answer right there: one for the ticket\'s author is asked from its page (T-97)');
   assert.ok(!item.detail.includes('terminal'), 'not an agent waiting in its terminal');
   const split = m.overview.attention.find((a) => a.title === 'AV-6 Task AV-6')!;
   assert.deepEqual([split.look.label, split.analysis, split.detail], ['Needs you: too big for one task', undefined, 'Acme · its analysis suggests 3 smaller tasks, on its page']);

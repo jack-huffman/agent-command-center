@@ -4,7 +4,8 @@ import { UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
 import { type AdfNode, fromAdf } from '../../../packages/core/src/trackers/doc.ts';
 import type { Ticket } from '../../../packages/core/src/trackers/types.ts';
 import { ticketModel, type TicketModel } from '../../src/model/task-page.ts';
-import { sampleAnalyses } from './analysis.ts';
+import { sampleAnalyses, samplePlan } from './analysis.ts';
+import { rowAnalysis } from '../../src/logic/tasks.ts';
 import { DOING, DONE, REVIEW, sampleBoards, TODO } from './boards.ts';
 import { sampleHub } from './hub.ts';
 import { excerptLine, MIN, R19, ROOT, WELCOME_CLS, wt } from './shared.ts';
@@ -27,7 +28,8 @@ export type TicketSample = 'ACME-12' | 'ACME-19' | 'ACME-20' | 'ACME-21' | 'ACME
 /** A Jira ticket with everything a description can hold, and the acc task working on it. With edits, ACME-19's tracker allows edits (T-80). */
 /** criteria: ACME-19 with its drafted acceptance criteria (T-81), and with the draft opened as an update. */
 /** verify: ACME-21 with a developer's pull request verified, passed or needing changes, or two to choose from (T-84). */
-export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false, criteria: 'drafted' | 'update' | null = null, verify: VerifySample | null = null): TicketModel {
+/** plan: ACME-21 with its plan approved, or changed since its approval (T-97). */
+export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false, criteria: 'drafted' | 'update' | null = null, verify: VerifySample | null = null, plan: 'approved' | 'changed' | null = null): TicketModel {
   if (which === 'ACME-29') return sampleStoppedTicket(now);
   if (which === 'ACME-44') return sampleCloudTicket(now);
   if (which === 'ACME-50') return sampleNoFieldsTicket(now);
@@ -37,7 +39,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', 
   if (which === 'ACME-35') return sampleWaitingTicket(now);
   if (which === 'ACME-20') return sampleNoteTicket(now);
   if (which === 'ACME-19') return sampleReviewTicket(now, edits, criteria);
-  if (which !== 'ACME-12') return sampleTodoTicket(now, which, verify);
+  if (which !== 'ACME-12') return sampleTodoTicket(now, which, verify, plan);
   const hub = sampleHub(now);
   // Back with its builder after its pull request stopped merging into dev.
   const pr = { number: 38, url: 'https://github.com/acme/service/pull/38', state: 'open', ci: 'passing', changesRequested: false, conflicts: ['force-app/main/default/escalationRules/Case.escalationRules-meta.xml'] };
@@ -322,8 +324,11 @@ function sampleWaitingTicket(now: number): TicketModel {
 }
 
 /** A task to do, tracked from Jira, with its analysis on its page (D-052): questions to answer, or a split. */
-function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: VerifySample | null = null): TicketModel {
-  const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === key)!;
+function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: VerifySample | null = null, plan: 'approved' | 'changed' | null = null): TicketModel {
+  // A later version of ACME-21's plan (T-97): its row reads that version, as the hub's would.
+  const later = plan ? samplePlan(now, plan) : null;
+  const hubRow = sampleHub(now).taskRows(ROOT).find((r) => r.id === key)!;
+  const row = later ? { ...hubRow, analysis: rowAnalysis(later), display: plan === 'approved' ? 'ready' as const : hubRow.display } : hubRow;
   const bug = key === 'ACME-21';
   const ticket: Ticket = {
     key, kind: 'jira', url: `https://acme.atlassian.net/browse/${key}`, title: row.title, type: bug ? 'Bug' : 'Epic', typeKind: bug ? 'bug' : 'epic', typeColor: null,
@@ -346,7 +351,7 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: Verif
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key, ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
     // A ticket a developer built is verified with no analysis of acc's (T-84).
-    analysis: verify ? null : sampleAnalyses(now)[key], trackerEdits: false, updates, boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
+    analysis: verify ? null : later ?? sampleAnalyses(now)[key], trackerEdits: false, updates, boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
     verify: verify ? ticketVerify({ task, github: 'acme/acme-service', verification, choice: verify === 'choice' ? sampleChoice(now) : null, verifying: false, updates }) : null,
   });
 }

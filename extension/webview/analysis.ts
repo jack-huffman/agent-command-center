@@ -4,6 +4,7 @@ import type { TicketAnalysis, TicketModel } from '../src/model/task-page.ts';
 import { actionButton, button, type Child, el, foldable, icon, keptInput, md, status, when, work } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 import { answerKey, askKey, pending, sendUpdate } from './updates.ts';
+import { planActions, planDecisions, planHead } from './plan.ts';
 
 // ---------------------------------------------------------------- a task's analysis (D-052)
 
@@ -20,7 +21,9 @@ export function analysisQuestion(project: string, task: string, q: AnalysisAsk, 
     api.postMessage({ type: 'analysis-answer', project, task, question: q.id, text: text.trim() });
     if (state.last) state.draw(state.last);
   };
-  const box = el('div', 'aq', el('div', 'aq-q', el('span', 'aq-id', q.id), el('span', 'strong', md(q.question))), q.why ? el('div', 'muted small aq-why', md(q.why)) : null, clientLine(project, task, q, canAsk));
+  // A question only the ticket's author can answer says so, with an icon and words (T-97).
+  const author = q.askOf === 'author';
+  const box = el('div', 'aq', el('div', 'aq-q', el('span', 'aq-id', q.id), el('span', 'strong', md(q.question))), author ? el('div', 'aq-who small', icon('person'), 'For the ticket\'s author') : null, q.why ? el('div', 'muted small aq-why', md(q.why)) : null, clientLine(project, task, q, canAsk && author));
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', q.question);
   if (pending.what(key)) {
@@ -57,8 +60,8 @@ function clientLine(project: string, task: string, q: AnalysisAsk, canAsk: boole
   const key = askKey(project, task, q.id);
   const error = pending.error(key);
   if (pending.what(key)) return el('div', 'aq-client muted', icon('sync~spin'), 'Drafting it for the client…');
-  const ask = button('Send to the client', 'comment-draft', () => sendUpdate(key, 'ask', { type: 'update-ask', project, task, question: q.id }), 'ghost small');
-  ask.title = 'Draft this question as an update for the ticket. You read and post it before it goes.';
+  const ask = button('Ask on the ticket', 'comment-draft', () => sendUpdate(key, 'ask', { type: 'update-ask', project, task, question: q.id }), 'ghost small');
+  ask.title = 'Draft this question as a comment for the ticket. You edit and post it before it goes.';
   return el('div', 'aq-client', ask, error ? el('span', 'aq-error', icon('warning'), el('span', '', error)) : null);
 }
 
@@ -88,12 +91,18 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   if (a.note) sec.append(el('p', 'muted an-note', a.note));
   if (a.summary) sec.append(foldable(`${key}:summary`, el('p', 'an-summary', md(a.summary)), null, 4));
   if (a.split.length) sec.append(el('div', 'an-split', el('div', 'strong', 'Split it into'), el('ol', 'an-list', ...a.split.map((x) => el('li', '', md(x))))));
+  // Its plan (T-97): the version and what changed in it, then each design choice to make.
+  if (a.planState) sec.append(planHead(a.planState));
+  const decisions = a.planState ? planDecisions(m, a.task, a.planState) : null;
+  if (decisions) sec.append(decisions);
   if (a.open.length) sec.append(el('div', 'an-questions', ...a.open.map((q) => analysisQuestion(m.project, a.task, q, a.canAsk))));
   // The wording check's findings (T-12): advice on how the requirements read. They never hold a dispatch.
   if (a.wording) {
     sec.append(el('div', 'an-wording', el('div', 'strong', 'How the requirements read'),
       el('ul', 'an-list', ...a.wording.findings.map((f) => el('li', '', el('strong', '', `${f.place}: `), f.message, f.match ? ' ' : null, f.match ? el('span', 'chip an-match', f.match) : null, el('div', 'muted an-line', md(f.text)))))));
   }
+  // Approve this plan and Build it, each off with why, and the earlier versions a click away (T-97).
+  if (a.planState) sec.append(...planActions(m, a.task, a.planState).filter((x): x is HTMLElement => !!x));
   if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
   const folds = [
     analysisFold(`${key}:decided`, 'Decided', a.decided.map((d) => el('span', '', md(d.question), ' ', el('strong', '', md(d.answer)), d.assumed ? el('span', 'muted', ' (assumed: nobody answered)') : null))),

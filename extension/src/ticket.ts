@@ -25,6 +25,7 @@ import { type Excerpt, fileInCheckout, mergeBase, reviewExcerpts } from './logic
 import { openReview } from './rules.ts';
 import { pickField } from './ticket-edits.ts';
 import type { CriteriaActions } from './criteria.ts';
+import type { PlanActions } from './plan.ts';
 import type { VerifyActions } from './verify.ts';
 import { ticketVerify } from './model/verify.ts';
 
@@ -115,6 +116,8 @@ export class TicketPanels implements vscode.Disposable {
   } | null = null;
   /** Drafted acceptance criteria (T-81), set by its area: the section's state, its buttons, and the sheet's own Draft. */
   criteria: CriteriaActions | null = null;
+  /** Its plan's choices and approval (T-97), once that area is registered. */
+  plan: PlanActions | null = null;
   /** Verify the developer's work (T-84), set by its area: the section's state, and its buttons. */
   verify: VerifyActions | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
@@ -390,6 +393,10 @@ export class TicketPanels implements vscode.Disposable {
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.criteria?.act(m, (msg) => o.view.say(msg));
         return;
       case 'task-sheet-criteria': await this.criteria?.sheet(m, (msg) => o.view.say(msg)); return;
+      // Its plan's choices and approval (T-97): this page's own task only.
+      case 'plan-choose': case 'plan-approve':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.plan?.act(m, (msg) => o.view.say(msg));
+        return;
       // Verify the developer's work (T-84): this page's own task only.
       case 'verify-run': case 'verify-clear':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.verify?.act(m, (msg) => o.view.say(msg));

@@ -10,6 +10,7 @@ import { BOARD_LANES, fileList, prConflicts, saidLine, shortPath, TASK_GROUPS, t
 import { type BoardInput, trackerBoard, type TrackerBoard, type Who } from './boards.ts';
 import { type Action, type HubLike, KEY, type Look, LOOK, type ModelArea, type Ref, short } from './shared.ts';
 import { hasTicket, withClient } from './updates.ts';
+import { forYou } from '../logic/plan.ts';
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import { analysisLook, autopilotLook, canDispatch, cardActions, closedPrLook, filesLook, placeLook, stoppedLook } from './cards.ts';
@@ -142,8 +143,12 @@ export const area: ModelArea = {
           const wait = analysisWait(r);
           if (wait) {
             const n = r.analysis!.split.length;
-            const detail = wait === 'questions' ? `${p.name} · answer here, and its builder gets your answers` : `${p.name} · its analysis suggests ${n ? `${n} smaller tasks` : 'smaller tasks'}, on its page`;
-            attention.push({ key: `t:${p.root}:${r.id}`, look: analysisLook(r)!, title: `${r.id} ${r.title}`, detail, project: p.name, actions: [details], ...(wait === 'questions' ? { analysis: { project: p.root, task: r.id, questions: withClient(r.analysis!.open, r.id, hub.updates?.(p.root) ?? []), canAsk: hasTicket(r.source.kind) } } : {}) });
+            const detail = wait === 'questions' ? `${p.name} · answer here, and its builder gets your answers`
+              : wait === 'split' ? `${p.name} · its analysis suggests ${n ? `${n} smaller tasks` : 'smaller tasks'}, on its page`
+                // Its choices and its approval (T-97) are made on its page, beside each option's pros and cons.
+                : `${p.name} · ${wait === 'choices' ? 'make its choices and approve its plan' : 'approve its plan'}, on its page`;
+            // Only your questions are answered here: one for the ticket's author is asked from its page.
+            attention.push({ key: `t:${p.root}:${r.id}`, look: analysisLook(r)!, title: `${r.id} ${r.title}`, detail, project: p.name, actions: [details], ...(wait === 'questions' ? { analysis: { project: p.root, task: r.id, questions: withClient(forYou(r.analysis!.open), r.id, hub.updates?.(p.root) ?? []), canAsk: false } } : {}) });
             continue;
           }
           // A step autopilot couldn't take (D-055): why, and the same step to take by hand.

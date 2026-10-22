@@ -23,7 +23,7 @@ test('a row reads its analysis and the one under way from beside the ledger; a d
   };
   writeFileSync(join(paths.analyses, 'T-1.json'), JSON.stringify(a));
   const row = rowAnalysis(readAnalysis(paths, 'T-1')!);
-  assert.deepEqual(row, { verdict: 'questions', at: '2026-10-05T10:00:00.000Z', open: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.' }], split: [], size: 'S' }, 'only the questions nobody answered, and its size (D-086)');
+  assert.deepEqual(row, { verdict: 'questions', at: '2026-10-05T10:00:00.000Z', open: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.', askOf: 'you' }], split: [], size: 'S', choices: 0, approved: false, version: 1 }, 'only the questions nobody answered, who answers each, and its size (D-086); its plan has no choice to make and isn\'t approved (T-97)');
   assert.equal(analysisWait({ state: 'todo', analysis: row }), 'questions');
   assert.equal(analysisWait({ state: 'running', analysis: row }), null, 'only a task to do waits on its analysis');
   assert.equal(analysisWait({ state: 'todo', analysis: row, analyzing: { sessionId: 's2' } }), null, 'nor while it\'s analyzed again');
@@ -185,7 +185,9 @@ test('before a build, a card offers its analysis first, and Dispatch once it\'s 
   assert.deepEqual(labels({ analysisRequired: true, analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: tooBig }), ['See the split*', 'Move', 'Block', 'Edit', 'Details']);
-  assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Edit', 'Details']);
+  // Its plan waits for a person's approval before Dispatch (T-97); approved, Dispatch leads.
+  assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: analysed }), ['See the plan*', 'Move', 'Block', 'Edit', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, analysis: { ...analysed, approved: true } }), ['Dispatch*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, deps: ['AV-1'], display: 'todo' }), ['Analyze*', 'Move', 'Block', 'Edit', 'Details'], 'waiting on another task: analyze it meanwhile');
   // Where it's optional: Dispatch stays, second to answering questions the analysis did ask.
   assert.deepEqual(labels({}), ['Dispatch*', 'Move', 'Block', 'Analyze', 'Edit', 'Details']);

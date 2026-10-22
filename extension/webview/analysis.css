@@ -53,3 +53,54 @@
 .aq-client .aq-error { margin: 0; }
 /* A task's drafted acceptance criteria (T-81) wear the analysis's card, with the gap the blocks around them keep. */
 .ticket-main > .criteria { margin-bottom: 16px; padding-bottom: 12px; }
+
+/* A task's plan (T-97): its version and approval, what changed, each choice as option cards, and its buttons. */
+.plan-head { margin: 8px 0 4px; }
+.ph-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.ph-line .status { white-space: normal; }
+.plan-changes { margin: 8px 0 2px; padding: 6px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--vscode-editor-background); }
+.plan-decisions { margin-top: 6px; }
+.plan-decision { border-top: 1px solid var(--line); padding: 10px 0 8px; }
+.pd-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.pd-title { min-width: 0; overflow-wrap: anywhere; }
+.pd-head .status { white-space: normal; }
+.pd-why { margin-top: 2px; overflow-wrap: anywhere; }
+/* Side by side where the page is wide; stacked below, as the page's own columns stack. */
+.plan-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 8px 0 6px; }
+.plan-options.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { .plan-options, .plan-options.n3 { grid-template-columns: minmax(0, 1fr); } }
+.plan-option { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--vscode-editor-background); }
+.plan-option.chosen { border-color: var(--blue); box-shadow: inset 3px 0 0 var(--blue); }
+.po-head { display: flex; align-items: baseline; gap: 6px; }
+.po-letter { flex: none; padding: 0 5px; border-radius: 4px; font-size: 0.8em; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
+.po-name { min-width: 0; overflow-wrap: anywhere; }
+.po-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 0.9em; }
+.chip.po-effort { margin: 0; }
+.po-tag { display: inline-flex; align-items: center; gap: 4px; }
+.po-rec { color: var(--accent); }
+.po-chosen { color: var(--blue); }
+.po-means { overflow-wrap: anywhere; }
+.po-label { display: flex; align-items: center; gap: 4px; font-size: 0.85em; }
+.po-list { margin: 1px 0 2px; padding-left: 20px; font-size: 0.92em; }
+.po-list li { margin: 1px 0; overflow-wrap: anywhere; }
+.po-actions { margin-top: auto; padding-top: 4px; }
+.pd-because { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 4px; }
+.pd-because .codicon { flex: none; margin-top: 2px; color: var(--accent); }
+.pd-because > span { min-width: 0; overflow-wrap: anywhere; }
+.pd-own { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; padding: 6px 10px; border: 1px solid var(--blue); border-radius: 6px; }
+.pd-own .codicon { flex: none; margin-top: 2px; color: var(--blue); }
+.pd-own > span { min-width: 0; overflow-wrap: anywhere; }
+.pd-by { margin-top: 2px; }
+.plan-own { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.plan-own.open .text-input { flex: 1 1 200px; min-width: 0; }
+.plan-own .btn { flex: none; }
+.plan-actions { margin: 10px 0 4px; }
+.plan-why { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 6px; }
+.plan-why .codicon { flex: none; margin-top: 2px; }
+.plan-why > span { min-width: 0; overflow-wrap: anywhere; }
+.plan-earlier { margin-top: 4px; }
+.plan-version { margin: 4px 0 8px; }
+.pv-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; }
+.pv-approved { display: inline-flex; align-items: center; gap: 4px; }
+/* A question only the ticket's author can answer (T-97). */
+.aq-who { display: flex; align-items: center; gap: 4px; margin-top: 2px; color: var(--accent); }
