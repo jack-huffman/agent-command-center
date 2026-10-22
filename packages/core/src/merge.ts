@@ -1,5 +1,6 @@
 import { firstSaid } from './text.ts';
 import { autoMergeFor, type Config, environmentByBranch } from './config.ts';
+import { keepChanges, mergedPaths } from './changes.ts';
 import { type CheckRead, readChecks } from './checks.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { GH_TIMEOUT_MS, ghToken } from './land.ts';
@@ -183,6 +184,8 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   if (seen.mergeStateStatus === 'BLOCKED') throw new AccError('merge', `GitHub won't merge pull request #${pr.number}: ${env.branch}'s rules block it, such as a required approving review.`);
   if (!MERGEABLE.has(seen.mergeStateStatus)) throw new AccError('merge', `GitHub says pull request #${pr.number} can't merge (${seen.mergeStateStatus}).`);
 
+  // What it changes, read while its branch isn't in its environment's yet, kept with it (T-99).
+  const kept = mergedPaths(run, paths.root, task);
   const method = mergeMethod(run, gh.repo, ghEnv);
   // Only the commit autopilot looked at: a push in between makes GitHub refuse.
   const r = run('gh', ['pr', 'merge', String(pr.number), '-R', gh.repo, `--${method}`, '--match-head-commit', head], { env: ghEnv, timeoutMs: GH_TIMEOUT_MS });
@@ -203,6 +206,7 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
     t.autopilot = { ...t.autopilot, failed: null, merged };
     // Merged, it leaves the merge queue (GH-73).
     if (t.autopilot.queued) t.autopilot.queued = null;
+    keepChanges(t, kept, merged.at, emit, opts);
     t.updatedAt = merged.at;
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { merged } });
   });

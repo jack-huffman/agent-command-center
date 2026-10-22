@@ -2,6 +2,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { dirname } from 'node:path';
 import { writeAtomic } from './atomic.ts';
 import { releaseAwake } from './awake.ts';
+import type { KeptChanges } from './changes.ts';
 import { autoMergeFor, type BuilderPlace, type Config, defaultEnvironment, environmentByBranch, type Effort, type GateScope } from './config.ts';
 import type { EffortPick } from './efforts.ts';
 import { AccError } from './exec.ts';
@@ -345,6 +346,8 @@ export interface Task {
   cloudReview?: CloudReview | null;
   /** Each edit a person made to its fields (T-74), oldest first. A move is in `history`. */
   edits?: EditEntry[];
+  /** What its work changed, kept when it merges (T-99), so its page shows it after its branch is gone. */
+  changes?: KeptChanges | null;
   history: HistoryEntry[];
   createdAt: string;
   updatedAt: string;

@@ -1,6 +1,7 @@
 import { type Config, environmentByBranch } from './config.ts';
 import { releaseAwake } from './awake.ts';
 import { arrivedAt } from './carried.ts';
+import { keepChanges, mergedPaths } from './changes.ts';
 import { closeWords, issueToClose, settleCloses } from './closing.ts';
 import { AccError, type Runner } from './exec.ts';
 import { applyMove, checkMove, mutate, noGateHooks, type PullRequest, readLedger, type State } from './ledger.ts';
@@ -165,6 +166,12 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
       if (files) conflicts.set(n, files);
     }
   }
+  // What each merged one changed, read before the ledger is locked, to keep with its task (T-99).
+  const merged = new Map<string, string[] | null>();
+  for (const t of open) {
+    const p = seen.get(t.pr!.number);
+    if (p?.state === 'MERGED') merged.set(t.id, mergedPaths(run, paths.root, { ...t, pr: { ...t.pr!, mergeSha: mergeShaOf(p) ?? t.pr!.mergeSha } }));
+  }
   const at = now().toISOString();
   // What to tell each ticket once the ledger is written: its change is in the next environment, or the
   // promotion that would have taken it there closed.
@@ -183,6 +190,7 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
       if (p.state === 'MERGED') {
         const mergeSha = mergeShaOf(p);
         t.pr = { ...t.pr, state: 'merged', ci, ...(mergeSha ? { mergeSha } : {}), syncedAt: at };
+        keepChanges(t, merged.get(t.id) ?? null, at, emit, { actor: 'sync', by: 'acc sync' });
         const req = { to: 'done' as const, actor: 'sync' as const, by: 'acc sync', reason: `Pull request #${p.number} merged.` };
         if (t.state === 'review' && !checkMove(ledger, config, t, req, noGateHooks).length) {
           moved = { from: t.state, to: 'done' };
