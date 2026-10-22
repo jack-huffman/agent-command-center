@@ -2,7 +2,7 @@
 // the Tasks board, through acc. The page never writes the plan itself; what acc refuses, it says why.
 import * as vscode from 'vscode';
 import type { ExtensionArea } from './area.ts';
-import { planApproveArgs, planChooseArgs } from './logic/plan.ts';
+import { planApproveArgs, planChooseArgs, planSplitArgs } from './logic/plan.ts';
 import type { Message } from './model/plan.ts';
 import { accRunner } from './run.ts';
 
@@ -25,14 +25,14 @@ export const area: ExtensionArea = {
         const done = (r: { ok: boolean; error?: string }) => say({ type: PLAN_DONE, action: m.type, project: m.project, task: m.task, ...which, ...r });
         const p = hub.project(m.project);
         if (!p) return done({ ok: false, error: 'That project isn\'t open here.' });
-        const args = m.type === 'plan-choose' ? planChooseArgs(m.task, m.decision, m.text !== undefined ? { text: m.text } : { option: m.option }, m.yes === true) : planApproveArgs(m.task);
+        const args = m.type === 'plan-choose' ? planChooseArgs(m.task, m.decision, m.text !== undefined ? { text: m.text } : { option: m.option }, m.yes === true) : m.type === 'plan-split' ? planSplitArgs(m.task) : planApproveArgs(m.task);
         const r = await acc(args, p.root).catch((e: unknown) => ({ code: 1, stdout: '', stderr: (e as Error).message }));
         await hub.loadTasks(true);
         if (r.code === 0) {
           done({ ok: true });
         } else {
           const error = accSays(r);
-          void vscode.window.showWarningMessage(`Couldn't ${m.type === 'plan-choose' ? 'record the choice' : 'approve the plan'} for ${m.task}: ${error}`);
+          void vscode.window.showWarningMessage(`Couldn't ${m.type === 'plan-choose' ? 'record the choice' : m.type === 'plan-split' ? 'split the task' : 'approve the plan'} for ${m.task}: ${error}`);
           done({ ok: false, error });
         }
         tickets.refresh(m.project);
@@ -42,5 +42,6 @@ export const area: ExtensionArea = {
     // The modal over the Tasks board sends them to the Command Center's page.
     receive('plan-choose', (m) => void actions.act(m, (msg) => panels.reply(msg)));
     receive('plan-approve', (m) => void actions.act(m, (msg) => panels.reply(msg)));
+    receive('plan-split', (m) => void actions.act(m, (msg) => panels.reply(msg)));
   },
 };

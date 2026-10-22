@@ -5,6 +5,7 @@
  */
 
 import type { Analysis, PlanOption } from '../../../packages/core/src/analyze.ts';
+import type { SharedShape, SplitTask } from '../../../packages/core/src/shape-first.ts';
 import { CHANGE_APPROVED, CHOICE_TEXT_MAX } from '../../../packages/core/src/plan-choices.ts';
 import { choiceName, lapsedWords, planVersion, questionsForYou, unchosen } from '../../../packages/core/src/plan.ts';
 import { buildOff } from '../logic/plan.ts';
@@ -43,6 +44,23 @@ export interface TicketVersion {
   choices: { title: string; chosen: string | null }[];
 }
 
+/**
+ * The shapes the work changes that other tasks build on, and the split the plan suggests for them (T-104):
+ * a small first task for the shape and the rest, which waits for it. A person may ignore it.
+ */
+export interface TicketShapes {
+  shapes: SharedShape[];
+  split: {
+    why: string;
+    first: SplitTask;
+    rest: SplitTask;
+    /** The two tasks a person made from it: the page names them instead of offering the split. */
+    made: { first: string; rest: string } | null;
+    /** Split into these tasks: null once made, or past the build. */
+    go: { disabled: string | null } | null;
+  } | null;
+}
+
 export interface TicketPlan {
   version: number;
   /** Approved, needing approval again, or not yet: with an icon and words. */
@@ -66,6 +84,8 @@ export interface TicketPlan {
   build: Action | null;
   /** The versions before, newest first. */
   earlier: TicketVersion[];
+  /** The shared shapes and the split suggested for them (T-104). Null when the plan names none. */
+  shapes: TicketShapes | null;
   /** The person's notes on the plan (T-98), such as a changed step: who and when. */
   notes: { text: string; by: string; at: string }[];
 }
@@ -86,6 +106,13 @@ export function approveOff(a: Analysis): string | null {
  * The plan part of a task's Analysis section, or null with no analysis. Choosing and approving are only
  * before the build; after it, the page shows what was chosen and approved.
  */
+export function ticketShapes(a: Analysis, todo: boolean): TicketShapes | null {
+  const shapes = a.sharedShapes ?? [];
+  const s = a.shapeSplit;
+  if (!shapes.length && !s) return null;
+  return { shapes, split: s ? { why: s.why, first: s.first, rest: s.rest, made: s.made ? { first: s.made.first, rest: s.made.rest } : null, go: todo && !s.made ? { disabled: null } : null } : null };
+}
+
 export function ticketPlan(row: TaskRow, a: Analysis | null, ref: Ref): TicketPlan | null {
   if (!a) return null;
   const todo = row.state === 'todo';
@@ -110,6 +137,7 @@ export function ticketPlan(row: TaskRow, a: Analysis | null, ref: Ref): TicketPl
       version: planVersion(e), at: e.at, approved: e.approval ? { by: byName(e.approval.by), at: e.approval.at } : null, summary: e.summary, changes: e.changes ?? [],
       choices: (e.decisions ?? []).map((d) => ({ title: d.title, chosen: d.choice ? choiceName(d) : null })),
     })),
+    shapes: ticketShapes(a, todo),
     notes: (a.notes ?? []).map((n) => ({ text: n.text, by: byName(n.by), at: n.at })),
   };
 }
@@ -121,7 +149,9 @@ export type Message =
    */
   | { type: 'plan-choose'; project: string; task: string; decision: string; option?: string; text?: string; yes?: true }
   /** A person approves the plan's latest version (T-97). acc records it. */
-  | { type: 'plan-approve'; project: string; task: string };
+  | { type: 'plan-approve'; project: string; task: string }
+  /** A person's Split into these tasks (T-104): acc makes the first task for the shape and the rest. */
+  | { type: 'plan-split'; project: string; task: string };
 
 const forTask = (x: Record<string, unknown>): boolean => short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string);
 
@@ -131,5 +161,6 @@ export const area: ModelArea = {
     'plan-choose': (x) => forTask(x) && typeof x.decision === 'string' && /^d\d{1,3}$/.test(x.decision) && (x.yes === undefined || x.yes === true)
       && (x.option === undefined ? short(x.text, CHOICE_TEXT_MAX) && !!(x.text as string).trim() : x.text === undefined && typeof x.option === 'string' && /^[a-z]$/.test(x.option)),
     'plan-approve': forTask,
+    'plan-split': forTask,
   },
 };

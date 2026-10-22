@@ -4,7 +4,7 @@ import type { TicketAnalysis, TicketModel } from '../src/model/task-page.ts';
 import { actionButton, button, type Child, el, foldable, icon, keptInput, md, status, when } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 import { answerKey, askKey, pending, sendUpdate } from './updates.ts';
-import { planActions, planDecisions, planHead } from './plan.ts';
+import { planActions, planDecisions, planHead, planShapes } from './plan.ts';
 import { discussButton } from './talk.ts';
 
 // ---------------------------------------------------------------- a task's analysis (D-052)
@@ -94,6 +94,8 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   if (a.split.length) sec.append(el('div', 'an-split', el('div', 'strong', 'Split it into'), el('ol', 'an-list', ...a.split.map((x) => el('li', '', md(x))))));
   // Its plan (T-97): the version and what changed in it, then each design choice to make.
   if (a.planState) sec.append(planHead(a.planState));
+  const shapes = a.planState ? planShapes(m, a.task, a.planState) : null;
+  if (shapes) sec.append(shapes);
   const decisions = a.planState ? planDecisions(m, a.task, a.planState) : null;
   if (decisions) sec.append(decisions);
   // Discuss (T-98): a question, a step or a risk talked through with the planning agent, quoted.

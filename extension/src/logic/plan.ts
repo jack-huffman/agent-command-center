@@ -22,6 +22,9 @@ export const planChooseArgs = (task: string, decision: string, pick: { option?: 
 /** acc's arguments for a person's approval of the plan's latest version. */
 export const planApproveArgs = (task: string): string[] => ['plan', 'approve', task, '--json'];
 
+/** acc's arguments for a person's Split into these tasks (T-104). */
+export const planSplitArgs = (task: string): string[] => ['plan', 'split', task, '--json'];
+
 /** "a", "a and b", "a, b and c". */
 const inWords = (parts: string[]): string => (parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : (parts[0] ?? ''));
 
