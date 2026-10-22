@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import {
-  decisionHeading, decisionId, decisionsIndex, decisionsIndexFor, DECISIONS_HEADER, decisionSlug, decisionsToNumber, numberDecisions, numberedWords, parseDecisionName,
+  decisionHeading, decisionId, decisionsIndex, decisionsIndexFor, DECISIONS_HEADER, decisionSlug, decisionsToNumber, mergedOnto, numberDecisions, numberedWords, parseDecisionName,
   readDecisions, writeDecisionsIndex, DECISIONS_DIR, DECISIONS_INDEX,
 } from '../src/decisions.ts';
 import { run } from '../src/exec.ts';
@@ -107,6 +107,33 @@ test('two new decisions on a branch are numbered in file-name order, and one the
   write(dir, { [`${DECISIONS_DIR}/D-002-theirs.md`]: '## D-002 Theirs (2026-10-22)\n' });
   gitIn(dir, 'checkout', '-q', 'task/T-6');
   assert.deepEqual(decisionsToNumber(run, dir, 'main').map((n) => `${n.was} ${n.from} → ${n.to}`), ['D-002 D-002-mine.md → D-003-mine.md', 'D-T-6 new-T-6-b.md → D-004-b.md', 'D-T-7 new-T-7-a.md → D-005-a.md']);
+});
+
+test('two pull requests numbered against one base before either merged land in a row with two numbers: the second\'s merge numbers it again (T-102)', () => {
+  const dir = repo();
+  write(dir, { '.gitattributes': 'docs/DECISIONS.md merge=union\n' });
+  const numbered = (task: string, slug: string) => {
+    gitIn(dir, 'checkout', '-q', '-b', `task/${task}`, 'main');
+    write(dir, { [`${DECISIONS_DIR}/new-${task}-${slug}.md`]: `## D-${task} ${slug} (2026-10-22)\n\nSee D-${task}.\n`, [`${slug}.md`]: `The rule is D-${task}.\n` });
+    return numberDecisions(run, dir, 'main', commitIn(dir))!.numbered.map((n) => n.id);
+  };
+  // As acc land does where a person merges: each numbered against main as it is, so both take D-002.
+  assert.deepEqual([numbered('T-5', 'apples'), numbered('T-6', 'pears')], [['D-002'], ['D-002']]);
+  gitIn(dir, 'checkout', '-q', 'main');
+  assert.equal(mergedOnto(run, dir, 'main'), null, 'an edge case: main at no merge counts against itself');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-5', 'task/T-5');
+  const before = gitIn(dir, 'rev-parse', 'HEAD^1');
+  assert.equal(mergedOnto(run, dir, 'main'), before);
+  assert.equal(numberDecisions(run, dir, mergedOnto(run, dir, 'main')!, commitIn(dir)), null, 'the first keeps its number');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-6', 'task/T-6');
+  assert.throws(() => readDecisions(dir), /Two decisions share a number in docs\/decisions: D-002/, 'merged as it was, main would hold one number twice');
+  const again = numberDecisions(run, dir, mergedOnto(run, dir, 'main')!, commitIn(dir))!;
+  assert.deepEqual(again.numbered, [{ from: 'D-002-pears.md', to: 'D-003-pears.md', was: 'D-002', id: 'D-003' }]);
+  assert.deepEqual(readDecisions(dir).map((e) => `${e.number} ${e.title}`), ['1 Sums', '2 apples', '3 pears']);
+  assert.equal(readFileSync(join(dir, 'pears.md'), 'utf8'), 'The rule is D-003.\n', 'the second\'s own lines take its new number');
+  assert.equal(readFileSync(join(dir, 'apples.md'), 'utf8'), 'The rule is D-002.\n', 'the first\'s lines, merged before, keep theirs');
+  assert.equal(readFileSync(join(dir, DECISIONS_INDEX), 'utf8'), decisionsIndexFor(dir), 'and the index is whole');
+  assert.equal(mergedOnto(run, dir, 'task/T-6'), null, 'an edge case: another branch checked out counts nothing');
 });
 
 test('nothing to number is null and commits nothing; a checkout with uncommitted changes is refused and left as it was', () => {

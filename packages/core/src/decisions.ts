@@ -158,6 +158,18 @@ export function decisionsToNumber(run: Runner, root: string, base: string, head 
   });
 }
 
+/**
+ * What a numbering on `branch` itself counts against: where `branch` is checked out at a merge commit, the
+ * merge's first parent, which is the branch as it was before the merge. So two pull requests landed against
+ * one base, and given one number each before either merged, are numbered again at the second's merge: the
+ * number the first took is taken. Null anywhere else, where the base is `branch` itself.
+ */
+export function mergedOnto(run: Runner, root: string, branch: string): string | null {
+  if (git(run, root, 'symbolic-ref', '--quiet', '--short', 'HEAD').stdout.trim() !== branch) return null;
+  const parents = git(run, root, 'rev-list', '--parents', '-n', '1', 'HEAD').stdout.trim().split(/\s+/).slice(1);
+  return parents.length > 1 ? parents[0]! : null;
+}
+
 /** The lines each file's diff from `from` adds or changes, by path, numbered from 1 in the file as it is now. */
 function addedLines(run: Runner, root: string, from: string): Map<string, Set<number>> {
   const diff = ok(git(run, root, 'diff', '-U0', '--no-renames', '--no-color', '--no-ext-diff', from, 'HEAD'), 'git couldn\'t read what the branch changed');

@@ -82,6 +82,27 @@ test('acc decisions number numbers a branch\'s new decision against main; a buil
   assert.match(acc(dir, ['decisions', 'number']).out, /This branch adds no decision for its merge into main to number\./, 'an edge case: numbered once, nothing is left');
 });
 
+test('on main at a merge a person made, acc decisions number counts against main before it: a number taken since is numbered again (T-102)', () => {
+  const dir = repoWithConfig();
+  write(dir, { 'docs/decisions/D-001-sums.md': '## D-001 Sums (2026-10-01)\n', '.gitattributes': 'docs/DECISIONS.md merge=union\n' });
+  assert.equal(acc(dir, ['decisions', 'index']).code, 0);
+  write(dir, {}, 'index');
+  for (const [task, slug] of [['T-3', 'apples'], ['T-4', 'pears']] as const) {
+    gitIn(dir, 'checkout', '-q', '-b', `task/${task}`, 'main');
+    write(dir, { [`docs/decisions/new-${task}-${slug}.md`]: `## D-${task} ${slug} (2026-10-22)\n` });
+    assert.deepEqual(acc(dir, ['decisions', 'number', '--json']).json().numbered.map((n: { id: string }) => n.id), ['D-002'], 'each numbered before either merged');
+  }
+  gitIn(dir, 'checkout', '-q', 'main');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-3', 'task/T-3');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-4', 'task/T-4');
+  const first = gitIn(dir, 'rev-parse', 'HEAD^1');
+  assert.notEqual(acc(dir, ['decisions', 'check']).code, 0, 'merged as it was, the check fails on one number twice');
+  const r = acc(dir, ['decisions', 'number', '--json']);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual([r.json().base, r.json().numbered.map((n: { was: string; id: string }) => `${n.was} is ${n.id}`)], [first, ['D-002 is D-003']]);
+  assert.equal(acc(dir, ['decisions', 'check']).code, 0);
+});
+
 test('acc decisions check fails on a stale index, and index writes it; a repo with no folder is refused', () => {
   const dir = repoWithConfig();
   write(dir, { 'docs/decisions/D-001-sums.md': '## D-001 Sums (2026-10-01)\n' });

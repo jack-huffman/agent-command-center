@@ -2,7 +2,7 @@
 // branch adds, numbered at its merge, with the index made from them.
 
 import {
-  AccError, decisionsIndexFor, DECISIONS_INDEX, defaultEnvironment, mergeFloorsFiles, numberDecisions, numberedWords, repoPaths, run, writeDecisionsIndex,
+  AccError, decisionsIndexFor, DECISIONS_INDEX, defaultEnvironment, mergedOnto, mergeFloorsFiles, numberDecisions, numberedWords, repoPaths, run, writeDecisionsIndex,
 } from '../../../core/src/index.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -21,7 +21,10 @@ function cmdFloorsMerge(files: string[]): number {
 function cmdNumber(o: Opts): number {
   noAgent(o, 'number decisions; the merge does that');
   const { paths, config } = project(process.cwd());
-  const base = typeof o.base === 'string' ? o.base : defaultEnvironment(config).branch;
+  // On the environment's branch at a person's merge commit, the merge's first parent: a number another pull
+  // request took since this one was numbered is numbered again (T-102).
+  const env = defaultEnvironment(config).branch;
+  const base = typeof o.base === 'string' ? o.base : mergedOnto(run, paths.root, env) ?? env;
   const who = config.commitIdentity ? ['-c', `user.name=${config.commitIdentity.name}`, '-c', `user.email=${config.commitIdentity.email}`] : [];
   const r = numberDecisions(run, paths.root, base, (...args) => run('git', [...who, ...args], { cwd: paths.root }));
   out(o, () => (r ? tone(`✓ Numbered against ${base}: ${numberedWords(r.numbered)}, as ${r.sha.slice(0, 7)}.`, 'blue') : `This branch adds no decision for its merge into ${base} to number.`), { base, sha: r?.sha ?? null, numbered: r?.numbered ?? [] });
@@ -54,7 +57,8 @@ export const area: CommandArea = {
   acc decisions number [--base <branch>]
                                         Give each decision this branch adds (docs/decisions/new-<task>-<slug>.md)
                                         the next free number, and write it over D-<task> in the branch's own
-                                        lines. Land and the merge queue do it; run it before a merge you make
+                                        lines. Land and the merge queue do it. On main at a merge you made, it
+                                        numbers against main before the merge, so a number taken since is numbered again
   acc decisions index                   Write docs/DECISIONS.md from docs/decisions/
   acc decisions check                   Whether docs/DECISIONS.md is stale: exit 1 when it is`,
   },
