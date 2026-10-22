@@ -15,6 +15,8 @@ import { requirementWording, type WordingFinding } from './ste.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { approvedPlanLines, choiceName, lapse, nextVersion, planProblems } from './plan.ts';
 import { talkSection, versionTurn } from './plan-talk.ts';
+import { parseShapes, parseShapeSplit, SHAPE_PROMPT, SHAPE_SCHEMA, type SharedShape, type ShapeSplit } from './shape-first.ts';
+import { shapeTeamLines } from './shape-split.ts';
 
 /**
  * The analysis (D-052): before a task is built, a read-only agent works out what it asks for, what's
@@ -138,6 +140,10 @@ export interface Analysis {
    * never hold a dispatch. Analyses written before the check have none.
    */
   wording?: WordingFinding[];
+  /** The shapes this work changes that other tasks would build on (T-104). Older plans have none. */
+  sharedShapes?: SharedShape[];
+  /** Where a shape is shared: a small first task for the shape and the rest, suggested to a person (T-104). */
+  shapeSplit?: ShapeSplit;
   /** The orgs it read, by alias. */
   orgs: string[];
   sessionId: string;
@@ -244,6 +250,7 @@ export const ANALYSIS_SCHEMA = {
     },
     split: { ...strings, description: 'When the verdict is split: the smaller tasks, one line each. Otherwise empty' },
     recordChanges: RECORD_CHANGES_SCHEMA,
+    ...SHAPE_SCHEMA,
   },
 } as const;
 
@@ -381,6 +388,8 @@ export interface AnalysisInput {
   previous: Analysis | null;
   /** What the person and the planning agent said about the plan, and the person's notes (T-98): plan-talk.ts's talkSection. */
   talk?: string[];
+  /** The tasks in flight and ready, for the shared shapes it looks for (T-104): shape-split.ts's shapeTeamLines. */
+  team?: string[];
 }
 
 export function analysisPrompt(i: AnalysisInput): { system: string; prompt: string } {
@@ -396,6 +405,7 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
     '- Say who can answer each question: you (the person who runs the build) for priorities and how to build it, or author (who wrote the ticket, such as a client) for a business rule only they know.',
     '- Name every design choice a reviewer would want a person to make, as a decision with two or three options: for example, a custom object or field history tracking, a record-triggered flow or Apex, where existing data comes from. Never hide a choice inside the approach: the approach follows the option you recommend. Give honest cons for each option, the one you recommend too. A small task may have no decisions.',
     '- If it is too big for one task (more than a few days), say split and list the smaller tasks.',
+    SHAPE_PROMPT,
     ...(sf ? ['', 'For a Salesforce project, also cover:', ...SALESFORCE_FOCUS.map((f) => `- ${f}`), '', ...SALESFORCE_COOKBOOK] : []),
     ...(sf ? ['', RECORD_PLAN_PROMPT] : []),
     '',
@@ -431,6 +441,8 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
       'Where a choice still applies, keep it as a decision with the same title, and keep the chosen option with the same name.',
       '',
     ] : []),
+    // The tasks that would build on a shared shape (T-104).
+    ...(i.team ?? []),
     // A new version made from the conversation (T-98) reflects what was agreed in it.
     ...(i.talk ?? []),
     ...(i.rules?.trim() ? ['## Rules', '', i.rules.trim(), ''] : []),
@@ -473,9 +485,17 @@ export function parseAnalysis(stdout: string): { analysis: Omit<Analysis, 'v' | 
     },
     split: list(s.split),
     recordChanges: parsePlannedRecords(s.recordChanges),
+    ...shapes(s),
   };
   // The wording check on each requirement line as acc reads it (T-12): advice, recorded with its line.
   return { analysis: { ...analysis, wording: requirementWording(analysis.requirements) }, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
+}
+
+/** The shared shapes and the split suggested for them (T-104): none for a task that shares no shape. */
+function shapes(s: Record<string, any>): Pick<Analysis, 'sharedShapes' | 'shapeSplit'> {
+  const sharedShapes = parseShapes(s.sharedShapes);
+  const shapeSplit = parseShapeSplit(s.shapeSplit, sharedShapes);
+  return { sharedShapes, ...(shapeSplit ? { shapeSplit } : {}) };
 }
 
 /**
@@ -592,7 +612,7 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const current = git(run, paths.root, 'branch', '--show-current').stdout.trim();
   const orgs = sf ? config.environments.filter((e) => e.org).map((e) => ({ alias: e.org!, name: e.name, type: e.type })) : [];
   const previous = readAnalysis(paths, id);
-  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: rulesText(paths.root, config.profile), previous, talk: talkSection(paths, id, previous) });
+  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: rulesText(paths.root, config.profile), previous, talk: talkSection(paths, id, previous), team: shapeTeamLines(paths, config, readLedger(paths.ledger), run, id) });
 
   const cwd = analystDir(paths, config, id);
   steps.done('gather', orgs.length ? `The code and ${orgs.length} org(s)` : 'The code');

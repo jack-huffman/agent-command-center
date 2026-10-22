@@ -127,6 +127,29 @@ test('acc plan refuses anyone but a person, an unknown choice or option, no plan
   }
 });
 
+test('acc plan split makes the shape task and the rest for a person, and is refused for an agent, with no suggestion, and with no id', () => {
+  const dir = planRepo();
+  const file = join(dir, '.git', 'acc', 'analyses', 'ACME-7.json');
+  const none = acc(dir, ['plan', 'split', 'ACME-7']);
+  assert.equal(none.code, 1);
+  assert.match(none.err, /ACME-7's plan suggests no shape-first split/);
+  const suggested = { ...plan(dir), sharedShapes: [{ name: 'Stage history format', kind: 'schema', why: 'ACME-8 reads it', files: ['force-app/History__c.object'], users: ['ACME-8'] }], shapeSplit: { why: 'ACME-8 needs only the format.', first: { title: 'The stage history format', brief: 'The object and its tests.' }, rest: { title: 'Show stage history', brief: 'The page.' } } };
+  writeFileSync(file, JSON.stringify(suggested));
+  const agent = acc(dir, ['plan', 'split', 'ACME-7'], undefined, { ACC_ROLE: 'builder', ACC_TASK: 'ACME-7' });
+  assert.equal(agent.code, 1);
+  assert.match(agent.err, /A builder can't split a task\. A person does that\./);
+  assert.match(acc(dir, ['plan', 'split']).err, /acc plan split <id>/);
+  const ok = acc(dir, ['plan', 'split', 'acme-7', '--json'], undefined, { USER: 'jordan' });
+  assert.equal(ok.code, 0, ok.err);
+  assert.deepEqual(ok.json(), { first: 'T-1', rest: 'T-2' });
+  assert.deepEqual(plan(dir).shapeSplit.made.by, 'human:jordan');
+  const tasks = acc(dir, ['list', '--json']).json();
+  const rest = tasks.find((t: { id: string }) => t.id === 'T-2');
+  assert.deepEqual(rest.deps, ['T-1']);
+  assert.equal(tasks.find((t: { id: string }) => t.id === 'ACME-7').state, 'blocked');
+  assert.match(acc(dir, ['plan', 'split', 'ACME-7']).err, /already split into T-1 and T-2/);
+});
+
 test('planLines shows nothing for a first plan with no choices and no approval, as before plans; askedOf names who answers', () => {
   const plain = { version: 1, questions: [], decisions: [] } as never;
   assert.deepEqual(planLines(plain), []);

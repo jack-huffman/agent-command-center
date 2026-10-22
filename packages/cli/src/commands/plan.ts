@@ -1,7 +1,7 @@
 // acc's plan commands (T-97): a person chooses an option for each of a plan's design choices, and
 // approves its latest version. Only a person does either.
 
-import { type Analysis, AccError, approvePlan, askOf, choiceName, choosePlan, lapsedWords, planProblems, planVersion, recommendedName } from '../../../core/src/index.ts';
+import { type Analysis, AccError, approvePlan, askOf, choiceName, choosePlan, lapsedWords, planProblems, planVersion, recommendedName, splitShapeFirst } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
 import { type CommandArea, noAgent, now, type Opts, out, project } from '../shared.ts';
 import { recordedHere, TALK_HELP, TALK_SUBCOMMANDS, talkCommand } from './plan-talk.ts';
@@ -55,6 +55,14 @@ function cmdApprove(o: Opts, id: string): number {
   return 0;
 }
 
+function cmdSplit(o: Opts, id: string): number {
+  const by = noAgent(o, 'split a task');
+  const { paths, config } = project(process.cwd());
+  const made = splitShapeFirst(paths, config, id.toUpperCase(), by, now);
+  out(o, () => tone(`Split ${id.toUpperCase()} into ${made.first}, the shape, and ${made.rest}, the rest. ${made.rest} waits for ${made.first}.`, 'blue'), made);
+  return 0;
+}
+
 export const area: CommandArea = {
   help: {
     section: 'Agents',
@@ -62,6 +70,8 @@ export const area: CommandArea = {
     lines: `  acc plan choose <id> <choice> <option> Choose one of the options for a design choice in the task's plan, by its
                                         letter or name; --text "<your own option>" instead of an option. A change
                                         on an approved plan undoes the approval: --yes says you mean it
+  acc plan split <id>                   Split the task as its plan suggests: a small first task for the shape other
+                                        tasks build on, and the rest, which waits for it. Only a person does it
   acc plan approve <id>                 Approve the plan's latest version. Where a plan is required, a task is
                                         built only once its choices are made and its latest version approved
 ${TALK_HELP}`,
@@ -72,7 +82,7 @@ ${TALK_HELP}`,
     about: { type: 'string' },
     message: { type: 'string' },
   },
-  subcommands: { plan: ['choose', 'approve', ...TALK_SUBCOMMANDS] },
+  subcommands: { plan: ['choose', 'approve', 'split', ...TALK_SUBCOMMANDS] },
   commands: {
     plan: (o, rest) => {
       if (rest[0] === 'choose') {
@@ -82,6 +92,10 @@ ${TALK_HELP}`,
       if (rest[0] === 'approve') {
         if (!rest[1]) throw new AccError('usage', 'acc plan approve <id>');
         return cmdApprove(o, rest[1]);
+      }
+      if (rest[0] === 'split') {
+        if (!rest[1]) throw new AccError('usage', 'acc plan split <id>');
+        return cmdSplit(o, rest[1]);
       }
       const talked = talkCommand(o, rest);
       if (talked !== undefined) return talked;
