@@ -499,7 +499,7 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
   no floors skips it.
 - [ ] **GitHub requires the checks autopilot waits for** (`B10.required-check`).
   Autopilot merges a pull request only once each check `github.checks` names
-  has passed on GitHub (D-T-108). The step reads whether GitHub also requires
+  has passed on GitHub (D-203). The step reads whether GitHub also requires
   them before anything merges into the default environment's branch, through
   branch protection or a ruleset. **Do it** runs the `gh api` command the check
   gives, as the repo's account: it adds the checks to the branch's required

@@ -1,4 +1,4 @@
-## D-T-108 GitHub Actions runs the full check and the screenshot run on every pull request, and autopilot waits for it (2026-10-22)
+## D-203 GitHub Actions runs the full check and the screenshot run on every pull request, and autopilot waits for it (2026-10-22)
 
 Autopilot could already review, land and merge through the merge queue
 (D-064, GH-73), and this project has `"autonomy": "review"` with auto-merge on.

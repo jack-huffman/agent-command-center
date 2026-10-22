@@ -1,4 +1,4 @@
-# The full check and the screenshot run on every pull request into main, and on main (D-T-108). Autopilot
+# The full check and the screenshot run on every pull request into main, and on main (D-203). Autopilot
 # merges a pull request only once this job, "check", passed on its latest commit (github.checks in
 # .acc/config.json). It needs no secrets, and never pushes: a CI floor it raises is printed for a person.
 name: check
