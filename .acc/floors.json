@@ -3,27 +3,27 @@
     "floor": 2312
   },
   "screenshots.clipped": {
-    "floor": 41700
+    "floor": 100210
   },
   "screenshots.sideways": {
-    "floor": 1100
+    "floor": 3740
   },
   "screenshots.overview": {
-    "floor": 800
+    "floor": 996
   },
   "screenshots.buttons": {
-    "floor": 450
+    "floor": 540
   },
   "screenshots.covered": {
-    "floor": 1700
+    "floor": 1736
   },
   "screenshots.raw": {
-    "floor": 348
+    "floor": 492
   },
   "screenshots.a11y": {
-    "floor": 190000
+    "floor": 440596
   },
   "screenshots.actions": {
-    "floor": 330
+    "floor": 942
   }
 }
