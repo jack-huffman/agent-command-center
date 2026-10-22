@@ -5,10 +5,11 @@
  * token or a personal access token, kept for one repo only.
  */
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
+import { fieldMarkdown, fieldValue } from './fields.ts';
 import { hexOf, isEmail, personName, typeKindOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Label, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Status,
-  type StatusCategory, textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
+  type StatusCategory, type TextField, textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export interface AzureOptions {
@@ -57,6 +58,9 @@ const colourOf = (colours: Map<string, string>, name: string): string | null => 
 /** A work item's tags, each with its colour from the board's card rules (T-95); a tag with no rule has none. */
 const tags = (s: unknown, colours: Map<string, string> = new Map()): Label[] =>
   (typeof s === 'string' ? s.split(';').map((t) => t.trim()).filter(Boolean).map((name) => ({ name, color: colourOf(colours, name) })) : []);
+/** Azure DevOps' field types that hold text (T-105): an HTML field keeps HTML; a string or plain-text one, plain text. */
+const AZURE_TEXT_TYPES: Partial<Record<string, 'html' | 'plain'>> = { html: 'html', string: 'plain', plaintext: 'plain' };
+
 const quote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 /** Whether an area path is the place's, or under it. Azure's paths ignore case. */
 const under = (path: string, area: string): boolean => {
@@ -388,6 +392,37 @@ export class AzureClient implements TrackerClient {
   /** acc doesn't write its ticket text yet (T-80): it refuses, with why. */
   async setText(): Promise<void> {
     throw textRefused(this.kind);
+  }
+
+  /**
+   * The fields that hold text on the work item types its board shows (T-105), by name: an HTML field keeps
+   * HTML, a string or plain-text one plain text. Azure DevOps' own System fields, such as the title and
+   * description, and read-only ones aren't offered. A field one type has and another doesn't is offered.
+   */
+  async textFields(): Promise<TextField[]> {
+    const b = await this.boardInfo();
+    const types = [...new Set(b.columns.flatMap((c) => Object.keys(c.stateMappings ?? {})))];
+    const all = (await this.req<{ value: { referenceName: string; name: string; type?: string; readOnly?: boolean }[] }>('GET', `/${this.proj}/_apis/wit/fields?${API}`)).value;
+    const onTypes = new Set<string>();
+    for (const type of types) {
+      const own = await this.req<{ value: { referenceName: string }[] }>('GET', `/${this.proj}/_apis/wit/workitemtypes/${encodeURIComponent(type)}/fields?${API}`);
+      for (const f of own.value) onTypes.add(f.referenceName);
+    }
+    return all.flatMap((f): TextField[] => {
+      const type = (f.type ?? '').toLowerCase();
+      const format = Object.hasOwn(AZURE_TEXT_TYPES, type) ? AZURE_TEXT_TYPES[type] : undefined;
+      return format && !f.readOnly && !f.referenceName.startsWith('System.') && onTypes.has(f.referenceName) ? [{ id: f.referenceName, name: f.name, format }] : [];
+    }).sort((a, b2) => a.name.localeCompare(b2.name));
+  }
+
+  async readField(key: string, field: TextField): Promise<string> {
+    const w = await this.req<{ fields: Record<string, unknown> }>('GET', `/${this.proj}/_apis/wit/workitems/${this.idOf(key)}?fields=${encodeURIComponent(field.id)}&${API}`);
+    return fieldMarkdown(w.fields?.[field.id], field.format);
+  }
+
+  /** Set as HTML or plain text; empty text empties the field. */
+  async writeField(key: string, field: TextField, markdown: string): Promise<void> {
+    await this.patch(this.idOf(key), [{ op: 'add', path: `/fields/${field.id}`, value: fieldValue(markdown, field.format) ?? '' }]);
   }
 
   async comment(key: string, markdown: string): Promise<void> {

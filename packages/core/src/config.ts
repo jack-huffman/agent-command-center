@@ -4,7 +4,8 @@ import { dirname } from 'node:path';
 import { AccError } from './exec.ts';
 import { writeAtomic } from './atomic.ts';
 import { SLACK_CHANNEL, SLACK_PREFIX, SLACK_REACTION, SLACK_WORKSPACE } from './trackers/slack.ts';
-import { isTrackerKind, orList, TRACKER_KINDS, type TrackerKind } from './trackers/types.ts';
+import { isTrackerKind, orList, type TextField, TRACKER_KINDS, type TrackerKind } from './trackers/types.ts';
+import { changesFieldProblem, readChangesField } from './changes-field.ts';
 
 export const PROFILES = ['generic', 'salesforce'] as const;
 export type Profile = (typeof PROFILES)[number];
@@ -150,6 +151,12 @@ export interface Tracker {
    * Testing or In Review, Blocked, Done, Todo. Only where "edits" is true.
    */
   statusFor: Record<string, string> | null;
+  /**
+   * The ticket field a ticket's changes are kept in (T-105), such as Jira's "Deployment Notes": its id, its
+   * name and how it keeps text. On GitHub, the issue's description, under a heading of its own. Slack has
+   * none. Unset, a ticket's changes show on its page only.
+   */
+  changesField: TextField | null;
 }
 
 export interface Config {
@@ -274,7 +281,7 @@ export const CONFIG_KEYS = [
   'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
   'trackers[].workspace', 'trackers[].channel', 'trackers[].reaction', 'trackers[].doneReaction', 'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
   'trackers[].epic', 'trackers[].sprint', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
-  'trackers[].statusFor',
+  'trackers[].statusFor', 'trackers[].changesField.id', 'trackers[].changesField.name', 'trackers[].changesField.format',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel',
   'agents.cloud.routine', 'agents.cloud.default', 'agents.cloud.quietMinutes', 'agents.cloud.max', 'agents.cloud.review', 'autonomy',
@@ -515,6 +522,14 @@ export function parseConfig(raw: unknown): ParseResult {
         }
         if (t.kind !== 'github') warnings.push(`trackers[${i}]: "statusFor" applies only to a GitHub tracker, so it's ignored.`);
       }
+      // Where a ticket's changes are kept (T-105): a field its tracker has, and none on Slack.
+      if (t.changesField !== undefined && t.changesField !== null) {
+        const why = changesFieldProblem(t.kind, t.changesField);
+        if (why) {
+          errors.push(`trackers[${i}]: ${why}`);
+          return;
+        }
+      }
       const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : Number.isSafeInteger(t.board) && (t.board as number) > 0);
       if (!boardOk) {
         errors.push(`trackers[${i}]: "board" must be ${t.kind === 'azure' ? 'an Azure board\'s name, such as Stories' : 'a Jira board id or a GitHub Project number'}.`);
@@ -544,6 +559,7 @@ export function parseConfig(raw: unknown): ParseResult {
         edits: t.edits === true,
         statusFor: t.kind === 'github' && isObj(t.statusFor) && Object.keys(t.statusFor).length
           ? Object.fromEntries(Object.entries(t.statusFor).map(([k, v]) => [k, String(v).trim()])) : null,
+        changesField: readChangesField(t.kind, t.changesField),
       });
     });
     // Two trackers whose keys start the same: a ticket's key finds only the first, so the second's can't post.
