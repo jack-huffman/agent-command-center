@@ -7,7 +7,7 @@
  * does it. The rest starts once the first merges, and its packet names the shape's decision and files.
  */
 
-import { parseDecisionName } from './decisions.ts';
+import { decisionId, parseDecisionName } from './decisions.ts';
 
 /** What a shared shape is. The analyst picks one. */
 export const SHAPE_KINDS = ['schema', 'type', 'module', 'setting', 'file format'] as const;
@@ -107,7 +107,7 @@ export function decisionIn(files: string[]): { id: string; file: string } | null
   for (const file of files) {
     const m = /^docs\/decisions\/([^/]+)$/.exec(file);
     const name = m ? parseDecisionName(m[1]!) : null;
-    if (name) return { id: name.number != null ? `D-${String(name.number).padStart(3, '0')}` : `D-${name.task}`, file };
+    if (name) return { id: name.number != null ? decisionId(name.number) : `D-${name.task}`, file };
   }
   return null;
 }
