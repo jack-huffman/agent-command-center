@@ -12,6 +12,7 @@ import {
   area, CHANGES_FIELD_COMMAND, CHANGES_FIELD_LABEL, changesFieldPicks, changesFieldRecord, changesFieldRow, connectChangesField, FIELD_LOOK, FIELD_SAVED, FIELD_TEXT_MAX,
   type FieldIn, fieldName, FORMAT_WORDS, noTextFields, ticketField,
 } from '../src/model/changes-field.ts';
+import { changedPaths } from '../src/model/changes.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import type { BoardInput } from '../src/model/boards.ts';
 import { trackersAndSignIns } from '../src/model/settings.ts';
@@ -128,6 +129,14 @@ test('edge: before the read, a failed read, no changes found, edits off, and a t
   assert.equal(ticketField(input({ kind: 'slack' })), null);
   assert.equal(ticketField(input({ kind: 'github', field: GITHUB_CHANGES }))!.heading, 'From the ticket\'s Changes (kept by the Command Center)');
   assert.equal(fieldName('github', GITHUB_CHANGES), 'the description\'s Changes (kept by the Command Center) section');
+});
+
+test('the draft is made from the paths the Changes section lists: the branch\'s while in flight, what was kept once done, none before there\'s work', () => {
+  const kept = { at: '2026-10-21T09:00:00Z', paths: [PATHS[2]!] };
+  assert.deepEqual(changedPaths({ task: { id: 'ACME-7', state: 'running', changes: kept }, profile: 'salesforce', planned: null, live: PATHS }), PATHS);
+  assert.deepEqual(changedPaths({ task: { id: 'ACME-7', state: 'running', changes: kept }, profile: 'salesforce', planned: null, live: [] }), kept.paths, 'edge: in flight with nothing on its branch yet, what was kept at its land');
+  assert.deepEqual(changedPaths({ task: { id: 'ACME-7', state: 'done', changes: kept }, profile: 'salesforce', planned: null, live: PATHS }), kept.paths, 'done: what was kept, not a branch read');
+  assert.deepEqual(changedPaths({ task: { id: 'ACME-7', state: 'todo' }, profile: 'salesforce', planned: PATHS, live: null }), [], 'edge: before there\'s work, a plan is no change');
 });
 
 // ---------------------------------------------------------------- nothing reaches the tracker until a person saves

@@ -8809,5 +8809,5 @@ changes a developer wrote there by hand aren't lost. T-105.
 - Out of scope: writing the field without a person's save; listing the draft in Needs you.
 
 Tested in `packages/core/test/changes-field.test.ts` (17 tests) and `extension/test/changes-field.test.ts`
-(12). The screenshot run draws `ticket-changes-field`, the row in `settings-trackers` with Slack's off, and
+(13). The screenshot run draws `ticket-changes-field`, the row in `settings-trackers` with Slack's off, and
 the row on `connect-existing`.
