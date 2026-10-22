@@ -7,6 +7,7 @@ import { type Analysis, analysisSection } from './analyze.ts';
 import { recordPacketSection } from './records.ts';
 import { type ChecksReport, checksSection, type QueueReport, queueSection } from './checks.ts';
 import type { Verdict } from './review.ts';
+import { shapeSection } from './shape-split.ts';
 import { type Team, teamSection } from './team.ts';
 
 // ---------------------------------------------------------------- the packet (DESIGN.md section 8)
@@ -32,7 +33,7 @@ export interface PacketInput {
   /** What the task's analysis found, and what a person answered (D-052). */
   analysis?: Analysis | null;
   /** The tasks it depends on, directly, with the note each one's builder left (D-106). */
-  deps?: Pick<Task, 'id' | 'title' | 'run'>[];
+  deps?: Pick<Task, 'id' | 'title' | 'run' | 'state' | 'changes'>[];
   /** Its team as dispatch saw it (T-103): the other tasks in flight, sharing first, and what merged since its branch left. */
   team?: Team | null;
 }
@@ -178,6 +179,8 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
     ...analysisSection(p.analysis ?? null),
     ...recordPacketSection(p.analysis?.recordChanges ?? [], config.profile === 'salesforce'),
     ...depsSection(p.deps),
+    // The rest of a shape-first split names the shape it builds on (T-104).
+    ...shapeSection(task, p.deps ?? []),
     ...(p.team ? teamSection(p.team, 'builder') : []),
     ...lastRunSection(task, env),
     ...reviewSection(p.review),

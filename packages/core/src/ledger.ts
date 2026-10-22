@@ -10,6 +10,7 @@ import { withLock } from './lock.ts';
 import type { OutsideState } from './outside-changes.ts';
 import type { RepoPaths } from './paths.ts';
 import { TRACKER_KINDS } from './trackers/types.ts';
+import type { ShapeFrom } from './shape-first.ts';
 
 export const STATES = ['todo', 'running', 'review', 'rework', 'blocked', 'done'] as const;
 export type State = (typeof STATES)[number];
@@ -347,6 +348,8 @@ export interface Task {
   cloudReview?: CloudReview | null;
   /** Each edit a person made to its fields (T-74), oldest first. A move is in `history`. */
   edits?: EditEntry[];
+  /** The rest of a shape-first split (T-104): the task that makes the shape it builds on, and what it holds. Its packet names them. */
+  shapeFrom?: ShapeFrom | null;
   /** What its work changed, kept when it merges (T-99), so its page shows it after its branch is gone. */
   changes?: KeptChanges | null;
   /** Its changes outside git, such as records (T-100): kept, noted commands, and the steps to make them at promotion. */

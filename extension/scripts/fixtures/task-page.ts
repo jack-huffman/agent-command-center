@@ -29,7 +29,7 @@ export type TicketSample = 'ACME-12' | 'ACME-19' | 'ACME-20' | 'ACME-21' | 'ACME
 /** criteria: ACME-19 with its drafted acceptance criteria (T-81), and with the draft opened as an update. */
 /** verify: ACME-21 with a developer's pull request verified, passed or needing changes, or two to choose from (T-84). */
 /** plan: ACME-21 with its plan approved, or changed since its approval (T-97). */
-export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false, criteria: 'drafted' | 'update' | null = null, verify: VerifySample | null = null, plan: 'approved' | 'changed' | null = null): TicketModel {
+export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false, criteria: 'drafted' | 'update' | null = null, verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | null = null): TicketModel {
   if (which === 'ACME-29') return sampleStoppedTicket(now);
   if (which === 'ACME-44') return sampleCloudTicket(now);
   if (which === 'ACME-50') return sampleNoFieldsTicket(now);
@@ -324,11 +324,11 @@ function sampleWaitingTicket(now: number): TicketModel {
 }
 
 /** A task to do, tracked from Jira, with its analysis on its page (D-052): questions to answer, or a split. */
-function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: VerifySample | null = null, plan: 'approved' | 'changed' | null = null): TicketModel {
+function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | null = null): TicketModel {
   // A later version of ACME-21's plan (T-97): its row reads that version, as the hub's would.
   const later = plan ? samplePlan(now, plan) : null;
   const hubRow = sampleHub(now).taskRows(ROOT).find((r) => r.id === key)!;
-  const row = later ? { ...hubRow, analysis: rowAnalysis(later), display: plan === 'approved' ? 'ready' as const : hubRow.display } : hubRow;
+  const row = later ? { ...hubRow, analysis: rowAnalysis(later), display: plan === 'approved' || plan === 'shapes' ? 'ready' as const : hubRow.display } : hubRow;
   const bug = key === 'ACME-21';
   const ticket: Ticket = {
     key, kind: 'jira', url: `https://acme.atlassian.net/browse/${key}`, title: row.title, type: bug ? 'Bug' : 'Epic', typeKind: bug ? 'bug' : 'epic', typeColor: null,

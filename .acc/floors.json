@@ -1,18 +1,12 @@
 {
   "tests": {
-    "floor": 2452
+    "floor": 2454
   },
   "screenshots.clipped": {
-    "floor": 103009,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "T-103 (merged before T-108's 1% margin) stored this floor at one run's exact count again; main's own run counts 104050. Relaxed about 1% below main's count, as the person chose on 2026-10-22; T-108 stores screenshot floors with that margin from now on.",
-      "at": "2026-10-22T16:51:11.927Z",
-      "was": 104146
-    }
+    "floor": 105394
   },
   "screenshots.sideways": {
-    "floor": 3836
+    "floor": 3854
   },
   "screenshots.overview": {
     "floor": 996
@@ -27,15 +21,9 @@
     "floor": 492
   },
   "screenshots.a11y": {
-    "floor": 446604,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "T-103 (merged before T-108's 1% margin) stored this floor at one run's exact count again; main's own run counts 451116. Relaxed about 1% below main's count, as the person chose on 2026-10-22; T-108 stores screenshot floors with that margin from now on.",
-      "at": "2026-10-22T16:51:12.283Z",
-      "was": 451246
-    }
+    "floor": 454668
   },
   "screenshots.actions": {
-    "floor": 1068
+    "floor": 1086
   }
 }

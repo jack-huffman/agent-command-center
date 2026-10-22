@@ -152,6 +152,7 @@ export const PAGES = [
   'ticket-manifest',
   'ticket-plan-approved',
   'ticket-plan-changed',
+  'ticket-plan-shapes',
   'ticket-talk',
   'ticket-changes-field',
   'ticket-team',

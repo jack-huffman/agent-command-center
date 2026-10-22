@@ -13,9 +13,10 @@ import { discussButton, openTalk } from './talk.ts';
 const OWN_MAX = 4000;
 
 /** Choices and approvals on their way to acc, and why the last one didn't go. */
-export const planPending = new Pending<'choose' | 'approve'>();
+export const planPending = new Pending<'choose' | 'approve' | 'split'>();
 export const chooseKey = (project: string, task: string, decision: string): string => `plan:${project}#${task}:${decision}`;
 export const approveKey = (project: string, task: string): string => `plan:${project}#${task}:approve`;
+export const splitKey = (project: string, task: string): string => `plan:${project}#${task}:split`;
 /** The remembered key of a choice whose "Something else…" box is open. */
 const ownKey = (key: string): string => `${key}:own`;
 /** The remembered key of a change that waits for the person's yes, on an approved plan: its pick, an option's id or "own". */
@@ -34,7 +35,7 @@ function focusOnceDrawn(b: HTMLElement, id: string): void {
   queueMicrotask(() => b.focus());
 }
 
-function send(key: string, what: 'choose' | 'approve', msg: Record<string, unknown>): void {
+function send(key: string, what: 'choose' | 'approve' | 'split', msg: Record<string, unknown>): void {
   if (!planPending.start(key, what)) return;
   api.postMessage(msg);
   if (state.last) state.draw(state.last);
@@ -209,6 +210,39 @@ export function planHead(plan: TicketPlan): HTMLElement {
   return head;
 }
 
+/**
+ * What other tasks build on, and the split the plan suggests (T-104): each shape with why, then a small first
+ * task for just the shape and the rest, and Split into these tasks. A person may ignore it: nothing is made
+ * until they click, and the plan is approved and built as it is without.
+ */
+export function planShapes(m: TicketModel, task: string, plan: TicketPlan): HTMLElement | null {
+  const s = plan.shapes;
+  if (!s) return null;
+  const box = el('div', 'plan-shapes', el('div', 'strong', icon('versions'), ' Other tasks build on this'),
+    s.shapes.length ? el('ul', 'an-list ps-list', ...s.shapes.map((x) => el('li', '', el('strong', '', x.name), el('span', 'chip ps-kind', x.kind), ' ', md(x.why),
+      x.files.length ? el('div', 'muted small ps-files', 'Held in ', ...x.files.flatMap((f, i) => [i ? ', ' : '', work(el('code', '', f), 'files')])) : null,
+      x.users.length ? el('div', 'muted small', `Used by ${x.users.join(', ')}`) : null))) : null);
+  const split = s.split;
+  if (!split) return box;
+  const key = splitKey(m.project, task);
+  const busy = !!planPending.what(key);
+  const error = planPending.error(key);
+  box.append(el('div', 'ps-split',
+    el('div', 'strong', icon('split-horizontal'), ' Suggested: a small first task for the shape'),
+    split.why ? el('p', 'muted small ps-why', md(split.why)) : null,
+    el('ol', 'an-list ps-tasks',
+      el('li', '', el('strong', '', split.first.title), el('span', 'chip ps-first', 'First: the shape and its tests'), split.first.brief ? el('div', 'muted small', md(split.first.brief)) : null),
+      el('li', '', el('strong', '', split.rest.title), el('span', 'chip ps-rest', 'Then: waits for the first'), split.rest.brief ? el('div', 'muted small', md(split.rest.brief)) : null)),
+    split.made ? el('div', 'muted small', icon('pass-filled'), el('span', '', `Split into ${split.made.first} and ${split.made.rest}. ${split.made.rest} starts once ${split.made.first} merges.`)) : null));
+  if (split.go) {
+    const b = button(busy ? 'Splitting…' : 'Split into these tasks', busy ? 'loading~spin' : 'split-horizontal', () => send(key, 'split', { type: 'plan-split', project: m.project, task }));
+    if (busy) { b.disabled = true; b.title = 'Wait for the split on its way'; }
+    box.append(el('div', 'actions ps-actions', b, el('span', 'muted small', 'Or ignore this: the plan builds as it is.')));
+  }
+  if (error) box.append(el('div', 'aq-error', icon('warning'), el('span', '', `The task wasn't split: ${error}`)));
+  return box;
+}
+
 /** Each design choice, as a group of option cards. */
 export function planDecisions(m: TicketModel, task: string, plan: TicketPlan): HTMLElement | null {
   if (!plan.decisions.length) return null;
@@ -247,7 +281,7 @@ export function planActions(m: TicketModel, task: string, plan: TicketPlan): Chi
 
 /** acc recorded a choice or an approval, or refused it: the page redraws with what acc did, or says why not. */
 function done(msg: { action?: string; project?: string; task?: string; decision?: string; ok?: boolean; error?: string }): void {
-  const key = msg.action === 'plan-approve' ? approveKey(msg.project ?? '', msg.task ?? '') : chooseKey(msg.project ?? '', msg.task ?? '', msg.decision ?? '');
+  const key = msg.action === 'plan-approve' ? approveKey(msg.project ?? '', msg.task ?? '') : msg.action === 'plan-split' ? splitKey(msg.project ?? '', msg.task ?? '') : chooseKey(msg.project ?? '', msg.task ?? '', msg.decision ?? '');
   if (!planPending.what(key)) return;
   planPending.settle(key, msg.ok ? null : msg.error?.trim() || 'It didn\'t go, and the Command Center didn\'t say why.');
   // A choice made in its own words clears them, and closes its box.
