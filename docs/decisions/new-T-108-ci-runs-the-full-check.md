@@ -59,10 +59,23 @@ that at review. `parseFloors` (`packages/core/src/ratchets.ts`) refuses any
 entry that isn't a floor or a ceiling, so a nested `ci` object would make every
 acc already installed refuse the whole file. As flat names, the floors driver
 merges them and the screenshots check's guard on lowered floors covers them.
-None exists yet: no Linux run had happened when this was written. The first
-Linux run is read on this change's pull request once a person pushes the
-branch; any `screenshots.ci.*` floor or `CI_SKIPS` entry it calls for comes
-back as a follow-up task.
+None exists yet. The next Linux run is read on this change's pull request;
+any `screenshots.ci.*` floor or `CI_SKIPS` entry it calls for comes back as a
+follow-up task.
+
+**Chrome's sandbox on the runner.** The first run on pull request 179
+(22 October) passed every step through the full check, so the whole check
+passes on Linux. The screenshot run then failed all 840 drawings: Chrome
+exited SIGTRAP on each and wrote nothing. Ubuntu 24.04's AppArmor refuses the
+unprivileged user namespaces that Chrome's sandbox needs. The workflow's step
+"Let Chrome's sandbox start" sets
+`kernel.apparmor_restrict_unprivileged_userns=0` on the runner before the
+screenshot run, and fails with the library names when `ldd` finds one the
+shell lacks. The sandbox stays on: no run uses `--no-sandbox`. A crash like
+this now says why in one line: when Chrome writes no drawing at all, the
+screenshot run stops at each job's first drawing and prints Chrome's FATAL or
+ERROR line from its stderr (`chromeSaid` in `extension/scripts/screenshot.ts`,
+tested in `jobs.test.ts`).
 
 **Stored floors keep a margin.** Two runs of one commit counted a few apart
 (clipped 101904 and 101898; a11y 445830 and 445794), and T-102 stored each floor
@@ -71,9 +84,10 @@ at one run's exact count, so main's own run fell below it. The person relaxed
 22 October and chose a margin: a clean run that raises a stored screenshot
 floor, the Mac's or the CI's, now stores it about 1% below its count, rounded
 down (`storedFloor` in `extension/scripts/geometry.ts`), and raises it only when
-that beats the floor. T-103 merged first and stored clipped 104146 and a11y
-451246 at its run's exact counts; this change takes those higher floors, since
-only a person lowers one, and the margin applies from the next raise on. A later run a few under the clean count still passes; a
+that beats the floor. T-104 merged first and stored clipped 105394 and a11y
+454668 at its run's exact counts; this change takes those higher floors, and
+T-109's after them (clipped 107800, a11y 460902), since only a person lowers
+one, and the margin applies from the next raise on. A later run a few under the clean count still passes; a
 page that loses real content, 2% or more, still fails. The run's own check is
 unchanged: it fails below the stored floor. The page checks' floors follow the
 pages, as before.
