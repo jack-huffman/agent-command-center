@@ -249,7 +249,7 @@ function threadLink(root: string, b: TrackerBoard, paste: NonNullable<TrackerBoa
       paste.tracked && !paste.error && !paste.busy ? el('div', 'cfield-status', icon('check', 'blue'), el('span', '', `Tracked ${paste.tracked}. It's on the Agent board.`)) : null));
 }
 
-function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
+export function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   const tools: Child[] = [];
   // Its person filter (T-79): Everyone, Mine, Unassigned, or one person. A board with no columns, as a Slack box without a board, has no cards to filter.
   const filter = b.columns.length ? personFilter(`tracker:${root}#${b.index}`, b.columns.flatMap((c) => c.cards), b.me) : null;
@@ -268,7 +268,7 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   tools.push(change);
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
-      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.loading ? el('span', 'muted loading', icon('sync~spin'), 'Loading') : null),
+      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.loading ? el('span', 'muted loading', icon('sync~spin'), loadingWords(b)) : null),
       el('div', 'toolbar', ...tools)));
   // One quiet source line under its name (T-42): where its tickets come from (D-072) when that narrows it,
   // else what its columns are. Who it's signed in as sits in Change's title, and in Settings, Trackers.
@@ -293,7 +293,7 @@ function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
     if (!b.columns.length) return out;
   }
   if (!b.columns.length) {
-    if (!b.error) out.append(el('p', 'muted', b.loading ? 'Loading the board…' : 'This board has no columns.'));
+    if (!b.error) out.append(b.loading ? boardSkeleton() : el('p', 'muted', 'This board has no columns.'));
     return out;
   }
   const board = el('div', 'board');
@@ -345,3 +345,20 @@ export const area: PageArea = {
   sections: { tasks: { draw: (m) => renderTasks(m.tasks), fill: true } },
   views: { tasks: renderTasks },
 };
+
+/** A board drawn from the repo's cache is refreshing; one with nothing yet is loading (2026-10-21). */
+export const loadingWords = (b: Pick<TrackerBoard, 'columns'>): string => (b.columns.length ? 'Refreshing' : 'Loading');
+
+/**
+ * A board on its way, with nothing kept from before (2026-10-21): quiet columns of card shapes that breathe,
+ * still under reduced motion, and its words for a screen reader. Once a board has loaded, the repo's cache
+ * draws it at once instead.
+ */
+function boardSkeleton(): HTMLElement {
+  const column = (cards: number) => el('div', 'skel-col', el('div', 'skel-line skel-head'),
+    ...Array.from({ length: cards }, () => el('div', 'skel-card', el('div', 'skel-line short'), el('div', 'skel-line'), el('div', 'skel-line mid'))));
+  const out = el('div', 'board-skeleton', el('p', 'skel-words', 'Loading the board…'), column(3), column(2), column(1));
+  out.setAttribute('role', 'status');
+  out.setAttribute('aria-busy', 'true');
+  return out;
+}

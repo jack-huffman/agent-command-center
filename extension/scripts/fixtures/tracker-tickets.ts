@@ -147,3 +147,9 @@ export function sampleAzureBoards(): BoardInput[] {
     },
   }];
 }
+
+/** An Azure DevOps board loading for the first time in a window, with nothing kept from before: its skeleton (2026-10-21). */
+export const sampleAzureLoading = (): BoardInput[] => sampleAzureBoards().map((b) => ({ ...b, board: null, loading: true }));
+
+/** An Azure DevOps board drawn from the repo's cache while it refreshes (2026-10-21). */
+export const sampleAzureRefreshing = (): BoardInput[] => sampleAzureBoards().map((b) => ({ ...b, loading: true }));

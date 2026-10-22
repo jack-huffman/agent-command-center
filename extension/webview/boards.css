@@ -170,3 +170,16 @@
 .person-item.on { background: var(--vscode-list-activeSelectionBackground, var(--vscode-toolbar-hoverBackground)); color: var(--vscode-list-activeSelectionForeground, inherit); }
 .person-item:disabled { opacity: .55; cursor: default; }
 .person-none { margin: 8px 0; }
+
+/* A board on its way (2026-10-21): quiet columns of card shapes that breathe, still under reduced motion. */
+.board-skeleton { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); margin-top: var(--space-3); }
+.skel-words { grid-column: 1 / -1; margin: 0; color: var(--vscode-descriptionForeground); }
+.skel-col { display: grid; gap: var(--space-3); align-content: start; padding: var(--space-3); border-radius: var(--radius-l); background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent); }
+.skel-card { display: grid; gap: var(--space-2); padding: var(--space-3); border-radius: var(--radius-m); border: 1px solid var(--edge); background: var(--raised); }
+.skel-line { height: 0.7rem; border-radius: var(--radius-full); background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent); animation: skel-breathe 1.6s ease-in-out infinite; }
+.skel-line.short { width: 35%; }
+.skel-line.mid { width: 70%; }
+.skel-line.skel-head { width: 40%; height: 0.9rem; }
+@keyframes skel-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .skel-line { animation: none; } }
+@media (max-width: 560px) { .board-skeleton { grid-template-columns: minmax(0, 1fr); } .skel-col:nth-of-type(n + 2) { display: none; } }

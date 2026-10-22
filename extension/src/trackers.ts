@@ -21,6 +21,7 @@ import { inProcessWords } from './logic/processes.ts';
 import { credWho, signedInWho } from './logic/sign-in-name.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
+import { readBoardCache, writeBoardCache } from './logic/board-cache.ts';
 import { stateOf } from './logic/shared.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
@@ -215,6 +216,8 @@ export class Trackers implements vscode.Disposable {
 
   boardStates(root: string): BoardState[] {
     const p = this.hub.project(root);
+    // A fresh window draws each tracker's last board at once, refreshing, and never another tracker's place first.
+    if (p && !this.boards.has(root) && this.trackers(p).length) this.seed(p);
     return (this.boards.get(root) ?? []).map((s) => {
       const t = p ? this.trackers(p)[s.index] : undefined;
       return {
@@ -280,6 +283,26 @@ export class Trackers implements vscode.Disposable {
     return t.kind === 'github' ? null : { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index }) };
   }
 
+  /**
+   * A project's boards before their first load in this window: each tracker's last board from the repo's cache,
+   * or none yet, all loading. Nothing is asked of a tracker here, and nothing fires: the caller is drawing.
+   */
+  private seed(p: Project): Loaded[] {
+    const list = this.trackers(p);
+    let cached: ReturnType<typeof readBoardCache> = [];
+    try {
+      cached = readBoardCache(stateOf(p), list);
+    } catch (e) {
+      this.log.warn(`[trackers] couldn't read the last boards: ${(e as Error).message}`);
+    }
+    const states: Loaded[] = list.map((t, index) => ({
+      index, kind: t.kind, title: this.title(t), place: cached[index]?.board.place ?? this.place(t), left: [], board: cached[index]?.board ?? null,
+      error: null, connect: null, loading: true, signedInAs: null, signInScope: null, me: cached[index]?.me ?? null, off: null,
+    }));
+    this.boards.set(p.root, states);
+    return states;
+  }
+
   /** Loads every board, or just one project's. Boards load side by side; each shows its own error. */
   async loadBoards(root?: string): Promise<void> {
     const projects = this.hub.projects.filter((p) => !root || p.root === root);
@@ -292,7 +315,7 @@ export class Trackers implements vscode.Disposable {
         this.emitter.fire(p.root);
         return;
       }
-      const prev = this.boards.get(p.root) ?? [];
+      const prev = this.boards.get(p.root) ?? this.seed(p);
       const states: Loaded[] = await Promise.all(list.map(async (t, index) => {
         const as = await this.signedInFor(p, index);
         return {
@@ -328,6 +351,12 @@ export class Trackers implements vscode.Disposable {
           s.loading = false;
         }
       }));
+      // The boards that loaded are kept in the repo's state folder for the next window; one that failed keeps its last.
+      try {
+        writeBoardCache(stateOf(p), list, states.map((s) => (s.board && !s.error ? { board: s.board, me: s.me ?? null } : null)), new Date());
+      } catch (e) {
+        this.log.warn(`[trackers] couldn't keep the boards: ${(e as Error).message}`);
+      }
       this.forgetTracking();
       this.emitter.fire(p.root);
     }));
