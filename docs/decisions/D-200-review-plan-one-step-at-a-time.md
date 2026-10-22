@@ -1,4 +1,4 @@
-## D-T-109 Review plan: a plan's choices and questions one at a time, in a sheet, as Claude Code asks its own (2026-10-22)
+## D-200 Review plan: a plan's choices and questions one at a time, in a sheet, as Claude Code asks its own (2026-10-22)
 
 T-109. A plan (D-192, D-195) showed every choice, every question, every option's pros, cons, risks and files,
 the versions and the requirements at once on the ticket page. The person found it far too much at once, and
