@@ -1397,6 +1397,17 @@
             ]
           },
           {
+            "id": "B10.required-check",
+            "title": "GitHub requires the checks autopilot waits for",
+            "description": "Autopilot merges a pull request only once the checks the project names pass on GitHub. When GitHub requires them too, a person merging on GitHub waits for them as well. The Command Center never changes this setting: the fix is a command you run.\n\n[Check](command:acc.step.check?%5B%22B10.required-check%22%5D)\n[Do it](command:acc.step.fix?%5B%22B10.required-check%22%5D)",
+            "media": {
+              "markdown": "media/steps/B10.required-check.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B10.required-check"
+            ]
+          },
+          {
             "id": "B10.readme",
             "title": "README names every environment",
             "description": "Anyone opening the repo sees which branch is which org, and how changes flow.\n\n[Check](command:acc.step.check?%5B%22B10.readme%22%5D)\n[Do it](command:acc.step.fix?%5B%22B10.readme%22%5D)",

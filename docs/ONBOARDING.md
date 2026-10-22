@@ -497,6 +497,17 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
   `.gitattributes` when it's missing. git then keeps the better of each floor.
   A floor a person relaxed is still a conflict, for a person. A project with
   no floors skips it.
+- [ ] **GitHub requires the checks autopilot waits for** (`B10.required-check`).
+  Autopilot merges a pull request only once each check `github.checks` names
+  has passed on GitHub (D-T-108). The step reads whether GitHub also requires
+  them before anything merges into the default environment's branch, through
+  branch protection or a ruleset. **Do it** runs the `gh api` command the check
+  gives, as the repo's account: it adds the checks to the branch's required
+  checks, or turns on protection that requires only them. Where protection is on
+  with no required checks, it says what to tick on GitHub instead, since
+  replacing it would drop its other rules. The Command Center never changes this
+  setting itself. A private repo on GitHub's free plan has no protection to set,
+  so the step skips there; autopilot waits for the checks all the same.
 - [ ] **README names every environment** (`B10.readme`). **Do it** runs
   `acc setup readme`, which writes the first two of these between markers in
   README.md and keeps them up to date; the rest are yours:
