@@ -25,6 +25,7 @@ export const CONFIG_WORDS: Record<ConfigKey, string> = {
   profile: 'its kind of project',
   'github.repo': 'its GitHub repository',
   'github.account': 'its GitHub account',
+  'github.checks': 'the GitHub checks autopilot waits for',
   'commitIdentity.name': 'the name on its commits',
   'commitIdentity.email': 'the email on its commits',
   'environments[].name': 'an environment\'s name',

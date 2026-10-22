@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
 import { root } from './support.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
@@ -153,15 +153,41 @@ test('every other check\'s floor is in the floors file, raised only by a clean w
   const { 'screenshots.a11y': _gone, ...without } = floors;
   assert.throws(() => runFloor(without, ['tasks']), /\.acc\/floors\.json has no floor for the screenshot run's a11y check \("screenshots\.a11y"\)/, 'a missing floor is an error, never a floor of nothing');
   const examined = { overlap: 999, clipped: 12, tab: 6, sideways: 10, overview: 9, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10 };
-  assert.deepEqual(raisedFloors(floors, examined), { ...floors, 'screenshots.clipped': { floor: 12 }, 'screenshots.a11y': { floor: 40 } }, 'the beaten ones rise; a lower count leaves its floor; the page checks are never stored');
-  assert.equal(raisedFloors(floors, { ...examined, clipped: 10, a11y: 10 }), null, 'an edge case: nothing beaten, nothing written');
+  assert.deepEqual(raisedFloors(floors, examined), { ...floors, 'screenshots.clipped': { floor: 11 }, 'screenshots.a11y': { floor: 39 } }, 'the beaten ones rise, stored 1% below; a lower count leaves its floor; the page checks are never stored');
+  assert.equal(raisedFloors(floors, { ...examined, clipped: 11, a11y: 10 }), null, 'an edge case: a count whose margin doesn\'t beat the floor writes nothing');
   // A person relaxed a11y to 8 (acc gate relax screenshots.a11y): the run reads that floor and passes at 9.
   const renders: Render[] = [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...judge(fine(), true, []), examined: { ...examined, overlap: 180, tab: 6, words: 600, overview: 10, a11y: 9 } } }];
   const relaxed = { ...floors, 'screenshots.a11y': { floor: 8, relaxed: { by: 'human:jordan', reason: 'a page went', at: '2026-10-22T09:00:00.000Z', was: 10 } } };
   assert.deepEqual(runFailures(renders, true, [], runFloor(floors, ['tasks']), [], []), ['The run examined 9 for a11y, below its floor of 10.']);
   assert.deepEqual(runFailures(renders, true, [], runFloor(relaxed, ['tasks']), [], []), [], 'relaxed, the lower count passes');
   const stored = JSON.parse(readFileSync(FLOORS_PATH, 'utf8')) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(stored).filter((k) => k.startsWith('screenshots.')).sort(), ['a11y', 'actions', 'buttons', 'clipped', 'covered', 'overview', 'raw', 'sideways'].map((c) => `screenshots.${c}`), 'the repo keeps each, and none for a page check');
+  assert.deepEqual(Object.keys(stored).filter((k) => k.startsWith('screenshots.') && !k.startsWith('screenshots.ci.')).sort(), ['a11y', 'actions', 'buttons', 'clipped', 'covered', 'overview', 'raw', 'sideways'].map((c) => `screenshots.${c}`), 'the repo keeps each, and none for a page check');
+});
+
+test('a raised floor is stored about 1% below the clean run\'s count, so a later run 0.2% under that count passes and one 2% under fails; edge case: a count of 0 stores 0 (T-108)', () => {
+  assert.equal(FLOOR_MARGIN_PERCENT, 1);
+  assert.deepEqual([storedFloor(100000), storedFloor(445830), storedFloor(99), storedFloor(0)], [99000, 441371, 98, 0], 'rounded down');
+  const floors: Record<string, { floor: number }> = Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions'].map((c) => [floorName(c as never), { floor: 10 }]));
+  const examined = { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 100000, actions: 10 };
+  const raised = raisedFloors(floors, examined);
+  assert.deepEqual(raised?.[floorName('a11y')], { floor: 99000 });
+  const floor = runFloor(raised!, ['tasks']);
+  const run = (a11y: number): Render[] => [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...judge(fine(), true, []), examined: { ...examined, a11y } } }];
+  // The clean run counted 100000 and stored 99000: a later run 0.2% under that count passes, one 2% under fails.
+  assert.deepEqual(runFailures(run(99800), true, [], floor, [], []), [], '0.2% under passes');
+  assert.deepEqual(runFailures(run(98000), true, [], floor, [], []), ['The run examined 98000 for a11y, below its floor of 99000.'], '2% under fails');
+});
+
+test('a CI run is held to its own floor where it has one, else the Mac\'s, and raises only its own; edge case: a Mac run never reads or raises a CI floor (T-108)', () => {
+  const floors: Record<string, { floor: number }> = { ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions'].map((c) => [floorName(c as never), { floor: 10 }])), [ciFloorName('clipped')]: { floor: 7 } };
+  assert.equal(ciFloorName('a11y'), 'screenshots.ci.a11y');
+  assert.deepEqual([runFloor(floors, ['tasks'], true).clipped, runFloor(floors, ['tasks'], true).a11y], [7, 10], 'its own floor for clipped; the Mac\'s for a check with none');
+  assert.equal(runFloor(floors, ['tasks'], false).clipped, 10, 'the Mac\'s run reads the Mac\'s floor');
+  const examined = { overlap: 999, clipped: 9, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10 };
+  assert.deepEqual(raisedFloors(floors, examined, true), { ...floors, [ciFloorName('clipped')]: { floor: 8 } }, 'its own clipped floor rises; the Mac\'s a11y floor stays, and no CI floor is made for it');
+  assert.deepEqual(raisedFloors(floors, { ...examined, clipped: 12 }, false), { ...floors, [floorName('clipped')]: { floor: 11 }, [floorName('a11y')]: { floor: 39 } }, 'a Mac run leaves the CI floor as it is');
+  assert.equal(raisedFloors(floors, { ...examined, clipped: 7 }, true), null, 'nothing beaten, nothing written');
+  assert.deepEqual([isCiRun({ [CI_FLOORS_ENV]: '1' }), isCiRun({}), isCiRun({ CI: 'true' })], [true, false, false], 'only the workflow\'s own setting makes a CI run');
 });
 
 test('a page measures its geometry only when the run asks, and the run reads it from the dumped page (GH-105)', () => {

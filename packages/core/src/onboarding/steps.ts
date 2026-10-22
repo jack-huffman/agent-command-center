@@ -22,6 +22,7 @@ import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
 import { CLOUD_STEPS } from './cloud-steps.ts';
 import { TOOL_STEPS } from './tool-steps.ts';
 import { MERGE_STEPS } from './merge-steps.ts';
+import { CI_STEPS } from './ci-steps.ts';
 
 const DOCS = 'docs/ONBOARDING.md';
 const GH_SIGN_IN = '"Do it" opens VSCode\'s GitHub sign-in: pick this repo\'s account, or add it, and gh gets that login, with access to GitHub Projects for the board. gh\'s active account stays as it was. In a terminal: gh auth login.';
@@ -714,6 +715,8 @@ export const STEPS: Step[] = [
   },
   // The floors file's merge driver (T-102): in its own file, registered here.
   ...MERGE_STEPS,
+  // The checks autopilot waits for, required on GitHub (T-108): in its own file, registered here.
+  ...CI_STEPS,
   {
     id: 'B10.readme', part: 'project', group: 'B10', title: 'README names every environment',
     why: 'Anyone opening the repo sees which branch is which org, and how changes flow.',

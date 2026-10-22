@@ -189,6 +189,24 @@ test('no checks at all count only where the base requires none, 2 minutes after 
   assert.deepEqual(calls.filter((c) => c.startsWith('gh pr checks')), ['gh pr checks 42 -R acme/tool --required --json name,bucket,link,workflow,state']);
 });
 
+test('a check the project names (T-108): pending or missing waits, failed needs you, passed merges; no checks reported at all waits however long since the land', () => {
+  const s = setup();
+  const config: Config = { ...s.config, github: { ...s.config.github!, checks: ['check'] } };
+  const named = (checks: unknown[]) => github(s.sha, { checks });
+  held(s, named([check('test', 'pass'), check('check', 'pending')]), 'merge-waits', /^Checks are still running on GitHub: check\.$/, config);
+  held(s, named([check('test', 'pass'), check('check', 'fail')]), 'merge', /^Checks failed on GitHub: check\.$/, config);
+  held(s, named([check('test', 'pass')]), 'merge-waits', /^GitHub reports nothing yet for the "check" check on pull request #42: autopilot waits for it to pass\.$/, config);
+  // Edge case: no checks reported at all, landed an hour ago, past the 2 minutes that count none as passed without a named check.
+  held(s, github(s.sha, { more: { 'gh pr checks': NO_CHECKS } }), 'merge-waits', /^GitHub reports nothing yet for the "check" check on pull request #42/, config);
+  // Edge case: the base requires another check, and not the named one: it's read from every check on the commit.
+  const required = { 'gh pr checks 42 -R acme/tool --required': ok(JSON.stringify([check('test', 'pass')])) };
+  held(s, github(s.sha, { checks: [check('test', 'pass'), check('check', 'pending')], more: required }), 'merge-waits', /^Checks are still running on GitHub: check\.$/, config);
+  held(s, github(s.sha, { checks: [check('test', 'pass')], more: required }), 'merge-waits', /^GitHub reports nothing yet for the "check" check/, config);
+  const calls: string[] = [];
+  mergePr(s.paths, config, 'T-1', deps(calls, github(s.sha, { checks: [check('test', 'pass'), check('check', 'pass')], more: required })), by);
+  assert.equal(merges(calls).length, 1, 'the named check passed: it merges');
+});
+
 test('GitHub\'s own word: conflicting, blocked or a draft needs you; still working it out, or behind, waits (GH-67)', () => {
   const s = setup();
   const pr = (p: Record<string, unknown>) => github(s.sha, { pr: p });

@@ -699,7 +699,7 @@ test('the next step for a running task: working, stopped, or stopped again', () 
 // ---------------------------------------------------------------- checks that failed on GitHub (D-076)
 
 const failing = (sha = HEAD, ...names: string[]): NonNullable<TaskFacts['checks']> => ({
-  sha, required: true, pending: [], cancelled: [], count: names.length || 1,
+  sha, required: true, pending: [], cancelled: [], missing: [], count: names.length || 1,
   failed: (names.length ? names : ['build']).map((n) => ({ name: n, workflow: 'CI', link: `https://github.com/acme/tool/actions/runs/1/job/${n.length}`, job: { repo: 'acme/tool', id: String(n.length) } })),
 });
 const landedAt = (extra: Record<string, unknown> = {}) => ledgerOf({ id: 'T-1', state: 'review', pr: pr({ sha: HEAD, ...extra }) });
@@ -951,7 +951,7 @@ const MERGE_CONFIG = parseConfig({
   ...GENERIC_CONFIG, autonomy: 'review', agents: { max: 2 }, autopilot: { autoMerge: true },
   environments: [{ name: 'main', default: true }, { name: 'release', protected: true }],
 }).config as Config;
-const green = (sha = HEAD, more: Partial<NonNullable<TaskFacts['checks']>> = {}): NonNullable<TaskFacts['checks']> => ({ sha, required: true, pending: [], failed: [], cancelled: [], count: 1, ...more });
+const green = (sha = HEAD, more: Partial<NonNullable<TaskFacts['checks']>> = {}): NonNullable<TaskFacts['checks']> => ({ sha, required: true, pending: [], failed: [], cancelled: [], missing: [], count: 1, ...more });
 const mergeable = (f: Partial<TaskFacts> = {}) => passed({ checks: green(), ...f });
 const decideMerge = (l: Ledger, f: TaskFacts, config = MERGE_CONFIG) => nextStep(l, config, l.tasks[0]!, f);
 
@@ -1001,6 +1001,11 @@ test('auto-merge: what keeps a pull request out of the merge queue, what holds i
   assert.deepEqual(decideMerge(conflicting, mergeable({ checks: green(HEAD, { count: 0, required: false }), noChecksYet: true })), { step: null, outcome: 'waiting', reason: 'Pull request #7 passed its review and its checks on aaaaaaa: it joins the merge queue.', queue: 'in' });
   assert.equal(decideMerge(conflicting, mergeable({ checks: green(HEAD, { count: 0, required: true }) })).queue, 'in');
   assert.equal(decideMerge(conflicting, mergeable({ checks: green(HEAD, { pending: ['e2e'] }) })).queue, 'hold', 'checks GitHub did start still settle first');
+  // A check the project names that GitHub reports nothing for holds its place, however long since the land (T-108);
+  // one that conflicts joins, and its turn's merge waits for it once its base is merged in.
+  assert.deepEqual(why(mergeable({ checks: green(HEAD, { missing: ['check'] }) })), [null, 'waiting', 'GitHub reports nothing yet for the "check" check on pull request #7: autopilot waits for it to pass before it merges.', 'hold']);
+  assert.equal(decideMerge(l, mergeable({ checks: green(HEAD, { count: 0, required: false, missing: ['check'] }) })).checks, true, 'edge case: no checks at all, past the grace, still waits for a named one');
+  assert.equal(decideMerge(conflicting, mergeable({ checks: green(HEAD, { count: 0, required: false, missing: ['check'] }) })).queue, 'in');
   // Anything waiting on a person makes it leave.
   const logless = green(HEAD, { failed: [{ name: 'ci/jenkins', workflow: '', link: 'https://jenkins.acme.example/job/1', job: null }] });
   const noLog = why(mergeable({ checks: logless }));

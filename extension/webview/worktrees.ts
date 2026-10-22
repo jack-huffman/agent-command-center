@@ -17,7 +17,7 @@ export function renderWorktrees(m: WorktreesModel): Node[] {
       const branch = work(el('td', 'clip name strong', icon(w.main ? 'repo' : 'git-branch'), w.branch), 'branch');
       branch.title = w.branch;
       const row = el('tr', w.state.tone === 'orange' ? 'attention' : '',
-        branch, titled(el('td', w.main ? 'place' : 'place mono', w.place), w.fullPath), el('td', 'nowrap', status(w.state)), el('td', 'actions', menuButton(w.branch)));
+        branch, titled(el('td', w.main ? 'place' : 'place mono', w.place), w.fullPath), el('td', 'state', status(w.state)), el('td', 'actions', menuButton(w.branch)));
       body.append(withMenu(row, 'worktree', { project: p.root, worktree: w.path }, { worktreeLinked: !w.main }));
     }
     table.append(body);

@@ -1,0 +1,102 @@
+# The full check and the screenshot run on every pull request into main, and on main (D-T-108). Autopilot
+# merges a pull request only once this job, "check", passed on its latest commit (github.checks in
+# .acc/config.json). It needs no secrets, and never pushes: a CI floor it raises is printed for a person.
+name: check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Linux: the repo is private, and its minutes cost a tenth of macOS's.
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      # Every commit: some of the repo's own tests read its history.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # The Node version package.json's engines names, and npm's cache by the lockfile.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      # The fonts the pages ask for that the runner lacks: SF (-apple-system) has no Linux build, so Inter
+      # stands in; Menlo is DejaVu Sans Mono's metrics, so DejaVu stands in exactly.
+      - name: Fonts
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends fonts-inter fonts-dejavu-core fonts-noto-color-emoji fontconfig
+          mkdir -p ~/.config/fontconfig
+          cp .github/fontconfig.conf ~/.config/fontconfig/fonts.conf
+          fc-cache -f
+          fc-match -- '-apple-system'
+          fc-match Menlo
+
+      # Tests make throwaway repos and commit in them; the runner has no git identity of its own.
+      - name: Git identity
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.invalid"
+          git config --global init.defaultBranch main
+
+      - run: npm ci
+
+      # The pinned headless shell, cached by its pin.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/acc/chrome-headless-shell
+          key: chrome-headless-shell-${{ runner.os }}-${{ hashFiles('extension/scripts/browser.json') }}
+      - name: Headless shell
+        run: npm run browser
+
+      # Chrome's sandbox needs unprivileged user namespaces, which AppArmor on ubuntu-24.04 refuses, so the
+      # shell died at start (SIGTRAP) on every drawing. This lets the sandbox start; the sandbox is never turned off.
+      # A library the shell can't find is named here, before the run, rather than as a crash in it.
+      - name: Let Chrome's sandbox start
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          shell=$(ls ~/.cache/acc/chrome-headless-shell/*/chrome-headless-shell-linux64/chrome-headless-shell)
+          missing=$(ldd "$shell" | grep 'not found' || true)
+          if [ -n "$missing" ]; then echo "The headless shell lacks these libraries:"; echo "$missing"; exit 1; fi
+
+      - name: Full check
+        run: |
+          mkdir -p "$RUNNER_TEMP/acc-ci"
+          set -o pipefail
+          npm run check 2>&1 | tee "$RUNNER_TEMP/acc-ci/check.log"
+
+      - name: Screenshot run
+        env:
+          ACC_CI_FLOORS: '1'
+        run: |
+          set -o pipefail
+          npm run screenshot 2>&1 | tee "$RUNNER_TEMP/acc-ci/screenshot.log"
+
+      # What ran and what was skipped, as the run's summary; a skip CI_SKIPS doesn't name fails it.
+      - name: Summary
+        if: always()
+        run: node --no-warnings scripts/ci-run.ts "$RUNNER_TEMP/acc-ci/check.log" "$RUNNER_TEMP/acc-ci/screenshot.log"
+
+      - name: Keep the shots and logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: check-${{ github.run_id }}
+          path: |
+            dist/screenshots/
+            ${{ runner.temp }}/acc-ci/
+          retention-days: 7
+          if-no-files-found: ignore

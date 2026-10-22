@@ -311,6 +311,15 @@ export function pageFloors(pages: readonly Page[] = PAGES): Record<(typeof PAGE_
 
 /** Where the floors file keeps the floor of a check that doesn't follow the pages: `screenshots.a11y`. */
 export const floorName = (c: Check): string => `screenshots.${c}`;
+/**
+ * The CI run's own floor of a check (T-108), beside the Mac's: `screenshots.ci.a11y`. GitHub's Linux runner
+ * draws with other fonts, so a count can differ from the Mac's; where one can't match, a person adds its CI
+ * floor, and only a clean CI run raises it. The Mac's run never reads or raises one.
+ */
+export const ciFloorName = (c: Check): string => `screenshots.ci.${c}`;
+/** What the CI workflow sets for a run held to the CI floors, where it has them (T-108). */
+export const CI_FLOORS_ENV = 'ACC_CI_FLOORS';
+export const isCiRun = (env: NodeJS.ProcessEnv = process.env): boolean => env[CI_FLOORS_ENV] === '1';
 /** The project's floors file, which the run reads and raises. */
 export const FLOORS_PATH = join(import.meta.dirname, '..', '..', FLOORS_FILE);
 
@@ -319,27 +328,40 @@ export const FLOORS_PATH = join(import.meta.dirname, '..', '..', FLOORS_FILE);
  * floors are pageFloors; each other check's is its floor in the floors file, which only goes up: a run
  * below one has stopped looking. A check with no floor there is an error, never a floor of nothing.
  */
-export function runFloor(floors: Floors = readFloors(FLOORS_PATH), pages: readonly Page[] = PAGES): Record<Check, number> {
+export function runFloor(floors: Floors = readFloors(FLOORS_PATH), pages: readonly Page[] = PAGES, ci = isCiRun()): Record<Check, number> {
   const derived: Partial<Record<Check, number>> = pageFloors(pages);
   return Object.fromEntries(CHECKS.map((c) => {
     if (derived[c] !== undefined) return [c, derived[c]];
-    const v = valueOf(floors[floorName(c)], 'floor');
+    // A CI run is held to its own floor where it has one, else to the Mac's (T-108).
+    const v = (ci ? valueOf(floors[ciFloorName(c)], 'floor') : null) ?? valueOf(floors[floorName(c)], 'floor');
     if (v === null) throw new Error(`${FLOORS_FILE} has no floor for the screenshot run's ${c} check ("${floorName(c)}").`);
     return [c, v];
   })) as Record<Check, number>;
 }
 
 /**
- * The floors file with each stored check raised to what a clean whole run examined, where that beats it:
- * only ever up, as the tests ratchet's is (GH-99). Null when none rose. Merged by the floors driver (T-102).
+ * How far below a clean run's count a raised floor is stored, in hundredths (T-108): counts vary by a few
+ * between runs of one commit, so a floor at one run's exact count fails the next. A page that loses real
+ * content still falls more than this below it.
  */
-export function raisedFloors(floors: Floors, examined: Record<Check, number>): Floors | null {
+export const FLOOR_MARGIN_PERCENT = 1;
+/** The floor a clean run's count stores: about 1% below it, rounded down (T-108). */
+export const storedFloor = (examined: number): number => Math.floor((examined * (100 - FLOOR_MARGIN_PERCENT)) / 100);
+
+/**
+ * The floors file with each stored check raised to storedFloor() of what a clean whole run examined, where
+ * that beats it: only ever up, as the tests ratchet's is (GH-99). Null when none rose. Merged by the floors
+ * driver (T-102). A CI run raises only the CI floors it has, never the Mac's, nor makes one (T-108).
+ */
+export function raisedFloors(floors: Floors, examined: Record<Check, number>, ci = isCiRun()): Floors | null {
   const out: Floors = { ...floors };
   let raised = false;
   for (const c of CHECKS) {
     if ((PAGE_CHECKS as readonly Check[]).includes(c)) continue;
-    const v = valueOf(floors[floorName(c)], 'floor');
-    if (v !== null && examined[c] > v) [out[floorName(c)], raised] = [{ floor: examined[c] }, true];
+    const name = ci ? ciFloorName(c) : floorName(c);
+    const v = valueOf(floors[name], 'floor');
+    const next = storedFloor(examined[c]);
+    if (v !== null && next > v) [out[name], raised] = [{ floor: next }, true];
   }
   return raised ? out : null;
 }

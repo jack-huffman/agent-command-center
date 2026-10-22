@@ -152,6 +152,10 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid td.actions { text-align: right; white-space: nowrap; width: 1%; }
 .grid td.actions .btn + .btn { margin-left: 4px; }
 .grid .nowrap { white-space: nowrap; }
+/* A state cell wraps when there's no room, so a narrow table fits its frame: a table wider than its frame
+   scrolls under the sticky actions, which then cover the state's words (T-108, Linux's wider fonts at 500px). */
+.grid td.state .status { white-space: normal; min-width: 9em; }
+.grid td.state .status .codicon { align-self: flex-start; margin-top: 2px; }
 .grid th.wide { width: 100%; }
 .grid td.clip { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grid td.place { overflow-wrap: break-word; }
@@ -171,6 +175,9 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid tr.none:hover td { background: none; }
 .grid .status { vertical-align: middle; }
 .grid td.clip.name { max-width: 18em; }
+/* A narrow tab: the branch gives the state room on its line (its full name is on hover), and the state wraps
+   only when even that isn't enough. */
+@media (max-width: 560px) { .grid td.clip.name { max-width: 12em; } }
 
 /* The row menu: a quiet icon button, like VSCode's own list actions. It sticks to the right edge, so a
    narrow tab scrolls the table under it rather than hiding it. Opaque, so text never shows through. */

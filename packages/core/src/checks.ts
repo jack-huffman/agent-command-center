@@ -61,6 +61,11 @@ export interface CheckRead {
   cancelled: string[];
   /** How many checks counted, so none reported reads apart from all passed. */
   count: number;
+  /**
+   * The checks the project names (`github.checks`, T-108) that GitHub reports nothing for on the commit yet,
+   * such as a workflow that hasn't started. Not a pass: autopilot waits for each.
+   */
+  missing: string[];
 }
 
 const short = (sha: string): string => sha.slice(0, 7) || 'no commit';
@@ -98,8 +103,14 @@ function listOf(r: RunResult): GhCheck[] | null {
   }
 }
 
-/** The checks on a pull request's latest commit, and that commit. Only reads. */
-export function readChecks(run: Runner, repo: string, pr: number, env: NodeJS.ProcessEnv): CheckRead {
+/** Checks the project names, as a wait names them: the "check" check, the "check" and "lint" checks. */
+export const quotedChecks = (names: readonly string[]): string => `the ${names.map((n) => `"${n}"`).join(', ').replace(/, ([^,]*)$/, ' and $1')} check${names.length === 1 ? '' : 's'}`;
+
+/**
+ * The checks on a pull request's latest commit, and that commit. Only reads. Each check in named (T-108)
+ * counts even where the base requires others, and one GitHub reports nothing for is missing.
+ */
+export function readChecks(run: Runner, repo: string, pr: number, env: NodeJS.ProcessEnv, named: readonly string[] = []): CheckRead {
   const sha = headOf(run, repo, pr, env);
   const checks = (...more: string[]) => run('gh', ['pr', 'checks', String(pr), '-R', repo, ...more, '--json', 'name,bucket,link,workflow,state'], { env, timeoutMs: GH_TIMEOUT_MS });
   let required = true;
@@ -118,10 +129,18 @@ export function readChecks(run: Runner, repo: string, pr: number, env: NodeJS.Pr
   }
   if (!list) throw new AccError('checks', `gh couldn't read pull request #${pr}'s checks: ${firstSaid(r)}`);
   const name = (c: GhCheck) => c.name || c.workflow || 'a check';
+  // A named check the base doesn't require is read from every check on the commit, and counts all the same.
+  if (named.length && required && named.some((n) => !list!.some((c) => name(c) === n))) {
+    const all = checks();
+    const every = listOf(all) ?? (/no checks reported/i.test(said(all)) ? [] : null);
+    if (!every) throw new AccError('checks', `gh couldn't read pull request #${pr}'s checks: ${firstSaid(all)}`);
+    list = [...list, ...every.filter((c) => named.includes(name(c)) && !list!.some((l) => name(l) === name(c)))];
+  }
+  const missing = named.filter((n) => !list!.some((c) => name(c) === n));
   const failed = list.filter((c) => c.bucket === 'fail').map((c): FailedCheck => ({ name: name(c), workflow: c.workflow ?? '', link: c.link ?? '', job: actionsJob(c.link ?? '') }));
   const pending = list.filter((c) => c.bucket === 'pending').map(name);
   const cancelled = list.filter((c) => c.bucket === 'cancel').map(name);
-  return { sha, required, failed, pending, cancelled, count: list.length };
+  return { sha, required, failed, pending, cancelled, count: list.length, missing };
 }
 
 /** gh's "<job>\t<step>\t" before each line of a job's log, and the timestamp GitHub starts each with. */
