@@ -76,7 +76,7 @@ async function panelOpened(n: number): Promise<Tab> {
   return panel;
 }
 
-test('Make a plan for a task with no plan opens its conversation beside the page, at its question; again, the same panel comes forward with the quote', async () => {
+test('ConversationPanels: Make a plan for a task with no plan opens its conversation beside the page, at its question; again, the same panel comes forward with the quote', async () => {
   const page = await pageFor(s.id, 1400);
   const n = s.fake.panels.length;
   const from = s.fake.calls.executed.length;

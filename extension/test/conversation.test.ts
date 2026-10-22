@@ -178,6 +178,7 @@ let kept: unknown = { opened: [], drafts: {} };
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: unknown) => { kept = s; } });
 const { renderConversationPage } = await import('../webview/conversation.ts');
 const { renderAnalysis } = await import('../webview/analysis.ts');
+const { conversationLine, focusTalk, renderConversation } = await import('../webview/talk.ts');
 const { renderTicket } = await import('../webview/task-page.ts');
 const { state } = await import('../webview/state.ts');
 
@@ -245,4 +246,17 @@ test('the task page shows the conversation as one line with Open conversation, n
   // Nothing said: no line; the plan's Talk it through opens the panel instead.
   const quiet = { ...sampleTalkTicket(NOW), talk: { ...sampleTalkTicket(NOW).talk!, line: null } };
   assert.equal((renderAnalysis(quiet, quiet.analysis!) as unknown as PageElement).all('convo-line').length, 0);
+  assert.equal(conversationLine(quiet.project, quiet.talk), null);
+});
+
+test('edge case: a redraw of the panel leaves the cursor where the person put it, and focusTalk puts it back in the box', async () => {
+  const m = sampleConversationReady(NOW);
+  page.document.activeElement = page.document.body;
+  const again = renderConversation(m.project, m.talk!) as unknown as PageElement;
+  await drawn();
+  assert.notEqual(page.document.activeElement, again.all('talk-box')[0], 'a later draw takes no focus');
+  focusTalk();
+  const asked = renderConversation(m.project, m.talk!) as unknown as PageElement;
+  await drawn();
+  assert.equal(page.document.activeElement, asked.all('talk-box')[0]);
 });
