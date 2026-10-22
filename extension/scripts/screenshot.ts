@@ -857,8 +857,8 @@ async function main(argv: string[]): Promise<number> {
     writeFloors(FLOORS_PATH, raised);
     // The CI run never pushes (T-108): the CI floors it raised are named, for a person to commit.
     const rose = Object.entries(raised).filter(([k, v]) => v.floor !== before[k]?.floor).map(([k, v]) => `${k} ${v.floor}`);
-    if (isCiRun()) console.log(`Raised the CI's own screenshot floors to what this run examined: ${rose.join(', ')}. CI commits nothing: set them in ${FLOORS_FILE} to keep them.`);
-    else console.log(`Raised the screenshot floors in ${FLOORS_FILE} to what this run examined: commit it with the change.`);
+    if (isCiRun()) console.log(`Raised the CI's own screenshot floors to 1% below what this run examined: ${rose.join(', ')}. CI commits nothing: set them in ${FLOORS_FILE} to keep them.`);
+    else console.log(`Raised the screenshot floors in ${FLOORS_FILE} to 1% below what this run examined: commit it with the change.`);
   }
   return behaviour;
 }

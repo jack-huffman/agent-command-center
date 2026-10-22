@@ -59,6 +59,18 @@ makes `readFloors` refuse it), the floors driver merges them, and the
 screenshots check's guard on lowered floors covers them. None exists yet: no
 Linux run had happened when this was written.
 
+**Stored floors keep a margin.** Two runs of one commit counted a few apart
+(clipped 101904 and 101898; a11y 445830 and 445794), and T-102 stored each floor
+at one run's exact count, so main's own run fell below it. The person relaxed
+`screenshots.clipped` to 100900 and `screenshots.a11y` to 441400 on
+22 October and chose a margin: a clean run that raises a stored screenshot
+floor, the Mac's or the CI's, now stores it about 1% below its count, rounded
+down (`storedFloor` in `extension/scripts/geometry.ts`), and raises it only when
+that beats the floor. A later run a few under the clean count still passes; a
+page that loses real content, 2% or more, still fails. The run's own check is
+unchanged: it fails below the stored floor. The page checks' floors follow the
+pages, as before.
+
 **Tests that need the Mac.** `CI_SKIPS` in `scripts/ci-run.ts` names each test
 that skips itself on the runner, with why. A skip it doesn't name fails the
 run, and so does a named one that ran, a failed test, no tests, or a skip with

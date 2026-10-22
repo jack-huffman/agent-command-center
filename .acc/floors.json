@@ -3,7 +3,13 @@
     "floor": 2427
   },
   "screenshots.clipped": {
-    "floor": 101982
+    "floor": 100900,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "The screenshot run's counts vary by a few between runs of the same commit (101904,101898); T-102 stored the floor at one run's exact count. Relaxed about 1% below, as the person chose on 2026-10-22; T-108 makes stored screenshot floors keep that margin.",
+      "at": "2026-10-22T16:01:49.261Z",
+      "was": 101982
+    }
   },
   "screenshots.sideways": {
     "floor": 3776
@@ -21,7 +27,13 @@
     "floor": 492
   },
   "screenshots.a11y": {
-    "floor": 445876
+    "floor": 441400,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "The screenshot run's counts vary by a few between runs of the same commit (445830,445794); T-102 stored the floor at one run's exact count. Relaxed about 1% below, as the person chose on 2026-10-22; T-108 makes stored screenshot floors keep that margin.",
+      "at": "2026-10-22T16:01:49.485Z",
+      "was": 445876
+    }
   },
   "screenshots.actions": {
     "floor": 984

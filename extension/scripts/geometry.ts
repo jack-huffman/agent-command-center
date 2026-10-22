@@ -340,9 +340,18 @@ export function runFloor(floors: Floors = readFloors(FLOORS_PATH), pages: readon
 }
 
 /**
- * The floors file with each stored check raised to what a clean whole run examined, where that beats it:
- * only ever up, as the tests ratchet's is (GH-99). Null when none rose. Merged by the floors driver (T-102).
- * A CI run raises only the CI floors it has, never the Mac's, nor makes one (T-108).
+ * How far below a clean run's count a raised floor is stored, in hundredths (T-108): counts vary by a few
+ * between runs of one commit, so a floor at one run's exact count fails the next. A page that loses real
+ * content still falls more than this below it.
+ */
+export const FLOOR_MARGIN_PERCENT = 1;
+/** The floor a clean run's count stores: about 1% below it, rounded down (T-108). */
+export const storedFloor = (examined: number): number => Math.floor((examined * (100 - FLOOR_MARGIN_PERCENT)) / 100);
+
+/**
+ * The floors file with each stored check raised to storedFloor() of what a clean whole run examined, where
+ * that beats it: only ever up, as the tests ratchet's is (GH-99). Null when none rose. Merged by the floors
+ * driver (T-102). A CI run raises only the CI floors it has, never the Mac's, nor makes one (T-108).
  */
 export function raisedFloors(floors: Floors, examined: Record<Check, number>, ci = isCiRun()): Floors | null {
   const out: Floors = { ...floors };
@@ -351,7 +360,8 @@ export function raisedFloors(floors: Floors, examined: Record<Check, number>, ci
     if ((PAGE_CHECKS as readonly Check[]).includes(c)) continue;
     const name = ci ? ciFloorName(c) : floorName(c);
     const v = valueOf(floors[name], 'floor');
-    if (v !== null && examined[c] > v) [out[name], raised] = [{ floor: examined[c] }, true];
+    const next = storedFloor(examined[c]);
+    if (v !== null && next > v) [out[name], raised] = [{ floor: next }, true];
   }
   return raised ? out : null;
 }
