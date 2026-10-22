@@ -59,8 +59,8 @@ export function issueState(state: string | null | undefined, reason: string | nu
 }
 
 /**
- * GitHub's issue type colours (T-95), which it names, not writes as hex, as hex: the foreground colours its
- * light theme (Primer) draws them in.
+ * GitHub's issue type colours (T-95), which it names, not writes as hex, as hex: values chosen by hand to
+ * match the colours its light theme draws them in, not copied from GitHub.
  */
 export const GITHUB_TYPE_COLOUR: Record<string, string> = {
   GRAY: '59636e', BLUE: '0969da', GREEN: '1a7f37', YELLOW: '9a6700', ORANGE: 'bc4c00', RED: 'd1242f', PINK: 'bf3989', PURPLE: '8250df',
