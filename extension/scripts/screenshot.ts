@@ -711,8 +711,18 @@ export interface DrawPagesDeps {
   log: (line: string) => void;
 }
 
-/** What a run drew: each drawing's verdict, the shots noted, the drawings retried, and each that failed, all in the pages' order. */
-export interface DrawnPages { renders: Render[]; taken: Record<string, ShotNote>; retried: string[]; failures: string[] }
+/**
+ * What a run drew: each drawing's verdict, the shots noted, the drawings retried, and each that failed, all in
+ * the pages' order; cantStart when Chrome wrote no drawing at all, saying why in one line (T-108).
+ */
+export interface DrawnPages { renders: Render[]; taken: Record<string, ShotNote>; retried: string[]; failures: string[]; cantStart?: string }
+
+/** The line of Chrome's stderr that says why it stopped: its first FATAL or ERROR line, else its last line. */
+export function chromeSaid(stderr: string | undefined): string {
+  const lines = (stderr ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const why = lines.find((l) => /FATAL|ERROR/.test(l)) ?? lines.at(-1);
+  return why ? why.slice(0, 300) : 'Chrome printed nothing on stderr';
+}
 
 /** One drawing's outcome, held until those before it are printed. */
 interface Drawing { lines: string[]; retried: string[]; render?: Render; note?: [string, ShotNote]; failure?: string }
@@ -729,6 +739,8 @@ export const shotHeight = (view: Page, height: number | undefined): number => he
  */
 export async function drawPages(views: Page[], d: DrawPagesDeps): Promise<DrawnPages> {
   const result: DrawnPages = { renders: [], taken: d.taken ?? {}, retried: [], failures: [] };
+  // Set once any drawing is written; until then a drawing Chrome didn't write stops the whole run (T-108).
+  let wrote = false;
   const drawView = async (view: Page, slot: number): Promise<Drawing[]> => {
     const own = join(d.out, `.job-${slot}`);
     mkdirSync(own, { recursive: true });
@@ -740,6 +752,8 @@ export async function drawPages(views: Page[], d: DrawPagesDeps): Promise<DrawnP
       const model = sampleModel(view, d.now, theme);
       writeFileSync(page, pageFor(view, theme, model, other(theme), false, true, afterModel(view, d.now)));
       for (const width of d.widths) {
+        // Chrome can't start, as a sandbox it isn't let make can't: no drawing after would start either.
+        if (result.cantStart) return drawings;
         const name = `${view}-${theme}-${width}.png`;
         const png = join(d.out, name);
         const drawnAt = join(own, name);
@@ -757,7 +771,12 @@ export async function drawPages(views: Page[], d: DrawPagesDeps): Promise<DrawnP
         // A drawing that timed out is drawn once more, in this job, and the run says so (GH-167).
         const r = await drawRetried(() => d.draw(args), what, one.retried, (line) => one.lines.push(line));
         if (r.error) { one.failure = `Chrome didn't finish ${what} within ${shotTimeout() / 1000} s: ${r.error.message}`; continue; }
-        if (!existsSync(drawnAt)) { one.failure = `Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`; continue; }
+        if (!existsSync(drawnAt)) {
+          one.failure = `Chrome didn't write ${png} (exit ${r.status ?? r.signal}).`;
+          if (!wrote) result.cantStart ??= `Chrome couldn't start: ${what} exited ${r.status ?? r.signal} before any drawing was written, so the run stops. Chrome said: ${chromeSaid(r.stderr)}`;
+          continue;
+        }
+        wrote = true;
         renameSync(drawnAt, png);
         const shot = dumpedGeometry(r.stdout);
         if (!shot) { one.failure = `${what} measured no geometry (exit ${r.status ?? r.signal}).`; continue; }
@@ -852,6 +871,7 @@ async function main(argv: string[]): Promise<number> {
     // Noted even when Chrome stops partway, so the shots it did take count.
     noteShots(out, taken);
   }
+  if (drawn.cantStart) return fail(drawn.cantStart);
   const { renders, retried } = drawn;
   // A drawing that failed is named; the others were drawn all the same (T-58).
   if (drawn.failures.length) {

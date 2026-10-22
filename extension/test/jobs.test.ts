@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_JOBS, inOrder, jobsOption, pool, type Ran, runAsync, runJobs, splitJobs } from '../scripts/jobs.ts';
-import { drawPages, type DrawnPages, FONTS, PAGES, type Page, profileArg, sampleModel, shotHeight } from '../scripts/screenshot.ts';
+import { chromeSaid, drawPages, type DrawnPages, FONTS, PAGES, type Page, profileArg, sampleModel, shotHeight } from '../scripts/screenshot.ts';
 import { type BehaviourReport, behaviourCheck, CASES, MUTANTS } from '../scripts/behaviour.ts';
 import type { GeoSnapshot } from '../scripts/geometry.ts';
 import { pool as testPool, PoolError, tempDir } from '../../packages/core/test/support.ts';
@@ -141,6 +141,8 @@ test('when an item fails, this pool still runs every item, and the test support\
 test('runAsync gathers what a program prints, times out with ETIMEDOUT, and fails with no program there (T-58)', async () => {
   const printed = await runAsync(process.execPath, ['-e', 'process.stdout.write("drawn"); process.exit(3)'], 10_000);
   assert.deepEqual({ status: printed.status, stdout: printed.stdout, error: printed.error }, { status: 3, stdout: 'drawn', error: undefined });
+  const said = await runAsync(process.execPath, ['-e', 'process.stderr.write("no sandbox"); process.exit(5)'], 10_000);
+  assert.deepEqual({ stdout: said.stdout, stderr: said.stderr }, { stdout: '', stderr: 'no sandbox' }, 'what it says on stderr is kept apart (T-108)');
   const slow = await runAsync(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], 200);
   assert.equal((slow.error as NodeJS.ErrnoException | undefined)?.code, 'ETIMEDOUT');
   assert.equal(slow.signal, 'SIGTERM');
@@ -242,6 +244,30 @@ test('a Chrome that dies fails its own drawing only, named, and the other drawin
   assert.ok(!existsSync(join(r.out, 'settings-about-light-620.png')));
   assert.ok(existsSync(join(r.out, 'settings-about-light-500.png')), 'its job drew on after it');
   rmSync(join(r.out, '..'), { recursive: true, force: true });
+});
+
+test('a Chrome that can\'t start stops the run at its first drawings and says why in one line, from its stderr (T-108)', async () => {
+  const root = tempDir('acc-t108-');
+  const work = join(root, 'work');
+  const out = join(root, 'shots');
+  mkdirSync(work, { recursive: true });
+  mkdirSync(out, { recursive: true });
+  let calls = 0;
+  const stderr = '[1022/101500.1:WARNING:dbus.cc(12)] no bus\n[1022/101500.2:FATAL:zygote_host_impl_linux.cc(128)] No usable sandbox!\n';
+  const draw = async (): Promise<Ran> => { calls++; return { status: null, signal: 'SIGTRAP', stdout: '', stderr }; };
+  const drawn = await drawPages(['tasks', 'agents', 'settings-about'], { themes: ['dark', 'light'], widths: [1000, 620, 500], height: undefined, jobs: 3, work, out, now: Date.UTC(2026, 0, 1), print: null, browser: { name: 'chrome-headless-shell', version: '155.0.8059.84' }, draw, log: () => {} });
+  assert.equal(calls, 3, 'each job tried its first drawing, and none drew another');
+  assert.match(drawn.cantStart ?? '', /^Chrome couldn't start: \S+ \(dark, 1000px\) exited SIGTRAP before any drawing was written, so the run stops\. Chrome said: \[1022\/101500\.2:FATAL:zygote_host_impl_linux\.cc\(128\)\] No usable sandbox!$/);
+  assert.ok(!drawn.cantStart!.includes('\n'), 'one line');
+  rmSync(root, { recursive: true, force: true });
+});
+
+test('chromeSaid picks the FATAL or ERROR line, else the last line, and says so when stderr is empty (T-108)', () => {
+  assert.equal(chromeSaid('a\n[x:ERROR:y] broke\nlast\n'), '[x:ERROR:y] broke');
+  assert.equal(chromeSaid('first\n  last  \n\n'), 'last');
+  assert.equal(chromeSaid(''), 'Chrome printed nothing on stderr');
+  assert.equal(chromeSaid(undefined), 'Chrome printed nothing on stderr');
+  assert.equal(chromeSaid(`FATAL ${'x'.repeat(400)}`).length, 300);
 });
 
 test('a job\'s profile is its own folder under the run\'s work folder (T-58)', () => {

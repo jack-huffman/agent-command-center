@@ -63,7 +63,7 @@ test('the workflow is the check autopilot waits for: its job is the one the proj
   assert.match(yml, /^jobs:\n {2}check:\n/m, 'one job, named as the project names the check');
   assert.match(yml, /^on:\n {2}pull_request:\n {4}branches: \[main\]\n {2}push:\n {4}branches: \[main\]$/m);
   assert.match(yml, /runs-on: ubuntu-latest/);
-  const steps = ['node-version-file: package.json', 'npm ci', 'npm run browser', 'npm run check', 'ACC_CI_FLOORS: \'1\'', 'npm run screenshot', 'scripts/ci-run.ts'];
+  const steps = ['node-version-file: package.json', 'npm ci', 'npm run browser', 'kernel.apparmor_restrict_unprivileged_userns=0', 'npm run check', 'ACC_CI_FLOORS: \'1\'', 'npm run screenshot', 'scripts/ci-run.ts'];
   const at = steps.map((s) => yml.indexOf(s));
   assert.ok(at.every((i) => i > 0), `each step is there: ${steps.filter((_, i) => at[i]! < 0).join(', ')}`);
   assert.deepEqual([...at].sort((a, b) => a - b), at, 'in this order');
@@ -71,6 +71,8 @@ test('the workflow is the check autopilot waits for: its job is the one the proj
   assert.match(yml, /cache: npm/);
   assert.match(yml, /if: failure\(\)\n\s+uses: actions\/upload-artifact@[0-9a-f]{40} [^\n]*\n\s+with:\n[\s\S]*dist\/screenshots\/[\s\S]*retention-days: 7/);
   assert.match(yml, /^permissions:\n {2}contents: read$/m);
+  // Chrome's sandbox is let start on the runner, never turned off (T-108).
+  assert.doesNotMatch(yml, /no-sandbox/);
   assert.doesNotMatch(yml, /secrets\.|git push|contents: write/);
   const uses = [...yml.matchAll(/uses: ([^\s]+)/g)].map((m) => m[1]!);
   assert.ok(uses.length >= 4, 'counts what it checked');

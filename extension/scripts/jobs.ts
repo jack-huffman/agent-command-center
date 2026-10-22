@@ -91,7 +91,7 @@ export async function pool<T, R>(items: readonly T[], k: number, work: (item: T,
 }
 
 /** What a run of a program gave, as spawnSync gives it: error when it couldn't be run or didn't finish in time. */
-export interface Ran { status: number | null; signal: NodeJS.Signals | null; stdout: string; error?: Error }
+export interface Ran { status: number | null; signal: NodeJS.Signals | null; stdout: string; error?: Error; stderr?: string }
 
 /**
  * Runs a program without blocking, for at most timeout ms, gathering what it prints. When time runs out it
@@ -103,17 +103,21 @@ export function runAsync(cmd: string, args: string[], timeout: number): Promise<
   return new Promise((resolve) => {
     let finished = false;
     const done = (r: Ran): void => { if (!finished) { finished = true; clearTimeout(timer); resolve(r); } };
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'ignore'], detached: process.platform !== 'win32' });
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     track(child);
     const out: Buffer[] = [];
+    // What it says on stderr, so a Chrome that can't start says why (T-108); only the first 64 KB is kept.
+    const said: Buffer[] = [];
+    let saidBytes = 0;
     let error: Error | undefined;
     const timer = setTimeout(() => {
       error = Object.assign(new Error(`spawn ${cmd} ETIMEDOUT`), { code: 'ETIMEDOUT' });
       stop(child);
     }, timeout);
     child.stdout.on('data', (b: Buffer) => out.push(b));
+    child.stderr.on('data', (b: Buffer) => { if (saidBytes < 65536) { said.push(b); saidBytes += b.length; } });
     // It couldn't be started at all, such as a Chrome that isn't there: what close says after is ignored.
     child.on('error', (e) => done({ status: null, signal: null, stdout: '', error: error ?? e }));
-    child.on('close', (status, signal) => done({ status, signal, stdout: Buffer.concat(out).toString('utf8'), ...(error ? { error } : {}) }));
+    child.on('close', (status, signal) => done({ status, signal, stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(said).toString('utf8'), ...(error ? { error } : {}) }));
   });
 }

@@ -62,6 +62,16 @@ jobs:
       - name: Headless shell
         run: npm run browser
 
+      # Chrome's sandbox needs unprivileged user namespaces, which AppArmor on ubuntu-24.04 refuses, so the
+      # shell died at start (SIGTRAP) on every drawing. This lets the sandbox start; the sandbox is never turned off.
+      # A library the shell can't find is named here, before the run, rather than as a crash in it.
+      - name: Let Chrome's sandbox start
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          shell=$(ls ~/.cache/acc/chrome-headless-shell/*/chrome-headless-shell-linux64/chrome-headless-shell)
+          missing=$(ldd "$shell" | grep 'not found' || true)
+          if [ -n "$missing" ]; then echo "The headless shell lacks these libraries:"; echo "$missing"; exit 1; fi
+
       - name: Full check
         run: |
           mkdir -p "$RUNNER_TEMP/acc-ci"
