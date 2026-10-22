@@ -1,4 +1,4 @@
-## D-T-110 Make a plan reads the whole ticket: every comment, related tickets and the changes field, and says when new comments arrive (2026-10-22)
+## D-201 Make a plan reads the whole ticket: every comment, related tickets and the changes field, and says when new comments arrive (2026-10-22)
 
 T-110. A plan (D-052, D-192) read only the description the Command Center kept when the ticket was added. On a
 real client ticket the comments often hold the decisions ("Kelsey and Mike will send back the 77 contacts by
