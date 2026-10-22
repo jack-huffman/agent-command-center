@@ -74,7 +74,7 @@ import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
-import { CHECKS, COLLECT_GEOMETRY, examinedIn, type ExpectedButton, FLOORS_PATH, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, raisedFloors, type Render, runFailures } from './geometry.ts';
+import { CHECKS, COLLECT_GEOMETRY, examinedIn, type ExpectedButton, FLOORS_PATH, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, ciFloorName, isCiRun, judge, raisedFloors, type Render, runFailures } from './geometry.ts';
 import { FLOORS_FILE, readFloors, writeFloors } from '../../packages/core/src/ratchets.ts';
 import { drawRetried, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
@@ -839,6 +839,11 @@ async function main(argv: string[]): Promise<number> {
   const full = views.length === PAGES.length && themes.length === PALETTE_THEMES.length && values.width === WIDTHS.join(',');
   const failures = runFailures(renders, full);
   console.log(geometrySummary(renders) + retriedSummary(retried));
+  // A CI run says which floors it was held to, so none is changed without it showing (T-108).
+  if (isCiRun() && full) {
+    const own = CHECKS.filter((c) => readFloors(FLOORS_PATH)[ciFloorName(c)]);
+    console.log(`A CI run: held to its own floors for ${own.length ? own.join(', ') : 'no check'}, and to the Mac's for the rest.`);
+  }
   // A full run checks the modals' behaviour too (GH-170); a run of a few pages, themes or widths doesn't.
   const behaviour = full ? await behaviourRun(chrome, jobs) : 0;
   if (failures.length) {
@@ -846,10 +851,14 @@ async function main(argv: string[]): Promise<number> {
     return fail(`${failures.length} geometry finding${failures.length === 1 ? '' : 's'}. Fix each, or list it in GEOMETRY_EXCEPTIONS (extension/scripts/geometry.ts) with why. The shots are written all the same.`);
   }
   // A clean whole run raises the floors it beat, for the change to commit (T-102).
-  const raised = full ? raisedFloors(readFloors(FLOORS_PATH), examinedIn(renders)) : null;
+  const before = readFloors(FLOORS_PATH);
+  const raised = full ? raisedFloors(before, examinedIn(renders)) : null;
   if (raised) {
     writeFloors(FLOORS_PATH, raised);
-    console.log(`Raised the screenshot floors in ${FLOORS_FILE} to what this run examined: commit it with the change.`);
+    // The CI run never pushes (T-108): the CI floors it raised are named, for a person to commit.
+    const rose = Object.entries(raised).filter(([k, v]) => v.floor !== before[k]?.floor).map(([k, v]) => `${k} ${v.floor}`);
+    if (isCiRun()) console.log(`Raised the CI's own screenshot floors to what this run examined: ${rose.join(', ')}. CI commits nothing: set them in ${FLOORS_FILE} to keep them.`);
+    else console.log(`Raised the screenshot floors in ${FLOORS_FILE} to what this run examined: commit it with the change.`);
   }
   return behaviour;
 }
