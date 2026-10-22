@@ -14,6 +14,7 @@ import { rulesText } from './rules.ts';
 import { requirementWording, type WordingFinding } from './ste.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { approvedPlanLines, choiceName, lapse, nextVersion, planProblems } from './plan.ts';
+import { talkSection, versionTurn } from './plan-talk.ts';
 
 /**
  * The analysis (D-052): before a task is built, a read-only agent works out what it asks for, what's
@@ -86,6 +87,15 @@ export interface PlanApproval {
   at: string;
 }
 
+/** A person's note on the plan (T-98): a changed step, or something else the builder must know. */
+export interface PlanNote {
+  text: string;
+  by: string;
+  at: string;
+  /** The version it was written on. */
+  version: number;
+}
+
 export interface AnalysisFinding {
   /** What it's about: an object, a flow, a class, a module. */
   area: string;
@@ -146,6 +156,8 @@ export interface Analysis {
   approval?: PlanApproval;
   /** The last approval that no longer holds (T-97): a newer version came, or a choice or an answer changed after it. */
   lapsed?: PlanApproval;
+  /** A person's notes on the plan (T-98), kept from version to version. Older plans have none. */
+  notes?: PlanNote[];
   /** The versions before this one, oldest first, each as it was when the next replaced it (T-97). */
   earlier?: Analysis[];
 }
@@ -367,6 +379,8 @@ export interface AnalysisInput {
   orgs: { alias: string; name: string; type: string }[];
   rules: string | null;
   previous: Analysis | null;
+  /** What the person and the planning agent said about the plan, and the person's notes (T-98): plan-talk.ts's talkSection. */
+  talk?: string[];
 }
 
 export function analysisPrompt(i: AnalysisInput): { system: string; prompt: string } {
@@ -417,6 +431,8 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
       'Where a choice still applies, keep it as a decision with the same title, and keep the chosen option with the same name.',
       '',
     ] : []),
+    // A new version made from the conversation (T-98) reflects what was agreed in it.
+    ...(i.talk ?? []),
     ...(i.rules?.trim() ? ['## Rules', '', i.rules.trim(), ''] : []),
   ].join('\n');
   return { system, prompt };
@@ -509,9 +525,13 @@ export interface AnalyzeDeps {
 
 const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
 
-/** A scratch Salesforce project for retrieves, so nothing the analyst fetches lands in the repo. */
-function scratchProject(paths: RepoPaths, id: string): string {
+/**
+ * A scratch Salesforce project for retrieves, so nothing the analyst fetches lands in the repo. Made fresh for
+ * each plan; `keep` leaves one already there, as a talk resumes the plan's session in it (T-98).
+ */
+function scratchProject(paths: RepoPaths, id: string, keep = false): string {
   const dir = join(paths.analyses, `${fileId(id)}.work`);
+  if (keep && existsSync(join(dir, 'sfdx-project.json'))) return dir;
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, 'force-app'), { recursive: true });
   const project = join(paths.root, 'sfdx-project.json');
@@ -527,6 +547,32 @@ function scratchProject(paths: RepoPaths, id: string): string {
   }
   return dir;
 }
+
+/**
+ * Where the planning agent works: the repo, or on Salesforce its scratch project. Claude Code keeps a session
+ * under the folder it ran in, so a talk resumes the plan's session from the same one (`keep`, T-98).
+ */
+export const analystDir = (paths: RepoPaths, config: Config, id: string, keep = false): string => (config.profile === 'salesforce' ? scratchProject(paths, id, keep) : paths.root);
+
+/**
+ * The flags that keep the planning agent read-only (D-052): the reads it may run, the tools it's refused, and
+ * acc's hook on every command. A talk about the plan runs with the same (T-98).
+ */
+export function analystFlags(paths: RepoPaths, config: Config, cwd: string, accCommand?: string): string[] {
+  const allowed = [...ANALYST_COMMANDS.any, ...(config.profile === 'salesforce' ? ANALYST_COMMANDS.salesforce : [])].map((c) => `Bash(${c}:*)`);
+  // Belt and braces: the hook refuses anything but those reads, even if a pattern lets more through.
+  const settings = accCommand ? { hooks: { PreToolUse: [{ matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: `${accCommand} hook pre-tool-use` }] }] } } : null;
+  return [
+    ...(cwd !== paths.root ? ['--add-dir', paths.root] : []),
+    ...(settings ? ['--settings', JSON.stringify(settings)] : []),
+    '--allowedTools', 'Read', 'Grep', 'Glob', ...allowed,
+    '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
+  ];
+}
+
+/** The planning agent's environment: on Salesforce, sf's own, and its role, which acc's hook reads. */
+export const analystEnv = (config: Config, env: NodeJS.ProcessEnv, id: string): NodeJS.ProcessEnv =>
+  ({ ...(config.profile === 'salesforce' ? sfEnv(env) : env), ACC_ROLE: 'analyst', ACC_TASK: id });
 
 export function analyze(paths: RepoPaths, config: Config, id: string, deps: AnalyzeDeps, opts: { actor?: Actor; by?: string } = {}): Analysis {
   const { run, now } = deps;
@@ -546,12 +592,9 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const current = git(run, paths.root, 'branch', '--show-current').stdout.trim();
   const orgs = sf ? config.environments.filter((e) => e.org).map((e) => ({ alias: e.org!, name: e.name, type: e.type })) : [];
   const previous = readAnalysis(paths, id);
-  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: rulesText(paths.root, config.profile), previous });
+  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: rulesText(paths.root, config.profile), previous, talk: talkSection(paths, id, previous) });
 
-  const allowed = [...ANALYST_COMMANDS.any, ...(sf ? ANALYST_COMMANDS.salesforce : [])].map((c) => `Bash(${c}:*)`);
-  // Belt and braces: the hook refuses anything but those reads, even if a pattern lets more through.
-  const settings = deps.accCommand ? { hooks: { PreToolUse: [{ matcher: 'Bash|Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: `${deps.accCommand} hook pre-tool-use` }] }] } } : null;
-  const cwd = sf ? scratchProject(paths, id) : paths.root;
+  const cwd = analystDir(paths, config, id);
   steps.done('gather', orgs.length ? `The code and ${orgs.length} org(s)` : 'The code');
 
   const sessionId = (deps.uuid ?? randomUUID)();
@@ -569,11 +612,8 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
     out = run('claude', [
       '-p', '--session-id', sessionId, '--name', name, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
       '--output-format', 'json', '--json-schema', JSON.stringify(ANALYSIS_SCHEMA), '--append-system-prompt', system,
-      ...(cwd !== paths.root ? ['--add-dir', paths.root] : []),
-      ...(settings ? ['--settings', JSON.stringify(settings)] : []),
-      '--allowedTools', 'Read', 'Grep', 'Glob', ...allowed,
-      '--disallowedTools', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
-    ], { cwd, input: prompt, env: { ...(sf ? sfEnv(deps.env) : deps.env), ACC_ROLE: 'analyst', ACC_TASK: id }, timeoutMs: 45 * 60_000 });
+      ...analystFlags(paths, config, cwd, deps.accCommand),
+    ], { cwd, input: prompt, env: analystEnv(config, deps.env, id), timeoutMs: 45 * 60_000 });
   } finally {
     awake?.release();
     rmSync(marker, { force: true });
@@ -595,6 +635,8 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
     at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: parsed.costUsd,
   });
   writeAnalysis(paths, analysis);
+  // A version made after a talk about the plan says so in the conversation, with what changed (T-98).
+  versionTurn(paths, analysis, name);
   mutate(paths, now, (_l, emit) => {
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? `analyst:${id}`, data: { analyzed: { verdict: analysis.verdict, questions: analysis.questions.length, version: analysis.version, decisions: analysis.decisions?.length ?? 0 } } });
   });

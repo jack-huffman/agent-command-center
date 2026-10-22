@@ -56,6 +56,8 @@ export function nextVersion(previous: Analysis | null, fresh: Analysis): Analysi
   });
   const { earlier = [], ...kept } = previous;
   const next: Analysis = { ...fresh, version: planVersion(previous) + 1, decisions, earlier: [...earlier, kept] };
+  // A person's notes (T-98) stay theirs from version to version.
+  if (previous.notes?.length) next.notes = previous.notes;
   next.changes = planChanges(previous, next);
   const approval = previous.approval ?? previous.lapsed;
   if (approval) next.lapsed = approval;
@@ -142,6 +144,8 @@ export function approvedPlanLines(a: Analysis): string[] {
     'The design choices are the person\'s, not yours. If the work needs a different choice from one made here, or meets a design decision this plan doesn\'t cover, stop: run acc block with the question, and never decide it yourself.',
     '',
     ...(decisions.length ? ['**The choices**', '', ...decisions.map(choiceLine), ''] : []),
+    // A person's notes on the plan (T-98), such as a changed step, are theirs as the choices are.
+    ...(a.notes?.length ? ['**The person\'s notes on the plan**', '', ...a.notes.map((n) => `- ${n.text}`), ''] : []),
   ];
 }
 
