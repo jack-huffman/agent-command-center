@@ -5,7 +5,7 @@
   `docs/decisions/new-<task>-<slug>.md`, headed `## D-<task> <title> (<date>)`,
   and refer to it as `D-<task>` (such as D-T-97). The merge gives it the next
   free number and writes that over `D-<task>` in the branch's own lines
-  (`acc decisions number`, D-T-102). Never edit `docs/DECISIONS.md`: it is
+  (`acc decisions number`, D-197). Never edit `docs/DECISIONS.md`: it is
   generated (`acc decisions index`).
 - The plugin and extension must not depend on any skill outside this repo (D-002).
 - Research and supporting notes stay local: `docs/research/` is gitignored, and

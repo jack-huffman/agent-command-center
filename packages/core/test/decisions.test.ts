@@ -45,7 +45,7 @@ test('a slug is the title\'s words in lower case, cut at a word under 60 charact
 
 test('a heading gives the id, the title and the date; a heading with no date still reads', () => {
   assert.deepEqual(decisionHeading(D1), { id: 'D-001', title: 'Sums', date: '2026-10-01' });
-  assert.deepEqual(decisionHeading('## D-T-102 Merges (2026-10-22)\n'), { id: 'D-T-102', title: 'Merges', date: '2026-10-22' });
+  assert.deepEqual(decisionHeading('## D-197 Merges (2026-10-22)\n'), { id: 'D-197', title: 'Merges', date: '2026-10-22' });
   assert.deepEqual(decisionHeading('## D-002 Undated\n'), { id: 'D-002', title: 'Undated', date: null });
   assert.equal(decisionHeading('# Not one\n'), null);
 });

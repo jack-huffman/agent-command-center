@@ -1,4 +1,4 @@
-## D-T-102 Parallel work merges on its own: floors take the higher, pages and decisions are a line or a file each, numbered at merge (2026-10-22)
+## D-197 Parallel work merges on its own: floors take the higher, pages and decisions are a line or a file each, numbered at merge (2026-10-22)
 
 On 21 and 22 October nearly every merge of parallel work conflicted in the
 same few files, though no two tasks disagreed: each branch only added a line.
