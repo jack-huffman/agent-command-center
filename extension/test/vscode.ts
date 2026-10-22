@@ -59,7 +59,7 @@ export function fakeVscode(folder: string) {
    * Each editor tab: what it was sent, what it says back, and closing it. Hiding it tells its listeners, as
    * VSCode does when another tab covers it, and its HTML is what VSCode would rebuild it from.
    */
-  type Tab = { html: string; htmlSets: number; posted: unknown[]; visible: boolean; receive?: (m: unknown) => void; close?: () => void; views: ((e: unknown) => void)[]; hide(): void };
+  type Tab = { viewType: string; title: string; column: unknown; revealed: number; html: string; htmlSets: number; posted: unknown[]; visible: boolean; receive?: (m: unknown) => void; close?: () => void; views: ((e: unknown) => void)[]; hide(): void };
   const panels: Tab[] = [];
   /** VSCode's settings, by full name, and who listens for a change (GH-109). */
   const settings = new Map<string, unknown>();
@@ -121,9 +121,9 @@ export function fakeVscode(folder: string) {
         return { visible: false, onDidChangeVisibility: (l: (e: { visible: boolean }) => void) => { shown.push(l); return disposable; }, badge: undefined, dispose() {} };
       },
       showInputBox: async () => { calls.prompts++; return undefined; },
-      createWebviewPanel: () => {
+      createWebviewPanel: (viewType: string, title: string, column: unknown) => {
         const panel = {
-          get visible() { return rec.visible; }, iconPath: undefined, title: '', reveal() {}, dispose() {},
+          get visible() { return rec.visible; }, iconPath: undefined, title: '', reveal() { rec.revealed++; }, dispose() {},
           onDidChangeViewState: (l: (e: unknown) => void) => { rec.views.push(l); return disposable; }, onDidDispose: (l: () => void) => { rec.close = l; return disposable; },
           webview: {
             cspSource: 'vscode-resource:', asWebviewUri: (u: { toString(): string }) => u, options: {},
@@ -132,7 +132,7 @@ export function fakeVscode(folder: string) {
             onDidReceiveMessage: (l: (m: unknown) => void) => { rec.receive = l; return disposable; },
           },
         };
-        const rec: Tab = { html: '', htmlSets: 0, posted: [], visible: true, views: [], hide() { rec.visible = false; for (const l of rec.views) l({ webviewPanel: panel }); } };
+        const rec: Tab = { viewType, title, column, revealed: 0, html: '', htmlSets: 0, posted: [], visible: true, views: [], hide() { rec.visible = false; for (const l of rec.views) l({ webviewPanel: panel }); } };
         panels.push(rec);
         return panel;
       },

@@ -261,14 +261,14 @@ test('the summary: a line each, skipped ones marked, each a click back to its st
   assert.ok(buttons(sheet(), 'Close').length >= 1);
 });
 
-test('Discuss closes the sheet onto Talk it through, with the choice or question quoted', () => {
+test('Discuss closes the sheet and opens the conversation\'s panel (T-111), with the choice or question quoted', () => {
   const m = open();
   rp.goTo('d2');
+  page.sent.length = 0;
   buttons(sheet(), 'Discuss')[0]!.click();
   assert.equal(sheet().open, false, 'the sheet closes');
+  assert.deepEqual(page.sent, [{ type: 'conversation-open', project: '/Users/me/code/acme-service', task: 'ACME-21', about: { ref: 'd2', text: 'Which converted leads get roles' } }]);
   const memory = kept as { opened: string[]; drafts: Record<string, string> };
-  assert.ok(memory.opened.includes('talk:/Users/me/code/acme-service#ACME-21:open'), 'Talk it through opens');
-  assert.equal(memory.drafts['talk:/Users/me/code/acme-service#ACME-21:about'], 'd2\nWhich converted leads get roles');
   assert.equal(memory.opened.includes('review:/Users/me/code/acme-service#ACME-21:open'), false);
   // With no conversation to talk in, there's no Discuss.
   open(sampleTicket(NOW, 'ACME-21'));

@@ -392,16 +392,19 @@ function whoMoved(by: string): string {
 /** The width the page last told the extension (T-111), by task, so it says again only when it changes. */
 let toldWidth = '';
 
+/** Whether the page listens for its window's resizing yet: from its first drawn task on. */
+let listening = false;
+
 /** Tells the extension how wide a task's page is (T-111), so its conversation opens beside it, or as a tab when narrow. */
 function tellWidth(): void {
   const m = state.last;
   if (m?.kind !== 'ticket') return;
+  if (!listening) { listening = true; window.addEventListener('resize', tellWidth); }
   const said = `${m.project}#${m.key}:${window.innerWidth}`;
   if (said === toldWidth) return;
   toldWidth = said;
   api.postMessage({ type: 'page-width', project: m.project, task: m.key, width: window.innerWidth });
 }
-window.addEventListener('resize', tellWidth);
 
 export const area: PageArea = {
   views: { ticket: renderTicket },
