@@ -11,6 +11,7 @@ import type { Excerpt } from '../logic/review-excerpts.ts';
 import { durationWords } from './limits.ts';
 import { REVIEW_LOOK, type ReviewFinding, ticketReview } from './task-page.ts';
 import type { Action, Look } from './shared.ts';
+import { WORDS } from '../../webview/plain-words.ts';
 
 /** What the extension read of a review run's verdict once the run ended: the verdict and its findings' lines, or why there is none. */
 export type VerdictRead =
@@ -84,7 +85,7 @@ export type DockReview =
 export function reviewNext(project: string, task: string, verdict: Verdict['verdict']): Action {
   const ref = { project, task };
   return verdict === 'pass'
-    ? { command: 'acc.task.land', label: 'Land', icon: 'git-pull-request-create', ref, primary: true }
+    ? { command: 'acc.task.land', label: WORDS.sendToMerge, icon: 'git-pull-request-create', ref, primary: true }
     : { command: 'acc.task.dispatch', label: 'Send back to the builder', icon: 'reply', ref, primary: true };
 }
 

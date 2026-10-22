@@ -14,7 +14,7 @@ import { transcriptDir, transcriptFile } from './transcript.ts';
 export const NOT_STARTED = 'Its builder didn\'t start: Claude Code\'s background sessions aren\'t answering';
 
 /** The way on from a builder that didn't start, or one acc can't see that has gone quiet. */
-export const DISPATCH_AGAIN = 'Dispatch again';
+export const DISPATCH_AGAIN = 'Build it again';
 
 /** How long a dispatch waits for its builder to show it started, at most. */
 export const START_WAIT_MS = 60_000;
@@ -106,23 +106,23 @@ export function builderUnseen(task: Pick<Task, 'state' | 'run'>, o: { silentSinc
 /** What a person reads for each: a label, the line, and the way on, in process words (D-132): no command is named. */
 export const UNSEEN_WORDS: Record<Unseen, { label: string; line: string; wayOn: string }> = {
   unanswered: {
-    label: 'Needs you: acc can\'t see its builder',
-    line: 'Claude Code\'s background sessions aren\'t answering, so acc can\'t see this builder',
+    label: 'Needs you: the Command Center can\'t see its builder',
+    line: 'Claude Code\'s background sessions aren\'t answering, so the Command Center can\'t see this builder',
     wayOn: 'Open a terminal and check that Claude Code lists its background agents, or restart Claude Code.',
   },
   quiet: {
     label: 'Needs you: its builder has gone quiet',
     line: 'Claude Code\'s background sessions aren\'t answering, and this builder hasn\'t written to its conversation for longer than the quiet limit',
-    wayOn: 'Dispatch again: it starts a new builder with the same model, effort and place.',
+    wayOn: `${DISPATCH_AGAIN}: it starts a new builder with the same model, effort and place.`,
   },
   missing: {
     label: 'Needs you: Claude Code isn\'t found',
-    line: 'Claude Code isn\'t on this Mac\'s path, so acc can\'t see this builder',
+    line: 'Claude Code isn\'t on this Mac\'s path, so the Command Center can\'t see this builder',
     wayOn: 'Install Claude Code, or start VS Code from a terminal where Claude Code runs, then reload the window.',
   },
 };
 
-/** Why Dispatch again can't start a builder with no `claude` (T-93, T-94): the Command Center's words and acc's alike. */
+/** Why Build it again can't start a builder with no `claude` (T-93, T-94): the Command Center's words and acc's alike. */
 export const MISSING_WORDS = `${UNSEEN_WORDS.missing.line}, and ${DISPATCH_AGAIN} needs it to start another. ${UNSEEN_WORDS.missing.wayOn}`;
 
 /** Where acc keeps since when `claude agents` hasn't answered, so one look after another can tell how long. */

@@ -8,6 +8,7 @@ import type { Action } from '../src/model/shared.ts';
 import { el, icon, status, work } from './dom.ts';
 import { excerpt, place } from './review.ts';
 import { api, memory, remember } from './state.ts';
+import { explains } from './plain-words.ts';
 
 /** What the tab remembers a part of a run's review opened by. */
 export const openKey = (run: string, part: string): string => `dock-review:${run}:${part}`;
@@ -45,7 +46,7 @@ export function tick(): void {
 function next(a: Action): HTMLElement {
   const b = el('button', 'btn primary dr-next', icon(a.icon), el('span', 'dr-btn-text', a.label)) as HTMLButtonElement;
   b.type = 'button';
-  b.title = a.label;
+  b.title = explains(a.command, a.label);
   b.setAttribute('aria-label', a.label);
   b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));
   return b;

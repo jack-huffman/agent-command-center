@@ -62,7 +62,7 @@ test('an analysis that comes back says so once: ready, questions for you, or too
   assert.deepEqual(say(row(analysis('t1', 'ready')), row(analysis('t2', 'questions', 1))), [['analysis-questions', true, 'T-1\'s analysis has 1 question for you.']], 'analyzed again: news');
   assert.deepEqual(taskNotices([], [row(analysis('t1', 'questions', 2))]), [], 'first look: no news');
   assert.deepEqual(noticeActions({ kind: 'analysis-questions', task: 'T-1', text: '', urgent: true }), [['Answer', 'acc.task.show']], 'Answer is the page: no second Show');
-  assert.deepEqual(noticeActions({ kind: 'analysis-ready', task: 'T-1', text: '', urgent: false }), [['Dispatch', 'acc.task.dispatch'], ['Show', 'acc.task.show']]);
+  assert.deepEqual(noticeActions({ kind: 'analysis-ready', task: 'T-1', text: '', urgent: false }), [['Build it', 'acc.task.dispatch'], ['Show', 'acc.task.show']]);
   assert.deepEqual(noticeActions({ kind: 'analysis-split', task: 'T-1', text: '', urgent: true }), [['Show', 'acc.task.show']]);
 });
 

@@ -94,7 +94,7 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
   assert.equal(t1.jobs[0]!.since, '14 min');
   assert.equal(t1.jobs[1]!.detail, 'in heavy-check slot 1 of 2');
   assert.deepEqual([t1.look.label, t1.since, t1.title, t1.ref], ['Running', '14 min', 'Task T-1', { project: '/r', task: 'T-1' }]);
-  assert.deepEqual(brief(group(m, 'T-2')!.jobs), [['analysis', 'Analyzing', 'Analysis']]);
+  assert.deepEqual(brief(group(m, 'T-2')!.jobs), [['analysis', 'Making a plan', 'Plan']]);
   assert.deepEqual(brief(group(m, 'T-3')!.jobs), [['review', 'Reviewing', 'Review']]);
   assert.equal(group(m, 'T-3')!.jobs[0]!.detail, 'reading abcdef1');
   // The cloud review (T-86): its own look, how long, and Watch on claude.ai.
@@ -107,7 +107,7 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
   assert.equal(group(m, 'T-4')!.jobs[0]!.detail, '');
   assert.equal(group(m, 'T-4')!.jobs[0]!.meta, 'opus (its setting)', 'no answer yet: the model it was set to run, said so');
   assert.deepEqual(brief(group(m, 'T-5')!.jobs), [['autopilot', 'Reviewing it', 'Autopilot']], 'autopilot\'s review is one row, not two');
-  assert.deepEqual(brief(group(m, 'T-6')!.jobs), [['land', 'Landing', 'Land']]);
+  assert.deepEqual(brief(group(m, 'T-6')!.jobs), [['land', 'Sending to merge', 'Send to merge']]);
   assert.match(group(m, 'T-6')!.jobs[0]!.detail, /for jordan$/);
   assert.equal(group(m, 'T-7'), undefined, 'a task with nothing under way isn\'t listed');
   // Every state has words and an icon; only what waits on a person is orange.
@@ -193,7 +193,7 @@ test('a heavy-check slot\'s owner names its task, or its environment; one an old
   assert.deepEqual(brief(group(m, 'Deploy dev')!.jobs), [['check', '1st in line', 'Check: Deploy dev']], 'a deploy waiting for a slot has a group of its own');
   const slots = m.machine.find((c) => c.key === 'slots')!;
   assert.equal(slots.look.label, 'Heavy checks: 3 of 3 in use, none free, 2 waiting');
-  assert.deepEqual(slots.tip.split('\n'), ['Slot 1: check for T-1, 4 min', 'Slot 2: Validate dev → qa, 2 min', 'Slot 3: a check from an older acc', '1st in line: Deploy dev, 1 min', '2nd in line: check, under a minute']);
+  assert.deepEqual(slots.tip.split('\n'), ['Slot 1: check for T-1, 4 min', 'Slot 2: Validate dev → qa, 2 min', 'Slot 3: a check from an older Command Center', '1st in line: Deploy dev, 1 min', '2nd in line: check, under a minute']);
 });
 
 test('the machine line: heavy checks in use and free, builders of agents.max for each repo, and the load in words (D-092)', () => {

@@ -243,7 +243,7 @@ test('acc show: no answer past the grace shows the Needs you line, an answer aga
   writeFileSync(join(paths.stateDir, 'agents-silent.json'), JSON.stringify({ since: Date.now() - 5 * 60_000 }));
   const blind = acc(repo, ['show', 'T-1'], env);
   assert.match(blind.out, /T-1 {2}! Needs you/);
-  assert.match(blind.out, /Claude Code's background sessions aren't answering, so acc can't see this builder\. Open a terminal and check that Claude Code lists its background agents, or restart Claude Code\. In a terminal: claude agents/);
+  assert.match(blind.out, /Claude Code's background sessions aren't answering, so the Command Center can't see this builder\. Open a terminal and check that Claude Code lists its background agents, or restart Claude Code\. In a terminal: claude agents/);
   assert.equal(acc(repo, ['show', 'T-1', '--json'], env).json().unseen, 'unanswered');
   rmSync(join(claude.dir, 'down'));
   const back = acc(repo, ['show', 'T-1'], env);
@@ -251,7 +251,7 @@ test('acc show: no answer past the grace shows the Needs you line, an answer aga
   assert.match(back.out, /T-1 {2}.*Running/);
   // A builder that didn't start: its line names the way on.
   mutate(paths, () => new Date(), (l, emit) => { const t = l.tasks[0]!; t.state = 'todo'; t.notStarted = { at: new Date().toISOString(), by: 'human:test', reason: NOT_STARTED, where: 'local' }; emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'human:test', data: {} }); });
-  assert.match(acc(repo, ['show', 'T-1'], env).out, /! Its builder didn't start: Claude Code's background sessions aren't answering\. Dispatch again: acc dispatch T-1 --again/);
+  assert.match(acc(repo, ['show', 'T-1'], env).out, /! Its builder didn't start: Claude Code's background sessions aren't answering\. Build it again: acc dispatch T-1 --again/);
 });
 
 test('acc dispatch --again refuses a pick of its own and a task with nothing to dispatch again (T-92)', () => {
@@ -358,7 +358,7 @@ test('Dispatch again with no claude is refused in the Command Center\'s words, f
   const s = setup(launchedSessions);
   s.go();
   const before = s.task();
-  assert.match(MISSING_WORDS, /^Claude Code isn't on this Mac's path, so acc can't see this builder, and Dispatch again needs it to start another\. Install Claude Code/);
+  assert.match(MISSING_WORDS, /^Claude Code isn't on this Mac's path, so the Command Center can't see this builder, and Build it again needs it to start another\. Install Claude Code/);
   assert.throws(() => dispatchAgain(s.paths, s.config, 'T-1', s.deps, { actor: 'human', by: 'human:test', unseen: 'missing' }), (e: Error) => e.message === MISSING_WORDS);
   assert.ok(!s.calls.some((c) => c.startsWith('claude stop')), 'nothing is stopped');
   assert.equal(s.task().history.length, before.history.length, 'and nothing is recorded');

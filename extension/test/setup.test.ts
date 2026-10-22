@@ -315,9 +315,9 @@ test('what acc rules import --dry-run --json said is read as the copy it would w
   const detail = rulesDetail(shown);
   assert.match(detail, /^From ~\/team\/acme\.md: 12 lines\.\nIt replaces the copy from ~\/team\/old\.md, copied on 2026-09-01, and the edits made to it here\.\n\n- Rule 1\./);
   assert.ok(detail.includes('- Rule 10.\n…') && !detail.includes('Rule 11'), 'ten lines, then more');
-  assert.match(detail, /You review the rules file acme and commit it yourself\. acc never updates it on its own/);
+  assert.match(detail, /You review the rules file acme and commit it yourself\. The Command Center never updates it on its own/);
   assert.match(rulesDetail(shownRules(JSON.stringify({ ...dry, commit: 'c0ffee'.padEnd(40, '0'), replaces: null, lines: 1, preview: ['x'] })) as Extract<ReturnType<typeof shownRules>, { ok: true }>), /^From ~\/team\/acme\.md, at commit c0ffee0: 1 line\.\n\nx\n/);
-  assert.deepEqual(shownRules(JSON.stringify({ error: 'bad-rules', message: 'Use https://: acc doesn\'t fetch a rules file over plain http.' })), { ok: false, errors: ['Use https://: acc doesn\'t fetch a rules file over plain http.'] });
+  assert.deepEqual(shownRules(JSON.stringify({ error: 'bad-rules', message: "Use https://: the Command Center doesn't fetch a rules file over plain http." })), { ok: false, errors: ["Use https://: the Command Center doesn't fetch a rules file over plain http."] });
   assert.deepEqual(shownRules('', 'node: not found'), { ok: false, errors: ['node: not found'] });
   assert.equal(importRulesCommand({ source: 'https://github.com/acme/acc-rules/blob/main/salesforce.md' }), 'acc rules import https://github.com/acme/acc-rules/blob/main/salesforce.md');
   assert.equal(importRulesCommand({ source: '~/Team Rules/acme.md', name: 'acme-2', force: true }), 'acc rules import \'~/Team Rules/acme.md\' --name acme-2 --force');
@@ -347,7 +347,7 @@ test('setup counts steps done, and offers fixes only where something is open', (
     { id: 'B0.repo', part: 'project', title: 'Repo', status: 'pass', detail: 'ok' },
     { id: 'B2.identity', part: 'project', title: 'Identity', status: 'fail', detail: 'wrong', fix: 'git config user.name x' },
     { id: 'B14.tickets', part: 'project', title: 'Tickets', status: 'fail', detail: 'Not signed in', fix: 'acc.trackers.signIn' },
-    { id: 'A4.plugin', part: 'machine', title: 'Plugin', status: 'pass', detail: 'acc 0.35.0, for every Claude Code session.' },
+    { id: 'A4.plugin', part: 'machine', title: 'Plugin', status: 'pass', detail: 'The plugin 0.35.0, for every Claude Code session.' },
   ], new Set());
   assert.equal(m.total, 4);
   assert.equal(m.done, 2);
@@ -367,10 +367,10 @@ test('setup shows the acc plugin under its own section, with Do it while it fail
     { id: 'A4.plugin', part: 'machine', title: 'The acc plugin in Claude Code', status: 'fail', detail: 'acc isn\'t installed in Claude Code, and its marketplace isn\'t added.', fix: add },
   ], new Set());
   const machine = m.parts.find((p) => p.part === 'machine')!;
-  assert.deepEqual(machine.sections.map((s) => [s.title, s.todo]), [['Accounts', 0], ['The acc plugin', 1]]);
+  assert.deepEqual(machine.sections.map((s) => [s.title, s.todo]), [['Accounts', 0], ['The Claude Code plugin', 1]]);
   const a4 = machine.steps.find((s) => s.id === 'A4.plugin')!;
   assert.deepEqual(a4.actions.map((a) => a.label), ['Do it', 'Check']);
-  assert.deepEqual([a4.fix, a4.does], [add, 'Install the acc plugin in Claude Code'], 'the step says what Do it does in words, and keeps the command line to show on request (GH-168)');
+  assert.deepEqual([a4.fix, a4.does], [add, "Install the Command Center's Claude Code plugin"], 'the step says what Do it does in words, and keeps the command line to show on request (GH-168)');
   assert.deepEqual([a4.look.label, a4.look.tone], ['To do', 'orange']);
 });
 

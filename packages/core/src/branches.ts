@@ -207,7 +207,7 @@ export function moveWords(m: BranchMove): string {
   const list = m.commits.slice(0, 3).join(', ');
   const rewrite = m.rewritten ? ', then moved again in a way git couldn\'t list: a force push or a rewrite' : '';
   return n
-    ? `${m.branch} moved from ${m.from.slice(0, 7)} to ${m.to.slice(0, 7)} by ${n} commit${n === 1 ? '' : 's'} that ${n === 1 ? 'isn\'t' : 'aren\'t'} acc's merges: ${list}${n > 3 ? ` and ${n - 3} more` : ''}${rewrite}. Look before anything builds on it.`
+    ? `${m.branch} moved from ${m.from.slice(0, 7)} to ${m.to.slice(0, 7)} by ${n} commit${n === 1 ? '' : 's'} that ${n === 1 ? 'isn\'t' : 'aren\'t'} the Command Center's merges: ${list}${n > 3 ? ` and ${n - 3} more` : ''}${rewrite}. Look before anything builds on it.`
     : `${m.branch} moved from ${m.from.slice(0, 7)} to ${m.to.slice(0, 7)}, and git couldn't list how: a force push or a rewrite. Look before anything builds on it.`;
 }
 

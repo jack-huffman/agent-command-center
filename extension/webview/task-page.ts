@@ -14,6 +14,7 @@ import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { updateDraft } from './updates.ts';
 import { upper } from './upper.ts';
+import { addToWorkTitle, WORDS } from './plain-words.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -137,7 +138,7 @@ export function renderTicket(m: TicketModel): Node[] {
   tools.push(refresh);
   // The head (T-91): the tracker's mark and the key, with the ticket's tools at the right; the title, large; then
   // one row of its state, kind and priority.
-  const mark = Object.assign(el('span', 'ticket-mark', icon(sourceIcon)), { title: KIND_NAME[m.sourceKind] ?? 'Task kept by acc' });
+  const mark = Object.assign(el('span', 'ticket-mark', icon(sourceIcon)), { title: KIND_NAME[m.sourceKind] ?? 'A task kept by the Command Center' });
   const crumbs = el('div', 'crumbs', mark, el('span', 'crumb-source', m.sourceLabel), el('span', 'muted', '/'), m.url ? linkTo(m.url, m.key) : el('span', '', m.key));
   const facts = statusCtl || type || priority ? el('div', 'ticket-facts', statusCtl, type, priority) : null;
   const out: Node[] = [el('header', 'ticket-head', el('div', 'ticket-source', crumbs, el('span', 'spacer'), el('div', 'ticket-tools', ...tools)), el('h1', 'ticket-title', m.title), facts)];
@@ -226,29 +227,30 @@ export function renderTicket(m: TicketModel): Node[] {
           // A builder's lighter check, or the full one the merge queue runs once (GH-73).
           el('span', 'check-gate', el('span', 'mono', c.gate),
             c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before it finishes the task' : 'The full check, run once in the merge queue before the merge' }) : null)),
-        // Its summary under them, beside Waive…, then what its tests ran. A ratchet shows its numbers (GH-99).
+        // Its summary under them, beside Accept anyway…, then what its tests ran. A ratchet shows its numbers (GH-99).
         work(c.ratchet?.numbers ? ratchetNumbers(c.ratchet, c.summary) : Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }), 'output'),
         // A person can set a failing check, or one that needs them, aside, with a reason (D-031). Not a ratchet:
         // a person relaxes its floor instead (GH-99).
-        c.waivable ? Object.assign(button('Waive…', 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Set ${c.gate} aside on this commit, with a reason` }) : null,
+        c.waivable ? Object.assign(button(`${WORDS.acceptAnyway}…`, 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Accept ${c.gate} anyway on this commit, with a reason` }) : null,
         c.counts ? Object.assign(el('span', 'muted small check-tests', icon('beaker'), `Tests: ${c.counts}`), { title: c.countsNote ?? `Tests: ${c.counts}` }) : null))) : null,
       // Its actions in one size and place (D-168): the next step full width, the rest in two equal columns.
       taskActions(a.actions)));
   } else if (m.trackable) {
-    // Tracking… while it's on its way, from here or its card, so a second click starts nothing (D-074).
+    // Adding… while it's on its way, from here or its card, so a second click starts nothing (D-074).
     const show = (on: boolean) => {
-      track.replaceChildren(icon(on ? 'sync~spin' : 'add'), on ? 'Tracking…' : 'Track in acc');
+      track.replaceChildren(icon(on ? 'sync~spin' : 'add'), on ? 'Adding…' : WORDS.addToWork);
       track.disabled = on;
     };
     const track = el('button', 'btn ticket-track') as HTMLButtonElement;
     track.type = 'button';
+    track.title = addToWorkTitle(KIND_NAME[m.sourceKind] ?? 'the tracker');
     show(m.tracking);
     track.addEventListener('click', () => {
       if (track.disabled) return;
       show(true);
       ticketAction('track');
     });
-    side.append(el('section', 'side-panel side-agent', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'acc isn\'t keeping this ticket yet. Track it to dispatch an agent to it. The ticket itself isn\'t changed.'), el('div', 'actions', track)));
+    side.append(el('section', 'side-panel side-agent', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'This ticket isn\'t in your work yet. Add it, and an agent can plan it and build it. The ticket itself isn\'t changed.'), el('div', 'actions', track)));
   }
   // Its review's findings, under the Agent panel (T-53).
   if (m.review) side.append(renderReview(m.review));
@@ -357,14 +359,14 @@ function renderActivity(m: TicketModel): HTMLElement | null {
   return section;
 }
 
-const STATE_WORD: Record<string, string> = { todo: 'To do', running: 'Running', review: 'In review', rework: 'Rework', blocked: 'Blocked', done: 'Done' };
+const STATE_WORD: Record<string, string> = { todo: 'To do', running: 'Running', review: 'In review', rework: WORDS.sentBack, blocked: 'Blocked', done: 'Done' };
 
 /** Who made a move, in plain words: its agent, the reviewer, GitHub, or a person's name. */
 function whoMoved(by: string): string {
   if (/^builder:/.test(by)) return 'Its agent';
   if (/^reviewer:/.test(by)) return 'The reviewer';
   if (by === 'acc sync' || /^sync/.test(by)) return 'GitHub';
-  return by.replace(/^human:/, '').replace(/^orchestrator.*/, 'acc');
+  return by.replace(/^human:/, '').replace(/^orchestrator.*/, 'The Command Center');
 }
 
 export const area: PageArea = {

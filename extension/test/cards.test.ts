@@ -22,7 +22,7 @@ test('in review, a card offers the one next step: watch the reviewer, land a pas
   const first = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'review', 'review'), deps: [], run: { worktree: '/w', branch: 'b' }, ...r } as TaskRow, {}).find((a) => a.primary)!.label;
   assert.equal(first({}), 'Review');
   assert.equal(first({ reviewing: { sessionId: 's' } }), 'Watch the review');
-  assert.equal(first({ review: { verdict: 'pass', summary: 's', current: true } }), 'Land');
+  assert.equal(first({ review: { verdict: 'pass', summary: 's', current: true } }), 'Send to merge');
   assert.equal(first({ review: { verdict: 'pass', summary: 's', current: false } }), 'Review', 'a review of an older commit doesn\'t count');
   assert.equal(first({ review: { verdict: 'changes', summary: 's', current: true } }), 'Review again');
   const open = cardActions({ ...row('AV-9', 'review', 'review'), deps: [], run: { worktree: '/w' }, review: { verdict: 'pass', summary: 's', current: true }, pr: { number: 42, url: 'u', state: 'open' } } as TaskRow, {}).map((a) => a.label);
@@ -104,13 +104,13 @@ test('a task autopilot couldn\'t move on says why on its card and on the Overvie
   const card = (id: string) => tasksModel(failed).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
   assert.deepEqual(card('AV-5').autopilot, { label: 'Needs you: autopilot couldn\'t land: git push refused task/AV-5: rejected', icon: 'bell', tone: 'orange' });
   assert.equal(card('AV-6').autopilot!.label, 'Needs you: autopilot couldn\'t re-dispatch: Claude Code doesn\'t trust /r yet.');
-  assert.equal(card('AV-5').actions[0]!.label, 'Land', 'the step it couldn\'t take, to take by hand');
+  assert.equal(card('AV-5').actions[0]!.label, 'Send to merge', 'the step it couldn\'t take, to take by hand');
   const m = homeModel({ hub: failed, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
   const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
   assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: autopilot couldn\'t land', 'bell', 'orange'], 'its words and icon, in orange');
   assert.equal(item.detail, 'Acme · git push refused task/AV-5: rejected. Do it by hand, or a new commit lets autopilot try again.', 'why, not an agent waiting in its terminal');
-  assert.deepEqual(item.actions.map((a) => a.label), ['Land', 'Open']);
-  assert.deepEqual(m.overview.attention.find((a) => a.title === 'AV-6 Task AV-6')!.actions.map((a) => a.label), ['Re-dispatch', 'Open']);
+  assert.deepEqual(item.actions.map((a) => a.label), ['Send to merge', 'Open']);
+  assert.deepEqual(m.overview.attention.find((a) => a.title === 'AV-6 Task AV-6')!.actions.map((a) => a.label), ['Build it again', 'Open']);
   assert.equal(needsYouCount(m.overview), 2);
 });
 
@@ -145,15 +145,15 @@ test('a closed pull request in review says so in words, with its icon, in orange
   const card = (id: string) => cards.flatMap((c) => c.cards).find((c) => c.id === id)!;
   assert.deepEqual(card('AV-8').closedPr, look);
   assert.deepEqual(cards.find((c) => c.group === 'needs-you')!.cards.map((c) => c.id), ['AV-8', 'AV-9']);
-  assert.equal(card('AV-8').actions[0]!.label, 'Land');
+  assert.equal(card('AV-8').actions[0]!.label, 'Send to merge');
   assert.equal(card('AV-10').closedPr, null, 'blocked, as acc sync leaves it, it says blocked');
 
   const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
   const item = m.overview.attention.find((a) => a.title === 'AV-8 Task AV-8')!;
   assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Pull request closed', 'git-pull-request-closed', 'orange']);
-  assert.equal(item.detail, 'Acme · pull request #16 was closed without merging. Land it to open a new one, or reopen it on GitHub and land to update it.');
+  assert.equal(item.detail, 'Acme · pull request #16 was closed without merging. Send it to merge to open a new one, or reopen it on GitHub and send it again to update it.');
   assert.doesNotMatch(item.detail, /terminal/, 'not an agent waiting in its terminal');
-  assert.deepEqual(item.actions.map((a) => [a.label, !!a.primary]), [['Land', true], ['Pull request #16', false], ['Open', false]]);
+  assert.deepEqual(item.actions.map((a) => [a.label, !!a.primary]), [['Send to merge', true], ['Pull request #16', false], ['Open', false]]);
   const unreviewed = m.overview.attention.find((a) => a.title === 'AV-9 Task AV-9')!;
   assert.deepEqual(unreviewed.actions.map((a) => a.label), ['Review', 'Pull request #17', 'Open'], 'nothing reviewed its latest commit yet');
 
@@ -225,7 +225,7 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   const card = (id: string) => tasksModel(h).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
   // Held: a clock and the words, in blue, the files by folder and name, and the Ready task that goes first.
   assert.deepEqual(card('AV-5').files, { label: 'Waits for AV-1\'s files: src/a.ts, classes/X.cls, while AV-6 is ready to start', icon: 'clock', tone: 'blue' });
-  assert.deepEqual(card('AV-5').actions.filter((a) => a.primary).map((a) => [a.label, a.command]), [['Dispatch anyway', 'acc.task.dispatchAnyway']]);
+  assert.deepEqual(card('AV-5').actions.filter((a) => a.primary).map((a) => [a.label, a.command]), [['Build it anyway', 'acc.task.dispatchAnyway']]);
   assert.ok(card('AV-5').actions.some((a) => a.command === 'acc.task.stopWaiting' && !a.primary), 'Stop waiting, behind ⋯');
   assert.ok(!card('AV-5').actions.some((a) => a.command === 'acc.task.dispatch'), 'it was dispatched already');
   assert.ok(tasksModel(h).projects[0]!.columns.find((c) => c.group === 'ready')!.cards.some((c) => c.id === 'AV-5'), 'it stays in the Ready lane');
@@ -233,10 +233,10 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   assert.deepEqual([card('AV-11').files?.label, card('AV-11').files?.tone], ['Starting: nothing else is ready, so it shares files with AV-1', 'blue']);
   // Nothing to say about one that shares nothing.
   assert.equal(card('AV-6').files, null);
-  assert.deepEqual(card('AV-6').actions.filter((a) => a.primary).map((a) => a.label), ['Dispatch']);
+  assert.deepEqual(card('AV-6').actions.filter((a) => a.primary).map((a) => a.label), ['Build it']);
   // No analysis: its files aren't known, said in a neutral tone, and it's dispatched as ever.
   assert.deepEqual(card('AV-7').files, { label: 'Its files aren\'t known: no analysis to compare with work in flight', icon: 'info', tone: 'neutral' });
-  assert.deepEqual(card('AV-7').actions.filter((a) => a.primary).map((a) => a.label), ['Dispatch']);
+  assert.deepEqual(card('AV-7').actions.filter((a) => a.primary).map((a) => a.label), ['Build it']);
   // An analysis that names no files isn't told it has none.
   assert.deepEqual(card('AV-12').files, { label: 'Its files aren\'t known: its analysis names no files', icon: 'info', tone: 'neutral' });
   // Shares files but isn't held: said before Dispatch, and on a task that started beside another.
@@ -246,8 +246,8 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
   assert.deepEqual(card('AV-10').files, { label: 'Needs you: autopilot couldn\'t start it: Claude Code doesn\'t trust /r yet.', icon: 'bell', tone: 'orange' });
   const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
   const item = m.overview.attention.find((a) => a.title === 'AV-10 Task AV-10')!;
-  assert.deepEqual([item.look.label, item.look.icon, item.look.tone, item.detail], ['Needs you: autopilot couldn\'t start it', 'bell', 'orange', 'Acme · Claude Code doesn\'t trust /r yet. Dispatch it anyway, or stop it waiting.']);
-  assert.deepEqual(item.actions.map((a) => a.label), ['Dispatch anyway', 'Open']);
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone, item.detail], ['Needs you: autopilot couldn\'t start it', 'bell', 'orange', 'Acme · Claude Code doesn\'t trust /r yet. Build it anyway, or stop it waiting.']);
+  assert.deepEqual(item.actions.map((a) => a.label), ['Build it anyway', 'Open']);
 
   // The task page names every file in full; the tracker's card says it waits.
   const task = { id: 'AV-5', title: 'Task AV-5', brief: '', source: { kind: 'jira', key: 'AV-5', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null, history: [], createdAt: '', updatedAt: '' } as never;
@@ -260,7 +260,7 @@ test('a task that waits for others\' files says so with a clock, in blue; its ne
     board: { source: 'jira-board', title: 'Board', url: null, notice: null, columns: [{ id: 'c', name: 'To Do', category: 'todo', statusIds: ['1'] }], cards: [{ key: 'AV-5', title: 'Task AV-5', url: 'u', status: { id: '1', name: 'To Do' }, type: 'Story', assignees: [], labels: [], priority: null }] },
   };
   const tcard = trackerBoard(board, rows, '/r').columns[0]!.cards[0]!;
-  assert.deepEqual([tcard.acc!.look.icon, tcard.acc!.look.tone, tcard.acc!.action?.label], ['clock', 'blue', 'Dispatch anyway']);
+  assert.deepEqual([tcard.acc!.look.icon, tcard.acc!.look.tone, tcard.acc!.action?.label], ['clock', 'blue', 'Build it anyway']);
 
   // Drawn with its icon and words, on the card and the page, and the page and menus may run both commands.
   const main = pageSource();
@@ -278,7 +278,7 @@ test('no card or task page lists Dispatch with… or Dispatch to the cloud: one 
   const gone = ['acc.task.dispatchWith', 'acc.task.dispatchCloud'];
   const states = [{}, { state: 'rework', display: 'rework' as const }, { files: { known: true, shares: [{ task: 'AV-1', files: ['a.ts'] }], first: [], held: { at: '', failed: null, byAutopilot: false } } }, { state: 'running', display: 'running' as const, run: { bgId: 'bg1' } }, { state: 'review', display: 'review' as const }, { analysisRequired: true }];
   for (const r of states) assert.ok(!actions(r as Partial<TaskRow>).some((a) => gone.includes(a.command)), JSON.stringify(r));
-  assert.equal(actions({}).filter((a) => a.label.startsWith('Dispatch')).length, 1, 'one Dispatch');
+  assert.equal(actions({}).filter((a) => a.label.startsWith('Build it')).length, 1, 'one Dispatch');
   const task = { id: 'AV-9', title: 'Task AV-9', brief: '', source: { kind: 'jira', key: 'AV-9', url: null }, environment: 'devbox', deps: [], labels: [], state: 'todo', blocker: null, history: [], createdAt: '', updatedAt: '' } as never;
   const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-9', ticket: null, loading: false, error: null, connect: null, checks: [], row: { ...row('AV-9', 'todo', 'ready'), deps: [] }, task });
   assert.deepEqual(page.acc!.actions.map((a) => a.command), ['acc.task.dispatch', 'acc.task.move', 'acc.task.block', 'acc.task.edit'], 'the task page: Dispatch, then Move, then Block, then Edit (T-74)');
@@ -374,7 +374,7 @@ test('the task page draws its actions with taskActions: the next step full width
   assert.match(tiles, /const next = actions\[0\]!\.primary \? actions\[0\]! : null;/, 'the next step only when the first is one');
   assert.match(tiles, /el\('div', 'ta-grid', \.\.\.rest\.map\(\(a\) => actionTile\(a, false\)\)\)/, 'the rest in the grid, none of them primary');
   assert.match(tiles, /set\.dataset\.actionSet = 'task';/, 'marked for the geometry check');
-  assert.match(tiles, /b\.title = a\.disabled \? `\$\{a\.label\}: \$\{a\.disabled\}` : a\.label;/, 'its label whole in its title, and why it is off');
+  assert.match(tiles, /b\.title = a\.disabled \? `\$\{a\.label\}: \$\{a\.disabled\}` : explains\(a\.command, a\.label\);/, 'its label whole in its title, and why it is off');
   // Edge: a cloud task's Open in Claude Code is off with its reason, and stays in its place on the page.
   const cloud = { sessionId: 's', url: 'https://claude.ai/code/s', firedAt: '', head: '', lastPushAt: '' };
   const acts = cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { worktree: '/w', where: 'cloud', cloud }, cloud: { url: cloud.url, wait: null, finished: false } } as TaskRow, {});

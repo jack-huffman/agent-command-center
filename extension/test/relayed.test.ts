@@ -49,7 +49,7 @@ test('acc\'s own refusals reach a person with no command or path left, and each 
     '"Run the checks" errors on validate: the Dev login has expired. Log in again, then I can run the checks.',
   ]);
   assert.match(words[3]!, /in the project's settings/);
-  assert.match(words[4]!, /"Analyze AV-9 before the build"/);
+  assert.match(words[4]!, /"Make a plan for AV-9"/);
 });
 
 test('a failed autopilot step whose reason names acc gate run reaches the notice, History, the card and the Overview in process words', () => {
@@ -78,7 +78,7 @@ test('a failed autopilot step whose reason names acc gate run reaches the notice
 
 test('a held task that failed to start, a review\'s summary and a stopped builder\'s last words reach its card in process words', () => {
   const held = rowInWords({ ...row('AV-9', 'todo', 'needs-you'), deps: [], files: { known: true, shares: [], first: [], held: { at: 't', failed: 'AV-9 hasn\'t been analyzed yet: acc analyze AV-9.', byAutopilot: true } } });
-  assert.equal(filesLook(held)!.label, 'Needs you: autopilot couldn\'t start it: AV-9 hasn\'t been analyzed yet: "Analyze AV-9 before the build".');
+  assert.equal(filesLook(held)!.label, 'Needs you: autopilot couldn\'t start it: AV-9 hasn\'t been analyzed yet: "Make a plan for AV-9".');
   const r = rowInWords({ ...row('AV-1', 'running', 'needs-you'), review: { verdict: 'changes', summary: 'See .acc/rules.md: run acc gate run first.', current: true }, stopped: { said: 'Waiting on acc done.' }, queue: { place: 1, of: 1, ahead: null, phase: 'held', why: 'Run acc sync first.' } });
   assert.deepEqual([r.review!.summary, r.stopped!.said, r.queue!.why], ['See the project\'s rules: run the checks first.', 'Waiting on "Finish the task".', 'Refresh from GitHub first.']);
 });

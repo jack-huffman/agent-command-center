@@ -103,10 +103,10 @@ test('How agents run says, for each part, its value and where it\'s set, in word
   assert.deepEqual(builder!.parts, [
     { key: 'agents.builder.model', name: 'Model', value: 'claude-sonnet-5-5', from: { label: 'this clone', icon: 'device-desktop' } },
     { key: 'agents.builder.effort', name: 'Effort', value: 'default', from: { label: 'Claude Code\'s default', icon: 'circle-outline' } },
-    { key: 'agents.builder.fallbackModel', name: 'Falls back to', value: 'claude-haiku-4-5-20251001', from: { label: 'project default', icon: 'repo' }, older: 'Claude Haiku 4.5 is an older model. It still runs; acc now offers claude-haiku-5-5 in its place.' },
+    { key: 'agents.builder.fallbackModel', name: 'Falls back to', value: 'claude-haiku-4-5-20251001', from: { label: 'project default', icon: 'repo' }, older: 'Claude Haiku 4.5 is an older model. It still runs; the Command Center now offers claude-haiku-5-5 in its place.' },
   ]);
-  // acc's default model, apart from Claude Code's default effort; no fallback, no line for one.
-  assert.deepEqual(reviewer!.parts.map((p) => `${p.name} ${p.value} · ${p.from.label}`), ['Model claude-opus-5-5 · acc\'s default', 'Effort high · project default']);
+  // the Command Center's default model, apart from Claude Code's default effort; no fallback, no line for one.
+  assert.deepEqual(reviewer!.parts.map((p) => `${p.name} ${p.value} · ${p.from.label}`), ['Model claude-opus-5-5 · the Command Center\'s default', 'Effort high · project default']);
   // Every source has words and an icon, the clone's and the project's apart.
   for (const f of ['clone', 'project', 'acc', 'default']) assert.ok(settingFrom(f).label && settingFrom(f).icon, f);
   assert.notEqual(settingFrom('clone').icon, settingFrom('project').icon);
@@ -118,7 +118,7 @@ test('How agents run says a model acc no longer offers is an older one, which st
   const older: ProjectLike = { ...p, agents: { ...p.agents!, builder: { ...p.agents!.builder, model: 'claude-haiku-4-5-20251001', fallbackModel: null } } };
   const [builder] = agentSettings(older);
   assert.equal(builder!.parts[0]!.value, 'claude-haiku-4-5-20251001', 'still what builders run with');
-  assert.equal(builder!.parts[0]!.older, 'Claude Haiku 4.5 is an older model. It still runs; acc now offers claude-haiku-5-5 in its place.');
+  assert.equal(builder!.parts[0]!.older, 'Claude Haiku 4.5 is an older model. It still runs; the Command Center now offers claude-haiku-5-5 in its place.');
   assert.equal(olderModelWords('claude-haiku-5-5'), undefined);
   assert.equal(olderModelWords(null), undefined);
   for (const m of MODEL_CHOICES) assert.equal(olderModelWords(m.name), undefined, `${m.name} is offered, so not older`);
@@ -166,7 +166,7 @@ test('How agents run is a built part, or says no project is onboarded yet, with 
   const part = (projects: ProjectLike[]) => settingsModel({ theme: 'vscode', projects, setup: [] }).parts.find((p) => p.id === 'agents')!;
   const some = part([withAgents({ autonomy: 'review' })]);
   assert.deepEqual([some.built, some.today, some.links], [true, null, []]);
-  assert.match(some.summary, /Each Change… asks acc to make the change\.$/);
+  assert.match(some.summary, /Each Change… asks the Command Center to make the change\.$/);
   assert.deepEqual(some.details, ['This clone\'s choice is kept in its git config, where nobody else sees it. A project\'s is kept in the project\'s settings, for you to commit and share.']);
   const none = part([]);
   assert.deepEqual([none.built, none.links], [true, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]]);
@@ -223,7 +223,7 @@ test('the screenshots show How agents run with every state: two projects, each s
   const run = m.settings.agents;
   assert.deepEqual(run.projects.map((p) => p.project), ['Acme Service', 'Acme Portal']);
   const froms = new Set(run.projects.flatMap((p) => p.roles.flatMap((r) => r.parts.map((x) => x.from.label))));
-  for (const f of ['this clone', 'project default', 'acc\'s default', 'Claude Code\'s default']) assert.ok(froms.has(f), f);
+  for (const f of ['this clone', 'project default', 'the Command Center\'s default', 'Claude Code\'s default']) assert.ok(froms.has(f), f);
   assert.deepEqual(run.projects.map((p) => [p.autonomy?.look.label, p.autoMerge?.look.label, p.autoMerge?.settable]), [['review', 'off', false], ['manual', 'on', true]]);
   assert.deepEqual([run.billing.look.tone, run.billing.link?.section], ['orange', 'setup']);
   assert.deepEqual([(sampleModel('settings') as HomeModel).settings.agents.billing.look.tone, (sampleModel('agents-billing') as HomeModel).agents.billing?.tone], ['blue', 'orange']);
@@ -546,7 +546,7 @@ test('Trackers and sign-ins lists every open project under its name, says when o
   const part = (projects: ProjectLike[]) => settingsModel({ theme: 'vscode', projects, setup: [], boards }).parts.find((x) => x.id === 'trackers')!;
   const some = part([p('Acme', '/a')]);
   assert.deepEqual([some.built, some.today, some.links, some.title, some.icon], [true, null, [], 'Trackers and sign-ins', 'issues']);
-  assert.match(some.details[0]!, /Change place… and Connect a tracker ask acc to write them, for you to commit\. A Jira, Azure DevOps or monday\.com sign-in stays in VSCode on this machine, never in a file; GitHub's is gh's\.$/);
+  assert.match(some.details[0]!, /Change place… and Connect a tracker ask the Command Center to write them, for you to commit\. A Jira, Azure DevOps or monday\.com sign-in stays in VSCode on this machine, never in a file; GitHub's is gh's\.$/);
   const none = part([]);
   assert.deepEqual(none.links, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]);
   assert.match(none.details[0]!, /^No project in this workspace is onboarded yet\./);

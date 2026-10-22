@@ -17,7 +17,7 @@ export const NAME = 'agent-command-center';
 export const EXTENSION_ID = `${PUBLISHER}.${NAME}`;
 
 export const WALKTHROUGHS = {
-  machine: { id: 'acc.machine', title: 'Agent Command Center: set up this machine', description: 'Tools, accounts and the acc plugin that agents need. Each step ticks itself when its check passes.' },
+  machine: { id: 'acc.machine', title: 'Agent Command Center: set up this machine', description: 'Tools, accounts and the Command Center\'s Claude Code plugin that agents need. Each step ticks itself when its check passes.' },
   project: { id: 'acc.project', title: 'Agent Command Center: onboard a project', description: 'Get a repo ready for parallel agents: config, GitHub account, branches per environment, source tracking and safe defaults.' },
 } as const;
 
@@ -276,7 +276,7 @@ export function initOutput(stdout: string, stderr = ''): InitOutput {
   } catch {
     // said below
   }
-  return { ok: false, error: inProcessWords((stderr || stdout).trim().split('\n')[0] ?? '') || 'acc said nothing.' };
+  return { ok: false, error: inProcessWords((stderr || stdout).trim().split('\n')[0] ?? '') || 'The Command Center got no answer.' };
 }
 
 /**
@@ -343,7 +343,7 @@ export function shownTemplate(stdout: string, stderr = ''): ShownTemplate {
   } catch {
     // said below
   }
-  return { ok: false, errors: [inProcessWords((stderr || stdout).trim().split('\n')[0] ?? '') || 'acc said nothing.'] };
+  return { ok: false, errors: [inProcessWords((stderr || stdout).trim().split('\n')[0] ?? '') || 'The Command Center got no answer.'] };
 }
 
 /** The confirmation's detail: what the template is, what it sets, and the commands it would run on this machine. */
@@ -387,7 +387,7 @@ export function shownRules(stdout: string, stderr = ''): ShownRules {
   } catch {
     // said below
   }
-  return { ok: false, errors: [inProcessWords((stderr || stdout).trim().split('\n')[0] ?? '') || 'acc said nothing.'] };
+  return { ok: false, errors: [inProcessWords((stderr || stdout).trim().split('\n')[0] ?? '') || 'The Command Center got no answer.'] };
 }
 
 /** The confirmation's detail: where the copy goes, where it's from, its first lines, and that a person commits it. */
@@ -398,7 +398,7 @@ export const rulesDetail = (r: Extract<ShownRules, { ok: true }>): string => [
   ...r.preview.slice(0, 10),
   ...(r.lines > 10 ? ['…'] : []),
   '',
-  `You review the rules file ${r.name} and commit it yourself. acc never updates it on its own: Setup says when its source changes.`,
+  `You review the rules file ${r.name} and commit it yourself. The Command Center never updates it on its own: Setup says when its source changes.`,
 ].join('\n');
 
 /** The org URL an environment should have (D-015): Production at <domain>.my.salesforce.com, a sandbox named after its branch. */

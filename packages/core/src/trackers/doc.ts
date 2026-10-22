@@ -311,7 +311,7 @@ const inWords = (xs: string[]): string => (xs.length < 2 ? xs.join('') : `${xs.s
 
 /** Why a Jira description isn't written from acc: what it holds that would be lost, by name. */
 export const unkeptRefusal = (names: string[]): string =>
-  `Its description in Jira holds ${inWords(names)}, which acc can't write back without losing, so acc leaves the description as it is: change it in Jira.`;
+  `Its description in Jira holds ${inWords(names)}, which the Command Center can't write back without losing, so it leaves the description as it is: change it in Jira.`;
 
 // ---------------------------------------------------------------- Doc → ADF, for comments sent to Jira
 

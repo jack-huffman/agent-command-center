@@ -74,7 +74,7 @@ export interface AgentSetting {
 /** What Settings says of a model acc no longer offers (D-128), or nothing. */
 export function olderModelWords(model: string | null): string | undefined {
   const o = OLDER_MODELS.find((m) => m.name === model);
-  return o ? `${o.about} is an older model. It still runs; acc now offers ${o.instead} in its place.` : undefined;
+  return o ? `${o.about} is an older model. It still runs; the Command Center now offers ${o.instead} in its place.` : undefined;
 }
 
 /** What autopilot may do on its own in a project (D-055), changed through acc (D-064). */
@@ -209,14 +209,14 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
   const on = !!cloud;
   const look: Look = !on ? { label: 'off', icon: 'circle-slash', tone: 'neutral' } : reason ? { label: 'on, not ready', icon: 'warning', tone: 'orange' } : { label: 'on', icon: 'cloud', tone: 'blue' };
   const meaning = !on
-    ? github ? 'A local builder is the default everywhere. Turn this on to offer the cloud in each task\'s Dispatch sheet: a Claude Code cloud session the project\'s routine starts, followed through its branch on GitHub.' : 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back.'
-    : `Each task can go to the cloud, picked in its Dispatch sheet, or stay on this Mac. ${reason ? `${reason}.` : 'Setup checks the routine\'s token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on this Mac when acc collects the branch; where GitHub enforces no protection on a branch, a push past the guard would be caught then, after the fact.`;
+    ? github ? 'A local builder is the default everywhere. Turn this on to offer the cloud in each task\'s Build it sheet: a Claude Code cloud session the project\'s routine starts, followed through its branch on GitHub.' : 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back.'
+    : `Each task can go to the cloud, picked in its Build it sheet, or stay on this Mac. ${reason ? `${reason}.` : 'Setup checks the routine\'s token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on this Mac when the Command Center collects the branch; where GitHub enforces no protection on a branch, a push past the guard would be caught then, after the fact.`;
   const action = (command: string, label: string, icon: string, name: string, primary = false, disabled: string | null = null): SettingsAction => ({ command, label, icon, arg: p.root, name, primary, disabled });
   const actions: SettingsAction[] = !on
     ? [action('acc.cloud.enable', 'Turn on…', 'cloud', `Turn on cloud builders for ${p.name}`, false, github ? null : 'Cloud builders need the repo on GitHub')]
     : [
       action('acc.cloud.routine', 'Routine prompt', 'clippy', `Copy the routine prompt for ${p.name}`),
-      action('acc.cloud.enable', cloud?.routine ? 'Change routine…' : 'Add the routine…', 'edit', `${cloud?.routine ? 'Change routine' : 'Add the routine'}: give acc ${p.name}'s routine`, !cloud?.routine),
+      action('acc.cloud.enable', cloud?.routine ? 'Change routine…' : 'Add the routine…', 'edit', `${cloud?.routine ? 'Change routine' : 'Add the routine'}: give the Command Center ${p.name}'s routine`, !cloud?.routine),
       action('acc.cloud.token', 'Token…', 'key', `Token: keep the routine's token for ${p.name}`),
       action('acc.cloud.default', 'Default…', 'arrow-swap', `Default: choose where ${p.name}'s builders go`),
       action('acc.cloud.review', 'Reviews…', 'checklist', `Reviews: choose where ${p.name}'s reviews run`),
@@ -647,26 +647,26 @@ export function settingsModel(i: SettingsInput): SettingsModel {
   const parts: SettingsPartModel[] = [
     { id: 'appearance', title: 'Appearance', icon: 'color-mode', summary: 'How the Command Center\'s pages look. Kept on this machine, for every window.', built: true, today: null, details: [], links: [] },
     {
-      id: 'agents', title: 'How agents run', icon: 'hubot', summary: 'What builders and reviewers run with in each project: model, effort and fallback, and what autopilot may do on its own. Each Change… asks acc to make the change.',
+      id: 'agents', title: 'How agents run', icon: 'hubot', summary: 'What builders and reviewers run with in each project: model, effort and fallback, and what autopilot may do on its own. Each Change… asks the Command Center to make the change.',
       built: true, today: null,
       details: agents.projects.length
         ? ['This clone\'s choice is kept in its git config, where nobody else sees it. A project\'s is kept in the project\'s settings, for you to commit and share.']
         : ['No project in this workspace is onboarded yet. Once Setup onboards one, its builders and reviewers show here.'],
       links: agents.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },
-    { id: 'limits', title: 'Limits and checks', icon: 'dashboard', summary: 'How many builders run at once, this project\'s cap and this machine\'s total, what a change means, the heavy checks this machine runs at once, and the checks a task must pass. Each change goes through acc.', built: true, today: null, details: [], links: [] },
+    { id: 'limits', title: 'Limits and checks', icon: 'dashboard', summary: 'How many builders run at once, this project\'s cap and this machine\'s total, what a change means, the heavy checks this machine runs at once, and the checks a task must pass. Each change goes through the Command Center.', built: true, today: null, details: [], links: [] },
     {
       id: 'trackers', title: 'Trackers and sign-ins', icon: 'issues',
       summary: 'Each project\'s trackers: where their tickets come from, the board, and the account each signs in as, for that project only or for every project on its site.',
       built: true, today: null,
       details: trackers.projects.length
-        ? ['A tracker\'s place and board are kept in its project\'s settings: Change place… and Connect a tracker ask acc to write them, for you to commit. A Jira, Azure DevOps or monday.com sign-in stays in VSCode on this machine, never in a file; GitHub\'s is gh\'s.']
+        ? ['A tracker\'s place and board are kept in its project\'s settings: Change place… and Connect a tracker ask the Command Center to write them, for you to commit. A Jira, Azure DevOps or monday.com sign-in stays in VSCode on this machine, never in a file; GitHub\'s is gh\'s.']
         : ['No project in this workspace is onboarded yet. Once Setup onboards one, its trackers show here.'],
       links: trackers.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },
     {
       id: 'slack', title: 'Notices in Slack', icon: 'bell', built: true, today: null, links: [],
-      summary: 'Whether acc\'s notices go to Slack from this machine, and which: one incoming webhook for every project open here.',
+      summary: 'Whether the Command Center\'s notices go to Slack from this machine, and which: one incoming webhook for every project open here.',
       details: [],
     },
     {
@@ -682,7 +682,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       summary: 'Which section it opens on, how Agents shows where sessions run, and how often it refreshes. VSCode keeps each, for this window or this machine.',
     },
     {
-      id: 'about', title: 'About', icon: 'info', summary: 'The versions of acc, the extension and the plugin, read fresh each time Settings shows, and whether a newer release is out.',
+      id: 'about', title: 'About', icon: 'info', summary: 'The versions of the Command Center\'s engine, the extension and its Claude Code plugin, read fresh each time Settings shows, and whether a newer release is out.',
       built: true, today: null,
       details: ['A newer release installs with Install and reload, here or in the notification that offers it: the extension downloads it as gh\'s active account, checks it, installs it and reloads the window. The plugin updates as Setup\'s A4 does.'],
       links: [],

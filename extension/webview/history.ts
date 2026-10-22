@@ -141,7 +141,7 @@ export function renderHistory(first: HistoryPage, manyProjects: boolean, at?: st
   watcher?.disconnect();
   watcher = null;
   if (!loaded.items.length && !loaded.waiting) {
-    box.append(el('p', 'muted quiet', filter === 'answer' ? 'When you answer an agent, it\'s kept here.' : filter === 'run' ? 'Commands acc runs for you are kept here.' : 'What agents and tasks do shows up here.'));
+    box.append(el('p', 'muted quiet', filter === 'answer' ? 'When you answer an agent, it\'s kept here.' : filter === 'run' ? 'Commands the Command Center runs for you are kept here.' : 'What agents and tasks do shows up here.'));
     return box;
   }
   box.append(...days(loaded.items, manyProjects, at));

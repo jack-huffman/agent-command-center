@@ -21,9 +21,9 @@ test('a moved environment branch is one orange item under Needs you, naming the 
   const moved = home(withMoves(() => [move('devbox', ['bbbbbbb Hotfix, see #12', 'ccccccc Bump'])]));
   const [item] = items(moved);
   assert.equal(items(moved).length, 1);
-  assert.deepEqual([item!.look.label, item!.look.icon, item!.look.tone], ['Needs you: devbox moved by 2 commits that aren\'t acc\'s merges', 'git-branch', 'orange']);
+  assert.deepEqual([item!.look.label, item!.look.icon, item!.look.tone], ['Needs you: devbox moved by 2 commits that aren\'t the Command Center\'s merges', 'git-branch', 'orange']);
   assert.equal(item!.title, 'devbox moved on GitHub');
-  assert.match(item!.detail, /^Acme · devbox moved from aaaaaaa to bbbbbbb by 2 commits that aren't acc's merges: bbbbbbb Hotfix, see #12, ccccccc Bump\. Look before anything builds on it\.$/);
+  assert.match(item!.detail, /^Acme · devbox moved from aaaaaaa to bbbbbbb by 2 commits that aren't the Command Center's merges: bbbbbbb Hotfix, see #12, ccccccc Bump\. Look before anything builds on it\.$/);
   assert.equal(item!.tip, 'bbbbbbb Hotfix, see #12\nccccccc Bump', 'every commit in full, on hover');
   assert.deepEqual(item!.actions.map((a) => [a.label, a.command, a.ref.project, a.ref.env, !!a.primary]), [['Compare on GitHub', 'acc.branches.open', '/r', 'devbox', true], ['Seen', 'acc.branches.seen', '/r', 'devbox', false]]);
   assert.equal(needsYouCount(moved.overview), needsYouCount(quiet.overview) + 1, 'it needs a person');
@@ -47,7 +47,7 @@ test('without a GitHub section there\'s nothing to compare, so Seen comes first;
 });
 
 test('moveLook says how many commits, and that a branch was rewritten when git couldn\'t list them', () => {
-  assert.equal(moveLook(move('main', ['a x'])).label, 'Needs you: main moved by 1 commit that isn\'t acc\'s merges');
-  assert.equal(moveLook(move('main', ['a x', 'b y'])).label, 'Needs you: main moved by 2 commits that aren\'t acc\'s merges');
+  assert.equal(moveLook(move('main', ['a x'])).label, 'Needs you: main moved by 1 commit that isn\'t the Command Center\'s merges');
+  assert.equal(moveLook(move('main', ['a x', 'b y'])).label, 'Needs you: main moved by 2 commits that aren\'t the Command Center\'s merges');
   assert.equal(moveLook(move('main', [])).label, 'Needs you: main was rewritten');
 });

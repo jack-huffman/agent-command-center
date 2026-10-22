@@ -216,7 +216,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'slack.ts', at: /'Send a test'.*'paused'/, why: 'Send a test while notices are paused: nothing is sent until a test goes through.' },
   { file: 'task-page.ts', at: /'Comment'/, why: 'Comment: the comment the person typed in the box beside it.' },
   { file: 'task-page.ts', at: /m\.connect\.label/, why: 'The fix for a tracker that is not signed in, so the ticket can\'t load.' },
-  { file: 'tasks.ts', at: /button\('Track'/, why: 'Track: the thread link the person pasted in the box beside it.' },
+  { file: 'tasks.ts', at: /button\(WORDS\.addToWork, 'add', send, 'primary'/, why: 'Add to my work: the thread link the person pasted in the box beside it.' },
   { file: 'tasks.ts', at: /b\.connect\.label/, why: 'The fix for a tracker that is not signed in, so its board can\'t load.' },
   { file: 'updates.ts', at: /'primary'\);$/, why: 'Post: an update the person drafted, sent.' },
 ];

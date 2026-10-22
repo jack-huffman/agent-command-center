@@ -57,6 +57,7 @@ import { sampleStepRun } from './fixtures/run-steps.ts';
 import { runCard } from '../src/model/runs.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
 import { pool, type Ran } from './jobs.ts';
+import { FIRST_STEPS } from '../webview/plain-words.ts';
 
 /** What the page hands each case: ways to find, act and check, and what Node worked out it should see. */
 export interface Probe {
@@ -94,6 +95,8 @@ export interface Probe {
 
 /** What the cases expect, worked out in Node from the fixtures the page is drawn from. */
 export interface BehaviourData {
+  /** The Tasks tab's first steps, in order, as someone new reads them (T-96). */
+  firstSteps: string[];
   /** The task the board's card opens, as the extension would send it in the modal. */
   task: { project: string; key: string; peek: string; message: Record<string, unknown> };
   /** The suggested rules, in the Overview's order, and the message each one's Accept and Confirm sends. */
@@ -1241,12 +1244,28 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'first steps: Got it hides the five steps, the tab remembers it, and a redraw keeps them hidden (T-96)',
+    page: 'tasks',
+    async run(t) {
+      const line = t.find('.first-steps');
+      t.check('someone new sees how it works, in five steps', t.all('.first-steps-list li', line).map((li) => li.textContent?.replace(/^\d+\.\s*/, '').trim()).join(' / ') === t.data.firstSteps.join(' / '), line.textContent);
+      const done = t.all<HTMLButtonElement>('button', line).find((b) => b.textContent?.includes('Got it'));
+      if (!done) throw new Error('not found: the first steps\' Got it');
+      await t.click(done);
+      t.check('Got it hides them', t.all('.first-steps').length === 0);
+      t.check('the tab remembers they were dismissed', t.memory().firstStepsSeen === true, t.memory());
+      // Edge: the next model, as a refresh sends, draws them hidden still.
+      await t.post({ type: 'state', model: t.model });
+      t.check('a redraw keeps them hidden', t.all('.first-steps').length === 0);
+    },
+  },
+  {
     name: 'board keys: Space on a card no column takes says why, and holds nothing',
     page: 'tasks',
     async run(t) {
       await t.post({ type: 'state', model: t.data.keys.stuck.model });
-      const seg = t.all<HTMLButtonElement>('.segmented .seg').find((b) => b.textContent?.includes('Agent board'));
-      if (!seg) throw new Error('not found: the Agent board button');
+      const seg = t.all<HTMLButtonElement>('.segmented .seg').find((b) => b.textContent?.includes('My work'));
+      if (!seg) throw new Error('not found: the My work button');
       await t.click(seg);
       const { card, focus, board, live } = boardCard(t, t.data.keys.stuck.card);
       focus.focus();
@@ -1266,7 +1285,7 @@ export const CASES: Case[] = [
     async run(t) {
       const d = t.data.sheet.card;
       const button = t.find(`article.card[data-card-id="${CSS.escape(d.task)}"] .ta-btn.primary`);
-      t.check('the card\'s next step is Dispatch', button.textContent?.trim() === 'Dispatch', button.textContent);
+      t.check('the card\'s next step is Build it', button.textContent?.trim() === 'Build it', button.textContent);
       await t.click(button);
       const ran = t.sent('run').at(-1);
       t.check('a click asks the extension for the sheet, and dispatches nothing', JSON.stringify(ran) === JSON.stringify(d.run) && t.sent('dispatch-sheet-go').length === 0, ran);
@@ -1725,7 +1744,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'Add the draft leaves the description as it was', file: 'task-sheet.ts', find: '  open.sheet = { ...open.sheet, fields: { ...written(), brief: below(written().brief, section) } };', replace: '  open.sheet = { ...open.sheet, fields: written() };', kills: [caseNamed('task sheet: drafted acceptance criteria')] },
   { name: 'a failed draft says nothing', file: 'task-sheet.ts', find: "  open.error = msg.error || 'The draft didn\\'t come back.';", replace: '  open.error = null;', kills: [caseNamed('task sheet: drafted acceptance criteria')] },
   { name: 'Open as an update asks for the sheet', file: 'criteria.ts', find: "    ...(c.update ? [action(m, c, c.update, 'criteria-update', 'comment-draft', false)] : []),", replace: "    ...(c.update ? [action(m, c, c.update, 'criteria-sheet', 'comment-draft', false)] : []),", kills: [caseNamed('task page: a draft shows')] },
-  { name: 'a failed draft section button forgets why', file: 'criteria.ts', find: "  else failed.set(key, msg.error?.trim() || 'It didn\\'t go, and acc didn\\'t say why.');", replace: '  else failed.delete(key);', kills: [caseNamed('task page: a draft shows')] },
+  { name: 'Got it leaves the first steps unremembered', file: 'first-steps.ts', find: '    remember((m) => { m.firstStepsSeen = true; });', replace: '', kills: [caseNamed('first steps: Got it hides')] },
+  { name: 'a failed draft section button forgets why', file: 'criteria.ts', find: "  else failed.set(key, msg.error?.trim() || 'It didn\\'t go, and the Command Center didn\\'t say why.');", replace: '  else failed.delete(key);', kills: [caseNamed('task page: a draft shows')] },
   { name: 'a failed Save closes the task sheet', file: 'task-sheet.ts', find: '  if (msg.ok) return shut();\n', replace: '  return shut();\n', kills: [caseNamed('task sheet: with edits on')] },
   { name: 'Keep mine saves against the text the sheet opened with', file: 'task-sheet.ts', find: '  open.base = open.theirs;\n  open.theirs = null;\n  save();', replace: '  open.theirs = null;\n  save();', kills: [caseNamed('task sheet: with edits on')] },
   { name: 'Escape on the sheet dispatches', file: 'dispatch-sheet.ts', find: "const m = makeModal('dispatch-sheet', [title], shut);", replace: "const m = makeModal('dispatch-sheet', [title], dispatch);", kills: [caseNamed('dispatch sheet: the task page')] },
@@ -1772,6 +1792,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
   const list = o.landing.find((g) => g.more?.do.kind === 'detail' && g.more.do.detail.kind === 'list');
   if (!list) throw new Error('The Overview fixture has no list with more than its page shows.');
   return {
+    firstSteps: FIRST_STEPS.map((s) => s.step),
     task: { project: ROOT, key: ticket.key, peek: `${ROOT}#${ticket.key.toUpperCase()}`, message: { type: 'task-modal', model: ticket, tab: { type: 'ticket', project: ROOT, tracker: 0, key: ticket.key } } },
     rules: rules.map((r) => ({ id: r.id, line: r.line, sources: r.sources.length, accept: accept(r) })),
     rulesOpens: JSON.stringify({ kind: 'rules' }),

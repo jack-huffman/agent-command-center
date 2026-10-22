@@ -62,7 +62,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['tidy add'], name: 'Draft a tidy-up', command: 'acc.tidy.draft' },
   { acc: ['tidy skip'], name: 'Skip the tidy-up', command: 'acc.tidy.skip' },
   // Agents
-  { acc: ['dispatch'], name: 'Dispatch to an agent', named: 'Dispatch {arg} to an agent', command: 'acc.task.dispatch' },
+  { acc: ['dispatch'], name: 'Build it', named: 'Build {arg}', command: 'acc.task.dispatch' },
   { acc: ['done'], name: 'Finish the task' },
   { acc: ['block'], name: 'Mark it blocked', command: 'acc.task.block' },
   { acc: ['resume'], name: 'Resume its builder', named: 'Resume {arg}\'s builder', command: 'acc.task.resume' },
@@ -76,8 +76,8 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['machine'], name: 'See this machine\'s limits' },
   { acc: ['machine heavy-slots'], name: 'Change how many heavy checks run at once', command: 'acc.settings.heavySlots' },
   { acc: ['machine agents'], name: 'Change how many builders this machine runs', command: 'acc.settings.machineAgents' },
-  { acc: ['analyze'], name: 'Analyze before the build', named: 'Analyze {arg} before the build', command: 'acc.task.analyze' },
-  { acc: ['analysis'], name: 'See the analysis' },
+  { acc: ['analyze'], name: 'Make a plan', named: 'Make a plan for {arg}', command: 'acc.task.analyze' },
+  { acc: ['analysis'], name: 'See the plan' },
   { acc: ['analysis answer'], name: 'Answer its questions' },
   { acc: ['draft', 'draft criteria'], name: 'Draft acceptance criteria', named: 'Draft {arg}\'s acceptance criteria' },
   { acc: ['draft show'], name: 'See the drafted acceptance criteria' },
@@ -110,7 +110,7 @@ export const PROCESSES: readonly Process[] = [
   // Checks
   { acc: ['gate run'], name: 'Run the checks' },
   { acc: ['gate', 'gate list'], name: 'See the checks' },
-  { acc: ['gate waive'], name: 'Set checks aside' },
+  { acc: ['gate waive'], name: 'Accept a check anyway' },
   { acc: ['gate relax'], name: 'Relax a floor' },
   { acc: ['gate required'], name: 'Change the required checks', command: 'acc.settings.requiredGates' },
   { acc: ['gate builder'], name: 'Change builders\' lighter checks', command: 'acc.settings.builderGates' },
@@ -255,8 +255,8 @@ export function inProcessWords(input: string): string {
   out = out.replace(/`?\.acc\/rules\/([\w.-]+)\.md`?/g, (_m, n: string) => `the rules file ${n}`);
   out = out.replace(/`?\.acc\/rules\/?`?/g, 'the project\'s rules folder');
   // Any other file under .acc/, by whose it is.
-  out = out.replace(/`?~\/\.acc\/[\w./-]*`?/g, 'this machine\'s acc files');
-  out = out.replace(/`?\.acc\/[\w./-]*`?/g, 'the project\'s acc files');
+  out = out.replace(/`?~\/\.acc\/[\w./-]*`?/g, 'the Command Center\'s files on this machine');
+  out = out.replace(/`?\.acc\/[\w./-]*`?/g, 'the Command Center\'s files in the project');
   // Any other docs page, by its name: docs/RULES.md is the rules guide.
   out = out.replace(/`?\bdocs\/([\w-]+)\.md`?/g, (_m, n: string) => `the ${n.toLowerCase().replace(/-/g, ' ')} guide`);
   // A project's script, and the builder's instructions.
@@ -270,6 +270,10 @@ export function inProcessWords(input: string): string {
   out = out.replace(/\b(its|their) packets?\b/g, (_m, d: string) => `${d} instructions`);
   out = out.replace(/\b(?:[Tt]he |[Aa] )?packets\b/g, 'builders\' instructions');
   out = out.replace(/\b(?:[Tt]he |[Aa] )?packet\b/g, 'the builder\'s instructions');
+  // acc by name is the Command Center (T-96): "the acc plugin" is its Claude Code plugin, "this acc" this Command Center.
+  out = out.replace(/\b(?:[Tt]he |[Ii]ts )?acc plugin\b|(?<![\w./~@-])acc's plugin\b/g, (m) => `${/^[TI]/.test(m) ? 'The' : 'the'} Command Center's Claude Code plugin`);
+  out = out.replace(/\b(this|an older|a newer) acc(?![\w@/-]|\.\w)/g, '$1 Command Center');
+  out = out.replace(/(?<![\w./~@-])(?:[Tt]he )?acc(?![\w@/-]|\.\w)/g, (m, at: number) => `${/^T/.test(m) || at === 0 || /[.!?]\s+$/.test(out.slice(0, at)) ? 'The' : 'the'} Command Center`);
   // A message that started with a path still starts with a capital.
   return /^[a-z]/.test(out) && !/^[a-z]/.test(input) ? upper(out) : out;
 }
@@ -289,14 +293,14 @@ export function processLine(line: string): string | null {
 
 /**
  * What another tool's command line does, as a process (GH-168): `claude plugin install acc@…` is "Install the
- * acc plugin in Claude Code". Setup shows what Do it does in these words and keeps the line itself behind
+ * Command Center's Claude Code plugin". Setup shows what Do it does in these words and keeps the line itself behind
  * "Show the command", for someone who runs it by hand. A line none of these names comes back null, and the
  * page shows it as it always has: extension/test/config-words.test.ts runs each line Setup's steps give.
  */
 const TOOL_LINES: readonly { line: RegExp; does: string }[] = [
-  { line: /^claude plugin marketplace update\b.*&& claude plugin update\b/, does: 'Update the acc plugin in Claude Code' },
-  { line: /^claude plugin (?:marketplace add\b.*&& claude plugin )?install\b/, does: 'Install the acc plugin in Claude Code' },
-  { line: /^claude plugin enable\b/, does: 'Turn on the acc plugin in Claude Code' },
+  { line: /^claude plugin marketplace update\b.*&& claude plugin update\b/, does: 'Update the Command Center\'s Claude Code plugin' },
+  { line: /^claude plugin (?:marketplace add\b.*&& claude plugin )?install\b/, does: 'Install the Command Center\'s Claude Code plugin' },
+  { line: /^claude plugin enable\b/, does: 'Turn on the Command Center\'s Claude Code plugin' },
   { line: /^claude update$/, does: 'Update Claude Code' },
   { line: /^claude auth login$/, does: 'Sign in to Claude Code with your claude.ai account' },
   { line: /^claude(?:\s+#.*)?$/, does: 'Open Claude Code in this folder, to trust it' },

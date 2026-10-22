@@ -508,31 +508,31 @@
       },
       {
         "command": "acc.task.dispatch",
-        "title": "Dispatch to an agent",
+        "title": "Build it",
         "category": "Agent Command Center",
         "icon": "$(rocket)"
       },
       {
         "command": "acc.task.dispatchWith",
-        "title": "Dispatch to an agent with a model you pick",
+        "title": "Build it with a model you pick",
         "category": "Agent Command Center",
         "icon": "$(sparkle)"
       },
       {
         "command": "acc.task.dispatchCloud",
-        "title": "Dispatch to the cloud",
+        "title": "Build it in the cloud",
         "category": "Agent Command Center",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "acc.task.dispatchAnyway",
-        "title": "Dispatch anyway, though it shares files with work in flight",
+        "title": "Build it anyway, though it shares files with work in flight",
         "category": "Agent Command Center",
         "icon": "$(rocket)"
       },
       {
         "command": "acc.task.dispatchAgain",
-        "title": "Dispatch again: a builder that didn't start, or one acc can't see",
+        "title": "Build it again: a builder that didn't start, or one the Command Center can't see",
         "category": "Agent Command Center",
         "icon": "$(debug-restart)"
       },
@@ -586,19 +586,19 @@
       },
       {
         "command": "acc.task.analyze",
-        "title": "Analyze before the build",
+        "title": "Make a plan",
         "category": "Agent Command Center",
         "icon": "$(telescope)"
       },
       {
         "command": "acc.task.watchAnalysis",
-        "title": "Watch the analysis",
+        "title": "Watch the plan being made",
         "category": "Agent Command Center",
         "icon": "$(pulse)"
       },
       {
         "command": "acc.task.land",
-        "title": "Land: push and open the pull request",
+        "title": "Send to merge: push and open the pull request",
         "category": "Agent Command Center",
         "icon": "$(git-pull-request-create)"
       },
@@ -1023,7 +1023,7 @@
       {
         "id": "acc.machine",
         "title": "Agent Command Center: set up this machine",
-        "description": "Tools, accounts and the acc plugin that agents need. Each step ticks itself when its check passes.",
+        "description": "Tools, accounts and the Command Center's Claude Code plugin that agents need. Each step ticks itself when its check passes.",
         "steps": [
           {
             "id": "A1.git",
@@ -1039,7 +1039,7 @@
           {
             "id": "A1.node",
             "title": "Node 20 or later",
-            "description": "The Salesforce CLI and its plugins run on Node, and npm installs them. acc itself doesn't need it.\n\n[Check](command:acc.step.check?%5B%22A1.node%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.node%22%5D)",
+            "description": "The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn't need it.\n\n[Check](command:acc.step.check?%5B%22A1.node%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.node%22%5D)",
             "media": {
               "markdown": "media/steps/A1.node.md"
             },
@@ -1118,8 +1118,8 @@
           },
           {
             "id": "A4.plugin",
-            "title": "The acc plugin in Claude Code",
-            "description": "Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents acc's skills and the reviewer. It's installed once, for every Claude Code session, and does nothing in a repo without the project's settings.\n\n[Check](command:acc.step.check?%5B%22A4.plugin%22%5D)\n[Do it](command:acc.step.fix?%5B%22A4.plugin%22%5D)",
+            "title": "The Command Center's Claude Code plugin",
+            "description": "Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents the Command Center's skills and its reviewer. It's installed once, for every Claude Code session, and does nothing in a repo without the project's settings.\n\n[Check](command:acc.step.check?%5B%22A4.plugin%22%5D)\n[Do it](command:acc.step.fix?%5B%22A4.plugin%22%5D)",
             "media": {
               "markdown": "media/steps/A4.plugin.md"
             },
@@ -1208,7 +1208,7 @@
           {
             "id": "B2.account",
             "title": "The repo's GitHub account is logged in",
-            "description": "acc runs every gh call for this repo as its own account (D-007).\n\n[Check](command:acc.step.check?%5B%22B2.account%22%5D)\n[Do it](command:acc.step.fix?%5B%22B2.account%22%5D)",
+            "description": "The Command Center runs every gh call for this repo as its own account (D-007).\n\n[Check](command:acc.step.check?%5B%22B2.account%22%5D)\n[Do it](command:acc.step.fix?%5B%22B2.account%22%5D)",
             "media": {
               "markdown": "media/steps/B2.account.md"
             },
@@ -1426,7 +1426,7 @@
           {
             "id": "B14.tickets",
             "title": "The repo's ticket source",
-            "description": "The Tasks board shows this repo's own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in on this machine for this repo, or for every project on the same site. If this repo keeps its tasks in acc alone, mark this done.\n\n[Check](command:acc.step.check?%5B%22B14.tickets%22%5D)\n[Do it](command:acc.step.fix?%5B%22B14.tickets%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B14.tickets%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B14.tickets%22%5D)",
+            "description": "The Tasks board shows this repo's own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in on this machine for this repo, or for every project on the same site. If this repo keeps its tasks in the Command Center alone, mark this done.\n\n[Check](command:acc.step.check?%5B%22B14.tickets%22%5D)\n[Do it](command:acc.step.fix?%5B%22B14.tickets%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B14.tickets%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B14.tickets%22%5D)",
             "media": {
               "markdown": "media/steps/B14.tickets.md"
             },
@@ -1448,7 +1448,7 @@
           {
             "id": "B15.cloud-routine",
             "title": "A routine for the repo",
-            "description": "A script starts a cloud session only by firing a routine's API trigger (GH-69). The routine holds the repo, the model and the environment; acc sends each task in the fire's text.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-routine%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-routine%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-routine%22%5D)",
+            "description": "A script starts a cloud session only by firing a routine's API trigger (GH-69). The routine holds the repo, the model and the environment; the Command Center sends each task in the fire's text.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-routine%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-routine%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-routine%22%5D)",
             "media": {
               "markdown": "media/steps/B15.cloud-routine.md"
             },
@@ -1459,7 +1459,7 @@
           {
             "id": "B15.cloud-token",
             "title": "The routine's token is in the keychain",
-            "description": "acc fires the routine with its bearer token, kept in this Mac's keychain and never in the project's settings or git (GH-69). The token is shown once, on the routine's page.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-token%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-token%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-token%22%5D)",
+            "description": "The Command Center fires the routine with its bearer token, kept in this Mac's keychain and never in the project's settings or git (GH-69). The token is shown once, on the routine's page.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-token%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-token%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-token%22%5D)",
             "media": {
               "markdown": "media/steps/B15.cloud-token.md"
             },
@@ -1481,7 +1481,7 @@
           {
             "id": "B15.cloud-guard",
             "title": "The push guard is committed",
-            "description": "A cloud session runs the repo's own .claude/settings.json hooks and not acc's plugin, so the guard that refuses a push to any branch but the task's, and the git pre-push hook it installs in the clone to check the push itself, are scripts the repo carries, and only what's committed reaches the cloud (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-guard%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-guard%22%5D)",
+            "description": "A cloud session runs the repo's own .claude/settings.json hooks and not the Command Center's plugin, so the guard that refuses a push to any branch but the task's, and the git pre-push hook it installs in the clone to check the push itself, are scripts the repo carries, and only what's committed reaches the cloud (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-guard%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-guard%22%5D)",
             "media": {
               "markdown": "media/steps/B15.cloud-guard.md"
             },
@@ -1559,7 +1559,7 @@
           ],
           "default": "vscode",
           "scope": "machine",
-          "markdownDescription": "The Command Center's theme, also on its Settings section. Only acc's own pages change: VSCode keeps its own theme. Kept on this machine: Settings Sync leaves it out."
+          "markdownDescription": "The Command Center's theme, also on its Settings section. Only the Command Center's own pages change: VSCode keeps its own theme. Kept on this machine: Settings Sync leaves it out."
         },
         "agentCommandCenter.refreshPace": {
           "type": "string",

@@ -12,6 +12,7 @@ import type { State } from '../../../packages/core/src/ledger.ts';
 import { analysisReady, analysisWait, filesUnknown, sharesLine, waitLine } from '../logic/tasks.ts';
 import { questionsWord, saidLine, taskNames, type TaskRow } from '../logic/shared.ts';
 import type { Action, Look, Ref } from './shared.ts';
+import { WORDS } from '../../webview/plain-words.ts';
 
 /**
  * Whether a person can dispatch it from here: a task to do that waits on nothing, or one back for rework.
@@ -27,11 +28,11 @@ export function canDispatch(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing' 
 /** What a task to do shows about its analysis (D-052): an icon and words, orange when it waits on a person. */
 export function analysisLook(t: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'>): Look | null {
   if (t.state !== 'todo') return null;
-  if (t.analyzing) return { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' };
+  if (t.analyzing) return { label: 'Making a plan', icon: 'sync~spin', tone: 'blue' };
   const wait = analysisWait(t);
   if (wait === 'split') return { label: 'Needs you: too big for one task', icon: 'split-horizontal', tone: 'orange' };
-  if (wait === 'questions') return { label: `Needs you: ${questionsWord(t.analysis!.open.length)} from its analysis`, icon: 'question', tone: 'orange' };
-  return t.analysis ? { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' } : null;
+  if (wait === 'questions') return { label: `Needs you: ${questionsWord(t.analysis!.open.length)} from its plan`, icon: 'question', tone: 'orange' };
+  return t.analysis ? { label: 'Planned: ready to build', icon: 'pass', tone: 'blue' } : null;
 }
 
 export const AUTOPILOT_STEP: Record<NonNullable<TaskRow['autopilot']>['step'], string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update from its base', resume: 'resume', checks: 'send it back for its failing checks', merge: 'merge it', start: 'start it', queue: 'take it through the merge queue' };
@@ -141,7 +142,7 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   const inCloud = t.run?.where === 'cloud' && (t.state === 'running' || t.state === 'review' || t.state === 'blocked');
   const dispatchable = canDispatch(t);
   const wait = analysisWait(t);
-  if (todo && t.analyzing) a.push({ command: 'acc.task.watchAnalysis', label: 'Watch the analysis', icon: 'pulse', ref, primary: true });
+  if (todo && t.analyzing) a.push({ command: 'acc.task.watchAnalysis', label: 'Watch the plan being made', icon: 'pulse', ref, primary: true });
   // Its questions are answered on its page, where it shows them.
   else if (wait === 'questions') a.push({ command: 'acc.task.show', label: 'Answer', icon: 'question', ref, primary: true });
   else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref, primary: true });
@@ -153,9 +154,9 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   if (notStarted || (unseen && unseen !== 'missing')) a.push({ command: 'acc.task.dispatchAgain', label: DISPATCH_AGAIN, icon: 'debug-restart', ref, primary: (notStarted || unseen === 'quiet') && !a.some((x) => x.primary) });
   // A task a person dispatched already waits for others' files (D-093): its next step is starting it anyway.
   const held = todo && !!t.files?.held;
-  // Its sheet asks for the model, the effort and where it runs (D-168), so there's one Dispatch.
-  if (dispatchable) a.push(held ? { command: 'acc.task.dispatchAnyway', label: 'Dispatch anyway', icon: 'rocket', ref, primary: !a.some((x) => x.primary) } : { command: 'acc.task.dispatch', label: t.state === 'rework' ? 'Re-dispatch' : 'Dispatch', icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
-  if (todo && !t.analyzing && !t.analysis) a.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!t.analysisRequired && !a.some((x) => x.primary) });
+  // Its sheet asks for the model, the effort and where it runs (D-168), so there's one Build it.
+  if (dispatchable) a.push(held ? { command: 'acc.task.dispatchAnyway', label: `${WORDS.buildIt} anyway`, icon: 'rocket', ref, primary: !a.some((x) => x.primary) } : { command: 'acc.task.dispatch', label: t.state === 'rework' ? `${WORDS.buildIt} again` : WORDS.buildIt, icon: 'rocket', ref, primary: !a.some((x) => x.primary) });
+  if (todo && !t.analyzing && !t.analysis) a.push({ command: 'acc.task.analyze', label: WORDS.makePlan, icon: 'lightbulb', ref, primary: !!t.analysisRequired && !a.some((x) => x.primary) });
   // In review (D-032, D-033): watch the reviewer, review it, land it, or follow its pull request.
   if (t.state === 'review') {
     const open = t.pr?.state === 'open';
@@ -164,7 +165,7 @@ function offered(t: TaskRow, ref: Ref): Action[] {
     if (t.reviewing) a.push({ command: 'acc.task.watchReview', label: 'Watch the review', icon: 'pulse', ref, primary: !a.some((x) => x.primary) });
     else if (t.cloudReview?.wait) { /* a quiet or failed cloud review: Review on this Mac leads, above */ }
     else if (open) a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr!.number}`, icon: 'git-pull-request', ref, primary: true });
-    else if (t.review?.current && t.review.verdict === 'pass') a.push({ command: 'acc.task.land', label: 'Land', icon: 'git-pull-request-create', ref, primary: true });
+    else if (t.review?.current && t.review.verdict === 'pass') a.push({ command: 'acc.task.land', label: WORDS.sendToMerge, icon: 'git-pull-request-create', ref, primary: true });
     else a.push({ command: 'acc.task.review', label: t.review?.current ? 'Review again' : 'Review', icon: 'checklist', ref, primary: true });
     if (open && t.review?.current && t.review.verdict === 'pass' && !t.reviewing) a.push({ command: 'acc.task.land', label: 'Update pull request', icon: 'repo-push', ref });
   }

@@ -1092,7 +1092,7 @@ export const DISPLAY: Record<DisplayState, { label: string; icon: string; glyph:
   running: { label: 'Running', icon: 'sync', glyph: '↻', tone: 'blue' },
   'needs-you': { label: 'Needs you', icon: 'bell', glyph: '!', tone: 'orange' },
   review: { label: 'In review', icon: 'eye', glyph: '◎', tone: 'blue' },
-  rework: { label: 'Rework', icon: 'debug-restart', glyph: '↺', tone: 'orange' },
+  rework: { label: 'Sent back', icon: 'debug-restart', glyph: '↺', tone: 'orange' },
   blocked: { label: 'Blocked', icon: 'circle-slash', glyph: '⊘', tone: 'orange' },
   done: { label: 'Done', icon: 'check', glyph: '✓', tone: 'neutral' },
 };

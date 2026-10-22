@@ -39,7 +39,7 @@ test('a project\'s cap and checks are set one key at a time, and a name it doesn
   const text = '{\n  "schema": 1,\n  "project": "Tool",\n  "profile": "generic",\n  "environments": [ { "name": "main", "default": true } ],\n  "gates": {\n    "required": [\n      "test"\n    ],\n    "commands": {\n      "test": "npm test",\n      "lint": "npm run lint",\n      "build": "npm run build"\n    }\n  }\n}\n';
   const file = join(tempDir('cfg-'), 'config.json');
   writeFileSync(file, text);
-  assert.equal(agentsMaxSet(file), false, 'acc\'s default');
+  assert.equal(agentsMaxSet(file), false, 'the Command Center\'s default');
   assert.equal(setAgentsMax(file, 6), 6);
   assert.equal(readFileSync(file, 'utf8'), text.replace('\n  }\n}\n', '\n  },\n  "agents": {\n    "max": 6\n  }\n}\n'));
   assert.equal(agentsMaxSet(file), true);

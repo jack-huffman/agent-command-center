@@ -72,7 +72,7 @@ test('Dispatch with… offers the model the builder runs with anyway first, sayi
   const labels = (items: { label: string; description: string }[]) => items.map((i) => `${i.label} · ${i.description}`);
   assert.deepEqual(MODEL_CHOICES.map((m) => m.name), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-haiku-5-5'], 'pinned names, one list for Dispatch with… and Change…');
   assert.deepEqual(labels(dispatchModelItems({}, builder('claude-opus-5-5', 'acc'))), [
-    'claude-opus-5-5 · acc\'s default', 'claude-fable-5-1 · Claude Fable 5.1', 'claude-sonnet-5-5 · Claude Sonnet 5.5: lighter on your plan',
+    'claude-opus-5-5 · the Command Center\'s default', 'claude-fable-5-1 · Claude Fable 5.1', 'claude-sonnet-5-5 · Claude Sonnet 5.5: lighter on your plan',
     'claude-haiku-5-5 · Claude Haiku 5.5: the lightest', 'Another model… · an alias or a full model name, as claude --model takes it',
   ]);
   const clone = dispatchModelItems({}, builder('claude-sonnet-5-5', 'clone'));
@@ -97,10 +97,10 @@ test('Dispatch with… keeps a model for the task only when it\'s one the settin
 
 test('the analysis\'s size is shown beside the models, in words, and chooses none of them (D-086)', () => {
   const analysis = (size?: 'S' | 'M' | 'L' | 'XL') => ({ analysis: { verdict: 'ready' as const, at: 't', open: [], split: [], ...(size ? { size } : {}) } });
-  assert.equal(sizeLine(analysis('L')), 'Its analysis sizes it L: a few days.');
-  assert.equal(sizeLine(analysis('S')), 'Its analysis sizes it S: an hour or two.');
-  assert.equal(sizeLine({}), 'Not analyzed: no size to go on.');
-  assert.equal(sizeLine(analysis()), 'Its analysis gave no size.');
+  assert.equal(sizeLine(analysis('L')), 'Its plan sizes it L: a few days.');
+  assert.equal(sizeLine(analysis('S')), 'Its plan sizes it S: an hour or two.');
+  assert.equal(sizeLine({}), 'No plan yet: no size to go on.');
+  assert.equal(sizeLine(analysis()), 'Its plan gave no size.');
   // The items don't depend on the analysis at all: their input has no room for it.
   const b = { model: 'claude-opus-5-5', from: { model: 'acc' } };
   assert.deepEqual(dispatchModelItems({ ...analysis('XL'), run: null }, b), dispatchModelItems({ run: null }, b));

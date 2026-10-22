@@ -25,6 +25,7 @@ import { arrivedAt } from '../../packages/core/src/carried.ts';
 import { reviewing } from '../../packages/core/src/review.ts';
 import { analyzing } from '../../packages/core/src/analyze.ts';
 import { claudeProjectsDir, type LastStep, lastStepIn, transcriptFile } from './transcript.ts';
+import { WORDS } from '../webview/plain-words.ts';
 
 /** A repo's jobs under way, as the hub read them: projects of one repo share them. */
 export interface RepoJobs {
@@ -146,7 +147,7 @@ export function loadWord(m: { load: number; cpus: number } | null | undefined): 
 
 /** What autopilot's step is doing, in words. */
 export const STEP_DOING: Record<AutopilotStepName, string> = {
-  review: 'Reviewing it', land: 'Landing it', dispatch: 'Re-dispatching it', refresh: 'Merging its base in', resume: 'Resuming its builder',
+  review: 'Reviewing it', land: 'Sending it to merge', dispatch: 'Building it again', refresh: 'Merging its base in', resume: 'Resuming its builder',
   checks: 'Sending it back for its failing checks', merge: 'Merging its pull request', start: 'Starting it', queue: 'Taking its turn in the merge queue',
 };
 const STEP_DONE: Record<AutopilotStepName, string> = { review: 'reviewed it', land: 'landed it', dispatch: 're-dispatched it', refresh: 'merged its base in', resume: 'resumed its builder', checks: 'sent it back for its failing checks', merge: 'merged its pull request', start: 'started it', queue: 'took its turn in the merge queue' };
@@ -157,7 +158,7 @@ export const taskLook = (r: Pick<TaskRow, 'display'>): Look => displayLook(r.dis
 
 /** What a heavy check is for, in words: "check for GH-76", "Deploy dev", or an older acc's. */
 function slotWhat(h: Partial<SlotHolder & SlotWaiter>): string {
-  if (!h.what) return 'a check from an older acc';
+  if (!h.what) return 'a check from an older Command Center';
   return h.task ? `${h.what} for ${h.task}` : h.what;
 }
 
@@ -245,7 +246,7 @@ function doneLine(g: Gone, row: TaskRow | undefined, hub: HubLike): { look: Look
       if (rec?.outcome === 'failed') return you(`Autopilot couldn't ${STEP_VERB[rec.step]}`, 'warning');
       return ok(g.step ? `Autopilot ${STEP_DONE[g.step]}` : 'Autopilot\'s step finished');
     }
-    case 'land': return ok(row?.pr ? `Landed: pull request #${row.pr.number}` : 'Land finished', 'git-pull-request');
+    case 'land': return ok(row?.pr ? `Sent to merge: pull request #${row.pr.number}` : 'Sent to merge', 'git-pull-request');
     case 'check': return ok(`${g.label} finished`);
     case 'resume': return ok('Resume ended');
     case 'refresh': return ok('Merging its base in finished');
@@ -356,7 +357,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
       const run = runFor(p, (x) => x.kind === 'analysis' && x.task === a.task);
       if (run) used.add(run.id);
       add(taskGroup(p, r), {
-        key: 'analysis', kind: 'analysis', look: LOOK('Analyzing', 'search', 'blue'), label: 'Analysis', detail: 'reading the ticket and the code, before the build', since: ago(time(a.startedAt)),
+        key: 'analysis', kind: 'analysis', look: LOOK('Making a plan', 'search', 'blue'), label: 'Plan', detail: 'studying the ticket and the code, before the build', since: ago(time(a.startedAt)),
         actions: [
           ...(r.analyzing ? [{ label: 'Watch', icon: 'pulse', tip: 'Follow the analyst as it reads, on its page', command: 'acc.task.watchAnalysis', ref: ref(r.id) }] : []),
           ...(run ? [stop({ kind: 'run', run: run.id, label: run.label }, 'End the analysis this window started. It writes no analysis; run it again later.')] : []),
@@ -423,7 +424,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
         const r = byId.get(j.task);
         if (!r || inStep(j.task, j.pid)) continue;
         const row: JobRow = j.kind === 'land'
-          ? { key: `land:${j.key}`, kind: 'land', look: LOOK('Landing', 'git-pull-request', 'blue'), label: 'Land', detail: `pushing it and opening its pull request, for ${by}`, since: ago(at), actions: [] }
+          ? { key: `land:${j.key}`, kind: 'land', look: LOOK('Sending to merge', 'git-pull-request', 'blue'), label: WORDS.sendToMerge, detail: `pushing it and opening its pull request, for ${by}`, since: ago(at), actions: [] }
           : { key: `refresh:${j.key}`, kind: 'refresh', look: LOOK('Merging its base in', 'git-merge', 'blue'), label: 'Refresh', detail: `merging ${r.environment} into its branch, then its checks, for ${by}`, since: ago(at), actions: [] };
         add(taskGroup(p, r), row, at);
       } else if (j.kind === 'promote' && j.from && j.env) {

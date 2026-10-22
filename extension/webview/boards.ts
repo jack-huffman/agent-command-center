@@ -5,6 +5,7 @@ import { el, icon, work } from './dom.ts';
 import { actionTile } from './task-actions.ts';
 import { answerHere } from './detail.ts';
 import { api, go } from './state.ts';
+import { explains } from './plain-words.ts';
 
 /**
  * A mouse wheel scrolls the board sideways wherever a lane wouldn't scroll itself: over a heading, the
@@ -115,7 +116,7 @@ export function moreMenu(key: string, name: string, actions: Action[], send: (a:
       b.disabled = true;
       b.title = a.disabled;
       b.setAttribute('aria-description', a.disabled);
-    }
+    } else b.title = explains(a.command, a.label);
     b.addEventListener('click', (e) => { e.stopPropagation(); openMenu = null; menu.hidden = true; send(a); });
     return b;
   };

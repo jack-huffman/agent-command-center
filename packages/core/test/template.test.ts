@@ -321,7 +321,7 @@ test('acc init from a generic template: the template wins where it speaks, and d
   assert.deepEqual(templateDifferences(parsed(GENERIC_TEMPLATE), again.config), [], 'a project made from a template agrees with it');
 });
 
-test('a template that sets little leaves the rest to discovery and acc\'s defaults', () => {
+test('a template that sets little leaves the rest to discovery and the Command Center\'s defaults', () => {
   const { repo, run } = genericRepo();
   const plan = planInit(run, { root: repo, template: loaded({ schema: 1, name: 'ACME minimal', gates: { required: ['test'], commands: { test: 'npm test' } } }) });
   assert.equal(plan.config.profile, 'generic');
