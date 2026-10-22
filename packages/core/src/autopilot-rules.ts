@@ -2,7 +2,7 @@
 
 import { accChangesFor } from './acc-changes.ts';
 import { autoMergeFor, type Config } from './config.ts';
-import { type CheckRead, readChecks } from './checks.ts';
+import { type CheckRead, quotedChecks, readChecks } from './checks.ts';
 import { holdWords } from './held.ts';
 import type { Runner } from './exec.ts';
 import { autopilotFailure, type AutopilotStepName, builders, builderStopped, type ClaudeSession, closedPr, type HistoryEntry, type Ledger, projectCapWords, reworkCause, SEND_BACKS, sendBacks, sentBackAt, sentBackByAutopilot, type Task } from './ledger.ts';
@@ -282,6 +282,9 @@ function queueStep(task: Task, facts: TaskFacts, step: (s: AutopilotStepName, re
   // that conflicts gets none to wait for: GitHub runs no pull_request workflows until its base is merged in,
   // which its turn does, pushing a commit they run on.
   if (!moved && !c.count && !pr.conflicts?.length && (c.required || facts.noChecksYet)) return hold(`GitHub reports no checks on pull request #${pr.number} yet. Autopilot gives them 2 minutes after a land.`, true);
+  // A check the project names that isn't reported: it waits, however long since the land (T-108). One that
+  // conflicts joins all the same, as above: its turn merges the base in, and the merge waits for it then.
+  if (!moved && c.missing.length && !pr.conflicts?.length) return hold(`GitHub reports nothing yet for ${quotedChecks(c.missing)} on pull request #${pr.number}: autopilot waits for ${c.missing.length === 1 ? 'it' : 'them'} to pass before it merges.`, true);
   const placed = inQueueAt(task, facts.head);
   if (!placed) {
     // acc's own config, such as whether a repo auto-merges, is a person's to merge (GH-67): asked as it joins.
@@ -309,6 +312,8 @@ export interface FactsGitHub {
   autoMerge?: (branch: string) => boolean;
   /** Whether an agent working in a folder waits for a person's answer, asked of a task that could join the merge queue (GH-73). */
   asking?: (worktree: string) => boolean;
+  /** The checks the project names (`github.checks`, T-108): each must be reported and pass before a merge. */
+  checks?: string[];
 }
 
 /**
@@ -362,7 +367,7 @@ export function taskFacts(paths: RepoPaths, task: Task, run: Runner, sessions: C
     if (settled?.sha === facts.head) facts.checks = settled.checks;
     else {
       try {
-        facts.checks = readChecks(run, github.repo, task.pr!.number, github.env());
+        facts.checks = readChecks(run, github.repo, task.pr!.number, github.env(), github.checks);
         const c = facts.checks;
         // Settled with nothing to send back (all passed, or only checks GitHub keeps no log for): kept. A
         // failure autopilot would act on is read again, since its send-back reads it afresh anyway. So is

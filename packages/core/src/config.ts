@@ -166,7 +166,12 @@ export interface Config {
   schema: 1;
   project: string;
   profile: Profile;
-  github: { repo: string; account: string } | null;
+  /**
+   * checks: the GitHub checks a pull request must pass before autopilot merges it (T-108), such as the
+   * `check` job a GitHub Actions workflow runs. Each one missing, pending or failed holds the merge, so no
+   * checks reported never counts as passed for them. Absent or empty: GitHub's own say (GH-67).
+   */
+  github: { repo: string; account: string; checks?: string[] } | null;
   commitIdentity: { name: string; email: string } | null;
   environments: Environment[];
   environmentSpecific: string | null;
@@ -278,7 +283,7 @@ type Under<P extends string, C = ConfigPath> = C extends `${P}.${infer L}` ? L :
  * DESIGN.md §4. tsc refuses a path here that isn't a Config's, and one a Config has that's left out.
  */
 export const CONFIG_KEYS = [
-  'schema', 'project', 'profile', 'github.repo', 'github.account', 'commitIdentity.name', 'commitIdentity.email',
+  'schema', 'project', 'profile', 'github.repo', 'github.account', 'github.checks', 'commitIdentity.name', 'commitIdentity.email',
   'environments[].name', 'environments[].branch', 'environments[].type', 'environments[].org', 'environments[].default',
   'environments[].protected', 'environments[].promotesTo', 'environmentSpecific', 'knownDrift',
   'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
@@ -405,7 +410,9 @@ export function parseConfig(raw: unknown): ParseResult {
     const g = raw.github;
     if (!isObj(g) || !isStr(g.repo) || !/^[\w.-]+\/[\w.-]+$/.test(g.repo) || !isStr(g.account)) {
       errors.push('"github" needs "repo" (owner/name) and "account" (the gh account for this repo).');
-    } else github = { repo: g.repo, account: g.account };
+    } else if (g.checks !== undefined && !(Array.isArray(g.checks) && g.checks.every(isStr))) {
+      errors.push('"github.checks" must be a list of check names, such as ["check"].');
+    } else github = { repo: g.repo, account: g.account, ...(Array.isArray(g.checks) && g.checks.length ? { checks: (g.checks as string[]).map((c) => c.trim()) } : {}) };
   }
 
   let commitIdentity: Config['commitIdentity'] = null;

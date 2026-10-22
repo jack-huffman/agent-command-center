@@ -2,7 +2,7 @@ import { firstSaid } from './text.ts';
 import { accChangesFor } from './acc-changes.ts';
 import { autoMergeFor, type Config, environmentByBranch } from './config.ts';
 import { keepChanges, mergedPaths } from './changes.ts';
-import { type CheckRead, readChecks } from './checks.ts';
+import { type CheckRead, quotedChecks, readChecks } from './checks.ts';
 import { draftChangesField } from './field-drafts.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { GH_TIMEOUT_MS, ghToken } from './land.ts';
@@ -156,7 +156,7 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
 
   let checks: CheckRead;
   try {
-    checks = readChecks(run, gh.repo, pr.number, ghEnv);
+    checks = readChecks(run, gh.repo, pr.number, ghEnv, gh.checks);
   } catch (e) {
     throw wait((e as Error).message);
   }
@@ -164,6 +164,8 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   if (checks.pending.length) throw waitChecks(`Checks are still running on GitHub: ${checks.pending.join(', ')}.`);
   if (checks.failed.length) throw new AccError('merge', `Checks failed on GitHub: ${checks.failed.map((c) => c.name).join(', ')}.`);
   if (checks.cancelled.length) throw new AccError('merge', `Checks were cancelled on GitHub: ${checks.cancelled.join(', ')}. Run them again, or merge it yourself.`);
+  // A check the project names that GitHub reports nothing for, such as a workflow not started yet: never a pass (T-108).
+  if (checks.missing.length) throw waitChecks(`GitHub reports nothing yet for ${quotedChecks(checks.missing)} on pull request #${pr.number}: autopilot waits for ${checks.missing.length === 1 ? 'it' : 'them'} to pass.`);
   // None at all counts only where the base requires none, and once a slow CI has had time to start (a person
   // decided). gh can't say which a commit with no checks needs: GitHub's BLOCKED below says the base wants some.
   const landed = Date.parse(pr.landedAt ?? '');

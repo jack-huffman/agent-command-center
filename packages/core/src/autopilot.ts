@@ -279,6 +279,7 @@ export function autopilotPass(paths: RepoPaths, config: Config, deps: AutopilotD
     repo: gh.repo, env: () => (ghEnv ??= { ...deps.env, GH_TOKEN: ghToken(deps.run, gh.account) }),
     autoMerge: (branch) => autoMergeFor(config, branch),
     asking: (wt) => askingUnder((asked ??= pendingQuestions(questionsDir(deps.env))), wt),
+    checks: gh.checks,
   } : undefined;
   const who = { actor: 'orchestrator' as const, by: AUTOPILOT_BY };
   const queued = new Map<string, InQueue>();

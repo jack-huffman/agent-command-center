@@ -522,7 +522,7 @@ const EVERY_KEY = {
   schema: 1,
   project: 'Acme',
   profile: 'generic',
-  github: { repo: 'acme-co/acme', account: 'work-account' },
+  github: { repo: 'acme-co/acme', account: 'work-account', checks: ['check'] },
   commitIdentity: { name: 'Test Person', email: 'test@example.com' },
   environments: [
     { name: 'Main', branch: 'main', type: 'none', org: 'Acme Dev', default: true, protected: false, promotesTo: ['release'] },
@@ -653,4 +653,12 @@ test('a Jira tracker follows a sprint: "active" or an id, alone or with an epic;
   assert.equal(sprintProblem('jira', 'active'), null);
   assert.equal(sprintProblem('jira', 7), null);
   assert.match(sprintProblem('slack', 7)!, /only to a Jira tracker/, 'the kind is checked before the value');
+});
+
+test('github.checks names the checks autopilot waits for (T-108); edge cases: empty is none, and anything but a list of names is an error', () => {
+  const gh = (checks: unknown) => ({ ...clone(GENERIC_CONFIG), github: { repo: 'acme/tool', account: 'jordan-kim', checks } });
+  assert.deepEqual(parseConfig(gh(['check', ' lint '])).config!.github, { repo: 'acme/tool', account: 'jordan-kim', checks: ['check', 'lint'] });
+  assert.deepEqual(parseConfig(gh([])).config!.github, { repo: 'acme/tool', account: 'jordan-kim' }, 'an empty list names none');
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), github: { repo: 'acme/tool', account: 'jordan-kim' } }).config!.github, { repo: 'acme/tool', account: 'jordan-kim' });
+  for (const bad of ['check', [''], [1], { check: true }, null]) assert.match(errorsOf(gh(bad)), /"github.checks" must be a list of check names/, JSON.stringify(bad));
 });

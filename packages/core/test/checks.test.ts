@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { actionsJob, checksSection, type ChecksReport, fetchLog, LOG_TAIL_BYTES, LOG_TAIL_LINES, readChecks, tailLog } from '../src/checks.ts';
+import { actionsJob, checksSection, type ChecksReport, fetchLog, LOG_TAIL_BYTES, LOG_TAIL_LINES, quotedChecks, readChecks, tailLog } from '../src/checks.ts';
 import { AccError, type RunResult } from '../src/exec.ts';
 import { bad, fakeRunner, ok } from './support.ts';
 
@@ -48,6 +48,25 @@ test('a base branch that requires no checks: every check on the commit counts; n
   assert.throws(() => readChecks(fakeRunner({ 'gh pr view': view, 'gh pr checks': bad('unknown flag: --json') }), 'acme/tool', 42, ENV),
     (e: AccError) => e.code === 'checks' && e.message === 'gh couldn\'t read pull request #42\'s checks: unknown flag: --json');
   assert.throws(() => readChecks(fakeRunner({ 'gh pr view': bad('HTTP 401: Bad credentials') }), 'acme/tool', 42, ENV), /gh couldn't read pull request #42: HTTP 401: Bad credentials/);
+});
+
+test('checks the project names (T-108): each counts where the base requires others, and one GitHub reports nothing for is missing; edge case: no checks at all', () => {
+  const required = listed([check('lint', 'pass')]);
+  const calls: string[] = [];
+  const r = readChecks(fakeRunner({ 'gh pr view': view, 'gh pr checks 42 -R acme/tool --required': required, 'gh pr checks 42 -R acme/tool --json': listed([check('lint', 'pass'), check('check', 'fail'), check('docs', 'fail')]) }, calls), 'acme/tool', 42, ENV, ['check']);
+  assert.deepEqual([r.required, r.failed.map((c) => c.name), r.missing, r.count], [true, ['check'], [], 2], 'a named check counts; another the base doesn\'t require doesn\'t');
+  assert.equal(calls.at(-1), 'gh pr checks 42 -R acme/tool --json name,bucket,link,workflow,state', 'asked for every check');
+  const notYet = readChecks(fakeRunner({ 'gh pr view': view, 'gh pr checks 42 -R acme/tool --required': required, 'gh pr checks 42 -R acme/tool --json': listed([check('lint', 'pass')]) }), 'acme/tool', 42, ENV, ['check', 'e2e']);
+  assert.deepEqual([notYet.missing, notYet.pending, notYet.failed], [['check', 'e2e'], [], []]);
+  const none = readChecks(fakeRunner({ 'gh pr view': view, 'gh pr checks': bad('no checks reported on the \'task/T-1\' branch') }), 'acme/tool', 42, ENV, ['check']);
+  assert.deepEqual([none.count, none.missing], [0, ['check']], 'no checks at all is missing, never a pass');
+  // Required already, it isn't asked for twice.
+  const asked: string[] = [];
+  const once = readChecks(fakeRunner({ 'gh pr view': view, 'gh pr checks': listed([check('check', 'pass')]) }, asked), 'acme/tool', 42, ENV, ['check']);
+  assert.deepEqual([once.missing, asked.filter((c) => c.startsWith('gh pr checks')).length], [[], 1]);
+  assert.deepEqual(readChecks(fakeRunner({ 'gh pr view': view, 'gh pr checks': listed([]) }), 'acme/tool', 42, ENV).missing, [], 'none named, none missing');
+  assert.equal(quotedChecks(['check']), 'the "check" check');
+  assert.equal(quotedChecks(['check', 'lint', 'e2e']), 'the "check", "lint" and "e2e" checks');
 });
 
 test('an Actions job\'s link names its repo and job; any other link has none', () => {
