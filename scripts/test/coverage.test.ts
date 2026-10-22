@@ -57,7 +57,6 @@ export const OLDER: Record<string, string[]> = {
   'extension/src/transcript.ts': ['shortPath'],
   'extension/webview/about.ts': ['renderAbout'],
   'extension/webview/agent-page.ts': ['renderAgent'],
-  'extension/webview/analysis.ts': ['renderAnalysis'],
   'extension/webview/boards.ts': ['wheelSideways', 'dragAutoScroll', 'cardMenu', 'cardFoot', 'boardEdges'],
   'extension/webview/connect.ts': ['connectTyped', 'renderConnect'],
   'extension/webview/detail.ts': ['openDetail', 'closeDetail'],
