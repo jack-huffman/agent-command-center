@@ -149,7 +149,8 @@ function before(o: OverviewModel): string[] {
     if (a.go) out.push(`go ${a.go.section}`);
     if (a.update) out.push(`update-post ${a.update.id}`, `update-discard ${a.update.id}`);
     if (a.rule) out.push(`rule-accept ${a.rule.id}`, `rule-dismiss ${a.rule.id}`, ...a.rule.sources.map((s) => `rule-open-review ${s.task}@${s.sha}`));
-    for (const q of a.analysis?.questions ?? []) out.push(`analysis-answer ${a.analysis!.task}:${q.id}`, ...(a.analysis!.canAsk && !q.client ? [`update-ask ${a.analysis!.task}:${q.id}`] : []));
+    // Ask on the ticket is for a question only the ticket's author can answer, not yet sent (T-97).
+    for (const q of a.analysis?.questions ?? []) out.push(`analysis-answer ${a.analysis!.task}:${q.id}`, ...(a.analysis!.canAsk && q.askOf === 'author' && !q.client ? [`update-ask ${a.analysis!.task}:${q.id}`] : []));
   }
   for (const g of o.inProgress.groups) {
     for (const j of g.jobs) for (const x of j.actions) out.push(x.question ? `answer ${x.question}` : x.ref ? `run ${x.command} ${refKey(x.ref)}` : `toolbar ${x.command} ${x.arg}`);
@@ -214,7 +215,7 @@ function after(m: HomeModel, hub: HubLike): Set<string> {
       const row = hub.taskRows(x.project).find((r) => r.id === x.key);
       for (const a of row ? cardActions(row, ref) : []) out.add(`run ${a.command} ${refKey(a.ref)}`);
       const asked = o.attention.find((a) => a.analysis?.task === x.key)?.analysis;
-      for (const q of asked?.questions ?? []) { out.add(`analysis-answer ${x.key}:${q.id}`); if (asked!.canAsk) out.add(`update-ask ${x.key}:${q.id}`); }
+      for (const q of asked?.questions ?? []) { out.add(`analysis-answer ${x.key}:${q.id}`); if (asked!.canAsk && q.askOf === 'author' && !q.client) out.add(`update-ask ${x.key}:${q.id}`); }
     }
   };
   const line = (r: LandingRow): void => {
@@ -250,7 +251,11 @@ test('nothing is lost: every action the Overview offered is still a line\'s butt
   assert.ok(checked >= 210, `checked ${checked} actions`);
   // Each kind the Overview had is among them, so the check can't pass by looking at nothing.
   const kinds = new Set(before(busy().overview).map((a) => a.split(' ')[0]));
+  // A question for the ticket's author keeps Ask on the ticket on the Overview's question card, as Send to the client was before (T-97).
   for (const k of ['answer', 'run', 'toolbar', 'go', 'update-post', 'update-discard', 'rule-accept', 'rule-dismiss', 'rule-open-review', 'analysis-answer', 'update-ask', 'link']) assert.ok(kinds.has(k), k);
+  const asks = busy().overview.attention.flatMap((a) => (a.analysis ? a.analysis.questions.map((q) => [a.analysis!.task, q.id, q.askOf ?? 'you', a.analysis!.canAsk]) : []));
+  assert.ok(asks.some(([, , who, can]) => who === 'author' && can), `a question for the author, to ask on its ticket: ${JSON.stringify(asks)}`);
+  assert.ok(asks.some(([, , who]) => who === 'you'), 'and one for you, with its answer box');
 });
 
 test('the page draws each detail with the controls it had inline before (GH-160)', () => {

@@ -71,9 +71,10 @@ export interface TaskRow {
   closing?: boolean;
   /**
    * Its analysis (D-052): the verdict, when it was made, the questions nobody has answered, the smaller
-   * tasks a split suggests, and its size, shown beside the model to dispatch with (D-086).
+   * tasks a split suggests, and its size, shown beside the model to dispatch with (D-086). Its plan (T-97):
+   * how many design choices nobody has made, whether its latest version is approved, and that version.
    */
-  analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[]; size?: Approach['size'] } | null;
+  analysis?: { verdict: 'ready' | 'questions' | 'split'; at: string; open: AnalysisAsk[]; split: string[]; size?: Approach['size']; choices?: number; approved?: boolean; version?: number } | null;
   /** An analysis under way, to watch, and its analyst's name (D-087). */
   analyzing?: { sessionId: string; name?: string } | null;
   /** The project wants an analysis before a task is built (D-052). */
@@ -139,6 +140,8 @@ export interface AnalysisAsk {
   question: string;
   why: string;
   suggested: string;
+  /** Who can answer it (T-97): you, or the ticket's author, whom it's asked on the ticket. Left out: you. */
+  askOf?: 'you' | 'author';
   /** Sent to the client as a draft update, or posted (D-066). */
   client?: 'drafted' | 'posted';
 }

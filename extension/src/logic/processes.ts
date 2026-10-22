@@ -79,6 +79,9 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['analyze'], name: 'Make a plan', named: 'Make a plan for {arg}', command: 'acc.task.analyze' },
   { acc: ['analysis'], name: 'See the plan' },
   { acc: ['analysis answer'], name: 'Answer its questions' },
+  // A plan's choices and its approval (T-97).
+  { acc: ['plan', 'plan choose'], name: 'Make a choice in the plan' },
+  { acc: ['plan approve'], name: 'Approve this plan' },
   { acc: ['draft', 'draft criteria'], name: 'Draft acceptance criteria', named: 'Draft {arg}\'s acceptance criteria' },
   { acc: ['draft show'], name: 'See the drafted acceptance criteria' },
   { acc: ['draft update'], name: 'Open the draft as an update' },

@@ -142,7 +142,11 @@ export const area: ModelArea = {
           const wait = analysisWait(r);
           if (wait) {
             const n = r.analysis!.split.length;
-            const detail = wait === 'questions' ? `${p.name} · answer here, and its builder gets your answers` : `${p.name} · its analysis suggests ${n ? `${n} smaller tasks` : 'smaller tasks'}, on its page`;
+            const detail = wait === 'questions' ? `${p.name} · answer here, and its builder gets your answers`
+              : wait === 'split' ? `${p.name} · its analysis suggests ${n ? `${n} smaller tasks` : 'smaller tasks'}, on its page`
+                // Its choices and its approval (T-97) are made on its page, beside each option's pros and cons.
+                : `${p.name} · ${wait === 'choices' ? 'make its choices and approve its plan' : 'approve its plan'}, on its page`;
+            // Its open questions, to answer here: one for the ticket's author is asked on the ticket from here too (T-97).
             attention.push({ key: `t:${p.root}:${r.id}`, look: analysisLook(r)!, title: `${r.id} ${r.title}`, detail, project: p.name, actions: [details], ...(wait === 'questions' ? { analysis: { project: p.root, task: r.id, questions: withClient(r.analysis!.open, r.id, hub.updates?.(p.root) ?? []), canAsk: hasTicket(r.source.kind) } } : {}) });
             continue;
           }

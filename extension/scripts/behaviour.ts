@@ -207,6 +207,11 @@ export interface BehaviourData {
   /** A task page's drafted acceptance criteria (T-81): ACME-19's page with a draft, and a refused update's reason. */
   criteria: { model: Model; project: string; error: string };
   /**
+   * ACME-21's approved plan (T-97): its page's model, what a change asks first, the Choose this whose change
+   * is kept and the one whose change is made, by their names as read out, and the message Change it sends.
+   */
+  plan: { model: Model; ask: string; keep: string; change: string; sent: Record<string, unknown> };
+  /**
    * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
    * its state, name and time; each row's words in order; its command; how many of its paths are outside its
    * folder; its result card's sentence, last error and exit code; and what Copy log, its first path chip and the
@@ -793,6 +798,41 @@ export const CASES: Case[] = [
         const text = items[i]?.textContent ?? '';
         t.check(`finding ${i + 1} shows its place, why, and its line`, text.startsWith(`${f.place}: ${f.message}`) && text.includes(f.text), text);
       }
+    },
+  },
+  {
+    name: 'plan: on an approved plan, Choose this asks first; Keep the approval and Escape send nothing and focus goes back, and Change it sends the choice with its yes (T-97)',
+    page: 'ticket-questions',
+    async run(t) {
+      const d = t.data.plan;
+      await t.post({ type: 'state', model: d.model });
+      const named = (label: string): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('button').find((x) => x.getAttribute('aria-label') === label);
+        if (!b) throw new Error(`not found: ${label}`);
+        return b;
+      };
+      const inDialog = (label: string): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('button', t.find('[role="alertdialog"]')).find((x) => x.textContent?.trim() === label);
+        if (!b) throw new Error(`not found: the dialog's ${label}`);
+        return b;
+      };
+      await t.click(named(d.keep));
+      t.check('nothing goes before the person says', t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      const box = t.find('[role="alertdialog"]');
+      t.check('the dialog says a change undoes the approval', box.textContent?.includes(d.ask) === true, box.textContent);
+      t.check('focus is on Keep the approval', document.activeElement === inDialog('Keep the approval'), document.activeElement?.textContent);
+      await t.click(inDialog('Keep the approval'));
+      t.check('Keep the approval closes it, and sends nothing', t.all('[role="alertdialog"]').length === 0 && t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      t.check('focus goes back to the Choose this that asked', document.activeElement === named(d.keep), document.activeElement?.getAttribute('aria-label'));
+      // Edge: Escape, from the dialog's button, keeps the approval too.
+      await t.click(named(d.keep));
+      await press(t, document.activeElement as HTMLElement, 'Escape');
+      t.check('Escape closes it, and sends nothing', t.all('[role="alertdialog"]').length === 0 && t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      await t.click(named(d.change));
+      await t.click(inDialog('Change it'));
+      const sent = t.sent('plan-choose');
+      t.check('Change it sends the choice once, with its yes', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      t.check('and the dialog has gone', t.all('[role="alertdialog"]').length === 0);
     },
   },
   {
@@ -1756,6 +1796,13 @@ export const MUTANTS: Mutant[] = [
   { name: 'a redraw drops the focused card\'s focus', file: 'board-nav.ts', find: 'if (again) focusOf(again).focus({ preventScroll: true });', replace: '', kills: [caseNamed('board keys: focus stays')] },
   { name: 'a card shows every label, cut short, whatever its width', file: 'fit-labels.ts', find: 'show(chips, more, names, labelsThatFit(widths, room, gap, plus));', replace: 'show(chips, more, names, chips.length);', kills: [caseNamed('narrow card:')] },
   { name: 'a card never measures its labels', file: 'fit-labels.ts', find: '  setTimeout(fit, 0);\n  observer.observe(row);\n', replace: '', kills: [caseNamed('narrow card:')] },
+  // A change to an approved plan's choice asks first (T-97).
+  { name: 'an approved plan\'s choice goes without asking', file: 'plan.ts', find: 'if (!plan.changeAsk || same) return send(', replace: 'if (plan || same) return send(', kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Keep the approval makes the change', file: 'plan.ts', find: "button('Keep the approval', 'verified', keep)", replace: "button('Keep the approval', 'verified', change)", kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Escape in the plan\'s dialog does nothing', file: 'plan.ts', find: "if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); keep();", replace: "if (e.key !== 'Escape') return;", kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Keep the approval leaves focus where it falls', file: 'plan.ts', find: '    focusNext = confirmKey(key, pickId);\n', replace: '', kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'the plan\'s dialog takes no focus', file: 'plan.ts', find: "focusOnceDrawn(no, confirmKey(key, 'keep'));", replace: '', kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];
 
 /** How many times `find` is in `source`: a mutant applies only where it's there exactly once. */
@@ -1819,7 +1866,19 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     sheet: sheetData(now),
     taskSheet: taskSheetData(now),
     criteria: { model: sampleTicket(now, 'ACME-19', true, 'drafted'), project: ROOT, error: 'ACME-19\'s ticket can\'t take an update.' },
+    plan: planData(now),
   };
+}
+
+/** What the approved plan's case expects (T-97): ACME-21's second choice, From now on chosen, and its other two options. */
+function planData(now: number): BehaviourData['plan'] {
+  const model = sampleTicket(now, 'ACME-21', false, null, null, 'approved');
+  const p = model.analysis?.planState;
+  const d = p?.decisions[1];
+  const [keep, change] = d ? d.options.filter((o) => o.id !== d.choice?.option) : [];
+  if (!p?.changeAsk || !d || !keep || !change) throw new Error('The plan case needs ACME-21\'s approved plan, with a choice made and two other options.');
+  const label = (name: string) => `Choose this: ${name}, for ${d.title}`;
+  return { model, ask: p.changeAsk, keep: label(keep.name), change: label(change.name), sent: { type: 'plan-choose', project: model.project, task: model.key, decision: d.id, option: change.id, yes: true } };
 }
 
 /**

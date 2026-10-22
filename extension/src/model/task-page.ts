@@ -4,6 +4,7 @@
  */
 
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
+import { askOf, unchosen } from '../../../packages/core/src/plan.ts';
 import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
 import { cardFailure } from '../../../packages/core/src/cards.ts';
@@ -28,6 +29,8 @@ import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.t
 import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria.ts';
 import type { TicketVerify } from './verify.ts';
 import type { TicketManifestSection } from './manifest.ts';
+import { type TicketPlan, ticketPlan } from './plan.ts';
+import { choicesWord, forYou } from '../logic/plan.ts';
 import { WORDS } from '../../webview/plain-words.ts';
 import type { TicketChanges } from './changes.ts';
 import type { TicketRecords } from './record-changes.ts';
@@ -246,6 +249,8 @@ export interface TicketAnalysis {
    */
   wording: { look: Look; findings: { place: string; text: string; message: string; match: string | null }[] } | null;
   actions: Action[];
+  /** Its plan (T-97): the choices to make, its versions, its approval and Build it. Null with no analysis. */
+  planState: TicketPlan | null;
 }
 
 export interface TicketInput {
@@ -413,13 +418,18 @@ export function ticketWording(findings: WordingFinding[] | undefined): TicketAna
 export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updates: Update[] = []): TicketAnalysis | null {
   const todo = row.state === 'todo';
   if (!a && !row.analyzing && !todo) return null;
-  const open = todo ? withClient((a?.questions ?? []).filter((q) => !q.answer).map(({ id, question, why, suggested }) => ({ id, question, why, suggested })), row.id, updates) : [];
+  const open = todo ? withClient((a?.questions ?? []).filter((q) => !q.answer).map((q) => ({ id: q.id, question: q.question, why: q.why, suggested: q.suggested, askOf: askOf(q) })), row.id, updates) : [];
+  const asks = forYou(open).length;
+  const choices = a ? unchosen(a).length : 0;
   const look: Look = row.analyzing ? { label: 'Making a plan', icon: 'sync~spin', tone: 'blue' }
     : !a ? { label: 'No plan yet', icon: 'circle-large-outline', tone: 'neutral' }
       : !todo ? { label: 'Planned before the build', icon: 'pass', tone: 'blue' }
         : a.verdict === 'split' ? { label: 'Too big for one task', icon: 'split-horizontal', tone: 'orange' }
-          : open.length ? { label: `${questionsWord(open.length)} for you`, icon: 'question', tone: 'orange' }
-            : { label: 'Ready to build', icon: 'pass', tone: 'blue' };
+          : asks ? { label: `${questionsWord(asks)} for you`, icon: 'question', tone: 'orange' }
+            // Its choices, then its approval where the project wants one (T-97).
+            : choices ? { label: `${choicesWord(choices)} to make`, icon: 'list-selection', tone: 'orange' }
+              : row.analysisRequired && !a.approval ? { label: 'Approve this plan', icon: 'verified', tone: 'orange' }
+                : { label: 'Ready to build', icon: 'pass', tone: 'blue' };
   const note = row.analyzing ? 'An agent is studying the ticket and the code to make a plan. It changes nothing.'
     : a ? null
       : row.analysisRequired ? 'This project wants a plan before a task is built: what it asks for, what\'s there now, and how to build it.'
@@ -434,7 +444,7 @@ export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updat
     task: row.id, look, note, summary: a?.summary ?? null, size: a?.approach.size ?? null, at: a?.at ?? null, open, canAsk: hasTicket(row.source.kind), decided, split: a?.verdict === 'split' ? a.split : [],
     goal: a?.requirements.goal || null, criteria: a?.requirements.criteria ?? [], assumptions: a?.requirements.assumptions ?? [], outOfScope: a?.requirements.outOfScope ?? [],
     findings: a?.findings ?? [], plan: a?.approach.plan ?? [], refactors: a?.approach.refactors ?? [], risks: a?.approach.risks ?? [], tests: a?.approach.tests ?? [], files: a?.approach.files ?? [],
-    wording: ticketWording(a?.wording), actions,
+    wording: ticketWording(a?.wording), actions, planState: ticketPlan(row, a, ref),
   };
 }
 
@@ -483,8 +493,8 @@ export function ticketModel(i: TicketInput): TicketModel {
     // Why it blocked or moved, whoever wrote it, in process words (GH-163).
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: reasonInWords(h.reason), look: displayLook(h.to) })).reverse(),
     edits: (i.task.edits ?? []).map((e) => ({ at: e.at, by: e.by, fields: editedWords(e.fields) })).reverse(),
-    // Its analysis has its own section, with its own buttons.
-    actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
+    // Its analysis has its own section, with its own buttons: with a plan to build from, Build it there is Dispatch (T-97).
+    actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command) && !(a.command === 'acc.task.dispatch' && i.row!.state === 'todo' && i.analysis)),
     ...ticketNote(i.task),
   } : null;
   const own = !live && i.task;

@@ -13,13 +13,21 @@ import { parsePlannedRecords, type PlannedRecordChange, RECORD_CHANGES_SCHEMA, R
 import { rulesText } from './rules.ts';
 import { requirementWording, type WordingFinding } from './ste.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
+import { approvedPlanLines, choiceName, lapse, nextVersion, planProblems } from './plan.ts';
 
 /**
  * The analysis (D-052): before a task is built, a read-only agent works out what it asks for, what's
  * already there (the code, and on Salesforce the org), and how to build it: the requirements, the
  * questions a person should answer, what it found, the approach and the refactors it needs, the risks
  * and the tests. A person answers the questions; the builder is given all of it.
+ *
+ * The plan (T-97): each design choice comes with two or three options, and a person chooses one. Each new
+ * analysis is a version, kept. Where a plan is required, nothing is built until a person approves the
+ * latest version (plan.ts).
  */
+
+/** Who can answer a question (T-97): you, the person who runs the Command Center, or the ticket's author, such as a client. */
+export type AskOf = 'you' | 'author';
 
 export interface AnalysisQuestion {
   id: string;
@@ -28,7 +36,54 @@ export interface AnalysisQuestion {
   why: string;
   /** What the analyst would assume if nobody answers. */
   suggested: string;
+  /** Who can answer it (T-97). Older analyses have none: you. */
+  askOf?: AskOf;
   answer?: { text: string; by: string; at: string };
+}
+
+/** One way to settle a design choice (T-97), as the analyst describes it. */
+export interface PlanOption {
+  /** a, b or c. */
+  id: string;
+  name: string;
+  /** What it means in this project. */
+  means: string;
+  pros: string[];
+  cons: string[];
+  effort: 'S' | 'M' | 'L';
+  risks: string[];
+  /** The files or metadata it touches. */
+  touches: string[];
+}
+
+/** What a person chose (T-97): one of the options, or their own words, who chose and when. */
+export interface PlanChoice {
+  /** The option's id, or null for the person's own option in `text`. */
+  option: string | null;
+  text?: string;
+  by: string;
+  at: string;
+}
+
+/** A design choice the work can't avoid (T-97), its options, and the one the analyst recommends and why. */
+export interface PlanDecision {
+  /** d1, d2… */
+  id: string;
+  title: string;
+  /** What changes with the choice. */
+  why: string;
+  options: PlanOption[];
+  /** The id of the option the analyst recommends. */
+  recommended: string;
+  because: string;
+  choice?: PlanChoice;
+}
+
+/** A person's approval of one version of a plan (T-97). */
+export interface PlanApproval {
+  version: number;
+  by: string;
+  at: string;
 }
 
 export interface AnalysisFinding {
@@ -81,6 +136,18 @@ export interface Analysis {
   at: string;
   durationMs: number;
   costUsd: number | null;
+  /** Its version (T-97): 1 for the task's first analysis. Older analyses have none: 1. */
+  version?: number;
+  /** The design choices to make (T-97). Older analyses have none. */
+  decisions?: PlanDecision[];
+  /** What changed since the version before (T-97). The first has none. */
+  changes?: string[];
+  /** A person approved this version (T-97). */
+  approval?: PlanApproval;
+  /** The last approval that no longer holds (T-97): a newer version came, or a choice or an answer changed after it. */
+  lapsed?: PlanApproval;
+  /** The versions before this one, oldest first, each as it was when the next replaced it (T-97). */
+  earlier?: Analysis[];
 }
 
 const strings = { type: 'array', items: { type: 'string' } } as const;
@@ -89,7 +156,7 @@ const strings = { type: 'array', items: { type: 'string' } } as const;
 export const ANALYSIS_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['verdict', 'summary', 'requirements', 'questions', 'findings', 'approach', 'split'],
+  required: ['verdict', 'summary', 'requirements', 'questions', 'decisions', 'findings', 'approach', 'split'],
   properties: {
     verdict: { type: 'string', enum: ['ready', 'questions', 'split'], description: 'questions when a person must answer something before it can be built well; split when it is too big for one task' },
     summary: { type: 'string', description: 'Two or three plain sentences: what the task needs, what is already there, and how to build it' },
@@ -106,8 +173,39 @@ export const ANALYSIS_SCHEMA = {
       type: 'array',
       description: 'Only what a person must decide, and nothing you could find out yourself',
       items: {
-        type: 'object', additionalProperties: false, required: ['question', 'why', 'suggested'],
-        properties: { question: { type: 'string' }, why: { type: 'string', description: 'What changes depending on the answer' }, suggested: { type: 'string', description: 'What you would assume if nobody answers' } },
+        type: 'object', additionalProperties: false, required: ['question', 'why', 'suggested', 'askOf'],
+        properties: {
+          question: { type: 'string' }, why: { type: 'string', description: 'What changes depending on the answer' }, suggested: { type: 'string', description: 'What you would assume if nobody answers' },
+          askOf: { type: 'string', enum: ['you', 'author'], description: 'you: the person who runs the build can answer it. author: only the ticket\'s author, such as a client, can answer it' },
+        },
+      },
+    },
+    decisions: {
+      type: 'array',
+      description: 'Each design choice a reviewer would want a person to make, with two or three options. A small task may have none',
+      items: {
+        type: 'object', additionalProperties: false, required: ['title', 'why', 'options', 'recommended', 'because'],
+        properties: {
+          title: { type: 'string', description: 'The choice, in a few words, such as "Where the stage history is kept"' },
+          why: { type: 'string', description: 'What changes with the choice' },
+          options: {
+            type: 'array', minItems: 2, maxItems: 3,
+            items: {
+              type: 'object', additionalProperties: false, required: ['name', 'means', 'pros', 'cons', 'effort', 'risks', 'touches'],
+              properties: {
+                name: { type: 'string', description: 'A short name, different from the other options\' names' },
+                means: { type: 'string', description: 'What it means in this project' },
+                pros: strings,
+                cons: { ...strings, description: 'Honest cons, the recommended option\'s too' },
+                effort: { type: 'string', enum: ['S', 'M', 'L'] },
+                risks: strings,
+                touches: { ...strings, description: 'The files or metadata it touches' },
+              },
+            },
+          },
+          recommended: { type: 'string', description: 'The name of the option you recommend, exactly as you named it' },
+          because: { type: 'string', description: 'Why you recommend it' },
+        },
       },
     },
     findings: {
@@ -164,7 +262,8 @@ export function readAnalysis(paths: RepoPaths, task: string): Analysis | null {
   }
 }
 
-function writeAnalysis(paths: RepoPaths, a: Analysis): void {
+/** Writes a task's analysis whole: a temp file beside it, renamed into place. */
+export function writeAnalysis(paths: RepoPaths, a: Analysis): void {
   mkdirSync(paths.analyses, { recursive: true });
   const file = analysisPath(paths, a.task);
   writeFileSync(`${file}.tmp`, JSON.stringify(a, null, 2) + '\n');
@@ -204,9 +303,8 @@ export function analysisProblems(paths: RepoPaths, config: Config, task: Task): 
   const a = readAnalysis(paths, task.id);
   if (!a) return [`${task.id} hasn't been analyzed. This project wants an analysis before a build: acc analyze ${task.id}.`];
   if (a.verdict === 'split') return [`${task.id}'s analysis says it's too big for one task. Split it into: ${a.split.join('; ')}. Or a person dispatches it anyway with --without-analysis.`];
-  const open = openQuestions(a);
-  if (open.length) return [`${open.length} question${open.length === 1 ? '' : 's'} from ${task.id}'s analysis ${open.length === 1 ? 'is' : 'are'} unanswered: ${open.map((q) => `${q.id}. ${q.question}`).join(' ')} Answer with acc analysis answer ${task.id} <q> "<answer>".`];
-  return [];
+  // Questions for you, choices to make, and an approval of the latest version (T-97).
+  return planProblems(a, task.id);
 }
 
 // ---------------------------------------------------------------- what the analyst is told
@@ -281,6 +379,8 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
     `- Investigate before you decide: find the code${sf ? ' and the org configuration' : ''} this touches, what depends on it, and how it behaves today. Every finding names its source.`,
     '- Decide the approach: the steps, the files, any refactor the task needs first and why, the risks, and the tests that prove it.',
     '- Ask only what a person must decide: business rules, priorities, trade-offs. Never ask what you could find out yourself. Give each question your suggested answer.',
+    '- Say who can answer each question: you (the person who runs the build) for priorities and how to build it, or author (who wrote the ticket, such as a client) for a business rule only they know.',
+    '- Name every design choice a reviewer would want a person to make, as a decision with two or three options: for example, a custom object or field history tracking, a record-triggered flow or Apex, where existing data comes from. Never hide a choice inside the approach: the approach follows the option you recommend. Give honest cons for each option, the one you recommend too. A small task may have no decisions.',
     '- If it is too big for one task (more than a few days), say split and list the smaller tasks.',
     ...(sf ? ['', 'For a Salesforce project, also cover:', ...SALESFORCE_FOCUS.map((f) => `- ${f}`), '', ...SALESFORCE_COOKBOOK] : []),
     ...(sf ? ['', RECORD_PLAN_PROMPT] : []),
@@ -308,6 +408,15 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
       'Don\'t ask these again.',
       '',
     ] : []),
+    // A new version keeps a choice where its title and option's name stay the same (T-97).
+    ...(i.previous?.decisions?.some((d) => d.choice) ? [
+      '## What a person already chose',
+      '',
+      ...i.previous.decisions.filter((d) => d.choice).map((d) => `- ${d.title}: **${choiceName(d)}**`),
+      '',
+      'Where a choice still applies, keep it as a decision with the same title, and keep the chosen option with the same name.',
+      '',
+    ] : []),
     ...(i.rules?.trim() ? ['## Rules', '', i.rules.trim(), ''] : []),
   ].join('\n');
   return { system, prompt };
@@ -329,13 +438,14 @@ export function parseAnalysis(stdout: string): { analysis: Omit<Analysis, 'v' | 
   const req = s.requirements ?? {};
   const ap = s.approach ?? {};
   const questions: AnalysisQuestion[] = (Array.isArray(s.questions) ? s.questions : []).filter((q: any) => typeof q?.question === 'string' && q.question.trim())
-    .map((q: any, n: number) => ({ id: `q${n + 1}`, question: q.question, why: String(q.why ?? ''), suggested: String(q.suggested ?? '') }));
+    .map((q: any, n: number) => ({ id: `q${n + 1}`, question: q.question, why: String(q.why ?? ''), suggested: String(q.suggested ?? ''), askOf: (q.askOf === 'author' ? 'author' : 'you') as AskOf }));
   const analysis = {
     // A ready verdict with questions waiting isn't ready.
     verdict: (s.verdict === 'ready' && questions.length ? 'questions' : s.verdict) as Analysis['verdict'],
     summary: s.summary,
     requirements: { goal: String(req.goal ?? ''), criteria: list(req.criteria), assumptions: list(req.assumptions), outOfScope: list(req.outOfScope) },
     questions,
+    decisions: parseDecisions(s.decisions),
     findings: (Array.isArray(s.findings) ? s.findings : []).filter((f: any) => typeof f?.detail === 'string').map((f: any) => ({ area: String(f.area ?? ''), detail: f.detail, source: String(f.source ?? '') })),
     approach: {
       plan: list(ap.plan),
@@ -350,6 +460,26 @@ export function parseAnalysis(stdout: string): { analysis: Omit<Analysis, 'v' | 
   };
   // The wording check on each requirement line as acc reads it (T-12): advice, recorded with its line.
   return { analysis: { ...analysis, wording: requirementWording(analysis.requirements) }, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
+}
+
+/**
+ * The design choices from the analyst's answer (T-97), each with ids. A choice with fewer than two options or
+ * more than three, or a recommendation that names none of its options, is refused: a person can't choose
+ * from it as it is.
+ */
+export function parseDecisions(v: unknown): PlanDecision[] {
+  const list = (x: unknown): string[] => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string' && !!y.trim()) : []);
+  return (Array.isArray(v) ? v : []).filter((d: any) => typeof d?.title === 'string' && d.title.trim()).map((d: any, n: number) => {
+    const options: PlanOption[] = (Array.isArray(d.options) ? d.options : []).filter((o: any) => typeof o?.name === 'string' && o.name.trim()).map((o: any, i: number) => ({
+      id: String.fromCharCode(97 + i), name: o.name.trim(), means: String(o.means ?? ''), pros: list(o.pros), cons: list(o.cons),
+      effort: (['S', 'M', 'L'].includes(o.effort) ? o.effort : 'M') as PlanOption['effort'], risks: list(o.risks), touches: list(o.touches),
+    }));
+    if (options.length < 2 || options.length > 3) throw new AccError('analyze', `The analysis gave the choice "${d.title}" ${options.length} option${options.length === 1 ? '' : 's'}. A choice has two or three.`);
+    const named = String(d.recommended ?? '').trim().toLowerCase();
+    const recommended = options.find((o) => o.name.toLowerCase() === named);
+    if (!recommended) throw new AccError('analyze', `The analysis recommends "${String(d.recommended ?? '')}" for the choice "${d.title}", which isn't one of its options: ${options.map((o) => o.name).join(', ')}.`);
+    return { id: `d${n + 1}`, title: d.title.trim(), why: String(d.why ?? ''), options, recommended: recommended.id, because: String(d.because ?? '') };
+  });
 }
 
 // ---------------------------------------------------------------- running it
@@ -457,15 +587,16 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   // Answers to questions it asks again carry over, so nobody answers twice.
   const answered = new Map((previous?.questions ?? []).filter((q) => q.answer).map((q) => [q.question.trim().toLowerCase(), q.answer!]));
   const questions = parsed.analysis.questions.map((q) => (answered.has(q.question.trim().toLowerCase()) ? { ...q, answer: answered.get(q.question.trim().toLowerCase())! } : q));
-  const analysis: Analysis = {
+  // A new version (T-97): the one before is kept, its choices carry over where they still exist, and an approval lapses.
+  const analysis: Analysis = nextVersion(previous, {
     v: 1, task: id, env: env.branch, base, ...parsed.analysis, questions,
     verdict: parsed.analysis.verdict === 'questions' && !questions.some((q) => !q.answer) ? 'ready' : parsed.analysis.verdict,
     orgs: orgs.map((o) => o.alias), sessionId: parsed.sessionId ?? sessionId, name,
     at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: parsed.costUsd,
-  };
+  });
   writeAnalysis(paths, analysis);
   mutate(paths, now, (_l, emit) => {
-    emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? `analyst:${id}`, data: { analyzed: { verdict: analysis.verdict, questions: analysis.questions.length } } });
+    emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? `analyst:${id}`, data: { analyzed: { verdict: analysis.verdict, questions: analysis.questions.length, version: analysis.version, decisions: analysis.decisions?.length ?? 0 } } });
   });
   steps.done('save');
   return analysis;
@@ -480,6 +611,8 @@ export function answerAnalysis(paths: RepoPaths, id: string, question: string, t
   if (!text.trim()) throw new AccError('usage', 'Give an answer.');
   q.answer = { text: text.trim(), by, at: now().toISOString() };
   if (a.verdict === 'questions' && !openQuestions(a).length) a.verdict = 'ready';
+  // An answer changes an approved plan, so it's approved again (T-97).
+  lapse(a);
   writeAnalysis(paths, a);
   mutate(paths, now, (_l, emit) => {
     emit({ type: 'task.updated', task: id, actor: 'human', by, data: { answered: { question: q.id } } });
@@ -487,13 +620,16 @@ export function answerAnalysis(paths: RepoPaths, id: string, question: string, t
   return a;
 }
 
-/** The analysis for the builder's instructions: what to build, what was found, and what a person decided. */
+/**
+ * The plan for the builder's instructions: the version, the choices a person made, what to build, what was
+ * found, and what a person decided. The choices are the person's: a builder that needs another stops and
+ * asks (T-97).
+ */
 export function analysisSection(a: Analysis | null): string[] {
   if (!a) return [];
   const bullets = (xs: string[]) => xs.map((x) => `- ${x}`);
   return [
-    '## What the analysis found',
-    '',
+    ...approvedPlanLines(a),
     `An analyst read the ticket${a.orgs.length ? `, the code and the orgs (${a.orgs.join(', ')})` : ' and the code'} before you. Build from this, and check what it says as you go: if something here turns out to be wrong, say so in your final message.`,
     '',
     a.summary,

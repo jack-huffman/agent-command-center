@@ -44,7 +44,7 @@ test('the Overview asks an analysis\'s questions in place, counts each task once
   const m = homeModel({ hub: { ...hub(), agents: [], taskRows: () => rows }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
   const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
   assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: 2 questions from its plan', 'question', 'orange']);
-  assert.deepEqual(item.analysis, { project: '/r', task: 'AV-5', questions: asks.open, canAsk: true }, 'its questions, to answer right there, or send to the client');
+  assert.deepEqual(item.analysis, { project: '/r', task: 'AV-5', questions: asks.open, canAsk: true }, 'its questions, to answer right there, or ask on the ticket');
   assert.ok(!item.detail.includes('terminal'), 'not an agent waiting in its terminal');
   const split = m.overview.attention.find((a) => a.title === 'AV-6 Task AV-6')!;
   assert.deepEqual([split.look.label, split.analysis, split.detail], ['Needs you: too big for one task', undefined, 'Acme · its analysis suggests 3 smaller tasks, on its page']);
@@ -54,6 +54,18 @@ test('the Overview asks an analysis\'s questions in place, counts each task once
   assert.deepEqual(m.overview.ready.map((r) => [r.id, r.action.label]), [['AV-7', 'Make a plan'], ['AV-8', 'Watch the plan being made'], ['AV-9', 'Build it']], 'a task held for its analysis stays in sight');
   const cards = tasksModel({ ...hub(), taskRows: () => rows }).projects[0]!.columns.find((c) => c.group === 'needs-you')!.cards;
   assert.deepEqual(cards.map((c) => [c.id, c.analysis?.label, c.actions[0]!.label]), [['AV-5', 'Needs you: 2 questions from its plan', 'Answer'], ['AV-6', 'Needs you: too big for one task', 'See the split']]);
+});
+
+test('the Overview\'s question card keeps a question for the ticket\'s author, to ask on the ticket, beside yours to answer; edge case: no ticket, nothing to ask on (T-97)', () => {
+  const author = { id: 'q9', question: 'Which report do managers read?', why: '', suggested: 'Pipeline', askOf: 'author' as const };
+  const mixed = { ...asks, open: [...asks.open, author] };
+  const card = (source: TaskRow['source']) => homeModel({ hub: { ...hub(), agents: [], taskRows: () => [{ ...row('AV-5', 'todo', 'needs-you'), source, analysisRequired: true, analysis: mixed }] }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } })
+    .overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
+  const jira = card({ kind: 'jira', key: 'AV-5', url: 'https://x.atlassian.net/browse/AV-5' } as TaskRow['source']);
+  assert.deepEqual(jira.analysis!.questions.map((q) => [q.id, q.askOf ?? 'you']), [...asks.open.map((q) => [q.id, 'you']), ['q9', 'author']], 'yours and the author\'s');
+  assert.equal(jira.analysis!.canAsk, true);
+  assert.equal(jira.look.label, 'Needs you: 2 questions from its plan', 'the author\'s question isn\'t counted as yours');
+  assert.equal(card({ kind: 'manual' } as TaskRow['source']).analysis!.canAsk, false, 'a task with no ticket has nowhere to ask');
 });
 
 test('the Overview shows each repo\'s merge queue where auto-merge is on: each pull request\'s place, task, link and what it waits on, in blue with an icon; and says when autopilot is off (GH-73)', () => {

@@ -33,7 +33,7 @@ export function modalTakes(o: ModalTask, m: FromWebview, commands: ReadonlySet<s
   const mine = (project: string, task: string): boolean => project === o.project && task.toUpperCase() === o.key.toUpperCase();
   switch (m.type) {
     case 'ticket-action': case 'update-edit': return true;
-    case 'analysis-answer': case 'update-ask': case 'review-file': case 'criteria-draft': case 'criteria-update': case 'criteria-sheet': case 'verify-run': case 'verify-clear':
+    case 'analysis-answer': case 'update-ask': case 'review-file': case 'criteria-draft': case 'criteria-update': case 'criteria-sheet': case 'verify-run': case 'verify-clear': case 'plan-choose': case 'plan-approve':
     case 'manifest-build': case 'manifest-retrieve': case 'manifest-commit': case 'manifest-file': case 'manifest-diff': return mine(m.project, m.task);
     case 'update-post': case 'update-discard': return mine(m.project, taskOf(m.id));
     case 'run': return commands.has(m.command) && mine(m.ref.project ?? '', m.ref.task ?? '');
