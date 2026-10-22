@@ -111,6 +111,7 @@ test('land pushes the branch, opens the pull request into the environment\'s bra
   assert.ok(!calls.some((c) => /\bmerge\b/.test(c.args)), 'never merges');
   assert.deepEqual(readLedger(s.paths.ledger).tasks[0]!.pr, r.pr);
   assert.equal(readLedger(s.paths.ledger).tasks[0]!.state, 'review', 'it stays in review until the pull request merges');
+  assert.deepEqual(readLedger(s.paths.ledger).tasks[0]!.changes, { at: now().toISOString(), paths: ['sum.js'] }, 'the land keeps what its pull request changes (T-99)');
   // The ticket gets a draft, for a person to post (D-066).
   assert.deepEqual(r.update, { id: 'ACME-7.1', key: 'ACME-7' });
   const u = readUpdate(s.paths, 'ACME-7.1')!;
@@ -292,6 +293,7 @@ test('sync: a merged pull request makes its task done, and a closed one blocks i
   assert.match(calls.find((c) => c.startsWith('gh pr view'))!, /--json \S*mergeCommit/);
   const t = readLedger(merged.paths.ledger).tasks[0]!;
   assert.deepEqual([t.state, t.pr?.state, t.pr?.mergeSha, t.history.at(-1)?.actor], ['done', 'merged', mergeCommit.oid, 'sync'], 'it keeps the commit the merge left on the base');
+  assert.deepEqual(t.changes, { at: now().toISOString(), paths: ['sum.js'] }, 'a person\'s merge on GitHub keeps what it changed, for after its branch is gone (T-99)');
   // Merged into its environment: a draft for the ticket, which sync, running unattended, never posts (D-066).
   assert.deepEqual(listUpdates(merged.paths).map((u) => [u.event, u.env, u.state, u.by, u.text]), [['merged', merged.config.environments[0]!.name, 'draft', 'acc sync', `The change was approved and merged into ${merged.config.environments[0]!.name}.`]]);
   assert.ok(!calls.some((c) => c.startsWith('gh issue') || c.startsWith('gh api')), 'nothing is posted');

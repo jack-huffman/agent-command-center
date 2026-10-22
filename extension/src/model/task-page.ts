@@ -28,6 +28,7 @@ import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.t
 import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria.ts';
 import type { TicketVerify } from './verify.ts';
 import { WORDS } from '../../webview/plain-words.ts';
+import type { TicketChanges } from './changes.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -195,6 +196,8 @@ export interface TicketModel {
   criteria: TicketCriteria | null;
   /** Verify the developer's work (T-84): its pull request, checks, criteria and findings, or why it's off. Null with no task. */
   verify: TicketVerify | null;
+  /** Its Planned changes, then Changes (T-99), in a section of their own. Null with no task, or nothing to show. */
+  changes: TicketChanges | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
   /** It's being tracked now, from this page or its card (D-074). */
@@ -275,6 +278,8 @@ export interface TicketInput {
   drafting?: boolean;
   /** Its Verify the developer's work section, as model/verify.ts's ticketVerify makes it (T-84). */
   verify?: TicketVerify | null;
+  /** Its changes section, as model/changes.ts's ticketChanges makes it (T-99). */
+  changes?: TicketChanges | null;
   now?: number;
 }
 
@@ -499,6 +504,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     review: i.task ? ticketReview(i.project, i.task.state, i.review) : null,
     criteria: i.task ? ticketCriteria({ task: i.task, draft: i.draft ?? null, drafting: !!i.drafting, edits: !!i.trackerEdits, kind: i.trackerKind, unkept: t?.unkept }) : null,
     verify: i.task ? i.verify ?? null : null,
+    changes: i.task ? i.changes ?? null : null,
     trackable: !!t && !i.task, tracking: !!i.tracking, signedInAs: i.signedInAs ?? null,
   };
 }

@@ -27,6 +27,9 @@ import { pickField } from './ticket-edits.ts';
 import type { CriteriaActions } from './criteria.ts';
 import type { VerifyActions } from './verify.ts';
 import { ticketVerify } from './model/verify.ts';
+import { type TicketChanges, ticketChanges } from './model/changes.ts';
+import { run as runSync } from '../../packages/core/src/exec.ts';
+import { branchFiles, IN_FLIGHT_STATES, plannedFiles } from '../../packages/core/src/overlap.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -328,8 +331,19 @@ export class TicketPanels implements vscode.Disposable {
       review: task ? await this.review(o, p, task) : null,
       ...(task && this.criteria ? this.criteria.state(p.root, task.id) : {}),
       verify: task && this.verify ? ticketVerify({ task, github: p.config.github?.repo ?? null, ...this.verify.state(p.root, task.id), updates: this.hub.updates(p.root).filter((u) => u.task === task.id) }) : null,
+      changes: task ? this.changes(p, task) : null,
     });
     o.view.draw(model);
+  }
+
+  /**
+   * Its Planned changes, then Changes (T-99): the plan's paths, and while it's in flight, what its branch has
+   * changed so far, read from git; once it's done, what acc kept with it when it merged.
+   */
+  private changes(p: Project, task: Task): TicketChanges | null {
+    const branch = task.run?.branch;
+    const live = branch && IN_FLIGHT_STATES.includes(task.state) ? branchFiles(runSync, p.root, task.environment, branch, task.run?.worktree) : null;
+    return ticketChanges({ task, profile: p.config.profile, planned: plannedFiles(this.hub.analysis(p.root, task.id), p.root), live });
   }
 
   /**

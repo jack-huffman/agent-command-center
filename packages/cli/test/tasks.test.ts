@@ -5,11 +5,30 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { DISPLAY } from '../../core/src/index.ts';
-import { GENERIC_CONFIG } from '../../core/test/support.ts';
+import { DISPLAY, mutate, readLedger, repoPaths, run } from '../../core/src/index.ts';
+import { GENERIC_CONFIG, gitIn } from '../../core/test/support.ts';
 import { cli, repoWithConfig, UNCHECKED } from './support.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
+
+test('a person\'s merge: moved to done after merging its branch by hand, a task keeps what its work changed (T-99)', () => {
+  const dir = repoWithConfig(UNCHECKED);
+  assert.equal(acc(dir, ['add', 'First thing']).code, 0);
+  gitIn(dir, 'checkout', '-q', '-b', 'task/T-1-first');
+  writeFileSync(join(dir, 'first.ts'), 'export {};\n');
+  gitIn(dir, 'add', 'first.ts');
+  gitIn(dir, 'commit', '-q', '-m', 'T-1: first');
+  gitIn(dir, 'checkout', '-q', 'main');
+  gitIn(dir, 'merge', '-q', '--no-ff', '-m', 'Merge T-1', 'task/T-1-first');
+  const paths = repoPaths(dir, run);
+  mutate(paths, () => new Date(), (l, emit) => {
+    Object.assign(l.tasks[0]!, { state: 'review', run: { branch: 'task/T-1-first', worktree: null } });
+    emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'test', data: {} });
+  });
+  assert.equal(readLedger(paths.ledger).tasks[0]!.changes, undefined, 'nothing kept before it merges');
+  assert.equal(acc(dir, ['set', 'T-1', 'done']).code, 0);
+  assert.deepEqual(readLedger(paths.ledger).tasks[0]!.changes?.paths, ['first.ts']);
+});
 
 test('add, list, ready, set and show: a task through its life', () => {
   const dir = repoWithConfig(UNCHECKED);

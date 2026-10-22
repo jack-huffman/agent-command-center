@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { keepChanges, mergedPaths } from './changes.ts';
 import { autoMergeFor, type Config, type Environment, environmentByBranch, type GateScope } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
 import { withJob } from './jobs.ts';
@@ -205,9 +206,12 @@ function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, o
   if (conflicts) pr = { ...pr, conflicts };
   steps.done('conflicts', conflicts?.length ? `It conflicts in ${conflicts.join(', ')}` : undefined);
 
+  // What its pull request changes, kept with it for after its branch is gone (T-99).
+  const changed = mergedPaths(run, paths.root, task);
   const updated = steps.step('record', 'Record the pull request', () => mutate(paths, now, (l, emit) => {
     const t = l.tasks.find((x) => x.id === id)!;
     t.pr = pr;
+    keepChanges(t, changed, now().toISOString(), emit, { actor: opts.actor ?? 'human', by: opts.by ?? 'acc land' });
     // Landed, by autopilot or by hand: whatever autopilot couldn't do before is done (D-055).
     if (t.autopilot?.failed) t.autopilot.failed = null;
     t.updatedAt = now().toISOString();

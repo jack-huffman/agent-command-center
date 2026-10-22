@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, recordChanges, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -257,6 +257,8 @@ export function cmdSet(o: Opts, id: string, to: string, note: NoteInput | null =
   const { task, entry } = followingCards(paths, config, () => moveTask(paths, config, id.toUpperCase(), {
     to: to as State, actor, by, reason: (o.reason as string | undefined) ?? (client ? `Waiting on the client: ${client}` : null), force: o.force === true, note,
   }, receiptHooks(paths, config, run), now));
+  // A person's merge: what its work changed is kept with it, for after its branch is gone (T-99).
+  if (entry.to === 'done') recordChanges(paths, run, now, task.id, { actor, by });
   // Only the client can answer it: the ticket gets a draft, which a person reads before it's posted (D-066).
   const update = client ? draftUpdate(paths, task, { event: 'blocked', context: { question: client } }, by, now) : null;
   out(o, () => [

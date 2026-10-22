@@ -6,6 +6,7 @@ import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
 import { renderCriteria } from './criteria.ts';
 import { renderVerify } from './verify.ts';
+import { renderChanges } from './changes.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
 import { dayName } from './days.ts';
@@ -183,6 +184,8 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.criteria) main.append(renderCriteria(m, m.criteria));
   // Verify the developer's work (T-84): under the criteria it reviews against, over the Activity its QA comment joins.
   if (m.verify) main.append(renderVerify(m, m.verify));
+  // Its Planned changes, then Changes (T-99), in a section of their own, apart from its plan.
+  if (m.changes) main.append(renderChanges(m, m.changes));
   // What a person wrote for its builder (T-74), which a tracker's intake never changes.
   if (m.acc?.notes) main.append(el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)));
   const note = renderNote(m);

@@ -25,8 +25,6 @@
 .an-fold[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
 .an-fold > .an-list { margin: 2px 0 8px 12px; }
 .an-source { font-size: 0.85em; overflow-wrap: anywhere; }
-.chip.an-change { margin: 0 6px 0 0; }
-.an-path { overflow-wrap: anywhere; }
 
 /* One of its questions: the suggestion in one click, or your own words. */
 .aq { border-top: 1px solid var(--line); padding: 10px 0 8px; }

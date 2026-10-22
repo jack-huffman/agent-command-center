@@ -97,8 +97,9 @@ function marks(): Record<string, Record<string, number>> {
  */
 const MARKS: Record<string, Record<string, number>> = {
   'agent-page.ts': { transcript: 4, output: 1, 'agent-text': 1 },
-  'analysis.ts': { files: 1 },
   'boards.ts': { branch: 1 },
+  // A ticket's changes section (T-99): its planned and changed paths, which are the project's own.
+  'changes.ts': { files: 2 },
   // Dispatch anyway's sheet: the files the task shares with work in flight (D-168).
   'dispatch-sheet.ts': { files: 1 },
   'dock-review.ts': { transcript: 6 },

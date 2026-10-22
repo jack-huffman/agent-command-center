@@ -119,6 +119,7 @@ test('a reviewed, green pull request merges as the repo\'s account, only at the 
   const t = first(s.paths);
   assert.deepEqual(t.autopilot?.merged, { sha: s.sha, pr: { number: 42, url: 'https://github.com/acme/tool/pull/42' }, method: 'merge', at: now().toISOString() });
   assert.deepEqual([t.state, t.pr?.state], ['review', 'open'], 'the ledger waits for acc sync, which moves it to done');
+  assert.deepEqual(t.changes, { at: now().toISOString(), paths: ['sum.js'] }, 'the merge queue\'s merge keeps what it changed (T-99)');
   const e = events(s.paths).at(-1)!;
   assert.deepEqual([e.type, e.actor, e.by, Object.keys(e.data)], ['task.updated', 'orchestrator', 'orchestrator:autopilot', ['merged']]);
   assert.deepEqual(autopilotEvent(e), { seq: e.seq, at: now().toISOString(), task: 'T-1', step: 'merge', outcome: 'done', pr: { number: 42, url: 'https://github.com/acme/tool/pull/42', opened: false } });
