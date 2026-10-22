@@ -95,7 +95,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/github.ts': ['CLONE_ACCOUNT_KEY', 'credentialHelper', 'ghAccounts'],
   'packages/core/src/held.ts': ['holdWords'],
   'packages/core/src/holding.ts': ['startingNow', 'claimHeld', 'releaseHeld'],
-  'packages/core/src/hooks.ts': ['findAccRoot', 'builderFor', 'guardEdit', 'PERSON_ONLY_ACC', 'sessionStartHook', 'stopHook', 'parseEventInput'],
+  'packages/core/src/hooks.ts': ['findAccRoot', 'guardEdit', 'PERSON_ONLY_ACC', 'sessionStartHook', 'stopHook', 'parseEventInput'],
   'packages/core/src/init.ts': ['discoverSalesforce', 'pushingAccount', 'configureRepoAccess'],
   'packages/core/src/intake.ts': ['reconcileGithub'],
   'packages/core/src/jobs.ts': ['JOB_KINDS'],
