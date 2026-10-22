@@ -322,3 +322,11 @@ test('every tracker gets the preview from its own description, and the same card
     assert.ok(m.pickers.every((p) => Array.isArray(p.options) && typeof p.search === 'boolean'), d.kind);
   }
 });
+
+test('edge case: every message the Connect page sends carries its session, through the one connectSend both its pickers and its preview use', async () => {
+  const { pageDom } = await import('./page-dom.ts');
+  const page = pageDom();
+  const { connectSend } = await import('../webview/choose-board.ts');
+  connectSend({ id: 'c-jira' } as ConnectModel, { type: 'connect-pick', key: 'board', value: '7' });
+  assert.deepEqual(page.sent.at(-1), { type: 'connect-pick', key: 'board', value: '7', session: 'c-jira' });
+});
