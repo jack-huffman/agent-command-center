@@ -945,6 +945,30 @@ not heavy.
   the better of each, for a refresh and the merge queue alike. Where one side
   relaxed a floor, the conflict is a person's: keeping the better value would
   bring back what they relaxed.
+- **Merges a person or git makes keep the better floors too (T-102).** With
+  `.acc/floors.json merge=acc-floors` in `.gitattributes` and
+  `merge.acc-floors.driver` set to `acc floors merge %O %A %B` in the clone's
+  git config, git hands the floors file to acc, which keeps the better of each
+  floor as autopilot does, and leaves a relaxed floor as git's usual conflict
+  markers for a person. Setup's step `B10.merge-floors` says when either is
+  missing, and its Do it sets them up. A clone without the driver conflicts as
+  before: git never picks a side.
+
+**Decisions, one file each (T-102).** A repo that keeps a `docs/decisions/`
+folder names each decision `D-NNN-<slug>.md`, headed
+`## D-NNN <title> (<date>)`. A task branch adds
+`docs/decisions/new-<task>-<slug>.md`, headed `## D-<task> …`, and calls it
+`D-<task>`, so parallel branches never pick one number or append to one file.
+The merge numbers it: the merge queue at a pull request's turn, after merging
+its base in; `acc land` where a person merges the pull request, against
+origin's base, carrying the review to the numbering commit as the queue's merge
+does; and `acc decisions number [--base <branch>]` for a merge a person makes.
+Each new file takes the next number after the highest the base and the branch
+use, in file-name order, as does a numbered one the base has since given to
+another file. Its old id is written over in the lines the branch added or
+changed since it left the base, never elsewhere. `docs/DECISIONS.md` is an index
+of the numbered ones (number, title, date, link) that `acc decisions index`
+writes and `acc decisions check` checks; it merges as a union of rows.
 
 **Agents validate; they never deploy (D-011).** Parallel branches deploying to
 one shared sandbox would overwrite each other's work. A deploy happens after

@@ -1,0 +1,46 @@
+## D-T-102 Parallel work merges on its own: floors take the higher, pages and decisions are a line or a file each, numbered at merge (2026-10-22)
+
+On 21 and 22 October nearly every merge of parallel work conflicted in the
+same few files, though no two tasks disagreed: each branch only added a line.
+Both raised the tests floor in `.acc/floors.json`. Each new screenshot page
+bumped hand-set numbers in `RUN_FLOOR`, and was written into two lists of
+pages. Every task appended to `docs/DECISIONS.md`, and the merger numbered
+`D-???` by hand, twice also renumbering the rule text that says `D-???`. Now
+those files merge on their own:
+
+- **Floors.** `.gitattributes` names a merge driver for `.acc/floors.json`,
+  `acc floors merge %O %A %B`, which keeps the better of each floor with the
+  same logic autopilot's merges use (GH-99). A floor one side relaxed stays a
+  conflict, with git's markers, for a person. Setup's step `B10.merge-floors`
+  installs the driver in the clone's git config and says when it is missing. A
+  clone without it conflicts as before.
+- **Screenshot floors.** The overlap, tab and words floors only follow the
+  number of pages, so the run works them out from `PAGES`: 30 controls and 100
+  strings a drawing, and the selected tab on every drawing of a page with a
+  rail. The other checks' floors are measured counts: they moved from
+  `RUN_FLOOR` into `.acc/floors.json` as `screenshots.<check>`, and a clean whole
+  run raises each to what it examined, only ever up, so they merge by the
+  driver. A missing one is an error, never a floor of nothing.
+- **Pages.** `PAGES` lives in `extension/scripts/pages.ts`, a page a line, in
+  groups by section, and `.gitattributes` merges the file as a union of lines.
+  The screenshot test checks the list (each page once, each with a sample whose
+  model is right) instead of repeating it.
+- **Decisions.** Each is `docs/decisions/D-NNN-<slug>.md`. A task branch adds
+  `new-<task>-<slug>.md` and calls it `D-<task>`. The merge queue numbers a pull
+  request's at its turn, land numbers them where a person merges the pull
+  request, and `acc decisions number` does it for a merge a person makes: the
+  next free number, the file renamed, and the id written over in the branch's
+  own added and changed lines only. `docs/DECISIONS.md` is a generated index,
+  checked by a unit test and `acc decisions check`, and merges as a union of
+  rows. The split kept every decision's text exactly; a test compares each file
+  with its section of the old file at the commit that split it. Only the blank
+  line between two sections went, where there was one.
+
+Union merges are kept to the two files whose lines are each a whole entry. A
+union of two versions of one line, such as an import list, keeps both, so it
+stays a conflict there.
+
+Tests: core decisions 9, floors driver 5, CLI merging 6, queue 2, land 2,
+geometry 2, pages 3, the split and index 2, and the merge itself 1: two
+branches from one base, each adding a page, raising the tests floor and adding
+a decision, merged with real git with no conflict.
