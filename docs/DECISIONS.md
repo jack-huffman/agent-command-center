@@ -209,3 +209,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-199](decisions/D-199-a-plan-suggests-a-small-first-task-for-a-shared-shape.md) | A plan suggests a small first task for a shape other tasks build on, so they can start sooner | 2026-10-22 |
 | [D-200](decisions/D-200-review-plan-one-step-at-a-time.md) | Review plan: a plan's choices and questions one at a time, in a sheet, as Claude Code asks its own | 2026-10-22 |
 | [D-201](decisions/D-201-a-plan-reads-the-whole-ticket.md) | Make a plan reads the whole ticket: every comment, related tickets and the changes field, and says when new comments arrive | 2026-10-22 |
+| [D-202](decisions/D-202-a-plan-starts-with-a-conversation-in-its-own-panel.md) | A plan starts with a conversation, and the conversation lives in its own panel beside the ticket | 2026-10-22 |

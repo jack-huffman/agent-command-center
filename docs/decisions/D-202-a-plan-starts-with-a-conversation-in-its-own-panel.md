@@ -1,4 +1,4 @@
-## D-T-111 A plan starts with a conversation, and the conversation lives in its own panel beside the ticket (2026-10-22)
+## D-202 A plan starts with a conversation, and the conversation lives in its own panel beside the ticket (2026-10-22)
 
 T-111. Make a plan (D-052, D-192) planned from the ticket alone (T-110: the whole ticket), so the planning agent
 guessed at what the person was thinking. Talk it through (D-195) came only after a plan, and drew the whole
