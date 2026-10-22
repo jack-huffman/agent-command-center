@@ -77,6 +77,17 @@ screenshot run stops at each job's first drawing and prints Chrome's FATAL or
 ERROR line from its stderr (`chromeSaid` in `extension/scripts/screenshot.ts`,
 tested in `jobs.test.ts`).
 
+**The Worktrees table on Linux.** The second run on pull request 179 started
+Chrome with its sandbox, drew every page and passed the full check. It found
+two geometry findings, in dark and light at 500 px: the Worktrees table's
+"Missing on disk" ran under the sticky row menu. Inter is a little wider than
+SF, and the state cell was kept to one line, so the table grew wider than its
+frame. The layout is fixed, not excused: below 560 px the branch name takes at
+most 12em (its full name is on hover), and the state may wrap, with a least
+width of 9em so its words stay on one line where there's room. At 500 px on
+the Mac each state is on one line, and the Location column, not the state,
+takes the room the branch gave up.
+
 **Stored floors keep a margin.** Two runs of one commit counted a few apart
 (clipped 101904 and 101898; a11y 445830 and 445794), and T-102 stored each floor
 at one run's exact count, so main's own run fell below it. The person relaxed
