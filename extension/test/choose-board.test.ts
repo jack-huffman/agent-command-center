@@ -14,6 +14,7 @@ import { blankConnect, cardCount, COUNT_MOST, type ConnectMessage, connectModel,
 import { isFromWebview } from '../src/model/messages.ts';
 import { inProcessWords } from '../src/logic/processes.ts';
 import { GITHUB_PROJECTS, sampleBoard, sampleConnect } from '../scripts/fixtures/connect.ts';
+import { PAGE_HEIGHT } from '../scripts/screenshot.ts';
 
 const ROOT = '/Users/me/code/acme-service';
 const EMAIL = 'jordan.kim@example.com';
@@ -198,6 +199,8 @@ test('GitHub\'s Project cards (T-107): Issues, open and closed, then each Projec
   assert.doesNotMatch(card[0]!.detail ?? '', /gh auth/, 'no command line on the page (D-132)');
   assert.deepEqual([picker(access, 'board').look, access.preview.board?.columns.map((c) => c.name), access.save.can], [null, ['Open', 'Closed'], true]);
   assert.deepEqual(GITHUB_PROJECTS.map((p) => p.number), [5, 3, 2, 1]);
+  // Edge: at 900 px the second ticked epic and the Project cards fall below the fold: their shots are taller.
+  assert.ok(['connect-jira-epics', 'connect-github-board', 'connect-github-access'].every((p) => (PAGE_HEIGHT[p as keyof typeof PAGE_HEIGHT] ?? 0) > 1600));
 });
 
 test('an empty place says so, with what to change; a Slack channel with no reaction has no board, and can still be used', () => {
