@@ -32,6 +32,10 @@ as the notes.
   when made (a builder can't finish without recording one), added by hand,
   and turned into reviewed steps with a script when the work is promoted.
   Nothing writes records in another org by itself.
+- A tracker's changes field (D-196): name a field such as "Deployment Notes"
+  in a tracker's settings, and when a ticket's changes change, its new text is
+  drafted for you to save to the ticket, keeping every line written there by
+  hand. The ticket page shows what the field says and where it differs.
 - A Salesforce ticket's package.xml (D-191), built by Salesforce's own tool,
   checked against the org, compared with the org's latest copies, with the
   org's changes the branch lacks listed for you to add. Deletions go in their
