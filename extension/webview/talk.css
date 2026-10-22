@@ -9,7 +9,7 @@
 .talk-turn.who-claude-code, .talk-turn.who-plan { border-left-color: var(--accent); }
 .talk-who { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
 .talk-who > .codicon { flex: none; }
-.talk-v { font-size: 0.8em; }
+.talk-v { font-size: 0.8em; white-space: nowrap; flex: none; }
 .talk-text { margin: 4px 0 2px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .talk-quote { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; padding: 4px 10px; border-left: 3px solid var(--accent); border-radius: 0 5px 5px 0; background: var(--vscode-editor-background); }
 .talk-quote > .codicon { flex: none; margin-top: 2px; color: var(--accent); }
