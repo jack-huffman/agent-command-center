@@ -4,6 +4,7 @@
 import { type Analysis, AccError, approvePlan, askOf, choiceName, choosePlan, lapsedWords, planProblems, planVersion, recommendedName } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
 import { type CommandArea, noAgent, now, type Opts, out, project } from '../shared.ts';
+import { recordedHere, TALK_HELP, TALK_SUBCOMMANDS, talkCommand } from './plan-talk.ts';
 
 /**
  * A plan's version, its choices with their options, and its approval, as a person reads them. A first
@@ -35,6 +36,8 @@ function cmdChoose(o: Opts, id: string, decision: string, option: string | undef
   const { paths } = project(process.cwd());
   const { plan: a, decision: d, changed } = choosePlan(paths, id.toUpperCase(), decision, text !== undefined ? { text, ...(option !== undefined ? { option } : {}) } : { option }, by, now, o.yes === true);
   const left = planProblems(a, a.task);
+  // Run from a Claude Code session opened on the plan (T-98): the page shows what it recorded.
+  if (changed) recordedHere(process.cwd(), a.task, `Chose ${choiceName(d)} for ${d.title}`);
   out(o, () => [
     // The option already chosen, picked again: nothing changed, and an approval holds.
     changed ? tone(`Chosen for ${a.task}'s ${d.id}, ${d.title}: ${choiceName(d)}.`, 'blue') : tone(`${a.task}'s ${d.id}, ${d.title}, is already ${choiceName(d)}: nothing changed.`, 'blue'),
@@ -60,13 +63,16 @@ export const area: CommandArea = {
                                         letter or name; --text "<your own option>" instead of an option. A change
                                         on an approved plan undoes the approval: --yes says you mean it
   acc plan approve <id>                 Approve the plan's latest version. Where a plan is required, a task is
-                                        built only once its choices are made and its latest version approved`,
+                                        built only once its choices are made and its latest version approved
+${TALK_HELP}`,
   },
   options: {
     text: { type: 'string' },
     yes: { type: 'boolean', default: false },
+    about: { type: 'string' },
+    message: { type: 'string' },
   },
-  subcommands: { plan: ['choose', 'approve'] },
+  subcommands: { plan: ['choose', 'approve', ...TALK_SUBCOMMANDS] },
   commands: {
     plan: (o, rest) => {
       if (rest[0] === 'choose') {
@@ -77,7 +83,9 @@ export const area: CommandArea = {
         if (!rest[1]) throw new AccError('usage', 'acc plan approve <id>');
         return cmdApprove(o, rest[1]);
       }
-      throw new AccError('usage', 'acc plan choose <id> <choice> <option|--text "…">, or acc plan approve <id>');
+      const talked = talkCommand(o, rest);
+      if (talked !== undefined) return talked;
+      throw new AccError('usage', 'acc plan choose <id> <choice> <option|--text "…">, acc plan approve <id>, or acc plan talk, use, note or claude');
     },
   },
 };

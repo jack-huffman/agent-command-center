@@ -52,6 +52,7 @@ export * from './overlap.ts';
 export * from './packet.ts';
 export * from './paths.ts';
 export * from './plan-choices.ts';
+export * from './plan-talk.ts';
 export * from './plan.ts';
 export * from './promote.ts';
 export * from './protection.ts';

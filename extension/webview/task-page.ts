@@ -9,6 +9,7 @@ import { renderVerify } from './verify.ts';
 import { renderChanges } from './changes.ts';
 import { renderRecords } from './record-changes.ts';
 import { renderManifest } from './manifest.ts';
+import { renderTalk } from './talk.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
 import { dayName } from './days.ts';
@@ -178,6 +179,8 @@ export function renderTicket(m: TicketModel): Node[] {
     top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), work(el('span', '', rest.join(': ')), 'files'))), 'why-text', 2));
   }
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
+  // Talk it through (T-98): the conversation with the planning agent, in a section of its own beside the plan.
+  if (m.talk) top.append(renderTalk(m, m.talk));
   const main = el('div', 'ticket-main');
   // Where the tracker allows edits, Edit opens the task sheet, which writes the ticket's title and description (T-80).
   const descHead = m.editText ? el('div', 'desc-head', el('h2', '', 'Description'), descEdit(m.editText)) : el('h2', '', 'Description');

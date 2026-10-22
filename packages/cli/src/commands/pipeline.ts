@@ -6,6 +6,7 @@ import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, steps, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
 import { askedOf, planLines } from './plan.ts';
+import { recordedHere } from './plan-talk.ts';
 
 /**
  * Where this review runs (T-86): --cloud or --local, else the project's setting. The setting's cloud is
@@ -109,6 +110,9 @@ function cmdAnswerAnalysis(o: Opts, id: string, q: string, text: string): number
   const by = personOnly(o, 'answer an analysis\'s questions');
   const { paths, config } = project(process.cwd());
   const a = answerAnalysis(paths, id.toUpperCase(), q, text, by, now);
+  // Run from a Claude Code session opened on the plan (T-98): the page shows what it recorded.
+  const asked = a.questions.find((x) => x.id === q.toLowerCase() || x.id === `q${q}`);
+  if (asked) recordedHere(process.cwd(), a.task, `Answered ${asked.question}: ${asked.answer?.text ?? text.trim()}`);
   // A question for the ticket's author holds nothing (T-97): those for you are what's left to do.
   const open = questionsForYou(a);
   out(o, () => (open.length ? `Answered. ${open.length} to go: ${open.map((x) => x.id).join(', ')}.` : [tone('Answered. Every question for you is answered.', 'blue'), ...(analysisRequired(config) ? planProblems(a, a.task).map((l) => tone(`  ${l}`, 'dim')) : [])].join('\n')), a);

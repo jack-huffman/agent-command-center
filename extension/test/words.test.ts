@@ -110,6 +110,8 @@ const MARKS: Record<string, Record<string, number>> = {
   'manifest.ts': { branch: 2, files: 2 },
   'plan.ts': { files: 1 },
   'questions.ts': { transcript: 1 },
+  // Talk it through (T-98): the planning agent's reply, in its own words.
+  'talk.ts': { 'agent-text': 1 },
   'record-changes.ts': { output: 1 },
   'review.ts': { files: 2, transcript: 2 },
   'rules.ts': { files: 1, transcript: 1, 'agent-text': 1 },

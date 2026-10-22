@@ -66,6 +66,8 @@ export interface TicketPlan {
   build: Action | null;
   /** The versions before, newest first. */
   earlier: TicketVersion[];
+  /** The person's notes on the plan (T-98), such as a changed step: who and when. */
+  notes: { text: string; by: string; at: string }[];
 }
 
 /** Who did it, as the page names them: the person, without acc's "human:". */
@@ -108,6 +110,7 @@ export function ticketPlan(row: TaskRow, a: Analysis | null, ref: Ref): TicketPl
       version: planVersion(e), at: e.at, approved: e.approval ? { by: byName(e.approval.by), at: e.approval.at } : null, summary: e.summary, changes: e.changes ?? [],
       choices: (e.decisions ?? []).map((d) => ({ title: d.title, chosen: d.choice ? choiceName(d) : null })),
     })),
+    notes: (a.notes ?? []).map((n) => ({ text: n.text, by: byName(n.by), at: n.at })),
   };
 }
 

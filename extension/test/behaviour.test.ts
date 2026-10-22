@@ -9,6 +9,7 @@ import { isFromWebview } from '../src/model/messages.ts';
 import { CHANGE_APPROVED } from '../../packages/core/src/plan-choices.ts';
 import { type BehaviourReport, behaviourData, behaviourPage, CASES, caseModel, caseFailed, dumpedBehaviour, HELPERS, judgeBehaviour, judgeMutants, MUTANTS, occurrences } from '../scripts/behaviour.ts';
 import { FONTS, sampleModel } from '../scripts/screenshot.ts';
+import { sampleTalkApproved, sampleTalkTicket } from '../scripts/fixtures/talk.ts';
 
 const webview = join(import.meta.dirname, '..', 'webview');
 const now = Date.UTC(2026, 9, 10, 12);
@@ -128,6 +129,19 @@ test('the plan case opens ACME-21\'s approved plan and expects acc\'s words and 
   assert.ok(isFromWebview(d.plan.sent), 'a message the extension takes');
   const c = CASES.find((x) => x.name.startsWith('plan: on an approved plan'));
   assert.ok(c, 'a case drives the dialog');
+  assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 6, 'a mutant for each of its clicks and keys');
+});
+
+test('the talk case opens ACME-21\'s approved v2 and expects acc\'s words, a Use this and a message the extension takes (T-98); edge case: on v1 its proposal would be off, so the conversation is had on v2', () => {
+  const d = behaviourData(models(), now);
+  assert.equal(d.talk.ask, CHANGE_APPROVED);
+  assert.equal(d.talk.use, 'Use this: Choose Open deals only for Which converted leads get roles');
+  assert.deepEqual(d.talk.sent, { type: 'talk-use', project: '/Users/me/code/acme-service', task: 'ACME-21', turn: 't2', proposal: 'p1', yes: true });
+  assert.ok(isFromWebview(d.talk.sent) && isFromWebview(d.talk.send), 'messages the extension takes');
+  assert.equal(sampleTalkApproved(now).talk?.turns[0]?.version, 2, 'had on the version that is approved');
+  assert.equal(sampleTalkTicket(now, true).talk?.turns[1]?.proposals[0]?.from, 1, 'the same proposal on v1 is from an older version');
+  const c = CASES.find((x) => x.name.startsWith('talk: on an approved plan'));
+  assert.ok(c, 'a case drives Use this\'s question and the message box');
   assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 6, 'a mutant for each of its clicks and keys');
 });
 

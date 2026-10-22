@@ -19,6 +19,7 @@ import { area as recordChanges } from './record-changes.ts';
 import { area as rules } from './rules.ts';
 import { area as settings } from './settings.ts';
 import { area as setup } from './setup.ts';
+import { area as talk } from './talk.ts';
 import { area as taskModal } from './task-modal.ts';
 import { area as taskPage } from './task-page.ts';
 import { area as taskSheet } from './task-sheet.ts';
@@ -28,4 +29,4 @@ import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [agentPage, agents, boardNav, connect, criteria, detail, dispatchSheet, dock, environments, history, manifest, overview, palette, plan, questions, recordChanges, rules, settings, setup, taskModal, taskPage, taskSheet, tasks, theme, updates, verify, worktrees];
+export const AREAS = [agentPage, agents, boardNav, connect, criteria, detail, dispatchSheet, dock, environments, history, manifest, overview, palette, plan, questions, recordChanges, rules, settings, setup, talk, taskModal, taskPage, taskSheet, tasks, theme, updates, verify, worktrees];

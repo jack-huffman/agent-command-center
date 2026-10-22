@@ -35,6 +35,8 @@ import type { RecordActions } from './record-changes.ts';
 import { ticketRecords } from './model/record-changes.ts';
 import type { ManifestActions } from './manifest.ts';
 import { ticketManifest } from './model/manifest.ts';
+import type { TalkActions } from './talk.ts';
+import { ticketTalk } from './model/talk.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -131,6 +133,8 @@ export class TicketPanels implements vscode.Disposable {
   records: RecordActions | null = null;
   /** Manifest for this ticket (T-101), set by its area: the section's state, and its buttons. */
   manifest: ManifestActions | null = null;
+  /** Talk it through (T-98), set by its area: the conversation's state, and its buttons. */
+  talk: TalkActions | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
@@ -346,7 +350,10 @@ export class TicketPanels implements vscode.Disposable {
       changes: task ? this.changes(p, task) : null,
     });
     // Its record changes (T-100): a section of its own, beside the ticket's other changes.
-    o.view.draw(task ? { ...model, records: ticketRecords({ task, analysis: this.hub.analysis(p.root, task.id), profile: p.config.profile, environments: p.config.environments }) } : model);
+    const analysis = task ? this.hub.analysis(p.root, task.id) : null;
+    // Talk it through (T-98): a section of its own, beside the plan it talks about.
+    const talk = task && this.talk ? ticketTalk({ task, analysis, analyzing: !!row?.analyzing, ...this.talk.state(p.root, task.id), ref: { project: p.root, task: task.id } }) : null;
+    o.view.draw(task ? { ...model, records: ticketRecords({ task, analysis, profile: p.config.profile, environments: p.config.environments }), talk } : model);
   }
 
   /**
@@ -420,6 +427,10 @@ export class TicketPanels implements vscode.Disposable {
       // Its plan's choices and approval (T-97): this page's own task only.
       case 'plan-choose': case 'plan-approve':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.plan?.act(m, (msg) => o.view.say(msg));
+        return;
+      // Talk it through (T-98): this page's own task only.
+      case 'talk-send': case 'talk-use': case 'talk-claude':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.talk?.act(m, (msg) => o.view.say(msg));
         return;
       // Verify the developer's work (T-84): this page's own task only.
       case 'verify-run': case 'verify-clear':

@@ -7,6 +7,7 @@ import type { TicketModel } from '../src/model/task-page.ts';
 import { button, type Child, el, icon, keptInput, md, status, when, work } from './dom.ts';
 import { Pending } from './pending.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
+import { discussButton, openTalk } from './talk.ts';
 
 /** The longest own option a page sends, as acc takes it. */
 const OWN_MAX = 4000;
@@ -108,13 +109,16 @@ function optionCard(m: TicketModel, task: string, plan: TicketPlan, d: TicketDec
     part('Pros', 'add', o.pros), part('Cons', 'remove', o.cons), part('Risks', 'warning', o.risks), part('Touches', 'file', o.touches, true));
   card.setAttribute('role', 'group');
   card.setAttribute('aria-label', `${d.title}: ${o.name}${recommended ? ', recommended' : ''}${chosen ? ', chosen' : ''}`);
+  // Discuss (T-98): talk this option through with the planning agent, quoted.
+  const discuss = m.talk?.send ? discussButton(m.project, task, `${d.id}.${o.id}`, `${d.title}: ${o.name}`, `${o.name}, for ${d.title}`) : null;
+  if (discuss && (!plan.canChoose || chosen)) card.append(el('div', 'po-actions', discuss));
   if (plan.canChoose && !chosen) {
     const busy = !!planPending.what(key);
     const b = button('Choose this', 'check', () => pick(m, task, plan, d, { option: o.id }), recommended && !d.choice ? 'primary small' : 'small');
     b.setAttribute('aria-label', `Choose this: ${o.name}, for ${d.title}`);
     focusOnceDrawn(b, confirmKey(key, o.id));
     if (busy) { b.disabled = true; b.title = 'Wait for the choice on its way'; }
-    card.append(el('div', 'po-actions', b));
+    card.append(el('div', 'po-actions', b, discuss));
   }
   return card;
 }
@@ -150,7 +154,8 @@ function decisionGroup(m: TicketModel, task: string, plan: TicketPlan, d: Ticket
   const own = d.choice && d.choice.option === null;
   const g = el('div', `plan-decision${d.choice ? ' made' : ''}`,
     el('div', 'pd-head', el('span', 'aq-id', d.id), el('strong', 'pd-title', d.title),
-      d.choice ? status({ label: 'Chosen', icon: 'pass-filled', tone: 'blue' }) : plan.canChoose ? status({ label: 'Choose one', icon: 'list-selection', tone: 'orange' }) : status({ label: 'Not chosen', icon: 'circle-large-outline', tone: 'neutral' })),
+      d.choice ? status({ label: 'Chosen', icon: 'pass-filled', tone: 'blue' }) : plan.canChoose ? status({ label: 'Choose one', icon: 'list-selection', tone: 'orange' }) : status({ label: 'Not chosen', icon: 'circle-large-outline', tone: 'neutral' }),
+      m.talk?.send ? discussButton(m.project, task, d.id, d.title, `the choice ${d.title}`) : null),
     d.why ? el('div', 'muted small pd-why', md(d.why)) : null,
     el('div', `plan-options n${d.options.length}`, ...d.options.map((o) => optionCard(m, task, plan, d, o))),
     rec && d.because ? el('div', 'pd-because small', icon('star-full'), el('span', '', el('strong', '', `Why ${rec.name}: `), md(d.because))) : null);
@@ -196,6 +201,11 @@ export function planHead(plan: TicketPlan): HTMLElement {
   if (plan.changes.length && plan.version > 1) {
     head.append(el('div', 'plan-changes', el('div', 'strong', icon('history'), ` What changed in v${plan.version}`), el('ul', 'an-list', ...plan.changes.map((c) => el('li', '', md(c))))));
   }
+  // The person's notes on the plan (T-98), from the conversation or Claude Code: the builder is given them.
+  if (plan.notes.length) {
+    head.append(el('div', 'plan-notes', el('div', 'strong', icon('note'), ' Your notes on this plan'),
+      el('ul', 'an-list', ...plan.notes.map((n) => el('li', '', md(n.text), el('span', 'muted small', ` ${n.by} `), when(n.at))))));
+  }
   return head;
 }
 
@@ -224,6 +234,8 @@ export function planActions(m: TicketModel, task: string, plan: TicketPlan): Chi
     if (a.disabled) { b.disabled = true; b.title = a.disabled; b.setAttribute('aria-description', a.disabled); whys.push(el('div', 'plan-why muted small', icon('info'), el('span', '', `Build it is off: ${a.disabled}`))); }
     buttons.push(b);
   }
+  // Talk it through (T-98): opens the conversation beside the plan, and puts the cursor in its box.
+  if (m.talk?.send) buttons.push(button('Talk it through', 'comment-discussion', () => openTalk(m.project, task)));
   const error = planPending.error(key);
   return [
     buttons.length ? el('div', 'actions plan-actions', ...buttons) : null,

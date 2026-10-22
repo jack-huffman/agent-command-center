@@ -1,0 +1,41 @@
+/* Talk it through (T-98) wears the plan's card, under it, with the gap the sections around it keep. */
+.talk { margin-top: 12px; }
+.talk-turns { list-style: none; margin: 4px 0 8px; padding: 0; }
+/* Each turn: who and when on a line, what it's about quoted, the words, then what it proposed or recorded. */
+.talk-turn { padding: 8px 0 8px 10px; border-top: 1px solid var(--line); border-left: 3px solid transparent; }
+.talk-turns > .talk-turn:first-child { border-top: 0; }
+.talk-turn.who-agent { border-left-color: var(--blue); }
+.talk-turn.who-you { border-left-color: var(--line); }
+.talk-turn.who-claude-code, .talk-turn.who-plan { border-left-color: var(--accent); }
+.talk-who { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+.talk-who > .codicon { flex: none; }
+.talk-v { font-size: 0.8em; white-space: nowrap; flex: none; }
+.talk-text { margin: 4px 0 2px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.talk-quote { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; padding: 4px 10px; border-left: 3px solid var(--accent); border-radius: 0 5px 5px 0; background: var(--vscode-editor-background); }
+.talk-quote > .codicon { flex: none; margin-top: 2px; color: var(--accent); }
+.talk-quote > span { min-width: 0; overflow-wrap: anywhere; }
+.talk-proposals { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.talk-proposal { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--vscode-editor-background); }
+.talk-proposal.used { border-color: var(--blue); }
+.tp-line { display: flex; align-items: flex-start; gap: 6px; }
+.tp-line > .codicon { flex: none; margin-top: 2px; color: var(--accent); }
+.talk-proposal.used .tp-line > .codicon { color: var(--blue); }
+.tp-words { min-width: 0; overflow-wrap: anywhere; }
+.tp-why { margin: 2px 0 0 22px; }
+.tp-actions, .tp-used { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 6px 0 0 22px; }
+.talk-recorded { margin-top: 4px; }
+.talk-waiting { display: flex; align-items: center; gap: 6px; margin: 4px 0 8px; }
+/* The message box: what it's about over the words, then Send. */
+.talk-compose { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+.talk-about { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-bottom: 4px; }
+.talk-about > .talk-quote { flex: 1 1 200px; min-width: 0; margin: 0; }
+.talk-box { display: block; width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; font: inherit; }
+.talk-actions { margin: 6px 0 2px; }
+.talk-more { margin-top: 8px; }
+/* Discuss sits after what it's about: an option's buttons, a choice's head, a question, a step or a risk. */
+.talk-discuss { flex: none; }
+.an-discussable { display: inline; }
+.an-discussable > .talk-discuss { margin-left: 6px; vertical-align: middle; }
+.aq-q > .talk-discuss { margin-left: auto; }
+.pd-head > .talk-discuss { margin-left: auto; }
+.plan-notes { margin: 8px 0 2px; padding: 6px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--vscode-editor-background); }
