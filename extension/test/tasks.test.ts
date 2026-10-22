@@ -27,7 +27,9 @@ test('a row reads its analysis and the one under way from beside the ledger; a d
   assert.equal(analysisWait({ state: 'todo', analysis: row }), 'questions');
   assert.equal(analysisWait({ state: 'running', analysis: row }), null, 'only a task to do waits on its analysis');
   assert.equal(analysisWait({ state: 'todo', analysis: row, analyzing: { sessionId: 's2' } }), null, 'nor while it\'s analyzed again');
-  assert.equal(analysisReady({ analysis: { ...row, open: [] } }), true);
+  assert.equal(analysisReady({ analysis: { ...row, open: [], approved: true } }), true);
+  assert.equal(analysisReady({ analysis: { ...row, open: [] } }), false, 'not before a person approves its plan (T-97)');
+  assert.equal(analysisReady({ analysis: { ...row, open: [], approved: true, choices: 1 } }), false, 'nor with a choice nobody made');
   assert.equal(analysisReady({ analysis: { ...row, open: [], verdict: 'split' } }), false);
   writeFileSync(join(paths.analyses, 'T-1.running.json'), JSON.stringify({ sessionId: 'live', startedAt: 't', pid: process.pid }));
   assert.equal(analyzing(paths, 'T-1')?.sessionId, 'live');
@@ -186,8 +188,8 @@ test('before a build, a card offers its analysis first, and Dispatch once it\'s 
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: tooBig }), ['See the split*', 'Move', 'Block', 'Edit', 'Details']);
   // Its plan waits for a person's approval before Dispatch (T-97); approved, Dispatch leads.
-  assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: analysed }), ['See the plan*', 'Move', 'Block', 'Edit', 'Details']);
-  assert.deepEqual(labels({ analysisRequired: true, analysis: { ...analysed, approved: true } }), ['Dispatch*', 'Move', 'Block', 'Edit', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: { ...analysed, approved: false } }), ['See the plan*', 'Move', 'Block', 'Edit', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, deps: ['AV-1'], display: 'todo' }), ['Analyze*', 'Move', 'Block', 'Edit', 'Details'], 'waiting on another task: analyze it meanwhile');
   // Where it's optional: Dispatch stays, second to answering questions the analysis did ask.
   assert.deepEqual(labels({}), ['Dispatch*', 'Move', 'Block', 'Analyze', 'Edit', 'Details']);
@@ -205,7 +207,8 @@ test('before a build, a card offers its analysis first, and Dispatch once it\'s 
   assert.equal(analysisLook({ state: 'todo', analysis: { ...asks, open: [ask('q1')] } })!.label, 'Needs you: 1 question from its analysis');
   assert.deepEqual(analysisLook({ state: 'todo', analysis: tooBig }), { label: 'Needs you: too big for one task', icon: 'split-horizontal', tone: 'orange' });
   assert.deepEqual(analysisLook({ state: 'todo', analyzing: { sessionId: 's' } }), { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' });
-  assert.deepEqual(analysisLook({ state: 'todo', analysis: analysed }), { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' });
+  assert.deepEqual(analysisLook({ state: 'todo', analysis: analysed }), { label: 'Plan approved: ready to build', icon: 'verified-filled', tone: 'blue' });
+  assert.deepEqual(analysisLook({ state: 'todo', analysis: { ...analysed, approved: false } }), { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' }, 'where no plan is required, an unapproved one is ready');
   assert.equal(analysisLook({ state: 'running', analysis: asks }), null, 'once it\'s built, its agent speaks for it');
 });
 

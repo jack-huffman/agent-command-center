@@ -324,7 +324,10 @@ test('a task\'s page shows its analysis gist first: the verdict, the summary, it
   assert.ok(!side.some((x) => ['acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show'].includes(x.command)), 'its buttons are in its own section');
 
   const ready = { ...a, verdict: 'ready' as const, questions: a.questions.filter((q) => q.answer) };
-  assert.deepEqual(ticketModel({ ...base, row: todo({ display: 'ready', analysis: rowAnalysis(ready) }), analysis: ready }).analysis!.look, { label: 'Ready to build', icon: 'pass', tone: 'blue' });
+  // Answered, it waits for a person's approval where a plan is required (T-97); approved, it's ready.
+  assert.deepEqual(ticketModel({ ...base, row: todo({ display: 'ready', analysis: rowAnalysis(ready) }), analysis: ready }).analysis!.look, { label: 'Approve this plan', icon: 'verified', tone: 'orange' });
+  const approved = { ...ready, approval: { version: 1, by: 'human:me', at: 't' } };
+  assert.deepEqual(ticketModel({ ...base, row: todo({ display: 'ready', analysis: rowAnalysis(approved) }), analysis: approved }).analysis!.look, { label: 'Ready to build', icon: 'pass', tone: 'blue' });
   const split = { ...a, verdict: 'split' as const, questions: [], split: ['Part one', 'Part two'] };
   const big = ticketModel({ ...base, row: todo({ analysis: rowAnalysis(split) }), analysis: split }).analysis!;
   assert.deepEqual([big.look, big.split], [{ label: 'Too big for one task', icon: 'split-horizontal', tone: 'orange' }, ['Part one', 'Part two']]);

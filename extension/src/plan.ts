@@ -8,8 +8,8 @@ import { accRunner } from './run.ts';
 
 type Say = (msg: Record<string, unknown>) => void;
 
-/** The reply a page waits for, once acc has recorded the choice or the approval, or refused it. */
-export const PLAN_DONE = 'plan-done';
+/** The reply a page waits for, once acc has recorded the choice or the approval, or refused it: webview/plan.ts takes it. */
+const PLAN_DONE = 'plan-done';
 
 /** What a task page asks of its plan: a choice, or an approval. */
 export interface PlanActions {
