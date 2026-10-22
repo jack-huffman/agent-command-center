@@ -1,4 +1,4 @@
-## D-T-113 Talking a plan through asks one question at a time, with answers to pick, and shows less at once (2026-10-22)
+## D-204 Talking a plan through asks one question at a time, with answers to pick, and shows less at once (2026-10-22)
 
 T-113. The conversation's panel (D-202) drew every question the planning agent asked at once, as a numbered
 list inside a long reply, beside a "Not sure yet" list, the proposals and the whole conversation so far. The

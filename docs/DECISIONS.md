@@ -211,3 +211,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-201](decisions/D-201-a-plan-reads-the-whole-ticket.md) | Make a plan reads the whole ticket: every comment, related tickets and the changes field, and says when new comments arrive | 2026-10-22 |
 | [D-202](decisions/D-202-a-plan-starts-with-a-conversation-in-its-own-panel.md) | A plan starts with a conversation, and the conversation lives in its own panel beside the ticket | 2026-10-22 |
 | [D-203](decisions/D-203-ci-runs-the-full-check.md) | GitHub Actions runs the full check and the screenshot run on every pull request, and autopilot waits for it | 2026-10-22 |
+| [D-204](decisions/D-204-one-question-at-a-time.md) | Talking a plan through asks one question at a time, with answers to pick, and shows less at once | 2026-10-22 |
