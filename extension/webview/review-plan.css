@@ -1,0 +1,73 @@
+/* ---------------------------------------------------------------- Review plan (T-109) */
+/* A sheet at the top of the tab, as Build it's is (D-168): 560 px at most, sized to what it holds. Its title
+   and Close in the bar, "2 of 5" and a dot for each step under it, one step, then Back, Skip for now and
+   Confirm along its foot. Each step cross-fades in, and still does under reduced motion: a fade doesn't move. */
+.task-modal.review-plan { width: min(560px, calc(100vw - 32px)); height: fit-content; max-height: calc(100vh - 64px); margin: 32px auto auto; --origin: 50% 0; }
+.review-plan .task-modal-bar { justify-content: space-between; padding: 10px 18px; }
+.rp-title { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.review-plan .task-modal-body { padding: 8px 18px 6px; }
+
+/* "2 of 5", then the dots: blue with a check for done, orange for skipped, plain for still to do, and where you are
+   ringed, each with its own icon. */
+.rp-progress { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 10px; }
+.rp-place { font-size: 0.92em; color: var(--vscode-descriptionForeground); white-space: nowrap; }
+.rp-dots { display: flex; flex-wrap: wrap; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.rp-dot { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--radius-full); background: transparent; color: var(--vscode-foreground); cursor: pointer; }
+.rp-dot:hover { background: var(--vscode-toolbar-hoverBackground); }
+.rp-dot:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.rp-dot:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.rp-dot.current { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--vscode-focusBorder); }
+
+.rp-step { animation: rp-fade 160ms ease-out; }
+@keyframes rp-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rp-fade-still { from { opacity: 0.4; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .rp-step { animation-name: rp-fade-still; animation-duration: 120ms; } }
+.rp-head { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+.rp-kind { display: inline-flex; align-items: center; gap: 5px; font-size: 0.88em; color: var(--vscode-descriptionForeground); }
+.rp-q { margin: 4px 0 2px; font-size: 1.08em; line-height: 1.35; overflow-wrap: anywhere; }
+.rp-why { margin: 0 0 10px; font-size: 0.93em; overflow-wrap: anywhere; }
+
+/* The options: one row each, a numbered radio with its name and one line, and More about this option under it. */
+.rp-options { display: flex; flex-direction: column; gap: 6px; margin: 0 0 8px; }
+.rp-option { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); }
+.rp-option.on { border-color: var(--blue); box-shadow: inset 0 0 0 1px var(--blue); }
+.rp-radio { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 7px 10px 4px; border: 0; border-radius: var(--radius); background: transparent; color: var(--vscode-foreground); font: inherit; text-align: left; cursor: pointer; }
+.rp-radio:hover { background: var(--vscode-list-hoverBackground); }
+.rp-radio:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.rp-radio:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.rp-radio .codicon { flex: none; margin-top: 2px; }
+.rp-num { flex: none; width: 18px; height: 18px; margin-top: 1px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8em; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
+.rp-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rp-name { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-weight: 600; overflow-wrap: anywhere; }
+.rp-line { font-size: 0.92em; overflow-wrap: anywhere; }
+.rp-tag { display: inline-flex; align-items: center; gap: 3px; font-size: 0.82em; font-weight: normal; white-space: nowrap; }
+.rp-rec { color: var(--accent); }
+.rp-chosen { color: var(--blue); }
+.rp-more { margin: 0 0 4px 46px; }
+.rp-details { display: flex; flex-direction: column; gap: 4px; margin: 0 10px 8px 46px; padding-top: 6px; border-top: 1px solid var(--line); }
+.rp-details .po-effort { align-self: flex-start; }
+.rp-own { padding: 0 10px 8px 46px; }
+.rp-own .text-input { width: 100%; }
+.rp-answered { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 10px; overflow-wrap: anywhere; }
+.rp-answered .codicon { flex: none; margin-top: 2px; }
+.rp-step .pd-because { margin-bottom: 8px; }
+.rp-step .plan-confirm { margin: 0 0 8px; }
+
+/* The summary: a line for each step, a click back to it; then whether it's approved. */
+.rp-sum { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 10px; padding: 0; list-style: none; }
+.rp-sum-line { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 5px 8px; border: 0; border-radius: var(--radius-s); background: transparent; color: var(--vscode-foreground); font: inherit; text-align: left; cursor: pointer; }
+.rp-sum-line:hover { background: var(--vscode-list-hoverBackground); }
+.rp-sum-line:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+.rp-sum-line:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.rp-sum-line .codicon { flex: none; margin-top: 2px; }
+.rp-sum-n { flex: none; min-width: 14px; text-align: right; font-size: 0.88em; margin-top: 1px; }
+.rp-sum-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.rp-sum-title { font-weight: 600; overflow-wrap: anywhere; }
+.rp-sum-value { font-size: 0.93em; overflow-wrap: anywhere; }
+.rp-approved { display: flex; align-items: center; gap: 4px; margin: 0 0 8px; }
+
+/* Back and Skip for now on the left, Confirm on the right; on the summary, Close and Approve this plan. */
+.rp-foot { flex: none; padding: 10px 18px 14px; border-top: 1px solid var(--edge); }
+.rp-foot-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.rp-foot .btn:disabled { opacity: 0.55; cursor: default; }
+.rp-foot .plan-why, .rp-foot .aq-error { margin: 8px 0 0; }
