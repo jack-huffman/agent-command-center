@@ -1,4 +1,4 @@
-## D-T-104 A plan suggests a small first task for a shape other tasks build on, so they can start sooner (2026-10-22)
+## D-199 A plan suggests a small first task for a shape other tasks build on, so they can start sooner (2026-10-22)
 
 When one task changes a shape other tasks build on, those tasks wait for the
 whole feature or start on guesses. On 22 October T-97's plan format was such a

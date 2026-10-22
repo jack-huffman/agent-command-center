@@ -102,7 +102,7 @@ export function parseShapeSplit(v: any, shapes: SharedShape[]): ShapeSplit | und
   return { why: text(v.why), first: task(v.first), rest: task(v.rest) };
 }
 
-/** A decision a task's files hold, by its id: D-198 once numbered, D-T-104 before. */
+/** A decision a task's files hold, by its id: D-198 once numbered, D-199 before. */
 export function decisionIn(files: string[]): { id: string; file: string } | null {
   for (const file of files) {
     const m = /^docs\/decisions\/([^/]+)$/.exec(file);
