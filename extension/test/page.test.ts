@@ -100,3 +100,13 @@ test('tab icons are built from the sidebar icon, white for dark themes and dark 
   assert.ok(panels.includes("panel.iconPath = { light: icon('light'), dark: icon('dark') }"));
   for (const theme of ['dark', 'light']) assert.ok(readFileSync(join(root, 'dist', 'webview', `acc-${theme}.svg`), 'utf8').includes('<svg'), `the page's ${theme} mark`);
 });
+
+test('the Worktrees table fits beside the sticky actions at 500 px: its state cell wraps, where nowrap ran it under them on Linux (T-108)', () => {
+  const page = pageSource('worktrees.ts');
+  assert.match(page, /el\('td', 'state', status\(w\.state\)\)/);
+  // Edge: no state cell kept to one line.
+  assert.doesNotMatch(page, /el\('td', 'nowrap', status\(/);
+  const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
+  const top = css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, '');
+  assert.match(top, /\.grid td\.state \.status \{ white-space: normal; \}/, 'at every width, not only in a narrow tab');
+});
