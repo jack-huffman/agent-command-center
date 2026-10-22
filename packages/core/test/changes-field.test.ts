@@ -103,8 +103,7 @@ test('monday.com lists the board\'s long-text columns, each plain text, and GitH
 
 test('edge: Slack has no fields, so it has no field list, and its setting is refused with why', () => {
   const slack = new SlackClient({ workspace: 'acme', channel: 'C0123ABCD', token: 'xoxb-test', fetch: (async () => Response.json({ ok: true })) as unknown as typeof fetch });
-  assert.equal(slack.textFields, undefined);
-  assert.equal(slack.writeField, undefined);
+  assert.ok(!('textFields' in slack) && !('readField' in slack) && !('writeField' in slack));
   assert.match(changesFieldRefusal('slack')!, /Slack thread has no fields/);
   for (const k of TRACKER_KINDS.filter((x) => x !== 'slack')) assert.equal(changesFieldRefusal(k), null, k);
   assert.deepEqual(FIELD_FORMATS_OF.slack, []);

@@ -243,12 +243,12 @@ test('drawn: the read-back, the draft in a box whose edit is kept, Save that sen
   sec = renderField(m, f) as unknown as PageElement;
   assert.ok(buttons(sec).some((b) => b.textContent === 'Saving…' && b.disabled), 'on its way');
   // Refused: why, with the edit kept; then saved: the edit goes.
-  pageArea.receive!['changes-field-saved']!({ project: '/r', task: 'ACME-7', ok: false, error: 'The ticket\'s Deployment Notes changed since this page showed it' });
+  pageArea.receive!['changes-field-saved']!({ project: '/r', task: 'ACME-7', ok: false, error: 'The ticket\'s Deployment Notes changed since this page showed it' } as never);
   sec = renderField(m, f) as unknown as PageElement;
   assert.match(sec.textContent, /changed since this page showed it/);
   assert.ok(memory().drafts[`${FIELD_EDIT_KEY}/r#ACME-7`]);
   buttons(sec).find((b) => b.textContent === 'Save to the ticket')!.click();
-  pageArea.receive!['changes-field-saved']!({ project: '/r', task: 'ACME-7', ok: true });
+  pageArea.receive!['changes-field-saved']!({ project: '/r', task: 'ACME-7', ok: true } as never);
   assert.equal(memory().drafts[`${FIELD_EDIT_KEY}/r#ACME-7`], undefined);
   assert.ok(drawn >= 3);
   // Edits off: Save is off, saying why.

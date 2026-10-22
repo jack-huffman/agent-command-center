@@ -9,7 +9,7 @@ import type { ExtensionArea } from './area.ts';
 import type { Project } from './hub.ts';
 import { FieldReads, saveField } from './logic/changes-field.ts';
 import { inProcessWords } from './logic/processes.ts';
-import { CHANGES_FIELD_COMMAND, CHANGES_FIELD_LABEL, changesFieldPicks, changesFieldRecord, FIELD_SAVED, fieldName, type Message, noTextFields, type TicketField, ticketField } from './model/changes-field.ts';
+import { CHANGES_FIELD_LABEL, changesFieldPicks, changesFieldRecord, FIELD_SAVED, fieldName, type Message, noTextFields, type TicketField, ticketField } from './model/changes-field.ts';
 
 type Say = (msg: Record<string, unknown>) => void;
 
@@ -54,7 +54,8 @@ export const area: ExtensionArea = {
     };
 
     // Choose… and Change…: the tracker's fields that hold text, read through its sign-in, then acc writes the choice.
-    reg(CHANGES_FIELD_COMMAND, async (arg?: unknown) => {
+    // CHANGES_FIELD_COMMAND, written out so the check of what's registered finds it.
+    reg('acc.trackers.changesField', async (arg?: unknown) => {
       const chosen = await trackers.pickTracker(arg, CHANGES_FIELD_LABEL);
       if (!chosen) return;
       const { p, index, t } = chosen;

@@ -91,7 +91,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/drift.ts': ['BASELINE_MANIFEST', 'environmentNamed'],
   'packages/core/src/efforts.ts': ['effortSourceWords', 'checkEffortName', 'checkEffortPick', 'modelTakes', 'effortFixWords', 'dispatchEffort'],
   'packages/core/src/exec.ts': ['ghEnv', 'isGh'],
-  'packages/core/src/gates.ts': ['lastLine', 'packageDirs', 'baseFor', 'changedPaths', 'niced'],
+  'packages/core/src/gates.ts': ['lastLine', 'packageDirs', 'baseFor', 'niced'],
   'packages/core/src/github.ts': ['CLONE_ACCOUNT_KEY', 'credentialHelper', 'ghAccounts'],
   'packages/core/src/held.ts': ['holdWords'],
   'packages/core/src/holding.ts': ['startingNow', 'claimHeld', 'releaseHeld'],
