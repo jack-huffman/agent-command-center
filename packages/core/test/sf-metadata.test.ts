@@ -13,6 +13,7 @@ const NAMED: [string, string, string][] = [
   [`${D}/objects/Contact/recordTypes/Partner.recordType-meta.xml`, 'Record Type: Contact.Partner', 'RecordType'],
   [`${D}/objects/Contact/listViews/All.listView-meta.xml`, 'List View: Contact.All', 'ListView'],
   [`${D}/flows/Contact_Job_History.flow-meta.xml`, 'Flow: Contact_Job_History', 'Flow'],
+  [`${D}/escalationRules/Case.escalationRules-meta.xml`, 'Escalation Rules: Case', 'EscalationRules'],
   [`${D}/classes/JobHistoryService.cls`, 'Apex Class: JobHistoryService', 'ApexClass'],
   [`${D}/classes/JobHistoryService.cls-meta.xml`, 'Apex Class: JobHistoryService', 'ApexClass'],
   [`${D}/triggers/ContactTrigger.trigger`, 'Apex Trigger: ContactTrigger', 'ApexTrigger'],

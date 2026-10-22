@@ -22,9 +22,11 @@ interface FileKind {
 /** What each metadata folder holds, by its name in source format. */
 const FILES: Record<string, FileKind> = {
   applications: { suffix: '.app', type: 'CustomApplication', label: 'App' },
+  assignmentRules: { suffix: '.assignmentRules', type: 'AssignmentRules', label: 'Assignment Rules' },
   classes: { suffix: '.cls', type: 'ApexClass', label: 'Apex Class' },
   components: { suffix: '.component', type: 'ApexComponent', label: 'Visualforce Component' },
   customMetadata: { suffix: '.md', type: 'CustomMetadata', label: 'Custom Metadata Record' },
+  escalationRules: { suffix: '.escalationRules', type: 'EscalationRules', label: 'Escalation Rules' },
   flexipages: { suffix: '.flexipage', type: 'FlexiPage', label: 'Lightning Page' },
   flows: { suffix: '.flow', type: 'Flow', label: 'Flow' },
   globalValueSets: { suffix: '.globalValueSet', type: 'GlobalValueSet', label: 'Global Value Set' },

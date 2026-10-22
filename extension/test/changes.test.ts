@@ -129,3 +129,13 @@ test('the page draws the kept changes after a merge with when they were kept, an
   assert.ok(at > page.indexOf('renderVerify(m, m.verify)') && at < page.indexOf('renderActivity(m)'), 'in the main column, under Verify, over the Activity');
   assert.doesNotMatch(readFileSync(new URL('../webview/analysis.ts', import.meta.url), 'utf8'), /'Files'/, 'the plan\'s own Files list is gone: this section says it');
 });
+
+test('the screenshot run draws Planned changes, Changes with one outside the plan, and a merged task\'s kept changes (T-99)', async () => {
+  const { sampleModel } = await import('../scripts/screenshot.ts');
+  const marks = (c: TicketChanges | null) => c?.changed.flatMap((g) => g.sets.flatMap((s) => s.items.flatMap((i) => (i.look ? [i.look.label] : [])))) ?? [];
+  const pages = { 'ticket-planned': ['ACME-35', 'Planned changes', null, false, []], 'ticket-changes': ['ACME-12', 'Changes', { planned: 4, changed: 5 }, false, ['Not in the plan', 'Not in the plan', 'Planned, not changed']], 'ticket-kept': ['ACME-20', 'Changes', { planned: 5, changed: 6 }, true, ['Not in the plan']] } as const;
+  for (const [kind, want] of Object.entries(pages)) {
+    const m = sampleModel(kind as keyof typeof pages) as ReturnType<typeof ticketModel>;
+    assert.deepEqual([m.key, m.changes?.title, m.changes?.counts, !!m.changes?.keptAt, marks(m.changes)], want, kind);
+  }
+});
