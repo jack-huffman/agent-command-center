@@ -552,7 +552,9 @@ export class TaskCommands extends Sidebar {
     if (making && !making.begin(root, id)) return;
     // The whole ticket first (T-110): its comments, related tickets and changes field; the status bar and the
     // conversation say so while it's read.
-    const read = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: `Reading ${id}'s ticket for its plan` }, () => this.planTicketFile(root, id));
+    const reading = this.planTicketFile(root, id);
+    void vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: `Reading ${id}'s ticket for its plan` }, () => reading);
+    const read = await reading;
     making?.planning(root, id);
     // acc analyze exits 1 when the analysis has questions or says to split it: a new analysis is a run that
     // worked, and its notice says what it found. An error writes none.

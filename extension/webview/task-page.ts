@@ -184,7 +184,7 @@ export function renderTicket(m: TicketModel): Node[] {
   // A conversation before its plan is made (T-111): its one line, in a plan section of its own until the plan
   // comes. The conversation itself is in its panel, never here.
   const line = !m.analysis && m.talk ? conversationLine(m.project, m.talk) : null;
-  if (line) top.append(el('section', 'analysis convo-before', el('div', 'an-head', el('h2', '', 'Plan'), status(m.talk!.look)), line));
+  if (line) top.append(el('section', 'analysis', el('div', 'an-head', el('h2', '', 'Plan'), status(m.talk!.look)), line));
   const main = el('div', 'ticket-main');
   // Where the tracker allows edits, Edit opens the task sheet, which writes the ticket's title and description (T-80).
   const descHead = m.editText ? el('div', 'desc-head', el('h2', '', 'Description'), descEdit(m.editText)) : el('h2', '', 'Description');

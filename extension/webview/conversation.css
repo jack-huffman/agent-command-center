@@ -17,4 +17,3 @@ body[data-view="conversation"] .talk { margin-top: 0; }
 .convo-line > .codicon { flex: none; color: var(--accent); }
 .convo-words { font-weight: 600; min-width: 0; }
 .convo-line > .btn { margin-left: auto; }
-.convo-before .convo-line { margin-top: 6px; }

@@ -18,7 +18,7 @@ const base = { toString: () => 'file:///ext/dist/webview' } as never;
 const KINDS = Object.keys(OPENING) as TabKind[];
 
 test('a tab of each kind opens on the loading screen, with that kind\'s line as its name', () => {
-  assert.deepEqual(KINDS, ['home', 'ticket', 'agent']);
+  assert.deepEqual(KINDS, ['home', 'ticket', 'agent', 'conversation']);
   for (const kind of KINDS) {
     const html = htmlFor(webview, base, kind, 'n0nce');
     const app = /<main id="app">([\s\S]*?)<\/main>/.exec(html)?.[1] ?? '';

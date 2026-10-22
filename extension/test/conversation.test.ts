@@ -208,7 +208,7 @@ test('mid-conversation, the panel draws each turn, the agent\'s doubts and quest
   assert.deepEqual(turns.map((t) => t.getAttribute('aria-label')), ['You (jordan)', 'Planning agent', 'You (jordan)']);
   assert.ok(turns.every((t) => /Before the plan/.test(t.textContent)), 'said before there was a plan');
   assert.match(turns[1]!.all('talk-unsure')[0]!.textContent, /Not sure yet.*integration user/);
-  assert.match(turns[1]!.all('talk-asks')[0]!.textContent, /Questions for you.*keep it, or add another\?/);
+  assert.match(turns[1]!.all('talk-asks')[0]!.textContent, /for you.*keep it, or add another\?/);
   assert.match(p.all('talk-waiting')[0]!.textContent, /reading the ticket to reply/);
   assert.equal(buttons(p, 'Send')[0]!.disabled, true);
   assert.equal(buttons(p, 'Draft the plan')[0]!.disabled, true);
