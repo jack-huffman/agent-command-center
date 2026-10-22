@@ -376,10 +376,15 @@ export function proposalWords(p: TalkProposal, a: Analysis | null): string {
   return `Note on the plan: ${p.text}`;
 }
 
+/** Why Use this refuses a proposal made on an older version of the plan: the page and acc say the same. */
+export const proposalStale = (from: number, now: number): string =>
+  `This was proposed on v${from}, and the plan is now v${now}. Ask the planning agent again about v${now}.`;
+
 /**
  * "Use this" (T-98): a reply's proposal recorded in the plan as the person's own choice, answer or note,
  * through the same functions acc plan choose, acc analysis answer and acc plan note use, so their rules hold:
- * a change on an approved plan needs the person's yes. Using one already used changes nothing.
+ * a change on an approved plan needs the person's yes. Using one already used changes nothing; one made on an
+ * older version of the plan is refused.
  */
 export function useProposal(paths: RepoPaths, id: string, turnId: string, proposalId: string, by: string, now: () => Date, yes = false): Used {
   const t = readTalk(paths, id);
@@ -389,6 +394,8 @@ export function useProposal(paths: RepoPaths, id: string, turnId: string, propos
   const before = readAnalysis(paths, id);
   if (p.used) return { proposal: p, plan: before!, changed: false, line: proposalWords(p, before) };
   if (readLedger(paths.ledger).tasks.find((x) => x.id === id)?.state !== 'todo') throw new AccError('refused', `${id} isn't waiting to be built, so its plan is settled.`);
+  // A proposal on an older version may name a choice the new one numbers differently, so it never records.
+  if (before && turn.version !== planVersion(before)) throw new AccError('refused', proposalStale(turn.version, planVersion(before)));
   let plan: Analysis;
   let changed = true;
   if (p.kind === 'choose' || p.kind === 'own') {
@@ -495,6 +502,8 @@ export function claudeBrief(paths: RepoPaths, id: string): string {
     `- An answer: \`acc analysis answer ${id} <question> "…"\``,
     `- A note, such as a changed step: \`acc plan note ${id} "…"\``,
     '',
+    'None of these is allowed in advance: Claude Code asks the person before each one runs, so they see it first.',
+    '',
     `${a.approval ? 'The plan is approved: a change undoes that, so acc asks for --yes. Say so to the person first.' : 'Record only what the person agreed to.'}`,
     '',
   ].join('\n');
@@ -512,8 +521,10 @@ export interface ClaudeLaunch {
 
 /**
  * Open in Claude Code (T-98): an interactive session in the main checkout, in plan mode, that reads the brief
- * first. It may record a choice, an answer or a note through acc, which ask the person as any command does.
- * The conversation gets a turn for the session, which shows what it recorded.
+ * first. It may record a choice, an answer or a note through acc. Only Read, Grep and Glob are allowed in
+ * advance: acc plan choose, acc plan note and acc analysis answer are not, so Claude Code asks the person
+ * before each one runs, and the brief says so. The conversation gets a turn for the session, which shows what
+ * it recorded.
  */
 export function openInClaude(paths: RepoPaths, config: Config, id: string, by: string, now: () => Date, uuid: () => string = randomUUID): ClaudeLaunch {
   const a = planToTalk(paths, id);
@@ -527,7 +538,7 @@ export function openInClaude(paths: RepoPaths, config: Config, id: string, by: s
   const prompt = `Read ${brief} first. It holds ${id}'s ticket, its latest plan and what was said about it. Then talk the plan through with me: answer from the code${config.profile === 'salesforce' ? ' and the org' : ''}, and record to the plan only what I agree to, as the brief says.`;
   return {
     cwd: paths.root, sessionId, name, brief,
-    args: ['--permission-mode', 'plan', '--session-id', sessionId, '--name', name, '--allowedTools', 'Read', 'Grep', 'Glob', `Bash(acc plan choose ${id}:*)`, `Bash(acc plan note ${id}:*)`, `Bash(acc analysis answer ${id}:*)`, prompt],
+    args: ['--permission-mode', 'plan', '--session-id', sessionId, '--name', name, '--allowedTools', 'Read', 'Grep', 'Glob', prompt],
     env: { [TALK_SESSION_VAR]: `${id}:${sessionId}` },
   };
 }

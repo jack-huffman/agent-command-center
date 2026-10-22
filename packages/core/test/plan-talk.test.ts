@@ -9,7 +9,7 @@ import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
 import { approvePlan, CHANGE_APPROVED } from '../src/plan-choices.ts';
 import {
-  addTurn, ANSWER_APPROVED, briefPath, claudeBrief, NOTE_APPROVED, notePlan, openInClaude, parseTalkReply, proposalWords, quoteOf, readTalk, recordInSession, TALK_MAX,
+  addTurn, ANSWER_APPROVED, briefPath, claudeBrief, NOTE_APPROVED, notePlan, openInClaude, parseTalkReply, proposalStale, proposalWords, quoteOf, readTalk, recordInSession, TALK_MAX,
   TALK_SCHEMA, TALK_SESSION_VAR, TALK_SYSTEM, talking, talkLines, talkPath, talkPlan, talkPrompt, talkSection, talkSession, useProposal, versionTurn, writeTalk,
 } from '../src/plan-talk.ts';
 import { fakeRunner, GENERIC_CONFIG, makeRepo, SF_CONFIG } from './support.ts';
@@ -171,6 +171,20 @@ test('a new version takes the conversation and the notes, keeps them, and the co
   assert.equal(talkSession(v2, readTalk(paths, id)), 'sess-v2');
 });
 
+test('edge case: a proposal made on an older version is refused by Use this, says why and asks again, and the plan is as it was', () => {
+  const { paths, config, id } = setup();
+  talkPlan(paths, config, id, 'Why not a custom object?', 'd1', { run: claudeSays(reply(SAYS)), now, env: {} }, 'human:me');
+  // v2 numbers its options the other way round, so v1's "Custom object" would land on another option by number.
+  const v1 = readAnalysis(paths, id)!;
+  writeAnalysis(paths, { ...v1, version: 2, decisions: [{ ...v1.decisions![0]!, options: [option('a', 'Custom object'), option('b', 'Field history')] }] });
+  assert.equal(proposalStale(1, 2), 'This was proposed on v1, and the plan is now v2. Ask the planning agent again about v2.');
+  assert.throws(() => useProposal(paths, id, 't2', 'p1', 'human:me', now), (e: Error) => e.message === proposalStale(1, 2));
+  assert.throws(() => useProposal(paths, id, 't2', 'p2', 'human:me', now, true), /proposed on v1/, 'a yes doesn\'t get past it');
+  const after = readAnalysis(paths, id)!;
+  assert.deepEqual([after.decisions![0]!.choice, after.notes], [undefined, undefined], 'nothing was recorded');
+  assert.equal(readTalk(paths, id).turns[1]!.proposals!.some((p) => p.used), false, 'and neither proposal reads as used');
+});
+
 test('nothing is written to the project or the ticket: only the state folder changes', () => {
   const { dir, paths, config, id } = setup();
   const before = readLedger(paths.ledger).tasks[0]!;
@@ -236,7 +250,10 @@ test('Open in Claude Code: plan mode in the main checkout, the brief holds the t
   const launch = openInClaude(paths, config, id, 'human:me', now, () => 'cc-1');
   assert.equal(launch.cwd, paths.root);
   assert.deepEqual(launch.args.slice(0, 6), ['--permission-mode', 'plan', '--session-id', 'cc-1', '--name', 'Tool · ACME-7 Track stage history · plan']);
-  assert.ok(launch.args.includes(`Bash(acc plan choose ${id}:*)`) && launch.args.includes(`Bash(acc plan note ${id}:*)`));
+  // Only reading is allowed in advance: Claude Code asks the person before each command that records to the plan.
+  const allowed = launch.args.slice(launch.args.indexOf('--allowedTools') + 1, -1);
+  assert.deepEqual(allowed, ['Read', 'Grep', 'Glob']);
+  assert.equal(launch.args.filter((x) => /acc (plan|analysis)/.test(x) && x !== launch.args.at(-1)).length, 0, 'no acc command is allowed in advance');
   assert.match(launch.args.at(-1)!, new RegExp(`^Read ${launch.brief.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} first`));
   assert.deepEqual(launch.env, { [TALK_SESSION_VAR]: `${id}:cc-1` });
   const brief = readFileSync(launch.brief, 'utf8');
@@ -248,6 +265,7 @@ test('Open in Claude Code: plan mode in the main checkout, the brief holds the t
   assert.match(brief, /a\) \*\*Field history\*\* \(effort S\) \[recommended\]: Track the field Cons: Costs a field\./);
   assert.match(brief, /## The conversation so far\n\n- The person \(v1\), about choice d1/);
   assert.match(brief, /acc plan note ACME-7/);
+  assert.match(brief, /None of these is allowed in advance: Claude Code asks the person before each one runs/);
   // What the session records lands on its own turn; another session's, or none, records nothing.
   assert.equal(recordInSession(paths, id, `${id}:cc-1`, 'Chose Custom object for Where history is kept'), true);
   assert.equal(recordInSession(paths, id, `${id}:other`, 'x'), false);
