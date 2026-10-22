@@ -5,6 +5,48 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.45.0
+
+- Plain words for someone new (D-188): the app is the Command Center
+  throughout, never "acc". **Add to my work** brings a ticket in (nothing
+  changes on the tracker), **Make a plan** and **Build it** are the two big
+  steps, and **Open pull request** sends reviewed work on. Each main button
+  says what it does and doesn't, and the Tasks tab explains the five steps the
+  first time.
+- Plans you decide (D-192): a plan lays out each real design choice as two or
+  three options, with pros, cons, effort, risks and the files each touches,
+  and names its recommendation. Choose one or write your own. Questions say
+  whether they're for you or the ticket's author, and an author's can be asked
+  on the ticket. Plans keep their versions and say what changed. Where a plan
+  is required, nothing is built until you approve it, and a builder that needs
+  a different choice stops and asks.
+- Talk it through (D-195): discuss a plan with its planning agent on the
+  ticket page. **Discuss** quotes any choice, option, step or risk; the agent
+  answers from the code and the org and changes nothing. It can propose a
+  change, which you take with **Use this**. **Make a new plan** folds in what
+  you agreed. **Open in Claude Code** opens a read-only planning session that
+  asks you before it records anything.
+- What a ticket changed (D-189, D-190): a ticket shows **Planned changes**,
+  then **Changes**, and keeps them after it merges, with Salesforce metadata
+  named by type. Record changes are part of the ticket too: planned, recorded
+  when made (a builder can't finish without recording one), added by hand,
+  and turned into reviewed steps with a script when the work is promoted.
+  Nothing writes records in another org by itself.
+- A Salesforce ticket's package.xml (D-191), built by Salesforce's own tool,
+  checked against the org, compared with the org's latest copies, with the
+  org's changes the branch lacks listed for you to add. Deletions go in their
+  own file, and nothing is deployed.
+- Choose a board by seeing it (D-193, D-194): the Connect page shows boards,
+  teams, epics, sprints and GitHub Projects as cards with ticket counts, and
+  a live preview of the board before **Use this board** keeps it. Tick several
+  Jira epics.
+- Tickets use their tracker's own label and type colours where it gives them
+  (D-187): Azure DevOps tag colours from the board's card rules, and work item
+  and GitHub issue type colours. States keep the Command Center's own look.
+- Each comment on a ticket is its own card, and a fresh window shows each
+  tracker's last board at once while it refreshes, with a quiet skeleton the
+  first time.
+
 ## 0.44.0
 
 - Tickets look considered on every tracker (D-185, D-187). One soft state

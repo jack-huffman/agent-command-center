@@ -1,8 +1,9 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-21**. Version 0.44.0 is
+Where each piece of the build stands, as of **2026-10-22**. Version 0.44.0 is
 the latest release (2026-10-21). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`.
+`.sha256` beside its `.vsix`. Version 0.45.0 is prepared and waits on a person
+to release it.
 
 Every bullet below is one status line, in this form:
 
@@ -121,6 +122,14 @@ where each one's done-when is written out.
   tinted labels and avatars, one ticket page and richer cards.
 - **A builder that never started needs a person, never shows as running**:
   done. Checked 2026-10-21. Evidence: D-186.
+- **Plain words for someone new**: done. Checked 2026-10-22. Evidence: D-188.
+- **Plans a person decides: options, discussion and approval**: done. Checked
+  2026-10-22. Evidence: D-192, D-195. Open in Claude Code hasn't been tried by
+  hand yet in plan mode.
+- **What a ticket changed, records included, and its package.xml**: done.
+  Checked 2026-10-22. Evidence: D-189, D-190, D-191.
+- **Choose a board by seeing it**: done. Checked 2026-10-22. Evidence: D-193,
+  D-194.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
