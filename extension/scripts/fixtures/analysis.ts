@@ -48,6 +48,7 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
           options: [
             { id: 'a', name: 'From now on', means: 'Only leads converted after the deploy get roles.', pros: ['No data change in production'], cons: ['The 3,400 older opportunities stay without roles'], effort: 'S', risks: [], touches: [] },
             { id: 'b', name: 'Backfill too', means: 'A one-off batch adds roles to the opportunities converted before.', pros: ['Every report counts the same way'], cons: ['Its own deploy window', 'A batch class to keep'], effort: 'L', risks: ['Writes to 3,400 records at once'], touches: ['classes/ContactRoleBackfill.cls'] },
+            { id: 'c', name: 'Open deals only', means: 'The batch adds roles only to opportunities still open.', pros: ['About 600 records, not 3,400'], cons: ['Closed deals still differ in reports'], effort: 'M', risks: [], touches: ['classes/ContactRoleBackfill.cls'] },
           ],
         },
       ],
