@@ -8,6 +8,7 @@ import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type 
 import { CARD_TITLES, countValues, placeKey, PREVIEW_CARDS, previewLine } from '../../../packages/core/src/trackers/preview.ts';
 import { type Board, orList } from '../../../packages/core/src/trackers/types.ts';
 import { signInScope } from '../logic/connect.ts';
+import { inProcessWords } from '../logic/processes.ts';
 import { trackerBoard, type TrackerBoard } from './boards.ts';
 import { settingsKey } from './settings.ts';
 import { type HomeSection, type Look, LOOK, type ModelArea, short, VIEW_TITLES } from './shared.ts';
@@ -317,7 +318,8 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     const counts = !!p.counts && !fixed && ok;
     const count = (v: string) => (counts ? cardCount(s.boards[placeKey(countValues(d.pickers, values, p.key, v))], p.key === d.place.key && !!v) : null);
     // Each option once, and a choice the list no longer has (an epic that's done) kept, so Save doesn't drop it.
-    const options = ps.options.map((o) => ({ value: o.value, label: o.label, detail: o.detail ?? null, usedBy: o.usedBy ?? null, count: count(o.value) }));
+    // A detail in a tracker's own words, such as how to give gh access to Projects (T-107), is said as processes (D-132).
+    const options = ps.options.map((o) => ({ value: o.value, label: o.label, detail: o.detail ? inProcessWords(o.detail) : null, usedBy: o.usedBy ?? null, count: count(o.value) }));
     for (const v of ps.selected) if (!options.some((o) => o.value === v)) options.unshift({ value: v, label: v, detail: ps.state === 'ready' && !fixed ? 'chosen before, not listed now' : null, usedBy: null, count: count(v) });
     // A choice another repo here uses already says so under the list, with an icon and words (GH-81).
     const used = options.filter((o) => o.usedBy && ps.selected.includes(o.value));

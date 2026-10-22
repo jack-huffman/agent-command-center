@@ -12,6 +12,7 @@ import type { Board, TrackerClient } from '../../packages/core/src/trackers/type
 import { type ConnectDeps, ConnectSession, READS_AT_ONCE } from '../src/connect.ts';
 import { blankConnect, cardCount, COUNT_MOST, type ConnectMessage, connectModel, type ConnectModel, connectPreview, type ConnectState, connectValues, LISTS_TITLE, SEARCH_FROM, USE_BOARD } from '../src/model/connect.ts';
 import { isFromWebview } from '../src/model/messages.ts';
+import { inProcessWords } from '../src/logic/processes.ts';
 import { GITHUB_PROJECTS, sampleBoard, sampleConnect } from '../scripts/fixtures/connect.ts';
 
 const ROOT = '/Users/me/code/acme-service';
@@ -193,7 +194,8 @@ test('GitHub\'s Project cards (T-107): Issues, open and closed, then each Projec
   // Edge: gh can't read Projects: one card, which says how to give access, and the issues' board.
   const access = sampleConnect('github-access');
   const card = picker(access, 'board').options;
-  assert.deepEqual(card.map((o) => [o.value, o.detail]), [[GITHUB_NO_PROJECT, projectsAccess('jordan-kim')]]);
+  assert.deepEqual(card.map((o) => [o.value, o.detail]), [[GITHUB_NO_PROJECT, inProcessWords(projectsAccess('jordan-kim'))]], 'said as what to do, as the Tasks tab\'s notice is');
+  assert.doesNotMatch(card[0]!.detail ?? '', /gh auth/, 'no command line on the page (D-132)');
   assert.deepEqual([picker(access, 'board').look, access.preview.board?.columns.map((c) => c.name), access.save.can], [null, ['Open', 'Closed'], true]);
   assert.deepEqual(GITHUB_PROJECTS.map((p) => p.number), [5, 3, 2, 1]);
 });

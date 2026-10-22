@@ -404,7 +404,8 @@ test('edge: where gh can\'t read Projects, the issues\' card says how to give it
   const m = h.model();
   const list = picker(m, 'board');
   assert.deepEqual(list.options.map((o) => o.value), ['issues'], 'no Project to offer');
-  assert.match(list.options[0]!.detail ?? '', /^To use your GitHub Project's columns, give jordan-kim access to Projects\. .*gh auth refresh -h github\.com -s project/);
+  assert.match(list.options[0]!.detail ?? '', /^To use your GitHub Project's columns, give jordan-kim access to Projects\. .*switch GitHub's active account to jordan-kim, then give it access to Projects/);
+  assert.doesNotMatch(list.options[0]!.detail ?? '', /gh auth/, 'in processes, as the Tasks tab says it (D-132)');
   assert.deepEqual([list.selected, list.look, m.save.can], [['issues'], null, true], 'no failure to show: the card says it');
 });
 

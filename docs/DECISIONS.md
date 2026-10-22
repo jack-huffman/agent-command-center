@@ -8982,7 +8982,9 @@ Jira tracker and gave GitHub only its labels' cards; this changes both, and the 
   columns are Open and Closed even where the repo has a Project, with no notice, and a task's card isn't
   moved on a Project (GH-146), so GitHub isn't asked. Before this there was no way to say it.
 - **No access.** Where gh can't read Projects, the list is one card, Issues, open and closed, whose detail
-  is `projectsAccess`, the words the Tasks tab's notice already used, now shared. The board can still be
+  is `projectsAccess`, the words the Tasks tab's notice already used, now shared. Like the notice, it goes
+  through `inProcessWords`, so the card says what to do, not a gh command line (D-132): every card's detail
+  on the Connect page now does. The board can still be
   used, and once access is given, the board takes the repo's first Project.
 - **Checked by** `packages/core/test/epics.test.ts` (several epics and an old one in the settings, how
   they're written, the board's query, intake's inside check, the README and place words),
