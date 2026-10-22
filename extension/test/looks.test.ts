@@ -32,6 +32,7 @@ import { CHECK_LOOK, checkLook, REVIEW_LOOK, ticketReview, wordingLook } from '.
 import { CRITERION_LOOK, dockReview, REVIEW_RUN_LOOK } from '../src/model/dock-review.ts';
 import { VERIFY_LOOK } from '../src/model/verify.ts';
 import { CHANGE_LOOK } from '../src/model/changes.ts';
+import { TEAM_LOOK } from '../src/model/team.ts';
 import { RECORD_LOOK } from '../src/model/record-changes.ts';
 import { FIELD_LOOK } from '../src/model/changes-field.ts';
 import { MANIFEST_LOOK, MANIFEST_ROW_LOOK } from '../src/model/manifest.ts';
@@ -179,6 +180,7 @@ export const TABLES: Table[] = [
   // Verify the developer's work (T-84): the section's state, before, during, choosing, off, and its verdict.
   { name: 'a developer\'s pull request, verified', sources: ['extension/src/model/verify.ts#VERIFY_LOOK'], states: () => Object.entries(VERIFY_LOOK) },
   { name: 'a change against the plan, on a task\'s page (T-99)', sources: ['extension/src/model/changes.ts#CHANGE_LOOK'], states: () => Object.entries(CHANGE_LOOK) },
+  { name: 'a task\'s team, on its page: up to date or behind, and sharing files (T-103)', sources: ['extension/src/model/team.ts#TEAM_LOOK'], states: () => Object.entries(TEAM_LOOK) },
   // Record changes (T-100): each change made, planned or not, refused, and a promotion's step to do, done or skipped.
   { name: 'a ticket\'s record change and a promotion\'s step', sources: ['extension/src/model/record-changes.ts#RECORD_LOOK'], states: () => Object.entries(RECORD_LOOK) },
   // A tracker's changes field on a ticket's page (T-105): reading it, failed, empty, the same as found, differing, and the draft.

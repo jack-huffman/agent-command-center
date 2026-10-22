@@ -35,6 +35,7 @@ import { choicesWord, forYou } from '../logic/plan.ts';
 import { WORDS } from '../../webview/plain-words.ts';
 import type { TicketChanges } from './changes.ts';
 import type { TicketRecords } from './record-changes.ts';
+import type { TicketTeam } from './team.ts';
 import type { TicketField } from './changes-field.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
@@ -205,6 +206,8 @@ export interface TicketModel {
   verify: TicketVerify | null;
   /** Its Planned changes, then Changes (T-99), in a section of their own. Null with no task, or nothing to show. */
   changes: TicketChanges | null;
+  /** Its team (T-103), while it's in flight: whether it took in the latest merges, and the tasks it shares files with now. */
+  team?: TicketTeam | null;
   /** Its record changes (T-100), on a Salesforce task: planned, recorded and stepped at promotion. */
   records?: TicketRecords | null;
   /** What the ticket's changes field says (T-105), and the Command Center's draft where it differs. */
@@ -297,6 +300,8 @@ export interface TicketInput {
   verify?: TicketVerify | null;
   /** Its changes section, as model/changes.ts's ticketChanges makes it (T-99). */
   changes?: TicketChanges | null;
+  /** Its team section, as model/team.ts's ticketTeam makes it (T-103). */
+  team?: TicketTeam | null;
   /** Its Manifest for this ticket section, as model/manifest.ts's ticketManifest makes it (T-101). */
   manifest?: TicketManifestSection | null;
   now?: number;
@@ -529,6 +534,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     criteria: i.task ? ticketCriteria({ task: i.task, draft: i.draft ?? null, drafting: !!i.drafting, edits: !!i.trackerEdits, kind: i.trackerKind, unkept: t?.unkept }) : null,
     verify: i.task ? i.verify ?? null : null,
     changes: i.task ? i.changes ?? null : null,
+    team: i.task ? i.team ?? null : null,
     manifest: i.task ? i.manifest ?? null : null,
     trackable: !!t && !i.task, tracking: !!i.tracking, signedInAs: i.signedInAs ?? null,
   };

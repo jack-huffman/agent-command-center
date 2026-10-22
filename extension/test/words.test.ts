@@ -115,6 +115,8 @@ const MARKS: Record<string, Record<string, number>> = {
   'record-changes.ts': { output: 1 },
   // The ticket's changes field (T-105): its text lists changed components and files.
   'changes-field.ts': { files: 1 },
+  // A task's team (T-103): each merge's commit, and the files another task shares.
+  'team.ts': { branch: 1, files: 1 },
   'review.ts': { files: 2, transcript: 2 },
   'rules.ts': { files: 1, transcript: 1, 'agent-text': 1 },
   'run-steps.ts': { output: 1 },
