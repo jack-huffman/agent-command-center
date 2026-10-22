@@ -96,7 +96,8 @@ export function sampleConversationTalk(now: number): ConversationModel {
 
 /**
  * ACME-21's Talk it through, long (T-113): the opening and the talk on v1 fold under "Earlier in this
- * conversation"; the latest exchange shows, its long reply folded with Show more, and its proposals one line each.
+ * conversation"; the latest exchange shows, its long reply folded with Show more, its proposals one line each,
+ * and its question put aside (LONG_STATE).
  */
 export function sampleConversationLong(now: number): ConversationModel {
   const opening = sampleOpening(now, true, 60);
@@ -122,6 +123,7 @@ export function sampleConversationLong(now: number): ConversationModel {
         { id: 'p1', kind: 'note', text: 'Step 2: the handler checks for a Decision Maker without sharing.', why: 'Marketo Sync can\'t see every contact, and would add a second Decision Maker.' },
         { id: 'p2', kind: 'note', text: 'Step 3: add a test with a contact Marketo Sync can\'t see.', why: 'It pins the sharing edge.', used: { by: 'human:jordan', at: at(1) } },
       ],
+      questions: [{ question: 'Check without sharing, or give Marketo Sync View All?', why: 'View All changes an integration user\'s access.', options: ['Check without sharing', 'Give it View All'], own: true }],
     },
   );
   return conversationModel({
@@ -129,6 +131,9 @@ export function sampleConversationLong(now: number): ConversationModel {
     talk: ticketTalk({ task: { id: 'ACME-21', state: 'todo' }, analysis: plan, analyzing: false, talk, running: false, open: [], ref: { project: ROOT, task: 'ACME-21' } }),
   });
 }
+
+/** The long conversation's memory (T-113): its question put aside with Escape, as one line. */
+export const LONG_STATE = (turn: string) => ({ opened: [`askq:${ROOT}#ACME-21:${turn}:away`] });
 
 /** ACME-21's page before its plan, with its conversation's one line and Open conversation, never the turns. */
 export function sampleConversationTicket(now: number): TicketModel {

@@ -38,4 +38,4 @@ person called it information overload, and asked for the agent's questions one a
   model, the message, the extension's side, the card, the folds and the one-line proposal), the browser case
   "questions: …" in `extension/scripts/behaviour.ts` with three mutants (all questions shown at once, an
   answer sent before the last is done, Back losing a pick), and the screenshot pages `conversation-questions`
-  (the card part-way) and `conversation-long` (a long conversation folded).
+  (the card part-way) and `conversation-long` (a long conversation folded, its question put aside).

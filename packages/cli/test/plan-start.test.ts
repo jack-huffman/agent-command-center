@@ -17,7 +17,7 @@ function openRepo() {
   const dir = repoWithConfig(GENERIC_CONFIG);
   assert.equal(acc(dir, ['import'], JSON.stringify([{ source: { kind: 'jira', key: 'ACME-7' }, title: 'Track stage history' }])).code, 0);
   const answer = (structured: unknown) => writeFileSync(join(dir, '.answer.json'), JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-open', total_cost_usd: 0.1, structured_output: structured }));
-  answer({ understood: 'You want two years of stage history.', unsure: ['Closed deals'], questions: ['Closed deals too?'] });
+  answer({ understood: 'You want two years of stage history.', questions: [{ question: 'Closed deals too?', why: 'They double the rows.', options: ['Open only', 'Closed too'], own: false }] });
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
   writeFileSync(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> "${dir}/.claude-args"\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
@@ -35,7 +35,7 @@ test('acc plan start prints what the agent understood and its questions, and acc
   const r = acc(dir, ['plan', 'start', 'acme-7', '--message=Two years, for the report.', '--ticket', ticket], undefined, env);
   assert.equal(r.code, 0, r.err);
   assert.match(r.out, /What do you want to do here, and what are you thinking\?\nYou want two years of stage history\./);
-  assert.match(r.out, /Unsure: Closed deals\n  Closed deals too\?/);
+  assert.match(r.out, /  1\. Closed deals too\?\n     a\) Open only \(suggested\)\n     b\) Closed too/, 'each question with its answers, the suggestion first');
   assert.match(args(dir)[0]!, /^-p --session-id \S+ --name .+--json-schema .+"understood"/);
   assert.match(readFileSync(join(dir, '.claude-prompt'), 'utf8'), /### Kelsey, 2026-10-20\n\nTwo years\./, 'the whole ticket the Command Center read');
   const talk = JSON.parse(readFileSync(join(store, 'ACME-7.talk.json'), 'utf8'));

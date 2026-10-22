@@ -62,7 +62,7 @@ import { sampleFirstSetup, sampleSetup } from './fixtures/setup.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleTalkTicket, TALK_STATE } from './fixtures/talk.ts';
-import { QUESTIONS_STATE, sampleConversation, sampleConversationLong, sampleConversationQuestions, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
+import { LONG_STATE, QUESTIONS_STATE, sampleConversation, sampleConversationLong, sampleConversationQuestions, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
 import { type ChangesSample, sampleChangesTicket } from './fixtures/changes.ts';
 import { RECORDS_FORM_STATE, sampleRecordsTicket } from './fixtures/record-changes.ts';
 import { sampleFieldTicket } from './fixtures/changes-field.ts';
@@ -339,6 +339,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'conversation-talk' ? { ...TALK_STATE, opened: [`talk:${ROOT}#ACME-21:earlier`] }
   // The card part-way through the agent's three questions (T-113): the first answered, the second picked.
   : kind === 'conversation-questions' ? QUESTIONS_STATE
+  // The long conversation's question put aside, as one line with Answer the questions (T-113).
+  : kind === 'conversation-long' ? LONG_STATE(sampleConversationLong(Date.now()).talk!.questions!.turn)
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 /**

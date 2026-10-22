@@ -5,7 +5,7 @@
 // is sent until the last is confirmed or skipped: then every answer goes at once, as the person's next message.
 
 import type { TalkAnswerIn, TicketQuestion, TicketTalk } from '../src/model/talk.ts';
-import { button, el, icon, md } from './dom.ts';
+import { button, el, icon, md, work } from './dom.ts';
 import { memory, remember, state } from './state.ts';
 import { pickByKey, stepProgress, stepRadio, type StepState, stepTag } from './stepper.ts';
 
@@ -222,7 +222,8 @@ export function questionCard(project: string, s: TicketTalk, send: AnswerSend): 
   const group = el('div', 'rp-options', ...picksOf(item).map((id, i) => answerRow(c, at, id, i + 1, id === on)));
   group.setAttribute('role', 'radiogroup');
   group.setAttribute('aria-labelledby', heading.id);
-  const step = el('div', 'rp-step', heading, item.why ? el('p', 'rp-why muted', md(item.why)) : null, group);
+  // The question, its why and its answers are the agent's words: work data, which the words check leaves alone.
+  const step = work(el('div', 'rp-step', heading, item.why ? el('p', 'rp-why muted', md(item.why)) : null, group), 'agent-text');
   step.dataset.step = String(at);
   const off = confirmOff(c, at);
   const backB = button('Back', 'arrow-left', () => back(c), 'rp-back');
