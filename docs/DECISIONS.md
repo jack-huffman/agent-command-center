@@ -8678,7 +8678,8 @@ relevant metadata in the org. It belongs to the `salesforce` profile.
 - **Only a person changes the branch.** `acc manifest retrieve <id>
   <Type:Member>` (Use the org's copy, and Add to this ticket) retrieves one
   component into the ticket's worktree, or a scratch checkout of its branch,
-  and commits the changed source files as the git identity set there. `acc
+  and commits the source files the retrieve changed as the git identity set
+  there; a file left untracked there before the click stays out. `acc
   manifest commit <id>` (Add to the ticket's branch) writes the kept manifest
   to `manifest/tickets/<ticket key>/package.xml`, and
   `destructiveChangesPost.xml` beside it, each written whole, and commits
@@ -8701,7 +8702,7 @@ relevant metadata in the org. It belongs to the `salesforce` profile.
   while its builder works. The process words are "Build the manifest", "See
   the manifest", "Use the org's copy" and "Add the manifest to the ticket's
   branch".
-- Tests: `packages/core/test/manifest.test.ts` has 15, with a real git repo
+- Tests: `packages/core/test/manifest.test.ts` has 16, with a real git repo
   and a fake sf that records every call. `packages/core/test/manifest-sf.test.ts`
   has 3: the pinned fixture project (an object and two fields, a flow, an Apex
   class, an LWC bundle, a layout with a space and encoded characters in its
@@ -8710,7 +8711,7 @@ relevant metadata in the org. It belongs to the `salesforce` profile.
   over it, skipped with its reason where sf isn't on the machine
   (`ACC_REAL_SF=1` turns it on anyway, `0` off). `packages/cli/test/manifest.test.ts`
   has 4, with a fake sf on PATH. `extension/test/manifest.test.ts` has 15. That
-  is 37 tests. The screenshot run adds `ticket-manifest`: ACME-19 with an org
+  is 38 tests. The screenshot run adds `ticket-manifest`: ACME-19 with an org
   copy that differs, an org change to add, and a deletion.
 - Not chosen: deploying with the manifest; comparing with production; and
   naming a changed file that sf maps to no component (sf leaves it out of the

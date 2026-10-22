@@ -23,7 +23,7 @@ import { type SlotOptions, withSlot } from './semaphore.ts';
 import { parseManifest } from './setup.ts';
 import { usesSourceTracking } from './source-tracking.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
-import { plural } from './text.ts';
+import { escapeMarkup, plural } from './text.ts';
 
 /** Where "Add to the ticket's branch" puts a ticket's manifest: manifest/tickets/<ticket key>/. */
 export const TICKET_MANIFESTS = 'manifest/tickets';
@@ -126,7 +126,6 @@ export interface ManifestDeps {
 
 const XML_IN: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: '\'' };
 const unXml = (s: string): string => s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (_, e: string) => (e[0] === '#' ? String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : Number(e.slice(1))) : XML_IN[e.toLowerCase()]!));
-const toXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** A package.xml's types and members in order, as setup's parseManifest reads them, with XML's escapes read. */
 export function manifestTypes(xml: string): ManifestType[] {
@@ -136,7 +135,7 @@ export function manifestTypes(xml: string): ManifestType[] {
 /** A manifest as Salesforce's CLI writes one: types by name, members in order, four spaces a level. */
 export function manifestXml(types: ManifestType[], version: string): string {
   const body = [...types].sort((a, b) => a.name.localeCompare(b.name)).filter((t) => t.members.length).map((t) =>
-    `    <types>\n${t.members.map((m) => `        <members>${toXml(m)}</members>\n`).join('')}        <name>${toXml(t.name)}</name>\n    </types>\n`).join('');
+    `    <types>\n${t.members.map((m) => `        <members>${escapeMarkup(m)}</members>\n`).join('')}        <name>${escapeMarkup(t.name)}</name>\n    </types>\n`).join('');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<Package xmlns="http://soap.sforce.com/2006/04/metadata">\n${body}    <version>${version}</version>\n</Package>\n`;
 }
 
@@ -521,6 +520,11 @@ function branchRefusal(run: Runner, t: Ticket, dir: string): string | null {
   return null;
 }
 
+/** `git status`'s entries in `dir`, untracked files one by one, each as its two status letters, a space and the path. */
+function changedFiles(run: Runner, dir: string): string[] {
+  return git(run, dir, ['status', '--porcelain=v1', '-z', '--untracked-files=all']).stdout.split('\0').filter(Boolean);
+}
+
 /** `fn` in the ticket's worktree, or in a scratch worktree on its branch when it has none, removed after. */
 function onBranch<T>(paths: RepoPaths, run: Runner, t: Ticket, now: () => Date, fn: (dir: string) => T): T {
   const wt = worktreeOf(t);
@@ -559,7 +563,8 @@ export interface BranchCommit {
 /**
  * "Use the org's copy" and "Add to this ticket": retrieves one component from the development org into the
  * ticket's branch, and commits what changed, as the person. Refused while its builder works there, or with
- * changes in its worktree that aren't committed. The kept check drops the component, as it's dealt with.
+ * changes in its worktree that aren't committed. A file left untracked there before the click stays out
+ * of the commit. The kept check drops the component, as it's dealt with.
  */
 export function retrieveIntoBranch(paths: RepoPaths, config: Config, id: string, component: string, deps: ManifestDeps): BranchCommit {
   const c = splitComponent(component);
@@ -569,11 +574,12 @@ export function retrieveIntoBranch(paths: RepoPaths, config: Config, id: string,
   return onBranch(paths, deps.run, t, deps.now, (dir) => {
     const why = branchRefusal(deps.run, t, dir);
     if (why) throw new AccError('refused', why);
+    // A file left untracked before the click isn't the org's copy: it stays out of the commit.
+    const before = new Set(changedFiles(deps.run, dir).filter((e) => e.startsWith('??')).map((e) => e.slice(3)));
     const args = ['project', 'retrieve', 'start', '--metadata', component, '--target-org', t.env.org!, '--ignore-conflicts', '--wait', '30', '--json'];
     const said = sfJson<unknown>(deps.run(...niced('sf', args), { cwd: dir, timeoutMs: 40 * 60_000, env: sfEnv() }));
     if (!said.ok) throw new AccError('sf', `The retrieve of ${component} from ${t.env.org} failed: ${said.message}`);
-    const status = git(deps.run, dir, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
-    const files = under(status.stdout.split('\0').filter(Boolean).map((e) => e.slice(3)), packageDirs(dir));
+    const files = under(changedFiles(deps.run, dir).map((e) => e.slice(3)), packageDirs(dir)).filter((f) => !before.has(f));
     if (!files.length) throw new AccError('no-change', `${t.env.org}'s copy of ${component} is the same as the branch's, so there's nothing to commit.`);
     const message = `${t.key}: Use ${t.env.org}'s copy of ${c.type} ${c.member}`;
     const sha = commitFiles(deps.run, dir, files, message);

@@ -15,6 +15,7 @@ import {
   TICKET_MANIFESTS, ticketManifestDir, ticketPaths,
 } from '../src/manifest.ts';
 import { repoPaths } from '../src/paths.ts';
+import { escapeMarkup, slackEscape } from '../src/text.ts';
 import { gitIn, makeRepo, SF_CONFIG, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-22T10:00:00Z');
@@ -308,6 +309,16 @@ test('edge: Use the org\'s copy is refused while the builder works, with uncommi
   assert.deepEqual(splitComponent('Layout:Account-Account Layout'), { type: 'Layout', member: 'Account-Account Layout' });
 });
 
+test('edge: a source file left untracked in the worktree before Use the org\'s copy stays out of its commit', () => {
+  const { paths, config, wt } = setup();
+  writeFileSync(join(wt, D, 'classes/Scratch.cls'), 'public class Scratch {}\n');
+  const c = retrieveIntoBranch(paths, config, 'ACME-7', 'ApexClass:InvoiceService', { run: fakeSf(ORG, []), now });
+  assert.deepEqual(c.files, [`${D}/classes/InvoiceService.cls`]);
+  assert.doesNotMatch(gitIn(wt, 'show', '--name-only', '--format=', 'HEAD'), /Scratch\.cls/);
+  assert.match(gitIn(wt, 'status', '--porcelain', '--untracked-files=all'), /\?\? .*Scratch\.cls/, 'still there, still untracked');
+  assert.throws(() => retrieveIntoBranch(paths, config, 'ACME-7', 'ApexClass:Old', { run: fakeSf({ ...ORG, copies: {} }, []), now }), /same as the branch's/, 'the untracked file alone is nothing to commit');
+});
+
 test('edge: with no worktree, Use the org\'s copy works in a scratch checkout of the branch, removed after', () => {
   const { dir, paths, config, wt } = setup();
   gitIn(dir, 'worktree', 'remove', '--force', wt);
@@ -349,6 +360,8 @@ test('save as a file writes package.xml whole, and the deletions\' file beside i
 test('a manifest reads back as Salesforce writes it, escapes and all, and the paths come from the branch', () => {
   const xml = manifestXml([{ name: 'Report', members: ['Sales/Q&A <draft>'] }, { name: 'ApexClass', members: ['A', 'B'] }, { name: 'Flow', members: [] }], '62.0');
   assert.match(xml, /<members>Sales\/Q&amp;A &lt;draft&gt;<\/members>/);
+  assert.equal(escapeMarkup('Q&A <draft>'), 'Q&amp;A &lt;draft&gt;', 'the one escape text.ts exports');
+  assert.equal(slackEscape, escapeMarkup);
   assert.ok(xml.indexOf('ApexClass') < xml.indexOf('Report'), 'types by name');
   assert.doesNotMatch(xml, /Flow/, 'edge: a type with no members is left out');
   assert.deepEqual(manifestTypes(xml), [{ name: 'ApexClass', members: ['A', 'B'] }, { name: 'Report', members: ['Sales/Q&A <draft>'] }]);
