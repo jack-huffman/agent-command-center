@@ -79,12 +79,13 @@ test('no overlap, an overlap only in an append-only file, or no analysis: it sta
   assert.ok(!log.held, 'both append to the decision log: that never counts');
   assert.deepEqual(log.shares, []);
   // T-4 has no analysis: its files aren't known, so it never waits, though T-5 is Ready and free, and
-  // nothing in flight is looked at for it.
+  // nothing in flight is looked at for its start. Its packet's team (T-103) reads each worktree once: its
+  // own, and T-1's, T-2's and T-3's.
   const looked = s.looks();
   const unknown = s.go('T-4');
   assert.ok(!unknown.held);
   assert.equal(s.task('T-4').state, 'running');
-  assert.equal(s.looks(), looked, 'no git calls for work in flight');
+  assert.equal(s.looks(), looked + 4, 'no git calls for work in flight but the team\'s, one a worktree');
 });
 
 test('an analysis that names no files: it starts, and nothing in flight is looked at (D-093)', () => {
@@ -94,7 +95,7 @@ test('an analysis that names no files: it starts, and nothing in flight is looke
   const r = s.go('T-2');
   assert.ok(!r.held);
   assert.deepEqual(r.shares, []);
-  assert.equal(s.looks(), looked);
+  assert.equal(s.looks(), looked + 2, 'only its packet\'s team (T-103): its own worktree and T-1\'s');
 });
 
 test('when nothing else is ready, a task that shares files starts anyway, and says what it shares (D-093)', () => {

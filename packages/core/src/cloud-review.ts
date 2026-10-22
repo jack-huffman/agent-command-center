@@ -19,6 +19,7 @@ import { sessionName } from './names.ts';
 import type { RepoPaths } from './paths.ts';
 import { checkVerdict, prepareReview, recordVerdict, reviewPath, reviewPrompt, type Verdict, VERDICT_SCHEMA } from './review.ts';
 import { FETCH_TIMEOUT_MS, fetchBranches } from './fetch.ts';
+import type { Team } from './team.ts';
 
 /** The one file a cloud reviewer commits, and the branch it goes to. */
 export const VERDICT_FILE = 'review.json';
@@ -58,10 +59,10 @@ export function cloudReviewWait(task: Pick<Task, 'state' | 'cloudReview'>, confi
  * of acc, then the reviewer's standing instructions and prompt as review() builds them, with the diff
  * left for the reviewer to read from the base and head commits, and the schema its review.json must fit.
  */
-export function cloudReviewText(p: { task: Task; config: Config; envName: string; envBranch: string; branch: string; sha: string; baseSha: string; packet: string; rules: string | null; checks: string[]; kinds: string[]; plan?: Analysis | null }): string {
+export function cloudReviewText(p: { task: Task; config: Config; envName: string; envBranch: string; branch: string; sha: string; baseSha: string; packet: string; rules: string | null; checks: string[]; kinds: string[]; plan?: Analysis | null; team?: Team | null }): string {
   const { task, branch, sha } = p;
   const verdict = verdictBranch(task.id, sha);
-  const { system, prompt } = reviewPrompt({ task, config: p.config, envName: p.envName, envBranch: p.envBranch, sha, packet: p.packet, diff: '', stat: '', checks: p.checks, rules: p.rules, kinds: p.kinds, plan: p.plan ?? null, cloud: { base: p.baseSha } });
+  const { system, prompt } = reviewPrompt({ task, config: p.config, envName: p.envName, envBranch: p.envBranch, sha, packet: p.packet, diff: '', stat: '', checks: p.checks, rules: p.rules, kinds: p.kinds, plan: p.plan ?? null, cloud: { base: p.baseSha }, team: p.team ?? null });
   return [
     // The guard's records (T-86): the branch to read, the role, and the one branch a reviewer may push.
     `${RECORD_LINE}: ${branch}`,
@@ -143,7 +144,7 @@ export function reviewInCloud(paths: RepoPaths, config: Config, id: string, deps
   }
   // The commit the diff starts from (T-86): where the branch left its base, which the reviewer's clone has once it fetches both.
   const baseSha = run('git', ['merge-base', r.base, sha], { cwd: paths.root }).stdout.trim();
-  const text = cloudReviewText({ task, config, envName: r.env.name, envBranch: r.env.branch, branch, sha, baseSha, packet: r.packet, rules: r.rules, checks: r.checks, kinds: r.kinds, plan: r.plan });
+  const text = cloudReviewText({ task, config, envName: r.env.name, envBranch: r.env.branch, branch, sha, baseSha, packet: r.packet, rules: r.rules, checks: r.checks, kinds: r.kinds, plan: r.plan, team: r.team });
   const fired = fireRoutine(paths, run, config.agents.cloud!.routine!, readCloudToken(run, config.github!.repo, env)!, text, env);
   const at = now().toISOString();
   const cloudReview: CloudReview = { sessionId: fired.sessionId, url: fired.url, firedAt: at, sha, branch: verdictBranch(id, sha), failed: null };

@@ -34,6 +34,9 @@ import { writtenFor } from '../../packages/core/src/field-drafts.ts';
 import type { FieldActions } from './changes-field.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { branchFiles, IN_FLIGHT_STATES, plannedFiles } from '../../packages/core/src/overlap.ts';
+import { repoPaths } from '../../packages/core/src/paths.ts';
+import { type Team, teamOf } from '../../packages/core/src/team.ts';
+import { ticketTeam } from './model/team.ts';
 import type { RecordActions } from './record-changes.ts';
 import { ticketRecords } from './model/record-changes.ts';
 import type { ManifestActions } from './manifest.ts';
@@ -358,6 +361,7 @@ export class TicketPanels implements vscode.Disposable {
       manifest: task && manifest ? ticketManifest({ task, profile: p.config.profile, org: p.config.environments.find((e) => e.branch === task.environment || e.name === task.environment)?.org ?? null, ...manifest }) : null,
       verify: task && this.verify ? ticketVerify({ task, github: p.config.github?.repo ?? null, ...this.verify.state(p.root, task.id), updates: this.hub.updates(p.root).filter((u) => u.task === task.id) }) : null,
       changes: changes ? ticketChanges(changes) : null,
+      team: task ? ticketTeam(task, this.team(p, task)) : null,
     });
     // Its record changes (T-100), Talk it through (T-98) and its tracker's changes field (T-105), each a section of
     // its own: the field once read, with its draft update keeping each line a person wrote there.
@@ -380,6 +384,21 @@ export class TicketPanels implements vscode.Disposable {
     const branch = task.run?.branch;
     const live = branch && IN_FLIGHT_STATES.includes(task.state) ? branchFiles(runSync, p.root, task.environment, branch, task.run?.worktree) : null;
     return { task, profile: p.config.profile, planned: plannedFiles(this.hub.analysis(p.root, task.id), p.root), live };
+  }
+
+  /**
+   * Its team (T-103), read from git and the ledger while it's in flight: the tasks it shares files with now,
+   * and the merges its branch doesn't hold yet, as this clone last fetched them. Null when git can't say.
+   */
+  private team(p: Project, task: Task): Team | null {
+    if (!IN_FLIGHT_STATES.includes(task.state)) return null;
+    const ledger = this.hub.ledger(p.root);
+    if (!ledger) return null;
+    try {
+      return teamOf(repoPaths(p.root, runSync), p.config, ledger, runSync, task.id);
+    } catch {
+      return null;
+    }
   }
 
   /**

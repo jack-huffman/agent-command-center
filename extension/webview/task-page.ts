@@ -7,6 +7,7 @@ import { renderAnalysis } from './analysis.ts';
 import { renderCriteria } from './criteria.ts';
 import { renderVerify } from './verify.ts';
 import { renderChanges } from './changes.ts';
+import { renderTeam } from './team.ts';
 import { renderRecords } from './record-changes.ts';
 import { renderField } from './changes-field.ts';
 import { renderManifest } from './manifest.ts';
@@ -192,6 +193,8 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.verify) main.append(renderVerify(m, m.verify));
   // Its Planned changes, then Changes (T-99), in a section of their own, apart from its plan.
   if (m.changes) main.append(renderChanges(m, m.changes));
+  // Its team (T-103), under what it changes: the tasks it shares files with, and whether it took in the latest merges.
+  if (m.team) main.append(renderTeam(m.team));
   // What the ticket's changes field says (T-105), beside what the Command Center found.
   if (m.field) main.append(renderField(m.field));
   // Its record changes (T-100): what it changes in an org that git never sees.

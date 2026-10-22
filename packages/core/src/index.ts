@@ -86,6 +86,8 @@ export * from './steps.ts';
 export * from './stored-floors.ts';
 export * from './stray-files.ts';
 export * from './sync.ts';
+export * from './take-in.ts';
+export * from './team.ts';
 export * from './template.ts';
 export * from './test-counts.ts';
 export * from './text.ts';

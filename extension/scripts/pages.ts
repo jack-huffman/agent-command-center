@@ -50,6 +50,7 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * tracker's ticket page and board is drawn.
  * Last, ACME-20's Record changes (T-100): planned and recorded ones with a change made by hand; then
  * the task done and promoted to UAT with a step to run, and that with Add a change made by hand half-filled and the step's Skip open.
+ * Then ACME-12's Team (T-103): sharing files with two others in flight and two merges behind dev, then up to date and sharing none.
  */
 export const PAGES = [
   // The Command Center's sections
@@ -153,6 +154,8 @@ export const PAGES = [
   'ticket-plan-changed',
   'ticket-talk',
   'ticket-changes-field',
+  'ticket-team',
+  'ticket-team-alone',
   // Agents, and an agent's own page
   'agents-path',
   'agent',

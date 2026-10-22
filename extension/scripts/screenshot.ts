@@ -65,6 +65,7 @@ import { sampleTalkTicket, TALK_STATE } from './fixtures/talk.ts';
 import { type ChangesSample, sampleChangesTicket } from './fixtures/changes.ts';
 import { RECORDS_FORM_STATE, sampleRecordsTicket } from './fixtures/record-changes.ts';
 import { sampleFieldTicket } from './fixtures/changes-field.ts';
+import { sampleTeamTicket } from './fixtures/team.ts';
 import { sampleManifest } from './fixtures/manifest.ts';
 import { ticketManifest } from '../src/model/manifest.ts';
 import { sampleSheet } from './fixtures/dispatch-sheet.ts';
@@ -185,6 +186,8 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'ticket-records-promoted') return sampleRecordsTicket(now, 'promoted');
   // ACME-12's Jira "Deployment Notes" field (T-105): what a developer wrote there by hand, how it differs, and the draft.
   if (kind === 'ticket-changes-field') return sampleFieldTicket(now);
+  // ACME-12's Team (T-103): sharing files with two others and two merges behind dev, then up to date and sharing none.
+  if (kind === 'ticket-team' || kind === 'ticket-team-alone') return sampleTeamTicket(now, kind === 'ticket-team' ? 'shared' : 'alone');
   // ACME-19's manifest, checked against Acme Dev (T-101): an org copy that differs, an org change to add, and a deletion.
   if (kind === 'ticket-manifest') {
     const t = sampleTicket(now, 'ACME-19');
@@ -355,7 +358,7 @@ export const DEFAULT_HEIGHT = 900;
  * The Connect page with two Jira epics ticked, and GitHub's Project cards, are shot tall enough to show the
  * ticked cards and the access card at 500 px (T-107).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-pages': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, 'overview-since': 1500, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200, 'output-review-open': 2000, 'ticket-verify-pass': 2200, 'ticket-verify-changes': 2400, 'ticket-verify-choice': 1300, 'ticket-planned': 2100, 'ticket-changes': 3000, 'ticket-kept': 2000, 'ticket-records': 2400, 'ticket-records-form': 2800, 'ticket-records-promoted': 2800, 'ticket-manifest': 2600, 'ticket-questions': 3300, 'ticket-plan-approved': 3000, 'ticket-plan-changed': 3300, 'connect-jira-epics': 2000, 'connect-github-board': 1900, 'connect-github-access': 1700, 'ticket-talk': 4600, 'ticket-changes-field': 3600, 'connect-existing': 2600 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-pages': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, 'overview-since': 1500, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200, 'output-review-open': 2000, 'ticket-verify-pass': 2200, 'ticket-verify-changes': 2400, 'ticket-verify-choice': 1300, 'ticket-planned': 2100, 'ticket-changes': 3000, 'ticket-kept': 2000, 'ticket-records': 2400, 'ticket-records-form': 2800, 'ticket-records-promoted': 2800, 'ticket-manifest': 2600, 'ticket-questions': 3300, 'ticket-plan-approved': 3000, 'ticket-plan-changed': 3300, 'connect-jira-epics': 2000, 'connect-github-board': 1900, 'connect-github-access': 1700, 'ticket-talk': 4600, 'ticket-changes-field': 3600, 'connect-existing': 2600, 'ticket-team': 2700, 'ticket-team-alone': 2500 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
