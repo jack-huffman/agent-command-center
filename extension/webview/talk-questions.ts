@@ -206,7 +206,7 @@ export function questionCard(project: string, s: TicketTalk, send: AnswerSend): 
   const n = q.items.length;
   const asked = n === 1 ? 'A question from the planning agent' : `${n} questions from the planning agent`;
   if (has(awayKey(c.b)) && !send.busy) {
-    const again = button('Answer the questions', 'comment-discussion', () => aside(c, false), 'small talk-card-back');
+    const again = button(n === 1 ? 'Answer it' : 'Answer the questions', 'comment-discussion', () => aside(c, false), 'small talk-card-back');
     if (focusNext === 'back') { focusNext = null; queueMicrotask(() => again.focus()); }
     const line = el('div', 'talk-card-aside', icon('question'), el('span', '', asked), again);
     line.setAttribute('role', 'group');
