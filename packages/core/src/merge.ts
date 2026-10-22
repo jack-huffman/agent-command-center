@@ -1,4 +1,5 @@
 import { firstSaid } from './text.ts';
+import { accChangesFor } from './acc-changes.ts';
 import { autoMergeFor, type Config, environmentByBranch } from './config.ts';
 import { keepChanges, mergedPaths } from './changes.ts';
 import { type CheckRead, readChecks } from './checks.ts';
@@ -136,10 +137,10 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   if (!fetchBranches(run, paths.root, [env.branch, branch], { ...deps.env, GIT_TERMINAL_PROMPT: '0' })) throw wait(`Couldn't fetch ${env.branch} and ${branch} from origin.`);
   const git = (...args: string[]) => run('git', args, { cwd: paths.root });
   if (git('merge-base', '--is-ancestor', `refs/remotes/origin/${env.branch}`, head).code !== 0) throw wait(`${env.branch} moved on since ${short(head)}: autopilot merges it in first.`);
-  const changed = git('diff', '--name-only', '--no-renames', `refs/remotes/origin/${env.branch}...${head}`, '--', '.acc');
-  if (changed.code !== 0) throw new AccError('merge', `git couldn't list what pull request #${pr.number} changes: ${firstSaid(changed)}`);
-  const acc = changed.stdout.split('\n').filter(Boolean);
-  // acc's own config, such as whether a repo auto-merges, is a person's to change (a person decided).
+  const acc = accChangesFor(run, paths.root, `refs/remotes/origin/${env.branch}`, head);
+  if (acc === null) throw new AccError('merge', `git couldn't list what pull request #${pr.number} changes under .acc/.`);
+  // acc's own config, such as whether a repo auto-merges, is a person's to change (a person decided);
+  // floors that only rose aren't (T-102).
   if (acc.length) throw new AccError('merge', `It changes .acc/, which a person merges: ${acc.join(', ')}.`);
 
   const ghEnv = { ...deps.env, GH_TOKEN: ghToken(run, gh.account) };

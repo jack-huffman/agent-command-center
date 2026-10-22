@@ -10,6 +10,7 @@ import { renderPacket } from '../src/packet.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { AUTOPILOT_BY, displayState, emptyLedger, type LedgerEvent, mutate, readLedger, reworkCause, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
+import { formatFloors } from '../src/ratchets.ts';
 import { ordinal, phaseWords, queueOrder, queuePlaces, queueWaits } from '../src/queue.ts';
 import { waiveGates } from '../src/gates.ts';
 import { readReceipt, writeReceipt } from '../src/receipts.ts';
@@ -251,6 +252,17 @@ test('what never joins: a protected environment, a change to .acc/, a failed ste
   assert.deepEqual(brief(plain.steps), [['T-1', null, 'skipped']]);
   assert.equal(get(off, 'T-1').autopilot, undefined, 'auto-merge off: nothing is written');
   assert.ok(!calls.some((c) => c.startsWith('git fetch') || c.startsWith('gh pr merge') || c.startsWith('nice')));
+});
+
+test('a change to .acc/ that only raises floors joins the queue; one that relaxes a floor, or changes anything else there, is a person\'s (T-102)', () => {
+  const s = setup();
+  s.task('T-1', { '.acc/floors.json': formatFloors({ tests: { floor: 5 }, 'screenshots.a11y': { floor: 40 } }) });
+  s.task('T-2', { '.acc/floors.json': formatFloors({ tests: { floor: 4, relaxed: { by: 'human:jordan', reason: 'r', at: NOW, was: null } } }) });
+  s.task('T-3', { '.acc/floors.json': formatFloors({ tests: { floor: 6 } }), '.acc/rules.md': 'Be kind.\n' });
+  const r = autopilotPass(s.paths, s.config, { ...deps(s, []), steps: { queue: () => ({ step: 'queue' as const, outcome: 'waiting' as const, reason: 'Waiting for GitHub.' }) } });
+  assert.deepEqual(ledger(s).tasks.map((t) => [t.id, !!t.autopilot?.queued]), [['T-1', true], ['T-2', false], ['T-3', false]]);
+  assert.equal(of(r.steps, 'T-2').reason, 'It changes .acc/, which a person merges: .acc/floors.json.', 'an edge case: a person\'s relax in the file');
+  assert.equal(of(r.steps, 'T-3').reason, 'It changes .acc/, which a person merges: .acc/rules.md.', 'the raised floors are left out of what a person merges');
 });
 
 // ---------------------------------------------------------------- the head's turn
