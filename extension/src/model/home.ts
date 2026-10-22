@@ -14,6 +14,7 @@ import type { AgentModel } from './agent-page.ts';
 import { agentsModel, type AgentsModel, billingLook, sessionFolders, type WhereView } from './agents.ts';
 import type { BoardInput } from './boards.ts';
 import type { ConnectModel } from './connect.ts';
+import type { ConversationModel } from './conversation.ts';
 import { environmentsModel, type EnvironmentsModel, type IdentityCard } from './environments.ts';
 import { historyItems } from './history.ts';
 import { historyPage } from './history-pages.ts';
@@ -185,4 +186,4 @@ export function homeModel(i: HomeInput): HomeModel {
   return { ...page, palette: paletteItems(page) };
 }
 
-export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | SettingsModel | TicketModel | HomeModel | AgentModel;
+export type Model = TasksModel | AgentsModel | WorktreesModel | EnvironmentsModel | SetupModel | SettingsModel | TicketModel | HomeModel | AgentModel | ConversationModel;

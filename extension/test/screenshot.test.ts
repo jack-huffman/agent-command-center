@@ -17,6 +17,8 @@ test('every section of the page, and a ticket, has sample data built by the real
   for (const kind of PAGES) {
     const m = sampleModel(kind);
     if (kind.startsWith('ticket') || kind === 'agent') assert.equal(m.kind, kind.startsWith('ticket') ? 'ticket' : kind);
+    // A plan's conversation in its own panel (T-111).
+    else if (kind.startsWith('conversation')) assert.deepEqual([m.kind, (m as { key: string }).key], ['conversation', 'ACME-21']);
     // The Connect page opens over the section it came from (GH-51): a project started from an epic, over Setup (GH-81).
     else if (kind.startsWith('connect-')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).connect, (m as HomeModel).connect?.back.label], ['home', kind.startsWith('connect-epic') ? 'setup' : 'tasks', true, kind.startsWith('connect-epic') ? 'Back to Setup' : 'Back to Tasks']);
     // The Slack card at each of its states, in Settings (GH-58, GH-113).

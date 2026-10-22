@@ -46,6 +46,8 @@ import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleTalkApproved } from './fixtures/talk.ts';
+import { sampleConversationReady, sampleConversationStart, sampleConversationTicket } from './fixtures/conversation.ts';
+import { conversationModel } from '../src/model/conversation.ts';
 import { sampleChoosing } from './fixtures/connect.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
@@ -224,6 +226,12 @@ export interface BehaviourData {
    */
   talk: { model: Model; ask: string; use: string; sent: Record<string, unknown>; words: string; send: Record<string, unknown> };
   /**
+   * A plan that starts with a conversation (T-111): the question the panel asks first, the words typed and the
+   * message they send, the panel with the agent's reply, the reply's first words and its questions, the message
+   * Draft the plan sends, and ACME-21's page before its plan with the conversation's line.
+   */
+  conversation: { ask: string; words: string; send: Record<string, unknown>; reply: Model; replyText: string; asks: string[]; draft: Record<string, unknown>; ticket: Model; line: string };
+  /**
    * Review plan on ACME-21 (T-109): its title, what Enter on the first step's suggestion sends, what the fourth
    * step's third option sends, the page's model with nothing left for the person, what Approve then sends, and
    * the remembered key that opens The whole plan.
@@ -253,17 +261,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, and the Overview with History of more than two pages. */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, and ACME-21's conversation as Make a plan opens it (T-111). */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -928,7 +936,7 @@ export const CASES: Case[] = [
   },
   {
     name: 'talk: on an approved plan, Use this asks first; Escape sends nothing and focus goes back to Use this, Change it sends it with its yes, and Ctrl+Enter sends a message but Enter alone doesn\'t (T-98)',
-    page: 'ticket-questions',
+    page: 'conversation-start',
     async run(t) {
       const d = t.data.talk;
       await t.post({ type: 'state', model: d.model });
@@ -965,6 +973,55 @@ export const CASES: Case[] = [
       await t.settle();
       const said = t.sent('talk-send');
       t.check('Ctrl+Enter sends the words once', said.length === 1 && JSON.stringify(said[0]) === JSON.stringify(d.send), said);
+    },
+  },
+  {
+    name: 'conversation: Make a plan opens the panel at its question with the cursor in the box; Ctrl+Enter sends a message, the reply shows with its questions, and Draft the plan asks for the plan made with the conversation (T-111)',
+    page: 'conversation-start',
+    async run(t) {
+      const d = t.data.conversation;
+      t.check('it asks its question first', t.find('.talk-ask').textContent?.trim() === d.ask, t.find('.talk-ask').textContent);
+      const box = t.find<HTMLTextAreaElement>('textarea.talk-box');
+      await t.settle();
+      t.check('the cursor is in the box', document.activeElement === box, document.activeElement?.className);
+      const draft = (): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('button').find((x) => x.textContent?.trim() === 'Draft the plan');
+        if (!b) throw new Error('not found: Draft the plan');
+        return b;
+      };
+      t.check('Draft the plan is off until something is said', draft().disabled, draft().title);
+      await t.type(box, d.words);
+      box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+      await t.settle();
+      const said = t.sent('talk-send');
+      t.check('Ctrl+Enter sends the words once', said.length === 1 && JSON.stringify(said[0]) === JSON.stringify(d.send), said);
+      await t.post({ type: 'talk-done', action: 'talk-send', project: d.send.project, task: d.send.task, ok: true });
+      await t.post({ type: 'state', model: d.reply });
+      const agent = t.all('.talk-turn.who-agent');
+      t.check('the agent\'s reply shows', agent.some((x) => x.textContent?.includes(d.replyText) === true), agent.map((x) => x.textContent));
+      const asks = t.all('.talk-asks li').map((x) => x.textContent?.trim());
+      t.check('with its questions, in order', JSON.stringify(asks) === JSON.stringify(d.asks), asks);
+      t.check('and Draft the plan is on', !draft().disabled, draft().title);
+      await t.click(draft());
+      const sent = t.sent('conversation-draft');
+      t.check('Draft the plan asks once for the plan made with the conversation', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.draft), sent);
+    },
+  },
+  {
+    name: 'conversation: the task page shows its conversation as one line with Open conversation, never its turns, and Open conversation asks for the panel (T-111)',
+    page: 'ticket-questions',
+    async run(t) {
+      const d = t.data.conversation;
+      await t.post({ type: 'state', model: d.ticket });
+      const lines = t.all('.convo-line');
+      t.check('one line, with how many messages', lines.length === 1 && lines[0]!.textContent?.includes(d.line) === true, lines.map((x) => x.textContent));
+      t.check('no turn and no message box on the page', t.all('.talk-turn').length === 0 && t.all('textarea.talk-box').length === 0, t.all('.talk-turn').length);
+      const open = t.all<HTMLButtonElement>('button', lines[0]).find((x) => x.textContent?.trim() === 'Open conversation');
+      if (!open) throw new Error('not found: Open conversation');
+      await t.click(open);
+      const sent = t.sent('conversation-open');
+      const page = d.ticket as { project: string; key: string };
+      t.check('Open conversation asks for the panel once', sent.length === 1 && sent[0]!.project === page.project && sent[0]!.task === page.key && sent[0]!.about === undefined, sent);
     },
   },
   {
@@ -1999,8 +2056,10 @@ export const MUTANTS: Mutant[] = [
   { name: 'Use this on an approved plan goes without asking', file: 'talk.ts', find: 'if (p.ask && !yes) {', replace: 'if (false) {', kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Escape in Use this\'s question does nothing', file: 'talk.ts', find: "if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); keep();", replace: "if (e.key !== 'Escape') return;", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Keeping the approval leaves focus where it falls', file: 'talk.ts', find: '); focusUse = key; redraw(); };', replace: '); redraw(); };', kills: [caseNamed('talk: on an approved plan')] },
-  { name: 'Change it in Use this\'s question sends no yes', file: 'talk.ts', find: 'use(m, s, t, p, true); };', replace: 'use(m, s, t, p); };', kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'Change it in Use this\'s question sends no yes', file: 'talk.ts', find: 'use(project, s, t, p, true); };', replace: 'use(project, s, t, p); };', kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Ctrl+Enter in the message box sends nothing', file: 'talk.ts', find: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); }", replace: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); }", kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'The task page draws the conversation\'s turns', file: 'talk.ts', find: "const line = el('div', 'convo-line', icon('comment-discussion'),", replace: "const line = el('div', 'convo-line', ...s.turns.map((x) => turn(project, s, x)), icon('comment-discussion'),", kills: [caseNamed('conversation: the task page shows')] },
+  { name: 'Draft the plan ignores the opening conversation', file: 'talk.ts', find: "api.postMessage({ type: 'conversation-draft', project, task: s.task }), s.draft.disabled", replace: "api.postMessage({ type: 'conversation-draft', project, task: s.task, skip: true }), s.draft.disabled", kills: [caseNamed('conversation: Make a plan opens the panel')] },
   { name: 'Enter alone sends the message', file: 'talk.ts', find: "if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))", replace: "if (e.key === 'Enter')", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];
@@ -2076,6 +2135,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     criteria: { model: sampleTicket(now, 'ACME-19', true, 'drafted'), project: ROOT, error: 'ACME-19\'s ticket can\'t take an update.' },
     plan: planData(now),
     talk: talkData(now),
+    conversation: conversationData(now),
     planReview: planReviewData(models.ticket),
   };
 }
@@ -2099,7 +2159,9 @@ function planReviewData(model: Model): BehaviourData['planReview'] {
 
 /** What Talk it through's case expects (T-98): the agent's first proposal on ACME-21's approved v2, which asks first. */
 function talkData(now: number): BehaviourData['talk'] {
-  const model = sampleTalkApproved(now);
+  const page = sampleTalkApproved(now);
+  // The conversation is drawn in its own panel (T-111).
+  const model = conversationModel({ project: page.project, key: page.key, taskTitle: page.title, talk: page.talk ?? null });
   const turn = model.talk?.turns.find((t) => t.proposals.some((p) => p.use && !p.use.disabled && p.ask));
   const p = turn?.proposals.find((x) => x.use && !x.use.disabled && x.ask);
   if (!turn || !p?.ask) throw new Error('The talk case needs ACME-21\'s approved plan with a proposal Use this asks about first.');
@@ -2108,6 +2170,25 @@ function talkData(now: number): BehaviourData['talk'] {
     model, ask: p.ask, use: `Use this: ${p.words}`, words,
     sent: { type: 'talk-use', project: model.project, task: model.key, turn: turn.id, proposal: p.id, yes: true },
     send: { type: 'talk-send', project: model.project, task: model.key, text: words },
+  };
+}
+
+/**
+ * What the conversation's cases expect (T-111): the panel as Make a plan opens it on ACME-21, a first message and
+ * what it sends, the panel once the agent replied and its questions, Draft the plan's message, and ACME-21's page
+ * before its plan with the conversation's line.
+ */
+function conversationData(now: number): BehaviourData['conversation'] {
+  const start = sampleConversationStart(now);
+  const reply = sampleConversationReady(now);
+  const answer = reply.talk?.turns.find((t) => t.who === 'agent' && t.asks.length);
+  const ticket = sampleConversationTicket(now);
+  if (!start.talk?.ask || !answer || !ticket.talk?.line) throw new Error('The conversation cases need ACME-21 before its plan, with the agent\'s questions and the page\'s line.');
+  const words = 'Reps forget the contact roles. Every conversion, from now on.';
+  return {
+    ask: start.talk.ask, words, reply, replyText: answer.text, asks: answer.asks, ticket, line: ticket.talk.line.words,
+    send: { type: 'talk-send', project: start.project, task: start.key, text: words },
+    draft: { type: 'conversation-draft', project: start.project, task: start.key },
   };
 }
 
@@ -2503,7 +2584,7 @@ const MODEL = ${JSON.stringify(model).replace(/</g, '\\u003c')};
 ${harness(c, data, model)}
 </script>
 </head>
-<body class="vscode-light" data-view="${model.kind === 'ticket' || model.kind === 'agent' ? model.kind : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app">${c.opening ? loadingScreen(model.kind === 'ticket' ? 'ticket' : 'home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : ''}</main><script src="${script}"></script></body></html>
+<body class="vscode-light" data-view="${model.kind === 'ticket' || model.kind === 'agent' || model.kind === 'conversation' ? model.kind : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app">${c.opening ? loadingScreen(model.kind === 'ticket' ? 'ticket' : 'home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : ''}</main><script src="${script}"></script></body></html>
 `;
 }
 

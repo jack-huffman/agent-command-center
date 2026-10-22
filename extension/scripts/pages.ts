@@ -53,6 +53,8 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * Then ACME-12's Team (T-103): sharing files with two others in flight and two merges behind dev, then up to date and sharing none.
  * Then ACME-21's plan in short, and Review plan over it (T-109): a choice with More about this option open, a question
  * for the ticket's author with own words typed, a question already answered, and the approved plan's summary.
+ * Then a plan's conversation in its own panel (T-111): ACME-21's page before its plan with the conversation's one
+ * line, the panel as Make a plan opens it, mid-conversation with a reply on its way, and Talk it through once v2 is made.
  */
 export const PAGES = [
   // The Command Center's sections
@@ -162,6 +164,11 @@ export const PAGES = [
   'ticket-plan-shapes',
   'ticket-plan-behind',
   'ticket-talk',
+  'ticket-conversation',
+  // A plan's conversation in its own panel (T-111): at the start, mid-conversation, and Talk it through
+  'conversation-start',
+  'conversation',
+  'conversation-talk',
   'ticket-changes-field',
   'ticket-team',
   'ticket-team-alone',
@@ -218,5 +225,5 @@ export const STILL: readonly Page[] = ['loading'];
 /** The widths every page is shot at unless --width says. */
 export const WIDTHS = [1000, 620, 500] as const;
 
-/** The kind of tab a page is drawn in: a ticket's, an agent's, or the Command Center's own. */
-export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
+/** The kind of tab a page is drawn in: a ticket's, a plan's conversation (T-111), an agent's, or the Command Center's own. */
+export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind.startsWith('conversation') ? 'conversation' : kind === 'agent' ? kind : 'home');

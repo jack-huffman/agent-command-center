@@ -62,6 +62,7 @@ import { sampleFirstSetup, sampleSetup } from './fixtures/setup.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleTalkTicket, TALK_STATE } from './fixtures/talk.ts';
+import { sampleConversation, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
 import { type ChangesSample, sampleChangesTicket } from './fixtures/changes.ts';
 import { RECORDS_FORM_STATE, sampleRecordsTicket } from './fixtures/record-changes.ts';
 import { sampleFieldTicket } from './fixtures/changes-field.ts';
@@ -199,8 +200,14 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     const t = sampleTicket(now, 'ACME-19');
     return { ...t, manifest: ticketManifest({ task: { id: 'ACME-19', run: { branch: 'task/ACME-19-welcome-email-once' }, state: 'rework', source: { kind: 'jira', key: 'ACME-19', url: null } }, profile: 'salesforce', org: 'Acme Dev', manifest: sampleManifest(now), running: null }) };
   }
-  // ACME-21's conversation with its planning agent (T-98): an option quoted, a reply's proposals, one used, and a Claude Code session.
+  // ACME-21's page once v2 is made from its conversation (T-98): the plan section's one line of it (T-111), never the turns.
   if (kind === 'ticket-talk') return sampleTalkTicket(now, true);
+  // A plan's conversation (T-111): ACME-21's page before its plan, with the line; then the panel at the start of a
+  // plan, mid-conversation with a reply on its way, and Talk it through once v2 is made.
+  if (kind === 'ticket-conversation') return sampleConversationTicket(now);
+  if (kind === 'conversation-start') return sampleConversationStart(now);
+  if (kind === 'conversation') return sampleConversation(now);
+  if (kind === 'conversation-talk') return sampleConversationTalk(now);
   // A ticket's page from each tracker past Jira and Slack (T-91): a GitHub issue, an Azure DevOps backlog item and a monday.com item.
   if (kind === 'ticket-github' || kind === 'ticket-azure' || kind === 'ticket-monday') return sampleTrackerTicket(now, kind.slice('ticket-'.length) as TrackerTicketSample);
   if (kind === 'agent') return sampleAgent(now);
@@ -322,8 +329,10 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'ticket-review-question' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q2', [`${REVIEW}:pick:q2`]: 'mine', 'analysis:/Users/me/code/acme-service#ACME-21:q2': 'Decision Maker, as the pipeline report does today' } }
   : kind === 'ticket-review-answered' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q3' } }
   : kind === 'ticket-review-summary' ? { opened: [`${REVIEW}:open`, `${REVIEW}:skip:q2`], drafts: { [`${REVIEW}:at`]: 'summary' } }
-  // The next message to ACME-21's planning agent (T-98), about an option, quoted, half-written.
-  : kind === 'ticket-talk' ? { ...TALK_STATE, opened: [...['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`), WHOLE_PLAN] }
+  // ACME-21's page with The whole plan open, where Discuss is on each step and risk (T-98).
+  : kind === 'ticket-talk' ? { opened: [...['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`), WHOLE_PLAN] }
+  // The next message to ACME-21's planning agent (T-98), in its panel (T-111), about an option, quoted, half-written.
+  : kind === 'conversation-talk' ? TALK_STATE
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 /**
@@ -379,7 +388,7 @@ export const DEFAULT_HEIGHT = 900;
  * The Connect page with two Jira epics ticked, and GitHub's Project cards, are shot tall enough to show the
  * ticked cards and the access card at 500 px (T-107).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-pages': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, 'overview-since': 1500, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200, 'output-review-open': 2000, 'ticket-verify-pass': 2200, 'ticket-verify-changes': 2400, 'ticket-verify-choice': 1300, 'ticket-planned': 2100, 'ticket-changes': 3000, 'ticket-kept': 2000, 'ticket-records': 2400, 'ticket-records-form': 2800, 'ticket-records-promoted': 2800, 'ticket-manifest': 2600, 'ticket-questions': 3300, 'ticket-plan-approved': 3000, 'ticket-plan-changed': 3300, 'ticket-plan-shapes': 3300, 'ticket-plan-behind': 3300, 'connect-jira-epics': 2000, 'connect-github-board': 1900, 'connect-github-access': 1700, 'ticket-talk': 4600, 'ticket-changes-field': 3600, 'connect-existing': 2600, 'ticket-team': 2700, 'ticket-team-alone': 2500 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-pages': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, 'overview-since': 1500, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200, 'output-review-open': 2000, 'ticket-verify-pass': 2200, 'ticket-verify-changes': 2400, 'ticket-verify-choice': 1300, 'ticket-planned': 2100, 'ticket-changes': 3000, 'ticket-kept': 2000, 'ticket-records': 2400, 'ticket-records-form': 2800, 'ticket-records-promoted': 2800, 'ticket-manifest': 2600, 'ticket-questions': 3300, 'ticket-plan-approved': 3000, 'ticket-plan-changed': 3300, 'ticket-plan-shapes': 3300, 'ticket-plan-behind': 3300, 'connect-jira-epics': 2000, 'connect-github-board': 1900, 'connect-github-access': 1700, 'ticket-talk': 3600, 'conversation-talk': 3400, 'conversation': 1400, 'ticket-changes-field': 3600, 'connect-existing': 2600, 'ticket-team': 2700, 'ticket-team-alone': 2500 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
@@ -616,7 +625,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

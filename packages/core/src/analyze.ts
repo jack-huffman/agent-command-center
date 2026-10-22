@@ -14,7 +14,8 @@ import { rulesText } from './rules.ts';
 import { requirementWording, type WordingFinding } from './ste.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { approvedPlanLines, choiceName, lapse, nextVersion, planProblems } from './plan.ts';
-import { talkSection, versionTurn } from './plan-talk.ts';
+import { openingSection, planningSession } from './plan-opening.ts';
+import { readTalk, talkSection, versionTurn } from './plan-talk.ts';
 import { parseShapes, parseShapeSplit, SHAPE_PROMPT, SHAPE_SCHEMA, type SharedShape, type ShapeSplit } from './shape-first.ts';
 import { shapeTeamLines } from './shape-split.ts';
 import { PLAN_TICKET_PROMPT, type PlanRead, planRead, type PlanTicket, readWords, ticketLines, ticketWithout, writePlanTicket } from './plan-ticket.ts';
@@ -395,6 +396,8 @@ export interface AnalysisInput {
   team?: string[];
   /** The whole ticket (T-110). Not given: the description only. */
   ticket?: PlanTicket;
+  /** What the person said before the plan (T-111): plan-opening.ts's openingSection. */
+  opening?: string[];
 }
 
 export function analysisPrompt(i: AnalysisInput): { system: string; prompt: string } {
@@ -427,6 +430,8 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
     '',
     // The description, every comment oldest first, related tickets, attachments' names and the changes field (T-110).
     ...ticketLines(i.ticket ?? ticketWithout(i.task)),
+    // What the person said before the plan, which grounds it (T-111).
+    ...(i.opening ?? []),
     ...(sf && i.orgs.length ? ['## The orgs you may read', '', ...i.orgs.map((o) => `- \`${o.alias}\`: ${o.name} (${o.type})`), ''] : []),
     ...(i.previous?.questions.some((q) => q.answer) ? [
       '## What a person already answered',
@@ -602,7 +607,7 @@ export const analystEnv = (config: Config, env: NodeJS.ProcessEnv, id: string): 
  * Makes a plan. `opts.ticket` is the whole ticket, as the Command Center read it (T-110), or a function that reads
  * it from the task, as `acc analyze --ticket` parses its file; without it, the plan reads the description only.
  */
-export function analyze(paths: RepoPaths, config: Config, id: string, deps: AnalyzeDeps, opts: { actor?: Actor; by?: string; ticket?: (task: Task) => PlanTicket } = {}): Analysis {
+export function analyze(paths: RepoPaths, config: Config, id: string, deps: AnalyzeDeps, opts: { actor?: Actor; by?: string; ticket?: (task: Task) => PlanTicket; skipOpening?: boolean } = {}): Analysis {
   const { run, now } = deps;
   const steps = deps.steps ?? NO_STEPS;
   const { task, env } = steps.step('task', 'Check the task', () => {
@@ -621,13 +626,18 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const orgs = sf ? config.environments.filter((e) => e.org).map((e) => ({ alias: e.org!, name: e.name, type: e.type })) : [];
   const previous = readAnalysis(paths, id);
   const ticket = opts.ticket ? opts.ticket(task) : ticketWithout(task);
-  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: rulesText(paths.root, config.profile), previous, talk: talkSection(paths, id, previous), team: shapeTeamLines(paths, config, readLedger(paths.ledger), run, id), ticket });
+  // With an opening conversation (T-111), the plan resumes its session and holds what was said; Skip to the plan doesn't.
+  const talked = readTalk(paths, id);
+  const resume = opts.skipOpening ? null : planningSession(talked, previous);
+  const opening = opts.skipOpening ? [] : openingSection(talked);
+  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: rulesText(paths.root, config.profile), previous, talk: talkSection(paths, id, previous), team: shapeTeamLines(paths, config, readLedger(paths.ledger), run, id), ticket, opening });
 
-  const cwd = analystDir(paths, config, id);
+  // Claude Code keeps a session under the folder it ran in, so a resumed one runs from the same folder.
+  const cwd = analystDir(paths, config, id, !!resume);
   const read = ticket.full ? `the ticket and ${ticket.comments.length} comment${ticket.comments.length === 1 ? '' : 's'}` : 'the description';
   steps.done('gather', orgs.length ? `${read}, the code and ${orgs.length} org(s)` : `${read} and the code`);
 
-  const sessionId = (deps.uuid ?? randomUUID)();
+  const sessionId = resume ?? (deps.uuid ?? randomUUID)();
   const name = sessionName({ project: config.project, key: id, title: task.title, role: 'analysis' });
   mkdirSync(paths.analyses, { recursive: true });
   const marker = runningPath(paths, id);
@@ -640,7 +650,7 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   let out: RunResult;
   try {
     out = run('claude', [
-      '-p', '--session-id', sessionId, '--name', name, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+      '-p', ...(resume ? ['--resume', resume] : ['--session-id', sessionId, '--name', name]), '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
       '--output-format', 'json', '--json-schema', JSON.stringify(ANALYSIS_SCHEMA), '--append-system-prompt', system,
       ...analystFlags(paths, config, cwd, deps.accCommand),
     ], { cwd, input: prompt, env: analystEnv(config, deps.env, id), timeoutMs: 45 * 60_000 });
@@ -667,8 +677,9 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   writeAnalysis(paths, analysis);
   // The ticket it read, beside it, so Open in Claude Code reads the same comments (T-110, D-195).
   writePlanTicket(paths, id, ticket);
-  // A version made after a talk about the plan says so in the conversation, with what changed (T-98).
-  versionTurn(paths, analysis, name);
+  // A version made after a talk about the plan says so in the conversation, with what changed (T-98); one that
+  // skipped the opening conversation wasn't made from it (T-111).
+  if (!opts.skipOpening) versionTurn(paths, analysis, name);
   mutate(paths, now, (_l, emit) => {
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? `analyst:${id}`, data: { analyzed: { verdict: analysis.verdict, questions: analysis.questions.length, version: analysis.version, decisions: analysis.decisions?.length ?? 0 } } });
   });

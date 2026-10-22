@@ -88,6 +88,8 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['plan', 'plan choose'], name: 'Make a choice in the plan' },
   { acc: ['plan approve'], name: 'Approve this plan' },
   { acc: ['plan split'], name: 'Split into these tasks' },
+  // A plan that starts with a conversation (T-111).
+  { acc: ['plan start'], name: 'Start the plan with a conversation', named: 'Start {arg}\'s plan with a conversation' },
   // Talking a plan through with its planning agent (T-98).
   { acc: ['plan talk'], name: 'Talk it through', named: 'Talk {arg}\'s plan through' },
   { acc: ['plan use'], name: 'Use what the planning agent proposed' },

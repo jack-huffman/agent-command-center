@@ -5,7 +5,10 @@
  * logic/, no `vscode` import, so it can be tested with node:test.
  */
 import type { RepoPaths } from '../../../packages/core/src/paths.ts';
+import { readAnalysis } from '../../../packages/core/src/analyze.ts';
+import { openingSession } from '../../../packages/core/src/plan-opening.ts';
 import { type ClaudeLaunch, type PlanTalk, readTalk, talking } from '../../../packages/core/src/plan-talk.ts';
+import { startArgs } from './conversation.ts';
 import { accRefusal } from './connect.ts';
 import { inProcessWords } from './processes.ts';
 
@@ -19,6 +22,11 @@ export interface TalkHost {
   acc(args: string[], cwd: string, label?: string): Promise<Result>;
   /** Opens Claude Code as acc said, and calls `ended` once that session's terminal closes. */
   launch(task: string, l: ClaudeLaunch, ended: () => void): void;
+  /**
+   * The whole ticket's file for the first message before a plan (T-110, T-111), and `remove` once acc ends. A file
+   * that can't be written is null, and the host tells the person why; acc reads the description. Absent: the description only.
+   */
+  ticket?(root: string, id: string): Promise<{ file: string | null; remove: () => void }>;
 }
 
 /** How a button went: done, or why not. */
@@ -77,16 +85,27 @@ export class Talks {
     }
   }
 
-  /** A person's message: one at a time for a task, in the output panel; the page redraws as it starts and ends. */
+  /**
+   * A person's message: one at a time for a task, in the output panel; the page redraws as it starts and ends.
+   * Before there is a plan it starts one (T-111): the first such message hands acc the whole ticket, read while
+   * the conversation shows the agent working; a later one resumes the session, which holds it already.
+   */
   async send(root: string, raw: string, text: string, about?: string): Promise<TalkReply> {
     const id = raw.toUpperCase();
     const key = `${root}#${id}`;
     if (this.busy.has(key)) return { ok: false, error: 'Wait for the planning agent\'s reply.' };
     this.busy.add(key);
     this.changed(root, id);
+    let remove = () => {};
     try {
-      return (await this.ask(root, talkArgs(id, text, about), `Talk ${id}'s plan through`)).reply;
+      const paths = this.host.paths(root);
+      if (!paths || readAnalysis(paths, id)) return (await this.ask(root, talkArgs(id, text, about), `Talk ${id}'s plan through`)).reply;
+      const first = !openingSession(readTalk(paths, id));
+      const read = first && this.host.ticket ? await this.host.ticket(root, id) : null;
+      if (read) remove = read.remove;
+      return (await this.ask(root, startArgs(id, text, read?.file ?? null), `Start ${id}'s plan with a conversation`)).reply;
     } finally {
+      remove();
       this.busy.delete(key);
       this.changed(root, id);
     }

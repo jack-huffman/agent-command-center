@@ -28,8 +28,8 @@ export type TicketSample = 'ACME-12' | 'ACME-19' | 'ACME-20' | 'ACME-21' | 'ACME
 /** A Jira ticket with everything a description can hold, and the acc task working on it. With edits, ACME-19's tracker allows edits (T-80). */
 /** criteria: ACME-19 with its drafted acceptance criteria (T-81), and with the draft opened as an update. */
 /** verify: ACME-21 with a developer's pull request verified, passed or needing changes, or two to choose from (T-84). */
-/** plan: ACME-21 with its plan approved, or changed since its approval (T-97), or behind its ticket's comments (T-110). */
-export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false, criteria: 'drafted' | 'update' | null = null, verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | 'behind' | null = null): TicketModel {
+/** plan: ACME-21 with its plan approved, or changed since its approval (T-97), behind its ticket's comments (T-110), or none yet (T-111). */
+export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false, criteria: 'drafted' | 'update' | null = null, verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | 'behind' | 'none' | null = null): TicketModel {
   if (which === 'ACME-29') return sampleStoppedTicket(now);
   if (which === 'ACME-44') return sampleCloudTicket(now);
   if (which === 'ACME-50') return sampleNoFieldsTicket(now);
@@ -324,11 +324,12 @@ function sampleWaitingTicket(now: number): TicketModel {
 }
 
 /** A task to do, tracked from Jira, with its analysis on its page (D-052): questions to answer, or a split. */
-function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | 'behind' | null = null): TicketModel {
+function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | 'behind' | 'none' | null = null): TicketModel {
   // A later version of ACME-21's plan (T-97): its row reads that version, as the hub's would.
-  const later = plan && plan !== 'behind' ? samplePlan(now, plan) : null;
+  const later = plan && plan !== 'behind' && plan !== 'none' ? samplePlan(now, plan) : null;
   const hubRow = sampleHub(now).taskRows(ROOT).find((r) => r.id === key)!;
-  const row = later ? { ...hubRow, analysis: rowAnalysis(later), display: plan === 'approved' || plan === 'shapes' ? 'ready' as const : hubRow.display } : hubRow;
+  // None (T-111): no plan yet, as before its conversation drafts one.
+  const row = later ? { ...hubRow, analysis: rowAnalysis(later), display: plan === 'approved' || plan === 'shapes' ? 'ready' as const : hubRow.display } : plan === 'none' ? { ...hubRow, analysis: null } : hubRow;
   const bug = key === 'ACME-21';
   const ticket: Ticket = {
     key, kind: 'jira', url: `https://acme.atlassian.net/browse/${key}`, title: row.title, type: bug ? 'Bug' : 'Epic', typeKind: bug ? 'bug' : 'epic', typeColor: null,
@@ -351,7 +352,7 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: Verif
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key, ticket, loading: false, error: null, connect: null, row, task, signedInAs: 'jordan@acme.example',
     // A ticket a developer built is verified with no analysis of acc's (T-84).
-    analysis: verify ? null : later ?? sampleAnalyses(now)[key], trackerEdits: false, updates, boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
+    analysis: verify || plan === 'none' ? null : later ?? sampleAnalyses(now)[key], trackerEdits: false, updates, boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
     verify: verify ? ticketVerify({ task, github: 'acme/acme-service', verification, choice: verify === 'choice' ? sampleChoice(now) : null, verifying: false, updates }) : null,
   });
 }

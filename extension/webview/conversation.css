@@ -1,0 +1,19 @@
+/* A plan's conversation in its own panel (T-111): its title and task at the head, then the conversation, at a width that reads well. */
+body[data-view="conversation"] { padding-top: 14px; }
+body[data-view="conversation"] #app { max-width: 820px; margin: 0 auto; }
+.convo-head { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.convo-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 1.25em; overflow-wrap: anywhere; }
+.convo-title > .codicon { flex: none; color: var(--accent); }
+.convo-task { margin: 4px 0 0; overflow-wrap: anywhere; }
+body[data-view="conversation"] .talk { margin-top: 0; }
+/* Before there is a plan: the question it asks first, large enough to read as the start. */
+.talk-ask { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 2px; font-size: 1.1em; overflow-wrap: anywhere; }
+.talk-ask > .codicon { flex: none; margin-top: 3px; color: var(--accent); }
+/* The agent's answer before the plan: what it isn't sure of, and its questions, under its words. */
+.talk-unsure, .talk-asks { margin-top: 6px; }
+.talk-asks .an-list { margin-top: 2px; }
+/* The task page's one line of it: what was said, when, and Open conversation. */
+.convo-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 10px 0 2px; padding-top: 8px; border-top: 1px solid var(--line); }
+.convo-line > .codicon { flex: none; color: var(--accent); }
+.convo-words { font-weight: 600; min-width: 0; }
+.convo-line > .btn { margin-left: auto; }

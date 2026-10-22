@@ -195,6 +195,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'plan.ts', at: /'Approve this plan'/, why: 'Approve this plan, once it can be: the build waits on the person\'s approval (T-97).' },
   { file: 'plan.ts', at: /button\(a\.label, a\.icon/, why: 'Build it, primary only when the model says it can be built and no approval is asked for (T-97).' },
   { file: 'talk.ts', at: /button\(busy \? 'Sending…' : 'Send'/, why: 'Send (T-98): the message the person typed to the planning agent, which waits on it.' },
+  { file: 'talk.ts', at: /button\('Draft the plan'/, why: 'Draft the plan (T-111): the step the opening conversation leads to, primary once something is said; Send is outlined then, so only one is primary.' },
   { file: 'talk.ts', at: /button\('Change it'/, why: 'Change it, in the dialog Use this opens on an approved plan (T-98): the change the person asked for, which waits on their yes. Keep the approval beside it has focus.' },
   { file: 'plan.ts', at: /button\('Change it'/, why: 'Change it, in the dialog a change to an approved plan\'s choice opens (T-97): the change the person asked for, which waits on their yes. Keep the approval beside it has focus.' },
   { file: 'task-actions.ts', at: /\$\{primary \? ' primary'/, why: 'A task\'s next step, on its page and its card, such as a card\'s Answer: primary only where the model\'s action is (D-168).' },
