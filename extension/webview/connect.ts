@@ -4,6 +4,7 @@ import type { Look } from '../src/model/shared.ts';
 import type { ConnectField, ConnectModel, ConnectPicker } from '../src/model/connect.ts';
 import { button, type Child, el, icon, keptInput, segmented, status } from './dom.ts';
 import { api, go, type PageArea, state } from './state.ts';
+import { pickerCards, previewPanel } from './choose-board.ts';
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
 
@@ -42,9 +43,6 @@ function connectInput(m: ConnectModel, f: ConnectField, onEnter: () => void): HT
   return connectRow(id, f.label, [el('div', 'cfield-input', input, help)], f.hint, errorLook(f.error));
 }
 
-/** A choice another repo on this machine uses already (GH-81): an icon and its words, never colour alone. */
-const usedMark = (words: string): HTMLElement => el('span', 'used-by tone-orange', icon('warning', 'orange'), el('span', '', words));
-
 function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
   const id = `connect-${p.key}`;
   const text = (o: { label: string; detail: string | null }) => (o.detail ? `${o.label} · ${o.detail}` : o.label);
@@ -53,44 +51,10 @@ function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
     const o = p.options.find((x) => x.value === p.selected[0]);
     return connectRow(id, p.label, [el('span', 'cfield-fixed', icon('lock'), o ? text(o) : p.selected[0] ?? '')], 'Another one is another tracker: connect it on its own.', null);
   }
-  if (p.multi) {
-    const ticks = el('div', 'ticks');
-    ticks.id = id;
-    ticks.setAttribute('role', 'group');
-    ticks.setAttribute('aria-label', p.label);
-    for (const o of p.options) {
-      const box = document.createElement('input');
-      box.type = 'checkbox';
-      box.checked = p.selected.includes(o.value);
-      box.disabled = p.disabled;
-      box.value = o.value;
-      box.dataset.keep = `connect:${m.id}:${p.key}:${o.value}`;
-      box.addEventListener('change', () => connectSend(m, { type: 'connect-pick', key: p.key, value: [...ticks.querySelectorAll<HTMLInputElement>('input:checked')].map((b) => b.value) }));
-      ticks.append(el('label', `tick${box.checked ? ' on' : ''}`, box, text(o), o.usedBy ? usedMark(o.usedBy) : null));
-    }
-    const none = p.whole ? el('div', 'muted small', icon(p.selected.length ? 'filter' : 'project'), p.selected.length ? ` Only issues with ${p.selected.length === 1 ? 'this label' : 'one of these labels'}.` : ` None ticked: ${p.whole}.`) : null;
-    return connectRow(id, p.label, [p.options.length ? ticks : null, none, used], p.hint, p.look);
-  }
-  const select = document.createElement('select');
-  select.id = id;
-  select.className = 'select-input';
-  select.disabled = p.disabled;
-  select.dataset.keep = `connect:${m.id}:${p.key}`;
-  const add = (value: string, label: string, disabled = false) => {
-    const o = document.createElement('option');
-    o.value = value;
-    o.textContent = label;
-    o.disabled = disabled;
-    select.append(o);
-  };
-  const label = p.label.toLowerCase();
-  if (p.whole) add('', p.whole);
-  else if (!p.selected.length) add('', p.look?.icon === 'sync~spin' ? 'Loading…' : p.disabled ? '' : `Choose ${/^[aeiou]/.test(label) ? 'an' : 'a'} ${label}…`, true);
-  // A list's own words carry the mark: an option can't hold an icon, so the one chosen shows it below.
-  for (const o of p.options) add(o.value, o.usedBy ? `${text(o)} · ${o.usedBy}` : text(o));
-  select.value = p.selected[0] ?? '';
-  select.addEventListener('change', () => connectSend(m, { type: 'connect-pick', key: p.key, value: select.value || null }));
-  return connectRow(id, p.label, [select, used], p.hint, p.look);
+  // Each choice a card (T-106), ticked when it's chosen: the label points at the first one.
+  const row = connectRow(id, p.label, [...pickerCards(m, p), used], p.hint, p.look);
+  row.querySelector('label.cfield-label')?.removeAttribute('for');
+  return row;
 }
 
 /** The tick that keeps the sign-in for every project on its site, or this one only (GH-79). Sent when it changes. */
@@ -128,6 +92,8 @@ export function renderConnect(m: ConnectModel): Node[] {
   const out: Node[] = [el('header', 'page-header', el('div', 'titles', el('h1', '', icon(m.icon), m.title), el('p', 'summary', m.summary)), el('div', 'toolbar', back))];
   if (m.projects.length) out.push(el('div', 'connect-choose', el('span', 'muted', 'Project'), segmented('Project', m.projects.map((p) => ({ key: p.root, label: p.name, icon: 'repo', on: p.on })), (root) => connectSend(m, { type: 'connect-project', root }))));
   if (m.kinds.length) out.push(el('div', 'connect-choose', el('span', 'muted', 'Tracker'), segmented('Tracker', m.kinds.map((k) => ({ key: k.kind, label: k.name, icon: k.icon, on: k.on })), (kind) => connectSend(m, { type: 'connect-kind', kind }))));
+  // What's above the steps: the header, and the project and tracker to choose.
+  const head = out.length;
   const step = (n: number, title: string, ...rows: Child[]) => el('section', 'connect-step', el('h2', '', el('span', 'step-n', String(n)), title), ...rows);
   out.push(step(1, `Where it is`, connectInput(m, m.host, test)));
   const testButton = button(m.method.test, 'plug', test, m.signIn.look.tone === 'blue' && m.signIn.look.icon === 'pass' ? '' : 'primary');
@@ -143,11 +109,13 @@ export function renderConnect(m: ConnectModel): Node[] {
   out.push(step(2, 'Sign in', ...signIn));
   // Until it's signed in there's nothing to list: say so, rather than show empty lists that look ready.
   const waiting = m.signIn.editing && m.pickers.some((p) => !p.fixed) ? el('p', 'muted small connect-hint', icon('lock'), ' Sign in above, and its lists fill in here.') : null;
-  out.push(step(3, m.listsTitle, waiting, ...m.pickers.filter((p) => !p.hidden).map((p) => connectPicker(m, p))));
+  const steps = [...out.splice(head), step(3, m.listsTitle, waiting, ...m.pickers.filter((p) => !p.hidden).map((p) => connectPicker(m, p)))];
   const save = button(m.save.label, 'check', () => connectSend(m, { type: 'connect-save' }), 'primary');
   save.disabled = !m.save.can;
   if (m.save.why) save.title = m.save.why.label;
-  out.push(el('div', 'connect-foot', save, button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost'), (m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null));
+  const foot = el('div', 'connect-foot', save, button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost'), (m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null);
+  // The steps, and the board they'd make beside them (T-106): Use this board is in its foot, so it's seen first.
+  out.push(el('div', 'connect-body', el('div', 'connect-steps', ...steps), previewPanel(m, foot)));
   return [el('div', 'connect', ...out)];
 }
 

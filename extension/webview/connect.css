@@ -2,7 +2,7 @@
 
 /* One tracker's site, sign-in, place and board. A label beside each field, and what's wrong with it right
    under it: orange with a warning icon and words, never colour alone. Labels go above below 620 px. */
-.connect { max-width: 820px; }
+.connect { max-width: 1180px; }
 .connect h1 { display: flex; align-items: center; gap: 8px; }
 .connect h1 .codicon { font-size: 20px; }
 .connect-choose { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }

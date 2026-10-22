@@ -1,0 +1,59 @@
+/* ---------------------------------------------------------------- choosing a board by seeing it (T-106) */
+
+/* The steps, and the board they'd make beside them; below them at 620 px and under. */
+.connect-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); gap: 14px; align-items: start; }
+.connect-steps { min-width: 0; }
+/* Beside the preview the steps are narrow: each label goes above its field and cards, which take the width. */
+.connect-steps .cfield { grid-template-columns: minmax(0, 1fr); }
+.connect-steps .cfield-label { padding-top: 0; }
+.connect-steps .connect-share { margin-left: 0; }
+
+/* Each choice a card: a tick when chosen (an icon, never colour alone), its name, details and count. */
+.ccards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; min-width: 0; }
+.ccard { position: relative; display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--vscode-editor-background); cursor: pointer; min-width: 0; }
+.ccard:hover { border-color: var(--accent); }
+.ccard.on { border-color: var(--accent); background: var(--accent-soft); }
+.ccard:focus-within { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.ccard > .codicon { flex: none; margin-top: 2px; }
+.ccard-input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.ccard-input:disabled + .codicon { opacity: 0.45; }
+.ccard-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.ccard-name { font-weight: 600; }
+.ccard-detail, .ccard-count { color: var(--vscode-descriptionForeground); font-size: 0.92em; }
+.ccard-count { display: inline-flex; align-items: flex-start; gap: 4px; }
+.ccard-count .codicon { flex: none; margin-top: 2px; font-size: 13px; }
+.ccard-count.tone-orange { color: var(--orange); }
+.ccard-titles { margin: 2px 0 0; padding-left: 16px; font-size: 0.9em; color: var(--vscode-descriptionForeground); }
+.ccard-titles li { margin: 1px 0; }
+.ccard .used-by { display: inline-flex; align-items: flex-start; gap: 3px; font-size: 0.9em; }
+.ccard .used-by .codicon { flex: none; margin-top: 2px; font-size: 13px; }
+.ccard[hidden] { display: none; }
+
+/* A count still being read: a quiet bar where its number will be. */
+.ccard-skeleton { display: inline-block; flex: none; width: 28px; height: 0.8em; margin-top: 3px; border-radius: 3px; background: var(--line); }
+.ccards-search { width: 100%; max-width: 320px; }
+.ccards-none { display: flex; align-items: center; gap: 4px; margin: 0; }
+.ccards-none[hidden] { display: none; }
+
+/* The preview: the board's line, then its columns stacked, each with its first cards as the Tasks tab draws them. */
+.connect-preview { padding-bottom: 12px; min-width: 0; }
+.connect-preview h2 { display: flex; align-items: center; gap: 6px; }
+.connect-preview > .status { white-space: normal; margin: 0 0 8px; }
+.cpreview-title { margin: 0 0 8px; overflow-wrap: anywhere; }
+.cpreview-cols { display: flex; flex-direction: column; gap: 10px; margin: 0 0 10px; }
+.cpreview-col { display: flex; flex-direction: column; gap: 6px; padding-left: 8px; border-left: 3px solid var(--line); min-width: 0; }
+.cpreview-col.tone-edge-orange { border-left-color: var(--orange); }
+.cpreview-col.tone-edge-blue { border-left-color: var(--blue); }
+.cpreview-head { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 1em; }
+.cpreview-head .count { color: var(--vscode-descriptionForeground); }
+.cpreview-col .tcard { cursor: default; margin: 0; }
+.cpreview-more { margin: 0; }
+.cpreview-skel { display: block; width: 100%; height: 44px; margin: 0; }
+.cpreview-empty { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 10px; }
+.cpreview-empty .codicon { flex: none; margin-top: 2px; }
+.connect-preview .connect-foot { margin-top: 10px; }
+
+@media (max-width: 620px) {
+  .connect-body { grid-template-columns: minmax(0, 1fr); }
+  .ccards { grid-template-columns: minmax(0, 1fr); }
+}

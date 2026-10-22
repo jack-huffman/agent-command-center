@@ -8,7 +8,7 @@ import { replaceTracker, type Tracker, trackerForKey, withTracker } from '../../
 import type { RepoInUse } from '../../packages/core/src/repos.ts';
 import { DESCRIPTIONS, type TrackerDescription } from '../../packages/core/src/trackers/connect.ts';
 import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
-import type { Exec } from '../../packages/core/src/trackers/types.ts';
+import type { Board, Exec } from '../../packages/core/src/trackers/types.ts';
 import { type ConnectDeps, type ConnectProject, ConnectSession, type StartProject } from '../src/connect.ts';
 import { credInUse, credKey, credWrites, type CredWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic/connect.ts';
 import { blankConnect, type ConnectMessage, connectModel, type ConnectModel } from '../src/model/connect.ts';
@@ -22,6 +22,8 @@ const TOKEN = 'secret-token-0123456789';
 const ACME: ConnectProject & { ledgerPath: string } = { name: 'Acme Service', root: ROOT, config: { github: { repo: 'acme/service', account: 'jordan-kim' } }, ledgerPath: `${ROOT}/.git/acc/ledger.json` };
 const b64 = (s: string) => Buffer.from(s).toString('base64');
 const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
+/** The board every place reads as here (T-106), so Save, which waits for the preview, can go. */
+const BOARD: Board = { source: 'jira-board', title: 'ACME board', url: null, notice: null, place: 'Jira · ACME', columns: [{ id: 'c1', name: 'To Do', category: 'todo', statusIds: ['1'] }], cards: [] };
 
 const full = (t: Record<string, unknown>): Tracker => ({
   kind: t.kind as Tracker['kind'], site: (t.site as string) ?? null, project: (t.project as string) ?? null, repo: (t.repo as string) ?? null, organization: (t.organization as string) ?? null,
@@ -72,7 +74,7 @@ const BILLING: typeof ACME = { name: 'Acme Billing', root: BILLING_ROOT, config:
  * The Connect page with stand-ins, and the real rules for where a sign-in is kept and found (GH-79): this
  * repo's own key first, then the site's. Pass `secrets` to share one machine's sign-ins between repos.
  */
-function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch; exec?: Exec; project?: typeof ACME; list?: TrackerDescription[]; secrets?: Map<string, string>; repos?: RepoInUse[]; confirm?: boolean; start?: (record: Record<string, unknown>) => void; refuse?: string } = {}) {
+function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch; exec?: Exec; project?: typeof ACME; list?: TrackerDescription[]; secrets?: Map<string, string>; repos?: RepoInUse[]; confirm?: boolean; start?: (record: Record<string, unknown>) => void; refuse?: string; preview?: ConnectDeps['preview'] } = {}) {
   const project = o.project ?? ACME;
   const apply = (w: CredWrites) => {
     for (const [k, v] of w.store) h.secrets.set(k, v);
@@ -125,6 +127,7 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
     exec: o.exec ?? gh,
     fetch: o.fetch ?? jira(),
     list: o.list,
+    preview: o.preview ?? (() => ({ board: async () => BOARD })),
   };
   h.session = new ConnectSession(deps);
   return h;
@@ -185,7 +188,7 @@ test('Test connection signs in for every project on the site, as the tick says, 
   assert.deepEqual(picker(m, 'epic').options.map((o) => o.value), ['ACME-31']);
   assert.deepEqual(picker(m, 'board').selected, ['7'], 'the project\'s first board, until another is picked');
   assert.equal(m.save.can, true);
-  assert.equal(m.save.label, 'Connect Jira');
+  assert.equal(m.save.label, 'Use this board');
 
   h.send({ type: 'connect-save' });
   await settle();
@@ -247,7 +250,7 @@ test('an existing tracker opens signed in, its project fixed and its done epic k
   assert.deepEqual(epic.selected, ['ACME-3']);
   assert.deepEqual(epic.options.map((o) => [o.value, o.detail]), [['ACME-3', 'chosen before, not listed now'], ['ACME-31', 'Renewals']], 'a done epic isn\'t listed, but stays chosen');
   assert.deepEqual(picker(m, 'board').selected, ['9']);
-  assert.equal(m.save.label, 'Save changes');
+  assert.equal(m.save.label, 'Use this board');
 
   h.send({ type: 'connect-pick', key: 'project', value: 'OPS' });
   assert.deepEqual(picker(h.model(), 'project').selected, ['ACME'], 'the page can\'t change the project');
@@ -328,6 +331,7 @@ test('GitHub signs in through gh as the project\'s account, with its labels to t
   h.send({ type: 'connect-pick', key: 'labels', value: ['billing', 'not-a-label'] });
   m = h.model();
   assert.deepEqual(picker(m, 'labels').selected, ['billing'], 'only labels the repo has');
+  await settle();
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(h.raw, [{ kind: 'github', labels: ['billing'] }], 'the project\'s own repo is left out');
@@ -461,6 +465,7 @@ test('From a Jira epic: acc init\'s refusal stays beside Start the project, in i
   h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
   await settle();
   h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  await settle();
   h.send({ type: 'connect-save' });
   await settle();
   const m = h.model();
@@ -552,6 +557,7 @@ test('From GitHub labels: gh as the account acc init found, at least one label t
   assert.deepEqual([labels.whole, labels.required, labels.options.map((o) => [o.value, o.usedBy])], [null, true, [['billing', 'used by acme-billing'], ['invoices', null]]], 'invoices on another repo isn\'t the same place');
   assert.equal(m.save.can, false, 'at least one label');
   h.send({ type: 'connect-pick', key: 'labels', value: ['invoices'] });
+  await settle();
   m = h.model();
   assert.deepEqual([h.asked, m.save.can], [[], true], 'a label no other repo uses here: nothing to ask');
   h.send({ type: 'connect-save' });
@@ -601,6 +607,7 @@ test('picking an epic, an area path or labels only reads the tracker: every requ
       h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
       await settle();
       h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+      await settle();
       h.send({ type: 'connect-save' });
       await settle();
       assert.equal(h.started.length, 1);
@@ -612,6 +619,7 @@ test('picking an epic, an area path or labels only reads the tracker: every requ
       await h.session.open({ start: RENEWALS, kind: 'azure', from: 'setup' });
       await settle();
       h.send({ type: 'connect-pick', key: 'areaPath', value: 'CRM\\Billing' });
+      await settle();
       h.send({ type: 'connect-save' });
       await settle();
       assert.equal(h.started.length, 1);
@@ -623,6 +631,7 @@ test('picking an epic, an area path or labels only reads the tracker: every requ
       await h.session.open({ start: RENEWALS, kind: 'github', from: 'setup' });
       await settle();
       h.send({ type: 'connect-pick', key: 'labels', value: ['billing'] });
+      await settle();
       h.send({ type: 'connect-save' });
       await settle();
       assert.equal(h.started.length, 1);
@@ -859,6 +868,7 @@ test('another tracker is a description, not another page: a sixth one gets its f
     ],
     place: { key: 'cycle', words: 'In Linear, a cycle stands in for an epic.' },
     verify: async () => ({ id: '1', name: 'Jordan' }),
+    preview: () => null,
     toConfig: (c) => ({ kind: 'linear', workspace: c.host, team: c.values.team }),
     fromConfig: () => ({ host: '', values: {} }),
   };
@@ -947,7 +957,7 @@ test('monday.com: an account from any link, a token kept for this repo only, the
   m = h.model();
   assert.deepEqual([picker(m, 'group').whole, picker(m, 'group').options.map((o) => o.value)], ['Every group on Client work', ['topics']]);
   assert.deepEqual([picker(m, 'statusColumn').hidden, picker(m, 'statusColumn').selected], [true, ['status']], 'one status column: chosen, and not drawn');
-  assert.equal(m.save.label, 'Connect monday.com');
+  assert.equal(m.save.label, 'Use this board');
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(h.raw, [{ kind: 'monday', account: 'acme', board: 111 }], 'the whole board, and its usual status column, are left out');
@@ -962,6 +972,7 @@ test('monday.com: an account from any link, a token kept for this repo only, the
   assert.deepEqual([picker(m, 'statusColumn').hidden, picker(m, 'statusColumn').selected, picker(m, 'statusColumn').options.map((o) => [o.label, o.detail])], [false, ['status'], [['Priority', 'High, Low'], ['Status', 'Working on it, Done']]], 'two: shown, the one called Status chosen');
   h.send({ type: 'connect-pick', key: 'statusColumn', value: 'priority' });
   h.send({ type: 'connect-pick', key: 'group', value: 'topics' });
+  await settle();
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(h.raw, [{ kind: 'monday', account: 'acme', board: 111 }, { kind: 'monday', account: 'acme', board: 555, group: 'topics', statusColumn: 'priority', prefix: 'MON2' }], 'neither replaces the other, and the second\'s keys are its own');
@@ -1076,7 +1087,7 @@ test('Slack: a workspace from any link, a bot token kept only in secret storage,
   assert.deepEqual([picker(m, 'channel').required, m.save.can], [true, false], 'a channel to choose before Save');
   h.send({ type: 'connect-pick', key: 'channel', value: 'C0SUPPORT1' });
   await settle();
-  assert.equal(h.model().save.label, 'Connect Slack');
+  assert.equal(h.model().save.label, 'Use this board');
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(h.raw, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1' }]);
@@ -1105,11 +1116,12 @@ test('Slack\'s board (T-85): Connect asks for a reaction and a done reaction, ch
   h.send({ type: 'connect-pick', key: 'channel', value: 'C0SUPPORT1' });
   await settle();
   m = h.model();
-  assert.deepEqual([picker(m, 'reaction').label, picker(m, 'reaction').whole, picker(m, 'reaction').required, picker(m, 'reaction').options[0]], ['Reaction', 'None: no board, and a thread is tracked by its link', false, { value: 'ticket', label: ':ticket:', detail: null, usedBy: null }]);
+  assert.deepEqual([picker(m, 'reaction').label, picker(m, 'reaction').whole, picker(m, 'reaction').required, picker(m, 'reaction').options[0]], ['Reaction', 'None: no board, and a thread is tracked by its link', false, { value: 'ticket', label: ':ticket:', detail: null, usedBy: null, count: null }]);
   assert.deepEqual([picker(m, 'doneReaction').label, picker(m, 'doneReaction').whole], ['Done reaction', 'None: every marked message stays Open']);
   assert.equal(m.save.can, true, 'no reaction is a choice: the board stays off');
   h.send({ type: 'connect-pick', key: 'reaction', value: 'ticket' });
   h.send({ type: 'connect-pick', key: 'doneReaction', value: 'white_check_mark' });
+  await settle();
   h.send({ type: 'connect-save' });
   await settle();
   m = h.model();
@@ -1126,6 +1138,7 @@ test('Slack\'s board (T-85): Connect asks for a reaction and a done reaction, ch
   await settle();
   ok.send({ type: 'connect-pick', key: 'reaction', value: 'ticket' });
   ok.send({ type: 'connect-pick', key: 'doneReaction', value: 'white_check_mark' });
+  await settle();
   ok.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(ok.raw, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', reaction: 'ticket', doneReaction: 'white_check_mark' }]);
