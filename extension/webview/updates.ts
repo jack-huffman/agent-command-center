@@ -53,6 +53,14 @@ export const askKey = (project: string, task: string, question: string): string 
 /** An answer stays "Sending…" until its question goes, or acc refuses it. */
 export const answerKey = (project: string, task: string, question: string): string => `analysis:${project}#${task}:${question}`;
 
+/** Sends an answer to acc (D-012), unless it's empty or one is already on its way; the page shows it's sending. */
+export function sendAnswer(project: string, task: string, question: string, text: string): void {
+  const key = answerKey(project, task, question);
+  if (!text.trim() || !pending.start(key, 'answer')) return;
+  api.postMessage({ type: 'analysis-answer', project, task, question, text: text.trim() });
+  if (state.last) state.draw(state.last);
+}
+
 export function sendUpdate(key: string, what: 'post' | 'discard' | 'ask', msg: Record<string, unknown>): void {
   if (!pending.start(key, what)) return;
   api.postMessage(msg);
