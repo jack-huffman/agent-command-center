@@ -1,6 +1,7 @@
 import type { Runner } from './exec.ts';
 import { type Actor, type Emit, mutate, readLedger, type Task } from './ledger.ts';
-import { branchFiles, nulPaths, sameFile } from './overlap.ts';
+import { changedPaths } from './gates.ts';
+import { branchFiles, sameFile } from './overlap.ts';
 import type { RepoPaths } from './paths.ts';
 
 /**
@@ -31,8 +32,13 @@ export function mergeCommitPaths(run: Runner, root: string, sha: string): string
   const parents = git(run, root, 'rev-list', '--parents', '-n', '1', sha);
   const [, first, second] = parents.stdout.trim().split(/\s+/);
   if (parents.code !== 0 || !first) return null;
-  const r = git(run, root, 'diff', '--name-only', '--no-renames', '-z', ...(second ? [`${first}...${second}`] : [first, sha]), '--');
-  return r.code === 0 ? [...new Set(nulPaths(r.stdout))].sort() : null;
+  try {
+    const changed = second ? changedPaths(run, root, `${first}...${second}`) : changedPaths(run, root, first, sha);
+    return [...new Set(changed.map((c) => c.path))].sort();
+  } catch {
+    // a commit git can't diff says nothing
+    return null;
+  }
 }
 
 /**
