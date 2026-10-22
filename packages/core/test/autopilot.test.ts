@@ -317,7 +317,7 @@ test('a pass reviews what a builder finished, the next lands it as the orchestra
   const others = [...new Set(calls.filter((c) => !c.startsWith('git ')).map((c) => c.split(' ').slice(0, 3).join(' ')))].sort();
   assert.deepEqual(others, ['claude -p --session-id', 'gh auth token', 'gh pr checks', 'gh pr create', 'gh pr list', 'gh pr view']);
   const git = [...new Set(calls.filter((c) => c.startsWith('git ')).map((c) => c.split(' ')[1]))].sort();
-  assert.deepEqual(git, ['diff', 'fetch', 'ls-tree', 'merge-base', 'merge-tree', 'push', 'rev-parse'], 'merge-base: the land reads what its pull request changes, to keep it (T-99); ls-tree: whether it adds decisions to number (T-102)');
+  assert.deepEqual(git, ['diff', 'fetch', 'log', 'ls-files', 'ls-tree', 'merge-base', 'merge-tree', 'push', 'rev-parse'], 'merge-base: the land reads what its pull request changes, to keep it (T-99); ls-tree: whether it adds decisions to number (T-102); log and ls-files: the reviewer\'s team, what merged since and its worktree\'s files (T-103)');
 });
 
 test('the step autopilot is taking is marked under way on its task while it runs, and only then (D-092)', () => {
