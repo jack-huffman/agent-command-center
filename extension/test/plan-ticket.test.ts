@@ -1,10 +1,8 @@
 // Make a plan reads the whole ticket (T-110): the Command Center reads it and hands the file to acc, and the
 // ticket's page says "2 new comments since this plan", with Make a new plan, when the ticket has moved on.
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { registerHooks } from 'node:module';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { parsePlanTicket, planRead, planTicket } from '../../packages/core/src/plan-ticket.ts';
@@ -12,6 +10,7 @@ import { fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
 import { type PlanTicketHost, unreadWhy, writePlanTicketFile } from '../src/logic/plan-ticket.ts';
 import type { TaskRow } from '../src/logic/shared.ts';
 import { planBehind, planTicketRead, withTicketRead } from '../src/model/plan-behind.ts';
+import { tempDir } from '../../packages/core/test/support.ts';
 import { sampleAnalyses } from '../scripts/fixtures/analysis.ts';
 import { sampleTicket } from '../scripts/fixtures/task-page.ts';
 import { type PageElement, pageDom } from './page-dom.ts';
@@ -47,7 +46,7 @@ const host = (fail: { ticket?: string; changes?: string } = {}): PlanTicketHost 
 };
 
 test('the Command Center writes the whole ticket for Make a plan: its comments and changes field, as acc reads it', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'plan-ticket-'));
+  const dir = tempDir('plan-ticket-');
   try {
     const h = host();
     const file = await writePlanTicketFile(h, ROOT, JIRA, dir);
@@ -66,7 +65,7 @@ test('the Command Center writes the whole ticket for Make a plan: its comments a
 });
 
 test('edge: a ticket that can\'t be read hands over why, and a task with no tracker hands over nothing', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'plan-ticket-'));
+  const dir = tempDir('plan-ticket-');
   try {
     const file = await writePlanTicketFile(host({ ticket: 'Jira said 401: sign in again' }), ROOT, JIRA, dir);
     assert.deepEqual(JSON.parse(readFileSync(file!, 'utf8')), { key: 'ACME-7', unread: 'The ticket couldn\'t be read from its tracker: Jira said 401: sign in again.' });

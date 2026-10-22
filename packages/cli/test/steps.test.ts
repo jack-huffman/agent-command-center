@@ -139,7 +139,7 @@ const CASES: { name: string; make: () => { dir: string; args: string[]; env?: No
   {
     name: 'analyze',
     make: () => ({ dir: generic(), args: ['analyze', 'T-1'], env: { PATH: `${fakes()}:${process.env.PATH}` } }),
-    code: 0, out: '✓ Ready to build: Adds a changelog.\n\nAcceptance criteria\n  - CHANGELOG.md has one entry\n\nWhat is there now\n  - Docs: There is no changelog.  the repo\n\nApproach\n  - Add CHANGELOG.md\n\nSize S. Session sess-analyst.\n', err: 'Analyzing T-1. The analyst reads the ticket and the code, and changes nothing. Session <session>, named Tool · T-1 Write the changelog · analysis.\n', first: 'task', ok: true,
+    code: 0, out: '✓ Ready to build: Adds a changelog.\n\nAcceptance criteria\n  - CHANGELOG.md has one entry\n\nWhat is there now\n  - Docs: There is no changelog.  the repo\n\nApproach\n  - Add CHANGELOG.md\n\nThis plan read the description only: This task isn\'t from a tracker, so it has no comments.\nSize S. Session sess-analyst.\n', err: 'Analyzing T-1. The analyst reads the ticket and the code, and changes nothing. Session <session>, named Tool · T-1 Write the changelog · analysis.\n', first: 'task', ok: true,
   },
   {
     name: 'setup baseline',
