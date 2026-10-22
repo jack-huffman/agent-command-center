@@ -65,11 +65,37 @@ test('acc plan approve is refused until the questions for you and the choices ar
   assert.equal(ok.code, 0, ok.err);
   assert.deepEqual({ ...ok.json().approval, at: '' }, { version: 1, by: 'human:jordan', at: '' });
   assert.match(acc(dir, ['analysis', 'ACME-7']).out, /✓ Plan v1, approved by human:jordan/);
-  // A changed choice undoes the approval, and says so.
-  const changed = acc(dir, ['plan', 'choose', 'ACME-7', 'd1', 'b']);
+  // A changed choice undoes the approval, once the person says yes to that, and says so.
+  const changed = acc(dir, ['plan', 'choose', 'ACME-7', 'd1', 'b', '--yes']);
+  assert.equal(changed.code, 0, changed.err);
   assert.match(changed.out, /v1 changed since it was approved: approve it again with acc plan approve ACME-7\./);
   assert.equal(plan(dir).approval, undefined);
   assert.equal(plan(dir).lapsed.version, 1);
+});
+
+test('on an approved plan, acc plan choose refuses a change without --yes, takes it with --yes and --json, and changes nothing for the option already chosen', () => {
+  const dir = planRepo();
+  assert.equal(acc(dir, ['analysis', 'answer', 'ACME-7', 'q1', 'Yes']).code, 0);
+  assert.equal(acc(dir, ['plan', 'choose', 'ACME-7', 'd1', 'a']).code, 0);
+  assert.equal(acc(dir, ['plan', 'approve', 'ACME-7'], undefined, { USER: 'jordan' }).code, 0);
+  // The option already chosen, by its letter or its name: nothing changes, and the approval holds.
+  const same = acc(dir, ['plan', 'choose', 'ACME-7', 'd1', 'Field', 'history']);
+  assert.equal(same.code, 0, same.err);
+  assert.match(same.out, /ACME-7's d1, Where history is kept, is already Field history: nothing changed\./);
+  assert.doesNotMatch(same.out, /approve it again/);
+  const sameJson = acc(dir, ['plan', 'choose', 'ACME-7', 'd1', 'a', '--json']);
+  assert.equal(sameJson.json().approval.by, 'human:jordan');
+  // Another option, or the person's own words, without --yes: refused, with why, and nothing changes.
+  for (const args of [['d1', 'b'], ['d1', '--text', 'A big object'], ['d1', 'b', '--json']]) {
+    const r = acc(dir, ['plan', 'choose', 'ACME-7', ...args]);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.out + r.err, /This plan is approved\. Changing this choice undoes the approval, and the plan must be approved again before it's built\. To change it anyway, run it again with --yes\./);
+  }
+  assert.deepEqual([plan(dir).approval.version, plan(dir).decisions[0].choice.option], [1, 'a'], 'refused: still approved, still a');
+  // With --yes it changes, and the approval lapses.
+  const yes = acc(dir, ['plan', 'choose', 'ACME-7', 'd1', 'b', '--yes', '--json']);
+  assert.equal(yes.code, 0, yes.err);
+  assert.deepEqual([yes.json().decisions[0].choice.option, yes.json().approval, yes.json().lapsed.version], ['b', undefined, 1]);
 });
 
 test('acc plan refuses anyone but a person, an unknown choice or option, no plan, and a missing argument', () => {

@@ -33,11 +33,11 @@ function cmdChoose(o: Opts, id: string, decision: string, option: string | undef
   const text = typeof o.text === 'string' ? o.text : undefined;
   if (option === undefined && text === undefined) throw new AccError('usage', 'acc plan choose <id> <choice> <option|--text "…">');
   const { paths } = project(process.cwd());
-  const a = choosePlan(paths, id.toUpperCase(), decision, text !== undefined ? { text, ...(option !== undefined ? { option } : {}) } : { option }, by, now);
-  const d = a.decisions!.find((x) => x.id === decision.toLowerCase() || x.id === `d${decision.toLowerCase()}`)!;
+  const { plan: a, decision: d, changed } = choosePlan(paths, id.toUpperCase(), decision, text !== undefined ? { text, ...(option !== undefined ? { option } : {}) } : { option }, by, now, o.yes === true);
   const left = planProblems(a, a.task);
   out(o, () => [
-    tone(`Chosen for ${a.task}'s ${d.id}, ${d.title}: ${choiceName(d)}.`, 'blue'),
+    // The option already chosen, picked again: nothing changed, and an approval holds.
+    changed ? tone(`Chosen for ${a.task}'s ${d.id}, ${d.title}: ${choiceName(d)}.`, 'blue') : tone(`${a.task}'s ${d.id}, ${d.title}, is already ${choiceName(d)}: nothing changed.`, 'blue'),
     ...(a.lapsed && !a.approval ? [tone(`! ${lapsedWords(a)}: approve it again with acc plan approve ${a.task}.`, 'orange')] : []),
     ...(left.length ? left.map((l) => tone(`  ${l}`, 'dim')) : []),
   ].join('\n'), a);
@@ -57,12 +57,14 @@ export const area: CommandArea = {
     section: 'Agents',
     order: 32,
     lines: `  acc plan choose <id> <choice> <option> Choose one of the options for a design choice in the task's plan, by its
-                                        letter or name; --text "<your own option>" instead of an option
+                                        letter or name; --text "<your own option>" instead of an option. A change
+                                        on an approved plan undoes the approval: --yes says you mean it
   acc plan approve <id>                 Approve the plan's latest version. Where a plan is required, a task is
                                         built only once its choices are made and its latest version approved`,
   },
   options: {
     text: { type: 'string' },
+    yes: { type: 'boolean', default: false },
   },
   subcommands: { plan: ['choose', 'approve'] },
   commands: {
