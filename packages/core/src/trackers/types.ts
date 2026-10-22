@@ -270,14 +270,17 @@ export const outsideError = (o: Outside, place: string): TrackerError =>
 export const orList = (names: string[]): string => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`);
 
 /**
- * Where a tracker's tickets come from, in words (D-072): "Jira · ACME · epic ACME-3 Premium Support",
+ * Where a tracker's tickets come from, in words (D-072): "Jira · ACME · epic ACME-3 Premium Support", or with
+ * several epics "Jira · ACME · epics ACME-3 Premium Support or ACME-7 Renewals" (T-107),
  * "GitHub · acme/service · labels billing or invoices", "Azure DevOps · CRM · Sales · area CRM\Billing",
  * "monday.com · acme · Client work · group Topics", "Slack · acme · channel C0123ABCD". With no narrower place, just
  * the project, repo or board. A monday.com board and group are named by id until the board has loaded and said
  * their names.
  */
 export function placeText(p: {
-  kind: TrackerKind; project?: string | null; repo?: string | null; team?: string | null; epic?: string | null; epicName?: string | null; labels?: string[]; areaPath?: string | null;
+  kind: TrackerKind; project?: string | null; repo?: string | null; team?: string | null; labels?: string[]; areaPath?: string | null;
+  /** A Jira tracker's epics (T-107), and once the board has loaded, each one's name, in their order. */
+  epics?: string[]; epicNames?: (string | null)[];
   /** A Jira board's sprint (T-78): "active" or an id, from the config, and once the board has loaded, the sprints it found. */
   sprint?: 'active' | number | null; sprints?: Sprint[] | null;
   account?: string | null; board?: string | number | null; boardName?: string | null; group?: string | null; groupName?: string | null;
@@ -289,7 +292,10 @@ export function placeText(p: {
     const labels = p.labels ?? [];
     return `GitHub · ${p.repo ?? '?'}${labels.length ? ` · label${labels.length > 1 ? 's' : ''} ${orList(labels)}` : ''}`;
   }
-  if (p.kind === 'jira') return `Jira · ${p.project ?? '?'}${p.epic ? ` · epic ${p.epic}${p.epicName ? ` ${p.epicName}` : ''}` : ''}${p.sprint ? ` · ${sprintPlace(p.sprint, p.sprints ?? null)}` : ''}`;
+  if (p.kind === 'jira') {
+    const epics = (p.epics ?? []).map((e, i) => (p.epicNames?.[i] ? `${e} ${p.epicNames[i]}` : e));
+    return `Jira · ${p.project ?? '?'}${epics.length ? ` · epic${epics.length > 1 ? 's' : ''} ${orList(epics)}` : ''}${p.sprint ? ` · ${sprintPlace(p.sprint, p.sprints ?? null)}` : ''}`;
+  }
   return `Azure DevOps · ${p.project ?? '?'}${p.team ? ` · ${p.team}` : ''}${p.areaPath ? ` · area ${p.areaPath}` : ''}`;
 }
 

@@ -4,7 +4,7 @@ import type { Runner, RunResult } from './exec.ts';
 import { ghToken } from './land.ts';
 import { type CardMove, isReady, type Ledger, mutate, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { pickProject, type ProjectNode } from './trackers/github.ts';
+import { GITHUB_NO_PROJECT, pickProject, type ProjectNode } from './trackers/github.ts';
 
 /**
  * A task's card on its GitHub Project follows the task (GH-146): as acc moves a task from one state to
@@ -104,6 +104,8 @@ function graphql<T>(run: Runner, env: NodeJS.ProcessEnv, query: string, vars: Re
 
 /** Moves one task's card: reads where it is, then sets its Status when it's elsewhere. */
 function moveCard(run: Runner, env: NodeJS.ProcessEnv, repo: string, tracker: Tracker, n: number, state: CardState): Pick<CardResult, 'outcome' | 'column' | 'reason'> {
+  // A tracker that takes no Project (T-107) has no card to move, so GitHub isn't asked.
+  if (tracker.board === GITHUB_NO_PROJECT) return { outcome: 'left', reason: 'the tracker uses no GitHub Project' };
   const [owner, name] = repo.split('/') as [string, string];
   const read = graphql<CardData>(run, env, CARD_QUERY, { owner, name, number: n });
   if ('error' in read) return { outcome: 'failed', reason: read.error };

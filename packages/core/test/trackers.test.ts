@@ -297,7 +297,7 @@ const placed = (key: string, fields: Record<string, unknown>) => {
 };
 
 test('a Jira board with an epic shows only its tickets and their sub-tasks, and says so with the epic\'s name', async () => {
-  const children = `GET /rest/agile/1.0/board/42/issue?jql=${encodeURIComponent('project = "MSP" AND parent = MSP-3')}`;
+  const children = `GET /rest/agile/1.0/board/42/issue?jql=${encodeURIComponent('project = "MSP" AND parent in (MSP-3)')}`;
   const subtasks = `GET /rest/agile/1.0/board/42/issue?jql=${encodeURIComponent('project = "MSP" AND parent in (MSP-4, MSP-5)')}`;
   const { fetch: f, calls } = fakeJira({
     'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
@@ -311,20 +311,20 @@ test('a Jira board with an epic shows only its tickets and their sub-tasks, and 
     ] },
     [subtasks]: { total: 2, issues: [placed('MSP-6', { project: { key: 'MSP' }, parent: { key: 'MSP-4' }, issuetype: { name: 'Sub-task', subtask: true } }), placed('MSP-7', { project: { key: 'MSP' }, parent: { key: 'MSP-2' } })] },
   });
-  const jira = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, epic: 'msp-3', fetch: f });
+  const jira = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, epics: ['msp-3'], fetch: f });
   assert.equal(jira.place, 'Jira · MSP · epic MSP-3', 'before the board loads, without its name');
   const b = await jira.board();
   assert.deepEqual(b.cards.map((c) => c.key), ['MSP-4', 'MSP-5', 'MSP-6'], 'the epic\'s tickets and their sub-tasks; not another project\'s, nor a stray');
   assert.equal(b.place, 'Jira · MSP · epic MSP-3 Premium Support');
   assert.equal(b.notice, null);
-  assert.deepEqual(calls.filter((c) => c.path.includes('/issue?jql=')).map((c) => jql(c.path)), ['project = "MSP" AND parent = MSP-3', 'project = "MSP" AND parent in (MSP-4, MSP-5)']);
+  assert.deepEqual(calls.filter((c) => c.path.includes('/issue?jql=')).map((c) => jql(c.path)), ['project = "MSP" AND parent in (MSP-3)', 'project = "MSP" AND parent in (MSP-4, MSP-5)']);
 
   const empty = fakeJira({
     'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
     'GET /rest/api/3/project/MSP/statuses': [], 'GET /rest/api/3/issue/MSP-3?fields=summary': { fields: { summary: 'Premium Support' } },
     'GET /rest/agile/1.0/board/42/issue?jql=': { total: 0, issues: [] },
   });
-  const none = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, epic: 'MSP-3', fetch: empty.fetch }).board();
+  const none = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, epics: ['MSP-3'], fetch: empty.fetch }).board();
   assert.match(none.notice!, /No ticket in epic MSP-3 is on this board\. Its own filter may leave them out/, 'a board whose filter leaves the epic out says why it\'s empty');
 });
 
@@ -346,7 +346,7 @@ test('a Jira ticket outside the place isn\'t shown: another project\'s, a moved 
   assert.ok(calls.some((c) => c.path.startsWith('/rest/api/3/issue/OPS-1?') && c.path.includes('project')), 'the ticket\'s project is asked for');
   assert.equal((await whole.ticket('MSP-8')).key, 'MSP-8', 'with no epic, any of the project\'s tickets');
 
-  const epic = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', epic: 'MSP-3', fetch: f });
+  const epic = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', epics: ['MSP-3'], fetch: f });
   assert.equal((await epic.ticket('MSP-4')).key, 'MSP-4', 'a child of the epic');
   assert.equal((await epic.ticket('MSP-6')).key, 'MSP-6', 'a sub-task of one of its children');
   await assert.rejects(epic.ticket('MSP-8'), isOutside(/MSP-8 isn't one of this repo's tickets, which come from Jira · MSP · epic MSP-3: it isn't in epic MSP-3\./));
@@ -845,12 +845,12 @@ test('placeJql holds a Jira board to the active sprint, a named sprint, or a spr
   assert.equal(at({ sprint: 'active' }).placeJql(), 'project = "MSP" AND sprint in openSprints()', 'the active sprint, before the board says which');
   assert.equal(at({ sprint: 'active' }).placeJql([12, 13]), 'project = "MSP" AND sprint in (12, 13)', 'once the board says which, only its own open sprints');
   assert.equal(at({ sprint: 42 }).placeJql(), 'project = "MSP" AND sprint = 42', 'a named sprint');
-  assert.equal(at({ sprint: 42, epic: 'msp-3' }).placeJql(), 'project = "MSP" AND parent = MSP-3 AND sprint = 42', 'a sprint with an epic: both hold');
-  assert.equal(at({ sprint: 'active', epic: 'MSP-3' }).placeJql([12]), 'project = "MSP" AND parent = MSP-3 AND sprint in (12)');
+  assert.equal(at({ sprint: 42, epics: ['msp-3'] }).placeJql(), 'project = "MSP" AND parent in (MSP-3) AND sprint = 42', 'a sprint with an epic: both hold');
+  assert.equal(at({ sprint: 'active', epics: ['MSP-3'] }).placeJql([12]), 'project = "MSP" AND parent in (MSP-3) AND sprint in (12)');
   assert.equal(at({ sprint: null }).placeJql(), 'project = "MSP"', 'no sprint: the whole board');
   assert.throws(() => at({ sprint: 0 }).placeJql(), /isn't a Jira sprint's id/, 'a sprint id that isn\'t one is refused, never sent to Jira');
   assert.equal(at({ sprint: 'active' }).place, 'Jira · MSP · the active sprint', 'before the board loads');
-  assert.equal(at({ sprint: 42, epic: 'MSP-3' }).place, 'Jira · MSP · epic MSP-3 · sprint 42');
+  assert.equal(at({ sprint: 42, epics: ['MSP-3'] }).place, 'Jira · MSP · epic MSP-3 · sprint 42');
 });
 
 test('a Jira board in the active sprint shows only its tickets, and its place names the sprint and its dates (T-78)', async () => {
@@ -873,9 +873,9 @@ test('a Jira board in the active sprint shows only its tickets, and its place na
     'GET /rest/agile/1.0/sprint/12': SPRINT_12,
     'GET /rest/agile/1.0/board/42/issue?jql=': { total: 1, issues: [placed('MSP-4', { project: { key: 'MSP' }, parent: { key: 'MSP-3' } })] },
   });
-  const e = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, epic: 'MSP-3', sprint: 12, fetch: named.fetch }).board();
+  const e = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', board: 42, epics: ['MSP-3'], sprint: 12, fetch: named.fetch }).board();
   assert.equal(e.place, 'Jira · MSP · epic MSP-3 Premium Support · sprint MSP Sprint 12 (6 Oct to 19 Oct)');
-  assert.deepEqual(named.calls.filter((c) => c.path.includes('/issue?jql=')).map((c) => jql(c.path)), ['project = "MSP" AND parent = MSP-3 AND sprint = 12', 'project = "MSP" AND parent in (MSP-4) AND sprint = 12']);
+  assert.deepEqual(named.calls.filter((c) => c.path.includes('/issue?jql=')).map((c) => jql(c.path)), ['project = "MSP" AND parent in (MSP-3) AND sprint = 12', 'project = "MSP" AND parent in (MSP-4) AND sprint = 12']);
 });
 
 test('a Jira board following the active sprint with none open shows no cards and says there is no active sprint (T-78)', async () => {

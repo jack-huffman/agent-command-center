@@ -131,6 +131,14 @@ test('a Project with no column for the state, an issue not on it, or a statusFor
   }
 });
 
+test('a tracker that takes no Project ("issues", T-107) leaves the card where it is, and asks GitHub nothing', () => {
+  const s = repo({ kind: 'github', edits: true, board: 'issues' });
+  const gh = project();
+  s.move('running');
+  assert.deepEqual(followCards(s.paths, s.config, ['GH-9'], { run: gh.fake, now, env: {} }), [{ task: 'GH-9', state: 'running', outcome: 'left', reason: 'the tracker uses no GitHub Project' }]);
+  assert.ok(!gh.calls.some((c) => c.startsWith('gh api graphql')), 'no read and no write');
+});
+
 test('a write that fails leaves the task\'s move as it is, and is kept on the task while it stays in that state (GH-146)', () => {
   const s = repo();
   const gh = project(BOARD, 'Todo', { fail: 'GraphQL: Resource not accessible by integration (updateProjectV2ItemFieldValue)' });

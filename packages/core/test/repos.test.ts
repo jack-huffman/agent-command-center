@@ -9,7 +9,7 @@ import { gitCommonDir, hostsInUse, listedRepos, rememberRepo, repoIdentity, type
 import { gitIn, makeRepo, tempDir } from './support.ts';
 
 const envFor = () => ({ ACC_REPOS_FILE: join(tempDir('acc-repos-'), 'repos.json') });
-const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, reaction: null, doneReaction: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epic: null, sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
+const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, reaction: null, doneReaction: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epics: [], sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, ...t });
 const repo = (name: string, key: string, trackers: Tracker[], github: string | null = null): RepoInUse => ({ root: `/code/${name}`, name, key, github, trackers });
 const OWN = { root: '/code/acme-service', key: 'github:acme/service' };
 const SITE = 'acme.atlassian.net';
@@ -31,7 +31,7 @@ test('the list holds roots only, in a file of its own, and a repo whose config i
   assert.deepEqual(listedRepos(env), [a, b], 'not moved to the end');
   assert.equal(statSync(env.ACC_REPOS_FILE).ino, written, 'the file wasn\'t replaced');
   assert.deepEqual(Object.keys(JSON.parse(readFileSync(env.ACC_REPOS_FILE, 'utf8'))), ['schema', 'repos'], 'roots, never a copy of a config');
-  assert.deepEqual(reposInUse(env).map((r) => [r.name, r.trackers.map((t) => t.epic)]), [['acme-portal', ['ACME-3']], ['acme-billing', ['ACME-3']]], 'each config read now');
+  assert.deepEqual(reposInUse(env).map((r) => [r.name, r.trackers.map((t) => t.epics)]), [['acme-portal', [['ACME-3']]], ['acme-billing', [['ACME-3']]]], 'each config read now');
 
   writeFileSync(join(b, '.acc', 'config.json'), '{ not json');
   assert.deepEqual(reposInUse(env).map((r) => r.name), ['acme-portal'], 'a config that can\'t be read is skipped');
@@ -61,14 +61,14 @@ test('a clone or worktree is the same repo: by its GitHub repo, else by the git 
 
 test('used by: the same epic, label, group, or an area path over or under, in another repo; never this repo or a clone of it', () => {
   const repos = [
-    repo('acme-portal', 'github:acme/portal', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3' })]),
-    repo('acme-portal-clone', 'github:acme/service', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-7' })]),
+    repo('acme-portal', 'github:acme/portal', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epics: ['ACME-3'] })]),
+    repo('acme-portal-clone', 'github:acme/service', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epics: ['ACME-5', 'ACME-7'] })]),
     repo('acme-labels', 'git:/code/acme-labels/.git', [tracker({ kind: 'github', repo: 'acme/service', labels: ['Billing'] })]),
     repo('acme-own-labels', 'github:acme/web', [tracker({ kind: 'github', labels: ['billing'] })], 'acme/web'),
     repo('crm-billing', 'github:acme/crm', [tracker({ kind: 'azure', organization: 'acme', project: 'CRM', areaPath: 'CRM\\Billing' })]),
     repo('crm-invoices', 'github:acme/invoices', [tracker({ kind: 'azure', organization: 'acme', project: 'CRM', areaPath: 'CRM\\Billing\\Invoices' })]),
     repo('acme-monday', 'github:acme/monday', [tracker({ kind: 'monday', account: 'acme', board: 111, group: 'topics' })]),
-    { ...repo('this-one', 'git:elsewhere', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-9' })]), root: OWN.root },
+    { ...repo('this-one', 'git:elsewhere', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epics: ['ACME-9'] })]), root: OWN.root },
   ];
   const cases: [Parameters<typeof usedBy>[1], string | null][] = [
     [{ kind: 'jira', host: SITE, value: 'ACME-3' }, 'used by acme-portal'],
@@ -96,7 +96,7 @@ test('used by: the same epic, label, group, or an area path over or under, in an
   assert.equal(checked, 16);
   assert.deepEqual(usedBy(repos, { kind: 'azure', host: 'acme', project: 'CRM', value: 'CRM' }, OWN), { names: ['crm-billing', 'crm-invoices'], overlap: true, words: 'overlaps crm-billing or crm-invoices' });
   // A clone listed twice (main checkout and a worktree) is one repo.
-  const twice = [repo('acme-portal', 'github:acme/portal', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3' })]), { ...repo('acme-portal', 'github:acme/portal', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3' })]), root: '/code/acme-portal/.claude/worktrees/GH-2' }];
+  const twice = [repo('acme-portal', 'github:acme/portal', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epics: ['ACME-3'] })]), { ...repo('acme-portal', 'github:acme/portal', [tracker({ kind: 'jira', site: SITE, project: 'ACME', epics: ['ACME-3'] })]), root: '/code/acme-portal/.claude/worktrees/GH-2' }];
   assert.equal(usedBy(twice, { kind: 'jira', host: SITE, value: 'ACME-3' }, OWN)?.words, 'used by acme-portal');
 });
 

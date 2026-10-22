@@ -98,7 +98,7 @@ const PROJECT_ONLY: Record<'top' | 'environment' | 'agents' | 'tracker', Record<
   agents: { permissionMode: `${OWN}, so a fetched file can't loosen what builders may do` },
   tracker: {
     repo: `${OWN}: a GitHub tracker reads the project's own repo`, team: OWN, edits: `${OWN}: whether acc may change tickets is each project's choice (D-082)`,
-    epic: OWN, labels: OWN, areaPath: OWN, group: OWN, statusColumn: OWN, skipLabels: OWN,
+    epic: OWN, epics: OWN, labels: OWN, areaPath: OWN, group: OWN, statusColumn: OWN, skipLabels: OWN,
   },
 };
 

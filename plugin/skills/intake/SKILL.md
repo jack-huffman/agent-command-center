@@ -19,7 +19,7 @@ The VSCode Command Center shows each tracker's board, with **Track** on every ca
 
 From a session, first read the tracker's place from `.acc/config.json`, and ask the connector for tickets in it only. Another project's or another client's tickets must never come in:
 
-- **Jira:** the tracker's `project`, and its `epic` when it names one. Search with `project = "ACME"`, plus `AND parent = ACME-3` for the epic's tickets. Their sub-tasks count too (`parent in (<those keys>)`); the epic itself doesn't.
+- **Jira:** the tracker's `project`, and its `epics` when it names them (an older file names one as "epic"). Search with `project = "ACME"`, plus `AND parent in (ACME-3, ACME-7)` for the tickets under any of the epics. Their sub-tasks count too (`parent in (<those keys>)`); the epics themselves don't.
 - **Azure DevOps:** the tracker's `project`, and its `areaPath` when it names one: `[System.TeamProject] = 'CRM' AND [System.AreaPath] UNDER 'CRM\Billing'`.
 
 `acc import` refuses a Jira, Azure DevOps or monday.com key that no tracker in the config owns, such as OPS-1 when the only Jira tracker is ACME. It can't check an epic or area path without a sign-in, so keep the query to the place: the Command Center's board removes any that slip through, if work on them never started.
