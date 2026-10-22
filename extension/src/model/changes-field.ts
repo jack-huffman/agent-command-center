@@ -50,9 +50,11 @@ export function changesFieldRow(kind: TrackerKind, field: TextField | null, arg:
     : field ? LOOK(kind === 'github' ? `In ${fieldName(kind, field)}` : `${field.name}, a ${trackerName(kind)} field, as ${FORMAT_WORDS[field.format]}`, 'note', 'blue')
       : LOOK('Only on the ticket\'s page: no field chosen', 'circle-outline', 'neutral');
   const disabled = refusal ?? (saved ? null : 'Save the tracker first: then its fields can be read.');
+  // Its name starts with the words it shows, so a screen reader and a voice command find it by them.
+  const label = field ? 'Change…' : 'Choose…';
   return {
     label: CHANGES_FIELD_LABEL, look,
-    action: { command: CHANGES_FIELD_COMMAND, label: field ? 'Change…' : 'Choose…', icon: 'note', arg, name: `${CHANGES_FIELD_LABEL}, for ${whose}`, primary: false, disabled },
+    action: { command: CHANGES_FIELD_COMMAND, label, icon: 'note', arg, name: `${label} where to keep a ticket's changes, for ${whose}`, primary: false, disabled },
   };
 }
 

@@ -39,7 +39,7 @@ test('the setting\'s row: the field chosen, in blue, with Change…; none chosen
   const set = changesFieldRow('jira', NOTES, arg, 'Jira · ACME, in Acme');
   assert.equal(set.label, CHANGES_FIELD_LABEL);
   assert.deepEqual(set.look, { label: 'Deployment Notes, a Jira field, as rich text', icon: 'note', tone: 'blue' });
-  assert.deepEqual({ ...set.action }, { command: CHANGES_FIELD_COMMAND, label: 'Change…', icon: 'note', arg, name: `${CHANGES_FIELD_LABEL}, for Jira · ACME, in Acme`, primary: false, disabled: null });
+  assert.deepEqual({ ...set.action }, { command: CHANGES_FIELD_COMMAND, label: 'Change…', icon: 'note', arg, name: 'Change… where to keep a ticket\'s changes, for Jira · ACME, in Acme', primary: false, disabled: null });
   const none = changesFieldRow('azure', null, arg, 'Azure DevOps · CRM, in Acme');
   assert.equal(none.look.label, 'Only on the ticket\'s page: no field chosen');
   assert.equal(none.action.label, 'Choose…');
