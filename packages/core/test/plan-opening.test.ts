@@ -38,8 +38,10 @@ const result = (structured: unknown, session: string): RunResult => ({
 
 const FIRST = {
   understood: 'You want each stage change kept for two years, for the pipeline report.',
-  unsure: ['Whether closed deals count'],
-  questions: ['Two years, or for ever?', 'Closed deals too?'],
+  questions: [
+    { question: 'Two years, or for ever?', why: 'It decides where history is kept.', options: ['Two years', 'For ever'], own: true },
+    { question: 'Closed deals too?', why: 'Closed deals double the rows.', options: ['Open deals only', 'Closed deals too'], own: false },
+  ],
 };
 
 /** The plan the analyst answers with, as its schema asks: one choice whose why names what the person said. */
@@ -82,7 +84,7 @@ test('the opening message starts a new session read-only, with the whole ticket,
   assert.match(input, /### Kelsey, 2026-10-20\n\nTwo years of history, please\./, 'the whole ticket, comments included (T-110)');
   assert.ok(input.includes(`# ${OPENING_ASK}\n\nKeep it for the pipeline report, two years at least.`), 'the person\'s words, under the question asked');
   assert.deepEqual([r.turn.who, r.turn.version, r.reply.who, r.reply.version, r.reply.text, r.reply.sessionId], ['you', OPENING_VERSION, 'agent', OPENING_VERSION, FIRST.understood, 'sess-open']);
-  assert.deepEqual([r.reply.unsure, r.reply.asks], [FIRST.unsure, FIRST.questions]);
+  assert.deepEqual([r.reply.questions, r.reply.unsure, r.reply.asks], [FIRST.questions, undefined, undefined], 'its questions as data, and nothing listed apart');
   assert.equal(readAnalysis(paths, id), null, 'no plan is made');
   assert.deepEqual(openingTurns(readTalk(paths, id)).map((t) => t.id), ['t1', 't2']);
   assert.equal(isOpening(r.reply), true);
@@ -91,13 +93,13 @@ test('the opening message starts a new session read-only, with the whole ticket,
 test('an answer to the agent\'s questions resumes the same session, without the ticket again', () => {
   const { paths, config, id } = setup();
   const calls: { args: string[]; opts?: RunOptions }[] = [];
-  const deps = { run: claude([result(FIRST, 'sess-open'), result({ understood: 'Two years, open and closed.', unsure: [], questions: [] }, 'sess-open')], calls), now, env: {}, uuid: () => 'sess-open' };
+  const deps = { run: claude([result(FIRST, 'sess-open'), result({ understood: 'Two years, open and closed.', questions: [] }, 'sess-open')], calls), now, env: {}, uuid: () => 'sess-open' };
   startPlan(paths, config, id, 'Two years.', deps, 'human:me');
   const r = startPlan(paths, config, id, 'Closed deals too.', deps, 'human:me');
   assert.ok(calls[1]!.args.join(' ').startsWith('-p --resume sess-open --permission-mode dontAsk'), calls[1]!.args.join(' ').slice(0, 80));
   assert.ok(!String(calls[1]!.opts?.input).includes('## The ticket'), 'the session holds the ticket already');
   assert.match(String(calls[1]!.opts?.input), /# The person says\n\nClosed deals too\./);
-  assert.deepEqual(r.reply.asks, []);
+  assert.deepEqual(r.reply.questions, []);
   assert.equal(openingSession(readTalk(paths, id)), 'sess-open');
 });
 
@@ -111,7 +113,7 @@ test('Draft the plan resumes the opening\'s session, and its prompt holds what t
   assert.ok(!line.includes('sess-new'));
   const input = String(calls[0]!.opts?.input);
   assert.match(input, /## What the person said before the plan\n\n- The person: Keep it for the pipeline report, two years at least\.\n- You \(the planning agent\): You want each stage change/);
-  assert.match(input, /  - Unsure: Whether closed deals count\n  - Asked: Two years, or for ever\?/);
+  assert.match(input, /  - Asked: Two years, or for ever\? \(offered: Two years; For ever\)\n  - Asked: Closed deals too\?/);
   assert.match(input, /starting "You said: " with their words/, 'the plan names what it took from it');
   assert.ok(!input.includes('## What the person and the planning agent said about the plan'), 'the opening isn\'t given twice');
   assert.equal(a.sessionId, 'sess-open');
@@ -144,7 +146,7 @@ test('Talk it through after the plan resumes the same planning session, and a la
   startPlan(paths, config, id, 'Two years.', { run: claude([result(FIRST, 'sess-open')]), now, env: {}, uuid: () => 'sess-open' }, 'human:me');
   const a = analyze(paths, config, id, { run: claude([result(PLAN, 'sess-open')]), now, env: {} });
   const calls: { args: string[]; opts?: RunOptions }[] = [];
-  talkPlan(paths, config, id, 'Why a custom object?', null, { run: claude([result({ reply: 'Two years, as you said.', proposals: [] }, 'sess-open')], calls), now, env: {} }, 'human:me');
+  talkPlan(paths, config, id, 'Why a custom object?', null, { run: claude([result({ reply: 'Two years, as you said.', proposals: [], questions: [] }, 'sess-open')], calls), now, env: {} }, 'human:me');
   assert.ok(calls[0]!.args.join(' ').startsWith('-p --resume sess-open '), 'the talk resumes it too');
   assert.equal(talkSession(a, readTalk(paths, id)), 'sess-open');
   // The next version resumes the newest of the session's replies, holds the opening once and the talk once.
@@ -178,19 +180,29 @@ test('edge case: a task with a plan, a reply under way, an empty message or one 
 });
 
 test('edge case: the reply\'s questions are cut to three, blanks are dropped, and one that isn\'t JSON says what came back', () => {
-  const r = parseOpeningReply(result({ understood: ' It. ', unsure: ['', ' a '], questions: ['1', '2', '3', '4'] }, 's').stdout);
-  assert.deepEqual([r.understood, r.unsure, r.questions, r.sessionId], ['It.', ['a'], ['1', '2', '3'], 's']);
+  const q = (question: string) => ({ question, why: 'w', options: ['a', 'b'], own: false });
+  const r = parseOpeningReply(result({ understood: ' It. ', questions: [q('1'), q(' '), q('2'), q('3'), q('4')] }, 's').stdout);
+  assert.deepEqual([r.understood, r.questions.map((x) => x.question), r.sessionId], ['It.', ['1', '2', '3'], 's']);
   assert.equal(OPENING_QUESTIONS_MAX, 3);
   assert.equal(OPENING_SCHEMA.properties.questions.maxItems, 3);
+  assert.deepEqual(OPENING_SCHEMA.required, ['understood', 'questions'], 'nothing unsure listed apart');
   assert.throws(() => parseOpeningReply('nope'), /no reply Claude Code could read: nope/);
-  assert.throws(() => parseOpeningReply(result({ understood: '', unsure: [], questions: [] }, 's').stdout), /didn't reply/);
-  assert.match(OPENING_SYSTEM, /at most three questions/);
+  assert.throws(() => parseOpeningReply(result({ understood: '', questions: [] }, 's').stdout), /didn't reply/);
+  assert.match(OPENING_SYSTEM, /at most about 80 words/);
   assert.match(OPENING_SYSTEM, /can't change anything/);
+});
+
+test('edge case: a reply kept before T-113 still gives its questions and what it was unsure of to the plan', () => {
+  const t = { v: 1 as const, task: 'ACME-7', turns: [
+    { id: 't1', who: 'you' as const, by: 'human:me', at: '2026-10-22T11:00:00Z', version: 0, text: 'Two years.' },
+    { id: 't2', who: 'agent' as const, by: 'analyst:ACME-7', at: '2026-10-22T11:01:00Z', version: 0, text: 'Got it.', unsure: ['Closed deals'], asks: ['Closed deals too?'] },
+  ] };
+  assert.deepEqual(openingSection(t).slice(2, 6), ['- The person: Two years.', '- You (the planning agent): Got it.', '  - Unsure: Closed deals', '  - Asked: Closed deals too?']);
 });
 
 test('edge case: before anything is said there is no opening section and no planning session; the prompt without a ticket is the person\'s words', () => {
   const empty = { v: 1 as const, task: 'ACME-7', turns: [] };
   assert.deepEqual(openingSection(empty), []);
   assert.equal(planningSession(empty, { sessionId: 'p', at: '2026-10-22T11:00:00Z' }), null, 'a plan made without one keeps today\'s way');
-  assert.equal(openingPrompt({ id: 'ACME-7', title: 'T' }, ' Hi ', null), '# The person says\n\nHi\n\nAnswer them: what you understood, what you are unsure of, and your questions, if any.');
+  assert.equal(openingPrompt({ id: 'ACME-7', title: 'T' }, ' Hi ', null), '# The person says\n\nHi\n\nAnswer them: what you understood, briefly, and your questions, if any.');
 });

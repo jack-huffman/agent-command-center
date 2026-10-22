@@ -1,14 +1,17 @@
 // A plan's conversation with its planning agent (T-98, T-111). It is drawn in its own panel, beside the task's
 // page: each turn with who and when, what a message is about quoted, each change a reply proposes with Use
-// this, and what a Claude Code session recorded; before there is a plan, its question first, the agent's
-// questions, and Draft the plan or Skip to the plan. The task's page shows one line of it, with Open
-// conversation; Discuss on any part of the plan opens the panel with that part quoted. Each button asks the
-// extension, and shows it's on its way until the extension says how it went.
+// this, and what a Claude Code session recorded; before there is a plan, its question first, and Draft the plan
+// or Skip to the plan. The agent's questions are asked one at a time under its reply (T-113, talk-questions.ts),
+// and less shows at once: a long reply folds with Show more, the turns before the latest exchange fold under
+// "Earlier in this conversation", and a proposal is one line whose Why opens its reasons. The task's page shows
+// one line of it, with Open conversation; Discuss on any part of the plan opens the panel with that part quoted.
+// Each button asks the extension, and shows it's on its way until the extension says how it went.
 
 import type { TicketProposal, TicketTalk, TicketTurn } from '../src/model/talk.ts';
 import { actionButton, button, el, icon, md, status, when, work } from './dom.ts';
 import { Pending } from './pending.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
+import { answersSent, questionCard } from './talk-questions.ts';
 
 /** The longest message a page sends, as acc takes it. */
 const TALK_MAX = 4000;
@@ -23,6 +26,12 @@ const claudeKey = (project: string, task: string): string => `${base(project, ta
 const aboutKey = (project: string, task: string): string => `${base(project, task)}:about`;
 /** The remembered key of a Use this that waits for the person's yes, on an approved plan. */
 const confirmKey = (key: string): string => `${key}:confirm`;
+/** The remembered keys of what's unfolded (T-113): the earlier turns, a long reply's Show more, and a proposal's Why. */
+export const earlierKey = (project: string, task: string): string => `${base(project, task)}:earlier`;
+const moreKey = (project: string, task: string, turn: string): string => `${base(project, task)}:more:${turn}`;
+const whyKey = (key: string): string => `${key}:why`;
+const isOpen = (key: string): boolean => memory().opened.includes(key);
+const flip = (key: string): void => { remember((x) => { x.opened = isOpen(key) ? x.opened.filter((y) => y !== key) : [...x.opened, key]; }); redraw(); };
 
 /** The message box takes focus once the page next draws it: after Discuss, or Ask again. */
 let focusBox = false;
@@ -126,16 +135,22 @@ function askAgain(project: string, task: string, p: TicketProposal): void {
   redraw();
 }
 
-/** One change a reply proposes: what it would record and why, then Use this, or who used it. */
+/**
+ * One change a reply proposes, as one line (T-113): what it would record, Why, which opens its reasons, then Use
+ * this, or who used it.
+ */
 function proposal(project: string, s: TicketTalk, t: TicketTurn, p: TicketProposal): HTMLElement {
   const key = useKey(project, s.task, t.id, p.id);
-  const box = el('div', `talk-proposal${p.used ? ' used' : ''}`,
-    el('div', 'tp-line', icon(p.used ? 'pass-filled' : 'lightbulb'), el('span', 'tp-words', el('strong', '', 'Proposes: '), md(p.words)), p.from ? el('span', 'chip talk-v', `from v${p.from}`) : null),
-    p.why ? el('div', 'muted small tp-why', md(p.why)) : null);
+  const open = isOpen(whyKey(key));
+  const why = p.why ? button('Why', open ? 'chevron-down' : 'chevron-right', () => flip(whyKey(key)), 'ghost small tp-why-toggle') : null;
+  if (why) { why.setAttribute('aria-expanded', String(open)); why.setAttribute('aria-label', `Why: ${p.words}`); }
+  const line = el('div', 'tp-line', icon(p.used ? 'pass-filled' : 'lightbulb'), el('span', 'tp-words', el('strong', '', 'Proposes: '), md(p.words)), p.from ? el('span', 'chip talk-v', `from v${p.from}`) : null, el('span', 'tp-actions', why));
+  const box = el('div', `talk-proposal${p.used ? ' used' : ''}`, line, open && p.why ? el('div', 'muted small tp-why', md(p.why)) : null);
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', `Proposal: ${p.words}${p.used ? ', used' : ''}`);
+  const actions = line.querySelector<HTMLElement>('.tp-actions')!;
   if (p.used) {
-    box.append(el('div', 'tp-used small', status({ label: 'Used', icon: 'pass-filled', tone: 'blue' }), el('span', 'muted', `by ${p.used.by} `), when(p.used.at)));
+    actions.append(el('span', 'tp-used small', status({ label: 'Used', icon: 'pass-filled', tone: 'blue' }), el('span', 'muted', `by ${p.used.by} `), when(p.used.at)));
   } else if (p.use) {
     const busy = !!talkPending.what(key);
     const b = button(busy ? 'Recording…' : 'Use this', busy ? 'loading~spin' : 'check', () => use(project, s, t, p), 'small');
@@ -147,7 +162,8 @@ function proposal(project: string, s: TicketTalk, t: TicketTurn, p: TicketPropos
     // A proposal from an older version can't be used: Ask again puts it in the message box, to ask about the plan now.
     const again = p.from ? button('Ask again', 'comment-discussion', () => askAgain(project, s.task, p), 'small') : null;
     if (again) again.setAttribute('aria-label', `Ask again: ${p.words}`);
-    box.append(el('div', 'tp-actions', b, again, p.use.disabled ? el('span', 'muted small', p.use.disabled) : null));
+    actions.append(b, again ?? '');
+    if (p.use.disabled) box.append(el('div', 'muted small tp-off', p.use.disabled));
     if (memory().opened.includes(confirmKey(key)) && p.ask && !busy) box.append(confirmUse(project, s, t, p, key));
   }
   const error = talkPending.error(key);
@@ -155,24 +171,28 @@ function proposal(project: string, s: TicketTalk, t: TicketTurn, p: TicketPropos
   return box;
 }
 
-/** The agent's answer before the plan (T-111): what it's unsure of, and its questions, numbered. */
-function opening(t: TicketTurn): HTMLElement[] {
-  return [
-    t.unsure.length ? el('div', 'talk-unsure', el('div', 'strong small', 'Not sure yet'), work(el('ul', 'an-list', ...t.unsure.map((u) => el('li', '', md(u)))), 'agent-text')) : null,
-    t.asks.length ? el('div', 'talk-asks', el('div', 'strong small', t.asks.length === 1 ? 'A question for you' : 'Questions for you'), work(el('ol', 'an-list', ...t.asks.map((q) => el('li', '', md(q)))), 'agent-text')) : null,
-  ].filter((x): x is HTMLElement => !!x);
+/** A turn's words; long ones fold to about eight lines, with Show more (T-113). */
+function words(project: string, s: TicketTalk, t: TicketTurn): HTMLElement[] {
+  const key = moreKey(project, s.task, t.id);
+  const folded = t.long && !isOpen(key);
+  const text = el('div', `talk-text${folded ? ' talk-folded' : ''}`, md(t.text));
+  if (!t.long) return [t.who === 'agent' ? work(text, 'agent-text') : text];
+  text.id = `talk-text-${t.id}`;
+  const more = button(folded ? 'Show more' : 'Show less', folded ? 'chevron-down' : 'chevron-up', () => flip(key), 'ghost small talk-more-text');
+  more.setAttribute('aria-expanded', String(!folded));
+  more.setAttribute('aria-controls', text.id);
+  return [t.who === 'agent' ? work(text, 'agent-text') : text, more];
 }
 
-/** One turn: who and when, what it's about, the words, and what it proposed, asked or recorded. */
+/** One turn: who and when, what it's about, the words, and what it proposed or recorded. */
 function turn(project: string, s: TicketTalk, t: TicketTurn): HTMLElement {
   const li = el('li', `talk-turn who-${t.who}`,
     el('div', 'talk-who', icon(t.icon), el('strong', '', t.name), t.by && t.who !== 'you' ? el('span', 'muted', `opened by ${t.by}`) : null, when(t.at), el('span', 'chip talk-v', t.before ? 'Before the plan' : `v${t.version}`),
       t.open ? status({ label: 'Open now', icon: 'circle-filled', tone: 'blue' }) : null),
     t.about ? quote(t.about.kind, t.about.ref, t.about.text) : null,
-    t.who === 'agent' ? work(el('div', 'talk-text', md(t.text)), 'agent-text') : el('div', 'talk-text', md(t.text)));
+    ...words(project, s, t));
   li.setAttribute('aria-label', `${t.name}${t.by && t.who === 'you' ? ` (${t.by})` : ''}`);
   if (t.failed) li.append(el('div', 'aq-error', icon('warning'), el('span', '', `No reply: ${t.failed}`)));
-  if (t.who === 'agent') li.append(...opening(t));
   if (t.proposals.length) li.append(el('div', 'talk-proposals', ...t.proposals.map((p) => proposal(project, s, t, p))));
   if (t.who === 'claude-code') {
     li.append(t.recorded.length
@@ -253,7 +273,25 @@ export function renderConversation(project: string, s: TicketTalk): HTMLElement 
   sec.setAttribute('aria-label', `${s.stage === 'opening' ? 'Before the plan' : 'Talk it through'}: ${s.look.label}`);
   if (s.ask) sec.append(el('h2', 'talk-ask', icon('comment-discussion'), el('span', '', s.ask)));
   sec.append(el('p', 'muted an-note', s.note));
-  if (s.turns.length) sec.append(el('ol', 'talk-turns', ...s.turns.map((t) => turn(project, s, t))));
+  // The turns before the latest exchange fold under one line (T-113), until the person opens them.
+  const ek = earlierKey(project, s.task);
+  const all = !s.earlier || isOpen(ek);
+  if (s.earlier) {
+    const fold = button(`Earlier in this conversation (${s.earlier} message${s.earlier === 1 ? '' : 's'})`, all ? 'chevron-down' : 'chevron-right', () => flip(ek), 'ghost small talk-earlier');
+    fold.setAttribute('aria-expanded', String(all));
+    sec.append(fold);
+  }
+  const shown = all ? s.turns : s.turns.slice(s.earlier);
+  if (shown.length) sec.append(el('ol', 'talk-turns', ...shown.map((t) => turn(project, s, t))));
+  const key = sendKey(project, s.task);
+  const card = questionCard(project, s, {
+    busy: !!talkPending.what(key), error: talkPending.error(key) ?? null,
+    go: (turnId, answers) => {
+      if (!talkPending.start(key, 'send')) return;
+      api.postMessage({ type: 'talk-answers', project, task: s.task, turn: turnId, answers });
+    },
+  });
+  if (card) sec.append(card);
   if (s.running) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.stage === 'opening' ? 'The planning agent is reading the ticket to reply. Its steps show in the output panel.' : 'The planning agent is reading the code to reply. Its steps show in the output panel.'));
   if (s.making) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.making.words));
   if (s.send) sec.append(composer(project, s));
@@ -285,11 +323,13 @@ export function renderConversation(project: string, s: TicketTalk): HTMLElement 
 function done(msg: { action?: string; project?: string; task?: string; turn?: string; proposal?: string; ok?: boolean; error?: string }): void {
   const project = msg.project ?? '';
   const task = msg.task ?? '';
-  const key = msg.action === 'talk-send' ? sendKey(project, task) : msg.action === 'talk-use' ? useKey(project, task, msg.turn ?? '', msg.proposal ?? '') : claudeKey(project, task);
+  const key = msg.action === 'talk-send' || msg.action === 'talk-answers' ? sendKey(project, task) : msg.action === 'talk-use' ? useKey(project, task, msg.turn ?? '', msg.proposal ?? '') : claudeKey(project, task);
   if (!talkPending.what(key)) return;
   talkPending.settle(key, msg.ok ? null : msg.error?.trim() || 'It didn\'t go, and the Command Center didn\'t say why.');
   // A message that went clears its words and what it was about.
   if (msg.ok && msg.action === 'talk-send') remember((x) => { delete x.drafts[key]; delete x.drafts[aboutKey(project, task)]; });
+  // Answers that went forget what was picked for them; ones that didn't keep it, to send again.
+  if (msg.ok && msg.action === 'talk-answers') answersSent(project, task);
   redraw();
 }
 

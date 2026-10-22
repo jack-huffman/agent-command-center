@@ -9,8 +9,9 @@ import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { CHANGE_APPROVED } from '../../../packages/core/src/plan-choices.ts';
 import { isOpening, OPENING_ASK } from '../../../packages/core/src/plan-opening.ts';
-import { ANSWER_APPROVED, NOTE_APPROVED, type PlanTalk, proposalStale, proposalWords, TALK_MAX, type TalkProposal, type TalkQuote, type TalkWho } from '../../../packages/core/src/plan-talk.ts';
+import { ANSWER_APPROVED, NOTE_APPROVED, type PlanTalk, proposalStale, proposalWords, TALK_MAX, type TalkProposal, type TalkQuote, type TalkTurn, type TalkWho } from '../../../packages/core/src/plan-talk.ts';
 import { planVersion } from '../../../packages/core/src/plan.ts';
+import { ANSWER_MAX, OPTIONS_MAX, QUESTIONS_MAX, turnQuestions } from '../../../packages/core/src/talk-questions.ts';
 import { byName } from './plan.ts';
 import { type Action, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
 
@@ -69,10 +70,25 @@ export interface TicketTurn {
   open: boolean;
   /** Said before there was a plan (T-111): the page shows "Before the plan" for its version. */
   before: boolean;
-  /** For the agent's answer before the plan (T-111): what it's unsure of, and its questions. */
-  unsure: string[];
-  asks: string[];
+  /** Its words run past about REPLY_LINES lines (T-113): the page folds them, with Show more. */
+  long: boolean;
 }
+
+/** One of the agent's questions, as the panel asks it (T-113): its answers, the suggestion first, and whether own words go. */
+export interface TicketQuestion {
+  question: string;
+  why: string;
+  options: { label: string; suggested: boolean }[];
+  own: boolean;
+}
+
+/** About how many lines of a reply show before it folds (T-113), and how many characters a line holds, as the panel's width reads. */
+export const REPLY_LINES = 8;
+const LINE_CHARS = 80;
+
+/** Whether words run past about REPLY_LINES lines: a line each, and a long one wraps. */
+export const longText = (text: string): boolean =>
+  text.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / LINE_CHARS)), 0) > REPLY_LINES;
 
 /** What is under way for a plan being made from the conversation (T-111): its ticket being read, then the plan. */
 export type Making = 'reading' | 'planning';
@@ -109,6 +125,16 @@ export interface TicketTalk {
   skip: { disabled: string | null } | null;
   /** A plan being made from it (T-111): its ticket being read, then the plan. */
   making: { phase: Making; words: string } | null;
+  /**
+   * The agent's questions waiting for the person (T-113): its last reply's, while nothing was said after it and
+   * the plan is the version it asked about. Null with none, or past the build.
+   */
+  questions: { turn: string; items: TicketQuestion[] } | null;
+  /**
+   * How many turns fold under "Earlier in this conversation" (T-113): all before the person's last message, so the
+   * latest exchange shows; 0 when there's nothing earlier.
+   */
+  earlier: number;
 }
 
 export interface TalkIn {
@@ -128,7 +154,7 @@ export interface TalkIn {
 export const conversationWords = (messages: number): string => `Conversation · ${messages} message${messages === 1 ? '' : 's'}`;
 
 /** What the opening conversation says first, under its question (T-111). */
-export const OPENING_NOTE = 'Say it in your own words. The planning agent reads the ticket, says what it understood and what it\'s unsure of, and asks a few questions before it makes the plan.';
+export const OPENING_NOTE = 'Say it in your own words. The planning agent reads the ticket, says what it understood, and asks a few questions, one at a time, before it makes the plan.';
 
 /**
  * Why a proposal can't be used now, or null: it was made on an older version, whose choices the new one may
@@ -153,11 +179,29 @@ function askFirst(p: TalkProposal, a: Analysis): string | null {
   return same ? null : CHANGE_APPROVED;
 }
 
+/** A turn's words, and what a reply kept before T-113 was unsure of, under them. */
+const words = (t: TalkTurn): string => (t.unsure?.length ? `${t.text}\n\nNot sure yet:\n${t.unsure.map((u) => `- ${u}`).join('\n')}` : t.text);
+
+/** The questions the agent's last reply asks, while they wait for the person; else null. */
+function openQuestions(i: TalkIn, todo: boolean): TicketTalk['questions'] {
+  const last = i.talk.turns.at(-1);
+  const items = last?.who === 'agent' ? turnQuestions(last) : [];
+  const version = i.analysis ? planVersion(i.analysis) : 0;
+  if (!todo || !last || !items.length || last.version !== version) return null;
+  return { turn: last.id, items: items.map((q) => ({ question: q.question, why: q.why, options: q.options.map((label, k) => ({ label, suggested: k === 0 })), own: q.own })) };
+}
+
+/** The turns before the person's last message, which fold (T-113); with no message of theirs, all but the last. */
+function earlierTurns(t: PlanTalk): number {
+  const last = t.turns.map((x) => x.who).lastIndexOf('you');
+  return last >= 0 ? last : Math.max(0, t.turns.length - 1);
+}
+
 /** Each turn as the page shows it, with its proposals' Use this; before there is a plan, it has none. */
 function ticketTurns(i: TalkIn, todo: boolean, busy: string | null): TicketTurn[] {
   const a = i.analysis;
   return i.talk.turns.map((t) => ({
-    id: t.id, who: t.who, ...TALK_WHO[t.who], by: t.who === 'you' || t.who === 'claude-code' ? byName(t.by) : null, at: t.at, version: t.version, text: t.text, about: t.about ?? null,
+    id: t.id, who: t.who, ...TALK_WHO[t.who], by: t.who === 'you' || t.who === 'claude-code' ? byName(t.by) : null, at: t.at, version: t.version, text: words(t), about: t.about ?? null,
     proposals: a ? (t.proposals ?? []).map((p) => ({
       id: p.id, words: proposalWords(p, a), why: p.why, used: p.used ? { by: byName(p.used.by), at: p.used.at } : null,
       use: p.used || !todo ? null : { disabled: stale(p, t.version, a) ?? busy },
@@ -165,7 +209,7 @@ function ticketTurns(i: TalkIn, todo: boolean, busy: string | null): TicketTurn[
       from: !p.used && t.version !== planVersion(a) ? t.version : null,
     })) : [],
     recorded: t.recorded ?? [], failed: t.failed ?? null, open: t.who === 'claude-code' && !!t.sessionId && i.open.includes(t.sessionId),
-    before: isOpening(t), unsure: t.unsure ?? [], asks: t.asks ?? [],
+    before: isOpening(t), long: longText(words(t)),
   }));
 }
 
@@ -200,6 +244,8 @@ export function ticketTalk(i: TalkIn): TicketTalk | null {
     draft: opening && todo ? { disabled: busy ?? (before ? null : 'Say what you\'re thinking first, or skip to the plan.') } : null,
     skip: opening && todo ? { disabled: busy } : null,
     making: making ? { phase: making, words: MAKING_WORDS[making] } : null,
+    questions: openQuestions(i, todo),
+    earlier: earlierTurns(i.talk),
   };
 }
 
@@ -212,7 +258,17 @@ export type Message =
   /** Use this: a reply's proposal, recorded as the person's (T-98). `yes` when it changes an approved plan. */
   | { type: 'talk-use'; project: string; task: string; turn: string; proposal: string; yes?: true }
   /** Open in Claude Code (T-98): the plan, in plan mode, in the project's main checkout. */
-  | { type: 'talk-claude'; project: string; task: string };
+  | { type: 'talk-claude'; project: string; task: string }
+  /** The person's answers to a reply's questions (T-113), together: an option by its place, own words, or null for skipped. */
+  | { type: 'talk-answers'; project: string; task: string; turn: string; answers: TalkAnswerIn[] };
+
+/** One answer as the page sends it. */
+export type TalkAnswerIn = { option: number } | { text: string } | null;
+
+/** An answer the page may send: skipped, one of at most four options, or own words no longer than ANSWER_MAX. */
+const answerOk = (a: unknown): boolean => a === null || (typeof a === 'object' && !Array.isArray(a) && (
+  Object.keys(a).join() === 'option' ? Number.isInteger((a as { option: unknown }).option) && (a as { option: number }).option >= 0 && (a as { option: number }).option < OPTIONS_MAX
+    : Object.keys(a).join() === 'text' && short((a as { text: unknown }).text, ANSWER_MAX)));
 
 const forTask = (x: Record<string, unknown>): boolean => short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string);
 
@@ -221,5 +277,6 @@ export const area: ModelArea = {
     'talk-send': (x) => forTask(x) && short(x.text, TALK_MAX) && !!(x.text as string).trim() && (x.about === undefined || (typeof x.about === 'string' && TALK_REF.test(x.about))),
     'talk-use': (x) => forTask(x) && typeof x.turn === 'string' && /^t\d{1,5}$/.test(x.turn) && typeof x.proposal === 'string' && /^p\d{1,3}$/.test(x.proposal) && (x.yes === undefined || x.yes === true),
     'talk-claude': forTask,
+    'talk-answers': (x) => forTask(x) && typeof x.turn === 'string' && /^t\d{1,5}$/.test(x.turn) && Array.isArray(x.answers) && x.answers.length >= 1 && x.answers.length <= QUESTIONS_MAX && x.answers.every(answerOk),
   },
 };

@@ -8,6 +8,7 @@ import type { RepoPaths } from '../../../packages/core/src/paths.ts';
 import { readAnalysis } from '../../../packages/core/src/analyze.ts';
 import { openingSession } from '../../../packages/core/src/plan-opening.ts';
 import { type ClaudeLaunch, type PlanTalk, readTalk, talking } from '../../../packages/core/src/plan-talk.ts';
+import { answersText, type TalkAnswer, turnQuestions } from '../../../packages/core/src/talk-questions.ts';
 import { startArgs } from './conversation.ts';
 import { accRefusal } from './connect.ts';
 import { inProcessWords } from './processes.ts';
@@ -109,6 +110,21 @@ export class Talks {
       this.busy.delete(key);
       this.changed(root, id);
     }
+  }
+
+  /**
+   * The person's answers to a reply's questions (T-113), as one message: numbered with the questions acc kept,
+   * and sent as their next turn. Refused once the reply isn't the last turn, or when the count doesn't match.
+   */
+  async answers(root: string, raw: string, turn: string, answers: TalkAnswer[]): Promise<TalkReply> {
+    const id = raw.toUpperCase();
+    const paths = this.host.paths(root);
+    if (!paths) return { ok: false, error: 'That project isn\'t open any more.' };
+    const t = readTalk(paths, id).turns;
+    const asked = t.at(-1)?.id === turn && t.at(-1)?.who === 'agent' ? turnQuestions(t.at(-1)!) : [];
+    if (!asked.length) return { ok: false, error: 'Those questions aren\'t waiting any more: something was said since.' };
+    if (asked.length !== answers.length) return { ok: false, error: `The planning agent asked ${asked.length} question${asked.length === 1 ? '' : 's'}, and ${answers.length} answer${answers.length === 1 ? '' : 's'} came.` };
+    return this.send(root, id, answersText(asked, answers));
   }
 
   /** Use this: the proposal recorded as the person's, with their yes when it changes an approved plan. */

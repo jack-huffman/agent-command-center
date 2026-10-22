@@ -47,6 +47,7 @@ export const area: ExtensionArea = {
       state: (root, id) => talks.state(root, id),
       async act(m, say) {
         const r = m.type === 'talk-send' ? await talks.send(m.project, m.task, m.text, m.about)
+          : m.type === 'talk-answers' ? await talks.answers(m.project, m.task, m.turn, m.answers)
           : m.type === 'talk-use' ? await talks.use(m.project, m.task, m.turn, m.proposal, m.yes === true)
             : await talks.claude(m.project, m.task);
         say({ type: TALK_DONE, action: m.type, project: m.project, task: m.task, ...(m.type === 'talk-use' ? { turn: m.turn, proposal: m.proposal } : {}), ...r });
