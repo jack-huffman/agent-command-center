@@ -1,10 +1,11 @@
 // acc's Agents commands that take a task on from its build: analyze, analysis, review, land, autopilot
 // and sync.
 
-import { AccError, alive, type Analysis, analyze, answerAnalysis, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, type BuilderPlace, clearBranchMoves, closesIssues, closeWords, cloudNeeds, cloudReason, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, pruneVerifications, readAnalysis, review, reviewInCloud, reviewPlace, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, alive, type Analysis, analyze, answerAnalysis, analysisRequired, planProblems, questionsForYou, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, type BuilderPlace, clearBranchMoves, closesIssues, closeWords, cloudNeeds, cloudReason, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, pruneVerifications, readAnalysis, review, reviewInCloud, reviewPlace, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, steps, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
+import { askedOf, planLines } from './plan.ts';
 
 /**
  * Where this review runs (T-86): --cloud or --local, else the project's setting. The setting's cloud is
@@ -64,7 +65,9 @@ function analysisLines(a: Analysis): string[] {
   const list = (title: string, xs: string[]) => (xs.length ? ['', title, ...xs.map((x) => `  - ${x}`)] : []);
   return [
     head,
-    ...(a.questions.length ? ['', 'Questions', ...a.questions.map((q) => `  ${q.id}. ${q.question}${q.answer ? tone(`  → ${q.answer.text}`, 'blue') : tone(`  (suggested: ${q.suggested})`, 'dim')}`)] : []),
+    // Its version, choices and approval (T-97).
+    ...(planLines(a).length ? ['', ...planLines(a)] : []),
+    ...(a.questions.length ? ['', 'Questions', ...a.questions.map((q) => `  ${q.id}. ${q.question} ${tone(`(${askedOf(q)})`, 'dim')}${q.answer ? tone(`  → ${q.answer.text}`, 'blue') : tone(`  (suggested: ${q.suggested})`, 'dim')}`)] : []),
     ...list('Acceptance criteria', a.requirements.criteria),
     // The wording check on its requirements (T-12): advice, never a hold.
     ...(a.wording?.length ? ['', tone(`! ${wordingWords(a.wording.length)}`, 'orange'), ...a.wording.map((f) => `  - ${wordingPlace(f)}: ${f.message} [${f.match}]`)] : []),
@@ -104,10 +107,11 @@ function cmdShowAnalysis(o: Opts, id: string): number {
 
 function cmdAnswerAnalysis(o: Opts, id: string, q: string, text: string): number {
   const by = personOnly(o, 'answer an analysis\'s questions');
-  const { paths } = project(process.cwd());
+  const { paths, config } = project(process.cwd());
   const a = answerAnalysis(paths, id.toUpperCase(), q, text, by, now);
-  const open = openQuestions(a);
-  out(o, () => (open.length ? `Answered. ${open.length} to go: ${open.map((x) => x.id).join(', ')}.` : tone(`Answered. ${a.task} is ready to build: acc dispatch ${a.task}.`, 'blue')), a);
+  // A question for the ticket's author holds nothing (T-97): those for you are what's left to do.
+  const open = questionsForYou(a);
+  out(o, () => (open.length ? `Answered. ${open.length} to go: ${open.map((x) => x.id).join(', ')}.` : [tone('Answered. Every question for you is answered.', 'blue'), ...(analysisRequired(config) ? planProblems(a, a.task).map((l) => tone(`  ${l}`, 'dim')) : [])].join('\n')), a);
   return 0;
 }
 
