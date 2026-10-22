@@ -68,7 +68,7 @@ const under = (path: string, area: string): boolean => {
 interface AzureColumn { id: string; name: string; columnType: string; stateMappings: Record<string, string> }
 
 /** A board's card rules (T-95): its tag style rules each name a tag and its background colour. A rule turned off counts for nothing. */
-interface CardRules { rules?: { tagStyle?: { name?: string; isEnabled?: boolean | string; settings?: Record<string, string> }[] } }
+interface CardRules { rules?: { tagStyle?: { name?: string; isEnabled?: boolean | string; settings?: Record<string, string | undefined> }[] } }
 
 /** The tag colours a board's card rules give, by tag name in lower case (T-95). A rule turned off, or with no colour, gives none. */
 export function tagColours(r: CardRules | null | undefined): Map<string, string> {
