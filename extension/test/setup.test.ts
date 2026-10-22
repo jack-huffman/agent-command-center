@@ -282,7 +282,7 @@ test('a project started from an epic signs in under the key it has once acc init
   const done = acc(['init', ...pending.args, ...initArgs({ tracker }), '--json']);
   assert.equal(done.status, 0, done.stdout + done.stderr);
   const written = parseConfig(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8'))).config!;
-  assert.deepEqual(written.trackers.map((t) => [t.kind, t.epic]), [['jira', 'ACME-3']]);
+  assert.deepEqual(written.trackers.map((t) => [t.kind, t.epics]), [['jira', ['ACME-3']]]);
   // As the hub builds a project from its folder once it's written.
   const loaded = { config: written, ledgerPath: join(common, 'acc', 'ledger.json') };
   assert.equal(repoKey(pending), repoKey(loaded));

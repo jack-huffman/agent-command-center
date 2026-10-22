@@ -1,5 +1,6 @@
 /** The Connect page (GH-51) at each of its steps. */
-import { AZURE, GITHUB, JIRA, jiraSprintOptions, MONDAY, reactionOptions, SLACK, type TrackerDescription } from '../../../packages/core/src/trackers/connect.ts';
+import { AZURE, GITHUB, githubProjectOptions, JIRA, jiraSprintOptions, MONDAY, reactionOptions, SLACK, type TrackerDescription } from '../../../packages/core/src/trackers/connect.ts';
+import { GITHUB_NO_PROJECT, type GithubProject } from '../../../packages/core/src/trackers/github.ts';
 import { countValues, placeKey } from '../../../packages/core/src/trackers/preview.ts';
 import type { Board, StatusCategory, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import { blankConnect, connectModel, type ConnectModel, type ConnectState, connectValues } from '../../src/model/connect.ts';
@@ -18,7 +19,7 @@ const SPRINTS = jiraSprintOptions([
 ]);
 
 /** Which Connect page to draw (GH-51). */
-export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'sprint' | 'monday' | 'slack' | 'slack-refused' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github' | 'jira-board' | 'azure-board';
+export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'sprint' | 'monday' | 'slack' | 'slack-refused' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github' | 'jira-board' | 'azure-board' | 'github-board' | 'github-access' | 'jira-epics';
 
 /** The tickets the sample boards hold (T-106), by title: a board takes as many as each column asks for, in turn. */
 const TITLES = [
@@ -77,6 +78,9 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   if (which === 'start') return connectModel(blankConnect(JIRA, { id: 'c-start', ...base }));
   if (which.startsWith('epic')) return sampleStart(which);
   if (which === 'jira-board' || which === 'azure-board') return sampleBoards(which);
+  if (which === 'github-board' || which === 'github-access') return sampleGithub(which);
+  // Two epics ticked (T-107), and the board of both.
+  if (which === 'jira-epics') return sampleChoosing('epic');
   if (which === 'shared') {
     const s = blankConnect(JIRA, { id: 'c-shared', ...base });
     s.host = 'acme.atlassian.net';
@@ -87,7 +91,7 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     s.host = 'acme.atlassian.net';
     s.signIn = { ...ok('Jordan Kim'), shared: true };
     s.pickers.project = ready(PROJECTS, ['ACME']);
-    s.pickers.epic = { options: [], selected: [], state: 'loading', error: null };
+    s.pickers.epics = { options: [], selected: [], state: 'loading', error: null };
     s.pickers.board = { options: [], selected: [], state: 'failed', error: 'Jira answered HTTP 503: the service is unavailable.' };
     return connectModel(s);
   }
@@ -102,6 +106,7 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   if (which === 'github') {
     const s = blankConnect(GITHUB, { id: 'c-github', ...base });
     s.signIn = ok('jordan-kim');
+    s.pickers.board = ready(githubProjectOptions('jordan-kim', []), [GITHUB_NO_PROJECT]);
     s.pickers.labels = ready(['billing', 'bug', 'documentation', 'enhancement', 'good first issue', 'invoices', 'milestone', 'question'].map((l) => ({ value: l, label: l })), ['billing', 'invoices']);
     // Those labels hold no open issue (T-106): the preview says so, and what to change.
     s.boards[placeKey(connectValues(s, GITHUB))] = read(sampleBoard('github', 'Issues · acme/service', [['Open', 'todo', 0], ['Closed', 'done', 0]]));
@@ -147,20 +152,20 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     return connectModel(s);
   }
   if (which === 'sprint') {
-    const s = blankConnect(JIRA, { id: 'c-sprint', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epic: null, board: '7', sprint: 'active' } } });
+    const s = blankConnect(JIRA, { id: 'c-sprint', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epics: null, board: '7', sprint: 'active' } } });
     s.signIn = { ...ok('Jordan Kim'), shared: true };
     s.pickers.project = ready([], ['ACME']);
-    s.pickers.epic = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }]);
+    s.pickers.epics = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }]);
     s.pickers.board = ready(BOARDS, ['7']);
     s.pickers.sprint = ready(SPRINTS, ['active']);
     // The board couldn't be read (T-106): Use this board stays off, and Read it again is offered.
     s.boards[placeKey(connectValues(s, JIRA))] = read(null, 'failed', 'Jira answered HTTP 503: the service is unavailable.');
     return connectModel(s);
   }
-  const s = blankConnect(JIRA, { id: 'c-existing', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epic: 'ACME-3', board: '7' } } });
+  const s = blankConnect(JIRA, { id: 'c-existing', ...base, existing: { index: 0, title: 'Jira · ACME', host: 'acme.atlassian.net', values: { project: 'ACME', epics: ['ACME-3'], board: '7' } } });
   s.signIn = { ...ok('Jordan Kim'), shared: false };
   s.pickers.project = ready([], ['ACME']);
-  s.pickers.epic = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }], ['ACME-3']);
+  s.pickers.epics = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }], ['ACME-3']);
   s.pickers.board = ready(BOARDS, ['7']);
   s.pickers.sprint = ready(SPRINTS);
   // Its changes field (T-105): one row after its place, the field its settings name.
@@ -196,12 +201,15 @@ function sampleBoards(which: 'jira-board' | 'azure-board'): ConnectModel {
 
 /**
  * The Jira page of sampleBoards (T-106) at a moment of the behaviour case: its preview still being read, drawn
- * for ACME-31, or ACME-30 chosen, whose board its card's count has read already.
+ * for ACME-31, or ACME-30 ticked too (T-107), with the board of both epics.
  */
 export function sampleChoosing(step: 'reading' | 'shown' | 'epic'): ConnectModel {
   const s = jiraBoards();
   if (step === 'reading') delete s.boards[placeKey(connectValues(s, JIRA))];
-  if (step === 'epic') s.pickers.epic!.selected = ['ACME-30'];
+  if (step === 'epic') {
+    s.pickers.epics!.selected = ['ACME-31', 'ACME-30'];
+    s.boards[placeKey(connectValues(s, JIRA))] = read(sampleBoard('jira', 'ACME Service board', [['To Do', 'todo', 5], ['In Progress', 'doing', 3], ['In Review', 'doing', 1], ['Done', 'done', 6]], 'ACME', 40));
+  }
   return connectModel(s);
 }
 
@@ -212,17 +220,46 @@ function jiraBoards(): ConnectState {
   s.signIn = { state: 'ok', who: 'Jordan Kim', error: null, again: false, shared: true };
   s.pickers.project = ready(PROJECTS, ['ACME']);
   const epics = [['ACME-31', 'Renewals'], ['ACME-30', 'Partner portal'], ['ACME-28', 'Invoices by email'], ['ACME-27', 'Usage reports'], ['ACME-24', 'Single sign-on'], ['ACME-22', 'Mobile app'], ['ACME-19', 'Data export'], ['ACME-17', 'Onboarding emails'], ['ACME-12', 'Price list'], ['ACME-9', 'Audit log']];
-  s.pickers.epic = ready(epics.map(([value, detail]) => ({ value: value!, label: value!, detail: detail! })), ['ACME-31']);
+  s.pickers.epics = ready(epics.map(([value, detail]) => ({ value: value!, label: value!, detail: detail! })), ['ACME-31']);
   s.pickers.board = ready(BOARDS, ['7']);
   s.pickers.sprint = ready(SPRINTS);
   const jira = (counts: number[], first = 40) => sampleBoard('jira', 'ACME Service board', [['To Do', 'todo', counts[0]!], ['In Progress', 'doing', counts[1]!], ['In Review', 'doing', counts[2]!], ['Done', 'done', counts[3]!]], 'ACME', first);
   counted(s, JIRA, 'board', { 7: read(jira([3, 2, 1, 5])), 9: read(null, 'failed', 'Jira answered HTTP 503.') });
-  counted(s, JIRA, 'epic', {
+  counted(s, JIRA, 'epics', {
     '': read(jira([18, 9, 6, 14])), 'ACME-31': read(jira([3, 2, 1, 5])), 'ACME-30': read(jira([2, 1, 0, 1], 60)), 'ACME-28': read(jira([1, 1, 0, 2], 70)),
     'ACME-27': read(null, 'loading'), 'ACME-24': read(jira([0, 0, 0, 0])),
   });
   s.boards[placeKey(connectValues(s, JIRA))] = read(jira([3, 2, 1, 5]));
   return s;
+}
+
+/** The repo's Projects as the GitHub page's cards (T-107): two open, one closed, and one with no Status field, which isn't offered. */
+export const GITHUB_PROJECTS: GithubProject[] = [
+  { number: 5, title: 'Renewals launch', items: 17, closed: false, status: true },
+  { number: 3, title: 'Service roadmap', items: 42, closed: false, status: true },
+  { number: 2, title: 'Ideas', items: 8, closed: false, status: false },
+  { number: 1, title: 'Old backlog', items: 120, closed: true, status: true },
+];
+
+/**
+ * GitHub's Projects as cards (T-107). github-board: Issues, open and closed beside the repo's Projects, Service
+ * roadmap chosen and its board's columns drawn in the preview. github-access: gh can't read Projects, so the
+ * issues' card says how to give it access, and the preview is Open and Closed.
+ */
+function sampleGithub(which: 'github-board' | 'github-access'): ConnectModel {
+  const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
+  const s = blankConnect(GITHUB, { id: `c-${which}`, ...base });
+  s.host = 'acme/service';
+  s.signIn = { state: 'ok', who: 'jordan-kim', error: null, again: false };
+  const access = which === 'github-access';
+  s.pickers.board = ready(githubProjectOptions('jordan-kim', access ? null : GITHUB_PROJECTS), [access ? GITHUB_NO_PROJECT : '3']);
+  s.pickers.labels = ready(['billing', 'bug', 'documentation', 'renewals'].map((l) => ({ value: l, label: l })));
+  const board = access
+    ? sampleBoard('github', 'Issues · acme/service', [['Open', 'todo', 9], ['Closed', 'done', 3]], 'GH', 101)
+    : { ...sampleBoard('github', 'Service roadmap', [['Todo', 'todo', 6], ['In Progress', 'doing', 3], ['In Review', 'doing', 2], ['Done', 'done', 9]], 'GH', 101), source: 'github-project' as const };
+  s.boards[placeKey(connectValues(s, GITHUB))] = read(board);
+  counted(s, GITHUB, 'labels', { '': read(board) });
+  return connectModel(s);
 }
 
 /** A project started from Setup's "From a Jira epic…" (GH-81), at each of its kinds. */
@@ -245,6 +282,7 @@ function sampleStart(which: ConnectSample): ConnectModel {
   if (which === 'epic-github') {
     const s = blankConnect(GITHUB, { id: 'c-epic-github', ...base });
     s.signIn = { state: 'ok', who: 'jordan-kim', error: null, again: false };
+    s.pickers.board = ready(githubProjectOptions('jordan-kim', []), [GITHUB_NO_PROJECT]);
     s.pickers.labels = ready(['billing', 'bug', 'documentation', 'enhancement', 'invoices', 'renewals'].map((l) => ({ value: l, label: l, ...(l === 'billing' ? { usedBy: 'used by acme-billing' } : {}) })), ['billing', 'renewals']);
     return connectModel(s);
   }
@@ -252,7 +290,7 @@ function sampleStart(which: ConnectSample): ConnectModel {
   s.host = 'acme.atlassian.net';
   s.signIn = { state: 'ok', who: 'Jordan Kim', error: null, again: false, shared: true };
   s.pickers.project = ready(PROJECTS, ['ACME']);
-  s.pickers.epic = ready([
+  s.pickers.epics = ready([
     { value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' },
     { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal', usedBy: 'used by acme-portal' },
     { value: 'ACME-12', label: 'ACME-12', detail: 'Single sign-on for the customer portal and the partner portal' },

@@ -38,7 +38,7 @@ test('init --tracker writes the tracker picked on the Connect page, narrowed to 
   const tracker = { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' };
   const dry = acc(dir, ['init', '--profile', 'generic', '--tracker', JSON.stringify(tracker), '--dry-run', '--json']);
   assert.equal(dry.code, 0, dry.err);
-  assert.deepEqual(dry.json().config.trackers.map((t: Record<string, unknown>) => [t.kind, t.site, t.project, t.board, t.epic]), [['jira', 'acme.atlassian.net', 'ACME', 7, 'ACME-3']]);
+  assert.deepEqual(dry.json().config.trackers.map((t: Record<string, unknown>) => [t.kind, t.site, t.project, t.board, t.epics]), [['jira', 'acme.atlassian.net', 'ACME', 7, ['ACME-3']]]);
   assert.equal(existsSync(join(dir, '.acc', 'config.json')), false, 'a dry run writes nothing');
   assert.ok(!existsSync(REPOS_FILE) || !readFileSync(REPOS_FILE, 'utf8').includes(dir), 'nor lists the repo');
 

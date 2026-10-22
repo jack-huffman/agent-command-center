@@ -129,7 +129,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/trackers/azure.ts': ['azureProjects', 'azureTeams', 'azureBoards'],
   'packages/core/src/trackers/connect.ts': ['JIRA_TOKENS', 'AZURE_SCOPE'],
   'packages/core/src/trackers/doc.ts': ['emptyDoc'],
-  'packages/core/src/trackers/github.ts': ['issueRepo', 'hasPlaceLabel', 'githubOutside', 'issueNumber', 'pickProject'],
+  'packages/core/src/trackers/github.ts': ['issueRepo', 'hasPlaceLabel', 'githubOutside', 'issueNumber'],
   'packages/core/src/trackers/jira.ts': ['jiraProjects', 'jiraBoards'],
   'packages/core/src/trackers/monday.ts': ['MONDAY_API', 'MONDAY_VERSION', 'mondayTokenPage', 'mondayCall', 'statusLabels', 'pickStatusColumn', 'mondayBoards', 'mondayGroups', 'mondayStatusColumns'],
   'packages/core/src/trackers/types.ts': ['isTrackerKind', 'signInLabel', 'outsideError', 'orList', 'inBatches'],

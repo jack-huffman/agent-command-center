@@ -340,7 +340,7 @@ const linkText = (s: string): string => s.replace(/([[\]\\])/g, '\\$1');
 const code = (s: string): string => `\`${s.replace(/`/g, '')}\``;
 
 /**
- * Where each tracker's tickets come from, when it's narrower than its project (GH-81): a Jira epic by its
+ * Where each tracker's tickets come from, when it's narrower than its project (GH-81): each Jira epic by its
  * key, linked; an Azure DevOps area path, in its project, linked; each GitHub label, linked to its issues;
  * a monday.com group, on its board, linked. The key, never the epic's name: the README doesn't go stale when
  * an epic is renamed, and nothing is read from the tracker to write it.
@@ -348,9 +348,11 @@ const code = (s: string): string => `\`${s.replace(/`/g, '')}\``;
 export function readmePlaces(config: Config): ReadmePlace[] {
   const out: ReadmePlace[] = [];
   for (const t of config.trackers) {
-    if (t.kind === 'jira' && t.epic && t.site) {
-      const url = `https://${t.site}/browse/${encodeURIComponent(t.epic)}`;
-      out.push({ line: `Jira epic [${linkText(t.epic)}](${url})`, words: `the Jira epic ${t.epic}`, needs: [url] });
+    if (t.kind === 'jira' && t.epics.length && t.site) {
+      // Each epic linked (T-107): a ticket under any of them is the project's.
+      const s = t.epics.length > 1 ? 's' : '';
+      const urls = t.epics.map((e) => `https://${t.site}/browse/${encodeURIComponent(e)}`);
+      out.push({ line: `Jira epic${s} ${orList(t.epics.map((e, i) => `[${linkText(e)}](${urls[i]})`))}`, words: `the Jira epic${s} ${orList(t.epics)}`, needs: urls });
     } else if (t.kind === 'azure' && t.areaPath && t.organization && t.project) {
       const url = `https://dev.azure.com/${encodeURIComponent(t.organization)}/${encodeURIComponent(t.project)}`;
       out.push({ line: `Azure DevOps area path ${code(t.areaPath)} in [${linkText(t.project)}](${url})`, words: `the Azure DevOps area path ${t.areaPath}`, needs: [t.areaPath, url] });

@@ -23,7 +23,7 @@ test('a disabled Connect button says why: sign in, then each choice, in the orde
   const signed = connectModel(s);
   assert.match(signed.save.why?.label ?? '', /^Choose a project/, 'signed in: only the choices are left');
   s.pickers.project = { options: [{ value: 'ACME', label: 'ACME' }], selected: ['ACME'], state: 'ready', error: null };
-  s.pickers.epic = { options: [], selected: [], state: 'ready', error: null };
+  s.pickers.epics = { options: [], selected: [], state: 'ready', error: null };
   s.pickers.board = { options: [], selected: [], state: 'ready', error: null };
   const done = connectModel(s);
   assert.equal(done.save.can, done.save.why === null, 'a button that is on has no reason');

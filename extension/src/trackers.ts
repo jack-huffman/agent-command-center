@@ -9,7 +9,7 @@ import type { IntakeResult } from '../../packages/core/src/intake.ts';
 import { readSprints, sprintTracker } from '../../packages/core/src/sprints.ts';
 import { AzureClient } from '../../packages/core/src/trackers/azure.ts';
 import { AZURE_SCOPE, describe, type SignIn } from '../../packages/core/src/trackers/connect.ts';
-import { GithubClient } from '../../packages/core/src/trackers/github.ts';
+import { GithubClient, githubBoard } from '../../packages/core/src/trackers/github.ts';
 import { JiraClient } from '../../packages/core/src/trackers/jira.ts';
 import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import { SLACK_PREFIX, SlackClient } from '../../packages/core/src/trackers/slack.ts';
@@ -149,7 +149,7 @@ export class Trackers implements vscode.Disposable {
 
   /** Where a tracker's tickets come from, as its config says (D-072). */
   place(t: Tracker): string {
-    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epic: t.epic, sprint: t.sprint, labels: t.labels, areaPath: t.areaPath, account: t.account, board: t.board, group: t.group, workspace: t.workspace, channel: t.channel });
+    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epics: t.epics, sprint: t.sprint, labels: t.labels, areaPath: t.areaPath, account: t.account, board: t.board, group: t.group, workspace: t.workspace, channel: t.channel });
   }
 
   /**
@@ -252,7 +252,7 @@ export class Trackers implements vscode.Disposable {
     if (t.kind === 'github') {
       const account = p.config.github?.account;
       if (!t.repo || !account) throw new TrackerError('other', 'A GitHub tracker needs the project\'s GitHub repo and account, in its settings.');
-      return new GithubClient({ repo: t.repo, token: await this.ghToken(p.root, account), account, exec, project: typeof t.board === 'number' ? t.board : null, labels: t.labels });
+      return new GithubClient({ repo: t.repo, token: await this.ghToken(p.root, account), account, exec, project: githubBoard(t.board), labels: t.labels });
     }
     const found = await this.credFor(p, t);
     const c = found?.cred ?? null;
@@ -262,7 +262,7 @@ export class Trackers implements vscode.Disposable {
     }
     if (t.kind === 'jira') {
       if (!c || c.kind !== 'jira') throw new TrackerError('auth', `Sign in to Jira (${t.site}) for this repo to see its board and tickets.`);
-      return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epic: t.epic, sprint: t.sprint });
+      return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epics: t.epics, sprint: t.sprint });
     }
     if (t.kind === 'monday') {
       if (!c || c.kind !== 'monday') throw new TrackerError('auth', `Sign in to monday.com (${t.account}) for this repo to see its board and items.`);
