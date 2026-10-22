@@ -53,11 +53,16 @@ change, and the Mac's run never reads or raises a CI floor. A CI run
 where that exists, else to the Mac's floor, and says which in its log. A clean
 CI run raises only the CI floors that exist, and prints them, since CI commits
 nothing. Where a count can't match the Mac's, a person adds its CI floor from
-the run's summary. They are flat names beside the Mac's, not an object under a
-`ci` key, so every acc already installed still reads the file (a nested entry
-makes `readFloors` refuse it), the floors driver merges them, and the
-screenshots check's guard on lowered floors covers them. None exists yet: no
-Linux run had happened when this was written.
+the run's summary. The task asked for them under a `ci` key; they are flat
+`screenshots.ci.<check>` names beside the Mac's instead, and the person accepted
+that at review. `parseFloors` (`packages/core/src/ratchets.ts`) refuses any
+entry that isn't a floor or a ceiling, so a nested `ci` object would make every
+acc already installed refuse the whole file. As flat names, the floors driver
+merges them and the screenshots check's guard on lowered floors covers them.
+None exists yet: no Linux run had happened when this was written. The first
+Linux run is read on this change's pull request once a person pushes the
+branch; any `screenshots.ci.*` floor or `CI_SKIPS` entry it calls for comes
+back as a follow-up task.
 
 **Stored floors keep a margin.** Two runs of one commit counted a few apart
 (clipped 101904 and 101898; a11y 445830 and 445794), and T-102 stored each floor
@@ -66,7 +71,9 @@ at one run's exact count, so main's own run fell below it. The person relaxed
 22 October and chose a margin: a clean run that raises a stored screenshot
 floor, the Mac's or the CI's, now stores it about 1% below its count, rounded
 down (`storedFloor` in `extension/scripts/geometry.ts`), and raises it only when
-that beats the floor. A later run a few under the clean count still passes; a
+that beats the floor. T-103 merged first and stored clipped 104146 and a11y
+451246 at its run's exact counts; this change takes those higher floors, since
+only a person lowers one, and the margin applies from the next raise on. A later run a few under the clean count still passes; a
 page that loses real content, 2% or more, still fails. The run's own check is
 unchanged: it fails below the stored floor. The page checks' floors follow the
 pages, as before.
