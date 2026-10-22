@@ -889,8 +889,11 @@ export const CASES: Case[] = [
       // Edge: Escape mid-step closes it, sends nothing, and keeps the step and its pick for the next open.
       await t.escape(dialog);
       t.check('Escape mid-step closes it and sends nothing', !dialog.open && t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      // Opened again, it starts at the first step not done; the choice's dot goes back to it, its pick still there.
       await t.click(t.find('.plan-actions .rp-open'));
-      t.check('reopened, it is at the same step with the pick kept', dialog.open && at() === 'd1' && picked() === 'b', [dialog.open, at(), picked()]);
+      t.check('it opens again', dialog.open, dialog.open);
+      await t.click(t.all<HTMLButtonElement>('.rp-dot', dialog)[2]!);
+      t.check('the pick made before Escape is kept', at() === 'd1' && picked() === 'b', [at(), picked()]);
       await t.click(footButton('Back'));
       t.check('Back goes to the step before', at() === 'q3', at());
       await t.click(footButton('Next'));
