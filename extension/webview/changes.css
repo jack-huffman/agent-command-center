@@ -1,0 +1,14 @@
+/* A task's Planned changes, then Changes (T-99): its counts beside the heading, then each group's sets. */
+.chg-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.chg-top > h2 { margin-bottom: 4px; }
+.chg-counts { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 4px; }
+.chg-count.on { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.chg-note { margin: 2px 0 6px; }
+.chg-title { margin: 8px 0 2px; font-size: 0.95em; }
+.chg-set { margin: 4px 0 6px; }
+.chg-head { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.chg-list { list-style: none; margin: 2px 0 0; padding: 0 0 0 12px; }
+/* Each item: its name, then its mark, wrapping under it on a narrow page. */
+.chg-item { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; padding: 2px 0; }
+.chg-name { min-width: 0; overflow-wrap: anywhere; }
+.chg-item > .status { flex: none; }

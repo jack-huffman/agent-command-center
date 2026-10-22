@@ -26,7 +26,7 @@ function setup() {
   gitIn(dir, 'commit', '-q', '-am', 'main moves on');
   const paths = repoPaths(dir, run);
   mutate(paths, now, (l, emit) => {
-    l.tasks.push(task({ state: 'review', run: { branch: BRANCH, worktree: null } }));
+    l.tasks.push(task({ state: 'review', run: { branch: BRANCH } }));
     emit({ type: 'task.added', task: 'T-1', actor: 'human', by: 'test', data: {} });
   });
   return { dir, paths };
@@ -66,10 +66,10 @@ test('edge case: a branch git doesn\'t have, a commit it doesn\'t know and no me
   const s = setup();
   assert.equal(mergeCommitPaths(run, s.dir, 'f'.repeat(40)), null);
   assert.equal(mergeOf(run, s.dir, `refs/heads/${BRANCH}`, 'main'), null, 'not merged yet');
-  assert.equal(mergedPaths(run, s.dir, task({ run: { branch: 'task/nowhere', worktree: null } })), null);
+  assert.equal(mergedPaths(run, s.dir, task({ run: { branch: 'task/nowhere' } })), null);
   assert.equal(mergedPaths(run, s.dir, task()), null, 'no branch and no pull request');
   assert.equal(recordChanges(s.paths, run, now, 'T-9', { actor: 'human', by: 'test' }), null, 'no such task');
-  mutate(s.paths, now, (l, emit) => { l.tasks[0]!.run = { branch: 'task/nowhere', worktree: null }; emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'test', data: {} }); });
+  mutate(s.paths, now, (l, emit) => { l.tasks[0]!.run = { branch: 'task/nowhere' }; emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'test', data: {} }); });
   assert.equal(recordChanges(s.paths, run, now, 'T-1', { actor: 'human', by: 'test' }), null);
   assert.equal(first(s.paths).changes, undefined, 'nothing written');
 });
