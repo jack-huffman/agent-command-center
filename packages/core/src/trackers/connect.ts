@@ -6,12 +6,12 @@
  * names, and the extension carries out.
  */
 import type { Tracker } from '../config.ts';
-import { azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from './azure.ts';
+import { AzureClient, azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from './azure.ts';
 import { GithubClient } from './github.ts';
 import { JiraClient, jiraBoards, jiraEpics, jiraProjects, jiraSprints } from './jira.ts';
-import { mondayBoards, mondayGroups, mondayMe, mondayStatusColumns, mondayTokenPage } from './monday.ts';
-import { SLACK_APPS, SLACK_REACTIONS, slackApp, slackCanRead, slackChannels } from './slack.ts';
-import { type Exec, type Person, type Sprint, sprintDates, TrackerError } from './types.ts';
+import { MondayClient, mondayBoards, mondayGroups, mondayMe, mondayStatusColumns, mondayTokenPage } from './monday.ts';
+import { SLACK_APPS, SLACK_REACTIONS, slackApp, slackCanRead, slackChannels, SlackClient } from './slack.ts';
+import { type Exec, type Person, type Sprint, sprintDates, type TrackerClient, TrackerError } from './types.ts';
 
 /** One thing to type: an email, or a token, which the page shows as a password field and never keeps. */
 export interface FieldSpec {
@@ -109,6 +109,8 @@ export interface PickerSpec {
   hideSingle?: boolean;
   /** What the tracker does without a choice, when its list couldn't load: then Save needn't wait for it. */
   fallback?: string;
+  /** Each choice's card says how many tickets its board would hold (T-106), read when the card is drawn. */
+  counts?: boolean;
   hint?: string;
   load: (ctx: Ctx) => Promise<Option[]>;
 }
@@ -147,6 +149,12 @@ export interface TrackerDescription {
   listsTitle?: string;
   /** Who the sign-in is, or a TrackerError saying why not. */
   verify: (ctx: Ctx) => Promise<Person>;
+  /**
+   * The board the choices so far make (T-106), before anything is kept: a client for that place, whose board()
+   * alone is read; words for a place that has no board, such as a Slack channel with no reaction; or null while
+   * the choices make no place yet.
+   */
+  preview: (ctx: Ctx) => TrackerClient | string | null;
   /**
    * A last check of the choices, with the sign-in, before Save writes them, such as a Slack board's scope (T-85).
    * It throws why Save can't go yet, which the page shows beside Save.
@@ -219,14 +227,14 @@ export const JIRA: TrackerDescription = {
   pickers: [
     { key: 'project', label: 'Project', dependsOn: [], identifies: true, load: async (ctx) => (await jiraProjects(ctx.host, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((p) => ({ value: p.key, label: p.key, detail: p.name })) },
     {
-      key: 'epic', label: 'Epic', dependsOn: ['project'], whole: (c) => `The whole ${one(c.values.project) ?? ''} project`,
+      key: 'epic', label: 'Epic', dependsOn: ['project'], whole: (c) => `The whole ${one(c.values.project) ?? ''} project`, counts: true,
       hint: 'Pick an epic to take only its tickets and their sub-tasks.',
       load: async (ctx) => (await jiraEpics(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((e) => ({ value: e.key, label: e.key, detail: e.name })),
     },
     {
       key: 'board', label: 'Board', dependsOn: ['project'], hint: 'Its columns are the Tasks tab\'s. Its own filter still applies, so pick one that shows the place\'s tickets.',
-      fallback: 'Without one, the Tasks tab shows the project\'s first board.',
-      load: async (ctx) => (await jiraBoards(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((b, i) => ({ value: String(b.id), label: b.name, detail: b.type, preferred: i === 0 })),
+      fallback: 'Without one, the Tasks tab shows the project\'s first board.', counts: true,
+      load: async (ctx) => (await jiraBoards(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((b, i) => ({ value: String(b.id), label: b.name, detail: boardKind(b.type), preferred: i === 0 })),
     },
     {
       key: 'sprint', label: 'Sprint', dependsOn: ['project', 'board'], idValues: true, whole: () => 'The whole board',
@@ -237,9 +245,17 @@ export const JIRA: TrackerDescription = {
   ],
   place: { key: 'epic', words: 'In Jira, it\'s the epic itself: only its child tickets and their sub-tasks are this project\'s.' },
   verify: (ctx) => new JiraClient({ site: ctx.host, project: '', ...jiraWith(ctx), fetch: ctx.fetch }).me(),
+  preview: (ctx) => {
+    const project = one(ctx.values.project);
+    const board = one(ctx.values.board);
+    return project ? new JiraClient({ site: ctx.host, project, ...jiraWith(ctx), board: board ? Number(board) : null, epic: one(ctx.values.epic), sprint: sprintValue(one(ctx.values.sprint)), fetch: ctx.fetch }) : null;
+  },
   toConfig: (c) => ({ kind: 'jira', site: c.host, project: one(c.values.project), board: one(c.values.board) ? Number(one(c.values.board)) : null, epic: one(c.values.epic), sprint: sprintValue(one(c.values.sprint)) }),
   fromConfig: (t) => ({ host: t.site ?? '', values: { project: t.project, epic: t.epic, board: t.board === null ? null : String(t.board), sprint: t.sprint === null ? null : String(t.sprint) } }),
 };
+
+/** A Jira board's kind as its card says it (T-106): Scrum or Kanban, else Jira's own word. */
+export const boardKind = (type: string): string => ({ scrum: 'Scrum', kanban: 'Kanban', simple: 'Team-managed' } as Record<string, string>)[type.toLowerCase()] ?? type;
 
 /** The sprint as the config keeps it (T-78): "active", a sprint's id, or null for the whole board. */
 const sprintValue = (v: string | null): 'active' | number | null => (v === 'active' ? 'active' : v && /^\d+$/.test(v) ? Number(v) : null);
@@ -270,12 +286,13 @@ export const GITHUB: TrackerDescription = {
     hint: 'GitHub signs in through gh, as the project\'s own account. There\'s nothing to type.',
   }],
   pickers: [{
-    key: 'labels', label: 'Labels', dependsOn: [], multi: true, whole: (c) => `Every issue in ${c.host}`,
+    key: 'labels', label: 'Labels', dependsOn: [], multi: true, whole: (c) => `Every issue in ${c.host}`, counts: true,
     hint: 'Tick labels to take only issues with one of them. Tick none for every issue.',
     load: async (ctx) => (await github(ctx).labels()).map((l) => ({ value: l.name, label: l.name })),
   }],
   place: { key: 'labels', words: 'In GitHub, labels stand in for an epic: only issues with one of them are this project\'s.' },
   verify: (ctx) => github(ctx).me(),
+  preview: (ctx) => (ctx.signIn.gh ? new GithubClient({ repo: ctx.host, token: ctx.signIn.gh.token, account: ctx.signIn.gh.account, exec: ctx.exec, labels: many(ctx.values.labels) }) : null),
   toConfig: (c) => ({ kind: 'github', repo: c.ownRepo && c.host.toLowerCase() === c.ownRepo.toLowerCase() ? null : c.host, labels: many(c.values.labels).length ? many(c.values.labels) : null }),
   fromConfig: (t, ownRepo) => ({ host: t.repo ?? ownRepo ?? '', values: { labels: t.labels.length ? t.labels : null } }),
 };
@@ -303,19 +320,23 @@ export const AZURE: TrackerDescription = {
   ],
   pickers: [
     { key: 'project', label: 'Project', dependsOn: [], identifies: true, load: async (ctx) => (await azureProjects(ctx.host, azureAuth(ctx.signIn), ctx.fetch)).map((p) => ({ value: p, label: p })) },
-    { key: 'team', label: 'Team', dependsOn: ['project'], hint: 'Whose board.', load: async (ctx) => (await azureTeams(ctx.host, one(ctx.values.project)!, azureAuth(ctx.signIn), ctx.fetch)).map((t, i) => ({ value: t, label: t, ...(i === 0 ? { detail: 'default team', default: true } : {}) })) },
+    { key: 'team', label: 'Team', dependsOn: ['project'], hint: 'Whose board.', counts: true, load: async (ctx) => (await azureTeams(ctx.host, one(ctx.values.project)!, azureAuth(ctx.signIn), ctx.fetch)).map((t, i) => ({ value: t, label: t, ...(i === 0 ? { detail: 'default team', default: true } : {}) })) },
     {
-      key: 'board', label: 'Board', dependsOn: ['project', 'team'], hint: 'Usually the stories or backlog items one.',
-      load: async (ctx) => (await azureBoards(ctx.host, one(ctx.values.project)!, one(ctx.values.team)!, azureAuth(ctx.signIn), ctx.fetch)).map((b) => ({ value: b, label: b, preferred: /stor|backlog item|requirement/i.test(b) })),
+      key: 'board', label: 'Board', dependsOn: ['project', 'team'], hint: 'Usually the stories or backlog items one.', counts: true,
+      load: async (ctx) => (await azureBoards(ctx.host, one(ctx.values.project)!, one(ctx.values.team)!, azureAuth(ctx.signIn), ctx.fetch)).map((b) => ({ value: b, label: b, detail: 'Backlog level', preferred: /stor|backlog item|requirement/i.test(b) })),
     },
     {
-      key: 'areaPath', label: 'Area path', dependsOn: ['project', 'team'], whole: (c) => `All of ${one(c.values.team) ?? 'the team'}'s work items`,
+      key: 'areaPath', label: 'Area path', dependsOn: ['project', 'team'], whole: (c) => `All of ${one(c.values.team) ?? 'the team'}'s work items`, counts: true,
       hint: 'Pick an area path to take only the work items under it.',
       load: async (ctx) => (await azureAreas(ctx.host, one(ctx.values.project)!, one(ctx.values.team)!, azureAuth(ctx.signIn), ctx.fetch)).map((a) => ({ value: a, label: a })),
     },
   ],
   place: { key: 'areaPath', words: 'In Azure DevOps, an area path stands in for an epic: only the work items under it are this project\'s.' },
   verify: (ctx) => azureWhoAmI(ctx.host, azureAuth(ctx.signIn), ctx.fetch),
+  preview: (ctx) => {
+    const project = one(ctx.values.project);
+    return project ? new AzureClient({ organization: ctx.host, project, team: one(ctx.values.team), board: one(ctx.values.board), areaPath: one(ctx.values.areaPath), auth: async () => azureAuth(ctx.signIn), fetch: ctx.fetch }) : null;
+  },
   toConfig: (c) => ({ kind: 'azure', organization: c.host, project: one(c.values.project), team: c.defaults.includes('team') ? null : one(c.values.team), board: one(c.values.board), areaPath: one(c.values.areaPath) }),
   fromConfig: (t) => ({ host: t.organization ?? '', values: { project: t.project, team: t.team, board: typeof t.board === 'string' ? t.board : null, areaPath: t.areaPath } }),
 };
@@ -337,11 +358,11 @@ export const MONDAY: TrackerDescription = {
   }],
   pickers: [
     {
-      key: 'board', label: 'Board', dependsOn: [], identifies: true, idValues: true,
+      key: 'board', label: 'Board', dependsOn: [], identifies: true, idValues: true, counts: true,
       load: async (ctx) => (await mondayBoards(tokenOf(ctx), ctx.fetch)).map((b) => ({ value: b.id, label: b.name, detail: b.workspace })),
     },
     {
-      key: 'group', label: 'Group', dependsOn: ['board'], whole: (c) => `Every group on ${c.labels?.board ?? 'the board'}`,
+      key: 'group', label: 'Group', dependsOn: ['board'], whole: (c) => `Every group on ${c.labels?.board ?? 'the board'}`, counts: true,
       hint: 'Pick a group to take only its items.',
       load: async (ctx) => (await mondayGroups(one(ctx.values.board)!, tokenOf(ctx), ctx.fetch)).map((g) => ({ value: g.id, label: g.title })),
     },
@@ -357,6 +378,10 @@ export const MONDAY: TrackerDescription = {
     // A token is one account's: one from another would show another client's boards.
     if (me.account && me.account !== ctx.host) throw new TrackerError('auth', `This token is for the monday.com account ${me.account}, not ${ctx.host}. Make one in ${ctx.host}.monday.com, or change the account above.`);
     return { id: me.id, name: me.name };
+  },
+  preview: (ctx) => {
+    const board = one(ctx.values.board);
+    return board ? new MondayClient({ account: ctx.host, board, group: one(ctx.values.group), statusColumn: one(ctx.values.statusColumn), token: tokenOf(ctx), fetch: ctx.fetch }) : null;
   },
   toConfig: (c) => ({
     kind: 'monday', account: c.host, board: one(c.values.board) ? Number(one(c.values.board)) : null, group: one(c.values.group),
@@ -402,6 +427,14 @@ export const SLACK: TrackerDescription = {
   }],
   place: { key: 'channel', words: 'In Slack, the channel stands in for an epic: only its threads are this project\'s.' },
   verify: (ctx) => slackApp(ctx.host, tokenOf(ctx), ctx.fetch),
+  // With no reaction there's no board (T-85): the preview says so, and a thread is added by its link.
+  preview: (ctx) => {
+    const channel = one(ctx.values.channel);
+    if (!channel) return null;
+    const reaction = one(ctx.values.reaction);
+    if (!reaction) return SLACK_NO_BOARD;
+    return new SlackClient({ workspace: ctx.host, channel, token: tokenOf(ctx), reaction, doneReaction: reaction === one(ctx.values.doneReaction) ? null : one(ctx.values.doneReaction), fetch: ctx.fetch });
+  },
   // With a reaction, the board reads the channel's history: Save checks the app may, and names a missing scope.
   beforeSave: async (ctx) => {
     const reaction = one(ctx.values.reaction);
@@ -416,6 +449,9 @@ export const SLACK: TrackerDescription = {
   }),
   fromConfig: (t) => ({ host: t.workspace ?? '', values: { channel: t.channel, reaction: t.reaction, doneReaction: t.doneReaction } }),
 };
+
+/** What the preview says of a Slack channel with no reaction (T-106): there's no board to draw. */
+export const SLACK_NO_BOARD = 'No board: with no reaction, each thread is added to your work by its link.';
 
 /** The reactions a Slack board's lists offer (T-85), by name between colons, as Slack shows them. */
 export const reactionOptions = (): Option[] => SLACK_REACTIONS.map((r) => ({ value: r, label: `:${r}:` }));

@@ -152,7 +152,8 @@ export const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira
 /** How many people a tracker's card shows (T-91), and how many labels where nothing measures them (T-94). */
 const CARD_MOST = 3;
 
-export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement {
+/** A tracker's card on the Tasks tab, or `still` in the Connect page's preview (T-106): drawn alike, but nothing opens or moves it. */
+export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard, still = false): HTMLElement {
   const kind = el('span', 'tcard-type', typeMark(c.typeIcon, c.typeColor));
   kind.title = c.type ?? 'Issue';
   const prio = c.priorityIcon ? el('span', 'tcard-prio', icon(c.priorityIcon)) : null;
@@ -177,6 +178,7 @@ export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTML
     c.track?.error ? el('div', 'card-note conflict tcard-conflict', icon('warning'), el('span', '', `Couldn't track it: ${c.track.error}`)) : null,
   );
   card.dataset.key = c.key;
+  if (still) { card.setAttribute('aria-description', `${c.status}.`); return card; }
   // A Slack board's cards stay in their columns (T-85): acc changes no reaction.
   card.draggable = b.moves;
   // No aria-label (T-59): what the card shows names it, its labels, people and Moving badge too. Its status,

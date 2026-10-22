@@ -46,6 +46,7 @@ import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleTalkApproved } from './fixtures/talk.ts';
+import { sampleChoosing } from './fixtures/connect.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
 import { taskSheetOff } from '../src/model/task-sheet.ts';
@@ -146,6 +147,11 @@ export interface BehaviourData {
  * `none` is the same page with no project chosen, where Test connection is off too: its model, and the reason it gives.
  */
   connect: { save: string; why: string; none: { model: ConnectModel; testWhy: string } };
+  /**
+   * Choosing a board by seeing it (T-106): the Jira page with its preview still being read, drawn for ACME-31,
+   * and with ACME-30 chosen; each preview's line, Use this board's label and why it's off while it reads.
+   */
+  choose: { reading: ConnectModel; shown: ConnectModel; epic: ConnectModel; line: string; epicLine: string; use: string; wait: string };
   /**
    * The command palette (T-52), on the Tasks board: the sections an empty query shows, in order; the task
    * "16" finds first, with the message that opens it in the modal; the query whose second result Down and
@@ -1080,6 +1086,59 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'connect: choosing a board shows its preview, an epic changes it, and Use this board saves only from it',
+    page: 'connect-start',
+    async run(t) {
+      const want = t.data.choose;
+      const show = async (connect: ConnectModel) => {
+        const home = structuredClone(t.model) as HomeModel;
+        home.connect = connect;
+        await t.post({ type: 'state', model: home });
+      };
+      const use = () => {
+        const b = t.all<HTMLButtonElement>('.connect-preview .connect-foot button').find((x) => x.textContent?.trim() === want.use);
+        if (!b) throw new Error(`not found: the ${want.use} button in the preview`);
+        return b;
+      };
+      const card = (value: string, within: string) => t.find<HTMLLabelElement>(`#connect-${within} .ccard[data-value="${CSS.escape(value)}"]`);
+      // The board is chosen, its preview still being read: Use this board is off, and says why.
+      await show(want.reading);
+      t.check('while the board is read, Use this board is off', use().disabled, use().title);
+      t.check('and its title says why', use().title === want.wait, use().title);
+      t.check('the preview draws a skeleton while it reads', t.all('.connect-preview .ccard-skeleton').length > 0);
+      // A board's card sends its choice.
+      await t.click(card('9', 'board'));
+      const picked = t.sent('connect-pick').at(-1);
+      t.check('a board\'s card sends its choice', picked?.key === 'board' && picked.value === '9', picked);
+      // Its preview drawn: the line, its columns, and the Tasks tab's cards.
+      await show(want.shown);
+      t.check('the preview says how many tickets, in how many columns', t.find('.connect-preview > .status').textContent?.trim() === want.line, t.find('.connect-preview > .status').textContent);
+      t.check('it draws the board\'s columns', t.all('.connect-preview .cpreview-col').length === want.shown.preview.board!.columns.length, t.all('.cpreview-col').length);
+      t.check('with the Tasks tab\'s cards', t.all('.connect-preview .tcard').length > 0);
+      t.check('ACME-31\'s card is ticked', card('ACME-31', 'epic').classList.contains('on'));
+      // The search hides the epics it doesn't match.
+      const search = t.find<HTMLInputElement>('input.ccards-search');
+      // Edge: a search that matches no epic says so, and hides every epic but the whole project.
+      await t.type(search, 'no such epic');
+      t.check('a search that matches none says so', !t.find('#connect-epic ~ .ccards-none').hidden);
+      search.value = '';
+      await t.type(search, 'partner');
+      t.check('a search that matches one hides the line again', t.find('#connect-epic ~ .ccards-none').hidden === true);
+      const shown = t.all<HTMLElement>('#connect-epic .ccard').filter((c) => !c.hidden && c.dataset.value).map((c) => c.dataset.value);
+      t.check('the search shows only the epics it matches', shown.length === 1 && shown[0] === 'ACME-30', shown);
+      // Another epic changes it.
+      await t.click(card('ACME-30', 'epic'));
+      const epic = t.sent('connect-pick').at(-1);
+      t.check('an epic\'s card sends its choice', epic?.key === 'epic' && epic.value === 'ACME-30', epic);
+      await show(want.epic);
+      t.check('the preview changes with the epic', t.find('.connect-preview > .status').textContent?.trim() === want.epicLine && want.epicLine !== want.line, t.find('.connect-preview > .status').textContent);
+      t.check('and ACME-30 is ticked now', card('ACME-30', 'epic').classList.contains('on') && !card('ACME-31', 'epic').classList.contains('on'));
+      t.check('Use this board is on', !use().disabled);
+      await t.click(use());
+      t.check('Use this board saves the place', t.sent('connect-save').length === 1, t.sent('connect-save'));
+    },
+  },
+  {
     name: 'agent page: Stop stands apart from the header\'s other buttons, and the question card keeps In the terminal but not In Claude Code, unless the header has none',
     page: 'agent',
     async run(t) {
@@ -1796,6 +1855,10 @@ export const MUTANTS: Mutant[] = [
   { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
   { name: 'the Connect page draws no status line beside Save', file: 'connect.ts', find: '(m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null', replace: 'm.save.look ? status(m.save.look) : null', kills: [caseNamed('connect: a button that is off')] },
   { name: 'the Connect page leaves Save\'s title empty', file: 'connect.ts', find: 'if (m.save.why) save.title = m.save.why.label;', replace: '', kills: [caseNamed('connect: a button that is off')] },
+  { name: 'Use this board saves without a preview', file: 'connect.ts', find: 'save.disabled = !m.save.can;', replace: 'save.disabled = false;', kills: [caseNamed('connect: choosing a board')] },
+  { name: 'the preview draws no board', file: 'choose-board.ts', find: 'const board = p.board ? el(', replace: 'const board = p.board && false ? el(', kills: [caseNamed('connect: choosing a board')] },
+  { name: 'a card sends no choice', file: 'choose-board.ts', find: "input.addEventListener('change', () => pick(input));", replace: '', kills: [caseNamed('connect: choosing a board')] },
+  { name: 'the search hides nothing', file: 'choose-board.ts', find: '      card.hidden = hide;\n', replace: '', kills: [caseNamed('connect: choosing a board')] },
   { name: 'the Connect page draws no status line beside Test connection', file: 'connect.ts', find: 'm.signIn.why ? status(m.signIn.why) : null', replace: 'null', kills: [caseNamed('connect: with no project chosen')] },
   { name: 'the Connect page leaves Test connection\'s title empty', file: 'connect.ts', find: 'if (m.signIn.why) testButton.title = m.signIn.why.label;', replace: '', kills: [caseNamed('connect: with no project chosen')] },
   { name: 'Stop sits with the other header buttons', file: 'agent-page.ts', find: '.filter((a) => a !== stop)', replace: '.filter(() => true)', kills: [caseNamed('agent page: Stop stands apart')] },
@@ -1871,6 +1934,13 @@ function connectData(model: Model): BehaviourData['connect'] {
   return { save: model.connect.save.label, why: model.connect.save.why.label, none: { model: none, testWhy: none.signIn.why.label } };
 }
 
+/** What the case for choosing a board expects (T-106): its three moments, from the fixtures the shots draw. */
+function chooseData(): BehaviourData['choose'] {
+  const [reading, shown, epic] = [sampleChoosing('reading'), sampleChoosing('shown'), sampleChoosing('epic')];
+  if (reading.preview.state !== 'loading' || !reading.save.why || shown.preview.state !== 'ready' || epic.preview.state !== 'ready') throw new Error('The case for choosing a board needs a preview being read, then two drawn.');
+  return { reading, shown, epic, line: shown.preview.look.label, epicLine: epic.preview.look.label, use: shown.save.label, wait: reading.save.why.label };
+}
+
 /** What Settings' case expects (T-40): from the model, each part's heading and each explanation, folded or kept. */
 function settingsData(model: Model): BehaviourData['settings'] {
   if (model.kind !== 'home') throw new Error('The Settings case needs a home model.');
@@ -1908,6 +1978,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     project: ROOT,
     settings: settingsData(models.settings),
     connect: connectData(models.connect),
+    choose: chooseData(),
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
     palette: paletteData(models.tasks, now),
     review: reviewData(models.review),
