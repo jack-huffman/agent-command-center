@@ -5,7 +5,7 @@
  * token or a personal access token, kept for one repo only.
  */
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
-import { isEmail, personName, typeKindOf } from './normal.ts';
+import { hexOf, isEmail, personName, typeKindOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Label, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Status,
   type StatusCategory, textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
@@ -52,7 +52,11 @@ const person = (i: Identity | null | undefined): Person | null => {
 };
 /** A state among its type's states, or, when they couldn't be read, the state's name under way. */
 const stateIn = (states: Status[], name: string): Status => states.find((s) => s.name === name) ?? { id: name, name, category: 'doing' };
-const tags = (s: unknown): Label[] => (typeof s === 'string' ? s.split(';').map((t) => t.trim()).filter(Boolean).map((name) => ({ name, color: null })) : []);
+/** A name's colour in a map of them by name in lower case (T-95), whatever its case, or null. */
+const colourOf = (colours: Map<string, string>, name: string): string | null => colours.get(name.toLowerCase()) ?? null;
+/** A work item's tags, each with its colour from the board's card rules (T-95); a tag with no rule has none. */
+const tags = (s: unknown, colours: Map<string, string> = new Map()): Label[] =>
+  (typeof s === 'string' ? s.split(';').map((t) => t.trim()).filter(Boolean).map((name) => ({ name, color: colourOf(colours, name) })) : []);
 const quote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 /** Whether an area path is the place's, or under it. Azure's paths ignore case. */
 const under = (path: string, area: string): boolean => {
@@ -62,6 +66,19 @@ const under = (path: string, area: string): boolean => {
 };
 
 interface AzureColumn { id: string; name: string; columnType: string; stateMappings: Record<string, string> }
+
+/** A board's card rules (T-95): its tag style rules each name a tag and its background colour. A rule turned off counts for nothing. */
+interface CardRules { rules?: { tagStyle?: { name?: string; isEnabled?: boolean | string; settings?: Record<string, string> }[] } }
+
+/** The tag colours a board's card rules give, by tag name in lower case (T-95). A rule turned off, or with no colour, gives none. */
+export function tagColours(r: CardRules | null | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const rule of r?.rules?.tagStyle ?? []) {
+    const colour = hexOf(rule.settings?.['background-color']);
+    if (rule.name && colour && String(rule.isEnabled ?? true).toLowerCase() !== 'false') out.set(rule.name.toLowerCase(), colour);
+  }
+  return out;
+}
 
 /** The tenant that owns an organization, from the header Azure DevOps sends even without signing in. */
 export async function tenantOf(organization: string, f: typeof fetch = fetch): Promise<string | null> {
@@ -84,6 +101,12 @@ export class AzureClient implements TrackerClient {
   private readonly area: string | null;
   private boardCache: Promise<{ team: string; id: string; name: string; columns: AzureColumn[]; columnField: string }> | null = null;
   private readonly statesCache = new Map<string, Promise<Status[]>>();
+  /**
+   * The tracker's own colours (T-95): the board's tag colours from its card rules, and each work item type's, by
+   * name in lower case. Read again with every board; a ticket reuses the last read, or reads them once. A call
+   * that fails gives no colours, and says nothing.
+   */
+  private coloursCache: Promise<{ tags: Map<string, string>; types: Map<string, string> }> | null = null;
 
   constructor(o: AzureOptions) {
     this.o = o;
@@ -170,8 +193,23 @@ export class AzureClient implements TrackerClient {
     return this.boardCache;
   }
 
+  /** The tracker's own colours (T-95), read again when `fresh`. */
+  private colours(fresh = false) {
+    if (fresh || !this.coloursCache) {
+      const none = () => new Map<string, string>();
+      const tagsRead = this.boardInfo()
+        .then((b) => this.req<CardRules>('GET', `/${this.proj}/${encodeURIComponent(b.team)}/_apis/work/boards/${encodeURIComponent(b.id)}/cardrulesettings?${API}`))
+        .then(tagColours, none);
+      const typesRead = this.req<{ value: { name: string; color?: string }[] }>('GET', `/${this.proj}/_apis/wit/workitemtypes?${API}`)
+        .then((r) => new Map((r?.value ?? []).flatMap((t) => { const c = hexOf(t.color); return c && t.name ? [[t.name.toLowerCase(), c] as [string, string]] : []; })), none);
+      this.coloursCache = Promise.all([tagsRead, typesRead]).then(([tags, types]) => ({ tags, types }));
+    }
+    return this.coloursCache;
+  }
+
   async board(): Promise<Board> {
     const b = await this.boardInfo();
+    const colours = this.colours(true);
     const t = encodeURIComponent(b.team);
     const columns: BoardColumn[] = b.columns.map((c) => ({ id: c.name, name: c.name, category: COLUMN_CATEGORY[c.columnType] ?? 'doing', statusIds: [c.name] }));
     const types = [...new Set(b.columns.flatMap((c) => Object.keys(c.stateMappings)))];
@@ -199,6 +237,7 @@ export class AzureClient implements TrackerClient {
     // Each card's type's states, read once per type, give its state's own category (T-90). One that can't be read leaves the column's.
     const typeStates = new Map<string, Status[]>();
     for (const type of new Set(items.map((it) => String(it.fields['System.WorkItemType'] ?? '')))) typeStates.set(type, await this.states(type).catch(() => []));
+    const own = await colours;
     const cards: BoardCard[] = [];
     for (const it of items) {
       const f = it.fields;
@@ -214,7 +253,7 @@ export class AzureClient implements TrackerClient {
         key: this.keyOf(it.id), title: String(f['System.Title'] ?? ''), url: this.urlOf(it.id),
         // The column is where the card sits; its state's category, where known, is how far along it is.
         status: { id: col.name, name: state, category: known?.category ?? COLUMN_CATEGORY[col.columnType] ?? 'doing', ...(known?.reason ? { reason: known.reason } : {}) },
-        type, typeKind: typeKindOf(type), assignees: assignee ? [assignee] : [], labels: tags(f['System.Tags']),
+        type, typeKind: typeKindOf(type), typeColor: colourOf(own.types, type), assignees: assignee ? [assignee] : [], labels: tags(f['System.Tags'], own.tags),
         ...priorityOf(f['Microsoft.VSTS.Common.Priority']),
       });
     }
@@ -256,6 +295,7 @@ export class AzureClient implements TrackerClient {
     const why = this.whyOutside(f, false);
     if (why) throw outsideError({ key: this.keyOf(id), why }, this.place);
     const type = String(f['System.WorkItemType'] ?? '');
+    const own = await this.colours();
     const states = await this.states(type).catch(() => [] as Status[]);
     const stateName = String(f['System.State'] ?? '');
     const rich = (field: string): Doc => {
@@ -286,21 +326,21 @@ export class AzureClient implements TrackerClient {
       for (const g of got.value) {
         const t = String(g.fields['System.WorkItemType'] ?? '');
         const s = String(g.fields['System.State'] ?? '');
-        linked.set(g.id, { title: String(g.fields['System.Title'] ?? ''), status: s ? stateIn(t ? await this.states(t).catch(() => []) : [], s) : null, typeKind: typeKindOf(t) });
+        linked.set(g.id, { title: String(g.fields['System.Title'] ?? ''), status: s ? stateIn(t ? await this.states(t).catch(() => []) : [], s) : null, typeKind: typeKindOf(t), typeColor: colourOf(own.types, t) });
       }
     }
     return {
-      key: this.keyOf(id), kind: 'azure', url: this.urlOf(id), title: String(f['System.Title'] ?? ''), type: type || null, typeKind: typeKindOf(type),
+      key: this.keyOf(id), kind: 'azure', url: this.urlOf(id), title: String(f['System.Title'] ?? ''), type: type || null, typeKind: typeKindOf(type), typeColor: colourOf(own.types, type),
       status: stateIn(states, stateName),
       assignees: [person(f['System.AssignedTo'] as Identity)].filter((p): p is Person => !!p),
-      reporter: person(f['System.CreatedBy'] as Identity), labels: tags(f['System.Tags']), ...priorityOf(f['Microsoft.VSTS.Common.Priority']),
+      reporter: person(f['System.CreatedBy'] as Identity), labels: tags(f['System.Tags'], own.tags), ...priorityOf(f['Microsoft.VSTS.Common.Priority']),
       created: String(f['System.CreatedDate'] ?? ''), updated: String(f['System.ChangedDate'] ?? ''),
       body, markdown: toMarkdown(body),
       comments: comments.comments.map((c) => ({
         id: String(c.id), author: person(c.createdBy) ?? { id: '', name: 'Someone' }, created: c.createdDate,
         body: (c.format ?? '').toLowerCase() === 'markdown' ? fromMarkdown(c.text) : fromHtml(c.text), url: `${this.urlOf(id)}#${c.id}`,
       })),
-      related: links.map((l) => ({ key: this.keyOf(l.id), relation: l.relation, url: this.urlOf(l.id), title: '', status: null, typeKind: null, ...linked.get(l.id) })),
+      related: links.map((l) => ({ key: this.keyOf(l.id), relation: l.relation, url: this.urlOf(l.id), title: '', status: null, typeKind: null, typeColor: null, ...linked.get(l.id) })),
     };
   }
 

@@ -58,7 +58,7 @@ const priorityOf = (p: { name: string } | null | undefined): { priority: string 
 /** What a linked issue, a parent or a sub-task carries with it. Each field may be left out. */
 interface Linked { key: string; fields: { summary: string; status?: JiraStatus; issuetype?: { name: string; subtask?: boolean } } }
 const related = (i: Linked, relation: string, url: string): Related => ({
-  key: i.key, title: i.fields.summary, relation, url, status: i.fields.status ? status(i.fields.status) : null, typeKind: typeKindOf(i.fields.issuetype?.name, !!i.fields.issuetype?.subtask),
+  key: i.key, title: i.fields.summary, relation, url, status: i.fields.status ? status(i.fields.status) : null, typeKind: typeKindOf(i.fields.issuetype?.name, !!i.fields.issuetype?.subtask), typeColor: null,
 });
 
 export class JiraClient implements TrackerClient {
@@ -240,7 +240,7 @@ export class JiraClient implements TrackerClient {
     }
     const cards: BoardCard[] = issues.map((i) => ({
       key: i.key, title: i.fields.summary, url: `${this.base}/browse/${i.key}`, status: status(i.fields.status),
-      type: i.fields.issuetype?.name ?? null, typeKind: typeKindOf(i.fields.issuetype?.name, !!i.fields.issuetype?.subtask), assignees: i.fields.assignee ? [person(i.fields.assignee)] : [],
+      type: i.fields.issuetype?.name ?? null, typeKind: typeKindOf(i.fields.issuetype?.name, !!i.fields.issuetype?.subtask), typeColor: null, assignees: i.fields.assignee ? [person(i.fields.assignee)] : [],
       labels: (i.fields.labels ?? []).map((name): Label => ({ name, color: null })), ...priorityOf(i.fields.priority),
     }));
     // The board's filter and the place both apply, so a filter that leaves the epic's tickets out shows nothing.
@@ -291,7 +291,7 @@ export class JiraClient implements TrackerClient {
     const f = i.fields;
     const browse = (k: string) => `${this.base}/browse/${k}`;
     return {
-      key: i.key, kind: 'jira', url: browse(i.key), title: f.summary, type: f.issuetype?.name ?? null, typeKind: typeKindOf(f.issuetype?.name, !!f.issuetype?.subtask), status: status(f.status),
+      key: i.key, kind: 'jira', url: browse(i.key), title: f.summary, type: f.issuetype?.name ?? null, typeKind: typeKindOf(f.issuetype?.name, !!f.issuetype?.subtask), typeColor: null, status: status(f.status),
       assignees: f.assignee ? [person(f.assignee)] : [], reporter: f.reporter ? person(f.reporter) : null,
       labels: (f.labels ?? []).map((name) => ({ name, color: null })), ...priorityOf(f.priority),
       created: f.created, updated: f.updated, body: fromAdf(f.description), markdown: toMarkdown(fromAdf(f.description)), unkept: adfUnkept(f.description),

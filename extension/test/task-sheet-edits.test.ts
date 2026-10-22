@@ -119,7 +119,7 @@ test('the page\'s messages: Save\'s base and a Change are checked before the ext
 
 test('the task page\'s description has Edit only where the tracker allows edits and acc keeps a task, off with why while its builder runs', () => {
   const t: Ticket = {
-    key: 'ACME-7', kind: 'jira', url: 'u', title: 'T', type: null, typeKind: null, status: { id: '1', name: 'To Do', category: 'todo' }, assignees: [], reporter: null, labels: [], priority: null, priorityLevel: null,
+    key: 'ACME-7', kind: 'jira', url: 'u', title: 'T', type: null, typeKind: null, typeColor: null, status: { id: '1', name: 'To Do', category: 'todo' }, assignees: [], reporter: null, labels: [], priority: null, priorityLevel: null,
     created: '2026-10-01T00:00:00Z', updated: '2026-10-01T00:00:00Z', body: { blocks: [] }, markdown: '', comments: [], related: [],
   };
   const task = { ...jira(), history: [], createdAt: '', updatedAt: '', blocker: null, run: null, pr: null } as unknown as Task;

@@ -67,7 +67,7 @@ test('Add to the description is off with why where the sheet can\'t write the de
 });
 
 test('the task page\'s model holds the section for a task, with the ticket\'s unkept parts, and none for a ticket acc keeps no task for', () => {
-  const t = { key: 'ACME-7', kind: 'jira', url: 'u', title: 't', type: null, typeKind: null, status: { id: '1', name: 'To Do', category: 'todo' }, assignees: [], reporter: null, labels: [], priority: null, priorityLevel: null, created: '', updated: '', body: { blocks: [] }, markdown: '', unkept: ['attachments'], comments: [], related: [] } as Ticket;
+  const t = { key: 'ACME-7', kind: 'jira', url: 'u', title: 't', type: null, typeKind: null, typeColor: null, status: { id: '1', name: 'To Do', category: 'todo' }, assignees: [], reporter: null, labels: [], priority: null, priorityLevel: null, created: '', updated: '', body: { blocks: [] }, markdown: '', unkept: ['attachments'], comments: [], related: [] } as Ticket;
   const base = { project: '/r', tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira' as const, key: 'ACME-7', ticket: t, loading: false, error: null, connect: null, row: null, checks: [], trackerEdits: true };
   const m = ticketModel({ ...base, task: jiraTask() as never, draft: draft(), drafting: false });
   assert.equal(m.criteria!.sheet!.disabled, unkeptRefusal(['attachments']));
@@ -112,8 +112,8 @@ function host(opts: { stored?: CriteriaDraft; ticket?: () => Promise<Ticket>; ac
   const calls: { args: string[]; label?: string; ticket: string | null }[] = [];
   const tasks = [jiraTask(), jiraTask({ id: 'T-3', source: { kind: 'manual', key: null, url: null } })];
   const ticket: Ticket = {
-    key: 'ACME-7', kind: 'jira', url: 'u', title: 'Escalate', type: null, typeKind: null, status: { id: '1', name: 'To Do', category: 'todo' }, assignees: [], reporter: null, labels: [], priority: null, priorityLevel: null, created: '', updated: '',
-    body: { blocks: [] }, markdown: 'Premium cases escalate.', comments: [{ id: 'c', author: { id: 'a', name: 'Dana Reyes' }, created: 'd', body: fromMarkdown('Only business hours.'), url: null }], related: [{ key: 'ACME-3', title: 'P', relation: 'parent', url: null, status: null, typeKind: null }],
+    key: 'ACME-7', kind: 'jira', url: 'u', title: 'Escalate', type: null, typeKind: null, typeColor: null, status: { id: '1', name: 'To Do', category: 'todo' }, assignees: [], reporter: null, labels: [], priority: null, priorityLevel: null, created: '', updated: '',
+    body: { blocks: [] }, markdown: 'Premium cases escalate.', comments: [{ id: 'c', author: { id: 'a', name: 'Dana Reyes' }, created: 'd', body: fromMarkdown('Only business hours.'), url: null }], related: [{ key: 'ACME-3', title: 'P', relation: 'parent', url: null, status: null, typeKind: null, typeColor: null }],
   };
   // The tracker: reads only. A write would be recorded, and the tests assert there is none.
   const tracker = { ticket: opts.ticket ?? (async () => ticket), comment: async () => { writes.push('comment'); }, setText: async () => { writes.push('setText'); } };

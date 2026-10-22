@@ -541,7 +541,7 @@ test('an Azure work item: HTML or markdown fields, acceptance criteria, comments
   assert.deepEqual(t.body.blocks.map((b) => b.t), ['p', 'h', 'list'], 'description, then its acceptance criteria under a heading');
   assert.equal((t.body.blocks[2] as { items: { checked?: boolean }[] }).items[1]!.checked, true, 'markdown fields are read as markdown');
   assert.deepEqual(t.comments[0]!.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'On ' }, { t: 'text', text: 'it', marks: ['em'] }] }] });
-  assert.deepEqual(t.related, [{ key: 'AV-90', title: 'Premium support', relation: 'parent', url: 'https://dev.azure.com/acme/CRM/_workitems/edit/90', status: null, typeKind: null }]);
+  assert.deepEqual(t.related, [{ key: 'AV-90', title: 'Premium support', relation: 'parent', url: 'https://dev.azure.com/acme/CRM/_workitems/edit/90', status: null, typeKind: null, typeColor: null }]);
   assert.match(t.markdown, /Premium cases \*\*escalate\*\*/);
   assert.deepEqual((await az.transitions('AV-101')).map((x) => x.name), ['New', 'Resolved', 'Closed'], 'not where it is, and never Removed');
   await az.comment('AV-101', 'Looks **good**');
@@ -738,7 +738,7 @@ test('a monday.com item: its long-text columns are its description, its updates 
     ['u1', 'Jordan Kim', 'https://acme.monday.com/boards/111/pulses/101/posts/u1'], ['u2', 'Pat Lee', 'https://acme.monday.com/boards/111/pulses/101/posts/u2'], ['r1', 'Jordan Kim', 'https://acme.monday.com/boards/111/pulses/101/posts/r1'],
   ], 'oldest first, each update followed by its replies');
   assert.deepEqual(t.comments[1]!.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'On ' }, { t: 'text', text: 'it', marks: ['strong'] }] }] });
-  assert.deepEqual(t.related, [{ key: 'MON-201', title: 'Draft the runbook', relation: 'sub-item', url: 'https://acme.monday.com/boards/112/pulses/201', status: null, typeKind: null }]);
+  assert.deepEqual(t.related, [{ key: 'MON-201', title: 'Draft the runbook', relation: 'sub-item', url: 'https://acme.monday.com/boards/112/pulses/201', status: null, typeKind: null, typeColor: null }]);
   assert.deepEqual(calls[0]!.variables, { ids: ['101'] });
 
   const noText = await mon.ticket('MON-102');

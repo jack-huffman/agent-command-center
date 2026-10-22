@@ -269,7 +269,7 @@ test('a GitHub Project board\'s cards have their issue type\'s kind, and a GitHu
   const projects = JSON.stringify({ data: { repository: { projectsV2: { nodes: [project] } } } });
   const typed = fakeGh((l) => (l.includes('projectsV2') ? projects : items(true)));
   assert.deepEqual((await gh(typed.exec).board()).cards.map((c) => [c.type, c.typeKind]), [['Feature', 'feature']]);
-  assert.ok(typed.lines.some((l) => l.includes('issueType { name }')));
+  assert.ok(typed.lines.some((l) => l.includes('issueType { name color }')));
   const old = fakeGh((l) => (l.includes('projectsV2') ? projects : l.includes('issueType') ? JSON.stringify({ errors: [{ message: 'Field \'issueType\' doesn\'t exist on type \'Issue\'' }] }) : items(false)));
   assert.deepEqual((await gh(old.exec).board()).cards.map((c) => [c.type, c.typeKind]), [[null, null]]);
 });

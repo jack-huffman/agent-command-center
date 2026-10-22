@@ -94,7 +94,7 @@ test('icons for types and priorities, and initials for people', () => {
 });
 
 const ticket: Ticket = {
-  key: 'ACME-1', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-1', title: 'Ready one', type: 'Story', typeKind: 'story', status: { id: '3', name: 'In Progress', category: 'doing' },
+  key: 'ACME-1', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-1', title: 'Ready one', type: 'Story', typeKind: 'story', typeColor: null, status: { id: '3', name: 'In Progress', category: 'doing' },
   assignees: [{ id: 'a', name: 'Pat Lee' }], reporter: null, labels: [], priority: 'High', priorityLevel: 2, created: '2026-09-01T00:00:00Z', updated: '2026-09-02T00:00:00Z',
   body: { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Body' }] }] }, markdown: 'Body', comments: [], related: [],
 };
@@ -554,7 +554,7 @@ test('a monday.com item\'s page: a field edit is refused before monday hears of 
   assert.equal(sent.length, 1);
 
   const item: Ticket = {
-    key: 'MON-101', kind: 'monday', url: 'https://acme.monday.com/boards/111/pulses/101', title: 'Escalate premium cases', type: null, typeKind: null, status: { id: '0', name: 'Working on it', category: 'doing' },
+    key: 'MON-101', kind: 'monday', url: 'https://acme.monday.com/boards/111/pulses/101', title: 'Escalate premium cases', type: null, typeKind: null, typeColor: null, status: { id: '0', name: 'Working on it', category: 'doing' },
     assignees: [], reporter: null, labels: [], priority: null, priorityLevel: null, created: '', updated: '', body: { blocks: [] }, markdown: '## Description\n\nPremium cases escalate.', comments: [], related: [],
   };
   assert.deepEqual(trackInput(item), [{ source: { kind: 'monday', key: 'MON-101', url: 'https://acme.monday.com/boards/111/pulses/101' }, title: 'Escalate premium cases', brief: '## Description\n\nPremium cases escalate.', labels: [] }]);

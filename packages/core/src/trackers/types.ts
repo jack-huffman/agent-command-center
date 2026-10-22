@@ -74,6 +74,8 @@ export interface Ticket {
   type: string | null;
   /** The type's kind (T-90): 'other' for a type no tracker table names, null when there's no type. */
   typeKind: TypeKind | null;
+  /** The type's own colour from the tracker (T-95), a hex without the # as a label's, or null where it gives none. */
+  typeColor: string | null;
   status: Status;
   assignees: Person[];
   reporter: Person | null;
@@ -104,6 +106,8 @@ export interface Related {
   url: string | null;
   status: Status | null;
   typeKind: TypeKind | null;
+  /** Its type's colour from the tracker (T-95), or null. */
+  typeColor: string | null;
 }
 
 /** A move a ticket can make: a Jira transition, a GitHub Project status, or closing and reopening. */
@@ -128,6 +132,8 @@ export interface BoardCard {
   status: Status;
   type: string | null;
   typeKind: TypeKind | null;
+  /** Its type's colour from the tracker (T-95), or null. */
+  typeColor: string | null;
   assignees: Person[];
   labels: Label[];
   priority: string | null;
