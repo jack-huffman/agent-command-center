@@ -119,7 +119,7 @@ const soql = (v: string): string => `'${v.replace(/\\/g, '\\\\').replace(/'/g, "
  * nothing runs them by itself. `org` is the destination's alias, or a placeholder when it has none.
  */
 export function recordScript(c: RecordChange, org: string | null): string[] {
-  const target = `--target-org ${org ?? '<org>'}`;
+  const target = `--target-org ${org === null ? '<org>' : shellArg(org)}`;
   const where = c.match.map((m) => `${m.field} = ${soql(m.value)}`).join(' AND ');
   const check = `sf data query ${target} --query ${shellArg(`SELECT Id FROM ${c.object} WHERE ${where}`)}`;
   if (c.action === 'create') {

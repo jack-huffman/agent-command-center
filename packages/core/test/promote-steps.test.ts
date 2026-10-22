@@ -55,7 +55,7 @@ test('a promotion turns each carried ticket\'s record changes into steps for its
   const task = readLedger(paths.ledger).tasks[0]!;
   assert.deepEqual(openSteps(task).map((s) => [s.step.env, s.step.org, s.step.state]), [['uat', 'Acme UAT', 'todo']]);
   assert.match(body, /## Changes outside git to make by hand \(1\)/);
-  assert.match(body, /sf data update record --target-org Acme UAT --sobject Account --where "Name='Acme Corp'"/);
+  assert.match(body, /sf data update record --target-org "Acme UAT" --sobject Account --where "Name='Acme Corp'"/);
   assert.match(body, /Nothing makes them by itself/);
 });
 

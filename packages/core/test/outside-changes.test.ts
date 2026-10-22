@@ -118,7 +118,7 @@ test('promotion steps are kept per environment, added once, and marked done or s
   assert.equal(stepsLeftWords(r.task(), 'uat'), '1 change outside git still to make in uat');
   const [uat] = stepsOf(r.task(), 'uat');
   assert.equal(uat!.words, 'Account \'Acme Corp\': Name → \'Acme Corporation\'');
-  assert.match(uat!.script.at(-1)!, /--target-org Acme UAT --sobject Account --where/);
+  assert.match(uat!.script.at(-1)!, /--target-org "Acme UAT" --sobject Account --where/);
   markStep(r.paths, r.now, 'T-1', 'c1', 'uat', { done: true }, person);
   markStep(r.paths, r.now, 'T-1', 'c1', 'production', { skip: 'Production already has the new name' }, person);
   const steps = outsideOf(r.task()).steps;

@@ -63,7 +63,7 @@ test('a promotion\'s steps show per environment with their commands, a step to d
   const [p] = r.promotions;
   assert.deepEqual([p!.name, p!.pr?.number, p!.left?.label], ['UAT', 51, '1 step not done']);
   assert.deepEqual(p!.steps.map((s) => [s.look.label, !!s.done, !!s.skip, s.reason]), [['To do', true, true, null], ['Skipped', false, false, 'UAT has it']]);
-  assert.match(p!.steps[0]!.script.at(-1)!, /^sf data update record --target-org acme-uat --sobject Account --where "Name='Acme Corp'"/);
+  assert.match(p!.steps[0]!.script.at(-1)!, /^sf data update record --target-org "acme-uat" --sobject Account --where "Name='Acme Corp'"/);
   const all = ticketRecords(input({}, { outside: outside({ steps: steps.map((s) => ({ ...s, state: 'done' as const })) }) }))!;
   assert.deepEqual([all.look, all.promotions[0]!.left], [RECORD_LOOK.kept, null], 'edge case: every step done leaves nothing to do');
 });

@@ -71,13 +71,19 @@ test('a record change reads plainly: its object, its name, and each field', () =
 
 test('the script for a create, an update and a delete is matched on the stable key, never an ID', () => {
   const update = recordScript(rename, 'acme-uat');
-  assert.equal(update.at(-1), 'sf data update record --target-org acme-uat --sobject Account --where "Name=\'Acme Corp\'" --values "Name=\'Acme Corporation\'"');
-  assert.equal(update[1], 'sf data query --target-org acme-uat --query "SELECT Id FROM Account WHERE Name = \'Acme Corp\'"', 'it checks it finds the record first');
+  assert.equal(update.at(-1), 'sf data update record --target-org "acme-uat" --sobject Account --where "Name=\'Acme Corp\'" --values "Name=\'Acme Corporation\'"');
+  assert.equal(update[1], 'sf data query --target-org "acme-uat" --query "SELECT Id FROM Account WHERE Name = \'Acme Corp\'"', 'it checks it finds the record first');
   const create = recordScript(region, 'acme-uat');
-  assert.equal(create.at(-1), 'sf data create record --target-org acme-uat --sobject Region__c --values "External_Id__c=\'EMEA-1\' Name=\'EMEA\'"', 'the key is set on the new record');
+  assert.equal(create.at(-1), 'sf data create record --target-org "acme-uat" --sobject Region__c --values "External_Id__c=\'EMEA-1\' Name=\'EMEA\'"', 'the key is set on the new record');
   assert.match(create[0]!, /no record yet/);
-  assert.equal(recordScript(gone, 'acme-uat').at(-1), 'sf data delete record --target-org acme-uat --sobject Region__c --where "External_Id__c=\'OLD-9\'"');
+  assert.equal(recordScript(gone, 'acme-uat').at(-1), 'sf data delete record --target-org "acme-uat" --sobject Region__c --where "External_Id__c=\'OLD-9\'"');
   assert.ok(![...update, ...create].some((l) => /\bId\s*=/.test(l)), 'no line finds a record by its Id');
+});
+
+test('edge case: an org alias with a space or a $ stays one shell argument in every line', () => {
+  const lines = recordScript(rename, 'Acme UAT $x').filter((l) => l.startsWith('sf '));
+  assert.equal(lines.length, 2);
+  for (const l of lines) assert.match(l, /--target-org "Acme UAT \\\$x" /);
 });
 
 test('edge case: a quote, a $ or a backtick in a value is escaped, and an environment with no org gets a placeholder', () => {
