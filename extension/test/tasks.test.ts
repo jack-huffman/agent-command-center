@@ -182,7 +182,7 @@ test('before a build, a card offers its analysis first, and Dispatch once it\'s 
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => `${a.label}${a.primary ? '*' : ''}`);
   // Where the project wants an analysis first: Dispatch waits for a ready one, and the command line keeps the override.
   assert.deepEqual(labels({ analysisRequired: true }), ['Make a plan*', 'Move', 'Block', 'Edit', 'Details']);
-  assert.deepEqual(labels({ analysisRequired: true, analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Edit', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, analyzing: { sessionId: 's' } }), ['Watch the plan being made*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: tooBig }), ['See the split*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Build it*', 'Move', 'Block', 'Edit', 'Details']);
@@ -191,7 +191,7 @@ test('before a build, a card offers its analysis first, and Dispatch once it\'s 
   assert.deepEqual(labels({}), ['Build it*', 'Move', 'Block', 'Make a plan', 'Edit', 'Details']);
   assert.deepEqual(labels({ display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Build it', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysis: analysed }), ['Build it*', 'Move', 'Block', 'Edit', 'Details']);
-  assert.deepEqual(labels({ analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Edit', 'Details'], 'not while it\'s being analyzed');
+  assert.deepEqual(labels({ analyzing: { sessionId: 's' } }), ['Watch the plan being made*', 'Move', 'Block', 'Edit', 'Details'], 'not while it\'s being analyzed');
   assert.equal(labels({ state: 'rework', display: 'rework', analysisRequired: true })[0], 'Build it again*', 'a rework already had its analysis');
   // Dragging to Running is dispatching, so it's held the same way.
   const lanes = (r: Partial<TaskRow>) => dropLanes({ state: 'todo', display: 'ready', deps: [], ...r });
