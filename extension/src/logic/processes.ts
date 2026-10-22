@@ -115,6 +115,10 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['gate required'], name: 'Change the required checks', command: 'acc.settings.requiredGates' },
   { acc: ['gate builder'], name: 'Change builders\' lighter checks', command: 'acc.settings.builderGates' },
   { acc: ['drift'], name: 'Check the org for drift', named: 'Check {arg}\'s org for drift' },
+  { acc: ['manifest'], name: 'Build the manifest', named: 'Build {arg}\'s manifest' },
+  { acc: ['manifest show'], name: 'See the manifest' },
+  { acc: ['manifest retrieve'], name: 'Use the org\'s copy', named: 'Use the org\'s copy in {arg}' },
+  { acc: ['manifest commit'], name: 'Add the manifest to the ticket\'s branch', named: 'Add the manifest to {arg}\'s branch' },
 ];
 
 /** The process for an acc command, as words: "gate run", or "done". */

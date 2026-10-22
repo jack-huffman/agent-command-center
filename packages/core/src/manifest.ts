@@ -31,6 +31,9 @@ export const PACKAGE_FILE = 'package.xml';
 /** The deletions' file, as Salesforce names one applied after the deploy. */
 export const DESTRUCTIVE_FILE = 'destructiveChangesPost.xml';
 
+/** The longest a manifest's build, check or retrieve may take: the org's retrieve waits up to 60 minutes, and the lists and sf's mapping take some too. */
+export const MANIFEST_TIMEOUT_MS = 90 * 60_000;
+
 /** What the page and the CLI say about deletions: they're kept apart, and acc never deploys them. */
 export const NEVER_DEPLOYED = 'Deletions are kept apart, in destructiveChangesPost.xml. The Command Center never deploys them, nor this manifest.';
 
