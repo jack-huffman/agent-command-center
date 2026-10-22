@@ -2,7 +2,7 @@
 // changed, checked against the development org, and with --check compared with the org's fresh copies. A
 // person retrieves an org copy into the branch, or commits the manifest to it. It never deploys.
 
-import { AccError, buildManifest, commitManifest, NEVER_DEPLOYED, ORG_DIFFERS, readManifest, retrieveIntoBranch, run, saveManifest, type TicketManifest } from '../../../core/src/index.ts';
+import { AccError, buildManifest, draftChangesField, commitManifest, NEVER_DEPLOYED, ORG_DIFFERS, readManifest, retrieveIntoBranch, run, saveManifest, type TicketManifest } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
 import { type CommandArea, noAgent, now, type Opts, out, project, steps } from '../shared.ts';
 
@@ -40,6 +40,8 @@ function cmdBuild(o: Opts, raw: string): number {
   if (file !== undefined && !file.trim()) throw new AccError('usage', '--out takes the file to write the manifest to.');
   const m = buildManifest(paths, config, id, { run, now, steps: steps() }, { check: o.check === 'org' });
   const saved = file ? saveManifest(m, file) : [];
+  // Its package.xml's members are part of its changes field's text (T-105): a draft of it, where its tracker keeps one.
+  draftChangesField(paths, run, config, id, 'acc manifest', now);
   out(o, () => [...manifestLines(m), ...(saved.length ? ['', `Wrote ${saved.join(' and ')}.`] : [])].join('\n'), { ...m, saved });
   steps().result(true, m.check ? `${id}'s manifest is built and checked against ${m.check.org}.` : `${id}'s manifest is built.`);
   return 0;

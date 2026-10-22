@@ -8,6 +8,7 @@ import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type 
 import { CARD_TITLES, countValues, placeKey, PREVIEW_CARDS, previewLine } from '../../../packages/core/src/trackers/preview.ts';
 import { type Board, orList } from '../../../packages/core/src/trackers/types.ts';
 import { signInScope } from '../logic/connect.ts';
+import type { ChangesFieldRow } from './changes-field.ts';
 import { inProcessWords } from '../logic/processes.ts';
 import { trackerBoard, type TrackerBoard } from './boards.ts';
 import { settingsKey } from './settings.ts';
@@ -177,6 +178,8 @@ export interface ConnectModel {
   countMost: number;
   /** why: the reason the button is off, in words, beside it; null when it's on (T-43). */
   save: { can: boolean; label: string; look: Look | null; why: Look | null };
+  /** Where a ticket's changes are kept (T-105), once the place is chosen; left out before. */
+  changesField?: ChangesFieldRow | null;
 }
 
 /**

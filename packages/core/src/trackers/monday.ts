@@ -7,9 +7,10 @@
  * call carries goes as a GraphQL variable, never into the query's text.
  */
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
+import { fieldMarkdown, fieldValue } from './fields.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Comment, type Label, type Outside, outsideError, type Person, placeText, type Status,
-  textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
+  type TextField, textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export const MONDAY_API = 'https://api.monday.com/v2';
@@ -415,6 +416,27 @@ export class MondayClient implements TrackerClient {
   /** acc doesn't write its ticket text yet (T-80): it refuses, with why. */
   async setText(): Promise<void> {
     throw textRefused(this.kind);
+  }
+
+  /** The board's long-text columns (T-105), in its order: each keeps plain text. */
+  async textFields(): Promise<TextField[]> {
+    const d = await this.call<{ boards: { columns: MondayColumn[] }[] }>('query ($board: [ID!]) { boards(ids: $board) { columns(types: [long_text]) { id title type } } }', { board: [this.boardId] });
+    const b = d.boards?.[0];
+    if (!b) throw new TrackerError('not-found', `monday.com has no board ${this.boardId} that this token can see. It may have been archived or deleted.`);
+    return b.columns.filter((c) => c.type === 'long_text').map((c) => ({ id: c.id, name: c.title, format: 'plain' as const }));
+  }
+
+  async readField(key: string, field: TextField): Promise<string> {
+    const d = await this.call<{ items: { board?: { id: string | number } | null; column_values?: ColumnValue[] }[] }>('query ($ids: [ID!], $cols: [String!]) { items(ids: $ids) { board { id } column_values(ids: $cols) { id text } } }', { ids: [this.idOf(key)], cols: [field.id] });
+    const it = d.items?.[0];
+    // Item ids are the whole account's: one on another board isn't this tracker's.
+    if (!it || String(it.board?.id ?? this.boardId) !== this.boardId) throw new TrackerError('not-found', `${key} isn't an item this token can see in monday.com.`);
+    return fieldMarkdown(it.column_values?.find((v) => v.id === field.id)?.text ?? null, field.format);
+  }
+
+  /** A long-text column takes its text as { text }. */
+  async writeField(key: string, field: TextField, markdown: string): Promise<void> {
+    await this.change(key, field.id, { text: fieldValue(markdown, 'plain') ?? '' });
   }
 
   /** An update on the item, as HTML with every word escaped. */

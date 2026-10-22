@@ -4,6 +4,7 @@ import { arrivedAt } from './carried.ts';
 import { keepChanges, mergedPaths } from './changes.ts';
 import { closeWords, issueToClose, settleCloses } from './closing.ts';
 import { AccError, type Runner } from './exec.ts';
+import { draftChangesField } from './field-drafts.ts';
 import { applyMove, checkMove, mutate, noGateHooks, type PullRequest, readLedger, type State } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { discardUpdate, draftUpdate, listUpdates } from './updates.ts';
@@ -262,6 +263,8 @@ export function sync(paths: RepoPaths, config: Config, deps: { run: Runner; now:
   // Merged into its environment: the ticket can hear so, once a person posts it. Drafted after the
   // ledger's write, under the drafts' own lock; a draft that can't be written leaves the move as it is.
   const ledger = readLedger(paths.ledger);
+  // Merged, what it changed is kept: where its tracker keeps a ticket's changes in a field, a draft of its new text (T-105).
+  for (const c of changes) if (c.moved?.to === 'done') draftChangesField(paths, run, config, c.task, 'acc sync', now);
   for (const c of changes) {
     if (c.moved?.to !== 'done') continue;
     const t = ledger.tasks.find((x) => x.id === c.task);

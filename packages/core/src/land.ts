@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { keepChanges, mergedPaths } from './changes.ts';
 import { autoMergeFor, type Config, type Environment, environmentByBranch, type GateScope } from './config.ts';
 import { AccError, type Runner } from './exec.ts';
+import { draftChangesField } from './field-drafts.ts';
 import { withJob } from './jobs.ts';
 import { type Actor, type CarriedReview, mutate, noteMarkdown, type PullRequest, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -234,6 +235,8 @@ function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, o
     emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? 'acc land', data: { pr, sha, opened } });
     return t;
   }));
+  // Its commits are on its pull request: where its tracker keeps a ticket's changes in a field, a draft of its new text (T-105).
+  draftChangesField(paths, run, config, id, opts.by ?? 'acc land', now);
   // The ticket hears about it only from a person: acc drafts what to say, and posts nothing (D-066).
   // The pull request is recorded whatever happens to the draft.
   steps.start('update', 'Draft the ticket\'s update');

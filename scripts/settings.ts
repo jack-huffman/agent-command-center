@@ -87,6 +87,10 @@ export const READ_IN: Partial<Record<ConfigPath, ReadPlace[]>> = {
   'trackers[].group': TRACKER_CLIENTS,
   'trackers[].edits': ['packages/core/src/closing.ts'],
   'trackers[].statusFor': ['packages/core/src/cards.ts'],
+  // A tracker's changes field (T-105) is read whole, then each part through the field a tracker client is given.
+  'trackers[].changesField.id': [{ file: 'packages/core/src/trackers/jira.ts', via: /\bfield\.id\b/ }],
+  'trackers[].changesField.name': [{ file: 'extension/src/model/changes-field.ts', via: /\bfield\.name\b/ }],
+  'trackers[].changesField.format': [{ file: 'packages/core/src/trackers/jira.ts', via: /\bfield\.format\b/ }],
   'agents.builder.model': AGENT_FLAGS,
   'agents.builder.effort': AGENT_FLAGS,
   'agents.builder.fallbackModel': AGENT_FLAGS,

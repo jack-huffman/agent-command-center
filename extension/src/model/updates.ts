@@ -9,6 +9,7 @@ import type { AnalysisAsk } from '../logic/shared.ts';
 import type { BoardInput } from './boards.ts';
 import { KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
 import { trackerForKey } from '../../../packages/core/src/config.ts';
+import { EDITS_OFF } from './task-sheet.ts';
 
 // ---------------------------------------------------------------- ticket updates (D-066)
 
@@ -40,13 +41,15 @@ export interface UpdateCard {
   replaces: string[];
   /** On the Overview, the edit its task's page holds, unsent: what Post there would send instead of acc's text. */
   edited: string | null;
+  /** The ticket field it's the new text of (T-105), which Save to the ticket writes in place of a comment; null for a comment. */
+  saves: string | null;
 }
 
 /** Whether a task's source is a tracker's ticket, which can take updates. */
 export const hasTicket = (kind: string): boolean => isTrackerKind(kind);
 
 /** What an update is about, for the person posting it. */
-export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
+export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr' | 'field'>): string {
   switch (u.event) {
     case 'pr-opened': return u.pr ? `Pull request #${u.pr.number} is ready for review` : 'Ready for review';
     case 'pr-updated': return u.pr ? `Pull request #${u.pr.number} was updated` : 'Updated for review';
@@ -58,6 +61,7 @@ export function updateAbout(u: Pick<Update, 'event' | 'env' | 'pr'>): string {
     case 'question': return 'A question from its analysis';
     case 'criteria': return 'Drafted acceptance criteria, test steps and edge cases';
     case 'verify': return `QA of the developer's pull request${u.pr ? ` #${u.pr.number}` : ''}`;
+    case 'changes': return `New text for ${u.field?.name ?? 'its changes field'}, from its changes`;
   }
 }
 
@@ -75,15 +79,24 @@ export function updatePoster(tracker: UpdateCard['tracker'], index: number | nul
   return { postAs: null, blocked: `Sign in to ${name} first.`, signIn: b.connect ?? { command: 'acc.trackers.signIn', label: `Sign in to ${name}`, arg: JSON.stringify({ root, index: b.index }) } };
 }
 
-/** The updates still waiting on a person, as cards: drafts, and any being posted. `trackerOf` finds the tracker that owns a key. */
-export function updateCards(root: string, updates: Update[], github: string | null, boards: BoardInput[], trackerOf: (key: string) => number | null, now = Date.now()): UpdateCard[] {
+/**
+ * The updates still waiting on a person, as cards: drafts, and any being posted. `trackerOf` finds the tracker
+ * that owns a key, and `edits` whether its settings let a person's edits write to its tickets (D-177): a
+ * changes field's draft (T-105) can't be saved from here without them, and says why.
+ */
+export function updateCards(root: string, updates: Update[], github: string | null, boards: BoardInput[], trackerOf: (key: string) => number | null, edits: (index: number | null) => boolean, now = Date.now()): UpdateCard[] {
   return updates.filter(isOpenUpdate).map((u) => {
     const stale = stalePosting(u, new Date(now));
+    // A changes field's draft writes the field through the tracker's own sign-in, GitHub's issue too.
+    const saves = u.event === 'changes' ? u.field?.name ?? 'its changes field' : null;
+    const index = trackerOf(u.tracker === 'github' ? u.task : u.key);
+    const poster = updatePoster(u.tracker, u.tracker === 'github' ? null : index, root, github, boards);
+    const off = saves !== null && !edits(index) ? `The ticket's ${saves} can't change from here. ${EDITS_OFF}` : null;
     const look = stale ? LOOK('May have posted', 'warning', 'orange') : u.state === 'posting' ? LOOK('Posting', 'sync~spin', 'blue') : LOOK('Draft update', 'comment-draft', 'orange');
     return {
       project: root, id: u.id, task: u.task, key: u.tracker === 'github' ? u.task : u.key, tracker: u.tracker, about: updateAbout(u), look, text: u.text,
-      state: u.state === 'posting' ? 'posting' : 'draft', stale, createdAt: u.createdAt, ...updatePoster(u.tracker, u.tracker === 'github' ? null : trackerOf(u.key), root, github, boards),
-      failed: u.state === 'draft' ? u.failed?.reason ?? null : null, replaces: u.replaces ?? [], edited: null,
+      state: u.state === 'posting' ? 'posting' : 'draft', stale, createdAt: u.createdAt, ...poster, ...(off ? { blocked: off } : {}),
+      failed: u.state === 'draft' ? u.failed?.reason ?? null : null, replaces: u.replaces ?? [], edited: null, saves,
     };
   });
 }
@@ -113,7 +126,8 @@ export const area: ModelArea = {
     attention(c, p) {
       const { hub, i, attention } = c;
       // Updates acc drafted for tickets (D-066): each waits for a person to read and post it, or discard it.
-      for (const drafted of updateCards(p.root, hub.updates?.(p.root) ?? [], p.config.github?.account ?? null, i.boards(p.root), (key) => trackerForKey(p.config.trackers ?? [], key))) {
+      const trackers = p.config.trackers ?? [];
+      for (const drafted of updateCards(p.root, hub.updates?.(p.root) ?? [], p.config.github?.account ?? null, i.boards(p.root), (key) => trackerForKey(trackers, key), (index) => index !== null && !!trackers[index]?.edits)) {
         // Edited on its task's page and not sent: the Overview shows that edit, and it's posted from there,
         // so Post here can't send acc's text instead.
         const edit = drafted.state === 'draft' || drafted.stale ? i.edited?.(p.root, drafted.id, drafted.replaces) ?? null : null;

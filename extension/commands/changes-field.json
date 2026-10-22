@@ -1,0 +1,8 @@
+[
+  {
+    "command": "acc.trackers.changesField",
+    "title": "Choose where a tracker keeps a ticket's changes",
+    "category": "Agent Command Center",
+    "icon": "$(note)"
+  }
+]

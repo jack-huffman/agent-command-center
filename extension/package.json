@@ -132,6 +132,12 @@
         "icon": "$(eye)"
       },
       {
+        "command": "acc.trackers.changesField",
+        "title": "Choose where a tracker keeps a ticket's changes",
+        "category": "Agent Command Center",
+        "icon": "$(note)"
+      },
+      {
         "command": "acc.task.message",
         "title": "Send its cloud builder a message…",
         "category": "Agent Command Center",

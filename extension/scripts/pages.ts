@@ -152,6 +152,7 @@ export const PAGES = [
   'ticket-plan-approved',
   'ticket-plan-changed',
   'ticket-talk',
+  'ticket-changes-field',
   // Agents, and an agent's own page
   'agents-path',
   'agent',

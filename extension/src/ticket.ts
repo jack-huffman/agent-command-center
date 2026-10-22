@@ -28,7 +28,10 @@ import type { CriteriaActions } from './criteria.ts';
 import type { PlanActions } from './plan.ts';
 import type { VerifyActions } from './verify.ts';
 import { ticketVerify } from './model/verify.ts';
-import { type TicketChanges, ticketChanges } from './model/changes.ts';
+import { type ChangesIn, ticketChanges, ticketPaths } from './model/changes.ts';
+import { withFieldKept } from './model/changes-field.ts';
+import { writtenFor } from '../../packages/core/src/field-drafts.ts';
+import type { FieldActions } from './changes-field.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { branchFiles, IN_FLIGHT_STATES, plannedFiles } from '../../packages/core/src/overlap.ts';
 import type { RecordActions } from './record-changes.ts';
@@ -131,6 +134,8 @@ export class TicketPanels implements vscode.Disposable {
   verify: VerifyActions | null = null;
   /** Record changes (T-100), set by its area: Add a change made by hand, and a promotion's steps. */
   records: RecordActions | null = null;
+  /** The tracker's changes field (T-105), set by its area: what the ticket's field says, the draft, and its Save. */
+  fields: FieldActions | null = null;
   /** Manifest for this ticket (T-101), set by its area: the section's state, and its buttons. */
   manifest: ManifestActions | null = null;
   /** Talk it through (T-98), set by its area: the conversation's state, and its buttons. */
@@ -305,6 +310,8 @@ export class TicketPanels implements vscode.Disposable {
     } finally {
       o.loading = false;
     }
+    // Its changes field (T-105) is read with the ticket, and the page redraws once it's read.
+    if (o.ticket) this.fields?.load(p, o.tracker, o.key);
     o.view.name(o.ticket ? `${o.key} ${o.ticket.title}`.slice(0, 60) : o.key);
     await this.post(o);
   }
@@ -336,34 +343,43 @@ export class TicketPanels implements vscode.Disposable {
     const tracker = o.tracker !== null ? this.trackers.trackers(p)[o.tracker] : undefined;
     // The page's own load made this client, so it's cached; a client that failed to start says nothing of its fields, which is all three.
     const client = o.tracker !== null ? await this.trackers.client(p, o.tracker).catch(() => null) : null;
+    const changes = task ? this.changes(p, task) : null;
+    const manifest = task && this.manifest && p.config.profile === 'salesforce' ? this.manifest.state(p.root, task.id) : null;
+    const updates = this.hub.updates(p.root);
     const model = ticketModel({
       project: p.root, tracker: o.tracker, trackerTitle: tracker ? this.trackers.title(tracker) : null, trackerKind: tracker?.kind ?? null, key: o.key,
       ticket: o.ticket, loading: o.loading, error: o.error, outside: o.outside, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null, task.environment) : [],
       signedInAs: o.tracker !== null ? await this.trackers.signedInAs(p, o.tracker) : null,
       analysis: task ? this.hub.analysis(p.root, task.id) : null,
-      trackerEdits: this.edits(o, p), trackerFields: client?.fields, updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
+      trackerEdits: this.edits(o, p), trackerFields: client?.fields, updates, boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
       tracking: this.trackers.trackState(p.root, o.key).busy,
       review: task ? await this.review(o, p, task) : null,
       ...(task && this.criteria ? this.criteria.state(p.root, task.id) : {}),
-      manifest: task && this.manifest && p.config.profile === 'salesforce' ? ticketManifest({ task, profile: p.config.profile, org: p.config.environments.find((e) => e.branch === task.environment || e.name === task.environment)?.org ?? null, ...this.manifest.state(p.root, task.id) }) : null,
+      manifest: task && manifest ? ticketManifest({ task, profile: p.config.profile, org: p.config.environments.find((e) => e.branch === task.environment || e.name === task.environment)?.org ?? null, ...manifest }) : null,
       verify: task && this.verify ? ticketVerify({ task, github: p.config.github?.repo ?? null, ...this.verify.state(p.root, task.id), updates: this.hub.updates(p.root).filter((u) => u.task === task.id) }) : null,
-      changes: task ? this.changes(p, task) : null,
+      changes: changes ? ticketChanges(changes) : null,
     });
-    // Its record changes (T-100): a section of its own, beside the ticket's other changes.
+    // Its record changes (T-100), Talk it through (T-98) and its tracker's changes field (T-105), each a section of
+    // its own: the field once read, with its draft update keeping each line a person wrote there.
     const analysis = task ? this.hub.analysis(p.root, task.id) : null;
-    // Talk it through (T-98): a section of its own, beside the plan it talks about.
     const talk = task && this.talk ? ticketTalk({ task, analysis, analyzing: !!row?.analyzing, ...this.talk.state(p.root, task.id), ref: { project: p.root, task: task.id } }) : null;
-    o.view.draw(task ? { ...model, records: ticketRecords({ task, analysis, profile: p.config.profile, environments: p.config.environments }), talk } : model);
+    o.view.draw(task ? {
+      ...model,
+      records: ticketRecords({ task, analysis, profile: p.config.profile, environments: p.config.environments }),
+      talk,
+      field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, ticketPaths(changes), updates, manifest?.manifest ?? null) ?? null : null,
+      updates: this.fields ? withFieldKept(model.updates, this.fields.read(p, task.id), writtenFor(updates, task.id)) : model.updates,
+    } : model);
   }
 
   /**
-   * Its Planned changes, then Changes (T-99): the plan's paths, and while it's in flight, what its branch has
-   * changed so far, read from git; once it's done, what acc kept with it when it merged.
+   * What its Planned changes, then Changes (T-99), are drawn from: the plan's paths, and while it's in flight,
+   * what its branch has changed so far, read from git; once it's done, what acc kept with it when it merged.
    */
-  private changes(p: Project, task: Task): TicketChanges | null {
+  private changes(p: Project, task: Task): ChangesIn {
     const branch = task.run?.branch;
     const live = branch && IN_FLIGHT_STATES.includes(task.state) ? branchFiles(runSync, p.root, task.environment, branch, task.run?.worktree) : null;
-    return ticketChanges({ task, profile: p.config.profile, planned: plannedFiles(this.hub.analysis(p.root, task.id), p.root), live });
+    return { task, profile: p.config.profile, planned: plannedFiles(this.hub.analysis(p.root, task.id), p.root), live };
   }
 
   /**

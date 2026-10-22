@@ -4,10 +4,11 @@
  */
 import { ghEnv } from '../exec.ts';
 import { fromMarkdown } from './doc.ts';
+import { GITHUB_CHANGES, githubSection, withGithubSection } from './fields.ts';
 import { hexOf, typeKindOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Exec, inBatches, type Label, orList, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
-  type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
+  type TextField, type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export interface GithubOptions {
@@ -404,6 +405,23 @@ export class GithubClient implements TrackerClient {
     if (text.title !== undefined && !text.title.trim()) throw new TrackerError('refused', 'An issue needs a title.');
     if (text.title === undefined && text.markdown === undefined) return;
     await this.gh(['issue', 'edit', String(issueNumber(key)), '-R', this.o.repo, ...(text.title !== undefined ? [`--title=${text.title.trim()}`] : []), ...(text.markdown !== undefined ? ['--body-file', '-'] : [])], text.markdown);
+  }
+
+  /** An issue has no fields of its own (T-105): a ticket's changes are a section of its description, under a heading the Command Center owns. */
+  async textFields(): Promise<TextField[]> {
+    return [GITHUB_CHANGES];
+  }
+
+  /** The text under the description's changes heading: '' when it has none yet. */
+  async readField(key: string): Promise<string> {
+    const raw = JSON.parse(await this.gh(['issue', 'view', String(issueNumber(key)), '-R', this.o.repo, '--json', 'body'])) as { body?: string | null };
+    return githubSection(raw.body ?? '') ?? '';
+  }
+
+  /** The description read again, its changes section set, the rest kept as it was, then written whole, as setText does. */
+  async writeField(key: string, _field: TextField, markdown: string): Promise<void> {
+    const raw = JSON.parse(await this.gh(['issue', 'view', String(issueNumber(key)), '-R', this.o.repo, '--json', 'body'])) as { body?: string | null };
+    await this.setText(key, { markdown: withGithubSection(raw.body ?? '', markdown) });
   }
 
   async me(): Promise<Person> {

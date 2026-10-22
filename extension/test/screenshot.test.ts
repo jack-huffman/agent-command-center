@@ -112,7 +112,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind === 'agents-billing') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.billing?.tone], ['home', 'agents', 'orange']);
     else if (kind === 'settings-agents') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.agents.projects.length], ['home', 'settings', 2]);
     // Settings at Trackers and sign-ins, with each project's trackers (GH-112).
-    else if (kind === 'settings-trackers') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.trackers.projects.map((p) => p.trackers.length)], ['home', 'settings', [2, 3]]);
+    else if (kind === 'settings-trackers') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.trackers.projects.map((p) => p.trackers.length)], ['home', 'settings', [2, 4]]);
     // Agents with its Where column showing full paths (GH-83).
     else if (kind === 'agents-path') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.whereView], ['home', 'agents', 'path']);
     // Agents with each repo's finished sessions to open (GH-119).

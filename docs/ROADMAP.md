@@ -127,7 +127,8 @@ where each one's done-when is written out.
   2026-10-22. Evidence: D-192, D-195. Open in Claude Code hasn't been tried by
   hand yet in plan mode.
 - **What a ticket changed, records included, and its package.xml**: done.
-  Checked 2026-10-22. Evidence: D-189, D-190, D-191.
+  Checked 2026-10-22. Evidence: D-189, D-190, D-191, D-196. A tracker's own
+  changes field is kept up to date, saved by a person.
 - **Choose a board by seeing it**: done. Checked 2026-10-22. Evidence: D-193,
   D-194.
 

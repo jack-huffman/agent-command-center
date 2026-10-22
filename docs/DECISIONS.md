@@ -203,3 +203,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-193](decisions/D-193-choose-a-board-by-seeing-it-cards-for-each-choice-and-the.md) | Choose a board by seeing it: cards for each choice, and the board before it is kept | 2026-10-22 |
 | [D-194](decisions/D-194-tick-several-jira-epics-and-choose-a-github-project-from-its.md) | Tick several Jira epics, and choose a GitHub Project from its card | 2026-10-22 |
 | [D-195](decisions/D-195-talk-a-plan-through-with-its-planning-agent-on-the-ticket.md) | Talk a plan through with its planning agent, on the ticket page or in Claude Code, and turn what you agree into the plan | 2026-10-22 |
+| [D-196](decisions/D-196-a-tracker-s-changes-field-named-in-its-settings-drafted-as.md) | A tracker's changes field: named in its settings, drafted as an update when a ticket's changes change, saved by a person | 2026-10-22 |
