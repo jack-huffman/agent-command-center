@@ -64,7 +64,7 @@ test('an agent-made question: a single choice lists three, one that ticks severa
   assert.equal(questionsOf(ask(2))[0]!.options.length, 2, 'two stay two');
 });
 
-test('Review plan: a choice with four options (an older plan) offers three, the recommended first, keeping the one chosen now', () => {
+test('edge case: no fourth option in Review plan: a choice with four options (an older plan) offers three, the recommended first, keeping the one chosen now', () => {
   const a = samplePlan(Date.parse('2026-10-22T12:00:00Z'), 'changed') as Analysis;
   const d = a.decisions![0]!;
   const extra = Array.from({ length: 4 - d.options.length }, (_, i) => ({ ...d.options[0]!, id: `x${i}`, name: `Extra ${i}` }));

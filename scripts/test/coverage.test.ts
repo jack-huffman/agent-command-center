@@ -36,7 +36,7 @@ export const OLDER: Record<string, string[]> = {
   'extension/src/model/connect.ts': ['CONNECT', 'connectValue'],
   'extension/src/model/limits.ts': ['dollars'],
   'extension/src/model/overview.ts': ['mergeQueues'],
-  'extension/src/model/questions.ts': ['alwaysWhat', 'questionsOf'],
+  'extension/src/model/questions.ts': ['alwaysWhat'],
   'extension/src/model/rules.ts': ['ruleTitle', 'ruleAsk'],
   'extension/src/model/settings.ts': ['opensOnWords'],
   'extension/src/model/setup.ts': ['setupStart'],
