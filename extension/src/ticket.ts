@@ -256,6 +256,19 @@ export class TicketPanels implements vscode.Disposable {
     void this.load(o);
   }
 
+  /**
+   * The task's page in a tab of its own (T-112), for its conversation to open beside: opened if no tab shows it,
+   * and the modal over the board, if it shows this task, closed onto that tab.
+   */
+  ensureTab(root: string, key: string): void {
+    const up = key.toUpperCase();
+    if (!this.open.has(`${root}#${up}`)) this.show(root, undefined, up);
+    const o = this.modal;
+    if (o?.project !== root || o.key !== up) return;
+    o.view.say({ type: 'task-modal-shut', project: root, key: up });
+    this.closeModal(root, up);
+  }
+
   /** The modal closed, or the tab under it did (GH-158): its edits go with it, as a closed tab's do. With a task named, only if it's that one. */
   closeModal(project?: string, key?: string): void {
     const o = this.modal;

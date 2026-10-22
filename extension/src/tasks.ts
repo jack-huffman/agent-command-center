@@ -510,7 +510,6 @@ export class TaskCommands extends Sidebar {
 
   // ------------------------------------------------------------ the analysis before a build (D-052)
 
-  /** The analyst runs in the output panel, like a review; its session can be watched while it reads. */
   /**
    * Make a plan: for a task with no plan yet, its conversation opens first (T-111), with its question, and Draft
    * the plan or Skip to the plan there makes it. Make a new plan makes one at once, with what was said.
@@ -541,8 +540,8 @@ export class TaskCommands extends Sidebar {
   }
 
   /**
-   * Makes the plan in the output panel: its ticket read first, shown as under way, then acc analyze. Once at a
-   * time for a task: a second Make a plan, Draft the plan or Skip to the plan while one is under way is ignored.
+   * Makes the plan in the output panel, like a review: its session can be watched while the analyst reads. Its ticket
+   * is read first, shown as under way, then acc analyze. Once at a time for a task: a second Make a plan, Draft the plan or Skip to the plan while one is under way is ignored.
    */
   private async makePlan(root: string, id: string, skip: boolean): Promise<void> {
     const acc = this.helpers.accCommand ?? 'acc';

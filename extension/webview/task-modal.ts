@@ -119,5 +119,6 @@ export const area: PageArea = {
     under = model;
     if (own && state.modal && dialog?.open) draw();
   },
-  receive: { 'task-modal': show },
+  // The task's page opened in a tab for its conversation (T-112): the modal closes onto it.
+  receive: { 'task-modal': show, 'task-modal-shut': (m: { project?: string; key?: string }) => { if (state.modal?.project === m.project && state.modal?.key === m.key) shut(); } },
 };
