@@ -281,7 +281,7 @@ function summaryLine(s: ReviewStep, n: number): HTMLElement {
   const b = el('button', `rp-sum-line ${st}`, el('span', 'rp-sum-n muted', String(n)), icon(look.icon, look.tone),
     el('span', 'rp-sum-text', el('span', 'rp-sum-title', md(s.title)), el('span', `rp-sum-value${value ? '' : ' muted'}`, value ? md(value) : what))) as HTMLButtonElement;
   b.type = 'button';
-  b.setAttribute('aria-label', `${s.title}: ${what}. Go back to it`);
+  b.setAttribute('aria-description', 'Go back to this step');
   b.addEventListener('click', () => goTo(s.id));
   return el('li', '', b);
 }
