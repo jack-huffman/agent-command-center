@@ -1036,7 +1036,7 @@ export const CASES: Case[] = [
       t.check('a search that matches none says so', !t.find('#connect-epic ~ .ccards-none').hidden);
       search.value = '';
       await t.type(search, 'partner');
-      t.check('a search that matches one hides the line again', t.find('#connect-epic ~ .ccards-none').hidden);
+      t.check('a search that matches one hides the line again', t.find('#connect-epic ~ .ccards-none').hidden === true);
       const shown = t.all<HTMLElement>('#connect-epic .ccard').filter((c) => !c.hidden && c.dataset.value).map((c) => c.dataset.value);
       t.check('the search shows only the epics it matches', shown.length === 1 && shown[0] === 'ACME-30', shown);
       // Another epic changes it.
