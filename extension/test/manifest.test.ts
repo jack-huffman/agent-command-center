@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { manifestPath, NEVER_DEPLOYED, ORG_DIFFERS, type TicketManifest } from '../../packages/core/src/manifest.ts';
+import { MANIFEST_TIMEOUT_MS, manifestPath, NEVER_DEPLOYED, ORG_DIFFERS, type TicketManifest } from '../../packages/core/src/manifest.ts';
 import { tempDir } from '../../packages/core/test/temp-root.ts';
 import { type ManifestHost, Manifests, type ManifestUi } from '../src/logic/manifest.ts';
 import { PROCESSES } from '../src/logic/processes.ts';
@@ -277,6 +277,7 @@ test('the page takes the replies by the name the extension sends, and draws the 
 test('the process words name each manifest command, and the extension waits for the org', () => {
   const names = (acc: string) => PROCESSES.find((p) => p.acc.includes(acc))?.name;
   assert.deepEqual(['manifest', 'manifest show', 'manifest retrieve', 'manifest commit'].map(names), ['Build the manifest', 'See the manifest', 'Use the org\'s copy', 'Add the manifest to the ticket\'s branch']);
-  assert.equal(accTimeoutMs(['manifest', 'ACME-19', '--check']), 90 * 60_000);
+  assert.equal(accTimeoutMs(['manifest', 'ACME-19', '--check']), MANIFEST_TIMEOUT_MS);
+  assert.equal(accTimeoutMs(['manifest', 'retrieve', 'ACME-19', 'Flow:X']), MANIFEST_TIMEOUT_MS);
   assert.equal(accTimeoutMs(['manifest', 'show', 'ACME-19']), RUN_TIMEOUT_MS);
 });

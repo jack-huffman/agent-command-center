@@ -102,14 +102,6 @@ const rowOf = (type: string, member: string, look: Look | null): ManifestRow => 
 
 const findingRow = (f: ManifestFinding): ManifestRow & { why: string } => ({ ...rowOf(f.type, f.member ?? '', MANIFEST_ROW_LOOK[f.kind]), component: f.member ? `${f.type}:${f.member}` : f.type, why: f.why });
 
-/** The section's state: off, running, built, or how the org compared. */
-function lookOf(m: TicketManifest | null): Look {
-  if (!m) return MANIFEST_LOOK.none;
-  if (m.check?.differs.length) return MANIFEST_LOOK.differs;
-  if (m.findings.length) return MANIFEST_LOOK.findings;
-  return m.unchecked ? MANIFEST_LOOK.built : MANIFEST_LOOK.ready;
-}
-
 /**
  * The section for a task's page: off with why outside a Salesforce project or for a task with no branch;
  * otherwise the kept manifest and its check, or how to build one. While one runs, its buttons are off; a
@@ -128,7 +120,8 @@ export function ticketManifest(i: ManifestIn): TicketManifestSection {
   const c = m?.check ?? null;
   return {
     task: id,
-    look: why ? MANIFEST_LOOK.off : i.running ? MANIFEST_LOOK.running : lookOf(m),
+    look: why ? MANIFEST_LOOK.off : i.running ? MANIFEST_LOOK.running : !m ? MANIFEST_LOOK.none
+      : m.check?.differs.length ? MANIFEST_LOOK.differs : m.findings.length ? MANIFEST_LOOK.findings : m.unchecked ? MANIFEST_LOOK.built : MANIFEST_LOOK.ready,
     note: why ?? (i.running ? 'Salesforce\'s CLI reads the branch, and the org is only read. Nothing changes in the branch.'
       : m ? null : 'Salesforce\'s own CLI lists the components this ticket\'s branch changes, and each is checked against its org. It never deploys.'),
     built: m ? { branch: m.branch, sha: m.sha.slice(0, 7), apiVersion: m.apiVersion, at: m.at, components: componentsOf(m.types).length } : null,
