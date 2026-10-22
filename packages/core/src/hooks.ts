@@ -12,6 +12,7 @@ import { readList } from './gates.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
 import { repoPaths } from './paths.ts';
 import { ANALYST_COMMANDS } from './analyze.ts';
+import { noteRecordWrites } from './record-hooks.ts';
 
 /** The repo folder with .acc/config.json at or above `cwd`, found without running git. */
 export function findAccRoot(cwd: string): string | null {
@@ -222,7 +223,7 @@ const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0
  * acc rules list is, but not copying rules in (GH-108), and acc github status is, but not switching the account a
  * clone pushes as (GH-113).
  */
-export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'collect', 'cloud', 'gate waive', 'gate relax', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss', 'github use']);
+export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'collect', 'cloud', 'gate waive', 'gate relax', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss', 'github use', 'change step']);
 
 /**
  * Whether a command line has a backtick or a $ the shell would act on: anywhere outside single quotes,
@@ -349,6 +350,8 @@ export function preToolUseHook(input: EventInput, ctx: HookContext): Record<stri
   }
   if (tool === 'Bash') {
     const reason = guardBash(b, String(t.command ?? ''));
+    // A command it lets through that can write records is noted, for acc done to ask after (T-100).
+    if (!reason) noteRecordWrites(b, String(t.command ?? ''), ctx);
     return reason ? deny(reason) : null;
   }
   return null;

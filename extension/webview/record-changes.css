@@ -1,0 +1,15 @@
+/* Record changes (T-100) wear the analysis's card, as Verify does, with its rows and its gap. */
+.ticket-main > .records { margin-bottom: 16px; padding-bottom: 12px; }
+.rc-refused { display: flex; align-items: flex-start; gap: 4px; overflow-wrap: anywhere; }
+/* Each environment the work was promoted to: its heading with the pull request and what's left, then its steps. */
+.rc-promotion { margin-top: 8px; }
+.rc-env { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.rc-step > .vf-text { flex: 1 1 auto; }
+.rc-step-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+/* The commands that make the change, to review and copy: wrapped, so the page never scrolls sideways. */
+.rc-script { margin: 6px 0 2px; padding: 6px 8px; border-left: 3px solid var(--line); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.9em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.rc-skip { margin-top: 6px; }
+.rc-skip .rc-step-actions { justify-content: flex-end; }
+/* Add a change made by hand: the form's fields, then Cancel and Save along its foot. */
+.rc-form { margin-top: 8px; padding: 4px 12px 8px; border: 1px solid var(--edge); border-radius: var(--radius); }
+.rc-form-foot { justify-content: flex-end; margin-top: 4px; }

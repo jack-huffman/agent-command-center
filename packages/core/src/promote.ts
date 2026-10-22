@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { addPromotionSteps, stepsSection } from './change-steps.ts';
 import { carriedTasks } from './carried.ts';
 import { type Config, type Environment } from './config.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
@@ -155,11 +156,13 @@ export interface PromoteResult {
   updates: { task: string; id: string; key: string }[];
   /** What didn't get done once the pull request was open: its tasks recorded, or their updates drafted. */
   warning: string | null;
+  /** The changes outside git it added as steps to make by hand in the destination (T-100). */
+  steps?: number;
 }
 
 const describeSkip = (plan: PromotionPlan) => plan.skipped.map((e) => `Skips \`${e.branch}\` (${e.name}): this change hasn't been validated there.`);
 
-export function promotionBody(plan: PromotionPlan, validation: Outcome | null): string {
+export function promotionBody(plan: PromotionPlan, validation: Outcome | null, steps: string[] = []): string {
   const list = (xs: string[]) => (xs.length > 60 ? [...xs.slice(0, 60).map((f) => `- \`${f}\``), `- …and ${xs.length - 60} more`] : xs.map((f) => `- \`${f}\``));
   return [
     `Promotes \`${plan.from.branch}\` (${plan.from.name}) at ${plan.fromSha.slice(0, 7)} into \`${plan.to.branch}\` (${plan.to.name}).`,
@@ -172,6 +175,8 @@ export function promotionBody(plan: PromotionPlan, validation: Outcome | null): 
     ...(plan.deleted.length ? ['', `## Deleted (${plan.deleted.length})`, '', ...list(plan.deleted)] : []),
     ...(plan.leftOut.length ? ['', '## Left out: environment-specific', '', ...list(plan.leftOut)] : []),
     ...(validation ? ['', '## Validation', '', `Check-only deploy to ${plan.to.name}: ${validation.status}. ${validation.summary}`] : []),
+    // Its tasks' changes outside git (T-100), to make by hand once it merges.
+    ...(steps.length ? ['', ...steps] : []),
     '',
     '---',
     `Opened by \`acc promote\`. It merges only when a person merges it; deploying to ${plan.to.name} is a separate step after that.`,
@@ -193,9 +198,10 @@ export function promotionCheckArgs(org: string, source: string[]): string[] {
  * go on, with the pull request's link. Nothing is posted (D-066). The pull request stands either way; what
  * couldn't be done is said.
  */
-function recordCarried(paths: RepoPaths, plan: PromotionPlan, pr: Promotion['pr'], carried: Task[], by: string, now: () => Date): Pick<PromoteResult, 'updates' | 'warning'> {
+function recordCarried(paths: RepoPaths, plan: PromotionPlan, pr: Promotion['pr'], carried: Task[], by: string, now: () => Date): Pick<PromoteResult, 'updates' | 'warning' | 'steps'> {
   const problems: string[] = [];
   const at = now().toISOString();
+  let steps = 0;
   try {
     mutate(paths, now, (ledger, emit) => {
       for (const c of carried) {
@@ -203,6 +209,8 @@ function recordCarried(paths: RepoPaths, plan: PromotionPlan, pr: Promotion['pr'
         if (!t) continue;
         const promotion: Promotion = { from: plan.from.branch, to: plan.to.branch, pr, state: 'open', at };
         t.promotions = [...(t.promotions ?? []), promotion];
+        // Its changes outside git become steps to make by hand in the destination (T-100).
+        steps += addPromotionSteps(t, plan.to, at).length;
         emit({ type: 'task.updated', task: t.id, actor: 'human', by, data: { promotion } });
       }
     });
@@ -218,7 +226,7 @@ function recordCarried(paths: RepoPaths, plan: PromotionPlan, pr: Promotion['pr'
   } catch (e) {
     problems.push(`Its tickets' updates weren't all drafted: ${(e as Error).message}`);
   }
-  return { updates, warning: problems.length ? `The pull request is open. ${problems.join(' ')}` : null };
+  return { updates, warning: problems.length ? `The pull request is open. ${problems.join(' ')}` : null, steps };
 }
 
 type PromoteOpts = { allowDeletions?: boolean; validate?: boolean; by?: string };
@@ -292,7 +300,9 @@ function promoteNow(paths: RepoPaths, config: Config, fromName: string, toName: 
       const token = run('gh', ['auth', 'token', '-u', gh.account]);
       if (token.code !== 0) throw new AccError('no-github', `gh isn't logged in as ${gh.account}. The branch ${branch} is pushed; open its pull request on GitHub.`);
       const bodyFile = join(dir, 'body.md');
-      writeFileSync(bodyFile, promotionBody(plan, validation));
+      // The steps it will add, worked out on copies: they're kept only once the pull request is open.
+      const stepping = carried.map((t) => { const c = structuredClone(t); addPromotionSteps(c, plan.to, now().toISOString()); return c; });
+      writeFileSync(bodyFile, promotionBody(plan, validation, stepsSection(stepping, plan.to)));
       const title = `Promote ${plan.from.name} to ${plan.to.name}${plan.skipped.length ? ` (skips ${plan.skipped.map((e) => e.branch).join(', ')})` : ''}`;
       const create = run('gh', ['pr', 'create', '-R', gh.repo, '--base', plan.to.branch, '--head', branch, '--title', title, '--body-file', bodyFile], { cwd: paths.root, env: { ...deps.env, GH_TOKEN: token.stdout.trim() }, timeoutMs: 2 * 60_000 });
       const url = create.stdout.trim().split('\n').find((l) => /\/pull\/\d+/.test(l))?.trim();

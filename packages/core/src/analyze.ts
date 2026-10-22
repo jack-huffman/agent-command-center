@@ -9,6 +9,7 @@ import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
+import { parsePlannedRecords, type PlannedRecordChange, RECORD_CHANGES_SCHEMA, RECORD_PLAN_PROMPT } from './records.ts';
 import { rulesText } from './rules.ts';
 import { requirementWording, type WordingFinding } from './ste.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
@@ -65,6 +66,8 @@ export interface Analysis {
   approach: Approach;
   /** When the verdict is split: the smaller tasks it suggests. */
   split: string[];
+  /** The records the work must create, change or delete (T-100), on Salesforce. Older analyses have none. */
+  recordChanges?: PlannedRecordChange[];
   /**
    * The hard findings of the wording check on each requirement line (T-12), as advice for a person: they
    * never hold a dispatch. Analyses written before the check have none.
@@ -130,6 +133,7 @@ export const ANALYSIS_SCHEMA = {
       },
     },
     split: { ...strings, description: 'When the verdict is split: the smaller tasks, one line each. Otherwise empty' },
+    recordChanges: RECORD_CHANGES_SCHEMA,
   },
 } as const;
 
@@ -279,6 +283,7 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
     '- Ask only what a person must decide: business rules, priorities, trade-offs. Never ask what you could find out yourself. Give each question your suggested answer.',
     '- If it is too big for one task (more than a few days), say split and list the smaller tasks.',
     ...(sf ? ['', 'For a Salesforce project, also cover:', ...SALESFORCE_FOCUS.map((f) => `- ${f}`), '', ...SALESFORCE_COOKBOOK] : []),
+    ...(sf ? ['', RECORD_PLAN_PROMPT] : []),
     '',
     ...STE_STRICT,
     '',
@@ -341,6 +346,7 @@ export function parseAnalysis(stdout: string): { analysis: Omit<Analysis, 'v' | 
       size: (['S', 'M', 'L', 'XL'].includes(ap.size) ? ap.size : 'M') as Approach['size'],
     },
     split: list(s.split),
+    recordChanges: parsePlannedRecords(s.recordChanges),
   };
   // The wording check on each requirement line as acc reads it (T-12): advice, recorded with its line.
   return { analysis: { ...analysis, wording: requirementWording(analysis.requirements) }, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };

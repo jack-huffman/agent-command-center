@@ -7,6 +7,7 @@ import { renderAnalysis } from './analysis.ts';
 import { renderCriteria } from './criteria.ts';
 import { renderVerify } from './verify.ts';
 import { renderChanges } from './changes.ts';
+import { renderRecords } from './record-changes.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
 import { dayName } from './days.ts';
@@ -186,6 +187,8 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.verify) main.append(renderVerify(m, m.verify));
   // Its Planned changes, then Changes (T-99), in a section of their own, apart from its plan.
   if (m.changes) main.append(renderChanges(m, m.changes));
+  // Its record changes (T-100): what it changes in an org that git never sees.
+  if (m.records) main.append(renderRecords(m, m.records));
   // What a person wrote for its builder (T-74), which a tracker's intake never changes.
   if (m.acc?.notes) main.append(el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)));
   const note = renderNote(m);

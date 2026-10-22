@@ -10,7 +10,9 @@ import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { agentArgs } from './agents.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import { sessionName } from './names.ts';
+import { outsideOf } from './outside-changes.ts';
 import { notesSection } from './packet.ts';
+import { recordReviewSection } from './records.ts';
 import { rulesText } from './rules.ts';
 import { testsText } from './test-counts.ts';
 import { clip } from './text.ts';
@@ -306,6 +308,8 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
       ? [`What the builder said ${i.task.run.note.ended === 'blocked' ? 'when it blocked' : 'as it finished'}, in its own words. Check it against the diff.`, '', ...noteMarkdown(i.task.run.note)]
       : ['The builder left no note.']),
     '',
+    // What it changed outside git (T-100), to check against the plan's and the commands acc noted.
+    ...recordReviewSection(outsideOf(i.task), i.config.profile === 'salesforce'),
     ...(i.rules?.trim() ? ['## Rules', '', i.rules.trim(), ''] : []),
     ...(i.kinds?.length ? ['## Kinds of finding earlier reviews named', '', ...i.kinds.map((k) => `- ${k}`), ''] : []),
     '## What changed',

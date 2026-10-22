@@ -29,6 +29,7 @@ import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria
 import type { TicketVerify } from './verify.ts';
 import { WORDS } from '../../webview/plain-words.ts';
 import type { TicketChanges } from './changes.ts';
+import type { TicketRecords } from './record-changes.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -198,6 +199,8 @@ export interface TicketModel {
   verify: TicketVerify | null;
   /** Its Planned changes, then Changes (T-99), in a section of their own. Null with no task, or nothing to show. */
   changes: TicketChanges | null;
+  /** Its record changes (T-100), on a Salesforce task: planned, recorded and stepped at promotion. */
+  records?: TicketRecords | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
   /** It's being tracked now, from this page or its card (D-074). */

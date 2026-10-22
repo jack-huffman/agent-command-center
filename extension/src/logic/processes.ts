@@ -85,6 +85,11 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['verify'], name: 'Verify the developer\'s pull request', named: 'Verify {arg}\'s pull request' },
   { acc: ['verify show'], name: 'See the verification' },
   { acc: ['verify clear'], name: 'Clear the verification' },
+  // Changes outside git, such as records (T-100)
+  { acc: ['change', 'change list'], name: 'See its record changes' },
+  { acc: ['change record'], name: 'Add a record change', named: 'Add a record change to {arg}' },
+  { acc: ['change none'], name: 'Say no record changed' },
+  { acc: ['change step'], name: 'Mark a promotion\'s step' },
   { acc: ['review'], name: 'Review with an agent', named: 'Review {arg} with an agent', command: 'acc.task.review' },
   { acc: ['land'], name: 'Open pull request', named: 'Open {arg}\'s pull request', command: 'acc.task.land' },
   { acc: ['autopilot'], name: 'Run autopilot', command: 'acc.autopilot.toggle' },

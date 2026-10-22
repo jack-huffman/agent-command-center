@@ -32,6 +32,7 @@ import { CHECK_LOOK, checkLook, REVIEW_LOOK, ticketReview, wordingLook } from '.
 import { CRITERION_LOOK, dockReview, REVIEW_RUN_LOOK } from '../src/model/dock-review.ts';
 import { VERIFY_LOOK } from '../src/model/verify.ts';
 import { CHANGE_LOOK } from '../src/model/changes.ts';
+import { RECORD_LOOK } from '../src/model/record-changes.ts';
 import { RESULT_LOOK, ROW_LOOK } from '../src/model/run-view.ts';
 import { STEP_LOOK } from '../src/model/run-steps.ts';
 import { worktreeLook } from '../src/model/worktrees.ts';
@@ -175,6 +176,8 @@ export const TABLES: Table[] = [
   // Verify the developer's work (T-84): the section's state, before, during, choosing, off, and its verdict.
   { name: 'a developer\'s pull request, verified', sources: ['extension/src/model/verify.ts#VERIFY_LOOK'], states: () => Object.entries(VERIFY_LOOK) },
   { name: 'a change against the plan, on a task\'s page (T-99)', sources: ['extension/src/model/changes.ts#CHANGE_LOOK'], states: () => Object.entries(CHANGE_LOOK) },
+  // Record changes (T-100): each change made, planned or not, refused, and a promotion's step to do, done or skipped.
+  { name: 'a ticket\'s record change and a promotion\'s step', sources: ['extension/src/model/record-changes.ts#RECORD_LOOK'], states: () => Object.entries(RECORD_LOOK) },
   // A run in the output panel as rows (T-64): each kind of row, and how an ended run shows in its header line and result card.
   { name: 'a run of acc\'s steps in the output panel (T-65)', sources: ['extension/src/model/run-steps.ts#STEP_LOOK'], states: () => Object.entries(STEP_LOOK) },
   { name: 'a run\'s rows and its result in the output panel', sources: ['extension/src/model/run-view.ts#ROW_LOOK', 'extension/src/model/run-view.ts#RESULT_LOOK'], states: () => [...Object.entries(ROW_LOOK), ...Object.entries(RESULT_LOOK)] },

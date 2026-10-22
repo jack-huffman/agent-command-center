@@ -7,6 +7,7 @@ import { autoMergeFor, type BuilderPlace, type Config, defaultEnvironment, envir
 import type { EffortPick } from './efforts.ts';
 import { AccError } from './exec.ts';
 import { withLock } from './lock.ts';
+import type { OutsideState } from './outside-changes.ts';
 import type { RepoPaths } from './paths.ts';
 import { TRACKER_KINDS } from './trackers/types.ts';
 
@@ -348,6 +349,8 @@ export interface Task {
   edits?: EditEntry[];
   /** What its work changed, kept when it merges (T-99), so its page shows it after its branch is gone. */
   changes?: KeptChanges | null;
+  /** Its changes outside git, such as records (T-100): kept, noted commands, and the steps to make them at promotion. */
+  outside?: OutsideState;
   history: HistoryEntry[];
   createdAt: string;
   updatedAt: string;
