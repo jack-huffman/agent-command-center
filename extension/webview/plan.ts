@@ -17,11 +17,72 @@ export const chooseKey = (project: string, task: string, decision: string): stri
 export const approveKey = (project: string, task: string): string => `plan:${project}#${task}:approve`;
 /** The remembered key of a choice whose "Something else…" box is open. */
 const ownKey = (key: string): string => `${key}:own`;
+/** The remembered key of a change that waits for the person's yes, on an approved plan: its pick, an option's id or "own". */
+const confirmKey = (key: string, pick: string): string => `${key}:confirm:${pick}`;
+/** The pick a choice's change waits on, or null. */
+const asking = (key: string): string | null => memory().opened.find((x) => x.startsWith(confirmKey(key, '')))?.slice(confirmKey(key, '').length) ?? null;
+/** Forgets what a choice's change waited on. */
+const unask = (key: string): void => remember((x) => { x.opened = x.opened.filter((y) => !y.startsWith(confirmKey(key, ''))); });
+
+/** The control that takes focus once the page next draws it: the dialog's Keep the approval, or the Choose that asked. */
+let focusNext: string | null = null;
+/** Gives `b` focus once the draw that made it has put it on the page, when it's the one focusNext names. */
+function focusOnceDrawn(b: HTMLElement, id: string): void {
+  if (focusNext !== id) return;
+  focusNext = null;
+  queueMicrotask(() => b.focus());
+}
 
 function send(key: string, what: 'choose' | 'approve', msg: Record<string, unknown>): void {
   if (!planPending.start(key, what)) return;
   api.postMessage(msg);
   if (state.last) state.draw(state.last);
+}
+
+/**
+ * A person's pick: sent at once, or, where it changes a choice on an approved plan, asked about first
+ * (T-97), with focus on Keep the approval. The same own words go at once: acc changes nothing for them.
+ */
+function pick(m: TicketModel, task: string, plan: TicketPlan, d: TicketDecision, p: { option: string } | { text: string }): void {
+  const key = chooseKey(m.project, task, d.id);
+  const same = 'option' in p ? d.choice?.option === p.option : d.choice?.option === null && d.choice.name === p.text;
+  if (!plan.changeAsk || same) return send(key, 'choose', { type: 'plan-choose', project: m.project, task, decision: d.id, ...p });
+  unask(key);
+  remember((x) => { x.opened = [...x.opened, confirmKey(key, 'option' in p ? p.option : 'own')]; });
+  focusNext = confirmKey(key, 'keep');
+  if (state.last) state.draw(state.last);
+}
+
+/**
+ * What a change to a choice on an approved plan asks first (T-97): it undoes the approval. Change it sends the
+ * pick with a yes; Keep the approval, or Escape, sends nothing, and focus goes back to what asked. Nothing
+ * shows once the plan isn't approved, or for an option a newer plan no longer has.
+ */
+function confirmChange(m: TicketModel, task: string, plan: TicketPlan, d: TicketDecision, pickId: string): HTMLElement | null {
+  const key = chooseKey(m.project, task, d.id);
+  const option = d.options.find((o) => o.id === pickId);
+  const text = (memory().drafts[key] ?? '').trim();
+  if (!plan.changeAsk || !plan.canChoose || (!option && (pickId !== 'own' || !text))) return null;
+  const keep = () => {
+    unask(key);
+    focusNext = confirmKey(key, pickId);
+    if (state.last) state.draw(state.last);
+  };
+  const change = () => { unask(key); send(key, 'choose', { type: 'plan-choose', project: m.project, task, decision: d.id, ...(option ? { option: option.id } : { text }), yes: true }); };
+  const said = el('p', 'pc-text', plan.changeAsk);
+  said.id = `pc-${d.id}`;
+  const no = button('Keep the approval', 'verified', keep);
+  focusOnceDrawn(no, confirmKey(key, 'keep'));
+  const box = el('div', 'plan-confirm notice attention', icon('warning', 'orange'),
+    el('div', 'pc-body', said, el('div', 'muted small pc-to', `Your change: ${option ? option.name : text}${d.choice ? `, instead of ${d.choice.name}` : ''}`),
+      el('div', 'actions pc-actions', no, button('Change it', 'check', change, 'primary'))));
+  box.setAttribute('role', 'alertdialog');
+  box.setAttribute('aria-label', `Change ${d.title}?`);
+  box.setAttribute('aria-describedby', said.id);
+  box.dataset.confirm = key;
+  // Escape keeps the approval here, and leaves a modal around it open.
+  box.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); keep(); });
+  return box;
 }
 
 /** A labelled list on an option's card: its pros, cons, risks or what it touches. Nothing when it's empty. */
@@ -49,8 +110,9 @@ function optionCard(m: TicketModel, task: string, plan: TicketPlan, d: TicketDec
   card.setAttribute('aria-label', `${d.title}: ${o.name}${recommended ? ', recommended' : ''}${chosen ? ', chosen' : ''}`);
   if (plan.canChoose && !chosen) {
     const busy = !!planPending.what(key);
-    const b = button('Choose this', 'check', () => send(key, 'choose', { type: 'plan-choose', project: m.project, task, decision: d.id, option: o.id }), recommended && !d.choice ? 'primary small' : 'small');
+    const b = button('Choose this', 'check', () => pick(m, task, plan, d, { option: o.id }), recommended && !d.choice ? 'primary small' : 'small');
     b.setAttribute('aria-label', `Choose this: ${o.name}, for ${d.title}`);
+    focusOnceDrawn(b, confirmKey(key, o.id));
     if (busy) { b.disabled = true; b.title = 'Wait for the choice on its way'; }
     card.append(el('div', 'po-actions', b));
   }
@@ -58,7 +120,7 @@ function optionCard(m: TicketModel, task: string, plan: TicketPlan, d: TicketDec
 }
 
 /** "Something else…": the person's own option, in words, kept as they type. */
-function ownOption(m: TicketModel, task: string, d: TicketDecision): HTMLElement {
+function ownOption(m: TicketModel, task: string, plan: TicketPlan, d: TicketDecision): HTMLElement {
   const key = chooseKey(m.project, task, d.id);
   const open = memory().opened.includes(ownKey(key));
   const toggle = () => remember((x) => { x.opened = open ? x.opened.filter((y) => y !== ownKey(key)) : [...new Set([...x.opened, ownKey(key)])]; });
@@ -70,10 +132,11 @@ function ownOption(m: TicketModel, task: string, d: TicketDecision): HTMLElement
   const draft = memory().drafts[key] ?? '';
   const choose = () => {
     if (!input.value.trim()) return;
-    send(key, 'choose', { type: 'plan-choose', project: m.project, task, decision: d.id, text: input.value.trim() });
+    pick(m, task, plan, d, { text: input.value.trim() });
   };
   const go = button('Choose', 'check', choose, 'primary small');
   go.disabled = !draft.trim() || !!planPending.what(key);
+  focusOnceDrawn(go, confirmKey(key, 'own'));
   const input = keptInput(key, draft, `Your own option for ${d.title}`, (v) => { remember((x) => { x.drafts[key] = v; }); go.disabled = !v.trim(); }, choose);
   input.maxLength = OWN_MAX;
   const cancel = button('Cancel', 'close', () => { toggle(); if (state.last) state.draw(state.last); }, 'ghost small');
@@ -95,10 +158,14 @@ function decisionGroup(m: TicketModel, task: string, plan: TicketPlan, d: Ticket
   g.setAttribute('aria-label', `Choice ${d.id}: ${d.title}`);
   if (own) g.append(el('div', 'pd-own', icon('pass-filled'), el('span', '', el('strong', '', 'Something else: '), md(d.choice!.name))));
   if (d.choice) g.append(el('div', 'pd-by muted small', `Chosen by ${d.choice.by} `, when(d.choice.at)));
+  // A change on an approved plan waits here for the person's yes, under what's chosen now.
+  const asked = asking(key);
+  const confirm = asked && !planPending.what(key) ? confirmChange(m, task, plan, d, asked) : null;
+  if (confirm) g.append(confirm);
   const error = planPending.error(key);
   if (error) g.append(el('div', 'aq-error', icon('warning'), el('span', '', `Your choice wasn't recorded: ${error}`)));
   if (planPending.what(key)) g.append(el('div', 'q-sending muted', icon('sync~spin'), 'Recording your choice…'));
-  else if (plan.canChoose) g.append(ownOption(m, task, d));
+  else if (plan.canChoose) g.append(ownOption(m, task, plan, d));
   return g;
 }
 

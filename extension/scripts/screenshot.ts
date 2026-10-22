@@ -321,8 +321,10 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'tasks-person-none' ? { filters: { [`tracker:${ROOT}#0`]: 'person:nobody' } }
   : kind === 'tasks-person-agents' ? { modes: { [ROOT]: 'agents' }, filters: { [`agents:${ROOT}`]: 'mine' } }
   // ACME-21's plan (T-97): its second choice's own option open, and the later plans with their earlier versions open.
+  // Approved, a change to its second choice asks first, as Choose this on Backfill too leaves it.
   : kind === 'ticket-questions' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:d2:own'], drafts: { 'plan:/Users/me/code/acme-service#ACME-21:d2': 'Backfill only the opportunities still open' } }
-  : kind === 'ticket-plan-approved' || kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier'] }
+  : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', 'plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b'] }
+  : kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier'] }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 /**

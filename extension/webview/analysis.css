@@ -91,6 +91,13 @@
 .pd-own .codicon { flex: none; margin-top: 2px; color: var(--blue); }
 .pd-own > span { min-width: 0; overflow-wrap: anywhere; }
 .pd-by { margin-top: 2px; }
+/* A change to a choice on an approved plan, asked first (T-97). */
+.plan-confirm { align-items: flex-start; margin: 6px 0 4px; }
+.plan-confirm > .codicon { margin-top: 2px; }
+.pc-body { flex: 1 1 200px; min-width: 0; }
+.pc-text { margin: 0 0 2px; font-weight: 600; overflow-wrap: anywhere; }
+.pc-to { overflow-wrap: anywhere; }
+.pc-actions { margin-top: 6px; }
 .plan-own { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
 .plan-own.open .text-input { flex: 1 1 200px; min-width: 0; }
 .plan-own .btn { flex: none; }

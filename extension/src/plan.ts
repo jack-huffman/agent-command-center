@@ -25,7 +25,7 @@ export const area: ExtensionArea = {
         const done = (r: { ok: boolean; error?: string }) => say({ type: PLAN_DONE, action: m.type, project: m.project, task: m.task, ...which, ...r });
         const p = hub.project(m.project);
         if (!p) return done({ ok: false, error: 'That project isn\'t open here.' });
-        const args = m.type === 'plan-choose' ? planChooseArgs(m.task, m.decision, m.text !== undefined ? { text: m.text } : { option: m.option }) : planApproveArgs(m.task);
+        const args = m.type === 'plan-choose' ? planChooseArgs(m.task, m.decision, m.text !== undefined ? { text: m.text } : { option: m.option }, m.yes === true) : planApproveArgs(m.task);
         const r = await acc(args, p.root).catch((e: unknown) => ({ code: 1, stdout: '', stderr: (e as Error).message }));
         await hub.loadTasks(true);
         if (r.code === 0) {

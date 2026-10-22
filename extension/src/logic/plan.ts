@@ -14,10 +14,10 @@ export const choicesWord = (n: number): string => `${n} choice${n === 1 ? '' : '
 
 /**
  * acc's arguments for a person's choice (D-012): an option by its id, or their own words, given with = so
- * words that start with - stay words.
+ * words that start with - stay words. `yes` when they said Change it to a change on an approved plan.
  */
-export const planChooseArgs = (task: string, decision: string, pick: { option?: string; text?: string }): string[] =>
-  ['plan', 'choose', task, decision, ...(pick.text !== undefined ? [`--text=${pick.text}`] : [pick.option ?? '']), '--json'];
+export const planChooseArgs = (task: string, decision: string, pick: { option?: string; text?: string }, yes = false): string[] =>
+  ['plan', 'choose', task, decision, ...(pick.text !== undefined ? [`--text=${pick.text}`] : [pick.option ?? '']), ...(yes ? ['--yes'] : []), '--json'];
 
 /** acc's arguments for a person's approval of the plan's latest version. */
 export const planApproveArgs = (task: string): string[] => ['plan', 'approve', task, '--json'];

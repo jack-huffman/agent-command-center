@@ -5,7 +5,7 @@
  */
 
 import type { Analysis, PlanOption } from '../../../packages/core/src/analyze.ts';
-import { CHOICE_TEXT_MAX } from '../../../packages/core/src/plan-choices.ts';
+import { CHANGE_APPROVED, CHOICE_TEXT_MAX } from '../../../packages/core/src/plan-choices.ts';
 import { choiceName, lapsedWords, planVersion, questionsForYou, unchosen } from '../../../packages/core/src/plan.ts';
 import { buildOff } from '../logic/plan.ts';
 import type { TaskRow } from '../logic/shared.ts';
@@ -55,6 +55,11 @@ export interface TicketPlan {
   decisions: TicketDecision[];
   /** Choices are made only before the build. */
   canChoose: boolean;
+  /**
+   * What the page asks before a choice changes while the plan is approved, as acc says it (CHANGE_APPROVED),
+   * with Change it and Keep the approval. Null when it isn't approved, or past the build: a choice goes at once.
+   */
+  changeAsk: string | null;
   /** Approve this plan: null once approved or past the build, else off with why while it can't be. */
   approve: { disabled: string | null } | null;
   /** Build it, off with why while the plan holds it. Null past the build. */
@@ -96,6 +101,7 @@ export function ticketPlan(row: TaskRow, a: Analysis | null, ref: Ref): TicketPl
       choice: d.choice ? { option: d.choice.option, name: choiceName(d), by: byName(d.choice.by), at: d.choice.at } : null,
     })),
     canChoose: todo,
+    changeAsk: todo && a.approval ? CHANGE_APPROVED : null,
     approve: todo && !a.approval ? { disabled: approveOff(a) } : null,
     build: todo ? { command: 'acc.task.dispatch', label: 'Build it', icon: 'rocket', ref, primary: !off, ...(off ? { disabled: off } : {}) } : null,
     earlier: [...(a.earlier ?? [])].reverse().map((e) => ({
@@ -106,8 +112,11 @@ export function ticketPlan(row: TaskRow, a: Analysis | null, ref: Ref): TicketPl
 }
 
 export type Message =
-  /** A person's choice for one of a plan's design choices (T-97): an option by its id, or their own words. acc records it. */
-  | { type: 'plan-choose'; project: string; task: string; decision: string; option?: string; text?: string }
+  /**
+   * A person's choice for one of a plan's design choices (T-97): an option by its id, or their own words. acc
+   * records it. `yes`: they said Change it to a change that undoes the plan's approval.
+   */
+  | { type: 'plan-choose'; project: string; task: string; decision: string; option?: string; text?: string; yes?: true }
   /** A person approves the plan's latest version (T-97). acc records it. */
   | { type: 'plan-approve'; project: string; task: string };
 
@@ -115,8 +124,8 @@ const forTask = (x: Record<string, unknown>): boolean => short(x.project, 4096) 
 
 export const area: ModelArea = {
   messages: {
-    // One of an option or their own words, never both, never neither.
-    'plan-choose': (x) => forTask(x) && typeof x.decision === 'string' && /^d\d{1,3}$/.test(x.decision)
+    // One of an option or their own words, never both, never neither; a yes is only ever true.
+    'plan-choose': (x) => forTask(x) && typeof x.decision === 'string' && /^d\d{1,3}$/.test(x.decision) && (x.yes === undefined || x.yes === true)
       && (x.option === undefined ? short(x.text, CHOICE_TEXT_MAX) && !!(x.text as string).trim() : x.text === undefined && typeof x.option === 'string' && /^[a-z]$/.test(x.option)),
     'plan-approve': forTask,
   },

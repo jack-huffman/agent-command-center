@@ -8,8 +8,10 @@ import type { AnalysisAsk, TaskRow } from '../src/logic/shared.ts';
 import { analysisWait, rowAnalysis } from '../src/logic/tasks.ts';
 import { analysisLook, cardActions } from '../src/model/cards.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { approveOff, byName, ticketPlan } from '../src/model/plan.ts';
+import { approveOff, byName, type TicketPlan, ticketPlan } from '../src/model/plan.ts';
+import type { TicketModel } from '../src/model/task-page.ts';
 import { modalTakes } from '../src/model/task-modal.ts';
+import { CHANGE_APPROVED } from '../../packages/core/src/plan-choices.ts';
 import { samplePlan, sampleAnalyses } from '../scripts/fixtures/analysis.ts';
 import { sampleTicket } from '../scripts/fixtures/task-page.ts';
 import { type PageElement, pageDom } from './page-dom.ts';
@@ -44,6 +46,19 @@ test('only your questions count, choices read in words, and acc\'s arguments kee
   assert.deepEqual(planChooseArgs('ACME-21', 'd1', { text: '--not a flag' }), ['plan', 'choose', 'ACME-21', 'd1', '--text=--not a flag', '--json']);
   assert.deepEqual(planApproveArgs('ACME-21'), ['plan', 'approve', 'ACME-21', '--json']);
   assert.equal(byName('human:jordan'), 'jordan');
+  // Change it, on an approved plan, says yes for the person.
+  assert.deepEqual(planChooseArgs('ACME-21', 'd1', { option: 'b' }, true), ['plan', 'choose', 'ACME-21', 'd1', 'b', '--yes', '--json']);
+  assert.deepEqual(planChooseArgs('ACME-21', 'd1', { text: 'Mine' }, true), ['plan', 'choose', 'ACME-21', 'd1', '--text=Mine', '--yes', '--json']);
+});
+
+test('an approved plan asks before a choice changes, in acc\'s words; edge case: not approved, or past the build, it asks nothing', () => {
+  const approved = samplePlan(NOW, 'approved');
+  const ask = (state: string, a: Analysis) => ticketPlan(todo({ state, analysis: rowAnalysis(a) }), a, { project: '/r', task: 'ACME-21' })!.changeAsk;
+  assert.equal(ask('todo', approved), CHANGE_APPROVED);
+  assert.equal(CHANGE_APPROVED, 'This plan is approved. Changing this choice undoes the approval, and the plan must be approved again before it\'s built.');
+  assert.equal(ask('todo', sampleAnalyses(NOW)['ACME-21']!), null, 'not approved yet');
+  assert.equal(ask('todo', samplePlan(NOW, 'changed')), null, 'its approval lapsed');
+  assert.equal(ask('running', approved), null, 'past the build');
 });
 
 test('the plan\'s model: its choices, its approval or why it lapsed, Approve\'s and Build it\'s reasons, and earlier versions newest first', () => {
@@ -83,6 +98,9 @@ test('the page sends a choice as an option or its own words, never both or neith
   assert.ok(!isFromWebview({ type: 'plan-choose', ...base, decision: 'd1', text: 'x'.repeat(4001) }), 'too long');
   assert.ok(!isFromWebview({ type: 'plan-choose', ...base, decision: '../d1', option: 'b' }), 'an unknown choice id');
   assert.ok(!isFromWebview({ type: 'plan-choose', ...base, decision: 'd1', option: 'bb' }), 'an unknown option id');
+  assert.ok(isFromWebview({ type: 'plan-choose', ...base, decision: 'd1', option: 'b', yes: true }), 'Change it\'s yes');
+  assert.ok(isFromWebview({ type: 'plan-choose', ...base, decision: 'd1', text: 'Mine', yes: true }));
+  for (const yes of [false, 'yes', 1]) assert.ok(!isFromWebview({ type: 'plan-choose', ...base, decision: 'd1', option: 'b', yes }), `a yes of ${JSON.stringify(yes)}`);
   assert.ok(isFromWebview({ type: 'plan-approve', ...base }));
   assert.ok(!isFromWebview({ type: 'plan-approve', project: '/r', task: '../x' }));
   const o = { project: '/r', key: 'ACME-21' };
@@ -219,4 +237,102 @@ test('the head says the version, its approval or why it lapsed, and what changed
   const first = sampleTicket(NOW, 'ACME-21').analysis!.planState!;
   assert.equal((planHead(first) as unknown as PageElement).all('plan-changes').length, 0);
   assert.equal(box(planActions(sampleTicket(NOW, 'ACME-21'), 'ACME-21', first)).all('plan-earlier').length, 0);
+});
+
+/** ACME-21's approved plan, its second choice drawn again as a person sees it after a click: the group, and its dialog if one is open. */
+function approvedChoice(): { m: TicketModel; p: TicketPlan; draw: () => { group: PageElement; dialog: PageElement | undefined } } {
+  const m = sampleTicket(NOW, 'ACME-21', false, null, null, 'approved');
+  const p = m.analysis!.planState!;
+  const draw = () => {
+    const group = (planDecisions(m, 'ACME-21', p) as unknown as PageElement).all('plan-decision')[1]!;
+    return { group, dialog: group.all('plan-confirm')[0] };
+  };
+  return { m, p, draw };
+}
+
+/** The microtask a control waits for to take focus, once its draw has put it on the page. */
+const drawn = () => new Promise<void>((r) => queueMicrotask(r));
+
+test('on an approved plan, Choose this asks first; Keep the approval sends nothing and gives focus back to the Choose this that asked', async () => {
+  const { draw } = approvedChoice();
+  page.sent.length = 0;
+  buttons(draw().group, 'Choose this').find((b) => b.getAttribute('aria-label')?.startsWith('Choose this: Backfill too'))!.click();
+  assert.deepEqual(page.sent, [], 'nothing goes before the person says');
+  const { dialog } = draw();
+  assert.ok(dialog, 'the dialog shows in the choice');
+  assert.equal(dialog!.getAttribute('role'), 'alertdialog');
+  assert.equal(dialog!.getAttribute('aria-label'), 'Change Which converted leads get roles?');
+  assert.equal(dialog!.all('pc-text')[0]!.textContent, CHANGE_APPROVED);
+  assert.equal(dialog!.all('pc-to')[0]!.textContent, 'Your change: Backfill too, instead of From now on');
+  assert.deepEqual(dialog!.all().filter((x) => x.tagName === 'BUTTON').map((b) => b.textContent), ['Keep the approval', 'Change it']);
+  await drawn();
+  assert.equal(page.document.activeElement, buttons(dialog!, 'Keep the approval')[0], 'focus on Keep the approval');
+  buttons(dialog!, 'Keep the approval')[0]!.click();
+  assert.deepEqual(page.sent, [], 'Keep the approval sends nothing');
+  const after = draw();
+  assert.equal(after.dialog, undefined, 'and closes it');
+  await drawn();
+  assert.equal(page.document.activeElement?.getAttribute('aria-label'), 'Choose this: Backfill too, for Which converted leads get roles', 'focus goes back to what asked');
+});
+
+test('Escape in the dialog keeps the approval; Change it sends the choice with its yes', async () => {
+  const { m, draw } = approvedChoice();
+  const choose = (name: string) => buttons(draw().group, 'Choose this').find((b) => b.getAttribute('aria-label')?.startsWith(`Choose this: ${name}`))!.click();
+  page.sent.length = 0;
+  choose('Open deals only');
+  const escape = { key: 'Escape', defaultPrevented: false, stopped: false, preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; } };
+  for (const f of draw().dialog!.listeners.get('keydown') ?? []) f(escape);
+  assert.deepEqual([escape.defaultPrevented, escape.stopped], [true, true], 'the page takes Escape, so a modal around it stays open');
+  assert.equal(draw().dialog, undefined, 'Escape closes it');
+  // Another key does nothing.
+  choose('Open deals only');
+  for (const f of draw().dialog!.listeners.get('keydown') ?? []) f({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
+  assert.ok(draw().dialog, 'Enter leaves it open');
+  assert.deepEqual(page.sent, []);
+  buttons(draw().dialog!, 'Change it')[0]!.click();
+  assert.deepEqual(page.sent, [{ type: 'plan-choose', project: m.project, task: 'ACME-21', decision: 'd2', option: 'c', yes: true }]);
+  assert.match(draw().group.textContent, /Recording your choice…/);
+  assert.equal(draw().dialog, undefined, 'the dialog has gone');
+  (area.receive!['plan-done'] as (msg: unknown) => void)({ action: 'plan-choose', project: m.project, task: 'ACME-21', decision: 'd2', ok: true });
+});
+
+test('Something else… on an approved plan asks first too, and Change it sends the person\'s words with its yes; the same words go at once', async () => {
+  const { m, p, draw } = approvedChoice();
+  const key = chooseKey(m.project, 'ACME-21', 'd2');
+  buttons(draw().group, 'Something else…')[0]!.click();
+  const input = draw().group.all('text-input')[0]!;
+  (input as unknown as { value: string }).value = 'Backfill the last year only';
+  for (const f of input.listeners.get('input') ?? []) f({});
+  page.sent.length = 0;
+  buttons(draw().group, 'Choose')[0]!.click();
+  assert.deepEqual(page.sent, [], 'asked first');
+  assert.equal(draw().dialog!.all('pc-to')[0]!.textContent, 'Your change: Backfill the last year only, instead of From now on');
+  buttons(draw().dialog!, 'Change it')[0]!.click();
+  assert.deepEqual(page.sent, [{ type: 'plan-choose', project: m.project, task: 'ACME-21', decision: 'd2', text: 'Backfill the last year only', yes: true }]);
+  (area.receive!['plan-done'] as (msg: unknown) => void)({ action: 'plan-choose', project: m.project, task: 'ACME-21', decision: 'd2', ok: true });
+  assert.equal(planPending.what(key), undefined);
+  // Edge case: the same own words already chosen go at once, with no yes: acc changes nothing, and the approval holds.
+  const own = { ...p, decisions: p.decisions.map((d) => (d.id === 'd2' ? { ...d, choice: { option: null, name: 'Backfill the last year only', by: 'jordan', at: '' } } : d)) };
+  const group = (planDecisions(m, 'ACME-21', own) as unknown as PageElement).all('plan-decision')[1]!;
+  buttons(group, 'Something else…')[0]!.click();
+  const again = (planDecisions(m, 'ACME-21', own) as unknown as PageElement).all('plan-decision')[1]!;
+  const box2 = again.all('text-input')[0]!;
+  (box2 as unknown as { value: string }).value = 'Backfill the last year only';
+  for (const f of box2.listeners.get('input') ?? []) f({});
+  page.sent.length = 0;
+  buttons(again, 'Choose')[0]!.click();
+  assert.deepEqual(page.sent, [{ type: 'plan-choose', project: m.project, task: 'ACME-21', decision: 'd2', text: 'Backfill the last year only' }]);
+  (area.receive!['plan-done'] as (msg: unknown) => void)({ action: 'plan-choose', project: m.project, task: 'ACME-21', decision: 'd2', ok: true });
+});
+
+test('edge case: a dialog left open shows nothing once the plan isn\'t approved, and an unapproved plan\'s Choose this sends at once', () => {
+  const { m, p, draw } = approvedChoice();
+  buttons(draw().group, 'Choose this').find((b) => b.getAttribute('aria-label')?.startsWith('Choose this: Backfill too'))!.click();
+  assert.ok(draw().dialog, 'asked');
+  const lapsed = { ...p, changeAsk: null };
+  assert.equal((planDecisions(m, 'ACME-21', lapsed) as unknown as PageElement).all('plan-confirm').length, 0, 'not approved any more: nothing to ask');
+  page.sent.length = 0;
+  buttons((planDecisions(m, 'ACME-21', lapsed) as unknown as PageElement).all('plan-decision')[1]!, 'Choose this').find((b) => b.getAttribute('aria-label')?.startsWith('Choose this: Backfill too'))!.click();
+  assert.deepEqual(page.sent, [{ type: 'plan-choose', project: m.project, task: 'ACME-21', decision: 'd2', option: 'b' }], 'sent at once, with no yes');
+  (area.receive!['plan-done'] as (msg: unknown) => void)({ action: 'plan-choose', project: m.project, task: 'ACME-21', decision: 'd2', ok: true });
 });
