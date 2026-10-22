@@ -30,6 +30,7 @@ import type { TicketVerify } from './verify.ts';
 import { WORDS } from '../../webview/plain-words.ts';
 import type { TicketChanges } from './changes.ts';
 import type { TicketRecords } from './record-changes.ts';
+import type { TicketField } from './changes-field.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -201,6 +202,8 @@ export interface TicketModel {
   changes: TicketChanges | null;
   /** Its record changes (T-100), on a Salesforce task: planned, recorded and stepped at promotion. */
   records?: TicketRecords | null;
+  /** What the ticket's changes field says (T-105), and the Command Center's draft where it differs. */
+  field?: TicketField | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
   /** It's being tracked now, from this page or its card (D-074). */

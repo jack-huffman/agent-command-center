@@ -19,7 +19,11 @@ const PORTAL: ProjectLike = {
   },
   config: {
     github: { repo: 'acme/portal', account: 'jordan-kim' }, profile: 'generic', autonomy: 'manual', autopilot: { autoMerge: true },
-    trackers: [{ kind: 'github', project: null, prefix: null }, { kind: 'azure', project: 'CRM', prefix: null }, { kind: 'jira', project: 'GLX', prefix: null }],
+    // GitHub keeps a ticket's changes in its description's section (T-105); Slack has no fields, so its row is off.
+    trackers: [
+      { kind: 'github', project: null, prefix: null, changesField: { id: 'description', name: 'Changes (kept by the Command Center)', format: 'markdown' } },
+      { kind: 'azure', project: 'CRM', prefix: null }, { kind: 'jira', project: 'GLX', prefix: null }, { kind: 'slack', project: null, prefix: 'SL' },
+    ],
     environments: [
       { name: 'Production', branch: 'production', type: 'production', org: null, default: false, protected: true, promotesTo: [] },
       { name: 'Staging', branch: 'staging', type: 'partial', org: null, default: true, protected: false, promotesTo: ['production'] },
@@ -52,7 +56,8 @@ const signIn = (root: string, index: number, name: string) => ({ command: 'acc.t
 /**
  * Each project's trackers as their boards know them (GH-112). The sample project: Jira, signed in for every
  * project on its site, and monday.com, not signed in. The portal: GitHub through gh, Azure DevOps signed in
- * for this project only with its board still being read, and a second Jira site that refused its sign-in.
+ * for this project only with its board still being read, a second Jira site that refused its sign-in, and
+ * Slack, whose changes field is off (T-105).
  */
 export function sampleTrackerBoards(root: string): BoardInput[] {
   if (root === PORTAL.root) {
@@ -63,6 +68,7 @@ export function sampleTrackerBoards(root: string): BoardInput[] {
         signedInAs: 'jordan@globex.example', signInScope: { shared: false, host: 'globex.atlassian.net' },
         error: 'Jira refused the email and API token. Check them, or make a new token.', connect: signIn(root, 2, 'Jira'),
       }),
+      tracker(3, 'slack', 'Slack · acme', { signedInAs: 'Acme Command Center', signInScope: { shared: false, host: 'acme' }, place: 'Slack · acme · channel C0123ABCD' }),
     ];
   }
   return [

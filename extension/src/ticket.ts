@@ -27,7 +27,8 @@ import { pickField } from './ticket-edits.ts';
 import type { CriteriaActions } from './criteria.ts';
 import type { VerifyActions } from './verify.ts';
 import { ticketVerify } from './model/verify.ts';
-import { type TicketChanges, ticketChanges } from './model/changes.ts';
+import { changedPaths, type ChangesIn, ticketChanges } from './model/changes.ts';
+import type { FieldActions } from './changes-field.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { branchFiles, IN_FLIGHT_STATES, plannedFiles } from '../../packages/core/src/overlap.ts';
 import type { RecordActions } from './record-changes.ts';
@@ -124,6 +125,8 @@ export class TicketPanels implements vscode.Disposable {
   verify: VerifyActions | null = null;
   /** Record changes (T-100), set by its area: Add a change made by hand, and a promotion's steps. */
   records: RecordActions | null = null;
+  /** The tracker's changes field (T-105), set by its area: what the ticket's field says, the draft, and its Save. */
+  fields: FieldActions | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
@@ -294,6 +297,8 @@ export class TicketPanels implements vscode.Disposable {
     } finally {
       o.loading = false;
     }
+    // Its changes field (T-105) is read with the ticket, and the page redraws once it's read.
+    if (o.ticket) this.fields?.load(p, o.tracker, o.key);
     o.view.name(o.ticket ? `${o.key} ${o.ticket.title}`.slice(0, 60) : o.key);
     await this.post(o);
   }
@@ -325,6 +330,7 @@ export class TicketPanels implements vscode.Disposable {
     const tracker = o.tracker !== null ? this.trackers.trackers(p)[o.tracker] : undefined;
     // The page's own load made this client, so it's cached; a client that failed to start says nothing of its fields, which is all three.
     const client = o.tracker !== null ? await this.trackers.client(p, o.tracker).catch(() => null) : null;
+    const changes = task ? this.changes(p, task) : null;
     const model = ticketModel({
       project: p.root, tracker: o.tracker, trackerTitle: tracker ? this.trackers.title(tracker) : null, trackerKind: tracker?.kind ?? null, key: o.key,
       ticket: o.ticket, loading: o.loading, error: o.error, outside: o.outside, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null, task.environment) : [],
@@ -335,20 +341,25 @@ export class TicketPanels implements vscode.Disposable {
       review: task ? await this.review(o, p, task) : null,
       ...(task && this.criteria ? this.criteria.state(p.root, task.id) : {}),
       verify: task && this.verify ? ticketVerify({ task, github: p.config.github?.repo ?? null, ...this.verify.state(p.root, task.id), updates: this.hub.updates(p.root).filter((u) => u.task === task.id) }) : null,
-      changes: task ? this.changes(p, task) : null,
+      changes: changes ? ticketChanges(changes) : null,
     });
-    // Its record changes (T-100): a section of its own, beside the ticket's other changes.
-    o.view.draw(task ? { ...model, records: ticketRecords({ task, analysis: this.hub.analysis(p.root, task.id), profile: p.config.profile, environments: p.config.environments }) } : model);
+    // Its record changes (T-100): a section of its own, beside the ticket's other changes. Its tracker's
+    // changes field (T-105), once read: what it says, and the draft from the same changes.
+    o.view.draw(task ? {
+      ...model,
+      records: ticketRecords({ task, analysis: this.hub.analysis(p.root, task.id), profile: p.config.profile, environments: p.config.environments }),
+      field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, changedPaths(changes)) ?? null : null,
+    } : model);
   }
 
   /**
-   * Its Planned changes, then Changes (T-99): the plan's paths, and while it's in flight, what its branch has
-   * changed so far, read from git; once it's done, what acc kept with it when it merged.
+   * What its Planned changes, then Changes (T-99), are drawn from: the plan's paths, and while it's in flight,
+   * what its branch has changed so far, read from git; once it's done, what acc kept with it when it merged.
    */
-  private changes(p: Project, task: Task): TicketChanges | null {
+  private changes(p: Project, task: Task): ChangesIn {
     const branch = task.run?.branch;
     const live = branch && IN_FLIGHT_STATES.includes(task.state) ? branchFiles(runSync, p.root, task.environment, branch, task.run?.worktree) : null;
-    return ticketChanges({ task, profile: p.config.profile, planned: plannedFiles(this.hub.analysis(p.root, task.id), p.root), live });
+    return { task, profile: p.config.profile, planned: plannedFiles(this.hub.analysis(p.root, task.id), p.root), live };
   }
 
   /**
@@ -416,6 +427,10 @@ export class TicketPanels implements vscode.Disposable {
       // Record changes (T-100): this page's own task only.
       case 'record-add': case 'record-step':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.records?.act(m, (msg) => o.view.say(msg));
+        return;
+      // A person's Save to the ticket of its changes field (T-105): this page's own task, on its own tracker.
+      case 'changes-field-save':
+        if (m.project === o.project && m.task.toUpperCase() === o.key && o.tracker !== null) await this.fields?.save(p, o.tracker, m, (msg) => o.view.say(msg));
         return;
       case 'toolbar':
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);

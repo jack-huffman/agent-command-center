@@ -4,6 +4,7 @@
 import type { AgentRunProject, GithubAccountSetting, PagePreference, SettingFrom, SettingsLink, SettingsModel, SettingsPartModel, TrackerProject, TrackerSetting } from '../src/model/settings.ts';
 import { argButton, button, el, header, icon, segmented, settingsButton, status, whatThisMeans } from './dom.ts';
 import { renderAbout } from './about.ts';
+import { changesFieldValue } from './changes-field.ts';
 import { renderLimits } from './limits.ts';
 import { slackCardView } from './slack.ts';
 import { api, go, jumpTo, type PageArea } from './state.ts';
@@ -98,6 +99,8 @@ function tracker(t: TrackerSetting): HTMLElement {
     line('Place', 'location', el('span', 'settings-place', t.place), t.from),
     line('Board', 'layout', status(t.board), t.from),
     line('Sign-in', 'account', status(t.signIn), t.signInFrom),
+    // Where a ticket's changes are kept (T-105): a row of its own, with its own button.
+    line(t.changes.label, 'note', changesFieldValue(t.changes), t.from),
   );
   return box;
 }

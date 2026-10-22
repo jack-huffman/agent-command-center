@@ -6,6 +6,7 @@
 import { type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../../packages/core/src/trackers/connect.ts';
 import { signInScope } from '../logic/connect.ts';
+import type { ChangesFieldRow } from './changes-field.ts';
 import { settingsKey } from './settings.ts';
 import { type HomeSection, type Look, LOOK, type ModelArea, short, VIEW_TITLES } from './shared.ts';
 import { taskNames } from '../logic/shared.ts';
@@ -137,6 +138,8 @@ export interface ConnectModel {
   place: { key: string; words: string } | null;
   /** why: the reason the button is off, in words, beside it; null when it's on (T-43). */
   save: { can: boolean; label: string; look: Look | null; why: Look | null };
+  /** Where a ticket's changes are kept (T-105), once the place is chosen; left out before. */
+  changesField?: ChangesFieldRow | null;
 }
 
 /** The usual heading of the Connect page's third step (T-43). */

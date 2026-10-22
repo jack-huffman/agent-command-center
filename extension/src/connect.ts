@@ -12,6 +12,7 @@ import { hostsInUse, repoIdentity, type RepoInUse, usedBy } from '../../packages
 import { type Ctx, describe, DESCRIPTIONS, type PickerSpec, type SignIn, type SignInMethod, type TrackerDescription, type Values } from '../../packages/core/src/trackers/connect.ts';
 import { type Exec, TrackerError } from '../../packages/core/src/trackers/types.ts';
 import { area as page, blankConnect, type ConnectMessage, connectModel, type ConnectModel, type ConnectOption, type ConnectState, connectValues } from './model/connect.ts';
+import { connectChangesField } from './model/changes-field.ts';
 import type { HomeSection } from './model/shared.ts';
 import type { ExtensionArea } from './area.ts';
 
@@ -113,7 +114,10 @@ export class ConnectSession {
   }
 
   model(): ConnectModel | null {
-    return this.s ? connectModel(this.s, this.list) : null;
+    if (!this.s) return null;
+    const m = connectModel(this.s, this.list);
+    // Where a ticket's changes are kept (T-105): one row, once the place is chosen.
+    return { ...m, changesField: connectChangesField(this.s, this.s.root ? this.deps.trackers(this.s.root) : [], m.save.can) };
   }
 
   /** What's open, for tests and the fixtures. */

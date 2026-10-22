@@ -4,6 +4,7 @@ import type { Look } from '../src/model/shared.ts';
 import type { ConnectField, ConnectModel, ConnectPicker } from '../src/model/connect.ts';
 import { button, type Child, el, icon, keptInput, segmented, status } from './dom.ts';
 import { api, go, type PageArea, state } from './state.ts';
+import { changesFieldConnect } from './changes-field.ts';
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
 
@@ -143,7 +144,7 @@ export function renderConnect(m: ConnectModel): Node[] {
   out.push(step(2, 'Sign in', ...signIn));
   // Until it's signed in there's nothing to list: say so, rather than show empty lists that look ready.
   const waiting = m.signIn.editing && m.pickers.some((p) => !p.fixed) ? el('p', 'muted small connect-hint', icon('lock'), ' Sign in above, and its lists fill in here.') : null;
-  out.push(step(3, m.listsTitle, waiting, ...m.pickers.filter((p) => !p.hidden).map((p) => connectPicker(m, p))));
+  out.push(step(3, m.listsTitle, waiting, ...m.pickers.filter((p) => !p.hidden).map((p) => connectPicker(m, p)), m.changesField ? changesFieldConnect(m.changesField) : null));
   const save = button(m.save.label, 'check', () => connectSend(m, { type: 'connect-save' }), 'primary');
   save.disabled = !m.save.can;
   if (m.save.why) save.title = m.save.why.label;

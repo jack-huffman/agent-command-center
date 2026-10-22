@@ -8766,3 +8766,48 @@ were missed on the way to production. A record change now counts as a change of 
 Tested in `packages/core/test/records.test.ts` (12 tests), `packages/core/test/outside-changes.test.ts`
 (15), `packages/core/test/promote-steps.test.ts` (2) and `extension/test/record-changes.test.ts` (7). The
 screenshot run draws `ticket-records`, `ticket-records-promoted` and `ticket-records-form`.
+
+## D-??? A tracker's changes field: named in its settings, drafted from a ticket's changes, saved by a person (2026-10-22)
+
+Many teams keep a ticket field for what a ticket changed, such as "Deployment Notes", so whoever deploys to
+production knows what to move, records included. The person asked to name that field for a tracker, so the
+Command Center keeps it up to date from the ticket's changes (D-189's paths, D-190's record changes), and so
+changes a developer wrote there by hand aren't lost. T-105.
+
+- **The setting.** A tracker's `changesField` is `{ id, name, format }`, checked by `changesFieldProblem`
+  (`packages/core/src/changes-field.ts`): a format its tracker has (`FIELD_FORMATS_OF`): `adf` or `plain` on
+  Jira, `html` or `plain` on Azure DevOps, `plain` on monday.com. GitHub issues have no fields, so on GitHub it
+  can only be the description's section under the heading "Changes (kept by the Command Center)"
+  (`GITHUB_CHANGES`). Slack threads have none: the setting is an error there (`changesFieldRefusal`).
+- **The field list.** Each tracker's `textFields` reads its own fields API: Jira's text (`textfield`, plain)
+  and long-text (`textarea`, ADF) custom fields, never its own fields; Azure DevOps' string, plain-text and
+  HTML fields on the work item types its board's columns map, leaving out `System.*` and read-only fields;
+  monday.com's long-text columns. Settings' Trackers has a row of its own for each tracker, "Where to keep a
+  ticket's changes", with Choose… or Change… (`acc.trackers.changesField`), which lists them in a quick pick
+  with None first, and has acc write the choice, as the Connect page's Save does (D-064). Slack's row and
+  button are off, saying why. The Connect page shows the same row once the place is chosen, after its
+  lists, without changing its pickers; for a tracker not saved yet its button is off until it is.
+- **Drafted, not written.** `changesDraft` makes the field's text as Markdown: each component once, grouped by
+  type in bold (by folder outside Salesforce), then each change outside git under its kind's label in plain
+  words, then "As of <date>.". The ticket's page reads the field back each time it loads the ticket
+  (`FieldReads`) and shows it under Changes as "From the ticket's <field>", with how it compares
+  (`FIELD_LOOK`): the same as found (blue, `sameChanges`, which ignores the date line, spacing and Markdown),
+  differing or empty (orange). Where it differs and there are changes, a draft follows in a box to edit:
+  what it replaces is the text above, the person's edit is kept in the tab's memory, and Save to the ticket
+  sends the edit with the text the page showed. It's drawn on the ticket's page, not as a file in the update
+  drafts store: its text follows the ticket's changes, so each redraw drafts it afresh from them, and a
+  person's edit stays until saved or set back with "Use the drafted text".
+- **Saved by a person only.** `saveField` refuses, writing nothing, where the tracker's settings keep edits
+  off (D-066, D-177; Save is off saying why), where no field is named, or where the field changed since the
+  page showed it: then the page gets what it says now. Otherwise it writes once, through `writeField`. A
+  read, a draft and a redraw never write.
+- **Each tracker's format,** through the document model's converters (`packages/core/src/trackers/fields.ts`):
+  Markdown on GitHub, HTML for an Azure DevOps HTML field, ADF for a Jira long-text field, plain text that
+  keeps its list's dashes otherwise (`plainOf`). GitHub's `writeField` reads the description again and sets
+  only its section (`withGithubSection`), in place or at the end; a heading in a code block isn't one.
+- **The manifest's members** (T-101) aren't in the draft: T-101 hasn't built a ticket's package.xml yet.
+- Out of scope: writing the field without a person's save; listing the draft in Needs you.
+
+Tested in `packages/core/test/changes-field.test.ts` (17 tests) and `extension/test/changes-field.test.ts`
+(12). The screenshot run draws `ticket-changes-field`, the row in `settings-trackers` with Slack's off, and
+the row on `connect-existing`.

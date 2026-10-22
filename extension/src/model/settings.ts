@@ -10,7 +10,8 @@ import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../pa
 import { BUILDER_PLACE_LOOK, type CloudNeed, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
 import type { Protection } from '../../../packages/core/src/protection.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
-import type { TrackerKind } from '../../../packages/core/src/trackers/types.ts';
+import type { TextField, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
+import { type ChangesFieldRow, changesFieldRow } from './changes-field.ts';
 import { FROM_WORDS, OLDER_MODELS } from '../logic/agents.ts';
 import { signInScope } from '../logic/connect.ts';
 import { intervalWords, type Pace, PACE_WORDS, PACES, POLL_INTERVALS, POLL_KEYS, pollEvery } from '../logic/polls.ts';
@@ -301,6 +302,8 @@ export interface TrackerSetting {
   from: SettingFrom;
   signInFrom: SettingFrom;
   actions: TrackerAction[];
+  /** Where a ticket's changes are kept on the ticket (T-105): a row of its own, with Choose… or Change…. */
+  changes: ChangesFieldRow;
 }
 
 /** One project's trackers, under its name. */
@@ -329,7 +332,7 @@ const kindOf = (kind: TrackerKind): { name: string; icon: string } => {
  * orange when there's none or its tracker refused it. GitHub signs in through gh as the project's account
  * (D-007): it has no sign-in or sign-out here, only its place.
  */
-export function trackerSetting(b: BoardInput, p: { root: string; name: string }): TrackerSetting {
+export function trackerSetting(b: BoardInput, p: { root: string; name: string }, changesField: TextField | null = null): TrackerSetting {
   const arg = JSON.stringify({ root: p.root, index: b.index });
   const whose = `${b.title}, in ${p.name}`;
   const scope = b.signInScope ? signInScope(b.signInScope.shared, b.signInScope.host) : 'for this project';
@@ -361,7 +364,10 @@ export function trackerSetting(b: BoardInput, p: { root: string; name: string })
     ]),
     { command: 'acc.trackers.add', label: 'Change place…', icon: 'edit', arg, name: `Change place: where ${whose} gets its tickets, and its board`, primary: false, disabled: null },
   ];
-  return { index: b.index, kind: b.kind, ...kindOf(b.kind), title: b.title, place: b.place ?? b.title, board, signIn, from: PROJECT, signInFrom: b.kind === 'github' ? GH_SIGN_IN_KEPT : SIGN_IN_KEPT, actions };
+  return {
+    index: b.index, kind: b.kind, ...kindOf(b.kind), title: b.title, place: b.place ?? b.title, board, signIn, from: PROJECT, signInFrom: b.kind === 'github' ? GH_SIGN_IN_KEPT : SIGN_IN_KEPT, actions,
+    changes: changesFieldRow(b.kind, changesField, arg, whose),
+  };
 }
 
 /** Every open project's trackers, under its name, and Connect a tracker (GH-112). */
@@ -369,7 +375,7 @@ export function trackersAndSignIns(projects: ProjectLike[], boards: (root: strin
   return {
     projects: projects.map((p) => {
       const list = boards(p.root);
-      return { root: p.root, project: p.name, trackers: list.map((b) => trackerSetting(b, { root: p.root, name: p.name })), loading: !list.length && !!p.config.trackers?.length };
+      return { root: p.root, project: p.name, trackers: list.map((b) => trackerSetting(b, { root: p.root, name: p.name }, p.config.trackers?.[b.index]?.changesField ?? null)), loading: !list.length && !!p.config.trackers?.length };
     }),
     connect: projects.length ? { command: 'acc.trackers.add', label: 'Connect a tracker…', icon: 'add', arg: null, name: 'Connect a tracker to a project', primary: false, disabled: null } : null,
   };

@@ -1,6 +1,7 @@
 /** The Connect page (GH-51) at each of its steps. */
 import { AZURE, GITHUB, JIRA, jiraSprintOptions, MONDAY, reactionOptions, SLACK } from '../../../packages/core/src/trackers/connect.ts';
 import { blankConnect, connectModel, type ConnectModel, type ConnectState } from '../../src/model/connect.ts';
+import { connectChangesField } from '../../src/model/changes-field.ts';
 import { ROOT } from './shared.ts';
 
 /** A picker that has loaded its options, with these picked. */
@@ -21,7 +22,8 @@ export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | '
  * The Connect page at each step: a new Jira tracker before signing in; its site given, with the tick for
  * every project on it (GH-79); signed in for every project on the site, its project picked, its epics
  * loading and its boards failing; Azure DevOps whose token was refused; GitHub with labels ticked; an
- * existing Jira tracker opened to change, signed in for this project only, its epic done now but kept; and
+ * existing Jira tracker opened to change, signed in for this project only, its epic done now but kept, with
+ * the field its tickets' changes are kept in (T-105); and
  * a monday.com board signed in for this project only, with Sign in again open, so its token field, token
  * page and the tick (off) show beside its board, group and two status columns (GH-70). A Slack workspace
  * with its token not typed yet, so no field warns (T-43), and then signed in as the app for every project on it, a channel and its board's reactions picked
@@ -116,7 +118,8 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   s.pickers.epic = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }], ['ACME-3']);
   s.pickers.board = ready(BOARDS, ['7']);
   s.pickers.sprint = ready(SPRINTS);
-  return connectModel(s);
+  // Its changes field (T-105): one row after its place, the field its settings name.
+  return { ...connectModel(s), changesField: connectChangesField(s, [{ kind: 'jira', changesField: { id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' } }], true) };
 }
 
 /** A project started from Setup's "From a Jira epic…" (GH-81), at each of its kinds. */
