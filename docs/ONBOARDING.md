@@ -490,6 +490,13 @@ Source: [Enable Source Tracking in Sandboxes](https://developer.salesforce.com/d
   worktrees live in `.claude/worktrees/` inside the repo (D-022). Ignoring it
   keeps them out of your main checkout's changes and out of VSCode's search.
   **Do it** adds `.claude/worktrees/` to `.gitignore`.
+- [ ] **Raised floors merge on their own** (`B10.merge-floors`). Two tasks that
+  both raised a floor change the same line of `.acc/floors.json`. **Do it**
+  sets `merge.acc-floors.driver` in this clone's git config to
+  `acc floors merge %O %A %B`, and adds `.acc/floors.json merge=acc-floors` to
+  `.gitattributes` when it's missing. git then keeps the better of each floor.
+  A floor a person relaxed is still a conflict, for a person. A project with
+  no floors skips it.
 - [ ] **README names every environment** (`B10.readme`). **Do it** runs
   `acc setup readme`, which writes the first two of these between markers in
   README.md and keeps them up to date; the rest are yours:
