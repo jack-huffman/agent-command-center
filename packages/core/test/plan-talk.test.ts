@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { type Analysis, analysisPath, analysisSection, analyze, readAnalysis, writeAnalysis } from '../src/analyze.ts';
+import { type Analysis, analysisPath, analysisSection, analystDir, analystEnv, analystFlags, analyze, readAnalysis, writeAnalysis } from '../src/analyze.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
@@ -256,6 +256,21 @@ test('Open in Claude Code: plan mode in the main checkout, the brief holds the t
   const turn = readTalk(paths, id).turns.find((x) => x.who === 'claude-code')!;
   assert.deepEqual([turn.text, turn.sessionId, turn.recorded], ['Opened the plan in Claude Code.', 'cc-1', ['Chose Custom object for Where history is kept']]);
   assert.match(talkLines(readTalk(paths, id), null).join('\n'), /In Claude Code \(v1\): Opened the plan in Claude Code\.\n {2}- Recorded: Chose Custom object/);
+});
+
+test('a talk runs with exactly the flags, folder and environment a plan is made with; edge case: a generic project reads from the repo, with no org reads', () => {
+  const { paths, config, id } = setup(SF_CONFIG);
+  const calls: { args: string[]; opts?: RunOptions }[] = [];
+  talkPlan(paths, config, id, 'Why?', null, { run: claudeSays(reply(SAYS), calls), now, env: { PATH: '/bin' }, accCommand: 'acc' }, 'human:me');
+  const cwd = analystDir(paths, config, id, true);
+  assert.equal(calls[0]!.opts?.cwd, cwd, 'the same folder, kept');
+  assert.ok(calls[0]!.args.join('\u0000').endsWith(analystFlags(paths, config, cwd, 'acc').join('\u0000')), 'the same tools and hook');
+  assert.deepEqual(calls[0]!.opts?.env, analystEnv(config, { PATH: '/bin' }, id));
+  const generic = setup();
+  assert.equal(analystDir(generic.paths, generic.config, generic.id), generic.paths.root);
+  const flags = analystFlags(generic.paths, generic.config, generic.paths.root);
+  assert.ok(!flags.includes('--add-dir') && !flags.includes('--settings') && !flags.some((f) => f.startsWith('Bash(sf ')), 'no hook without acc, no org reads');
+  assert.equal(analystEnv(generic.config, {}, generic.id).ACC_ROLE, 'analyst');
 });
 
 test('a note is refused on an approved plan without a yes, and empty or long; a version with no conversation adds no turn', () => {

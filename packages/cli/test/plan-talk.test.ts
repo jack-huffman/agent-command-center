@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { GENERIC_CONFIG } from '../../core/test/support.ts';
-import { TALK_HELP, TALK_SUBCOMMANDS } from '../src/commands/plan-talk.ts';
+import { recordedHere, TALK_HELP, TALK_SUBCOMMANDS, talkCommand } from '../src/commands/plan-talk.ts';
 import { cli, repoWithConfig } from './support.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
@@ -76,6 +76,18 @@ test('edge cases: acc plan note is refused on an approved plan without --yes, a 
     }
   }
   assert.match(acc(dir, ['plan', 'talk', 'ACME-7'], undefined, env).err, /acc plan talk <id> "<message>"/, 'a message is needed');
+});
+
+test('edge cases: a word acc plan doesn\'t take for its talk is none of these, and a record outside a Claude Code session lands nowhere', () => {
+  const { dir } = talkRepo();
+  assert.equal(talkCommand({ json: false }, ['choose', 'ACME-7']), undefined);
+  const was = process.env.ACC_PLAN_TALK;
+  delete process.env.ACC_PLAN_TALK;
+  try {
+    assert.equal(recordedHere(dir, 'ACME-7', 'x'), false);
+  } finally {
+    if (was !== undefined) process.env.ACC_PLAN_TALK = was;
+  }
 });
 
 test('acc plan claude gives Claude Code\'s plan-mode launch, and what that session records shows on its turn', () => {
