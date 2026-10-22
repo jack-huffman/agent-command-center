@@ -51,6 +51,7 @@ function setup(source: { kind: 'github' | 'jira' | 'azure' | 'manual'; key: stri
 function landOnOrigin(origin: string, base: string, file: string, text: string) {
   const other = tempDir('other-');
   run('git', ['clone', '-q', '-b', base, origin, other]);
+  mkdirSync(join(other, file, '..'), { recursive: true });
   writeFileSync(join(other, file), text);
   gitIn(other, 'add', '-A');
   gitIn(other, '-c', 'user.name=Other', '-c', 'user.email=other@example.com', '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', `change ${file}`);
@@ -172,6 +173,47 @@ test('landing again updates the open pull request rather than opening another', 
   assert.ok(!calls.some((c) => c.args.startsWith('pr create')));
   assert.equal(readLedger(s.paths.ledger).tasks[0]!.pr?.landedAt, now().toISOString(), 'it records when it landed');
   assert.equal(readUpdate(s.paths, 'GH-12.1')?.event, 'pr-updated');
+});
+
+/** T-1's branch in a worktree of its own, adding a decision, reviewed and its checks waived there; main has D-001 on GitHub. */
+function withDecision(config: Config = parseConfig(RAW).config as Config) {
+  const s = setup();
+  const wt = join(tempDir('wt-'), 'T-1');
+  gitIn(s.dir, 'worktree', 'add', '-q', wt, 'task/T-1-add-sum');
+  mkdirSync(join(wt, 'docs/decisions'), { recursive: true });
+  writeFileSync(join(wt, 'docs/decisions/new-T-1-sums.md'), '## D-T-1 Sums add (2026-10-22)\n');
+  writeFileSync(join(wt, 'sum.js'), 'export const sum = (a, b) => a + b; // D-T-1\n');
+  gitIn(wt, 'add', '-A');
+  gitIn(wt, 'commit', '-q', '-m', 'T-1: the decision');
+  const sha = gitIn(wt, 'rev-parse', 'HEAD').trim();
+  mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.run = { branch: 'task/T-1-add-sum', worktree: wt };
+    emit({ type: 'task.updated', task: s.id, actor: 'human', by: 'human:test', data: { run: l.tasks[0]!.run } });
+  });
+  landOnOrigin(s.origin, s.base, 'docs/decisions/D-001-first.md', '## D-001 First (2026-10-01)\n');
+  waiveGates(s.paths, config, { sha, env: config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+  passReview(s.paths, s.id, sha, s.base);
+  return { ...s, wt, sha };
+}
+
+test('where a person merges the pull request, land numbers the decisions the branch adds against origin\'s base, pushes that, and the review carries to it (T-102)', () => {
+  const s = withDecision();
+  const r = land(s.paths, s.config, s.id, { run: gh([]), now, env: {} });
+  assert.notEqual(r.pr.sha, s.sha);
+  assert.equal(gitIn(s.origin, 'rev-parse', 'task/T-1-add-sum').trim(), r.pr.sha, 'the numbered commit is what GitHub has');
+  assert.equal(gitIn(s.dir, 'show', `${r.pr.sha}:docs/decisions/D-002-sums.md`).trim(), '## D-002 Sums add (2026-10-22)');
+  assert.equal(gitIn(s.dir, 'show', `${r.pr.sha}:sum.js`).trim(), 'export const sum = (a, b) => a + b; // D-002');
+  const t = readLedger(s.paths.ledger).tasks[0]!;
+  assert.deepEqual([t.autopilot?.carried?.from, t.autopilot?.carried?.to], [s.sha, r.pr.sha], 'the review of the reviewed commit carries to the numbered one');
+  assert.equal(gitIn(s.wt, 'status', '--porcelain'), '');
+});
+
+test('an edge case: where the merge queue merges, land leaves the decisions for the queue to number at its turn (T-102)', () => {
+  const config = parseConfig({ ...RAW, autonomy: 'review', autopilot: { appendOnly: [], autoMerge: true } }).config as Config;
+  const s = withDecision(config);
+  const r = land(s.paths, config, s.id, { run: gh([]), now, env: {} });
+  assert.equal(r.pr.sha, s.sha, 'pushed as it was reviewed');
+  assert.equal(readLedger(s.paths.ledger).tasks[0]!.autopilot?.carried ?? null, null);
 });
 
 test('land names the files a pull request it opens conflicts in with its base, and changes no branch', () => {
