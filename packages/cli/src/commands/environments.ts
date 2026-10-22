@@ -24,6 +24,8 @@ function cmdPromote(o: Opts, from: string): number {
   out(o, () => [
     ...show(r.plan), '', r.pr ? `Opened pull request #${r.pr.number}  ${r.pr.url}` : r.stopped ?? '', r.pr ? tone('It merges only when a person merges it. Deploy after that with acc deploy.', 'dim') : '',
     r.warning ? tone(`! ${r.warning}`, 'orange') : '',
+    // Its tasks' changes outside git (T-100): steps a person makes by hand, then marks.
+    r.steps ? tone(`! ${r.steps} change${r.steps === 1 ? '' : 's'} outside git to make by hand in ${r.plan.to.name}, listed on the pull request. Mark each with acc change step once made.`, 'orange') : '',
     ...r.updates.map((u) => `  Drafted an update for ${u.key} (${u.id}).`),
     r.updates.length ? tone('Nothing is posted until a person posts it: acc updates.', 'dim') : '',
   ].filter(Boolean).join('\n'), r);

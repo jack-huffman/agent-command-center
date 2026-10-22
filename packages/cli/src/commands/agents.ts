@@ -4,6 +4,7 @@
 import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
+import { refuseUnrecorded } from './changes.ts';
 import { cmdSet } from './tasks.ts';
 
 /** "1 builder", "3 builders". */
@@ -389,7 +390,11 @@ export const area: CommandArea = {
     agents: (o, rest) => cmdAgents(o, rest[0], rest[1]),
     machine: (o, rest) => cmdMachine(o, rest[0], rest[1]),
     dispatch: (o, rest) => cmdDispatch(o, rest[0]),
-    done: (o, rest) => cmdSet(o, taskIdFrom(rest[0]), 'review', noteFrom(o)),
+    done: (o, rest) => {
+      // A record change acc noted and nobody recorded holds it (T-100).
+      refuseUnrecorded(taskIdFrom(rest[0]));
+      return cmdSet(o, taskIdFrom(rest[0]), 'review', noteFrom(o));
+    },
     block: (o, rest) => {
       const [first, ...more] = rest;
       // An id with words after it, or with --client, whose question is the reason: acc block ACME-7 --client "…".

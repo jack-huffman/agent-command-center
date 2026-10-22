@@ -6,6 +6,9 @@
     "PreToolUse": [
       { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/acc\" hook pre-tool-use", "timeout": 30 }] }
     ],
+    "PostToolUse": [
+      { "matcher": "Bash", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/acc\" hook post-tool-use", "timeout": 30 }] }
+    ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/acc\" hook stop", "timeout": 30 }] }
     ]

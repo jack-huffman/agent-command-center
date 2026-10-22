@@ -85,6 +85,11 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['verify'], name: 'Verify the developer\'s pull request', named: 'Verify {arg}\'s pull request' },
   { acc: ['verify show'], name: 'See the verification' },
   { acc: ['verify clear'], name: 'Clear the verification' },
+  // Changes outside git, such as records (T-100)
+  { acc: ['change', 'change list'], name: 'See its record changes' },
+  { acc: ['change record'], name: 'Add a record change', named: 'Add a record change to {arg}' },
+  { acc: ['change none'], name: 'Say no record changed' },
+  { acc: ['change step'], name: 'Mark a promotion\'s step' },
   { acc: ['review'], name: 'Review with an agent', named: 'Review {arg} with an agent', command: 'acc.task.review' },
   { acc: ['land'], name: 'Open its pull request', named: 'Open {arg}\'s pull request', command: 'acc.task.land' },
   { acc: ['autopilot'], name: 'Run autopilot', command: 'acc.autopilot.toggle' },
@@ -102,7 +107,7 @@ export const PROCESSES: readonly Process[] = [
   // Environments
   { acc: ['promote'], name: 'Promote', named: 'Promote {arg}', command: 'acc.env.promote' },
   { acc: ['deploy'], name: 'Deploy', named: 'Deploy to {arg}', command: 'acc.env.deploy' },
-  { acc: ['hook', 'hook session-start', 'hook pre-tool-use', 'hook stop'], name: 'Keep builders on their task' },
+  { acc: ['hook', 'hook session-start', 'hook pre-tool-use', 'hook post-tool-use', 'hook stop'], name: 'Keep builders on their task' },
   { acc: ['hook permission'], name: 'Ask you before an agent runs a command' },
   // GitHub
   { acc: ['github', 'github status'], name: 'Check the GitHub account' },
