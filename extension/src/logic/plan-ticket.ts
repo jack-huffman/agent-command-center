@@ -4,7 +4,7 @@
  * acceptance criteria does (T-81). A read that fails hands over why, so the plan says its comments weren't read.
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
-import { writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { planTicket } from '../../../packages/core/src/plan-ticket.ts';
@@ -45,4 +45,32 @@ export async function writePlanTicketFile(host: PlanTicketHost, root: string, ta
   const file = join(dir, 'ticket.json');
   writeFileSync(file, JSON.stringify(body));
   return file;
+}
+
+/** Why the ticket's file couldn't be written, as the person is told it: a sentence that ends in a full stop. */
+export function unwrittenWhy(e: unknown): string {
+  const code = (e as { code?: unknown })?.code;
+  const said = typeof code === 'string' ? code : inProcessWords(String((e as Error)?.message ?? e ?? '').trim()).replace(/[.\s]+$/, '');
+  return `The ticket couldn't be handed to the plan${said ? ` (${said})` : ''}, so this plan reads its description only and says the ticket wasn't read.`;
+}
+
+/**
+ * The ticket's file for Make a plan, in a folder of its own that `remove` deletes once acc ends. A folder or a
+ * file that can't be written is removed at once, and `failed` says why in words for the person; acc then plans
+ * from the description. A task with no tracker has no file, so its folder is removed at once too.
+ */
+export async function planTicketFolder(host: PlanTicketHost, root: string, task: Pick<Task, 'id' | 'source'>, makeDir: () => string): Promise<{ file: string | null; failed: string | null; remove: () => void }> {
+  let dir: string | null = null;
+  let file: string | null = null;
+  let failed: string | null = null;
+  try {
+    dir = makeDir();
+    file = await writePlanTicketFile(host, root, task, dir);
+  } catch (e) {
+    failed = unwrittenWhy(e);
+  } finally {
+    if (!file && dir) rmSync(dir, { recursive: true, force: true });
+  }
+  const kept = file ? dir : null;
+  return { file, failed, remove: () => { if (kept) rmSync(kept, { recursive: true, force: true }); } };
 }

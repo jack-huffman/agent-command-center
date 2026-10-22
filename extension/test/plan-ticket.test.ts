@@ -1,13 +1,14 @@
 // Make a plan reads the whole ticket (T-110): the Command Center reads it and hands the file to acc, and the
 // ticket's page says "2 new comments since this plan", with Make a new plan, when the ticket has moved on.
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { parsePlanTicket, planRead, planTicket } from '../../packages/core/src/plan-ticket.ts';
 import { fromMarkdown } from '../../packages/core/src/trackers/doc.ts';
-import { type PlanTicketHost, unreadWhy, writePlanTicketFile } from '../src/logic/plan-ticket.ts';
+import { type PlanTicketHost, planTicketFolder, unreadWhy, unwrittenWhy, writePlanTicketFile } from '../src/logic/plan-ticket.ts';
 import type { TaskRow } from '../src/logic/shared.ts';
 import { planBehind, planTicketRead, withTicketRead } from '../src/model/plan-behind.ts';
 import { tempDir } from '../../packages/core/test/support.ts';
@@ -79,6 +80,36 @@ test('edge: a ticket that can\'t be read hands over why, and a task with no trac
   }
 });
 
+test('edge: a ticket file that can\'t be written is removed with its folder, and the person is told in words', async () => {
+  const base = tempDir('plan-folder-');
+  try {
+    // A folder where ticket.json is already a folder: the write fails.
+    const blocked = join(base, 'blocked');
+    const r = await planTicketFolder(host(), ROOT, JIRA, () => { mkdirSync(join(blocked, 'ticket.json'), { recursive: true }); return blocked; });
+    assert.equal(r.file, null);
+    assert.equal(r.failed, 'The ticket couldn\'t be handed to the plan (EISDIR), so this plan reads its description only and says the ticket wasn\'t read.');
+    assert.ok(!existsSync(blocked), 'its folder is removed at once');
+    // A folder that can't be made at all.
+    const none = await planTicketFolder(host(), ROOT, JIRA, () => { throw new Error('no space left.'); });
+    assert.deepEqual([none.file, none.failed], [null, 'The ticket couldn\'t be handed to the plan (no space left), so this plan reads its description only and says the ticket wasn\'t read.']);
+    none.remove();
+    // A task with no tracker: no file, its folder removed at once, nothing to tell.
+    const manual = join(base, 'manual');
+    const m = await planTicketFolder(host(), ROOT, { id: 'T-1', source: { kind: 'manual', key: null, url: null } } as never, () => { mkdirSync(manual); return manual; });
+    assert.deepEqual([m.file, m.failed, existsSync(manual)], [null, null, false]);
+    // A file written: kept until acc ends, then removed with its folder.
+    const kept = join(base, 'kept');
+    const ok = await planTicketFolder(host(), ROOT, JIRA, () => { mkdirSync(kept); return kept; });
+    assert.equal(ok.failed, null);
+    assert.ok(existsSync(ok.file!));
+    ok.remove();
+    assert.ok(!existsSync(kept));
+    assert.equal(unwrittenWhy(''), 'The ticket couldn\'t be handed to the plan, so this plan reads its description only and says the ticket wasn\'t read.');
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('Make a plan reads the ticket first and hands its file to acc, which is removed once acc ends', async () => {
   const ran: { command: string; onExit?: (code: number | null) => void }[] = [];
   const hub = {
@@ -140,6 +171,11 @@ test('the page draws the line and Make a new plan where ACME-21 is behind, and n
   const behind = sampleTicket(NOW, 'ACME-21', false, null, null, 'behind');
   assert.equal(behind.analysis!.ticketRead!.behind!.look.label, '2 new comments since this plan');
   const drawn = renderAnalysis(behind, behind.analysis!) as unknown as PageElement;
+  // In the short section (T-109): after the plan's version and approval, before Review plan and The whole plan.
+  const order = drawn.children.filter((c): c is PageElement => typeof c !== 'string').map((c) => c.className.split(' ')[0]);
+  assert.ok(order.indexOf('plan-short') >= 0 && order.indexOf('plan-ticket') === order.indexOf('plan-short') + 1, order.join(','));
+  assert.ok(order.indexOf('plan-ticket') < order.indexOf('an-whole'), order.join(','));
+  assert.equal(drawn.all('an-whole')[0]!.all('plan-ticket').length, 0, 'not folded under The whole plan');
   const line = drawn.all('plan-behind');
   assert.equal(line.length, 1, 'in the plan section');
   assert.match(line[0]!.textContent, /2 new comments since this plan/);

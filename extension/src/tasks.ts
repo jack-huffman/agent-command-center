@@ -1,5 +1,5 @@
 // The Tasks area's VS Code commands (D-099): a task from its card, its page or a row's menu.
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
@@ -14,7 +14,8 @@ import type { Hub, Project } from './hub.ts';
 import type { Trackers } from './trackers.ts';
 import { displayName, sessionFor } from './logic/agents.ts';
 import { newestVerdictText, readReviewRun } from './logic/dock-review.ts';
-import { type PlanTicketHost, writePlanTicketFile } from './logic/plan-ticket.ts';
+import { type PlanTicketHost, planTicketFolder } from './logic/plan-ticket.ts';
+import { projectTracker, readProjectTicket } from './logic/project-ticket.ts';
 import { inProcessWords } from './logic/processes.ts';
 import { shq } from './logic/shared.ts';
 import { reasonInWords } from './logic/relayed.ts';
@@ -513,11 +514,14 @@ export class TaskCommands extends Sidebar {
     const done = () => void this.hub.loadTasks(true);
     if (this.helpers.run) {
       // The whole ticket first (T-110): its comments, related tickets and changes field, in a file removed once acc ends.
-      const dir = mkdtempSync(join(tmpdir(), 'acc-plan-'));
+      // A file that can't be written is removed, the person is told, and the plan reads the description.
       const kept = this.hub.ledger(project.root)?.tasks.find((t) => t.id === task.id);
-      const file = this.planTicket && kept ? await writePlanTicketFile(this.planTicket, project.root, kept, dir) : null;
+      const { file, failed, remove } = this.planTicket && kept
+        ? await planTicketFolder(this.planTicket, project.root, kept, () => mkdtempSync(join(tmpdir(), 'acc-plan-')))
+        : { file: null, failed: null, remove: () => {} };
+      if (failed) void vscode.window.showWarningMessage(failed);
       const ended = () => {
-        rmSync(dir, { recursive: true, force: true });
+        remove();
         done();
       };
       // acc analyze exits 1 when the analysis has questions or says to split it: a new analysis is a run that
@@ -593,19 +597,10 @@ export class TaskCommands extends Sidebar {
 
 /** Make a plan's read of a tracker task's ticket (T-110), through the tracker's own sign-in, as drafting criteria reads it. */
 function planTicketHost(hub: Hub, trackers: Trackers): PlanTicketHost {
-  const where = (root: string, key: string) => {
-    const p = hub.project(root);
-    const index = p ? trackers.trackerFor(p, key) : null;
-    if (!p || index === null) throw new Error(`${key} isn't one of the project's tickets.`);
-    return { p, index };
-  };
   return {
-    ticket: async (root, key) => {
-      const { p, index } = where(root, key);
-      return trackers.ticket(p, index, key);
-    },
+    ticket: (root, key) => readProjectTicket(hub, trackers, root, key),
     changes: async (root, key) => {
-      const { p, index } = where(root, key);
+      const { p, index } = projectTracker({ hub, trackers }, root, key);
       const field = trackers.trackers(p)[index]?.changesField;
       if (!field) return null;
       const client = await trackers.client(p, index);

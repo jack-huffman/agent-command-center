@@ -9,8 +9,11 @@ reads all the comments; now it does.
   first, as drafting criteria does: its text, every comment with its author and date, related tickets with
   their state, the names of attachments in the description and comments, and the changes field (T-105) where
   the tracker names one. It hands them to `acc analyze <id> --ticket <file>` and removes the file when acc
-  ends (`extension/src/logic/plan-ticket.ts`, `packages/core/src/plan-ticket.ts`). A changes field that
-  can't be read is left out, and the rest is still read.
+  ends (`extension/src/logic/plan-ticket.ts`, `packages/core/src/plan-ticket.ts`). Criteria and Make a plan
+  read the ticket through one reader (`extension/src/logic/project-ticket.ts`). A changes field that
+  can't be read is left out, and the rest is still read. A file that can't be written is removed with its
+  folder, the person is told in words, and acc plans from the description without `--ticket`
+  (`planTicketFolder`).
 - **A failed read, or no tracker, says why.** A read that fails hands over the ticket's key and why
   (`{ "key", "unread" }`), and the plan is made from the description. Its prompt says the comments weren't
   read and why, and asks the analyst to say so in the summary. A task with no tracker has no comments, and the
@@ -33,11 +36,10 @@ reads all the comments; now it does.
   builder's instructions. Plans made before this have none, and show nothing.
 - **A plan that falls behind says so.** The ticket page counts the ticket's comments newer than the newest the
   plan read (all of them where it read none) and shows "2 new comments since this plan" with Make a new plan,
-  in the plan section, under its summary (`extension/src/model/plan-behind.ts`,
+  in the plan's short section (D-200), under its version and approval (`extension/src/model/plan-behind.ts`,
   `extension/webview/plan-behind.ts`). Where its read failed, it says "3 comments this plan didn't read". It
   shows only where a new plan can be made: before the build, and not while one is being made. The section's
-  own Make a new plan moves onto that line, so the page has one. It is a function of its own, so T-109's short
-  plan summary can call it.
+  own Make a new plan moves onto that line, so the page has one.
 - **Talk it through gets the same comments (D-195).** The ticket the plan read is kept beside it
   (`.git/acc/analyses/<id>.ticket.json`). A message to the planning agent resumes the plan's own session,
   which read them; Open in Claude Code's brief holds them, from the kept file.
