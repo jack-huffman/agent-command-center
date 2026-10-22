@@ -41,7 +41,7 @@ conversation on the ticket page, where a long one took up far too much room. The
   the other at once.
 
 Tested in `packages/core/test/plan-opening.test.ts` (9 tests), `packages/cli/test/plan-start.test.ts` (2 tests),
-`extension/test/conversation.test.ts` (13 tests) and `extension/test/conversation-panel.test.ts` (3 tests, the
+`extension/test/conversation.test.ts` (14 tests) and `extension/test/conversation-panel.test.ts` (3 tests, the
 built extension: beside, a tab when narrow, the quote, a change shown in both). Two behaviour cases drive the
 panel from its question to Draft the plan, and the page's one line to Open conversation, each with a mutant it
 must catch: the page drawing the turns, and Draft the plan ignoring the conversation. The screenshot run draws
