@@ -226,6 +226,12 @@ test('the conversation draws each turn with who and when, the quoted option, and
   assert.match(s.all('talk-about')[0]!.textContent, /Option d1\.a: Where the contact roles are made/);
   assert.equal(s.all('talk-box')[0]!.dataset.keep, sendKey(m.project, 'ACME-21'));
   assert.deepEqual(['d1', 'd1.a', 's1', 'r2', 'q1'].map(kindOf), ['choice', 'option', 'step', 'risk', 'question']);
+  // Later: a version made from the conversation says what changed, and a message waits for its reply.
+  const later = draw(sampleTalkTicket(NOW, true));
+  const made = later.all('who-plan')[0]!;
+  assert.match(made.textContent, /Made v2 from this conversation\.What changed.*New question/);
+  assert.match(later.all('talk-waiting')[0]!.textContent, /The planning agent is reading the code to reply/);
+  assert.equal(buttons(later, 'Send')[0]!.disabled, true, 'nothing more goes while it replies');
 });
 
 test('Discuss on an option opens the conversation with it quoted and the cursor in the box; Send sends the words with what they\'re about, and a reply clears them', async () => {

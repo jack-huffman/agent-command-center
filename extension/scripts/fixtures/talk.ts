@@ -2,7 +2,7 @@
 import type { PlanTalk } from '../../../packages/core/src/plan-talk.ts';
 import { ticketTalk } from '../../src/model/talk.ts';
 import type { TicketModel } from '../../src/model/task-page.ts';
-import { sampleAnalyses } from './analysis.ts';
+import { sampleAnalyses, samplePlan } from './analysis.ts';
 import { MIN, ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
@@ -35,15 +35,27 @@ export function sampleTalk(now: number): PlanTalk {
   };
 }
 
-/** ACME-21's page with its conversation, its notes on the plan, and the next message about an option, quoted. */
-export function sampleTalkTicket(now: number): TicketModel {
-  const t = sampleTicket(now, 'ACME-21');
+/**
+ * ACME-21's page with its conversation, its notes on the plan, and the next message about an option, quoted.
+ * Later, as the screenshot run draws it: v2 was made from the conversation and approved, says what changed,
+ * and the person's next message waits for the planning agent's reply.
+ */
+export function sampleTalkTicket(now: number, later = false): TicketModel {
+  const t = later ? sampleTicket(now, 'ACME-21', false, null, null, 'approved') : sampleTicket(now, 'ACME-21');
   const at = (ago: number) => new Date(now - ago * MIN).toISOString();
   const notes = [{ text: 'Step 3: add a test that a closed opportunity gets no role.', by: 'jordan', at: at(12) }, { text: 'Run the backfill batch outside business hours.', by: 'jordan', at: at(6) }];
+  const plan = later ? samplePlan(now, 'approved') : sampleAnalyses(now)['ACME-21']!;
+  const talk = sampleTalk(now);
+  if (later) {
+    talk.turns.push(
+      { id: 't4', who: 'plan', by: 'Acme · ACME-21 Lead conversion · analysis', at: at(5), version: 2, text: 'Made v2 from this conversation.', recorded: plan.changes ?? [] },
+      { id: 't5', who: 'you', by: 'human:jordan', at: at(1), version: 2, about: { ref: 'r2', kind: 'risk', text: 'Sharing: integration users convert leads without access to every contact' }, text: 'Which integration users convert leads today?' },
+    );
+  }
   return {
     ...t,
     analysis: t.analysis && { ...t.analysis, planState: t.analysis.planState && { ...t.analysis.planState, notes } },
-    talk: ticketTalk({ task: { id: 'ACME-21', state: 'todo' }, analysis: sampleAnalyses(now)['ACME-21']!, analyzing: false, talk: sampleTalk(now), running: false, open: [], ref: { project: ROOT, task: 'ACME-21' } }),
+    talk: ticketTalk({ task: { id: 'ACME-21', state: 'todo' }, analysis: plan, analyzing: false, talk, running: later, open: [], ref: { project: ROOT, task: 'ACME-21' } }),
   };
 }
 

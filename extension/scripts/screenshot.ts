@@ -241,7 +241,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     return { ...t, manifest: ticketManifest({ task: { id: 'ACME-19', run: { branch: 'task/ACME-19-welcome-email-once' }, state: 'rework', source: { kind: 'jira', key: 'ACME-19', url: null } }, profile: 'salesforce', org: 'Acme Dev', manifest: sampleManifest(now), running: null }) };
   }
   // ACME-21's conversation with its planning agent (T-98): an option quoted, a reply's proposals, one used, and a Claude Code session.
-  if (kind === 'ticket-talk') return sampleTalkTicket(now);
+  if (kind === 'ticket-talk') return sampleTalkTicket(now, true);
   // A ticket's page from each tracker past Jira and Slack (T-91): a GitHub issue, an Azure DevOps backlog item and a monday.com item.
   if (kind === 'ticket-github' || kind === 'ticket-azure' || kind === 'ticket-monday') return sampleTrackerTicket(now, kind.slice('ticket-'.length) as TrackerTicketSample);
   if (kind === 'agent') return sampleAgent(now);
@@ -349,7 +349,7 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', 'plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b'] }
   : kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier'] }
   // The next message to ACME-21's planning agent (T-98), about an option, quoted, half-written.
-  : kind === 'ticket-talk' ? TALK_STATE
+  : kind === 'ticket-talk' ? { ...TALK_STATE, opened: ['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`) }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 /**
