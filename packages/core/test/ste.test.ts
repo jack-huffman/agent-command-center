@@ -247,7 +247,7 @@ test('a wording finding never holds a dispatch: it is advice for a person', () =
   const wanting = { ...config, analysis: { required: true } } as Config;
   const paths = { analyses: tempDir('ste-analyses-') } as Parameters<typeof analysisProblems>[0];
   const a = parseAnalysis(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 's', structured_output: { verdict: 'ready', summary: 'S.', requirements: { goal: 'Spin up the job; then stop.', criteria: [], assumptions: [], outOfScope: [] }, questions: [], findings: [], approach: { plan: [], files: [], refactors: [], risks: [], tests: [], size: 'S' }, split: [] } })).analysis;
-  writeFileSync(join(paths.analyses, 'T-1.json'), JSON.stringify({ v: 1, task: 'T-1', env: 'main', base: 'x', orgs: [], sessionId: 's', at: '', durationMs: 0, costUsd: null, ...a }));
+  writeFileSync(join(paths.analyses, 'T-1.json'), JSON.stringify({ v: 1, task: 'T-1', env: 'main', base: 'x', orgs: [], sessionId: 's', at: '', durationMs: 0, costUsd: null, ...a, approval: { version: 1, by: 'human:me', at: '' } }));
   assert.equal(a.wording!.length, 2);
   assert.deepEqual(analysisProblems(paths, wanting, task), []);
 });

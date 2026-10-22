@@ -13,6 +13,8 @@ import { sessionName } from './names.ts';
 import { outsideOf } from './outside-changes.ts';
 import { notesSection } from './packet.ts';
 import { recordReviewSection } from './records.ts';
+import { type Analysis, readAnalysis } from './analyze.ts';
+import { planChoicesSection } from './plan.ts';
 import { rulesText } from './rules.ts';
 import { testsText } from './test-counts.ts';
 import { clip } from './text.ts';
@@ -213,6 +215,8 @@ export interface ReviewInput {
   /** The kinds of finding earlier reviews named, to reuse (GH-102). */
   kinds?: string[];
   /** A reviewer in a cloud session (T-86) reads the diff itself, from the base commit to the head: the prompt says how, and carries none. */
+  /** The task's plan (T-97): the reviewer checks the change against the choices a person made in it. */
+  plan?: Analysis | null;
   cloud?: { base: string };
 }
 
@@ -277,6 +281,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     '- Does it do what the task asks? Go through each acceptance criterion in the task, and say whether it is met, with the file and line that meets it.',
     '- Does it follow the rules you\'re given, if there are any? Where two disagree, the later one wins: this repo\'s own rules over the others.',
     '- Did it change anything the task didn\'t ask for?',
+    '- Does it keep to the plan\'s choices, where you are given them? A departure from a choice a person made is a finding with must: true.',
     '- Do the tests actually exercise the change?',
     '- Did it add a skip, only or todo to a test (it.skip, xit, describe.skip, test.only, fit, it.todo, { skip: true }, t.skip(), t.todo())? Each is a finding with must: true, unless the task asks for it: a skipped test passes having checked nothing.',
     `- ${DUPLICATE_HELPER}`,
@@ -297,6 +302,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     '',
     ...editedSection(i.task),
     ...notesEditedSection(i.task),
+    ...planChoicesSection(i.plan ?? null),
     '## The checks on this commit',
     '',
     ...(i.checks.length ? i.checks : ['- none recorded']),
@@ -427,6 +433,8 @@ export interface ReviewPrepared {
   checks: string[];
   kinds: string[];
   name: string;
+  /** The task's plan (T-97), whose choices the reviewer checks the change against. */
+  plan: Analysis | null;
 }
 
 /**
@@ -455,7 +463,7 @@ export function prepareReview(paths: RepoPaths, config: Config, id: string, run:
   const packet = existsSync(packetFile) ? readFileSync(packetFile, 'utf8') : [`# ${task.id}: ${task.title}`, '', task.brief, '', ...notesSection(task)].join('\n');
   const rules = rulesText(worktree, config.profile);
   const name = sessionName({ project: config.project, key: id, title: task.title, role: 'review' });
-  return { task, env, branch, worktree, sha, base, packet, rules, checks, kinds: knownKinds(paths), name };
+  return { task, env, branch, worktree, sha, base, packet, rules, checks, kinds: knownKinds(paths), name, plan: readAnalysis(paths, id) };
 }
 
 /**
@@ -500,7 +508,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const { task, env, sha, worktree, name } = r;
   const diff = git(run, paths.root, 'diff', '--no-color', '--find-renames', `${r.base}...${sha}`).stdout;
   const stat = git(run, paths.root, 'diff', '--stat=120', '--find-renames', `${r.base}...${sha}`).stdout;
-  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet: r.packet, diff, stat, checks: r.checks, rules: r.rules, kinds: r.kinds });
+  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet: r.packet, diff, stat, checks: r.checks, rules: r.rules, kinds: r.kinds, plan: r.plan });
 
   const sessionId = (deps.uuid ?? randomUUID)();
   mkdirSync(paths.reviews, { recursive: true });

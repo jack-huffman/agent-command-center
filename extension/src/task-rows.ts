@@ -57,7 +57,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
     const a = analyses.get(t.id) ?? null;
     const running = store && t.state !== 'done' && files.has(`${t.id}.running.json`) ? analyzing(store, t.id) : null;
     const analysis = a ? rowAnalysis(a) : null;
-    const waits = analysisWait({ state: t.state, analysis, analyzing: running });
+    const waits = analysisWait({ state: t.state, analysis, analyzing: running, analysisRequired: required });
     const verdict = reviews && (t.state === 'review' || t.state === 'rework') ? latestVerdict(reviews, t.id) : null;
     const head = p?.worktrees.find((w) => w.branch === t.run?.branch)?.head;
     const tree = t.state === 'running' && t.run?.worktree ? p?.worktrees.find((w) => w.path === t.run!.worktree) : undefined;

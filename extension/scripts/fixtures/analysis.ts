@@ -28,9 +28,29 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
         outOfScope: ['Changing the lead conversion page layout'],
       },
       questions: [
-        { id: 'q1', question: 'Should every converted contact get a role on the new opportunity, or only the lead\'s primary contact?', why: 'Every contact means more role records, and the pipeline report counts them.', suggested: 'Only the primary contact, as Decision Maker.' },
-        { id: 'q2', question: 'Fix the leads converted before this change too?', why: 'A one-off backfill touches about 3,400 opportunities in production and needs its own deploy window.', suggested: 'No: only leads converted from now on. A backfill can be its own task.' },
-        { id: 'q3', question: 'Which role does a secondary contact get?', why: 'Sets the default for the picklist.', suggested: 'Influencer', answer: { text: 'Influencer', by: 'jordan', at: at(10) } },
+        { id: 'q1', question: 'Should every converted contact get a role on the new opportunity, or only the lead\'s primary contact?', why: 'Every contact means more role records, and the pipeline report counts them.', suggested: 'Only the primary contact, as Decision Maker.', askOf: 'you' },
+        // Only the ticket's author can answer this one (T-97): it's asked on the ticket.
+        { id: 'q2', question: 'Does the sales team report on Decision Maker or on Economic Buyer?', why: 'Sets the role the primary contact gets.', suggested: 'Decision Maker', askOf: 'author' },
+        { id: 'q3', question: 'Which role does a secondary contact get?', why: 'Sets the default for the picklist.', suggested: 'Influencer', askOf: 'you', answer: { text: 'Influencer', by: 'jordan', at: at(10) } },
+      ],
+      // Two design choices (T-97): the first chosen, the second still to make.
+      decisions: [
+        {
+          id: 'd1', title: 'Where the contact roles are made', why: 'Decides what runs on conversion, and where its tests live.', recommended: 'a', because: 'The handler already runs on every conversion, so one more insert there adds no automation to Lead.',
+          options: [
+            { id: 'a', name: 'In LeadConversionHandler', means: 'The handler inserts the roles after it makes the opportunity.', pros: ['One place runs on conversion', 'Its test class is already there'], cons: ['The handler grows', 'A flow-only admin can\'t change it'], effort: 'S', risks: ['Its loop must stay bulk-safe at 200 leads'], touches: ['classes/LeadConversionHandler.cls', 'classes/LeadConversionHandlerTest.cls'] },
+            { id: 'b', name: 'A record-triggered flow', means: 'An after-save flow on Opportunity adds a role when a converted lead made it.', pros: ['An admin can change it without a deploy'], cons: ['A third piece of automation on conversion', 'Flows are harder to test in bulk'], effort: 'M', risks: ['Runs after the handler, so the order matters'], touches: ['flows/Opportunity_Contact_Role.flow-meta.xml'] },
+          ],
+          choice: { option: 'a', by: 'jordan', at: at(12) },
+        },
+        {
+          id: 'd2', title: 'Which converted leads get roles', why: 'A backfill touches about 3,400 opportunities in production and needs its own deploy window.', recommended: 'a', because: 'The ticket asks about conversions from now on, and a backfill can be its own task.',
+          options: [
+            { id: 'a', name: 'From now on', means: 'Only leads converted after the deploy get roles.', pros: ['No data change in production'], cons: ['The 3,400 older opportunities stay without roles'], effort: 'S', risks: [], touches: [] },
+            { id: 'b', name: 'Backfill too', means: 'A one-off batch adds roles to the opportunities converted before.', pros: ['Every report counts the same way'], cons: ['Its own deploy window', 'A batch class to keep'], effort: 'L', risks: ['Writes to 3,400 records at once'], touches: ['classes/ContactRoleBackfill.cls'] },
+            { id: 'c', name: 'Open deals only', means: 'The batch adds roles only to opportunities still open.', pros: ['About 600 records, not 3,400'], cons: ['Closed deals still differ in reports'], effort: 'M', risks: [], touches: ['classes/ContactRoleBackfill.cls'] },
+          ],
+        },
       ],
       findings: [
         { area: 'LeadConversionHandler', detail: 'An after-update handler creates the opportunity but no OpportunityContactRole.', source: 'force-app/main/default/classes/LeadConversionHandler.cls' },
@@ -63,7 +83,9 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
       },
       split: ['Set up the Experience Cloud site and its partner profiles', 'Share accounts and opportunities with partner users', 'Move deal registration onto a screen flow', 'Retire the old portal pages once partners have moved'],
     }),
+    // Ready to build: a person approved its plan (T-97).
     'ACME-16': make('ACME-16', 'ready', 55, {
+      approval: { version: 1, by: 'jordan', at: at(50) },
       summary: 'Turn on field history for Opportunity Stage, then add a report type and a report on it. Nothing tracks Stage history today, and the history limit has room.',
       requirements: { goal: 'Sales managers see how deals moved between stages.', criteria: ['Stage changes are tracked from the deploy on', 'A report lists each stage change with who made it and when'], assumptions: ['History before the deploy isn\'t needed'], outOfScope: [] },
       findings: [{ area: 'Opportunity history', detail: '12 of 20 tracked fields are used; Stage isn\'t one of them.', source: 'Acme Dev: sf sobject describe Opportunity' }],
@@ -80,5 +102,39 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
       findings: [{ area: 'Escalation rules', detail: 'One active rule with three entries, none for the premium tier.', source: 'force-app/main/default/escalationRules/Case.escalationRules-meta.xml' }],
       approach: { plan: ['Add the premium rule entry to `Case.escalationRules-meta.xml`', 'Notify the owner with an email alert'], files: [{ path: 'force-app/main/default/escalationRules/Case.escalationRules-meta.xml', change: 'update', why: 'The premium entry' }], refactors: [], risks: [], tests: ['`CaseRoutingTest.premiumEscalates` passes in **Acme Dev**'], size: 'S' },
     }),
+  };
+}
+
+/**
+ * ACME-21's plan later on (T-97): approved, its second version with both choices made and every question
+ * for you answered; or changed since, a third version that drops a choice made in v2 and adds one, so it
+ * needs choosing and approving again. Each keeps the versions before it.
+ */
+export function samplePlan(now: number, which: 'approved' | 'changed'): Analysis {
+  const at = (ago: number) => new Date(now - ago * MIN).toISOString();
+  const base = sampleAnalyses(now)['ACME-21']!;
+  const answered = base.questions.map((q) => (q.askOf === 'you' && !q.answer ? { ...q, answer: { text: q.suggested, by: 'jordan', at: at(9) } } : q));
+  const [d1, d2] = base.decisions!;
+  const v1: Analysis = { ...base, version: 1, at: at(3 * 60) };
+  const approval = { version: 2, by: 'jordan', at: at(30) };
+  const v2: Analysis = {
+    ...base, version: 2, at: at(60), questions: answered, decisions: [d1!, { ...d2!, choice: { option: 'a', by: 'jordan', at: at(35) } }],
+    changes: ['New question: Does the sales team report on Decision Maker or on Economic Buyer?', 'Which converted leads get roles: now recommends From now on, not Backfill too'], approval,
+  };
+  if (which === 'approved') return { ...v2, earlier: [v1] };
+  return {
+    ...base, version: 3, at: at(5), questions: answered, lapsed: approval, earlier: [v1, v2],
+    // The person's own option carries over; the dropped choice's doesn't, and a new one waits.
+    decisions: [
+      { ...d1!, choice: { option: null, text: 'In LeadConversionHandler, and only for leads from the web form', by: 'jordan', at: at(40) } },
+      {
+        id: 'd2', title: 'Where a role\'s contact comes from', why: 'A lead converted into an existing account may match several contacts.', recommended: 'a', because: 'It is the contact the rep chose at conversion.',
+        options: [
+          { id: 'a', name: 'The converted contact', means: 'The contact the conversion made or picked.', pros: ['Always one contact'], cons: ['Ignores the account\'s other contacts'], effort: 'S', risks: [], touches: [] },
+          { id: 'b', name: 'Every matching contact', means: 'Each contact on the account with the lead\'s email domain.', pros: ['Reports see the whole buying group'], cons: ['More roles than the ticket asks for'], effort: 'M', risks: ['Guesses from an email domain'], touches: [] },
+        ],
+      },
+    ],
+    changes: ['New choice: Where a role\'s contact comes from', 'No longer a choice: Which converted leads get roles', 'The approach changed'],
   };
 }

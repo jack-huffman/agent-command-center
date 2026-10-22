@@ -55,4 +55,5 @@ export function menuFor(webviewId: string, keys: Record<string, string | boolean
 export const ask = (id: string) => ({ id, question: `Question ${id}?`, why: 'It changes the build.', suggested: 'The usual.' });
 export const asks = { verdict: 'questions' as const, at: 't1', open: [ask('q1'), ask('q2')], split: [] };
 export const tooBig = { verdict: 'split' as const, at: 't1', open: [], split: ['One part', 'Another part', 'The rest'] };
-export const analysed = { verdict: 'ready' as const, at: 't1', open: [], split: [] };
+// Ready to build from: nothing open, and its plan approved (T-97).
+export const analysed = { verdict: 'ready' as const, at: 't1', open: [], split: [], approved: true };

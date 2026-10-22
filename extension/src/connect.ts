@@ -10,8 +10,9 @@ import { randomBytes } from 'node:crypto';
 import type { Tracker } from '../../packages/core/src/config.ts';
 import { hostsInUse, repoIdentity, type RepoInUse, usedBy } from '../../packages/core/src/repos.ts';
 import { type Ctx, describe, DESCRIPTIONS, type PickerSpec, type SignIn, type SignInMethod, type TrackerDescription, type Values } from '../../packages/core/src/trackers/connect.ts';
-import { type Exec, TrackerError } from '../../packages/core/src/trackers/types.ts';
-import { area as page, blankConnect, type ConnectMessage, connectModel, type ConnectModel, type ConnectOption, type ConnectState, connectValues } from './model/connect.ts';
+import { countValues, placeKey, readPlace } from '../../packages/core/src/trackers/preview.ts';
+import { type Exec, type TrackerClient, TrackerError } from '../../packages/core/src/trackers/types.ts';
+import { area as page, blankConnect, COUNT_MOST, type ConnectMessage, connectModel, type ConnectModel, type ConnectOption, type ConnectState, connectValues } from './model/connect.ts';
 import { connectChangesField } from './model/changes-field.ts';
 import type { HomeSection } from './model/shared.ts';
 import type { ExtensionArea } from './area.ts';
@@ -80,7 +81,12 @@ export interface ConnectDeps {
   fetch?: typeof fetch;
   /** The trackers on offer. Every one by default; tests add their own. */
   list?: TrackerDescription[];
+  /** The board a place would make (T-106): the description's own preview by default; tests give a stand-in. Only its board() is read. */
+  preview?: (d: TrackerDescription, ctx: Ctx) => Pick<TrackerClient, 'board'> | string | null;
 }
+
+/** How many boards the page reads at once (T-106), for the preview and the cards' counts, so a long list never floods a tracker. */
+export const READS_AT_ONCE = 3;
 
 export interface OpenOptions {
   root?: string;
@@ -107,6 +113,9 @@ export class ConnectSession {
   private start: StartProject | null = null;
   private readonly deps: ConnectDeps;
   private readonly list: TrackerDescription[];
+  /** Board reads waiting their turn (T-106): the preview's goes first, then the cards' counts. */
+  private reads: (() => Promise<void>)[] = [];
+  private reading = 0;
 
   constructor(deps: ConnectDeps) {
     this.deps = deps;
@@ -161,6 +170,7 @@ export class ConnectSession {
   close(): void {
     const was = !!this.s;
     this.epoch++;
+    this.reads = [];
     this.s = null;
     this.signIn = null;
     this.project = null;
@@ -211,6 +221,8 @@ export class ConnectSession {
         s.shareTouched = true;
         return this.bump();
       case 'connect-pick': return this.pick(m.key, m.value);
+      case 'connect-count': return this.count(m.key, m.values);
+      case 'connect-preview': return this.readAgain();
       case 'connect-save': return void this.save();
     }
   }
@@ -296,6 +308,9 @@ export class ConnectSession {
     s.signIn = { state: 'none', who: null, error: null, again: false };
     if (!s.shareTouched) s.share = true;
     for (const p of this.d.pickers) s.pickers[p.key] = { options: [], selected: [], state: 'waiting', error: null };
+    // Another host's boards are another tracker's (T-106).
+    s.boards = {};
+    this.reads = [];
   }
 
   /**
@@ -465,7 +480,92 @@ export class ConnectSession {
         void this.load(p);
       }
     }
+    this.readPreview();
     this.bump();
+  }
+
+  /** The preview's board (T-106), once the choices make a place the model is waiting to draw: first in line. */
+  private readPreview(): void {
+    const s = this.s;
+    if (!s || this.model()?.preview.state !== 'loading') return;
+    this.readBoard(connectValues(s, this.d), true);
+  }
+
+  /** Read it again (T-106): the preview's board failed, and the person asked. */
+  private readAgain(): void {
+    const s = this.s!;
+    const key = placeKey(connectValues(s, this.d));
+    if (s.boards[key]?.state !== 'failed') return;
+    delete s.boards[key];
+    this.readPreview();
+    this.bump();
+  }
+
+  /**
+   * The counts of the cards the page drew (T-106): each the board with that choice made, read once. '' is the
+   * whole project's. A value the list doesn't hold, or a list that doesn't count, is passed over.
+   */
+  private count(key: string, values: string[]): void {
+    const s = this.s!;
+    const p = this.d.pickers.find((x) => x.key === key);
+    const ps = s.pickers[key];
+    if (!p?.counts || !ps || !this.signIn || ps.state !== 'ready' || (s.existing && p.identifies)) return;
+    const known = new Set([...ps.options.map((o) => o.value), ...ps.selected, ...(p.whole ? [''] : [])]);
+    const now = connectValues(s, this.d);
+    for (const v of values.slice(0, COUNT_MOST)) if (known.has(v)) this.readBoard(countValues(this.d.pickers, now, key, v));
+    this.bump();
+  }
+
+  /**
+   * Reads a place's board (T-106), once while the page is open: kept by its values, so going back to a choice
+   * is instant. Only board() is called: choosing never writes to a tracker. A few at once, the preview first.
+   */
+  private readBoard(values: Values, first = false): void {
+    const s = this.s;
+    if (!s || !this.signIn) return;
+    const key = placeKey(values);
+    if (s.boards[key]) return;
+    const d = this.d;
+    let source: Pick<TrackerClient, 'board'> | string | null;
+    try {
+      source = (this.deps.preview ?? ((x, c) => x.preview(c)))(d, { ...this.ctx(this.signIn), values });
+    } catch (e) {
+      s.boards[key] = { state: 'failed', board: null, none: null, error: (e as Error).message };
+      return;
+    }
+    // Choices that make no place yet have no board to read: the preview says so rather than wait.
+    if (!source) {
+      s.boards[key] = { state: 'ready', board: null, none: 'These choices make no board yet.', error: null };
+      return;
+    }
+    s.boards[key] = { state: 'loading', board: null, none: null, error: null };
+    const epoch = this.epoch;
+    const read = async () => {
+      try {
+        const r = await readPlace(source);
+        if (epoch !== this.epoch || this.s !== s) return;
+        s.boards[key] = { state: 'ready', ...r, error: null };
+      } catch (e) {
+        if (epoch !== this.epoch || this.s !== s) return;
+        s.boards[key] = { state: 'failed', board: null, none: null, error: (e as Error).message };
+        this.deps.log(`[connect] ${d.name}: couldn't read the board: ${(e as Error).message}`);
+      }
+      this.bump();
+    };
+    if (first) this.reads.unshift(read);
+    else this.reads.push(read);
+    this.pump();
+  }
+
+  private pump(): void {
+    while (this.reading < READS_AT_ONCE && this.reads.length) {
+      const read = this.reads.shift()!;
+      this.reading++;
+      void read().finally(() => {
+        this.reading--;
+        this.pump();
+      });
+    }
   }
 
   private async load(p: PickerSpec): Promise<void> {

@@ -45,6 +45,7 @@ import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../sr
 import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
+import { sampleChoosing } from './fixtures/connect.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
 import { taskSheetOff } from '../src/model/task-sheet.ts';
@@ -146,6 +147,11 @@ export interface BehaviourData {
  */
   connect: { save: string; why: string; none: { model: ConnectModel; testWhy: string } };
   /**
+   * Choosing a board by seeing it (T-106): the Jira page with its preview still being read, drawn for ACME-31,
+   * and with ACME-30 chosen; each preview's line, Use this board's label and why it's off while it reads.
+   */
+  choose: { reading: ConnectModel; shown: ConnectModel; epic: ConnectModel; line: string; epicLine: string; use: string; wait: string };
+  /**
    * The command palette (T-52), on the Tasks board: the sections an empty query shows, in order; the task
    * "16" finds first, with the message that opens it in the modal; the query whose second result Down and
    * Enter run, that result's title and the message it sends; and the board's model with Stop finished off,
@@ -206,6 +212,11 @@ export interface BehaviourData {
   };
   /** A task page's drafted acceptance criteria (T-81): ACME-19's page with a draft, and a refused update's reason. */
   criteria: { model: Model; project: string; error: string };
+  /**
+   * ACME-21's approved plan (T-97): its page's model, what a change asks first, the Choose this whose change
+   * is kept and the one whose change is made, by their names as read out, and the message Change it sends.
+   */
+  plan: { model: Model; ask: string; keep: string; change: string; sent: Record<string, unknown> };
   /**
    * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
    * its state, name and time; each row's words in order; its command; how many of its paths are outside its
@@ -796,6 +807,41 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'plan: on an approved plan, Choose this asks first; Keep the approval and Escape send nothing and focus goes back, and Change it sends the choice with its yes (T-97)',
+    page: 'ticket-questions',
+    async run(t) {
+      const d = t.data.plan;
+      await t.post({ type: 'state', model: d.model });
+      const named = (label: string): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('button').find((x) => x.getAttribute('aria-label') === label);
+        if (!b) throw new Error(`not found: ${label}`);
+        return b;
+      };
+      const inDialog = (label: string): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('button', t.find('[role="alertdialog"]')).find((x) => x.textContent?.trim() === label);
+        if (!b) throw new Error(`not found: the dialog's ${label}`);
+        return b;
+      };
+      await t.click(named(d.keep));
+      t.check('nothing goes before the person says', t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      const box = t.find('[role="alertdialog"]');
+      t.check('the dialog says a change undoes the approval', box.textContent?.includes(d.ask) === true, box.textContent);
+      t.check('focus is on Keep the approval', document.activeElement === inDialog('Keep the approval'), document.activeElement?.textContent);
+      await t.click(inDialog('Keep the approval'));
+      t.check('Keep the approval closes it, and sends nothing', t.all('[role="alertdialog"]').length === 0 && t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      t.check('focus goes back to the Choose this that asked', document.activeElement === named(d.keep), document.activeElement?.getAttribute('aria-label'));
+      // Edge: Escape, from the dialog's button, keeps the approval too.
+      await t.click(named(d.keep));
+      await press(t, document.activeElement as HTMLElement, 'Escape');
+      t.check('Escape closes it, and sends nothing', t.all('[role="alertdialog"]').length === 0 && t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      await t.click(named(d.change));
+      await t.click(inDialog('Change it'));
+      const sent = t.sent('plan-choose');
+      t.check('Change it sends the choice once, with its yes', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      t.check('and the dialog has gone', t.all('[role="alertdialog"]').length === 0);
+    },
+  },
+  {
     name: 'task page: a review lists its findings, must-fix first, each with its lines, and a click on a file and line asks to open it there',
     page: 'ticket-review',
     async run(t) {
@@ -990,6 +1036,59 @@ export const CASES: Case[] = [
       const line = t.find('.connect-test .status');
       t.check('a status line beside it says the same', line.textContent?.trim() === none.testWhy, line.textContent);
       t.check('with an icon, never colour alone', !!line.querySelector('.codicon, svg, [class*="codicon"]'), line.innerHTML.slice(0, 120));
+    },
+  },
+  {
+    name: 'connect: choosing a board shows its preview, an epic changes it, and Use this board saves only from it',
+    page: 'connect-start',
+    async run(t) {
+      const want = t.data.choose;
+      const show = async (connect: ConnectModel) => {
+        const home = structuredClone(t.model) as HomeModel;
+        home.connect = connect;
+        await t.post({ type: 'state', model: home });
+      };
+      const use = () => {
+        const b = t.all<HTMLButtonElement>('.connect-preview .connect-foot button').find((x) => x.textContent?.trim() === want.use);
+        if (!b) throw new Error(`not found: the ${want.use} button in the preview`);
+        return b;
+      };
+      const card = (value: string, within: string) => t.find<HTMLLabelElement>(`#connect-${within} .ccard[data-value="${CSS.escape(value)}"]`);
+      // The board is chosen, its preview still being read: Use this board is off, and says why.
+      await show(want.reading);
+      t.check('while the board is read, Use this board is off', use().disabled, use().title);
+      t.check('and its title says why', use().title === want.wait, use().title);
+      t.check('the preview draws a skeleton while it reads', t.all('.connect-preview .ccard-skeleton').length > 0);
+      // A board's card sends its choice.
+      await t.click(card('9', 'board'));
+      const picked = t.sent('connect-pick').at(-1);
+      t.check('a board\'s card sends its choice', picked?.key === 'board' && picked.value === '9', picked);
+      // Its preview drawn: the line, its columns, and the Tasks tab's cards.
+      await show(want.shown);
+      t.check('the preview says how many tickets, in how many columns', t.find('.connect-preview > .status').textContent?.trim() === want.line, t.find('.connect-preview > .status').textContent);
+      t.check('it draws the board\'s columns', t.all('.connect-preview .cpreview-col').length === want.shown.preview.board!.columns.length, t.all('.cpreview-col').length);
+      t.check('with the Tasks tab\'s cards', t.all('.connect-preview .tcard').length > 0);
+      t.check('ACME-31\'s card is ticked', card('ACME-31', 'epic').classList.contains('on'));
+      // The search hides the epics it doesn't match.
+      const search = t.find<HTMLInputElement>('input.ccards-search');
+      // Edge: a search that matches no epic says so, and hides every epic but the whole project.
+      await t.type(search, 'no such epic');
+      t.check('a search that matches none says so', !t.find('#connect-epic ~ .ccards-none').hidden);
+      search.value = '';
+      await t.type(search, 'partner');
+      t.check('a search that matches one hides the line again', t.find('#connect-epic ~ .ccards-none').hidden === true);
+      const shown = t.all<HTMLElement>('#connect-epic .ccard').filter((c) => !c.hidden && c.dataset.value).map((c) => c.dataset.value);
+      t.check('the search shows only the epics it matches', shown.length === 1 && shown[0] === 'ACME-30', shown);
+      // Another epic changes it.
+      await t.click(card('ACME-30', 'epic'));
+      const epic = t.sent('connect-pick').at(-1);
+      t.check('an epic\'s card sends its choice', epic?.key === 'epic' && epic.value === 'ACME-30', epic);
+      await show(want.epic);
+      t.check('the preview changes with the epic', t.find('.connect-preview > .status').textContent?.trim() === want.epicLine && want.epicLine !== want.line, t.find('.connect-preview > .status').textContent);
+      t.check('and ACME-30 is ticked now', card('ACME-30', 'epic').classList.contains('on') && !card('ACME-31', 'epic').classList.contains('on'));
+      t.check('Use this board is on', !use().disabled);
+      await t.click(use());
+      t.check('Use this board saves the place', t.sent('connect-save').length === 1, t.sent('connect-save'));
     },
   },
   {
@@ -1709,6 +1808,10 @@ export const MUTANTS: Mutant[] = [
   { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
   { name: 'the Connect page draws no status line beside Save', file: 'connect.ts', find: '(m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null', replace: 'm.save.look ? status(m.save.look) : null', kills: [caseNamed('connect: a button that is off')] },
   { name: 'the Connect page leaves Save\'s title empty', file: 'connect.ts', find: 'if (m.save.why) save.title = m.save.why.label;', replace: '', kills: [caseNamed('connect: a button that is off')] },
+  { name: 'Use this board saves without a preview', file: 'connect.ts', find: 'save.disabled = !m.save.can;', replace: 'save.disabled = false;', kills: [caseNamed('connect: choosing a board')] },
+  { name: 'the preview draws no board', file: 'choose-board.ts', find: 'const board = p.board ? el(', replace: 'const board = p.board && false ? el(', kills: [caseNamed('connect: choosing a board')] },
+  { name: 'a card sends no choice', file: 'choose-board.ts', find: "input.addEventListener('change', () => pick(input));", replace: '', kills: [caseNamed('connect: choosing a board')] },
+  { name: 'the search hides nothing', file: 'choose-board.ts', find: '      card.hidden = hide;\n', replace: '', kills: [caseNamed('connect: choosing a board')] },
   { name: 'the Connect page draws no status line beside Test connection', file: 'connect.ts', find: 'm.signIn.why ? status(m.signIn.why) : null', replace: 'null', kills: [caseNamed('connect: with no project chosen')] },
   { name: 'the Connect page leaves Test connection\'s title empty', file: 'connect.ts', find: 'if (m.signIn.why) testButton.title = m.signIn.why.label;', replace: '', kills: [caseNamed('connect: with no project chosen')] },
   { name: 'Stop sits with the other header buttons', file: 'agent-page.ts', find: '.filter((a) => a !== stop)', replace: '.filter(() => true)', kills: [caseNamed('agent page: Stop stands apart')] },
@@ -1756,6 +1859,13 @@ export const MUTANTS: Mutant[] = [
   { name: 'a redraw drops the focused card\'s focus', file: 'board-nav.ts', find: 'if (again) focusOf(again).focus({ preventScroll: true });', replace: '', kills: [caseNamed('board keys: focus stays')] },
   { name: 'a card shows every label, cut short, whatever its width', file: 'fit-labels.ts', find: 'show(chips, more, names, labelsThatFit(widths, room, gap, plus));', replace: 'show(chips, more, names, chips.length);', kills: [caseNamed('narrow card:')] },
   { name: 'a card never measures its labels', file: 'fit-labels.ts', find: '  setTimeout(fit, 0);\n  observer.observe(row);\n', replace: '', kills: [caseNamed('narrow card:')] },
+  // A change to an approved plan's choice asks first (T-97).
+  { name: 'an approved plan\'s choice goes without asking', file: 'plan.ts', find: 'if (!plan.changeAsk || same) return send(', replace: 'if (plan || same) return send(', kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Keep the approval makes the change', file: 'plan.ts', find: "button('Keep the approval', 'verified', keep)", replace: "button('Keep the approval', 'verified', change)", kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Escape in the plan\'s dialog does nothing', file: 'plan.ts', find: "if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); keep();", replace: "if (e.key !== 'Escape') return;", kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Keep the approval leaves focus where it falls', file: 'plan.ts', find: '    focusNext = confirmKey(key, pickId);\n', replace: '', kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'the plan\'s dialog takes no focus', file: 'plan.ts', find: "focusOnceDrawn(no, confirmKey(key, 'keep'));", replace: '', kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];
 
 /** How many times `find` is in `source`: a mutant applies only where it's there exactly once. */
@@ -1769,6 +1879,13 @@ function connectData(model: Model): BehaviourData['connect'] {
   const none = connectModel(blankConnect(JIRA, { id: 'c-none', root: null, projectName: '', ownRepo: null, ghAccount: null, from: 'tasks' }));
   if (!none.signIn.why) throw new Error('The Connect case needs a page with no project whose Test connection is off with a reason.');
   return { save: model.connect.save.label, why: model.connect.save.why.label, none: { model: none, testWhy: none.signIn.why.label } };
+}
+
+/** What the case for choosing a board expects (T-106): its three moments, from the fixtures the shots draw. */
+function chooseData(): BehaviourData['choose'] {
+  const [reading, shown, epic] = [sampleChoosing('reading'), sampleChoosing('shown'), sampleChoosing('epic')];
+  if (reading.preview.state !== 'loading' || !reading.save.why || shown.preview.state !== 'ready' || epic.preview.state !== 'ready') throw new Error('The case for choosing a board needs a preview being read, then two drawn.');
+  return { reading, shown, epic, line: shown.preview.look.label, epicLine: epic.preview.look.label, use: shown.save.label, wait: reading.save.why.label };
 }
 
 /** What Settings' case expects (T-40): from the model, each part's heading and each explanation, folded or kept. */
@@ -1808,6 +1925,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     project: ROOT,
     settings: settingsData(models.settings),
     connect: connectData(models.connect),
+    choose: chooseData(),
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
     palette: paletteData(models.tasks, now),
     review: reviewData(models.review),
@@ -1819,7 +1937,19 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     sheet: sheetData(now),
     taskSheet: taskSheetData(now),
     criteria: { model: sampleTicket(now, 'ACME-19', true, 'drafted'), project: ROOT, error: 'ACME-19\'s ticket can\'t take an update.' },
+    plan: planData(now),
   };
+}
+
+/** What the approved plan's case expects (T-97): ACME-21's second choice, From now on chosen, and its other two options. */
+function planData(now: number): BehaviourData['plan'] {
+  const model = sampleTicket(now, 'ACME-21', false, null, null, 'approved');
+  const p = model.analysis?.planState;
+  const d = p?.decisions[1];
+  const [keep, change] = d ? d.options.filter((o) => o.id !== d.choice?.option) : [];
+  if (!p?.changeAsk || !d || !keep || !change) throw new Error('The plan case needs ACME-21\'s approved plan, with a choice made and two other options.');
+  const label = (name: string) => `Choose this: ${name}, for ${d.title}`;
+  return { model, ask: p.changeAsk, keep: label(keep.name), change: label(change.name), sent: { type: 'plan-choose', project: model.project, task: model.key, decision: d.id, option: change.id, yes: true } };
 }
 
 /**

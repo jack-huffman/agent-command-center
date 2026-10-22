@@ -25,6 +25,7 @@ import { type Excerpt, fileInCheckout, mergeBase, reviewExcerpts } from './logic
 import { openReview } from './rules.ts';
 import { pickField } from './ticket-edits.ts';
 import type { CriteriaActions } from './criteria.ts';
+import type { PlanActions } from './plan.ts';
 import type { VerifyActions } from './verify.ts';
 import { ticketVerify } from './model/verify.ts';
 import { changedPaths, type ChangesIn, ticketChanges } from './model/changes.ts';
@@ -33,6 +34,8 @@ import { run as runSync } from '../../packages/core/src/exec.ts';
 import { branchFiles, IN_FLIGHT_STATES, plannedFiles } from '../../packages/core/src/overlap.ts';
 import type { RecordActions } from './record-changes.ts';
 import { ticketRecords } from './model/record-changes.ts';
+import type { ManifestActions } from './manifest.ts';
+import { ticketManifest } from './model/manifest.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -121,12 +124,16 @@ export class TicketPanels implements vscode.Disposable {
   } | null = null;
   /** Drafted acceptance criteria (T-81), set by its area: the section's state, its buttons, and the sheet's own Draft. */
   criteria: CriteriaActions | null = null;
+  /** Its plan's choices and approval (T-97), once that area is registered. */
+  plan: PlanActions | null = null;
   /** Verify the developer's work (T-84), set by its area: the section's state, and its buttons. */
   verify: VerifyActions | null = null;
   /** Record changes (T-100), set by its area: Add a change made by hand, and a promotion's steps. */
   records: RecordActions | null = null;
   /** The tracker's changes field (T-105), set by its area: what the ticket's field says, the draft, and its Save. */
   fields: FieldActions | null = null;
+  /** Manifest for this ticket (T-101), set by its area: the section's state, and its buttons. */
+  manifest: ManifestActions | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
@@ -340,6 +347,7 @@ export class TicketPanels implements vscode.Disposable {
       tracking: this.trackers.trackState(p.root, o.key).busy,
       review: task ? await this.review(o, p, task) : null,
       ...(task && this.criteria ? this.criteria.state(p.root, task.id) : {}),
+      manifest: task && this.manifest && p.config.profile === 'salesforce' ? ticketManifest({ task, profile: p.config.profile, org: p.config.environments.find((e) => e.branch === task.environment || e.name === task.environment)?.org ?? null, ...this.manifest.state(p.root, task.id) }) : null,
       verify: task && this.verify ? ticketVerify({ task, github: p.config.github?.repo ?? null, ...this.verify.state(p.root, task.id), updates: this.hub.updates(p.root).filter((u) => u.task === task.id) }) : null,
       changes: changes ? ticketChanges(changes) : null,
     });
@@ -420,6 +428,10 @@ export class TicketPanels implements vscode.Disposable {
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.criteria?.act(m, (msg) => o.view.say(msg));
         return;
       case 'task-sheet-criteria': await this.criteria?.sheet(m, (msg) => o.view.say(msg)); return;
+      // Its plan's choices and approval (T-97): this page's own task only.
+      case 'plan-choose': case 'plan-approve':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.plan?.act(m, (msg) => o.view.say(msg));
+        return;
       // Verify the developer's work (T-84): this page's own task only.
       case 'verify-run': case 'verify-clear':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.verify?.act(m, (msg) => o.view.say(msg));
@@ -431,6 +443,10 @@ export class TicketPanels implements vscode.Disposable {
       // A person's Save to the ticket of its changes field (T-105): this page's own task, on its own tracker.
       case 'changes-field-save':
         if (m.project === o.project && m.task.toUpperCase() === o.key && o.tracker !== null) await this.fields?.save(p, o.tracker, m, (msg) => o.view.say(msg));
+        return;
+      // Manifest for this ticket (T-101): this page's own task only.
+      case 'manifest-build': case 'manifest-retrieve': case 'manifest-commit': case 'manifest-file': case 'manifest-diff':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.manifest?.act(m, (msg) => o.view.say(msg));
         return;
       case 'toolbar':
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);

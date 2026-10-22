@@ -106,6 +106,9 @@ const MARKS: Record<string, Record<string, number>> = {
   'dock.ts': { output: 3, files: 1 },
   'environments.ts': { branch: 1 },
   'history.ts': { transcript: 1, output: 1 },
+  // Manifest for this ticket (T-101): the branch and its commit, and each component's name and file, as Salesforce names them.
+  'manifest.ts': { branch: 2, files: 2 },
+  'plan.ts': { files: 1 },
   'questions.ts': { transcript: 1 },
   'record-changes.ts': { output: 1 },
   // The ticket's changes field (T-105): its text lists changed components and files.

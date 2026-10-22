@@ -79,6 +79,9 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['analyze'], name: 'Make a plan', named: 'Make a plan for {arg}', command: 'acc.task.analyze' },
   { acc: ['analysis'], name: 'See the plan' },
   { acc: ['analysis answer'], name: 'Answer its questions' },
+  // A plan's choices and its approval (T-97).
+  { acc: ['plan', 'plan choose'], name: 'Make a choice in the plan' },
+  { acc: ['plan approve'], name: 'Approve this plan' },
   { acc: ['draft', 'draft criteria'], name: 'Draft acceptance criteria', named: 'Draft {arg}\'s acceptance criteria' },
   { acc: ['draft show'], name: 'See the drafted acceptance criteria' },
   { acc: ['draft update'], name: 'Open the draft as an update' },
@@ -120,6 +123,10 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['gate required'], name: 'Change the required checks', command: 'acc.settings.requiredGates' },
   { acc: ['gate builder'], name: 'Change builders\' lighter checks', command: 'acc.settings.builderGates' },
   { acc: ['drift'], name: 'Check the org for drift', named: 'Check {arg}\'s org for drift' },
+  { acc: ['manifest'], name: 'Build the manifest', named: 'Build {arg}\'s manifest' },
+  { acc: ['manifest show'], name: 'See the manifest' },
+  { acc: ['manifest retrieve'], name: 'Use the org\'s copy', named: 'Use the org\'s copy in {arg}' },
+  { acc: ['manifest commit'], name: 'Add the manifest to the ticket\'s branch', named: 'Add the manifest to {arg}\'s branch' },
 ];
 
 /** The process for an acc command, as words: "gate run", or "done". */

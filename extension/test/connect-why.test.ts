@@ -53,7 +53,7 @@ test('the page draws the reason in the button\'s title and in a status line: a b
   assert.ok(n, 'a behaviour case reads Test connection\'s drawn reason with no project (edge case)');
   assert.equal(MUTANTS.filter((x) => x.kills.includes(n.name)).length, 2, 'one mutant draws no status line beside Test connection, another no title');
   const d = behaviourData({ tasks: sampleModel('tasks', 0, 'dark'), overview: sampleModel('overview-landing', 0, 'dark'), since: sampleModel('overview-since', 0, 'dark'), ticket: sampleModel('ticket-questions', 0, 'dark'), review: sampleModel('ticket-review', 0, 'dark'), settings: sampleModel('settings-agents', 0, 'dark'), connect: sampleModel('connect-start', 0, 'dark'), agent: sampleModel('agent', 0, 'dark'), dock: sampleModel('output-changes', 0, 'dark'), run: sampleModel('output-failed', 0, 'dark'), pages: sampleModel('overview-pages', 0, 'dark') }, 0);
-  assert.deepEqual([d.connect.save, d.connect.why, d.connect.none.testWhy], ['Connect Jira', 'Sign in and choose a project first.', 'Choose a project first.']);
+  assert.deepEqual([d.connect.save, d.connect.why, d.connect.none.testWhy], ['Use this board', 'Sign in and choose a project first.', 'Choose a project first.']);
 });
 
 test('Save names a required list that is hidden with no choice, and says to wait only while a list loads (T-45)', () => {
@@ -92,7 +92,7 @@ test('an untouched empty field shows no warning, on every tracker; a warning sho
 test('step 3 is named from the description: Slack says its channel, the others keep their heading', () => {
   assert.equal(connectModel(blankConnect(SLACK, { id: 'c6', ...base })).listsTitle, 'Its channel');
   for (const d of DESCRIPTIONS.filter((x) => x.kind !== 'slack')) assert.equal(connectModel(blankConnect(d, { id: `c-${d.kind}`, ...base })).listsTitle, LISTS_TITLE, d.kind);
-  assert.equal(LISTS_TITLE, 'Its tickets and board');
+  assert.equal(LISTS_TITLE, 'Choose a board');
   const page = readFileSync(join(root, 'webview', 'connect.ts'), 'utf8');
   assert.match(page, /step\(3, m\.listsTitle,/, 'the heading comes from the model, not from the page');
 });

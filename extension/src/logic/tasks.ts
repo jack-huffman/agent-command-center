@@ -6,7 +6,9 @@
 
 import { type Analysis, SIZE_MEANING } from '../../../packages/core/src/analyze.ts';
 import { type FileShare, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
+import { askOf, unchosen } from '../../../packages/core/src/plan.ts';
 import { fileList, prConflicts, type RowFiles, shortPath, TASK_GROUPS, type TaskGroup, taskNames, type TaskRow } from './shared.ts';
+import { forYou } from './plan.ts';
 
 /** Whether a task to do would wait for others' files: it shares some, and another Ready task shares none (D-093). */
 export const waitsForFiles = (row: Pick<TaskRow, 'state' | 'files'>): boolean => row.state === 'todo' && !!row.files?.shares.length && !!row.files.first.length;
@@ -80,8 +82,8 @@ export function anywayQuestion(row: Pick<TaskRow, 'id'> & { files?: Pick<RowFile
 
 /** What a task's row keeps of its analysis: enough for its card, its notices and the Overview. */
 export function rowAnalysis(a: Analysis): NonNullable<TaskRow['analysis']> {
-  const open = a.questions.filter((q) => !q.answer).map(({ id, question, why, suggested }) => ({ id, question, why, suggested }));
-  return { verdict: a.verdict, at: a.at, open, split: a.split, size: a.approach.size };
+  const open = a.questions.filter((q) => !q.answer).map((q) => ({ id: q.id, question: q.question, why: q.why, suggested: q.suggested, askOf: askOf(q) }));
+  return { verdict: a.verdict, at: a.at, open, split: a.split, size: a.approach.size, choices: unchosen(a).length, approved: !!a.approval, version: a.version ?? 1 };
 }
 
 /** The analysis's size, in words, to weigh the model by (D-086), or that there's none to go on. */
@@ -90,17 +92,23 @@ export function sizeLine(row: Pick<TaskRow, 'analysis'>): string {
   return size ? `Its plan sizes it ${size}: ${SIZE_MEANING[size]}.` : row.analysis ? 'Its plan gave no size.' : 'No plan yet: no size to go on.';
 }
 
-/** Its analysis is ready to build from: made, not too big, and every question answered. */
-export const analysisReady = (row: Pick<TaskRow, 'analysis'>): boolean => !!row.analysis && row.analysis.verdict !== 'split' && !row.analysis.open.length;
+/**
+ * Its plan is ready to build from: made, not too big, every question for you answered, every choice made,
+ * and its latest version approved (T-97). A question for the ticket's author holds nothing.
+ */
+export const analysisReady = (row: Pick<TaskRow, 'analysis'>): boolean => !!row.analysis && row.analysis.verdict !== 'split' && !forYou(row.analysis.open).length && !row.analysis.choices && !!row.analysis.approved;
 
 /**
- * What a task to do waits on from its analysis, if anything: a person's answers, or a split (D-052). Only
- * a task to do: the analysis comes before the build.
+ * What a task to do waits on from its analysis, if anything: a person's answers, or a split (D-052), its
+ * choices, or, where the project wants a plan, an approval (T-97). Only a task to do: the plan comes
+ * before the build.
  */
-export function analysisWait(row: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'>): 'questions' | 'split' | null {
+export function analysisWait(row: Pick<TaskRow, 'state' | 'analysis' | 'analyzing'> & { analysisRequired?: boolean }): 'questions' | 'split' | 'choices' | 'approve' | null {
   if (row.state !== 'todo' || !row.analysis || row.analyzing) return null;
   if (row.analysis.verdict === 'split') return 'split';
-  return row.analysis.open.length ? 'questions' : null;
+  if (forYou(row.analysis.open).length) return 'questions';
+  if (row.analysis.choices) return 'choices';
+  return row.analysisRequired && !row.analysis.approved ? 'approve' : null;
 }
 
 /** acc's arguments for a person's answer (D-012). The words come after --, so an answer that starts with - stays words. */

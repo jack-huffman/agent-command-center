@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { analysisPath, analysisProblems, analysisSection, analyze, analyzing, answerAnalysis, fileId, openQuestions, parseAnalysis, readAnalysis, TASK_ID_MAX } from '../src/analyze.ts';
 import { parseConfig, type Config } from '../src/config.ts';
+import { approvePlan } from '../src/plan-choices.ts';
 import { dispatch } from '../src/dispatch.ts';
 import { renderPacket } from '../src/packet.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
@@ -82,11 +83,14 @@ test('answers make it ready; a re-analysis keeps them; a ready verdict with ques
   const { paths, config, id } = setup(SF_CONFIG);
   const runner = (cmd: string, args: string[], opts?: RunOptions) => (cmd === 'claude' ? result(ANSWER) : fakeRunner({})(cmd, args, opts));
   analyze(paths, config, id, { run: runner, now, env: {} });
-  assert.deepEqual(analysisProblems(paths, config, readLedger(paths.ledger).tasks[0]!).length, 1, 'held for its question');
+  assert.match(analysisProblems(paths, config, readLedger(paths.ledger).tasks[0]!)[0]!, /1 question from ACME-7's analysis is unanswered/, 'held for its question');
   assert.throws(() => answerAnalysis(paths, id, 'q9', 'x', 'human:me', now), /has no question q9/);
   const answered = answerAnalysis(paths, id, '1', 'Yes, after 8 business hours', 'human:me', now);
   assert.equal(answered.verdict, 'ready');
   assert.deepEqual(openQuestions(answered), []);
+  // Answered, it waits for a person's approval of the plan (T-97).
+  assert.deepEqual(analysisProblems(paths, config, readLedger(paths.ledger).tasks[0]!), ["ACME-7's plan v1 isn't approved: a person approves it with acc plan approve ACME-7."]);
+  approvePlan(paths, id, 'human:me', now);
   assert.deepEqual(analysisProblems(paths, config, readLedger(paths.ledger).tasks[0]!), []);
   // Asked again, the same question keeps its answer.
   const again = analyze(paths, config, id, { run: runner, now, env: {} });
@@ -136,13 +140,13 @@ test('the builder is given the analysis and the answers', () => {
   answerAnalysis(paths, id, 'q1', 'Yes, after 8 business hours', 'human:me', now);
   const a = readAnalysis(paths, id);
   const md = analysisSection(a).join('\n');
-  assert.match(md, /## What the analysis found/);
+  assert.match(md, /^## The plan\n\nVersion 1. A person hasn't approved it./);
   assert.match(md, /Should Medium premium cases escalate too\? \*\*Yes, after 8 business hours\*\*/);
   assert.match(md, /Case: Case_Set_Tier, a before-save flow, sets Tier__c\. \(Acme Dev: FlowDefinitionView\)/);
   assert.match(md, /\*\*Refactors first\*\*\n\n- Move tier logic into the flow: one place sets it/);
   const task = readLedger(paths.ledger).tasks[0]!;
   const packet = renderPacket({ task, config, env: config.environments[2]!, worktree: '/w', branch: 'b', rules: null, environmentSpecific: [], analysis: a });
-  assert.ok(packet.indexOf('## What the analysis found') > packet.indexOf('## The task') && packet.indexOf('## What the analysis found') < packet.indexOf('## Where you are'));
+  assert.ok(packet.indexOf('## The plan') > packet.indexOf('## The task') && packet.indexOf('## The plan') < packet.indexOf('## Where you are'));
   assert.deepEqual(analysisSection(null), []);
   assert.ok(!readFileSync(join(paths.analyses, `${id}.json`), 'utf8').includes('"answer": null'));
 });

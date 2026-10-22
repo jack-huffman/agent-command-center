@@ -23,11 +23,13 @@ test('a row reads its analysis and the one under way from beside the ledger; a d
   };
   writeFileSync(join(paths.analyses, 'T-1.json'), JSON.stringify(a));
   const row = rowAnalysis(readAnalysis(paths, 'T-1')!);
-  assert.deepEqual(row, { verdict: 'questions', at: '2026-10-05T10:00:00.000Z', open: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.' }], split: [], size: 'S' }, 'only the questions nobody answered, and its size (D-086)');
+  assert.deepEqual(row, { verdict: 'questions', at: '2026-10-05T10:00:00.000Z', open: [{ id: 'q1', question: 'Which?', why: 'Because.', suggested: 'This one.', askOf: 'you' }], split: [], size: 'S', choices: 0, approved: false, version: 1 }, 'only the questions nobody answered, who answers each, and its size (D-086); its plan has no choice to make and isn\'t approved (T-97)');
   assert.equal(analysisWait({ state: 'todo', analysis: row }), 'questions');
   assert.equal(analysisWait({ state: 'running', analysis: row }), null, 'only a task to do waits on its analysis');
   assert.equal(analysisWait({ state: 'todo', analysis: row, analyzing: { sessionId: 's2' } }), null, 'nor while it\'s analyzed again');
-  assert.equal(analysisReady({ analysis: { ...row, open: [] } }), true);
+  assert.equal(analysisReady({ analysis: { ...row, open: [], approved: true } }), true);
+  assert.equal(analysisReady({ analysis: { ...row, open: [] } }), false, 'not before a person approves its plan (T-97)');
+  assert.equal(analysisReady({ analysis: { ...row, open: [], approved: true, choices: 1 } }), false, 'nor with a choice nobody made');
   assert.equal(analysisReady({ analysis: { ...row, open: [], verdict: 'split' } }), false);
   writeFileSync(join(paths.analyses, 'T-1.running.json'), JSON.stringify({ sessionId: 'live', startedAt: 't', pid: process.pid }));
   assert.equal(analyzing(paths, 'T-1')?.sessionId, 'live');
@@ -185,6 +187,8 @@ test('before a build, a card offers its analysis first, and Dispatch once it\'s 
   assert.deepEqual(labels({ analysisRequired: true, analyzing: { sessionId: 's' } }), ['Watch the plan being made*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: tooBig }), ['See the split*', 'Move', 'Block', 'Edit', 'Details']);
+  // Its plan waits for a person's approval before Dispatch (T-97); approved, Dispatch leads.
+  assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: { ...analysed, approved: false } }), ['See the plan*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Build it*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, deps: ['AV-1'], display: 'todo' }), ['Make a plan*', 'Move', 'Block', 'Edit', 'Details'], 'waiting on another task: analyze it meanwhile');
   // Where it's optional: Dispatch stays, second to answering questions the analysis did ask.
@@ -203,7 +207,8 @@ test('before a build, a card offers its analysis first, and Dispatch once it\'s 
   assert.equal(analysisLook({ state: 'todo', analysis: { ...asks, open: [ask('q1')] } })!.label, 'Needs you: 1 question from its plan');
   assert.deepEqual(analysisLook({ state: 'todo', analysis: tooBig }), { label: 'Needs you: too big for one task', icon: 'split-horizontal', tone: 'orange' });
   assert.deepEqual(analysisLook({ state: 'todo', analyzing: { sessionId: 's' } }), { label: 'Making a plan', icon: 'sync~spin', tone: 'blue' });
-  assert.deepEqual(analysisLook({ state: 'todo', analysis: analysed }), { label: 'Planned: ready to build', icon: 'pass', tone: 'blue' });
+  assert.deepEqual(analysisLook({ state: 'todo', analysis: analysed }), { label: 'Plan approved: ready to build', icon: 'verified-filled', tone: 'blue' });
+  assert.deepEqual(analysisLook({ state: 'todo', analysis: { ...analysed, approved: false } }), { label: 'Planned: ready to build', icon: 'pass', tone: 'blue' }, 'where no plan is required, an unapproved one is ready');
   assert.equal(analysisLook({ state: 'running', analysis: asks }), null, 'once it\'s built, its agent speaks for it');
 });
 

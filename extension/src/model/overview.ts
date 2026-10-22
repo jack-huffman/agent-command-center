@@ -29,7 +29,10 @@ export interface AttentionItem {
   extra?: { command: string; label: string; icon: string; arg: string };
   /** A section of the page to open, such as Setup. */
   go?: { section: HomeSection; label: string };
-  /** A task's analysis's questions, answered right here (D-052), or sent to the client when it has a ticket (D-066). */
+  /**
+   * A task's analysis's questions, answered right here (D-052); with a ticket, one for the ticket's author is
+   * also asked on the ticket (D-066, T-97). `canAsk`: it has a ticket to ask on.
+   */
   analysis?: { project: string; task: string; questions: AnalysisAsk[]; canAsk?: boolean };
   /** An update for a ticket, to post or discard right here, or edit on its task's page (D-066). */
   update?: UpdateCard;

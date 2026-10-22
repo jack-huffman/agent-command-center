@@ -5,8 +5,11 @@
 
 import { type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../../packages/core/src/trackers/connect.ts';
+import { CARD_TITLES, countValues, placeKey, PREVIEW_CARDS, previewLine } from '../../../packages/core/src/trackers/preview.ts';
+import { type Board, orList } from '../../../packages/core/src/trackers/types.ts';
 import { signInScope } from '../logic/connect.ts';
 import type { ChangesFieldRow } from './changes-field.ts';
+import { trackerBoard, type TrackerBoard } from './boards.ts';
 import { settingsKey } from './settings.ts';
 import { type HomeSection, type Look, LOOK, type ModelArea, short, VIEW_TITLES } from './shared.ts';
 import { taskNames } from '../logic/shared.ts';
@@ -16,6 +19,15 @@ import { isObj } from '../../../packages/core/src/text.ts';
 
 /** A choice in a list, and which other repo on this machine uses it already, in words (GH-81). */
 export type ConnectOption = Option & { usedBy?: string };
+
+/** A place's board as the Connect page read it (T-106): reading, read, or why it couldn't be. */
+export interface PlaceRead {
+  state: 'loading' | 'ready' | 'failed';
+  board: Board | null;
+  /** Words for a place that has no board, such as a Slack channel with no reaction. */
+  none: string | null;
+  error: string | null;
+}
 
 /** One list on the Connect page, as the extension keeps it while the page is open. */
 export interface ConnectPickerState {
@@ -67,6 +79,11 @@ export interface ConnectState {
   /** The person ticked or unticked it, so its default no longer applies, whatever site is typed next. */
   shareTouched: boolean;
   pickers: Record<string, ConnectPickerState>;
+  /**
+   * Each place's board read so far (T-106), by placeKey: the preview's, and each card's count, which is the
+   * board with that choice made. Kept while the page is open, so going back to a choice is instant.
+   */
+  boards: Record<string, PlaceRead>;
   saving: boolean;
   saveError: string | null;
 }
@@ -85,14 +102,32 @@ export interface ConnectField {
   help: { label: string; url: string } | null;
 }
 
+/**
+ * How many tickets a card's choice would put on the board (T-106). waiting: not asked yet, so the page asks as
+ * it draws the card; loading: a skeleton; failed: says so on its card, and the card can still be chosen.
+ * titles: the first few tickets' titles, for an epic or a label.
+ */
+export interface CardCount {
+  state: 'waiting' | 'loading' | 'ready' | 'failed';
+  label: string;
+  titles: string[];
+}
+
 export interface ConnectPicker {
   key: string;
   label: string;
   multi: boolean;
   /** The whole project, listed first; chosen when nothing is. */
   whole: string | null;
-  /** usedBy: "used by acme-portal", when another repo on this machine uses it already (GH-81). */
-  options: { value: string; label: string; detail: string | null; usedBy: string | null }[];
+  /** The whole project's count, when the list counts (T-106). */
+  wholeCount: CardCount | null;
+  /**
+   * usedBy: "used by acme-portal", when another repo on this machine uses it already (GH-81). count: how many
+   * tickets it would hold, for a list that counts (T-106), else null.
+   */
+  options: { value: string; label: string; detail: string | null; usedBy: string | null; count: CardCount | null }[];
+  /** Its cards get a search box (T-106): there are more than SEARCH_FROM. */
+  search: boolean;
   selected: string[];
   /** Loading, or why the list couldn't be read, beside it. Null when there's nothing to say. */
   look: Look | null;
@@ -136,14 +171,78 @@ export interface ConnectModel {
   listsTitle: string;
   /** Starting a project (GH-81): which list stands in for an epic, and the description's words for it. Null otherwise. */
   place: { key: string; words: string } | null;
+  /** The board the choices would make (T-106), drawn before it's kept. */
+  preview: ConnectPreview;
+  /** How many cards' counts the page asks for at once (T-106): COUNT_MOST, which the extension holds it to. */
+  countMost: number;
   /** why: the reason the button is off, in words, beside it; null when it's on (T-43). */
   save: { can: boolean; label: string; look: Look | null; why: Look | null };
   /** Where a ticket's changes are kept (T-105), once the place is chosen; left out before. */
   changesField?: ChangesFieldRow | null;
 }
 
-/** The usual heading of the Connect page's third step (T-43). */
-export const LISTS_TITLE = 'Its tickets and board';
+/**
+ * The board the choices so far would make (T-106), as the Tasks tab draws it: its columns, each with its first
+ * cards and how many it holds. waiting: the choices make no place yet. `look` is its line: "47 tickets would
+ * be on your board, in 5 columns.", reading, or why it couldn't be read. `empty` says what to change when it
+ * holds none; `none` is a place with no board (a Slack channel with no reaction).
+ */
+export interface ConnectPreview {
+  state: 'waiting' | 'loading' | 'ready' | 'failed';
+  look: Look;
+  board: TrackerBoard | null;
+  /** How many cards each of the board's columns holds, in its order: a column shows PREVIEW_CARDS of them. */
+  totals: number[];
+  empty: string | null;
+  none: string | null;
+  /** Read it again: shown when it failed. */
+  retry: boolean;
+}
+
+/** The usual heading of the Connect page's third step (T-43, T-106). */
+export const LISTS_TITLE = 'Choose a board';
+
+/** What saves the place (T-106): only from its preview, so a person sees the board before it's kept. */
+export const USE_BOARD = 'Use this board';
+
+/** A list with more choices than this gets a search box over its cards (T-106). */
+export const SEARCH_FROM = 8;
+
+/**
+ * A card's count of tickets, from the board read with its choice made (T-106). `titles`: its first tickets'
+ * titles too, for a card of the place (an epic, labels, an area path, a group), where they say what it holds.
+ */
+export function cardCount(read: PlaceRead | undefined, titles = false): CardCount {
+  if (!read) return { state: 'waiting', label: 'Counting', titles: [] };
+  if (read.state === 'loading') return { state: 'loading', label: 'Counting', titles: [] };
+  if (read.state === 'failed') return { state: 'failed', label: `Couldn't count its tickets: ${read.error ?? 'no answer'}`, titles: [] };
+  if (!read.board) return { state: 'ready', label: read.none ?? 'No board', titles: [] };
+  const n = read.board.cards.length;
+  return { state: 'ready', label: `${n} ticket${n === 1 ? '' : 's'}`, titles: titles ? read.board.cards.slice(0, CARD_TITLES).map((c) => c.title) : [] };
+}
+
+/**
+ * The preview's model (T-106): the board read for the values chosen, its columns cut to their first cards.
+ * `place` says whether the choices make one yet: until then it waits, and `waiting` says what's left to do.
+ * `change` is what to change when the place holds no tickets.
+ */
+export function connectPreview(s: ConnectState, values: Values, place: boolean, waiting: string, change: string): ConnectPreview {
+  const quiet = { board: null, totals: [], empty: null, none: null, retry: false };
+  if (!place) return { state: 'waiting', look: LOOK(waiting, 'eye', 'neutral'), ...quiet };
+  const read = s.boards[placeKey(values)];
+  if (!read || read.state === 'loading') return { state: 'loading', look: LOOK('Reading the board', 'sync~spin', 'blue'), ...quiet };
+  if (read.state === 'failed') return { state: 'failed', look: LOOK(`Couldn't read the board: ${read.error ?? 'no answer'}`, 'warning', 'orange'), ...quiet, retry: true };
+  if (!read.board) return { state: 'ready', look: LOOK(read.none ?? 'No board', 'info', 'neutral'), ...quiet, none: read.none };
+  const b = read.board;
+  const full = trackerBoard({ index: -1, kind: s.kind as TrackerBoard['kind'], title: b.title, board: b, error: null, connect: null, loading: false, place: b.place }, [], s.root ?? '');
+  // Nothing to add to your work or move here: the preview only shows the board.
+  const board: TrackerBoard = { ...full, moves: false, columns: full.columns.map((c) => ({ ...c, cards: c.cards.slice(0, PREVIEW_CARDS).map((x) => ({ ...x, track: null, acc: null })) })) };
+  const tickets = full.columns.reduce((n, c) => n + c.cards.length, 0);
+  return {
+    state: 'ready', look: LOOK(previewLine(tickets, full.columns.length), 'project', 'blue'), board, totals: full.columns.map((c) => c.cards.length),
+    empty: tickets ? null : `No tickets would be on your board. ${change}`, none: null, retry: false,
+  };
+}
 
 /** Why a button is off, as a word and an icon beside it: "Sign in and choose a project first." (T-43) */
 const whyOff = (words: string): Look => LOOK(words, 'lock', 'neutral');
@@ -164,7 +263,7 @@ export function blankConnect(d: TrackerDescription, i: {
     id: i.id, rev: 0, root: i.root, projects: i.projects ?? [], projectName: i.projectName, ownRepo: i.ownRepo, ghAccount: i.ghAccount, kind: d.kind,
     existing: i.existing ? { index: i.existing.index, title: i.existing.title } : null, start: !!i.start && !i.existing, from: i.from,
     host: i.existing?.host ?? (d.host.prefill === 'github-repo' ? i.ownRepo ?? '' : ''), hostError: null,
-    method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, share: true, shareTouched: false, pickers, saving: false, saveError: null,
+    method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, share: true, shareTouched: false, pickers, boards: {}, saving: false, saveError: null,
   };
 }
 
@@ -217,13 +316,16 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     const pickerLook = fixed ? null : ps.state === 'loading' ? LOOK('Loading', 'sync~spin', 'blue')
       : ps.state === 'failed' ? LOOK(`Couldn't list them: ${ps.error ?? 'no answer'}${whole ? ' You can take the whole project now, and narrow it later.' : p.fallback ? ` ${p.fallback}` : ''}`, 'warning', 'orange')
         : ps.state === 'ready' && !ps.options.length && !whole ? LOOK('None that this sign-in can see', 'warning', 'orange') : null;
+    // A card's count is the board with its choice made (T-106): read once the page asks, as it draws the card.
+    const counts = !!p.counts && !fixed && ok;
+    const count = (v: string) => (counts ? cardCount(s.boards[placeKey(countValues(d.pickers, values, p.key, v))], p.key === d.place.key && !!v) : null);
     // Each option once, and a choice the list no longer has (an epic that's done) kept, so Save doesn't drop it.
-    const options = ps.options.map((o) => ({ value: o.value, label: o.label, detail: o.detail ?? null, usedBy: o.usedBy ?? null }));
-    for (const v of ps.selected) if (!options.some((o) => o.value === v)) options.unshift({ value: v, label: v, detail: ps.state === 'ready' && !fixed ? 'chosen before, not listed now' : null, usedBy: null });
+    const options = ps.options.map((o) => ({ value: o.value, label: o.label, detail: o.detail ?? null, usedBy: o.usedBy ?? null, count: count(o.value) }));
+    for (const v of ps.selected) if (!options.some((o) => o.value === v)) options.unshift({ value: v, label: v, detail: ps.state === 'ready' && !fixed ? 'chosen before, not listed now' : null, usedBy: null, count: count(v) });
     // A choice another repo here uses already says so under the list, with an icon and words (GH-81).
     const used = options.filter((o) => o.usedBy && ps.selected.includes(o.value));
     return {
-      key: p.key, label: p.label, multi: !!p.multi, whole, options, selected: ps.selected, look: pickerLook,
+      key: p.key, label: p.label, multi: !!p.multi, whole, wholeCount: whole ? count('') : null, options, search: options.length > SEARCH_FROM, selected: ps.selected, look: pickerLook,
       used: used.length ? LOOK(`${used.map((o) => `${o.label}: ${o.usedBy}`).join('; ')}, so two repos would show ${used.every((o) => o.usedBy!.startsWith('overlaps')) ? 'some of ' : ''}the same tickets.`, 'warning', 'orange') : null,
       // One whose list failed needn't hold Save when the tracker does without it (Jira's first board).
       disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: place || (!p.whole && !p.multi && !(p.fallback && ps.state === 'failed')),
@@ -245,8 +347,18 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   // A required list that is hidden has no choice and nothing loads for it: name it, don't say to wait (T-45).
   const loadingNow = pickers.some((p) => p.look?.icon === 'sync~spin');
   const noChoice = pickers.filter((p) => !p.fixed && p.required && !p.selected.length).map((p) => `${/^[aeiou]/i.test(p.label) ? 'an' : 'a'} ${p.label.toLowerCase()}`);
-  const saveWhy = s.saving ? whyOff('Saving now.') : todo.length ? whyOff(`${taskNames(todo).replace(/^./, (c) => c.toUpperCase())} first.`)
-    : !ready ? whyOff(loadingNow ? 'Wait for its lists to load first.' : `Choose ${taskNames(noChoice)} first.`) : null;
+  // The board those choices make (T-106): drawn once they make a place, and what to change when it's empty.
+  const chosen = pickers.filter((p) => !p.fixed && !p.hidden && p.selected.length).map((p) => p.label.toLowerCase());
+  const wider = pickers.find((p) => p.whole && !p.fixed && p.selected.length)?.whole ?? null;
+  const change = chosen.length ? `Choose another ${orList(chosen)}${wider ? `, or ${wider.replace(/^./, (c) => c.toLowerCase())}` : ''}.` : `${name} has none here yet.`;
+  const placeMade = !!s.root && ok && ready && !todo.length;
+  const todoWords = taskNames(todo).replace(/^./, (c) => c.toUpperCase());
+  const preview = connectPreview(s, values, placeMade, todo.length ? `${todoWords}, and the board shows here.` : 'The board shows here once its lists load.', change);
+  const seen = preview.state === 'ready';
+  const saveWhy = s.saving ? whyOff('Saving now.') : todo.length ? whyOff(`${todoWords} first.`)
+    : !ready ? whyOff(loadingNow ? 'Wait for its lists to load first.' : `Choose ${taskNames(noChoice)} first.`)
+      : preview.state === 'failed' ? whyOff('The board couldn\'t be read: change a choice, or read it again.')
+        : !seen ? whyOff('Wait for the board to show first.') : null;
   return {
     id: s.id, rev: s.rev,
     title: s.start ? `Start ${s.projectName} from ${placeName} in ${name}` : s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
@@ -268,8 +380,11 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     pickers,
     listsTitle: d.listsTitle ?? LISTS_TITLE,
     place: s.start ? { key: d.place.key, words: d.place.words } : null,
+    preview,
+    countMost: COUNT_MOST,
     save: {
-      can: !!s.root && ok && ready && !s.saving, label: s.start ? 'Start the project' : s.existing ? 'Save changes' : `Connect ${name}`,
+      // Only from the preview (T-106): the place is kept once its board has been drawn.
+      can: placeMade && seen && !s.saving, label: s.start ? 'Start the project' : USE_BOARD,
       why: saveWhy,
       look: s.saving ? LOOK(s.start ? 'Starting the project' : 'Saving', 'sync~spin', 'blue') : s.saveError ? LOOK(s.saveError, 'warning', 'orange') : null,
     },
@@ -279,6 +394,8 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
 export type ConnectMessage = Extract<Message, { session: string }>;
 
 export const CONNECT = declaredKeys();
+/** How many cards' counts the page asks for at once (T-106): the first ones a list or its search shows. */
+export const COUNT_MOST = 24;
 export const connectValue = (v: unknown): boolean => v === null || (typeof v === 'string' && v.length <= 500) || (Array.isArray(v) && v.length <= 200 && v.every((x) => typeof x === 'string' && x.length <= 500));
 
 export type Message =
@@ -295,6 +412,10 @@ export type Message =
   /** The tick for keeping the sign-in for every project on the site (GH-79). */
   | { type: 'connect-share'; session: string; on: boolean }
   | { type: 'connect-pick'; session: string; key: string; value: string | string[] | null }
+  /** The cards drawn whose counts aren't read yet (T-106): '' is the whole project's. */
+  | { type: 'connect-count'; session: string; key: string; values: string[] }
+  /** Read the preview's board again, after it failed (T-106). */
+  | { type: 'connect-preview'; session: string }
   | { type: 'connect-save'; session: string }
   | { type: 'connect-cancel'; session: string };
 
@@ -313,6 +434,8 @@ export const area: ModelArea = {
     },
     'connect-pick': (x) => session(x) && CONNECT.pickers.has(x.key as string) && connectValue(x.value),
     'connect-share': (x) => session(x) && typeof x.on === 'boolean',
+    'connect-count': (x) => session(x) && CONNECT.pickers.has(x.key as string) && Array.isArray(x.values) && x.values.length <= COUNT_MOST && x.values.every((v) => typeof v === 'string' && v.length <= 500),
+    'connect-preview': session,
     'connect-again': session,
     'connect-save': session,
     'connect-cancel': session,

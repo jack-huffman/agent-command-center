@@ -6,6 +6,7 @@ import { Script } from 'node:vm';
 import type { HomeModel } from '../src/model/home.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import { isFromWebview } from '../src/model/messages.ts';
+import { CHANGE_APPROVED } from '../../packages/core/src/plan-choices.ts';
 import { type BehaviourReport, behaviourData, behaviourPage, CASES, caseModel, caseFailed, dumpedBehaviour, HELPERS, judgeBehaviour, judgeMutants, MUTANTS, occurrences } from '../scripts/behaviour.ts';
 import { FONTS, sampleModel } from '../scripts/screenshot.ts';
 
@@ -117,6 +118,17 @@ test('the task page case opens ACME-21\'s page, whose analysis has wording findi
   assert.match(behaviourPage(c, m as never, d, FONTS), /<body class="vscode-light" data-view="ticket"/, 'the page takes the ticket model it is sent');
   assert.match(behaviourPage(CASES[0]!, models().tasks, d, FONTS), /data-view="home"/);
   assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 2, 'a mutant hides the list, another drops each place');
+});
+
+test('the plan case opens ACME-21\'s approved plan and expects acc\'s words and a Change it the extension takes (T-97); edge case: the two options it clicks are neither the one chosen', () => {
+  const d = behaviourData(models(), now);
+  assert.equal(d.plan.ask, CHANGE_APPROVED);
+  assert.deepEqual([d.plan.keep, d.plan.change], ['Choose this: Backfill too, for Which converted leads get roles', 'Choose this: Open deals only, for Which converted leads get roles']);
+  assert.deepEqual(d.plan.sent, { type: 'plan-choose', project: '/Users/me/code/acme-service', task: 'ACME-21', decision: 'd2', option: 'c', yes: true });
+  assert.ok(isFromWebview(d.plan.sent), 'a message the extension takes');
+  const c = CASES.find((x) => x.name.startsWith('plan: on an approved plan'));
+  assert.ok(c, 'a case drives the dialog');
+  assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 6, 'a mutant for each of its clicks and keys');
 });
 
 test('the review case opens ACME-19\'s page and expects its findings, must-fix first, and the click\'s message (T-53); edge case: a review with no file to open fails the oracle', () => {
