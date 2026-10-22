@@ -102,10 +102,7 @@ export function approveOff(a: Analysis): string | null {
   return parts.length ? `First ${parts.join(' and ')}.` : null;
 }
 
-/**
- * The plan part of a task's Analysis section, or null with no analysis. Choosing and approving are only
- * before the build; after it, the page shows what was chosen and approved.
- */
+/** The shapes a plan names that other tasks build on, and its shape-first split (T-104); null when it names neither. */
 export function ticketShapes(a: Analysis, todo: boolean): TicketShapes | null {
   const shapes = a.sharedShapes ?? [];
   const s = a.shapeSplit;
@@ -113,6 +110,10 @@ export function ticketShapes(a: Analysis, todo: boolean): TicketShapes | null {
   return { shapes, split: s ? { why: s.why, first: s.first, rest: s.rest, made: s.made ? { first: s.made.first, rest: s.made.rest } : null, go: todo && !s.made ? { disabled: null } : null } : null };
 }
 
+/**
+ * The plan part of a task's Analysis section, or null with no analysis. Choosing and approving are only
+ * before the build; after it, the page shows what was chosen and approved.
+ */
 export function ticketPlan(row: TaskRow, a: Analysis | null, ref: Ref): TicketPlan | null {
   if (!a) return null;
   const todo = row.state === 'todo';
