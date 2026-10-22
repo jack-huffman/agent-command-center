@@ -56,6 +56,27 @@ test('each listed CI skip is a test in the repo that skips itself with a reason 
   }
 });
 
+test('the workflow is the check autopilot waits for: its job is the one the project names, it runs every check on Linux, keeps failures 7 days, and needs no secret and never pushes; edge case: an action not pinned to a commit', () => {
+  const yml = readFileSync(join(ROOT, '.github', 'workflows', 'check.yml'), 'utf8');
+  const config = JSON.parse(readFileSync(join(ROOT, '.acc', 'config.json'), 'utf8')) as { github: { checks?: string[] } };
+  assert.deepEqual(config.github.checks, ['check']);
+  assert.match(yml, /^jobs:\n {2}check:\n/m, 'one job, named as the project names the check');
+  assert.match(yml, /^on:\n {2}pull_request:\n {4}branches: \[main\]\n {2}push:\n {4}branches: \[main\]$/m);
+  assert.match(yml, /runs-on: ubuntu-latest/);
+  const steps = ['node-version-file: package.json', 'npm ci', 'npm run browser', 'npm run check', 'ACC_CI_FLOORS: \'1\'', 'npm run screenshot', 'scripts/ci-run.ts'];
+  const at = steps.map((s) => yml.indexOf(s));
+  assert.ok(at.every((i) => i > 0), `each step is there: ${steps.filter((_, i) => at[i]! < 0).join(', ')}`);
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'in this order');
+  assert.match(yml, /key: chrome-headless-shell-\$\{\{ runner\.os \}\}-\$\{\{ hashFiles\('extension\/scripts\/browser\.json'\) \}\}/, 'the shell cached by its pin');
+  assert.match(yml, /cache: npm/);
+  assert.match(yml, /if: failure\(\)\n\s+uses: actions\/upload-artifact@[0-9a-f]{40} [^\n]*\n\s+with:\n[\s\S]*dist\/screenshots\/[\s\S]*retention-days: 7/);
+  assert.match(yml, /^permissions:\n {2}contents: read$/m);
+  assert.doesNotMatch(yml, /secrets\.|git push|contents: write/);
+  const uses = [...yml.matchAll(/uses: ([^\s]+)/g)].map((m) => m[1]!);
+  assert.ok(uses.length >= 4, 'counts what it checked');
+  for (const u of uses) assert.match(u, /^actions\/[\w-]+@[0-9a-f]{40}$/, `${u} is pinned to a commit`);
+});
+
 test('the screenshot run\'s summary lines are kept, the rest of its log isn\'t; edge case: a log with no geometry line fails the run', () => {
   const log = ['drawing tasks dark 500', 'Geometry of 156 drawings: overlap examined 9999.', 'A CI run: held to its own floors for no check, and to the Mac\'s for the rest.', 'pass  a case  (3 checks)', 'Behaviour: 40 cases, 900 checks, 0 failures.', 'Mutants: 5, 5 caught.'].join('\n');
   assert.deepEqual(screenshotLines(log), ['Geometry of 156 drawings: overlap examined 9999.', 'A CI run: held to its own floors for no check, and to the Mac\'s for the rest.', 'Behaviour: 40 cases, 900 checks, 0 failures.', 'Mutants: 5, 5 caught.']);

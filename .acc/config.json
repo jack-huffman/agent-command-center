@@ -4,7 +4,10 @@
   "profile": "generic",
   "github": {
     "repo": "jack-huffman/agent-command-center",
-    "account": "jack-huffman"
+    "account": "jack-huffman",
+    "checks": [
+      "check"
+    ]
   },
   "commitIdentity": {
     "name": "jack-huffman",
