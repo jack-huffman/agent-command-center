@@ -1,0 +1,7 @@
+/* What a plan read of its ticket (T-110): the line when the ticket has new comments, then the plan's words for what it read. */
+.plan-ticket { margin: 8px 0 4px; }
+.plan-behind { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 4px; }
+.plan-behind .status { white-space: normal; }
+.plan-read { display: flex; align-items: flex-start; gap: 6px; margin: 0; }
+.plan-read > .codicon { flex: none; margin-top: 2px; }
+.plan-read > span { min-width: 0; overflow-wrap: anywhere; }

@@ -6,6 +6,7 @@ import { api, memory, remember, state } from './state.ts';
 import { answerKey, askKey, pending, sendUpdate } from './updates.ts';
 import { planActions, planDecisions, planHead, planShapes } from './plan.ts';
 import { discussButton } from './talk.ts';
+import { planTicketLine } from './plan-behind.ts';
 
 // ---------------------------------------------------------------- a task's analysis (D-052)
 
@@ -91,6 +92,9 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   sec.setAttribute('aria-label', `Analysis: ${a.look.label}`);
   if (a.note) sec.append(el('p', 'muted an-note', a.note));
   if (a.summary) sec.append(foldable(`${key}:summary`, el('p', 'an-summary', md(a.summary)), null, 4));
+  // What it read of the ticket, and comments since (T-110).
+  const read = planTicketLine(a);
+  if (read) sec.append(read);
   if (a.split.length) sec.append(el('div', 'an-split', el('div', 'strong', 'Split it into'), el('ol', 'an-list', ...a.split.map((x) => el('li', '', md(x))))));
   // Its plan (T-97): the version and what changed in it, then each design choice to make.
   if (a.planState) sec.append(planHead(a.planState));

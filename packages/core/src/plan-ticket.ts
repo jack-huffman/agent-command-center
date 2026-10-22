@@ -14,7 +14,7 @@ import { clipText, CRITERIA_TEXT_MAX } from './criteria.ts';
 import { AccError } from './exec.ts';
 import type { Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
-import { isObj } from './text.ts';
+import { isObj, plural } from './text.ts';
 import { type Doc, toMarkdown } from './trackers/doc.ts';
 import type { Ticket } from './trackers/types.ts';
 import { ticketOf } from './updates.ts';
@@ -185,7 +185,6 @@ export const PLAN_TICKET_PROMPT = [
 
 /** The ticket's parts for the prompt: its description, its comments oldest first, its related tickets, attachments and changes field. */
 export function ticketLines(t: PlanTicket): string[] {
-  const s = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
   return [
     '## The ticket',
     '',
@@ -195,7 +194,7 @@ export function ticketLines(t: PlanTicket): string[] {
     '',
     ...(!t.full ? [`_The comments were not read: ${t.why ?? NOT_HANDED} Make the plan from the description, and say so in the summary._`, '']
       : [
-        ...(t.omitted ? [`_The ${s(t.omitted, 'oldest comment')} ${t.omitted === 1 ? 'was' : 'were'} left out to fit. Say so where it matters._`, ''] : []),
+        ...(t.omitted ? [`_The ${plural(t.omitted, 'oldest comment')} ${t.omitted === 1 ? 'was' : 'were'} left out to fit. Say so where it matters._`, ''] : []),
         ...(t.comments.length ? t.comments.flatMap((c) => [`### ${c.author}${c.created ? `, ${commentDay(c.created)}` : ''}`, '', c.markdown.trim() || '_empty_', '']) : ['_No comments._', '']),
       ]),
     '## Related tickets',
@@ -211,13 +210,12 @@ export function ticketLines(t: PlanTicket): string[] {
 export function readWords(r: PlanRead | undefined): string | null {
   if (!r) return null;
   if (!r.full) return `This plan read the description only: ${r.why ?? NOT_HANDED}`;
-  const s = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-  const parts = [r.comments ? `its ${s(r.comments, 'comment')}` : 'no comments (it had none)', ...(r.related ? [s(r.related, 'related ticket')] : []), ...(r.changes ? [`its ${r.changes}`] : [])];
+  const parts = [r.comments ? `its ${plural(r.comments, 'comment')}` : 'no comments (it had none)', ...(r.related ? [plural(r.related, 'related ticket')] : []), ...(r.changes ? [`its ${r.changes}`] : [])];
   const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0];
   return [
     `This plan read the ticket, ${list}.`,
     r.newest ? `The newest comment it read is ${r.newest.author}'s, ${commentDay(r.newest.created)}.` : '',
-    r.omitted ? `It left out the ${s(r.omitted, 'oldest comment')} to fit.` : '',
+    r.omitted ? `It left out the ${plural(r.omitted, 'oldest comment')} to fit.` : '',
   ].filter(Boolean).join(' ');
 }
 

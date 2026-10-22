@@ -153,6 +153,7 @@ export const PAGES = [
   'ticket-plan-approved',
   'ticket-plan-changed',
   'ticket-plan-shapes',
+  'ticket-plan-behind',
   'ticket-talk',
   'ticket-changes-field',
   'ticket-team',

@@ -46,7 +46,7 @@ const TICKET: Pick<Ticket, 'key' | 'title' | 'url' | 'markdown' | 'body' | 'comm
     comment('Mike', '2026-10-21T09:00:00.000Z', 'Agreed: Wednesday.'),
     comment('Kelsey', '2026-10-20T15:30:00.000Z', 'Kelsey and Mike will send back the 77 contacts by Wednesday.'),
   ],
-  related: [{ key: 'ACME-3', title: 'Contacts clean-up', relation: 'parent', url: null, status: { id: '3', name: 'In Progress', category: 'progress' }, typeKind: null, typeColor: null }],
+  related: [{ key: 'ACME-3', title: 'Contacts clean-up', relation: 'parent', url: null, status: { id: '3', name: 'In Progress', category: 'doing' }, typeKind: null, typeColor: null }],
 };
 
 const CHANGES = { name: 'Deployment Notes', markdown: '- Contact: the Region field' };

@@ -31,6 +31,7 @@ import type { TicketVerify } from './verify.ts';
 import type { TicketManifestSection } from './manifest.ts';
 import type { TicketTalk } from './talk.ts';
 import { type TicketPlan, ticketPlan } from './plan.ts';
+import { type PlanTicketRead, planTicketRead, withTicketRead } from './plan-behind.ts';
 import { choicesWord, forYou } from '../logic/plan.ts';
 import { WORDS } from '../../webview/plain-words.ts';
 import type { TicketChanges } from './changes.ts';
@@ -260,6 +261,8 @@ export interface TicketAnalysis {
   actions: Action[];
   /** Its plan (T-97): the choices to make, its versions, its approval and Build it. Null with no analysis. */
   planState: TicketPlan | null;
+  /** What the plan read of its ticket, and whether the ticket has comments since (T-110). Set on a ticket's page. */
+  ticketRead?: PlanTicketRead;
 }
 
 export interface TicketInput {
@@ -529,7 +532,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     editText: t && i.trackerEdits && i.task ? editTextAction(i.project, i.task) : null,
     lacks,
     updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, () => !!i.trackerEdits, i.now) : [],
-    acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
+    acc, analysis: i.row && i.task ? withTicketRead(ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []), planTicketRead(i.row, i.analysis ?? null, t?.comments ?? null, { project: i.project, task: i.row.id })) : null,
     review: i.task ? ticketReview(i.project, i.task.state, i.review) : null,
     criteria: i.task ? ticketCriteria({ task: i.task, draft: i.draft ?? null, drafting: !!i.drafting, edits: !!i.trackerEdits, kind: i.trackerKind, unkept: t?.unkept }) : null,
     verify: i.task ? i.verify ?? null : null,

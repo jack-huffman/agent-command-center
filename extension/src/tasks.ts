@@ -1,5 +1,6 @@
 // The Tasks area's VS Code commands (D-099): a task from its card, its page or a row's menu.
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import * as vscode from 'vscode';
 import { allowedMoves, DISPLAY, findRule, type State } from '../../packages/core/src/ledger.ts';
@@ -9,10 +10,13 @@ import { repoPaths } from '../../packages/core/src/paths.ts';
 import { receiptHooks } from '../../packages/core/src/receipts.ts';
 import { endResume } from '../../packages/core/src/resume.ts';
 import { effortDroppedWords } from '../../packages/core/src/efforts.ts';
-import type { Project } from './hub.ts';
+import type { Hub, Project } from './hub.ts';
+import type { Trackers } from './trackers.ts';
 import { displayName, sessionFor } from './logic/agents.ts';
 import { newestVerdictText, readReviewRun } from './logic/dock-review.ts';
+import { type PlanTicketHost, writePlanTicketFile } from './logic/plan-ticket.ts';
 import { inProcessWords } from './logic/processes.ts';
+import { shq } from './logic/shared.ts';
 import { reasonInWords } from './logic/relayed.ts';
 import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
 import { dispatchChoiceArgs, type Message as SheetGo, SHEET_COMMANDS } from './model/dispatch-sheet.ts';
@@ -45,11 +49,15 @@ export class TaskCommands extends Sidebar {
   /** A tracker task's ticket, changed from the sheet where the project allows edits (T-80). */
   private readonly edits: TicketEdits | null;
 
-  constructor(from: Sidebar, sheet: (root: string, id: string, ask?: SheetAsk) => boolean, taskSheet: (root: string, id: string | null) => boolean, edits: TicketEdits | null = null) {
+  /** Reads a tracker task's whole ticket for Make a plan (T-110). */
+  private readonly planTicket: PlanTicketHost | null;
+
+  constructor(from: Sidebar, sheet: (root: string, id: string, ask?: SheetAsk) => boolean, taskSheet: (root: string, id: string | null) => boolean, edits: TicketEdits | null = null, planTicket: PlanTicketHost | null = null) {
     super(from.hub, from.acc, from.log, from.openTicket, from.helpers, from.terminals);
     this.sheet = sheet;
     this.taskSheet = taskSheet;
     this.edits = edits;
+    this.planTicket = planTicket;
   }
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
@@ -498,17 +506,25 @@ export class TaskCommands extends Sidebar {
   // ------------------------------------------------------------ the analysis before a build (D-052)
 
   /** The analyst runs in the output panel, like a review; its session can be watched while it reads. */
-  private analyzeTask(n: TaskNode): void {
+  private async analyzeTask(n: TaskNode): Promise<void> {
     if (n?.kind !== 'task') return;
     const { project, task } = n;
     const acc = this.helpers.accCommand ?? 'acc';
     const done = () => void this.hub.loadTasks(true);
     if (this.helpers.run) {
+      // The whole ticket first (T-110): its comments, related tickets and changes field, in a file removed once acc ends.
+      const dir = mkdtempSync(join(tmpdir(), 'acc-plan-'));
+      const kept = this.hub.ledger(project.root)?.tasks.find((t) => t.id === task.id);
+      const file = this.planTicket && kept ? await writePlanTicketFile(this.planTicket, project.root, kept, dir) : null;
+      const ended = () => {
+        rmSync(dir, { recursive: true, force: true });
+        done();
+      };
       // acc analyze exits 1 when the analysis has questions or says to split it: a new analysis is a run that
       // worked, and its notice says what it found. An error writes none.
       const before = this.hub.analysis(project.root, task.id)?.at ?? null;
       const made = (code: number | null) => code === 0 || (this.hub.analysis(project.root, task.id)?.at ?? null) !== before;
-      this.helpers.run(`${acc} analyze ${task.id}`, project.root, `Make a plan for ${task.id}`, done, made);
+      this.helpers.run(`${acc} analyze ${task.id}${file ? ` --ticket ${shq(file)}` : ''}`, project.root, `Make a plan for ${task.id}`, ended, made);
       // The analyst's session shows once acc has started it.
       setTimeout(done, 2_000);
     } else {
@@ -575,10 +591,33 @@ export class TaskCommands extends Sidebar {
 }
 
 
+/** Make a plan's read of a tracker task's ticket (T-110), through the tracker's own sign-in, as drafting criteria reads it. */
+function planTicketHost(hub: Hub, trackers: Trackers): PlanTicketHost {
+  const where = (root: string, key: string) => {
+    const p = hub.project(root);
+    const index = p ? trackers.trackerFor(p, key) : null;
+    if (!p || index === null) throw new Error(`${key} isn't one of the project's tickets.`);
+    return { p, index };
+  };
+  return {
+    ticket: async (root, key) => {
+      const { p, index } = where(root, key);
+      return trackers.ticket(p, index, key);
+    },
+    changes: async (root, key) => {
+      const { p, index } = where(root, key);
+      const field = trackers.trackers(p)[index]?.changesField;
+      if (!field) return null;
+      const client = await trackers.client(p, index);
+      return client.readField ? { name: field.name, markdown: await client.readField(key, field) } : null;
+    },
+  };
+}
+
 export const area: ExtensionArea = {
-  register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets, ticketEdits: edits }) {
+  register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets, ticketEdits: edits, trackers }) {
     const read = (root: string, key: string) => edits.sheetTicket(root, key);
-    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id, undefined, read, sheetDress(root, id)), edits);
+    const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id, undefined, read, sheetDress(root, id)), edits, planTicketHost(hub, trackers));
     tasks.register(regNode);
     // Dispatch's sheet (D-168): its Dispatch from the Command Center's page. A task's own tab, and the modal
     // over the board, show the sheet over that page, and send its Dispatch here too.
