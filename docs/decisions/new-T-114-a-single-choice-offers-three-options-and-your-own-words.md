@@ -6,7 +6,8 @@ option.
 
 - **The rule.** A single choice (one answer picked) lists at most three options, the suggested or
   recommended one first, then "Something else…" or "Answer in my own words" with a box. A question that ticks
-  several (labels, epics, environments) lists all its options.
+  several (labels, epics, environments) lists its options, up to the eight a multi-select
+  question already allowed (`MULTI_OPTIONS_MAX`, unchanged here).
 - **Where it holds.** A plan's design choices: `ANALYSIS_SCHEMA` already says `maxItems: 3`, and Review plan
   cuts an older plan's longer list to three (`offered` in `extension/src/model/review-plan.ts`), keeping the
   choice made now on the list. The planning agent's questions (D-204): `OPTIONS_MAX` is 3, not 4, in the schema,
