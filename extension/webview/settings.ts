@@ -100,7 +100,7 @@ function tracker(t: TrackerSetting): HTMLElement {
     line('Board', 'layout', status(t.board), t.from),
     line('Sign-in', 'account', status(t.signIn), t.signInFrom),
     // Where a ticket's changes are kept (T-105): a row of its own, with its own button.
-    line(t.changes.label, 'note', changesFieldValue(t.changes), t.from),
+    line(t.changes.short, 'note', changesFieldValue(t.changes), t.from),
   );
   return box;
 }

@@ -35,6 +35,8 @@ export const fieldName = (kind: TrackerKind, f: TextField): string => (kind === 
 /** The setting's row: what's chosen, or why it can't be, and the button that picks it. */
 export interface ChangesFieldRow {
   label: string;
+  /** Its name in Settings' Trackers, one word as its neighbours' are: Place, Board, Sign-in. */
+  short: string;
   look: Look;
   action: SettingsAction & { command: typeof CHANGES_FIELD_COMMAND };
 }
@@ -53,7 +55,7 @@ export function changesFieldRow(kind: TrackerKind, field: TextField | null, arg:
   // Its name starts with the words it shows, so a screen reader and a voice command find it by them.
   const label = field ? 'Change…' : 'Choose…';
   return {
-    label: CHANGES_FIELD_LABEL, look,
+    label: CHANGES_FIELD_LABEL, short: 'Changes', look,
     action: { command: CHANGES_FIELD_COMMAND, label, icon: 'note', arg, name: `${label} where to keep a ticket's changes, for ${whose}`, primary: false, disabled },
   };
 }

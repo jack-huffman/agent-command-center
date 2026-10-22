@@ -38,6 +38,7 @@ const input = (more: Partial<FieldIn> = {}): FieldIn => ({
 test('the setting\'s row: the field chosen, in blue, with Change…; none chosen says so, with Choose…; GitHub names its section', () => {
   const set = changesFieldRow('jira', NOTES, arg, 'Jira · ACME, in Acme');
   assert.equal(set.label, CHANGES_FIELD_LABEL);
+  assert.equal(set.short, 'Changes', 'Settings names the row in one word, as its neighbours');
   assert.deepEqual(set.look, { label: 'Deployment Notes, a Jira field, as rich text', icon: 'note', tone: 'blue' });
   assert.deepEqual({ ...set.action }, { command: CHANGES_FIELD_COMMAND, label: 'Change…', icon: 'note', arg, name: 'Change… where to keep a ticket\'s changes, for Jira · ACME, in Acme', primary: false, disabled: null });
   const none = changesFieldRow('azure', null, arg, 'Azure DevOps · CRM, in Acme');
