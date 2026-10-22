@@ -460,7 +460,7 @@ export class TicketPanels implements vscode.Disposable {
         return;
       case 'task-sheet-criteria': await this.criteria?.sheet(m, (msg) => o.view.say(msg)); return;
       // Its plan's choices and approval (T-97): this page's own task only.
-      case 'plan-choose': case 'plan-approve':
+      case 'plan-choose': case 'plan-approve': case 'plan-split':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.plan?.act(m, (msg) => o.view.say(msg));
         return;
       // Talk it through (T-98): this page's own task only.
