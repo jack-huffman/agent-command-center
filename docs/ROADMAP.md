@@ -131,6 +131,13 @@ where each one's done-when is written out.
   changes field is kept up to date, saved by a person.
 - **Choose a board by seeing it**: done. Checked 2026-10-22. Evidence: D-193,
   D-194.
+- **Plans you talk through and review one step at a time**: done. Checked
+  2026-10-22. Evidence: D-200, D-201, D-202.
+- **Parallel builders that work as a team, and merge on their own**: done.
+  Checked 2026-10-22. Evidence: D-197, D-198, D-199.
+- **A GitHub check on every pull request, so autopilot can merge**: done.
+  Checked 2026-10-22. Evidence: D-203. GitHub doesn't offer required checks on
+  this private repo's plan; autopilot waits for the check itself.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).

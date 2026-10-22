@@ -50,6 +50,29 @@ as the notes.
 - Each comment on a ticket is its own card, and a fresh window shows each
   tracker's last board at once while it refreshes, with a quiet skeleton the
   first time.
+- Review plan (D-200): a plan's section on the ticket page is short (what it
+  does, what's left to review, **Review plan**), and Review plan steps through
+  its choices and questions one at a time, like Claude Code's prompts: radio
+  options with the recommended one first, details only on request, your own
+  words, Back, Skip, and a summary that approves.
+- A plan starts with a conversation (D-202): Make a plan first asks what you
+  want to do and what you're thinking; the planning agent says what it
+  understood and asks a few questions before it drafts. The conversation lives
+  in its own panel beside the ticket, never on the ticket page.
+- A plan reads the whole ticket (D-201): every comment, oldest first, related
+  tickets and the changes field. A later comment wins over the description,
+  the plan names the comments it relied on, and the ticket page says when new
+  comments arrive.
+- Builders work as a team (D-198): each one knows what the others are changing,
+  is told when one lands with work it shares, and can take it in early. A plan
+  can suggest a small first task for a shape others build on (D-199).
+- Parallel work merges on its own (D-197): raised floors keep the higher
+  number, the screenshot pages are one list, and decisions are a file each,
+  numbered at merge.
+- A GitHub check runs the full check and the screenshots on every pull request
+  and on main (D-203). Autopilot merges a pull request only once that check
+  has passed; none reported never counts as passed. Screenshot floors keep a
+  1% margin, so small differences between runs never fail.
 
 ## 0.44.0
 
