@@ -574,10 +574,12 @@ test('the screenshots show Trackers and sign-ins with a tracker in every state, 
   const m = (sampleModel('settings-trackers') as HomeModel);
   assert.equal(m.section, 'settings');
   const t = m.settings.trackers;
-  assert.deepEqual(t.projects.map((p) => [p.project, p.trackers.map((x) => x.kind)]), [['Acme Service', ['jira', 'monday']], ['Acme Portal', ['github', 'azure', 'jira']]]);
+  assert.deepEqual(t.projects.map((p) => [p.project, p.trackers.map((x) => x.kind)]), [['Acme Service', ['jira', 'monday']], ['Acme Portal', ['github', 'azure', 'jira', 'slack']]]);
   const all = t.projects.flatMap((p) => p.trackers);
-  assert.deepEqual(all.map((x) => `${x.signIn.icon} ${x.signIn.tone}`), ['globe blue', 'plug orange', 'github blue', 'repo blue', 'warning orange'], 'shared, none, gh, this project only, refused');
-  assert.deepEqual(all.map((x) => x.board.icon), ['project', 'circle-outline', 'project', 'sync~spin', 'circle-outline'], 'read, waiting for a sign-in, reading');
+  assert.deepEqual(all.map((x) => `${x.signIn.icon} ${x.signIn.tone}`), ['globe blue', 'plug orange', 'github blue', 'repo blue', 'warning orange', 'repo blue'], 'shared, none, gh, this project only, refused, Slack');
+  assert.deepEqual(all.map((x) => x.board.icon), ['project', 'circle-outline', 'project', 'sync~spin', 'circle-outline', 'circle-outline'], 'read, waiting for a sign-in, reading');
+  // Where each keeps a ticket's changes (T-105): a Jira field, none, GitHub's section, none, none, and Slack's off.
+  assert.deepEqual(all.map((x) => [x.changes.look.tone, !!x.changes.action.disabled]), [['blue', false], ['neutral', false], ['blue', false], ['neutral', false], ['neutral', false], ['neutral', true]]);
   assert.ok(all.some((x) => x.actions.some((a) => a.disabled)), 'a Sign out it can\'t use');
   assert.ok(t.connect);
 });
