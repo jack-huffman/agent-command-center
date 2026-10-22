@@ -10,7 +10,7 @@ body[data-view="ticket"] { padding-top: 18px; }
 /* One row under the title (T-91): its state chip, then its kind and priority, each an icon and the tracker's word. */
 .ticket-facts { display: flex; align-items: center; gap: var(--space-2) var(--space-4); flex-wrap: wrap; }
 .ticket-fact { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--vscode-descriptionForeground); font-size: 0.93em; letter-spacing: var(--track-meta); }
-.ticket-fact .codicon { color: var(--vscode-foreground); }
+.ticket-fact .codicon:not(.type-tinted) { color: var(--vscode-foreground); }
 
 .notice.why { align-items: flex-start; margin-bottom: 4px; }
 .notice.why > .codicon, .notice.recap > .codicon { margin-top: 2px; flex: none; min-width: 0; }

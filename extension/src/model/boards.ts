@@ -86,7 +86,7 @@ export interface BoardInput {
   index: number;
   kind: TrackerKind;
   title: string;
-  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; typeKind?: TypeKind | null; assignees: { id?: string; name: string; email?: string }[]; labels: { name: string; color: string | null }[]; priority: string | null; priorityLevel?: PriorityLevel | null; fullTitle?: string }[] } | null;
+  board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; typeKind?: TypeKind | null; typeColor?: string | null; assignees: { id?: string; name: string; email?: string }[]; labels: { name: string; color: string | null }[]; priority: string | null; priorityLevel?: PriorityLevel | null; fullTitle?: string }[] } | null;
   error: string | null;
   connect: { command: string; label: string; arg: string } | null;
   loading: boolean;
@@ -115,6 +115,8 @@ export interface TrackerCard {
   fullTitle: string | null;
   type: string | null;
   typeIcon: string;
+  /** The type's own colour from its tracker (T-95), six hex digits, which tints its icon; null keeps the theme's. */
+  typeColor: string | null;
   priority: string | null;
   priorityIcon: string | null;
   labels: { name: string; color: string | null }[];
@@ -253,7 +255,7 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
       const next = row ? cardActions(row, { project: root, task: row.id }).find((a) => a.primary && NEXT_STEPS.includes(a.command)) ?? null : null;
       const tracking = b.tracking?.[card.key];
       return {
-        key: card.key, title: card.title, fullTitle: card.fullTitle ?? null, type: card.type, typeIcon: typeIcon(card.typeKind ?? null), priority: card.priority, priorityIcon: priorityIcon(card.priorityLevel ?? null),
+        key: card.key, title: card.title, fullTitle: card.fullTitle ?? null, type: card.type, typeIcon: typeIcon(card.typeKind ?? null), typeColor: card.typeColor ?? null, priority: card.priority, priorityIcon: priorityIcon(card.priorityLevel ?? null),
         labels: card.labels, assignees: card.assignees.map(chip), people: card.assignees.map(whoKey), status: card.status.name,
         acc: row ? { look: accLook(row), needsYou: row.display === 'needs-you', action: next, conflicts: conflictLine(row), failedChecks: failedChecksLine(row) } : null,
         track: row || c.category === 'done' ? null : { busy: !!tracking?.busy, error: tracking?.error ?? null },

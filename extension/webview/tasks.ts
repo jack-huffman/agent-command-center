@@ -7,7 +7,7 @@ import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
 import { shows } from './person-filter.ts';
 import { personFilter } from './person-menu.ts';
 import { fitLabels } from './fit-labels.ts';
-import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChips, peekable, plural, stateChip, status, titled, toolbarButton } from './dom.ts';
+import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChips, peekable, plural, stateChip, status, titled, toolbarButton, typeMark } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
 export function renderTasks(m: TasksModel): Node[] {
@@ -148,7 +148,7 @@ export const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira
 const CARD_MOST = 3;
 
 export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTMLElement {
-  const kind = el('span', 'tcard-type', icon(c.typeIcon));
+  const kind = el('span', 'tcard-type', typeMark(c.typeIcon, c.typeColor));
   kind.title = c.type ?? 'Issue';
   const prio = c.priorityIcon ? el('span', 'tcard-prio', icon(c.priorityIcon)) : null;
   if (prio) prio.title = `Priority: ${c.priority}`;

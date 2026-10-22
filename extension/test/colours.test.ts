@@ -109,10 +109,17 @@ export const COLOUR_EXCEPTIONS: { name: string; matches: (h: ColourHit) => boole
     reason: 'A mask uses only its colours\' alpha, to fade an edge: black or any colour is the same in every theme.',
   },
   {
-    name: 'a tracker label\'s colour', matches: (h) => h.file === 'dom.ts' && h.text === '#${',
+    name: 'a tracker label\'s colour', matches: (h) => h.file === 'dom.ts' && h.property === '--tint-colour' && h.text === '#${',
     reason: 'A tracker\'s label chip is tinted with the colour the tracker gave it (T-91): its data, not the page\'s palette. The label\'s name always shows on it, in the theme\'s text colour.',
   },
+  {
+    name: 'a tracker type\'s colour', matches: (h) => h.file === 'dom.ts' && h.property === '--type-colour' && h.text === '#${',
+    reason: 'A ticket type\'s icon takes the colour the tracker gave the type (T-95): its data, as a label\'s is. The type\'s word beside it keeps the page\'s text colour.',
+  },
 ];
+
+/** The functions of dom.ts each tracker colour exception reaches (T-95): the label chip\'s tint, and the type icon\'s. */
+const TRACKER_COLOUR_PLACES: Record<string, string> = { 'a tracker label\'s colour': 'tinted', 'a tracker type\'s colour': 'typeMark' };
 
 /** Every colour the page's styles and modules write, but theme.css's palettes, which are the theme. */
 export function pageColours(dir = WEBVIEW): ColourHit[] {
@@ -147,4 +154,29 @@ test('theme.css holds every colour of both palettes, and nothing else does (GH-1
   const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
   // 50 a palette, and eight of each for the label and avatar tints (T-91, T-94).
   assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 116);
+});
+
+/** The function of a module a line sits in: the nearest function declared above it. */
+const functionAt = (ts: string, line: number): string | null =>
+  [...ts.split('\n').slice(0, line).join('\n').matchAll(/^(?:export )?function (\w+)/gm)].at(-1)?.[1] ?? null;
+
+test('the tracker colour exceptions reach only the label chip\'s tint and the type icon\'s, one place each in dom.ts (T-95)', (t) => {
+  const hits = pageColours().filter((h) => h.text === '#${');
+  const dom = readFileSync(join(WEBVIEW, 'dom.ts'), 'utf8');
+  const places = Object.entries(TRACKER_COLOUR_PLACES).map(([name, fn]) => {
+    const e = COLOUR_EXCEPTIONS.find((x) => x.name === name)!;
+    const its = hits.filter((h) => e.matches(h));
+    assert.equal(its.length, 1, `${name}: ${its.map(where).join(', ')}`);
+    assert.equal(functionAt(dom, its[0]!.line), fn, `${name} is written in ${fn}`);
+    return its[0]!;
+  });
+  assert.deepEqual(hits.map(where).sort(), places.map(where).sort(), 'a tracker colour written anywhere else is unexcused');
+  t.diagnostic(`checked ${places.length} places`);
+  assert.equal(places.length, 2);
+});
+
+test('edge case: a tracker colour put on any other property, or in another module, matches neither exception (T-95)', () => {
+  const stray = [...codeColours('dom.ts', 'el.style.setProperty(\'--other-colour\', `#${c}`);\n'), ...codeColours('tasks.ts', 'el.style.setProperty(\'--type-colour\', `#${c}`);\n')];
+  assert.equal(stray.length, 2);
+  for (const h of stray) assert.ok(!COLOUR_EXCEPTIONS.some((e) => e.matches(h)), where(h));
 });

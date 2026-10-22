@@ -180,7 +180,7 @@ test('a related row draws its kind, key, title and state chip, quiet when done, 
   assert.ok(rows.every((r) => r.all('openable').length === 1), 'each key opens its page in place');
   assert.deepEqual(all.filter((e) => e.classList.contains('related-group')).map((e) => e.textContent), ['Parent', 'Child']);
   // Edge case: a related item whose tracker says nothing of its kind or state keeps its row, with neither drawn.
-  const bare = { ...sampleTrackerTicket(Date.now(), 'azure'), related: [{ key: 'AB-1', title: 'Bare', relation: 'related', url: null, typeIcon: null, status: null }] };
+  const bare = { ...sampleTrackerTicket(Date.now(), 'azure'), related: [{ key: 'AB-1', title: 'Bare', relation: 'related', url: null, typeIcon: null, typeColor: null, status: null }] };
   const row = (renderTicket(bare) as unknown as PageElement[]).flatMap((n) => [n, ...n.all()]).find((e) => e.classList.contains('related-row'))!;
   assert.deepEqual([row.all('state-chip').length, row.all('codicon').length, row.textContent], [0, 0, 'AB-1Bare']);
 });
