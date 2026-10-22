@@ -175,6 +175,9 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid tr.none:hover td { background: none; }
 .grid .status { vertical-align: middle; }
 .grid td.clip.name { max-width: 18em; }
+/* A narrow tab: the branch gives the state room on its line (its full name is on hover), and the state wraps
+   only when even that isn't enough. */
+@media (max-width: 560px) { .grid td.clip.name { max-width: 12em; } }
 
 /* The row menu: a quiet icon button, like VSCode's own list actions. It sticks to the right edge, so a
    narrow tab scrolls the table under it rather than hiding it. Opaque, so text never shows through. */

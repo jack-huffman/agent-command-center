@@ -109,4 +109,6 @@ test('the Worktrees table fits beside the sticky actions at 500 px: its state ce
   const css = readFileSync(join(root, 'webview', 'styles.css'), 'utf8');
   const top = css.replace(/@media[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, '');
   assert.match(top, /\.grid td\.state \.status \{ white-space: normal; \}/, 'at every width, not only in a narrow tab');
+  // A narrow tab gives the state room first, so it seldom needs to wrap.
+  assert.match(css, /@media \(max-width: 560px\) \{ \.grid td\.clip\.name \{ max-width: 12em; \} \}/);
 });
