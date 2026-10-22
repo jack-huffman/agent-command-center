@@ -1,4 +1,4 @@
-## D-T-103 Builders work as a team: each knows the others in flight, is told when one lands, and takes it in early (2026-10-22)
+## D-198 Builders work as a team: each knows the others in flight, is told when one lands, and takes it in early (2026-10-22)
 
 Builders worked side by side but blind to each other. On 22 October a person
 wrote coordination notes by hand ("T-97 is rewriting the plan's schema: keep

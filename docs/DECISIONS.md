@@ -205,3 +205,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-195](decisions/D-195-talk-a-plan-through-with-its-planning-agent-on-the-ticket.md) | Talk a plan through with its planning agent, on the ticket page or in Claude Code, and turn what you agree into the plan | 2026-10-22 |
 | [D-196](decisions/D-196-a-tracker-s-changes-field-named-in-its-settings-drafted-as.md) | A tracker's changes field: named in its settings, drafted as an update when a ticket's changes change, saved by a person | 2026-10-22 |
 | [D-197](decisions/D-197-parallel-work-merges-on-its-own.md) | Parallel work merges on its own: floors take the higher, pages and decisions are a line or a file each, numbered at merge | 2026-10-22 |
+| [D-198](decisions/D-198-builders-work-as-a-team.md) | Builders work as a team: each knows the others in flight, is told when one lands, and takes it in early | 2026-10-22 |

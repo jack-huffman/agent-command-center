@@ -1471,7 +1471,7 @@ anything unexpected it prints nothing and exits 0.
 | SessionStart | | Links the session to its task. On a resume or compaction, gives the builder its short instructions again |
 | PreToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit` | Stops a builder editing outside its worktree, or editing an environment-specific file |
 | PreToolUse | `Bash` | Stops a builder from pushing at all, `gh pr merge`/`create`/`close`, a release (`npm run release`, `gh release create`/`upload`/`edit`/`delete`), a real `sf project deploy` (anything but `--dry-run`), deleting an org, `fixes` or `closes` keywords in a commit message, `--no-verify`, switching branch, `git worktree`, `reset --hard`, and the acc commands that are a person's (`set`, `dispatch`, `review`, `land`, `gate waive`, `promote`, `deploy`, `init`, `cleanup`) |
-| PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|Bash` | Tells a running builder, once a merge, that a teammate's work sharing its files merged into its environment's branch, and that `acc refresh` takes it in (D-T-103) |
+| PostToolUse | `Edit\|Write\|MultiEdit\|NotebookEdit\|Bash` | Tells a running builder, once a merge, that a teammate's work sharing its files merged into its environment's branch, and that `acc refresh` takes it in (D-198) |
 | Stop | | If a builder's task is still running, reminds it of the finish line, once a session |
 
 The plugin doesn't install the permission hook (D-030) everywhere: it would
