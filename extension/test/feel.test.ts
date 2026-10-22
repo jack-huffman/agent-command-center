@@ -219,7 +219,6 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'rules.ts', at: /button\('Accept…'/, why: 'A suggested rule waits on the person\'s yes or no: Accept… is the yes.' },
   { file: 'rules.ts', at: /^\s*\}, 'primary'\);$/, why: 'Confirm: the rule the person wrote, sent.' },
   { file: 'record-changes.ts', at: /^\s*\}, 'primary'\);$/, why: 'Save the change: the change made by hand the person wrote in the form, sent; the form opened only to take it (T-100).' },
-  { file: 'changes-field.ts', at: /^\s*\}, 'primary'\);$/, why: 'Save to the ticket: the drafted field text the person read and may have edited, sent; nothing else writes the field (T-105).' },
   { file: 'dom.ts', at: /a\.primary\)/, why: 'settingsButton, which Settings and About share (T-71): Settings\' fix for a tracker or GitHub not signed in, and About\'s for a plugin out of date or off. The model marks it primary then, and only then.' },
   { file: 'slack.ts', at: /c\.tail \? '' : 'primary'/, why: 'Connect: the webhook the person pasted in the box beside it.' },
   { file: 'slack.ts', at: /'Send a test'.*'paused'/, why: 'Send a test while notices are paused: nothing is sent until a test goes through.' },
