@@ -88,7 +88,7 @@ export function slackMessage(ev: Pick<SlackEvent, 'kind' | 'project' | 'task' | 
   ]);
 }
 
-export const SLACK_TEST_TEXT = 'acc can post here. Notices from the Command Center on this machine will come to this channel.';
+export const SLACK_TEST_TEXT = 'The Command Center can post here. Its notices on this machine will come to this channel.';
 
 const testMessage = (): SlackPayload => payload([`:white_check_mark: *Agent Command Center* · ${SLACK_TEST_TEXT}`]);
 
@@ -542,7 +542,7 @@ export const area: ExtensionArea = {
   register({ vscode, reg, slack, panels, receive }) {
     /** Remove asks first: notices stop until a webhook is pasted again. */
     const removeSlack = async () => {
-      const pick = await vscode.window.showWarningMessage('Remove the Slack webhook from this machine? acc\'s notices stop going to Slack until one is pasted again.', { modal: true }, 'Remove');
+      const pick = await vscode.window.showWarningMessage('Remove the Slack webhook from this machine? The Command Center\'s notices stop going to Slack until one is pasted again.', { modal: true }, 'Remove');
       if (pick === 'Remove') await slack.remove();
     };
     // Its card's buttons.
@@ -567,7 +567,7 @@ export const area: ExtensionArea = {
     });
     reg('acc.slack.off', async () => {
       await slack.off();
-      void vscode.window.showInformationMessage('acc\'s notices no longer go to Slack from this machine. Turn them on again in Settings, under Notices in Slack.');
+      void vscode.window.showInformationMessage('The Command Center\'s notices no longer go to Slack from this machine. Turn them on again in Settings, under Notices in Slack.');
     });
   },
 };

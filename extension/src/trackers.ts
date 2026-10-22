@@ -391,7 +391,7 @@ export class Trackers implements vscode.Disposable {
       const file = join(dir, 'outside.json');
       writeFileSync(file, JSON.stringify({ outside, ...(tracker && sprint?.moved ? { sprint: { tracker, seen: sprint.seen } } : {}) }));
       const r = await this.acc(['intake', s.kind, '--file', file, '--json'], p.root);
-      if (r.code !== 0) throw new Error(inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || 'acc said nothing.');
+      if (r.code !== 0) throw new Error(inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || 'The Command Center got no answer.');
       const res = JSON.parse(r.stdout) as IntakeResult;
       s.left = res.leftAlone.map((l) => l.note);
       const line = sprint ? sprintLine(sprint, res.leftAlone) : null;
@@ -431,11 +431,11 @@ export class Trackers implements vscode.Disposable {
     return trackTicket(`${p.root}#${k}`, this.tracking, {
       // A window that can't run acc says so before it asks the tracker anything.
       read: async () => {
-        if (!this.acc) throw new Error('This window can\'t run acc.');
+        if (!this.acc) throw new Error('This window can\'t run the Command Center.');
         return this.ticket(p, index, k);
       },
       importTasks: async (input) => {
-        if (!this.acc) throw new Error('This window can\'t run acc.');
+        if (!this.acc) throw new Error('This window can\'t run the Command Center.');
         return accImport(this.acc, p.root, input);
       },
       reload: () => this.hub.loadTasks(true),
@@ -614,7 +614,7 @@ export class Trackers implements vscode.Disposable {
    * out (D-072). The Command Center never writes the file itself (D-064). Throws acc's reason.
    */
   async write(root: string, index: number | null, record: Record<string, unknown>): Promise<void> {
-    if (!this.acc) throw new Error('This window can\'t run acc.');
+    if (!this.acc) throw new Error('This window can\'t run the Command Center.');
     await accSetTracker(this.acc, root, index, record);
   }
 

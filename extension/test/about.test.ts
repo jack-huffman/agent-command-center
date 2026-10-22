@@ -32,9 +32,9 @@ const pluginRow = (f: AboutFacts) => aboutModel(f, NOW).rows.find((r) => r.key =
 test('About lists acc, the extension and the plugin, each with where it\'s read from, then the latest release', () => {
   const m = aboutModel(sampleAbout(NOW), NOW);
   assert.deepEqual(m.rows.map((r) => [r.key, r.name, r.look.label, r.look.tone, r.from.label]), [
-    ['acc', 'acc', '0.37.0', 'blue', 'Bundled with the extension'],
+    ['acc', 'The command-line engine', '0.37.0', 'blue', 'Bundled with the extension'],
     ['extension', 'The extension', '0.37.0', 'blue', 'VSCode on this machine'],
-    ['plugin', 'The acc plugin', '0.37.0, the same as the extension', 'blue', 'Claude Code on this machine, for every session'],
+    ['plugin', 'The Claude Code plugin', '0.37.0, the same as the extension', 'blue', 'Claude Code on this machine, for every session'],
   ]);
   assert.deepEqual([m.release.look.label, m.release.look.tone, m.release.notes], ['Up to date: 0.37.0 is the latest release', 'blue', null]);
   assert.equal(m.release.when, 'Looked 12 min ago, as gh\'s active account. Looked for again by itself, and when Settings opens, at most every 6 h, or now with Check now.');
@@ -77,7 +77,7 @@ test('a look that fails reads neutral, not as a problem; so do none yet and no r
 test('an older plugin than the extension is said in orange, with Setup\'s own A4 fix', () => {
   const behind = pluginRow(sampleAboutBehind(NOW));
   assert.deepEqual([behind.look.label, behind.look.tone], ['0.36.0, older than the extension\'s 0.37.0', 'orange']);
-  assert.deepEqual(behind.action, { command: 'acc.step.fix', label: 'Update the plugin', icon: 'tools', arg: 'A4.plugin', name: 'Update the plugin to 0.37.0: the acc plugin, as Setup\'s A4 does', primary: true, disabled: null });
+  assert.deepEqual(behind.action, { command: 'acc.step.fix', label: 'Update the plugin', icon: 'tools', arg: 'A4.plugin', name: 'Update the plugin to 0.37.0: the Command Center\'s Claude Code plugin, as Setup\'s A4 does', primary: true, disabled: null });
   // A newer plugin is fine, as A4 says (D-088).
   assert.deepEqual([pluginRow(facts({ plugin: plugin('0.38.0') })).look.tone, pluginRow(facts({ plugin: plugin('0.38.0') })).action], ['blue', null]);
   // Not installed, turned off, or no Claude Code: orange, and A4's fix, whatever it turns out to be.

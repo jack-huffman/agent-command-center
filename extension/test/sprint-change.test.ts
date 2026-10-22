@@ -21,7 +21,7 @@ test('a new sprint is told once with its counts, and a started task that went ba
   assert.equal(look!.moved, true);
   assert.deepEqual([look!.change!.carried, look!.change!.backlog], [['ACME-1', 'ACME-2'], ['ACME-3']], 'ACME-4 was done in time: neither');
   assert.equal(sprintLine(look!, [left('ACME-3'), left('ACME-18')]),
-    'Sprint 13 started after Sprint 12: 2 tickets carried into it, 1 went back to the backlog. ACME-3 left the sprint after work started, so it stays on the agent board.',
+    'Sprint 13 started after Sprint 12: 2 tickets carried into it, 1 went back to the backlog. ACME-3 left the sprint after work started, so it stays on My work.',
     'a task that left for another reason isn\'t named here');
   assert.equal(sprintLine(look!, []), 'Sprint 13 started after Sprint 12: 2 tickets carried into it, 1 went back to the backlog.', 'no started task: no names');
 });

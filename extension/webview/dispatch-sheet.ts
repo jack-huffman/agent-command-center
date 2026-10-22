@@ -1,4 +1,4 @@
-// Dispatch's sheet (D-168): the extension's dispatch-sheet message opens it over the page, a task's tab or
+// The Build it sheet (D-168, T-96): the extension's dispatch-sheet message opens it over the page, a task's tab or
 // the Command Center, in the page's modal (modal.ts). It asks for the model, the effort and where the
 // builder runs, with what the builder would use already chosen. Enter dispatches and Escape cancels; focus
 // goes back to what opened it. Dispatch sends the choice, and the extension works out acc's arguments.
@@ -7,6 +7,7 @@ import type { DispatchSheet, EffortValue, SheetEffort, SheetModel } from '../src
 import { button, el, focusedElement, icon, work } from './dom.ts';
 import { makeModal } from './modal.ts';
 import { api, type PageArea } from './state.ts';
+import { BUILD_IT_TITLE, WORDS } from './plain-words.ts';
 
 /** A model name as claude --model takes it: MODEL_NAME in the core's config, copied (D-121). */
 const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,79}$/;
@@ -145,7 +146,7 @@ function foot(): void {
   const why = goOff();
   parts.go.replaceChildren(icon('rocket'), open.sheet.go);
   parts.go.disabled = !!why;
-  parts.go.title = why ?? `${open.sheet.go} (Enter)`;
+  parts.go.title = why ?? `${BUILD_IT_TITLE} (Enter)`;
 }
 
 /** Dispatch: the choice goes to the extension, and the sheet closes. Nothing goes while Dispatch is off. */
@@ -166,7 +167,7 @@ function make(): NonNullable<typeof parts> {
   const m = makeModal('dispatch-sheet', [title], shut);
   const cancel = button('Cancel', 'close', () => shut(), 'ds-cancel');
   cancel.title = 'Cancel (Escape)';
-  const go = button('Dispatch', 'rocket', () => dispatch(), 'primary ds-go');
+  const go = button(WORDS.buildIt, 'rocket', () => dispatch(), 'primary ds-go');
   m.dialog.append(el('div', 'ds-foot', cancel, go));
   // Enter dispatches from anywhere in it, but on Cancel, which cancels.
   m.dialog.addEventListener('keydown', (e) => {

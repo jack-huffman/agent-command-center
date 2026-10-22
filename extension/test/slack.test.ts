@@ -404,7 +404,7 @@ test('the webhook is kept only in secret storage: the state, the card and the pa
   assert.deepEqual(await w.slack.connect(` ${HOOK} `), { ok: true });
   assert.equal(m.secrets.get(SLACK_SECRET), HOOK);
   assert.equal(w.posts.length, 1, 'connecting sends a test');
-  assert.match(w.posts[0]!.body.text, /acc can post here/);
+  assert.match(w.posts[0]!.body.text, /The Command Center can post here/);
   const s = w.slack.state();
   assert.deepEqual([s.on, s.tail, s.kinds, s.since], [true, 'UVWX', [...SLACK_KINDS], w.clock], 'every kind is ticked the first time');
   const card = slackCard(s);

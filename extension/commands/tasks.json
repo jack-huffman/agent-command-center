@@ -65,31 +65,31 @@
   },
   {
     "command": "acc.task.dispatch",
-    "title": "Dispatch to an agent",
+    "title": "Build it",
     "category": "Agent Command Center",
     "icon": "$(rocket)"
   },
   {
     "command": "acc.task.dispatchWith",
-    "title": "Dispatch to an agent with a model you pick",
+    "title": "Build it with a model you pick",
     "category": "Agent Command Center",
     "icon": "$(sparkle)"
   },
   {
     "command": "acc.task.dispatchCloud",
-    "title": "Dispatch to the cloud",
+    "title": "Build it in the cloud",
     "category": "Agent Command Center",
     "icon": "$(cloud-upload)"
   },
   {
     "command": "acc.task.dispatchAnyway",
-    "title": "Dispatch anyway, though it shares files with work in flight",
+    "title": "Build it anyway, though it shares files with work in flight",
     "category": "Agent Command Center",
     "icon": "$(rocket)"
   },
   {
     "command": "acc.task.dispatchAgain",
-    "title": "Dispatch again: a builder that didn't start, or one acc can't see",
+    "title": "Build it again: a builder that didn't start, or one the Command Center can't see",
     "category": "Agent Command Center",
     "icon": "$(debug-restart)"
   },
@@ -143,19 +143,19 @@
   },
   {
     "command": "acc.task.analyze",
-    "title": "Analyze before the build",
+    "title": "Make a plan",
     "category": "Agent Command Center",
     "icon": "$(telescope)"
   },
   {
     "command": "acc.task.watchAnalysis",
-    "title": "Watch the analysis",
+    "title": "Watch the plan being made",
     "category": "Agent Command Center",
     "icon": "$(pulse)"
   },
   {
     "command": "acc.task.land",
-    "title": "Land: push and open the pull request",
+    "title": "Send to merge: push and open the pull request",
     "category": "Agent Command Center",
     "icon": "$(git-pull-request-create)"
   },

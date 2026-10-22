@@ -51,7 +51,7 @@ export const CLOUD_STEPS: Step[] = [
   },
   {
     id: 'B15.cloud-routine', part: 'project', group: 'B15', title: 'A routine for the repo',
-    why: 'A script starts a cloud session only by firing a routine\'s API trigger (GH-69). The routine holds the repo, the model and the environment; acc sends each task in the fire\'s text.',
+    why: 'A script starts a cloud session only by firing a routine\'s API trigger (GH-69). The routine holds the repo, the model and the environment; the Command Center sends each task in the fire\'s text.',
     fix: { text: ROUTINE_GUIDE, docs: 'https://code.claude.com/docs/en/routines' },
     check(ctx) {
       const need = optedIn(ctx);
@@ -62,7 +62,7 @@ export const CLOUD_STEPS: Step[] = [
   },
   {
     id: 'B15.cloud-token', part: 'project', group: 'B15', title: 'The routine\'s token is in the keychain',
-    why: 'acc fires the routine with its bearer token, kept in this Mac\'s keychain and never in .acc/config.json or git (GH-69). The token is shown once, on the routine\'s page.',
+    why: 'The Command Center fires the routine with its bearer token, kept in this Mac\'s keychain and never in .acc/config.json or git (GH-69). The token is shown once, on the routine\'s page.',
     fix: { text: 'On the routine\'s page, under its API trigger, click Generate token and copy it. Then, in a terminal, acc cloud token keeps it in the keychain under acc-cloud-routine, for this repo: paste the token when it asks.', docs: 'https://code.claude.com/docs/en/routines#add-an-api-trigger' },
     check(ctx) {
       const need = optedIn(ctx);
@@ -83,7 +83,7 @@ export const CLOUD_STEPS: Step[] = [
   },
   {
     id: 'B15.cloud-guard', part: 'project', group: 'B15', title: 'The push guard is committed',
-    why: 'A cloud session runs the repo\'s own .claude/settings.json hooks and not acc\'s plugin, so the guard that refuses a push to any branch but the task\'s, and the git pre-push hook it installs in the clone to check the push itself, are scripts the repo carries, and only what\'s committed reaches the cloud (GH-69).',
+    why: 'A cloud session runs the repo\'s own .claude/settings.json hooks and not the Command Center\'s plugin, so the guard that refuses a push to any branch but the task\'s, and the git pre-push hook it installs in the clone to check the push itself, are scripts the repo carries, and only what\'s committed reaches the cloud (GH-69).',
     fix: { command: 'acc cloud enable', text: 'acc cloud enable writes .claude/hooks/acc-push-guard.mjs, .claude/hooks/acc-pre-push beside it, and their hooks into .claude/settings.json. Commit all three, and merge them into every branch a cloud session starts from.' },
     check(ctx) {
       const need = optedIn(ctx);

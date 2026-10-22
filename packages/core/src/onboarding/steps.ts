@@ -218,7 +218,7 @@ function versionStep(id: string, title: string, why: string, cmd: string, args: 
  * on the Setup page, in the order the steps are done (D-047).
  */
 export const GROUP_TITLES: Record<string, string> = {
-  A1: 'Tools', A2: 'Accounts', A4: 'The acc plugin',
+  A1: 'Tools', A2: 'Accounts', A4: 'The Claude Code plugin',
   B0: 'The repo', B1: 'Orgs', B2: 'GitHub account', B3: 'Client data and secrets',
   B4: 'Salesforce project', B5: 'Salesforce project', B6: 'Environment branches', B8: 'Source tracking',
   B9: 'Environment differences', B10: 'Safe defaults', B12: 'Background agents', B13: 'Background agents',
@@ -229,7 +229,7 @@ export const STEPS: Step[] = [
   // ------------------------------------------------------------ Part A: this machine
   versionStep('A1.git', 'git 2.40 or later', 'Worktrees and the shared git directory need a recent git.', 'git', ['--version'], '2.40', 'brew install git'),
   // acc itself needs no Node: its launcher falls back to VSCode's runtime (D-077).
-  versionStep('A1.node', 'Node 20 or later', 'The Salesforce CLI and its plugins run on Node, and npm installs them. acc itself doesn\'t need it.', 'node', ['--version'], '20', 'brew install node', ['salesforce']),
+  versionStep('A1.node', 'Node 20 or later', 'The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn\'t need it.', 'node', ['--version'], '20', 'brew install node', ['salesforce']),
   versionStep('A1.gh', 'GitHub CLI', 'Pull requests, issues and the per-repo account all go through gh.', 'gh', ['--version'], null, 'brew install gh'),
   {
     id: 'A1.claude', part: 'machine', group: 'A1', title: 'Claude Code CLI with background sessions',
@@ -289,8 +289,8 @@ export const STEPS: Step[] = [
     },
   },
   {
-    id: 'A4.plugin', part: 'machine', group: 'A4', title: 'The acc plugin in Claude Code',
-    why: 'Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents acc\'s skills and the reviewer. It\'s installed once, for every Claude Code session, and does nothing in a repo without .acc/config.json.',
+    id: 'A4.plugin', part: 'machine', group: 'A4', title: 'The Command Center\'s Claude Code plugin',
+    why: 'Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents the Command Center\'s skills and its reviewer. It\'s installed once, for every Claude Code session, and does nothing in a repo without .acc/config.json.',
     fix: {
       command: `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`,
       text: 'Claude Code clones this private repo with your own git credentials, so accept the invitation to it first. Sessions already running don\'t load the plugin: start a new one.',
@@ -307,16 +307,16 @@ export const STEPS: Step[] = [
       if (user?.enabled) {
         // Only an older plugin fails: its hooks may not know what this acc asks of builders. A newer one is fine (GH-62).
         if (pluginBehind(user.version, ctx.version)) {
-          return fail(`acc ${version} is installed, older than this acc (${ctx.version}).`, PLUGIN_UPDATE);
+          return fail(`The plugin ${version} is installed, older than this Command Center (${ctx.version}).`, PLUGIN_UPDATE);
         }
-        return pass(`acc ${version}, for every Claude Code session.`);
+        return pass(`The plugin ${version}, for every Claude Code session.`);
       }
-      if (user) return fail(`acc ${version} is installed but disabled.`, `claude plugin enable ${PLUGIN_ID} --scope user`);
+      if (user) return fail(`The plugin ${version} is installed but turned off.`, `claude plugin enable ${PLUGIN_ID} --scope user`);
       const scopes = [...new Set(mine.map((p) => String(p.scope)))];
       const only = scopes.length ? ` It's installed for one project only (${scopes.join(', ')} scope), not for every session.` : '';
       const markets = claudeList(ctx, ['plugin', 'marketplace', 'list', '--json']);
-      if (markets.ok && markets.list.some((m) => m.name === PLUGIN.marketplace)) return fail(`acc isn't installed in Claude Code.${only}`, PLUGIN_INSTALL);
-      return fail(`acc isn't installed in Claude Code, and its marketplace isn't added.${only}`, `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`);
+      if (markets.ok && markets.list.some((m) => m.name === PLUGIN.marketplace)) return fail(`The plugin isn't installed in Claude Code.${only}`, PLUGIN_INSTALL);
+      return fail(`The plugin isn't installed in Claude Code, and its marketplace isn't added.${only}`, `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`);
     },
   },
 
@@ -466,7 +466,7 @@ export const STEPS: Step[] = [
   },
   {
     id: 'B2.account', part: 'project', group: 'B2', title: 'The repo\'s GitHub account is logged in',
-    why: 'acc runs every gh call for this repo as its own account (D-007).',
+    why: 'The Command Center runs every gh call for this repo as its own account (D-007).',
     fix: { vscode: 'acc.github.signIn', text: GH_SIGN_IN },
     check(ctx) {
       const need = needsProject(ctx);
@@ -782,7 +782,7 @@ export const STEPS: Step[] = [
   ...TOOL_STEPS,
   {
     id: 'B14.tickets', part: 'project', group: 'B14', title: 'The repo\'s ticket source',
-    why: 'The Tasks board shows this repo\'s own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in on this machine for this repo, or for every project on the same site. If this repo keeps its tasks in acc alone, mark this done.',
+    why: 'The Tasks board shows this repo\'s own tickets: a Jira project, an Azure DevOps board, a monday.com board or GitHub Issues, signed in on this machine for this repo, or for every project on the same site. If this repo keeps its tasks in the Command Center alone, mark this done.',
     fix: {
       vscode: 'acc.trackers.add',
       confirm: true,
@@ -793,7 +793,7 @@ export const STEPS: Step[] = [
       const need = needsProject(ctx);
       if (need) return need;
       const list = ctx.config!.trackers;
-      if (!list.length) return unknown('No ticket source yet, so tasks come from acc alone. Add one, or mark this done if that\'s how this repo works.');
+      if (!list.length) return unknown('No ticket source yet, so tasks come from the Command Center alone. Add one, or mark this done if that\'s how this repo works.');
       // With its place, when it's narrower than the project (D-072).
       const names = list.map((t) => (t.kind === 'github' ? `GitHub Issues${t.repo ? ` (${t.repo})` : ''}${t.labels.length ? ` labelled ${orList(t.labels)}` : ''}`
         : t.kind === 'jira' ? `Jira ${t.project} on ${t.site}${t.epic ? `, epic ${t.epic}` : ''}`

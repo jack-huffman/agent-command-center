@@ -27,6 +27,7 @@ import { cardActions, filesLook, placeLook } from './cards.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
 import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria.ts';
 import type { TicketVerify } from './verify.ts';
+import { WORDS } from '../../webview/plain-words.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -400,21 +401,21 @@ export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updat
   const todo = row.state === 'todo';
   if (!a && !row.analyzing && !todo) return null;
   const open = todo ? withClient((a?.questions ?? []).filter((q) => !q.answer).map(({ id, question, why, suggested }) => ({ id, question, why, suggested })), row.id, updates) : [];
-  const look: Look = row.analyzing ? { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' }
-    : !a ? { label: 'Not analyzed yet', icon: 'circle-large-outline', tone: 'neutral' }
-      : !todo ? { label: 'Analyzed before the build', icon: 'pass', tone: 'blue' }
+  const look: Look = row.analyzing ? { label: 'Making a plan', icon: 'sync~spin', tone: 'blue' }
+    : !a ? { label: 'No plan yet', icon: 'circle-large-outline', tone: 'neutral' }
+      : !todo ? { label: 'Planned before the build', icon: 'pass', tone: 'blue' }
         : a.verdict === 'split' ? { label: 'Too big for one task', icon: 'split-horizontal', tone: 'orange' }
           : open.length ? { label: `${questionsWord(open.length)} for you`, icon: 'question', tone: 'orange' }
             : { label: 'Ready to build', icon: 'pass', tone: 'blue' };
-  const note = row.analyzing ? 'An analyst is reading the ticket and the code. It changes nothing.'
+  const note = row.analyzing ? 'An agent is studying the ticket and the code to make a plan. It changes nothing.'
     : a ? null
-      : row.analysisRequired ? 'This project wants an analysis before a task is built: what it asks for, what\'s there now, and how to build it.'
-        : 'An analyst can work out what it asks for, what\'s there now, and how to build it, before an agent builds it.';
+      : row.analysisRequired ? 'This project wants a plan before a task is built: what it asks for, what\'s there now, and how to build it.'
+        : 'An agent can make a plan first: what it asks for, what\'s there now, and how to build it. It changes nothing.';
   const actions: Action[] = [];
-  if (row.analyzing) actions.push({ command: 'acc.task.watchAnalysis', label: 'Watch the analysis', icon: 'pulse', ref, primary: true });
+  if (row.analyzing) actions.push({ command: 'acc.task.watchAnalysis', label: 'Watch the plan being made', icon: 'pulse', ref, primary: true });
   // acc analyzes before a build, or after one is set aside: never while it's being built, nor once it's done.
-  else if (!a && todo) actions.push({ command: 'acc.task.analyze', label: 'Analyze', icon: 'telescope', ref, primary: !!row.analysisRequired });
-  else if (a && row.state !== 'running' && row.state !== 'done') actions.push({ command: 'acc.task.analyze', label: 'Analyze again', icon: 'refresh', ref });
+  else if (!a && todo) actions.push({ command: 'acc.task.analyze', label: WORDS.makePlan, icon: 'lightbulb', ref, primary: !!row.analysisRequired });
+  else if (a && row.state !== 'running' && row.state !== 'done') actions.push({ command: 'acc.task.analyze', label: 'Make a new plan', icon: 'refresh', ref });
   const decided = (a?.questions ?? []).flatMap((q) => (q.answer ? [{ question: q.question, answer: q.answer.text, assumed: false }] : todo ? [] : [{ question: q.question, answer: q.suggested, assumed: true }]));
   return {
     task: row.id, look, note, summary: a?.summary ?? null, size: a?.approach.size ?? null, at: a?.at ?? null, open, canAsk: hasTicket(row.source.kind), decided, split: a?.verdict === 'split' ? a.split : [],
@@ -477,7 +478,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   return {
     kind: 'ticket', project: i.project, tracker: i.tracker, key: t?.key ?? i.key,
     title: t?.title ?? i.task?.title ?? i.key, url: t?.url ?? i.task?.source.url ?? null,
-    sourceLabel: i.trackerTitle ?? 'Task kept by acc', sourceKind: t?.kind ?? i.trackerKind ?? 'acc',
+    sourceLabel: i.trackerTitle ?? 'Kept by the Command Center', sourceKind: t?.kind ?? i.trackerKind ?? 'acc',
     loading: i.loading, error: i.error, outside: i.outside ?? null, connect: i.connect,
     type: t?.type ?? null, typeIcon: typeIcon(t?.typeKind ?? null), typeColor: t?.typeColor ?? null,
     status: t ? { name: t.status.name, ...statusLook(t.status) } : acc ? { name: acc.look.label, icon: acc.look.icon, tone: acc.look.tone } : null,

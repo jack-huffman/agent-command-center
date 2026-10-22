@@ -12,7 +12,7 @@ import { LOOK, type ModelArea } from './shared.ts';
 /** How a moved branch shows: its words and an icon, in orange, since a person has to look. */
 export function moveLook(m: BranchMove): Look {
   const n = m.commits.length;
-  return LOOK(n ? `Needs you: ${m.branch} moved by ${n} commit${n === 1 ? '' : 's'} that ${n === 1 ? 'isn\'t' : 'aren\'t'} acc's merges` : `Needs you: ${m.branch} was rewritten`, 'git-branch', 'orange');
+  return LOOK(n ? `Needs you: ${m.branch} moved by ${n} commit${n === 1 ? '' : 's'} that ${n === 1 ? 'isn\'t' : 'aren\'t'} the Command Center's merges` : `Needs you: ${m.branch} was rewritten`, 'git-branch', 'orange');
 }
 
 export const area: ModelArea = {

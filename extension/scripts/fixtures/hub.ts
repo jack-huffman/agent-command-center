@@ -71,8 +71,8 @@ export function sampleHub(now = Date.now()): HubLike {
     // GitHub protects production; qa and dev have no protection, so a push past the guard would be caught after the fact.
     cloudProtection: () => [
       { branch: 'production', state: 'enforced', why: 'GitHub protects production: a pull request with reviews, passing checks, no force pushes.' },
-      { branch: 'qa', state: 'none', why: 'GitHub enforces no protection and no ruleset on qa: a push the guard didn\'t catch would be caught by acc\'s next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.' },
-      { branch: 'dev', state: 'none', why: 'GitHub enforces no protection and no ruleset on dev: a push the guard didn\'t catch would be caught by acc\'s next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.' },
+      { branch: 'qa', state: 'none', why: 'GitHub enforces no protection and no ruleset on qa: a push the guard didn\'t catch would be caught by the Command Center\'s next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.' },
+      { branch: 'dev', state: 'none', why: 'GitHub enforces no protection and no ruleset on dev: a push the guard didn\'t catch would be caught by the Command Center\'s next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.' },
     ],
   };
 }

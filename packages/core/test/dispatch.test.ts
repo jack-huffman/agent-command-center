@@ -195,7 +195,7 @@ test('a builder runs with the project\'s model and this clone\'s effort, when th
 
 const modelOfLaunch = (args: string[]) => args[args.indexOf('--model') + 1];
 
-test('a builder nobody chose a model for runs acc\'s default, and its run says so without calling it picked (D-086)', () => {
+test('a builder nobody chose a model for runs the Command Center\'s default, and its run says so without calling it picked (D-086)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
   const claude = fakeClaude();
   const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };

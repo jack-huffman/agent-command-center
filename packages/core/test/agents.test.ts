@@ -12,26 +12,26 @@ test('the config takes a model, effort and fallback for builders and reviewers, 
   assert.deepEqual(ok.errors, []);
   assert.deepEqual(ok.config!.agents.builder, { model: 'opus', effort: 'high', fallbackModel: 'sonnet' });
   assert.deepEqual(ok.config!.agents.reviewer, { model: 'claude-sonnet-5-5', effort: null, fallbackModel: null });
-  assert.deepEqual(parseConfig(GENERIC_CONFIG).config!.agents.builder, { model: null, effort: null, fallbackModel: null }, 'unset: acc\'s default model, Claude Code\'s effort');
+  assert.deepEqual(parseConfig(GENERIC_CONFIG).config!.agents.builder, { model: null, effort: null, fallbackModel: null }, 'unset: the Command Center\'s default model, Claude Code\'s effort');
   const bad = parseConfig({ ...GENERIC_CONFIG, agents: { builder: { model: 'two words', effort: 'extreme' }, reviewer: 'sonnet' } });
   assert.match(bad.errors.join(' '), /agents\.builder\.model" must be a model alias/);
   assert.match(bad.errors.join(' '), /agents\.builder\.effort" must be one of low, medium, high, xhigh, max/);
   assert.match(bad.errors.join(' '), /agents\.reviewer" must be an object/);
 });
 
-test('a profile becomes Claude Code\'s flags, with acc\'s default model when it names none (D-086)', () => {
+test('a profile becomes Claude Code\'s flags, with the Command Center\'s default model when it names none (D-086)', () => {
   assert.equal(DEFAULT_MODEL, 'claude-opus-5-5');
   assert.deepEqual(agentArgs({ model: 'sonnet', effort: 'low', fallbackModel: 'haiku' }), ['--model', 'sonnet', '--effort', 'low', '--fallback-model', 'haiku']);
   assert.deepEqual(agentArgs({ model: null, effort: 'max', fallbackModel: null }), ['--model', 'claude-opus-5-5', '--effort', 'max']);
   assert.deepEqual(agentArgs({ model: null, effort: null, fallbackModel: null }), ['--model', 'claude-opus-5-5'], 'effort and fallback stay Claude Code\'s');
   assert.deepEqual(agentArgs(undefined), ['--model', 'claude-opus-5-5']);
   assert.deepEqual(agentArgs({ model: 'sonnet', effort: null, fallbackModel: 'sonnet' }), ['--model', 'sonnet'], 'Claude Code won\'t start with a fallback the same as its model');
-  assert.deepEqual(agentArgs({ model: null, effort: null, fallbackModel: 'claude-opus-5-5' }), ['--model', 'claude-opus-5-5'], 'nor with acc\'s default as its fallback');
+  assert.deepEqual(agentArgs({ model: null, effort: null, fallbackModel: 'claude-opus-5-5' }), ['--model', 'claude-opus-5-5'], 'nor with the Command Center\'s default as its fallback');
   assert.equal(modelOf(undefined), 'claude-opus-5-5');
   assert.equal(modelOf({ model: 'fable' }), 'fable');
 });
 
-test('with nothing set, each role runs acc\'s default model; the project\'s wins over it, and the clone\'s over both (D-086)', () => {
+test('with nothing set, each role runs the Command Center\'s default model; the project\'s wins over it, and the clone\'s over both (D-086)', () => {
   for (const role of ['builder', 'reviewer'] as const) {
     const dir = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG) });
     const file = join(dir, '.acc/config.json');

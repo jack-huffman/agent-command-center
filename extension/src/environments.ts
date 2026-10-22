@@ -36,7 +36,7 @@ class EnvironmentCommands extends Sidebar {
       if (expected?.test(message)) return { refused: message };
       void vscode.window.showWarningMessage(inProcessWords(message));
     } catch {
-      void vscode.window.showWarningMessage(inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || 'acc didn\'t answer.');
+      void vscode.window.showWarningMessage(inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || 'The Command Center got no answer.');
     }
     return null;
   }
@@ -62,7 +62,7 @@ class EnvironmentCommands extends Sidebar {
       ...plan.skipped.map((e) => `⚠ Skips ${e.name}: this change hasn't been validated there.`),
       ...(plan.deleted.length ? [`⚠ Deletes ${plan.deleted.length} file${plan.deleted.length === 1 ? '' : 's'} in ${name(to)}, which usually means the branches have drifted apart: ${plan.deleted.slice(0, 4).join(', ')}${plan.deleted.length > 4 ? ', …' : ''}`] : []),
       '',
-      `${sf ? `First, a check-only deploy to ${name(to)}'s org, which saves nothing. If it passes, acc` : 'acc'} pushes a promotion branch and opens a pull request into ${to}. Nothing merges or deploys until a person does.`,
+      `${sf ? `First, a check-only deploy to ${name(to)}'s org, which saves nothing. If it passes, the Command Center` : 'The Command Center'} pushes a promotion branch and opens a pull request into ${to}. Nothing merges or deploys until a person does.`,
     ];
     const go = plan.deleted.length ? 'Promote, with the deletions' : 'Promote';
     const ok = await vscode.window.showWarningMessage(`Promote ${env.name} to ${name(to)}?`, { modal: true, detail: lines.join('\n') }, go);
@@ -87,7 +87,7 @@ class EnvironmentCommands extends Sidebar {
       // A first deploy needs a starting point: the commit the org already matches.
       since = (await vscode.window.showInputBox({
         title: `${env.name}: where does the org's deploy start?`,
-        prompt: `acc hasn't deployed ${env.name} before. Give the commit or tag ${env.org} already has, and acc deploys what changed on ${env.branch} after it.`,
+        prompt: `The Command Center hasn't deployed ${env.name} before. Give the commit or tag ${env.org} already has, and it deploys what changed on ${env.branch} after it.`,
         placeHolder: 'a commit sha, tag or branch', ignoreFocusOut: true,
         validateInput: (v) => (/^[\w./-]+$/.test(v.trim()) ? undefined : 'A commit, tag or branch name'),
       }))?.trim();
@@ -96,8 +96,8 @@ class EnvironmentCommands extends Sidebar {
       if (!again || 'refused' in again) return;
       plan = again;
     }
-    if (!plan.files.length) return void vscode.window.showInformationMessage(plan.deleted.length ? `Only deletions changed on ${env.branch}; acc doesn't deploy those.` : `${env.name} already has ${env.branch} at ${plan.head.slice(0, 7)}.`);
-    if (plan.deleted.length) return void vscode.window.showWarningMessage(`${plan.deleted.length} file(s) were deleted on ${env.branch} since the last deploy. acc doesn't deploy deletions: remove them from the org by hand first.`);
+    if (!plan.files.length) return void vscode.window.showInformationMessage(plan.deleted.length ? `Only deletions changed on ${env.branch}; the Command Center doesn't deploy those.` : `${env.name} already has ${env.branch} at ${plan.head.slice(0, 7)}.`);
+    if (plan.deleted.length) return void vscode.window.showWarningMessage(`${plan.deleted.length} file(s) were deleted on ${env.branch} since the last deploy. The Command Center doesn't deploy deletions: remove them from the org by hand first.`);
     const detail = [
       `Deploys ${plan.files.length} file${plan.files.length === 1 ? '' : 's'} from ${env.branch} (${plan.base.slice(0, 7)} → ${plan.head.slice(0, 7)}) to ${env.org}, with ${plan.testLevel === 'RunLocalTests' ? 'the org\'s local tests' : 'no tests'}.`,
       plan.leftOut.length ? `${plan.leftOut.length} environment-specific file(s) are left out.` : '',

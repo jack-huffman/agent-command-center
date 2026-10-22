@@ -48,7 +48,7 @@ test('acc\'s text reaches a person with each key in words, and a key in brackets
     'ACME tools has changed since this project was made from it, and this project differs on its required checks, its builder limit. The fix previews what it would write.',
   );
   assert.equal(inConfigWords('6 tasks are running in this project, and its cap is 6 (agents.max).'), '6 tasks are running in this project, and its cap is 6.');
-  assert.equal(inConfigWords('This project runs at most 2 at once (agents.max, acc\'s default: .acc/config.json sets none).'), 'This project runs at most 2 at once (acc\'s default: .acc/config.json sets none).');
+  assert.equal(inConfigWords('This project runs at most 2 at once (agents.max, the Command Center\'s default: .acc/config.json sets none).'), 'This project runs at most 2 at once (the Command Center\'s default: .acc/config.json sets none).');
   assert.equal(inConfigWords('Give each one under "gates.commands", or `gates.ratchets` for a number.'), 'Give each one under its checks\' commands, or its floors for a number.');
   assert.equal(inProcessWords('No gates. List them under "gates.commands" in .acc/config.json.'), 'No gates. List them under its checks\' commands in the project\'s settings.');
 });
@@ -73,10 +73,10 @@ test('edge cases: code that reads a key, a word with no dot, a longer name that 
 
 test('another tool\'s command line is named by what it does, for each line the steps can give', () => {
   const lines: [string, string][] = [
-    ['claude plugin marketplace add https://github.com/jack-huffman/agent-command-center && claude plugin install acc@agent-command-center --scope user', 'Install the acc plugin in Claude Code'],
-    ['claude plugin install acc@agent-command-center --scope user', 'Install the acc plugin in Claude Code'],
-    ['claude plugin marketplace update agent-command-center && claude plugin update acc@agent-command-center --scope user', 'Update the acc plugin in Claude Code'],
-    ['claude plugin enable acc@agent-command-center --scope user', 'Turn on the acc plugin in Claude Code'],
+    ['claude plugin marketplace add https://github.com/jack-huffman/agent-command-center && claude plugin install acc@agent-command-center --scope user', "Install the Command Center's Claude Code plugin"],
+    ['claude plugin install acc@agent-command-center --scope user', "Install the Command Center's Claude Code plugin"],
+    ['claude plugin marketplace update agent-command-center && claude plugin update acc@agent-command-center --scope user', "Update the Command Center's Claude Code plugin"],
+    ['claude plugin enable acc@agent-command-center --scope user', "Turn on the Command Center's Claude Code plugin"],
     ['claude update', 'Update Claude Code'],
     ['claude   # then accept the trust prompt and type /exit', 'Open Claude Code in this folder, to trust it'],
     ['brew install --cask claude-code', 'Install Claude Code'],
@@ -101,7 +101,7 @@ test('a setup step the page names as a process keeps its command line to show on
   const m = setupModel(sampleSetup().items, new Set());
   const rows = m.parts.flatMap((p) => p.steps);
   const plugin = rows.find((r) => r.id === 'A4.plugin')!;
-  assert.equal(plugin.does, 'Install the acc plugin in Claude Code');
+  assert.equal(plugin.does, "Install the Command Center's Claude Code plugin");
   assert.ok(plugin.fix?.startsWith('claude plugin marketplace add'), 'the line is kept for "Show the command"');
   const template = rows.find((r) => r.id === 'B0.template')!;
   assert.match(template.detail, /differs on its required checks, its builder limit\./);
@@ -124,7 +124,7 @@ test('the words check also fails on a claude command, a gh command and a dotted 
 });
 
 test('edge cases: Claude Code as a name, claude or gh on their own, a command to install them, and code that reads a key pass the words check', () => {
-  for (const ok of ['Claude Code is installed.', 'claude isn\'t installed.', 'claude 2.1.0 has no --bg.', 'gh isn\'t installed.', 'gh can act as jordan-kim', 'brew install gh', 'config.gates.required', 'profile', 'Install the acc plugin in Claude Code']) {
+  for (const ok of ['Claude Code is installed.', 'claude isn\'t installed.', 'claude 2.1.0 has no --bg.', 'gh isn\'t installed.', 'gh can act as jordan-kim', 'brew install gh', 'config.gates.required', 'profile', "Install the Command Center's Claude Code plugin"]) {
     assert.deepEqual(rulesHit(ok), [], ok);
   }
   for (const bad of ['claude plugin list --json', 'claude update', 'gh auth token -u x', 'gh repo edit acme/x', '"gates.commands"', 'agents.permissionMode']) assert.equal(rulesHit(bad).length, 1, bad);

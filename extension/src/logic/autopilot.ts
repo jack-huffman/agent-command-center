@@ -12,6 +12,7 @@ import { endSentence, type TaskNotice } from './notices.ts';
 import { inProcessWords } from './processes.ts';
 import { saidLine } from './shared.ts';
 import { startedNotice } from './tasks.ts';
+import { WORDS } from '../../webview/plain-words.ts';
 
 // ---------------------------------------------------------------- autopilot, hosted by the Command Center (D-064)
 
@@ -46,7 +47,7 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     const say = (text: string, urgent: boolean, actions: [string, string][] = []) => out.push({ kind: 'autopilot', task: r.task, text, urgent, actions, step: r });
     if (r.outcome === 'failed') {
       const by: Record<AutopilotStepName, [string, string]> = {
-        review: ['Review', 'acc.task.review'], land: ['Land', 'acc.task.land'], dispatch: ['Re-dispatch', 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'], merge: ['Open pull request', 'acc.task.openPr'], start: ['Dispatch anyway', 'acc.task.dispatchAnyway'], queue: ['Open pull request', 'acc.task.openPr'],
+        review: ['Review', 'acc.task.review'], land: [WORDS.sendToMerge, 'acc.task.land'], dispatch: [`${WORDS.buildIt} again`, 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'], merge: ['Open pull request', 'acc.task.openPr'], start: [`${WORDS.buildIt} anyway`, 'acc.task.dispatchAnyway'], queue: ['Open pull request', 'acc.task.openPr'],
       };
       const [verb, rest] = AUTOPILOT_VERB[r.step];
       say(`Autopilot couldn't ${verb} ${r.task}${rest}: ${endSentence(r.reason || 'it didn\'t say why')}`, true, [by[r.step]]);
@@ -64,7 +65,7 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
       // after a send-back for failing checks isn't that one (D-076).
       const again = !!t && reworkedByAutopilot(t, r.at);
       const what = r.reason ? `: ${endSentence(r.reason)}` : '.';
-      if (again) say(`Autopilot's review asked for changes on ${r.task} again${what} A second rework waits for you.`, true, [['Re-dispatch', 'acc.task.dispatch']]);
+      if (again) say(`Autopilot's review asked for changes on ${r.task} again${what} A second rework waits for you.`, true, [[`${WORDS.buildIt} again`, 'acc.task.dispatch']]);
       else say(`Autopilot's review asked for changes on ${r.task}${what} Autopilot re-dispatches it next.`, false);
     } else if (r.step === 'review') say(`Autopilot reviewed ${r.task}: it passed. Autopilot lands it next.`, false);
     else if (r.step === 'land' && r.pr) {
@@ -145,6 +146,6 @@ export function autopilotStatus(s: AutopilotStatusInput): { text: string; toolti
       tooltip: `Autopilot is on for ${s.project} in another window or a terminal (pid ${s.pid ?? 'unknown'}): ${AUTOPILOT_DOES}\n\nStop it there to run it in this window.`,
     };
   }
-  if (s.state === 'refused') return { text: `$(circle-slash) Autopilot: off${name}`, tooltip: `Autopilot can't run for ${s.project}: ${s.refusal ? inProcessWords(s.refusal) : 'acc refused it.'}` };
+  if (s.state === 'refused') return { text: `$(circle-slash) Autopilot: off${name}`, tooltip: `Autopilot can't run for ${s.project}: ${s.refusal ? inProcessWords(s.refusal) : 'the Command Center refused it.'}` };
   return { text: `$(debug-pause) Autopilot: off${name}`, tooltip: `Autopilot is off for ${s.project}. When it's on, ${AUTOPILOT_DOES}\n\nClick to turn it on until VSCode closes.` };
 }

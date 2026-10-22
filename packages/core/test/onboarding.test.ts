@@ -140,7 +140,7 @@ test('a fully set-up Salesforce project passes every check that can be automated
   const notPassing = Object.entries(r).filter(([, v]) => v.status !== 'pass' && v.status !== 'skip');
   assert.deepEqual(notPassing.map(([id, v]) => `${id}: ${v.detail}`), []);
   assert.equal(r['B6.org-match']!.detail, 'production → acme, uat → acme--uat, dev → acme--dev');
-  assert.equal(r['A4.plugin']!.detail, 'acc 0.35.0, for every Claude Code session.');
+  assert.equal(r['A4.plugin']!.detail, 'The plugin 0.35.0, for every Claude Code session.');
   assert.equal(r['B11.drift']!.status, 'pass');
   assert.equal(r['B13.gate-tools']!.detail, 'Ready: format, validate, stray-files.');
   assert.equal(r['B14.tickets']!.detail, 'Tickets come from Jira ACME on acme.atlassian.net.');
@@ -280,7 +280,7 @@ const INSTALL = 'claude plugin install acc@agent-command-center --scope user';
 test('A4.plugin passes when acc is installed for every session and enabled, and names its version', () => {
   const calls: string[] = [];
   const r = plugin(ok(JSON.stringify([{ id: 'cloudflare@cloudflare', version: '1.0.0', scope: 'user', enabled: true }, ACC])), ok('[]'), calls);
-  assert.deepEqual([r.status, r.detail], ['pass', 'acc 0.35.0, for every Claude Code session.']);
+  assert.deepEqual([r.status, r.detail], ['pass', 'The plugin 0.35.0, for every Claude Code session.']);
   assert.ok(!calls.some((c) => c.includes('marketplace')), 'an installed plugin needs no marketplace check');
 });
 
@@ -289,9 +289,9 @@ test('A4.plugin\'s fix is what this machine lacks: the marketplace and the plugi
   assert.deepEqual([none.status, none.fix], ['fail', `${ADD} && ${INSTALL}`]);
   assert.match(none.detail, /marketplace isn't added/);
   const added = plugin(ok('[]'), ok(JSON.stringify([{ name: 'agent-command-center', source: 'git' }])));
-  assert.deepEqual([added.status, added.fix, added.detail], ['fail', INSTALL, 'acc isn\'t installed in Claude Code.']);
+  assert.deepEqual([added.status, added.fix, added.detail], ['fail', INSTALL, "The plugin isn't installed in Claude Code."]);
   const off = plugin(ok(JSON.stringify([{ ...ACC, enabled: false }])));
-  assert.deepEqual([off.status, off.fix, off.detail], ['fail', 'claude plugin enable acc@agent-command-center --scope user', 'acc 0.35.0 is installed but disabled.']);
+  assert.deepEqual([off.status, off.fix, off.detail], ['fail', 'claude plugin enable acc@agent-command-center --scope user', 'The plugin 0.35.0 is installed but turned off.']);
   // One project's install isn't every session's.
   const project = plugin(ok(JSON.stringify([{ ...ACC, scope: 'project' }])), ok(JSON.stringify([{ name: 'agent-command-center' }])));
   assert.equal(project.fix, INSTALL);
@@ -303,10 +303,10 @@ test('A4.plugin\'s fix is what this machine lacks: the marketplace and the plugi
 test('A4.plugin fails on a plugin older than this acc, with the update as its fix, and passes an equal or newer one (GH-62)', () => {
   const at = (version: unknown, acc: string | null) => plugin(ok(JSON.stringify([{ ...ACC, version }])), ok('[]'), [], acc);
   const old = at('0.35.0', '0.36.0');
-  assert.deepEqual([old.status, old.detail], ['fail', 'acc 0.35.0 is installed, older than this acc (0.36.0).']);
+  assert.deepEqual([old.status, old.detail], ['fail', 'The plugin 0.35.0 is installed, older than this Command Center (0.36.0).']);
   assert.equal(old.fix, 'claude plugin marketplace update agent-command-center && claude plugin update acc@agent-command-center --scope user');
   assert.equal(at('0.9.0', '0.10.0').status, 'fail', 'compared as numbers, not text');
-  assert.deepEqual([at('0.36.0', '0.36.0').status, at('0.36.0', '0.36.0').detail], ['pass', 'acc 0.36.0, for every Claude Code session.']);
+  assert.deepEqual([at('0.36.0', '0.36.0').status, at('0.36.0', '0.36.0').detail], ['pass', 'The plugin 0.36.0, for every Claude Code session.']);
   assert.equal(at('0.37.0', '0.36.0').status, 'pass', 'a newer plugin is fine');
   // Nothing to compare: the caller doesn't know acc's version, or the plugin's isn't one.
   assert.equal(at('0.35.0', null).status, 'pass');
@@ -527,7 +527,7 @@ test('B9 accepts a listed file that only another environment\'s branch has, sinc
 
 test('B14 asks for a ticket source until the repo names one, then says where tickets come from', () => {
   const none = statuses(sfRepo({ config: SF_CONFIG }))['B14.tickets']!;
-  assert.deepEqual([none.status, /tasks come from acc alone/.test(none.detail)], ['unknown', true]);
+  assert.deepEqual([none.status, /tasks come from the Command Center alone/.test(none.detail)], ['unknown', true]);
   const azure = statuses(sfRepo({ config: { ...SF_CONFIG, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM' }, { kind: 'github' }] } }))['B14.tickets']!;
   assert.equal(azure.detail, 'Tickets come from Azure DevOps CRM in acme and GitHub Issues.');
   // A narrower place is named too (D-072).

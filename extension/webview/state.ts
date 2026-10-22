@@ -44,11 +44,13 @@ interface Memory {
   palette?: string[];
   /** Each board's person filter choice (T-79), by the board's key: Everyone when it has none. */
   filters?: Record<string, string>;
+  /** The Tasks tab's first steps were dismissed (T-96): they aren't shown again. */
+  firstStepsSeen?: boolean;
 }
 interface SavedScroll { y: number; boards: { x: number; lanes: number[] }[] }
 export function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [], filters: s.filters ?? {} };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [], filters: s.filters ?? {}, firstStepsSeen: s.firstStepsSeen };
 }
 export function remember(change: (m: Memory) => void): void {
   const m = memory();

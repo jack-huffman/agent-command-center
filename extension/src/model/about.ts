@@ -126,7 +126,7 @@ export function parseRelease(r: { code: number; stdout: string; stderr: string }
 export function parseAccVersion(r: { code: number; stdout: string; stderr: string }): Read<string> {
   const v = r.stdout.trim();
   if (r.code === 0 && /^\d+\.\d+\.\d+\S*$/.test(v)) return { ok: true, value: v };
-  return { ok: false, error: (r.stderr || r.stdout).trim().split('\n')[0] || `acc exited ${r.code}` };
+  return { ok: false, error: (r.stderr || r.stdout).trim().split('\n')[0] || `the Command Center stopped with code ${r.code}` };
 }
 
 const FROM = {
@@ -141,21 +141,21 @@ const READING = LOOK('Reading it', 'sync~spin', 'blue');
 const fixA4 = (label: string, name: string): AboutAction => ({ command: ABOUT_COMMANDS.fix, label, icon: 'tools', arg: 'A4.plugin', name, primary: true, disabled: null });
 
 function pluginRow(f: AboutFacts): AboutRow {
-  const row = (look: Look, meaning: string | null, action: AboutAction | null = null): AboutRow => ({ key: 'plugin', name: 'The acc plugin', icon: 'plug', look, from: FROM.plugin, meaning, action });
+  const row = (look: Look, meaning: string | null, action: AboutAction | null = null): AboutRow => ({ key: 'plugin', name: 'The Claude Code plugin', icon: 'plug', look, from: FROM.plugin, meaning, action });
   const p = f.plugin;
   if (!p) return row(READING, null);
   if (!p.ok) {
     return p.missing
-      ? row(LOOK('Claude Code isn\'t installed', 'warning', 'orange'), 'Setup\'s A4 installs it, then the plugin.', fixA4('Install', 'Install Claude Code and the acc plugin, as Setup\'s A4 does'))
+      ? row(LOOK('Claude Code isn\'t installed', 'warning', 'orange'), 'Setup\'s A4 installs it, then the plugin.', fixA4('Install', 'Install Claude Code and the Command Center\'s plugin, as Setup\'s A4 does'))
       : row(LOOK(`Couldn't read Claude Code's plugins: ${p.error}`, 'circle-outline', 'neutral'), null);
   }
-  if (!p.value) return row(LOOK('Not installed in Claude Code', 'warning', 'orange'), 'Its hooks keep each builder in its own worktree. Setup\'s A4 installs it.', fixA4('Install', 'Install the acc plugin, as Setup\'s A4 does'));
+  if (!p.value) return row(LOOK('Not installed in Claude Code', 'warning', 'orange'), 'Its hooks keep each builder in its own worktree. Setup\'s A4 installs it.', fixA4('Install', 'Install the Command Center\'s Claude Code plugin, as Setup\'s A4 does'));
   const v = p.value.version ?? 'unknown version';
-  if (!p.value.enabled) return row(LOOK(`${v}, turned off`, 'warning', 'orange'), 'Setup\'s A4 turns it on.', fixA4('Turn on', 'Turn on the acc plugin, as Setup\'s A4 does'));
+  if (!p.value.enabled) return row(LOOK(`${v}, turned off`, 'warning', 'orange'), 'Setup\'s A4 turns it on.', fixA4('Turn on', 'Turn on the Command Center\'s Claude Code plugin, as Setup\'s A4 does'));
   if (pluginBehind(p.value.version, f.extension)) {
     return row(LOOK(`${v}, older than the extension's ${f.extension}`, 'arrow-circle-down', 'orange'),
-      'Its hooks may not know what this acc asks of builders. Setup\'s A4 updates it; sessions already running keep the old one.',
-      fixA4('Update the plugin', `Update the plugin to ${f.extension}: the acc plugin, as Setup's A4 does`));
+      'Its hooks may not know what this Command Center asks of builders. Setup\'s A4 updates it; sessions already running keep the old one.',
+      fixA4('Update the plugin', `Update the plugin to ${f.extension}: the Command Center's Claude Code plugin, as Setup's A4 does`));
   }
   return row(p.value.version === f.extension ? LOOK(`${v}, the same as the extension`, 'pass', 'blue') : LOOK(`${v}, for every Claude Code session`, 'pass', 'blue'), null);
 }
@@ -163,9 +163,9 @@ function pluginRow(f: AboutFacts): AboutRow {
 /** About, from what's been read: each version with where it's read from, then the latest release. */
 export function aboutModel(f: AboutFacts, now: number): AboutModel {
   const acc: AboutRow = {
-    key: 'acc', name: 'acc', icon: 'terminal', from: FROM.acc, action: null,
+    key: 'acc', name: 'The command-line engine', icon: 'terminal', from: FROM.acc, action: null,
     ...(!f.acc ? { look: READING, meaning: null }
-      : f.acc.ok ? { look: LOOK(f.acc.value, 'pass', 'blue'), meaning: f.acc.value === f.extension ? null : `The extension is ${f.extension}: reload VSCode's window to run the acc it brings.` }
+      : f.acc.ok ? { look: LOOK(f.acc.value, 'pass', 'blue'), meaning: f.acc.value === f.extension ? null : `The extension is ${f.extension}: reload VSCode's window to run the engine it brings.` }
         : { look: LOOK(`Couldn't run it: ${f.acc.error}`, 'circle-outline', 'neutral'), meaning: null }),
   };
   const extension: AboutRow = { key: 'extension', name: 'The extension', icon: 'extensions', look: f.extension ? LOOK(f.extension, 'pass', 'blue') : LOOK('Unknown', 'circle-outline', 'neutral'), from: FROM.extension, meaning: null, action: null };

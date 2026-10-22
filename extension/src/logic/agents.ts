@@ -27,7 +27,7 @@ export const OLDER_MODELS: readonly { name: string; about: string; instead: stri
 ];
 
 /** Where a model, effort or fallback is set, in words. A model's default is acc's own, the rest Claude Code's. */
-export const FROM_WORDS: Record<string, string> = { task: 'picked for this task', clone: 'this clone', project: 'project default', acc: 'acc\'s default', default: 'Claude Code\'s default' };
+export const FROM_WORDS: Record<string, string> = { task: 'picked for this task', clone: 'this clone', project: 'project default', acc: 'the Command Center\'s default', default: 'Claude Code\'s default' };
 
 export interface ModelItem {
   label: string;

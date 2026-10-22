@@ -330,7 +330,7 @@ export function landing(o: Omit<OverviewModel, 'landing' | 'cards' | 'since'>, n
     group({ key: 'moment', title: 'When you have a moment', icon: 'inbox', tone: 'neutral', count: o.attention.filter((a) => !orange(a)).length, empty: null }, moment),
     group({ key: 'progress', title: 'In progress', icon: 'pulse', tone: p.count ? 'blue' : 'neutral', count: p.count, empty: p.empty ?? 'No task here has anything under way.' }, p.groups.map(progressRow)),
     group({ key: 'queue', title: 'Merge queue', icon: 'git-merge', tone: 'neutral', count: queue.length, empty: null }, queue),
-    group({ key: 'ready', title: 'Ready for an agent', icon: 'rocket', tone: 'neutral', count: ready.length, empty: 'Nothing is ready to dispatch. Track a ticket from a board, or add a task.' }, ready),
+    group({ key: 'ready', title: 'Ready for an agent', icon: 'rocket', tone: 'neutral', count: ready.length, empty: 'Nothing is ready to build. Add a ticket to your work from a board, or add a task.' }, ready),
     group({ key: 'history', title: 'History', icon: 'history', tone: 'neutral', count: o.history.counts.all, empty: 'What agents and tasks do shows up here.' },
       o.history.items.map((it) => historyRow(it, now, roots, many)), { kind: 'history' }),
   ];

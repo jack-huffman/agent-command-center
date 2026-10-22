@@ -38,7 +38,7 @@ test('edits on: the title and description come from the ticket and are the perso
 test('edge: a description that holds mentions and attachments warns before Save, naming them, and only the title is Save\'s to write', () => {
   const s = taskSheet(input(jira(), side({ ticket: { ...ticket!, unkept: ['mentions', 'attachments'] } })))!;
   assert.equal(s.ticketEdits!.unkept, unkeptWarning(['mentions', 'attachments']));
-  assert.match(s.ticketEdits!.unkept!, /holds mentions and attachments, which acc can't write back without losing.*Save still writes its title\./);
+  assert.match(s.ticketEdits!.unkept!, /holds mentions and attachments, which the Command Center can't write back without losing.*Save still writes its title\./);
   assert.match(s.locked!, /^Save writes its title to its Jira ticket\./);
   assert.deepEqual(s.ticketEdits!.base, { title: 'As the ticket says now', markdown: 'New text' }, 'Save still checks against the ticket');
   // The description is shown kept, so the sheet sends it as it opened, and Save writes only the title.

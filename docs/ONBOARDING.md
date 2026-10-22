@@ -4,6 +4,10 @@ What it takes to run Agent Command Center: once per machine (Part A), then once
 per project (Part B). Install the extension first: see
 [Install and first run](../README.md#install-and-first-run) in the README.
 
+For developers: `acc` is the command-line engine behind the Command Center, and
+the commands this guide names are its. A person in the Command Center never types
+them: each has a button there.
+
 Every step here is also a step in VSCode's walkthroughs, a row on the Command
 Center's **Setup** page, and a check in `acc doctor`. This guide writes each one
 as **title** (`id`), with the id `acc doctor --step` takes. The walkthrough
@@ -58,12 +62,12 @@ purpose, mark the step done.
     changes the account for every session on the machine.
   - Each repo pins its own account instead (B2).
 
-### A4. Install the acc plugin in Claude Code
+### A4. Install the Command Center's Claude Code plugin
 
-- [ ] **The acc plugin in Claude Code** (`A4.plugin`). The plugin's hooks keep
+- [ ] **The Command Center's Claude Code plugin** (`A4.plugin`). The plugin's hooks keep
   each builder inside its own worktree and away from pushes, merges and
   deploys, and send it back to its finish line if it stops early. It also
-  brings acc's skills and the reviewer agent. It's installed once, at Claude
+  brings the Command Center's skills and the reviewer agent. It's installed once, at Claude
   Code's user scope, so every Claude Code session on this machine has it; in a
   repo without `.acc/config.json` its hooks do nothing.
 
@@ -77,7 +81,7 @@ purpose, mark the step done.
   The check reads `claude plugin list --json`, and asks for only what's
   missing: the marketplace and the plugin, the plugin alone, or
   `claude plugin enable acc@agent-command-center --scope user` when it's
-  installed but disabled. A plugin older than acc fails too, and its fix
+  installed but disabled. A plugin older than the Command Center fails too, and its fix
   updates it: `claude plugin marketplace update agent-command-center`, then
   `claude plugin update acc@agent-command-center --scope user`. A newer one
   passes. Sessions already running don't load the plugin, so start a new one.
@@ -100,13 +104,13 @@ purpose, mark the step done.
   claude plugin update acc@agent-command-center --scope user
   ```
 
-  The Command Center's **Settings → About** shows the versions of acc, the
+  The Command Center's **Settings → About** shows the versions of the Command Center, the
   extension and the plugin. It says when the plugin is older than the
   extension, with the same fix as this step, and when a newer release is out,
   with a link to its notes. It looks for one as gh's active account, so that
   account needs read access to the repo.
 
-### Optional: acc's notices in Slack
+### Optional: The Command Center's notices in Slack
 
 For hearing what needs you when you're away from VSCode. Nothing checks this,
 and nothing needs it.
@@ -141,7 +145,7 @@ only* are hidden for a `generic` project.
 ### B0. Open the repo, and give it a config
 
 - [ ] **Inside the project's repo** (`B0.repo`). Everything per project hangs
-  off the repo: its config, its branches, and acc's ledger in the git
+  off the repo: its config, its branches, and the Command Center's ledger in the git
   directory. Open the repo's folder in VSCode (File → Open Folder). If the
   folder open is a copy beside the repo, the check names the repo, and **Do
   it** opens it. No repo yet? See B1 and B2.
@@ -158,7 +162,7 @@ only* are hidden for a `generic` project.
 
   If your team keeps a template of its settings, choose **From a team
   template…** instead, and give its path or URL. It sets what the team agreed
-  on, such as the checks and the tracker, and acc finds the rest. Setup lists
+  on, such as the checks and the tracker, and the Command Center finds the rest. Setup lists
   what it sets and the commands it runs before anything is written. In a
   terminal, `acc template show <template>` lists them first, and
   `acc init --from <template>` writes the config. docs/TEMPLATES.md says what
@@ -187,7 +191,7 @@ only* are hidden for a `generic` project.
   passes while it's unchanged, or when the project already agrees with it.
   When the team has changed it and the project now differs, it names what
   differs, for you to check by hand. **Do it** previews what the template
-  would write, changing nothing. acc never applies it by itself: to take it,
+  would write, changing nothing. The Command Center never applies it by itself: to take it,
   run `acc init --from '<template>' --force` and review the diff. A project
   not started from a template skips this step.
 - [ ] **Copied-in rules are current** (`B0.rules`). Rules your team shares,
@@ -250,7 +254,7 @@ only**.
   git config user.email "<email>"
   ```
 
-- [ ] **The repo's GitHub account is logged in** (`B2.account`). acc runs every
+- [ ] **The repo's GitHub account is logged in** (`B2.account`). The Command Center runs every
   gh call for this repo as the config's `github.account`, so gh needs a login
   for it. **Do it** opens VSCode's GitHub sign-in, as in A2.
 - [ ] **git pushes as the right account** (`B2.credentials`). **Do it** gives
@@ -381,7 +385,7 @@ access, and who git push and commits use.
     counts come out wrong.
 
 - [ ] **Each branch points at the right org** (`B6.org-match`). *Salesforce
-  only.* A sandbox's name is in its URL, so acc can prove a branch deploys
+  only.* A sandbox's name is in its URL, so the Command Center can prove a branch deploys
   where its name says. Log in to each org with the alias in the config:
 
   ```bash
@@ -397,7 +401,7 @@ access, and who git push and commits use.
 
 A project that doesn't use source tracking skips this part: turn Source
 tracking off under Limits and checks in the project's settings, or run
-`acc tracking off`. Both B8 checks then skip and say why. acc's retrieves use
+`acc tracking off`. Both B8 checks then skip and say why. The Command Center's retrieves use
 manifests and its deploys use source folders, so nothing else changes.
 
 - [ ] **Create it** in Production: Setup → Sandboxes → New Sandbox → Developer.
@@ -561,7 +565,7 @@ commit.
   Issues, Azure DevOps or monday.com, give its site, repo, organization or
   account, sign in and click **Test connection**: it says who it signed in as,
   or why not, beside the field. Then pick the project, the place and the board
-  from lists of what that sign-in can see, and **Save** asks acc to write the
+  from lists of what that sign-in can see, and **Save** asks the Command Center to write the
   repo's `.acc/config.json` (`acc trackers set`), for you to commit. Sign-ins
   stay in VSCode's secret storage on this machine, never in the file.
 - [ ] **One sign-in for every project on a site.** Beside the sign-in, **Use
@@ -621,8 +625,8 @@ commit.
     for another repo's issues, and `"labels": ["billing"]` for only issues
     with one of those labels. `acc intake github` reads the same place.
   - A ticket that leaves the place, because it moved or the place was
-    narrowed, leaves acc's board if work on it never started. One that started
-    stays on the agent board, and the tracker's board names it for you.
+    narrowed, leaves My work if work on it never started. One that started
+    stays on My work, and the tracker's board names it for you.
   - **monday.com:** a personal API token. **Create a token** opens the
     account's Developer Center (`https://acme.monday.com/apps/manage/tokens`);
     paste it in its field. The token sees everything you can see in
@@ -640,9 +644,9 @@ commit.
     post as item updates. With `"edits": true`, the task page can change its
     status label and its board's first People column; monday.com items have
     no labels.
-  - Slack isn't a ticket source; acc's notices can go to it instead (Part A).
+  - Slack isn't a ticket source; the Command Center's notices can go to it instead (Part A).
 
-If a repo keeps its tasks in acc alone, mark the step done. `acc doctor` checks
+If a repo keeps its tasks in the Command Center alone, mark the step done. `acc doctor` checks
 that the config names a source. The walkthrough also checks that this repo is
 signed in to it, which a terminal can't see.
 
@@ -658,11 +662,11 @@ Setup skips them.
   cloud session clones the repo from GitHub and pushes its branch back through
   the GitHub access connected to your claude.ai account: the Claude GitHub App
   installed on the repo (https://github.com/apps/claude), or `/web-setup` in a
-  `claude` session, which sends gh's token to your account. acc can see only
+  `claude` session, which sends gh's token to your account. The Command Center can see only
   the app, so after `/web-setup`, tick this yourself.
 - [ ] **A routine for the repo** (`B15.cloud-routine`). A script can start a
   cloud session only by firing a routine's API trigger. At
-  https://claude.ai/code/routines, make a routine for this repo: paste acc's
+  https://claude.ai/code/routines, make a routine for this repo: paste the Command Center's
   routine prompt as its instructions (`acc cloud` shows it), pick the repo and
   the model, keep the Default environment, and add an API trigger. Copy its
   trigger id into `acc cloud enable --routine trig_…`.
@@ -675,7 +679,7 @@ Setup skips them.
   signed in with the claude.ai account that owns the routine:
   `claude auth login`.
 - [ ] **The push guard is committed** (`B15.cloud-guard`). A cloud session runs
-  the repo's own `.claude/settings.json` hooks and not acc's plugin, so
+  the repo's own `.claude/settings.json` hooks and not the Command Center's Claude Code plugin, so
   `acc cloud enable` writes `.claude/hooks/acc-push-guard.mjs` and a
   PreToolUse hook on Bash and the editing tools that allows a plain push of
   the task's branch alone and refuses everything else that could push, a write

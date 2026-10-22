@@ -574,7 +574,7 @@ export class Setup implements vscode.Disposable {
     const r = await runFile(process.execPath, [this.accScript, 'init', ...p.args, ...initArgs({ tracker }), '--json'], p.root, { ...process.env, ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1' });
     const done = initOutput(r.stdout, r.stderr);
     if (r.code !== 0 || !done.ok) {
-      const why = done.ok ? inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || `acc exited ${r.code}.` : done.error;
+      const why = done.ok ? inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || `The Command Center stopped with code ${r.code}.` : done.error;
       this.log.warn(`acc init didn't start ${p.name}: ${why}`);
       throw new Error(why);
     }
@@ -668,7 +668,7 @@ export class Setup implements vscode.Disposable {
     }
     source ??= (await vscode.window.showInputBox({
       title: 'A team\'s rules file',
-      prompt: 'A path on this machine, a GitHub file URL, or <git-url>#<path>. gh and git sign in for you. acc copies it in, and never fetches it again by itself.',
+      prompt: 'A path on this machine, a GitHub file URL, or <git-url>#<path>. gh and git sign in for you. The Command Center copies it in, and never fetches it again by itself.',
       placeHolder: 'https://github.com/acme/acc-rules/blob/main/salesforce.md',
       ignoreFocusOut: true,
       validateInput: (v) => sourceProblem(v, 'rules'),

@@ -25,8 +25,8 @@ const input = (r: Partial<TaskRow> = {}, more: Partial<SheetInput> = {}): SheetI
 test('the sheet for a task to do: its title, the builder\'s model chosen first with its source, its efforts lowest first, This Mac, and the size', () => {
   const i = input({ analysis });
   const s = dispatchSheet(i);
-  assert.equal(s.title, 'Dispatch AV-9');
-  assert.equal(s.go, 'Dispatch');
+  assert.equal(s.title, 'Build AV-9');
+  assert.equal(s.go, 'Build it');
   assert.deepEqual(s.models.map((m) => m.value), dispatchModelItems(i.row, i.builder).map((m) => m.value), 'the models Dispatch with… offered, in its order');
   assert.deepEqual([s.models[0]!.label, s.models[0]!.about], ['claude-opus-5-5', 'project default'], 'the one the builder uses, and where it is set');
   const first = s.models[0]!;
@@ -44,8 +44,8 @@ test('the sheet for a task to do: its title, the builder\'s model chosen first w
 
 test('the sheet for a task in rework: Re-dispatch, and the model and effort picked for it before chosen first', () => {
   const s = dispatchSheet(input({ state: 'rework', display: 'rework', run: { model: 'claude-sonnet-5-5', modelPicked: true, effort: 'max', effortPicked: true } }, { builder: builder('claude-opus-5-5', 'low') }));
-  assert.equal(s.title, 'Re-dispatch AV-9');
-  assert.equal(s.go, 'Re-dispatch');
+  assert.equal(s.title, 'Build AV-9 again');
+  assert.equal(s.go, 'Build it again');
   assert.deepEqual([s.models[0]!.value, s.models[0]!.about], ['claude-sonnet-5-5', 'picked for this task']);
   const e = s.models[0]!.efforts;
   assert.deepEqual([e[s.models[0]!.effort]!.label, e[s.models[0]!.effort]!.value], ['max', 'max'], 'the pick is kept');
@@ -84,8 +84,8 @@ test('the cloud is off with its reason where cloudDisabled gives one, and This M
 test('Dispatch anyway opens the sheet with Dispatch anyway as its button, and the tasks and files it shares (D-093)', () => {
   const files = { known: true, shares: [{ task: 'AV-3', files: ['src/a.ts', 'src/b.ts'] }], first: [], held: { at: '2026-10-16T09:00:00Z', failed: null, byAutopilot: false } };
   const s = dispatchSheet(input({ files } as Partial<TaskRow>, { anyway: true }));
-  assert.equal(s.go, 'Dispatch anyway');
-  assert.deepEqual(s.shares, { message: 'Dispatch AV-9 anyway?', lines: [{ task: 'AV-3', files: 'src/a.ts, src/b.ts' }] });
+  assert.equal(s.go, 'Build it anyway');
+  assert.deepEqual(s.shares, { message: 'Build AV-9 anyway?', lines: [{ task: 'AV-3', files: 'src/a.ts, src/b.ts' }] });
   assert.equal(dispatchSheet(input({ files: { ...files, shares: [] } } as Partial<TaskRow>, { anyway: true })).shares, null, 'it shares nothing now: no list');
 });
 

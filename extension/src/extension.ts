@@ -60,7 +60,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(setup, hub, trackers);
 
   // Every VSCode terminal gets the acc command (D-012), with no separate install.
-  context.environmentVariableCollection.description = 'Adds the acc command from Agent Command Center.';
+  context.environmentVariableCollection.description = 'Adds the command line behind the Agent Command Center.';
   context.environmentVariableCollection.prepend('PATH', dirname(accScript) + delimiter);
 
   const reg = (id: string, fn: (...args: any[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(id, fn));
@@ -71,7 +71,7 @@ export function activate(context: vscode.ExtensionContext): void {
     secrets: context.secrets,
     state: { get: () => context.globalState.get(SLACK_STATE), set: (s) => context.globalState.update(SLACK_STATE, s) },
     log: (line, warn) => (warn ? setup.log.warn(line) : setup.log.info(line)),
-    paused: (reason) => void vscode.window.showWarningMessage(`acc's notices to Slack are paused: ${reason}. Send a test from Settings once it's fixed, or paste a new webhook.`, 'Open Settings')
+    paused: (reason) => void vscode.window.showWarningMessage(`The Command Center's notices to Slack are paused: ${reason}. Send a test from Settings once it's fixed, or paste a new webhook.`, 'Open Settings')
       .then((pick) => pick && panels.show('settings', settingsKey('slack'))),
     changed: () => changed(),
   });
@@ -185,7 +185,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   /** What acc said when it refused, in the Command Center's words: its commands as processes, its files by name (GH-163). */
   const accSays = (r: { code: number; stdout: string; stderr: string }): string => {
-    let error = (r.stderr || r.stdout).trim().split('\n')[0] || `acc exited ${r.code}`;
+    let error = (r.stderr || r.stdout).trim().split('\n')[0] || `the Command Center stopped with code ${r.code}`;
     try { error = (JSON.parse(r.stdout) as { message?: string }).message ?? error; } catch { /* plain text */ }
     return inProcessWords(error);
   };
@@ -232,7 +232,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const sent = await postClaimed(client, acc, p.root, u.key, id, text, againArgs, accSays);
         if (!sent.ok) return fail(sent.error);
         const recorded = await acc(['update', 'posted', id, `--text-file=${file}`, '--json'], p.root);
-        if (recorded.code !== 0) return fail(`it posted, but acc couldn't record it: ${accSays(recorded)}`);
+        if (recorded.code !== 0) return fail(`it posted, but the Command Center couldn't record it: ${accSays(recorded)}`);
         return { ok: true };
       } finally {
         rmSync(dir, { recursive: true, force: true });
