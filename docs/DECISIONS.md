@@ -8658,7 +8658,7 @@ relevant metadata in the org. It belongs to the `salesforce` profile.
 - **Checked against the org.** The development org is the task's
   environment's org (D-015). `sf org list metadata-types` is asked once;
   `sf org list metadata --metadata-type <t>` once a type, and once a folder
-  for a type kept in folders (Report, Dashboard, EmailTemplate, Document). A
+  for a type the org says it keeps in folders, such as Report. A
   name is matched as the org lists it or with its %-encoding read. A type the
   org doesn't know, a member it doesn't hold that the ticket doesn't create,
   and a list the org couldn't give are each a finding with why. With no org,
