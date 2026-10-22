@@ -1,8 +1,8 @@
-// A single choice offers at most three answers and the person's own words, everywhere a person is asked (D-T-114).
+// A single choice offers at most three answers and the person's own words, everywhere a person is asked (D-205).
 // Only a question that ticks several lists every option. This walks the webview modules that draw a radio group, so
 // a new one must say how it keeps to the rule, and the agents' schemas, so none asks for a longer list; then it draws
 // a plan question with five suggested answers from a fake agent and shows three plus own words.
-// Checked as `.acc/rules.md` says: this file is the check for D-T-114.
+// Checked as `.acc/rules.md` says: this file is the check for D-205.
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

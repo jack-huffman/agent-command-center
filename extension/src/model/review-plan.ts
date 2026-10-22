@@ -61,7 +61,7 @@ export interface PlanReview {
 export const stepDone = (s: ReviewChoice | ReviewQuestion): boolean => (s.kind === 'choice' ? !!s.chosen : s.answer !== null || (s.author && s.client !== null));
 
 /**
- * A choice's options as the step offers them (D-T-114): the recommended first, at most OPTIONS_MAX; the one chosen
+ * A choice's options as the step offers them (D-205): the recommended first, at most OPTIONS_MAX; the one chosen
  * now keeps its place when it would fall past the cap. Something else… follows them on the page.
  */
 function offered(d: PlanDecision): ReviewOption[] {

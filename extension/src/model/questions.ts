@@ -131,7 +131,7 @@ export function alwaysLabel(suggestions: unknown[]): string | null {
   return 'Allow, and don\'t ask again this session';
 }
 
-/** The most options a question that ticks several lists (D-T-114): a single choice lists at most OPTIONS_MAX, and the person writes their own. */
+/** The most options a question that ticks several lists (D-205): a single choice lists at most OPTIONS_MAX, and the person writes their own. */
 export const MULTI_OPTIONS_MAX = 8;
 
 export function questionsOf(input: Record<string, unknown>): QuestionCard['questions'] {

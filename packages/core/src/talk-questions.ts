@@ -21,7 +21,7 @@ export type TalkAnswer = { option: number } | { text: string } | null;
 /** The most questions a reply asks. */
 export const QUESTIONS_MAX = 3;
 
-/** The fewest and most answers a single choice offers, before the person's own words (D-T-114). */
+/** The fewest and most answers a single choice offers, before the person's own words (D-205). */
 export const OPTIONS_MIN = 2;
 export const OPTIONS_MAX = 3;
 

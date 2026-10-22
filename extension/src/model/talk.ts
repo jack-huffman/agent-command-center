@@ -74,7 +74,7 @@ export interface TicketTurn {
   long: boolean;
 }
 
-/** One of the agent's questions, as the panel asks it (T-113): its answers (at most OPTIONS_MAX), the suggestion first. Own words always go (D-T-114). */
+/** One of the agent's questions, as the panel asks it (T-113): its answers (at most OPTIONS_MAX), the suggestion first. Own words always go (D-205). */
 export interface TicketQuestion {
   question: string;
   why: string;
@@ -126,7 +126,7 @@ export interface TicketTalk {
   making: { phase: Making; words: string } | null;
   /**
    * The agent's questions waiting for the person (T-113): its last reply's, while nothing was said after it and
-   * the plan is the version it asked about; `optionsMax` is the most answers a question lists before own words, and `answerMax` the longest own-words answer the box takes (D-T-114). Null with none, or past the build.
+   * the plan is the version it asked about; `optionsMax` is the most answers a question lists before own words, and `answerMax` the longest own-words answer the box takes (D-205). Null with none, or past the build.
    */
   questions: { turn: string; items: TicketQuestion[]; optionsMax: number; answerMax: number } | null;
   /**

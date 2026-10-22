@@ -1,4 +1,4 @@
-## D-T-114 A single choice offers at most three options and your own words, everywhere a person is asked (2026-10-22)
+## D-205 A single choice offers at most three options and your own words, everywhere a person is asked (2026-10-22)
 
 T-114. The person said that many options per question is far too much choice: a big decision should offer
 about three and a free-text field, never eight. Only a question where the person ticks several may list every

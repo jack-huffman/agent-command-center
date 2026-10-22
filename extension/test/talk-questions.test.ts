@@ -163,7 +163,7 @@ test('the card asks one question at a time: "Question 1 of 3", the question, its
   const group = c.all('rp-options')[0]!;
   assert.deepEqual([group.getAttribute('role'), group.getAttribute('aria-labelledby')], ['radiogroup', (c.all('rp-q')[0] as unknown as { id: string }).id]);
   assert.equal(c.all('rp-dot').length, 3);
-  assert.deepEqual(picksOf({ question: 'q', why: '', options: [{ label: 'a', suggested: true }, { label: 'b', suggested: false }] }, 3), ['o0', 'o1', 'own'], 'own words follow the answers, always (D-T-114)');
+  assert.deepEqual(picksOf({ question: 'q', why: '', options: [{ label: 'a', suggested: true }, { label: 'b', suggested: false }] }, 3), ['o0', 'o1', 'own'], 'own words follow the answers, always (D-205)');
   assert.deepEqual(picksOf({ question: 'q', why: '', options: [] }, 3), ['own'], 'edge case: a question with no answers takes own words');
 });
 

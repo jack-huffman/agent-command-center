@@ -46,7 +46,7 @@ let focusNext: 'radio' | 'box' | 'back' | null = null;
 const redraw = (): void => { if (state.last) state.draw(state.last); };
 const has = (key: string): boolean => memory().opened.includes(key);
 
-/** A question's picks, in order: its answers, at most `max` of them with the suggestion first, then Answer in my own words, always (D-T-114). */
+/** A question's picks, in order: its answers, at most `max` of them with the suggestion first, then Answer in my own words, always (D-205). */
 export const picksOf = (q: TicketQuestion, max: number): string[] => [...q.options.slice(0, max).map((_, k) => `o${k}`), OWN];
 
 /** What's picked in a question: what the person picked, else the first, the suggestion. */
