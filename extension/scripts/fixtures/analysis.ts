@@ -110,7 +110,7 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
  * for you answered; or changed since, a third version that drops a choice made in v2 and adds one, so it
  * needs choosing and approving again. Each keeps the versions before it.
  */
-export function samplePlan(now: number, which: 'approved' | 'changed'): Analysis {
+export function samplePlan(now: number, which: 'approved' | 'changed' | 'shapes'): Analysis {
   const at = (ago: number) => new Date(now - ago * MIN).toISOString();
   const base = sampleAnalyses(now)['ACME-21']!;
   const answered = base.questions.map((q) => (q.askOf === 'you' && !q.answer ? { ...q, answer: { text: q.suggested, by: 'jordan', at: at(9) } } : q));
@@ -122,6 +122,14 @@ export function samplePlan(now: number, which: 'approved' | 'changed'): Analysis
     changes: ['New question: Does the sales team report on Decision Maker or on Economic Buyer?', 'Which converted leads get roles: now recommends From now on, not Backfill too'], approval,
   };
   if (which === 'approved') return { ...v2, earlier: [v1] };
+  // The approved plan with the split it suggests (T-104): the role record's shape is what ACME-23 and ACME-24 build on.
+  if (which === 'shapes') {
+    return {
+      ...v2, earlier: [v1],
+      sharedShapes: [{ name: 'The contact role record', kind: 'schema', why: 'ACME-23 and ACME-24 read and write it.', files: ['force-app/main/default/objects/Role_Source__c/Role_Source__c.object-meta.xml', 'force-app/main/default/classes/ContactRoleSource.cls'], users: ['ACME-23', 'ACME-24'] }],
+      shapeSplit: { why: 'Both tasks need only the record, not the flow that fills it. A small first task lets them start within minutes.', first: { title: 'The contact role record and its tests', brief: 'Add the record, its fields and their tests. Nothing is drawn.' }, rest: { title: 'Add contact roles when a lead converts', brief: 'The flow, the page and the backfill, built on the record.' } },
+    };
+  }
   return {
     ...base, version: 3, at: at(5), questions: answered, lapsed: approval, earlier: [v1, v2],
     // The person's own option carries over; the dropped choice's doesn't, and a new one waits.

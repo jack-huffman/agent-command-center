@@ -4,7 +4,7 @@ import type { TicketAnalysis, TicketModel } from '../src/model/task-page.ts';
 import { actionButton, button, type Child, el, foldable, icon, keptInput, md, status, when } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 import { answerKey, askKey, pending, sendAnswer, sendUpdate } from './updates.ts';
-import { planActions, planDecisions, planEarlier, planHead } from './plan.ts';
+import { planActions, planDecisions, planEarlier, planHead, planShapes } from './plan.ts';
 import { reviewButton } from './review-plan.ts';
 import { discussButton } from './talk.ts';
 
@@ -118,6 +118,8 @@ function wholePlan(m: TicketModel, a: TicketAnalysis, key: string): HTMLElement[
   const out: HTMLElement[] = [];
   // Its plan (T-97): what changed in this version, and the person's notes; then each design choice to make.
   if (a.planState) out.push(planHead(a.planState));
+  const shapes = a.planState ? planShapes(m, a.task, a.planState) : null;
+  if (shapes) out.push(shapes);
   const decisions = a.planState ? planDecisions(m, a.task, a.planState) : null;
   if (decisions) out.push(decisions);
   // Discuss (T-98): a question, a step or a risk talked through with the planning agent, quoted.

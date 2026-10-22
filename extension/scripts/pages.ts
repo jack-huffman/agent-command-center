@@ -159,6 +159,7 @@ export const PAGES = [
   'ticket-review-question',
   'ticket-review-answered',
   'ticket-review-summary',
+  'ticket-plan-shapes',
   'ticket-talk',
   'ticket-changes-field',
   'ticket-team',

@@ -108,7 +108,8 @@ const MARKS: Record<string, Record<string, number>> = {
   'history.ts': { transcript: 1, output: 1 },
   // Manifest for this ticket (T-101): the branch and its commit, and each component's name and file, as Salesforce names them.
   'manifest.ts': { branch: 2, files: 2 },
-  'plan.ts': { files: 1 },
+  // A plan's choices touch files (T-97), and its shared shapes name the files that hold them (T-104).
+  'plan.ts': { files: 2 },
   'questions.ts': { transcript: 1 },
   // Talk it through (T-98): the planning agent's reply, in its own words.
   'talk.ts': { 'agent-text': 1 },
