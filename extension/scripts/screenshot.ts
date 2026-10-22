@@ -311,10 +311,10 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', 'plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b', WHOLE_PLAN] }
   : kind === 'ticket-plan-shapes' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', WHOLE_PLAN] }
   : kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', WHOLE_PLAN] }
-  // Review plan over ACME-21 (T-109): at its first choice, chosen, with the other option picked and More about it
-  // open; at the question for the ticket's author with an answer typed in its own words; at a question already
-  // answered; and, on the approved plan, at the summary with the author's question skipped.
-  : kind === 'ticket-review-choice' ? { opened: [`${REVIEW}:open`, `${REVIEW}:more:d1.b`], drafts: { [`${REVIEW}:at`]: 'd1', [`${REVIEW}:pick:d1`]: 'b' } }
+  // Review plan over ACME-21 (T-109): at its first choice, its current choice picked and marked so, with More
+  // about the other option open; at the question for the ticket's author with an answer typed in its own words;
+  // at a question already answered; and, on the approved plan, at the summary with the author's question skipped.
+  : kind === 'ticket-review-choice' ? { opened: [`${REVIEW}:open`, `${REVIEW}:more:d1.b`], drafts: { [`${REVIEW}:at`]: 'd1' } }
   : kind === 'ticket-review-question' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q2', [`${REVIEW}:pick:q2`]: 'mine', 'analysis:/Users/me/code/acme-service#ACME-21:q2': 'Decision Maker, as the pipeline report does today' } }
   : kind === 'ticket-review-answered' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q3' } }
   : kind === 'ticket-review-summary' ? { opened: [`${REVIEW}:open`, `${REVIEW}:skip:q2`], drafts: { [`${REVIEW}:at`]: 'summary' } }
