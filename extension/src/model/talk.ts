@@ -1,14 +1,15 @@
 /**
  * Talk it through, on a task's page (T-98): the person's messages to the planning agent and its replies, each
  * with who and when, what a message is about quoted, each change a reply proposes with Use this, and what a
- * Claude Code session opened on the plan recorded. Send, Make a new version and Open in Claude Code, each off
+ * Claude Code session opened on the plan recorded. Send, Make a new plan and Open in Claude Code, each off
  * with why when they can't be used. Plain data and the messages' checks: no vscode import.
  */
 
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { CHANGE_APPROVED } from '../../../packages/core/src/plan-choices.ts';
-import { ANSWER_APPROVED, NOTE_APPROVED, type PlanTalk, proposalWords, TALK_MAX, type TalkProposal, type TalkQuote, type TalkWho } from '../../../packages/core/src/plan-talk.ts';
+import { ANSWER_APPROVED, NOTE_APPROVED, type PlanTalk, proposalStale, proposalWords, TALK_MAX, type TalkProposal, type TalkQuote, type TalkWho } from '../../../packages/core/src/plan-talk.ts';
+import { planVersion } from '../../../packages/core/src/plan.ts';
 import { byName } from './plan.ts';
 import { type Action, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
 
@@ -43,6 +44,8 @@ export interface TicketProposal {
   use: { disabled: string | null } | null;
   /** What the page asks first when using it changes an approved plan, or null. */
   ask: string | null;
+  /** The plan's version it was made on, when that's older than the plan now: Use this refuses it, and the page offers to ask again. */
+  from: number | null;
 }
 
 export interface TicketTurn {
@@ -75,8 +78,8 @@ export interface TicketTalk {
   send: { disabled: string | null } | null;
   /** A reply is on its way: the page shows the agent working. */
   running: boolean;
-  /** Make a new version: the plan made again with the conversation. Null with nothing said, or past the build. */
-  newVersion: Action | null;
+  /** Make a new plan, as the plan section's: made again with the conversation. Null with nothing said, or past the build. */
+  newPlan: Action | null;
   /** Open in Claude Code: null past the build; off with why while it can't. */
   claude: { disabled: string | null } | null;
 }
@@ -92,8 +95,12 @@ export interface TalkIn {
   ref: Ref;
 }
 
-/** Why a proposal can't be used now, or null: the plan has changed under it since. */
-function stale(p: TalkProposal, a: Analysis): string | null {
+/**
+ * Why a proposal can't be used now, or null: it was made on an older version, whose choices the new one may
+ * number differently, or the plan has changed under it since.
+ */
+function stale(p: TalkProposal, from: number, a: Analysis): string | null {
+  if (from !== planVersion(a)) return proposalStale(from, planVersion(a));
   const d = a.decisions?.find((x) => x.id === p.decision);
   if ((p.kind === 'choose' || p.kind === 'own') && !d) return 'The plan has no such choice any more.';
   if (p.kind === 'choose' && !d!.options.some((o) => o.name === p.option)) return `${p.option} isn't an option in the plan any more.`;
@@ -112,7 +119,7 @@ function askFirst(p: TalkProposal, a: Analysis): string | null {
 }
 
 /**
- * The section for a task with a plan: its conversation, and Send, Make a new version and Open in Claude Code,
+ * The section for a task with a plan: its conversation, and Send, Make a new plan and Open in Claude Code,
  * which are only before the build. Null with no plan to talk about.
  */
 export function ticketTalk(i: TalkIn): TicketTalk | null {
@@ -129,14 +136,15 @@ export function ticketTalk(i: TalkIn): TicketTalk | null {
       id: t.id, who: t.who, ...TALK_WHO[t.who], by: t.who === 'you' || t.who === 'claude-code' ? byName(t.by) : null, at: t.at, version: t.version, text: t.text, about: t.about ?? null,
       proposals: (t.proposals ?? []).map((p) => ({
         id: p.id, words: proposalWords(p, a), why: p.why, used: p.used ? { by: byName(p.used.by), at: p.used.at } : null,
-        use: p.used || !todo ? null : { disabled: busy ?? stale(p, a) },
+        use: p.used || !todo ? null : { disabled: stale(p, t.version, a) ?? busy },
         ask: p.used ? null : askFirst(p, a),
+        from: !p.used && t.version !== planVersion(a) ? t.version : null,
       })),
       recorded: t.recorded ?? [], failed: t.failed ?? null, open: t.who === 'claude-code' && !!t.sessionId && i.open.includes(t.sessionId),
     })),
     send: todo ? { disabled: busy } : null,
     running: i.running,
-    newVersion: todo && said ? { command: 'acc.task.analyze', label: 'Make a new version', icon: 'refresh', ref: i.ref, ...(busy ? { disabled: busy } : {}) } : null,
+    newPlan: todo && said ? { command: 'acc.task.analyze', label: 'Make a new plan', icon: 'refresh', ref: i.ref, ...(busy ? { disabled: busy } : {}) } : null,
     claude: todo ? { disabled: i.analyzing ? 'Its plan is being made. Wait for it to finish.' : null } : null,
   };
 }

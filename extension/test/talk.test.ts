@@ -12,7 +12,7 @@ import { run } from '../../packages/core/src/exec.ts';
 import { mutate, readLedger, upsertTasks } from '../../packages/core/src/ledger.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { CHANGE_APPROVED } from '../../packages/core/src/plan-choices.ts';
-import { NOTE_APPROVED, type PlanTalk, readTalk, TALK_SESSION_VAR } from '../../packages/core/src/plan-talk.ts';
+import { NOTE_APPROVED, type PlanTalk, proposalStale, readTalk, TALK_SESSION_VAR } from '../../packages/core/src/plan-talk.ts';
 import { GENERIC_CONFIG, makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import { claudeArgs, talkArgs, Talks, useArgs } from '../src/logic/talk.ts';
 import { isFromWebview } from '../src/model/messages.ts';
@@ -29,9 +29,12 @@ const plan21 = (): Analysis => sampleAnalyses(NOW)['ACME-21']!;
 const model = (more: Partial<Parameters<typeof ticketTalk>[0]> = {}) =>
   ticketTalk({ task: { id: 'ACME-21', state: 'todo' }, analysis: plan21(), analyzing: false, talk: sampleTalk(NOW), running: false, open: [], ref: REF, ...more });
 
+/** ACME-21's conversation as if it was had on version `v` of the plan. */
+const atVersion = (v: number): PlanTalk => { const t = sampleTalk(NOW); for (const x of t.turns) x.version = v; return t; };
+
 // ---------------------------------------------------------------- the model
 
-test('the conversation\'s model: who and when, the quote, each proposal in words, and Use this, Send and Make a new version', () => {
+test('the conversation\'s model: who and when, the quote, each proposal in words, and Use this, Send and Make a new plan', () => {
   const s = model()!;
   assert.deepEqual(s.turns.map((t) => [t.name, t.icon, t.by]), [['You', 'account', 'jordan'], ['Planning agent', 'hubot', null], ['Claude Code', 'terminal', 'jordan']]);
   assert.deepEqual(s.turns[0]!.about, sampleTalk(NOW).turns[0]!.about);
@@ -41,26 +44,30 @@ test('the conversation\'s model: who and when, the quote, each proposal in words
   ]);
   assert.deepEqual(s.turns[2]!.recorded, ['Note on the plan: Run the backfill batch outside business hours.']);
   assert.deepEqual([s.look, s.note, s.send, s.running], [TALK_LOOK.said, TALK_NOTE, { disabled: null }, false]);
-  assert.deepEqual(s.newVersion, { command: 'acc.task.analyze', label: 'Make a new version', icon: 'refresh', ref: REF });
+  assert.deepEqual(s.newPlan, { command: 'acc.task.analyze', label: 'Make a new plan', icon: 'refresh', ref: REF });
+  assert.deepEqual(s.turns[1]!.proposals.map((p) => p.from), [null, null], 'made on the plan as it is now');
   assert.deepEqual(s.claude, { disabled: null });
   assert.equal(TALK_WHO.plan.name, 'The plan');
   // A Claude Code session still open says so.
   assert.equal(model({ open: ['cc-acme-21'] })!.turns[2]!.open, true);
 });
 
-test('edge cases: no plan draws no section; nothing said has no Make a new version; a reply on its way, a plan being made, a stale proposal, or past the build turn things off', () => {
+test('edge cases: no plan draws no section; nothing said has no Make a new plan; a reply on its way, a plan being made, a stale proposal, or past the build turn things off', () => {
   assert.equal(model({ analysis: null }), null);
   const none = model({ talk: { v: 1, task: 'ACME-21', turns: [] } })!;
-  assert.deepEqual([none.look, none.turns, none.newVersion], [TALK_LOOK.none, [], null]);
+  assert.deepEqual([none.look, none.turns, none.newPlan], [TALK_LOOK.none, [], null]);
   const busy = model({ running: true })!;
-  assert.deepEqual([busy.look, busy.send, busy.newVersion?.disabled], [TALK_LOOK.running, { disabled: 'Wait for the planning agent\'s reply.' }, 'Wait for the planning agent\'s reply.']);
+  assert.deepEqual([busy.look, busy.send, busy.newPlan?.disabled], [TALK_LOOK.running, { disabled: 'Wait for the planning agent\'s reply.' }, 'Wait for the planning agent\'s reply.']);
   assert.equal(busy.turns[1]!.proposals[0]!.use?.disabled, 'Wait for the planning agent\'s reply.');
   assert.equal(model({ analyzing: true })!.claude?.disabled, 'Its plan is being made. Wait for it to finish.');
-  // A newer plan without that option: Use this is off with why.
+  // A newer version: a proposal made on v1 is off with why, and shows it's from v1; a used one isn't.
   const changed = samplePlan(NOW, 'changed');
-  assert.equal(model({ analysis: changed })!.turns[1]!.proposals[0]!.use?.disabled, 'Open deals only isn\'t an option in the plan any more.');
+  const old = model({ analysis: changed })!.turns[1]!.proposals;
+  assert.deepEqual([old[0]!.use?.disabled, old[0]!.from, old[1]!.from], [proposalStale(1, 3), 1, null]);
+  // On that version, an option it no longer has is off with why.
+  assert.equal(model({ analysis: changed, talk: atVersion(3) })!.turns[1]!.proposals[0]!.use?.disabled, 'Open deals only isn\'t an option in the plan any more.');
   const built = model({ task: { id: 'ACME-21', state: 'running' } })!;
-  assert.deepEqual([built.send, built.claude, built.newVersion, built.turns[1]!.proposals[0]!.use], [null, null, null, null]);
+  assert.deepEqual([built.send, built.claude, built.newPlan, built.turns[1]!.proposals[0]!.use], [null, null, null, null]);
 });
 
 test('on an approved plan, using a proposal asks first in acc\'s words; picking what\'s chosen asks nothing', () => {
@@ -181,7 +188,8 @@ test('Open in Claude Code launches claude in plan mode in the main checkout, wit
   const t = terminals[0]!;
   assert.equal(t.opts.cwd, paths.root, 'the project\'s main checkout');
   assert.deepEqual(t.opts.env, { [TALK_SESSION_VAR]: 'ACME-21:cc-test' }, 'what it records lands on its turn');
-  assert.match(t.sent[0]!, /^claude --permission-mode plan --session-id cc-test --name '.+ · plan' --allowedTools Read Grep Glob 'Bash\(acc plan choose ACME-21:\*\)'/);
+  assert.match(t.sent[0]!, /^claude --permission-mode plan --session-id cc-test --name '.+ · plan' --allowedTools Read Grep Glob 'Read \//);
+  assert.doesNotMatch(t.sent[0]!, /Bash\(acc/, 'no command that records to the plan runs without asking the person');
   const brief = /Read (\/[^']+\.brief\.md) first/.exec(t.sent[0]!)![1]!;
   const text = readFileSync(brief, 'utf8');
   assert.match(text, /# ACME-21: Contact roles missing on converted leads/, 'the ticket');
@@ -291,7 +299,7 @@ test('Use this sends the proposal; on an approved plan it asks first, Keep the a
   done({ action: 'talk-use', project: m.project, task: 'ACME-21', turn: 't2', proposal: 'p1', ok: true });
   assert.equal(talkPending.what(useKey(m.project, 'ACME-21', 't2', 'p1')), undefined);
   // Approved: it asks, in acc's words.
-  const approved = { ...m, talk: model({ analysis: samplePlan(NOW, 'approved') }) };
+  const approved = { ...m, talk: model({ analysis: samplePlan(NOW, 'approved'), talk: atVersion(2) }) };
   page.sent.length = 0;
   buttons(draw(approved), 'Use this')[0]!.click();
   assert.deepEqual(page.sent, [], 'nothing goes before the person says');
@@ -310,11 +318,11 @@ test('Use this sends the proposal; on an approved plan it asks first, Keep the a
   assert.match(draw(approved).textContent, /It wasn't recorded: It changed\./);
 });
 
-test('Make a new version runs the plan again, and Open in Claude Code asks for it; neither shows past the build', () => {
+test('Make a new plan runs the plan again, and Open in Claude Code asks for it; neither shows past the build', () => {
   kept = { opened: [], drafts: {} };
   const m = sampleTalkTicket(NOW);
   page.sent.length = 0;
-  buttons(draw(m), 'Make a new version')[0]!.click();
+  buttons(draw(m), 'Make a new plan')[0]!.click();
   buttons(draw(m), 'Open in Claude Code')[0]!.click();
   assert.deepEqual(page.sent, [
     { type: 'run', command: 'acc.task.analyze', ref: { project: m.project, task: 'ACME-21' } },
@@ -322,7 +330,72 @@ test('Make a new version runs the plan again, and Open in Claude Code asks for i
   ]);
   assert.equal(buttons(draw(m), 'Opening…').length, 1);
   done({ action: 'talk-claude', project: m.project, task: 'ACME-21', ok: true });
-  const built = { ...m, talk: { ...m.talk!, newVersion: null, claude: null, send: null } };
-  assert.equal(buttons(draw(built), 'Make a new version').length + buttons(draw(built), 'Open in Claude Code').length, 0);
+  const built = { ...m, talk: { ...m.talk!, newPlan: null, claude: null, send: null } };
+  assert.equal(buttons(draw(built), 'Make a new plan').length + buttons(draw(built), 'Open in Claude Code').length, 0);
   assert.ok(discussButton('/r', 'ACME-21', 'd1', 'x', 'the choice x'), 'Discuss is built on its own');
+});
+
+/** Presses a key on a drawn element, as the page's keydown listeners see it. */
+function press(e: PageElement, key: string, mods: { ctrlKey?: boolean; metaKey?: boolean } = {}): void {
+  for (const f of e.listeners.get('keydown') ?? []) f({ key, ...mods, preventDefault() {}, stopPropagation() {} });
+}
+
+test('keys: Escape in Use this\'s question keeps the approval, sends nothing and gives focus back to Use this; edge case: another key does nothing', async () => {
+  kept = { opened: [], drafts: {} };
+  const m = sampleTalkTicket(NOW);
+  const approved = { ...m, talk: model({ analysis: samplePlan(NOW, 'approved'), talk: atVersion(2) }) };
+  page.sent.length = 0;
+  buttons(draw(approved), 'Use this')[0]!.click();
+  press(draw(approved).all('plan-confirm')[0]!, 'a');
+  assert.equal(draw(approved).all('plan-confirm').length, 1, 'still asking');
+  const asked = draw(approved).all('plan-confirm')[0]!;
+  await drawn();
+  press(asked, 'Escape');
+  const after = draw(approved);
+  assert.equal(after.all('plan-confirm').length, 0, 'the question is gone');
+  assert.deepEqual(page.sent, [], 'nothing was sent');
+  await drawn();
+  assert.equal(page.document.activeElement, buttons(after, 'Use this')[0], 'focus is back on Use this');
+});
+
+test('keys: Ctrl or Cmd with Enter sends the message; edge case: Enter alone, or an empty box, sends nothing', () => {
+  kept = { opened: [], drafts: { [sendKey('/Users/me/code/acme-service', 'ACME-21')]: 'Why the handler?' } };
+  const m = sampleTalkTicket(NOW);
+  page.sent.length = 0;
+  const box = draw(m).all('talk-box')[0]!;
+  press(box, 'Enter');
+  assert.deepEqual(page.sent, [], 'Enter alone starts a new line');
+  press(box, 'Enter', { ctrlKey: true });
+  assert.deepEqual(page.sent, [{ type: 'talk-send', project: m.project, task: 'ACME-21', text: 'Why the handler?' }]);
+  done({ action: 'talk-send', project: m.project, task: 'ACME-21', ok: true });
+  page.sent.length = 0;
+  kept = { opened: [], drafts: { [sendKey(m.project, 'ACME-21')]: 'And the flow?' } };
+  press(draw(m).all('talk-box')[0]!, 'Enter', { metaKey: true });
+  assert.equal(page.sent.length, 1, 'Cmd too');
+  done({ action: 'talk-send', project: m.project, task: 'ACME-21', ok: true });
+  page.sent.length = 0;
+  kept = { opened: [], drafts: {} };
+  press(draw(m).all('talk-box')[0]!, 'Enter', { ctrlKey: true });
+  assert.deepEqual(page.sent, [], 'an empty box sends nothing');
+});
+
+test('edge case: a proposal from an older version shows it, Use this is off with why, and Ask again puts it in the message box', async () => {
+  kept = { opened: [], drafts: {} };
+  state.draw = () => {};
+  const later = sampleTalkTicket(NOW, true);
+  const m = { ...later, talk: model({ analysis: samplePlan(NOW, 'approved') }) };
+  const s = draw(m);
+  assert.match(draw(later).all('talk-proposal')[0]!.textContent, /proposed on v1/, 'why wins over waiting for a reply: it lasts');
+  const stale = s.all('talk-proposal')[0]!;
+  assert.match(stale.textContent, /from v1/);
+  assert.match(stale.textContent, /proposed on v1, and the plan is now v2/);
+  assert.equal(buttons(stale, 'Use this')[0]!.disabled, true);
+  page.sent.length = 0;
+  buttons(stale, 'Ask again')[0]!.click();
+  assert.deepEqual(page.sent, [], 'it asks nothing yet: the person sends it');
+  const box = draw(m).all('talk-box')[0]!;
+  assert.equal((box as unknown as { value: string }).value, 'You proposed this on v1. Does it still hold for the plan now? Choose Open deals only for Which converted leads get roles');
+  await drawn();
+  assert.equal(page.document.activeElement, box, 'the cursor is in the box');
+  assert.equal(buttons(draw(sampleTalkTicket(NOW)), 'Ask again').length, 0, 'none on the plan it was made on');
 });

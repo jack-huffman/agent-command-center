@@ -59,6 +59,19 @@ export function sampleTalkTicket(now: number, later = false): TicketModel {
   };
 }
 
+/**
+ * ACME-21's page once its plan is v2 and approved, with the conversation had on v2 and no reply on its way:
+ * Use this on the agent's first proposal changes an approved choice, so it asks first (the behaviour case).
+ */
+export function sampleTalkApproved(now: number): TicketModel {
+  const talk = sampleTalk(now);
+  for (const t of talk.turns) t.version = 2;
+  return {
+    ...sampleTicket(now, 'ACME-21', false, null, null, 'approved'),
+    talk: ticketTalk({ task: { id: 'ACME-21', state: 'todo' }, analysis: samplePlan(now, 'approved'), analyzing: false, talk, running: false, open: [], ref: { project: ROOT, task: 'ACME-21' } }),
+  };
+}
+
 /** The page's memory for it: the next message's words, about the first option of the first choice. */
 export const TALK_STATE = {
   drafts: {

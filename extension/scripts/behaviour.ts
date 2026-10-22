@@ -45,6 +45,7 @@ import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../sr
 import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
+import { sampleTalkApproved } from './fixtures/talk.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
 import { taskSheetOff } from '../src/model/task-sheet.ts';
@@ -211,6 +212,11 @@ export interface BehaviourData {
    * is kept and the one whose change is made, by their names as read out, and the message Change it sends.
    */
   plan: { model: Model; ask: string; keep: string; change: string; sent: Record<string, unknown> };
+  /**
+   * Talk it through on ACME-21's approved plan (T-98): its page's model, what Use this asks first, the name
+   * Use this is read out by, the message Change it sends, and the message Ctrl+Enter sends with the words typed.
+   */
+  talk: { model: Model; ask: string; use: string; sent: Record<string, unknown>; words: string; send: Record<string, unknown> };
   /**
    * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
    * its state, name and time; each row's words in order; its command; how many of its paths are outside its
@@ -833,6 +839,47 @@ export const CASES: Case[] = [
       const sent = t.sent('plan-choose');
       t.check('Change it sends the choice once, with its yes', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
       t.check('and the dialog has gone', t.all('[role="alertdialog"]').length === 0);
+    },
+  },
+  {
+    name: 'talk: on an approved plan, Use this asks first; Escape sends nothing and focus goes back to Use this, Change it sends it with its yes, and Ctrl+Enter sends a message but Enter alone doesn\'t (T-98)',
+    page: 'ticket-questions',
+    async run(t) {
+      const d = t.data.talk;
+      await t.post({ type: 'state', model: d.model });
+      const use = (): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('button').find((x) => x.getAttribute('aria-label') === d.use);
+        if (!b) throw new Error(`not found: ${d.use}`);
+        return b;
+      };
+      const inDialog = (label: string): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('button', t.find('#talk [role="alertdialog"]')).find((x) => x.textContent?.trim() === label);
+        if (!b) throw new Error(`not found: the dialog's ${label}`);
+        return b;
+      };
+      await t.click(use());
+      t.check('nothing goes before the person says', t.sent('talk-use').length === 0, t.sent('talk-use'));
+      const box = t.find('#talk [role="alertdialog"]');
+      t.check('it says the change undoes the approval', box.textContent?.includes(d.ask) === true, box.textContent);
+      t.check('focus is on Keep the approval', document.activeElement === inDialog('Keep the approval'), document.activeElement?.textContent);
+      await press(t, document.activeElement as HTMLElement, 'Escape');
+      t.check('Escape closes it, and sends nothing', t.all('#talk [role="alertdialog"]').length === 0 && t.sent('talk-use').length === 0, t.sent('talk-use'));
+      t.check('focus goes back to Use this', document.activeElement === use(), document.activeElement?.getAttribute('aria-label'));
+      await t.click(use());
+      await t.click(inDialog('Change it'));
+      const sent = t.sent('talk-use');
+      t.check('Change it sends the proposal once, with its yes', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      // The message box: Enter alone is a new line; Ctrl+Enter sends.
+      const text = t.find<HTMLTextAreaElement>('#talk textarea.talk-box');
+      text.focus();
+      text.value = d.words;
+      text.dispatchEvent(new Event('input', { bubbles: true }));
+      await press(t, text, 'Enter');
+      t.check('Enter alone sends nothing', t.sent('talk-send').length === 0, t.sent('talk-send'));
+      text.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+      await t.settle();
+      const said = t.sent('talk-send');
+      t.check('Ctrl+Enter sends the words once', said.length === 1 && JSON.stringify(said[0]) === JSON.stringify(d.send), said);
     },
   },
   {
@@ -1802,6 +1849,12 @@ export const MUTANTS: Mutant[] = [
   { name: 'Escape in the plan\'s dialog does nothing', file: 'plan.ts', find: "if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); keep();", replace: "if (e.key !== 'Escape') return;", kills: [caseNamed('plan: on an approved plan')] },
   { name: 'Keep the approval leaves focus where it falls', file: 'plan.ts', find: '    focusNext = confirmKey(key, pickId);\n', replace: '', kills: [caseNamed('plan: on an approved plan')] },
   { name: 'the plan\'s dialog takes no focus', file: 'plan.ts', find: "focusOnceDrawn(no, confirmKey(key, 'keep'));", replace: '', kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Use this on an approved plan goes without asking', file: 'talk.ts', find: 'if (p.ask && !yes) {', replace: 'if (false) {', kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'Escape in Use this\'s question does nothing', file: 'talk.ts', find: "if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); keep();", replace: "if (e.key !== 'Escape') return;", kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'Keeping the approval leaves focus where it falls', file: 'talk.ts', find: '); focusUse = key; redraw(); };', replace: '); redraw(); };', kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'Change it in Use this\'s question sends no yes', file: 'talk.ts', find: 'use(m, s, t, p, true); };', replace: 'use(m, s, t, p); };', kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'Ctrl+Enter in the message box sends nothing', file: 'talk.ts', find: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); }", replace: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); }", kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'Enter alone sends the message', file: 'talk.ts', find: "if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))", replace: "if (e.key === 'Enter')", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];
 
@@ -1867,6 +1920,21 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     taskSheet: taskSheetData(now),
     criteria: { model: sampleTicket(now, 'ACME-19', true, 'drafted'), project: ROOT, error: 'ACME-19\'s ticket can\'t take an update.' },
     plan: planData(now),
+    talk: talkData(now),
+  };
+}
+
+/** What Talk it through's case expects (T-98): the agent's first proposal on ACME-21's approved v2, which asks first. */
+function talkData(now: number): BehaviourData['talk'] {
+  const model = sampleTalkApproved(now);
+  const turn = model.talk?.turns.find((t) => t.proposals.some((p) => p.use && !p.use.disabled && p.ask));
+  const p = turn?.proposals.find((x) => x.use && !x.use.disabled && x.ask);
+  if (!turn || !p?.ask) throw new Error('The talk case needs ACME-21\'s approved plan with a proposal Use this asks about first.');
+  const words = 'Would Open deals only still fix the quarterly report?';
+  return {
+    model, ask: p.ask, use: `Use this: ${p.words}`, words,
+    sent: { type: 'talk-use', project: model.project, task: model.key, turn: turn.id, proposal: p.id, yes: true },
+    send: { type: 'talk-send', project: model.project, task: model.key, text: words },
   };
 }
 

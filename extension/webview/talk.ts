@@ -102,11 +102,17 @@ function use(m: TicketModel, s: TicketTalk, t: TicketTurn, p: TicketProposal, ye
   redraw();
 }
 
+/** Ask again about a proposal from an older version: the message box opens with it, in words, to send or change. */
+function askAgain(project: string, task: string, p: TicketProposal): void {
+  remember((x) => { x.drafts[sendKey(project, task)] = `You proposed this on v${p.from}. Does it still hold for the plan now? ${p.words}`; });
+  openTalk(project, task);
+}
+
 /** One change a reply proposes: what it would record and why, then Use this, or who used it. */
 function proposal(m: TicketModel, s: TicketTalk, t: TicketTurn, p: TicketProposal): HTMLElement {
   const key = useKey(m.project, s.task, t.id, p.id);
   const box = el('div', `talk-proposal${p.used ? ' used' : ''}`,
-    el('div', 'tp-line', icon(p.used ? 'pass-filled' : 'lightbulb'), el('span', 'tp-words', el('strong', '', 'Proposes: '), md(p.words))),
+    el('div', 'tp-line', icon(p.used ? 'pass-filled' : 'lightbulb'), el('span', 'tp-words', el('strong', '', 'Proposes: '), md(p.words)), p.from ? el('span', 'chip talk-v', `from v${p.from}`) : null),
     p.why ? el('div', 'muted small tp-why', md(p.why)) : null);
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', `Proposal: ${p.words}${p.used ? ', used' : ''}`);
@@ -120,7 +126,10 @@ function proposal(m: TicketModel, s: TicketTalk, t: TicketTurn, p: TicketProposa
     b.disabled = !!why;
     if (why) { b.title = why; b.setAttribute('aria-description', why); }
     if (focusUse === key) { focusUse = null; queueMicrotask(() => b.focus()); }
-    box.append(el('div', 'tp-actions', b, p.use.disabled ? el('span', 'muted small', p.use.disabled) : null));
+    // A proposal from an older version can't be used: Ask again puts it in the message box, to ask about the plan now.
+    const again = p.from ? button('Ask again', 'comment-discussion', () => askAgain(m.project, s.task, p), 'small') : null;
+    if (again) again.setAttribute('aria-label', `Ask again: ${p.words}`);
+    box.append(el('div', 'tp-actions', b, again, p.use.disabled ? el('span', 'muted small', p.use.disabled) : null));
     if (memory().opened.includes(confirmKey(key)) && p.ask && !busy) box.append(confirmUse(m, s, t, p, key));
   }
   const error = talkPending.error(key);
@@ -202,7 +211,7 @@ export function renderTalk(m: TicketModel, s: TicketTalk): HTMLElement {
   if (s.send) sec.append(composer(m, s));
   const ck = claudeKey(m.project, s.task);
   const buttons: HTMLElement[] = [];
-  if (s.newVersion) buttons.push(actionButton(s.newVersion));
+  if (s.newPlan) buttons.push(actionButton(s.newPlan));
   if (s.claude) {
     const busy = !!talkPending.what(ck);
     const b = button(busy ? 'Opening…' : 'Open in Claude Code', busy ? 'loading~spin' : 'terminal', () => {
