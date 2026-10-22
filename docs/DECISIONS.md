@@ -207,3 +207,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-197](decisions/D-197-parallel-work-merges-on-its-own.md) | Parallel work merges on its own: floors take the higher, pages and decisions are a line or a file each, numbered at merge | 2026-10-22 |
 | [D-198](decisions/D-198-builders-work-as-a-team.md) | Builders work as a team: each knows the others in flight, is told when one lands, and takes it in early | 2026-10-22 |
 | [D-199](decisions/D-199-a-plan-suggests-a-small-first-task-for-a-shared-shape.md) | A plan suggests a small first task for a shape other tasks build on, so they can start sooner | 2026-10-22 |
+| [D-200](decisions/D-200-review-plan-one-step-at-a-time.md) | Review plan: a plan's choices and questions one at a time, in a sheet, as Claude Code asks its own | 2026-10-22 |

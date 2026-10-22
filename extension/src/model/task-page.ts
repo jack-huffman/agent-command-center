@@ -32,6 +32,7 @@ import type { TicketManifestSection } from './manifest.ts';
 import type { TicketTalk } from './talk.ts';
 import { type TicketPlan, ticketPlan } from './plan.ts';
 import { type PlanTicketRead, planTicketRead, withTicketRead } from './plan-behind.ts';
+import { type PlanReview, planReview } from './review-plan.ts';
 import { choicesWord, forYou } from '../logic/plan.ts';
 import { WORDS } from '../../webview/plain-words.ts';
 import type { TicketChanges } from './changes.ts';
@@ -263,6 +264,8 @@ export interface TicketAnalysis {
   planState: TicketPlan | null;
   /** What the plan read of its ticket, and whether the ticket has comments since (T-110). Set on a ticket's page. */
   ticketRead?: PlanTicketRead;
+  /** Review plan (T-109): its choices and questions as steps, one at a time. Null with nothing to review. */
+  review: PlanReview | null;
 }
 
 export interface TicketInput {
@@ -453,12 +456,13 @@ export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updat
   // acc analyzes before a build, or after one is set aside: never while it's being built, nor once it's done.
   else if (!a && todo) actions.push({ command: 'acc.task.analyze', label: WORDS.makePlan, icon: 'lightbulb', ref, primary: !!row.analysisRequired });
   else if (a && row.state !== 'running' && row.state !== 'done') actions.push({ command: 'acc.task.analyze', label: 'Make a new plan', icon: 'refresh', ref });
+  const planState = ticketPlan(row, a ?? null, ref);
   const decided = (a?.questions ?? []).flatMap((q) => (q.answer ? [{ question: q.question, answer: q.answer.text, assumed: false }] : todo ? [] : [{ question: q.question, answer: q.suggested, assumed: true }]));
   return {
     task: row.id, look, note, summary: a?.summary ?? null, size: a?.approach.size ?? null, at: a?.at ?? null, open, canAsk: hasTicket(row.source.kind), decided, split: a?.verdict === 'split' ? a.split : [],
     goal: a?.requirements.goal || null, criteria: a?.requirements.criteria ?? [], assumptions: a?.requirements.assumptions ?? [], outOfScope: a?.requirements.outOfScope ?? [],
     findings: a?.findings ?? [], plan: a?.approach.plan ?? [], refactors: a?.approach.refactors ?? [], risks: a?.approach.risks ?? [], tests: a?.approach.tests ?? [], files: a?.approach.files ?? [],
-    wording: ticketWording(a?.wording), actions, planState: ticketPlan(row, a, ref),
+    wording: ticketWording(a?.wording), actions, planState, review: planReview(row, a ?? null, open, planState?.version ?? 1, hasTicket(row.source.kind)),
   };
 }
 

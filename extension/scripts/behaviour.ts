@@ -224,6 +224,12 @@ export interface BehaviourData {
    */
   talk: { model: Model; ask: string; use: string; sent: Record<string, unknown>; words: string; send: Record<string, unknown> };
   /**
+   * Review plan on ACME-21 (T-109): its title, what Enter on the first step's suggestion sends, what the fourth
+   * step's third option sends, the page's model with nothing left for the person, what Approve then sends, and
+   * the remembered key that opens The whole plan.
+   */
+  planReview: { title: string; answer: Record<string, unknown>; choose: Record<string, unknown>; ready: Model; approve: Record<string, unknown>; whole: string };
+  /**
    * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
    * its state, name and time; each row's words in order; its command; how many of its paths are outside its
    * folder; its result card's sentence, last error and exit code; and what Copy log, its first path chip and the
@@ -817,6 +823,8 @@ export const CASES: Case[] = [
     page: 'ticket-questions',
     async run(t) {
       const d = t.data.plan;
+      // The choices in full are under The whole plan (T-109), opened as the tab remembers it.
+      t.remember({ opened: [t.data.planReview.whole] });
       await t.post({ type: 'state', model: d.model });
       const named = (label: string): HTMLButtonElement => {
         const b = t.all<HTMLButtonElement>('button').find((x) => x.getAttribute('aria-label') === label);
@@ -845,6 +853,77 @@ export const CASES: Case[] = [
       const sent = t.sent('plan-choose');
       t.check('Change it sends the choice once, with its yes', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
       t.check('and the dialog has gone', t.all('[role="alertdialog"]').length === 0);
+    },
+  },
+  {
+    name: 'review plan: Enter confirms and goes on, a number key and the arrows pick, Escape and Back keep the pick, Skip marks a step, and the summary approves once nothing is left (T-109)',
+    page: 'ticket-questions',
+    async run(t) {
+      const d = t.data.planReview;
+      await t.click(t.find('.plan-actions .rp-open'));
+      const dialog = t.find<HTMLDialogElement>('dialog.review-plan');
+      const at = () => t.find('.rp-step', dialog).dataset.step;
+      const picked = () => t.find('[role="radio"][aria-checked="true"]', dialog).dataset.pick;
+      const focused = () => document.activeElement as HTMLElement;
+      const footButton = (label: string): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('.rp-foot button', dialog).find((x) => x.textContent?.trim() === label);
+        if (!b) throw new Error(`not found: the sheet's ${label}`);
+        return b;
+      };
+      t.check('Review plan opens a dialog named for its plan', dialog.open && dialog.getAttribute('aria-label') === d.title, dialog.getAttribute('aria-label'));
+      t.check('its options are a radio group named by its question', t.find('[role="radiogroup"]', dialog).getAttribute('aria-labelledby') === t.find('.rp-q', dialog).id);
+      t.check('focus starts on the first option', focused().getAttribute('role') === 'radio' && focused().dataset.pick === 'suggested', focused().outerHTML.slice(0, 80));
+      await press(t, focused(), 'Enter');
+      const answers = t.sent('analysis-answer');
+      t.check('Enter confirms: the suggestion goes once, as an answer', answers.length === 1 && JSON.stringify(answers[0]) === JSON.stringify(d.answer), answers);
+      t.check('and it goes on to the next step', at() === 'q3' && t.find('.rp-place', dialog).textContent === '2 of 5', [at(), t.find('.rp-place', dialog).textContent]);
+      await t.click(footButton('Next'));
+      t.check('an answered question goes on with Next', at() === 'd1', at());
+      await press(t, focused(), '2');
+      t.check('a number key picks its option, and focus goes with it', picked() === 'b' && focused().dataset.pick === 'b', [picked(), focused().dataset.pick]);
+      await press(t, focused(), 'ArrowDown');
+      t.check('Down moves to the next option, Something else…', picked() === 'own' && focused().dataset.pick === 'own', picked());
+      await press(t, focused(), 'ArrowUp');
+      t.check('Up moves back', picked() === 'b', picked());
+      t.check('nothing is sent while picking', t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      // Edge: Escape mid-step closes it, sends nothing, and keeps the step and its pick for the next open.
+      await t.escape(dialog);
+      t.check('Escape mid-step closes it and sends nothing', !dialog.open && t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      // Opened again, it starts at the first step not done; the choice's dot goes back to it, its pick still there.
+      await t.click(t.find('.plan-actions .rp-open'));
+      t.check('it opens again', dialog.open, dialog.open);
+      await t.click(t.all<HTMLButtonElement>('.rp-dot', dialog)[2]!);
+      t.check('the pick made before Escape is kept', at() === 'd1' && picked() === 'b', [at(), picked()]);
+      await t.click(footButton('Back'));
+      t.check('Back goes to the step before', at() === 'q3', at());
+      await t.click(footButton('Next'));
+      t.check('Back kept the pick made in the step it left', at() === 'd1' && picked() === 'b', [at(), picked()]);
+      await press(t, focused(), '1');
+      await press(t, focused(), 'Enter');
+      t.check('Enter on what is already chosen sends nothing, and goes on', at() === 'd2' && t.sent('plan-choose').length === 0, [at(), t.sent('plan-choose')]);
+      await press(t, focused(), '3');
+      await press(t, focused(), 'Enter');
+      const chosen = t.sent('plan-choose');
+      t.check('a number key then Enter sends that choice once', chosen.length === 1 && JSON.stringify(chosen[0]) === JSON.stringify(d.choose), chosen);
+      t.check('and goes on to the last step', at() === 'q2', at());
+      await t.click(footButton('Skip for now'));
+      t.check('Skip for now goes on to the summary, sending nothing', at() === 'summary' && t.sent('update-ask').length === 0 && t.sent('analysis-answer').length === 1, at());
+      const dots = t.all('.rp-dot', dialog);
+      t.check('its dot says it was skipped', dots.at(-1)?.classList.contains('skipped') === true && dots.at(-1)?.getAttribute('aria-label')?.endsWith(': skipped') === true, dots.at(-1)?.getAttribute('aria-label'));
+      t.check('its summary line says so', t.all('.rp-sum-value', dialog).at(-1)?.textContent === 'Skipped', t.all('.rp-sum-value', dialog).map((x) => x.textContent));
+      const off = footButton('Approve this plan');
+      t.check('Approve is off while something for the person is left, and says why', off.disabled && !!off.title && t.find('.rp-foot .plan-why', dialog).textContent?.includes(off.title) === true, [off.disabled, off.title]);
+      await t.click(off);
+      t.check('and a click on it sends nothing', t.sent('plan-approve').length === 0);
+      await t.post({ type: 'state', model: d.ready });
+      t.check('a new model leaves the sheet open at the summary', dialog.open && at() === 'summary', at());
+      const on = footButton('Approve this plan');
+      t.check('with nothing left, Approve is on', !on.disabled, on.title);
+      await t.click(on);
+      const approved = t.sent('plan-approve');
+      t.check('and sends the approval once', approved.length === 1 && JSON.stringify(approved[0]) === JSON.stringify(d.approve), approved);
+      await t.escape(dialog);
+      t.check('Escape closes it, and focus goes back to Review plan', !dialog.open && focused().classList.contains('rp-open'), focused().className);
     },
   },
   {
@@ -1908,7 +1987,11 @@ export const MUTANTS: Mutant[] = [
   { name: 'a card shows every label, cut short, whatever its width', file: 'fit-labels.ts', find: 'show(chips, more, names, labelsThatFit(widths, room, gap, plus));', replace: 'show(chips, more, names, chips.length);', kills: [caseNamed('narrow card:')] },
   { name: 'a card never measures its labels', file: 'fit-labels.ts', find: '  setTimeout(fit, 0);\n  observer.observe(row);\n', replace: '', kills: [caseNamed('narrow card:')] },
   // A change to an approved plan's choice asks first (T-97).
-  { name: 'an approved plan\'s choice goes without asking', file: 'plan.ts', find: 'if (!plan.changeAsk || same) return send(', replace: 'if (plan || same) return send(', kills: [caseNamed('plan: on an approved plan')] },
+  { name: 'Enter confirms but stays on its step', file: 'review-plan.ts', find: '  goTo(next(review, s.id));\n}', replace: '  redraw();\n}', kills: [caseNamed('review plan:')] },
+  { name: 'Back forgets what was picked', file: 'review-plan.ts', find: 'if (i > 0) goTo(review.steps[i - 1]!.id);', replace: "if (i > 0) { remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; }); goTo(review.steps[i - 1]!.id); }", kills: [caseNamed('review plan:')] },
+  { name: 'Escape forgets what was picked', file: 'review-plan.ts', find: '  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n', replace: "  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n  remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; });\n", kills: [caseNamed('review plan:')] },
+  { name: 'Approve is on with an item left', file: 'plan.ts', find: '  b.disabled = !!why;\n  if (why) { b.title = why;', replace: '  b.disabled = false;\n  if (why) { b.title = why;', kills: [caseNamed('review plan:')] },
+  { name: 'an approved plan\'s choice goes without asking', file: 'plan.ts', find: 'if (!plan.changeAsk || same) return sendPlan(', replace: 'if (plan || same) return sendPlan(', kills: [caseNamed('plan: on an approved plan')] },
   { name: 'Keep the approval makes the change', file: 'plan.ts', find: "button('Keep the approval', 'verified', keep)", replace: "button('Keep the approval', 'verified', change)", kills: [caseNamed('plan: on an approved plan')] },
   { name: 'Escape in the plan\'s dialog does nothing', file: 'plan.ts', find: "if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); keep();", replace: "if (e.key !== 'Escape') return;", kills: [caseNamed('plan: on an approved plan')] },
   { name: 'Keep the approval leaves focus where it falls', file: 'plan.ts', find: '    focusNext = confirmKey(key, pickId);\n', replace: '', kills: [caseNamed('plan: on an approved plan')] },
@@ -1993,6 +2076,24 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     criteria: { model: sampleTicket(now, 'ACME-19', true, 'drafted'), project: ROOT, error: 'ACME-19\'s ticket can\'t take an update.' },
     plan: planData(now),
     talk: talkData(now),
+    planReview: planReviewData(models.ticket),
+  };
+}
+
+/** What Review plan's case expects (T-109), from ACME-21's page: the steps in their order, and the messages its confirms send. */
+function planReviewData(model: Model): BehaviourData['planReview'] {
+  const a = model.kind === 'ticket' ? model.analysis : null;
+  const r = a?.review;
+  const ids = r?.steps.map((s) => s.id).join(' ');
+  const q1 = r?.steps[0];
+  const d2 = r?.steps[3];
+  if (model.kind !== 'ticket' || !a?.planState || !r || ids !== 'q1 q3 d1 d2 q2' || q1?.kind !== 'question' || d2?.kind !== 'choice') throw new Error(`The Review plan case needs ACME-21's plan with its steps q1 q3 d1 d2 q2, not ${ids}.`);
+  const ready: Model = { ...model, analysis: { ...a, planState: { ...a.planState, approve: { disabled: null } } } };
+  return {
+    title: r.title, ready, whole: `an:${model.project}#${model.key}:whole`,
+    answer: { type: 'analysis-answer', project: model.project, task: a.task, question: q1.id, text: q1.suggested },
+    choose: { type: 'plan-choose', project: model.project, task: a.task, decision: d2.id, option: d2.options[2]!.id },
+    approve: { type: 'plan-approve', project: model.project, task: a.task },
   };
 }
 

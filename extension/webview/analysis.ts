@@ -3,8 +3,9 @@
 import type { TicketAnalysis, TicketModel } from '../src/model/task-page.ts';
 import { actionButton, button, type Child, el, foldable, icon, keptInput, md, status, when } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
-import { answerKey, askKey, pending, sendUpdate } from './updates.ts';
-import { planActions, planDecisions, planHead, planShapes } from './plan.ts';
+import { answerKey, askKey, pending, sendAnswer, sendUpdate } from './updates.ts';
+import { planActions, planDecisions, planEarlier, planHead, planShapes } from './plan.ts';
+import { reviewButton } from './review-plan.ts';
 import { discussButton } from './talk.ts';
 import { planTicketLine } from './plan-behind.ts';
 
@@ -18,11 +19,7 @@ type AnalysisAsk = TicketAnalysis['open'][number];
  */
 export function analysisQuestion(project: string, task: string, q: AnalysisAsk, canAsk = false): HTMLElement {
   const key = answerKey(project, task, q.id);
-  const send = (text: string) => {
-    if (!text.trim() || !pending.start(key, 'answer')) return;
-    api.postMessage({ type: 'analysis-answer', project, task, question: q.id, text: text.trim() });
-    if (state.last) state.draw(state.last);
-  };
+  const send = (text: string) => sendAnswer(project, task, q.id, text);
   // A question only the ticket's author can answer says so, with an icon and words (T-97).
   const author = q.askOf === 'author';
   const box = el('div', 'aq', el('div', 'aq-q', el('span', 'aq-id', q.id), el('span', 'strong', md(q.question))), author ? el('div', 'aq-who small', icon('person'), 'For the ticket\'s author') : null, q.why ? el('div', 'muted small aq-why', md(q.why)) : null, clientLine(project, task, q, canAsk && author));
@@ -67,14 +64,17 @@ function clientLine(project: string, task: string, q: AnalysisAsk, canAsk: boole
   return el('div', 'aq-client', ask, error ? el('span', 'aq-error', icon('warning'), el('span', '', error)) : null);
 }
 
-/** A list the analysis made, folded under its name and count. Opened or closed, it stays so as the page redraws. */
-function analysisFold(key: string, title: string, items: Child[], ordered = false): HTMLElement | null {
-  if (!items.length) return null;
-  const d = el('details', 'an-fold') as HTMLDetailsElement;
+/**
+ * A list the analysis made, folded under its name and its count; or, given a body, that body under its name
+ * alone, as The whole plan is (T-109). Opened or closed, it stays so as the page redraws.
+ */
+function analysisFold(key: string, title: string, items: Child[], ordered = false, body?: { cls: string; children: HTMLElement[] }): HTMLElement | null {
+  if (!items.length && !body?.children.length) return null;
+  const d = el('details', body ? body.cls : 'an-fold') as HTMLDetailsElement;
   d.open = memory().opened.includes(key);
   d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])] : x.opened.filter((y) => y !== key); }));
-  d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', '', title), el('span', 'count', String(items.length))),
-    el(ordered ? 'ol' : 'ul', 'an-list', ...items.map((x) => el('li', '', x))));
+  d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', '', title), body ? null : el('span', 'count', String(items.length))),
+    body ? el('div', `${body.cls}-body`, ...body.children) : el(ordered ? 'ol' : 'ul', 'an-list', ...items.map((x) => el('li', '', x))));
   return d;
 }
 
@@ -82,8 +82,9 @@ function analysisFold(key: string, title: string, items: Child[], ordered = fals
 const pair = (head: string, rest: string, source = ''): HTMLElement => el('span', '', head ? el('strong', '', `${head}: `) : null, md(rest), source ? el('span', 'muted mono an-source', ` ${source}`) : null);
 
 /**
- * A task's Analysis section, gist first like the rest of the page: the verdict in words, the summary,
- * the questions to answer, then everything else it found, folded.
+ * A task's Analysis section, gist first like the rest of the page: the verdict in words, the summary, the
+ * plan's version and approval, what's left to review and Review plan (T-109); then the whole plan, folded and
+ * closed: what changed, each choice and question in full, the wording, earlier versions and the rest.
  */
 export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   const key = `an:${m.project}#${m.key}`;
@@ -92,20 +93,38 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   sec.setAttribute('aria-label', `Analysis: ${a.look.label}`);
   if (a.note) sec.append(el('p', 'muted an-note', a.note));
   if (a.summary) sec.append(foldable(`${key}:summary`, el('p', 'an-summary', md(a.summary)), null, 4));
-  // What it read of the ticket, and comments since (T-110).
-  const read = planTicketLine(a);
-  if (read) sec.append(read);
   if (a.split.length) sec.append(el('div', 'an-split', el('div', 'strong', 'Split it into'), el('ol', 'an-list', ...a.split.map((x) => el('li', '', md(x))))));
-  // Its plan (T-97): the version and what changed in it, then each design choice to make.
-  if (a.planState) sec.append(planHead(a.planState));
+  // The plan in short (T-109): its version and approval, and what's left to review, in words.
+  const p = a.planState;
+  if (p) {
+    sec.append(el('div', 'plan-short', status(p.look), p.approval ? el('span', 'muted small', `by ${p.approval.by} `, when(p.approval.at)) : null,
+      a.review ? el('span', 'plan-left', icon(a.review.left.endsWith('to review') ? 'list-selection' : 'pass'), a.review.left) : null));
+    // What it read of the ticket, and comments since (T-110).
+    const read = planTicketLine(a);
+    if (read) sec.append(read);
+  }
+  // Review plan leads, then Build it and Talk it through, each off with why (T-97).
+  if (p) sec.append(...planActions(m, a.task, p, a.review ? reviewButton(m, a.task, a.review) : null).filter((x): x is HTMLElement => !!x));
+  if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
+  // The whole plan, folded and closed until opened.
+  const whole = analysisFold(`${key}:whole`, 'The whole plan', [], false, { cls: 'an-whole', children: wholePlan(m, a, key) });
+  if (whole) sec.append(whole);
+  return sec;
+}
+
+/** Everything the short section leaves out: what changed, the choices and questions in full, the wording, the earlier versions and the rest of the analysis. */
+function wholePlan(m: TicketModel, a: TicketAnalysis, key: string): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  // Its plan (T-97): what changed in this version, and the person's notes; then each design choice to make.
+  if (a.planState) out.push(planHead(a.planState));
   const shapes = a.planState ? planShapes(m, a.task, a.planState) : null;
-  if (shapes) sec.append(shapes);
+  if (shapes) out.push(shapes);
   const decisions = a.planState ? planDecisions(m, a.task, a.planState) : null;
-  if (decisions) sec.append(decisions);
+  if (decisions) out.push(decisions);
   // Discuss (T-98): a question, a step or a risk talked through with the planning agent, quoted.
   const discuss = (ref: string, text: string, what: string) => (m.talk?.send ? discussButton(m.project, a.task, ref, text, what) : null);
   if (a.open.length) {
-    sec.append(el('div', 'an-questions', ...a.open.map((q) => {
+    out.push(el('div', 'an-questions', ...a.open.map((q) => {
       const box = analysisQuestion(m.project, a.task, q, a.canAsk);
       const d = discuss(q.id, q.question, `the question ${q.question}`);
       if (d) box.querySelector('.aq-q')?.append(d);
@@ -114,12 +133,12 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   }
   // The wording check's findings (T-12): advice on how the requirements read. They never hold a dispatch.
   if (a.wording) {
-    sec.append(el('div', 'an-wording', el('div', 'strong', 'How the requirements read'),
+    out.push(el('div', 'an-wording', el('div', 'strong', 'How the requirements read'),
       el('ul', 'an-list', ...a.wording.findings.map((f) => el('li', '', el('strong', '', `${f.place}: `), f.message, f.match ? ' ' : null, f.match ? el('span', 'chip an-match', f.match) : null, el('div', 'muted an-line', md(f.text)))))));
   }
-  // Approve this plan and Build it, each off with why, and the earlier versions a click away (T-97).
-  if (a.planState) sec.append(...planActions(m, a.task, a.planState).filter((x): x is HTMLElement => !!x));
-  if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
+  // The earlier versions, a click away (T-97).
+  const earlier = a.planState ? planEarlier(m, a.task, a.planState) : null;
+  if (earlier) out.push(earlier);
   const folds = [
     analysisFold(`${key}:decided`, 'Decided', a.decided.map((d) => el('span', '', md(d.question), ' ', el('strong', '', md(d.answer)), d.assumed ? el('span', 'muted', ' (assumed: nobody answered)') : null))),
     analysisFold(`${key}:criteria`, 'Acceptance criteria', a.criteria.map(md)),
@@ -131,6 +150,6 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
     analysisFold(`${key}:risks`, 'Risks', a.risks.map(md).map((x, i) => el('span', 'an-discussable', x, discuss(`r${i + 1}`, a.risks[i]!, `the risk ${a.risks[i]!}`)))),
     analysisFold(`${key}:tests`, 'Tests', a.tests.map(md)),
   ].filter((x): x is HTMLElement => !!x);
-  if (folds.length) sec.append(el('div', 'an-folds', ...folds));
-  return sec;
+  if (folds.length) out.push(el('div', 'an-folds', ...folds));
+  return out;
 }

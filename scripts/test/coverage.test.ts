@@ -71,7 +71,7 @@ export const OLDER: Record<string, string[]> = {
   'extension/webview/state.ts': ['setSection'],
   'extension/webview/tasks.ts': ['renderTasks', 'KIND_ICON', 'KIND_NAME'],
   'extension/webview/theme.ts': ['applyTheme'],
-  'extension/webview/updates.ts': ['onDone', 'updateKey', 'askKey', 'answerKey', 'sendUpdate', 'tellAfresh', 'tellEdits', 'forgetAnswered'],
+  'extension/webview/updates.ts': ['onDone', 'updateKey', 'askKey', 'sendUpdate', 'tellAfresh', 'tellEdits', 'forgetAnswered'],
   'packages/cli/src/commands/tasks.ts': ['cmdSet'],
   'packages/cli/src/commands/updates.ts': ['personOnlyUpdate'],
   'packages/cli/src/format.ts': ['stateLabel', 'checkLabel', 'gateLabel'],
