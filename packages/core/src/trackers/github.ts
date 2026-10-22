@@ -18,11 +18,28 @@ export interface GithubOptions {
   /** The account's login, for messages. */
   account: string;
   exec: Exec;
-  /** A GitHub Project number to take columns from. By default, the repo's first open Project with a Status field. */
-  project?: number | null;
+  /**
+   * A GitHub Project number to take columns from. By default, the repo's first open Project with a Status
+   * field. GITHUB_NO_PROJECT takes none (T-107): the columns are Open and Closed.
+   */
+  project?: number | typeof GITHUB_NO_PROJECT | null;
   /** Only issues with one of these labels count (D-072). By default, every issue in the repo. */
   labels?: string[];
 }
+
+/** A GitHub tracker's board when it takes no Project (T-107): its issues, Open and Closed, even where the repo has a Project. */
+export const GITHUB_NO_PROJECT = 'issues';
+
+/** A tracker's board as a GitHub client takes it (T-107): a Project's number, no Project, or null for the repo's first. */
+export const githubBoard = (board: number | string | null): number | typeof GITHUB_NO_PROJECT | null =>
+  (typeof board === 'number' ? board : board === GITHUB_NO_PROJECT ? GITHUB_NO_PROJECT : null);
+
+/**
+ * How to give an account access to GitHub Projects, which the Tasks tab's notice and the Connect page's card
+ * say (T-107). gh refreshes only its active account, so it says to switch to this one first, and back.
+ */
+export const projectsAccess = (account: string): string =>
+  `To use your GitHub Project's columns, give ${account} access to Projects. gh refreshes only its active account, so run gh auth switch -u ${account}, then gh auth refresh -h github.com -s project and sign in as ${account}, then switch back to the account you use.`;
 
 /** The owner/name of the repo an issue's link points into, or null. */
 export const issueRepo = (url: string | null | undefined): string | null => (url ? /github\.com\/([\w.-]+\/[\w.-]+)\/issues\/\d+/i.exec(url)?.[1] ?? null : null);
@@ -93,9 +110,10 @@ export interface ProjectNode { id: string; number: number; closed: boolean; fiel
 
 /**
  * The Project a board's columns come from, and a task's card moves on (GH-146): the one numbered `board`,
- * else the repo's first open Project with a Status field. Null when there's none.
+ * else the repo's first open Project with a Status field. Null when there's none, or `board` takes none (T-107).
  */
-export function pickProject<P extends ProjectNode>(nodes: P[], board: number | null | undefined): P | null {
+export function pickProject<P extends ProjectNode>(nodes: P[], board: number | typeof GITHUB_NO_PROJECT | null | undefined): P | null {
+  if (board === GITHUB_NO_PROJECT) return null;
   const all = nodes.filter((p) => p.field?.options?.length);
   return (board != null ? all.find((x) => x.number === board) : all.find((x) => !x.closed)) ?? null;
 }
@@ -106,6 +124,17 @@ const PROJECTS_QUERY = `query($owner: String!, $name: String!) {
       field(name: "Status") { ... on ProjectV2SingleSelectField { id options { id name } } } } }
   }
 }`;
+
+/** A repo's Projects for the Connect page's cards (T-107): each one's title, number and how many items it holds. */
+const PROJECT_LIST_QUERY = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    projectsV2(first: 50) { nodes { number title closed items { totalCount }
+      field(name: "Status") { ... on ProjectV2SingleSelectField { id } } } }
+  }
+}`;
+
+/** A repo's Project as the Connect page offers it (T-107). `status`: it has a Status field, whose options would be the board's columns. */
+export interface GithubProject { number: number; title: string; items: number; closed: boolean; status: boolean }
 
 /** A Project's items, with each issue's type where GitHub has issue types (T-90). */
 const itemsQuery = (types: boolean): string => `query($id: ID!, $after: String) {
@@ -187,9 +216,25 @@ export class GithubClient implements TrackerClient {
     return this.gh([...args, '--json', fields]);
   }
 
-  /** The Project the board's columns come from, or null when there's none or it can't be read. */
+  /**
+   * The repo's Projects, newest first as GitHub lists them, for the Connect page's cards (T-107). Where the
+   * account can't read Projects, a scope TrackerError that says how to give it access.
+   */
+  async projects(): Promise<GithubProject[]> {
+    type Node = { number: number; title: string; closed: boolean; items: { totalCount: number }; field: { id: string } | null };
+    try {
+      const d = await this.graphql<{ repository: { projectsV2: { nodes: Node[] } } }>(PROJECT_LIST_QUERY, { owner: this.owner, name: this.name });
+      return d.repository.projectsV2.nodes.map((n) => ({ number: n.number, title: n.title, items: n.items.totalCount, closed: n.closed, status: !!n.field?.id }));
+    } catch (e) {
+      if (e instanceof TrackerError && e.kind === 'scope') throw new TrackerError('scope', projectsAccess(this.o.account));
+      throw e;
+    }
+  }
+
+  /** The Project the board's columns come from, or null when there's none, it can't be read, or none was chosen (T-107). */
   private project(): Promise<ProjectInfo | null> {
     this.projectCache ??= (async () => {
+      if (this.o.project === GITHUB_NO_PROJECT) return null;
       try {
         const d = await this.graphql<{ repository: { projectsV2: { nodes: (Omit<ProjectInfo, 'fieldId' | 'options'> & ProjectNode)[] } } }>(PROJECTS_QUERY, { owner: this.owner, name: this.name });
         const p = pickProject(d.repository.projectsV2.nodes, this.o.project);
@@ -208,6 +253,7 @@ export class GithubClient implements TrackerClient {
   async board(): Promise<Board> {
     const p = await this.project();
     if (p) return this.projectBoard(p);
+    const none = this.o.project === GITHUB_NO_PROJECT;
     const [open, closed] = await Promise.all([this.issues('open', 200), this.issues('closed', 30)]);
     const cards = [...open, ...closed].map((i): BoardCard => ({
       key: `GH-${i.number}`, title: i.title, url: i.url, status: issueState(i.state, i.stateReason),
@@ -217,10 +263,11 @@ export class GithubClient implements TrackerClient {
       source: 'github-state', title: `Issues · ${this.o.repo}`, url: `https://github.com/${this.o.repo}/issues`,
       columns: [{ id: OPEN.id, name: 'Open', category: 'todo', statusIds: [OPEN.id] }, { id: CLOSED.id, name: 'Closed', category: 'done', statusIds: [CLOSED.id] }],
       cards,
-      notice: this.projectsReadable
-        ? 'These issues aren\'t on a GitHub Project, so the columns are Open and Closed. Add them to a Project with a Status field to use its columns.'
-        // gh refreshes only its active account, so the commands say to switch to this one first, and back.
-        : `To use your GitHub Project's columns, give ${this.o.account} access to Projects. gh refreshes only its active account, so run gh auth switch -u ${this.o.account}, then gh auth refresh -h github.com -s project and sign in as ${this.o.account}, then switch back to the account you use.`,
+      // No Project was chosen (T-107), so there's nothing to say; else why there's none, or how to read them.
+      notice: none ? null
+        : this.projectsReadable
+          ? 'These issues aren\'t on a GitHub Project, so the columns are Open and Closed. Add them to a Project with a Status field to use its columns.'
+          : projectsAccess(this.o.account),
       place: this.place,
     };
   }

@@ -796,7 +796,7 @@ export const STEPS: Step[] = [
       if (!list.length) return unknown('No ticket source yet, so tasks come from the Command Center alone. Add one, or mark this done if that\'s how this repo works.');
       // With its place, when it's narrower than the project (D-072).
       const names = list.map((t) => (t.kind === 'github' ? `GitHub Issues${t.repo ? ` (${t.repo})` : ''}${t.labels.length ? ` labelled ${orList(t.labels)}` : ''}`
-        : t.kind === 'jira' ? `Jira ${t.project} on ${t.site}${t.epic ? `, epic ${t.epic}` : ''}`
+        : t.kind === 'jira' ? `Jira ${t.project} on ${t.site}${t.epics.length ? `, epic${t.epics.length > 1 ? 's' : ''} ${orList(t.epics)}` : ''}`
           : t.kind === 'monday' ? `monday.com board ${t.board} in ${t.account}${t.group ? `, group ${t.group}` : ''}`
             : `Azure DevOps ${t.project} in ${t.organization}${t.areaPath ? `, area ${t.areaPath}` : ''}`));
       return pass(`Tickets come from ${names.join(' and ')}.`);

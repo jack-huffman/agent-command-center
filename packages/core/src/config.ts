@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { AccError } from './exec.ts';
 import { writeAtomic } from './atomic.ts';
+import { GITHUB_NO_PROJECT } from './trackers/github.ts';
 import { SLACK_CHANNEL, SLACK_PREFIX, SLACK_REACTION, SLACK_WORKSPACE } from './trackers/slack.ts';
 import { isTrackerKind, orList, TRACKER_KINDS, type TrackerKind } from './trackers/types.ts';
 
@@ -110,7 +111,8 @@ export interface Tracker {
   team: string | null;
   /**
    * The board the Tasks tab shows: a Jira board id, a GitHub Project number, or an Azure board's name. A
-   * monday.com board's id, which is also which tracker it is, as a Jira project is.
+   * monday.com board's id, which is also which tracker it is, as a Jira project is. A GitHub tracker's
+   * "issues" is no Project (T-107): its columns are Open and Closed, even where the repo has a Project.
    */
   board: number | string | null;
   /** monday.com: the status column whose labels are the board's columns. By default, the one called Status, or the first. */
@@ -123,12 +125,13 @@ export interface Tracker {
   /** GitHub: issues with any of these labels aren't tasks, such as milestone. */
   skipLabels: string[];
   /**
-   * Where in the tracker this repo's tickets come from, narrower than its project or repo (D-072). Jira: an
-   * epic's key, so only its child tickets and their sub-tasks count. GitHub: labels, so only issues with one
-   * of them count. Azure DevOps: an area path, so only work items under it count. monday.com: a group's id,
-   * so only the board's items in that group count. Unset, the whole project or board.
+   * Where in the tracker this repo's tickets come from, narrower than its project or repo (D-072). Jira:
+   * epics' keys, so only their child tickets and their sub-tasks count (T-107): the file's "epics", or an
+   * older file's one "epic". GitHub: labels, so only issues with one of them count. Azure DevOps: an area
+   * path, so only work items under it count. monday.com: a group's id, so only the board's items in that
+   * group count. Unset or empty, the whole project or board.
    */
-  epic: string | null;
+  epics: string[];
   /**
    * Jira only: which sprint's tickets count, with or without an epic (T-78). "active" for the board's open
    * sprints, whichever they are now, or a sprint's id for that one. Unset, the whole board: its backlog and
@@ -273,7 +276,7 @@ export const CONFIG_KEYS = [
   'environments[].protected', 'environments[].promotesTo', 'environmentSpecific', 'knownDrift',
   'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
   'trackers[].workspace', 'trackers[].channel', 'trackers[].reaction', 'trackers[].doneReaction', 'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
-  'trackers[].epic', 'trackers[].sprint', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
+  'trackers[].epics', 'trackers[].sprint', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'trackers[].statusFor',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel',
@@ -318,6 +321,8 @@ for (const key of CONFIG_KEYS) {
     LEVELS.set(at, (LEVELS.get(at) ?? new Set()).add(part.replace(/\[\]$/, '')));
   });
 }
+/** A Jira tracker's one "epic", as files before T-107 keep it: read as a list of one, so it isn't an unknown key. */
+LEVELS.get('trackers[]')!.add('epic');
 
 /** A warning for each key parseConfig doesn't know, at every level (GH-107), such as `gates.foo` or `trackers[0].foo`. */
 function unknownKeys(raw: Record<string, unknown>): string[] {
@@ -472,8 +477,9 @@ export function parseConfig(raw: unknown): ParseResult {
         warnings.push(`trackers[${i}]: "skipLabels" applies only to a GitHub tracker, so it's ignored.`);
       }
       // The tracker's place (D-072): each key belongs to one kind of tracker, and is ignored on another.
-      const placeKeys: { key: Under<'trackers[]'>; kind: TrackerKind; on: string; ok: boolean; error: string }[] = [
+      const placeKeys: { key: Under<'trackers[]'> | 'epic'; kind: TrackerKind; on: string; ok: boolean; error: string }[] = [
         { key: 'epic', kind: 'jira', on: 'a Jira', ok: isStr(t.epic) && JIRA_ISSUE.test(t.epic.trim()), error: '"epic" must be a Jira epic\'s key, such as ACME-3.' },
+        { key: 'epics', kind: 'jira', on: 'a Jira', ok: strList(t.epics) && t.epics.every((e) => JIRA_ISSUE.test(e.trim())), error: '"epics" must be a list of Jira epics\' keys, such as ["ACME-3", "ACME-7"].' },
         { key: 'labels', kind: 'github', on: 'a GitHub', ok: strList(t.labels), error: '"labels" must be a list of label names, such as ["billing"].' },
         { key: 'areaPath', kind: 'azure', on: 'an Azure DevOps', ok: isStr(t.areaPath), error: '"areaPath" must be an Azure DevOps area path, such as "CRM\\\\Billing".' },
         { key: 'group', kind: 'monday', on: 'a monday.com', ok: isStr(t.group), error: '"group" must be a monday.com group\'s id, such as "topics".' },
@@ -515,9 +521,10 @@ export function parseConfig(raw: unknown): ParseResult {
         }
         if (t.kind !== 'github') warnings.push(`trackers[${i}]: "statusFor" applies only to a GitHub tracker, so it's ignored.`);
       }
-      const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : Number.isSafeInteger(t.board) && (t.board as number) > 0);
+      // A GitHub tracker's "issues" is no Project (T-107): Open and Closed, even where the repo has one.
+      const boardOk = t.board === undefined || t.board === null || (t.kind === 'azure' ? isStr(t.board) : (Number.isSafeInteger(t.board) && (t.board as number) > 0) || (t.kind === 'github' && t.board === GITHUB_NO_PROJECT));
       if (!boardOk) {
-        errors.push(`trackers[${i}]: "board" must be ${t.kind === 'azure' ? 'an Azure board\'s name, such as Stories' : 'a Jira board id or a GitHub Project number'}.`);
+        errors.push(`trackers[${i}]: "board" must be ${t.kind === 'azure' ? 'an Azure board\'s name, such as Stories' : t.kind === 'github' ? `a GitHub Project number, or "${GITHUB_NO_PROJECT}" for no Project` : 'a Jira board id or a GitHub Project number'}.`);
         return;
       }
       trackers.push({
@@ -536,7 +543,7 @@ export function parseConfig(raw: unknown): ParseResult {
         statusColumn: t.kind === 'monday' && isStr(t.statusColumn) ? t.statusColumn.trim() : null,
         prefix: isStr(t.prefix) ? t.prefix.toUpperCase() : null,
         skipLabels: t.kind === 'github' && strList(t.skipLabels) ? t.skipLabels : [],
-        epic: t.kind === 'jira' && isStr(t.epic) ? t.epic.trim().toUpperCase() : null,
+        epics: t.kind === 'jira' ? [...new Set([t.epic, ...(strList(t.epics) ? t.epics : [])].filter(isStr).map((e) => e.trim().toUpperCase()))] : [],
         sprint: t.kind === 'jira' && (t.sprint === 'active' || Number.isSafeInteger(t.sprint)) ? (t.sprint as 'active' | number) : null,
         labels: t.kind === 'github' && strList(t.labels) ? t.labels.map((l) => l.trim()) : [],
         areaPath: t.kind === 'azure' && isStr(t.areaPath) ? t.areaPath.trim() : null,
@@ -879,14 +886,22 @@ export function writeConfig(file: string, config: Config): void {
     environments: config.environments.map(({ branch: _branch, ...e }) => e),
     // A tracker is written as it was given, so the file loads again: what it doesn't set stays out, and it
     // says it may change tickets only when it may (D-066).
+    // A Jira tracker's epics go as epicKeys says, in their place: one as "epic", several as "epics" (T-107).
     trackers: config.trackers.map(({ edits, ...t }) => ({
-      ...Object.fromEntries(Object.entries(t).filter(([, v]) => v !== null && !(Array.isArray(v) && !v.length))),
+      ...Object.fromEntries(Object.entries(t).flatMap(([k, v]) => (k === 'epics' ? Object.entries(epicKeys(v as string[])) : [[k, v]])).filter(([, v]) => v !== null && !(Array.isArray(v) && !v.length))),
       ...(edits ? { edits } : {}),
     })),
     agents: { ...agents, ...(Object.keys(profile(builder)).length ? { builder: profile(builder) } : {}), ...(Object.keys(profile(reviewer)).length ? { reviewer: profile(reviewer) } : {}), ...cloudOut },
   };
   writeAtomic(file, JSON.stringify(out, null, 2) + '\n');
 }
+
+/**
+ * A Jira tracker's epics as the file keeps them (T-107): one as "epic", as files before kept it, so an older
+ * acc still reads it; several as "epics". The other is null, which takes it out of a tracker being changed.
+ */
+export const epicKeys = (epics: string[]): { epic: string | null; epics: string[] | null } =>
+  (epics.length > 1 ? { epic: null, epics } : { epic: epics[0] ?? null, epics: null });
 
 /** How many tasks merge in a repo before a tidy-up is offered, when the config doesn't say (GH-104). */
 export const TIDY_EVERY = 8;

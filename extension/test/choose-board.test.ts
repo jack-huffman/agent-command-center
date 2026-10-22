@@ -5,13 +5,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { AZURE, type Ctx, GITHUB, JIRA, MONDAY, SLACK, SLACK_NO_BOARD, type TrackerDescription } from '../../packages/core/src/trackers/connect.ts';
+import { AZURE, type Ctx, GITHUB, GITHUB_ISSUES, JIRA, MONDAY, SLACK, SLACK_NO_BOARD, type TrackerDescription } from '../../packages/core/src/trackers/connect.ts';
+import { GITHUB_NO_PROJECT, projectsAccess } from '../../packages/core/src/trackers/github.ts';
 import { countValues, placeKey } from '../../packages/core/src/trackers/preview.ts';
 import type { Board, TrackerClient } from '../../packages/core/src/trackers/types.ts';
 import { type ConnectDeps, ConnectSession, READS_AT_ONCE } from '../src/connect.ts';
 import { blankConnect, cardCount, COUNT_MOST, type ConnectMessage, connectModel, type ConnectModel, connectPreview, type ConnectState, connectValues, LISTS_TITLE, SEARCH_FROM, USE_BOARD } from '../src/model/connect.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { sampleBoard, sampleConnect } from '../scripts/fixtures/connect.ts';
+import { GITHUB_PROJECTS, sampleBoard, sampleConnect } from '../scripts/fixtures/connect.ts';
 
 const ROOT = '/Users/me/code/acme-service';
 const EMAIL = 'jordan.kim@example.com';
@@ -106,7 +107,7 @@ test('each tracker\'s cards show their details and counts: a Jira board its kind
   const boards = picker(jiraPage, 'board');
   assert.deepEqual(boards.options.map((o) => [o.label, o.detail, o.count?.label]), [['ACME Service board', 'Scrum', '11 tickets'], ['Support kanban', 'Kanban', 'Couldn\'t count its tickets: Jira answered HTTP 503.']]);
   assert.deepEqual(boards.options.map((o) => o.count?.titles), [[], []], 'a board\'s card has no titles: they are the place\'s');
-  const epics = picker(jiraPage, 'epic');
+  const epics = picker(jiraPage, 'epics');
   const first = epics.options.find((o) => o.value === 'ACME-31')!;
   assert.deepEqual([first.label, first.detail, first.count?.label, first.count?.titles], ['ACME-31', 'Renewals', '11 tickets', ['Renewal reminder emails go out 30 days before the end date', 'Renewal quote shows the new price list']]);
   assert.deepEqual([epics.whole, epics.wholeCount?.label], ['The whole ACME project', '47 tickets'], 'the whole project is a card too, counted');
@@ -154,7 +155,7 @@ test('a count that fails says so on its card and never holds the choice; one not
 });
 
 test('a long list gets a search box, a short one doesn\'t; ticks and a chosen card are what\'s selected', () => {
-  assert.equal(picker(sampleConnect('jira-board'), 'epic').search, true, `ten epics: more than ${SEARCH_FROM}`);
+  assert.equal(picker(sampleConnect('jira-board'), 'epics').search, true, `ten epics: more than ${SEARCH_FROM}`);
   assert.equal(picker(sampleConnect('jira-board'), 'board').search, false);
   // Edge: exactly SEARCH_FROM cards needs no search.
   assert.equal(picker(sampleConnect('github'), 'labels').search, false, `${SEARCH_FROM} labels`);
@@ -180,10 +181,27 @@ test('the preview\'s model draws the board the choices make: its columns, their 
   assert.equal(m.countMost, COUNT_MOST);
 });
 
+test('GitHub\'s Project cards (T-107): Issues, open and closed, then each Project with its number and items; the one chosen is the preview\'s board', () => {
+  const m = sampleConnect('github-board');
+  const list = picker(m, 'board');
+  assert.deepEqual(list.options.map((o) => [o.label, o.detail]), [
+    [GITHUB_ISSUES, 'No Project: the columns are Open and Closed.'], ['Renewals launch', '#5 · 17 items'], ['Service roadmap', '#3 · 42 items'], ['Old backlog', '#1 · 120 items · closed'],
+  ], 'Ideas has no Status field, so no columns to give: not offered');
+  assert.deepEqual([list.selected, list.options.every((o) => o.count === null), list.search], [['3'], true, false], 'a Project\'s card gives its own item count, so none is read');
+  assert.deepEqual(m.preview.board?.columns.map((c) => c.name), ['Todo', 'In Progress', 'In Review', 'Done'], 'Service roadmap\'s columns');
+  assert.equal(m.save.can, true);
+  // Edge: gh can't read Projects: one card, which says how to give access, and the issues' board.
+  const access = sampleConnect('github-access');
+  const card = picker(access, 'board').options;
+  assert.deepEqual(card.map((o) => [o.value, o.detail]), [[GITHUB_NO_PROJECT, projectsAccess('jordan-kim')]]);
+  assert.deepEqual([picker(access, 'board').look, access.preview.board?.columns.map((c) => c.name), access.save.can], [null, ['Open', 'Closed'], true]);
+  assert.deepEqual(GITHUB_PROJECTS.map((p) => p.number), [5, 3, 2, 1]);
+});
+
 test('an empty place says so, with what to change; a Slack channel with no reaction has no board, and can still be used', () => {
   const m = sampleConnect('github');
   assert.equal(m.preview.look.label, '0 tickets would be on your board, in 2 columns.');
-  assert.equal(m.preview.empty, 'No tickets would be on your board. Choose another labels, or every issue in acme/service.');
+  assert.equal(m.preview.empty, 'No tickets would be on your board. Choose another project or labels, or every issue in acme/service.');
   assert.equal(m.save.can, true, 'an empty place can be kept: a new epic has no tickets yet');
   const s = signedIn(SLACK, 'acme');
   s.pickers.channel = ready([{ value: 'C0SUPPORT1', label: '#premium-support' }], ['C0SUPPORT1']);
@@ -208,8 +226,9 @@ test('before the choices make a place the preview waits and says what\'s left; r
   assert.equal(connectPreview(s, connectValues(s, JIRA), false, 'Choose a project, and the board shows here.', '').state, 'waiting');
 });
 
-test('choosing a board shows its preview, changing an epic changes it, going back is instant, and Use this board saves the place', async () => {
-  const h = harness({ boards: (v) => board(v.epic === 'ACME-30' ? [1, 0, 0] : [2, 1, 1]) });
+test('choosing a board shows its preview, ticking epics changes it, going back is instant, and Use this board saves the place', async () => {
+  // The whole project, one epic, or two ticked (T-107): each its own board.
+  const h = harness({ boards: (v) => board(!v.epics ? [2, 1, 1] : (v.epics as string[]).length === 1 ? [1, 0, 0] : [3, 2, 0]) });
   await openJira(h);
   let m = h.model();
   assert.deepEqual([picker(m, 'project').selected, picker(m, 'board').selected], [['ACME'], ['9']], 'one project and one board: chosen');
@@ -217,19 +236,32 @@ test('choosing a board shows its preview, changing an epic changes it, going bac
   const whole = placeKey(connectValues(h.session.state()!, JIRA));
   assert.ok(h.asked.includes(whole), 'the preview read the place chosen');
 
-  h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-30' });
+  h.send({ type: 'connect-pick', key: 'epics', value: 'ACME-30' });
   m = h.model();
   assert.deepEqual([m.preview.state, m.save.can], ['loading', false], 'a new choice reads its board before it can be used');
   await settle();
   m = h.model();
   assert.equal(m.preview.look.label, '1 ticket would be on your board, in 3 columns.', 'the epic changed the preview');
 
+  // A second epic ticked (T-107): the preview reads the board of both, and the page sends both.
+  h.send({ type: 'connect-pick', key: 'epics', value: ['ACME-31', 'ACME-30'] });
+  m = h.model();
+  assert.deepEqual([picker(m, 'epics').selected, m.preview.state], [['ACME-31', 'ACME-30'], 'loading']);
+  await settle();
+  m = h.model();
+  assert.equal(m.preview.look.label, '5 tickets would be on your board, in 3 columns.', 'the board of both epics');
+  assert.ok(h.asked.includes(placeKey({ ...connectValues(h.session.state()!, JIRA), epics: ['ACME-31', 'ACME-30'] })), 'read for the ticked set');
+  // Edge: one unticked again is the board read already.
+  const before = h.asked.length;
+  h.send({ type: 'connect-pick', key: 'epics', value: ['ACME-30'] });
+  assert.deepEqual([h.model().preview.look.label, h.asked.length], ['1 ticket would be on your board, in 3 columns.', before], 'nothing read again');
+
   const asked = h.asked.length;
-  h.send({ type: 'connect-pick', key: 'epic', value: null });
+  h.send({ type: 'connect-pick', key: 'epics', value: null });
   m = h.model();
   assert.deepEqual([m.preview.state, h.asked.length], ['ready', asked], 'going back to the whole project is instant: nothing read again');
 
-  h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-30' });
+  h.send({ type: 'connect-pick', key: 'epics', value: 'ACME-30' });
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual([h.writes, h.saved], [1, ['Jira']], 'Use this board kept it');
@@ -251,7 +283,7 @@ test('Use this board does nothing until the preview has drawn the board: a save 
 
 test('a preview that fails says why, holds Use this board, and reads again when asked; a failed count only marks its card', async () => {
   let fail = true;
-  const h = harness({ boards: (v) => { if (fail && v.epic === null) throw new Error('Jira answered HTTP 503.'); return board([1, 1, 0]); } });
+  const h = harness({ boards: (v) => { if (fail && v.epics === null) throw new Error('Jira answered HTTP 503.'); return board([1, 1, 0]); } });
   await openJira(h);
   let m = h.model();
   assert.deepEqual([m.preview.state, m.save.can], ['failed', false]);
@@ -273,23 +305,23 @@ test('a card\'s count is read when the page asks: only values its list holds, at
   for (const r of h.release.splice(0)) r();
   await settle();
   const before = h.asked.length;
-  h.send({ type: 'connect-count', key: 'epic', values: ['ACME-31', 'ACME-30', 'NOT-1', ''] });
+  h.send({ type: 'connect-count', key: 'epics', values: ['ACME-31', 'ACME-30', 'NOT-1', ''] });
   const m = h.model();
-  assert.deepEqual(['ACME-31', 'ACME-30'].map((v) => picker(m, 'epic').options.find((o) => o.value === v)!.count?.state), ['loading', 'loading']);
-  assert.equal(picker(m, 'epic').wholeCount?.state, 'ready', 'the whole project is the preview\'s place: read already');
+  assert.deepEqual(['ACME-31', 'ACME-30'].map((v) => picker(m, 'epics').options.find((o) => o.value === v)!.count?.state), ['loading', 'loading']);
+  assert.equal(picker(m, 'epics').wholeCount?.state, 'ready', 'the whole project is the preview\'s place: read already');
   assert.equal(h.asked.length - before, 2, 'a value the list doesn\'t hold is passed over');
   assert.ok(h.release.length <= READS_AT_ONCE, `at most ${READS_AT_ONCE} at once`);
-  h.send({ type: 'connect-count', key: 'epic', values: ['ACME-31'] });
+  h.send({ type: 'connect-count', key: 'epics', values: ['ACME-31'] });
   assert.equal(h.asked.length - before, 2, 'each once');
   // Edge: a list that doesn't count, and one too many values, are refused before they reach the session.
   h.send({ type: 'connect-count', key: 'project', values: ['ACME'] });
   assert.equal(h.asked.length - before, 2, 'the project list doesn\'t count');
-  assert.equal(isFromWebview({ type: 'connect-count', session: m.id, key: 'epic', values: Array.from({ length: COUNT_MOST + 1 }, (_, i) => `E-${i}`) }), false);
+  assert.equal(isFromWebview({ type: 'connect-count', session: m.id, key: 'epics', values: Array.from({ length: COUNT_MOST + 1 }, (_, i) => `E-${i}`) }), false);
   while (h.release.length) {
     for (const r of h.release.splice(0)) r();
     await settle();
   }
-  assert.deepEqual(['ACME-31', 'ACME-30'].map((v) => picker(h.model(), 'epic').options.find((o) => o.value === v)!.count?.label), ['4 tickets', '4 tickets']);
+  assert.deepEqual(['ACME-31', 'ACME-30'].map((v) => picker(h.model(), 'epics').options.find((o) => o.value === v)!.count?.label), ['4 tickets', '4 tickets']);
 });
 
 test('a new site forgets the boards read for the last one, and a page closed while a read runs drops its answer', async () => {

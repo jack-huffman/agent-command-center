@@ -28,7 +28,7 @@ const BOARD: Board = { source: 'jira-board', title: 'ACME board', url: null, not
 const full = (t: Record<string, unknown>): Tracker => ({
   kind: t.kind as Tracker['kind'], site: (t.site as string) ?? null, project: (t.project as string) ?? null, repo: (t.repo as string) ?? null, organization: (t.organization as string) ?? null,
   account: (t.account as string) ?? null, workspace: (t.workspace as string) ?? null, channel: (t.channel as string) ?? null, reaction: (t.reaction as string) ?? null, doneReaction: (t.doneReaction as string) ?? null, team: (t.team as string) ?? null, board: (t.board as number | string) ?? null, statusColumn: (t.statusColumn as string) ?? null, prefix: (t.prefix as string) ?? null,
-  skipLabels: (t.skipLabels as string[]) ?? [], epic: (t.epic as string) ?? null, sprint: (t.sprint as 'active' | number) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true, statusFor: (t.statusFor as Record<string, string>) ?? null,
+  skipLabels: (t.skipLabels as string[]) ?? [], epics: (t.epics as string[]) ?? (t.epic ? [t.epic as string] : []), sprint: (t.sprint as 'active' | number) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true, statusFor: (t.statusFor as Record<string, string>) ?? null,
 });
 
 type Answer = Response | Promise<Response>;
@@ -184,8 +184,8 @@ test('Test connection signs in for every project on the site, as the tick says, 
   h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
   await settle();
   m = h.model();
-  assert.equal(picker(m, 'epic').whole, 'The whole ACME project');
-  assert.deepEqual(picker(m, 'epic').options.map((o) => o.value), ['ACME-31']);
+  assert.equal(picker(m, 'epics').whole, 'The whole ACME project');
+  assert.deepEqual(picker(m, 'epics').options.map((o) => o.value), ['ACME-31']);
   assert.deepEqual(picker(m, 'board').selected, ['7'], 'the project\'s first board, until another is picked');
   assert.equal(m.save.can, true);
   assert.equal(m.save.label, 'Use this board');
@@ -206,7 +206,7 @@ test('a list that can\'t be read says why beside it, and the whole project can s
   h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
   await settle();
   const m = h.model();
-  const epic = picker(m, 'epic');
+  const epic = picker(m, 'epics');
   assert.deepEqual([epic.look?.icon, epic.look?.tone], ['warning', 'orange']);
   assert.match(epic.look?.label ?? '', /^Couldn't list them: .*Search is down.* You can take the whole project now/);
   assert.equal(epic.whole, 'The whole ACME project');
@@ -246,7 +246,7 @@ test('an existing tracker opens signed in, its project fixed and its done epic k
   assert.deepEqual([m.title, m.kinds.length, m.host.fixed, m.host.value], ['Change jira · ACME', 0, true, SITE]);
   assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim, for this project only', 'still this repo\'s own sign-in (D-027)');
   assert.deepEqual([picker(m, 'project').fixed, picker(m, 'project').selected], [true, ['ACME']], 'another project is another tracker');
-  const epic = picker(m, 'epic');
+  const epic = picker(m, 'epics');
   assert.deepEqual(epic.selected, ['ACME-3']);
   assert.deepEqual(epic.options.map((o) => [o.value, o.detail]), [['ACME-3', 'chosen before, not listed now'], ['ACME-31', 'Renewals']], 'a done epic isn\'t listed, but stays chosen');
   assert.deepEqual(picker(m, 'board').selected, ['9']);
@@ -254,7 +254,7 @@ test('an existing tracker opens signed in, its project fixed and its done epic k
 
   h.send({ type: 'connect-pick', key: 'project', value: 'OPS' });
   assert.deepEqual(picker(h.model(), 'project').selected, ['ACME'], 'the page can\'t change the project');
-  h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  h.send({ type: 'connect-pick', key: 'epics', value: 'ACME-31' });
   await settle();
   m = h.model();
   h.send({ type: 'connect-save' });
@@ -268,7 +268,7 @@ test('opened from Settings, Back and Save go back to its Trackers and sign-ins; 
   await h.session.open({ root: ROOT, index: 0, from: 'settings' });
   await settle();
   assert.deepEqual(h.model().back, { section: 'settings', label: 'Back to Settings', part: 'settings:trackers' });
-  h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  h.send({ type: 'connect-pick', key: 'epics', value: 'ACME-31' });
   await settle();
   h.send({ type: 'connect-save' });
   await settle();
@@ -317,7 +317,7 @@ test('a late list for a project no longer chosen is dropped', async () => {
   held.ACME!(Response.json({ issues: [{ key: 'ACME-31', fields: { summary: 'Renewals' } }] }));
   await settle();
   const m = h.model();
-  assert.deepEqual([picker(m, 'epic').options.map((o) => o.value), picker(m, 'epic').whole], [['OPS-4'], 'The whole OPS project']);
+  assert.deepEqual([picker(m, 'epics').options.map((o) => o.value), picker(m, 'epics').whole], [['OPS-4'], 'The whole OPS project']);
 });
 
 test('GitHub signs in through gh as the project\'s account, with its labels to tick; no ticks is the whole repo', async () => {
@@ -343,6 +343,69 @@ test('GitHub signs in through gh as the project\'s account, with its labels to t
   bare.send({ type: 'connect-test', host: 'acme/service', fields: {} });
   await settle();
   assert.match(bare.model().host.error ?? '', /names no GitHub repo and account in its settings/);
+});
+
+/** gh answering the repo's Projects (T-107), or refusing them for want of the scope; the rest as gh above. */
+const ghProjects = (refuse = false): Exec => async (cmd, args, opts) => {
+  if (args[0] !== 'api' || args[1] !== 'graphql') return gh(cmd, args, opts);
+  if (refuse) return { code: 1, stdout: '', stderr: 'error: your authentication token is missing required scopes [read:project]' };
+  return { code: 0, stderr: '', stdout: JSON.stringify({ data: { repository: { projectsV2: { nodes: [
+    { number: 5, title: 'Renewals launch', closed: false, items: { totalCount: 17 }, field: { id: 'F5' } },
+    { number: 3, title: 'Service roadmap', closed: false, items: { totalCount: 42 }, field: { id: 'F3' } },
+  ] } } } }) };
+};
+
+test('GitHub\'s Projects are cards beside Issues, open and closed: the repo\'s first is chosen, another sets the board, and the preview follows each (T-107)', async () => {
+  const read: unknown[] = [];
+  const preview: ConnectDeps['preview'] = (_d, ctx) => { read.push(ctx.values.board); return { board: async () => BOARD }; };
+  const h = harness({ exec: ghProjects(), preview });
+  await h.session.open({ root: ROOT, kind: 'github', from: 'tasks' });
+  await settle();
+  let m = h.model();
+  const list = picker(m, 'board');
+  assert.deepEqual([list.label, list.multi, list.whole], ['Project', false, null]);
+  assert.deepEqual(list.options.map((o) => [o.value, o.label, o.detail]), [
+    ['issues', 'Issues, open and closed', 'No Project: the columns are Open and Closed.'], ['5', 'Renewals launch', '#5 · 17 items'], ['3', 'Service roadmap', '#3 · 42 items'],
+  ]);
+  assert.deepEqual([list.selected, read.at(-1)], [['5'], '5'], 'the repo\'s first open Project, as the board takes it with none named, and its preview');
+  h.send({ type: 'connect-pick', key: 'board', value: '3' });
+  m = h.model();
+  assert.deepEqual([picker(m, 'board').selected, m.preview.state, m.save.can], [['3'], 'loading', false], 'another card reads its board before it can be used');
+  await settle();
+  assert.deepEqual([read.at(-1), h.model().save.can], ['3', true], 'the preview follows the card');
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'github', board: 3 }]);
+
+  // Issues, open and closed: no Project, even where the repo has one.
+  const none = harness({ exec: ghProjects(), preview });
+  await none.session.open({ root: ROOT, kind: 'github', from: 'tasks' });
+  await settle();
+  none.send({ type: 'connect-pick', key: 'board', value: 'issues' });
+  await settle();
+  assert.equal(read.at(-1), 'issues');
+  none.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(none.raw, [{ kind: 'github', board: 'issues' }]);
+
+  // Edge: the repo's own first Project kept as it is: board left out, so the board goes on taking the first.
+  const first = harness({ exec: ghProjects(), preview });
+  await first.session.open({ root: ROOT, kind: 'github', from: 'tasks' });
+  await settle();
+  first.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(first.raw, [{ kind: 'github' }]);
+});
+
+test('edge: where gh can\'t read Projects, the issues\' card says how to give it access, and the board can still be used (T-107)', async () => {
+  const h = harness({ exec: ghProjects(true) });
+  await h.session.open({ root: ROOT, kind: 'github', from: 'tasks' });
+  await settle();
+  const m = h.model();
+  const list = picker(m, 'board');
+  assert.deepEqual(list.options.map((o) => o.value), ['issues'], 'no Project to offer');
+  assert.match(list.options[0]!.detail ?? '', /^To use your GitHub Project's columns, give jordan-kim access to Projects\. .*gh auth refresh -h github\.com -s project/);
+  assert.deepEqual([list.selected, list.look, m.save.can], [['issues'], null, true], 'no failure to show: the card says it');
 });
 
 test('Azure DevOps signs in with Microsoft, picks the default team and the stories board, and leaves the default team out', async () => {
@@ -387,17 +450,17 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
   assert.equal(await h.session.open({ start: RENEWALS, from: 'setup' }), true);
   await settle();
   let m = h.model();
-  assert.deepEqual([m.title, m.back.label, m.projects, m.kind, m.host.value, m.host.fixed], ['Start acme-renewals from an epic in Jira', 'Back to Setup', [], 'jira', SITE, false]);
+  assert.deepEqual([m.title, m.back.label, m.projects, m.kind, m.host.value, m.host.fixed], ['Start acme-renewals from epics in Jira', 'Back to Setup', [], 'jira', SITE, false]);
   assert.deepEqual([m.signIn.look.label, m.signIn.editing], ['Signed in as Jordan Kim, for every project on acme.atlassian.net', false], 'nothing typed (GH-79)');
-  assert.match(m.summary, /^Starting the project writes acme-renewals's settings, with its tickets from the epic you pick\. Until then nothing is written, and picking only reads Jira: nothing is ever written to it\./);
-  assert.deepEqual(m.place, { key: 'epic', words: DESCRIPTIONS[0]!.place.words });
+  assert.match(m.summary, /^Starting the project writes acme-renewals's settings, with its tickets from the epics you pick\. Until then nothing is written, and picking only reads Jira: nothing is ever written to it\./);
+  assert.deepEqual(m.place, { key: 'epics', words: DESCRIPTIONS[0]!.place.words });
   assert.deepEqual(m.kinds.map((k) => k.kind), ['jira', 'github', 'azure', 'monday', 'slack'], 'Azure DevOps and GitHub start the same way');
   assert.deepEqual(picker(m, 'project').options.map((o) => o.value), ['ACME', 'OPS']);
 
   h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
   await settle();
   m = h.model();
-  const epic = picker(m, 'epic');
+  const epic = picker(m, 'epics');
   assert.deepEqual([epic.whole, epic.required, epic.hint, epic.options.map((o) => [o.value, o.detail, o.usedBy])], [null, true, DESCRIPTIONS[0]!.place.words, [['ACME-31', 'Renewals', null]]], 'no whole project: that\'s Other project');
   assert.deepEqual(picker(m, 'board').selected, ['7']);
   assert.deepEqual([m.save.can, m.save.label], [false, 'Start the project'], 'not until an epic is picked');
@@ -405,7 +468,7 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
   await settle();
   assert.deepEqual(h.started, [], 'Save waits for the epic');
 
-  h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  h.send({ type: 'connect-pick', key: 'epics', value: 'ACME-31' });
   h.send({ type: 'connect-pick', key: 'board', value: '9' });
   // Another board lists its own sprints (T-78): Save waits for that list.
   assert.equal(h.model().save.can, false);
@@ -413,7 +476,7 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
   assert.equal(h.model().save.can, true);
   h.send({ type: 'connect-save' });
   await settle();
-  assert.deepEqual(h.started, [{ root: NEW_ROOT, args: ['--profile', 'generic'], record: { kind: 'jira', site: SITE, project: 'ACME', board: 9, epic: 'ACME-31', sprint: null } }]);
+  assert.deepEqual(h.started, [{ root: NEW_ROOT, args: ['--profile', 'generic'], record: { kind: 'jira', site: SITE, project: 'ACME', board: 9, epic: 'ACME-31', epics: null, sprint: null } }]);
   assert.equal(h.writes, 0, 'acc init writes the config, once: nothing patches it after');
   assert.deepEqual([h.saved, h.session.model()], [['Jira, started'], null], 'then the projects load, Setup checks again, and the Tasks tab opens');
   assert.deepEqual([...h.secrets.keys()], [siteCredKey('jira', SITE)], 'nothing new kept');
@@ -424,7 +487,7 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
   await settle();
   left.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
   await settle();
-  left.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  left.send({ type: 'connect-pick', key: 'epics', value: 'ACME-31' });
   left.send({ type: 'connect-cancel' });
   await settle();
   assert.deepEqual([left.started, left.writes, left.saved, left.session.model()], [[], 0, [], null]);
@@ -464,7 +527,7 @@ test('From a Jira epic: acc init\'s refusal stays beside Start the project, in i
   await settle();
   h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
   await settle();
-  h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+  h.send({ type: 'connect-pick', key: 'epics', value: 'ACME-31' });
   await settle();
   h.send({ type: 'connect-save' });
   await settle();
@@ -497,11 +560,11 @@ test('an epic another repo here uses says so, and picking it asks first: Cancel 
     await settle();
     h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
     await settle();
-    assert.deepEqual(picker(h.model(), 'epic').options.map((o) => [o.value, o.usedBy]), [['ACME-31', 'used by acme-portal']], 'its clone isn\'t another repo');
-    h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+    assert.deepEqual(picker(h.model(), 'epics').options.map((o) => [o.value, o.usedBy]), [['ACME-31', 'used by acme-portal']], 'its clone isn\'t another repo');
+    h.send({ type: 'connect-pick', key: 'epics', value: 'ACME-31' });
     await settle();
     assert.deepEqual(h.asked, ['Use ACME-31 for acme-renewals too?']);
-    const epic = picker(h.model(), 'epic');
+    const epic = picker(h.model(), 'epics');
     if (!confirm) {
       assert.deepEqual([epic.selected, epic.used, h.model().save.can], [[], null, false], 'Cancel keeps the choice before it');
       continue;
@@ -520,7 +583,7 @@ test('an epic another repo here uses says so, and picking it asks first: Cancel 
   await settle();
   add.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
   await settle();
-  const epic = picker(add.model(), 'epic');
+  const epic = picker(add.model(), 'epics');
   assert.deepEqual([epic.whole, epic.required, epic.options.map((o) => o.usedBy)], ['The whole ACME project', false, ['used by acme-portal or acme-renewals-copy']], 'the whole project is still on offer there, and from another repo both count');
 });
 
@@ -562,7 +625,7 @@ test('From GitHub labels: gh as the account acc init found, at least one label t
   assert.deepEqual([h.asked, m.save.can], [[], true], 'a label no other repo uses here: nothing to ask');
   h.send({ type: 'connect-save' });
   await settle();
-  assert.deepEqual(h.started.map((x) => x.record), [{ kind: 'github', repo: null, labels: ['invoices'] }], 'its own repo is left out');
+  assert.deepEqual(h.started.map((x) => x.record), [{ kind: 'github', repo: null, board: null, labels: ['invoices'] }], 'its own repo is left out');
 
   // A folder acc init found no GitHub account for says so, in words about this folder, not a config.
   const bare = harness();
@@ -577,7 +640,7 @@ test('a team template\'s tracker fills in the page: its kind, site and project, 
   await h.session.open({ start: { ...RENEWALS, tracker: { kind: 'jira', host: 'https://acme.atlassian.net', values: { project: 'OPS' } } }, from: 'setup' });
   await settle();
   const m = h.model();
-  assert.deepEqual([m.kind, m.host.value, picker(m, 'project').selected, picker(m, 'epic').selected], ['jira', SITE, ['OPS'], []]);
+  assert.deepEqual([m.kind, m.host.value, picker(m, 'project').selected, picker(m, 'epics').selected], ['jira', SITE, ['OPS'], []]);
   const az = harness({ fetch: azure, secrets: AZURE_SITE_SIGN_IN() });
   await az.session.open({ start: { ...RENEWALS, tracker: { kind: 'azure', host: 'acme', values: { project: 'CRM' } } }, from: 'setup' });
   assert.deepEqual([az.model().kind, az.model().host.value], ['azure', 'acme'], 'its kind too');
@@ -594,8 +657,10 @@ function recording(f: typeof fetch, x: Exec) {
 
 /** What reads a tracker: GET and HEAD, and Azure DevOps' two queries, which are POSTs that change nothing. */
 const reads = (r: string) => /^(GET|HEAD) /.test(r) || /^POST https:\/\/dev\.azure\.com\/[^/]+\/[^/]+\/_apis\/wit\/(wiql|workitemsbatch)\b/.test(r);
-/** gh's read commands: an api GET (no method, no fields), and a list or view. */
-const ghReads = (c: string[]) => c[0] === 'gh' && ((c[1] === 'api' && !c.some((a) => /^(-X|--method|-f|-F|--field|--raw-field|--input)$/.test(a))) || ['list', 'view'].includes(c[2] ?? ''));
+/** gh's read commands: an api GET (no method, no fields), a GraphQL query that isn't a mutation (T-107's Projects), and a list or view. */
+const ghReads = (c: string[]) => c[0] === 'gh' && ((c[1] === 'api' && !c.some((a) => /^(-X|--method|-f|-F|--field|--raw-field|--input)$/.test(a)))
+  || (c[1] === 'api' && c[2] === 'graphql' && c.some((a) => a.startsWith('query=query')) && !c.some((a) => /^(-X|--method|--input)$/.test(a) || a.startsWith('query=mutation')))
+  || ['list', 'view'].includes(c[2] ?? ''));
 
 test('picking an epic, an area path or labels only reads the tracker: every request is a read (GH-81)', async () => {
   const flows: [string, () => Promise<ReturnType<typeof recording>>][] = [
@@ -606,7 +671,7 @@ test('picking an epic, an area path or labels only reads the tracker: every requ
       await settle();
       h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
       await settle();
-      h.send({ type: 'connect-pick', key: 'epic', value: 'ACME-31' });
+      h.send({ type: 'connect-pick', key: 'epics', value: 'ACME-31' });
       await settle();
       h.send({ type: 'connect-save' });
       await settle();
@@ -657,7 +722,7 @@ test('a page message names its page, and only what a description declares: a tok
   const s = 'abc123';
   assert.ok(isFromWebview({ type: 'connect-test', session: s, host: SITE, fields: { email: EMAIL, token: TOKEN } }));
   assert.ok(isFromWebview({ type: 'connect-pick', session: s, key: 'labels', value: ['billing'] }));
-  assert.ok(isFromWebview({ type: 'connect-pick', session: s, key: 'epic', value: null }));
+  assert.ok(isFromWebview({ type: 'connect-pick', session: s, key: 'epics', value: null }));
   assert.ok(isFromWebview({ type: 'connect-kind', session: s, kind: 'azure' }));
   assert.ok(isFromWebview({ type: 'connect-kind', session: s, kind: 'monday' }));
   assert.ok(isFromWebview({ type: 'connect-pick', session: s, key: 'statusColumn', value: 'status' }));
@@ -848,13 +913,13 @@ test('the tick doesn\'t know one tracker from another: monday.com\'s is built fr
 
 test('the Connect page offers no picker for a tracker key nothing reads yet, and with none listed it offers them all (GH-107)', () => {
   const jira = DESCRIPTIONS.find((d) => d.kind === 'jira')!;
-  const s = blankConnect(jira, { id: 'p', root: ROOT, projectName: 'Acme Service', ownRepo: null, ghAccount: null, from: 'tasks', existing: { index: 0, title: 'Jira · ACME', host: SITE, values: { project: 'ACME', epic: 'ACME-3', board: '7' } } });
-  assert.deepEqual(connectModel(s).pickers.map((p) => p.key), ['project', 'epic', 'board', 'sprint']);
+  const s = blankConnect(jira, { id: 'p', root: ROOT, projectName: 'Acme Service', ownRepo: null, ghAccount: null, from: 'tasks', existing: { index: 0, title: 'Jira · ACME', host: SITE, values: { project: 'ACME', epics: ['ACME-3'], board: '7' } } });
+  assert.deepEqual(connectModel(s).pickers.map((p) => p.key), ['project', 'epics', 'board', 'sprint']);
   assert.deepEqual(connectModel(s, DESCRIPTIONS, {}), connectModel(s), 'the real list is empty today, so nothing is hidden');
-  const hidden = connectModel(s, DESCRIPTIONS, { 'trackers[].epic': 'GH-1 will read it.' });
+  const hidden = connectModel(s, DESCRIPTIONS, { 'trackers[].epics': 'GH-1 will read it.' });
   assert.deepEqual(hidden.pickers.map((p) => p.key), ['project', 'board', 'sprint']);
   // Not offered isn't dropped: Save writes back the epic the tracker already has.
-  assert.equal(s.pickers.epic!.selected[0], 'ACME-3');
+  assert.equal(s.pickers.epics!.selected[0], 'ACME-3');
 });
 
 test('another tracker is a description, not another page: a sixth one gets its fields, sign-in and lists', () => {

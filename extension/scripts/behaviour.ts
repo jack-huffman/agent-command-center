@@ -1039,7 +1039,7 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'connect: choosing a board shows its preview, an epic changes it, and Use this board saves only from it',
+    name: 'connect: choosing a board shows its preview, ticking another epic changes it, and Use this board saves only from it',
     page: 'connect-start',
     async run(t) {
       const want = t.data.choose;
@@ -1068,24 +1068,25 @@ export const CASES: Case[] = [
       t.check('the preview says how many tickets, in how many columns', t.find('.connect-preview > .status').textContent?.trim() === want.line, t.find('.connect-preview > .status').textContent);
       t.check('it draws the board\'s columns', t.all('.connect-preview .cpreview-col').length === want.shown.preview.board!.columns.length, t.all('.cpreview-col').length);
       t.check('with the Tasks tab\'s cards', t.all('.connect-preview .tcard').length > 0);
-      t.check('ACME-31\'s card is ticked', card('ACME-31', 'epic').classList.contains('on'));
+      t.check('ACME-31\'s card is ticked', card('ACME-31', 'epics').classList.contains('on'));
       // The search hides the epics it doesn't match.
       const search = t.find<HTMLInputElement>('input.ccards-search');
       // Edge: a search that matches no epic says so, and hides every epic but the whole project.
       await t.type(search, 'no such epic');
-      t.check('a search that matches none says so', !t.find('#connect-epic ~ .ccards-none').hidden);
+      t.check('a search that matches none says so', !t.find('#connect-epics ~ .ccards-none').hidden);
       search.value = '';
       await t.type(search, 'partner');
-      t.check('a search that matches one hides the line again', t.find('#connect-epic ~ .ccards-none').hidden === true);
-      const shown = t.all<HTMLElement>('#connect-epic .ccard').filter((c) => !c.hidden && c.dataset.value).map((c) => c.dataset.value);
+      t.check('a search that matches one hides the line again', t.find('#connect-epics ~ .ccards-none').hidden === true);
+      const shown = t.all<HTMLElement>('#connect-epics .ccard').filter((c) => !c.hidden && c.dataset.value).map((c) => c.dataset.value);
       t.check('the search shows only the epics it matches', shown.length === 1 && shown[0] === 'ACME-30', shown);
-      // Another epic changes it.
-      await t.click(card('ACME-30', 'epic'));
+      // Ticking another epic (T-107) keeps the first: both are sent, and the preview follows them.
+      await t.click(card('ACME-30', 'epics'));
       const epic = t.sent('connect-pick').at(-1);
-      t.check('an epic\'s card sends its choice', epic?.key === 'epic' && epic.value === 'ACME-30', epic);
+      const ticked = Array.isArray(epic?.value) ? (epic.value as string[]).join(' ') : '';
+      t.check('ticking an epic\'s card sends every epic ticked, the one hidden by the search too', epic?.key === 'epics' && ticked === 'ACME-31 ACME-30', epic);
       await show(want.epic);
-      t.check('the preview changes with the epic', t.find('.connect-preview > .status').textContent?.trim() === want.epicLine && want.epicLine !== want.line, t.find('.connect-preview > .status').textContent);
-      t.check('and ACME-30 is ticked now', card('ACME-30', 'epic').classList.contains('on') && !card('ACME-31', 'epic').classList.contains('on'));
+      t.check('the preview changes with the epics ticked', t.find('.connect-preview > .status').textContent?.trim() === want.epicLine && want.epicLine !== want.line, t.find('.connect-preview > .status').textContent);
+      t.check('and both epics are ticked now', card('ACME-30', 'epics').classList.contains('on') && card('ACME-31', 'epics').classList.contains('on'));
       t.check('Use this board is on', !use().disabled);
       await t.click(use());
       t.check('Use this board saves the place', t.sent('connect-save').length === 1, t.sent('connect-save'));

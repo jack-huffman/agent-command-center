@@ -5,7 +5,7 @@
 import { type AdfNode, adfUnkept, fromAdf, fromMarkdown, toAdf, toMarkdown, unkeptRefusal } from './doc.ts';
 import { isEmail, typeKindOf } from './normal.ts';
 import {
-  type Board, type BoardCard, type BoardColumn, inBatches, type Label, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Sprint,
+  type Board, type BoardCard, type BoardColumn, inBatches, type Label, orList, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Sprint,
   type Status, type StatusCategory, type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
@@ -18,8 +18,8 @@ export interface JiraOptions {
   token: string;
   /** A board id. By default, the project's first board. */
   board?: number | null;
-  /** An epic's key: only its child tickets and their sub-tasks count (D-072). By default, the whole project. */
-  epic?: string | null;
+  /** Epics' keys: only their child tickets and their sub-tasks count (D-072, T-107). By default, the whole project. */
+  epics?: string[];
   /** "active" for the board's open sprints, or a sprint's id: only its tickets count, with or without an epic (T-78). By default, the whole board. */
   sprint?: 'active' | number | null;
   fetch?: typeof fetch;
@@ -67,7 +67,8 @@ export class JiraClient implements TrackerClient {
   readonly place: string;
   private readonly o: JiraOptions;
   private readonly base: string;
-  private readonly epic: string | null;
+  /** The epics' keys, upper-cased, each once (T-107). Empty for the whole project. */
+  private readonly epics: string[];
   private readonly sprint: 'active' | number | null;
   private boardIdCache: Promise<number> | null = null;
   private sprintsCache: Promise<Sprint[]> | null = null;
@@ -76,20 +77,21 @@ export class JiraClient implements TrackerClient {
     this.o = o;
     this.base = `https://${o.site.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
     this.title = `Jira · ${o.project}`;
-    this.epic = o.epic ? o.epic.trim().toUpperCase() : null;
+    this.epics = [...new Set((o.epics ?? []).map((e) => e.trim().toUpperCase()).filter(Boolean))];
     this.sprint = o.sprint ?? null;
-    this.place = placeText({ kind: 'jira', project: o.project, epic: this.epic, sprint: this.sprint });
+    this.place = placeText({ kind: 'jira', project: o.project, epics: this.epics, sprint: this.sprint });
   }
 
   /**
-   * The JQL that holds the board's cards to the place (D-072): the project, and with an epic, its child
-   * tickets. Their sub-tasks come from a second query, of the children's own keys. With a sprint (T-78),
+   * The JQL that holds the board's cards to the place (D-072): the project, and with epics, the child tickets
+   * of any of them (T-107). Their sub-tasks come from a second query, of the children's own keys. With a sprint (T-78),
    * only that sprint's tickets: the named one, or the active one. `open` is the board's open sprints, once
    * known, so another board's active sprint never counts; until then, Jira's own openSprints().
    */
   placeJql(open?: number[]): string {
-    if (this.epic && !ISSUE_KEY.test(this.epic)) throw new TrackerError('other', `"${this.o.epic}" isn't a Jira epic's key, such as ACME-3.`);
-    return `project = ${jqlString(this.o.project)}${this.epic ? ` AND parent = ${this.epic}` : ''}${this.sprintJql(open)}`;
+    const bad = this.epics.find((e) => !ISSUE_KEY.test(e));
+    if (bad) throw new TrackerError('other', `"${bad}" isn't a Jira epic's key, such as ACME-3.`);
+    return `project = ${jqlString(this.o.project)}${this.epics.length ? ` AND parent in (${this.epics.join(', ')})` : ''}${this.sprintJql(open)}`;
   }
 
   /** The sprint's part of the JQL, or nothing for the whole board. */
@@ -144,22 +146,23 @@ export class JiraClient implements TrackerClient {
 
   /**
    * Why an issue is outside the place, or null when it's in it (D-072). `asked` is the key that was asked
-   * for: a moved issue comes back under its new key. With `projectOnly`, the epic and the sprint don't count.
+   * for: a moved issue comes back under its new key. Under any of the epics is inside (T-107). With
+   * `projectOnly`, the epics and the sprint don't count.
    */
   private async whyOutside(i: Placed, asked: string, projectOnly: boolean): Promise<string | null> {
     const project = projectOf(i);
     if (project !== this.o.project.toUpperCase()) return i.key.toUpperCase() !== asked.toUpperCase() ? `it moved to ${i.key}, in project ${project}` : `it's in project ${project}`;
     if (projectOnly) return null;
-    if (!this.epic) return this.outsideSprint(i.key);
-    if (i.key.toUpperCase() === this.epic) return 'it\'s the epic itself, and only the tickets in it count';
+    if (!this.epics.length) return this.outsideSprint(i.key);
+    if (this.epics.includes(i.key.toUpperCase())) return 'it\'s the epic itself, and only the tickets in it count';
     const parent = i.fields.parent?.key?.toUpperCase();
-    if (parent === this.epic) return this.outsideSprint(i.key);
-    // A sub-task counts when its parent is one of the epic's tickets.
+    if (parent && this.epics.includes(parent)) return this.outsideSprint(i.key);
+    // A sub-task counts when its parent is one of an epic's tickets.
     if (parent && i.fields.issuetype?.subtask !== false) {
       const up = await this.req<Placed>('GET', `/rest/api/3/issue/${encodeURIComponent(parent)}?fields=parent`);
-      if (up.fields.parent?.key?.toUpperCase() === this.epic) return this.outsideSprint(i.key);
+      if (this.epics.includes(up.fields.parent?.key?.toUpperCase() ?? '')) return this.outsideSprint(i.key);
     }
-    return `it isn't in epic ${this.epic}`;
+    return `it isn't in epic ${orList(this.epics)}`;
   }
 
   private async req<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
@@ -208,10 +211,10 @@ export class JiraClient implements TrackerClient {
 
   async board(): Promise<Board> {
     const id = await this.boardId();
-    const [config, statuses, epicName, sprints] = await Promise.all([
+    const [config, statuses, epicNames, sprints] = await Promise.all([
       this.req<{ name: string; columnConfig: { columns: { name: string; statuses: { id: string }[] }[] } }>('GET', `/rest/agile/1.0/board/${id}/configuration`),
       this.req<{ statuses: JiraStatus[] }[]>('GET', `/rest/api/3/project/${encodeURIComponent(this.o.project)}/statuses`),
-      this.epic ? this.epicName() : Promise.resolve(null),
+      Promise.all(this.epics.map((e) => this.epicName(e))),
       this.sprint !== null ? this.sprints() : Promise.resolve(null),
     ]);
     // Following the active sprint with none open (T-78): no cards, rather than the whole board.
@@ -227,8 +230,8 @@ export class JiraClient implements TrackerClient {
     // The board's own filter, held to the place: a filter that spans other projects shows only this one's (D-072).
     const project = this.o.project.toUpperCase();
     let issues = noSprint ? [] : (await this.boardIssues(id, jql, MAX_CARDS)).filter((i) => projectOf(i) === project);
-    if (this.epic && !noSprint) {
-      const children = issues.filter((i) => i.fields.parent?.key?.toUpperCase() === this.epic);
+    if (this.epics.length && !noSprint) {
+      const children = issues.filter((i) => this.epics.includes(i.fields.parent?.key?.toUpperCase() ?? ''));
       const keys = children.map((i) => i.key.toUpperCase());
       const subtasks: BoardIssue[] = [];
       for (let k = 0; k < keys.length && children.length + subtasks.length < MAX_CARDS; k += 50) {
@@ -246,12 +249,12 @@ export class JiraClient implements TrackerClient {
     // The board's filter and the place both apply, so a filter that leaves the epic's tickets out shows nothing.
     const notice = noSprint
       ? NO_ACTIVE_SPRINT
-      : this.epic && !cards.length
-        ? `No ticket in epic ${this.epic} is on this board. Its own filter may leave them out: widen the filter in Jira, or pick another board with Change, above it.`
+      : this.epics.length && !cards.length
+        ? `No ticket in epic ${orList(this.epics)} is on this board. Its own filter may leave them out: widen the filter in Jira, or pick another board with Change, above it.`
         : null;
     return {
       source: 'jira-board', title: config.name, url: `${this.base}/jira/software/projects/${encodeURIComponent(this.o.project)}/boards/${id}`, columns, cards, notice,
-      place: placeText({ kind: 'jira', project: this.o.project, epic: this.epic, epicName, sprint: this.sprint, sprints }),
+      place: placeText({ kind: 'jira', project: this.o.project, epics: this.epics, epicNames, sprint: this.sprint, sprints }),
       ...(sprints ? { sprints } : {}),
     };
   }
@@ -267,12 +270,12 @@ export class JiraClient implements TrackerClient {
     return out;
   }
 
-  /** The epic's own summary, for saying where the board's tickets come from. */
-  private async epicName(): Promise<string | null> {
+  /** An epic's own summary, for saying where the board's tickets come from. */
+  private async epicName(epic: string): Promise<string | null> {
     try {
-      return (await this.req<{ fields: { summary?: string } }>('GET', `/rest/api/3/issue/${encodeURIComponent(this.epic!)}?fields=summary`)).fields.summary ?? null;
+      return (await this.req<{ fields: { summary?: string } }>('GET', `/rest/api/3/issue/${encodeURIComponent(epic)}?fields=summary`)).fields.summary ?? null;
     } catch (e) {
-      if (e instanceof TrackerError && e.kind === 'not-found') throw new TrackerError('not-found', `Epic ${this.epic} isn't in Jira, or this sign-in can't see it. Pick another with the board's Change.`);
+      if (e instanceof TrackerError && e.kind === 'not-found') throw new TrackerError('not-found', `Epic ${epic} isn't in Jira, or this sign-in can't see it. Pick another with the board's Change.`);
       throw e;
     }
   }

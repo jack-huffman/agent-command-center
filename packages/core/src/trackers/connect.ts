@@ -5,9 +5,10 @@
  * monday.com's was. Nothing here reaches VSCode: a Microsoft sign-in and gh are methods a description
  * names, and the extension carries out.
  */
-import type { Tracker } from '../config.ts';
+import { epicKeys, type Tracker } from '../config.ts';
+import { plural } from '../text.ts';
 import { AzureClient, azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from './azure.ts';
-import { GithubClient } from './github.ts';
+import { GITHUB_NO_PROJECT, githubBoard, GithubClient, type GithubProject, projectsAccess } from './github.ts';
 import { JiraClient, jiraBoards, jiraEpics, jiraProjects, jiraSprints } from './jira.ts';
 import { MondayClient, mondayBoards, mondayGroups, mondayMe, mondayStatusColumns, mondayTokenPage } from './monday.ts';
 import { SLACK_APPS, SLACK_REACTIONS, slackApp, slackCanRead, slackChannels, SlackClient } from './slack.ts';
@@ -227,8 +228,8 @@ export const JIRA: TrackerDescription = {
   pickers: [
     { key: 'project', label: 'Project', dependsOn: [], identifies: true, load: async (ctx) => (await jiraProjects(ctx.host, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((p) => ({ value: p.key, label: p.key, detail: p.name })) },
     {
-      key: 'epic', label: 'Epic', dependsOn: ['project'], whole: (c) => `The whole ${one(c.values.project) ?? ''} project`, counts: true,
-      hint: 'Pick an epic to take only its tickets and their sub-tasks.',
+      key: 'epics', label: 'Epics', dependsOn: ['project'], multi: true, whole: (c) => `The whole ${one(c.values.project) ?? ''} project`, counts: true,
+      hint: 'Tick epics to take only their tickets and their sub-tasks. Tick none for the whole project.',
       load: async (ctx) => (await jiraEpics(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((e) => ({ value: e.key, label: e.key, detail: e.name })),
     },
     {
@@ -243,15 +244,16 @@ export const JIRA: TrackerDescription = {
       load: async (ctx) => jiraSprintOptions(await jiraSprints(ctx.host, one(ctx.values.project)!, one(ctx.values.board) ? Number(one(ctx.values.board)) : null, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)),
     },
   ],
-  place: { key: 'epic', words: 'In Jira, it\'s the epic itself: only its child tickets and their sub-tasks are this project\'s.' },
+  place: { key: 'epics', words: 'In Jira, it\'s the epic itself: only its child tickets and their sub-tasks are this project\'s.' },
   verify: (ctx) => new JiraClient({ site: ctx.host, project: '', ...jiraWith(ctx), fetch: ctx.fetch }).me(),
   preview: (ctx) => {
     const project = one(ctx.values.project);
     const board = one(ctx.values.board);
-    return project ? new JiraClient({ site: ctx.host, project, ...jiraWith(ctx), board: board ? Number(board) : null, epic: one(ctx.values.epic), sprint: sprintValue(one(ctx.values.sprint)), fetch: ctx.fetch }) : null;
+    return project ? new JiraClient({ site: ctx.host, project, ...jiraWith(ctx), board: board ? Number(board) : null, epics: many(ctx.values.epics), sprint: sprintValue(one(ctx.values.sprint)), fetch: ctx.fetch }) : null;
   },
-  toConfig: (c) => ({ kind: 'jira', site: c.host, project: one(c.values.project), board: one(c.values.board) ? Number(one(c.values.board)) : null, epic: one(c.values.epic), sprint: sprintValue(one(c.values.sprint)) }),
-  fromConfig: (t) => ({ host: t.site ?? '', values: { project: t.project, epic: t.epic, board: t.board === null ? null : String(t.board), sprint: t.sprint === null ? null : String(t.sprint) } }),
+  // Its epics as the file keeps them (T-107): one as "epic", several as "epics", and the other taken out.
+  toConfig: (c) => ({ kind: 'jira', site: c.host, project: one(c.values.project), board: one(c.values.board) ? Number(one(c.values.board)) : null, ...epicKeys(many(c.values.epics)), sprint: sprintValue(one(c.values.sprint)) }),
+  fromConfig: (t) => ({ host: t.site ?? '', values: { project: t.project, epics: t.epics.length ? t.epics : null, board: t.board === null ? null : String(t.board), sprint: t.sprint === null ? null : String(t.sprint) } }),
 };
 
 /** A Jira board's kind as its card says it (T-106): Scrum or Kanban, else Jira's own word. */
@@ -286,16 +288,52 @@ export const GITHUB: TrackerDescription = {
     hint: 'GitHub signs in through gh, as the project\'s own account. There\'s nothing to type.',
   }],
   pickers: [{
+    // The repo's Projects (T-107), beside its issues with no Project: the one chosen gives the board its columns.
+    key: 'board', label: 'Project', dependsOn: [], idValues: true,
+    hint: 'A GitHub Project\'s Status field gives the board its columns. Without one, they\'re Open and Closed.',
+    fallback: 'Without one, the board takes the repo\'s first open Project, or Open and Closed.',
+    load: async (ctx) => githubProjectOptions(ctx.signIn.gh?.account ?? '', await github(ctx).projects().catch((e: unknown) => {
+      if (e instanceof TrackerError && e.kind === 'scope') return null;
+      throw e;
+    })),
+  }, {
     key: 'labels', label: 'Labels', dependsOn: [], multi: true, whole: (c) => `Every issue in ${c.host}`, counts: true,
     hint: 'Tick labels to take only issues with one of them. Tick none for every issue.',
     load: async (ctx) => (await github(ctx).labels()).map((l) => ({ value: l.name, label: l.name })),
   }],
   place: { key: 'labels', words: 'In GitHub, labels stand in for an epic: only issues with one of them are this project\'s.' },
   verify: (ctx) => github(ctx).me(),
-  preview: (ctx) => (ctx.signIn.gh ? new GithubClient({ repo: ctx.host, token: ctx.signIn.gh.token, account: ctx.signIn.gh.account, exec: ctx.exec, labels: many(ctx.values.labels) }) : null),
-  toConfig: (c) => ({ kind: 'github', repo: c.ownRepo && c.host.toLowerCase() === c.ownRepo.toLowerCase() ? null : c.host, labels: many(c.values.labels).length ? many(c.values.labels) : null }),
-  fromConfig: (t, ownRepo) => ({ host: t.repo ?? ownRepo ?? '', values: { labels: t.labels.length ? t.labels : null } }),
+  preview: (ctx) => (ctx.signIn.gh ? new GithubClient({ repo: ctx.host, token: ctx.signIn.gh.token, account: ctx.signIn.gh.account, exec: ctx.exec, project: githubBoard(projectValue(one(ctx.values.board))), labels: many(ctx.values.labels) }) : null),
+  // The repo's own first Project is its default, which the file names by leaving board out (T-107).
+  toConfig: (c) => ({
+    kind: 'github', repo: c.ownRepo && c.host.toLowerCase() === c.ownRepo.toLowerCase() ? null : c.host,
+    board: c.defaults.includes('board') ? null : projectValue(one(c.values.board)), labels: many(c.values.labels).length ? many(c.values.labels) : null,
+  }),
+  fromConfig: (t, ownRepo) => ({ host: t.repo ?? ownRepo ?? '', values: { board: t.board === null ? null : String(t.board), labels: t.labels.length ? t.labels : null } }),
 };
+
+/** A GitHub Project card's value as the file keeps it (T-107): its number, or GITHUB_NO_PROJECT. */
+const projectValue = (v: string | null): number | typeof GITHUB_NO_PROJECT | null => (v === GITHUB_NO_PROJECT ? v : v && /^\d+$/.test(v) ? Number(v) : null);
+
+/**
+ * The GitHub Project cards (T-107): Issues, open and closed first, then each Project with a Status field, with
+ * its number and how many items it holds. The repo's first open one is its default, as the board takes it
+ * with no Project named; with none, the issues are. `projects` null: the account can't read Projects, and the
+ * issues' card says how to give it access, as the Tasks tab's notice does.
+ */
+export function githubProjectOptions(account: string, projects: GithubProject[] | null): Option[] {
+  const usable = (projects ?? []).filter((p) => p.status);
+  const first = usable.find((p) => !p.closed);
+  return [
+    { value: GITHUB_NO_PROJECT, label: GITHUB_ISSUES, detail: projects ? 'No Project: the columns are Open and Closed.' : projectsAccess(account), ...(first ? {} : { default: true }) },
+    ...usable.map((p) => ({
+      value: String(p.number), label: p.title, detail: [`#${p.number}`, plural(p.items, 'item'), ...(p.closed ? ['closed'] : [])].join(' · '), ...(p === first ? { default: true } : {}),
+    })),
+  ];
+}
+
+/** The GitHub card for no Project (T-107). */
+export const GITHUB_ISSUES = 'Issues, open and closed';
 
 export const AZURE: TrackerDescription = {
   kind: 'azure', name: 'Azure DevOps', icon: 'azure-devops',

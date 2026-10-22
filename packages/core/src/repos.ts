@@ -143,7 +143,7 @@ const area = (s: string | null | undefined): string => lc(s).replace(/^\\+|\\+$/
 function meets(t: Tracker, ownRepo: string | null, c: PlaceChoice): 'same' | 'overlap' | null {
   if (t.kind !== c.kind) return null;
   const v = lc(c.value);
-  if (t.kind === 'jira') return lc(t.site) === lc(c.host) && !!t.epic && lc(t.epic) === v ? 'same' : null;
+  if (t.kind === 'jira') return lc(t.site) === lc(c.host) && t.epics.some((e) => lc(e) === v) ? 'same' : null;
   if (t.kind === 'github') return lc(t.repo ?? ownRepo) === lc(c.host) && t.labels.some((l) => lc(l) === v) ? 'same' : null;
   if (t.kind === 'monday') return lc(t.account) === lc(c.host) && lc(t.board) === lc(c.board) && !!t.group && lc(t.group) === v ? 'same' : null;
   if (lc(t.organization) !== lc(c.host) || lc(t.project) !== lc(c.project) || !t.areaPath) return null;

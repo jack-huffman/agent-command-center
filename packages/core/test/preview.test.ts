@@ -20,12 +20,12 @@ test('every tracker has a preview: a client for the place once its choices make 
   }
   assert.equal(checked, 5);
   // Edge: before the choices make a place, there's nothing to read.
-  assert.equal(JIRA.preview(ctx({ project: null, epic: null, board: null, sprint: null })), null, 'Jira needs a project');
+  assert.equal(JIRA.preview(ctx({ project: null, epics: null, board: null, sprint: null })), null, 'Jira needs a project');
   assert.equal(AZURE.preview(ctx({ project: null, team: null, board: null, areaPath: null })), null, 'Azure DevOps needs a project');
   assert.equal(MONDAY.preview(ctx({ board: null, group: null, statusColumn: null })), null, 'monday.com needs a board');
   assert.equal(SLACK.preview(ctx({ channel: null, reaction: null, doneReaction: null })), null, 'Slack needs a channel');
   assert.equal(GITHUB.preview(ctx({ labels: null })), null, 'GitHub needs its gh sign-in');
-  const jira = JIRA.preview(ctx({ project: 'ACME', epic: 'ACME-31', board: '7', sprint: 'active' })) as TrackerClient;
+  const jira = JIRA.preview(ctx({ project: 'ACME', epics: ['ACME-31'], board: '7', sprint: 'active' })) as TrackerClient;
   assert.equal(jira.place, 'Jira · ACME · epic ACME-31 · the active sprint', 'the epic and sprint chosen are its place');
   assert.match((AZURE.preview({ ...ctx({ project: 'CRM', team: 'CRM Team', board: 'Stories', areaPath: 'CRM\\Billing' }), host: 'acme' }) as TrackerClient).place, /CRM · CRM Team · area CRM\\Billing/);
   assert.match((GITHUB.preview({ ...ctx({ labels: ['billing'] }, { gh: { account: 'jordan-kim', token: 'gh' } }), host: 'acme/service' }) as TrackerClient).place, /label billing/);
@@ -63,7 +63,7 @@ test('a Jira preview only reads: each request its board makes is a GET', async (
     if (path.includes('/sprint')) return Response.json({ values: [] });
     return Response.json({ issues: [], values: [] });
   }) as unknown as typeof globalThis.fetch;
-  const client = JIRA.preview({ ...ctx({ project: 'ACME', epic: null, board: '7', sprint: null }), fetch }) as TrackerClient;
+  const client = JIRA.preview({ ...ctx({ project: 'ACME', epics: null, board: '7', sprint: null }), fetch }) as TrackerClient;
   const r = await readPlace(client);
   assert.ok(r.board, 'it read a board');
   assert.ok(methods.length > 0, 'it asked Jira something');
@@ -71,18 +71,18 @@ test('a Jira preview only reads: each request its board makes is a GET', async (
 });
 
 test('a card\'s count reads its place: that choice made, and every list that depends on it cleared', () => {
-  const values = { project: 'ACME', epic: 'ACME-31', board: '7', sprint: 'active' };
-  assert.deepEqual(countValues(JIRA.pickers, values, 'epic', 'ACME-30'), { project: 'ACME', epic: 'ACME-30', board: '7', sprint: 'active' }, 'an epic leaves the board and sprint');
-  assert.deepEqual(countValues(JIRA.pickers, values, 'board', '9'), { project: 'ACME', epic: 'ACME-31', board: '9', sprint: null }, 'another board clears its sprint');
+  const values = { project: 'ACME', epics: ['ACME-31'], board: '7', sprint: 'active' };
+  assert.deepEqual(countValues(JIRA.pickers, values, 'epics', 'ACME-30'), { project: 'ACME', epics: ['ACME-30'], board: '7', sprint: 'active' }, 'an epic leaves the board and sprint');
+  assert.deepEqual(countValues(JIRA.pickers, values, 'board', '9'), { project: 'ACME', epics: ['ACME-31'], board: '9', sprint: null }, 'another board clears its sprint');
   // Edge: '' is the whole project, which chooses nothing.
-  assert.deepEqual(countValues(JIRA.pickers, values, 'epic', ''), { ...values, epic: null });
+  assert.deepEqual(countValues(JIRA.pickers, values, 'epics', ''), { ...values, epics: null });
   // Ticks count one label each.
   assert.deepEqual(countValues(GITHUB.pickers, { labels: ['billing', 'bug'] }, 'labels', 'invoices'), { labels: ['invoices'] });
   // Azure DevOps: another team clears its board and area path, which are the team's.
   assert.deepEqual(countValues(AZURE.pickers, { project: 'CRM', team: 'CRM Team', board: 'Stories', areaPath: 'CRM\\Billing' }, 'team', 'Billing'), { project: 'CRM', team: 'Billing', board: null, areaPath: null });
   // The same choices are the same place, and a card's count is the preview's board once it's chosen.
-  assert.equal(placeKey(countValues(JIRA.pickers, values, 'epic', 'ACME-31')), placeKey(values));
-  assert.notEqual(placeKey(countValues(JIRA.pickers, values, 'epic', 'ACME-30')), placeKey(values));
+  assert.equal(placeKey(countValues(JIRA.pickers, values, 'epics', 'ACME-31')), placeKey(values));
+  assert.notEqual(placeKey(countValues(JIRA.pickers, values, 'epics', 'ACME-30')), placeKey(values));
 });
 
 test('the preview\'s line counts its tickets and columns, with one of each said once', () => {

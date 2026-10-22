@@ -352,20 +352,21 @@ test('a tracker picked on the Connect page is written as it is, narrowed to its 
   const { repo, run } = genericRepo();
   // As each description's toConfig gives it: nulls for what wasn't picked.
   const cases: [Record<string, unknown>, unknown[]][] = [
-    [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' }, ['jira', 'acme.atlassian.net', 'ACME', 7, 'ACME-3', [], null]],
-    [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }, ['azure', 'acme', 'CRM', 'Stories', null, [], 'CRM\\Billing']],
-    [{ kind: 'github', repo: null, labels: ['billing', 'invoices'] }, ['github', null, null, null, null, ['billing', 'invoices'], null]],
+    [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' }, ['jira', 'acme.atlassian.net', 'ACME', 7, ['ACME-3'], [], null]],
+    [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', areaPath: 'CRM\\Billing' }, ['azure', 'acme', 'CRM', 'Stories', [], [], 'CRM\\Billing']],
+    [{ kind: 'github', repo: null, labels: ['billing', 'invoices'] }, ['github', null, null, null, [], ['billing', 'invoices'], null]],
+    [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: null, epics: ['ACME-3', 'ACME-7'] }, ['jira', 'acme.atlassian.net', 'ACME', 7, ['ACME-3', 'ACME-7'], [], null]],
   ];
   let checked = 0;
   for (const [tracker, want] of cases) {
     const plan = planInit(run, { root: repo, tracker });
     assert.equal(plan.config.trackers.length, 1);
     const t = plan.config.trackers[0]!;
-    assert.deepEqual([t.kind, t.site ?? t.organization, t.project, t.board, t.epic, t.labels, t.areaPath], want, tracker.kind as string);
+    assert.deepEqual([t.kind, t.site ?? t.organization, t.project, t.board, t.epics, t.labels, t.areaPath], want, tracker.kind as string);
     assert.deepEqual(plan.notes.filter((n) => /--tracker/.test(n)), [], 'nothing replaced, nothing to say');
     checked++;
   }
-  assert.equal(checked, 3);
+  assert.equal(checked, 4);
 
   // The template's Jira tracker gives way to an Azure one, and --jira-* to a Jira epic, each with a note.
   const azure = planInit(run, { root: repo, template: loaded(GENERIC_TEMPLATE), tracker: cases[1]![0] });
@@ -374,7 +375,7 @@ test('a tracker picked on the Connect page is written as it is, narrowed to its 
   assert.ok(!azure.fromTemplate.includes('trackers'), 'the tracker isn\'t the template\'s');
   assert.deepEqual(azure.config.gates.required, ['test', 'lint'], 'the rest of the template still applies');
   const jira = planInit(run, { root: repo, template: loaded(GENERIC_TEMPLATE), jiraProject: 'OPS', tracker: cases[0]![0] });
-  assert.deepEqual(jira.config.trackers.map((t) => [t.project, t.epic]), [['ACME', 'ACME-3']]);
+  assert.deepEqual(jira.config.trackers.map((t) => [t.project, t.epics]), [['ACME', ['ACME-3']]]);
   assert.ok(jira.notes.some((n) => /replaces --jira-site and --jira-project/.test(n)), jira.notes.join('\n'));
 
   // A template's key prefix stays on the same kind of tracker on the same host, unless the one picked names
