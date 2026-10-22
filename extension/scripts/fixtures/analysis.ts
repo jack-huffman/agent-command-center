@@ -21,6 +21,8 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
   return {
     'ACME-21': make('ACME-21', 'questions', 18, {
       summary: 'Converting a lead drops its contact roles: the conversion handler creates the opportunity but never an OpportunityContactRole. The fix belongs in the existing LeadConversionHandler, with a test for each role, and stays bulk-safe at 200 leads.',
+      // It read the ticket's two comments (T-110), and a finding names the one it rests on.
+      ticket: { full: true, why: null, comments: 2, omitted: 0, newest: { author: 'Jordan Kim', created: at(26 * 60) }, related: 0, attachments: 0, changes: null },
       requirements: {
         goal: 'A lead converted with an opportunity keeps its contacts\' roles on that opportunity.',
         criteria: ['A converted lead\'s primary contact has a contact role on the new opportunity', 'Converting 200 leads at once stays within limits; no flow fails', 'Leads converted without an opportunity are unchanged'],
@@ -56,6 +58,7 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
         { area: 'LeadConversionHandler', detail: 'An after-update handler creates the opportunity but no OpportunityContactRole.', source: 'force-app/main/default/classes/LeadConversionHandler.cls' },
         { area: 'Automation on Lead', detail: 'One before-save flow (Lead_Defaults) and this trigger; no validation rule fires on conversion.', source: 'Acme Dev: FlowDefinitionView, ApexTrigger' },
         { area: 'Tests', detail: 'LeadConversionHandlerTest covers conversion without an opportunity only (71% coverage).', source: 'Acme Dev: ApexCodeCoverageAggregate' },
+        { area: 'The ticket\'s comments', detail: `Older opportunities stay as they are: a backfill is its own ticket (Jordan Kim, ${at(26 * 60).slice(0, 10)}). That leaves the second choice open, so it is a choice, not an assumption.`, source: 'the ticket' },
       ],
       approach: {
         plan: ['Collect the converted leads that created an opportunity', 'Insert one OpportunityContactRole each for the primary contact, in bulk', 'Add tests for one lead, 200 leads, and a conversion without an opportunity'],

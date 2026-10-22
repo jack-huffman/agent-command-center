@@ -120,7 +120,8 @@ export function drafting(paths: Pick<RepoPaths, 'stateDir'>, task: string): Draf
   }
 }
 
-const clipText = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n\n(cut at ${max} characters)` : s);
+/** Text cut to a size, saying where it was cut. A plan's ticket (T-110) cuts its description the same way. */
+export const clipText = (s: string, max: number): string => (s.length > max ? `${s.slice(0, max)}\n\n(cut at ${max} characters)` : s);
 
 /** A tracker's ticket as the drafter reads it: the newest comments, each and the description cut to a size. */
 export function criteriaTicket(t: Pick<Ticket, 'key' | 'title' | 'url' | 'markdown' | 'comments' | 'related'>): CriteriaTicket {

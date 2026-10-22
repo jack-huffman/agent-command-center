@@ -19,6 +19,7 @@ import { alive } from './lock.ts';
 import { sessionName } from './names.ts';
 import type { RepoPaths } from './paths.ts';
 import { choosePlan } from './plan-choices.ts';
+import { readPlanTicket, ticketLines, ticketWithout } from './plan-ticket.ts';
 import { askOf, choiceName, lapse, planVersion, recommendedName } from './plan.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 
@@ -470,10 +471,8 @@ export function claudeBrief(paths: RepoPaths, id: string): string {
     '',
     task.source.url ? `Ticket: ${task.source.url}` : `Source: ${task.source.kind}`,
     '',
-    '## The ticket',
-    '',
-    task.brief.trim() || '_Only the title was given._',
-    '',
+    // The ticket the plan read, its comments too (T-110); a plan made before plans kept it, the description.
+    ...ticketLines(readPlanTicket(paths, id) ?? ticketWithout(task)),
     `## The plan, v${planVersion(a)}${a.approval ? ' (approved)' : ''}`,
     '',
     a.summary,

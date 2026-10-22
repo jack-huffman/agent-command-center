@@ -17,6 +17,7 @@ import { approvedPlanLines, choiceName, lapse, nextVersion, planProblems } from 
 import { talkSection, versionTurn } from './plan-talk.ts';
 import { parseShapes, parseShapeSplit, SHAPE_PROMPT, SHAPE_SCHEMA, type SharedShape, type ShapeSplit } from './shape-first.ts';
 import { shapeTeamLines } from './shape-split.ts';
+import { PLAN_TICKET_PROMPT, type PlanRead, planRead, type PlanTicket, readWords, ticketLines, ticketWithout, writePlanTicket } from './plan-ticket.ts';
 
 /**
  * The analysis (D-052): before a task is built, a read-only agent works out what it asks for, what's
@@ -144,6 +145,8 @@ export interface Analysis {
   sharedShapes?: SharedShape[];
   /** Where a shape is shared: a small first task for the shape and the rest, suggested to a person (T-104). */
   shapeSplit?: ShapeSplit;
+  /** What it read of the ticket (T-110): its comments, the newest, and what it left out. Older plans have none. */
+  ticket?: PlanRead;
   /** The orgs it read, by alias. */
   orgs: string[];
   sessionId: string;
@@ -390,6 +393,8 @@ export interface AnalysisInput {
   talk?: string[];
   /** The tasks in flight and ready, for the shared shapes it looks for (T-104): shape-split.ts's shapeTeamLines. */
   team?: string[];
+  /** The whole ticket (T-110). Not given: the description only. */
+  ticket?: PlanTicket;
 }
 
 export function analysisPrompt(i: AnalysisInput): { system: string; prompt: string } {
@@ -399,6 +404,7 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
     `You can read the repo at ${i.root} (Read, Grep, Glob, and git log, show, diff and grep)${sf ? ', and read the Salesforce orgs listed below with the sf CLI' : ''}. You can't change anything: no edits, no writes, no deploys.`,
     'Work like a careful senior consultant on a new ticket:',
     '- Read the ticket. Restate the goal. Turn what it asks for into testable acceptance criteria. Name your assumptions and what is out of scope.',
+    PLAN_TICKET_PROMPT,
     `- Investigate before you decide: find the code${sf ? ' and the org configuration' : ''} this touches, what depends on it, and how it behaves today. Every finding names its source.`,
     '- Decide the approach: the steps, the files, any refactor the task needs first and why, the risks, and the tests that prove it.',
     '- Ask only what a person must decide: business rules, priorities, trade-offs. Never ask what you could find out yourself. Give each question your suggested answer.',
@@ -419,10 +425,8 @@ export function analysisPrompt(i: AnalysisInput): { system: string; prompt: stri
     `For the ${i.env.name} environment (branch \`${i.env.branch}\`).${i.checkedOut ? ` The repo is checked out on \`${i.checkedOut}\`: read the environment's files with git show ${i.env.branch}:<path>.` : ''}`,
     i.task.source.url ? `Ticket: ${i.task.source.url}` : `Source: ${i.task.source.kind}`,
     '',
-    '## The ticket',
-    '',
-    i.task.brief.trim() || '_Only the title was given._',
-    '',
+    // The description, every comment oldest first, related tickets, attachments' names and the changes field (T-110).
+    ...ticketLines(i.ticket ?? ticketWithout(i.task)),
     ...(sf && i.orgs.length ? ['## The orgs you may read', '', ...i.orgs.map((o) => `- \`${o.alias}\`: ${o.name} (${o.type})`), ''] : []),
     ...(i.previous?.questions.some((q) => q.answer) ? [
       '## What a person already answered',
@@ -594,7 +598,11 @@ export function analystFlags(paths: RepoPaths, config: Config, cwd: string, accC
 export const analystEnv = (config: Config, env: NodeJS.ProcessEnv, id: string): NodeJS.ProcessEnv =>
   ({ ...(config.profile === 'salesforce' ? sfEnv(env) : env), ACC_ROLE: 'analyst', ACC_TASK: id });
 
-export function analyze(paths: RepoPaths, config: Config, id: string, deps: AnalyzeDeps, opts: { actor?: Actor; by?: string } = {}): Analysis {
+/**
+ * Makes a plan. `opts.ticket` is the whole ticket, as the Command Center read it (T-110), or a function that reads
+ * it from the task, as `acc analyze --ticket` parses its file; without it, the plan reads the description only.
+ */
+export function analyze(paths: RepoPaths, config: Config, id: string, deps: AnalyzeDeps, opts: { actor?: Actor; by?: string; ticket?: (task: Task) => PlanTicket } = {}): Analysis {
   const { run, now } = deps;
   const steps = deps.steps ?? NO_STEPS;
   const { task, env } = steps.step('task', 'Check the task', () => {
@@ -612,10 +620,12 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const current = git(run, paths.root, 'branch', '--show-current').stdout.trim();
   const orgs = sf ? config.environments.filter((e) => e.org).map((e) => ({ alias: e.org!, name: e.name, type: e.type })) : [];
   const previous = readAnalysis(paths, id);
-  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: rulesText(paths.root, config.profile), previous, talk: talkSection(paths, id, previous), team: shapeTeamLines(paths, config, readLedger(paths.ledger), run, id) });
+  const ticket = opts.ticket ? opts.ticket(task) : ticketWithout(task);
+  const { system, prompt } = analysisPrompt({ task, config, env, root: paths.root, checkedOut: current && current !== env.branch ? current : null, orgs, rules: rulesText(paths.root, config.profile), previous, talk: talkSection(paths, id, previous), team: shapeTeamLines(paths, config, readLedger(paths.ledger), run, id), ticket });
 
   const cwd = analystDir(paths, config, id);
-  steps.done('gather', orgs.length ? `The code and ${orgs.length} org(s)` : 'The code');
+  const read = ticket.full ? `the ticket and ${ticket.comments.length} comment${ticket.comments.length === 1 ? '' : 's'}` : 'the description';
+  steps.done('gather', orgs.length ? `${read}, the code and ${orgs.length} org(s)` : `${read} and the code`);
 
   const sessionId = (deps.uuid ?? randomUUID)();
   const name = sessionName({ project: config.project, key: id, title: task.title, role: 'analysis' });
@@ -651,10 +661,12 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const analysis: Analysis = nextVersion(previous, {
     v: 1, task: id, env: env.branch, base, ...parsed.analysis, questions,
     verdict: parsed.analysis.verdict === 'questions' && !questions.some((q) => !q.answer) ? 'ready' : parsed.analysis.verdict,
-    orgs: orgs.map((o) => o.alias), sessionId: parsed.sessionId ?? sessionId, name,
+    ticket: planRead(ticket), orgs: orgs.map((o) => o.alias), sessionId: parsed.sessionId ?? sessionId, name,
     at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: parsed.costUsd,
   });
   writeAnalysis(paths, analysis);
+  // The ticket it read, beside it, so Open in Claude Code reads the same comments (T-110, D-195).
+  writePlanTicket(paths, id, ticket);
   // A version made after a talk about the plan says so in the conversation, with what changed (T-98).
   versionTurn(paths, analysis, name);
   mutate(paths, now, (_l, emit) => {
@@ -693,6 +705,7 @@ export function analysisSection(a: Analysis | null): string[] {
   return [
     ...approvedPlanLines(a),
     `An analyst read the ticket${a.orgs.length ? `, the code and the orgs (${a.orgs.join(', ')})` : ' and the code'} before you. Build from this, and check what it says as you go: if something here turns out to be wrong, say so in your final message.`,
+    ...(readWords(a.ticket) ? ['', readWords(a.ticket)!] : []),
     '',
     a.summary,
     '',
