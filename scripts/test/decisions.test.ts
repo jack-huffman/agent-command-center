@@ -14,7 +14,7 @@ const git = (...args: string[]) => {
   return r.stdout;
 };
 
-test('docs/DECISIONS.md is the index docs/decisions/ makes, a row for every numbered decision', () => {
+test('docs/DECISIONS.md is never stale: the index docs/decisions/ makes, a row for every numbered decision', () => {
   const entries = readDecisions(ROOT);
   assert.ok(entries.length >= 195, `it read ${entries.length} decisions`);
   assert.equal(readFileSync(join(ROOT, DECISIONS_INDEX), 'utf8'), decisionsIndexFor(ROOT), 'stale: run acc decisions index');
