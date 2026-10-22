@@ -156,6 +156,8 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   // ACME-21's plan approved, and changed since (T-97): each with its earlier versions.
   if (kind === 'ticket-plan-approved') return sampleTicket(now, 'ACME-21', false, null, null, 'approved');
   if (kind === 'ticket-plan-changed') return sampleTicket(now, 'ACME-21', false, null, null, 'changed');
+  // ACME-21's plan in short, and Review plan open over it at a choice, a question and the summary (T-109).
+  if (kind === 'ticket-plan-short' || kind.startsWith('ticket-review-')) return sampleTicket(now, 'ACME-21');
   if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
   // A builder in the cloud, quiet for too long (GH-69).
@@ -257,6 +259,10 @@ function stepsState(k: StepSample): unknown {
   return { dock: { open: true, run: id }, ...(step ? { opened: [`run-step:${id}:${step}`] } : {}) };
 }
 
+/** ACME-21's The whole plan, open (T-109), and the start of the keys its Review plan remembers. */
+const WHOLE_PLAN = 'an:/Users/me/code/acme-service#ACME-21:whole';
+const REVIEW = 'review:/Users/me/code/acme-service#ACME-21';
+
 /**
  * What the page remembers when it opens: the output page starts with the panel open, the split ticket
  * with two of its analysis's lists open, to see them laid out, and ACME-12's with the edit typed for the
@@ -298,11 +304,17 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'ticket-records-form' ? RECORDS_FORM_STATE
   // ACME-21's plan (T-97): its second choice's own option open, and the later plans with their earlier versions open.
   // Approved, a change to its second choice asks first, as Choose this on Backfill too leaves it.
-  : kind === 'ticket-questions' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:d2:own'], drafts: { 'plan:/Users/me/code/acme-service#ACME-21:d2': 'Backfill only the opportunities still open' } }
-  : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', 'plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b'] }
-  : kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier'] }
+  // Each with The whole plan open (T-109), where the choices are in full.
+  : kind === 'ticket-questions' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:d2:own', WHOLE_PLAN], drafts: { 'plan:/Users/me/code/acme-service#ACME-21:d2': 'Backfill only the opportunities still open' } }
+  : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', 'plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b', WHOLE_PLAN] }
+  : kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', WHOLE_PLAN] }
+  // Review plan over ACME-21 (T-109): at its second choice with Backfill too picked and More about it open; at the
+  // question for the ticket's author with an answer typed in its own words; and at the summary, two steps skipped.
+  : kind === 'ticket-review-choice' ? { opened: [`${REVIEW}:open`, `${REVIEW}:more:d2.b`], drafts: { [`${REVIEW}:at`]: 'd2', [`${REVIEW}:pick:d2`]: 'b' } }
+  : kind === 'ticket-review-question' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q2', [`${REVIEW}:pick:q2`]: 'mine', 'analysis:/Users/me/code/acme-service#ACME-21:q2': 'Decision Maker, as the pipeline report does today' } }
+  : kind === 'ticket-review-summary' ? { opened: [`${REVIEW}:open`, `${REVIEW}:skip:d2`, `${REVIEW}:skip:q2`], drafts: { [`${REVIEW}:at`]: 'summary' } }
   // The next message to ACME-21's planning agent (T-98), about an option, quoted, half-written.
-  : kind === 'ticket-talk' ? { ...TALK_STATE, opened: ['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`) }
+  : kind === 'ticket-talk' ? { ...TALK_STATE, opened: [...['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`), WHOLE_PLAN] }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 /**
