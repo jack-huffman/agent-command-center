@@ -261,17 +261,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, and ACME-21's conversation as Make a plan opens it (T-111). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112). */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -976,7 +976,7 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'conversation: Make a plan opens the panel at its question with the cursor in the box; Ctrl+Enter sends a message, the reply shows with its questions, and Draft the plan asks for the plan made with the conversation (T-111)',
+    name: 'conversation: the panel opens at its question with the cursor in the box; Ctrl+Enter sends a message, the reply shows with its questions, and Draft the plan asks for the plan made with the conversation (T-111)',
     page: 'conversation-start',
     async run(t) {
       const d = t.data.conversation;
@@ -1005,6 +1005,21 @@ export const CASES: Case[] = [
       await t.click(draft());
       const sent = t.sent('conversation-draft');
       t.check('Draft the plan asks once for the plan made with the conversation', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.draft), sent);
+    },
+  },
+  {
+    // The panel is a document of its own (data-view="conversation"), so this case ends where the page does: at what
+    // the page asks of the extension, which opens the panel beside the ticket (extension/test/conversation-panel.test.ts).
+    name: 'conversation: Make a plan on the task page, before its plan, asks the extension for it once, for that task (T-112)',
+    page: 'ticket-conversation',
+    async run(t) {
+      const page = t.data.conversation.ticket as { project: string; key: string };
+      const make = t.all<HTMLButtonElement>('button').filter((x) => x.textContent?.trim() === 'Make a plan');
+      t.check('the page has one Make a plan', make.length === 1, make.length);
+      await t.click(make[0]!);
+      const sent = t.sent('run').filter((x) => x.command === 'acc.task.analyze');
+      const ref = sent[0]?.ref as { project?: string; task?: string } | undefined;
+      t.check('Make a plan asks once, for this task', sent.length === 1 && ref?.project === page.project && ref?.task === page.key, sent);
     },
   },
   {
@@ -2059,7 +2074,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'Change it in Use this\'s question sends no yes', file: 'talk.ts', find: 'use(project, s, t, p, true); };', replace: 'use(project, s, t, p); };', kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Ctrl+Enter in the message box sends nothing', file: 'talk.ts', find: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); }", replace: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); }", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'The task page draws the conversation\'s turns', file: 'talk.ts', find: "const line = el('div', 'convo-line', icon('comment-discussion'),", replace: "const line = el('div', 'convo-line', ...s.turns.map((x) => turn(project, s, x)), icon('comment-discussion'),", kills: [caseNamed('conversation: the task page shows')] },
-  { name: 'Draft the plan ignores the opening conversation', file: 'talk.ts', find: "api.postMessage({ type: 'conversation-draft', project, task: s.task }), s.draft.disabled", replace: "api.postMessage({ type: 'conversation-draft', project, task: s.task, skip: true }), s.draft.disabled", kills: [caseNamed('conversation: Make a plan opens the panel')] },
+  { name: 'Make a plan on the task page asks for another command', file: 'dom.ts', find: "api.postMessage({ type: 'run', command: a.command, ref: a.ref })", replace: "api.postMessage({ type: 'run', command: a.command === 'acc.task.analyze' ? 'acc.task.show' : a.command, ref: a.ref })", kills: [caseNamed('conversation: Make a plan on the task page')] },
+  { name: 'Draft the plan ignores the opening conversation', file: 'talk.ts', find: "api.postMessage({ type: 'conversation-draft', project, task: s.task }), s.draft.disabled", replace: "api.postMessage({ type: 'conversation-draft', project, task: s.task, skip: true }), s.draft.disabled", kills: [caseNamed('conversation: the panel opens at its question')] },
   { name: 'Enter alone sends the message', file: 'talk.ts', find: "if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))", replace: "if (e.key === 'Enter')", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];

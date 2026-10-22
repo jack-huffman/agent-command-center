@@ -9,6 +9,14 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { makeRepo } from '../../packages/core/test/support.ts';
+import { analyze, readAnalysis } from '../../packages/core/src/analyze.ts';
+import { parseConfig, type Config } from '../../packages/core/src/config.ts';
+import { run as runCommand, type RunOptions, type RunResult } from '../../packages/core/src/exec.ts';
+import { readLedger } from '../../packages/core/src/ledger.ts';
+import { repoPaths } from '../../packages/core/src/paths.ts';
+import { startPlan } from '../../packages/core/src/plan-opening.ts';
+import { NOTE_APPROVED, talkPlan } from '../../packages/core/src/plan-talk.ts';
+import { fakeRunner } from '../../packages/core/test/support.ts';
 import { activate, fakeVscode, sandboxEnv, until } from './vscode.ts';
 
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
@@ -16,10 +24,13 @@ const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 type Tab = ReturnType<typeof fakeVscode>['panels'][number];
 type Msg = { type?: string; model?: { kind: string; key: string; title: string; loading?: boolean; talk?: { stage: string; ask: string | null; send: unknown } | null }; [k: string]: unknown };
 
+/** What the stand-in for Claude Code answers a message with, as its schema asks. */
+const TALK_ANSWER = { type: 'result', subtype: 'success', is_error: false, session_id: 'sess-open', total_cost_usd: 0.1, structured_output: { reply: 'Two years, as you said.', proposals: [] } };
+
 const s = {} as { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof activate>; repo: string; root: string; tab: Tab; id: string; restore: () => void; acc: (...a: string[]) => void };
 
 before(async () => {
-  const { at, restore } = sandboxEnv('acc-conversation-');
+  const { at, restore } = sandboxEnv('acc-conversation-', (name) => (name === 'claude' ? `case "$*" in *--json-schema*) echo '${JSON.stringify(TALK_ANSWER)}';; *) exit 1;; esac\n` : 'exit 1\n'));
   s.restore = restore;
   s.repo = makeRepo({ '.acc/config.json': JSON.stringify({ schema: 1, project: 'Tool', environments: [{ name: 'main', default: true }], trackers: [] }), '.gitignore': '.claude/worktrees/\n' });
   s.fake = fakeVscode(s.repo);
@@ -68,11 +79,11 @@ async function pageFor(key: string, width: number): Promise<Tab> {
 }
 
 /** The conversation's panel the last open made, ready, with its first model. */
-async function panelOpened(n: number): Promise<Tab> {
+async function panelOpened(n: number, key = s.id): Promise<Tab> {
   await until(() => s.fake.panels.length > n);
   const panel = s.fake.panels.at(-1)!;
   panel.receive!({ type: 'ready' });
-  await until(() => !!stateFor(panel.posted as Msg[], s.id, 'conversation'));
+  await until(() => !!stateFor(panel.posted as Msg[], key, 'conversation'));
   return panel;
 }
 
@@ -125,6 +136,111 @@ test('a change shows in the panel and on the page at once: the task blocked, the
   s.acc('set', s.id, 'todo');
   await s.fake.calls.commands.get('acc.tasks.refresh')!();
   await until(() => stateFor(panel.posted as Msg[], s.id, 'conversation')?.model?.talk?.stage === 'opening');
+  panel.close!();
+  page.close!();
+});
+
+/** Make a plan, run from the Command Center's tab (the board or its modal), as VS Code would run it. */
+async function makePlanFrom(host: Tab, key: string): Promise<void> {
+  const from = s.fake.calls.executed.length;
+  host.receive!({ type: 'run', command: 'acc.task.analyze', ref: { project: s.root, task: key } });
+  await until(() => s.fake.calls.executed.slice(from).some(([id]) => id === 'acc.task.analyze'));
+  const [, args] = s.fake.calls.executed.slice(from).find(([id]) => id === 'acc.task.analyze')!;
+  await s.fake.calls.commands.get('acc.task.analyze')!(...args);
+}
+
+test('Make a plan from the board\'s modal opens the ticket\'s page first and the panel beside it, and the modal closes onto the pair', async () => {
+  const { panels, api } = s.fake;
+  const n = panels.length;
+  const from = s.tab.posted.length;
+  s.tab.receive!({ type: 'task-modal-open', project: s.root, key: s.id });
+  await until(() => (s.tab.posted.slice(from) as Msg[]).some((m) => m.type === 'task-modal' && m.model?.key === s.id && !m.model.loading));
+  await makePlanFrom(s.tab, s.id);
+  await until(() => panels.length >= n + 2);
+  const [page, panel] = [panels[n]!, panels[n + 1]!];
+  assert.deepEqual([page.viewType, page.column, panel.viewType, panel.column], ['acc.ticket', api.ViewColumn.Active, 'acc.conversation', api.ViewColumn.Beside]);
+  assert.deepEqual((s.tab.posted.slice(from) as Msg[]).filter((m) => m.type === 'task-modal-shut'), [{ type: 'task-modal-shut', project: s.root, key: s.id }], 'the modal is asked to close, once');
+  // The modal is gone for the extension too: a redraw after this draws only the tab.
+  const after = s.tab.posted.length;
+  await s.fake.calls.commands.get('acc.tasks.refresh')!();
+  assert.ok(!(s.tab.posted.slice(after) as Msg[]).some((m) => m.type === 'task-modal'), 'nothing draws the closed modal again');
+  panel.close!();
+  page.close!();
+});
+
+test('edge case: Make a plan from the board with no page and no modal open still opens the ticket\'s page; with the page already open, no second one opens', async () => {
+  const { panels, api } = s.fake;
+  const n = panels.length;
+  await makePlanFrom(s.tab, s.id);
+  await until(() => panels.length >= n + 2);
+  const [page, panel] = [panels[n]!, panels[n + 1]!];
+  assert.deepEqual([page.viewType, page.title, page.column, panel.viewType, panel.column], ['acc.ticket', s.id, api.ViewColumn.Active, 'acc.conversation', api.ViewColumn.Beside]);
+  panel.close!();
+  assert.deepEqual(panels.slice(n).map((x) => x.viewType), ['acc.ticket', 'acc.conversation'], 'one page and one panel opened');
+  // The page is open now: Open conversation opens the panel beside it and no second page.
+  const m = panels.length;
+  page.receive!({ type: 'ready' });
+  page.receive!({ type: 'page-width', project: s.root, task: s.id, width: 1400 });
+  page.receive!({ type: 'conversation-open', project: s.root, task: s.id });
+  await until(() => panels.length > m);
+  assert.deepEqual(panels.slice(m).map((x) => x.viewType), ['acc.conversation'], 'only the panel opens');
+  panels.at(-1)!.close!();
+  page.close!();
+});
+
+test('the panel and the page agree: Use this and a message in the panel show on the page\'s plan and line; approving on the page shows in the panel', async () => {
+  const result = (structured: unknown): RunResult => ({ code: 0, stderr: '', stdout: JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-open', structured_output: structured }) });
+  const PLAN = {
+    verdict: 'ready', summary: 'A custom object keeps each change.', requirements: { goal: '', criteria: [], assumptions: [], outOfScope: [] }, questions: [], findings: [], split: [],
+    decisions: [{ title: 'Where history is kept', why: 'Two years.', options: [
+      { id: '', name: 'Field history', means: '', pros: [], cons: ['18 months only'], effort: 'S', risks: [], touches: [] },
+      { id: '', name: 'Custom object', means: '', pros: [], cons: ['More to build'], effort: 'M', risks: [], touches: [] },
+    ], recommended: 'Custom object', because: 'Two years.' }],
+    approach: { plan: ['Make Stage_History__c'], files: [], refactors: [], risks: [], tests: [], size: 'M' },
+  };
+  const proposals = [{ kind: 'choose', decision: 'd1', option: 'Custom object', why: 'Two years of history.' }, { kind: 'note', text: 'Keep it for the pipeline report.', why: 'So the plan says why.' }];
+  const answers = [{ understood: 'Two years.', unsure: [], questions: [] }, PLAN, { reply: 'Use a custom object.', proposals }];
+  let calls = 0;
+  const fake = fakeRunner({});
+  const run = (cmd: string, args: string[], opts?: RunOptions): RunResult => (cmd === 'claude' ? result(answers[calls++]!) : fake(cmd, args, opts));
+  // A second task, with its plan made and one reply that proposes a choice and a note, by core's own functions.
+  s.acc('add', 'Keep the stage history');
+  const config = parseConfig(JSON.parse(readFileSync(join(s.repo, '.acc', 'config.json'), 'utf8'))).config as Config;
+  const paths = repoPaths(s.repo, runCommand);
+  const key = readLedger(paths.ledger).tasks.at(-1)!.id;
+  const deps = { run, now: () => new Date(), env: {} };
+  startPlan(paths, config, key, 'Two years.', { ...deps, uuid: () => 'sess-open' }, 'human:me');
+  analyze(paths, config, key, deps);
+  talkPlan(paths, config, key, 'Where should it live?', null, deps, 'human:me');
+  assert.equal(calls, 3, 'the stand-in answered each of the three');
+  await s.fake.calls.commands.get('acc.tasks.refresh')!();
+  const page = await pageFor(key, 1400);
+  const n = s.fake.panels.length;
+  page.receive!({ type: 'conversation-open', project: s.root, task: key });
+  const panel = await panelOpened(n, key);
+  type Proposal = { id: string; used: unknown; ask: string | null };
+  const talkOf = (tab: Tab, kind: 'ticket' | 'conversation', from = 0) => stateFor(tab.posted.slice(from) as Msg[], key, kind)?.model?.talk as { line: { words: string } | null; turns: { id: string; proposals: Proposal[] }[] } | undefined;
+  const turn = talkOf(panel, 'conversation')!.turns.find((t) => t.proposals.length)!;
+  assert.deepEqual([talkOf(page, 'ticket')!.line?.words, turn.proposals.map((p) => p.used)], ['Conversation · 4 messages', [null, null]], 'both start with the four messages and the proposals unused');
+  // Use this, in the panel: the plan has the choice, and the panel and the page both say so.
+  const pageFrom = page.posted.length;
+  panel.receive!({ type: 'talk-use', project: s.root, task: key, turn: turn.id, proposal: turn.proposals[0]!.id });
+  await until(() => readAnalysis(paths, key)?.decisions?.[0]?.choice !== undefined);
+  const d1 = readAnalysis(paths, key)!.decisions![0]!;
+  assert.equal(d1.choice!.option, d1.options.find((o) => o.name === 'Custom object')!.id, 'the plan has the proposed option');
+  await until(() => !!talkOf(panel, 'conversation')!.turns.find((t) => t.id === turn.id)!.proposals[0]!.used);
+  await until(() => !!talkOf(page, 'ticket', pageFrom)?.turns.find((t) => t.id === turn.id)?.proposals[0]?.used);
+  // A message, in the panel: the page's line counts it too.
+  const panelFrom = panel.posted.length;
+  const sentFrom = page.posted.length;
+  panel.receive!({ type: 'talk-send', project: s.root, task: key, text: 'Why a custom object?' });
+  await until(() => talkOf(panel, 'conversation', panelFrom)?.line?.words === 'Conversation · 6 messages', 30_000);
+  await until(() => talkOf(page, 'ticket', sentFrom)?.line?.words === 'Conversation · 6 messages', 30_000);
+  // Approve, on the page (Review plan's last step): the panel's note, not yet used, now asks first.
+  assert.equal(talkOf(panel, 'conversation')!.turns.find((t) => t.id === turn.id)!.proposals[1]!.ask, null, 'before it, the note asks nothing');
+  const approveFrom = panel.posted.length;
+  page.receive!({ type: 'plan-approve', project: s.root, task: key });
+  await until(() => talkOf(panel, 'conversation', approveFrom)?.turns.find((t) => t.id === turn.id)?.proposals[1]?.ask === NOTE_APPROVED, 30_000);
   panel.close!();
   page.close!();
 });

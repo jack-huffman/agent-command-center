@@ -48,3 +48,14 @@ must catch: the page drawing the turns, and Draft the plan ignoring the conversa
 the panel at the start of a plan (`conversation-start`), mid-conversation with a reply on its way
 (`conversation`), Talk it through once v2 is made (`conversation-talk`), and the page with its one line before
 its plan (`ticket-conversation`) and with one (`ticket-talk`), at every width and theme.
+
+### Note, 2026-10-22 (T-112): always beside the ticket
+
+Make a plan, Discuss and Open conversation now open the ticket's page first when no tab shows it, in the active
+group, and the panel beside it (`TicketPanels.ensureTab`, called by `ConversationPanels.open`). From the Tasks
+board's modal the modal is asked to close (`task-modal-shut`) and closed on the extension's side, so the board is
+left with the pair. On a narrow window the panel is still a tab, as before. `extension/test/conversation-panel.test.ts`
+now has 6 tests (3 added): from the modal, from the board with no page, and one that sends a message and uses a
+proposal in the panel and approves on the page, checking each place shows it. The browser case "Make a plan on the
+task page" clicks Make a plan on the page; the panel is a document of its own, so that case ends at what the page asks
+of the extension, and the panel's own case is renamed "the panel opens at its question".

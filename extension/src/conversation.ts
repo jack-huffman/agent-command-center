@@ -58,6 +58,10 @@ export class ConversationPanels implements ConversationActions, vscode.Disposabl
     if (!this.hub.project(root)) return;
     const key = raw.toUpperCase();
     const id = `${root}#${key}`;
+    // Always beside the ticket's page (T-112): from the board's modal, or with no page open, the page opens first.
+    // A width the modal gave is read before the modal closes.
+    const width = opts.width ?? this.tickets.widthOf(root, key);
+    this.tickets.ensureTab(root, key);
     const existing = this.open_.get(id);
     if (existing) {
       existing.about = opts.about ?? null;
@@ -67,7 +71,7 @@ export class ConversationPanels implements ConversationActions, vscode.Disposabl
       return;
     }
     // Beside the task's page, in the editor group next to it; on a narrow page, a tab of its own in its place.
-    const place = conversationPlace(opts.width ?? this.tickets.widthOf(root, key));
+    const place = conversationPlace(width);
     const base = vscode.Uri.joinPath(this.uri, 'dist', 'webview');
     const title = conversationTitle(key);
     const panel = vscode.window.createWebviewPanel('acc.conversation', title, place === 'tab' ? vscode.ViewColumn.Active : vscode.ViewColumn.Beside, { enableScripts: true, localResourceRoots: [base] });
