@@ -21,12 +21,12 @@
 .ccard-name { font-weight: 600; }
 .ccard-detail, .ccard-count { color: var(--vscode-descriptionForeground); font-size: 0.92em; }
 .ccard-count { display: inline-flex; align-items: flex-start; gap: 4px; }
-.ccard-count .codicon { flex: none; margin-top: 2px; font-size: 13px; }
+.ccard-count .codicon { flex: none; margin-top: 2px; font-size: 0.95em; }
 .ccard-count.tone-orange { color: var(--orange); }
 .ccard-titles { margin: 2px 0 0; padding-left: 16px; font-size: 0.9em; color: var(--vscode-descriptionForeground); }
 .ccard-titles li { margin: 1px 0; }
 .ccard .used-by { display: inline-flex; align-items: flex-start; gap: 3px; font-size: 0.9em; }
-.ccard .used-by .codicon { flex: none; margin-top: 2px; font-size: 13px; }
+.ccard .used-by .codicon { flex: none; margin-top: 2px; font-size: 0.95em; }
 .ccard[hidden] { display: none; }
 
 /* A count still being read: a quiet bar where its number will be. */

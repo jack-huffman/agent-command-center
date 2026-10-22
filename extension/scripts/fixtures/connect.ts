@@ -172,7 +172,7 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
  * CRM\Billing ticked, and its board's preview.
  */
 function sampleBoards(which: 'jira-board' | 'azure-board'): ConnectModel {
-  const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'settings' as const, gitEmail: 'jordan.kim@example.com' };
+  const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
   if (which === 'azure-board') {
     const s = blankConnect(AZURE, { id: 'c-azure-board', ...base });
     s.host = 'acme';
@@ -183,11 +183,27 @@ function sampleBoards(which: 'jira-board' | 'azure-board'): ConnectModel {
     s.pickers.areaPath = ready([{ value: 'CRM\\Billing', label: 'CRM\\Billing' }, { value: 'CRM\\Billing\\Renewals', label: 'CRM\\Billing\\Renewals' }, { value: 'CRM\\Sales', label: 'CRM\\Sales' }], ['CRM\\Billing']);
     const azure = (counts: number[]) => sampleBoard('azure', 'Stories · CRM Team', [['New', 'todo', counts[0]!], ['Active', 'doing', counts[1]!], ['Resolved', 'doing', counts[2]!], ['Closed', 'done', counts[3]!]], 'AB', 1200);
     counted(s, AZURE, 'team', { 'CRM Team': read(azure([9, 6, 3, 14])), Billing: read(azure([4, 2, 1, 7])) });
-    counted(s, AZURE, 'board', { Epics: read(azure([2, 1, 0, 1])), Stories: read(azure([9, 6, 3, 14])) });
+    counted(s, AZURE, 'board', { Epics: read(azure([2, 1, 0, 1])) });
     counted(s, AZURE, 'areaPath', { '': read(azure([9, 6, 3, 14])), 'CRM\\Billing': read(azure([5, 3, 2, 8])), 'CRM\\Billing\\Renewals': read(azure([2, 1, 1, 3])), 'CRM\\Sales': read(azure([4, 3, 1, 6])) });
     s.boards[placeKey(connectValues(s, AZURE))] = read(azure([5, 3, 2, 8]));
     return connectModel(s);
   }
+  return connectModel(jiraBoards());
+}
+
+/**
+ * The Jira page of sampleBoards (T-106) at a moment of the behaviour case: its preview still being read, drawn
+ * for ACME-31, or ACME-30 chosen, whose board its card's count has read already.
+ */
+export function sampleChoosing(step: 'reading' | 'shown' | 'epic'): ConnectModel {
+  const s = jiraBoards();
+  if (step === 'reading') delete s.boards[placeKey(connectValues(s, JIRA))];
+  if (step === 'epic') s.pickers.epic!.selected = ['ACME-30'];
+  return connectModel(s);
+}
+
+function jiraBoards(): ConnectState {
+  const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
   const s = blankConnect(JIRA, { id: 'c-jira-board', ...base });
   s.host = 'acme.atlassian.net';
   s.signIn = { state: 'ok', who: 'Jordan Kim', error: null, again: false, shared: true };
@@ -203,7 +219,7 @@ function sampleBoards(which: 'jira-board' | 'azure-board'): ConnectModel {
     'ACME-27': read(null, 'loading'), 'ACME-24': read(jira([0, 0, 0, 0])),
   });
   s.boards[placeKey(connectValues(s, JIRA))] = read(jira([3, 2, 1, 5]));
-  return connectModel(s);
+  return s;
 }
 
 /** A project started from Setup's "From a Jira epic…" (GH-81), at each of its kinds. */

@@ -13,7 +13,7 @@ const searches = new Map<string, string>();
 const send = (m: ConnectModel, msg: Record<string, unknown>): void => api.postMessage({ ...msg, session: m.id });
 
 /** A choice another repo on this machine uses already (GH-81): an icon and its words, never colour alone. */
-export const usedMark = (words: string): HTMLElement => el('span', 'used-by tone-orange', icon('warning', 'orange'), el('span', '', words));
+const usedMark = (words: string): HTMLElement => el('span', 'used-by tone-orange', icon('warning', 'orange'), el('span', '', words));
 
 /**
  * A card's count of tickets (T-106): a skeleton while it's read, its number once it is, and on a failure the
@@ -114,7 +114,7 @@ export function previewPanel(m: ConnectModel, foot: HTMLElement): HTMLElement {
   const p = m.preview;
   const skeleton = p.state === 'loading' ? el('div', 'cpreview-cols', ...[0, 1, 2].map(() => el('div', 'cpreview-col', el('span', 'ccard-skeleton cpreview-skel'), el('span', 'ccard-skeleton cpreview-skel')))) : null;
   const board = p.board ? el('div', 'cpreview-cols', ...p.board.columns.map((c, i) => previewColumn(p.board!, c, p.totals[i] ?? c.cards.length))) : null;
-  return el('section', `connect-step connect-preview preview-${p.state}`,
+  return el('section', 'connect-step connect-preview',
     el('h2', '', icon('project'), ' Your board'),
     status(p.look),
     p.board ? el('div', 'muted small cpreview-title', p.board.title) : null,
