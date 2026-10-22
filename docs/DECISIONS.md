@@ -8956,7 +8956,7 @@ seeing what it would look like. Each list is now cards, and the board the choice
   board, send no choice from a card, and search without hiding. The shots `connect-jira-board` and
   `connect-azure-board` draw the board cards, the epic or area path ticked, and the preview.
 
-## D-??? Tick several Jira epics, and choose a GitHub Project from its card (2026-10-22)
+## D-194 Tick several Jira epics, and choose a GitHub Project from its card (2026-10-22)
 
 The person asked to tick epics, and for a GitHub repository's Projects to be cards. D-193 kept one epic a
 Jira tracker and gave GitHub only its labels' cards; this changes both, and the preview follows each choice.
