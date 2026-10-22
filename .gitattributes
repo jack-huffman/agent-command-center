@@ -3,3 +3,5 @@
 .acc/floors.json merge=acc-floors
 # The screenshot pages, one a line: two branches' new pages are both kept.
 extension/scripts/pages.ts merge=union
+# The decisions' index, a row a decision by number: two merges' new rows are both kept, in order.
+docs/DECISIONS.md merge=union

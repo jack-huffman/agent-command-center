@@ -195,7 +195,7 @@ export function fetchBase(paths: RepoPaths, place: MergePlace, run: Runner, env:
 }
 
 /** git as the repo's commit identity, with rerere off, so an answer remembered from another merge never stands in. */
-const merging = (config: Config, run: Runner, wt: string) => {
+export const merging = (config: Config, run: Runner, wt: string) => {
   const who = config.commitIdentity ? ['-c', `user.name=${config.commitIdentity.name}`, '-c', `user.email=${config.commitIdentity.email}`] : [];
   return (...args: string[]) => run('git', ['-c', 'rerere.enabled=false', ...who, ...args], { cwd: wt });
 };

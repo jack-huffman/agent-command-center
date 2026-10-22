@@ -8,7 +8,8 @@ import { type Actor, applyMove, checkMove, inQueue, type Ledger, mutate, noGateH
 import { mergePr } from './merge.ts';
 import type { RepoPaths } from './paths.ts';
 import { readReceipt, satisfies } from './receipts.ts';
-import { CheckFailure, checkCommit, MergeConflict, mergeBaseIn, mergePlace, type MergePlace, resolvedWords, undoMerge } from './refresh.ts';
+import { CheckFailure, checkCommit, MergeConflict, mergeBaseIn, merging, mergePlace, type MergePlace, resolvedWords, undoMerge } from './refresh.ts';
+import { decisionsToNumber, numberDecisions, numberedWords, type Renumbered } from './decisions.ts';
 import type { SlotOptions } from './semaphore.ts';
 import { fetchBranches } from './sync.ts';
 
@@ -206,7 +207,7 @@ export function queueTurn(paths: RepoPaths, config: Config, id: string, deps: Qu
   };
   const found = (f: Found) => sendBackFromQueue(paths, config, task, deps, who, f, env.branch, head);
 
-  let made: { sha: string; resolved: string[] } | null = null;
+  let made: { sha: string; resolved: string[]; numbered?: Renumbered[] } | null = null;
   if (behind) {
     const p = placed();
     phase('refreshing');
@@ -215,6 +216,18 @@ export function queueTurn(paths: RepoPaths, config: Config, id: string, deps: Qu
     } catch (e) {
       if (e instanceof MergeConflict) return found({ kind: 'conflict', conflicts: e.files });
       throw e;
+    }
+  }
+  // The decisions it adds, numbered against its base at its turn, so two pull requests never take one number (T-102).
+  const base = `refs/remotes/origin/${env.branch}`;
+  if (decisionsToNumber(run, paths.root, base, made?.sha ?? head).length) {
+    const p = placed();
+    phase('refreshing');
+    try {
+      const n = numberDecisions(run, p.wt, base, merging(config, run, p.wt));
+      if (n) made = { sha: n.sha, resolved: made?.resolved ?? [], numbered: n.numbered };
+    } catch (e) {
+      throw new AccError((e as AccError).code ?? 'queue', `Couldn't number the decisions ${id} adds: ${(e as Error).message} ${undoMerge(config, p, run)}`);
     }
   }
   const sha = made?.sha ?? head;
@@ -237,6 +250,8 @@ export function queueTurn(paths: RepoPaths, config: Config, id: string, deps: Qu
     // a clean merge again (a person decided), and the full check passed on it.
     const p = place!;
     const kept = made.resolved.length ? `, ${resolvedWords(made.resolved, 'keeping')}` : '';
+    const numbered = made.numbered?.length ? `${behind ? ', numbering' : 'Numbered'} its decisions (${numberedWords(made.numbered)})` : '';
+    const did = behind ? `Merged ${env.branch} into ${short(head)} as ${short(made.sha)}${kept}${numbered}` : `${numbered} on ${short(head)} as ${short(made.sha)}`;
     mutate(paths, now, (l, emit) => {
       const t = l.tasks.find((x) => x.id === id);
       if (!t) return;
@@ -259,7 +274,7 @@ export function queueTurn(paths: RepoPaths, config: Config, id: string, deps: Qu
     phase('github');
     return {
       step: 'queue', outcome: 'done',
-      reason: `Merged ${env.branch} into ${short(head)} as ${short(made.sha)}${kept}, and its full check passed. Pushed it to pull request #${landed.pr.number}: it merges once GitHub's checks pass.`,
+      reason: `${did}, and its full check passed. Pushed it to pull request #${landed.pr.number}: it merges once GitHub's checks pass.`,
       pr: { number: landed.pr.number, url: landed.pr.url, opened: landed.opened },
       ...(landed.update ? { update: landed.update } : {}),
     };
