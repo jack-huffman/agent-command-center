@@ -341,6 +341,14 @@ them.
 - **Result:**
 - **Fixed in / filed as:**
 
+### B10.required-check: GitHub requires the checks autopilot waits for
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
 ### B10.readme: README names every environment
 
 - **Showed:**
