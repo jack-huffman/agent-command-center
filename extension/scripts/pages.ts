@@ -160,6 +160,7 @@ export const PAGES = [
   'ticket-review-answered',
   'ticket-review-summary',
   'ticket-plan-shapes',
+  'ticket-plan-behind',
   'ticket-talk',
   'ticket-changes-field',
   'ticket-team',

@@ -7,6 +7,7 @@ import { answerKey, askKey, pending, sendAnswer, sendUpdate } from './updates.ts
 import { planActions, planDecisions, planEarlier, planHead, planShapes } from './plan.ts';
 import { reviewButton } from './review-plan.ts';
 import { discussButton } from './talk.ts';
+import { planTicketLine } from './plan-behind.ts';
 
 // ---------------------------------------------------------------- a task's analysis (D-052)
 
@@ -98,6 +99,9 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   if (p) {
     sec.append(el('div', 'plan-short', status(p.look), p.approval ? el('span', 'muted small', `by ${p.approval.by} `, when(p.approval.at)) : null,
       a.review ? el('span', 'plan-left', icon(a.review.left.endsWith('to review') ? 'list-selection' : 'pass'), a.review.left) : null));
+    // What it read of the ticket, and comments since (T-110).
+    const read = planTicketLine(a);
+    if (read) sec.append(read);
   }
   // Review plan leads, then Build it and Talk it through, each off with why (T-97).
   if (p) sec.append(...planActions(m, a.task, p, a.review ? reviewButton(m, a.task, a.review) : null).filter((x): x is HTMLElement => !!x));

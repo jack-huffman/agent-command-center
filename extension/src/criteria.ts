@@ -6,6 +6,7 @@ import type { ExtensionArea } from './area.ts';
 import { CriteriaDrafts, type CriteriaReply } from './logic/criteria.ts';
 import { CRITERIA_DONE, type Message, TASK_SHEET_DRAFT } from './model/criteria.ts';
 import { openTaskSheet, type TaskSheet } from './model/task-sheet.ts';
+import { readProjectTicket } from './logic/project-ticket.ts';
 import { accRunner } from './run.ts';
 
 type Say = (msg: Record<string, unknown>) => void;
@@ -29,12 +30,7 @@ export const area: ExtensionArea = {
     const d = new CriteriaDrafts({
       project: (root) => hub.project(root),
       task: (root, id) => hub.ledger(root)?.tasks.find((t) => t.id === id),
-      ticket: async (root, key) => {
-        const p = hub.project(root);
-        const index = p ? trackers.trackerFor(p, key) : null;
-        if (!p || index === null) throw new Error(`${key} isn't one of the project's tickets.`);
-        return trackers.ticket(p, index, key);
-      },
+      ticket: (root, key) => readProjectTicket(hub, trackers, root, key),
       // A draft runs in the output panel, where its steps show (T-65); the update is quick.
       acc: (args, cwd, label) => (label && sidebar.helpers.runAccShown ? sidebar.helpers.runAccShown(args, cwd, label) : acc(args, cwd)),
     }, (root) => tickets.refresh(root));

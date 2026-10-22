@@ -28,8 +28,8 @@ export type TicketSample = 'ACME-12' | 'ACME-19' | 'ACME-20' | 'ACME-21' | 'ACME
 /** A Jira ticket with everything a description can hold, and the acc task working on it. With edits, ACME-19's tracker allows edits (T-80). */
 /** criteria: ACME-19 with its drafted acceptance criteria (T-81), and with the draft opened as an update. */
 /** verify: ACME-21 with a developer's pull request verified, passed or needing changes, or two to choose from (T-84). */
-/** plan: ACME-21 with its plan approved, or changed since its approval (T-97). */
-export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false, criteria: 'drafted' | 'update' | null = null, verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | null = null): TicketModel {
+/** plan: ACME-21 with its plan approved, or changed since its approval (T-97), or behind its ticket's comments (T-110). */
+export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', edits = false, criteria: 'drafted' | 'update' | null = null, verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | 'behind' | null = null): TicketModel {
   if (which === 'ACME-29') return sampleStoppedTicket(now);
   if (which === 'ACME-44') return sampleCloudTicket(now);
   if (which === 'ACME-50') return sampleNoFieldsTicket(now);
@@ -324,9 +324,9 @@ function sampleWaitingTicket(now: number): TicketModel {
 }
 
 /** A task to do, tracked from Jira, with its analysis on its page (D-052): questions to answer, or a split. */
-function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | null = null): TicketModel {
+function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: VerifySample | null = null, plan: 'approved' | 'changed' | 'shapes' | 'behind' | null = null): TicketModel {
   // A later version of ACME-21's plan (T-97): its row reads that version, as the hub's would.
-  const later = plan ? samplePlan(now, plan) : null;
+  const later = plan && plan !== 'behind' ? samplePlan(now, plan) : null;
   const hubRow = sampleHub(now).taskRows(ROOT).find((r) => r.id === key)!;
   const row = later ? { ...hubRow, analysis: rowAnalysis(later), display: plan === 'approved' || plan === 'shapes' ? 'ready' as const : hubRow.display } : hubRow;
   const bug = key === 'ACME-21';
@@ -338,7 +338,7 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: Verif
     body: fromAdf({ type: 'doc', content: bug
       ? [p('When a sales rep converts a lead and creates an opportunity, the opportunity has no contact roles. Reps add them by hand, and often forget.'), p('Seen in production since the spring release.')]
       : [p('The partner portal is a set of Visualforce pages that nobody wants to touch. Move partners onto an Experience Cloud site, with deal registration.')] }),
-    markdown: '', comments: [], related: [],
+    markdown: '', comments: bug ? sampleComments(now, plan === 'behind') : [], related: [],
   };
   const task = {
     id: key, title: row.title, brief: '', source: { kind: 'jira', key, url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'todo', blocker: null, run: null, pr: null,
@@ -354,6 +354,22 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: Verif
     analysis: verify ? null : later ?? sampleAnalyses(now)[key], trackerEdits: false, updates, boards: sampleBoards(), github: 'jordan-kim', now, checks: ['format', 'static', 'validate'].map((gate) => ({ gate, status: 'skip' as const, summary: 'Not run yet' })),
     verify: verify ? ticketVerify({ task, github: 'acme/acme-service', verification, choice: verify === 'choice' ? sampleChoice(now) : null, verifying: false, updates }) : null,
   });
+}
+
+/**
+ * ACME-21's comments (T-110): the two its plan read, and, behind, two more since the plan was made, so its page
+ * says "2 new comments since this plan".
+ */
+function sampleComments(now: number, behind: boolean): Ticket['comments'] {
+  const c = (id: string, name: string, ago: number, text: string) => ({ id, author: { id: name, name }, created: new Date(now - ago * MIN).toISOString(), url: null, body: fromAdf({ type: 'doc', content: [p(text)] }) });
+  return [
+    c('c1', 'Pat Lee', 40 * 60, 'The pipeline report counts Decision Makers, so the primary contact needs that role.'),
+    c('c2', 'Jordan Kim', 26 * 60, 'Agreed. Leave older opportunities alone: a backfill can be its own ticket.'),
+    ...(behind ? [
+      c('c3', 'Sam Ortiz', 10, 'Sales leadership wants open deals backfilled after all, about 600 of them.'),
+      c('c4', 'Pat Lee', 4, 'Confirmed with the sales director: open deals only.'),
+    ] : []),
+  ];
 }
 
 /**
