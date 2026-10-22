@@ -94,7 +94,7 @@ function cmdAnalyze(o: Opts, id: string): number {
   const a = analyze(paths, config, id.toUpperCase(), {
     run, now, env: process.env, accCommand: accCommand(), steps: steps(),
     onStart: (session, name) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}, named ${name}.`, 'dim')),
-  }, { by: `analyst:${id.toUpperCase()} for ${by}`, ...(text !== null ? { ticket: (task) => parsePlanTicket(text, task) } : {}) });
+  }, { by: `analyst:${id.toUpperCase()} for ${by}`, ...(text !== null ? { ticket: (task) => parsePlanTicket(text, task) } : {}), ...(o['skip-opening'] === true ? { skipOpening: true } : {}) });
   out(o, () => analysisLines(a).join('\n'), a);
   // An analysis with questions, or one that says split, is an analysis made: it exits 1, and its steps worked (D-052).
   const asks = openQuestions(a).length;
@@ -289,6 +289,8 @@ export const area: CommandArea = {
                                         there now (the code, and on Salesforce the orgs), the approach, and questions.
                                         --ticket gives the whole ticket as JSON: its comments, related tickets,
                                         attachments' names and changes field; without it, the description only
+                                        After acc plan start, it resumes that conversation's session and holds what
+                                        you said; --skip-opening makes it from the ticket alone
   acc analysis <id>                     What the task's analysis found
   acc analysis answer <id> <q> "<text>" Answer one of its questions; when the last is answered, it's ready to build
   acc review <id> [--cloud | --local]   A read-only reviewer agent judges the task's latest commit:
@@ -320,6 +322,7 @@ export const area: CommandArea = {
     'close-done': { type: 'boolean', default: false },
     'branches-seen': { type: 'boolean', default: false },
     ticket: { type: 'string' },
+    'skip-opening': { type: 'boolean', default: false },
   },
   subcommands: { analysis: ['answer'] },
   commands: {

@@ -72,6 +72,10 @@ export interface TalkTurn {
   recorded?: string[];
   /** For the person's message: why no reply came. */
   failed?: string;
+  /** For the agent's answer before the plan (T-111): what it's unsure of, a line each. */
+  unsure?: string[];
+  /** For the agent's answer before the plan (T-111): its questions, at most three. */
+  asks?: string[];
   costUsd?: number | null;
 }
 
@@ -95,7 +99,8 @@ export const NOTE_APPROVED = 'This plan is approved. A note changes it, so the p
 export const ANSWER_APPROVED = 'This plan is approved. An answer changes it, so the plan must be approved again before it\'s built.';
 
 export const talkPath = (paths: RepoPaths, task: string): string => join(paths.analyses, `${fileId(task)}.talk.json`);
-const talkingPath = (paths: RepoPaths, task: string): string => join(paths.analyses, `${fileId(task)}.talking.json`);
+/** The marker a reply under way leaves, with its process: a talk's, or before the plan an opening's (T-111). */
+export const talkingPath = (paths: RepoPaths, task: string): string => join(paths.analyses, `${fileId(task)}.talking.json`);
 /** The brief a Claude Code session reads first: the ticket, the plan and the conversation. */
 export const briefPath = (paths: RepoPaths, task: string): string => join(paths.analyses, `${fileId(task)}.brief.md`);
 
@@ -434,7 +439,7 @@ export function recordInSession(paths: RepoPaths, id: string, session: string | 
 export function talkLines(t: PlanTalk, a: Analysis | null): string[] {
   const who: Record<TalkWho, string> = { you: 'The person', agent: 'You (the planning agent)', 'claude-code': 'In Claude Code', plan: 'The plan' };
   return t.turns.flatMap((x) => [
-    `- ${who[x.who]} (v${x.version})${x.about ? `, about ${x.about.kind} ${x.about.ref} "${x.about.text}"` : ''}: ${x.text}`,
+    `- ${who[x.who]} (${x.version ? `v${x.version}` : 'before the plan'})${x.about ? `, about ${x.about.kind} ${x.about.ref} "${x.about.text}"` : ''}: ${x.text}`,
     ...(x.proposals ?? []).map((p) => `  - Proposed: ${proposalWords(p, a)}${p.used ? ' (the person used it)' : ' (not used)'}`),
     ...(x.recorded ?? []).map((r) => `  - Recorded: ${r}`),
   ]);
@@ -443,7 +448,8 @@ export function talkLines(t: PlanTalk, a: Analysis | null): string[] {
 /** The section of a new version's prompt (T-98): the conversation, the notes, and that the version reflects what was agreed. */
 export function talkSection(paths: RepoPaths, id: string, previous: Analysis | null): string[] {
   const t = readTalk(paths, id);
-  const said = t.turns.filter((x) => x.who !== 'plan');
+  // What was said before the plan has its own section (T-111): plan-opening.ts's openingSection.
+  const said = t.turns.filter((x) => x.who !== 'plan' && x.version !== 0);
   const notes = previous?.notes ?? [];
   if (!said.length && !notes.length) return [];
   return [

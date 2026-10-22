@@ -1,12 +1,15 @@
 // acc plan's talk (T-98): a person's message to the planning agent, a reply's proposal used, a note on the
 // plan, and a Claude Code session opened on it. Only a person does any of them. plan.ts sends them here.
 
-import { AccError, notePlan, openInClaude, proposalWords, readAnalysis, recordInSession, run, TALK_SESSION_VAR, talkPlan, useProposal } from '../../../core/src/index.ts';
+import { AccError, notePlan, OPENING_ASK, openInClaude, parsePlanTicket, proposalWords, readAnalysis, readLedger, recordInSession, run, startPlan, TALK_SESSION_VAR, talkPlan, useProposal } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
-import { accCommand, noAgent, now, type Opts, out, project, steps } from '../shared.ts';
+import { accCommand, noAgent, now, type Opts, out, project, readFileArg, steps } from '../shared.ts';
 
 /** Its lines in acc help, under plan's. */
-export const TALK_HELP = `  acc plan talk <id> "<message>"        Talk the plan through: the planning agent replies from the code (and the
+export const TALK_HELP = `  acc plan start <id> "<message>"       Start a plan with a conversation, before it is made: say what you want and
+                                        what you're thinking; the planning agent says what it understood, what it's
+                                        unsure of, and asks at most three questions. --ticket <file> as for analyze
+  acc plan talk <id> "<message>"        Talk the plan through: the planning agent replies from the code (and the
                                         org), read-only. --about d1, d1.a, s2, r1 or q1 quotes what it's about
   acc plan use <id> <turn> <proposal>   Use a change the planning agent proposed: a choice, an answer or a note,
                                         recorded as yours. --yes when it changes an approved plan
@@ -15,12 +18,34 @@ export const TALK_HELP = `  acc plan talk <id> "<message>"        Talk the plan 
                                         plan and the conversation so far`;
 
 /** The words acc plan takes for its talk. */
-export const TALK_SUBCOMMANDS = ['talk', 'use', 'note', 'claude'] as const;
+export const TALK_SUBCOMMANDS = ['start', 'talk', 'use', 'note', 'claude'] as const;
 
 /** Marks what a Claude Code session opened on the plan recorded, when this acc runs in one (TALK_SESSION_VAR). */
 export function recordedHere(root: string, id: string, line: string): boolean {
   const { paths } = project(root);
   return recordInSession(paths, id, process.env[TALK_SESSION_VAR], line);
+}
+
+function cmdStart(o: Opts, id: string, message: string): number {
+  const by = noAgent(o, 'start a plan');
+  const { paths, config } = project(process.cwd());
+  const task = id.toUpperCase();
+  // The whole ticket, as the Command Center read it from its tracker (T-110), for the first message.
+  const file = o.ticket as string | undefined;
+  const text = file ? readFileArg(file === '-' ? 0 : file) : null;
+  const kept = text !== null ? readLedger(paths.ledger).tasks.find((t) => t.id === task) : undefined;
+  const ticket = text !== null && kept ? parsePlanTicket(text, kept) : null;
+  const { reply } = startPlan(paths, config, task, message, { run, now, env: process.env, accCommand: accCommand(), steps: steps() }, by, ticket);
+  const n = reply.asks?.length ?? 0;
+  steps().result(true, n ? `The planning agent replied, and asks ${n} question${n === 1 ? '' : 's'}.` : 'The planning agent replied.');
+  out(o, () => [
+    tone(OPENING_ASK, 'dim'),
+    reply.text,
+    ...(reply.unsure ?? []).map((u) => tone(`  Unsure: ${u}`, 'dim')),
+    ...(reply.asks ?? []).map((q) => tone(`  ${q}`, 'blue')),
+    tone(`Answer with acc plan start ${task} "…", or make the plan with acc analyze ${task}.`, 'dim'),
+  ].join('\n'), reply);
+  return 0;
 }
 
 function cmdTalk(o: Opts, id: string, message: string): number {
@@ -70,6 +95,11 @@ function cmdClaude(o: Opts, id: string): number {
 /** acc plan's talk subcommands. Undefined for a word that isn't one. */
 export function talkCommand(o: Opts, rest: string[]): number | undefined {
   const [sub, id, ...args] = rest;
+  if (sub === 'start') {
+    const message = typeof o.message === 'string' ? o.message : args.join(' ');
+    if (!id || !message) throw new AccError('usage', 'acc plan start <id> "<message>" [--ticket <file>]');
+    return cmdStart(o, id, message);
+  }
   if (sub === 'talk') {
     // --message=<words> keeps words that start with - as words, as the Command Center sends them.
     const message = typeof o.message === 'string' ? o.message : args.join(' ');
