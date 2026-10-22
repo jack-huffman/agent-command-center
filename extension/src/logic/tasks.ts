@@ -6,6 +6,7 @@
 
 import { type Analysis, SIZE_MEANING } from '../../../packages/core/src/analyze.ts';
 import { type FileShare, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
+import { askOf, unchosen } from '../../../packages/core/src/plan.ts';
 import { fileList, prConflicts, type RowFiles, shortPath, TASK_GROUPS, type TaskGroup, taskNames, type TaskRow } from './shared.ts';
 import { forYou } from './plan.ts';
 
@@ -81,8 +82,8 @@ export function anywayQuestion(row: Pick<TaskRow, 'id'> & { files?: Pick<RowFile
 
 /** What a task's row keeps of its analysis: enough for its card, its notices and the Overview. */
 export function rowAnalysis(a: Analysis): NonNullable<TaskRow['analysis']> {
-  const open = a.questions.filter((q) => !q.answer).map(({ id, question, why, suggested, askOf }) => ({ id, question, why, suggested, askOf: askOf ?? 'you' }));
-  return { verdict: a.verdict, at: a.at, open, split: a.split, size: a.approach.size, choices: (a.decisions ?? []).filter((d) => !d.choice).length, approved: !!a.approval, version: a.version ?? 1 };
+  const open = a.questions.filter((q) => !q.answer).map((q) => ({ id: q.id, question: q.question, why: q.why, suggested: q.suggested, askOf: askOf(q) }));
+  return { verdict: a.verdict, at: a.at, open, split: a.split, size: a.approach.size, choices: unchosen(a).length, approved: !!a.approval, version: a.version ?? 1 };
 }
 
 /** The analysis's size, in words, to weigh the model by (D-086), or that there's none to go on. */

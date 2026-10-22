@@ -3,10 +3,11 @@
  * are left to make, and why Build it is off. Like the rest of logic/, no `vscode` import.
  */
 
+import { askOf } from '../../../packages/core/src/plan.ts';
 import { type AnalysisAsk, questionsWord, taskNames, type TaskRow } from './shared.ts';
 
 /** The questions only you can answer: one for the ticket's author waits on nobody here. */
-export const forYou = (open: readonly AnalysisAsk[]): AnalysisAsk[] => open.filter((q) => (q.askOf ?? 'you') === 'you');
+export const forYou = (open: readonly AnalysisAsk[]): AnalysisAsk[] => open.filter((q) => askOf(q) === 'you');
 
 /** "1 choice", "2 choices". */
 export const choicesWord = (n: number): string => `${n} choice${n === 1 ? '' : 's'}`;

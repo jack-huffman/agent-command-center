@@ -6,7 +6,7 @@
 
 import type { Analysis, PlanOption } from '../../../packages/core/src/analyze.ts';
 import { CHOICE_TEXT_MAX } from '../../../packages/core/src/plan-choices.ts';
-import { choiceName, lapsedWords, planVersion } from '../../../packages/core/src/plan.ts';
+import { choiceName, lapsedWords, planVersion, questionsForYou, unchosen } from '../../../packages/core/src/plan.ts';
 import { buildOff } from '../logic/plan.ts';
 import type { TaskRow } from '../logic/shared.ts';
 import { type Action, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
@@ -69,8 +69,8 @@ export const byName = (by: string): string => by.replace(/^human:/, '');
 /** Why Approve this plan is off, or null: questions for you, or choices, still open, or a split. */
 export function approveOff(a: Analysis): string | null {
   if (a.verdict === 'split') return 'Its plan says it\'s too big for one task: split it rather than approve it.';
-  const asks = a.questions.filter((q) => !q.answer && (q.askOf ?? 'you') === 'you').length;
-  const choices = (a.decisions ?? []).filter((d) => !d.choice).length;
+  const asks = questionsForYou(a).length;
+  const choices = unchosen(a).length;
   const parts = [asks ? `answer ${asks === 1 ? 'the question' : `the ${asks} questions`} for you` : '', choices ? `make ${choices === 1 ? 'the choice' : `the ${choices} choices`}` : ''].filter(Boolean);
   return parts.length ? `First ${parts.join(' and ')}.` : null;
 }

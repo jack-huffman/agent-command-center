@@ -4,6 +4,7 @@
  */
 
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
+import { askOf, unchosen } from '../../../packages/core/src/plan.ts';
 import { type RunNote, shownNote, type Task } from '../../../packages/core/src/ledger.ts';
 import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
 import { cardFailure } from '../../../packages/core/src/cards.ts';
@@ -403,9 +404,9 @@ export function ticketWording(findings: WordingFinding[] | undefined): TicketAna
 export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updates: Update[] = []): TicketAnalysis | null {
   const todo = row.state === 'todo';
   if (!a && !row.analyzing && !todo) return null;
-  const open = todo ? withClient((a?.questions ?? []).filter((q) => !q.answer).map(({ id, question, why, suggested, askOf }) => ({ id, question, why, suggested, askOf: askOf ?? 'you' })), row.id, updates) : [];
+  const open = todo ? withClient((a?.questions ?? []).filter((q) => !q.answer).map((q) => ({ id: q.id, question: q.question, why: q.why, suggested: q.suggested, askOf: askOf(q) })), row.id, updates) : [];
   const asks = forYou(open).length;
-  const choices = (a?.decisions ?? []).filter((d) => !d.choice).length;
+  const choices = a ? unchosen(a).length : 0;
   const look: Look = row.analyzing ? { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' }
     : !a ? { label: 'Not analyzed yet', icon: 'circle-large-outline', tone: 'neutral' }
       : !todo ? { label: 'Analyzed before the build', icon: 'pass', tone: 'blue' }
