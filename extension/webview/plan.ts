@@ -233,7 +233,7 @@ export function planShapes(m: TicketModel, task: string, plan: TicketPlan): HTML
     el('ol', 'an-list ps-tasks',
       el('li', '', el('strong', '', split.first.title), el('span', 'chip ps-first', 'First: the shape and its tests'), split.first.brief ? el('div', 'muted small', md(split.first.brief)) : null),
       el('li', '', el('strong', '', split.rest.title), el('span', 'chip ps-rest', 'Then: waits for the first'), split.rest.brief ? el('div', 'muted small', md(split.rest.brief)) : null)),
-    split.made ? el('div', 'ps-made small', icon('pass-filled'), el('span', '', `Split into ${split.made.first} and ${split.made.rest}. ${split.made.rest} starts once ${split.made.first} merges.`)) : null));
+    split.made ? el('div', 'muted small', icon('pass-filled'), el('span', '', `Split into ${split.made.first} and ${split.made.rest}. ${split.made.rest} starts once ${split.made.first} merges.`)) : null));
   if (split.go) {
     const b = button(busy ? 'Splitting…' : 'Split into these tasks', busy ? 'loading~spin' : 'split-horizontal', () => send(key, 'split', { type: 'plan-split', project: m.project, task }));
     if (busy) { b.disabled = true; b.title = 'Wait for the split on its way'; }
