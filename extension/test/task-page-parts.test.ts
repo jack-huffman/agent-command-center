@@ -75,6 +75,16 @@ test('a comment draws its author\'s avatar, their name with their email in its t
   assert.equal(item.all('avatar')[0]!.textContent, c.author.initials, 'the avatar shows their initials');
   assert.equal(item.all('act-name')[0]!.title, c.author.email);
   assert.ok(item.all().some((e) => e.tagName === 'TIME' && e.textContent), 'a time');
+  // Each comment is its own card, its head saying who commented and when; acc's own moves are not cards.
+  for (const i of items) {
+    const card = i.all('act-card');
+    assert.equal(card.length, 1, 'one card per comment');
+    assert.match(card[0]!.all('act-card-head')[0]!.textContent, /commented/);
+    assert.equal(card[0]!.all('act-comment').length, 1, 'its body inside the card');
+  }
+  const moves = (await drawn(sampleTicket(Date.now()))).filter((e) => e.classList.contains('act-item') && !e.all('act-avatar').length);
+  assert.ok(moves.length, 'the sample has moves');
+  assert.ok(moves.every((e) => !e.all('act-card').length), 'a move is a light row, not a card');
   // Edge case: an author with no email has no title on their name.
   const bare = (await drawn({ ...m, comments: [{ ...c, author: { ...c.author, email: null } }] })).find((e) => e.classList.contains('act-name'))!;
   assert.equal(bare.title, '');

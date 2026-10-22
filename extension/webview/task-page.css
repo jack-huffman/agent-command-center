@@ -156,4 +156,10 @@ body[data-view="ticket"] { padding-top: 18px; }
 .act-comment .doc { line-height: var(--leading-read); }
 .act-comment .doc p:last-child { margin-bottom: 0; }
 .act-name { font-weight: 600; }
+/* A comment is its own card on the rail, as a tracker draws one: the page's raised surface, an edge, the lift. */
+.act-item.is-comment { padding: var(--space-2) 0; }
+.act-card { padding: var(--space-3) var(--space-4); border: 1px solid var(--edge); border-radius: var(--radius-l); background: var(--raised); box-shadow: var(--lift); }
+.act-card-head { min-height: 24px; }
+.act-card-link { margin-left: auto; }
+.act-card .act-comment { margin: var(--space-2) 0 0; }
 .act-more { margin: 4px 0 0 38px; }

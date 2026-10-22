@@ -310,12 +310,15 @@ const FEED_FIRST = 6;
  */
 function renderActivity(m: TicketModel): HTMLElement | null {
   const items: { at: string; node: HTMLElement }[] = [];
-  // A comment (T-91): its author's avatar, their name, with their email in its title, and when; then its body as reading text.
+  // A comment (T-91) is its own card on the rail, as a tracker draws one: its author's avatar on the rail, then
+  // their name, with their email in its title, "commented" and when, and its body as reading text. acc's moves
+  // and a person's edits stay light rows, so a conversation reads apart from acc's notes.
   for (const c of m.comments) {
     const name = Object.assign(el('strong', 'act-name', c.author.name), c.author.email ? { title: c.author.email } : {});
-    items.push({ at: c.created, node: feedItem(el('span', 'act-icon act-avatar', avatar(c.author)),
-      [name, el('span', 'muted', '·'), when(c.created), c.url ? linkTo(c.url, icon('link-external')) : null],
-      el('div', 'act-comment', renderDoc(c.body, ''))) });
+    const head = el('div', 'act-line act-card-head', name, el('span', 'muted', 'commented'), when(c.created),
+      c.url ? el('span', 'act-card-link', linkTo(c.url, icon('link-external'))) : null);
+    items.push({ at: c.created, node: el('li', 'act-item is-comment', el('span', 'act-icon act-avatar', avatar(c.author)),
+      el('article', 'act-body act-card', head, el('div', 'act-comment', renderDoc(c.body, '')))) });
   }
   for (const h of m.acc?.history ?? []) {
     const f = moveFeed(h);
