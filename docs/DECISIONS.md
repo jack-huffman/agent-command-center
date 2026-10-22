@@ -8955,47 +8955,65 @@ seeing what it would look like. Each list is now cards, and the board the choice
   and the behaviour case "connect: choosing a board…", with mutants that save without a preview, draw no
   board, send no choice from a card, and search without hiding. The shots `connect-jira-board` and
   `connect-azure-board` draw the board cards, the epic or area path ticked, and the preview.
-## D-??? A tracker's changes field: named in its settings, drafted from a ticket's changes, saved by a person (2026-10-22)
+## D-??? A tracker's changes field: named in its settings, drafted as an update when a ticket's changes change, saved by a person (2026-10-22)
 
 Many teams keep a ticket field for what a ticket changed, such as "Deployment Notes", so whoever deploys to
 production knows what to move, records included. The person asked to name that field for a tracker, so the
-Command Center keeps it up to date from the ticket's changes (D-189's paths, D-190's record changes), and so
-changes a developer wrote there by hand aren't lost. T-105.
+Command Center keeps it up to date from the ticket's changes (D-189's paths, D-190's record changes, T-101's
+package.xml), and so changes a developer wrote there by hand aren't lost. T-105.
 
 - **The setting.** A tracker's `changesField` is `{ id, name, format }`, checked by `changesFieldProblem`
-  (`packages/core/src/changes-field.ts`): a format its tracker has (`FIELD_FORMATS_OF`): `adf` or `plain` on
-  Jira, `html` or `plain` on Azure DevOps, `plain` on monday.com. GitHub issues have no fields, so on GitHub it
+  (`packages/core/src/changes-field.ts`): a format its tracker has (`FIELD_FORMATS_OF`): `adf` on Jira,
+  `html` or `plain` on Azure DevOps, `plain` on monday.com. GitHub issues have no fields, so on GitHub it
   can only be the description's section under the heading "Changes (kept by the Command Center)"
   (`GITHUB_CHANGES`). Slack threads have none: the setting is an error there (`changesFieldRefusal`).
-- **The field list.** Each tracker's `textFields` reads its own fields API: Jira's text (`textfield`, plain)
-  and long-text (`textarea`, ADF) custom fields, never its own fields; Azure DevOps' string, plain-text and
-  HTML fields on the work item types its board's columns map, leaving out `System.*` and read-only fields;
-  monday.com's long-text columns. Settings' Trackers has a row of its own for each tracker, Changes, beside
-  Place, Board and Sign-in, with Choose… or Change… (`acc.trackers.changesField`), which lists them in a quick pick
-  with None first, and has acc write the choice, as the Connect page's Save does (D-064). Slack's row and
-  button are off, saying why. The Connect page shows the same row, "Where to keep a ticket's changes", once
-  the place is chosen, after its lists, without changing its pickers; for a tracker not saved yet its button is off until it is.
-- **Drafted, not written.** `changesDraft` makes the field's text as Markdown: each component once, grouped by
-  type in bold (by folder outside Salesforce), then each change outside git under its kind's label in plain
-  words, then "As of <date>.". The ticket's page reads the field back each time it loads the ticket
-  (`FieldReads`) and shows it under Changes as "From the ticket's <field>", with how it compares
-  (`FIELD_LOOK`): the same as found (blue, `sameChanges`, which ignores the date line, spacing and Markdown),
-  differing or empty (orange). Where it differs and there are changes, a draft follows in a box to edit:
-  what it replaces is the text above, the person's edit is kept in the tab's memory, and Save to the ticket
-  sends the edit with the text the page showed. It's drawn on the ticket's page, not as a file in the update
-  drafts store: its text follows the ticket's changes, so each redraw drafts it afresh from them, and a
-  person's edit stays until saved or set back with "Use the drafted text".
-- **Saved by a person only.** `saveField` refuses, writing nothing, where the tracker's settings keep edits
-  off (D-066, D-177; Save is off saying why), where no field is named, or where the field changed since the
-  page showed it: then the page gets what it says now. Otherwise it writes once, through `writeField`. A
-  read, a draft and a redraw never write.
+- **The field list holds only fields of more than one line,** since the text is a list. Each tracker's
+  `textFields` reads its own fields API: Jira's long-text custom fields (`textarea`, ADF), never a one-line
+  `textfield` or Jira's own fields; Azure DevOps' HTML and plain-text fields on the work item types its board's
+  columns map, never a one-line string field, `System.*` or a read-only field; monday.com's long-text columns.
+  Settings' Trackers has a row of its own for each tracker, Changes, beside Place, Board and Sign-in, with
+  Choose… or Change… (`acc.trackers.changesField`), which lists them in a quick pick with None first, and has
+  acc write the choice, as the Connect page's Save does (D-064). Slack's row and button are off, saying why.
+  The Connect page shows the same row, "Where to keep a ticket's changes", once the place is chosen, after its
+  lists, without changing its pickers; for a tracker not saved yet its button is off until it is.
+- **An update draft, made when the ticket's changes change (D-066).** A new update event, `changes`, carries
+  the field it's for. `draftChangesField` (`packages/core/src/field-drafts.ts`) drafts it at each moment a
+  ticket's changes change: acc land opening or updating its pull request with new commits, a builder's
+  acc done, acc change record, acc manifest build, autopilot's merge, acc sync seeing it merged, and a person
+  moving it to done. Its text is `changesDraft`'s Markdown: each component once, grouped by type in bold (by
+  folder outside Salesforce), then each change outside git under its kind's label, then the package.xml's
+  members and deletions where T-101 built one, then "As of <date>.". As with D-066's other news, a newer draft
+  replaces an open one; changes that say what the open draft, or else the last saved one, says draft nothing.
+  A Slack task, a task acc alone keeps, and a tracker that names no field get none. Drafting never stops the
+  step it follows. The draft is listed with the ticket's other drafts: under Needs you on the Overview, with
+  Edit and Discard, and at the top of the ticket's Activity in a box to edit. Its button says Save to the
+  ticket, and "Saving as …". `acc update post` refuses it: it isn't a comment.
+- **A person's lines are never lost.** A line in the field that the Command Center didn't write, in any text
+  it drafted for the field (`writtenFor`), is a person's (`keptLines`); a line it wrote once and no longer
+  finds, such as a component taken out, isn't. On the ticket's page, once the field is read, the draft offered
+  keeps each of them under "Kept from the ticket", before the date (`withKept`, `withFieldKept`), so saving
+  it as offered removes none. The save does the same again with the field as read at that moment, so a
+  draft saved from the Overview, or a line written on the ticket since the page was drawn, loses nothing. To
+  take a person's line out, edit the field on the ticket. This replaces this task's first build, where the
+  page drafted the text on each redraw and refused a save when the field had changed since it was shown.
+- **The read-back.** The ticket's page reads the field each time it loads the ticket (`FieldReads`) and shows
+  it under Changes as "From the ticket's <field>", with how it compares (`FIELD_LOOK`): the same as found,
+  the person's lines counted as kept (blue, `sameChanges`, which ignores the date line, spacing and Markdown),
+  differing or empty (orange), with a line saying the draft update in Activity is its new text, or, with no
+  draft, that one comes when the ticket's changes next change.
+- **Saved by a person only.** Save to the ticket sends `update-post`; for a `changes` draft the extension has
+  acc claim it (`acc update posting`, D-066), then `saveField` reads the field and writes it once, through
+  `writeField`, and acc records the text written (`acc update posted`); a failed save puts the draft back
+  with why (`saveClaimed`). It refuses, writing nothing, where the tracker's settings keep edits off (D-066,
+  D-177; the card's Save is off saying why), where no field is named, or where the settings now name another
+  field. A read, a draft and a redraw never write.
 - **Each tracker's format,** through the document model's converters (`packages/core/src/trackers/fields.ts`):
   Markdown on GitHub, HTML for an Azure DevOps HTML field, ADF for a Jira long-text field, plain text that
   keeps its list's dashes otherwise (`plainOf`). GitHub's `writeField` reads the description again and sets
   only its section (`withGithubSection`), in place or at the end; a heading in a code block isn't one.
-- **The manifest's members** (T-101) aren't in the draft: T-101 hasn't built a ticket's package.xml yet.
-- Out of scope: writing the field without a person's save; listing the draft in Needs you.
+- Out of scope: writing the field without a person's save.
 
-Tested in `packages/core/test/changes-field.test.ts` (17 tests) and `extension/test/changes-field.test.ts`
-(13). The screenshot run draws `ticket-changes-field`, the row in `settings-trackers` with Slack's off, and
-the row on `connect-existing`.
+Tested in `packages/core/test/changes-field.test.ts` (18 tests), `packages/core/test/field-drafts.test.ts` (6)
+and `extension/test/changes-field.test.ts` (17). The screenshot run draws `ticket-changes-field` (the
+read-back and its draft update with the kept lines), the row in `settings-trackers` with Slack's off, and the
+row on `connect-existing`.
