@@ -95,7 +95,9 @@ test('acc plan claude gives Claude Code\'s plan-mode launch, and what that sessi
   const r = acc(dir, ['plan', 'claude', 'ACME-7', '--json'], undefined, env);
   assert.equal(r.code, 0, r.err);
   const launch = r.json();
-  assert.deepEqual(launch.args.slice(0, 2), ['--permission-mode', 'plan']);
+  // The prompt first, so --allowedTools can't swallow it as a tool.
+  assert.match(launch.args[0], /^Read .+ first\./);
+  assert.deepEqual(launch.args.slice(1, 3), ['--permission-mode', 'plan']);
   assert.match(readFileSync(launch.brief, 'utf8'), /## Recording to the plan/);
   // Its acc runs carry the session: a choice, an answer and a note each land on its turn.
   const inSession = { ...env, ...launch.env };
