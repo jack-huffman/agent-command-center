@@ -10,8 +10,8 @@ import { FLOORS_ATTRIBUTE, FLOORS_DRIVER, FLOORS_DRIVER_COMMAND, formatFloors, r
 import { fakeBin, gitIn } from '../../core/test/support.ts';
 import { cli, repoWithConfig } from './support.ts';
 
+const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 const MAIN = fileURLToPath(new URL('../src/main.ts', import.meta.url));
-const acc = cli(MAIN);
 /** `acc` on PATH as git finds it when it runs the driver: this source, as a person's install would run it. */
 const ACC_ON_PATH = fakeBin('acc', `exec "${process.execPath}" --no-warnings "${MAIN}" "$@"\n`);
 

@@ -61,6 +61,11 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['tidy'], name: 'See the tidy-up' },
   { acc: ['tidy add'], name: 'Draft a tidy-up', command: 'acc.tidy.draft' },
   { acc: ['tidy skip'], name: 'Skip the tidy-up', command: 'acc.tidy.skip' },
+  // Merging parallel work (T-102, D-197): git's driver for the floors file, and decisions numbered at merge.
+  { acc: ['floors', 'floors merge'], name: 'Keep the better of each floor' },
+  { acc: ['decisions', 'decisions number'], name: 'Number the decisions' },
+  { acc: ['decisions index'], name: 'Write the decisions index' },
+  { acc: ['decisions check'], name: 'Check the decisions index' },
   // Agents
   { acc: ['dispatch'], name: 'Build it', named: 'Build {arg}', command: 'acc.task.dispatch' },
   { acc: ['done'], name: 'Finish the task' },
