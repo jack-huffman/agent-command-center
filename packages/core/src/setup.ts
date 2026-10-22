@@ -15,6 +15,7 @@ import { promotionPaths } from './promote.ts';
 import { orList } from './trackers/types.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
+import { escapeMarkup } from './text.ts';
 
 export interface SetupDeps {
   run: Runner;
@@ -70,8 +71,6 @@ export function parseManifest(xml: string): { types: Map<string, Set<string>>; v
   return { types, version: /<version>\s*([^<]+?)\s*<\/version>/.exec(xml)?.[1] ?? null };
 }
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
 /** Every component any of the manifests lists, sorted, at the newest API version among them. */
 export function unionManifests(xmls: string[]): string {
   const all = new Map<string, Set<string>>();
@@ -82,7 +81,7 @@ export function unionManifests(xmls: string[]): string {
     if (m.version && (!version || Number(m.version) > Number(version))) version = m.version;
   }
   const types = [...all.keys()].sort().map((t) => [
-    '    <types>', ...[...all.get(t)!].sort().map((m) => `        <members>${esc(m)}</members>`), `        <name>${esc(t)}</name>`, '    </types>',
+    '    <types>', ...[...all.get(t)!].sort().map((m) => `        <members>${escapeMarkup(m)}</members>`), `        <name>${escapeMarkup(t)}</name>`, '    </types>',
   ].join('\n'));
   return ['<?xml version="1.0" encoding="UTF-8"?>', '<Package xmlns="http://soap.sforce.com/2006/04/metadata">', ...types, `    <version>${version ?? '62.0'}</version>`, '</Package>', ''].join('\n');
 }

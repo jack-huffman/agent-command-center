@@ -43,6 +43,7 @@ export * from './ledger.ts';
 export * from './limits.ts';
 export * from './lock.ts';
 export * from './machine.ts';
+export * from './manifest.ts';
 export * from './merge.ts';
 export * from './names.ts';
 export * from './outside-changes.ts';
