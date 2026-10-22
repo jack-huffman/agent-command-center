@@ -335,7 +335,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   // ACME-21's page with The whole plan open, where Discuss is on each step and risk (T-98).
   : kind === 'ticket-talk' ? { opened: [...['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`), WHOLE_PLAN] }
   // The next message to ACME-21's planning agent (T-98), in its panel (T-111), about an option, quoted, half-written.
-  : kind === 'conversation-talk' ? TALK_STATE
+  // Its earlier turns open (T-113), so every turn, proposal and what changed is drawn; conversation-long draws the fold.
+  : kind === 'conversation-talk' ? { ...TALK_STATE, opened: [`talk:${ROOT}#ACME-21:earlier`] }
   // The card part-way through the agent's three questions (T-113): the first answered, the second picked.
   : kind === 'conversation-questions' ? QUESTIONS_STATE
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }

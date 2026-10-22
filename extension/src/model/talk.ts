@@ -154,7 +154,7 @@ export interface TalkIn {
 export const conversationWords = (messages: number): string => `Conversation · ${messages} message${messages === 1 ? '' : 's'}`;
 
 /** What the opening conversation says first, under its question (T-111). */
-export const OPENING_NOTE = 'Say it in your own words. The planning agent reads the ticket, says what it understood and what it\'s unsure of, and asks a few questions before it makes the plan.';
+export const OPENING_NOTE = 'Say it in your own words. The planning agent reads the ticket, says what it understood, and asks a few questions, one at a time, before it makes the plan.';
 
 /**
  * Why a proposal can't be used now, or null: it was made on an older version, whose choices the new one may
