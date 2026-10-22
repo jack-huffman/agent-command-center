@@ -14,6 +14,7 @@ import { area as limits } from './limits.ts';
 import { area as overview } from './overview.ts';
 import { area as page } from './page.ts';
 import { area as questions } from './questions.ts';
+import { area as recordChanges } from './record-changes.ts';
 import { area as rules } from './rules.ts';
 import { area as runs } from './runs.ts';
 import { area as settings } from './settings.ts';
@@ -28,7 +29,7 @@ import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agentPage, agents, boards, branches, connect, criteria, dispatchSheet, environments, historyPages, limits, overview, page, questions, rules, runs, settings, setup, slack, taskModal, taskPage, taskSheet, tasks, tidy, updates, verify, worktrees];
+export const AREAS = [about, agentPage, agents, boards, branches, connect, criteria, dispatchSheet, environments, historyPages, limits, overview, page, questions, recordChanges, rules, runs, settings, setup, slack, taskModal, taskPage, taskSheet, tasks, tidy, updates, verify, worktrees];
 export type Message =
   | import('./agent-page.ts').Message
   | import('./agents.ts').Message
@@ -39,6 +40,7 @@ export type Message =
   | import('./history-pages.ts').Message
   | import('./page.ts').Message
   | import('./questions.ts').Message
+  | import('./record-changes.ts').Message
   | import('./rules.ts').Message
   | import('./runs.ts').Message
   | import('./slack.ts').Message

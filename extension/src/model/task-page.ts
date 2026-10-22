@@ -27,6 +27,7 @@ import { cardActions, filesLook, placeLook } from './cards.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
 import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria.ts';
 import type { TicketVerify } from './verify.ts';
+import type { TicketRecords } from './record-changes.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -194,6 +195,8 @@ export interface TicketModel {
   criteria: TicketCriteria | null;
   /** Verify the developer's work (T-84): its pull request, checks, criteria and findings, or why it's off. Null with no task. */
   verify: TicketVerify | null;
+  /** Its record changes (T-100), on a Salesforce task: planned, recorded and stepped at promotion. */
+  records?: TicketRecords | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
   /** It's being tracked now, from this page or its card (D-074). */
