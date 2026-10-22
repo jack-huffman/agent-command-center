@@ -13,7 +13,7 @@ Salesforce. Project types plug in as profiles.
 - **M2 done:** setup walkthroughs, and one Command Center page, with an
   Overview, tasks, agents, worktrees, environments and setup. Click the icon in
   the activity bar to open it.
-- **M3 done:** **Dispatch** hands a ready task to a background agent in its own
+- **M3 done:** **Build it** hands a ready task to a background agent in its own
   worktree. The first real run went from Ready to In review on its own.
 - **M4 done:** **Checks.** `acc gate run` runs a project's checks on the
   current commit and records the results. Salesforce projects get `format`,
@@ -23,13 +23,13 @@ Salesforce. Project types plug in as profiles.
 - **Boards and tickets:** the Tasks tab shows each tracker's own board: a
   Jira board's columns, an Azure DevOps team board's, or a GitHub Project's. Drag a card to move the real
   ticket. Click one and its ticket page opens over the board: the description,
-  comments, status, assignee and labels, plus acc's agent, checks and history.
+  comments, status, assignee and labels, plus the Command Center's agent, checks and history.
   **Open as tab** gives it a tab of its own. Status, assignee
   and labels change from there only when the tracker says `"edits": true`. On
   a GitHub tracker, `"edits"` also lets `acc sync` close a task's issue when its
   work merges, with a comment naming the pull request; `acc sync --close-done`
   closes the issues of tasks done before that.
-- **A GitHub Project's columns follow the task:** under `"edits": true`, as acc
+- **A GitHub Project's columns follow the task:** under `"edits": true`, as the Command Center
   moves a task, its issue's card moves on the Project to the column of that
   name: Todo for to do and ready, In Progress for running and rework, Testing
   (or In Review) for review, Blocked, and Done. `statusFor` in the tracker's
@@ -37,9 +37,9 @@ Salesforce. Project types plug in as profiles.
   the column is left alone, a card you drag stays put until the task moves
   again, and a move that fails is named on the task without holding it up.
 - **Ticket updates are yours to post:** apart from that close and those card
-  moves, acc never posts
+  moves, the Command Center never posts
   on a ticket. When a pull request is ready for review, merges, or deploys, or
-  a builder needs the client's answer, acc drafts an update in plain words. It
+  a builder needs the client's answer, the Command Center drafts an update in plain words. It
   waits in Needs you and on the task's page, where you edit it and post it as
   yourself, or discard it. `acc updates` lists them.
 - **Who you're working as:** the status bar shows the repo's GitHub account,
@@ -65,7 +65,7 @@ Salesforce. Project types plug in as profiles.
 - **A task's model and effort:** each builder runs with the clone's or the
   project's model and effort unless a task picks its own:
   `acc dispatch <id> --model <m> --effort <low|medium|high|xhigh|max>`, or
-  **Dispatch** (**Re-dispatch** on a rework) in the Command Center, which
+  **Build it** (**Build it again** on a rework) in the Command Center, which
   opens one sheet: the model, with where the current one is set; the levels
   it takes, as a segmented control; and where it runs, This Mac or the
   cloud, which is off with its reason when the project can't use it. What
@@ -74,7 +74,7 @@ Salesforce. Project types plug in as profiles.
   `--effort default`, or the builder's own level in the sheet, drops it, and
   a model picked that doesn't take it drops it and says so. On every dispatch
   and resume, a level the model doesn't take is refused before anything
-  starts, citing acc's list of each model's levels, copied from Anthropic's
+  starts, citing the Command Center's list of each model's levels, copied from Anthropic's
   effort guide with the date it was read. The task page and Agents show an effort beside the model when it
   isn't the model's default.
 - **History:** what agents asked and what you answered stays on the page: in
@@ -83,7 +83,7 @@ Salesforce. Project types plug in as profiles.
 - **M5 done:** the first real ticket went all the way: issue #9, built by an
   agent, checked, reviewed by another agent, and opened as pull request #10.
 - **M6 done: the plugin.** `claude --plugin-dir plugin` (or the marketplace in
-  this repo) adds acc's skills, the reviewer agent and the hooks that keep
+  this repo) adds the Command Center's skills, the reviewer agent and the hooks that keep
   builders in their worktree and away from pushes, merges and deploys.
 - **M7: three agents at once.** Three builders ran together on issues #11 to
   #13, each in its own worktree, with their checks taking turns on the
@@ -91,7 +91,7 @@ Salesforce. Project types plug in as profiles.
   and what's in review. A notice says when a builder finishes, a review passes
   or asks for changes, or a pull request's checks fail. **Intake** gathers the
   ways work comes in, and **Instructions** opens a builder's packet.
-- **Builders survive the Mac sleeping:** on macOS acc keeps the machine awake
+- **Builders survive the Mac sleeping:** on macOS the Command Center keeps the machine awake
   (`caffeinate -i`) while an agent it started runs; the display still sleeps,
   and closing the lid still sleeps the Mac. Other platforms aren't kept awake.
   A builder that stops before `acc done` or `acc block`, as one did when the
@@ -105,7 +105,7 @@ Salesforce. Project types plug in as profiles.
   however many windows are open, and sends only the task's id and title, what
   happened and a link.
 - **Tasks that change the same files take turns, where they can:** before a
-  task starts, acc compares the files its analysis plans to change with the
+  task starts, the Command Center compares the files its analysis plans to change with the
   work in flight. When it shares some, and another Ready task shares none, it
   waits, and its card says "Waits for GH-70's files: …". It starts on its own
   once those files are free, or once nothing else is ready. Files every task
@@ -120,11 +120,16 @@ Salesforce. Project types plug in as profiles.
 
 Agent Command Center is a VSCode extension, the `acc` command that comes with
 it, and a Claude Code plugin. This takes a new machine from nothing to its first
-project. [ONBOARDING.md](docs/ONBOARDING.md) has every step in detail.
+project.
+
+For developers: `acc` is the command-line engine behind the Command Center. The
+extension runs it for every action, and a person never needs to type it. In the
+Command Center a person adds a ticket to **My work**, an agent **makes a plan**,
+they **build it**, and they review and merge it. [ONBOARDING.md](docs/ONBOARDING.md) has every step in detail.
 
 ### What you need
 
-- **macOS**, on Apple Silicon or Intel. acc runs on no other platform.
+- **macOS**, on Apple Silicon or Intel. The Command Center runs on no other platform.
 - **VSCode.**
 - **Claude Code**, the terminal CLI (`brew install --cask claude-code`), signed
   in to your Claude account.
@@ -134,7 +139,7 @@ project. [ONBOARDING.md](docs/ONBOARDING.md) has every step in detail.
 - **For Salesforce projects:** Node 20 or later, the Salesforce CLI and its
   Code Analyzer plugin.
 
-acc itself needs no Node: with no node 20 or later on PATH, it runs on VSCode's
+The Command Center itself needs no Node: with no node 20 or later on PATH, it runs on VSCode's
 own runtime, which the extension records each time it starts. Salesforce
 projects need Node for the Salesforce CLI.
 
@@ -191,7 +196,7 @@ way as the first, over the old one.
    as VSCode's walkthrough. Each step has
    **Check** and, for most, **Do it**, which runs the fix in a terminal or an
    output panel you can watch. A step ticks itself when its check passes. It
-   covers the tools, GitHub, agents' billing, and the acc plugin in Claude
+   covers the tools, GitHub, agents' billing, and the Command Center's Claude Code plugin in
    Code (A4).
 2. **The plugin.** A4's **Do it** installs it from this repo's marketplace, for
    every Claude Code session. Start a new Claude Code session afterwards:
@@ -221,7 +226,7 @@ way as the first, over the old one.
    every step and what's left, and `acc doctor` in any VSCode terminal runs the
    same checks.
 
-### What acc changes on your machine
+### What the Command Center changes on your machine
 
 - **VSCode:** every terminal gets `acc` on its PATH, from the extension's own
   copy. Tracker sign-ins and the Slack webhook, if you add them, are kept in
@@ -229,17 +234,17 @@ way as the first, over the old one.
 - **`~/.acc/`:** `runtime`, the path of VSCode's runtime for the launcher;
   `questions/`, agents' questions waiting for the Command Center; `heavy/`, the
   slot heavy checks take turns on; `machine.json`, this machine's heavy-check
-  slots; `repos.json`, the repos acc knows on this machine; and `slack/sent/`,
+  slots; `repos.json`, the repos the Command Center knows on this machine; and `slack/sent/`,
   which notices went to Slack.
-- **Claude Code:** the acc plugin, at user scope, with its marketplace's clone
+- **Claude Code:** the Command Center's Claude Code plugin, at user scope, with its marketplace's clone
   under `~/.claude/plugins/`. Its hooks run in every Claude Code session, and
   do nothing in a repo without `.acc/config.json`. Each project's main checkout
   is trusted once (B12).
 - **gh:** a login for each account you sign in with through **Do it**. gh's
   active account is put back as it was.
-- **The Mac:** while an agent acc started runs, `caffeinate -i` keeps the Mac
+- **The Mac:** while an agent the Command Center started runs, `caffeinate -i` keeps the Mac
   from sleeping; the display still sleeps.
-- **In each project's repo:** `.acc/config.json`, which you commit; acc's
+- **In each project's repo:** `.acc/config.json`, which you commit; the Command Center's
   ledger in the git directory (`.git/acc/`), never in a commit; task worktrees
   in `.claude/worktrees/`; `node_modules` in the repo's `info/exclude`; the
   repo's own commit identity and credential helper in its git config (B2); and
@@ -262,7 +267,7 @@ way as the first, over the old one.
   first.
 - **Humans keep the gates.** Nothing merges, deploys, closes a ticket or changes
   a ticket's status unless you ask. You can, from the board and the ticket
-  pages. acc never does it on its own, with one opt-in: a repo can turn on
+  pages. The Command Center never does it on its own, with one opt-in: a repo can turn on
   auto-merge (`acc agents auto-merge on`), and autopilot then merges a reviewed
   pull request whose checks passed, with nothing waiting on you, into an
   environment that isn't protected. It's off by default, and a Salesforce
@@ -301,7 +306,7 @@ another's repo. GitHub Issues, Jira Cloud, Azure DevOps, monday.com and Slack. S
 one up on the Command Center's **Connect page**: Connect
 Jira on the Tasks tab, Add a tracker on the Overview, or **Add a tracker…** from
 the Command Palette. It signs in, tests the connection, and lists the projects,
-places and boards to pick from, and acc writes the tracker to `.acc/config.json`
+places and boards to pick from, and the Command Center writes the tracker to `.acc/config.json`
 for you to commit. The Command Center's **Settings** lists every open project's
 trackers under **Trackers and sign-ins**, with who each signs in as, and signs
 each in again, signs it out, or changes its place. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).
@@ -343,7 +348,7 @@ Settings.
   again; a later one is. Off, nothing is looked for by itself, and **Check
   now** in Settings' **About** still looks.
 - `agentCommandCenter.theme`: how the Command Center's pages look: `vscode`
-  (Match VSCode, the default), `light` or `dark`. It changes only acc's own
+  (Match VSCode, the default), `light` or `dark`. It changes only the Command Center's own
   pages; VSCode keeps its theme. It's kept on this machine, and set from
   **Appearance** in the Command Center's Settings section.
 - `agentCommandCenter.refreshPace`: how often the Command Center refreshes
@@ -358,12 +363,12 @@ and whether Agents' Where column shows each session's folder or its full path.
 
 Each project's own settings are in its `.acc/config.json`.
 [DESIGN.md section 4](docs/DESIGN.md#4-config) says what each key does, and
-acc warns about a key it doesn't know.
+The Command Center warns about a key it doesn't know.
 
 ## Development
 
 Development needs Node 23.6 or later, which runs the TypeScript directly. The
-built acc doesn't: it runs on node 20 or later, or on VSCode's runtime.
+built `acc` doesn't: it runs on node 20 or later, or on VSCode's runtime.
 
 ```bash
 npm install              # dev dependencies: typescript, esbuild, @types/node
@@ -398,7 +403,7 @@ step, but only `npm run package` refreshes it, copying the launcher and
 `acc.mjs` together once the package has passed its checks. A branch's checks
 never change it, so pull requests don't conflict over a generated file (D-042).
 
-acc, the extension and the plugin share one version, the root package.json's,
+`acc`, the extension and the plugin share one version, the root package.json's,
 and `CHANGELOG.md` says what changed in each. `npm run package` refuses a
 version with no CHANGELOG entry, and a package holding the packager's personal
 data: a home path, their email or GitHub account, or a tracker they've signed
