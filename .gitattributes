@@ -1,0 +1,5 @@
+# Files parallel tasks each add a line to merge on their own (T-102).
+# The floors keep the better of each: Setup installs the driver in this clone's git config.
+.acc/floors.json merge=acc-floors
+# The screenshot pages, one a line: two branches' new pages are both kept.
+extension/scripts/pages.ts merge=union

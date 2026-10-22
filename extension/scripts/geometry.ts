@@ -7,12 +7,16 @@
  *
  * Each check says how many elements it examined. A page fails when its clipped or words check examined
  * none, or its overlap, tab or overview check where the page has what that check reads; a whole run fails
- * when a check's total is below RUN_FLOOR. So a page that drew nothing can't pass.
+ * when a check's total is below runFloor(). So a page that drew nothing can't pass.
  */
 
 import { COLLECT_WORDS, type GeoSaid, judgeWords, WORK_DATA } from './words.ts';
 import { SELECTED_TAB } from './steady.ts';
 import { A11Y_EXCEPTIONS, type GeoA11y, incompleteSummary, judgeA11y } from './a11y.ts';
+import { join } from 'node:path';
+import { FLOORS_FILE, type Floors, readFloors, valueOf } from '../../packages/core/src/ratchets.ts';
+import { PAGES, type Page, STILL, viewOf, WIDTHS } from './pages.ts';
+import { PALETTE_THEMES } from './styles.ts';
 
 export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'raw', 'a11y', 'actions'] as const;
 export type Check = (typeof CHECKS)[number];
@@ -289,18 +293,64 @@ export const BOARD_TOP = { page: 'tasks', width: 1000, max: 283 } as const;
 /** One drawing's verdict: its page, theme and width. */
 export interface Render { page: string; theme: string; width: number; verdict: Verdict }
 
+/** The checks whose floor follows the pages (T-102), worked out from them, never set by hand. */
+export const PAGE_CHECKS = ['overlap', 'tab', 'words'] as const;
+/** The least each drawing examines for overlap (controls) and words (strings, GH-163). */
+export const PER_DRAWING = { overlap: 30, words: 100 } as const;
+/** How many drawings a page makes in a whole run: each theme at each width. */
+export const DRAWINGS = PALETTE_THEMES.length * WIDTHS.length;
+
 /**
- * The least a run of every page, both themes and all three widths examines, per check. Raised as the
- * pages grow, never lowered: a run below one has stopped looking.
+ * The floors that follow the pages: 30 controls and 100 strings a drawing, and the selected tab on every
+ * drawing of a page with a rail, which the loading screen has not (T-16). A new page raises them itself.
  */
-export const RUN_FLOOR: Record<Check, number> = { overlap: 24480, clipped: 41700, tab: 594, sideways: 1100, overview: 800, buttons: 450, words: 81600, covered: 1700, raw: 348, a11y: 190000, actions: 330 };
+export function pageFloors(pages: readonly Page[] = PAGES): Record<(typeof PAGE_CHECKS)[number], number> {
+  const renders = pages.length * DRAWINGS;
+  return { overlap: PER_DRAWING.overlap * renders, words: PER_DRAWING.words * renders, tab: pages.filter((p) => viewOf(p) === 'home' && !STILL.includes(p)).length * DRAWINGS };
+}
+
+/** Where the floors file keeps the floor of a check that doesn't follow the pages: `screenshots.a11y`. */
+export const floorName = (c: Check): string => `screenshots.${c}`;
+/** The project's floors file, which the run reads and raises. */
+export const FLOORS_PATH = join(import.meta.dirname, '..', '..', FLOORS_FILE);
+
+/**
+ * The least a run of every page, both themes and all three widths examines, per check. The page checks'
+ * floors are pageFloors; each other check's is its floor in the floors file, which only goes up: a run
+ * below one has stopped looking. A check with no floor there is an error, never a floor of nothing.
+ */
+export function runFloor(floors: Floors = readFloors(FLOORS_PATH), pages: readonly Page[] = PAGES): Record<Check, number> {
+  const derived: Partial<Record<Check, number>> = pageFloors(pages);
+  return Object.fromEntries(CHECKS.map((c) => {
+    if (derived[c] !== undefined) return [c, derived[c]];
+    const v = valueOf(floors[floorName(c)], 'floor');
+    if (v === null) throw new Error(`${FLOORS_FILE} has no floor for the screenshot run's ${c} check ("${floorName(c)}").`);
+    return [c, v];
+  })) as Record<Check, number>;
+}
+
+/**
+ * The floors file with each stored check raised to what a clean whole run examined, where that beats it:
+ * only ever up, as the tests ratchet's is (GH-99). Null when none rose. Merged by the floors driver (T-102).
+ */
+export function raisedFloors(floors: Floors, examined: Record<Check, number>): Floors | null {
+  const out: Floors = { ...floors };
+  let raised = false;
+  for (const c of CHECKS) {
+    if ((PAGE_CHECKS as readonly Check[]).includes(c)) continue;
+    const v = valueOf(floors[floorName(c)], 'floor');
+    if (v !== null && examined[c] > v) [out[floorName(c)], raised] = [{ floor: examined[c] }, true];
+  }
+  return raised ? out : null;
+}
 
 /**
  * What fails a run: each finding, by page, theme, width and check. A whole run (full) also fails below
- * RUN_FLOOR, on an exception that excused nothing, in GEOMETRY_EXCEPTIONS or A11Y_EXCEPTIONS (T-55), and on
+ * runFloor() (read only then), on an exception that excused nothing, in GEOMETRY_EXCEPTIONS or
+ * A11Y_EXCEPTIONS (T-55), and on
  * a kind of work data no page drew (GH-163).
  */
-export function runFailures(renders: Render[], full: boolean, exceptions = GEOMETRY_EXCEPTIONS, floor = RUN_FLOOR, regions = WORK_DATA, a11yExceptions = A11Y_EXCEPTIONS): string[] {
+export function runFailures(renders: Render[], full: boolean, exceptions = GEOMETRY_EXCEPTIONS, floor?: Record<Check, number>, regions = WORK_DATA, a11yExceptions = A11Y_EXCEPTIONS): string[] {
   const out = renders.flatMap((r) => r.verdict.violations.map((v) => `${r.page} ${r.theme} ${r.width}px: ${v.check}: ${v.what}: ${v.detail}`));
   if (!renders.length) out.push('No page was drawn.');
   for (const r of renders) {
@@ -315,14 +365,16 @@ export function runFailures(renders: Render[], full: boolean, exceptions = GEOME
   if (renders.some((r) => r.page.startsWith('ticket')) && !renders.some((r) => r.verdict.examined.actions > 0)) out.push('The task pages gave no action buttons to check.');
   if (!full) return out;
   const total = examinedIn(renders);
-  for (const c of CHECKS) if (total[c] < floor[c]) out.push(`The run examined ${total[c]} for ${c}, below its floor of ${floor[c]}.`);
+  const least = floor ?? runFloor();
+  for (const c of CHECKS) if (total[c] < least[c]) out.push(`The run examined ${total[c]} for ${c}, below its floor of ${least[c]}.`);
   for (const e of exceptions) if (!renders.some((r) => r.verdict.excused[e.name])) out.push(`The exception for ${e.name} excused nothing: take it off GEOMETRY_EXCEPTIONS.`);
   for (const e of a11yExceptions) if (!renders.some((r) => r.verdict.excused[e.name])) out.push(`The exception for ${e.name} excused nothing: take it off A11Y_EXCEPTIONS.`);
   for (const w of regions) if (!renders.some((r) => r.verdict.held?.[w.name])) out.push(`Work data "${w.name}" held no words on any page: draw it in a fixture, or take it off WORK_DATA.`);
   return out;
 }
 
-const examinedIn = (renders: Render[]): Record<Check, number> => Object.fromEntries(CHECKS.map((c) => [c, renders.reduce((n, r) => n + r.verdict.examined[c], 0)])) as Record<Check, number>;
+/** What a run examined, per check, over every drawing. */
+export const examinedIn = (renders: Render[]): Record<Check, number> => Object.fromEntries(CHECKS.map((c) => [c, renders.reduce((n, r) => n + r.verdict.examined[c], 0)])) as Record<Check, number>;
 
 /** What a run examined, per check, how many findings each exception excused, and axe's incomplete results by rule (T-55). */
 export function geometrySummary(renders: Render[]): string {
