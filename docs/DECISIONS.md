@@ -8782,11 +8782,11 @@ changes a developer wrote there by hand aren't lost. T-105.
 - **The field list.** Each tracker's `textFields` reads its own fields API: Jira's text (`textfield`, plain)
   and long-text (`textarea`, ADF) custom fields, never its own fields; Azure DevOps' string, plain-text and
   HTML fields on the work item types its board's columns map, leaving out `System.*` and read-only fields;
-  monday.com's long-text columns. Settings' Trackers has a row of its own for each tracker, "Where to keep a
-  ticket's changes", with Choose… or Change… (`acc.trackers.changesField`), which lists them in a quick pick
+  monday.com's long-text columns. Settings' Trackers has a row of its own for each tracker, Changes, beside
+  Place, Board and Sign-in, with Choose… or Change… (`acc.trackers.changesField`), which lists them in a quick pick
   with None first, and has acc write the choice, as the Connect page's Save does (D-064). Slack's row and
-  button are off, saying why. The Connect page shows the same row once the place is chosen, after its
-  lists, without changing its pickers; for a tracker not saved yet its button is off until it is.
+  button are off, saying why. The Connect page shows the same row, "Where to keep a ticket's changes", once
+  the place is chosen, after its lists, without changing its pickers; for a tracker not saved yet its button is off until it is.
 - **Drafted, not written.** `changesDraft` makes the field's text as Markdown: each component once, grouped by
   type in bold (by folder outside Salesforce), then each change outside git under its kind's label in plain
   words, then "As of <date>.". The ticket's page reads the field back each time it loads the ticket
