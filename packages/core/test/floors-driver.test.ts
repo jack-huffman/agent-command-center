@@ -43,6 +43,7 @@ test('an edge case: a file both sides added, with no common version, still merge
   writeFileSync(t, formatFloors({ tests: { floor: 5 } }));
   assert.equal(mergeFloorsFiles(run, join(dir, 'missing'), o, t), true);
   assert.deepEqual(JSON.parse(readFileSync(o, 'utf8')), { tests: { floor: 5 } });
+  assert.equal(mergeFloorsFiles(run, dir, dir, dir), false, 'and one that can\'t be read, such as a folder, merges nothing: a person decides');
 });
 
 test('the driver\'s state reads the clone\'s git config and .gitattributes, and the fix sets up only what\'s missing', () => {

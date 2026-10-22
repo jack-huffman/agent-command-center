@@ -23,7 +23,14 @@ export const FLOORS_DRIVER_COMMAND = 'acc floors merge %O %A %B';
  * merged; false when a person decides, with `ours` holding git's conflict markers.
  */
 export function mergeFloorsFiles(run: Runner, common: string, ours: string, theirs: string): boolean {
-  const read = (f: string) => (existsSync(f) ? readFileSync(f, 'utf8') : '');
+  // A version git didn't hand over, or one that can't be read, such as a folder, is empty: it merges nothing.
+  const read = (f: string) => {
+    try {
+      return readFileSync(f, 'utf8');
+    } catch {
+      return '';
+    }
+  };
   const merged = mergeFloors(read(common), read(ours), read(theirs));
   if (merged !== null) {
     writeAtomic(ours, merged);

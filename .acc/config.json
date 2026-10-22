@@ -103,6 +103,11 @@
       "extension/webview/areas.ts"
     ]
   },
+  "strayFiles": {
+    "allow": [
+      ".gitattributes"
+    ]
+  },
   "secretScan": {
     "paths": [
       "."
