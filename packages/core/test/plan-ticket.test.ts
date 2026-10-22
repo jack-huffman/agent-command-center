@@ -86,6 +86,9 @@ test('the prompt holds every comment oldest first with its author and date, the 
   assert.match(system, /A later decision in a comment overrides the description/);
   assert.match(system, /name the comment by its author and date/);
   assert.match(system, /Where two comments disagree, or a comment changes what the description asks, do not choose\. Ask a question/);
+  // It names who can answer as the schema does, never "you", which is the analyst itself.
+  assert.match(system, /Ask a question of the person who runs the build, or of the ticket's author where only the author knows \(askOf: author\)/);
+  assert.doesNotMatch(PLAN_TICKET_PROMPT, /\byou\b/);
   // The plan keeps what it read, and the ticket beside it.
   assert.deepEqual(a.ticket, { full: true, why: null, comments: 2, omitted: 0, newest: { author: 'Mike', created: '2026-10-21T09:00:00.000Z' }, related: 1, attachments: 1, changes: 'Deployment Notes' });
   assert.equal(readPlanTicket(paths, jira.id)?.comments.length, 2);

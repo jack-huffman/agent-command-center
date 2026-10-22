@@ -20,7 +20,8 @@ reads all the comments; now it does.
   tickets", "## Attachments" (names only) and the changes field under its own name. The analyst is told that
   a later decision in a comment overrides the description; to name the comment it relied on, by author and
   date, in the finding or choice that rests on it; and, where comments disagree or a comment changes what the
-  description asks, to ask a question (of you, or of the author) rather than choose.
+  description asks, to ask a question (of the person who runs the build, or of the ticket's
+  author) rather than choose.
 - **Long tickets fit.** Comments are kept whole while they fit in 60,000 characters together, counted from
   the newest, so the newest win (`fitComments`, `PLAN_COMMENTS_MAX`). The newest is always kept, cut when it
   alone is longer. The prompt and the plan say how many of the oldest were left out. The description is cut

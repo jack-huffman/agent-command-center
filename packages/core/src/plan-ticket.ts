@@ -180,7 +180,7 @@ export const commentDay = (created: string): string => (/^\d{4}-\d{2}-\d{2}/.tes
 export const PLAN_TICKET_PROMPT = [
   '- Read the description, then each comment, oldest first, and each related ticket. A later decision in a comment overrides the description.',
   '- Where a finding or a choice rests on a comment, name the comment by its author and date, such as "Kelsey, 2026-10-20".',
-  '- Where two comments disagree, or a comment changes what the description asks, do not choose. Ask a question: of you, or of the author (askOf author) where only the comment\'s author knows.',
+  '- Where two comments disagree, or a comment changes what the description asks, do not choose. Ask a question of the person who runs the build, or of the ticket\'s author where only the author knows (askOf: author).',
 ].join('\n');
 
 /** The ticket's parts for the prompt: its description, its comments oldest first, its related tickets, attachments and changes field. */
