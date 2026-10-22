@@ -3,7 +3,8 @@
 // Up and Down move between them, a number picks one, Enter confirms and goes on, Escape closes and keeps what's
 // picked. Back, Skip for now, and dots for the steps; the last step sums it up, with Approve this plan. A
 // confirm sends what the page already sends (plan-choose, analysis-answer, update-ask), so acc records it as
-// it does from the whole plan. Which step is open, and what's picked, is kept in the tab's memory.
+// it does from the whole plan. Which step is open, and what's picked, is kept in the tab's memory. The dots, the
+// radios and their keys are stepper.ts's, which the conversation's question card shares (T-113).
 
 import type { Model } from '../src/model/home.ts';
 import type { PlanReview, ReviewChoice, ReviewQuestion, ReviewStep } from '../src/model/review-plan.ts';
@@ -13,6 +14,7 @@ import { button, el, focusedElement, icon, keepFocus, keptInput, md, status } fr
 import { makeModal } from './modal.ts';
 import { approveControls, chooseKey, OWN_MAX, optionPart, planPending, sendPlan } from './plan.ts';
 import { memory, type PageArea, remember, state } from './state.ts';
+import { pickByKey, stepProgress, stepRadio, stepTag } from './stepper.ts';
 import { openTalk } from './talk.ts';
 import { answerKey, askKey, pending, sendAnswer, sendUpdate } from './updates.ts';
 
@@ -169,20 +171,11 @@ function back(): void {
 /** One option's row: its radio, with its number, name, line and tags; More about this option; and its own words' box when picked. */
 function optionRow(s: ReviewStep, p: StepOption, i: number, on: boolean): HTMLElement {
   const { m, task } = shown!;
-  const radio = el('button', `rp-radio${on ? ' on' : ''}`,
-    el('span', 'rp-num', String(i + 1)), icon(on ? 'circle-filled' : 'circle-large-outline', on ? 'blue' : undefined),
-    el('span', 'rp-text', el('span', 'rp-name', p.name,
-      // Recommended and chosen each carry an icon and words, never colour alone. The plan's choice is marked only
-      // while its radio is the one picked: once another is picked in this step, the mark would contradict it.
-      p.recommended ? el('span', 'rp-tag rp-rec', icon('star-full'), 'Recommended') : null,
-      p.chosen && on ? el('span', 'rp-tag rp-chosen', icon('pass-filled'), 'Your current choice') : null),
-    p.line ? el('span', 'rp-line muted', md(p.line)) : null)) as HTMLButtonElement;
-  radio.type = 'button';
-  radio.setAttribute('role', 'radio');
-  radio.setAttribute('aria-checked', String(on));
-  radio.tabIndex = on ? 0 : -1;
-  radio.dataset.pick = p.id;
-  radio.addEventListener('click', () => pickOption(s, p.id, 'box'));
+  const radio = stepRadio({
+    n: i + 1, name: p.name, line: p.line, on, pick: p.id, click: () => pickOption(s, p.id, 'box'),
+    // The plan's choice is marked only while its radio is the one picked: once another is picked in this step, the mark would contradict it.
+    tags: [p.recommended ? stepTag('rp-rec', 'star-full', 'Recommended') : null, p.chosen && on ? stepTag('rp-chosen', 'pass-filled', 'Your current choice') : null],
+  });
   const row = el('div', `rp-option${on ? ' on' : ''}`, radio);
   if (p.more) {
     const key = moreKey(m.project, task, s.id, p.id);
@@ -300,27 +293,12 @@ function summaryView(): HTMLElement {
   return view;
 }
 
-/** "2 of 5", and a dot for each step, done, skipped or current, each a click away. Only a skipped step is orange,
- * as orange asks for attention elsewhere in the app; a done one is blue with a check; one not yet seen is plain. */
+/** "2 of 5", and a dot for each step, done, skipped or current, each a click away. */
 function progress(r: PlanReview, at: string): HTMLElement {
   const { m, task } = shown!;
   const i = r.steps.findIndex((s) => s.id === at);
   const words = at === SUMMARY ? `${r.steps.filter((s) => s.done).length} of ${r.steps.length} done` : `${i + 1} of ${r.steps.length}`;
-  const ICON = { current: 'circle-filled', done: 'pass-filled', skipped: 'debug-step-over', todo: 'circle-large-outline' };
-  const WORD = { current: 'you are here', done: 'done', skipped: 'skipped', todo: 'to do' };
-  const DOT_COLOUR = { current: undefined, done: 'blue', skipped: 'orange', todo: undefined } as const;
-  const dots = el('ol', 'rp-dots', ...r.steps.map((s, k) => {
-    const st = stepState(m.project, task, s, at);
-    const d = el('button', `rp-dot ${st}`, icon(ICON[st], DOT_COLOUR[st])) as HTMLButtonElement;
-    d.type = 'button';
-    d.title = `${k + 1}. ${s.title}: ${WORD[st]}`;
-    d.setAttribute('aria-label', d.title);
-    if (st === 'current') d.setAttribute('aria-current', 'step');
-    d.addEventListener('click', () => goTo(s.id));
-    return el('li', '', d);
-  }));
-  dots.setAttribute('aria-label', 'Steps');
-  return el('div', 'rp-progress', el('span', 'rp-place', words), dots);
+  return stepProgress(words, r.steps.map((s) => ({ title: s.title, state: stepState(m.project, task, s, at) })), (k) => goTo(r.steps[k]!.id));
 }
 
 /** The foot: Back and Skip for now, then Confirm; on the summary, Close and Approve this plan. */
@@ -382,13 +360,7 @@ function onKey(e: KeyboardEvent): void {
   if (!s || typing) return;
   const picks = s.kind === 'question' && s.answer !== null ? [] : picksOf(s, review.canAsk);
   if (!picks.length) return;
-  const n = Number(e.key);
-  if (Number.isInteger(n) && n >= 1 && n <= picks.length) { e.preventDefault(); pickOption(s, picks[n - 1]!.id); return; }
-  const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
-  if (!step) return;
-  e.preventDefault();
-  const i = picks.findIndex((p) => p.id === pickedIn(m.project, task, s, picks));
-  pickOption(s, picks[(i + step + picks.length) % picks.length]!.id);
+  pickByKey(e, picks.map((p) => p.id), pickedIn(m.project, task, s, picks), (id) => pickOption(s, id));
 }
 
 /** Draws the sheet from a task's page model, when its tab remembers it open; else closes it. */

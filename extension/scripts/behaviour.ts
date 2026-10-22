@@ -46,7 +46,7 @@ import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleTalkApproved } from './fixtures/talk.ts';
-import { sampleConversationReady, sampleConversationStart, sampleConversationTicket } from './fixtures/conversation.ts';
+import { sampleConversationQuestions, sampleConversationReady, sampleConversationStart, sampleConversationTicket } from './fixtures/conversation.ts';
 import { conversationModel } from '../src/model/conversation.ts';
 import { sampleChoosing } from './fixtures/connect.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
@@ -227,10 +227,15 @@ export interface BehaviourData {
   talk: { model: Model; ask: string; use: string; sent: Record<string, unknown>; words: string; send: Record<string, unknown> };
   /**
    * A plan that starts with a conversation (T-111): the question the panel asks first, the words typed and the
-   * message they send, the panel with the agent's reply, the reply's first words and its questions, the message
-   * Draft the plan sends, and ACME-21's page before its plan with the conversation's line.
+   * message they send, the panel with the agent's reply and the reply's words, the message Draft the plan sends,
+   * and ACME-21's page before its plan with the conversation's line.
    */
-  conversation: { ask: string; words: string; send: Record<string, unknown>; reply: Model; replyText: string; asks: string[]; draft: Record<string, unknown>; ticket: Model; line: string };
+  conversation: { ask: string; words: string; send: Record<string, unknown>; reply: Model; replyText: string; draft: Record<string, unknown>; ticket: Model; line: string };
+  /**
+   * The agent's questions one at a time (T-113): the panel with its three questions waiting, each question's
+   * words, the words typed for the last, and the one message every answer goes in.
+   */
+  questions: { model: Model; asked: string[]; own: string; sent: Record<string, unknown> };
   /**
    * Review plan on ACME-21 (T-109): its title, what Enter on the first step's suggestion sends, what the fourth
    * step's third option sends, the page's model with nothing left for the person, what Approve then sends, and
@@ -999,12 +1004,60 @@ export const CASES: Case[] = [
       await t.post({ type: 'state', model: d.reply });
       const agent = t.all('.talk-turn.who-agent');
       t.check('the agent\'s reply shows', agent.some((x) => x.textContent?.includes(d.replyText) === true), agent.map((x) => x.textContent));
-      const asks = t.all('.talk-asks li').map((x) => x.textContent?.trim());
-      t.check('with its questions, in order', JSON.stringify(asks) === JSON.stringify(d.asks), asks);
+      t.check('with no questions waiting, there is no question card', t.all('.talk-card').length === 0, t.all('.talk-card').length);
       t.check('and Draft the plan is on', !draft().disabled, draft().title);
       await t.click(draft());
       const sent = t.sent('conversation-draft');
       t.check('Draft the plan asks once for the plan made with the conversation', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.draft), sent);
+    },
+  },
+  {
+    name: 'questions: the agent\'s three questions show one at a time; a number key picks, Enter goes on, Back keeps the pick, Skip marks one, Escape keeps the picks, and the last sends every answer in one message (T-113)',
+    page: 'conversation-start',
+    async run(t) {
+      const d = t.data.questions;
+      await t.post({ type: 'state', model: d.model });
+      const card = () => t.find('.talk-card');
+      const place = () => t.find('.rp-place', card()).textContent;
+      const picked = () => t.find('[role="radio"][aria-checked="true"]', card()).dataset.pick;
+      const asked = () => t.find('.rp-q', card()).textContent?.trim();
+      const foot = (label: string): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('.talk-card-foot button', card()).find((x) => x.textContent?.trim() === label);
+        if (!b) throw new Error(`not found: the card's ${label}`);
+        return b;
+      };
+      const answers = () => t.sent('talk-answers');
+      t.check('one question shows, the first, of three', t.all('.talk-card .rp-step').length === 1 && t.all('[role="radiogroup"]').length === 1 && place() === 'Question 1 of 3' && asked() === d.asked[0], [t.all('.talk-card .rp-step').length, place(), asked()]);
+      t.check('the others aren\'t on the page', !d.asked.slice(1).some((q) => document.body.textContent?.includes(q)), d.asked.slice(1));
+      t.check('the suggestion is first, marked Suggested, and picked', picked() === 'o0' && t.find('.rp-option.on .rp-rec', card()).textContent?.trim() === 'Suggested', picked());
+      await press(t, t.find('[role="radio"][aria-checked="true"]', card()), '2');
+      t.check('a number key picks its answer, and focus goes with it', picked() === 'o1' && (document.activeElement as HTMLElement).dataset.pick === 'o1', picked());
+      await press(t, document.activeElement as HTMLElement, 'Enter');
+      t.check('Enter goes on to the second question', place() === 'Question 2 of 3' && asked() === d.asked[1], [place(), asked()]);
+      t.check('and nothing is sent before the last', answers().length === 0 && t.sent('talk-send').length === 0, answers());
+      t.check('the first dot is done, in blue with a check', t.all('.rp-dot', card())[0]?.classList.contains('done') === true, t.all('.rp-dot', card())[0]?.className);
+      await t.click(foot('Back'));
+      t.check('Back goes to the first question, its pick kept', place() === 'Question 1 of 3' && picked() === 'o1', [place(), picked()]);
+      await press(t, t.find('[role="radio"][aria-checked="true"]', card()), 'Enter');
+      await t.click(foot('Skip'));
+      t.check('Skip goes on to the last, sending nothing', place() === 'Question 3 of 3' && answers().length === 0, [place(), answers()]);
+      const dots = t.all('.rp-dot', card());
+      t.check('the skipped one\'s dot says so', dots[1]?.classList.contains('skipped') === true && dots[1]?.getAttribute('aria-label')?.endsWith(': skipped') === true, dots[1]?.getAttribute('aria-label'));
+      await press(t, t.find('[role="radio"][aria-checked="true"]', card()), '3');
+      t.check('the last number is Answer in my own words, with its box', picked() === 'own' && t.all('.rp-own input', card()).length === 1, picked());
+      // Edge: Escape puts the questions aside and keeps the picks; Answer the questions brings them back where they were.
+      await press(t, t.find('[role="radio"][aria-checked="true"]', card()), 'Escape');
+      t.check('Escape puts them aside as one line, sending nothing', t.all('.talk-card').length === 0 && t.all('.talk-card-aside').length === 1 && answers().length === 0, t.all('.talk-card-aside').length);
+      const back = t.all<HTMLButtonElement>('.talk-card-aside button').find((x) => x.textContent?.trim() === 'Answer the questions');
+      if (!back) throw new Error('not found: Answer the questions');
+      await t.click(back);
+      t.check('Answer the questions comes back at the last, its pick kept', place() === 'Question 3 of 3' && picked() === 'own', [place(), picked()]);
+      t.check('Confirm and send is off until there are words', foot('Confirm and send').disabled, foot('Confirm and send').title);
+      const box = t.find<HTMLInputElement>('.rp-own input', card());
+      await t.type(box, d.own);
+      await press(t, box, 'Enter');
+      const sent = answers();
+      t.check('Enter in the box sends every answer once, in one message', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent) && t.sent('talk-send').length === 0, sent);
     },
   },
   {
@@ -2060,6 +2113,9 @@ export const MUTANTS: Mutant[] = [
   { name: 'a card never measures its labels', file: 'fit-labels.ts', find: '  setTimeout(fit, 0);\n  observer.observe(row);\n', replace: '', kills: [caseNamed('narrow card:')] },
   // A change to an approved plan's choice asks first (T-97).
   { name: 'Enter confirms but stays on its step', file: 'review-plan.ts', find: '  goTo(next(review, s.id));\n}', replace: '  redraw();\n}', kills: [caseNamed('review plan:')] },
+  { name: 'the agent\'s questions all show at once', file: 'talk-questions.ts', find: "    step,\n    el('div', 'rp-foot-row talk-card-foot'", replace: "    ...q.items.map((x, k) => (k === at ? step : el('div', 'rp-step', el('h3', 'rp-q', md(x.question))))),\n    el('div', 'rp-foot-row talk-card-foot'", kills: [caseNamed('questions:')] },
+  { name: 'an answer goes before the last question is done', file: 'talk-questions.ts', find: '  if (k + 1 < c.q.items.length) return goTo(c, k + 1);', replace: '  if (k + 1 < c.q.items.length) { c.send.go(c.q.turn, answersOf(c.b, c.q.items)); return goTo(c, k + 1); }', kills: [caseNamed('questions:')] },
+  { name: 'Back on a question forgets what was picked', file: 'talk-questions.ts', find: '  if (k > 0) goTo(c, k - 1);', replace: "  if (k > 0) { remember((x) => { for (const key of Object.keys(x.drafts)) if (key.includes(':pick:')) delete x.drafts[key]; }); goTo(c, k - 1); }", kills: [caseNamed('questions:')] },
   { name: 'Back forgets what was picked', file: 'review-plan.ts', find: 'if (i > 0) goTo(review.steps[i - 1]!.id);', replace: "if (i > 0) { remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; }); goTo(review.steps[i - 1]!.id); }", kills: [caseNamed('review plan:')] },
   { name: 'Escape forgets what was picked', file: 'review-plan.ts', find: '  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n', replace: "  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n  remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; });\n", kills: [caseNamed('review plan:')] },
   { name: 'Approve is on with an item left', file: 'plan.ts', find: '  b.disabled = !!why;\n  if (why) { b.title = why;', replace: '  b.disabled = false;\n  if (why) { b.title = why;', kills: [caseNamed('review plan:')] },
@@ -2152,6 +2208,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     plan: planData(now),
     talk: talkData(now),
     conversation: conversationData(now),
+    questions: questionsData(now),
     planReview: planReviewData(models.ticket),
   };
 }
@@ -2197,14 +2254,26 @@ function talkData(now: number): BehaviourData['talk'] {
 function conversationData(now: number): BehaviourData['conversation'] {
   const start = sampleConversationStart(now);
   const reply = sampleConversationReady(now);
-  const answer = reply.talk?.turns.find((t) => t.who === 'agent' && t.asks.length);
+  const answer = reply.talk?.turns.at(-1);
   const ticket = sampleConversationTicket(now);
-  if (!start.talk?.ask || !answer || !ticket.talk?.line) throw new Error('The conversation cases need ACME-21 before its plan, with the agent\'s questions and the page\'s line.');
+  if (!start.talk?.ask || answer?.who !== 'agent' || !ticket.talk?.line) throw new Error('The conversation cases need ACME-21 before its plan, with the agent\'s last reply and the page\'s line.');
   const words = 'Reps forget the contact roles. Every conversion, from now on.';
   return {
-    ask: start.talk.ask, words, reply, replyText: answer.text, asks: answer.asks, ticket, line: ticket.talk.line.words,
+    ask: start.talk.ask, words, reply, replyText: answer.text, ticket, line: ticket.talk.line.words,
     send: { type: 'talk-send', project: start.project, task: start.key, text: words },
     draft: { type: 'conversation-draft', project: start.project, task: start.key },
+  };
+}
+
+/** What the questions' case expects (T-113): ACME-21's three questions before its plan, and the answers' one message. */
+function questionsData(now: number): BehaviourData['questions'] {
+  const model = sampleConversationQuestions(now);
+  const q = model.talk?.questions;
+  if (q?.items.length !== 3 || !q.items[2]!.own) throw new Error('The questions case needs ACME-21\'s three questions waiting, the last open to own words.');
+  const own = 'The lead\'s own contact, unless it has none';
+  return {
+    model, asked: q.items.map((x) => x.question), own,
+    sent: { type: 'talk-answers', project: model.project, task: model.key, turn: q.turn, answers: [{ option: 1 }, null, { text: own }] },
   };
 }
 

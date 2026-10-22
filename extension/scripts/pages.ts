@@ -55,6 +55,7 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * for the ticket's author with own words typed, a question already answered, and the approved plan's summary.
  * Then a plan's conversation in its own panel (T-111): ACME-21's page before its plan with the conversation's one
  * line, the panel as Make a plan opens it, mid-conversation with a reply on its way, and Talk it through once v2 is made.
+ * Then the agent's questions one at a time, part-way through (T-113), and a long Talk it through, folded.
  */
 export const PAGES = [
   // The Command Center's sections
@@ -169,6 +170,9 @@ export const PAGES = [
   'conversation-start',
   'conversation',
   'conversation-talk',
+  // The agent's questions one at a time, part-way through, and a long conversation folded (T-113)
+  'conversation-questions',
+  'conversation-long',
   'ticket-changes-field',
   'ticket-team',
   'ticket-team-alone',

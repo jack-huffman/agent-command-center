@@ -75,8 +75,7 @@ test('before a plan, the conversation asks its question; Draft the plan is off u
   assert.equal(said.ask, null, 'once something is said, the question has been answered');
   assert.deepEqual(said.draft, { disabled: null });
   assert.deepEqual(said.turns.map((t) => [t.who, t.before]), [['you', true], ['agent', true], ['you', true]]);
-  assert.deepEqual(said.turns[1]!.asks, sampleOpening(NOW).turns[1]!.asks);
-  assert.equal(said.turns[1]!.unsure.length, 2);
+  assert.equal(said.questions, null, 'the person answered the agent\'s questions, so none wait');
   assert.deepEqual(said.line, { words: 'Conversation · 3 messages', at: sampleOpening(NOW).turns[2]!.at });
 });
 
@@ -202,13 +201,14 @@ test('the panel opens with its title, the task\'s, the question, the box with th
   assert.equal(buttons(p, 'Make a new plan').length + buttons(p, 'Open in Claude Code').length, 0);
 });
 
-test('mid-conversation, the panel draws each turn, the agent\'s doubts and questions, and the agent working; Send is off while it replies', () => {
+test('mid-conversation, the panel draws the latest exchange, the earlier turns folded, and the agent working; Send is off while it replies', () => {
   const p = drawPanel(sampleConversation(NOW));
   const turns = p.all('talk-turn');
-  assert.deepEqual(turns.map((t) => t.getAttribute('aria-label')), ['You (jordan)', 'Planning agent', 'You (jordan)']);
+  assert.deepEqual(turns.map((t) => t.getAttribute('aria-label')), ['You (jordan)'], 'the person\'s answers, the latest exchange');
+  assert.equal(buttons(p, 'Earlier in this conversation (2 messages)').length, 1);
   assert.ok(turns.every((t) => /Before the plan/.test(t.textContent)), 'said before there was a plan');
-  assert.match(turns[1]!.all('talk-unsure')[0]!.textContent, /Not sure yet.*integration user/);
-  assert.match(turns[1]!.all('talk-asks')[0]!.textContent, /for you.*keep it, or add another\?/);
+  assert.match(turns[0]!.textContent, /1\. Should integration users' conversions get the role too\?\n   Yes, them too/, 'the answers went as one message');
+  assert.equal(p.all('talk-card').length, 0, 'answered: no question waits');
   assert.match(p.all('talk-waiting')[0]!.textContent, /reading the ticket to reply/);
   assert.equal(buttons(p, 'Send')[0]!.disabled, true);
   assert.equal(buttons(p, 'Draft the plan')[0]!.disabled, true);

@@ -9,9 +9,18 @@ body[data-view="conversation"] .talk { margin-top: 0; }
 /* Before there is a plan: the question it asks first, large enough to read as the start. */
 .talk-ask { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 2px; font-size: 1.1em; overflow-wrap: anywhere; }
 .talk-ask > .codicon { flex: none; margin-top: 3px; color: var(--accent); }
-/* The agent's answer before the plan: what it isn't sure of, and its questions, under its words. */
-.talk-unsure, .talk-asks { margin-top: 6px; }
-.talk-asks .an-list { margin-top: 2px; }
+/* The turns before the latest exchange, folded under one line (T-113). */
+.talk-earlier { margin: 2px 0 0 -6px; }
+/* The agent's questions, one at a time under its reply (T-113): Review plan's dots, radios and foot, in a card. */
+.talk-card { margin: 4px 0 10px; padding: 10px 14px 8px; border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: var(--radius); background: var(--vscode-editor-background); }
+.talk-card .rp-progress { margin-bottom: 6px; }
+.talk-card .rp-q { margin-top: 2px; }
+.talk-card-foot { margin-top: 4px; }
+.talk-card-note { margin: 6px 0 0; }
+.talk-card .aq-error { margin-top: 6px; }
+.talk-card-aside { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); }
+.talk-card-aside > .codicon { flex: none; color: var(--blue); }
+.talk-card-aside > .btn { margin-left: auto; }
 /* The task page's one line of it: what was said, when, and Open conversation. */
 .convo-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 10px 0 2px; padding-top: 8px; border-top: 1px solid var(--line); }
 .convo-line > .codicon { flex: none; color: var(--accent); }

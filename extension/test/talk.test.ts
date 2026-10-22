@@ -213,7 +213,7 @@ test('Open in Claude Code launches claude in plan mode in the main checkout, wit
 const page = pageDom();
 let kept: unknown;
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: unknown) => { kept = s; } });
-const { renderConversation, discussButton, openTalk, talkPending, sendKey, useKey, kindOf, area } = await import('../webview/talk.ts');
+const { renderConversation, discussButton, earlierKey, openTalk, talkPending, sendKey, useKey, kindOf, area } = await import('../webview/talk.ts');
 const { planDecisions } = await import('../webview/plan.ts');
 const { state } = await import('../webview/state.ts');
 
@@ -236,6 +236,7 @@ test('the conversation draws each turn with who and when, the quoted option, and
   assert.equal(s.all('talk-box')[0]!.dataset.keep, sendKey(m.project, 'ACME-21'));
   assert.deepEqual(['d1', 'd1.a', 's1', 'r2', 'q1'].map(kindOf), ['choice', 'option', 'step', 'risk', 'question']);
   // Later: a version made from the conversation says what changed, and a message waits for its reply.
+  kept = { opened: [earlierKey(m.project, 'ACME-21')], drafts: {} };
   const later = draw(sampleTalkTicket(NOW, true));
   const made = later.all('who-plan')[0]!;
   assert.match(made.textContent, /Made v2 from this conversation\.What changed.*New question/);
@@ -388,7 +389,7 @@ test('keys: Ctrl or Cmd with Enter sends the message; edge case: Enter alone, or
 });
 
 test('edge case: a proposal from an older version shows it, Use this is off with why, and Ask again puts it in the message box', async () => {
-  kept = { opened: [], drafts: {} };
+  kept = { opened: [earlierKey('/Users/me/code/acme-service', 'ACME-21')], drafts: {} };
   state.draw = () => {};
   const later = sampleTalkTicket(NOW, true);
   const m = { ...later, talk: model({ analysis: samplePlan(NOW, 'approved') }) };

@@ -118,7 +118,7 @@ export class ConversationPanels implements ConversationActions, vscode.Disposabl
         this.quote(p);
         return;
       // The same actions the task page's conversation had (T-98); the page and this panel redraw after each.
-      case 'talk-send': case 'talk-use': case 'talk-claude':
+      case 'talk-send': case 'talk-use': case 'talk-claude': case 'talk-answers':
         if (mine(m.project, m.task)) await this.tickets.talk?.act(m, say);
         return;
       // Draft the plan, or Skip to the plan: the Tasks area makes it, once at a time.

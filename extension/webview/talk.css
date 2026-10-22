@@ -11,18 +11,23 @@
 .talk-who > .codicon { flex: none; }
 .talk-v { font-size: 0.8em; white-space: nowrap; flex: none; }
 .talk-text { margin: 4px 0 2px; overflow-wrap: anywhere; white-space: pre-wrap; }
+/* A long reply shows about eight lines until Show more (T-113). */
+.talk-text.talk-folded { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden; }
+.talk-more-text { margin: 0 0 2px -6px; }
 .talk-quote { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; padding: 4px 10px; border-left: 3px solid var(--accent); border-radius: 0 5px 5px 0; background: var(--vscode-editor-background); }
 .talk-quote > .codicon { flex: none; margin-top: 2px; color: var(--accent); }
 .talk-quote > span { min-width: 0; overflow-wrap: anywhere; }
 .talk-proposals { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
 .talk-proposal { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--vscode-editor-background); }
 .talk-proposal.used { border-color: var(--blue); }
-.tp-line { display: flex; align-items: flex-start; gap: 6px; }
+.tp-line { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px 6px; }
 .tp-line > .codicon { flex: none; margin-top: 2px; color: var(--accent); }
 .talk-proposal.used .tp-line > .codicon { color: var(--blue); }
-.tp-words { min-width: 0; overflow-wrap: anywhere; }
-.tp-why { margin: 2px 0 0 22px; }
-.tp-actions, .tp-used { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 6px 0 0 22px; }
+.tp-words { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+/* A proposal is one line (T-113): its words, then Why and Use this, or who used it, at its end; Why opens its reasons under it. */
+.tp-actions, .tp-used { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-left: auto; }
+.tp-used { margin-left: 0; }
+.tp-why, .tp-off { margin: 4px 0 0 22px; overflow-wrap: anywhere; }
 .talk-recorded { margin-top: 4px; }
 .talk-waiting { display: flex; align-items: center; gap: 6px; margin: 4px 0 8px; }
 /* The message box: what it's about over the words, then Send. */

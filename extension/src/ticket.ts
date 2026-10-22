@@ -514,7 +514,7 @@ export class TicketPanels implements vscode.Disposable {
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.plan?.act(m, (msg) => o.view.say(msg));
         return;
       // Talk it through (T-98): this page's own task only.
-      case 'talk-send': case 'talk-use': case 'talk-claude':
+      case 'talk-send': case 'talk-use': case 'talk-claude': case 'talk-answers':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.talk?.act(m, (msg) => o.view.say(msg));
         return;
       // Its conversation's own panel (T-111): Open conversation, Discuss and Talk it through open it beside this page, or as a tab when it's narrow.
