@@ -154,7 +154,7 @@ table.grid { width: 100%; border-collapse: collapse; }
 .grid .nowrap { white-space: nowrap; }
 /* A state cell wraps when there's no room, so a narrow table fits its frame: a table wider than its frame
    scrolls under the sticky actions, which then cover the state's words (T-108, Linux's wider fonts at 500px). */
-.grid td.state .status { white-space: normal; }
+.grid td.state .status { white-space: normal; min-width: 9em; }
 .grid td.state .status .codicon { align-self: flex-start; margin-top: 2px; }
 .grid th.wide { width: 100%; }
 .grid td.clip { max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
