@@ -8,11 +8,13 @@ import { addPromotionSteps, changeWords, markStep, openSteps, stepsLeftWords, st
 import { parseConfig, type Config } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
-import { emptyOutside, noteCommand, outsideOf, recordNone, recordOutside, unmade, unrecorded, unrecordedProblems } from '../src/outside-changes.ts';
+import { emptyOutside, noteCommand, outsideOf, recordNone, recordOutside, unmade, unrecorded, unrecordedProblems, WHY_MAX } from '../src/outside-changes.ts';
 import { repoPaths } from '../src/paths.ts';
 import { promotionBody } from '../src/promote.ts';
-import { RECORD_KIND, recordKey, type RecordChange } from '../src/records.ts';
-import { postToolUseHook, RECORD_WRITERS, recordWriters } from '../src/record-hooks.ts';
+import { RECORD_ACTIONS, RECORD_KIND, recordKey, type RecordChange } from '../src/records.ts';
+import { recordFromFlags, refuseUnrecorded } from '../../cli/src/commands/changes.ts';
+import { noteRecordWrites, RECORD_WRITERS, recordWriters } from '../src/record-hooks.ts';
+import { builderFor, preToolUseHook } from '../src/hooks.ts';
 import { GENERIC_CONFIG, gitIn, makeRepo, SF_CONFIG } from './support.ts';
 
 const MAIN = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url));
@@ -157,17 +159,22 @@ test('each record-writing command is noted, and a read is not', () => {
   assert.deepEqual(recordWriters('sf data query -q x && nice -n 15 sf data delete record -s A -w "N=1"'), ['sf data delete record -s A -w N=1'], 'edge case: a write after a read on one line, under nice');
 });
 
-test('the hook notes a builder\'s record write on its task, and nothing outside a builder\'s session or a Salesforce project', () => {
+test('the hook notes a builder\'s record write on its task, and nothing for a read, a refused command, or outside a builder\'s session or a Salesforce project', () => {
   const r = repo();
-  const input = (command: string) => ({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command } });
-  const ctx = (env: NodeJS.ProcessEnv, cwd = r.wt) => ({ cwd, env, run, now: r.now });
-  assert.deepEqual(postToolUseHook(input('sf data query -q x'), ctx({ ACC_ROLE: 'builder', ACC_TASK: 'T-1' })), []);
-  assert.deepEqual(postToolUseHook(input('sf data update record -s Account'), ctx({ ACC_ROLE: 'builder', ACC_TASK: 'T-1' })), ['sf data update record -s Account']);
-  assert.deepEqual(postToolUseHook({ ...input('sf data update record'), tool_name: 'Edit' }, ctx({ ACC_ROLE: 'builder', ACC_TASK: 'T-1' })), [], 'only Bash');
-  assert.deepEqual(postToolUseHook(input('sf data update record'), ctx({}, r.root)), [], 'not a builder');
-  assert.deepEqual(outsideOf(r.task()).noted.map((n) => n.command), ['sf data update record -s Account']);
+  const input = (command: string, tool = 'Bash') => ({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: { command } });
+  const builderCtx = { cwd: r.wt, env: { ACC_ROLE: 'builder', ACC_TASK: 'T-1' }, run, now: r.now };
+  const noted = () => outsideOf(r.task()).noted.map((n) => n.command);
+  assert.equal(preToolUseHook(input('sf data query -q x'), builderCtx), null);
+  assert.equal(preToolUseHook(input('sf data update record -s Account'), builderCtx), null, 'it runs: the hook only notes it');
+  assert.equal(preToolUseHook(input('sf data update record', 'Edit'), builderCtx), null, 'only Bash');
+  assert.ok(preToolUseHook(input('sf data delete record -s A && git push'), builderCtx), 'a refused line is denied');
+  assert.equal(preToolUseHook(input('sf data update record'), { ...builderCtx, cwd: r.root, env: {} }), null, 'not a builder');
+  assert.deepEqual(noted(), ['sf data update record -s Account'], 'only the write a builder ran');
+  const b = builderFor(builderCtx)!;
+  assert.deepEqual(noteRecordWrites(b, 'sf apex run --file a.apex', builderCtx), ['sf apex run --file a.apex']);
   const g = repo({ ...GENERIC_CONFIG });
-  assert.deepEqual(postToolUseHook(input('sf data update record'), { cwd: g.wt, env: { ACC_ROLE: 'builder', ACC_TASK: 'T-1' }, run, now: g.now }), [], 'a generic project notes nothing');
+  const gCtx = { cwd: g.wt, env: { ACC_ROLE: 'builder', ACC_TASK: 'T-1' }, run, now: g.now };
+  assert.deepEqual(noteRecordWrites(builderFor(gCtx)!, 'sf data update record', gCtx), [], 'a generic project notes nothing');
 });
 
 /** acc, as a builder or a person runs it in the repo. */
@@ -179,8 +186,8 @@ function acc(cwd: string, args: string[], env: Record<string, string>, input?: s
 test('acc change record, none and step, and acc done\'s refusal, from the command line', () => {
   const r = repo();
   const b = { ACC_ROLE: 'builder', ACC_TASK: 'T-1' };
-  // The hook, as Claude Code runs it, notes the write.
-  const hook = acc(r.wt, ['hook', 'post-tool-use'], b, JSON.stringify({ hook_event_name: 'PostToolUse', cwd: r.wt, tool_name: 'Bash', tool_input: { command: 'sf data update record -s Account' } }));
+  // The hook, as Claude Code runs it, notes the write and lets it run.
+  const hook = acc(r.wt, ['hook', 'pre-tool-use'], b, JSON.stringify({ hook_event_name: 'PreToolUse', cwd: r.wt, tool_name: 'Bash', tool_input: { command: 'sf data update record -s Account' } }));
   assert.equal(hook.code, 0, hook.err);
   assert.equal(hook.out, '', 'the hook says nothing back');
   const done = acc(r.wt, ['done', '--landed', 'x', '--moved', 'none', '--open', 'none'], b);
@@ -205,5 +212,32 @@ test('edge case: a config file that can\'t be read notes nothing, and the hook s
   const r = repo();
   // The worktree has its own copy of the settings, and that's the one a builder's hook reads.
   writeFileSync(join(r.wt, '.acc', 'config.json'), '{');
-  assert.deepEqual(postToolUseHook({ tool_name: 'Bash', tool_input: { command: 'sf data update record' } }, { cwd: r.wt, env: { ACC_ROLE: 'builder', ACC_TASK: 'T-1' }, run, now: r.now }), []);
+  const ctx = { cwd: r.wt, env: { ACC_ROLE: 'builder', ACC_TASK: 'T-1' }, run, now: r.now };
+  assert.deepEqual(noteRecordWrites({ task: r.task(), worktree: r.wt, root: r.wt }, 'sf data update record', ctx), []);
+  assert.equal(preToolUseHook({ tool_name: 'Bash', tool_input: { command: 'sf data update record' } }, ctx), null);
+});
+
+test('edge case: the command line\'s flags make the change, and refuse a pair with no field or a create that deletes', () => {
+  assert.deepEqual(recordFromFlags({ json: false, object: ' Account ', match: ['Name=Acme Corp'], set: 'Name=Acme Corporation' }), rename);
+  assert.equal(recordFromFlags({ json: false, object: 'Region__c', match: ['External_Id__c=EMEA-1'], create: true }).action, 'create');
+  assert.deepEqual(RECORD_ACTIONS, ['create', 'update', 'delete']);
+  assert.throws(() => recordFromFlags({ json: false, object: 'Account', match: ['=x'] }), /has no field/);
+  assert.throws(() => recordFromFlags({ json: false, object: 'Account', match: ['Name=x'], create: true, delete: true }), /not both/);
+  assert.throws(() => recordFromFlags({ json: false, match: ['Name=x'] }), /Name the object/);
+  const r = repo();
+  assert.throws(() => recordOutside(r.paths, r.now, 'T-1', RECORD_KIND, rename, 'x'.repeat(WHY_MAX + 1), builder, SF), new RegExp(`at most ${WHY_MAX}`));
+});
+
+test('acc done\'s refusal reads the task in the project it runs in, and lets a task with nothing noted go on', () => {
+  const r = repo();
+  const was = process.cwd();
+  try {
+    process.chdir(r.wt);
+    assert.doesNotThrow(() => refuseUnrecorded('T-1'));
+    noteCommand(r.paths, r.now, 'T-1', 'sf apex run --file a.apex', 'record');
+    assert.throws(() => refuseUnrecorded('t-1'), /Can't move T-1 to review:\n- 1 command you ran can change records/);
+    assert.doesNotThrow(() => refuseUnrecorded('T-404'), 'edge case: a task acc doesn\'t know is left to acc done');
+  } finally {
+    process.chdir(was);
+  }
 });

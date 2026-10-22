@@ -12,6 +12,7 @@ import { readList } from './gates.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
 import { repoPaths } from './paths.ts';
 import { ANALYST_COMMANDS } from './analyze.ts';
+import { noteRecordWrites } from './record-hooks.ts';
 
 /** The repo folder with .acc/config.json at or above `cwd`, found without running git. */
 export function findAccRoot(cwd: string): string | null {
@@ -349,6 +350,8 @@ export function preToolUseHook(input: EventInput, ctx: HookContext): Record<stri
   }
   if (tool === 'Bash') {
     const reason = guardBash(b, String(t.command ?? ''));
+    // A command it lets through that can write records is noted, for acc done to ask after (T-100).
+    if (!reason) noteRecordWrites(b, String(t.command ?? ''), ctx);
     return reason ? deny(reason) : null;
   }
   return null;
