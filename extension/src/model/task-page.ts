@@ -29,6 +29,7 @@ import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.t
 import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria.ts';
 import type { TicketVerify } from './verify.ts';
 import type { TicketManifestSection } from './manifest.ts';
+import type { TicketTalk } from './talk.ts';
 import { type TicketPlan, ticketPlan } from './plan.ts';
 import { choicesWord, forYou } from '../logic/plan.ts';
 import { WORDS } from '../../webview/plain-words.ts';
@@ -207,6 +208,8 @@ export interface TicketModel {
   records?: TicketRecords | null;
   /** Manifest for this ticket (T-101): a Salesforce task's package.xml and what its org said. Null with no task, or outside Salesforce. */
   manifest: TicketManifestSection | null;
+  /** Talk it through (T-98): the conversation with its planning agent, beside the plan. Null with no plan. */
+  talk?: TicketTalk | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
   /** It's being tracked now, from this page or its card (D-074). */

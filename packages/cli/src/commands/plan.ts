@@ -70,6 +70,7 @@ ${TALK_HELP}`,
     text: { type: 'string' },
     yes: { type: 'boolean', default: false },
     about: { type: 'string' },
+    message: { type: 'string' },
   },
   subcommands: { plan: ['choose', 'approve', ...TALK_SUBCOMMANDS] },
   commands: {

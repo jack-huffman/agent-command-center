@@ -34,6 +34,7 @@ import { VERIFY_LOOK } from '../src/model/verify.ts';
 import { CHANGE_LOOK } from '../src/model/changes.ts';
 import { RECORD_LOOK } from '../src/model/record-changes.ts';
 import { MANIFEST_LOOK, MANIFEST_ROW_LOOK } from '../src/model/manifest.ts';
+import { TALK_LOOK } from '../src/model/talk.ts';
 import { RESULT_LOOK, ROW_LOOK } from '../src/model/run-view.ts';
 import { STEP_LOOK } from '../src/model/run-steps.ts';
 import { worktreeLook } from '../src/model/worktrees.ts';
@@ -180,6 +181,7 @@ export const TABLES: Table[] = [
   // Record changes (T-100): each change made, planned or not, refused, and a promotion's step to do, done or skipped.
   { name: 'a ticket\'s record change and a promotion\'s step', sources: ['extension/src/model/record-changes.ts#RECORD_LOOK'], states: () => Object.entries(RECORD_LOOK) },
   // Manifest for this ticket (T-101): the section's state, and each row's: new, not in the org, an unknown type, unchecked, an org copy that differs, an org change, a deletion.
+  { name: 'a ticket\'s conversation with its planning agent', sources: ['extension/src/model/talk.ts#TALK_LOOK'], states: () => Object.entries(TALK_LOOK) },
   { name: 'a ticket\'s manifest and its rows', sources: ['extension/src/model/manifest.ts#MANIFEST_LOOK', 'extension/src/model/manifest.ts#MANIFEST_ROW_LOOK'], states: () => [...Object.entries(MANIFEST_LOOK), ...Object.entries(MANIFEST_ROW_LOOK)] },
   // A run in the output panel as rows (T-64): each kind of row, and how an ended run shows in its header line and result card.
   { name: 'a run of acc\'s steps in the output panel (T-65)', sources: ['extension/src/model/run-steps.ts#STEP_LOOK'], states: () => Object.entries(STEP_LOOK) },

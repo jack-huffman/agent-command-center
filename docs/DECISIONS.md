@@ -8917,3 +8917,49 @@ The person made two more decisions on 2026-10-22:
 
 Talking the plan through with the agent is T-98. T-96, merged before this, renamed the words across the
 app; what this change adds uses them: "Make a plan", "Build it", "Approve this plan" and "Ask on the ticket".
+
+## D-??? Talk a plan through with its planning agent, on the ticket page or in Claude Code, and turn what you agree into the plan (2026-10-22)
+
+T-98. T-97 (D-192) gave a plan options, versions and an approval, but the person couldn't argue with it: ask
+why, push back on an option, or suggest another. They chose both ways to do that: a conversation on the
+ticket page, and Open in Claude Code for a longer session.
+
+- **A conversation, kept with the plan.** `acc plan talk <id> "<message>"` (`--about d1`, `d1.a`, `s2`, `r1`
+  or `q1` quotes a choice, an option, a step, a risk or a question) resumes the plan's own Claude Code session
+  (`claude -p --resume`), from the folder the plan was made in, with the analyst's read-only tools, its org
+  reads on Salesforce, and acc's hook (`analystFlags`, `analystEnv`, `analystDir`, shared with `analyze`). The
+  person's message is kept first, so a reply that fails still shows what was asked, with why. The
+  conversation lives in the state folder beside the plan (`.git/acc/analyses/<id>.talk.json`,
+  `plan-talk.ts`); nothing is written to the project or the ticket. One message at a time, only before the
+  build, and never while the plan is being made.
+- **Replies propose; the person decides.** The agent answers with `TALK_SCHEMA`: its reply, and each change it
+  suggests as a proposal: choose an option, a new option in words, an answer to a question, or a note such as
+  a changed step. A proposal that names a choice, option or question the plan doesn't have is left out
+  (`parseTalkReply`). `acc plan use <id> <turn> <proposal>` and the page's Use this record it as the person's
+  own, through the same functions as `acc plan choose`, `acc analysis answer` and the new `acc plan note`, so
+  their rules hold. On an approved plan it asks first, in acc's words (`CHANGE_APPROVED`, `NOTE_APPROVED`,
+  `ANSWER_APPROVED`), with Keep the approval and Change it; acc refuses without `--yes`.
+- **Notes.** `acc plan note <id> "<text>"` adds a note to the plan, kept from version to version, given to the
+  builder with the choices (`approvedPlanLines`), and shown under the plan's head as "Your notes on this
+  plan". A note changes the plan, so on an approved plan it asks first, as a choice does.
+- **Make a new version.** The analyst's prompt for the next version carries the conversation, which
+  proposals the person used, and the notes (`talkSection`), and asks it to reflect what was agreed. The
+  conversation then says "Made v3 from this conversation." with what changed (`versionTurn`). The page's
+  Make a new version runs Make a plan again.
+- **Open in Claude Code.** `acc plan claude <id>` writes a brief beside the plan (the ticket, the latest plan,
+  the conversation, and how to record to the plan) and returns how to start an interactive session in the
+  main checkout, in plan mode, allowed `acc plan choose`, `acc plan note` and `acc analysis answer` for this
+  task. The Command Center opens it in a terminal, with `ACC_PLAN_TALK` set to the task and session. What that
+  session records through acc lands, as the person, on its own turn in the conversation (`recordInSession`),
+  and the page shows it; when the terminal closes, the page redraws.
+- **On the page.** "Talk it through" is a section of its own under the plan: each turn with who (You,
+  Planning agent, Claude Code, The plan) and when, the plan version, what it's about quoted, its proposals
+  with Use this or who used it, and what a Claude Code session recorded. Discuss on each choice, option,
+  question, step and risk opens it with that part quoted and the cursor in the box. A message runs in the
+  output panel, where its steps show (D-171). The words are the person's: Talk it through, Discuss, Use this,
+  Make a new version, Open in Claude Code; the agent's reply is marked as work data.
+
+Tested in `packages/core/test/plan-talk.test.ts` (9 tests), `packages/cli/test/plan-talk.test.ts` (3 tests)
+and `extension/test/talk.test.ts` (12 tests). The screenshot run draws ACME-21's conversation
+(`ticket-talk`): an option quoted, a reply with one proposal to use and one used, a Claude Code session and
+what it recorded, and the next message about another option, at every width and theme.

@@ -5,6 +5,7 @@ import { actionButton, button, type Child, el, foldable, icon, keptInput, md, st
 import { api, memory, remember, state } from './state.ts';
 import { answerKey, askKey, pending, sendUpdate } from './updates.ts';
 import { planActions, planDecisions, planHead } from './plan.ts';
+import { discussButton } from './talk.ts';
 
 // ---------------------------------------------------------------- a task's analysis (D-052)
 
@@ -95,7 +96,16 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   if (a.planState) sec.append(planHead(a.planState));
   const decisions = a.planState ? planDecisions(m, a.task, a.planState) : null;
   if (decisions) sec.append(decisions);
-  if (a.open.length) sec.append(el('div', 'an-questions', ...a.open.map((q) => analysisQuestion(m.project, a.task, q, a.canAsk))));
+  // Discuss (T-98): a question, a step or a risk talked through with the planning agent, quoted.
+  const discuss = (ref: string, text: string, what: string) => (m.talk?.send ? discussButton(m.project, a.task, ref, text, what) : null);
+  if (a.open.length) {
+    sec.append(el('div', 'an-questions', ...a.open.map((q) => {
+      const box = analysisQuestion(m.project, a.task, q, a.canAsk);
+      const d = discuss(q.id, q.question, `the question ${q.question}`);
+      if (d) box.querySelector('.aq-q')?.append(d);
+      return box;
+    })));
+  }
   // The wording check's findings (T-12): advice on how the requirements read. They never hold a dispatch.
   if (a.wording) {
     sec.append(el('div', 'an-wording', el('div', 'strong', 'How the requirements read'),
@@ -110,9 +120,9 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
     analysisFold(`${key}:assumptions`, 'Assumptions', a.assumptions.map(md)),
     analysisFold(`${key}:out`, 'Out of scope', a.outOfScope.map(md)),
     analysisFold(`${key}:findings`, 'What\'s there now', a.findings.map((f) => pair(f.area, f.detail, f.source))),
-    analysisFold(`${key}:plan`, 'The approach', a.plan.map(md), true),
+    analysisFold(`${key}:plan`, 'The approach', a.plan.map(md).map((x, i) => el('span', 'an-discussable', x, discuss(`s${i + 1}`, a.plan[i]!, `step ${i + 1}: ${a.plan[i]!}`))), true),
     analysisFold(`${key}:refactors`, 'Refactors first', a.refactors.map((r) => pair(r.what, r.why))),
-    analysisFold(`${key}:risks`, 'Risks', a.risks.map(md)),
+    analysisFold(`${key}:risks`, 'Risks', a.risks.map(md).map((x, i) => el('span', 'an-discussable', x, discuss(`r${i + 1}`, a.risks[i]!, `the risk ${a.risks[i]!}`)))),
     analysisFold(`${key}:tests`, 'Tests', a.tests.map(md)),
   ].filter((x): x is HTMLElement => !!x);
   if (folds.length) sec.append(el('div', 'an-folds', ...folds));

@@ -82,6 +82,11 @@ export const PROCESSES: readonly Process[] = [
   // A plan's choices and its approval (T-97).
   { acc: ['plan', 'plan choose'], name: 'Make a choice in the plan' },
   { acc: ['plan approve'], name: 'Approve this plan' },
+  // Talking a plan through with its planning agent (T-98).
+  { acc: ['plan talk'], name: 'Talk it through', named: 'Talk {arg}\'s plan through' },
+  { acc: ['plan use'], name: 'Use what the planning agent proposed' },
+  { acc: ['plan note'], name: 'Add a note to the plan' },
+  { acc: ['plan claude'], name: 'Open the plan in Claude Code' },
   { acc: ['draft', 'draft criteria'], name: 'Draft acceptance criteria', named: 'Draft {arg}\'s acceptance criteria' },
   { acc: ['draft show'], name: 'See the drafted acceptance criteria' },
   { acc: ['draft update'], name: 'Open the draft as an update' },

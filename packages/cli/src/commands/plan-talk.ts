@@ -71,8 +71,10 @@ function cmdClaude(o: Opts, id: string): number {
 export function talkCommand(o: Opts, rest: string[]): number | undefined {
   const [sub, id, ...args] = rest;
   if (sub === 'talk') {
-    if (!id || !args.length) throw new AccError('usage', 'acc plan talk <id> "<message>" [--about d1]');
-    return cmdTalk(o, id, args.join(' '));
+    // --message=<words> keeps words that start with - as words, as the Command Center sends them.
+    const message = typeof o.message === 'string' ? o.message : args.join(' ');
+    if (!id || !message) throw new AccError('usage', 'acc plan talk <id> "<message>" [--about d1]');
+    return cmdTalk(o, id, message);
   }
   if (sub === 'use') {
     if (!id || !args[0] || !args[1]) throw new AccError('usage', 'acc plan use <id> <turn> <proposal>');
