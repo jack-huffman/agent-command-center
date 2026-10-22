@@ -125,7 +125,7 @@ const page = pageDom();
 // The page's memory (an open box, its words) kept between draws, as VSCode keeps a webview's state.
 let kept: unknown;
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: unknown) => { kept = s; } });
-const { planActions, planDecisions, planHead, planPending, chooseKey, approveKey, area } = await import('../webview/plan.ts');
+const { planActions, planDecisions, planEarlier, planHead, planPending, chooseKey, approveKey, area } = await import('../webview/plan.ts');
 const { analysisQuestion } = await import('../webview/analysis.ts');
 
 const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && x.textContent === label);
@@ -229,14 +229,14 @@ test('the head says the version, its approval or why it lapsed, and what changed
   const head = planHead(p) as unknown as PageElement;
   assert.match(head.textContent, /Approve again: v3 is new since v2 was approved/);
   assert.match(head.all('plan-changes')[0]!.textContent, /What changed in v3New choice: Where a role's contact comes from/);
-  const fold = box(planActions(changed, 'ACME-21', p)).all('plan-earlier')[0]!;
+  const fold = planEarlier(changed, 'ACME-21', p) as unknown as PageElement;
   assert.match(fold.textContent, /Earlier versions2/);
   assert.deepEqual(fold.all('plan-version').map((v) => v.textContent.slice(0, 2)), ['v2', 'v1']);
   assert.match(fold.all('plan-version')[0]!.textContent, /Approved by jordan/);
   // The first version has nothing that changed, and nothing before it.
   const first = sampleTicket(NOW, 'ACME-21').analysis!.planState!;
   assert.equal((planHead(first) as unknown as PageElement).all('plan-changes').length, 0);
-  assert.equal(box(planActions(sampleTicket(NOW, 'ACME-21'), 'ACME-21', first)).all('plan-earlier').length, 0);
+  assert.equal(planEarlier(sampleTicket(NOW, 'ACME-21'), 'ACME-21', first), null);
 });
 
 /** ACME-21's approved plan, its second choice drawn again as a person sees it after a click: the group, and its dialog if one is open. */

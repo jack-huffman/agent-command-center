@@ -10,7 +10,7 @@ import { api, memory, type PageArea, remember, state } from './state.ts';
 import { discussButton, openTalk } from './talk.ts';
 
 /** The longest own option a page sends, as acc takes it. */
-const OWN_MAX = 4000;
+export const OWN_MAX = 4000;
 
 /** Choices and approvals on their way to acc, and why the last one didn't go. */
 export const planPending = new Pending<'choose' | 'approve' | 'split'>();
@@ -35,7 +35,8 @@ function focusOnceDrawn(b: HTMLElement, id: string): void {
   queueMicrotask(() => b.focus());
 }
 
-function send(key: string, what: 'choose' | 'approve' | 'split', msg: Record<string, unknown>): void {
+/** Sends a choice, an approval or a split to acc, unless one for the same key is already on its way. */
+export function sendPlan(key: string, what: 'choose' | 'approve' | 'split', msg: Record<string, unknown>): void {
   if (!planPending.start(key, what)) return;
   api.postMessage(msg);
   if (state.last) state.draw(state.last);
@@ -48,7 +49,7 @@ function send(key: string, what: 'choose' | 'approve' | 'split', msg: Record<str
 function pick(m: TicketModel, task: string, plan: TicketPlan, d: TicketDecision, p: { option: string } | { text: string }): void {
   const key = chooseKey(m.project, task, d.id);
   const same = 'option' in p ? d.choice?.option === p.option : d.choice?.option === null && d.choice.name === p.text;
-  if (!plan.changeAsk || same) return send(key, 'choose', { type: 'plan-choose', project: m.project, task, decision: d.id, ...p });
+  if (!plan.changeAsk || same) return sendPlan(key, 'choose', { type: 'plan-choose', project: m.project, task, decision: d.id, ...p });
   unask(key);
   remember((x) => { x.opened = [...x.opened, confirmKey(key, 'option' in p ? p.option : 'own')]; });
   focusNext = confirmKey(key, 'keep');
@@ -70,7 +71,7 @@ function confirmChange(m: TicketModel, task: string, plan: TicketPlan, d: Ticket
     focusNext = confirmKey(key, pickId);
     if (state.last) state.draw(state.last);
   };
-  const change = () => { unask(key); send(key, 'choose', { type: 'plan-choose', project: m.project, task, decision: d.id, ...(option ? { option: option.id } : { text }), yes: true }); };
+  const change = () => { unask(key); sendPlan(key, 'choose', { type: 'plan-choose', project: m.project, task, decision: d.id, ...(option ? { option: option.id } : { text }), yes: true }); };
   const said = el('p', 'pc-text', plan.changeAsk);
   said.id = `pc-${d.id}`;
   const no = button('Keep the approval', 'verified', keep);
@@ -88,7 +89,7 @@ function confirmChange(m: TicketModel, task: string, plan: TicketPlan, d: Ticket
 }
 
 /** A labelled list on an option's card: its pros, cons, risks or what it touches. Nothing when it's empty. */
-function part(label: string, iconName: string, items: string[], files = false): HTMLElement | null {
+export function optionPart(label: string, iconName: string, items: string[], files = false): HTMLElement | null {
   if (!items.length) return null;
   return el('div', 'po-part', el('div', 'po-label muted', icon(iconName), label),
     el('ul', 'po-list', ...items.map((x) => el('li', '', files ? work(el('span', 'mono', x), 'files') : md(x)))));
@@ -107,7 +108,7 @@ function optionCard(m: TicketModel, task: string, plan: TicketPlan, d: TicketDec
       recommended ? el('span', 'po-tag po-rec', icon('star-full'), 'Recommended') : null,
       chosen ? el('span', 'po-tag po-chosen', icon('pass-filled'), 'Chosen') : null),
     o.means ? el('div', 'po-means', md(o.means)) : null,
-    part('Pros', 'add', o.pros), part('Cons', 'remove', o.cons), part('Risks', 'warning', o.risks), part('Touches', 'file', o.touches, true));
+    optionPart('Pros', 'add', o.pros), optionPart('Cons', 'remove', o.cons), optionPart('Risks', 'warning', o.risks), optionPart('Touches', 'file', o.touches, true));
   card.setAttribute('role', 'group');
   card.setAttribute('aria-label', `${d.title}: ${o.name}${recommended ? ', recommended' : ''}${chosen ? ', chosen' : ''}`);
   // Discuss (T-98): talk this option through with the planning agent, quoted.
@@ -235,7 +236,7 @@ export function planShapes(m: TicketModel, task: string, plan: TicketPlan): HTML
       el('li', '', el('strong', '', split.rest.title), el('span', 'chip ps-rest', 'Then: waits for the first'), split.rest.brief ? el('div', 'muted small', md(split.rest.brief)) : null)),
     split.made ? el('div', 'muted small', icon('pass-filled'), el('span', '', `Split into ${split.made.first} and ${split.made.rest}. ${split.made.rest} starts once ${split.made.first} merges.`)) : null));
   if (split.go) {
-    const b = button(busy ? 'Splitting…' : 'Split into these tasks', busy ? 'loading~spin' : 'split-horizontal', () => send(key, 'split', { type: 'plan-split', project: m.project, task }));
+    const b = button(busy ? 'Splitting…' : 'Split into these tasks', busy ? 'loading~spin' : 'split-horizontal', () => sendPlan(key, 'split', { type: 'plan-split', project: m.project, task }));
     if (busy) { b.disabled = true; b.title = 'Wait for the split on its way'; }
     box.append(el('div', 'actions ps-actions', b, el('span', 'muted small', 'Or ignore this: the plan builds as it is.')));
   }
@@ -249,35 +250,52 @@ export function planDecisions(m: TicketModel, task: string, plan: TicketPlan): H
   return el('div', 'plan-decisions', ...plan.decisions.map((d) => decisionGroup(m, task, plan, d)));
 }
 
-/** Approve this plan and Build it, each off with why while it can't be used; then the earlier versions. */
-export function planActions(m: TicketModel, task: string, plan: TicketPlan): Child[] {
+/**
+ * Approve this plan, off with why while it can't be: the reason in its title and, with `say`, in a line under
+ * it; and why acc refused the last approval. Nothing once it's approved or past the build.
+ */
+export function approveControls(m: TicketModel, task: string, plan: TicketPlan, say = false): HTMLElement[] {
+  if (!plan.approve) return [];
   const key = approveKey(m.project, task);
-  const buttons: HTMLElement[] = [];
+  const busy = !!planPending.what(key);
+  const b = button(busy ? 'Approving…' : 'Approve this plan', busy ? 'loading~spin' : 'verified', () => { if (!b.disabled) sendPlan(key, 'approve', { type: 'plan-approve', project: m.project, task }); }, plan.approve.disabled ? '' : 'primary');
+  const why = plan.approve.disabled ?? (busy ? 'Wait for the approval on its way' : null);
+  b.disabled = !!why;
+  if (why) { b.title = why; b.setAttribute('aria-description', why); }
+  const error = planPending.error(key);
+  return [
+    b,
+    ...(say && plan.approve.disabled ? [el('div', 'plan-why muted small', icon('info'), el('span', '', `Approve is off: ${plan.approve.disabled}`))] : []),
+    ...(error ? [el('div', 'aq-error', icon('warning'), el('span', '', `The plan wasn't approved: ${error}`))] : []),
+  ];
+}
+
+/**
+ * The plan's buttons: `lead` first, when given (Review plan, T-109), then Approve this plan where there's no
+ * lead to approve it from, Build it, and Talk it through; each off with why while it can't be used.
+ */
+export function planActions(m: TicketModel, task: string, plan: TicketPlan, lead: HTMLElement | null = null): Child[] {
+  const buttons: HTMLElement[] = lead ? [lead] : [];
   const whys: Child[] = [];
-  if (plan.approve) {
-    const busy = !!planPending.what(key);
-    const b = button(busy ? 'Approving…' : 'Approve this plan', busy ? 'loading~spin' : 'verified', () => send(key, 'approve', { type: 'plan-approve', project: m.project, task }), plan.approve.disabled ? '' : 'primary');
-    const why = plan.approve.disabled ?? (busy ? 'Wait for the approval on its way' : null);
-    b.disabled = !!why;
-    if (why) { b.title = why; b.setAttribute('aria-description', why); }
-    buttons.push(b);
-  }
+  const approve = lead ? [] : approveControls(m, task, plan);
+  if (approve[0]) buttons.push(approve[0]);
   if (plan.build) {
     const a = plan.build;
-    const b = button(a.label, a.icon, () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }), a.primary && !plan.approve ? 'primary' : '');
+    const b = button(a.label, a.icon, () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }), a.primary && !plan.approve && !lead?.classList.contains('primary') ? 'primary' : '');
     if (a.disabled) { b.disabled = true; b.title = a.disabled; b.setAttribute('aria-description', a.disabled); whys.push(el('div', 'plan-why muted small', icon('info'), el('span', '', `Build it is off: ${a.disabled}`))); }
     buttons.push(b);
   }
   // Talk it through (T-98): opens the conversation beside the plan, and puts the cursor in its box.
   if (m.talk?.send) buttons.push(button('Talk it through', 'comment-discussion', () => openTalk(m.project, task)));
-  const error = planPending.error(key);
   return [
     buttons.length ? el('div', 'actions plan-actions', ...buttons) : null,
     ...whys,
-    error ? el('div', 'aq-error', icon('warning'), el('span', '', `The plan wasn't approved: ${error}`)) : null,
-    earlierFold(`plan:${m.project}#${task}:earlier`, plan.earlier),
+    ...approve.slice(1),
   ];
 }
+
+/** The earlier versions of the plan, folded, a click away. */
+export const planEarlier = (m: TicketModel, task: string, plan: TicketPlan): HTMLElement | null => earlierFold(`plan:${m.project}#${task}:earlier`, plan.earlier);
 
 /** acc recorded a choice or an approval, or refused it: the page redraws with what acc did, or says why not. */
 function done(msg: { action?: string; project?: string; task?: string; decision?: string; ok?: boolean; error?: string }): void {

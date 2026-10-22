@@ -157,6 +157,9 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'ticket-plan-approved') return sampleTicket(now, 'ACME-21', false, null, null, 'approved');
   if (kind === 'ticket-plan-shapes') return sampleTicket(now, 'ACME-21', false, null, null, 'shapes');
   if (kind === 'ticket-plan-changed') return sampleTicket(now, 'ACME-21', false, null, null, 'changed');
+  // ACME-21's plan in short, and Review plan open over it at a choice, a question and the summary (T-109).
+  if (kind === 'ticket-review-summary') return sampleTicket(now, 'ACME-21', false, null, null, 'approved');
+  if (kind === 'ticket-plan-short' || kind.startsWith('ticket-review-')) return sampleTicket(now, 'ACME-21');
   if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
   // A builder in the cloud, quiet for too long (GH-69).
@@ -258,6 +261,10 @@ function stepsState(k: StepSample): unknown {
   return { dock: { open: true, run: id }, ...(step ? { opened: [`run-step:${id}:${step}`] } : {}) };
 }
 
+/** ACME-21's The whole plan, open (T-109), and the start of the keys its Review plan remembers. */
+const WHOLE_PLAN = 'an:/Users/me/code/acme-service#ACME-21:whole';
+const REVIEW = 'review:/Users/me/code/acme-service#ACME-21';
+
 /**
  * What the page remembers when it opens: the output page starts with the panel open, the split ticket
  * with two of its analysis's lists open, to see them laid out, and ACME-12's with the edit typed for the
@@ -299,12 +306,20 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'ticket-records-form' ? RECORDS_FORM_STATE
   // ACME-21's plan (T-97): its second choice's own option open, and the later plans with their earlier versions open.
   // Approved, a change to its second choice asks first, as Choose this on Backfill too leaves it.
-  : kind === 'ticket-questions' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:d2:own'], drafts: { 'plan:/Users/me/code/acme-service#ACME-21:d2': 'Backfill only the opportunities still open' } }
-  : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', 'plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b'] }
-  : kind === 'ticket-plan-shapes' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier'] }
-  : kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier'] }
+  // Each with The whole plan open (T-109), where the choices are in full.
+  : kind === 'ticket-questions' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:d2:own', WHOLE_PLAN], drafts: { 'plan:/Users/me/code/acme-service#ACME-21:d2': 'Backfill only the opportunities still open' } }
+  : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', 'plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b', WHOLE_PLAN] }
+  : kind === 'ticket-plan-shapes' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', WHOLE_PLAN] }
+  : kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', WHOLE_PLAN] }
+  // Review plan over ACME-21 (T-109): at its first choice, its current choice picked and marked so, with More
+  // about the other option open; at the question for the ticket's author with an answer typed in its own words;
+  // at a question already answered; and, on the approved plan, at the summary with the author's question skipped.
+  : kind === 'ticket-review-choice' ? { opened: [`${REVIEW}:open`, `${REVIEW}:more:d1.b`], drafts: { [`${REVIEW}:at`]: 'd1' } }
+  : kind === 'ticket-review-question' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q2', [`${REVIEW}:pick:q2`]: 'mine', 'analysis:/Users/me/code/acme-service#ACME-21:q2': 'Decision Maker, as the pipeline report does today' } }
+  : kind === 'ticket-review-answered' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q3' } }
+  : kind === 'ticket-review-summary' ? { opened: [`${REVIEW}:open`, `${REVIEW}:skip:q2`], drafts: { [`${REVIEW}:at`]: 'summary' } }
   // The next message to ACME-21's planning agent (T-98), about an option, quoted, half-written.
-  : kind === 'ticket-talk' ? { ...TALK_STATE, opened: ['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`) }
+  : kind === 'ticket-talk' ? { ...TALK_STATE, opened: [...['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`), WHOLE_PLAN] }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
     : kind === 'ticket' ? { drafts: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: SAMPLE_EDIT.text }, bases: { [`update:/Users/me/code/acme-service#${SAMPLE_EDIT.id}`]: { text: SAMPLE_EDIT.base } } } : undefined);
 /**
@@ -398,8 +413,11 @@ function collectColours() {
   document.body.append(out);
 }`;
 
-/** A modal's open fades from opacity 0 (T-47), and the geometry check skips what is transparent: a measured page opens its modal at once. */
-const NO_MODAL_FADE = '<style>dialog { transition: none !important; }</style>';
+/**
+ * A modal's open fades from opacity 0 (T-47), and so does each step of Review plan (T-109); the geometry check
+ * skips what is transparent, and axe reads a colour half-faded: a measured page opens its modal and step at once.
+ */
+const NO_MODAL_FADE = '<style>dialog { transition: none !important; } dialog .rp-step { animation: none !important; }</style>';
 
 /**
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
