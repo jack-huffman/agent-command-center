@@ -8591,3 +8591,39 @@ Azure DevOps and Jira ticket pages at 620 and 500 px, Details follows the descri
 Related and Activity. In Light, `premium` and `service` are now two blues that are easy to tell apart. The
 Claude Code isn't found page (`ticket-missing`) wraps its long state chip inside the Agent panel at 500 px.
 The screenshot run passed with no findings: 708 drawings, 56 behaviour cases and 100 mutants, all caught.
+
+**Note (2026-10-21, T-95): a tracker's own label and type colours win; a state never takes one.** The
+person decided that a ticket uses its tracker's branded colours wherever the tracker gives them, GitHub's
+red `bug` label included, and the palette above fills in only where it gives none. A label and a type are
+the tracker's data, and the person knows them by their colour in the tracker. A state carries meaning, and
+the author is colourblind: a state keeps acc's own icon and label, orange against blue, never red against
+green, whatever colour the tracker gives it.
+
+- **Azure DevOps tags.** Azure keeps a tag's colour per board, in the board's card rules. The client reads
+  the followed board's `cardrulesettings` with every board load, and keeps each enabled `tagStyle` rule's
+  background colour by tag name, whatever its case (`tagColours` in `azure.ts`). A ticket's page reuses the
+  last read, or reads them once when no board has loaded. A tag with no rule, a rule turned off, and a call
+  that fails all leave the tag's colour null, and nothing is said.
+- **Type colours.** `Ticket`, `BoardCard` and `Related` gain `typeColor`, six hex digits as `Label.color`.
+  Azure fills it from the project's work item types, read with the card rules. GitHub asks for
+  `issueType { name color }` and maps its eight named colours to hex (`GITHUB_TYPE_COLOUR`, hex values chosen
+  by hand to match its light theme's, not copied from GitHub). Jira gives a type an icon image, not a colour; monday.com and Slack have no types:
+  all three give null.
+- **monday.com.** Its API gives a group's colour and each status label's colour. A status label is a state,
+  so its colour is not used. A group is where an item sits on the board, not a label or a type, and acc
+  doesn't draw groups, so its colour is not used either.
+- **Drawing.** `typeMark` in `dom.ts` tints the type icon through `--type-colour` on the ticket page's head,
+  on a card and on a related row. With no colour, or one that isn't six hex digits (`ownColour` in
+  `tints.ts`), the icon keeps the theme's colour. The type's word keeps the page's text colour.
+- **The colour rule's exceptions.** `colours.test.ts`'s one exception for a tracker's colour is now two,
+  by name: a label's (`--tint-colour`, in `tinted`) and a type's (`--type-colour`, in `typeMark`). A test
+  pins each to its one place in `dom.ts`, and fails on a tracker colour written anywhere else.
+
+The screenshot fixtures carry Azure DevOps' Scrum type colours and four tag colours on its board and
+ticket page, and GitHub's red Bug and blue Feature on its board and ticket page. Read in the shots at 1000,
+620 and 500 px, in both themes: Azure's Test Case teal (`004B50`) is hard to see on Dark, almost the card's
+own colour; Azure's Task yellow (`F2CB1D`) and the yellow `premium` tag's dot are faint on Light. Each keeps
+its word, the type's name in the icon's title on a card and beside it on the page, so the colour is never
+the only signal. GitHub's red Bug and Azure's blue Product Backlog Item read well on both. Tested in
+`packages/core/test/tracker-colours.test.ts` (9 tests), `extension/test/type-colours.test.ts` (6 tests)
+and two more in `extension/test/colours.test.ts`.

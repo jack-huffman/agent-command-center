@@ -65,7 +65,7 @@ test('the ticket page\'s status: closed as not planned has its own look, beside 
   assert.deepEqual(statusLook({ category: 'done', reason: 'completed' }), { icon: 'check', tone: 'neutral', quiet: true });
   assert.deepEqual(statusLook({ category: 'done' }), { icon: 'check', tone: 'neutral', quiet: true }, 'no reason: the category\'s');
   const ticket: Ticket = {
-    key: 'GH-9', kind: 'github', url: 'u', title: 'T', type: 'Bug', typeKind: 'bug', status: { id: 'CLOSED', name: 'Closed as not planned', category: 'done', reason: 'not-planned' },
+    key: 'GH-9', kind: 'github', url: 'u', title: 'T', type: 'Bug', typeKind: 'bug', typeColor: null, status: { id: 'CLOSED', name: 'Closed as not planned', category: 'done', reason: 'not-planned' },
     assignees: [], reporter: null, labels: [], priority: 'Medium', priorityLevel: 3, created: '', updated: '', body: { blocks: [] }, markdown: '', comments: [], related: [],
   };
   const m = ticketModel({ project: '/r', tracker: 0, trackerTitle: 'GitHub · o/r', trackerKind: 'github', key: 'GH-9', loading: false, error: null, connect: null, checks: [], row: null, task: null, ticket, trackerEdits: false });
@@ -77,7 +77,7 @@ test('a board\'s card draws its kind\'s and level\'s icons, and a card from a tr
   const card = (key: string, extra: object) => ({ key, title: key, url: 'u', status: { id: '1', name: 'To Do' }, type: 'Debug tooling', assignees: [], labels: [], priority: 'P0', ...extra });
   const input: BoardInput = {
     index: 0, kind: 'azure', title: 'Azure DevOps · CRM', error: null, connect: null, loading: false,
-    board: { source: 'azure-board', title: 'B', url: null, notice: null, columns: [{ id: '1', name: 'To Do', category: 'todo', statusIds: ['1'] }], cards: [card('AB-1', { typeKind: 'task', priorityLevel: 1 }), card('AB-2', {})] },
+    board: { source: 'azure-board', title: 'B', url: null, notice: null, columns: [{ id: '1', name: 'To Do', category: 'todo', statusIds: ['1'] }], cards: [card('AB-1', { typeKind: 'task', typeColor: null, priorityLevel: 1 }), card('AB-2', {})] },
   };
   const cards = trackerBoard(input, [], '/r').columns[0]!.cards;
   assert.deepEqual(cards.map((c) => [c.key, c.typeIcon, c.priorityIcon]), [['AB-1', 'tasklist', 'arrow-circle-up'], ['AB-2', 'issues', null]], '"Debug tooling" isn\'t read as a bug');

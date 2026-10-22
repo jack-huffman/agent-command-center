@@ -8,7 +8,7 @@ import type { Block, Doc, Inline } from '../../packages/core/src/trackers/doc.ts
 import { api, go, memory, remember, state } from './state.ts';
 import { panelLook } from './looks.ts';
 import { inlineMarks } from './inline.ts';
-import { labelTint, labelTints, type Tint, tintOf } from './tints.ts';
+import { labelTint, labelTints, ownColour, type Tint, tintOf } from './tints.ts';
 
 export type Child = Node | string | null | undefined | false;
 
@@ -115,6 +115,21 @@ function tinted<T extends HTMLElement>(e: T, t: Tint): T {
   if ('colour' in t) e.style.setProperty('--tint-colour', `#${t.colour}`);
   else e.style.setProperty('--tint-colour', `var(--tint-${t.tint})`);
   return e;
+}
+
+/**
+ * A ticket type's icon (T-95): in the colour its tracker gives the type, its data and not the page's palette, as
+ * a label's dot is; with none, or one that isn't six hex digits, the theme's. The type's word, beside it, keeps
+ * the page's text colour.
+ */
+export function typeMark(name: string, colour: string | null): HTMLElement {
+  const i = icon(name);
+  const own = ownColour(colour);
+  if (own) {
+    i.classList.add('type-tinted');
+    i.style.setProperty('--type-colour', `#${own}`);
+  }
+  return i;
 }
 
 /**

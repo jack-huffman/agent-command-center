@@ -5,6 +5,7 @@ import { clip } from '../../../packages/core/src/text.ts';
 import { placeText } from '../../../packages/core/src/trackers/types.ts';
 import { JIRA_PRIORITY } from '../../../packages/core/src/trackers/jira.ts';
 import { typeKindOf } from '../../../packages/core/src/trackers/normal.ts';
+import { GITHUB_TYPE_COLOUR } from '../../../packages/core/src/trackers/github.ts';
 import type { BoardInput } from '../../src/model/boards.ts';
 
 const status = (id: string, name: string, category: 'todo' | 'doing' | 'done') => ({ id, name, category });
@@ -124,8 +125,10 @@ export const GITHUB_LABELS: Record<string, string> = { bug: 'd73a4a', enhancemen
 export function sampleGithubBoards(): BoardInput[] {
   const OPEN = { id: 'OPEN', name: 'Open' };
   const CLOSED = { id: 'CLOSED', name: 'Closed' };
-  const card = (n: number, title: string, s: { id: string; name: string }, labels: string[] = []) =>
-    ({ key: `GH-${n}`, title, url: `https://github.com/acme/tool/issues/${n}`, status: s, type: null, assignees: [], labels: labels.map((name) => ({ name, color: GITHUB_LABELS[name] ?? null })), priority: null });
+  // Two issues have an issue type, each in the colour GitHub names for it (T-95); the others have none.
+  const card = (n: number, title: string, s: { id: string; name: string }, labels: string[] = [], type: [string, string] | null = null) =>
+    ({ key: `GH-${n}`, title, url: `https://github.com/acme/tool/issues/${n}`, status: s, type: type?.[0] ?? null, typeKind: typeKindOf(type?.[0]), typeColor: type ? GITHUB_TYPE_COLOUR[type[1]]! : null,
+      assignees: [], labels: labels.map((name) => ({ name, color: GITHUB_LABELS[name] ?? null })), priority: null });
   return [{
     index: 0, kind: 'github', title: 'GitHub · acme/tool', error: null, connect: null, loading: false, signedInAs: 'jordan-kim', place: 'GitHub · acme/tool', left: [],
     board: {
@@ -133,7 +136,7 @@ export function sampleGithubBoards(): BoardInput[] {
       notice: 'To use your GitHub Project\'s columns, give jordan-kim access to Projects. gh refreshes only its active account, so run gh auth switch -u jordan-kim, then gh auth refresh -h github.com -s project and sign in as jordan-kim, then switch back to the account you use.',
       columns: [{ id: 'OPEN', name: 'Open', category: 'todo', statusIds: ['OPEN'] }, { id: 'CLOSED', name: 'Closed', category: 'done', statusIds: ['CLOSED'] }],
       cards: [
-        card(41, 'Export the case history as CSV', OPEN, ['enhancement']), card(42, 'The sync retries forever when the API is down', OPEN, ['bug']),
+        card(41, 'Export the case history as CSV', OPEN, ['enhancement'], ['Feature', 'BLUE']), card(42, 'The sync retries forever when the API is down', OPEN, ['bug'], ['Bug', 'RED']),
         card(43, 'Document the release steps', OPEN), card(38, 'Add a dark theme to the report', CLOSED),
       ],
     },

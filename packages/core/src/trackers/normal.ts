@@ -54,3 +54,9 @@ export function typeKindOf(name: string | null | undefined, subtask = false): Ty
   if (!n) return null;
   return TYPE_KIND[n] ?? (subtask ? 'subtask' : 'other');
 }
+
+/** A tracker's colour as six hex digits without the # (T-95): "#CC293D" is "CC293D". Null for anything else, or none. */
+export function hexOf(c: unknown): string | null {
+  const h = typeof c === 'string' ? c.trim().replace(/^#/, '') : '';
+  return /^[0-9a-f]{6}$/i.test(h) ? h : null;
+}

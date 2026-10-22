@@ -9,7 +9,7 @@ import { renderVerify } from './verify.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
 import { dayName } from './days.ts';
-import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, labelChips, linkTo, md, openable, person, renderDoc, stateChip, status, when, work } from './dom.ts';
+import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, labelChips, linkTo, md, openable, person, renderDoc, stateChip, status, typeMark, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { updateDraft } from './updates.ts';
@@ -87,8 +87,8 @@ function composer(m: TicketModel): HTMLElement {
 }
 
 /** One fact in the ticket's head (T-91): an icon and the tracker's word, with what it is in its title. */
-function fact(iconName: string | null, text: string, what: string): HTMLElement {
-  return Object.assign(el('span', 'ticket-fact', iconName ? icon(iconName) : null, text), { title: `${what}: ${text}` });
+function fact(mark: HTMLElement | null, text: string, what: string): HTMLElement {
+  return Object.assign(el('span', 'ticket-fact', mark, text), { title: `${what}: ${text}` });
 }
 
 /**
@@ -103,7 +103,7 @@ function renderRelated(m: TicketModel): HTMLElement {
     section.append(el('h3', 'related-group', upper(relation)), el('ul', 'related', ...rows.map((r) => {
       const name = /^[A-Z][A-Z0-9_]*-\d+$/i.test(r.key) ? openable(el('span', 'tcard-key', r.key), { type: 'ticket', project: m.project, tracker: m.tracker, key: r.key }) : el('span', 'tcard-key', r.key);
       const title = r.title ? Object.assign(el('span', 'related-title', r.title), { title: r.title }) : el('span', 'related-title');
-      return el('li', 'related-row', el('span', 'related-type', r.typeIcon ? icon(r.typeIcon) : null), name, title, r.status ? stateChip({ label: r.status.name, icon: r.status.icon, tone: r.status.tone, quiet: r.status.quiet }) : null);
+      return el('li', 'related-row', el('span', 'related-type', r.typeIcon ? typeMark(r.typeIcon, r.typeColor) : null), name, title, r.status ? stateChip({ label: r.status.name, icon: r.status.icon, tone: r.status.tone, quiet: r.status.quiet }) : null);
     })));
   }
   return section;
@@ -122,8 +122,8 @@ export function renderTicket(m: TicketModel): Node[] {
     b.addEventListener('click', () => ticketAction('status'));
     statusCtl = b;
   }
-  const type = m.type ? fact(m.typeIcon, m.type, 'Type') : null;
-  const priority = m.priority ? fact(m.priorityIcon, m.priority, 'Priority') : null;
+  const type = m.type ? fact(typeMark(m.typeIcon, m.typeColor), m.type, 'Type') : null;
+  const priority = m.priority ? fact(m.priorityIcon ? icon(m.priorityIcon) : null, m.priority, 'Priority') : null;
   const tools: Child[] = [];
   if (m.url) {
     const open = el('button', 'btn ghost', icon('link-external'), KIND_NAME[m.sourceKind] ? `Open in ${KIND_NAME[m.sourceKind]}` : 'Open ticket') as HTMLButtonElement;

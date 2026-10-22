@@ -60,7 +60,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', 
     { type: 'codeBlock', attrs: { language: 'apex' }, content: [{ type: 'text', text: "Case c = [SELECT Id FROM Case WHERE Tier__c = 'Premium' LIMIT 1];" }] },
   ] };
   const ticket: Ticket = {
-    key: 'ACME-12', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-12', title: 'Case escalation rules for the premium tier', type: 'Story', typeKind: 'story',
+    key: 'ACME-12', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-12', title: 'Case escalation rules for the premium tier', type: 'Story', typeKind: 'story', typeColor: null,
     status: DOING, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' },
     labels: [{ name: 'service', color: null }, { name: 'sla', color: null }], priority: 'High', priorityLevel: 2,
     created: new Date(now - 6 * 86_400_000).toISOString(), updated: new Date(now - 2 * 3_600_000).toISOString(),
@@ -70,7 +70,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', 
       { id: '2', author: { id: 'a1', name: 'Jordan Kim' }, created: new Date(now - 3 * 3_600_000).toISOString(), url: null, body: fromAdf({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Going with 8 hours for Medium, per ' }, { type: 'mention', attrs: { text: '@Pat Lee' } }, { type: 'text', text: '. Handed to an agent.' }] }] }) },
     ],
     // Each with its state and kind, as Jira gives them (T-90), drawn as a row with its chip (T-91).
-    related: [{ key: 'ACME-17', title: 'Dashboards for the escalation rules', relation: 'blocks', url: null, status: TODO, typeKind: 'task' }, { key: 'ACME-3', title: 'Premium Support', relation: 'parent', url: null, status: DOING, typeKind: 'epic' }],
+    related: [{ key: 'ACME-17', title: 'Dashboards for the escalation rules', relation: 'blocks', url: null, status: TODO, typeKind: 'task', typeColor: null }, { key: 'ACME-3', title: 'Premium Support', relation: 'parent', url: null, status: DOING, typeKind: 'epic', typeColor: null }],
   };
   const task = {
     id: 'ACME-12', title: ticket.title, brief: '', source: { kind: 'jira', key: 'ACME-12', url: ticket.url }, environment: 'dev', deps: [], labels: [], state: 'running', blocker: null,
@@ -116,7 +116,7 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', 
  */
 function sampleNoFieldsTicket(now: number): TicketModel {
   const ticket: Ticket = {
-    key: 'SL-1696512345123456', kind: 'slack', url: 'https://acme.slack.com/archives/C0SUPPORT1/p1696512345123456', title: 'Customer asks why a premium case was not escalated', type: null, typeKind: null,
+    key: 'SL-1696512345123456', kind: 'slack', url: 'https://acme.slack.com/archives/C0SUPPORT1/p1696512345123456', title: 'Customer asks why a premium case was not escalated', type: null, typeKind: null, typeColor: null,
     status: TODO, assignees: [], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [], priority: null, priorityLevel: null,
     created: new Date(now - 3 * 3_600_000).toISOString(), updated: new Date(now - 20 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('A customer wrote that their premium case sat for two hours with no reply. Find out why the escalation rule did not run.')] }),
@@ -132,7 +132,7 @@ function sampleNoFieldsTicket(now: number): TicketModel {
 function sampleCloudTicket(now: number): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-44')!;
   const ticket: Ticket = {
-    key: 'ACME-44', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-44', title: row.title, type: 'Story', typeKind: 'story',
+    key: 'ACME-44', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-44', title: row.title, type: 'Story', typeKind: 'story', typeColor: null,
     status: DOING, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'sales', color: null }], priority: 'Medium', priorityLevel: 3,
     created: new Date(now - 4 * 86_400_000).toISOString(), updated: new Date(now - 150 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('New leads all land on one rep. Share them round the inside sales team in turn, skipping anyone out of office.')] }),
@@ -157,7 +157,7 @@ function sampleCloudTicket(now: number): TicketModel {
 function sampleStoppedTicket(now: number): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-29')!;
   const ticket: Ticket = {
-    key: 'ACME-29', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-29', title: row.title, type: 'Story', typeKind: 'story',
+    key: 'ACME-29', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-29', title: row.title, type: 'Story', typeKind: 'story', typeColor: null,
     status: DOING, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'service', color: null }], priority: 'Medium', priorityLevel: 3,
     created: new Date(now - 3 * 86_400_000).toISOString(), updated: new Date(now - 70 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('When a case owner leaves, their open cases sit unassigned until someone notices. Reassign them to the owner\'s manager.')] }),
@@ -182,7 +182,7 @@ function sampleStoppedTicket(now: number): TicketModel {
 function sampleChecksTicket(now: number): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-33')!;
   const ticket: Ticket = {
-    key: 'ACME-33', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-33', title: row.title, type: 'Story', typeKind: 'story',
+    key: 'ACME-33', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-33', title: row.title, type: 'Story', typeKind: 'story', typeColor: null,
     status: REVIEW, assignees: [], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'sales', color: null }], priority: 'Medium', priorityLevel: 3,
     created: new Date(now - 2 * 86_400_000).toISOString(), updated: new Date(now - 3 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('Leads from bigger companies should score higher. Add the employee count to the lead score, capped at 20 points.')] }),
@@ -219,7 +219,7 @@ function sampleMissingTicket(now: number): TicketModel {
   const hubRow = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-48')!;
   const row = { ...hubRow, unseen: 'missing' as const, agent: { label: UNSEEN_WORDS.missing.label, icon: 'eye-closed', tone: 'orange' as const } };
   const ticket: Ticket = {
-    key: 'ACME-48', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-48', title: row.title, type: 'Story', typeKind: 'story',
+    key: 'ACME-48', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-48', title: row.title, type: 'Story', typeKind: 'story', typeColor: null,
     status: DOING, assignees: [{ id: 'a2', name: 'Pat Lee' }], reporter: { id: 'a1', name: 'Jordan Kim' }, labels: [{ name: 'service', color: null }, { name: 'audit', color: null }], priority: 'Medium', priorityLevel: 3,
     created: new Date(now - 2 * 86_400_000).toISOString(), updated: new Date(now - 30 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('Support leads can\'t tell when a case\'s priority changed, or who changed it. Log each change in the case\'s history.')] }),
@@ -246,7 +246,7 @@ function sampleMissingTicket(now: number): TicketModel {
 function sampleNoteTicket(now: number): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-20')!;
   const ticket: Ticket = {
-    key: 'ACME-20', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-20', title: row.title, type: 'Story', typeKind: 'story',
+    key: 'ACME-20', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-20', title: row.title, type: 'Story', typeKind: 'story', typeColor: null,
     status: REVIEW, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'sales', color: null }], priority: 'Medium', priorityLevel: 3,
     created: new Date(now - 3 * 86_400_000).toISOString(), updated: new Date(now - 40 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('Account managers miss renewals because the renewal date sits on the contract. Show it on the Account page, beside the contract end date.')] }),
@@ -288,11 +288,11 @@ function sampleNoteTicket(now: number): TicketModel {
 /** A ticket acc doesn't keep yet, while its card's Track is on its way: its page says Tracking… too (D-074). */
 function sampleUntrackedTicket(now: number): TicketModel {
   const ticket: Ticket = {
-    key: 'ACME-31', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-31', title: 'Email the account owner when a premium case is opened', type: 'Task', typeKind: 'task',
+    key: 'ACME-31', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-31', title: 'Email the account owner when a premium case is opened', type: 'Task', typeKind: 'task', typeColor: null,
     status: TODO, assignees: [], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [], priority: 'High', priorityLevel: 2,
     created: new Date(now - 86_400_000).toISOString(), updated: new Date(now - 40 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('Account owners hear about a new premium case only when it escalates. Email them as soon as one is opened, with its subject and priority.')] }),
-    markdown: '', comments: [], related: [{ key: 'ACME-3', title: 'Premium Support', relation: 'parent', url: null, status: null, typeKind: null }],
+    markdown: '', comments: [], related: [{ key: 'ACME-3', title: 'Premium Support', relation: 'parent', url: null, status: null, typeKind: null, typeColor: null }],
   };
   return ticketModel({
     project: ROOT, tracker: 0, trackerTitle: 'Jira · ACME', trackerKind: 'jira', key: 'ACME-31', ticket, loading: false, error: null, connect: null, row: null, task: null, checks: [],
@@ -304,7 +304,7 @@ function sampleUntrackedTicket(now: number): TicketModel {
 function sampleWaitingTicket(now: number): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-35')!;
   const ticket: Ticket = {
-    key: 'ACME-35', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-35', title: row.title, type: 'Story', typeKind: 'story',
+    key: 'ACME-35', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-35', title: row.title, type: 'Story', typeKind: 'story', typeColor: null,
     status: TODO, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'sla', color: null }], priority: 'High', priorityLevel: 2,
     created: new Date(now - 86_400_000).toISOString(), updated: new Date(now - 6 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('A premium case with no reply for an hour goes to the Tier 2 queue, on the Premium Support schedule.')] }),
@@ -326,7 +326,7 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: Verif
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === key)!;
   const bug = key === 'ACME-21';
   const ticket: Ticket = {
-    key, kind: 'jira', url: `https://acme.atlassian.net/browse/${key}`, title: row.title, type: bug ? 'Bug' : 'Epic', typeKind: bug ? 'bug' : 'epic',
+    key, kind: 'jira', url: `https://acme.atlassian.net/browse/${key}`, title: row.title, type: bug ? 'Bug' : 'Epic', typeKind: bug ? 'bug' : 'epic', typeColor: null,
     status: TODO, assignees: bug ? [{ id: 'a2', name: 'Pat Lee' }] : [], reporter: { id: 'a1', name: 'Jordan Kim' },
     labels: bug ? [{ name: 'sales', color: null }] : [{ name: 'partners', color: null }], priority: bug ? 'Highest' : 'Medium', priorityLevel: bug ? 1 : 3,
     created: new Date(now - 2 * 86_400_000).toISOString(), updated: new Date(now - 18 * MIN).toISOString(),
@@ -359,7 +359,7 @@ function sampleTodoTicket(now: number, key: 'ACME-21' | 'ACME-23', verify: Verif
 function sampleReviewTicket(now: number, edits: boolean, criteria: 'drafted' | 'update' | null): TicketModel {
   const row = sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-19')!;
   const ticket: Ticket = {
-    key: 'ACME-19', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-19', title: row.title, type: 'Bug', typeKind: 'bug',
+    key: 'ACME-19', kind: 'jira', url: 'https://acme.atlassian.net/browse/ACME-19', title: row.title, type: 'Bug', typeKind: 'bug', typeColor: null,
     status: DOING, assignees: [{ id: 'a1', name: 'Jordan Kim' }], reporter: { id: 'a2', name: 'Pat Lee' }, labels: [{ name: 'marketing', color: null }], priority: 'High', priorityLevel: 2,
     created: new Date(now - 3 * 86_400_000).toISOString(), updated: new Date(now - 26 * 60 * MIN).toISOString(),
     body: fromAdf({ type: 'doc', content: [p('New contacts get the welcome email twice when the flow runs again within a day. Send it once.')] }),

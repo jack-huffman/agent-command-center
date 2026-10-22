@@ -299,7 +299,7 @@ export class MondayClient implements TrackerClient {
         key: this.keyOf(String(it.id)), title: it.name, url: this.urlOf(String(it.id)),
         // A card on a label the column no longer names (its blank) has no status.
         status: statusOf(labels, index !== null && !labels.some((l) => l.id === index) ? null : index),
-        type: null, typeKind: null, assignees: personIds(value(it, people?.id)).map((id) => ({ id, name: names.get(id) ?? 'Someone' })), labels: [], priority: null, priorityLevel: null,
+        type: null, typeKind: null, typeColor: null, assignees: personIds(value(it, people?.id)).map((id) => ({ id, name: names.get(id) ?? 'Someone' })), labels: [], priority: null, priorityLevel: null,
       };
     });
     const on = new Set(cards.map((c) => c.status.id));
@@ -351,13 +351,13 @@ export class MondayClient implements TrackerClient {
     }
     if (!body.blocks.length && updates[0]) body.blocks.push(...fromHtml(updates[0].body).blocks);
     return {
-      key: this.keyOf(id), kind: 'monday', url: it.url ?? this.urlOf(id), title: it.name, type: null, typeKind: null, status,
+      key: this.keyOf(id), kind: 'monday', url: it.url ?? this.urlOf(id), title: it.name, type: null, typeKind: null, typeColor: null, status,
       assignees: personIds(peopleValue).map((p) => ({ id: p, name: names.get(p) ?? 'Someone' })),
       reporter: it.creator ? { id: String(it.creator.id), name: it.creator.name } : null, labels: [], priority: null, priorityLevel: null,
       created: it.created_at, updated: it.updated_at, body, markdown: toMarkdown(body), comments,
       related: [
-        ...(it.parent_item ? [{ key: this.keyOf(String(it.parent_item.id)), title: it.parent_item.name, relation: 'parent', url: it.parent_item.url ?? null, status: null, typeKind: null }] : []),
-        ...(it.subitems ?? []).map((s) => ({ key: this.keyOf(String(s.id)), title: s.name, relation: 'sub-item', url: s.url ?? null, status: subitemStatus(s.column_values), typeKind: null })),
+        ...(it.parent_item ? [{ key: this.keyOf(String(it.parent_item.id)), title: it.parent_item.name, relation: 'parent', url: it.parent_item.url ?? null, status: null, typeKind: null, typeColor: null }] : []),
+        ...(it.subitems ?? []).map((s) => ({ key: this.keyOf(String(s.id)), title: s.name, relation: 'sub-item', url: s.url ?? null, status: subitemStatus(s.column_values), typeKind: null, typeColor: null })),
       ],
     };
   }

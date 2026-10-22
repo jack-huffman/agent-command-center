@@ -8,6 +8,9 @@ export const TINTS = 8;
 /** A label's tint: the tracker's own colour as six hex digits, or one of the palette's tints. */
 export type Tint = { colour: string } | { tint: number };
 
+/** A tracker's colour when it gives one as six hex digits (T-95), or null: the page draws no other. */
+export const ownColour = (c: string | null | undefined): string | null => (c && /^[0-9a-f]{6}$/i.test(c) ? c : null);
+
 /** A stable tint, 1 to TINTS, for a key: the same name or id gets the same tint on every page and every draw. */
 export function tintOf(key: string): number {
   // FNV-1a over the key's code points: small, and spreads short keys such as "bug" and "sla" well.
@@ -21,7 +24,8 @@ export function tintOf(key: string): number {
  * name picks, the same whatever its case.
  */
 export function labelTint(l: { name: string; color: string | null }): Tint {
-  return l.color && /^[0-9a-f]{6}$/i.test(l.color) ? { colour: l.color } : { tint: tintOf(l.name.toLowerCase()) };
+  const colour = ownColour(l.color);
+  return colour ? { colour } : { tint: tintOf(l.name.toLowerCase()) };
 }
 
 /**

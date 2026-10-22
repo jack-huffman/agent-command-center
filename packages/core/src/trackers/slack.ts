@@ -375,7 +375,7 @@ export class SlackClient implements TrackerClient {
       return {
         key: slackKey(thread, this.prefix), title: clip(first, SLACK_CARD_MAX), ...(first.length > SLACK_CARD_MAX ? { fullTitle: first } : {}),
         url: link ?? `https://${this.workspace}.slack.com/archives/${this.channel}/p${m.ts.replace('.', '')}`,
-        status: done && has(m, done) ? DONE : OPEN, type: null, typeKind: null, assignees: [author], labels: [], priority: null, priorityLevel: null,
+        status: done && has(m, done) ? DONE : OPEN, type: null, typeKind: null, typeColor: null, assignees: [author], labels: [], priority: null, priorityLevel: null,
       };
     });
     const columns: BoardColumn[] = [
@@ -413,7 +413,7 @@ export class SlackClient implements TrackerClient {
     const last = all.at(-1)!;
     return {
       key: k, kind: 'slack', url: permalink ?? `https://${this.workspace}.slack.com/archives/${channel}/p${ts.replace('.', '')}`,
-      title: clip(first, SLACK_TITLE_MAX), type: null, typeKind: null, status: NO_STATUS, assignees: [],
+      title: clip(first, SLACK_TITLE_MAX), type: null, typeKind: null, typeColor: null, status: NO_STATUS, assignees: [],
       reporter: root.user ? { id: root.user, name: names.get(root.user) ?? 'Someone' } : { id: root.bot_id ?? '', name: await this.writer(root) },
       labels: [], priority: null, priorityLevel: null, created: isoOf(root.ts), updated: isoOf(last.ts), body, markdown: toMarkdown(body), comments: [], related: [],
     };

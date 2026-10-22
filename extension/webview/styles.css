@@ -117,6 +117,8 @@ h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode
 
 /* An icon keeps a px size: the codicon font is drawn on a 16 px grid, and a whole px keeps it sharp. */
 .codicon { font-size: 15px; }
+/* A ticket type's icon in its tracker's own colour for the type (T-95), set by typeMark in dom.ts. */
+.codicon.type-tinted { color: var(--type-colour); }
 .tone-orange { color: var(--orange); }
 .tone-blue { color: var(--blue); }
 .status { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }

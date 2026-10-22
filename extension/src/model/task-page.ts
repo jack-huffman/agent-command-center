@@ -152,6 +152,8 @@ export interface TicketModel {
   connect: { command: string; label: string; arg: string } | null;
   type: string | null;
   typeIcon: string;
+  /** The type's own colour from its tracker (T-95), which tints its icon; null keeps the theme's. */
+  typeColor: string | null;
   /** Its state, drawn as the state chip (T-91): quiet when done. */
   status: TicketState | null;
   assignees: PersonChip[];
@@ -164,7 +166,7 @@ export interface TicketModel {
   body: Doc;
   comments: { id: string; author: PersonChip; created: string; body: Doc; url: string | null }[];
   /** Parent, sub-tasks and links (T-91): each with its kind's icon and its state chip, where its tracker says; null where it doesn't. */
-  related: { key: string; title: string; relation: string; url: string | null; typeIcon: string | null; status: TicketState | null }[];
+  related: { key: string; title: string; relation: string; url: string | null; typeIcon: string | null; typeColor: string | null; status: TicketState | null }[];
   /**
    * What the page may change in the tracker. Nothing, for a task acc alone keeps. A ticket's status,
    * assignee and labels only when its tracker says "edits": true; comments always (D-066).
@@ -477,7 +479,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     title: t?.title ?? i.task?.title ?? i.key, url: t?.url ?? i.task?.source.url ?? null,
     sourceLabel: i.trackerTitle ?? 'Task kept by acc', sourceKind: t?.kind ?? i.trackerKind ?? 'acc',
     loading: i.loading, error: i.error, outside: i.outside ?? null, connect: i.connect,
-    type: t?.type ?? null, typeIcon: typeIcon(t?.typeKind ?? null),
+    type: t?.type ?? null, typeIcon: typeIcon(t?.typeKind ?? null), typeColor: t?.typeColor ?? null,
     status: t ? { name: t.status.name, ...statusLook(t.status) } : acc ? { name: acc.look.label, icon: acc.look.icon, tone: acc.look.tone } : null,
     assignees: (t?.assignees ?? []).map(chip), reporter: t?.reporter ? chip(t.reporter) : null,
     labels: t?.labels ?? (i.task?.labels ?? []).map((name) => ({ name, color: null })),
@@ -485,8 +487,8 @@ export function ticketModel(i: TicketInput): TicketModel {
     created: t?.created ?? i.task?.createdAt ?? null, updated: t?.updated ?? i.task?.updatedAt ?? null,
     body: t?.body ?? (own ? fromMarkdown(i.task!.brief) : { blocks: [] }),
     comments: (t?.comments ?? []).map((c) => ({ id: c.id, author: chip(c.author), created: c.created, body: c.body, url: c.url })),
-    related: t ? t.related.map((r) => ({ key: r.key, title: r.title, relation: r.relation, url: r.url, typeIcon: r.typeKind ? typeIcon(r.typeKind) : null, status: r.status ? { name: r.status.name, ...statusLook(r.status) } : null }))
-      : (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null, typeIcon: null, status: null })),
+    related: t ? t.related.map((r) => ({ key: r.key, title: r.title, relation: r.relation, url: r.url, typeIcon: r.typeKind ? typeIcon(r.typeKind) : null, typeColor: r.typeKind ? r.typeColor ?? null : null, status: r.status ? { name: r.status.name, ...statusLook(r.status) } : null }))
+      : (i.task?.deps ?? []).map((d) => ({ key: d, title: '', relation: 'depends on', url: null, typeIcon: null, typeColor: null, status: null })),
     // A client's tracker is theirs: the page changes its fields only where the tracker opts in (D-066).
     can: { status: !!t && !!i.trackerEdits && has('status'), assign: !!t && !!i.trackerEdits && has('assignee'), labels: !!t && !!i.trackerEdits && has('labels'), comment: !!t },
     editText: t && i.trackerEdits && i.task ? editTextAction(i.project, i.task) : null,

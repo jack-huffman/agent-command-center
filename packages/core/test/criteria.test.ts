@@ -220,7 +220,7 @@ test('the draft becomes an update draft only when a person asks, and a newer one
 test('a tracker\'s ticket is read with its newest comments as Markdown, and a long description is cut (edge case)', () => {
   const person = { id: 'u1', name: 'Dana Reyes' };
   const comments = Array.from({ length: CRITERIA_COMMENTS_MAX + 5 }, (_, n) => ({ id: String(n), author: person, created: `c${n}`, body: fromMarkdown(`**Note ${n}**`), url: null }));
-  const t = criteriaTicket({ key: 'ACME-7', title: 't', url: 'u', markdown: 'x'.repeat(CRITERIA_TEXT_MAX + 10), comments, related: [{ key: 'ACME-3', title: 'P', relation: 'parent', url: null, status: null, typeKind: null }] });
+  const t = criteriaTicket({ key: 'ACME-7', title: 't', url: 'u', markdown: 'x'.repeat(CRITERIA_TEXT_MAX + 10), comments, related: [{ key: 'ACME-3', title: 'P', relation: 'parent', url: null, status: null, typeKind: null, typeColor: null }] });
   assert.equal(t.comments.length, CRITERIA_COMMENTS_MAX);
   assert.deepEqual(t.comments.at(-1), { author: 'Dana Reyes', created: `c${CRITERIA_COMMENTS_MAX + 4}`, markdown: `**Note ${CRITERIA_COMMENTS_MAX + 4}**` });
   assert.match(t.markdown, /cut at 30000 characters/);
