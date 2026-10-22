@@ -113,7 +113,8 @@ test('a reply\'s proposals are read against the plan, and one naming what the pl
   assert.throws(() => parseTalkReply('not json', a), /no reply Claude Code could read/);
   assert.throws(() => parseTalkReply(JSON.stringify({ is_error: true, subtype: 'error_max_turns', result: 'ran out' }), a), /didn't reply \(error_max_turns\)/);
   assert.throws(() => parseTalkReply(reply({ reply: '  ', proposals: [] }).stdout, a), /didn't reply/, 'an empty reply isn\'t one');
-  assert.deepEqual(TALK_SCHEMA.required, ['reply', 'proposals']);
+  assert.deepEqual(TALK_SCHEMA.required, ['reply', 'proposals', 'questions']);
+  assert.deepEqual(p.questions, [], 'a reply with no questions has none');
   assert.match(TALK_SYSTEM, /Never say a change is made/);
 });
 

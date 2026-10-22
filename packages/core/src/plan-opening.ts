@@ -1,7 +1,7 @@
 /**
  * A plan starts with a conversation (T-111): before the planning agent investigates, the person says what they
- * want to do and what they're thinking, and the agent says what it understood, what it's unsure of, and asks at
- * most three questions. It answers read-only, from the ticket, in a new session that the plan and Talk it
+ * want to do and what they're thinking, and the agent says briefly what it understood, and asks at most three
+ * questions, each with its answers to pick (T-113, talk-questions.ts). It answers read-only, from the ticket, in a new session that the plan and Talk it
  * through then resume, so the agent remembers what the person said first. The turns are kept in the plan's
  * conversation (plan-talk.ts) as the plan's version 0: said before there was a plan.
  */
@@ -19,6 +19,7 @@ import type { RepoPaths } from './paths.ts';
 import { addTurn, type PlanTalk, readTalk, TALK_MAX, type TalkDeps, talking, talkingPath, type TalkTurn, writeTalk } from './plan-talk.ts';
 import { type PlanTicket, ticketLines, ticketWithout } from './plan-ticket.ts';
 import { NO_STEPS } from './steps.ts';
+import { askedLine, parseQuestions, QUESTIONS_MAX, QUESTIONS_SCHEMA, REPLY_RULES, type TalkAsk, turnQuestions } from './talk-questions.ts';
 
 /** The plan's version the opening conversation is kept at: there is no plan yet. */
 export const OPENING_VERSION = 0;
@@ -27,7 +28,7 @@ export const OPENING_VERSION = 0;
 export const OPENING_ASK = 'What do you want to do here, and what are you thinking?';
 
 /** The most questions the planning agent asks before it plans. */
-export const OPENING_QUESTIONS_MAX = 3;
+export const OPENING_QUESTIONS_MAX = QUESTIONS_MAX;
 
 /** A turn said before there was a plan. */
 export const isOpening = (t: Pick<TalkTurn, 'version'>): boolean => t.version === OPENING_VERSION;
@@ -39,18 +40,18 @@ export const openingTurns = (t: PlanTalk): TalkTurn[] => t.turns.filter(isOpenin
 export const OPENING_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['understood', 'unsure', 'questions'],
+  required: ['understood', 'questions'],
   properties: {
-    understood: { type: 'string', description: 'What you understood the person wants, from the ticket and their words, in plain words. Brief' },
-    unsure: { type: 'array', items: { type: 'string' }, description: 'What you are unsure of, a line each. Empty when nothing' },
-    questions: { type: 'array', maxItems: OPENING_QUESTIONS_MAX, items: { type: 'string' }, description: `At most ${OPENING_QUESTIONS_MAX} questions for the person, the ones that change the plan most. Empty when you have none` },
+    understood: { type: 'string', description: 'What you understood the person wants, from the ticket and their words, in plain words. At most about 80 words, and no questions' },
+    questions: QUESTIONS_SCHEMA,
   },
 } as const;
 
 /** What the planning agent is told on each message before the plan. */
 export const OPENING_SYSTEM = [
   'You will plan this ticket. Before you investigate, the person who decides says what they want to do and what they are thinking.',
-  'Show what you understood from the ticket and their words, say what you are unsure of, and ask at most three questions: only the ones that change the plan most.',
+  'Show what you understood from the ticket and their words, and ask your questions.',
+  REPLY_RULES,
   'Do not investigate in depth yet: read the ticket, and look at the code or the org only to understand their words. The plan comes next, in this same session.',
   'You can\'t change anything: no edits, no writes, no deploys.',
   'Be concrete and brief: names, files, numbers. No filler.',
@@ -65,12 +66,12 @@ export function openingPrompt(task: Pick<Task, 'id' | 'title'>, text: string, ti
     ...(ticket ? [`# ${task.id}: ${task.title}`, '', ...ticketLines(ticket), `# ${OPENING_ASK}`, ''] : ['# The person says', '']),
     text.trim(),
     '',
-    'Answer them: what you understood, what you are unsure of, and your questions, if any.',
+    'Answer them: what you understood, briefly, and your questions, if any.',
   ].join('\n');
 }
 
-/** The answer from Claude Code's JSON result: what it understood, what it's unsure of, and at most three questions. */
-export function parseOpeningReply(stdout: string): { understood: string; unsure: string[]; questions: string[]; sessionId: string | null; costUsd: number | null } {
+/** The answer from Claude Code's JSON result: what it understood, and at most three questions, each with its answers. */
+export function parseOpeningReply(stdout: string): { understood: string; questions: TalkAsk[]; sessionId: string | null; costUsd: number | null } {
   let r: Record<string, any>;
   try {
     r = JSON.parse(stdout.trim().split('\n').filter(Boolean).pop() ?? '');
@@ -79,9 +80,8 @@ export function parseOpeningReply(stdout: string): { understood: string; unsure:
   }
   const s = r.structured_output;
   if (r.is_error || !s || typeof s.understood !== 'string' || !s.understood.trim()) throw new AccError('talk', `The planning agent didn't reply (${r.subtype ?? 'no result'}): ${String(r.result ?? '').slice(0, 300)}`);
-  const lines = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter(Boolean) : []);
   return {
-    understood: s.understood.trim(), unsure: lines(s.unsure), questions: lines(s.questions).slice(0, OPENING_QUESTIONS_MAX),
+    understood: s.understood.trim(), questions: parseQuestions(s.questions),
     sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null,
   };
 }
@@ -109,7 +109,7 @@ export function openingSection(t: PlanTalk): string[] {
     '',
     ...said.flatMap((x) => (x.who === 'you'
       ? [`- The person: ${x.text}`]
-      : [`- You (the planning agent): ${x.text}`, ...(x.unsure ?? []).map((u) => `  - Unsure: ${u}`), ...(x.asks ?? []).map((q) => `  - Asked: ${q}`)])),
+      : [`- You (the planning agent): ${x.text}`, ...(x.unsure ?? []).map((u) => `  - Unsure: ${u}`), ...turnQuestions(x).map(askedLine)])),
     '',
     'This is what the person is thinking: ground the plan in it. Where a choice or a recommendation rests on what they said, name it in that choice\'s why or because, starting "You said: " with their words.',
     '',
@@ -127,8 +127,8 @@ function taskToOpen(paths: RepoPaths, id: string): Task {
 }
 
 /**
- * The person's opening message, and the planning agent's answer (T-111): what it understood, what it's unsure
- * of, and at most three questions. The first message starts the planning session with the whole ticket
+ * The person's opening message, and the planning agent's answer (T-111): what it understood, and at most
+ * three questions, each with its answers (T-113). The first message starts the planning session with the whole ticket
  * (`ticket`, T-110; without it, the description); each later one resumes it. Read-only, with the same tools
  * and hook as making the plan. The person's message is kept first, so an answer that fails still shows what
  * was said.
@@ -181,7 +181,7 @@ export function startPlan(paths: RepoPaths, config: Config, id: string, message:
   steps.done('talk', parsed.questions.length ? `It asks ${parsed.questions.length} question${parsed.questions.length === 1 ? '' : 's'}` : 'It replied');
   const reply = steps.step('save', 'Keep the reply', () => addTurn(paths, id, {
     who: 'agent', by: `analyst:${id}`, at: now().toISOString(), version: OPENING_VERSION, text: parsed.understood,
-    unsure: parsed.unsure, asks: parsed.questions, sessionId: parsed.sessionId ?? session, costUsd: parsed.costUsd,
+    questions: parsed.questions, sessionId: parsed.sessionId ?? session, costUsd: parsed.costUsd,
   }));
   return { turn, reply };
 }

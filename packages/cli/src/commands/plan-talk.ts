@@ -1,14 +1,14 @@
 // acc plan's talk (T-98): a person's message to the planning agent, a reply's proposal used, a note on the
 // plan, and a Claude Code session opened on it. Only a person does any of them. plan.ts sends them here.
 
-import { AccError, notePlan, OPENING_ASK, openInClaude, parsePlanTicket, proposalWords, readAnalysis, readLedger, recordInSession, run, startPlan, TALK_SESSION_VAR, talkPlan, useProposal } from '../../../core/src/index.ts';
+import { AccError, notePlan, type TalkAsk, type TalkTurn, turnQuestions, OPENING_ASK, openInClaude, parsePlanTicket, proposalWords, readAnalysis, readLedger, recordInSession, run, startPlan, TALK_SESSION_VAR, talkPlan, useProposal } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
 import { accCommand, noAgent, now, type Opts, out, project, readFileArg, steps } from '../shared.ts';
 
 /** Its lines in acc help, under plan's. */
 export const TALK_HELP = `  acc plan start <id> "<message>"       Start a plan with a conversation, before it is made: say what you want and
-                                        what you're thinking; the planning agent says what it understood, what it's
-                                        unsure of, and asks at most three questions. --ticket <file> as for analyze
+                                        what you're thinking; the planning agent says what it understood, and asks
+                                        at most three questions, each with answers. --ticket <file> as for analyze
   acc plan talk <id> "<message>"        Talk the plan through: the planning agent replies from the code (and the
                                         org), read-only. --about d1, d1.a, s2, r1 or q1 quotes what it's about
   acc plan use <id> <turn> <proposal>   Use a change the planning agent proposed: a choice, an answer or a note,
@@ -16,6 +16,12 @@ export const TALK_HELP = `  acc plan start <id> "<message>"       Start a plan w
   acc plan note <id> "<text>"           Add a note to the plan, such as a changed step. --yes on an approved plan
   acc plan claude <id>                  How to open the plan in Claude Code, in plan mode, with the ticket, the
                                         plan and the conversation so far`;
+
+/** A reply's questions (T-113), numbered, each with its answers, the suggestion first. */
+const questionLines = (reply: TalkTurn): string[] => turnQuestions(reply).flatMap((q: TalkAsk, i) => [
+  tone(`  ${i + 1}. ${q.question}`, 'blue'),
+  ...q.options.map((x, k) => tone(`     ${String.fromCharCode(97 + k)}) ${x}${k === 0 ? ' (suggested)' : ''}`, 'dim')),
+]);
 
 /** The words acc plan takes for its talk. */
 export const TALK_SUBCOMMANDS = ['start', 'talk', 'use', 'note', 'claude'] as const;
@@ -36,13 +42,13 @@ function cmdStart(o: Opts, id: string, message: string): number {
   const kept = text !== null ? readLedger(paths.ledger).tasks.find((t) => t.id === task) : undefined;
   const ticket = text !== null && kept ? parsePlanTicket(text, kept) : null;
   const { reply } = startPlan(paths, config, task, message, { run, now, env: process.env, accCommand: accCommand(), steps: steps() }, by, ticket);
-  const n = reply.asks?.length ?? 0;
+  const n = turnQuestions(reply).length;
   steps().result(true, n ? `The planning agent replied, and asks ${n} question${n === 1 ? '' : 's'}.` : 'The planning agent replied.');
   out(o, () => [
     tone(OPENING_ASK, 'dim'),
     reply.text,
     ...(reply.unsure ?? []).map((u) => tone(`  Unsure: ${u}`, 'dim')),
-    ...(reply.asks ?? []).map((q) => tone(`  ${q}`, 'blue')),
+    ...questionLines(reply),
     tone(`Answer with acc plan start ${task} "…", or make the plan with acc analyze ${task}.`, 'dim'),
   ].join('\n'), reply);
   return 0;
@@ -60,6 +66,7 @@ function cmdTalk(o: Opts, id: string, message: string): number {
   out(o, () => [
     reply.text,
     ...(reply.proposals ?? []).map((p) => tone(`  ${reply.id}.${p.id} ${proposalWords(p, a)}${p.why ? `: ${p.why}` : ''}. Use it with acc plan use ${task} ${reply.id} ${p.id}.`, 'blue')),
+    ...questionLines(reply),
   ].join('\n'), reply);
   return 0;
 }

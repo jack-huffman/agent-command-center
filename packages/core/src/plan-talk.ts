@@ -22,6 +22,7 @@ import { choosePlan } from './plan-choices.ts';
 import { readPlanTicket, ticketLines, ticketWithout } from './plan-ticket.ts';
 import { askOf, choiceName, lapse, planVersion, recommendedName } from './plan.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
+import { askedLine, parseQuestions, QUESTIONS_SCHEMA, REPLY_RULES, type TalkAsk, turnQuestions } from './talk-questions.ts';
 
 /** Who said it: the person, the planning agent, a Claude Code session the person opened, or a new version of the plan. */
 export type TalkWho = 'you' | 'agent' | 'claude-code' | 'plan';
@@ -72,10 +73,12 @@ export interface TalkTurn {
   recorded?: string[];
   /** For the person's message: why no reply came. */
   failed?: string;
-  /** For the agent's answer before the plan (T-111): what it's unsure of, a line each. */
+  /** For the agent's answer before the plan, kept before T-113: what it's unsure of, a line each. */
   unsure?: string[];
-  /** For the agent's answer before the plan (T-111): its questions, at most three. */
+  /** For the agent's answer before the plan, kept before T-113: its questions as words. */
   asks?: string[];
+  /** For the agent's answer (T-113): its questions, at most three, each with its answers to pick. */
+  questions?: TalkAsk[];
   costUsd?: number | null;
 }
 
@@ -165,9 +168,9 @@ export function quoteOf(a: Analysis, ref: string): TalkQuote | null {
 export const TALK_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['reply', 'proposals'],
+  required: ['reply', 'proposals', 'questions'],
   properties: {
-    reply: { type: 'string', description: 'Your answer to the person, in plain words. Say what you read in the code or the org to answer it' },
+    reply: { type: 'string', description: 'Your answer to the person, in plain words. Say what you read in the code or the org to answer it. At most about 80 words, and no questions' },
     proposals: {
       type: 'array',
       description: 'Each change to the plan you suggest, which the person can use with one click. Empty when you suggest none',
@@ -183,6 +186,7 @@ export const TALK_SCHEMA = {
         },
       },
     },
+    questions: QUESTIONS_SCHEMA,
   },
 } as const;
 
@@ -192,6 +196,7 @@ export const TALK_SYSTEM = [
   'Answer from the code, and on Salesforce from the org: read again what you need, and say what you read. Never guess.',
   'You can\'t change anything: no edits, no writes, no deploys, and never the plan itself. When you suggest a change to the plan, give it as a proposal. The person uses it or not. Never say a change is made.',
   'Agree when they are right, and say so plainly when they are not, with the reason.',
+  REPLY_RULES,
   'Be concrete and brief: names, files, numbers. No filler.',
 ].join('\n');
 
@@ -219,7 +224,7 @@ export function talkPrompt(a: Analysis, text: string, about: TalkQuote | null): 
     text.trim(),
     '',
     ...standing(a),
-    'Answer them. Give each change you suggest to the plan as a proposal, using the ids above.',
+    'Answer them. Give each change you suggest to the plan as a proposal, using the ids above, and each question as a question item.',
   ].join('\n');
 }
 
@@ -227,7 +232,7 @@ export function talkPrompt(a: Analysis, text: string, about: TalkQuote | null): 
  * The reply from Claude Code's JSON result, each proposal checked against the plan: one that names a choice,
  * an option or a question the plan doesn't have, or carries no words where it needs them, is left out.
  */
-export function parseTalkReply(stdout: string, a: Analysis): { reply: string; proposals: TalkProposal[]; sessionId: string | null; costUsd: number | null } {
+export function parseTalkReply(stdout: string, a: Analysis): { reply: string; proposals: TalkProposal[]; questions: TalkAsk[]; sessionId: string | null; costUsd: number | null } {
   let r: Record<string, any>;
   try {
     r = JSON.parse(stdout.trim().split('\n').filter(Boolean).pop() ?? '');
@@ -256,7 +261,7 @@ export function parseTalkReply(stdout: string, a: Analysis): { reply: string; pr
       proposals.push({ ...next, kind, text });
     }
   }
-  return { reply: s.reply.trim(), proposals, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
+  return { reply: s.reply.trim(), proposals, questions: parseQuestions(s.questions), sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
 }
 
 /** The session a message resumes: the agent's last reply on this version, else the plan's own. */
@@ -337,9 +342,14 @@ export function talkPlan(paths: RepoPaths, config: Config, id: string, message: 
   } catch (e) {
     return fail((e as Error).message);
   }
-  steps.done('talk', parsed.proposals.length ? `It proposes ${parsed.proposals.length} change${parsed.proposals.length === 1 ? '' : 's'}` : 'It replied');
+  const asked = parsed.questions.length;
+  const said = [
+    parsed.proposals.length ? `proposes ${parsed.proposals.length} change${parsed.proposals.length === 1 ? '' : 's'}` : '',
+    asked ? `asks ${asked} question${asked === 1 ? '' : 's'}` : '',
+  ].filter(Boolean);
+  steps.done('talk', said.length ? `It ${said.join(' and ')}` : 'It replied');
   const reply = steps.step('save', 'Keep the reply', () => addTurn(paths, id, {
-    who: 'agent', by: a.name ?? `analyst:${id}`, at: now().toISOString(), version: v, text: parsed.reply, proposals: parsed.proposals,
+    who: 'agent', by: a.name ?? `analyst:${id}`, at: now().toISOString(), version: v, text: parsed.reply, proposals: parsed.proposals, questions: parsed.questions,
     sessionId: parsed.sessionId ?? session, costUsd: parsed.costUsd,
   }));
   return { turn, reply };
@@ -442,6 +452,7 @@ export function talkLines(t: PlanTalk, a: Analysis | null): string[] {
     `- ${who[x.who]} (${x.version ? `v${x.version}` : 'before the plan'})${x.about ? `, about ${x.about.kind} ${x.about.ref} "${x.about.text}"` : ''}: ${x.text}`,
     ...(x.proposals ?? []).map((p) => `  - Proposed: ${proposalWords(p, a)}${p.used ? ' (the person used it)' : ' (not used)'}`),
     ...(x.recorded ?? []).map((r) => `  - Recorded: ${r}`),
+    ...(x.who === 'agent' ? turnQuestions(x).map(askedLine) : []),
   ]);
 }
 
