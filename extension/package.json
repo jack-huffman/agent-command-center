@@ -1386,6 +1386,17 @@
             ]
           },
           {
+            "id": "B10.merge-floors",
+            "title": "Raised floors merge on their own",
+            "description": "Two tasks that both raised a floor change the same line of the floors file. With this set up, git keeps the better of each, so neither waits for a person. A floor a person relaxed still waits for one.\n\n[Check](command:acc.step.check?%5B%22B10.merge-floors%22%5D)\n[Do it](command:acc.step.fix?%5B%22B10.merge-floors%22%5D)",
+            "media": {
+              "markdown": "media/steps/B10.merge-floors.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.B10.merge-floors"
+            ]
+          },
+          {
             "id": "B10.readme",
             "title": "README names every environment",
             "description": "Anyone opening the repo sees which branch is which org, and how changes flow.\n\n[Check](command:acc.step.check?%5B%22B10.readme%22%5D)\n[Do it](command:acc.step.fix?%5B%22B10.readme%22%5D)",

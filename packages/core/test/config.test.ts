@@ -168,7 +168,8 @@ test('this repo lists its decision log as append-only, and lets autopilot merge 
   assert.deepEqual(config.gates.ratchets, { tests: { command: 'node --no-warnings scripts/count-tests.mjs', limit: 'floor', label: 'tests' } });
   assert.ok(!config.gates.heavy.includes('tests'));
   const floors = parseFloors(readFileSync(join(import.meta.dirname, '..', '..', '..', '.acc', 'floors.json'), 'utf8'));
-  assert.ok(floors && Object.keys(floors).length === 1 && (floors.tests?.floor ?? 0) > 0, 'its floors file holds the one floor, measured');
+  assert.ok(floors && (floors.tests?.floor ?? 0) > 0, 'its floors file holds the tests floor, measured');
+  assert.deepEqual(Object.keys(floors!).filter((k) => k !== 'tests' && !k.startsWith('screenshots.')), [], 'and the screenshot run\'s, which none of acc\'s ratchets reads (T-102)');
   // Its full check and the tests near a change run tests, so their receipts count what ran (GH-100); the typecheck doesn't.
   assert.deepEqual(['check', 'near-tests', 'typecheck'].map((g) => isTestGate(config, g)), [true, true, false]);
 });

@@ -12,6 +12,7 @@ import type { RepoPaths } from './paths.ts';
 import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, relaxesFor, withRaises, writeFloors } from './ratchets.ts';
 import { earlierCounts, type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { storedFloorsLowered } from './stored-floors.ts';
 import { escapeRegExp, plural } from './text.ts';
 import { apexCounts, countsLine, newlySkipped, NO_COUNTS, readTestCounts, type TestCounts } from './test-counts.ts';
 import { strayFilesGate } from './stray-files.ts';
@@ -127,10 +128,16 @@ export function checkEnv(env: NodeJS.ProcessEnv = process.env, heavyDir?: string
 function commandGate(name: string, command: string, heavy: boolean, changeBound: boolean): Gate {
   return {
     name, heavy, about: command, changeBound,
-    plan: ({ changes, near }) => ({
-      cmd: 'sh', args: ['-c', command], read: exitRead,
-      env: { ACC_CHANGED: changes.files.join('\n'), ACC_NEAR_TESTS: near().join('\n') },
-    }),
+    plan: ({ changes, near, floors }) => {
+      // A branch that lowered one of this check's stored floors fails it unrun, unless a person relaxed it (T-102).
+      const read = floors?.();
+      const lowered = read && !('problem' in read) ? storedFloorsLowered(name, read) : null;
+      if (lowered) return { outcome: { status: 'fail', summary: lowered } };
+      return {
+        cmd: 'sh', args: ['-c', command], read: exitRead,
+        env: { ACC_CHANGED: changes.files.join('\n'), ACC_NEAR_TESTS: near().join('\n') },
+      };
+    },
   };
 }
 

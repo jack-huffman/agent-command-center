@@ -274,7 +274,8 @@ export const area: CommandArea = {
   acc gate waive <gate>... --reason "<why>" [--task <id>]
                                         A person sets checks aside on this commit (or the task's), with a reason
   acc gate relax <ratchet> --to <n> --reason "<why>" [--task <id>]
-                                        A person relaxes a ratchet's floor for one task, in its worktree, with a reason
+                                        A person relaxes a ratchet's floor for one task, in its worktree, with a reason,
+                                        or a check's stored floor, such as screenshots.a11y
   acc gate required [<gate>...]         The checks every task must pass; with names, set them in .acc/config.json.
                                         Where the merge queue runs, they run once in it, before each merge
   acc gate builder [<gate>...|--none]   Builders' lighter checks where the merge queue runs the required ones; with

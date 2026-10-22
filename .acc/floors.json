@@ -1,5 +1,29 @@
 {
   "tests": {
-    "floor": 2343
+    "floor": 2415
+  },
+  "screenshots.clipped": {
+    "floor": 101982
+  },
+  "screenshots.sideways": {
+    "floor": 3776
+  },
+  "screenshots.overview": {
+    "floor": 996
+  },
+  "screenshots.buttons": {
+    "floor": 540
+  },
+  "screenshots.covered": {
+    "floor": 1736
+  },
+  "screenshots.raw": {
+    "floor": 492
+  },
+  "screenshots.a11y": {
+    "floor": 445876
+  },
+  "screenshots.actions": {
+    "floor": 984
   }
 }

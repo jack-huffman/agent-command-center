@@ -1,5 +1,6 @@
 // Autopilot's rules: the facts a task's next step is decided on, and the step.
 
+import { accChangesFor } from './acc-changes.ts';
 import { autoMergeFor, type Config } from './config.ts';
 import { type CheckRead, readChecks } from './checks.ts';
 import { holdWords } from './held.ts';
@@ -379,10 +380,7 @@ export function taskFacts(paths: RepoPaths, task: Task, run: Runner, sessions: C
   if (merging && branch && facts.head) {
     const base = task.environment;
     const head = facts.head;
-    facts.accChanges = () => {
-      const r = run('git', ['diff', '--name-only', '--no-renames', `refs/remotes/origin/${base}...${head}`, '--', '.acc'], { cwd: paths.root });
-      return r.code === 0 ? r.stdout.split('\n').filter(Boolean) : [];
-    };
+    facts.accChanges = () => accChangesFor(run, paths.root, `refs/remotes/origin/${base}`, head) ?? [];
   }
   // Nothing waits on a person in the merge queue: an agent in its worktree asking one something keeps it out (GH-73).
   const wt = task.run?.worktree;

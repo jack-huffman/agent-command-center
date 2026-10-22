@@ -36,7 +36,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { HOME_SECTIONS, type HomeSection } from '../src/model/shared.ts';
+import { type HomeSection } from '../src/model/shared.ts';
 import { type HomeModel, homeModel, type Model } from '../src/model/home.ts';
 import { type GroupKey, landing, overviewCards } from '../src/model/landing.ts';
 import { FinishedJobs } from '../src/progress.ts';
@@ -74,76 +74,23 @@ import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
-import { CHECKS, COLLECT_GEOMETRY, type ExpectedButton, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, type Render, runFailures } from './geometry.ts';
+import { CHECKS, COLLECT_GEOMETRY, examinedIn, type ExpectedButton, FLOORS_PATH, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, judge, raisedFloors, type Render, runFailures } from './geometry.ts';
+import { FLOORS_FILE, readFloors, writeFloors } from '../../packages/core/src/ratchets.ts';
 import { drawRetried, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
 import { axeScript, COLLECT_A11Y } from './a11y.ts';
 import { jobsOption, type Ran, runAsync, runJobs } from './jobs.ts';
 import { type Browser, browserOf, PIN, pinnedShell, sha256Of } from './browser.ts';
 import { stopOnExit } from './stops.ts';
+import { PAGES, type Page, STILL, viewOf, WIDTHS } from './pages.ts';
 
-/**
- * Every page the screenshot script can draw: each section of the Command Center, a ticket's page (being
- * built, two to do whose analysis has questions or says to split it, one whose builder stopped, one that
- * waits for other tasks' files, one acc doesn't keep yet, being tracked, one in review with its
- * builder's note, and one in rework with its review's findings and the lines around them, T-53), an agent's page, Setup with
- * the output panel open on a command that's asking something, the Connect page at each of its steps (D-073)
- * and starting a project from a Jira epic, an Azure DevOps area path or GitHub labels (GH-81),
- * Settings at Notices in Slack with the card at each of its states (GH-58, GH-113): sending on Settings
- * itself, then not set up, off and paused, the Tasks tab with a monday.com board in place of the Jira one (GH-70), Agents
- * with agents that would bill per token (D-089), Agents with its Where column showing full paths (GH-83),
- * and the Overview with In progress busy, and with nothing running (D-092). Then the Overview of a project
- * whose merge queue holds three pull requests, with autopilot on and the head running its full check, with
- * autopilot off, and with the head held on GitHub, in that wait's own words (GH-73). Last, Settings opened
- * at How agents run, as Agents' Settings and the status bar's Auto-merge open it, with two projects and
- * per-token billing (GH-110), and at Trackers and sign-ins, with a tracker in every state its sign-in and
- * board can be in (GH-112); Settings' Limits and checks in their other states: no total across repos,
- * slots set by the environment, and two projects, one building through the merge queue (GH-111); and About
- * behind, with a newer release and an older plugin, and with a look that failed (GH-114). Last, Agents with each repo's finished sessions opened (GH-119). Then the
- * Overview with a suggested rule and a suggested check under When you have a moment, and with the rule's draft task open
- * after Accept (GH-102).
- * Last, Settings at GitHub accounts, one project pushing as this clone's choice and one whose account gh
- * isn't signed in as, and at the Command Center's own preferences, each set to other than its default (GH-113).
- * Last, Setup as the Command Center first opens on it in a folder that isn't set up: at what kind of project
- * it is, and, on a machine with steps still to do, at the machine's part (GH-138).
- * Last, the Tasks board with a task opened over it in the modal, as a card's click opens it (GH-158).
- * Last, the Overview as a landing page when everything is busy at once (GH-160): ten suggested rules, six
- * tasks building with their checks, three questions, two update drafts and twelve things in History; then
- * the same with a question opened over it, its update drafts, and History opened at an answer.
- * Last, the loading screen the Command Center shows while it opens, which no model replaces (T-16).
- * Last, the command palette open over the Tasks board (T-52): with "an" typed and its results across several groups, and with
- * nothing typed, showing what was run last and then the sections.
- * Last, the output panel open over the Tasks board on a review (T-63): one that passed, one that asked for changes, one
- * still running, the one that asked for changes with its summary, a criterion, a finding and the met criteria opened,
- * and one whose verdict file isn't JSON, which shows its lines and why.
- * Last, Dispatch's sheet (D-168): over the Tasks board for a task with an analysis, and over a task's own tab
- * in rework with the cloud off; then the agent board with a card's ⋯ menu open beside its full-width next step;
- * then Dispatch anyway's sheet for ACME-35, with the tasks and files it shares.
- * Then the output panel open over the Tasks board on a run as rows (T-64): a deploy still running, the deploy done with
- * more rows than the panel shows, a lint that failed, and the deploy done with its Details open. The run waiting
- * for an answer is the output page's.
- * Last, ACME-19's tab where its tracker allows edits (T-80): the task sheet with its ticket's text to write
- * and its status, assignee and labels to change, and then the choice when the ticket changed after it opened.
- * Then ACME-19's manifest, checked against its org (T-101): an org copy that differs, an org change to add, and a deletion.
- * Last, a ticket's page from GitHub, Azure DevOps and monday.com, and an Azure DevOps board (T-91), so every
- * tracker's ticket page and board is drawn.
- * Last, ACME-20's Record changes (T-100): planned and recorded ones with a change made by hand; then
- * the task done and promoted to UAT with a step to run, and that with Add a change made by hand half-filled and the step's Skip open.
- */
-export const PAGES = [...HOME_SECTIONS, 'agents-path', 'ticket', 'ticket-questions', 'ticket-split', 'ticket-stopped', 'ticket-track', 'ticket-checks', 'ticket-waits', 'ticket-note', 'ticket-review', 'agent', 'output', 'connect-start', 'connect-shared', 'connect-jira', 'connect-azure', 'connect-github', 'connect-existing', 'connect-sprint', 'connect-monday', 'connect-slack', 'connect-slack-channel', 'connect-slack-refused', 'connect-epic', 'connect-epic-used', 'connect-epic-azure', 'connect-epic-github', 'slack-none', 'slack-off', 'slack-paused', 'tasks-monday', 'tasks-github', 'tasks-sprint', 'tasks-slack', 'tasks-slack-refused', 'tasks-slack-board', 'tasks-slack-empty', 'tasks-slack-scope', 'agents-billing', 'overview-busy', 'overview-idle', 'queue', 'queue-off', 'queue-held', 'settings-agents', 'settings-trackers', 'settings-limits', 'agents-finished', 'rules', 'rules-accept', 'settings-about', 'settings-about-failed', 'settings-github', 'settings-page', 'setup-first', 'setup-first-machine', 'tasks-modal', 'overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-pages', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment', 'overview-clear', 'overview-since', 'tasks-agents', 'ticket-cloud', 'ticket-nofields', 'loading', 'palette', 'palette-empty', 'tasks-moving', 'output-passed', 'output-changes', 'output-reviewing', 'output-review-open', 'output-unread', 'dispatch-sheet', 'ticket-dispatch', 'tasks-card-menu', 'dispatch-sheet-anyway', 'output-running', 'output-done', 'output-failed', 'output-details', 'output-steps-running', 'output-steps-failed', 'output-steps-done', 'task-sheet-new', 'task-sheet-manual', 'ticket-edit', 'ticket-edit-on', 'ticket-edit-changed', 'ticket-edit-unkept', 'ticket-criteria-sheet', 'ticket-criteria-update', 'ticket-verify-pass', 'ticket-verify-changes', 'ticket-verify-choice', 'tasks-person-menu', 'tasks-person', 'tasks-person-agents', 'tasks-person-none', 'ticket-github', 'ticket-azure', 'ticket-monday', 'tasks-azure', 'ticket-missing', 'tasks-azure-loading', 'tasks-azure-refreshing', 'tasks-first', 'ticket-planned', 'ticket-changes', 'ticket-kept', 'ticket-records', 'ticket-records-form', 'ticket-records-promoted', 'ticket-manifest', 'ticket-plan-approved', 'ticket-plan-changed', 'connect-jira-board', 'connect-azure-board', 'connect-github-board', 'connect-github-access', 'connect-jira-epics', 'ticket-talk', 'ticket-changes-field'] as const;
-export type Page = (typeof PAGES)[number];
+// The pages live in pages.ts, a line each (T-102); the run's other modules and tests read them from here too.
+export { PAGES, type Page, STILL, viewOf, WIDTHS };
 
-/**
- * Pages the run draws with no model sent, so what the tab shows before its first model stays (T-16). They
- * have no rail and no controls, which the geometry check otherwise looks for on every page.
- */
-export const STILL: readonly Page[] = ['loading'];
 const still = (kind: Page): boolean => STILL.includes(kind);
 
 const extensionDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const MIN_WIDTH = 500;
-/** The widths every page is shot at unless --width says. */
-export const WIDTHS = [1000, 620, 500] as const;
 
 /**
  * The fonts VSCode would set, the same in either theme: the page's colours are theme.css's palettes (GH-109),
@@ -383,7 +330,6 @@ export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown
   : kind === 'ticket-edit-changed' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'edits') }, { type: 'task-sheet-done', project: ROOT, task: 'ACME-19', ok: false, conflict: SAMPLE_THEIRS }] : []);
 /** The title each kind of tab carries, as htmlFor in panels.ts gives it: a page needs one to be named (T-55). */
 export const TAB_TITLES: Record<string, string> = { home: 'Command Center', ticket: 'Ticket', agent: 'Agent' };
-export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind === 'agent' ? kind : 'home');
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
 export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' ? settingsKey('trackers')
   : kind.startsWith('slack-') ? settingsKey('slack') : kind === 'settings-github' ? settingsKey('github') : kind === 'settings-page' ? settingsKey('page') : kind.startsWith('settings-about') ? settingsKey('about')
@@ -898,6 +844,12 @@ async function main(argv: string[]): Promise<number> {
   if (failures.length) {
     for (const f of failures) console.error(f);
     return fail(`${failures.length} geometry finding${failures.length === 1 ? '' : 's'}. Fix each, or list it in GEOMETRY_EXCEPTIONS (extension/scripts/geometry.ts) with why. The shots are written all the same.`);
+  }
+  // A clean whole run raises the floors it beat, for the change to commit (T-102).
+  const raised = full ? raisedFloors(readFloors(FLOORS_PATH), examinedIn(renders)) : null;
+  if (raised) {
+    writeFloors(FLOORS_PATH, raised);
+    console.log(`Raised the screenshot floors in ${FLOORS_FILE} to what this run examined: commit it with the change.`);
   }
   return behaviour;
 }

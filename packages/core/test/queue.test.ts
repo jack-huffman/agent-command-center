@@ -10,6 +10,7 @@ import { renderPacket } from '../src/packet.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { AUTOPILOT_BY, displayState, emptyLedger, type LedgerEvent, mutate, readLedger, reworkCause, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
+import { formatFloors } from '../src/ratchets.ts';
 import { ordinal, phaseWords, queueOrder, queuePlaces, queueWaits } from '../src/queue.ts';
 import { waiveGates } from '../src/gates.ts';
 import { readReceipt, writeReceipt } from '../src/receipts.ts';
@@ -251,6 +252,17 @@ test('what never joins: a protected environment, a change to .acc/, a failed ste
   assert.deepEqual(brief(plain.steps), [['T-1', null, 'skipped']]);
   assert.equal(get(off, 'T-1').autopilot, undefined, 'auto-merge off: nothing is written');
   assert.ok(!calls.some((c) => c.startsWith('git fetch') || c.startsWith('gh pr merge') || c.startsWith('nice')));
+});
+
+test('a change to .acc/ that only raises floors joins the queue; one that relaxes a floor, or changes anything else there, is a person\'s (T-102)', () => {
+  const s = setup();
+  s.task('T-1', { '.acc/floors.json': formatFloors({ tests: { floor: 5 }, 'screenshots.a11y': { floor: 40 } }) });
+  s.task('T-2', { '.acc/floors.json': formatFloors({ tests: { floor: 4, relaxed: { by: 'human:jordan', reason: 'r', at: NOW, was: null } } }) });
+  s.task('T-3', { '.acc/floors.json': formatFloors({ tests: { floor: 6 } }), '.acc/rules.md': 'Be kind.\n' });
+  const r = autopilotPass(s.paths, s.config, { ...deps(s, []), steps: { queue: () => ({ step: 'queue' as const, outcome: 'waiting' as const, reason: 'Waiting for GitHub.' }) } });
+  assert.deepEqual(ledger(s).tasks.map((t) => [t.id, !!t.autopilot?.queued]), [['T-1', true], ['T-2', false], ['T-3', false]]);
+  assert.equal(of(r.steps, 'T-2').reason, 'It changes .acc/, which a person merges: .acc/floors.json.', 'an edge case: a person\'s relax in the file');
+  assert.equal(of(r.steps, 'T-3').reason, 'It changes .acc/, which a person merges: .acc/rules.md.', 'the raised floors are left out of what a person merges');
 });
 
 // ---------------------------------------------------------------- the head's turn
@@ -659,4 +671,42 @@ test('a waiver holds for its own commit: a full check waived there that fails on
   assert.deepEqual(brief(r.steps), [['T-1', 'queue', 'failed']]);
   assert.match(r.steps[0]!.reason, /^The full check failed with main merged in: test\. test was waived on [0-9a-f]{7}, and a waiver holds for its own commit only: a person decides\./);
   assert.equal(get(s, 'T-1').state, 'review');
+});
+
+test('the decisions each pull request adds are numbered at its turn: two that each added one take the next two numbers, and their ids are written in their own lines only (T-102)', () => {
+  const s = setup();
+  s.onMain({ 'docs/decisions/D-001-sums.md': '## D-001 Sums (2026-10-01)\n\nsum adds.\n' });
+  const one = s.task('T-1', { 'docs/decisions/new-T-1-products.md': '## D-T-1 Products (2026-10-06)\n\nproduct multiplies.\n', 'one.js': '// D-T-1\n' });
+  const two = s.task('T-2', { 'docs/decisions/new-T-2-quotients.md': '## D-T-2 Quotients (2026-10-06)\n\nquotient divides.\n' });
+  const ci = { more: { 'gh pr checks': ok(JSON.stringify([{ name: 'test', bucket: 'pass', link: 'https://github.com/acme/tool/actions/runs/1/job/2', workflow: 'CI', state: 'SUCCESS' }])) } };
+
+  // T-1 is up to date with main, but adds a decision: it's numbered, checked in full, and pushed for GitHub's checks.
+  const calls: string[] = [];
+  const r = autopilotPass(s.paths, s.config, deps(s, calls, ci));
+  const numbered = head(s, 'T-1');
+  assert.deepEqual(brief(r.steps), [['T-1', 'queue', 'done'], ['T-2', null, 'waiting']]);
+  assert.equal(of(r.steps, 'T-1').reason, `Numbered its decisions (D-T-1 is D-002) on ${one.slice(0, 7)} as ${numbered.slice(0, 7)}, and its full check passed. Pushed it to pull request #41: it merges once GitHub's checks pass.`);
+  assert.equal(gitIn(s.dir, 'show', `${numbered}:docs/decisions/D-002-products.md`), '## D-002 Products (2026-10-06)\n\nproduct multiplies.');
+  assert.equal(gitIn(s.dir, 'show', `${numbered}:one.js`), '// D-002');
+  assert.equal(reviewedAt(s.paths, get(s, 'T-1'), numbered)?.sha, one, 'the numbering carries the review of the commit it was made on');
+  assert.equal(checksRun(calls).length, 1, 'the full check ran once, on the numbered commit');
+
+  // GitHub's checks pass: T-1 merges. Then T-2's turn merges main in and numbers its own the next.
+  clock += 30_000;
+  assert.deepEqual(brief(autopilotPass(s.paths, s.config, deps(s, [], ci)).steps)[0], ['T-1', 'merge', 'done']);
+  clock += 30_000;
+  const r2 = autopilotPass(s.paths, s.config, deps(s, [], ci));
+  const merged = head(s, 'T-2');
+  assert.deepEqual(of(r2.steps, 'T-2').step, 'queue');
+  assert.match(of(r2.steps, 'T-2').reason, new RegExp(`^Merged main into ${two.slice(0, 7)} as ${merged.slice(0, 7)}, numbering its decisions \\(D-T-2 is D-003\\), and its full check passed\\.`));
+  assert.deepEqual(gitIn(s.dir, 'ls-tree', '--name-only', `${merged}:docs/decisions`).split('\n'), ['D-001-sums.md', 'D-002-products.md', 'D-003-quotients.md']);
+  assert.ok(clean(s.wtOf('T-2')));
+});
+
+test('an edge case: a pull request whose decisions are numbered already, and still free on main, is merged as it is (T-102)', () => {
+  const s = setup();
+  const one = s.task('T-1', { 'docs/decisions/D-001-sums.md': '## D-001 Sums (2026-10-01)\n' });
+  const r = autopilotPass(s.paths, s.config, deps(s, []));
+  assert.deepEqual(brief(r.steps), [['T-1', 'merge', 'done']]);
+  assert.equal(head(s, 'T-1'), one, 'no numbering commit');
 });

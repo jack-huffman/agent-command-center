@@ -10,7 +10,8 @@ import { type Actor, type CarriedReview, mutate, noteMarkdown, type PullRequest,
 import type { RepoPaths } from './paths.ts';
 import { ratchetLine } from './ratchets.ts';
 import { type GateStatus, ratchetOf, type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
-import { resolvedWords } from './refresh.ts';
+import { merging, mergePlace, resolvedWords } from './refresh.ts';
+import { decisionsToNumber, numberDecisions } from './decisions.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { carriedVerdict, readVerdict, type Verdict } from './review.ts';
 import { FETCH_TIMEOUT_MS, fetchBranches } from './fetch.ts';
@@ -130,7 +131,7 @@ export function land(paths: RepoPaths, config: Config, id: string, deps: LandDep
 function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, opts: { actor?: Actor; by?: string; gates?: GateScope }): LandResult {
   const { run, now } = deps;
   const steps = deps.steps ?? NO_STEPS;
-  const { task, gh, env, branch, sha, own, verdict } = steps.step('task', 'Check its review and checks', () => {
+  const { task, gh, env, branch, sha: reviewed, own, verdict } = steps.step('task', 'Check its review and checks', () => {
     const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
     if (!task) throw new AccError('no-task', `No task ${id}.`);
     if (task.state !== 'review') throw new AccError('refused', `${id} is ${task.state}. A task lands from review, once its review has passed.`);
@@ -167,14 +168,29 @@ function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, o
     return existing;
   });
 
+  // Where a person merges the pull request, the decisions it adds are numbered now, against its base as
+  // origin has it, and the numbering commit carries the review (T-102). The merge queue numbers its own at its turn.
+  const numbered = autoMergeFor(config, env.branch) ? null : numberForLand(paths, config, task, env.branch, reviewed, deps, steps);
+  if (numbered) {
+    mutate(paths, now, (l, emit) => {
+      const t = l.tasks.find((x) => x.id === id);
+      if (!t) return;
+      const from = own ? reviewed : task.autopilot?.carried?.from ?? reviewed;
+      t.autopilot = { failed: null, ...t.autopilot, carried: { from, to: numbered, base: env.branch, resolved: [], at: now().toISOString() } };
+      emit({ type: 'task.updated', task: id, actor: opts.actor ?? 'human', by: opts.by ?? 'acc land', data: { numbered: { from: reviewed, to: numbered } } });
+    });
+  }
+  const sha = numbered ?? reviewed;
+
   // Push as the repo's own account: the credential helper acc set up follows this clone's choice (D-028).
   steps.step('push', `Push ${branch}`, () => {
     const push = run('git', ['push', '--set-upstream', 'origin', `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS });
     if (push.code !== 0) throw new AccError('land', `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split('\n').slice(-2).join(' ')}`);
   });
 
-  const receipts = receiptsAt(paths, sha);
-  const body = prBody(task, env, sha, verdict, receipts, autoMergeFor(config, env.branch), own ? null : task.autopilot?.carried ?? null);
+  // The pull request says what was checked and reviewed: the commit before any numbering.
+  const receipts = receiptsAt(paths, reviewed);
+  const body = prBody(task, env, reviewed, verdict, receipts, autoMergeFor(config, env.branch), own ? null : task.autopilot?.carried ?? null);
   const dir = mkdtempSync(join(tmpdir(), 'acc-land-'));
   let pr: PullRequest;
   let opened: boolean;
@@ -235,4 +251,20 @@ function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, o
     steps.fail('update', (e as Error).message);
     return { task: updated, sha, pr, opened, update: null, updateError: (e as Error).message };
   }
+}
+
+/**
+ * Numbers the decisions a task's branch adds, in its worktree, against its base (T-102): origin's copy, as
+ * fetched now, or this clone's when origin can't be reached. The new commit's sha, or null when the branch
+ * adds none to number.
+ */
+function numberForLand(paths: RepoPaths, config: Config, task: Task, base: string, sha: string, deps: LandDeps, steps: Steps): string | null {
+  const { run } = deps;
+  const ref = fetchBranches(run, paths.root, [base], deps.env) ? `refs/remotes/origin/${base}` : `refs/heads/${base}`;
+  if (run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: paths.root }).code !== 0) return null;
+  if (!decisionsToNumber(run, paths.root, ref, sha).length) return null;
+  return steps.step('decisions', 'Number the decisions it adds', () => {
+    const place = mergePlace(paths, config, task, run);
+    return numberDecisions(run, place.wt, ref, merging(config, run, place.wt))?.sha ?? null;
+  });
 }

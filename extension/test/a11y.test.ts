@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { A11Y_EXCEPTIONS, A11Y_TAGS, A11Y_TEXT, type A11yException, axeScript, COLLECT_A11Y, excuses, type GeoA11y, incompleteSummary, judgeA11y } from '../scripts/a11y.ts';
-import { CHECKS, COLLECT_GEOMETRY, type GeoSnapshot, GEOMETRY_EXCEPTIONS, geometrySummary, judge, type Render, RUN_FLOOR, runFailures } from '../scripts/geometry.ts';
+import { CHECKS, COLLECT_GEOMETRY, type GeoSnapshot, GEOMETRY_EXCEPTIONS, geometrySummary, judge, type Render, runFloor, runFailures } from '../scripts/geometry.ts';
 import { pageFor, PAGES, sampleModel, TAB_TITLES } from '../scripts/screenshot.ts';
 import { pageSource, root } from './support.ts';
 
@@ -35,7 +35,7 @@ test('a dump with two violations gives two findings, each naming the rule, its i
   assert.deepEqual(v.violations.map((x) => `${x.check}: ${x.what}`), ['a11y: button.icon', 'a11y: .lane > .hint']);
   assert.equal(v.examined.a11y, 40);
   const renders: Render[] = [{ page: 'tasks', theme: 'light', width: 620, verdict: v }];
-  assert.deepEqual(runFailures(renders, false, [], RUN_FLOOR, [], []), [
+  assert.deepEqual(runFailures(renders, false, [], runFloor(), [], []), [
     'tasks light 620px: a11y: button.icon: button-name (critical): Buttons must have discernible text',
     'tasks light 620px: a11y: .lane > .hint: color-contrast (serious): Elements must meet minimum color contrast ratio thresholds: "Nothing here yet"',
   ]);
@@ -70,7 +70,7 @@ test('an exception excuses only its rule on the selector or text it names, and c
 test('an exception that excused nothing fails a whole run, but not a run of a few pages (T-55)', () => {
   const v = judge(drawing(part()), false, [], true, null, [exception()]);
   const renders: Render[] = [{ page: 'agents', theme: 'dark', width: 1000, verdict: v }];
-  const floor = Object.fromEntries(CHECKS.map((c) => [c, 0])) as typeof RUN_FLOOR;
+  const floor = Object.fromEntries(CHECKS.map((c) => [c, 0])) as ReturnType<typeof runFloor>;
   assert.deepEqual(runFailures(renders, true, [], floor, [], [exception()]), ['The exception for the hint excused nothing: take it off A11Y_EXCEPTIONS.']);
   assert.deepEqual(runFailures(renders, false, [], floor, [], [exception()]), []);
   const used = judge(drawing(twoBroken()), false, [], true, null, [exception()]);

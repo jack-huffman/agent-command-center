@@ -333,6 +333,14 @@ them.
 - **Result:**
 - **Fixed in / filed as:**
 
+### B10.merge-floors: Raised floors merge on their own
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
 ### B10.readme: README names every environment
 
 - **Showed:**

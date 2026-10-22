@@ -129,7 +129,7 @@ test('a person relaxes a floor in a checkout, with a reason: the file says who a
   mkdirSync(join(dir, '.acc'), { recursive: true });
   writeFileSync(floors, formatFloors({ tests: { floor: 669 } }));
   assert.throws(() => relax(640, '  '), /Say why it's relaxed/);
-  assert.throws(() => relax(640, 'why', 'nope'), /No ratchet nope\. This project's ratchets: tests\./);
+  assert.throws(() => relax(640, 'why', 'nope'), /No ratchet nope\. This project's ratchets: tests, or a check's floor in \.acc\/floors\.json/);
   assert.throws(() => relax(675), /675 isn't below tests's floor, 669, so it doesn't relax it/);
   assert.throws(() => relax(669), /isn't below/);
   assert.ok(!existsSync(records), 'nothing recorded for a refusal');

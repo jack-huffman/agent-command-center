@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, OVERVIEW_LINES, RAW_OUTPUT, type Render, RUN_FLOOR, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS } from '../scripts/geometry.ts';
 import { root } from './support.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
@@ -31,7 +31,7 @@ test('the raw check (T-64): an output panel that draws a block of raw output, pr
   assert.equal(found(panel(['div.dock-body > pre', 'div.dr > pre.tool-pre'])).length, 2, 'each block is a finding');
   assert.equal(judge(fine(), true, []).examined.raw, 0);
   assert.ok(runFailures([{ page: 'agents', theme: 'dark', width: 620, verdict: judge(fine(), true, []) }], true).some((f) => f.includes('for raw')), 'a whole run that drew no panel fails');
-  assert.ok(RUN_FLOOR.raw > 0, 'the floor is set');
+  assert.ok(runFloor().raw > 0, 'the floor is set');
   // The page gathers each panel and what in it matches the element the panel used for raw text.
   assert.deepEqual(RAW_OUTPUT.split(', '), ['.dock pre', '.dock .dock-out']);
   assert.ok(COLLECT_GEOMETRY.includes(`querySelectorAll(${JSON.stringify(RAW_OUTPUT)})`) && COLLECT_GEOMETRY.includes('panels'), 'the page reports its panels');
@@ -131,10 +131,37 @@ test('a whole run fails below its floors, and on an exception that excused nothi
     'tasks dark 500px: overlap: button.a: overlaps button.b', 'The run examined 2 for overlap, below its floor of 10.', 'The exception for the strip excused nothing: take it off GEOMETRY_EXCEPTIONS.',
   ]);
   assert.deepEqual(runFailures([], false), ['No page was drawn.']);
-  const renders198 = PAGES.length * 2 * 3;
-  assert.ok(RUN_FLOOR.overlap >= 30 * renders198, `a full run examines at least 30 controls a drawing (${RUN_FLOOR.overlap})`);
-  assert.ok(RUN_FLOOR.words >= 100 * renders198, `and reads at least 100 strings a drawing (${RUN_FLOOR.words}, GH-163)`);
-  assert.equal(RUN_FLOOR.tab, PAGES.filter((p) => viewOf(p) === 'home' && !STILL.includes(p)).length * 6, 'and the selected tab on every section, in every drawing, but the loading screen, which has no rail (T-16)');
+  const drawings = PAGES.length * 2 * 3;
+  const least = runFloor();
+  assert.equal(least.overlap, 30 * drawings, 'a full run examines at least 30 controls a drawing');
+  assert.equal(least.words, 100 * drawings, 'and reads at least 100 strings a drawing (GH-163)');
+  assert.equal(least.tab, PAGES.filter((p) => viewOf(p) === 'home' && !STILL.includes(p)).length * 6, 'and the selected tab on every section, in every drawing, but the loading screen, which has no rail (T-16)');
+});
+
+test('the floors that follow the pages are worked out from them: a new page raises them, with no number set by hand (T-102)', () => {
+  const one = pageFloors(['tasks']);
+  assert.deepEqual(one, { overlap: PER_DRAWING.overlap * 6, words: PER_DRAWING.words * 6, tab: 6 });
+  assert.deepEqual(pageFloors(['tasks', 'ticket', 'loading']), { overlap: 30 * 18, words: 100 * 18, tab: 6 }, 'a ticket and the loading screen have no rail to check');
+  const more = pageFloors([...PAGES, 'tasks']);
+  assert.deepEqual([more.overlap - pageFloors().overlap, more.tab - pageFloors().tab], [180, 6], 'one more page, six more drawings');
+  assert.deepEqual(pageFloors([]), { overlap: 0, words: 0, tab: 0 }, 'an edge case: no pages, no floor');
+});
+
+test('every other check\'s floor is in the floors file, raised only by a clean whole run, and only up (T-102)', () => {
+  const floors: Record<string, { floor: number }> = { tests: { floor: 5 }, ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions'].map((c) => [floorName(c as never), { floor: 10 }])) };
+  assert.deepEqual(runFloor(floors, ['tasks']), { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 10, actions: 10 });
+  const { 'screenshots.a11y': _gone, ...without } = floors;
+  assert.throws(() => runFloor(without, ['tasks']), /\.acc\/floors\.json has no floor for the screenshot run's a11y check \("screenshots\.a11y"\)/, 'a missing floor is an error, never a floor of nothing');
+  const examined = { overlap: 999, clipped: 12, tab: 6, sideways: 10, overview: 9, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10 };
+  assert.deepEqual(raisedFloors(floors, examined), { ...floors, 'screenshots.clipped': { floor: 12 }, 'screenshots.a11y': { floor: 40 } }, 'the beaten ones rise; a lower count leaves its floor; the page checks are never stored');
+  assert.equal(raisedFloors(floors, { ...examined, clipped: 10, a11y: 10 }), null, 'an edge case: nothing beaten, nothing written');
+  // A person relaxed a11y to 8 (acc gate relax screenshots.a11y): the run reads that floor and passes at 9.
+  const renders: Render[] = [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...judge(fine(), true, []), examined: { ...examined, overlap: 180, tab: 6, words: 600, overview: 10, a11y: 9 } } }];
+  const relaxed = { ...floors, 'screenshots.a11y': { floor: 8, relaxed: { by: 'human:jordan', reason: 'a page went', at: '2026-10-22T09:00:00.000Z', was: 10 } } };
+  assert.deepEqual(runFailures(renders, true, [], runFloor(floors, ['tasks']), [], []), ['The run examined 9 for a11y, below its floor of 10.']);
+  assert.deepEqual(runFailures(renders, true, [], runFloor(relaxed, ['tasks']), [], []), [], 'relaxed, the lower count passes');
+  const stored = JSON.parse(readFileSync(FLOORS_PATH, 'utf8')) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(stored).filter((k) => k.startsWith('screenshots.')).sort(), ['a11y', 'actions', 'buttons', 'clipped', 'covered', 'overview', 'raw', 'sideways'].map((c) => `screenshots.${c}`), 'the repo keeps each, and none for a page check');
 });
 
 test('a page measures its geometry only when the run asks, and the run reads it from the dumped page (GH-105)', () => {
@@ -170,7 +197,7 @@ test('the run fails when the Overview pages give no button to check, and counts 
   const some: Render[] = [{ page: 'overview', theme: 'dark', width: 1000, verdict: judge({ ...overview, buttons: [{ row: 'a', label: 'Open' }] }, true, []) }];
   assert.deepEqual(runFailures(some, false), []);
   assert.deepEqual(runFailures([{ page: 'tasks', theme: 'dark', width: 1000, verdict: judge(fine({ boardTop: BOARD_TOP.max }), true, []) }], false), [], 'a page that isn\'t the Overview has no buttons to find');
-  assert.ok(RUN_FLOOR.buttons > 0, 'a full run checks buttons');
+  assert.ok(runFloor().buttons > 0, 'a full run checks buttons');
 });
 
 test('the sample Overview models name a button for the rows that have one (T-25)', () => {
@@ -204,7 +231,7 @@ test('a sticky cell that covers another cell\'s text, whole or part, fails; one 
   assert.deepEqual(found(fine({ cells: [cell('td.state', 0, 900, 60)] })), [], 'no sticky cell in the row');
   assert.equal(judged([]).examined.covered, 0, 'a page without a sticky row examines none');
   assert.ok(runFailures([{ page: 'agents', theme: 'dark', width: 620, verdict: judged([]) }], true).some((f) => f.includes('for covered')), 'a whole run that examined none fails');
-  assert.ok(RUN_FLOOR.covered > 0, 'the floor is set');
+  assert.ok(runFloor().covered > 0, 'the floor is set');
   assert.ok(COLLECT_GEOMETRY.includes("position === 'sticky'") && COLLECT_GEOMETRY.includes('cells'), 'the page reports its cells at the first scroll position');
 });
 
