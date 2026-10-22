@@ -17,9 +17,9 @@ import { fakeRunner, GENERIC_CONFIG, makeRepo } from './support.ts';
 
 const now = () => new Date('2026-10-22T12:00:00Z');
 
-const ROLE: TalkAsk = { question: 'Should integration users\' conversions get the role too?', why: 'Most leads come from the web form.', options: ['Yes, them too', 'No, people only'], own: true };
-const KEEP: TalkAsk = { question: 'If the account has a Decision Maker already, keep it?', why: 'Two would double the report.', options: ['Keep it, add none', 'Add another', 'Replace it'], own: false };
-const WHEN: TalkAsk = { question: 'From when?', why: 'Older deals were left out.', options: ['From now on', 'Backfill this year'], own: true };
+const ROLE: TalkAsk = { question: 'Should integration users\' conversions get the role too?', why: 'Most leads come from the web form.', options: ['Yes, them too', 'No, people only'] };
+const KEEP: TalkAsk = { question: 'If the account has a Decision Maker already, keep it?', why: 'Two would double the report.', options: ['Keep it, add none', 'Add another', 'Replace it'] };
+const WHEN: TalkAsk = { question: 'From when?', why: 'Older deals were left out.', options: ['From now on', 'Backfill this year'] };
 
 /** A repo with one task to do, and, with `plan`, its plan v1. */
 function setup(plan = false) {
@@ -54,17 +54,18 @@ function claude(answers: RunResult[], calls: { args: string[]; opts?: RunOptions
   };
 }
 
-test('both replies\' schemas ask for questions as data: why, two to four answers with the suggestion first, and own words, at most three', () => {
+test('both replies\' schemas ask for questions as data: why, two or three answers with the suggestion first, at most three questions, and no own-words flag', () => {
   assert.equal(OPENING_SCHEMA.properties.questions, QUESTIONS_SCHEMA);
   assert.equal(TALK_SCHEMA.properties.questions, QUESTIONS_SCHEMA);
   assert.equal(QUESTIONS_SCHEMA.maxItems, QUESTIONS_MAX);
   assert.equal(QUESTIONS_MAX, 3);
   const item = QUESTIONS_SCHEMA.items;
-  assert.deepEqual(item.required, ['question', 'why', 'options', 'own']);
+  assert.deepEqual(item.required, ['question', 'why', 'options']);
   assert.deepEqual([item.properties.options.minItems, item.properties.options.maxItems], [OPTIONS_MIN, OPTIONS_MAX]);
-  assert.deepEqual([OPTIONS_MIN, OPTIONS_MAX], [2, 4]);
+  assert.deepEqual([OPTIONS_MIN, OPTIONS_MAX], [2, 3]);
   assert.match(item.properties.options.description, /Your suggestion first/);
-  assert.equal(item.properties.own.type, 'boolean');
+  assert.equal('own' in item.properties, false, 'own words are always there: the agent cannot turn them off');
+  assert.match(item.properties.options.description, /never a long list/);
 });
 
 test('the prompts keep the reply short: about 80 words, no questions in its prose, and what is unsure folded into the questions', () => {
@@ -80,25 +81,25 @@ test('the prompts keep the reply short: about 80 words, no questions in its pros
   assert.match(TALK_SCHEMA.properties.reply.description, /At most about 80 words, and no questions/);
 });
 
-test('edge case: questions with no words, blank or repeated answers, or too many are cut, and one left with under two answers takes own words', () => {
+test('edge case: questions with no words, blank or repeated answers, a fourth answer or a fourth question are cut, and one left with under two answers takes own words', () => {
   const got = parseQuestions([
-    { question: '  ', why: 'x', options: ['a', 'b'], own: false },
-    { question: ' Q1 ', why: ' w ', options: [' a ', 'a', '', 'b', 'c', 'd', 'e'], own: false },
-    { question: 'Q2', why: 'w', options: ['only'], own: false },
+    { question: '  ', why: 'x', options: ['a', 'b'] },
+    { question: ' Q1 ', why: ' w ', options: [' a ', 'a', '', 'b', 'c', 'd', 'e'] },
+    { question: 'Q2', why: 'w', options: ['only'] },
     { question: 'Q3', options: 'not a list' },
-    { question: 'Q4', why: 'w', options: ['a', 'b'], own: true },
+    { question: 'Q4', why: 'w', options: ['a', 'b'] },
   ]);
   assert.deepEqual(got, [
-    { question: 'Q1', why: 'w', options: ['a', 'b', 'c', 'd'], own: false },
-    { question: 'Q2', why: 'w', options: [], own: true },
-    { question: 'Q3', why: '', options: [], own: true },
+    { question: 'Q1', why: 'w', options: ['a', 'b', 'c'] },
+    { question: 'Q2', why: 'w', options: [] },
+    { question: 'Q3', why: '', options: [] },
   ]);
   assert.deepEqual(parseQuestions(undefined), [], 'a reply without the field has none');
   assert.deepEqual(parseQuestions('three'), []);
 });
 
 test('edge case: a reply kept before T-113 gives its questions as words, answered in the person\'s own words', () => {
-  assert.deepEqual(askOfWords('Closed deals too?'), { question: 'Closed deals too?', why: '', options: [], own: true });
+  assert.deepEqual(askOfWords('Closed deals too?'), { question: 'Closed deals too?', why: '', options: [] });
   assert.deepEqual(turnQuestions({ asks: ['A?'] }), [askOfWords('A?')]);
   assert.deepEqual(turnQuestions({ questions: [ROLE], asks: ['A?'] }), [ROLE], 'structured questions win');
   assert.deepEqual(turnQuestions({}), []);
@@ -128,7 +129,7 @@ test('with a fake agent: the opening reply keeps its questions, and the answers 
   const deps = { run: claude([result({ understood: 'Every conversion gets the role.', questions: [ROLE, KEEP, WHEN] }), result({ understood: 'Clear.', questions: [] })], calls), now, env: {}, uuid: () => 'sess' };
   const first = startPlan(paths, config, id, 'Reps forget the roles.', deps, 'human:me');
   assert.deepEqual(first.reply.questions, [ROLE, KEEP, WHEN]);
-  assert.match(String(calls[0]!.args.join(' ')), /"options":\{"type":"array","minItems":2,"maxItems":4/, 'Claude Code checks the questions\' shape');
+  assert.match(String(calls[0]!.args.join(' ')), /"options":\{"type":"array","minItems":2,"maxItems":3/, 'Claude Code checks the questions\' shape');
   const text = answersText(first.reply.questions!, [{ option: 0 }, null, { text: 'From now on, no backfill' }]);
   const second = startPlan(paths, config, id, text, deps, 'human:me');
   const turns = readTalk(paths, id).turns;
@@ -143,7 +144,7 @@ test('with a fake agent: Talk it through keeps a reply\'s questions on its turn,
   const said: string[] = [];
   const steps = { step: <T>(_: string, __: string, f: () => T) => f(), start: () => {}, done: (_: string, s: string) => { said.push(s); }, fail: () => {}, result: () => {} };
   const r = talkPlan(paths, config, id, 'Why a flow?', null, { run: claude([result({ reply: 'A flow runs on conversion.', proposals: [], questions: [KEEP, { ...WHEN, options: ['x'] }] })]), now, env: {}, steps: steps as never }, 'human:me');
-  assert.deepEqual(r.reply.questions, [KEEP, { ...WHEN, options: [], own: true }]);
+  assert.deepEqual(r.reply.questions, [KEEP, { ...WHEN, options: [] }]);
   assert.deepEqual(said, ['It asks 2 questions']);
   assert.match(talkLines(readTalk(paths, id), null).join('\n'), /- You \(the planning agent\) \(v1\): A flow runs on conversion\.\n  - Asked: If the account has a Decision Maker already, keep it\? \(offered: Keep it, add none; Add another; Replace it\)\n  - Asked: From when\?/);
 });

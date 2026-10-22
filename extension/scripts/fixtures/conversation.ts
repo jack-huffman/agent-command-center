@@ -18,9 +18,9 @@ const title = (now: number): string => sampleTicket(now, 'ACME-21').title;
 
 /** The planning agent's three questions before ACME-21's plan (T-113): each with why, its answers, the suggestion first. */
 export const OPENING_QUESTIONS: TalkAsk[] = [
-  { question: 'Should integration users\' conversions get the role too?', why: 'Most leads come in through the web form, which an integration user converts.', options: ['Yes, them too', 'No, people only'], own: true },
-  { question: 'If the account already has a Decision Maker, what then?', why: 'Two Decision Makers would count the deal twice in the pipeline report.', options: ['Keep it, add none', 'Add another', 'Replace it'], own: false },
-  { question: 'Which contact is primary when the account has several?', why: 'The role goes on one contact only.', options: ['The lead\'s own contact', 'The account\'s main contact'], own: true },
+  { question: 'Should integration users\' conversions get the role too?', why: 'Most leads come in through the web form, which an integration user converts.', options: ['Yes, them too', 'No, people only'] },
+  { question: 'If the account already has a Decision Maker, what then?', why: 'Two Decision Makers would count the deal twice in the pipeline report.', options: ['Keep it, add none', 'Add another', 'Replace it'] },
+  { question: 'Which contact is primary when the account has several?', why: 'The role goes on one contact only.', options: ['The lead\'s own contact', 'The account\'s main contact'] },
 ];
 
 /**
@@ -123,7 +123,7 @@ export function sampleConversationLong(now: number): ConversationModel {
         { id: 'p1', kind: 'note', text: 'Step 2: the handler checks for a Decision Maker without sharing.', why: 'Marketo Sync can\'t see every contact, and would add a second Decision Maker.' },
         { id: 'p2', kind: 'note', text: 'Step 3: add a test with a contact Marketo Sync can\'t see.', why: 'It pins the sharing edge.', used: { by: 'human:jordan', at: at(1) } },
       ],
-      questions: [{ question: 'Check without sharing, or give Marketo Sync View All?', why: 'View All changes an integration user\'s access.', options: ['Check without sharing', 'Give it View All'], own: true }],
+      questions: [{ question: 'Check without sharing, or give Marketo Sync View All?', why: 'View All changes an integration user\'s access.', options: ['Check without sharing', 'Give it View All'] }],
     },
   );
   return conversationModel({
