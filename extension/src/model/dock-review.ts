@@ -85,7 +85,7 @@ export type DockReview =
 export function reviewNext(project: string, task: string, verdict: Verdict['verdict']): Action {
   const ref = { project, task };
   return verdict === 'pass'
-    ? { command: 'acc.task.land', label: WORDS.sendToMerge, icon: 'git-pull-request-create', ref, primary: true }
+    ? { command: 'acc.task.land', label: WORDS.openPullRequest, icon: 'git-pull-request-create', ref, primary: true }
     : { command: 'acc.task.dispatch', label: 'Send back to the builder', icon: 'reply', ref, primary: true };
 }
 

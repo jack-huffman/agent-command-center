@@ -8628,7 +8628,7 @@ the only signal. GitHub's red Bug and Azure's blue Product Backlog Item read wel
 `packages/core/test/tracker-colours.test.ts` (9 tests), `extension/test/type-colours.test.ts` (6 tests)
 and two more in `extension/test/colours.test.ts`.
 
-## D-??? Plain words for someone new: the Command Center, Add to my work, Make a plan, Build it (2026-10-22)
+## D-188 Plain words for someone new: the Command Center, Add to my work, Make a plan, Build it (2026-10-22)
 
 The person who built this tool said "acc" means nothing to them in the UI, and that someone with no
 background must understand how to use the Command Center. About 25 strings a person read named "acc",
@@ -8641,15 +8641,16 @@ and its verbs were insider words. The person chose the new words on 2026-10-22:
 | Agent board | **My work** | The tickets you've added, by stage |
 | Analyze | **Make a plan** | "An agent studies the ticket, the code and the org, and proposes a plan with options for you to choose. It changes nothing." |
 | Dispatch | **Build it** | "An agent builds the plan on its own copy of the project. Nothing reaches the project until you merge it." |
-| Land | **Send to merge** (see below) | "Pushes the reviewed work and opens its pull request. It merges there, by you, or by autopilot where you allow it. Nothing reaches the project until then." |
+| Land | **Open pull request** (see below) | "Pushes the reviewed work and opens its pull request. It merges there, by you, or by autopilot where you allow it. Nothing reaches the project until then." |
 | Rework | **Sent back** | |
 | Waive | **Accept anyway** | |
 | the acc plugin | the Command Center's Claude Code plugin | |
 
-- **Land is Send to merge, not Merge.** The person chose Merge. `acc land` pushes the branch and opens the
-  pull request, and never merges it (`packages/cli/src/commands/pipeline.ts`), so a button named Merge would
-  say something the code doesn't do. Send to merge keeps the person's word and says where the work goes; its
-  title says where the merge happens. The person can still choose Merge.
+- **Land is Open pull request, not Merge.** The person first chose Merge. `acc land` pushes the branch and
+  opens the pull request, and never merges it (`packages/cli/src/commands/pipeline.ts`), so a button named
+  Merge would say something the code doesn't do. Asked again on 2026-10-22, the person chose Open pull
+  request. While it works it says Opening pull request, and the process for `acc land` has the same name, so
+  the button and acc's own messages agree.
 - **Where the words live.** `extension/webview/plain-words.ts` holds the words, each main action's
   explanation by its command id (`explains`, which a button's title shows after its label), and the five
   first steps. The page and the extension both import it, as `processes.ts` imports `upper.ts`. The process

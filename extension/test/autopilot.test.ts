@@ -35,7 +35,7 @@ test('each step autopilot takes is one notice: what it did, and what it couldn\'
   assert.deepEqual(say(rec('GH-31', { step: 'refresh', base: null, pr: { number: 40, url: 'u', opened: false } }))[0]![0], 'Pull request #40 (GH-31) no longer conflicts with its base: autopilot found nothing to merge.');
 
   // What it couldn't do needs a person: a warning, with the step to take by hand.
-  assert.deepEqual(say(rec('GH-31', { outcome: 'failed', reason: 'the push was refused: rejected' })), [['Autopilot couldn\'t land GH-31: the push was refused: rejected.', true, [['Send to merge', 'acc.task.land'], show]]]);
+  assert.deepEqual(say(rec('GH-31', { outcome: 'failed', reason: 'the push was refused: rejected' })), [['Autopilot couldn\'t land GH-31: the push was refused: rejected.', true, [['Open pull request', 'acc.task.land'], show]]]);
   assert.deepEqual(say(rec('GH-31', { step: 'review', outcome: 'failed', reason: 'The review didn\'t finish within 45 minutes, so acc stopped it.' }))[0]!.slice(0, 2), ['Autopilot couldn\'t review GH-31: The review didn\'t finish within 45 minutes, so acc stopped it.', true]);
   assert.match(say(rec('GH-31', { step: 'refresh', outcome: 'failed', reason: 'Conflicts with main' }))[0]![0] as string, /^Autopilot couldn't update GH-31 from its base: Conflicts with main\.$/);
   assert.deepEqual(autopilotNotices([rec('GH-31', { step: 'review', verdict: 'pass' }), rec('GH-31', { seq: 2, pr: { number: 40, url: 'u', opened: true } })], [gh]).length, 2, 'one each');

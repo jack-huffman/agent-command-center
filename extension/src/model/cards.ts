@@ -165,7 +165,7 @@ function offered(t: TaskRow, ref: Ref): Action[] {
     if (t.reviewing) a.push({ command: 'acc.task.watchReview', label: 'Watch the review', icon: 'pulse', ref, primary: !a.some((x) => x.primary) });
     else if (t.cloudReview?.wait) { /* a quiet or failed cloud review: Review on this Mac leads, above */ }
     else if (open) a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr!.number}`, icon: 'git-pull-request', ref, primary: true });
-    else if (t.review?.current && t.review.verdict === 'pass') a.push({ command: 'acc.task.land', label: WORDS.sendToMerge, icon: 'git-pull-request-create', ref, primary: true });
+    else if (t.review?.current && t.review.verdict === 'pass') a.push({ command: 'acc.task.land', label: WORDS.openPullRequest, icon: 'git-pull-request-create', ref, primary: true });
     else a.push({ command: 'acc.task.review', label: t.review?.current ? 'Review again' : 'Review', icon: 'checklist', ref, primary: true });
     if (open && t.review?.current && t.review.verdict === 'pass' && !t.reviewing) a.push({ command: 'acc.task.land', label: 'Update pull request', icon: 'repo-push', ref });
   }

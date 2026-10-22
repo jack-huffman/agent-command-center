@@ -39,7 +39,7 @@ test('no name is empty, a command line, a path, or another process\'s name', () 
 
 test('the names the ticket asks for, and a process\'s button is a command the extension declares', () => {
   const asked: Record<string, string> = {
-    'gate run': 'Run the checks', done: 'Finish the task', block: 'Mark it blocked', land: 'Open its pull request', sync: 'Refresh from GitHub',
+    'gate run': 'Run the checks', done: 'Finish the task', block: 'Mark it blocked', land: 'Open pull request', sync: 'Refresh from GitHub',
     promote: 'Promote', intake: 'Bring in tickets', doctor: 'Check the setup', init: 'Set up this project', 'rules import': 'Import the team\'s rules',
   };
   for (const [acc, name] of Object.entries(asked)) assert.equal(processName(acc), name);
@@ -81,8 +81,8 @@ test('each file a person is told about is real: a page this repo keeps, or one a
 const FROM_CORE: [string, string][] = [
   ['Checks haven\'t passed on abc1234: run acc gate run, then acc done.', 'Checks haven\'t passed on abc1234: run the checks, then "Finish the task".'],
   ['Run acc gate run first.', 'Run the checks first.'],
-  ['Builders never push; acc land does that.', 'Builders never push; "Open its pull request" does that.'],
-  ['Pull requests are a person\'s: acc land opens one after review, and a person merges it.', 'Pull requests are a person\'s: "Open its pull request" opens one after review, and a person merges it.'],
+  ['Builders never push; acc land does that.', 'Builders never push; "Open pull request" does that.'],
+  ['Pull requests are a person\'s: acc land opens one after review, and a person merges it.', 'Pull requests are a person\'s: "Open pull request" opens one after review, and a person merges it.'],
   ['acc done waits for every required check to pass, and a check whose tool is missing can only report an error.', '"Finish the task" waits for every required check to pass, and a check whose tool is missing can only report an error.'],
   ['No step B99. Run acc doctor to see them all.', 'No step B99. Check the setup to see them all.'],
   ['It was picked for ACME-1: pick another with acc dispatch ACME-1 --effort <level>, or drop it with acc dispatch ACME-1 --effort default.', 'It was picked for ACME-1: pick another with "Build ACME-1", or drop it with "Build ACME-1".'],

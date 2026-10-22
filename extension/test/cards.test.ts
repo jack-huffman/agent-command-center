@@ -22,7 +22,7 @@ test('in review, a card offers the one next step: watch the reviewer, land a pas
   const first = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'review', 'review'), deps: [], run: { worktree: '/w', branch: 'b' }, ...r } as TaskRow, {}).find((a) => a.primary)!.label;
   assert.equal(first({}), 'Review');
   assert.equal(first({ reviewing: { sessionId: 's' } }), 'Watch the review');
-  assert.equal(first({ review: { verdict: 'pass', summary: 's', current: true } }), 'Send to merge');
+  assert.equal(first({ review: { verdict: 'pass', summary: 's', current: true } }), 'Open pull request');
   assert.equal(first({ review: { verdict: 'pass', summary: 's', current: false } }), 'Review', 'a review of an older commit doesn\'t count');
   assert.equal(first({ review: { verdict: 'changes', summary: 's', current: true } }), 'Review again');
   const open = cardActions({ ...row('AV-9', 'review', 'review'), deps: [], run: { worktree: '/w' }, review: { verdict: 'pass', summary: 's', current: true }, pr: { number: 42, url: 'u', state: 'open' } } as TaskRow, {}).map((a) => a.label);
@@ -104,12 +104,12 @@ test('a task autopilot couldn\'t move on says why on its card and on the Overvie
   const card = (id: string) => tasksModel(failed).projects[0]!.columns.flatMap((c) => c.cards).find((c) => c.id === id)!;
   assert.deepEqual(card('AV-5').autopilot, { label: 'Needs you: autopilot couldn\'t land: git push refused task/AV-5: rejected', icon: 'bell', tone: 'orange' });
   assert.equal(card('AV-6').autopilot!.label, 'Needs you: autopilot couldn\'t re-dispatch: Claude Code doesn\'t trust /r yet.');
-  assert.equal(card('AV-5').actions[0]!.label, 'Send to merge', 'the step it couldn\'t take, to take by hand');
+  assert.equal(card('AV-5').actions[0]!.label, 'Open pull request', 'the step it couldn\'t take, to take by hand');
   const m = homeModel({ hub: failed, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
   const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
   assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: autopilot couldn\'t land', 'bell', 'orange'], 'its words and icon, in orange');
   assert.equal(item.detail, 'Acme · git push refused task/AV-5: rejected. Do it by hand, or a new commit lets autopilot try again.', 'why, not an agent waiting in its terminal');
-  assert.deepEqual(item.actions.map((a) => a.label), ['Send to merge', 'Open']);
+  assert.deepEqual(item.actions.map((a) => a.label), ['Open pull request', 'Open']);
   assert.deepEqual(m.overview.attention.find((a) => a.title === 'AV-6 Task AV-6')!.actions.map((a) => a.label), ['Build it again', 'Open']);
   assert.equal(needsYouCount(m.overview), 2);
 });
@@ -145,7 +145,7 @@ test('a closed pull request in review says so in words, with its icon, in orange
   const card = (id: string) => cards.flatMap((c) => c.cards).find((c) => c.id === id)!;
   assert.deepEqual(card('AV-8').closedPr, look);
   assert.deepEqual(cards.find((c) => c.group === 'needs-you')!.cards.map((c) => c.id), ['AV-8', 'AV-9']);
-  assert.equal(card('AV-8').actions[0]!.label, 'Send to merge');
+  assert.equal(card('AV-8').actions[0]!.label, 'Open pull request');
   assert.equal(card('AV-10').closedPr, null, 'blocked, as acc sync leaves it, it says blocked');
 
   const m = homeModel({ hub: h, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
@@ -153,7 +153,7 @@ test('a closed pull request in review says so in words, with its icon, in orange
   assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Pull request closed', 'git-pull-request-closed', 'orange']);
   assert.equal(item.detail, 'Acme · pull request #16 was closed without merging. Send it to merge to open a new one, or reopen it on GitHub and send it again to update it.');
   assert.doesNotMatch(item.detail, /terminal/, 'not an agent waiting in its terminal');
-  assert.deepEqual(item.actions.map((a) => [a.label, !!a.primary]), [['Send to merge', true], ['Pull request #16', false], ['Open', false]]);
+  assert.deepEqual(item.actions.map((a) => [a.label, !!a.primary]), [['Open pull request', true], ['Pull request #16', false], ['Open', false]]);
   const unreviewed = m.overview.attention.find((a) => a.title === 'AV-9 Task AV-9')!;
   assert.deepEqual(unreviewed.actions.map((a) => a.label), ['Review', 'Pull request #17', 'Open'], 'nothing reviewed its latest commit yet');
 

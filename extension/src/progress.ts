@@ -424,7 +424,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
         const r = byId.get(j.task);
         if (!r || inStep(j.task, j.pid)) continue;
         const row: JobRow = j.kind === 'land'
-          ? { key: `land:${j.key}`, kind: 'land', look: LOOK('Sending to merge', 'git-pull-request', 'blue'), label: WORDS.sendToMerge, detail: `pushing it and opening its pull request, for ${by}`, since: ago(at), actions: [] }
+          ? { key: `land:${j.key}`, kind: 'land', look: LOOK('Opening pull request', 'git-pull-request', 'blue'), label: WORDS.openPullRequest, detail: `pushing it and opening its pull request, for ${by}`, since: ago(at), actions: [] }
           : { key: `refresh:${j.key}`, kind: 'refresh', look: LOOK('Merging its base in', 'git-merge', 'blue'), label: 'Refresh', detail: `merging ${r.environment} into its branch, then its checks, for ${by}`, since: ago(at), actions: [] };
         add(taskGroup(p, r), row, at);
       } else if (j.kind === 'promote' && j.from && j.env) {

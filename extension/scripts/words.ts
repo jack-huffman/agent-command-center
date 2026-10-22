@@ -28,7 +28,7 @@ export const GH_COMMANDS: readonly string[] = [
   'pr', 'project', 'release', 'repo', 'ruleset', 'run', 'search', 'secret', 'ssh-key', 'status', 'variable', 'workflow',
 ];
 
-/** The labels the Command Center retired for plain words (T-96, D-???): Add to my work, Make a plan, Build it, Send to merge, Sent back, Accept anyway, My work. */
+/** The labels the Command Center retired for plain words (T-96, D-188): Add to my work, Make a plan, Build it, Open pull request, Sent back, Accept anyway, My work. */
 export const RETIRED: readonly string[] = ['Track in acc', 'Track', 'Analyze', 'Dispatch', 'Agent board', 'Land', 'Rework', 'Waive'];
 
 /** What a person-facing string may not hold, each by name. */

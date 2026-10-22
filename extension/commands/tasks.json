@@ -155,7 +155,7 @@
   },
   {
     "command": "acc.task.land",
-    "title": "Send to merge: push and open the pull request",
+    "title": "Open pull request: push and open the pull request",
     "category": "Agent Command Center",
     "icon": "$(git-pull-request-create)"
   },

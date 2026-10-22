@@ -107,7 +107,7 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
   assert.equal(group(m, 'T-4')!.jobs[0]!.detail, '');
   assert.equal(group(m, 'T-4')!.jobs[0]!.meta, 'opus (its setting)', 'no answer yet: the model it was set to run, said so');
   assert.deepEqual(brief(group(m, 'T-5')!.jobs), [['autopilot', 'Reviewing it', 'Autopilot']], 'autopilot\'s review is one row, not two');
-  assert.deepEqual(brief(group(m, 'T-6')!.jobs), [['land', 'Sending to merge', 'Send to merge']]);
+  assert.deepEqual(brief(group(m, 'T-6')!.jobs), [['land', 'Opening pull request', 'Open pull request']]);
   assert.match(group(m, 'T-6')!.jobs[0]!.detail, /for jordan$/);
   assert.equal(group(m, 'T-7'), undefined, 'a task with nothing under way isn\'t listed');
   // Every state has words and an icon; only what waits on a person is orange.

@@ -86,7 +86,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['verify show'], name: 'See the verification' },
   { acc: ['verify clear'], name: 'Clear the verification' },
   { acc: ['review'], name: 'Review with an agent', named: 'Review {arg} with an agent', command: 'acc.task.review' },
-  { acc: ['land'], name: 'Open its pull request', named: 'Open {arg}\'s pull request', command: 'acc.task.land' },
+  { acc: ['land'], name: 'Open pull request', named: 'Open {arg}\'s pull request', command: 'acc.task.land' },
   { acc: ['autopilot'], name: 'Run autopilot', command: 'acc.autopilot.toggle' },
   { acc: ['sync'], name: 'Refresh from GitHub' },
   // Cloud builders (GH-69)

@@ -47,7 +47,7 @@ export function autopilotNotices(steps: AutopilotRecord[], tasks: AutopilotTask[
     const say = (text: string, urgent: boolean, actions: [string, string][] = []) => out.push({ kind: 'autopilot', task: r.task, text, urgent, actions, step: r });
     if (r.outcome === 'failed') {
       const by: Record<AutopilotStepName, [string, string]> = {
-        review: ['Review', 'acc.task.review'], land: [WORDS.sendToMerge, 'acc.task.land'], dispatch: [`${WORDS.buildIt} again`, 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'], merge: ['Open pull request', 'acc.task.openPr'], start: [`${WORDS.buildIt} anyway`, 'acc.task.dispatchAnyway'], queue: ['Open pull request', 'acc.task.openPr'],
+        review: ['Review', 'acc.task.review'], land: [WORDS.openPullRequest, 'acc.task.land'], dispatch: [`${WORDS.buildIt} again`, 'acc.task.dispatch'], refresh: ['Open pull request', 'acc.task.openPr'], resume: ['Resume', 'acc.task.resume'], checks: ['Open pull request', 'acc.task.openPr'], merge: ['Open pull request', 'acc.task.openPr'], start: [`${WORDS.buildIt} anyway`, 'acc.task.dispatchAnyway'], queue: ['Open pull request', 'acc.task.openPr'],
       };
       const [verb, rest] = AUTOPILOT_VERB[r.step];
       say(`Autopilot couldn't ${verb} ${r.task}${rest}: ${endSentence(r.reason || 'it didn\'t say why')}`, true, [by[r.step]]);

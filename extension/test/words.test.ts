@@ -54,7 +54,7 @@ test('each retired word is a finding as a label, and the words that took its pla
   }
   for (const bad of ['Dispatch anyway', 'Waive…', 'It\'s on the agent board.', 'Land: push and open the pull request']) assert.ok(rule.pattern.test(bad), bad);
   // Words that hold a retired one, and its lower case in running prose, aren't labels.
-  for (const ok of ['Add to my work', 'My work', 'Make a plan', 'Build it', 'Send to merge', 'Sent back', 'Accept anyway', 'Tracker boards', 'Landing page', 'Tracking…', 'Dispatched', 'the land of', 'source tracking', 'Analyzer']) assert.ok(!rule.pattern.test(ok), ok);
+  for (const ok of ['Add to my work', 'My work', 'Make a plan', 'Build it', 'Open pull request', 'Sent back', 'Accept anyway', 'Tracker boards', 'Landing page', 'Tracking…', 'Dispatched', 'the land of', 'source tracking', 'Analyzer']) assert.ok(!rule.pattern.test(ok), ok);
   const v = judgeWords([said('Track'), said('Add to my work'), said('Rework', 'output')]);
   assert.deepEqual(v.findings.map((f) => f.detail), ['"Track" names a retired word: Track'], 'outside work data alone');
 });

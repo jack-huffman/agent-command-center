@@ -108,7 +108,7 @@ export function noticeActions(n: TaskNotice): [label: string, command: string][]
     waiting: ['Open in Claude Code', 'acc.task.openInClaude'],
     stopped: ['Resume', 'acc.task.resume'],
     review: ['Review', 'acc.task.review'],
-    passed: [WORDS.sendToMerge, 'acc.task.land'],
+    passed: [WORDS.openPullRequest, 'acc.task.land'],
     rework: [`${WORDS.buildIt} again`, 'acc.task.dispatch'],
     'ci-failed': ['Open pull request', 'acc.task.openPr'],
     changes: ['Open pull request', 'acc.task.openPr'],

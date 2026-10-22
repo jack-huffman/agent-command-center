@@ -105,7 +105,7 @@ test('paletteStep offers only the next steps PALETTE_STEPS names and Answer, and
   assert.equal(paletteStep([a('acc.task.show', 'Answer')]), null, 'a label alone is not an Answer step');
   assert.equal(paletteStep([a('acc.task.show', 'See the split')]), null);
   assert.equal(paletteStep([a('acc.task.move', 'Move')]), null, 'Move is the board\'s drag, not a next step');
-  assert.equal(paletteStep([a('acc.task.land', 'Send to merge')]), null);
+  assert.equal(paletteStep([a('acc.task.land', 'Open pull request')]), null);
   assert.equal(paletteStep([a('acc.task.dispatch', 'Build it', false)]), null, 'only the card\'s primary');
   assert.equal(paletteStep([]), null);
 });
