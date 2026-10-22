@@ -52,7 +52,7 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * the task done and promoted to UAT with a step to run, and that with Add a change made by hand half-filled and the step's Skip open.
  * Then ACME-12's Team (T-103): sharing files with two others in flight and two merges behind dev, then up to date and sharing none.
  * Then ACME-21's plan in short, and Review plan over it (T-109): a choice with More about this option open, a question
- * for the ticket's author with own words typed, and the summary with two steps skipped.
+ * for the ticket's author with own words typed, a question already answered, and the approved plan's summary.
  */
 export const PAGES = [
   // The Command Center's sections
@@ -157,6 +157,7 @@ export const PAGES = [
   'ticket-plan-short',
   'ticket-review-choice',
   'ticket-review-question',
+  'ticket-review-answered',
   'ticket-review-summary',
   'ticket-talk',
   'ticket-changes-field',

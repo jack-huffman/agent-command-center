@@ -19,7 +19,8 @@
 
 .rp-step { animation: rp-fade 160ms ease-out; }
 @keyframes rp-fade { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .rp-step { animation-duration: 120ms; } }
+@keyframes rp-fade-still { from { opacity: 0.4; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .rp-step { animation-name: rp-fade-still; animation-duration: 120ms; } }
 .rp-head { display: flex; align-items: center; gap: 8px; min-height: 26px; }
 .rp-kind { display: inline-flex; align-items: center; gap: 5px; font-size: 0.88em; color: var(--vscode-descriptionForeground); }
 .rp-q { margin: 4px 0 2px; font-size: 1.08em; line-height: 1.35; overflow-wrap: anywhere; }

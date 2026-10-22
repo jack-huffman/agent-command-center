@@ -157,6 +157,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'ticket-plan-approved') return sampleTicket(now, 'ACME-21', false, null, null, 'approved');
   if (kind === 'ticket-plan-changed') return sampleTicket(now, 'ACME-21', false, null, null, 'changed');
   // ACME-21's plan in short, and Review plan open over it at a choice, a question and the summary (T-109).
+  if (kind === 'ticket-review-summary') return sampleTicket(now, 'ACME-21', false, null, null, 'approved');
   if (kind === 'ticket-plan-short' || kind.startsWith('ticket-review-')) return sampleTicket(now, 'ACME-21');
   if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
@@ -308,11 +309,13 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'ticket-questions' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:d2:own', WHOLE_PLAN], drafts: { 'plan:/Users/me/code/acme-service#ACME-21:d2': 'Backfill only the opportunities still open' } }
   : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', 'plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b', WHOLE_PLAN] }
   : kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', WHOLE_PLAN] }
-  // Review plan over ACME-21 (T-109): at its second choice with Backfill too picked and More about it open; at the
-  // question for the ticket's author with an answer typed in its own words; and at the summary, two steps skipped.
-  : kind === 'ticket-review-choice' ? { opened: [`${REVIEW}:open`, `${REVIEW}:more:d2.b`], drafts: { [`${REVIEW}:at`]: 'd2', [`${REVIEW}:pick:d2`]: 'b' } }
+  // Review plan over ACME-21 (T-109): at its first choice, chosen, with the other option picked and More about it
+  // open; at the question for the ticket's author with an answer typed in its own words; at a question already
+  // answered; and, on the approved plan, at the summary with the author's question skipped.
+  : kind === 'ticket-review-choice' ? { opened: [`${REVIEW}:open`, `${REVIEW}:more:d1.b`], drafts: { [`${REVIEW}:at`]: 'd1', [`${REVIEW}:pick:d1`]: 'b' } }
   : kind === 'ticket-review-question' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q2', [`${REVIEW}:pick:q2`]: 'mine', 'analysis:/Users/me/code/acme-service#ACME-21:q2': 'Decision Maker, as the pipeline report does today' } }
-  : kind === 'ticket-review-summary' ? { opened: [`${REVIEW}:open`, `${REVIEW}:skip:d2`, `${REVIEW}:skip:q2`], drafts: { [`${REVIEW}:at`]: 'summary' } }
+  : kind === 'ticket-review-answered' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q3' } }
+  : kind === 'ticket-review-summary' ? { opened: [`${REVIEW}:open`, `${REVIEW}:skip:q2`], drafts: { [`${REVIEW}:at`]: 'summary' } }
   // The next message to ACME-21's planning agent (T-98), about an option, quoted, half-written.
   : kind === 'ticket-talk' ? { ...TALK_STATE, opened: [...['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`), WHOLE_PLAN] }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }
@@ -408,8 +411,11 @@ function collectColours() {
   document.body.append(out);
 }`;
 
-/** A modal's open fades from opacity 0 (T-47), and the geometry check skips what is transparent: a measured page opens its modal at once. */
-const NO_MODAL_FADE = '<style>dialog { transition: none !important; }</style>';
+/**
+ * A modal's open fades from opacity 0 (T-47), and so does each step of Review plan (T-109); the geometry check
+ * skips what is transparent, and axe reads a colour half-faded: a measured page opens its modal and step at once.
+ */
+const NO_MODAL_FADE = '<style>dialog { transition: none !important; } dialog .rp-step { animation: none !important; }</style>';
 
 /**
  * A page that loads the built webview the way VSCode does: a stub API answers `ready` with the model.
