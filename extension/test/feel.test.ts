@@ -186,6 +186,8 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'agent-page.ts', at: /'primary small'/, why: 'Send: the message the person typed, to an agent that waits on it.' },
   { file: 'agents.ts', at: /b\('Answer'/, why: 'Answer: an agent waits on the person\'s answer to its question.' },
   { file: 'verify.ts', at: /\(first \? 'primary' : ''\);$/, why: 'Verify the developer\'s work (T-84): Verify before there is a verification, then Open the QA comment, the comment the person edits and posts.' },
+  { file: 'manifest.ts', at: /s\.built \? '' : 'primary'\),$/, why: 'Manifest for this ticket (T-101): Build the manifest, before there is one.' },
+  { file: 'manifest.ts', at: /s\.built \? 'primary' : '', \{ check: true \}\),$/, why: 'Manifest for this ticket (T-101): once it\'s built, Check against the org, which reads the org\'s fresh copies.' },
   { file: 'criteria.ts', at: /primary \? 'primary' : ''\);$/, why: 'Drafted acceptance criteria (T-81): Draft acceptance criteria before there is a draft, then Add to the description, the person\'s next step, as the model marks it.' },
   { file: 'analysis.ts', at: /button\('Answer'/, why: 'Answer: the analysis waits on the person\'s answer.' },
   { file: 'task-actions.ts', at: /\$\{primary \? ' primary'/, why: 'A task\'s next step, on its page and its card, such as a card\'s Answer: primary only where the model\'s action is (D-168).' },
