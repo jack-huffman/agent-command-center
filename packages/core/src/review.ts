@@ -18,6 +18,7 @@ import { planChoicesSection } from './plan.ts';
 import { rulesText } from './rules.ts';
 import { testsText } from './test-counts.ts';
 import { clip } from './text.ts';
+import { type Team, teamOf, teamSection } from './team.ts';
 
 /**
  * The review (D-032): a fresh agent reads the task, the diff, the checks and the project's rules, and
@@ -218,6 +219,8 @@ export interface ReviewInput {
   /** The task's plan (T-97): the reviewer checks the change against the choices a person made in it. */
   plan?: Analysis | null;
   cloud?: { base: string };
+  /** Its team as the review starts (T-103), so the reviewer can judge a change that steps on another task's area. */
+  team?: Team | null;
 }
 
 /**
@@ -303,6 +306,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     ...editedSection(i.task),
     ...notesEditedSection(i.task),
     ...planChoicesSection(i.plan ?? null),
+    ...(i.team ? teamSection(i.team, 'reviewer') : []),
     '## The checks on this commit',
     '',
     ...(i.checks.length ? i.checks : ['- none recorded']),
@@ -435,6 +439,8 @@ export interface ReviewPrepared {
   name: string;
   /** The task's plan (T-97), whose choices the reviewer checks the change against. */
   plan: Analysis | null;
+  /** Its team as of now (T-103); null when git couldn't say. */
+  team: Team | null;
 }
 
 /**
@@ -463,7 +469,16 @@ export function prepareReview(paths: RepoPaths, config: Config, id: string, run:
   const packet = existsSync(packetFile) ? readFileSync(packetFile, 'utf8') : [`# ${task.id}: ${task.title}`, '', task.brief, '', ...notesSection(task)].join('\n');
   const rules = rulesText(worktree, config.profile);
   const name = sessionName({ project: config.project, key: id, title: task.title, role: 'review' });
-  return { task, env, branch, worktree, sha, base, packet, rules, checks, kinds: knownKinds(paths), name, plan: readAnalysis(paths, id) };
+  return { task, env, branch, worktree, sha, base, packet, rules, checks, kinds: knownKinds(paths), name, plan: readAnalysis(paths, id), team: reviewTeam(paths, config, ledger, run, id) };
+}
+
+/** The team a review is given (T-103), or null when it can't be read: the review goes on without it. */
+function reviewTeam(paths: RepoPaths, config: Config, ledger: { tasks: Task[] }, run: Runner, id: string): Team | null {
+  try {
+    return teamOf(paths, config, ledger, run, id);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -508,7 +523,7 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   const { task, env, sha, worktree, name } = r;
   const diff = git(run, paths.root, 'diff', '--no-color', '--find-renames', `${r.base}...${sha}`).stdout;
   const stat = git(run, paths.root, 'diff', '--stat=120', '--find-renames', `${r.base}...${sha}`).stdout;
-  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet: r.packet, diff, stat, checks: r.checks, rules: r.rules, kinds: r.kinds, plan: r.plan });
+  const { system, prompt } = reviewPrompt({ task, config, envName: env.name, envBranch: env.branch, sha, packet: r.packet, diff, stat, checks: r.checks, rules: r.rules, kinds: r.kinds, plan: r.plan, team: r.team });
 
   const sessionId = (deps.uuid ?? randomUUID)();
   mkdirSync(paths.reviews, { recursive: true });

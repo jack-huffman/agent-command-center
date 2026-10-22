@@ -1,7 +1,7 @@
 // acc hook: the hooks acc gives the sessions it starts, including the PermissionRequest hook the
 // Environments help lists.
 
-import { ask, hookOutput, parseEventInput, parseHookInput, preToolUseHook, run, sessionStartHook, stopHook } from '../../../core/src/index.ts';
+import { ask, hookOutput, parseEventInput, parseHookInput, postToolUseHook, preToolUseHook, run, sessionStartHook, stopHook } from '../../../core/src/index.ts';
 import { type CommandArea, now, out } from '../shared.ts';
 
 async function readStdin(limit = 4 * 1024 * 1024): Promise<string> {
@@ -23,12 +23,12 @@ async function readStdin(limit = 4 * 1024 * 1024): Promise<string> {
  * The plugin's hooks (D-042). Like the permission hook, they never block by failing: anything unexpected
  * prints nothing, and Claude Code carries on as it would without acc.
  */
-async function cmdHookEvent(event: 'session-start' | 'pre-tool-use' | 'stop'): Promise<number> {
+async function cmdHookEvent(event: 'session-start' | 'pre-tool-use' | 'post-tool-use' | 'stop'): Promise<number> {
   try {
     const input = parseEventInput(await readStdin());
     if (!input) return 0;
     const ctx = { cwd: input.cwd || process.cwd(), env: process.env, run, now };
-    const out = event === 'session-start' ? sessionStartHook(input, ctx) : event === 'pre-tool-use' ? preToolUseHook(input, ctx) : stopHook(input, ctx);
+    const out = event === 'session-start' ? sessionStartHook(input, ctx) : event === 'pre-tool-use' ? preToolUseHook(input, ctx) : event === 'post-tool-use' ? postToolUseHook(input, ctx) : stopHook(input, ctx);
     if (out) process.stdout.write(JSON.stringify(out));
   } catch (e) {
     process.stderr.write(`acc hook ${event}: ${(e as Error).message}\n`);
@@ -58,13 +58,13 @@ export const area: CommandArea = {
     lines: `  acc hook permission                   Claude Code's PermissionRequest hook: puts an agent's prompt in the
                                         Command Center, when one is open, and waits for the answer`,
   },
-  subcommands: { hook: ['permission', 'session-start', 'pre-tool-use', 'stop'] },
+  subcommands: { hook: ['permission', 'session-start', 'pre-tool-use', 'post-tool-use', 'stop'] },
   commands: {
     hook: (_o, rest) => {
       if (rest[0] === 'permission') return cmdHookPermission();
-      if (rest[0] === 'session-start' || rest[0] === 'pre-tool-use' || rest[0] === 'stop') return cmdHookEvent(rest[0]);
+      if (rest[0] === 'session-start' || rest[0] === 'pre-tool-use' || rest[0] === 'post-tool-use' || rest[0] === 'stop') return cmdHookEvent(rest[0]);
       // Exit 1, never 2: for a hook, 2 would block the tool.
-      process.stderr.write('acc hook takes permission, session-start, pre-tool-use or stop.\n');
+      process.stderr.write('acc hook takes permission, session-start, pre-tool-use, post-tool-use or stop.\n');
       return 1;
     },
   },

@@ -103,6 +103,9 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['change record'], name: 'Add a record change', named: 'Add a record change to {arg}' },
   { acc: ['change none'], name: 'Say no record changed' },
   { acc: ['change step'], name: 'Mark a promotion\'s step' },
+  // Builders as a team (T-103)
+  { acc: ['team'], name: 'See the team', named: 'See {arg}\'s team' },
+  { acc: ['refresh'], name: 'Take in the latest merges', named: 'Take the latest merges into {arg}' },
   { acc: ['review'], name: 'Review with an agent', named: 'Review {arg} with an agent', command: 'acc.task.review' },
   { acc: ['land'], name: 'Open pull request', named: 'Open {arg}\'s pull request', command: 'acc.task.land' },
   { acc: ['autopilot'], name: 'Run autopilot', command: 'acc.autopilot.toggle' },
@@ -120,7 +123,7 @@ export const PROCESSES: readonly Process[] = [
   // Environments
   { acc: ['promote'], name: 'Promote', named: 'Promote {arg}', command: 'acc.env.promote' },
   { acc: ['deploy'], name: 'Deploy', named: 'Deploy to {arg}', command: 'acc.env.deploy' },
-  { acc: ['hook', 'hook session-start', 'hook pre-tool-use', 'hook stop'], name: 'Keep builders on their task' },
+  { acc: ['hook', 'hook session-start', 'hook pre-tool-use', 'hook post-tool-use', 'hook stop'], name: 'Keep builders on their task' },
   { acc: ['hook permission'], name: 'Ask you before an agent runs a command' },
   // GitHub
   { acc: ['github', 'github status'], name: 'Check the GitHub account' },
