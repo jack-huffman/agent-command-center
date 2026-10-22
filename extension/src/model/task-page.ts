@@ -27,6 +27,7 @@ import { cardActions, filesLook, placeLook } from './cards.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
 import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria.ts';
 import type { TicketVerify } from './verify.ts';
+import type { TicketManifestSection } from './manifest.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -194,6 +195,8 @@ export interface TicketModel {
   criteria: TicketCriteria | null;
   /** Verify the developer's work (T-84): its pull request, checks, criteria and findings, or why it's off. Null with no task. */
   verify: TicketVerify | null;
+  /** Manifest for this ticket (T-101): a Salesforce task's package.xml and what its org said. Null with no task, or outside Salesforce. */
+  manifest: TicketManifestSection | null;
   /** A tracker ticket acc doesn't keep yet, which "Track in acc" adds to the ledger. */
   trackable: boolean;
   /** It's being tracked now, from this page or its card (D-074). */
@@ -274,6 +277,8 @@ export interface TicketInput {
   drafting?: boolean;
   /** Its Verify the developer's work section, as model/verify.ts's ticketVerify makes it (T-84). */
   verify?: TicketVerify | null;
+  /** Its Manifest for this ticket section, as model/manifest.ts's ticketManifest makes it (T-101). */
+  manifest?: TicketManifestSection | null;
   now?: number;
 }
 
@@ -498,6 +503,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     review: i.task ? ticketReview(i.project, i.task.state, i.review) : null,
     criteria: i.task ? ticketCriteria({ task: i.task, draft: i.draft ?? null, drafting: !!i.drafting, edits: !!i.trackerEdits, kind: i.trackerKind, unkept: t?.unkept }) : null,
     verify: i.task ? i.verify ?? null : null,
+    manifest: i.task ? i.manifest ?? null : null,
     trackable: !!t && !i.task, tracking: !!i.tracking, signedInAs: i.signedInAs ?? null,
   };
 }

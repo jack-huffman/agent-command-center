@@ -1,0 +1,18 @@
+/* Manifest for this ticket (T-101) wears the analysis's card, with the gap the blocks around it keep, as Verify's does. */
+.ticket-main > .manifest { margin-bottom: 16px; padding-bottom: 12px; }
+.mf-built { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin: 0 0 6px; }
+.mf-built > span { min-width: 0; overflow-wrap: anywhere; }
+.mf-list { list-style: none; margin: 2px 0 4px; padding: 0; }
+/* Each component, finding, org copy, org change or deletion: its state, its type and member over a muted line, then its buttons. */
+.mf-row { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px 8px; padding: 4px 0; border-top: 1px solid var(--line); }
+.mf-list > .mf-row:first-child { border-top: 0; }
+.mf-row > .status { flex: none; }
+.mf-row > .btn { flex: none; }
+.mf-row > .btn:first-of-type { margin-left: auto; }
+.mf-text { display: flex; flex-direction: column; flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; }
+.mf-name { overflow-wrap: anywhere; }
+.mf-says { display: flex; flex-direction: column; }
+.mf-sub { font-size: 0.92em; }
+.mf-note { margin: 2px 0 6px; overflow-wrap: anywhere; }
+.mf-never { margin: 4px 0 8px; }
+.mf-buttons { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; }

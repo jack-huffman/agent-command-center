@@ -183,7 +183,7 @@ const keep = (paths: Pick<RepoPaths, 'stateDir'>, m: TicketManifest): void => {
 // ---------------------------------------------------------------- the ticket and its branch
 
 /** The task, its ticket key, environment and branch, or why it has no manifest. */
-export function manifestRefusal(config: Pick<Config, 'profile'>, task: Pick<Task, 'id' | 'run'> | undefined, id: string): string | null {
+export function manifestRefusal(config: { profile: string }, task: Pick<Task, 'id' | 'run'> | undefined, id: string): string | null {
   if (config.profile !== 'salesforce') return 'A manifest lists Salesforce components, and this isn\'t a Salesforce project.';
   if (!task) return `No task ${id}.`;
   if (!task.run?.branch) return `${id} has no branch yet, so there's nothing to build a manifest from. Dispatch it first.`;
