@@ -99,13 +99,13 @@ export function renderManifest(m: TicketModel, s: TicketManifestSection): HTMLEl
   return sec;
 }
 
-/** How a button went: done redraws with what acc did; a refusal shows why, to try again. */
+/** How a button went: done redraws with what was done; a refusal shows why, to try again. */
 function done(msg: { project?: string; task?: string; ok?: boolean; error?: string }): void {
   const key = peekKey(msg.project ?? '', msg.task ?? '');
   if (!asked.has(key)) return;
   asked.delete(key);
   if (msg.ok) failed.delete(key);
-  else failed.set(key, msg.error?.trim() || 'It didn\'t go, and acc didn\'t say why.');
+  else failed.set(key, msg.error?.trim() || 'It didn\'t go, and the Command Center didn\'t say why.');
   if (state.last) state.draw(state.last);
 }
 

@@ -30,7 +30,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     // An Azure DevOps board on its way (2026-10-21): with nothing kept, its skeleton; from the repo's cache, refreshing.
     else if (kind === 'tasks-azure-loading' || kind === 'tasks-azure-refreshing') {
       const b = (m as HomeModel).tasks.projects[0]!.boards[0]!;
-      assert.deepEqual([(m as HomeModel).section, b.kind, b.loading, b.columns.length > 0], ['tasks', 'azure', true, kind === 'tasks-azure-refreshing', 'tasks-first']);
+      assert.deepEqual([(m as HomeModel).section, b.kind, b.loading, b.columns.length > 0], ['tasks', 'azure', true, kind === 'tasks-azure-refreshing']);
     } else if (kind === 'tasks-azure') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.kind], ['home', 'tasks', 'azure']);
     // A repo's issues with no Project: GitHub board on the switch, the repo once, and no place line (the Tasks header's cleanup).
     // The Tasks board with a task opened over it in the modal (GH-158): the board's model, then the task's page's.
