@@ -24,8 +24,10 @@ asked to step through it one item at a time, as Claude Code's own prompts do.
   has a ticket to post on. An answered question shows its answer, with Next.
 - **Keys as Claude Code's prompts.** Up and Down move between the options, a number picks one, Enter confirms
   and goes on to the next step, Escape closes and keeps what's picked. Back, Skip for now, "2 of 5", and a dot
-  for each step, its name in its label: done and current in blue, skipped and to do in orange, each with its
-  own icon. A dot goes to its step. Discuss closes the sheet onto Talk it through with the choice or question
+  for each step, its name in its label: done in blue with a check, skipped in orange, not yet seen plain, and
+  the current one ringed, each with its own icon. Orange asks for attention elsewhere in the app, so only a
+  skipped step wears it. The plan's choice so far is marked Your current choice while its radio is the one
+  picked, and the mark goes once the person picks another option in that step. A dot goes to its step. Discuss closes the sheet onto Talk it through with the choice or question
   quoted. Focus starts on each step's picked option: the first one, unless the plan already has a choice
   made, which is picked instead.
 - **The summary.** Each step in a line, with what was chosen or answered, Skipped or not yet, a click back to

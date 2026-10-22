@@ -172,9 +172,10 @@ function optionRow(s: ReviewStep, p: StepOption, i: number, on: boolean): HTMLEl
   const radio = el('button', `rp-radio${on ? ' on' : ''}`,
     el('span', 'rp-num', String(i + 1)), icon(on ? 'circle-filled' : 'circle-large-outline', on ? 'blue' : undefined),
     el('span', 'rp-text', el('span', 'rp-name', p.name,
-      // Recommended and chosen each carry an icon and words, never colour alone.
+      // Recommended and chosen each carry an icon and words, never colour alone. The plan's choice is marked only
+      // while its radio is the one picked: once another is picked in this step, the mark would contradict it.
       p.recommended ? el('span', 'rp-tag rp-rec', icon('star-full'), 'Recommended') : null,
-      p.chosen ? el('span', 'rp-tag rp-chosen', icon('pass-filled'), 'Chosen now') : null),
+      p.chosen && on ? el('span', 'rp-tag rp-chosen', icon('pass-filled'), 'Your current choice') : null),
     p.line ? el('span', 'rp-line muted', md(p.line)) : null)) as HTMLButtonElement;
   radio.type = 'button';
   radio.setAttribute('role', 'radio');
@@ -299,16 +300,18 @@ function summaryView(): HTMLElement {
   return view;
 }
 
-/** "2 of 5", and a dot for each step, done, skipped or current, each a click away. */
+/** "2 of 5", and a dot for each step, done, skipped or current, each a click away. Only a skipped step is orange,
+ * as orange asks for attention elsewhere in the app; a done one is blue with a check; one not yet seen is plain. */
 function progress(r: PlanReview, at: string): HTMLElement {
   const { m, task } = shown!;
   const i = r.steps.findIndex((s) => s.id === at);
   const words = at === SUMMARY ? `${r.steps.filter((s) => s.done).length} of ${r.steps.length} done` : `${i + 1} of ${r.steps.length}`;
   const ICON = { current: 'circle-filled', done: 'pass-filled', skipped: 'debug-step-over', todo: 'circle-large-outline' };
   const WORD = { current: 'you are here', done: 'done', skipped: 'skipped', todo: 'to do' };
+  const DOT_COLOUR = { current: undefined, done: 'blue', skipped: 'orange', todo: undefined } as const;
   const dots = el('ol', 'rp-dots', ...r.steps.map((s, k) => {
     const st = stepState(m.project, task, s, at);
-    const d = el('button', `rp-dot ${st}`, icon(ICON[st], st === 'skipped' || st === 'todo' ? 'orange' : 'blue')) as HTMLButtonElement;
+    const d = el('button', `rp-dot ${st}`, icon(ICON[st], DOT_COLOUR[st])) as HTMLButtonElement;
     d.type = 'button';
     d.title = `${k + 1}. ${s.title}: ${WORD[st]}`;
     d.setAttribute('aria-label', d.title);

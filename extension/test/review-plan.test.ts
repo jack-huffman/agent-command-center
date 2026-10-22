@@ -224,6 +224,10 @@ test('Back keeps what was picked, Skip for now sends nothing, and the dots say d
   assert.deepEqual(page.sent, []);
   const dots = sheet().all('rp-dot');
   assert.deepEqual(dots.map((x) => x.className.split(' ')[1]), ['skipped', 'done', 'current', 'todo', 'todo']);
+  // Only a skipped step is orange; a done one is blue with a check; the current one and those not yet seen are plain.
+  const tone = (x: PageElement) => /tone-(\w+)/.exec(x.all('codicon')[0]!.className)?.[1] ?? 'plain';
+  assert.deepEqual(dots.map(tone), ['orange', 'blue', 'plain', 'plain', 'plain']);
+  assert.match(dots[1]!.all('codicon')[0]!.className, /codicon-pass-filled/);
   assert.equal(dots[0]!.getAttribute('aria-label'), '1. Should every converted contact get a role on the new opportunity, or only the lead\'s primary contact?: skipped');
   assert.equal(dots[2]!.getAttribute('aria-current'), 'step');
   assert.equal(sheet().all('rp-place')[0]!.textContent, '3 of 5');
@@ -276,6 +280,12 @@ test('edge case: a choice already chosen sends nothing again; on an approved pla
   open();
   rp.goTo('d1');
   assert.equal(picked(), 'a', 'what\'s chosen is picked');
+  const current = () => radios().filter((r) => r.all('rp-chosen').length).map((r) => [r.dataset.pick, r.all('rp-chosen')[0]!.textContent]);
+  assert.deepEqual(current(), [['a', 'Your current choice']], 'the plan\'s choice is marked on its own radio');
+  radios()[1]!.click();
+  assert.deepEqual(current(), [], 'with another option picked, the mark goes, so it never sits beside a different radio');
+  radios()[0]!.click();
+  assert.deepEqual(current(), [['a', 'Your current choice']], 'and comes back when it is picked again');
   foot('Confirm').click();
   assert.deepEqual([page.sent, step()], [[], 'd2']);
   const m = open(sampleTicket(NOW, 'ACME-21', false, null, null, 'approved'));

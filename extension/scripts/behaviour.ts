@@ -856,7 +856,7 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'review plan: Enter confirms and goes on, a number key and the arrows pick, Back keeps the pick, Skip marks a step, and the summary approves once nothing is left (T-109)',
+    name: 'review plan: Enter confirms and goes on, a number key and the arrows pick, Escape and Back keep the pick, Skip marks a step, and the summary approves once nothing is left (T-109)',
     page: 'ticket-questions',
     async run(t) {
       const d = t.data.planReview;
@@ -886,6 +886,11 @@ export const CASES: Case[] = [
       await press(t, focused(), 'ArrowUp');
       t.check('Up moves back', picked() === 'b', picked());
       t.check('nothing is sent while picking', t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      // Edge: Escape mid-step closes it, sends nothing, and keeps the step and its pick for the next open.
+      await t.escape(dialog);
+      t.check('Escape mid-step closes it and sends nothing', !dialog.open && t.sent('plan-choose').length === 0, t.sent('plan-choose'));
+      await t.click(t.find('.plan-actions .rp-open'));
+      t.check('reopened, it is at the same step with the pick kept', dialog.open && at() === 'd1' && picked() === 'b', [dialog.open, at(), picked()]);
       await t.click(footButton('Back'));
       t.check('Back goes to the step before', at() === 'q3', at());
       await t.click(footButton('Next'));
@@ -1981,6 +1986,7 @@ export const MUTANTS: Mutant[] = [
   // A change to an approved plan's choice asks first (T-97).
   { name: 'Enter confirms but stays on its step', file: 'review-plan.ts', find: '  goTo(next(review, s.id));\n}', replace: '  redraw();\n}', kills: [caseNamed('review plan:')] },
   { name: 'Back forgets what was picked', file: 'review-plan.ts', find: 'if (i > 0) goTo(review.steps[i - 1]!.id);', replace: "if (i > 0) { remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; }); goTo(review.steps[i - 1]!.id); }", kills: [caseNamed('review plan:')] },
+  { name: 'Escape forgets what was picked', file: 'review-plan.ts', find: '  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n', replace: "  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n  remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; });\n", kills: [caseNamed('review plan:')] },
   { name: 'Approve is on with an item left', file: 'plan.ts', find: '  b.disabled = !!why;\n  if (why) { b.title = why;', replace: '  b.disabled = false;\n  if (why) { b.title = why;', kills: [caseNamed('review plan:')] },
   { name: 'an approved plan\'s choice goes without asking', file: 'plan.ts', find: 'if (!plan.changeAsk || same) return sendPlan(', replace: 'if (plan || same) return sendPlan(', kills: [caseNamed('plan: on an approved plan')] },
   { name: 'Keep the approval makes the change', file: 'plan.ts', find: "button('Keep the approval', 'verified', keep)", replace: "button('Keep the approval', 'verified', change)", kills: [caseNamed('plan: on an approved plan')] },

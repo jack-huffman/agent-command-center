@@ -63,14 +63,17 @@ function clientLine(project: string, task: string, q: AnalysisAsk, canAsk: boole
   return el('div', 'aq-client', ask, error ? el('span', 'aq-error', icon('warning'), el('span', '', error)) : null);
 }
 
-/** A list the analysis made, folded under its name and count. Opened or closed, it stays so as the page redraws. */
-function analysisFold(key: string, title: string, items: Child[], ordered = false): HTMLElement | null {
-  if (!items.length) return null;
-  const d = el('details', 'an-fold') as HTMLDetailsElement;
+/**
+ * A list the analysis made, folded under its name and its count; or, given a body, that body under its name
+ * alone, as The whole plan is (T-109). Opened or closed, it stays so as the page redraws.
+ */
+function analysisFold(key: string, title: string, items: Child[], ordered = false, body?: { cls: string; children: HTMLElement[] }): HTMLElement | null {
+  if (!items.length && !body?.children.length) return null;
+  const d = el('details', body ? body.cls : 'an-fold') as HTMLDetailsElement;
   d.open = memory().opened.includes(key);
   d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])] : x.opened.filter((y) => y !== key); }));
-  d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', '', title), el('span', 'count', String(items.length))),
-    el(ordered ? 'ol' : 'ul', 'an-list', ...items.map((x) => el('li', '', x))));
+  d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', '', title), body ? null : el('span', 'count', String(items.length))),
+    body ? el('div', `${body.cls}-body`, ...body.children) : el(ordered ? 'ol' : 'ul', 'an-list', ...items.map((x) => el('li', '', x))));
   return d;
 }
 
@@ -99,18 +102,10 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   // Review plan leads, then Build it and Talk it through, each off with why (T-97).
   if (p) sec.append(...planActions(m, a.task, p, a.review ? reviewButton(m, a.task, a.review) : null).filter((x): x is HTMLElement => !!x));
   if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
-  const whole = wholePlan(m, a, key);
-  if (whole.length) sec.append(wholeFold(`${key}:whole`, whole));
+  // The whole plan, folded and closed until opened.
+  const whole = analysisFold(`${key}:whole`, 'The whole plan', [], false, { cls: 'an-whole', children: wholePlan(m, a, key) });
+  if (whole) sec.append(whole);
   return sec;
-}
-
-/** The whole plan, folded under its name and closed until opened. Opened or closed, it stays so as the page redraws. */
-function wholeFold(key: string, children: HTMLElement[]): HTMLElement {
-  const d = el('details', 'an-whole') as HTMLDetailsElement;
-  d.open = memory().opened.includes(key);
-  d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])] : x.opened.filter((y) => y !== key); }));
-  d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', '', 'The whole plan')), el('div', 'an-whole-body', ...children));
-  return d;
 }
 
 /** Everything the short section leaves out: what changed, the choices and questions in full, the wording, the earlier versions and the rest of the analysis. */
