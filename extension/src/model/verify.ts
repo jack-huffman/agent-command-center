@@ -105,9 +105,9 @@ export function ticketVerify(i: VerifyIn): TicketVerify {
   const busy = i.verifying ? 'It\'s verifying now' : null;
   const choosing = !i.verifying && !!i.choice;
   const look = i.verifying ? VERIFY_LOOK.running : choosing ? VERIFY_LOOK.choose : v ? VERIFY_LOOK[v.verdict] : VERIFY_LOOK.none;
-  const note = i.verifying ? 'acc checks out the pull request with no branch, runs the checks there, and an agent reviews it. Nothing is posted or pushed.'
+  const note = i.verifying ? 'The Command Center checks out the pull request with no branch, runs the checks there, and an agent reviews it. Nothing is posted or pushed.'
     : choosing ? (i.choice!.found.length ? `${plural(i.choice!.found.length, 'open pull request')} name ${i.task.source.key}. Choose the one to verify.` : `No open pull request on ${i.github} names ${i.task.source.key} in its title or its branch.`)
-      : v ? null : 'acc finds the pull request that names this ticket, runs the checks on it, and an agent reviews it against the criteria. You get a QA comment to edit and post.';
+      : v ? null : 'The Command Center finds the pull request that names this ticket, runs the checks on it, and an agent reviews it against the criteria. You get a QA comment to edit and post.';
   return {
     task: id, look, note,
     pr: v ? { number: v.pr.number, url: v.pr.url, words: prWords(v.pr), sha: v.sha.slice(0, 7) } : null,

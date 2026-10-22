@@ -37,7 +37,7 @@ class BranchCommands extends Sidebar {
     // acc sync --branches-seen clears every move waiting in the repo, so the question says so.
     const branches = moves.map((m) => m.branch).join(', ');
     const seen = 'Seen';
-    const detail = `${moves.length === 1 ? `The move on ${branches}` : `The moves on ${branches}`} will no longer show as needing you. acc records where each branch stands now, and flags the next move that isn't its own merge.`;
+    const detail = `${moves.length === 1 ? `The move on ${branches}` : `The moves on ${branches}`} will no longer show as needing you. The Command Center records where each branch stands now, and flags the next move that isn't its own merge.`;
     if ((await vscode.window.showInformationMessage(`Mark ${moves.length === 1 ? `${branches}'s move` : 'the branch moves'} as seen?`, { modal: true, detail }, seen)) !== seen) return;
     await this.runAcc(project, ['sync', '--branches-seen'], () => `Seen: ${branches}.`);
     await this.hub.loadTasks(true);

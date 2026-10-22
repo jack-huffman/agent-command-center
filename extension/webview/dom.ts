@@ -9,6 +9,7 @@ import { api, go, memory, remember, state } from './state.ts';
 import { panelLook } from './looks.ts';
 import { inlineMarks } from './inline.ts';
 import { labelTint, labelTints, ownColour, type Tint, tintOf } from './tints.ts';
+import { explains } from './plain-words.ts';
 
 export type Child = Node | string | null | undefined | false;
 
@@ -47,7 +48,7 @@ export function status(look: Look): HTMLElement {
 export function actionButton(a: Action): HTMLElement {
   const b = el('button', `btn${a.primary ? ' primary' : ''}${a.danger ? ' danger' : ''}`, icon(a.icon), a.label) as HTMLButtonElement;
   b.type = 'button';
-  b.title = a.label;
+  b.title = explains(a.command, a.label);
   b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));
   return b;
 }

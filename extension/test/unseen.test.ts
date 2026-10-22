@@ -45,7 +45,7 @@ test('a running task whose conversation is old, or never written, and no answer 
   assert.equal(quiet.unseen, 'quiet');
   assert.equal(quiet.display, 'needs-you');
   const acts = cardActions(quiet, { project: '/r', task: 'T-1' });
-  assert.deepEqual(acts.filter((a) => a.primary).map((a) => [a.command, a.label]), [['acc.task.dispatchAgain', 'Dispatch again']]);
+  assert.deepEqual(acts.filter((a) => a.primary).map((a) => [a.command, a.label]), [['acc.task.dispatchAgain', 'Build it again']]);
   // Where Claude Code only doesn't answer, the builder may still be at work: Dispatch again is behind ⋯, and Watch doesn't lead.
   const blind = cardActions(read({}, 10), { project: '/r', task: 'T-1' });
   assert.ok(blind.some((a) => a.command === 'acc.task.dispatchAgain' && !a.primary));
@@ -56,7 +56,7 @@ test('a task whose builder didn\'t start reads from the ledger as Needs you, its
   const t = read({ state: 'todo', run: null, notStarted: { at: ago(2), by: 'human:me', reason: NOT_STARTED, where: 'local' } }, null);
   assert.deepEqual(t.notStarted, { reason: NOT_STARTED, at: t.notStarted!.at });
   assert.equal(t.display, 'needs-you');
-  assert.deepEqual(accLook(t), { label: `Needs you: ${NOT_STARTED}. Dispatch again starts a new builder with the same model, effort and place.`, icon: 'plug', tone: 'orange' });
+  assert.deepEqual(accLook(t), { label: `Needs you: ${NOT_STARTED}. Build it again starts a new builder with the same model, effort and place.`, icon: 'plug', tone: 'orange' });
   const acts = cardActions({ ...t, deps: [] }, { project: '/r', task: 'T-1' });
   assert.equal(acts[0]!.command, 'acc.task.dispatchAgain');
   assert.equal(acts.filter((a) => a.primary).length, 1, 'one next step');
@@ -78,7 +78,7 @@ test('the Overview\'s Needs you lists each, with why and Dispatch again where it
   const quiet = lines.find((a) => a.title.startsWith('ACME-50'))!;
   const never = lines.find((a) => a.title.startsWith('ACME-49'))!;
   assert.deepEqual([blind.look.label, blind.look.icon, blind.look.tone], [UNSEEN_WORDS.unanswered.label, 'eye-closed', 'orange']);
-  assert.match(blind.detail, /aren't answering, so acc can't see this builder\. Open a terminal and check that Claude Code lists its background agents, or restart Claude Code\./);
+  assert.match(blind.detail, /aren't answering, so the Command Center can't see this builder\. Open a terminal and check that Claude Code lists its background agents, or restart Claude Code\./);
   assert.ok(!blind.actions.some((a) => a.primary), 'nothing leads where the builder may still be at work');
   assert.deepEqual(quiet.actions.filter((a) => a.primary).map((a) => a.command), ['acc.task.dispatchAgain']);
   assert.deepEqual([never.look.label, never.actions[0]!.command, !!never.actions[0]!.primary], ['Needs you: its builder didn\'t start', 'acc.task.dispatchAgain', true]);

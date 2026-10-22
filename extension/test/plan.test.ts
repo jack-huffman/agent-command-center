@@ -92,11 +92,11 @@ test('the page sends a choice as an option or its own words, never both or neith
 
 test('a card says what its plan waits on: your questions, its choices, an approval, or nothing once approved', () => {
   const look = (a: TaskRow['analysis'], required = true) => analysisLook({ ...todo({ analysis: a, analysisRequired: required }) })?.label ?? null;
-  assert.equal(look(plan({ open: [ask('q1'), ask('q2', 'author')] })), 'Needs you: 1 question from its analysis');
+  assert.equal(look(plan({ open: [ask('q1'), ask('q2', 'author')] })), 'Needs you: 1 question from its plan');
   assert.equal(look(plan({ open: [ask('q2', 'author')], choices: 2 })), 'Needs you: 2 choices to make in its plan');
   assert.equal(look(plan()), 'Needs you: approve its plan');
   assert.equal(look(plan({ approved: true })), 'Plan approved: ready to build');
-  assert.equal(look(plan(), false), 'Analyzed: ready to build', 'no approval waited for where no plan is required');
+  assert.equal(look(plan(), false), 'Planned: ready to build', 'no approval waited for where no plan is required');
   assert.deepEqual([analysisWait(todo({ analysis: plan({ choices: 1 }) })), analysisWait(todo({ analysis: plan() })), analysisWait(todo({ analysis: plan({ approved: true }) }))], ['choices', 'approve', null]);
   assert.equal(cardActions(todo({ display: 'needs-you', analysis: plan({ choices: 1 }) }), {})[0]!.label, 'See the plan');
 });

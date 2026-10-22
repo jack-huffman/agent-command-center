@@ -7,6 +7,7 @@
 import type { Action } from '../src/model/shared.ts';
 import { el, icon } from './dom.ts';
 import { api } from './state.ts';
+import { explains } from './plain-words.ts';
 
 /**
  * One action as a button of the shared size. A click runs its command on its ref, or does what `onClick`
@@ -15,7 +16,7 @@ import { api } from './state.ts';
 export function actionTile(a: Action, primary: boolean, onClick?: () => void): HTMLButtonElement {
   const b = el('button', `btn ta-btn${primary ? ' primary' : ''}${a.danger ? ' danger' : ''}`, icon(a.icon), el('span', 'ta-label', a.label)) as HTMLButtonElement;
   b.type = 'button';
-  b.title = a.disabled ? `${a.label}: ${a.disabled}` : a.label;
+  b.title = a.disabled ? `${a.label}: ${a.disabled}` : explains(a.command, a.label);
   if (a.disabled) {
     b.disabled = true;
     b.setAttribute('aria-description', a.disabled);

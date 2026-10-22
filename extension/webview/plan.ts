@@ -170,7 +170,7 @@ export function planActions(m: TicketModel, task: string, plan: TicketPlan): Chi
 function done(msg: { action?: string; project?: string; task?: string; decision?: string; ok?: boolean; error?: string }): void {
   const key = msg.action === 'plan-approve' ? approveKey(msg.project ?? '', msg.task ?? '') : chooseKey(msg.project ?? '', msg.task ?? '', msg.decision ?? '');
   if (!planPending.what(key)) return;
-  planPending.settle(key, msg.ok ? null : msg.error?.trim() || 'acc didn\'t say why.');
+  planPending.settle(key, msg.ok ? null : msg.error?.trim() || 'It didn\'t go, and the Command Center didn\'t say why.');
   // A choice made in its own words clears them, and closes its box.
   if (msg.ok && msg.action === 'plan-choose') remember((x) => { delete x.drafts[key]; x.opened = x.opened.filter((y) => y !== ownKey(key)); });
   if (state.last) state.draw(state.last);

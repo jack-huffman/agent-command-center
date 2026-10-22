@@ -4,7 +4,8 @@
  * acc's command lines or its paths. Each drawing gathers every string a person can read on it, shown or
  * folded away: its text, and each element's title, aria-label, placeholder and alt. One that names an acc
  * command, npm run, a path under .acc/, a docs/ page, the packet, a claude or gh command line or a dotted
- * config key (GH-168) is a finding, unless it sits in a region
+ * config key (GH-168) is a finding, and so is acc by name or a word the Command Center no longer uses (T-96),
+ * unless it sits in a region
  * the page marks as work data (`data-work`), whose words are the work's own. WORK_DATA names each region,
  * with why; `extension/test/words.test.ts` pins where the page marks each one.
  *
@@ -27,6 +28,9 @@ export const GH_COMMANDS: readonly string[] = [
   'pr', 'project', 'release', 'repo', 'ruleset', 'run', 'search', 'secret', 'ssh-key', 'status', 'variable', 'workflow',
 ];
 
+/** The labels the Command Center retired for plain words (T-96, D-188): Add to my work, Make a plan, Build it, Open pull request, Sent back, Accept anyway, My work. */
+export const RETIRED: readonly string[] = ['Track in acc', 'Track', 'Analyze', 'Dispatch', 'Agent board', 'Land', 'Rework', 'Waive'];
+
 /** What a person-facing string may not hold, each by name. */
 export const WORD_RULES: readonly { name: string; pattern: RegExp }[] = [
   { name: 'an acc command', pattern: new RegExp(`\\bacc (?:${ACC_COMMANDS.map(escapeRegExp).join('|')})\\b`) },
@@ -38,6 +42,10 @@ export const WORD_RULES: readonly { name: string; pattern: RegExp }[] = [
   { name: 'a gh command', pattern: new RegExp(`\\bgh (?:${GH_COMMANDS.map(escapeRegExp).join('|')})(?![\\w-])`) },
   // Not after a dot, so code that reads config.gates.required isn't a finding; longest first, so a key that starts another is found whole.
   { name: 'a config key', pattern: new RegExp(`(?<![\\w.-])(?:${[...DOTTED_KEYS].sort((a, b) => b.length - a.length).map(escapeRegExp).join('|')})(?![\\w-])`) },
+  // A person reads "the Command Center" (T-96). Not a command id (acc.task.dispatch), a path (.acc/, ~/.acc), a plugin id (acc@…) or a file's name (acc-push-guard.mjs).
+  { name: 'acc by name', pattern: /(?<![\w./~@-])acc(?![\w@/-]|\.\w)/i },
+  // The words a person met before T-96, as a label: capitalised, as on a button, a column or a state.
+  { name: 'a retired word', pattern: new RegExp(`\\b(?:${RETIRED.map(escapeRegExp).join('|')})\\b|\\bagent board\\b`) },
 ];
 
 /**

@@ -1,4 +1,4 @@
-// The Tasks section: acc's agent board, and each tracker's own board.
+// The Tasks section: My work, the tasks added to the Command Center, and each tracker's own board.
 
 import type { TrackerBoard, TrackerCard, Who } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
@@ -9,12 +9,17 @@ import { personFilter } from './person-menu.ts';
 import { fitLabels } from './fit-labels.ts';
 import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChips, peekable, plural, stateChip, status, titled, toolbarButton, typeMark } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
+import { firstSteps } from './first-steps.ts';
+import { addToWorkTitle, WORDS } from './plain-words.ts';
 
 export function renderTasks(m: TasksModel): Node[] {
   if (!m.projects.length) return [header('Tasks', 'No onboarded project in this workspace.'), empty('Onboard this folder to start tracking tasks.', toolbarButton('acc.openProjectWalkthrough', 'Onboard this project', 'rocket', undefined, true))];
+  // How it works, in five steps, under the first header, the first time a tracker's board is here (T-96).
+  let intro = m.projects.some((p) => p.boards.length) ? firstSteps() : null;
+  const once = (): HTMLElement | null => { const i = intro; intro = null; return i; };
   return m.projects.map((p) => {
     const tools: Child[] = [toolbarButton('acc.task.add', 'Add task', 'add', p.root)];
-    // With a tracker's board on show, its tickets come from the board (Track on a card), not an import.
+    // With a tracker's board on show, its tickets come from the board (Add to my work on a card), not an import.
     if (!p.boards.length) {
       if (p.github) tools.push(toolbarButton('acc.task.importGithub', 'Import GitHub issues', 'github', p.root));
       tools.push(toolbarButton('acc.task.importJira', 'Connect Jira', 'plug', p.root));
@@ -27,11 +32,11 @@ export function renderTasks(m: TasksModel): Node[] {
       const toggle = el('div', 'segmented');
       toggle.setAttribute('role', 'group');
       toggle.setAttribute('aria-label', 'Which board');
-      for (const [m, label, ic] of [['tracker', p.boards.length === 1 ? p.boards[0]!.tab : 'Tracker boards', KIND_ICON[p.boards[0]!.kind] ?? 'issues'], ['agents', 'Agent board', 'hubot']] as const) {
+      for (const [m, label, ic] of [['tracker', p.boards.length === 1 ? p.boards[0]!.tab : 'Tracker boards', KIND_ICON[p.boards[0]!.kind] ?? 'issues'], ['agents', WORDS.myWork, 'hubot']] as const) {
         const b = el('button', `seg${mode === m ? ' on' : ''}`, icon(ic), label) as HTMLButtonElement;
         b.type = 'button';
-        // What each board shows: the tracker's tickets in its own columns, or acc's tasks by where their agents are.
-        b.title = m === 'tracker' ? 'The tickets as the tracker has them, in its own columns' : 'acc\'s tasks by where their agents are: Ready, Running, Review, Rework, Blocked, Done';
+        // What each board shows: the tracker's tickets in its own columns, or the tickets added to your work, by stage.
+        b.title = m === 'tracker' ? 'The tickets as the tracker has them, in its own columns' : `The tickets you've added, by stage: Ready, Running, In review, ${WORDS.sentBack}, Blocked, Done`;
         b.setAttribute('aria-pressed', String(mode === m));
         b.addEventListener('click', () => { remember((s) => { s.modes[p.root] = m; }); if (state.last) state.draw(state.last); });
         toggle.append(b);
@@ -42,7 +47,7 @@ export function renderTasks(m: TasksModel): Node[] {
         // A Slack channel with no board to count (T-31) counts its tasks instead; one with a board (T-85) counts its cards.
         const counted = p.boards.some((b) => !b.paste || b.columns.length) ? `${p.name}: ${plural(cards, 'ticket')} on the board${ready ? `, ${ready} ready for an agent` : ''}${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.` : summary;
         const head = header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', counted, ...tools);
-        return el('div', 'project', head, ...p.boards.map((b) => renderTrackerBoard(p.root, b)));
+        return el('div', 'project', head, once(), ...p.boards.map((b) => renderTrackerBoard(p.root, b)));
       }
     }
     const board = el('div', 'board agent-board');
@@ -136,7 +141,7 @@ export function renderTasks(m: TasksModel): Node[] {
       key: `agents:${p.root}`, column: (col) => col.dataset.group ?? '', card: (art) => art.dataset.task ?? '',
       lanes: (art) => (art.dataset.drops ?? '').split(' ').filter(Boolean), move: moveTask,
     });
-    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), ...(p.total ? [...(filter && !p.columns.some((c) => c.cards.some(showing)) ? [filter.none(board)] : []), live, board] : [empty('Tasks are tickets for agents to work on.', ...tools)]));
+    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), once(), ...(p.total ? [...(filter && !p.columns.some((c) => c.cards.some(showing)) ? [filter.none(board)] : []), live, board] : [empty('Tasks are tickets for agents to work on.', ...tools)]));
   });
 }
 
@@ -187,22 +192,22 @@ export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard): HTML
 }
 
 /**
- * Track on a card acc doesn't keep yet (D-074): one click, and it says Tracking… at once, until the card
- * shows acc's task or why it couldn't. The extension holds that, so it outlasts a redraw, and a second
+ * Add to my work on a card the Command Center doesn't keep yet (D-074, T-96): one click, and it says Adding…
+ * at once, until the card shows its task or why it couldn't. The extension holds that, so it outlasts a redraw, and a second
  * click does nothing.
  */
 function trackButton(root: string, b: TrackerBoard, key: string, busy: boolean): HTMLButtonElement {
   const show = (on: boolean) => {
-    go.replaceChildren(icon(on ? 'sync~spin' : 'add'), on ? 'Tracking…' : 'Track');
+    go.replaceChildren(icon(on ? 'sync~spin' : 'add'), on ? 'Adding…' : WORDS.addToWork);
     go.disabled = on;
-    go.setAttribute('aria-label', on ? `Tracking ${key} in acc` : `Track ${key} in acc`);
+    go.setAttribute('aria-label', on ? `Adding… ${key}` : `${WORDS.addToWork}: ${key}`);
   };
-  const go = button('Track', 'add', () => {
+  const go = button(WORDS.addToWork, 'add', () => {
     if (go.disabled) return;
     show(true);
     api.postMessage({ type: 'track', project: root, tracker: b.index, key });
   }, 'tcard-track');
-  go.title = 'Add it to acc, to analyze or dispatch it. The ticket isn\'t changed.';
+  go.title = addToWorkTitle(KIND_NAME[b.kind] ?? 'the tracker');
   show(busy);
   return go;
 }
@@ -211,9 +216,9 @@ function trackButton(root: string, b: TrackerBoard, key: string, busy: boolean):
 const typedLinks = new Map<string, string>();
 
 /**
- * A Slack tracker's box for a thread's link (T-31): Track reads the thread and gives it to acc. Track is off
- * until there's a link, and says Tracking… while it goes. Under the box: which channel the thread must be
- * in, then why the last Track didn't go (orange, with a warning icon), or the key it tracked (blue, with a check).
+ * A Slack tracker's box for a thread's link (T-31): Add to my work reads the thread and adds it. It is off
+ * until there's a link, and says Adding… while it goes. Under the box: which channel the thread must be
+ * in, then why the last one didn't go (orange, with a warning icon), or the key it tracked (blue, with a check).
  */
 function threadLink(root: string, b: TrackerBoard, paste: NonNullable<TrackerBoard['paste']>): HTMLElement {
   const id = `${root}#${b.index}`;
@@ -230,12 +235,12 @@ function threadLink(root: string, b: TrackerBoard, paste: NonNullable<TrackerBoa
   input.spellcheck = false;
   input.setAttribute('aria-label', 'Slack thread link');
   if (paste.error) input.setAttribute('aria-invalid', 'true');
-  const go = button('Track', 'add', send, 'primary');
+  const go = button(WORDS.addToWork, 'add', send, 'primary');
   const show = (busy: boolean) => {
     const empty = !(typedLinks.get(id) ?? '').trim();
-    go.replaceChildren(icon(busy ? 'sync~spin' : 'add'), busy ? 'Tracking…' : 'Track');
+    go.replaceChildren(icon(busy ? 'sync~spin' : 'add'), busy ? 'Adding…' : WORDS.addToWork);
     go.disabled = busy || empty;
-    go.title = busy ? 'Reading the thread from Slack' : empty ? 'Paste a thread\'s link first' : 'Add the thread to acc, to analyze or dispatch it. The thread isn\'t changed.';
+    go.title = busy ? 'Reading the thread from Slack' : empty ? 'Paste a thread\'s link first' : 'Adds this thread to your work here, so an agent can plan it and, once you approve, build it. Nothing changes in Slack.';
   };
   show(paste.busy);
   const label = el('label', 'cfield-label', 'Thread\'s link');
@@ -245,8 +250,8 @@ function threadLink(root: string, b: TrackerBoard, paste: NonNullable<TrackerBoa
     el('div', 'cfield-control',
       el('div', 'cfield-input', input, go),
       el('p', 'cfield-hint muted', paste.hint),
-      paste.error ? el('div', 'cfield-status tone-orange', icon('warning', 'orange'), el('span', '', `Couldn't track it: ${paste.error}`)) : null,
-      paste.tracked && !paste.error && !paste.busy ? el('div', 'cfield-status', icon('check', 'blue'), el('span', '', `Tracked ${paste.tracked}. It's on the Agent board.`)) : null));
+      paste.error ? el('div', 'cfield-status tone-orange', icon('warning', 'orange'), el('span', '', `Couldn't add it: ${paste.error}`)) : null,
+      paste.tracked && !paste.error && !paste.busy ? el('div', 'cfield-status', icon('check', 'blue'), el('span', '', `Added ${paste.tracked} to your work. It's on ${WORDS.myWork}.`)) : null));
 }
 
 export function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
@@ -278,7 +283,7 @@ export function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   if (b.movedOut) {
     out.append(el('div', 'notice attention left-place', icon('warning', 'orange'),
       el('div', 'left-text', el('strong', '', b.movedOut),
-        el('span', 'muted', 'They stay on the agent board, for you to finish or set aside.'))));
+        el('span', 'muted', `They stay on ${WORDS.myWork}, for you to finish or set aside.`))));
   }
   if (b.error) {
     const fix = b.connect ? argButton(b.connect.command, b.connect.label, 'plug', b.connect.arg, true) : null;

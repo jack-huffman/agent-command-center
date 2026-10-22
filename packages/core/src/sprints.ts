@@ -106,5 +106,5 @@ export function sprintNotice(change: SprintChange, stayed: string[]): string {
     : !change.to.length ? `${from} ended, and no sprint is active now: ${counts}.`
       : `${to} started after ${from}: ${counts}.`;
   if (!stayed.length) return head;
-  return `${head} ${taskList(stayed)} left the sprint after work started, so ${stayed.length === 1 ? 'it stays' : 'they stay'} on the agent board.`;
+  return `${head} ${taskList(stayed)} left the sprint after work started, so ${stayed.length === 1 ? 'it stays' : 'they stay'} on My work.`;
 }

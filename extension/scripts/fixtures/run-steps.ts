@@ -52,7 +52,7 @@ export function sampleStepRun(now: number, kind: StepSample): RunInput {
     };
   }
   return {
-    ...base, label: 'Dispatch ACME-12', command: 'acc dispatch ACME-12 --json', startedAt: now - 6 * MIN, endedAt: now - 6 * MIN + 14_000, code: 0, ok: true,
+    ...base, label: 'Build ACME-12', command: 'acc dispatch ACME-12 --json', startedAt: now - 6 * MIN, endedAt: now - 6 * MIN + 14_000, code: 0, ok: true,
     lines: [''],
     steps: ran([
       s('task', 'Check the task', 'done', 0, 0),

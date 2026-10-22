@@ -42,7 +42,7 @@ test('a sprint change counts the tickets carried and the ones gone back to the b
   const change = sprintChange(prev, now13, ['ACME-3']);
   assert.deepEqual(change, { from: ['Sprint 12'], to: ['Sprint 13'], carried: ['ACME-1', 'ACME-2'], backlog: ['ACME-3'] });
   assert.equal(sprintNotice(change!, []), 'Sprint 13 started after Sprint 12: 2 tickets carried into it, 1 went back to the backlog.');
-  assert.equal(sprintNotice(change!, ['ACME-3']), 'Sprint 13 started after Sprint 12: 2 tickets carried into it, 1 went back to the backlog. ACME-3 left the sprint after work started, so it stays on the agent board.');
+  assert.equal(sprintNotice(change!, ['ACME-3']), 'Sprint 13 started after Sprint 12: 2 tickets carried into it, 1 went back to the backlog. ACME-3 left the sprint after work started, so it stays on My work.');
   assert.match(sprintNotice({ ...change!, backlog: ['ACME-3', 'ACME-4'] }, ['ACME-3', 'ACME-4']), /ACME-3 and ACME-4 left the sprint after work started, so they stay/);
 
   assert.equal(sprintChange(undefined, now13, []), null, 'a first look says nothing');
@@ -81,7 +81,7 @@ test('when the sprint changes, a ticket that went back to the backlog leaves the
   rememberSprint(paths, tracker, seen([S13], board.keys));
   assert.deepEqual([res.removed, res.leftAlone.map((l) => l.task)], [['ACME-3'], ['ACME-5']], 'the one never started leaves; the started one stays');
   assert.deepEqual(readLedger(paths.ledger).tasks.map((t) => `${t.id} ${t.state}`), ['ACME-1 todo', 'ACME-5 running'], 'on the agent board');
-  assert.equal(sprintNotice(change!, res.leftAlone.map((l) => l.task)), 'Sprint 13 started after Sprint 12: 1 ticket carried into it, 2 went back to the backlog. ACME-5 left the sprint after work started, so it stays on the agent board.');
+  assert.equal(sprintNotice(change!, res.leftAlone.map((l) => l.task)), 'Sprint 13 started after Sprint 12: 1 ticket carried into it, 2 went back to the backlog. ACME-5 left the sprint after work started, so it stays on My work.');
   assert.equal(sprintChange(readSprints(paths)[tracker], board, []), null, 'said once: the next look finds the same sprint');
   assert.ok(JSON.parse(readFileSync(sprintsFile(paths), 'utf8'))[tracker], 'kept beside the ledger');
 });

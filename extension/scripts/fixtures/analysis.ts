@@ -90,7 +90,7 @@ export function sampleAnalyses(now = Date.now()): Record<string, Analysis> {
       requirements: { goal: 'Sales managers see how deals moved between stages.', criteria: ['Stage changes are tracked from the deploy on', 'A report lists each stage change with who made it and when'], assumptions: ['History before the deploy isn\'t needed'], outOfScope: [] },
       findings: [{ area: 'Opportunity history', detail: '12 of 20 tracked fields are used; Stage isn\'t one of them.', source: 'Acme Dev: sf sobject describe Opportunity' }],
       approach: {
-        plan: ['Track StageName in field history', 'Add the Opportunity Stage History report', 'Put it in the Sales Managers folder'],
+        plan: ['Turn on field history for StageName', 'Add the Opportunity Stage History report', 'Put it in the Sales Managers folder'],
         files: [{ path: 'force-app/main/default/objects/Opportunity/fields/StageName.field-meta.xml', change: 'update', why: 'trackHistory' }, { path: 'force-app/main/default/reports/SalesManagers/Opportunity_Stage_History.report-meta.xml', change: 'create', why: 'The report' }],
         refactors: [], risks: [], tests: ['Change a stage in Acme Dev and run the report'], size: 'S',
       },

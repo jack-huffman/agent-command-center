@@ -79,7 +79,7 @@ export interface Column extends Look {
 
 export interface TasksModel {
   kind: 'tasks';
-  projects: { name: string; root: string; github: boolean; columns: Column[]; total: number; boards: TrackerBoard[]; /** The key Mine means on the agent board (T-79): this person's own, as acc writes it in a dispatch's `by`. */ me: string | null }[];
+  projects: { name: string; root: string; github: boolean; columns: Column[]; total: number; boards: TrackerBoard[]; /** The key Mine means on My work (T-79): this person's own, as a dispatch's `by` records it. */ me: string | null }[];
 }
 
 /** The key acc writes in a move's `by` for a person at this account (packages/cli's actorFrom), which Mine on the agent board means. */
@@ -160,7 +160,7 @@ export const area: ModelArea = {
           // A task a person dispatched couldn't start on its own once its wait was over (D-093): why, and Dispatch anyway.
           if (r.state === 'todo' && r.files?.held?.failed) {
             const anyway = acts.find((a) => a.command === 'acc.task.dispatchAnyway');
-            attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(r.files.held.byAutopilot ? 'Needs you: autopilot couldn\'t start it' : 'Needs you: its start failed', 'bell', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.files.held.failed.replace(/([^.!?])$/, '$1.')} Dispatch it anyway, or stop it waiting.`, project: p.name, actions: [...(anyway ? [anyway] : []), details] });
+            attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK(r.files.held.byAutopilot ? 'Needs you: autopilot couldn\'t start it' : 'Needs you: its start failed', 'bell', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · ${r.files.held.failed.replace(/([^.!?])$/, '$1.')} Build it anyway, or stop it waiting.`, project: p.name, actions: [...(anyway ? [anyway] : []), details] });
             continue;
           }
           // Its builder didn't start, or acc can't see it (T-92): why, what to try, and Dispatch again.
@@ -183,7 +183,7 @@ export const area: ModelArea = {
           if (closedPrLook(r)) {
             const next = acts.find((a) => a.primary && ['acc.task.land', 'acc.task.review', 'acc.task.watchReview'].includes(a.command));
             const link = acts.find((a) => a.command === 'acc.task.openPr');
-            attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Pull request closed', 'git-pull-request-closed', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · pull request #${r.pr!.number} was closed without merging. Land it to open a new one, or reopen it on GitHub and land to update it.`, project: p.name, actions: [...(next ? [next] : []), ...(link ? [link] : []), details] });
+            attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Pull request closed', 'git-pull-request-closed', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · pull request #${r.pr!.number} was closed without merging. Send it to merge to open a new one, or reopen it on GitHub and send it again to update it.`, project: p.name, actions: [...(next ? [next] : []), ...(link ? [link] : []), details] });
             continue;
           }
           const watch = acts.find((a) => a.command === 'acc.task.watch');

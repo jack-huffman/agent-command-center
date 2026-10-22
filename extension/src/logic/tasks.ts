@@ -68,9 +68,9 @@ export function waitQuestion(row: Pick<TaskRow, 'id'> & { files: Pick<RowFiles, 
 /** What Dispatch anyway confirms (D-093): each task it shares files with, and those files in full. */
 export function anywayQuestion(row: Pick<TaskRow, 'id'> & { files?: Pick<RowFiles, 'shares'> | null }): { message: string; detail: string } {
   const shares = row.files?.shares ?? [];
-  if (!shares.length) return { message: `Dispatch ${row.id} now?`, detail: 'An agent starts on it in its own worktree.' };
+  if (!shares.length) return { message: `Build ${row.id} now?`, detail: 'An agent starts on it in its own worktree.' };
   return {
-    message: `Dispatch ${row.id} anyway?`,
+    message: `Build ${row.id} anyway?`,
     detail: [
       'It shares files with work in flight:',
       ...shares.map((s) => `${s.task}: ${s.files.join(', ')}`),
@@ -89,7 +89,7 @@ export function rowAnalysis(a: Analysis): NonNullable<TaskRow['analysis']> {
 /** The analysis's size, in words, to weigh the model by (D-086), or that there's none to go on. */
 export function sizeLine(row: Pick<TaskRow, 'analysis'>): string {
   const size = row.analysis?.size;
-  return size ? `Its analysis sizes it ${size}: ${SIZE_MEANING[size]}.` : row.analysis ? 'Its analysis gave no size.' : 'Not analyzed: no size to go on.';
+  return size ? `Its plan sizes it ${size}: ${SIZE_MEANING[size]}.` : row.analysis ? 'Its plan gave no size.' : 'No plan yet: no size to go on.';
 }
 
 /**

@@ -68,7 +68,7 @@ class TidyCommands extends Sidebar {
     if (!project) return;
     const every = this.hub.tidy(project.root)?.every;
     const skip = 'Not now';
-    const detail = `The count starts again, so the next tidy-up is offered once ${every ? `${every} more tasks` : 'more tasks'} merge. acc records who skipped it, and when.`;
+    const detail = `The count starts again, so the next tidy-up is offered once ${every ? `${every} more tasks` : 'more tasks'} merge. The Command Center records who skipped it, and when.`;
     if ((await vscode.window.showInformationMessage('Skip this tidy-up?', { modal: true, detail }, skip)) !== skip) return;
     await this.runAcc(project, ['tidy', 'skip'], () => 'Skipped the tidy-up.');
   }

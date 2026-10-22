@@ -64,7 +64,7 @@ test('Jira edge cases: nothing given sends nothing, and an empty title is refuse
 test('edge: a Jira description with a mention and an attachment is refused, with what would be lost, and nothing is written, not even the title', async () => {
   const { jira, puts } = jiraRecorder(RICH);
   const why = unkeptRefusal(['mentions', 'attachments']);
-  assert.match(why, /holds mentions and attachments, which acc can't write back/);
+  assert.match(why, /holds mentions and attachments, which the Command Center can't write back/);
   await assert.rejects(jira.setText('MSP-1', { title: 'New', markdown: 'Ask Pat' }), (e: unknown) => e instanceof TrackerError && e.kind === 'refused' && e.message === why);
   assert.equal(puts().length, 0);
   await jira.setText('MSP-1', { title: 'Only the title' });

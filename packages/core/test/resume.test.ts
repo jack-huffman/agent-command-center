@@ -260,5 +260,5 @@ test('a task nobody picked a model for resumes with the builder\'s model as it i
   assert.equal(run.model, 'opus');
   assert.equal(run.modelPicked, undefined);
   const c = resumeCommand({ ...readLedger(s.paths.ledger).tasks[0]!, run: {} }, parseConfig(GENERIC_CONFIG).config!, { sessionId: SID, message: 'Carry on.', accBinDir: '/acc/bin', basePath: '/usr/bin' });
-  assert.deepEqual(c.args.slice(6, 8), ['--model', 'claude-opus-5-5'], 'acc\'s default when nobody chose one');
+  assert.deepEqual(c.args.slice(6, 8), ['--model', 'claude-opus-5-5'], 'the Command Center\'s default when nobody chose one');
 });

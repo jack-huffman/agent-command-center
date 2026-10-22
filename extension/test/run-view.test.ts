@@ -211,7 +211,7 @@ test('a run with an answer, as a dispatch from the Command Center is: its stdout
     const got: { stdout: string; code: number | null }[] = [];
     const order: string[] = [];
     const id = runs.start('echo \'{"held":false}\'; echo "a warning" >&2; exit 0', {
-      cwd: folder(), label: 'Dispatch T-1',
+      cwd: folder(), label: 'Build T-1',
       answer: (stdout, code) => { got.push({ stdout, code }); order.push('answer'); },
       onExit: () => order.push('exit'),
     });

@@ -43,7 +43,7 @@ test('the Overview asks an analysis\'s questions in place, counts each task once
   ];
   const m = homeModel({ hub: { ...hub(), agents: [], taskRows: () => rows }, section: 'overview', boards: () => [], identity: () => null, setup: { items: [], confirmed: new Set() } });
   const item = m.overview.attention.find((a) => a.title === 'AV-5 Task AV-5')!;
-  assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: 2 questions from its analysis', 'question', 'orange']);
+  assert.deepEqual([item.look.label, item.look.icon, item.look.tone], ['Needs you: 2 questions from its plan', 'question', 'orange']);
   assert.deepEqual(item.analysis, { project: '/r', task: 'AV-5', questions: asks.open, canAsk: false }, 'its questions for you, to answer right there: one for the ticket\'s author is asked from its page (T-97)');
   assert.ok(!item.detail.includes('terminal'), 'not an agent waiting in its terminal');
   const split = m.overview.attention.find((a) => a.title === 'AV-6 Task AV-6')!;
@@ -51,9 +51,9 @@ test('the Overview asks an analysis\'s questions in place, counts each task once
   assert.equal(m.overview.attention.length, 2, 'each task once');
   assert.equal(needsYouCount(m.overview), 2);
   assert.deepEqual([m.nav[0]!.count, m.nav[0]!.attention], [2, true], 'the rail, the badge and the status bar count the same');
-  assert.deepEqual(m.overview.ready.map((r) => [r.id, r.action.label]), [['AV-7', 'Analyze'], ['AV-8', 'Watch the analysis'], ['AV-9', 'Dispatch']], 'a task held for its analysis stays in sight');
+  assert.deepEqual(m.overview.ready.map((r) => [r.id, r.action.label]), [['AV-7', 'Make a plan'], ['AV-8', 'Watch the plan being made'], ['AV-9', 'Build it']], 'a task held for its analysis stays in sight');
   const cards = tasksModel({ ...hub(), taskRows: () => rows }).projects[0]!.columns.find((c) => c.group === 'needs-you')!.cards;
-  assert.deepEqual(cards.map((c) => [c.id, c.analysis?.label, c.actions[0]!.label]), [['AV-5', 'Needs you: 2 questions from its analysis', 'Answer'], ['AV-6', 'Needs you: too big for one task', 'See the split']]);
+  assert.deepEqual(cards.map((c) => [c.id, c.analysis?.label, c.actions[0]!.label]), [['AV-5', 'Needs you: 2 questions from its plan', 'Answer'], ['AV-6', 'Needs you: too big for one task', 'See the split']]);
 });
 
 test('the Overview shows each repo\'s merge queue where auto-merge is on: each pull request\'s place, task, link and what it waits on, in blue with an icon; and says when autopilot is off (GH-73)', () => {

@@ -91,7 +91,7 @@ test('a disabled action carries its reason as its hint, never in its words, and 
   assert.ok(!stop.words.includes(NOTHING_FINISHED), 'its reason isn\'t searched');
   assert.equal(hintAt(stop), null, 'nor drawn in bold');
   // A next step that is off keeps its reason too.
-  const off: Action = { command: 'acc.task.dispatch', label: 'Dispatch', icon: 'rocket', ref: {}, primary: true, disabled: 'Its files are busy' };
+  const off: Action = { command: 'acc.task.dispatch', label: 'Build it', icon: 'rocket', ref: {}, primary: true, disabled: 'Its files are busy' };
   const card = m.tasks.projects[0]!.columns.find((c) => c.cards.length)!.cards[0]!;
   const withOff = paletteItems({ ...m, tasks: { ...m.tasks, projects: [{ ...m.tasks.projects[0]!, columns: [{ ...m.tasks.projects[0]!.columns[0]!, cards: [{ ...card, actions: [off] }] }] }] } });
   assert.deepEqual(withOff.filter((i) => i.id.startsWith('step:')).map((i) => [i.disabled, i.hint]), [['Its files are busy', 'Its files are busy']]);
@@ -105,8 +105,8 @@ test('paletteStep offers only the next steps PALETTE_STEPS names and Answer, and
   assert.equal(paletteStep([a('acc.task.show', 'Answer')]), null, 'a label alone is not an Answer step');
   assert.equal(paletteStep([a('acc.task.show', 'See the split')]), null);
   assert.equal(paletteStep([a('acc.task.move', 'Move')]), null, 'Move is the board\'s drag, not a next step');
-  assert.equal(paletteStep([a('acc.task.land', 'Land')]), null);
-  assert.equal(paletteStep([a('acc.task.dispatch', 'Dispatch', false)]), null, 'only the card\'s primary');
+  assert.equal(paletteStep([a('acc.task.land', 'Open pull request')]), null);
+  assert.equal(paletteStep([a('acc.task.dispatch', 'Build it', false)]), null, 'only the card\'s primary');
   assert.equal(paletteStep([]), null);
 });
 

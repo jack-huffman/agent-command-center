@@ -10,7 +10,7 @@ import { DISPATCH_AGAIN, MISSING_WORDS, type Unseen } from './started.ts';
 export const AGAIN_REASON = 'Claude Code\'s background sessions weren\'t answering, so acc couldn\'t see its builder';
 
 /** Why a running builder acc can see isn't dispatched again (T-93): stopping it would end work that is going on. */
-export const againRefusal = (id: string): string => `${id}'s builder is working where acc can see it, so ${DISPATCH_AGAIN} would stop work that's going on. It is for a builder that didn't start, or one acc can't see.`;
+export const againRefusal = (id: string): string => `${id}'s builder is working where the Command Center can see it, so ${DISPATCH_AGAIN} would stop work that's going on. It is for a builder that didn't start, or one the Command Center can't see.`;
 
 /**
  * Dispatch again (T-92), a person's, in one step: a task whose builder didn't start is dispatched with the

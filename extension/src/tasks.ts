@@ -29,6 +29,10 @@ import type { TaskNode } from './nodes.ts';
 import type { ExtensionArea } from './area.ts';
 import { Sidebar } from './sidebar.ts';
 import { sheetDress } from './criteria.ts';
+import { WORDS } from '../webview/plain-words.ts';
+
+/** The button that starts a task though it waits for others' files (D-093). */
+const ANYWAY = `${WORDS.buildIt} anyway`;
 
 /** The Tasks area's commands: adding, moving, dispatching, reviewing and landing tasks, all through acc. */
 export class TaskCommands extends Sidebar {
@@ -176,9 +180,9 @@ export class TaskCommands extends Sidebar {
     const node: TaskNode = { kind: 'project', project };
     const jira = project.config.trackers.some((t) => t.kind === 'jira');
     const items = [
-      { label: '$(add) Write a task', detail: 'A title and details, kept by acc.', go: () => this.addTask(node) },
+      { label: '$(add) Write a task', detail: 'A title and details, kept by the Command Center.', go: () => this.addTask(node) },
       ...(project.config.github ? [{ label: '$(github) Import GitHub issues', description: project.config.github.repo, detail: 'Adds a task for each open issue, and refreshes the ones already here.', go: () => this.importGithub(node) }] : []),
-      ...(jira ? [{ label: '$(issues) Track a Jira ticket', detail: 'Its board is on the Tasks tab: choose Track on its card, or Track in acc on its page.', go: () => vscode.commands.executeCommand('acc.open.tasks') }]
+      ...(jira ? [{ label: '$(issues) Add a Jira ticket to my work', detail: 'Its board is on the Tasks tab: choose Add to my work on its card, or on its page.', go: () => vscode.commands.executeCommand('acc.open.tasks') }]
         : [{ label: '$(plug) Connect Jira', detail: 'On the Connect page: sign in, then pick the project, epic and board. Its tickets show on the Tasks tab.', go: () => vscode.commands.executeCommand('acc.trackers.add', { root: project.root, kind: 'jira' }) }]),
     ];
     const pick = await vscode.window.showQuickPick(items, { title: `New work for ${project.name}` });
@@ -189,7 +193,7 @@ export class TaskCommands extends Sidebar {
   private async openPacket(n: TaskNode): Promise<void> {
     if (n?.kind !== 'task') return;
     const file = vscode.Uri.file(join(dirname(n.project.ledgerPath), 'packets', `${n.task.id}.md`));
-    if (!existsSync(file.fsPath)) return void vscode.window.showInformationMessage(`${n.task.id} has no instructions yet. acc writes them when it dispatches the task.`);
+    if (!existsSync(file.fsPath)) return void vscode.window.showInformationMessage(`${n.task.id} has no instructions yet. They're written when the task is built.`);
     try {
       await vscode.commands.executeCommand('markdown.showPreview', file);
     } catch {
@@ -298,9 +302,9 @@ export class TaskCommands extends Sidebar {
     const { project, task } = n;
     if (!anyway && task.state === 'todo' && waitsForFiles(task) && task.files) {
       const q = waitQuestion({ id: task.id, files: task.files });
-      const pick = await vscode.window.showInformationMessage(q.message, { modal: true, detail: q.detail }, q.wait, 'Dispatch anyway');
+      const pick = await vscode.window.showInformationMessage(q.message, { modal: true, detail: q.detail }, q.wait, ANYWAY);
       if (!pick) return;
-      anyway = pick === 'Dispatch anyway';
+      anyway = pick === ANYWAY;
     }
     type Out = { held?: boolean; waitsFor?: { task: string; files: string[] }[]; first?: string[]; worktree?: string; bgId?: string | null; reused?: boolean; name?: string; effortDropped?: string; cloud?: { url?: string }; task?: { run?: { model?: string } | null; held?: { model?: string } | null } };
     let result: Out | null = null;
@@ -310,9 +314,9 @@ export class TaskCommands extends Sidebar {
       return undefined;
     }, shown);
     // In the output panel, where its steps show as it goes (T-65); else under a notification.
-    if (this.helpers.runAccShown) await go(`Dispatch ${task.id}${cloud ? ' to the cloud' : ''}`);
+    if (this.helpers.runAccShown) await go(`Build ${task.id}${cloud ? ' in the cloud' : ''}`);
     else {
-      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Dispatching ${task.id}${cloud ? ' to the cloud' : ''}`, cancellable: false }, async (progress) => {
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Building ${task.id}${cloud ? ' in the cloud' : ''}`, cancellable: false }, async (progress) => {
         progress.report({ message: cloud ? 'pushing its branch and firing the routine…' : 'creating the worktree and starting the agent…' });
         await go();
       });
@@ -322,7 +326,7 @@ export class TaskCommands extends Sidebar {
     const said = dropped ?? (r.effortDropped ? effortDroppedWords(r.effortDropped, r.task?.run?.model ?? r.task?.held?.model ?? 'the model') : null);
     const also = said ? ` ${said}` : '';
     if (r.held) {
-      const pick = await vscode.window.showInformationMessage(`${task.id} ${waitLine(r.waitsFor ?? [], false, r.first ?? []).replace(/^Waits/, 'waits')}. It starts on its own once they're free, or once nothing else is ready.${also}`, 'Dispatch anyway');
+      const pick = await vscode.window.showInformationMessage(`${task.id} ${waitLine(r.waitsFor ?? [], false, r.first ?? []).replace(/^Waits/, 'waits')}. It starts on its own once they're free, or once nothing else is ready.${also}`, ANYWAY);
       // What acc just reported it waits for, which the board may not have foreseen, so the confirmation names it.
       if (pick) await this.dispatchAnyway(n, extra, r.waitsFor);
       return;
@@ -330,7 +334,7 @@ export class TaskCommands extends Sidebar {
     // A cloud builder (GH-69), as the project's default or picked in the sheet: its session is on claude.ai.
     if (r.cloud?.url) {
       await this.hub.loadWorktrees();
-      const watch = await vscode.window.showInformationMessage(`${task.id} is running in the cloud. acc follows its branch on GitHub and collects it when it's done.${also}`, 'Watch on claude.ai');
+      const watch = await vscode.window.showInformationMessage(`${task.id} is running in the cloud. The Command Center follows its branch on GitHub and collects it when it's done.${also}`, 'Watch on claude.ai');
       if (watch) await vscode.env.openExternal(vscode.Uri.parse(r.cloud.url));
       return;
     }
@@ -358,7 +362,7 @@ export class TaskCommands extends Sidebar {
     if (n?.kind !== 'task') return;
     const row = this.hub.taskRows(n.project.root).find((t) => t.id === n.task.id) ?? n.task;
     const q = anywayQuestion(shares?.length ? { id: row.id, files: { shares } } : row);
-    const ok = await vscode.window.showWarningMessage(q.message, { modal: true, detail: q.detail }, 'Dispatch anyway');
+    const ok = await vscode.window.showWarningMessage(q.message, { modal: true, detail: q.detail }, ANYWAY);
     if (ok) await this.dispatchTask({ ...n, task: row }, extra, true);
   }
 
@@ -504,7 +508,7 @@ export class TaskCommands extends Sidebar {
       // worked, and its notice says what it found. An error writes none.
       const before = this.hub.analysis(project.root, task.id)?.at ?? null;
       const made = (code: number | null) => code === 0 || (this.hub.analysis(project.root, task.id)?.at ?? null) !== before;
-      this.helpers.run(`${acc} analyze ${task.id}`, project.root, `Analyze ${task.id}`, done, made);
+      this.helpers.run(`${acc} analyze ${task.id}`, project.root, `Make a plan for ${task.id}`, done, made);
       // The analyst's session shows once acc has started it.
       setTimeout(done, 2_000);
     } else {
@@ -528,16 +532,16 @@ export class TaskCommands extends Sidebar {
     const gh = project.config.github;
     if (!gh) return void vscode.window.showWarningMessage(`${project.name} names no GitHub repo in its settings, so there's nowhere to open a pull request.`);
     const again = task.pr?.state === 'open';
-    const ok = await vscode.window.showWarningMessage(again ? `Update pull request #${task.pr!.number} for ${task.id}?` : `Land ${task.id}?`, {
+    const ok = await vscode.window.showWarningMessage(again ? `Update pull request #${task.pr!.number} for ${task.id}?` : `Send ${task.id} to merge?`, {
       modal: true,
-      detail: `${again ? 'Pushes the reviewed commits to' : 'Pushes'} ${task.run?.branch ?? 'its branch'} to ${gh.repo} as ${gh.account}${again ? '.' : `, and opens a pull request into ${task.environment}.`} ${autoMergeFor(project.config, task.environment) ? 'Auto-merge is on: with autopilot running, it merges once its checks pass on GitHub and nothing waits on you. You can merge it first, or ask for changes to hold it.' : 'acc never merges it: a person does, on GitHub.'}`,
+      detail: `${again ? 'Pushes the reviewed commits to' : 'Pushes'} ${task.run?.branch ?? 'its branch'} to ${gh.repo} as ${gh.account}${again ? '.' : `, and opens a pull request into ${task.environment}.`} ${autoMergeFor(project.config, task.environment) ? 'Auto-merge is on: with autopilot running, it merges once its checks pass on GitHub and nothing waits on you. You can merge it first, or ask for changes to hold it.' : 'The Command Center never merges it: a person does, on GitHub.'}`,
     }, again ? 'Update' : 'Push and open');
     if (!ok) return;
     type Landed = { pr?: { number: number; url: string }; opened?: boolean; update?: { id: string; key: string } | null; updateError?: string };
     const box: { r: Landed | null } = { r: null };
     const go = (shown?: string) => this.runAcc(project, ['land', task.id], (out) => { box.r = out as Landed; return undefined; }, shown);
     // In the output panel, where its steps show as it goes (T-65); else under a notification.
-    if (this.helpers.runAccShown) await go(`Land ${task.id}`);
+    if (this.helpers.runAccShown) await go(`Send ${task.id} to merge`);
     else {
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Landing ${task.id}`, cancellable: false }, async (progress) => {
         progress.report({ message: 'pushing and opening the pull request…' });
@@ -620,7 +624,7 @@ export const area: ExtensionArea = {
             void vscode.window.showInformationMessage(startedNotice(`${s.task} started`, s), 'Watch').then((pick) => pick && resolve('acc.task.watch', { project: p.root, task: s.task }));
           }
           for (const f of out.failed) {
-            void vscode.window.showWarningMessage(`${f.task} couldn't start: ${reasonInWords(f.reason)}`, 'Dispatch anyway').then((pick) => pick && resolve('acc.task.dispatchAnyway', { project: p.root, task: f.task }));
+            void vscode.window.showWarningMessage(`${f.task} couldn't start: ${reasonInWords(f.reason)}`, ANYWAY).then((pick) => pick && resolve('acc.task.dispatchAnyway', { project: p.root, task: f.task }));
           }
         } catch (e) {
           setup.log.warn(`acc dispatch --held in ${p.name}: ${(e as Error).message}`);

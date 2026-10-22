@@ -254,10 +254,10 @@ test('what GitHub enforces on a branch, through gh api: protection, a ruleset, n
   assert.deepEqual([ruleset.state, ruleset.why], ['enforced', 'A ruleset applies to main: pull request, deletion.']);
   const none = at({ 'gh api repos/acme/tool/branches/main/protection': page(404, { message: 'Branch not protected' }), 'gh api repos/acme/tool/rules/branches/main': page(200, []) });
   assert.equal(none.state, 'none');
-  assert.match(none.why, /enforces no protection and no ruleset on main: a push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented/);
+  assert.match(none.why, /enforces no protection and no ruleset on main: a push the guard didn't catch would be caught by the Command Center's next sync, after the fact, not prevented/);
   const free = at({ 'gh api repos/acme/tool/branches/main/protection': upgrade });
   assert.equal(free.state, 'unavailable');
-  assert.match(free.why, /a private repo on the free plan. A push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented/);
+  assert.match(free.why, /a private repo on the free plan. A push the guard didn't catch would be caught by the Command Center's next sync, after the fact, not prevented/);
   const offline = at({ 'gh api': bad('connection refused') });
   assert.equal(offline.state, 'unknown');
   assert.match(offline.why, /gh couldn't read main's protection: connection refused/);
@@ -470,7 +470,7 @@ test('an environment branch moved by acc\'s own merge passes by its recorded com
   const moves = followBranches(paths, config, ledger(), deps);
   assert.equal(moves.length, 1);
   assert.deepEqual([moves[0]!.branch, moves[0]!.from, moves[0]!.to, moves[0]!.commits], ['main', rebased, hot, [`${hot.slice(0, 7)} Hotfix, see #12`]]);
-  assert.match(moveWords(moves[0]!), /^main moved from \w{7} to \w{7} by 1 commit that isn't acc's merges: \w{7} Hotfix, see #12\. Look before anything builds on it\.$/);
+  assert.match(moveWords(moves[0]!), /^main moved from \w{7} to \w{7} by 1 commit that isn't the Command Center's merges: \w{7} Hotfix, see #12\. Look before anything builds on it\.$/);
   assert.equal(moveUrl('acme/tool', moves[0]!), `https://github.com/acme/tool/compare/${rebased}...${hot}`);
   assert.equal(branchMoves(paths).length, 1);
   // Seen again: still waiting, found once; sync carries every move still waiting, each run, until a person clears it.
@@ -482,7 +482,7 @@ test('an environment branch moved by acc\'s own merge passes by its recorded com
   const second = followBranches(paths, config, ledger(), deps);
   assert.deepEqual(second.map((m) => [m.from, m.to, m.commits]), [[rebased, hot2, [`${hot2.slice(0, 7)} Another by hand`, `${hot.slice(0, 7)} Hotfix, see #12`]]], 'the earliest from is kept, and the new commit added');
   assert.equal(branchMoves(paths).length, 1);
-  assert.match(moveWords(second[0]!), /by 2 commits that aren't acc's merges: \w{7} Another by hand, \w{7} Hotfix, see #12\./);
+  assert.match(moveWords(second[0]!), /by 2 commits that aren't the Command Center's merges: \w{7} Another by hand, \w{7} Hotfix, see #12\./);
   // Another of acc's merges after it: the branch moves on, the earlier move still waits.
   gitIn(other, 'merge', '-q', '--no-ff', '-m', 'Merge pull request #16 from acme/task/T-4', 'origin/task/T-2-second');
   const later = gitIn(other, 'rev-parse', 'HEAD');

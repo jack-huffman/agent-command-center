@@ -77,7 +77,7 @@ test('a pass: blue, its next step is Land, and with every criterion met no row i
   const r = done(dockReview(run({}, { read: read(v, { excerpts: [] }) })));
   assert.deepEqual(r.look, REVIEW_LOOK.pass);
   assert.equal(r.look.tone, 'blue');
-  assert.deepEqual(r.next, { command: 'acc.task.land', label: 'Land', icon: 'git-pull-request-create', ref: { project: '/r', task: 'T-9' }, primary: true });
+  assert.deepEqual(r.next, { command: 'acc.task.land', label: 'Open pull request', icon: 'git-pull-request-create', ref: { project: '/r', task: 'T-9' }, primary: true });
   assert.equal(r.count, '1 of 1 criterion, no findings');
   assert.deepEqual(r.rows, []);
   assert.equal(r.met!.look.label, '1 criterion met');

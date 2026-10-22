@@ -194,7 +194,7 @@ test('acc\'s refusals read from --json, in its own words', () => {
   assert.equal(accRefusal({ code: 0, stdout: '{"added":["A-1"]}', stderr: '' }), null);
   assert.equal(accRefusal({ code: 1, stdout: '{"errors":["", "item 1: needs a title."]}', stderr: '' }), 'item 1: needs a title.');
   assert.equal(accRefusal({ code: 1, stdout: '{"error":"conflict","message":"The ledger is locked."}', stderr: '' }), 'The ledger is locked.');
-  assert.equal(accRefusal({ code: 3, stdout: '', stderr: '' }), 'acc exited 3');
+  assert.equal(accRefusal({ code: 3, stdout: '', stderr: '' }), 'the Command Center stopped with code 3');
 });
 
 test('a stopped builder\'s task page quotes what it last said in full, and lists Resume (D-067)', () => {
@@ -256,7 +256,7 @@ test('a ticket page: the tracker\'s ticket takes comments, and its fields change
   assert.equal(ticketModel({ ...base, ticket, row: null, task: null }).trackable, true);
 
   const local = ticketModel({ ...base, tracker: null, trackerTitle: null, trackerKind: null, ticket: null, row: row('ACME-1', 'todo', 'ready'), task });
-  assert.deepEqual([local.sourceKind, local.sourceLabel, local.can.comment, local.trackable], ['acc', 'Task kept by acc', false, false]);
+  assert.deepEqual([local.sourceKind, local.sourceLabel, local.can.comment, local.trackable], ['acc', 'Kept by the Command Center', false, false]);
   assert.deepEqual(local.body, { blocks: [{ t: 'p', c: [{ t: 'text', text: 'Brief' }] }] }, 'a task acc alone keeps shows its brief, rendered');
   assert.deepEqual(local.status, { name: 'Ready', icon: 'play-circle', tone: 'blue' });
   assert.equal(local.acc!.conflicts, null);
@@ -319,7 +319,7 @@ test('a task\'s page shows its analysis gist first: the verdict, the summary, it
   assert.deepEqual(m.open, [{ id: 'q1', question: 'Every contact?', why: 'More records.', suggested: 'Only the primary.', askOf: 'you' }], 'each open question with its suggestion, and who answers it');
   assert.deepEqual(m.decided, [{ question: 'Which role?', answer: 'Decision Maker', assumed: false }]);
   assert.deepEqual([m.criteria, m.assumptions, m.findings.length, m.plan, m.refactors.length, m.risks, m.tests, m.files.length], [['A primary contact has a role'], ['One handler converts'], 1, ['Insert the role'], 1, ['Duplicates'], ['HandlerTest'], 1]);
-  assert.deepEqual(m.actions.map((x) => [x.label, x.command]), [['Analyze again', 'acc.task.analyze']]);
+  assert.deepEqual(m.actions.map((x) => [x.label, x.command]), [['Make a new plan', 'acc.task.analyze']]);
   const side = ticketModel({ ...base, row: todo(), analysis: a }).acc!.actions;
   assert.ok(!side.some((x) => ['acc.task.analyze', 'acc.task.watchAnalysis', 'acc.task.show'].includes(x.command)), 'its buttons are in its own section');
 
@@ -333,17 +333,17 @@ test('a task\'s page shows its analysis gist first: the verdict, the summary, it
   assert.deepEqual([big.look, big.split], [{ label: 'Too big for one task', icon: 'split-horizontal', tone: 'orange' }, ['Part one', 'Part two']]);
 
   const live = ticketModel({ ...base, row: todo({ analyzing: { sessionId: 's2' } }), analysis: a }).analysis!;
-  assert.deepEqual([live.look.label, live.actions.map((x) => x.label)], ['Analyzing', ['Watch the analysis']], 'no Analyze again while one runs');
+  assert.deepEqual([live.look.label, live.actions.map((x) => x.label)], ['Making a plan', ['Watch the plan being made']], 'no Analyze again while one runs');
   const building = ticketModel({ ...base, row: row('ACME-1', 'running', 'running'), analysis: a }).analysis!;
-  assert.deepEqual([building.look.label, building.actions, building.open], ['Analyzed before the build', [], []], 'no Analyze again while it\'s built, and nothing left to answer');
+  assert.deepEqual([building.look.label, building.actions, building.open], ['Planned before the build', [], []], 'no Analyze again while it\'s built, and nothing left to answer');
   assert.deepEqual(building.decided.map((d) => [d.answer, d.assumed]), [['Only the primary.', true], ['Decision Maker', false]], 'what its builder assumed, and what a person decided');
   const none = ticketModel({ ...base, row: row('ACME-1', 'todo', 'ready', { analysisRequired: true }), analysis: null }).analysis!;
-  assert.deepEqual([none.look.label, none.actions.map((x) => [x.label, !!x.primary])], ['Not analyzed yet', [['Analyze', true]]]);
+  assert.deepEqual([none.look.label, none.actions.map((x) => [x.label, !!x.primary])], ['No plan yet', [['Make a plan', true]]]);
   assert.equal(ticketModel({ ...base, row: row('ACME-1', 'running', 'running'), analysis: null }).analysis, null, 'built without one: no section');
 
   const card = trackerBoard(board(), [todo(), row('ACME-3', 'todo', 'ready', { analysisRequired: true })], '/r');
   const acc = (key: string) => card.columns.flatMap((c) => c.cards).find((c) => c.key === key)!.acc!;
-  assert.deepEqual([acc('ACME-1').look.label, acc('ACME-1').needsYou, acc('ACME-1').action!.label], ['Needs you: 1 question from its analysis', true, 'Answer']);
+  assert.deepEqual([acc('ACME-1').look.label, acc('ACME-1').needsYou, acc('ACME-1').action!.label], ['Needs you: 1 question from its plan', true, 'Answer']);
   assert.equal(acc('ACME-3').action!.command, 'acc.task.analyze', 'a tracker\'s card offers the analysis first, where it\'s wanted');
 });
 
@@ -580,7 +580,7 @@ test('a ratchet\'s check carries its numbers, from the environment\'s floor to t
   // The page shows the line, with an arrow, and never offers Waive… on a ratchet, failing or not.
   const page = pageSource('task-page.ts');
   assert.match(page, /c\.ratchet\?\.numbers \? ratchetNumbers\(c\.ratchet, c\.summary\)/);
-  assert.match(page, /c\.waivable \? Object\.assign\(button\('Waive…'/);
+  assert.match(page, /c\.waivable \? Object\.assign\(button\(`\$\{WORDS\.acceptAnyway\}…`/);
   const failing = ticketCheck('tests', { ...receipt, status: 'fail', summary: 'tests 660 is below its floor 669, by 9.' }, '', {}, spec);
   const rows = checkRows([failing, { gate: 'lint', status: 'fail', summary: '2 problems.' }], 'task/T-1');
   assert.deepEqual(rows.map((r) => [r.gate, r.look.label, r.waivable]), [['tests', 'fail', false], ['lint', 'fail', true]]);

@@ -1,0 +1,4 @@
+/* The Tasks tab's first steps (T-96): five numbered steps, wrapping onto as many lines as the width needs. */
+.first-steps-text { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 4px; }
+.first-steps-list { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 2px 18px; }
+.first-steps-list li { display: inline-flex; align-items: center; gap: 4px; }

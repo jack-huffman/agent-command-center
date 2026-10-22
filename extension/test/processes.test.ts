@@ -39,7 +39,7 @@ test('no name is empty, a command line, a path, or another process\'s name', () 
 
 test('the names the ticket asks for, and a process\'s button is a command the extension declares', () => {
   const asked: Record<string, string> = {
-    'gate run': 'Run the checks', done: 'Finish the task', block: 'Mark it blocked', land: 'Open its pull request', sync: 'Refresh from GitHub',
+    'gate run': 'Run the checks', done: 'Finish the task', block: 'Mark it blocked', land: 'Open pull request', sync: 'Refresh from GitHub',
     promote: 'Promote', intake: 'Bring in tickets', doctor: 'Check the setup', init: 'Set up this project', 'rules import': 'Import the team\'s rules',
   };
   for (const [acc, name] of Object.entries(asked)) assert.equal(processName(acc), name);
@@ -81,11 +81,11 @@ test('each file a person is told about is real: a page this repo keeps, or one a
 const FROM_CORE: [string, string][] = [
   ['Checks haven\'t passed on abc1234: run acc gate run, then acc done.', 'Checks haven\'t passed on abc1234: run the checks, then "Finish the task".'],
   ['Run acc gate run first.', 'Run the checks first.'],
-  ['Builders never push; acc land does that.', 'Builders never push; "Open its pull request" does that.'],
-  ['Pull requests are a person\'s: acc land opens one after review, and a person merges it.', 'Pull requests are a person\'s: "Open its pull request" opens one after review, and a person merges it.'],
+  ['Builders never push; acc land does that.', 'Builders never push; "Open pull request" does that.'],
+  ['Pull requests are a person\'s: acc land opens one after review, and a person merges it.', 'Pull requests are a person\'s: "Open pull request" opens one after review, and a person merges it.'],
   ['acc done waits for every required check to pass, and a check whose tool is missing can only report an error.', '"Finish the task" waits for every required check to pass, and a check whose tool is missing can only report an error.'],
   ['No step B99. Run acc doctor to see them all.', 'No step B99. Check the setup to see them all.'],
-  ['It was picked for ACME-1: pick another with acc dispatch ACME-1 --effort <level>, or drop it with acc dispatch ACME-1 --effort default.', 'It was picked for ACME-1: pick another with "Dispatch ACME-1 to an agent", or drop it with "Dispatch ACME-1 to an agent".'],
+  ['It was picked for ACME-1: pick another with acc dispatch ACME-1 --effort <level>, or drop it with acc dispatch ACME-1 --effort default.', 'It was picked for ACME-1: pick another with "Build ACME-1", or drop it with "Build ACME-1".'],
   ['Each step is a pull request (`acc promote`), and a deploy after it merges (`acc deploy`).', 'Each step is a pull request ("Promote"), and a deploy after it merges ("Deploy").'],
   ['Run `acc deploy qa --plan` to see what it would do.', 'Deploy to qa to see what it would do.'],
   ['It merged, so deploy it: acc deploy qa.', 'It merged, so deploy it: "Deploy to qa".'],
@@ -114,9 +114,15 @@ test('a sample of acc\'s own messages reach a person in process words, with no c
   }
 });
 
-test('edge cases: text with no command comes back as it was, acc as a name stays, and an empty message is empty', () => {
-  for (const s of ['', 'acc keeps the board.', 'acc\'s default is two.', 'Nothing to do.', 'The account is acme-bot.', 'git push origin HEAD']) assert.equal(inProcessWords(s), s);
-  assert.equal(inProcessWords('acc nonsense here'), 'acc nonsense here', 'a word that isn\'t one of acc\'s commands');
+test('edge cases: text with no command comes back as it was, acc as a name is the Command Center, and an empty message is empty', () => {
+  for (const s of ['', 'The Command Center keeps the board.', 'Nothing to do.', 'The account is acme-bot.', 'git push origin HEAD', 'acc.task.dispatch', 'acc@agent-command-center']) assert.equal(inProcessWords(s), s);
+  // acc by name (T-96): at a sentence's start, after one, mid-sentence, as "the acc plugin" and as "this acc".
+  assert.equal(inProcessWords('acc keeps the board.'), 'The Command Center keeps the board.');
+  assert.equal(inProcessWords('Saved. acc\'s default is two.'), 'Saved. The Command Center\'s default is two.');
+  assert.equal(inProcessWords('It runs where acc can see it.'), 'It runs where the Command Center can see it.');
+  assert.equal(inProcessWords('Install the acc plugin first.'), 'Install the Command Center\'s Claude Code plugin first.');
+  assert.equal(inProcessWords('older than this acc (0.36.0).'), 'older than this Command Center (0.36.0).');
+  assert.equal(inProcessWords('acc nonsense here'), 'The Command Center nonsense here', 'a word that isn\'t one of acc\'s commands is no command, and acc is still the Command Center');
   assert.equal(inProcessWords('acc done'), '"Finish the task"', 'a command alone');
   assert.equal(inProcessWords('acc review ACME-12'), '"Review ACME-12 with an agent"', 'a task\'s key is what it\'s done to');
 });

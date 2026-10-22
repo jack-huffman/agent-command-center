@@ -123,7 +123,7 @@ function ruleDraft(c: RuleCard): HTMLElement {
     el('div', 'rule-check-row', el('div', 'ticks', tickLabel), on ? kind : null),
     field(c, 'note', 'Anything else for the builder (optional)', d.note, 2, () => undefined),
     el('p', 'muted small rule-draft-note', icon('info'),
-      el('span', '', `Confirm adds one task in To do, holding the rule${on ? ', the check it asks for' : ''} and the ${reviewsOf(c)} reviews it came from. acc never writes the project\'s rules: the task does, and a person merges it.`)),
+      el('span', '', `Confirm adds one task in To do, holding the rule${on ? ', the check it asks for' : ''} and the ${reviewsOf(c)} reviews it came from. The Command Center never writes the project\'s rules: the task does, and a person merges it.`)),
     el('div', 'rule-draft-bar', cancel, confirm));
   box.setAttribute('role', 'group');
   box.setAttribute('aria-label', `Draft task for ${c.id}`);
@@ -184,7 +184,7 @@ const seen = new WeakSet<Model>();
 function onRuleDone(msg: { action?: string; ok?: boolean; error?: string; project?: string; id?: string }): void {
   const c = { project: msg.project ?? '', id: msg.id ?? '' };
   const was = pending.what(ruleKey(c));
-  pending.settle(ruleKey(c), msg.ok ? null : `${was === 'dismiss' || msg.action === 'rule-dismiss' ? 'It wasn\'t dismissed' : 'The task wasn\'t added'}: ${msg.error?.trim() || 'acc didn\'t say why.'}`);
+  pending.settle(ruleKey(c), msg.ok ? null : `${was === 'dismiss' || msg.action === 'rule-dismiss' ? 'It wasn\'t dismissed' : 'The task wasn\'t added'}: ${msg.error?.trim() || 'the Command Center didn\'t say why.'}`);
   // Accepted or dismissed, the card goes, and so does a draft typed into it.
   if (msg.ok) {
     settled.add(ruleKey(c));

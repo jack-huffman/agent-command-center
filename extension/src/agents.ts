@@ -74,7 +74,7 @@ class AgentCommands extends Sidebar {
     const now = project.agents[role];
     const label = role === 'builder' ? 'Builders' : 'Reviewers';
     const what = await vscode.window.showQuickPick([
-      { label: '$(symbol-class) Model', description: `${now.model}${now.from.model === 'acc' ? ' (acc\'s default)' : ''}`, key: 'model' as const },
+      { label: '$(symbol-class) Model', description: `${now.model}${now.from.model === 'acc' ? ' (the Command Center\'s default)' : ''}`, key: 'model' as const },
       { label: '$(lightbulb) Effort', description: now.effort ?? 'default', detail: 'How hard it thinks: more effort is slower and uses more of your plan', key: 'effort' as const },
       { label: '$(debug-step-back) Fallback model', description: now.fallbackModel ?? 'none', detail: 'Used when the model is overloaded', key: 'fallback' as const },
       { label: '$(discard) Back to the defaults', key: 'reset' as const },
@@ -89,7 +89,7 @@ class AgentCommands extends Sidebar {
     const args: string[] = [];
     if (what.key === 'model' || what.key === 'fallback') {
       // A model nobody chose is acc's default, and choosing that clears it.
-      const pick = await models(what.key === 'model' ? (now.from.model === 'acc' ? null : now.model) : now.fallbackModel, what.key === 'model' ? `acc's default (${DEFAULT_MODEL})` : 'No fallback');
+      const pick = await models(what.key === 'model' ? (now.from.model === 'acc' ? null : now.model) : now.fallbackModel, what.key === 'model' ? `The Command Center's default (${DEFAULT_MODEL})` : 'No fallback');
       if (!pick) return;
       let value = pick.value;
       if (value === '?') {

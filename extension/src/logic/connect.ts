@@ -229,7 +229,7 @@ export function accRefusal(r: { code: number; stdout: string; stderr: string }):
   const first = Array.isArray(said?.errors) ? said.errors.find((e): e is string => typeof e === 'string' && !!e.trim()) : undefined;
   if (first) return inProcessWords(first);
   if (typeof said?.message === 'string' && said.message.trim()) return inProcessWords(said.message);
-  return inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || `acc exited ${r.code}`;
+  return inProcessWords((r.stderr || r.stdout).trim().split('\n')[0] ?? '') || `the Command Center stopped with code ${r.code}`;
 }
 
 /** Track's reply: done, why not, or that this ticket is already on its way and nothing more was started. */

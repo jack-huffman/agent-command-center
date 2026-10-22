@@ -88,12 +88,12 @@ test('each line opens its detail with the actions it had before (GH-160)', () =>
   assert.deepEqual([acme13.look.label, acme13.facts.map((f) => f.text), acme13.action?.label, acme13.open?.kind], ['Working', ['14 min', '2 checks, 1 waiting'], 'Watch', 'task']);
   assert.deepEqual(acme13.menu?.flags, { taskWatch: true, taskClaude: true, taskStop: true });
   assert.deepEqual(JSON.parse(acme13.menu!.ref.stops!).map((x: { label: string }) => x.label), ['Builder: Stop']);
-  assert.deepEqual(p.map((r) => r.facts[1]?.text).sort(), ['2 checks, 1 waiting', 'Claude Code\'s background sessions aren\'t answering, and this builder hasn\'t written to its conversation for longer than the quiet limit', 'Claude Code\'s background sessions aren\'t answering, so acc can\'t see this builder', 'near-tests running', 'reading the branch on GitHub; its verdict comes back by a push, which the next sync takes', 'tests running', 'validate running', 'validate running', 'validate running'], 'each task\'s checks, one fact each; a cloud review\'s (T-86) is what it does, and a builder acc can\'t see says why (T-92)');
+  assert.deepEqual(p.map((r) => r.facts[1]?.text).sort(), ['2 checks, 1 waiting', 'Claude Code\'s background sessions aren\'t answering, and this builder hasn\'t written to its conversation for longer than the quiet limit', 'Claude Code\'s background sessions aren\'t answering, so the Command Center can\'t see this builder', 'near-tests running', 'reading the branch on GitHub; its verdict comes back by a push, which the next sync takes', 'tests running', 'validate running', 'validate running', 'validate running'], 'each task\'s checks, one fact each; a cloud review\'s (T-86) is what it does, and a builder acc can\'t see says why (T-92)');
   // Asking, a builder's line answers: its question opens here.
   assert.deepEqual(p.find((r) => r.id === 'ACME-12')?.action?.do, { kind: 'detail', detail: { kind: 'question', id: 'm1-aaaa0002' } });
   // Ready, the merge queue and History open their task; an answer in History opens History at it.
   const ready = every(group(m, 'ready'))[0]!;
-  assert.deepEqual([ready.look.label, ready.action?.label, ready.open?.kind], ['Ready', 'Dispatch', 'task']);
+  assert.deepEqual([ready.look.label, ready.action?.label, ready.open?.kind], ['Ready', 'Build it', 'task']);
   const h = group(m, 'history').all;
   assert.ok(h.some((r) => r.open?.kind === 'task') && h.some((r) => r.open?.kind === 'detail'));
   const queued = every(group(busy(sampleQueueHub(NOW)), 'queue'));
@@ -290,7 +290,7 @@ test('only Needs you has primary buttons on the busy Overview; no other list, no
   assert.ok(theirs.length > 5, `${theirs.length} buttons outside Needs you`);
   assert.deepEqual(theirs.filter((b) => b.primary !== false), [], 'each list but Needs you uses the outlined button');
   const ready = buttons('ready');
-  assert.ok(ready.filter((b) => b.label === 'Dispatch').length >= 4 && ready.every((b) => b.primary === false), 'Ready\'s Dispatch buttons are outlined');
+  assert.ok(ready.filter((b) => b.label === 'Build it').length >= 4 && ready.every((b) => b.primary === false), 'Ready\'s Dispatch buttons are outlined');
   // Show all's full list says the same as the five the page shows.
   const all = group(m, 'needs-you').all;
   assert.ok(all.length > CAP && all.every((r) => !r.action || r.action.primary));

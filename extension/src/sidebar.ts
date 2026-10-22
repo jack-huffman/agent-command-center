@@ -150,7 +150,7 @@ export class Sidebar {
     if (live?.kind === 'background' && live.id && live.pid && live.state !== 'done' && live.state !== 'stopped' && live.state !== 'failed') {
       const ok = await vscode.window.showWarningMessage(`Take ${name} over in Claude Code?`, {
         modal: true,
-        detail: `It's ${live.state === 'blocked' ? 'waiting for an answer' : 'working'} in the background. A conversation can't run in two places, so acc stops it there, and a Claude Code tab carries on the same conversation, with its whole history. You drive it from the tab.${task?.state === 'running' ? ` Its task stays Running: finish it from the tab, or move it from the page.` : ''}`,
+        detail: `It's ${live.state === 'blocked' ? 'waiting for an answer' : 'working'} in the background. A conversation can't run in two places, so the Command Center stops it there, and a Claude Code tab carries on the same conversation, with its whole history. You drive it from the tab.${task?.state === 'running' ? ` Its task stays Running: finish it from the tab, or move it from the page.` : ''}`,
       }, 'Stop it and open');
       if (ok !== 'Stop it and open') return;
       const r = await runFile('claude', ['stop', live.id], live.cwd, process.env, undefined, 30_000);

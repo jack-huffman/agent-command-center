@@ -34,7 +34,7 @@ export const area: ExtensionArea = {
           } catch {
             task = undefined;
           }
-          if (task) void vscode.window.showInformationMessage(`Added ${task} in To do. Dispatch it when you're ready: a person merges its pull request.`);
+          if (task) void vscode.window.showInformationMessage(`Added ${task} in To do. Build it when you're ready: a person merges its pull request.`);
           return reply({ ok: true, ...(task ? { task } : {}) });
         })
         .catch((e: unknown) => reply({ ok: false, error: (e as Error).message }));

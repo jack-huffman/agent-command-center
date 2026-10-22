@@ -86,7 +86,7 @@ const pair = (head: string, rest: string, source = ''): HTMLElement => el('span'
 export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   const key = `an:${m.project}#${m.key}`;
   const sec = el('section', `analysis tone-edge-${a.look.tone}`,
-    el('div', 'an-head', el('h2', '', 'Analysis'), status(a.look), a.wording ? status(a.wording.look) : null, a.size ? el('span', 'chip an-size', `Size ${a.size}`) : null, el('span', 'spacer'), a.at ? when(a.at) : null));
+    el('div', 'an-head', el('h2', '', 'Plan'), status(a.look), a.wording ? status(a.wording.look) : null, a.size ? el('span', 'chip an-size', `Size ${a.size}`) : null, el('span', 'spacer'), a.at ? when(a.at) : null));
   sec.setAttribute('aria-label', `Analysis: ${a.look.label}`);
   if (a.note) sec.append(el('p', 'muted an-note', a.note));
   if (a.summary) sec.append(foldable(`${key}:summary`, el('p', 'an-summary', md(a.summary)), null, 4));

@@ -61,7 +61,7 @@ export function branchProtection(run: Runner, repo: string, branch: string, env:
     return { branch, state: 'enforced', why: `GitHub protects ${branch}${rules.length ? `: ${rules.join(', ')}` : ''}.` };
   }
   const upgrade = (r: { status: number; body: string }) => r.status === 403 && /upgrade to github pro|make this repository public/i.test(message(r.body));
-  if (upgrade(protection)) return { branch, state: 'unavailable', why: `GitHub doesn't offer branch protection or rulesets on ${repo}: a private repo on the free plan. A push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented.` };
+  if (upgrade(protection)) return { branch, state: 'unavailable', why: `GitHub doesn't offer branch protection or rulesets on ${repo}: a private repo on the free plan. A push the guard didn't catch would be caught by the Command Center's next sync, after the fact, not prevented.` };
   if (protection.status !== 404) return { branch, state: 'unknown', why: `gh couldn't read ${branch}'s protection: ${message(protection.body) || protection.error || `HTTP ${protection.status || '?'}`}.` };
   const rules = read(run, `repos/${repo}/rules/branches/${encodeURIComponent(branch)}`, env);
   if (rules.status === 200) {
@@ -72,9 +72,9 @@ export function branchProtection(run: Runner, repo: string, branch: string, env:
       applied = [];
     }
     if (Array.isArray(applied) && applied.length) return { branch, state: 'enforced', why: `A ruleset applies to ${branch}: ${[...new Set(applied.map((r) => String(r.type ?? 'rule').replace(/_/g, ' ')))].join(', ')}.` };
-    return { branch, state: 'none', why: `GitHub enforces no protection and no ruleset on ${branch}: a push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.` };
+    return { branch, state: 'none', why: `GitHub enforces no protection and no ruleset on ${branch}: a push the guard didn't catch would be caught by the Command Center's next sync, after the fact, not prevented. Add protection or a ruleset on GitHub to prevent it.` };
   }
-  if (upgrade(rules)) return { branch, state: 'unavailable', why: `GitHub doesn't offer branch protection or rulesets on ${repo}: a private repo on the free plan. A push the guard didn't catch would be caught by acc's next sync, after the fact, not prevented.` };
+  if (upgrade(rules)) return { branch, state: 'unavailable', why: `GitHub doesn't offer branch protection or rulesets on ${repo}: a private repo on the free plan. A push the guard didn't catch would be caught by the Command Center's next sync, after the fact, not prevented.` };
   return { branch, state: 'unknown', why: `gh couldn't read ${branch}'s rulesets: ${message(rules.body) || rules.error || `HTTP ${rules.status || '?'}`}.` };
 }
 
