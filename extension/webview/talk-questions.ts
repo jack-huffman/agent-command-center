@@ -9,9 +9,6 @@ import { button, el, icon, md, work } from './dom.ts';
 import { memory, remember, state } from './state.ts';
 import { pickByKey, stepProgress, stepRadio, type StepState, stepTag } from './stepper.ts';
 
-/** The longest answer in the person's own words, as acc takes it: three fit in one message. */
-const ANSWER_MAX = 1000;
-
 /** The pick that's the person's own words. */
 const OWN = 'own';
 
@@ -49,12 +46,12 @@ let focusNext: 'radio' | 'box' | 'back' | null = null;
 const redraw = (): void => { if (state.last) state.draw(state.last); };
 const has = (key: string): boolean => memory().opened.includes(key);
 
-/** A question's picks, in order: its answers, the suggestion first, then Answer in my own words where that goes. */
-export const picksOf = (q: TicketQuestion): string[] => [...q.options.map((_, k) => `o${k}`), ...(q.own || !q.options.length ? [OWN] : [])];
+/** A question's picks, in order: its answers, at most `max` of them with the suggestion first, then Answer in my own words, always (D-T-114). */
+export const picksOf = (q: TicketQuestion, max: number): string[] => [...q.options.slice(0, max).map((_, k) => `o${k}`), OWN];
 
 /** What's picked in a question: what the person picked, else the first, the suggestion. */
-function pickedIn(b: string, k: number, q: TicketQuestion): string {
-  const picks = picksOf(q);
+function pickedIn(b: string, k: number, q: TicketQuestion, max: number): string {
+  const picks = picksOf(q, max);
   const kept = memory().drafts[pickKey(b, k)];
   return kept && picks.includes(kept) ? kept : picks[0]!;
 }
@@ -75,10 +72,10 @@ function stateOf(b: string, k: number, at: number): StepState {
 }
 
 /** The answers, together: each confirmed one's pick or own words; a skipped one, or one not reached, is null. */
-export function answersOf(b: string, items: TicketQuestion[]): TalkAnswerIn[] {
-  return items.map((q, k) => {
+export function answersOf(b: string, q: NonNullable<TicketTalk['questions']>): TalkAnswerIn[] {
+  return q.items.map((item, k) => {
     if (!has(doneKey(b, k))) return null;
-    const pick = pickedIn(b, k, q);
+    const pick = pickedIn(b, k, item, q.optionsMax);
     return pick === OWN ? { text: ownWords(b, k) } : { option: Number(pick.slice(1)) };
   });
 }
@@ -101,7 +98,7 @@ function pick(c: Card, k: number, id: string, into: 'radio' | 'box' = 'radio'): 
 function confirmOff(c: Card, k: number): string | null {
   if (c.send.busy) return 'Wait for your answers to go';
   if (c.s.send?.disabled) return c.s.send.disabled;
-  return pickedIn(c.b, k, c.q.items[k]!) === OWN && !ownWords(c.b, k) ? 'Type your answer first' : null;
+  return pickedIn(c.b, k, c.q.items[k]!, c.q.optionsMax) === OWN && !ownWords(c.b, k) ? 'Type your answer first' : null;
 }
 
 /** Marks a question confirmed or skipped, then goes on; after the last, every answer goes at once. */
@@ -109,7 +106,7 @@ function settle(c: Card, k: number, as: 'done' | 'skip'): void {
   const [on, off] = as === 'done' ? [doneKey(c.b, k), skipKey(c.b, k)] : [skipKey(c.b, k), doneKey(c.b, k)];
   remember((x) => { x.opened = [...new Set([...x.opened, on])].filter((y) => y !== off); });
   if (k + 1 < c.q.items.length) return goTo(c, k + 1);
-  c.send.go(c.q.turn, answersOf(c.b, c.q.items));
+  c.send.go(c.q.turn, answersOf(c.b, c.q));
   redraw();
 }
 
@@ -160,7 +157,7 @@ function answerRow(c: Card, k: number, id: string, n: number, on: boolean): HTML
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'text-input';
-    input.maxLength = ANSWER_MAX;
+    input.maxLength = c.q.answerMax;
     input.value = memory().drafts[ownKey(c.b, k)] ?? '';
     input.placeholder = 'Your answer';
     input.dataset.keep = ownKey(c.b, k);
@@ -192,7 +189,7 @@ function onKey(c: Card, e: KeyboardEvent): void {
     confirm(c);
     return;
   }
-  if (!typing) pickByKey(e, picksOf(c.q.items[k]!), pickedIn(c.b, k, c.q.items[k]!), (id) => pick(c, k, id));
+  if (!typing) pickByKey(e, picksOf(c.q.items[k]!, c.q.optionsMax), pickedIn(c.b, k, c.q.items[k]!, c.q.optionsMax), (id) => pick(c, k, id));
 }
 
 /**
@@ -218,8 +215,8 @@ export function questionCard(project: string, s: TicketTalk, send: AnswerSend): 
   const last = at === n - 1;
   const heading = el('h3', 'rp-q', md(item.question));
   heading.id = `talk-q-${q.turn}-${at}`;
-  const on = pickedIn(c.b, at, item);
-  const group = el('div', 'rp-options', ...picksOf(item).map((id, i) => answerRow(c, at, id, i + 1, id === on)));
+  const on = pickedIn(c.b, at, item, q.optionsMax);
+  const group = el('div', 'rp-options', ...picksOf(item, q.optionsMax).map((id, i) => answerRow(c, at, id, i + 1, id === on)));
   group.setAttribute('role', 'radiogroup');
   group.setAttribute('aria-labelledby', heading.id);
   // The question, its why and its answers are the agent's words: work data, which the words check leaves alone.

@@ -4,6 +4,7 @@
  */
 
 import type { Answer } from '../../../packages/core/src/questions.ts';
+import { OPTIONS_MAX } from '../../../packages/core/src/talk-questions.ts';
 import { isUnder } from '../logic/shared.ts';
 import { type HubLike, type ModelArea, sessionKey, short } from './shared.ts';
 
@@ -130,13 +131,17 @@ export function alwaysLabel(suggestions: unknown[]): string | null {
   return 'Allow, and don\'t ask again this session';
 }
 
+/** The most options a question that ticks several lists (D-T-114): a single choice lists at most OPTIONS_MAX, and the person writes their own. */
+export const MULTI_OPTIONS_MAX = 8;
+
 export function questionsOf(input: Record<string, unknown>): QuestionCard['questions'] {
   const qs = Array.isArray(input.questions) ? input.questions : [];
   return qs.slice(0, 6).flatMap((q: any) => {
     const question = text(q?.question, 1000);
     if (!question) return [];
-    const options = (Array.isArray(q.options) ? q.options : []).slice(0, 8).flatMap((o: any) => (text(o?.label, 200) ? [{ label: o.label as string, description: text(o.description, 500) ?? '' }] : []));
-    return [{ question, header: text(q.header, 40) ?? '', multiSelect: q.multiSelect === true, options }];
+    const multiSelect = q.multiSelect === true;
+    const options = (Array.isArray(q.options) ? q.options : []).flatMap((o: any) => (text(o?.label, 200) ? [{ label: o.label as string, description: text(o.description, 500) ?? '' }] : [])).slice(0, multiSelect ? MULTI_OPTIONS_MAX : OPTIONS_MAX);
+    return [{ question, header: text(q.header, 40) ?? '', multiSelect, options }];
   });
 }
 

@@ -204,7 +204,7 @@ export const ANALYSIS_SCHEMA = {
     },
     decisions: {
       type: 'array',
-      description: 'Each design choice a reviewer would want a person to make, with two or three options. A small task may have none',
+      description: 'Each design choice a reviewer would want a person to make, with two or three options: the three that matter most, never a long list. A small task may have none',
       items: {
         type: 'object', additionalProperties: false, required: ['title', 'why', 'options', 'recommended', 'because'],
         properties: {

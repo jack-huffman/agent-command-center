@@ -50,5 +50,9 @@
   font doesn't draw, a red and a green state in one table, or a new table it
   doesn't walk. `extension/test/colours.test.ts` fails on any colour the page
   writes outside the theme.
+- A single choice offers at most three options and the person's own words, everywhere a person is asked (D-T-114);
+  only a question that ticks several lists every option. `extension/test/choice-limit.test.ts` walks every
+  webview module that draws a radio group and every agent schema, and fails on a single choice that can show
+  a fourth option. A new radio group is named there, with how it keeps the rule.
 - Commit as `jack-huffman <jack.huffman17@gmail.com>`. This is set in the repo's
   local git config, so don't change it.

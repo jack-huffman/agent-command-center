@@ -2114,7 +2114,7 @@ export const MUTANTS: Mutant[] = [
   // A change to an approved plan's choice asks first (T-97).
   { name: 'Enter confirms but stays on its step', file: 'review-plan.ts', find: '  goTo(next(review, s.id));\n}', replace: '  redraw();\n}', kills: [caseNamed('review plan:')] },
   { name: 'the agent\'s questions all show at once', file: 'talk-questions.ts', find: "    step,\n    el('div', 'rp-foot-row talk-card-foot'", replace: "    ...q.items.map((x, k) => (k === at ? step : el('div', 'rp-step', el('h3', 'rp-q', md(x.question))))),\n    el('div', 'rp-foot-row talk-card-foot'", kills: [caseNamed('questions:')] },
-  { name: 'an answer goes before the last question is done', file: 'talk-questions.ts', find: '  if (k + 1 < c.q.items.length) return goTo(c, k + 1);', replace: '  if (k + 1 < c.q.items.length) { c.send.go(c.q.turn, answersOf(c.b, c.q.items)); return goTo(c, k + 1); }', kills: [caseNamed('questions:')] },
+  { name: 'an answer goes before the last question is done', file: 'talk-questions.ts', find: '  if (k + 1 < c.q.items.length) return goTo(c, k + 1);', replace: '  if (k + 1 < c.q.items.length) { c.send.go(c.q.turn, answersOf(c.b, c.q)); return goTo(c, k + 1); }', kills: [caseNamed('questions:')] },
   { name: 'Back on a question forgets what was picked', file: 'talk-questions.ts', find: '  if (k > 0) goTo(c, k - 1);', replace: "  if (k > 0) { remember((x) => { for (const key of Object.keys(x.drafts)) if (key.includes(':pick:')) delete x.drafts[key]; }); goTo(c, k - 1); }", kills: [caseNamed('questions:')] },
   { name: 'Back forgets what was picked', file: 'review-plan.ts', find: 'if (i > 0) goTo(review.steps[i - 1]!.id);', replace: "if (i > 0) { remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; }); goTo(review.steps[i - 1]!.id); }", kills: [caseNamed('review plan:')] },
   { name: 'Escape forgets what was picked', file: 'review-plan.ts', find: '  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n', replace: "  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n  remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; });\n", kills: [caseNamed('review plan:')] },
@@ -2269,7 +2269,7 @@ function conversationData(now: number): BehaviourData['conversation'] {
 function questionsData(now: number): BehaviourData['questions'] {
   const model = sampleConversationQuestions(now);
   const q = model.talk?.questions;
-  if (q?.items.length !== 3 || !q.items[2]!.own) throw new Error('The questions case needs ACME-21\'s three questions waiting, the last open to own words.');
+  if (q?.items.length !== 3 || q.items[2]!.options.length < 2) throw new Error('The questions case needs ACME-21\'s three questions waiting, the last with answers to pick from.');
   const own = 'The lead\'s own contact, unless it has none';
   return {
     model, asked: q.items.map((x) => x.question), own,

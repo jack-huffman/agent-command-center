@@ -39,8 +39,8 @@ const result = (structured: unknown, session: string): RunResult => ({
 const FIRST = {
   understood: 'You want each stage change kept for two years, for the pipeline report.',
   questions: [
-    { question: 'Two years, or for ever?', why: 'It decides where history is kept.', options: ['Two years', 'For ever'], own: true },
-    { question: 'Closed deals too?', why: 'Closed deals double the rows.', options: ['Open deals only', 'Closed deals too'], own: false },
+    { question: 'Two years, or for ever?', why: 'It decides where history is kept.', options: ['Two years', 'For ever'] },
+    { question: 'Closed deals too?', why: 'Closed deals double the rows.', options: ['Open deals only', 'Closed deals too'] },
   ],
 };
 
@@ -180,7 +180,7 @@ test('edge case: a task with a plan, a reply under way, an empty message or one 
 });
 
 test('edge case: the reply\'s questions are cut to three, blanks are dropped, and one that isn\'t JSON says what came back', () => {
-  const q = (question: string) => ({ question, why: 'w', options: ['a', 'b'], own: false });
+  const q = (question: string) => ({ question, why: 'w', options: ['a', 'b'] });
   const r = parseOpeningReply(result({ understood: ' It. ', questions: [q('1'), q(' '), q('2'), q('3'), q('4')] }, 's').stdout);
   assert.deepEqual([r.understood, r.questions.map((x) => x.question), r.sessionId], ['It.', ['1', '2', '3'], 's']);
   assert.equal(OPENING_QUESTIONS_MAX, 3);

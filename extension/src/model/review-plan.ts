@@ -5,8 +5,9 @@
  * data, and no vscode import, so it's testable.
  */
 
-import type { Analysis, PlanOption } from '../../../packages/core/src/analyze.ts';
+import type { Analysis, PlanDecision, PlanOption } from '../../../packages/core/src/analyze.ts';
 import { askOf, choiceName } from '../../../packages/core/src/plan.ts';
+import { OPTIONS_MAX } from '../../../packages/core/src/talk-questions.ts';
 import { questionsWord, type TaskRow } from '../logic/shared.ts';
 import { choicesWord } from '../logic/plan.ts';
 import type { TicketAnalysis } from './task-page.ts';
@@ -59,6 +60,19 @@ export interface PlanReview {
 /** A step is done once it's chosen or answered, or, for the ticket's author, asked on the ticket. */
 export const stepDone = (s: ReviewChoice | ReviewQuestion): boolean => (s.kind === 'choice' ? !!s.chosen : s.answer !== null || (s.author && s.client !== null));
 
+/**
+ * A choice's options as the step offers them (D-T-114): the recommended first, at most OPTIONS_MAX; the one chosen
+ * now keeps its place when it would fall past the cap. Something else… follows them on the page.
+ */
+function offered(d: PlanDecision): ReviewOption[] {
+  const rest = d.options.filter((o) => o.id !== d.recommended);
+  const all = [...d.options.filter((o) => o.id === d.recommended), ...rest];
+  const kept = all.slice(0, OPTIONS_MAX);
+  const chosen = d.choice ? all.find((o) => o.id === d.choice!.option) : undefined;
+  if (chosen && !kept.includes(chosen)) kept[OPTIONS_MAX - 1] = chosen;
+  return kept.map((o) => ({ ...o, recommended: o.id === d.recommended }));
+}
+
 /** Questions for you, then the choices, then the questions for the ticket's author. */
 export function reviewSteps(a: Analysis, open: TicketAnalysis['open']): ReviewStep[] {
   const client = new Map(open.map((q) => [q.id, q.client ?? null]));
@@ -69,7 +83,7 @@ export function reviewSteps(a: Analysis, open: TicketAnalysis['open']): ReviewSt
     const rec = d.options.filter((o) => o.id === d.recommended);
     return {
       kind: 'choice', id: d.id, title: d.title, why: d.why, because: d.because,
-      options: [...rec, ...d.options.filter((o) => o.id !== d.recommended)].map((o) => ({ ...o, recommended: o.id === d.recommended })),
+      options: offered(d),
       chosen: d.choice ? { option: d.choice.option, name: choiceName(d) } : null,
     };
   });

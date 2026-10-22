@@ -25,13 +25,13 @@ const opening = (talk: PlanTalk, more: Partial<Parameters<typeof ticketTalk>[0]>
 
 // ---------------------------------------------------------------- the model
 
-test('the agent\'s last reply\'s questions wait, each with its answers, the suggestion first and marked, and whether own words go', () => {
+test('the agent\'s last reply\'s questions wait, each with its answers, the suggestion first and marked', () => {
   const s = opening(sampleOpening(NOW, false, 0, true));
   assert.equal(s.questions?.turn, 't2');
-  assert.deepEqual(s.questions?.items.map((q) => [q.question, q.options.map((o) => `${o.label}${o.suggested ? ' *' : ''}`), q.own]), [
-    [OPENING_QUESTIONS[0]!.question, ['Yes, them too *', 'No, people only'], true],
-    [OPENING_QUESTIONS[1]!.question, ['Keep it, add none *', 'Add another', 'Replace it'], false],
-    [OPENING_QUESTIONS[2]!.question, ['The lead\'s own contact *', 'The account\'s main contact'], true],
+  assert.deepEqual(s.questions?.items.map((q) => [q.question, q.options.map((o) => `${o.label}${o.suggested ? ' *' : ''}`)]), [
+    [OPENING_QUESTIONS[0]!.question, ['Yes, them too *', 'No, people only']],
+    [OPENING_QUESTIONS[1]!.question, ['Keep it, add none *', 'Add another', 'Replace it']],
+    [OPENING_QUESTIONS[2]!.question, ['The lead\'s own contact *', 'The account\'s main contact']],
   ]);
   assert.equal(s.questions?.items[0]!.why, OPENING_QUESTIONS[0]!.why);
 });
@@ -45,7 +45,7 @@ test('edge cases: no questions wait once the person said something after, past t
   const old = sampleOpening(NOW, false, 0, true);
   old.turns[1] = { ...old.turns[1]!, questions: undefined, asks: ['Closed deals too?'], unsure: ['Which contact is primary'] };
   const s = opening(old);
-  assert.deepEqual(s.questions?.items, [{ question: 'Closed deals too?', why: '', options: [], own: true }]);
+  assert.deepEqual(s.questions?.items, [{ question: 'Closed deals too?', why: '', options: [] }]);
   assert.match(s.turns[1]!.text, /\n\nNot sure yet:\n- Which contact is primary$/, 'what it was unsure of stays, under its words');
 });
 
@@ -163,8 +163,8 @@ test('the card asks one question at a time: "Question 1 of 3", the question, its
   const group = c.all('rp-options')[0]!;
   assert.deepEqual([group.getAttribute('role'), group.getAttribute('aria-labelledby')], ['radiogroup', (c.all('rp-q')[0] as unknown as { id: string }).id]);
   assert.equal(c.all('rp-dot').length, 3);
-  assert.deepEqual(picksOf({ question: 'q', why: '', options: [{ label: 'a', suggested: true }, { label: 'b', suggested: false }], own: false }), ['o0', 'o1'], 'no own words where they don\'t go');
-  assert.deepEqual(picksOf({ question: 'q', why: '', options: [], own: false }), ['own'], 'edge case: a question with no answers takes own words');
+  assert.deepEqual(picksOf({ question: 'q', why: '', options: [{ label: 'a', suggested: true }, { label: 'b', suggested: false }] }, 3), ['o0', 'o1', 'own'], 'own words follow the answers, always (D-T-114)');
+  assert.deepEqual(picksOf({ question: 'q', why: '', options: [] }, 3), ['own'], 'edge case: a question with no answers takes own words');
 });
 
 test('a number picks, Enter confirms and goes on, sending nothing; Back keeps the pick; Skip marks the dot orange; the last sends every answer once', () => {
@@ -249,7 +249,7 @@ test('edge case: Up and Down move round the answers, another key does nothing, a
   press(card(), '9', radio(card()));
   assert.equal(picked(card()), 'o0');
   const b = questionsKey(ROOT, 'ACME-21', 't2');
-  assert.deepEqual(answersOf(b, questions.talk!.questions!.items), [null, null, null], 'nothing confirmed, nothing answered');
+  assert.deepEqual(answersOf(b, questions.talk!.questions!), [null, null, null], 'nothing confirmed, nothing answered');
   answersSent(ROOT, 'ACME-21');
   assert.equal(questionCard(ROOT, { ...questions.talk!, questions: null }, { busy: false, error: null, go: () => {} }), null, 'none waiting, no card');
 });

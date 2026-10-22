@@ -74,12 +74,11 @@ export interface TicketTurn {
   long: boolean;
 }
 
-/** One of the agent's questions, as the panel asks it (T-113): its answers, the suggestion first, and whether own words go. */
+/** One of the agent's questions, as the panel asks it (T-113): its answers (at most OPTIONS_MAX), the suggestion first. Own words always go (D-T-114). */
 export interface TicketQuestion {
   question: string;
   why: string;
   options: { label: string; suggested: boolean }[];
-  own: boolean;
 }
 
 /** About how many lines of a reply show before it folds (T-113), and how many characters a line holds, as the panel's width reads. */
@@ -127,9 +126,9 @@ export interface TicketTalk {
   making: { phase: Making; words: string } | null;
   /**
    * The agent's questions waiting for the person (T-113): its last reply's, while nothing was said after it and
-   * the plan is the version it asked about. Null with none, or past the build.
+   * the plan is the version it asked about; `optionsMax` is the most answers a question lists before own words, and `answerMax` the longest own-words answer the box takes (D-T-114). Null with none, or past the build.
    */
-  questions: { turn: string; items: TicketQuestion[] } | null;
+  questions: { turn: string; items: TicketQuestion[]; optionsMax: number; answerMax: number } | null;
   /**
    * How many turns fold under "Earlier in this conversation" (T-113): all before the person's last message, so the
    * latest exchange shows; 0 when there's nothing earlier.
@@ -188,7 +187,7 @@ function openQuestions(i: TalkIn, todo: boolean): TicketTalk['questions'] {
   const items = last?.who === 'agent' ? turnQuestions(last) : [];
   const version = i.analysis ? planVersion(i.analysis) : 0;
   if (!todo || !last || !items.length || last.version !== version) return null;
-  return { turn: last.id, items: items.map((q) => ({ question: q.question, why: q.why, options: q.options.map((label, k) => ({ label, suggested: k === 0 })), own: q.own })) };
+  return { turn: last.id, items: items.map((q) => ({ question: q.question, why: q.why, options: q.options.slice(0, OPTIONS_MAX).map((label, k) => ({ label, suggested: k === 0 })) })), optionsMax: OPTIONS_MAX, answerMax: ANSWER_MAX };
 }
 
 /** The turns before the person's last message, which fold (T-113); with no message of theirs, all but the last. */
@@ -265,7 +264,7 @@ export type Message =
 /** One answer as the page sends it. */
 export type TalkAnswerIn = { option: number } | { text: string } | null;
 
-/** An answer the page may send: skipped, one of at most four options, or own words no longer than ANSWER_MAX. */
+/** An answer the page may send: skipped, one of at most OPTIONS_MAX options, or own words no longer than ANSWER_MAX. */
 const answerOk = (a: unknown): boolean => a === null || (typeof a === 'object' && !Array.isArray(a) && (
   Object.keys(a).join() === 'option' ? Number.isInteger((a as { option: unknown }).option) && (a as { option: number }).option >= 0 && (a as { option: number }).option < OPTIONS_MAX
     : Object.keys(a).join() === 'text' && short((a as { text: unknown }).text, ANSWER_MAX)));
