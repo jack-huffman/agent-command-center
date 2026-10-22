@@ -1,9 +1,9 @@
 // acc's Agents commands that take a task on from its build: analyze, analysis, review, land, autopilot
 // and sync.
 
-import { AccError, alive, type Analysis, analyze, answerAnalysis, analysisRequired, planProblems, questionsForYou, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, type BuilderPlace, clearBranchMoves, closesIssues, closeWords, cloudNeeds, cloudReason, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, pruneVerifications, readAnalysis, review, reviewInCloud, reviewPlace, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, alive, type Analysis, analyze, answerAnalysis, analysisRequired, planProblems, questionsForYou, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, type BuilderPlace, clearBranchMoves, closesIssues, closeWords, cloudNeeds, cloudReason, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, parsePlanTicket, pruneVerifications, readWords, readAnalysis, review, reviewInCloud, reviewPlace, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
-import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, steps, stepWords } from '../shared.ts';
+import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, readFileArg, steps, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
 import { askedOf, planLines } from './plan.ts';
 import { recordedHere } from './plan-talk.ts';
@@ -79,6 +79,7 @@ function analysisLines(a: Analysis): string[] {
     ...list('Tests', a.approach.tests),
     ...(a.split.length ? list('Split into', a.split) : []),
     '',
+    ...(readWords(a.ticket) ? [tone(readWords(a.ticket)!, 'dim')] : []),
     tone(`Size ${a.approach.size}. ${a.orgs.length ? `Read ${a.orgs.join(', ')}. ` : ''}Session ${a.sessionId}.`, 'dim'),
   ];
 }
@@ -87,10 +88,13 @@ function cmdAnalyze(o: Opts, id: string): number {
   const by = personOnly(o, 'analyze a task');
   const { paths, config } = project(process.cwd());
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
+  // The whole ticket, as the Command Center read it from its tracker (T-110). Read now, so a bad file stops it first.
+  const file = o.ticket as string | undefined;
+  const text = file ? readFileArg(file === '-' ? 0 : file) : null;
   const a = analyze(paths, config, id.toUpperCase(), {
     run, now, env: process.env, accCommand: accCommand(), steps: steps(),
     onStart: (session, name) => say(tone(`Analyzing ${id.toUpperCase()}. The analyst reads the ticket${config.profile === 'salesforce' ? ', the code and the orgs' : ' and the code'}, and changes nothing. Session ${session}, named ${name}.`, 'dim')),
-  }, { by: `analyst:${id.toUpperCase()} for ${by}` });
+  }, { by: `analyst:${id.toUpperCase()} for ${by}`, ...(text !== null ? { ticket: (task) => parsePlanTicket(text, task) } : {}) });
   out(o, () => analysisLines(a).join('\n'), a);
   // An analysis with questions, or one that says split, is an analysis made: it exits 1, and its steps worked (D-052).
   const asks = openQuestions(a).length;
@@ -281,8 +285,10 @@ export const area: CommandArea = {
   help: {
     section: 'Agents',
     order: 31,
-    lines: `  acc analyze <id>                      Before the build: a read-only analyst works out the requirements, what's
-                                        there now (the code, and on Salesforce the orgs), the approach, and questions
+    lines: `  acc analyze <id> [--ticket <file>]    Before the build: a read-only analyst works out the requirements, what's
+                                        there now (the code, and on Salesforce the orgs), the approach, and questions.
+                                        --ticket gives the whole ticket as JSON: its comments, related tickets,
+                                        attachments' names and changes field; without it, the description only
   acc analysis <id>                     What the task's analysis found
   acc analysis answer <id> <q> "<text>" Answer one of its questions; when the last is answered, it's ready to build
   acc review <id> [--cloud | --local]   A read-only reviewer agent judges the task's latest commit:
@@ -313,6 +319,7 @@ export const area: CommandArea = {
     plan: { type: 'boolean', default: false },
     'close-done': { type: 'boolean', default: false },
     'branches-seen': { type: 'boolean', default: false },
+    ticket: { type: 'string' },
   },
   subcommands: { analysis: ['answer'] },
   commands: {
