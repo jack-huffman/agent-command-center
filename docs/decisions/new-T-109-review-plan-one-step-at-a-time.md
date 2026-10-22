@@ -43,6 +43,6 @@ asked to step through it one item at a time, as Claude Code's own prompts do.
   move. The sheet is a dialog named for the plan ("Review plan v1"); the options are a radio group named by
   the step's heading; More about this option says which option, and whether it's open.
 - **Checked by** `extension/test/review-plan.test.ts` (the model and the sheet), the browser case "review
-  plan: …" in `extension/scripts/behaviour.ts` with its three mutants (Enter that stays on its step, Back
-  that forgets the pick, Approve on with an item left), and the screenshot pages `ticket-plan-short`,
+  plan: …" in `extension/scripts/behaviour.ts` with its four mutants (Enter that stays on its step, Back
+  that forgets the pick, Escape that forgets the pick, Approve on with an item left), and the screenshot pages `ticket-plan-short`,
   `ticket-review-choice`, `ticket-review-question`, `ticket-review-answered` and `ticket-review-summary`.
