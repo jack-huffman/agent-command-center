@@ -109,6 +109,6 @@ test('acc plan claude gives Claude Code\'s plan-mode launch, and what that sessi
   const turn = talk(store).turns.find((t: { who: string }) => t.who === 'claude-code');
   assert.deepEqual(turn.recorded, ['Chose Custom object for Where history is kept', 'Answered Closed deals too?: Only open ones', 'Note on the plan: Keep two years']);
   assert.match(acc(dir, ['plan', 'claude', 'ACME-7'], undefined, env).out, /^Run this in .+, with ACC_PLAN_TALK=ACME-7:/);
-  assert.deepEqual([...TALK_SUBCOMMANDS], ['talk', 'use', 'note', 'claude']);
+  assert.deepEqual([...TALK_SUBCOMMANDS], ['start', 'talk', 'use', 'note', 'claude']);
   assert.match(TALK_HELP, /acc plan talk <id>/);
 });
