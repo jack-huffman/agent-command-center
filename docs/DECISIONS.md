@@ -8959,7 +8959,8 @@ ticket page, and Open in Claude Code for a longer session.
   output panel, where its steps show (D-171). The words are the person's: Talk it through, Discuss, Use this,
   Make a new version, Open in Claude Code; the agent's reply is marked as work data.
 
-Tested in `packages/core/test/plan-talk.test.ts` (9 tests), `packages/cli/test/plan-talk.test.ts` (3 tests)
+Tested in `packages/core/test/plan-talk.test.ts` (10 tests), `packages/cli/test/plan-talk.test.ts` (4 tests)
 and `extension/test/talk.test.ts` (12 tests). The screenshot run draws ACME-21's conversation
 (`ticket-talk`): an option quoted, a reply with one proposal to use and one used, a Claude Code session and
-what it recorded, and the next message about another option, at every width and theme.
+what it recorded, v2 made from the conversation with what changed, a message waiting for its reply, and
+the next message about another option, with Discuss on each step and risk, at every width and theme.
