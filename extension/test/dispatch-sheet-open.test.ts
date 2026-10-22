@@ -70,7 +70,7 @@ test('Dispatch, and the commands kept for one release, open the sheet over the C
     await runFrom(s.tab, command);
     await until(() => !!sheetIn(since(s.tab, from)), 20_000, `${command}'s sheet`);
     const sheet = sheetIn(since(s.tab, from))!;
-    assert.deepEqual([sheet.project, sheet.task, sheet.title], [s.root, s.id, `Dispatch ${s.id}`], command);
+    assert.deepEqual([sheet.project, sheet.task, sheet.title], [s.root, s.id, `Build ${s.id}`], command);
     assert.equal(sheet.anyway, command === 'acc.task.dispatchAnyway', `${command}: anyway`);
     // Not on GitHub: the cloud is off with its reason, so even Dispatch to the cloud starts on This Mac.
     assert.deepEqual([sheet.place, sheet.places[1]!.disabled], ['local', 'Cloud builders need the repo on GitHub'], command);

@@ -29,13 +29,13 @@ test('each step autopilot takes is one notice: what it did, and what it couldn\'
   // Once re-dispatched by autopilot, a second rework is a person's.
   const again = { ...gh, history: [{ at: '2026-10-05T11:00:00.000Z', from: 'rework', to: 'running', actor: 'orchestrator', by: 'orchestrator:autopilot' }] };
   assert.deepEqual(say(rec('GH-31', { step: 'review', verdict: 'changes', reason: 'Still no test.' }), [again]),
-    [['Autopilot\'s review asked for changes on GH-31 again: Still no test. A second rework waits for you.', true, [['Re-dispatch', 'acc.task.dispatch'], show]]]);
+    [['Autopilot\'s review asked for changes on GH-31 again: Still no test. A second rework waits for you.', true, [['Build it again', 'acc.task.dispatch'], show]]]);
   assert.deepEqual(say(rec('GH-31', { step: 'dispatch' })), [['Autopilot re-dispatched GH-31 with its review\'s changes.', false, [['Watch', 'acc.task.watch'], show]]]);
   assert.deepEqual(say(rec('GH-31', { step: 'refresh', base: 'main' }))[0]![0], 'Autopilot merged main into GH-31, and its checks passed. It\'s reviewed next, then landed.');
   assert.deepEqual(say(rec('GH-31', { step: 'refresh', base: null, pr: { number: 40, url: 'u', opened: false } }))[0]![0], 'Pull request #40 (GH-31) no longer conflicts with its base: autopilot found nothing to merge.');
 
   // What it couldn't do needs a person: a warning, with the step to take by hand.
-  assert.deepEqual(say(rec('GH-31', { outcome: 'failed', reason: 'the push was refused: rejected' })), [['Autopilot couldn\'t land GH-31: the push was refused: rejected.', true, [['Land', 'acc.task.land'], show]]]);
+  assert.deepEqual(say(rec('GH-31', { outcome: 'failed', reason: 'the push was refused: rejected' })), [['Autopilot couldn\'t land GH-31: the push was refused: rejected.', true, [['Open pull request', 'acc.task.land'], show]]]);
   assert.deepEqual(say(rec('GH-31', { step: 'review', outcome: 'failed', reason: 'The review didn\'t finish within 45 minutes, so acc stopped it.' }))[0]!.slice(0, 2), ['Autopilot couldn\'t review GH-31: The review didn\'t finish within 45 minutes, so acc stopped it.', true]);
   assert.match(say(rec('GH-31', { step: 'refresh', outcome: 'failed', reason: 'Conflicts with main' }))[0]![0] as string, /^Autopilot couldn't update GH-31 from its base: Conflicts with main\.$/);
   assert.deepEqual(autopilotNotices([rec('GH-31', { step: 'review', verdict: 'pass' }), rec('GH-31', { seq: 2, pr: { number: 40, url: 'u', opened: true } })], [gh]).length, 2, 'one each');

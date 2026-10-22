@@ -501,7 +501,7 @@ export class TicketPanels implements vscode.Disposable {
     const task = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key);
     if (!task?.run?.branch || !fullGates(p.config).concat(requiredGates(p.config, task.environment, 'builder'), Object.keys(await this.receiptsFor(p, task.run.branch))).includes(gate)) return;
     const reason = await vscode.window.showInputBox({
-      title: `Waive ${gate} for ${task.id}?`,
+      title: `Accept ${gate} anyway for ${task.id}?`,
       prompt: 'Why is it fine to set this check aside? The reason is kept with the commit\'s checks. A new commit needs its checks again.',
       placeHolder: 'For example: a test task, never promoted',
       ignoreFocusOut: true,
@@ -568,8 +568,8 @@ export class TicketPanels implements vscode.Disposable {
   private async track(o: Open, p: Project): Promise<void> {
     if (o.tracker === null || !o.ticket) return;
     const r = await this.trackers.track(p, o.tracker, o.key);
-    if (r.ok) void vscode.window.showInformationMessage(`${o.key} is now a task in acc. Dispatch it from here or the board.`);
-    else if ('error' in r) void vscode.window.showErrorMessage(`Couldn't track ${o.key}: ${r.error}`);
+    if (r.ok) void vscode.window.showInformationMessage(`${o.key} is in your work. Make a plan or build it from here or from My work.`);
+    else if ('error' in r) void vscode.window.showErrorMessage(`Couldn't add ${o.key} to your work: ${r.error}`);
     await this.post(o);
   }
 }

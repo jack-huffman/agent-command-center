@@ -86,9 +86,9 @@ test('a task that waits for others\' files is told in words: what it waits for, 
   assert.equal(q.wait, 'Wait for GH-70 and GH-71');
   assert.equal(q.detail, 'GH-70: extension/src/logic.ts, extension/src/model.ts, packages/cli/src/main.ts, docs/x.md\nGH-71: extension/src/hub.ts\n\nGH-74 shares no files with work in flight, so it goes first. GH-73 waits, and starts on its own once GH-70 and GH-71 merge or nothing else is ready.');
   const a = anywayQuestion({ id: 'GH-73', files });
-  assert.equal(a.message, 'Dispatch GH-73 anyway?');
+  assert.equal(a.message, 'Build GH-73 anyway?');
   assert.match(a.detail, /^It shares files with work in flight:\nGH-70: extension\/src\/logic\.ts, .*\nGH-71: extension\/src\/hub\.ts\n\nBoth builders may change them, and the second pull request to merge may conflict there\.$/);
-  assert.equal(anywayQuestion({ id: 'GH-73', files: { ...files, shares: [] } }).message, 'Dispatch GH-73 now?', 'its wait ended meanwhile');
+  assert.equal(anywayQuestion({ id: 'GH-73', files: { ...files, shares: [] } }).message, 'Build GH-73 now?', 'its wait ended meanwhile');
   assert.equal(startedNotice('GH-73 started', { waitedFor: ['GH-70'], shares: [] }), 'GH-73 started: GH-70\'s files are free.');
   assert.equal(startedNotice('GH-73 started', { waitedFor: ['GH-70'], shares: [shares[0]!] }), 'GH-73 started: nothing else was ready, so it shares files with GH-70.');
   // Autopilot's own start, and one it couldn't make, are its notices.
@@ -96,7 +96,7 @@ test('a task that waits for others\' files is told in words: what it waits for, 
   const task = { id: 'GH-73', source: { kind: 'github', key: '73' }, history: [] };
   const say = (r: Record<string, unknown>) => autopilotNotices([{ seq: 1, at, task: 'GH-73', step: 'start', outcome: 'done', ...r } as never], [task]).map((n) => [n.text, n.urgent, noticeActions(n)]);
   assert.deepEqual(say({ waitedFor: ['GH-70'] }), [['Autopilot started GH-73: GH-70\'s files are free.', false, [['Watch', 'acc.task.watch'], ['Show', 'acc.task.show']]]]);
-  assert.deepEqual(say({ outcome: 'failed', reason: 'Claude Code doesn\'t trust the repo yet' }), [['Autopilot couldn\'t start GH-73: Claude Code doesn\'t trust the repo yet.', true, [['Dispatch anyway', 'acc.task.dispatchAnyway'], ['Show', 'acc.task.show']]]]);
+  assert.deepEqual(say({ outcome: 'failed', reason: 'Claude Code doesn\'t trust the repo yet' }), [['Autopilot couldn\'t start GH-73: Claude Code doesn\'t trust the repo yet.', true, [['Build it anyway', 'acc.task.dispatchAnyway'], ['Show', 'acc.task.show']]]]);
 });
 
 test('the board asks acc to start held tasks when one may go, and backs off while acc keeps them waiting (D-093)', async () => {
@@ -159,7 +159,7 @@ test('the board has a column for every status, left to right as a task goes, and
   const cols = m.projects[0]!.columns;
   assert.deepEqual(cols.map((c) => c.group), ['todo', 'ready', 'running', 'needs-you', 'review', 'rework', 'blocked', 'done'], 'left to right as a task goes: To do first (D-068)');
   const card = (id: string) => cols.flatMap((c) => c.cards).find((c) => c.id === id)!;
-  assert.deepEqual(card('AV-2').actions.map((a) => a.label), ['Move', 'Block', 'Analyze', 'Edit', 'Ticket', 'Details'], 'waiting on another task, it can still be analyzed, after Move and Block (D-168)');
+  assert.deepEqual(card('AV-2').actions.map((a) => a.label), ['Move', 'Block', 'Make a plan', 'Edit', 'Ticket', 'Details'], 'waiting on another task, it can still be analyzed, after Move and Block (D-168)');
   assert.deepEqual(card('AV-3').actions.map((a) => a.label), ['Move', 'Unblock', 'Edit', 'Details']);
   assert.deepEqual(card('AV-4').actions.map((a) => a.label), ['Move', 'Edit', 'Details'], 'done tasks can\'t be blocked');
   assert.deepEqual(card('AV-2').waitingOn, ['AV-1']);
@@ -169,11 +169,11 @@ test('the board has a column for every status, left to right as a task goes, and
 test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Abandon, then Clean up', () => {
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => a.label);
   // The next step, then Move, then Block, then the rest (D-168).
-  assert.deepEqual(labels({}), ['Dispatch', 'Move', 'Block', 'Analyze', 'Edit', 'Details']);
+  assert.deepEqual(labels({}), ['Build it', 'Move', 'Block', 'Make a plan', 'Edit', 'Details']);
   assert.deepEqual(labels({ state: 'running', display: 'running', run: { bgId: 'bg1', worktree: '/w/AV-9' } }), ['Watch', 'Move', 'Open in Claude Code', 'Worktree', 'Instructions', 'Abandon', 'Edit', 'Details']);
   assert.equal(cardActions({ ...row('AV-9', 'running', 'running'), deps: [], run: { bgId: 'bg1' } } as TaskRow, {})[0]!.primary, true, 'Watch is the main action while it runs');
   assert.deepEqual(labels({ state: 'review', display: 'review', run: { sessionId: 's1', worktree: '/w/AV-9' } }).slice(0, 4), ['Review', 'Move', 'Block', 'Watch'], 'in review: Review first, and what its builder did can still be read');
-  assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Re-dispatch', 'Move', 'Block', 'Worktree', 'Instructions', 'Edit', 'Details']);
+  assert.deepEqual(labels({ state: 'rework', display: 'rework', run: { worktree: '/w/AV-9' } }), ['Build it again', 'Move', 'Block', 'Worktree', 'Instructions', 'Edit', 'Details']);
   assert.deepEqual(labels({ state: 'done', display: 'done', run: { worktree: '/w/AV-9' } }), ['Clean up', 'Move', 'Worktree', 'Instructions', 'Edit', 'Details'], 'a finished task\'s next step is clearing its worktree away');
   assert.equal(cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [] }, {})[0]!.primary, true, 'Dispatch is the main action on a ready card');
 });
@@ -181,29 +181,29 @@ test('cards follow a task through dispatch: Dispatch, then Watch, Attach and Aba
 test('before a build, a card offers its analysis first, and Dispatch once it\'s ready or none is wanted (D-052)', () => {
   const labels = (r: Partial<TaskRow>) => cardActions({ ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, {}).map((a) => `${a.label}${a.primary ? '*' : ''}`);
   // Where the project wants an analysis first: Dispatch waits for a ready one, and the command line keeps the override.
-  assert.deepEqual(labels({ analysisRequired: true }), ['Analyze*', 'Move', 'Block', 'Edit', 'Details']);
-  assert.deepEqual(labels({ analysisRequired: true, analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Edit', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true }), ['Make a plan*', 'Move', 'Block', 'Edit', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, analyzing: { sessionId: 's' } }), ['Watch the plan being made*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Edit', 'Details']);
   assert.deepEqual(labels({ analysisRequired: true, display: 'needs-you', analysis: tooBig }), ['See the split*', 'Move', 'Block', 'Edit', 'Details']);
-  assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Edit', 'Details']);
-  assert.deepEqual(labels({ analysisRequired: true, deps: ['AV-1'], display: 'todo' }), ['Analyze*', 'Move', 'Block', 'Edit', 'Details'], 'waiting on another task: analyze it meanwhile');
+  assert.deepEqual(labels({ analysisRequired: true, analysis: analysed }), ['Build it*', 'Move', 'Block', 'Edit', 'Details']);
+  assert.deepEqual(labels({ analysisRequired: true, deps: ['AV-1'], display: 'todo' }), ['Make a plan*', 'Move', 'Block', 'Edit', 'Details'], 'waiting on another task: analyze it meanwhile');
   // Where it's optional: Dispatch stays, second to answering questions the analysis did ask.
-  assert.deepEqual(labels({}), ['Dispatch*', 'Move', 'Block', 'Analyze', 'Edit', 'Details']);
-  assert.deepEqual(labels({ display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Dispatch', 'Edit', 'Details']);
-  assert.deepEqual(labels({ analysis: analysed }), ['Dispatch*', 'Move', 'Block', 'Edit', 'Details']);
-  assert.deepEqual(labels({ analyzing: { sessionId: 's' } }), ['Watch the analysis*', 'Move', 'Block', 'Edit', 'Details'], 'not while it\'s being analyzed');
-  assert.equal(labels({ state: 'rework', display: 'rework', analysisRequired: true })[0], 'Re-dispatch*', 'a rework already had its analysis');
+  assert.deepEqual(labels({}), ['Build it*', 'Move', 'Block', 'Make a plan', 'Edit', 'Details']);
+  assert.deepEqual(labels({ display: 'needs-you', analysis: asks }), ['Answer*', 'Move', 'Block', 'Build it', 'Edit', 'Details']);
+  assert.deepEqual(labels({ analysis: analysed }), ['Build it*', 'Move', 'Block', 'Edit', 'Details']);
+  assert.deepEqual(labels({ analyzing: { sessionId: 's' } }), ['Watch the plan being made*', 'Move', 'Block', 'Edit', 'Details'], 'not while it\'s being analyzed');
+  assert.equal(labels({ state: 'rework', display: 'rework', analysisRequired: true })[0], 'Build it again*', 'a rework already had its analysis');
   // Dragging to Running is dispatching, so it's held the same way.
   const lanes = (r: Partial<TaskRow>) => dropLanes({ state: 'todo', display: 'ready', deps: [], ...r });
   assert.ok(!lanes({ analysisRequired: true }).includes('running'), 'held until its analysis is ready');
   assert.ok(lanes({ analysisRequired: true, analysis: analysed }).includes('running'));
   assert.ok(lanes({ display: 'needs-you', analysis: asks }).includes('running'), 'optional: it can still go');
   // What the card says, in words and an icon, orange when it waits on you.
-  assert.deepEqual(analysisLook({ state: 'todo', analysis: asks }), { label: 'Needs you: 2 questions from its analysis', icon: 'question', tone: 'orange' });
-  assert.equal(analysisLook({ state: 'todo', analysis: { ...asks, open: [ask('q1')] } })!.label, 'Needs you: 1 question from its analysis');
+  assert.deepEqual(analysisLook({ state: 'todo', analysis: asks }), { label: 'Needs you: 2 questions from its plan', icon: 'question', tone: 'orange' });
+  assert.equal(analysisLook({ state: 'todo', analysis: { ...asks, open: [ask('q1')] } })!.label, 'Needs you: 1 question from its plan');
   assert.deepEqual(analysisLook({ state: 'todo', analysis: tooBig }), { label: 'Needs you: too big for one task', icon: 'split-horizontal', tone: 'orange' });
-  assert.deepEqual(analysisLook({ state: 'todo', analyzing: { sessionId: 's' } }), { label: 'Analyzing', icon: 'sync~spin', tone: 'blue' });
-  assert.deepEqual(analysisLook({ state: 'todo', analysis: analysed }), { label: 'Analyzed: ready to build', icon: 'pass', tone: 'blue' });
+  assert.deepEqual(analysisLook({ state: 'todo', analyzing: { sessionId: 's' } }), { label: 'Making a plan', icon: 'sync~spin', tone: 'blue' });
+  assert.deepEqual(analysisLook({ state: 'todo', analysis: analysed }), { label: 'Planned: ready to build', icon: 'pass', tone: 'blue' });
   assert.equal(analysisLook({ state: 'running', analysis: asks }), null, 'once it\'s built, its agent speaks for it');
 });
 

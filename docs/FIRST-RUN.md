@@ -64,7 +64,7 @@ it or the issue filed for it, after **Fixed in / filed as**.
 | A new macOS user, or a machine that never had acc? | | |
 | No Node on PATH | | `command -v node` prints nothing |
 | No `~/.acc` | | `ls ~/.acc` says no such file |
-| No acc plugin in Claude Code | | `claude plugin list` doesn't list acc, or claude isn't installed |
+| No Command Center plugin in Claude Code | | `claude plugin list` doesn't list acc, or claude isn't installed |
 | Homebrew installed before the run? | | `command -v brew` |
 | git before the run | | `git --version` |
 | gh installed before the run? | | `command -v gh` |
@@ -205,7 +205,7 @@ invitation.
 - **Result:**
 - **Fixed in / filed as:**
 
-### A4.plugin: The acc plugin in Claude Code
+### A4.plugin: The Command Center's Claude Code plugin
 
 Look for: **Do it** runs in a terminal and Claude Code clones this private repo
 with your git credentials. Note any prompt it showed, and the version the step

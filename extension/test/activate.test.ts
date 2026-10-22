@@ -302,7 +302,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(shown.project, 'Tool');
     assert.deepEqual(shown.roles.map((r) => r.parts.slice(0, 2).map((p) => `${p.name} ${p.value} · ${p.from.label}`)), [
       ['Model claude-sonnet-5-5 · this clone', 'Effort default · Claude Code\'s default'],
-      ['Model claude-opus-5-5 · acc\'s default', 'Effort high · project default'],
+      ['Model claude-opus-5-5 · the Command Center\'s default', 'Effort high · project default'],
     ]);
     assert.equal(shown.autoMerge.look.label, 'on');
 

@@ -14,7 +14,7 @@ export function onDone(msg: { action?: string; ok?: boolean; error?: string; pro
     // The page has already redrawn with what acc did; a refusal comes back to try again, saying why (D-059).
     const key = msg.action === 'update-ask' ? askKey(msg.project ?? '', msg.task ?? '', msg.question ?? '') : updateKey(msg.project ?? '', msg.id ?? '');
     const was = pending.what(key);
-    pending.settle(key, msg.ok ? null : `${was === 'discard' ? 'It wasn\'t discarded' : was === 'ask' ? 'It wasn\'t drafted' : 'It wasn\'t posted'}: ${msg.error?.trim() || 'acc didn\'t say why.'}`);
+    pending.settle(key, msg.ok ? null : `${was === 'discard' ? 'It wasn\'t discarded' : was === 'ask' ? 'It wasn\'t drafted' : 'It wasn\'t posted'}: ${msg.error?.trim() || 'the Command Center didn\'t say why.'}`);
     if (msg.ok && msg.action === 'update-post') remember((s) => { delete s.drafts[key]; delete s.bases[key]; });
     if (state.last) state.draw(state.last);
     return;
@@ -25,7 +25,7 @@ export function onDone(msg: { action?: string; ok?: boolean; error?: string; pro
     const key = answerKey(msg.project ?? '', msg.task ?? '', msg.question ?? '');
     if (msg.ok) remember((s) => { delete s.drafts[key]; });
     else if (pending.what(key)) {
-      pending.settle(key, msg.error?.trim() || 'acc didn\'t say why.');
+      pending.settle(key, msg.error?.trim() || 'The Command Center didn\'t say why.');
       if (state.last) state.draw(state.last);
     }
     return;

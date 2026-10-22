@@ -61,7 +61,7 @@ test('an analysis comes back read-only, with its questions numbered, and is kept
   assert.equal(marked, name);
   assert.equal(readAnalysis(paths, id)?.name, name);
   const line = call!.args.join(' ');
-  // The reviewer's model, acc's default when none is chosen (D-052, D-086).
+  // The reviewer's model, the Command Center's default when none is chosen (D-052, D-086).
   assert.ok(line.startsWith(`-p --session-id fixed --name ${name} --permission-mode dontAsk --model claude-opus-5-5 `), line.slice(0, 160));
   assert.match(line, /Bash\(sf data query:\*\)/);
   assert.match(line, /Bash\(sf project retrieve start:\*\)/);

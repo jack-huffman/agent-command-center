@@ -83,7 +83,7 @@ class CloudCommands extends Sidebar {
   private async disable(root?: string): Promise<void> {
     const project = await this.projectOf(root);
     if (!project) return;
-    const ok = await vscode.window.showWarningMessage(`Turn cloud builders off for ${project.name}?`, { modal: true, detail: 'Every dispatch goes to this Mac. A cloud builder already running finishes on its own; acc still collects it. The routine\'s token stays in the keychain.' }, 'Turn off');
+    const ok = await vscode.window.showWarningMessage(`Turn cloud builders off for ${project.name}?`, { modal: true, detail: 'Every dispatch goes to this Mac. A cloud builder already running finishes on its own; the Command Center still collects it. The routine\'s token stays in the keychain.' }, 'Turn off');
     if (!ok) return;
     await this.runAcc(project, ['cloud', 'disable'], () => `Cloud builders are off for ${project.name}.`);
     await this.hub.loadProjects();
@@ -128,7 +128,7 @@ class CloudCommands extends Sidebar {
     const project = await this.projectOf(root);
     if (!project) return;
     await vscode.env.clipboard.writeText(ROUTINE_PROMPT);
-    const pick = await vscode.window.showInformationMessage('Copied the routine\'s prompt. Paste it as the routine\'s instructions on claude.ai, pick the repo and the model, add an API trigger, then give acc the trigger id and the token.', 'Open claude.ai/code/routines');
+    const pick = await vscode.window.showInformationMessage('Copied the routine\'s prompt. Paste it as the routine\'s instructions on claude.ai, pick the repo and the model, add an API trigger, then give the Command Center the trigger id and the token.', 'Open claude.ai/code/routines');
     if (pick) await vscode.env.openExternal(vscode.Uri.parse(ROUTINES_URL));
   }
 }

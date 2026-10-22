@@ -146,7 +146,7 @@ const names = (xs: string[]): string => (xs.length > 1 ? `${xs.slice(0, -1).join
 export function modelWords(model: string, from: string): string {
   const known = MODEL_CHOICES.find((m) => m.name === model)?.about.split(':')[0];
   const shown = known ? `${known.replace(/^Claude /, '')} (${model})` : model;
-  if (from === 'acc' || (model === DEFAULT_MODEL && from === 'default')) return `${shown}, acc's default unless set`;
+  if (from === 'acc' || (model === DEFAULT_MODEL && from === 'default')) return `${shown}, the Command Center's default unless set`;
   return `${shown}, set ${from === 'clone' ? 'for this clone' : from === 'project' ? 'for the project' : from === 'task' ? 'for the task' : 'by Claude Code'}`;
 }
 
@@ -183,7 +183,7 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
     unit: `${p.max === 1 ? 'builder' : 'builders'} at once`,
     from: p.maxFrom === 'project'
       ? `Set in ${p.name}'s settings, shared with everyone who works on the repo once it's committed.`
-      : `acc's default: ${p.name}'s settings set none. A change sets it there, for everyone on the repo once it's committed.`,
+      : `The Command Center's default: ${p.name}'s settings set none. A change sets it there, for everyone on the repo once it's committed.`,
     look: capLook(p.running, p.max, `in ${p.name}`),
     lower: p.max > 1 ? step(`Lower ${p.name}'s cap to ${p.max - 1}`, `${p.root}|${p.max - 1}`, null) : step(`Lower ${p.name}'s cap`, null, 'One is the least: a project runs at least one builder.'),
     raise: p.max < MAX_AGENTS ? step(`Raise ${p.name}'s cap to ${p.max + 1}`, `${p.root}|${p.max + 1}`, null) : step(`Raise ${p.name}'s cap`, null, `${MAX_AGENTS} is the most a project runs at once.`),
@@ -219,7 +219,7 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
     : `Lately ${[review !== null ? `a review cost about ${dollars(review)}` : '', analysis !== null ? `an analysis about ${dollars(analysis)}` : ''].filter(Boolean).join(' and ')}, as Claude Code estimates at API prices (the last ${[review !== null ? `${reviews.length} review${reviews.length === 1 ? '' : 's'}` : '', analysis !== null ? `${analyses.length} analys${analyses.length === 1 ? 'is' : 'es'}` : ''].filter(Boolean).join(' and ')}).`;
   const models = [...new Map(f.projects.map((p) => [`${p.model}|${p.modelFrom}`, p])).values()];
   const modelLine = !models.length
-    ? `Builders run Opus 5.5 (${DEFAULT_MODEL}), acc's default unless set.`
+    ? `Builders run Opus 5.5 (${DEFAULT_MODEL}), the Command Center's default unless set.`
     : models.length === 1 ? `Builders here run ${modelWords(models[0]!.model, models[0]!.modelFrom)}.`
       : `Builders run ${models.map((p) => `${modelWords(p.model, p.modelFrom)} in ${p.name}`).join('; ')}.`;
   // As many as could run at once: the projects' caps, under this machine's total.
@@ -239,7 +239,7 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
 
   const slotsFrom: Record<LimitsFacts['machine']['slotsFrom'], string> = {
     machine: `Set in ${MACHINE}, for every repo on this machine.`,
-    default: `acc's default: ${MACHINE} set none. A change sets it there, for every repo on this machine.`,
+    default: `The Command Center's default: ${MACHINE} set none. A change sets it there, for every repo on this machine.`,
     env: 'Set by ACC_HEAVY_SLOTS where VSCode started, which wins over this machine\'s own setting.',
   };
   const slots: LimitRow = {
@@ -256,7 +256,7 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
     const queue = p.queue.length ? names(p.queue) : null;
     const required: LimitRow = {
       key: `required:${p.root}`, name: 'Required checks', icon: 'checklist', value: p.required.join(', ') || 'None',
-      from: `${p.requiredFrom === 'project' ? `Set in ${config}, for everyone on the repo once it's committed.` : `acc's default: ${config} set none. A change sets it there, for everyone on the repo once it's committed.`}${queue ? ` Where the merge queue runs (${queue}), they run once in it, before each merge.` : ' A task must pass them to finish, to be reviewed and to open its pull request.'}`,
+      from: `${p.requiredFrom === 'project' ? `Set in ${config}, for everyone on the repo once it's committed.` : `The Command Center's default: ${config} set none. A change sets it there, for everyone on the repo once it's committed.`}${queue ? ` Where the merge queue runs (${queue}), they run once in it, before each merge.` : ' A task must pass them to finish, to be reviewed and to open its pull request.'}`,
       look: p.required.length ? null : { label: 'None: a task can finish on any commit', icon: 'warning', tone: 'orange' },
       command: LIMIT_COMMANDS.requiredGates, arg: p.root,
       why: p.gates.length ? null : `${p.name} has no checks to choose from yet: add a command for each check in ${config}.`,
@@ -275,7 +275,7 @@ export function limitsModel(f: LimitsFacts, billing: Look | null = null): Limits
     const tracking: LimitRow[] = p.sourceTracking === null ? [] : [{
       key: `tracking:${p.root}`, name: 'Source tracking', icon: 'eye', value: p.sourceTracking ? 'Used' : 'Not used',
       from: p.sourceTracking
-        ? `acc's default: ${config} set none. Setup checks that each Developer sandbox is source tracked.`
+        ? `The Command Center's default: ${config} set none. Setup checks that each Developer sandbox is source tracked.`
         : `Set in ${config}, for everyone on the repo once it's committed. Retrieves use manifests and deploys use source folders, as always.`,
       look: p.sourceTracking ? null : { label: 'Off: Setup skips its source-tracking steps', icon: 'circle-slash', tone: 'neutral' },
       command: LIMIT_COMMANDS.sourceTracking, arg: p.root, why: null,

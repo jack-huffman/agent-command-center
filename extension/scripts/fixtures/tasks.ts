@@ -3,6 +3,7 @@ import { rowAnalysis } from '../../src/logic/tasks.ts';
 import type { TaskRow } from '../../src/logic/shared.ts';
 import { sampleAnalyses } from './analysis.ts';
 import { ACME_25_REFUSED, ASKED, MIN, N10, N12, N13, N14, N28, N29, N43, N44, N47, SLEPT, wt } from './shared.ts';
+import { UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
 
 export function sampleTasks(now = Date.now()): TaskRow[] {
   const source = (n: number) => ({ kind: 'jira', url: `https://acme.atlassian.net/browse/ACME-${n}` });
@@ -42,7 +43,7 @@ export function sampleTasks(now = Date.now()): TaskRow[] {
     // Another ended its turn asking in its own words, without blocking: a long quote, clipped on its card.
     task('ACME-29', 'Reassign open cases when an owner leaves', 'running', 'needs-you', { run: { bgId: 'bg29', sessionId: 's-acme-29', worktree: wt('ACME-29'), branch: 'task/ACME-29-reassign-open-cases', name: N29 }, stopped: { said: ASKED }, since: ago(70) }),
     // Claude Code's background sessions stopped answering (T-92): acc can't see its builder, and says what to try.
-    task('ACME-48', 'Log each change to a case\'s priority', 'running', 'needs-you', { dispatchedBy: 'human:pat', run: { bgId: 'bg48', sessionId: 's-acme-48', worktree: wt('ACME-48'), branch: 'task/ACME-48-log-priority-changes' }, agent: { label: 'Needs you: acc can\'t see its builder', icon: 'eye-closed', tone: 'orange' }, unseen: 'unanswered', since: ago(30) }),
+    task('ACME-48', 'Log each change to a case\'s priority', 'running', 'needs-you', { dispatchedBy: 'human:pat', run: { bgId: 'bg48', sessionId: 's-acme-48', worktree: wt('ACME-48'), branch: 'task/ACME-48-log-priority-changes' }, agent: { label: UNSEEN_WORDS.unanswered.label, icon: 'eye-closed', tone: 'orange' }, unseen: 'unanswered', since: ago(30) }),
     // And one whose conversation hasn't been written for longer than the quiet limit too: Dispatch again leads.
     task('ACME-50', 'Stamp the first response time on each case', 'running', 'needs-you', { run: { bgId: 'bg50', sessionId: 's-acme-50', worktree: wt('ACME-50'), branch: 'task/ACME-50-first-response-time' }, agent: { label: 'Needs you: its builder has gone quiet', icon: 'eye-closed', tone: 'orange' }, unseen: 'quiet', since: ago(190) }),
     // Its builder never started (T-92): the task stays to do, and Dispatch again starts it with what it had.

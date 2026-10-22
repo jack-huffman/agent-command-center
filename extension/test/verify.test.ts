@@ -40,7 +40,7 @@ const input = (more: Partial<VerifyIn> = {}): VerifyIn => ({ task: jiraTask(), g
 test('before a verification the section offers Verify the developer\'s work, and says what it does', () => {
   const v = ticketVerify(input());
   assert.deepEqual([v.look, v.verify, v.comment, v.clear, v.pr, v.choice], [VERIFY_LOOK.none, { label: 'Verify the developer\'s work', disabled: null }, null, null, null, null]);
-  assert.match(v.note!, /acc finds the pull request that names this ticket/);
+  assert.match(v.note!, /The Command Center finds the pull request that names this ticket/);
 });
 
 test('edge: the section is off, with why, for a task acc\'s own builder made, one with no tracker ticket, and a project with no GitHub repo', () => {

@@ -56,7 +56,7 @@ export const CONFIG_WORDS: Record<ConfigKey, string> = {
   'trackers[].labels': 'a tracker\'s labels',
   'trackers[].areaPath': 'a tracker\'s area',
   'trackers[].group': 'a tracker\'s group',
-  'trackers[].edits': 'what acc may change on a tracker',
+  'trackers[].edits': 'what the Command Center may change on a tracker',
   'trackers[].statusFor': 'how a tracker\'s statuses map to tasks',
   'agents.max': 'its builder limit',
   'agents.permissionMode': 'what builders may do without asking',

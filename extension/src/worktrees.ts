@@ -14,7 +14,7 @@ class WorktreeCommands extends Sidebar {
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
     reg('acc.worktree.open', (n: WorktreeNode) => n?.kind === 'worktree' && vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(n.worktree.path), { forceNewWindow: true }));
-    reg('acc.worktree.terminal', (n: WorktreeNode) => n?.kind === 'worktree' && this.terminal(`acc: ${n.worktree.branch ?? basename(n.worktree.path)}`, n.worktree.path).show());
+    reg('acc.worktree.terminal', (n: WorktreeNode) => n?.kind === 'worktree' && this.terminal(`Worktree: ${n.worktree.branch ?? basename(n.worktree.path)}`, n.worktree.path).show());
     reg('acc.worktree.reveal', (n: WorktreeNode) => n?.kind === 'worktree' && vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(n.worktree.path)));
     reg('acc.worktree.remove', (n: WorktreeNode) => this.removeWorktree(n));
     reg('acc.worktrees.refresh', () => this.hub.loadWorktrees());

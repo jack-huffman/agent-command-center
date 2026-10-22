@@ -103,7 +103,7 @@ function done(msg: { action?: string; project?: string; task?: string; ok?: bool
   if (!asked.has(key)) return;
   asked.delete(key);
   if (msg.ok) failed.delete(key);
-  else failed.set(key, msg.error?.trim() || 'It didn\'t go, and acc didn\'t say why.');
+  else failed.set(key, msg.error?.trim() || 'It didn\'t go, and the Command Center didn\'t say why.');
   if (state.last) state.draw(state.last);
 }
 

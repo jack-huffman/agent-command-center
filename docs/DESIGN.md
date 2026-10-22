@@ -358,7 +358,7 @@ Two states aren't stored. They're derived when the ledger is read:
 | Running | `sync` (spinning) | blue | A builder is working |
 | Needs you | `bell` | **orange** | The session is waiting for permission or an answer, its builder stopped (`debug-disconnect`), or autopilot couldn't take a step |
 | In review | `eye` | blue | Checks passed. Waiting for the reviewer or the pull request |
-| Rework | `debug-restart` | **orange** | The reviewer or a human asked for changes, or autopilot sent back checks that failed on GitHub |
+| Sent back | `debug-restart` | **orange** | The reviewer or a human asked for changes, or autopilot sent back checks that failed on GitHub |
 | Blocked | `circle-slash` | **orange** | Stopped. A reason is required |
 | Done | `check` | neutral | Merged |
 

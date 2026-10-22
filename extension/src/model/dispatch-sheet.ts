@@ -15,6 +15,7 @@ import type { TaskRow } from '../logic/shared.ts';
 import { anywayQuestion, sizeLine } from '../logic/tasks.ts';
 import { cloudDisabled } from './cards.ts';
 import { KEY, type ModelArea, short } from './shared.ts';
+import { WORDS } from '../../webview/plain-words.ts';
 
 /**
  * The commands that open the sheet. Dispatch with… and Dispatch to the cloud are kept for one release, so a
@@ -59,7 +60,7 @@ export interface SheetPlace {
 export interface DispatchSheet {
   project: string;
   task: string;
-  /** "Dispatch ACME-12", or "Re-dispatch ACME-12" for a task in rework. */
+  /** "Build ACME-12", or "Build ACME-12 again" for a task sent back. */
   title: string;
   /** The primary button's label. */
   go: string;
@@ -121,7 +122,7 @@ export function effortSegments(items: EffortItem[]): { efforts: SheetEffort[]; c
 export function dispatchSheet(i: SheetInput): DispatchSheet {
   const { row, builder } = i;
   const rework = row.state === 'rework';
-  const verb = rework ? 'Re-dispatch' : 'Dispatch';
+  const verb = rework ? `${WORDS.buildIt} again` : WORDS.buildIt;
   const models = dispatchModelItems(row, builder).map((m): SheetModel => {
     const { efforts, chosen } = effortSegments(dispatchEffortItems(row, builder, m.value ?? ANOTHER));
     const dropped = efforts.length ? null : noEffortArgs(row).dropped;
@@ -135,14 +136,14 @@ export function dispatchSheet(i: SheetInput): DispatchSheet {
   return {
     project: i.project,
     task: row.id,
-    title: `${verb} ${row.id}`,
-    go: i.anyway ? `${verb} anyway` : verb,
+    title: `Build ${row.id}${rework ? ' again' : ''}`,
+    go: i.anyway ? `${WORDS.buildIt} anyway` : verb,
     anyway: !!i.anyway,
     shares: shares ? { message: anywayQuestion({ id: row.id, files: { shares } }).message, lines: shares.map((s) => ({ task: s.task, files: s.files.join(', ') })) } : null,
     models,
     places,
     place: wanted === 'cloud' && off ? 'local' : wanted,
-    cloudNote: 'Its branch goes to GitHub, and the project\'s routine builds it in a cloud session with the routine\'s own model and effort. The model and effort here are kept for a later dispatch on this Mac.',
+    cloudNote: 'Its branch goes to GitHub, and the project\'s routine builds it in a cloud session with the routine\'s own model and effort. The model and effort here are kept for a later build on this Mac.',
     size: row.analysis ? sizeLine(row) : null,
   };
 }

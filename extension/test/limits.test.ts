@@ -40,7 +40,7 @@ test('the two caps sit side by side, each with − and + and its number, and whe
   assert.deepEqual([project!.lower.arg, project!.raise.arg, machine!.lower.arg, machine!.raise.arg], ['/Users/me/code/acme-service|2', '/Users/me/code/acme-service|4', '5', '7']);
   assert.deepEqual([project!.lower.label, machine!.raise.label], ['Lower Acme Service\'s cap to 2', 'Raise this machine\'s total to 7']);
   assert.ok([project!.lower, project!.raise, machine!.lower, machine!.raise].every((s) => s.why === null));
-  // Its project, and whether the project or acc's default sets it.
+  // Its project, and whether the project or the Command Center's default sets it.
   assert.match(project!.from, /^Set in Acme Service's settings, shared with everyone who works on the repo/);
   assert.match(machine!.from, /^Set in this machine's settings, beside the heavy-check slots, for every repo on this machine: usage limits belong to your Claude account, not a project\.$/);
   // How many run now, beside each.
@@ -53,7 +53,7 @@ test('a − or + that can\'t move says why; no total has neither, and Change… 
   const [acme, tool, machine] = m.caps;
   assert.deepEqual([acme!.title, acme!.lower.arg, acme!.lower.why, acme!.raise.arg], ['Acme Service\'s cap', null, 'One is the least: a project runs at least one builder.', '/Users/me/code/acme-service|2']);
   assert.deepEqual([tool!.raise.arg, tool!.raise.why], [null, '16 is the most a project runs at once.']);
-  assert.match(acme!.from, /^acc's default: Acme Service's settings set none\./);
+  assert.match(acme!.from, /^The Command Center's default: Acme Service's settings set none\./);
   assert.deepEqual([machine!.value, machine!.lower.arg, machine!.raise.arg], ['None', null, null]);
   assert.equal(machine!.lower.why, 'There\'s no total to lower: Change… sets one.');
   assert.deepEqual(machine!.look, { label: 'No total: each project\'s cap is the only limit', icon: 'circle-large-outline', tone: 'neutral' });
@@ -65,11 +65,11 @@ test('a − or + that can\'t move says why; no total has neither, and Change… 
 test('what a change means is in this machine\'s own numbers, and says so when there are none yet', () => {
   const words = (m: ReturnType<typeof limitsModel>) => Object.fromEntries(m.meaning.map((x) => [x.key, x.text]));
   const busy = words(limitsModel(sampleLimits()));
-  assert.equal(busy.usage, 'Each agent is a Claude Code session on your account. Builders here run Opus 5.5 (claude-opus-5-5), acc\'s default unless set. More at once uses your plan\'s limits that many times faster, and at the limit Claude Code pauses them until it resets. On per-token billing, each one costs as it runs. Lately a review cost about $0.88 and an analysis about $1.23, as Claude Code estimates at API prices (the last 4 reviews and 2 analyses).');
+  assert.equal(busy.usage, 'Each agent is a Claude Code session on your account. Builders here run Opus 5.5 (claude-opus-5-5), the Command Center\'s default unless set. More at once uses your plan\'s limits that many times faster, and at the limit Claude Code pauses them until it resets. On per-token billing, each one costs as it runs. Lately a review cost about $0.88 and an analysis about $1.23, as Claude Code estimates at API prices (the last 4 reviews and 2 analyses).');
   assert.equal(busy.slots, 'Each builder\'s checks wait for this machine\'s heavy-check slots, 2 at once: with 3 builders at once, up to one waits in line for a slot rather than finish sooner. Lately a builder here took about 45 min from its dispatch to finishing its task (the middle of its last 6).');
   assert.equal(busy.files, 'More at once means more tasks touching the same files. They take turns, and conflicts at merge get likelier. 3 builders running now in Acme Service, 4 across this machine.');
   const none = words(limitsModel(sampleLimitsOther()));
-  assert.match(none.usage!, /Builders run Opus 5\.5 \(claude-opus-5-5\), acc's default unless set in Acme Service; Sonnet 5\.5 \(claude-sonnet-5-5\), set for the project in Tool\./);
+  assert.match(none.usage!, /Builders run Opus 5\.5 \(claude-opus-5-5\), the Command Center's default unless set in Acme Service; Sonnet 5\.5 \(claude-sonnet-5-5\), set for the project in Tool\./);
   assert.match(none.usage!, /No review or analysis here has recorded a cost yet, so there's nothing to go by\.$/);
   assert.match(none.slots!, /1 at once: with 17 builders at once, up to 16 wait in line .* No builder here has finished yet, so there's no time to go by\.$/);
   assert.match(none.files!, /No builders running now in Acme Service and Tool\.$/);
@@ -93,9 +93,9 @@ test('the heavy-check slots and each project\'s checks: value, where set, state,
   assert.deepEqual(other.slots.look, { label: 'None in use', icon: 'circle-large-outline', tone: 'neutral' });
   assert.deepEqual(other.checks.map((c) => c.project), ['Acme Service', 'Tool']);
   assert.deepEqual(other.checks[0]!.rows[0]!.look, { label: 'None: a task can finish on any commit', icon: 'warning', tone: 'orange' });
-  // Where the required checks come from: the project's file when it names them, else acc's default (GH-111).
+  // Where the required checks come from: the project's file when it names them, else the Command Center's default (GH-111).
   assert.match(required!.from, /^Set in Acme Service's settings, for everyone/);
-  assert.match(other.checks[0]!.rows[0]!.from, /^acc's default: Acme Service's settings set none\. A change sets it there/);
+  assert.match(other.checks[0]!.rows[0]!.from, /^The Command Center's default: Acme Service's settings set none\. A change sets it there/);
   assert.match(other.checks[1]!.rows[0]!.from, /^Set in Tool's settings/);
   const tool = other.checks[1]!.rows;
   assert.deepEqual(tool.map((r) => r.value), ['check', 'typecheck, near-tests']);
@@ -139,7 +139,7 @@ test('the part reads its limits from the machine and each project, and counts ev
   const f = readLimits([project], () => readLedger(paths.ledger), { dir: '', slots: 2, held: [{ pid: 1 }], waiting: [] } as never, env);
   assert.deepEqual(f.machine, { slots: 2, slotsFrom: 'machine', inUse: 1, waiting: 0, total: 5, running: 3, repos: 2 });
   assert.deepEqual([f.projects[0]!.max, f.projects[0]!.maxFrom, f.projects[0]!.running, f.projects[0]!.required, f.projects[0]!.requiredFrom, f.projects[0]!.builder, f.projects[0]!.queue], [3, 'acc', 1, ['check', 'stray-files'], 'project', ['quick'], ['main']], 'stray-files is required beside what the project names (GH-103)');
-  // A config that names no required checks has acc's default.
+  // A config that names no required checks has the Command Center's default.
   const bareRaw = { ...GENERIC_CONFIG, project: 'Bare' };
   const bareDir = makeRepo({ '.acc/config.json': JSON.stringify(bareRaw) });
   const bare: LimitsProject = { name: 'Bare', root: bareDir, config: parseConfig(bareRaw).config!, ledgerPath: repoPaths(bareDir, run).ledger, agents: project.agents };
@@ -325,7 +325,7 @@ test('source tracking (T-73): a Salesforce project\'s row says whether it\'s use
   // The row, on and off, and none for a project that isn't Salesforce.
   const on = limitsModel(sampleLimits()).checks[0]!.rows.at(-1)!;
   assert.deepEqual([on.name, on.value, on.command, on.arg, on.look, on.why], ['Source tracking', 'Used', 'acc.settings.sourceTracking', '/Users/me/code/acme-service', null, null]);
-  assert.match(on.from, /^acc's default: Acme Service's settings set none\. Setup checks that each Developer sandbox is source tracked\.$/);
+  assert.match(on.from, /^The Command Center's default: Acme Service's settings set none\. Setup checks that each Developer sandbox is source tracked\.$/);
   const other = limitsModel(sampleLimitsOther()).checks;
   const off = other[0]!.rows.at(-1)!;
   assert.deepEqual([off.value, off.look], ['Not used', { label: 'Off: Setup skips its source-tracking steps', icon: 'circle-slash', tone: 'neutral' }]);
