@@ -33,6 +33,7 @@ import { CRITERION_LOOK, dockReview, REVIEW_RUN_LOOK } from '../src/model/dock-r
 import { VERIFY_LOOK } from '../src/model/verify.ts';
 import { CHANGE_LOOK } from '../src/model/changes.ts';
 import { RECORD_LOOK } from '../src/model/record-changes.ts';
+import { FIELD_LOOK } from '../src/model/changes-field.ts';
 import { MANIFEST_LOOK, MANIFEST_ROW_LOOK } from '../src/model/manifest.ts';
 import { TALK_LOOK } from '../src/model/talk.ts';
 import { RESULT_LOOK, ROW_LOOK } from '../src/model/run-view.ts';
@@ -180,6 +181,8 @@ export const TABLES: Table[] = [
   { name: 'a change against the plan, on a task\'s page (T-99)', sources: ['extension/src/model/changes.ts#CHANGE_LOOK'], states: () => Object.entries(CHANGE_LOOK) },
   // Record changes (T-100): each change made, planned or not, refused, and a promotion's step to do, done or skipped.
   { name: 'a ticket\'s record change and a promotion\'s step', sources: ['extension/src/model/record-changes.ts#RECORD_LOOK'], states: () => Object.entries(RECORD_LOOK) },
+  // A tracker's changes field on a ticket's page (T-105): reading it, failed, empty, the same as found, differing, and the draft.
+  { name: 'a ticket\'s changes field, beside what the Command Center found', sources: ['extension/src/model/changes-field.ts#FIELD_LOOK'], states: () => Object.entries(FIELD_LOOK) },
   // Manifest for this ticket (T-101): the section's state, and each row's: new, not in the org, an unknown type, unchecked, an org copy that differs, an org change, a deletion.
   { name: 'a ticket\'s conversation with its planning agent', sources: ['extension/src/model/talk.ts#TALK_LOOK'], states: () => Object.entries(TALK_LOOK) },
   { name: 'a ticket\'s manifest and its rows', sources: ['extension/src/model/manifest.ts#MANIFEST_LOOK', 'extension/src/model/manifest.ts#MANIFEST_ROW_LOOK'], states: () => [...Object.entries(MANIFEST_LOOK), ...Object.entries(MANIFEST_ROW_LOOK)] },

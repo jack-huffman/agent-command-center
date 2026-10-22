@@ -28,7 +28,7 @@ const BOARD: Board = { source: 'jira-board', title: 'ACME board', url: null, not
 const full = (t: Record<string, unknown>): Tracker => ({
   kind: t.kind as Tracker['kind'], site: (t.site as string) ?? null, project: (t.project as string) ?? null, repo: (t.repo as string) ?? null, organization: (t.organization as string) ?? null,
   account: (t.account as string) ?? null, workspace: (t.workspace as string) ?? null, channel: (t.channel as string) ?? null, reaction: (t.reaction as string) ?? null, doneReaction: (t.doneReaction as string) ?? null, team: (t.team as string) ?? null, board: (t.board as number | string) ?? null, statusColumn: (t.statusColumn as string) ?? null, prefix: (t.prefix as string) ?? null,
-  skipLabels: (t.skipLabels as string[]) ?? [], epics: (t.epics as string[]) ?? (t.epic ? [t.epic as string] : []), sprint: (t.sprint as 'active' | number) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true, statusFor: (t.statusFor as Record<string, string>) ?? null,
+  skipLabels: (t.skipLabels as string[]) ?? [], epics: (t.epics as string[]) ?? (t.epic ? [t.epic as string] : []), sprint: (t.sprint as 'active' | number) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true, statusFor: (t.statusFor as Record<string, string>) ?? null, changesField: null,
 });
 
 type Answer = Response | Promise<Response>;

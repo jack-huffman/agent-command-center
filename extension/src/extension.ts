@@ -25,6 +25,9 @@ import { currentPace, Panels } from './panels.ts';
 import { accShellCommand, Questions, sessionSettings } from './questions.ts';
 import { Runs } from './runs.ts';
 import { postClaimed } from './logic/post-update.ts';
+import { saveClaimed } from './logic/changes-field.ts';
+import { fieldName } from './model/changes-field.ts';
+import { writtenFor } from '../../packages/core/src/field-drafts.ts';
 import { accRunner, runFile } from './run.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import { Setup } from './setup.ts';
@@ -211,6 +214,29 @@ export function activate(context: vscode.ExtensionContext): void {
       };
       try {
         const againArgs = again ? ['--again'] : [];
+        // A changes field's draft (T-105) writes the field, not a comment, through the tracker's own sign-in,
+        // GitHub's issue too, keeping each line a person wrote there; then acc records what was written.
+        if (u.event === 'changes') {
+          const index = trackers.trackerFor(p, u.tracker === 'github' ? u.task : u.key);
+          const t = index === null ? undefined : trackers.trackers(p)[index];
+          if (index === null || !t || t.kind !== u.tracker) return fail(`this repo has no ${trackerName(u.tracker)} tracker for ${u.key}.`);
+          const field = t.changesField;
+          if (field && field.id !== u.field?.id) return fail(`the project's settings keep a ticket's changes in ${field.name} now, not ${u.field?.name ?? 'this field'}. Discard this draft: the ticket's next change drafts it again.`);
+          let client: Awaited<ReturnType<typeof trackers.client>>;
+          try {
+            client = await trackers.client(p, index);
+          } catch (e) {
+            return fail((e as Error).message);
+          }
+          const name = field ? fieldName(t.kind, field) : 'field';
+          const saved = await saveClaimed(client, acc, p.root, id, { field, edits: t.edits, key: u.tracker === 'github' ? u.task : u.key, name, text, written: writtenFor(hub.updates(root), u.task) }, againArgs, accSays);
+          if (!saved.ok) return fail(saved.error);
+          writeFileSync(file, saved.text);
+          if (field) tickets.fields?.saved(p, index, u.task, field, saved.text);
+          const recorded = await acc(['update', 'posted', id, `--text-file=${file}`, '--json'], p.root);
+          if (recorded.code !== 0) return fail(`it was saved, but the Command Center couldn't record it: ${accSays(recorded)}`);
+          return { ok: true };
+        }
         if (u.tracker === 'github') {
           const r = await acc(['update', 'post', id, `--text-file=${file}`, ...againArgs, '--json'], p.root);
           return r.code === 0 ? { ok: true } : fail(accSays(r));

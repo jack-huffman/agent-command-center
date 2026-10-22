@@ -113,6 +113,8 @@ const MARKS: Record<string, Record<string, number>> = {
   // Talk it through (T-98): the planning agent's reply, in its own words.
   'talk.ts': { 'agent-text': 1 },
   'record-changes.ts': { output: 1 },
+  // The ticket's changes field (T-105): its text lists changed components and files.
+  'changes-field.ts': { files: 1 },
   'review.ts': { files: 2, transcript: 2 },
   'rules.ts': { files: 1, transcript: 1, 'agent-text': 1 },
   'run-steps.ts': { output: 1 },

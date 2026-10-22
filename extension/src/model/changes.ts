@@ -8,9 +8,9 @@
  */
 
 import { type ChangeMark, type ChangeRow, planAgainst } from '../../../packages/core/src/changes.ts';
+import { changePlace } from '../../../packages/core/src/changes-field.ts';
 import type { Profile } from '../../../packages/core/src/config.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
-import { sfComponent } from '../../../packages/core/src/sf-metadata.ts';
 import type { Look } from './shared.ts';
 
 /** How a change outside the plan, and a planned one not made, show: orange, each with its icon and words. */
@@ -65,21 +65,11 @@ export interface ChangesIn {
 /** The order marks win in, when one component stands for paths marked differently: in the plan first. */
 const RANK: ChangeMark[] = ['planned', 'changed', 'unplanned', 'unmade'];
 
-/** Where a path goes: its type and name in a Salesforce project, else its folder and file name. */
-function place(path: string, profile: Profile): { head: string; name: string; other: boolean } {
-  if (profile === 'salesforce') {
-    const c = sfComponent(path);
-    return c ? { head: c.label, name: c.name, other: false } : { head: 'Other files', name: path, other: true };
-  }
-  const slash = path.lastIndexOf('/');
-  return slash < 0 ? { head: 'The top folder', name: path, other: true } : { head: path.slice(0, slash), name: path.slice(slash + 1), other: false };
-}
-
 /** Rows grouped by type or folder, each item once with its paths and its best mark; the catch-all set last. */
 export function changeSets(rows: ChangeRow[], profile: Profile): ChangeSet[] {
   const sets = new Map<string, { other: boolean; items: Map<string, { paths: string[]; mark: ChangeMark }> }>();
   for (const r of rows) {
-    const p = place(r.path, profile);
+    const p = changePlace(r.path, profile);
     const set = sets.get(p.head) ?? sets.set(p.head, { other: p.other, items: new Map() }).get(p.head)!;
     const item = set.items.get(p.name);
     if (!item) set.items.set(p.name, { paths: [r.path], mark: r.mark });
@@ -102,6 +92,16 @@ const filesGroup = (rows: ChangeRow[], profile: Profile): ChangeGroup[] =>
 
 const items = (groups: ChangeGroup[]): number => groups.reduce((n, g) => n + g.sets.reduce((m, s) => m + s.items.length, 0), 0);
 
+/** What the section lists as changed: once it's done, what acc kept; in flight, its branch's paths, else what acc kept at its land. Null for none. */
+function changedNow(i: ChangesIn): { live: string[] | null; kept: Task['changes'] | null; changed: string[] | null } {
+  const kept = i.task.changes?.paths.length ? i.task.changes : null;
+  const live = i.task.state !== 'done' && i.live?.length ? i.live : null;
+  return { live, kept: kept ?? null, changed: live ?? kept?.paths ?? null };
+}
+
+/** The paths the section lists as changed, which a tracker's changes field is drafted from too (T-105); none before there's work. */
+export const ticketPaths = (i: ChangesIn): string[] => changedNow(i).changed ?? [];
+
 /**
  * The section, or null when there's nothing to show: no plan that names paths, no work yet, and nothing
  * merged. Once it's done, what acc kept shows; in flight, what its branch has changed, else what acc kept
@@ -109,9 +109,7 @@ const items = (groups: ChangeGroup[]): number => groups.reduce((n, g) => n + g.s
  */
 export function ticketChanges(i: ChangesIn): TicketChanges | null {
   const done = i.task.state === 'done';
-  const kept = i.task.changes?.paths.length ? i.task.changes : null;
-  const live = !done && i.live?.length ? i.live : null;
-  const changed = live ?? kept?.paths ?? null;
+  const { live, kept, changed } = changedNow(i);
   const planned = filesGroup((i.planned ?? []).map((path) => ({ path, mark: 'planned' })), i.profile);
   const base = { task: i.task.id, keptAt: !live && kept ? kept.at : null, planned };
   if (!changed) {

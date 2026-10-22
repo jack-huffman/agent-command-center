@@ -73,7 +73,7 @@ export interface ProjectLike {
    * autonomy: what autopilot may do on its own (D-055), when the config says. autopilot.autoMerge: whether
    * it merges pull requests (GH-67). trackers: which owns a ticket's key (D-066).
    */
-  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; autopilot?: { autoMerge?: boolean }; trackers?: Pick<Tracker, 'kind' | 'project' | 'prefix'>[]; agents?: { cloud?: CloudAgents | null }; worktrees?: { root: string | null } };
+  config: { github: { repo: string; account: string } | null; environments: Environment[]; profile: string; autonomy?: string; autopilot?: { autoMerge?: boolean }; trackers?: (Pick<Tracker, 'kind' | 'project' | 'prefix'> & Partial<Pick<Tracker, 'changesField' | 'edits'>>)[]; agents?: { cloud?: CloudAgents | null }; worktrees?: { root: string | null } };
   branch: string | null;
   worktrees: { path: string; head: string; branch: string | null; main: boolean; changed: number; locked: boolean; prunable: boolean }[];
 }

@@ -62,6 +62,8 @@ function cmdUpdatePost(o: Opts, id: string): number {
   const by = personOnlyUpdate(o, 'post a ticket\'s update');
   const { paths, config } = project(process.cwd());
   const u = updateOrThrow(paths, id);
+  // A changes field's text isn't a comment (T-105): its save reads the field first, keeping what a person wrote there.
+  if (u.event === 'changes') throw new AccError('refused', `${u.id} is the new text of ${u.key}'s ${u.field?.name ?? 'changes field'}, not a comment. Save it from the Command Center, which keeps what a person wrote there.`);
   if (u.tracker !== 'github') throw new AccError('refused', `${u.id} is for ${trackerName(u.tracker)} ticket ${u.key}. acc posts only on GitHub: post it from the Command Center, which posts as you through this repo's ${trackerName(u.tracker)} sign-in.`);
   const text = postText(o, u);
   const gh = config.github;

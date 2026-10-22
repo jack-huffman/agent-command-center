@@ -63,16 +63,17 @@ export function sendUpdate(key: string, what: 'post' | 'discard' | 'ask', msg: R
 function updateButtons(c: UpdateCard, text: () => string): HTMLElement[] {
   const key = updateKey(c.project, c.id);
   const sending = pending.what(key);
-  if (sending) return [el('span', 'q-sending muted', icon('sync~spin'), sending === 'discard' ? 'Discarding…' : `Posting as ${c.postAs ?? 'you'}…`)];
-  if (c.state === 'posting' && !c.stale) return [el('span', 'q-sending muted', icon('sync~spin'), 'Being posted…')];
+  if (sending) return [el('span', 'q-sending muted', icon('sync~spin'), sending === 'discard' ? 'Discarding…' : `${c.saves ? 'Saving' : 'Posting'} as ${c.postAs ?? 'you'}…`)];
+  if (c.state === 'posting' && !c.stale) return [el('span', 'q-sending muted', icon('sync~spin'), c.saves ? 'Being saved…' : 'Being posted…')];
   const discard = button('Discard', 'trash', () => sendUpdate(key, 'discard', { type: 'update-discard', project: c.project, id: c.id }), 'ghost');
   discard.title = 'Set it aside: it\'s kept, and never posted';
-  const post = button(c.stale ? 'Post again' : 'Post', 'send', () => {
+  // A changes field's draft (T-105) saves the field rather than posting a comment, so it says so.
+  const post = button(c.saves ? (c.stale ? 'Save again' : 'Save to the ticket') : c.stale ? 'Post again' : 'Post', c.saves ? 'save' : 'send', () => {
     const t = text().trim();
     if (t) sendUpdate(key, 'post', { type: 'update-post', project: c.project, id: c.id, text: t, ...(c.stale ? { again: true } : {}) });
   }, 'primary');
   post.disabled = !!c.blocked || !text().trim();
-  post.title = c.blocked ?? `Post it on ${c.key} as ${c.postAs}`;
+  post.title = c.blocked ?? (c.saves ? `Save it to ${c.key}'s ${c.saves} as ${c.postAs}, with each line written there by hand kept` : `Post it on ${c.key} as ${c.postAs}`);
   return [discard, post];
 }
 
@@ -150,7 +151,7 @@ export function tellEdits(m: TicketModel): void {
 }
 
 /** Who Post sends it as, or why it can't post yet. */
-export const posterLine = (c: UpdateCard): HTMLElement => (c.blocked ? el('span', 'acting draft-blocked', icon('warning'), c.blocked) : el('span', 'acting', icon('account'), `Posting as ${c.postAs}`));
+export const posterLine = (c: UpdateCard): HTMLElement => (c.blocked ? el('span', 'acting draft-blocked', icon('warning'), c.blocked) : el('span', 'acting', icon('account'), `${c.saves ? 'Saving' : 'Posting'} as ${c.postAs}`));
 
 /**
  * One of a task's draft updates at the top of its Activity: what it's about, its text in a box to edit,

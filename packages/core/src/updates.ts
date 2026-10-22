@@ -6,16 +6,16 @@ import { writeAtomic } from './atomic.ts';
 import { type Task } from './ledger.ts';
 import { withLock } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
-import { isTrackerKind, type TrackerKind } from './trackers/types.ts';
+import { isTrackerKind, type TextField, type TrackerKind } from './trackers/types.ts';
 
 /**
  * Ticket updates (D-066): acc never posts on a ticket by itself. When something a client cares about
  * happens (a pull request is ready for review, a change is merged, promoted or deployed, a builder needs
- * the client's answer, or a person chooses to send one of the analysis's questions), acc writes a draft
- * here, one file each. A person reads it, edits it, and posts it as themselves, or discards it.
+ * the client's answer, a person chooses to send one of the analysis's questions, or a ticket's changes
+ * change where its tracker keeps them in a field, T-105), acc writes a draft here, one file each. A person reads it, edits it, and posts it as themselves, or discards it.
  */
 
-export const UPDATE_EVENTS = ['pr-opened', 'pr-updated', 'merged', 'promotion-opened', 'promoted', 'deployed', 'blocked', 'question', 'criteria', 'verify'] as const;
+export const UPDATE_EVENTS = ['pr-opened', 'pr-updated', 'merged', 'promotion-opened', 'promoted', 'deployed', 'blocked', 'question', 'criteria', 'verify', 'changes'] as const;
 export type UpdateEvent = (typeof UPDATE_EVENTS)[number];
 
 /**
@@ -50,6 +50,8 @@ export interface Update {
   pr?: { number: number; url: string };
   /** The analysis's question it asks, for question: q1. */
   question?: string;
+  /** The ticket field it's the new text of, for changes (T-105): a person's save writes the field, not a comment. */
+  field?: TextField;
   createdAt: string;
   /** Who it was drafted by: acc land, acc sync, a builder, a person. */
   by: string;
@@ -90,6 +92,7 @@ export const EVENT_WORDS: Record<UpdateEvent, string> = {
   question: 'a question from its analysis',
   criteria: 'drafted acceptance criteria',
   verify: 'a QA comment on the developer\'s pull request',
+  changes: 'the new text of its changes field',
 };
 
 /** Whether a task's ticket can take updates: one from a tracker, with a key. A task acc alone keeps can't. */
@@ -136,6 +139,8 @@ export function updateText(event: UpdateEvent, c: UpdateContext): string {
     case 'question': return `Before we start, a question for you:\n${sentence(c.question ?? '')}`;
     case 'criteria': return `Proposed acceptance criteria, test steps and edge cases, for you to check:${summary}`;
     case 'verify': return `QA of the pull request: ${c.pr?.url ?? ''}${summary}`;
+    // Its text is always the field's, drafted from the ticket's changes (T-105).
+    case 'changes': return c.summary?.trim() ?? '';
   }
 }
 
@@ -213,6 +218,8 @@ export interface DraftInput {
   env?: string;
   pr?: { number: number; url: string };
   question?: string;
+  /** The ticket field it's the new text of, for changes. */
+  field?: TextField;
   /** What it says. Without it, the event's own wording from what's given. */
   text?: string;
   context?: UpdateContext;
@@ -242,6 +249,7 @@ export function draftUpdate(paths: UpdatePaths, task: Pick<Task, 'id' | 'source'
     const u: Update = {
       v: 1, id: `${task.id}.${n}`, task: task.id, tracker: ticket.tracker, key: ticket.key, url: ticket.url, event, text, state: 'draft',
       ...(input.env ? { env: input.env } : {}), ...(input.pr ? { pr: { number: input.pr.number, url: input.pr.url } } : {}), ...(input.question ? { question: input.question } : {}),
+      ...(input.field ? { field: { id: input.field.id, name: input.field.name, format: input.field.format } } : {}),
       createdAt: now().toISOString(), by,
       ...(gone.length ? { replaces: gone.flatMap((r) => [r.id, ...(r.replaces ?? [])]).slice(0, REPLACES_MAX) } : {}),
     };

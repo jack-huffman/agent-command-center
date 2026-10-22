@@ -206,6 +206,20 @@ export const textRefusal = (kind: TrackerKind): string | null =>
 /** The error a tracker that can't write its ticket text throws from setText. */
 export const textRefused = (kind: TrackerKind): TrackerError => new TrackerError('refused', textRefusal(kind) ?? `${trackerName(kind)} refused the text.`);
 
+/**
+ * How a ticket field keeps its text (T-105): Markdown (a GitHub issue's description), HTML (an Azure DevOps
+ * HTML field), ADF (a Jira long-text field) or plain text (a Jira or Azure DevOps text field, a monday.com long-text column).
+ */
+export const FIELD_FORMATS = ['markdown', 'html', 'adf', 'plain'] as const;
+export type FieldFormat = (typeof FIELD_FORMATS)[number];
+
+/** A ticket field that holds text (T-105): the tracker's own id for it, its name as the tracker shows it, and how it keeps text. */
+export interface TextField {
+  id: string;
+  name: string;
+  format: FieldFormat;
+}
+
 export interface TrackerClient {
   readonly kind: TrackerKind;
   /** Which of status, assignee and labels the tracker has. Not set: all three. */
@@ -242,6 +256,16 @@ export interface TrackerClient {
    * Azure DevOps, monday.com and Slack refuse it with a TrackerError of kind 'refused' that says why.
    */
   setText(key: string, text: TicketText): Promise<void>;
+  /**
+   * The ticket fields that hold text, where a ticket's changes can be kept (T-105): Jira's text and long-text
+   * custom fields, Azure DevOps' string and HTML fields on the board's work item types, monday.com's long-text
+   * columns, and GitHub's section of the description. Slack has none, so it has no such method.
+   */
+  textFields?(): Promise<TextField[]>;
+  /** A field's text on a ticket, as Markdown (T-105): '' when it's empty. */
+  readField?(key: string, field: TextField): Promise<string>;
+  /** Writes a field's text, given as Markdown, in the field's own format (T-105). Only a person's save calls it. */
+  writeField?(key: string, field: TextField, markdown: string): Promise<void>;
   me(): Promise<Person>;
   assignable(key: string, query: string): Promise<Person[]>;
   assign(key: string, people: Person[]): Promise<void>;

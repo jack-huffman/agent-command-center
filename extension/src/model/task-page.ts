@@ -35,6 +35,7 @@ import { choicesWord, forYou } from '../logic/plan.ts';
 import { WORDS } from '../../webview/plain-words.ts';
 import type { TicketChanges } from './changes.ts';
 import type { TicketRecords } from './record-changes.ts';
+import type { TicketField } from './changes-field.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -206,6 +207,8 @@ export interface TicketModel {
   changes: TicketChanges | null;
   /** Its record changes (T-100), on a Salesforce task: planned, recorded and stepped at promotion. */
   records?: TicketRecords | null;
+  /** What the ticket's changes field says (T-105), and the Command Center's draft where it differs. */
+  field?: TicketField | null;
   /** Manifest for this ticket (T-101): a Salesforce task's package.xml and what its org said. Null with no task, or outside Salesforce. */
   manifest: TicketManifestSection | null;
   /** Talk it through (T-98): the conversation with its planning agent, beside the plan. Null with no plan. */
@@ -520,7 +523,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     can: { status: !!t && !!i.trackerEdits && has('status'), assign: !!t && !!i.trackerEdits && has('assignee'), labels: !!t && !!i.trackerEdits && has('labels'), comment: !!t },
     editText: t && i.trackerEdits && i.task ? editTextAction(i.project, i.task) : null,
     lacks,
-    updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, i.now) : [],
+    updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, () => !!i.trackerEdits, i.now) : [],
     acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
     review: i.task ? ticketReview(i.project, i.task.state, i.review) : null,
     criteria: i.task ? ticketCriteria({ task: i.task, draft: i.draft ?? null, drafting: !!i.drafting, edits: !!i.trackerEdits, kind: i.trackerKind, unkept: t?.unkept }) : null,

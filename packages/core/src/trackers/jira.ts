@@ -3,10 +3,11 @@
  * Jira board's own columns, each mapped to the statuses it holds, and a move is a workflow transition.
  */
 import { type AdfNode, adfUnkept, fromAdf, fromMarkdown, toAdf, toMarkdown, unkeptRefusal } from './doc.ts';
+import { fieldMarkdown, fieldValue } from './fields.ts';
 import { isEmail, typeKindOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, inBatches, type Label, orList, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Sprint,
-  type Status, type StatusCategory, type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
+  type Status, type StatusCategory, type TextField, type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
 export interface JiraOptions {
@@ -46,6 +47,9 @@ const projectOf = (i: Placed): string => (i.fields.project?.key ?? i.key.replace
 
 /** The board's notice when it follows the active sprint and none is open (T-78). */
 export const NO_ACTIVE_SPRINT = 'This board has no active sprint, so it shows no tickets. When the next sprint starts, its tickets show here. To see the whole board or another sprint, use Change, above it.';
+
+/** Jira's custom field types that hold lines of text (T-105), by the last part of their key: only a long-text field, which keeps ADF. */
+const JIRA_TEXT_TYPES: Record<string, 'adf'> = { textarea: 'adf' };
 
 const CATEGORY: Record<string, StatusCategory> = { new: 'todo', indeterminate: 'doing', done: 'done' };
 const status = (s: JiraStatus): Status => ({ id: String(s.id), name: s.name, category: CATEGORY[s.statusCategory?.key ?? ''] ?? 'doing' });
@@ -368,6 +372,27 @@ export class JiraClient implements TrackerClient {
     }
     if (!Object.keys(fields).length) return;
     await this.req('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields });
+  }
+
+  /**
+   * Its custom fields that hold lines of text (T-105), by name: a long-text field (Jira's textarea), which
+   * keeps ADF. A one-line text field can't hold a list, so it isn't offered, nor are other fields or Jira's own.
+   */
+  async textFields(): Promise<TextField[]> {
+    const all = await this.req<{ id: string; name: string; custom?: boolean; schema?: { type?: string; custom?: string } }[]>('GET', '/rest/api/3/field');
+    return all.flatMap((f): TextField[] => {
+      const custom = f.schema?.custom?.split(':').pop() ?? '';
+      return f.custom && f.schema?.type === 'string' && Object.hasOwn(JIRA_TEXT_TYPES, custom) ? [{ id: f.id, name: f.name, format: JIRA_TEXT_TYPES[custom]! }] : [];
+    }).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async readField(key: string, field: TextField): Promise<string> {
+    const i = await this.req<{ fields: Record<string, unknown> }>('GET', `/rest/api/3/issue/${encodeURIComponent(key)}?fields=${encodeURIComponent(field.id)}`);
+    return fieldMarkdown(i.fields?.[field.id], field.format);
+  }
+
+  async writeField(key: string, field: TextField, markdown: string): Promise<void> {
+    await this.req('PUT', `/rest/api/3/issue/${encodeURIComponent(key)}`, { fields: { [field.id]: fieldValue(markdown, field.format) } });
   }
 
   async me(): Promise<Person> {

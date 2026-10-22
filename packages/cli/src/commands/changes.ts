@@ -3,7 +3,7 @@
 // each step a promotion added, done or skipped with a reason.
 
 import {
-  AccError, markStep, outsideOf, plannedRecordKeys, readAnalysis, readLedger, RECORD_KIND, type RecordChange, recordNone, recordOutside, recordPair, recordWords, stepsOf, unmade, unrecordedProblems,
+  AccError, draftChangesField, markStep, outsideOf, plannedRecordKeys, readAnalysis, readLedger, RECORD_KIND, type RecordChange, recordNone, recordOutside, recordPair, recordWords, run, stepsOf, unmade, unrecordedProblems,
 } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
 import { actorFrom, type CommandArea, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
@@ -41,6 +41,8 @@ function cmdRecord(o: Opts, rest: string[]): number {
   const detail = recordFromFlags(o);
   const keys = plannedRecordKeys(readAnalysis(paths, id));
   const c = recordOutside(paths, now, id, RECORD_KIND, detail, typeof o.why === 'string' ? o.why : '', actorFrom(o), { profile: config.profile, keys });
+  // A record change is one of the ticket's changes: where its tracker keeps them in a field, a draft of its new text (T-105).
+  draftChangesField(paths, run, config, id, actorFrom(o).by, now);
   out(o, () => [`${id}: kept ${c.id}, ${recordWords(detail)}.`, tone(c.planned ? 'The plan listed it.' : 'The plan didn\'t list it: say why in your note.', c.planned ? 'dim' : 'orange')].join('\n'), c);
   return 0;
 }

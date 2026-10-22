@@ -32,7 +32,7 @@ export function sampleHub(now = Date.now()): HubLike {
     // merge the base into a conflicting pull request (D-058); it runs while a person has it on (D-064).
     // Its one tracker, the board below: which tracker owns a ticket's key is who its update posts as (D-066).
     // Opted in to cloud builders (GH-69): a task may go to the cloud, and its environment branches are watched.
-    config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce', autonomy: 'review', trackers: [{ kind: 'jira', project: 'ACME', prefix: null }], agents: { cloud: { routine: 'trig_01HQACMESERVICE', default: 'local', quietMinutes: 120, max: 3, review: 'local' as const } } },
+    config: { github: { repo: 'acme/service', account: 'jordan-kim' }, environments, profile: 'salesforce', autonomy: 'review', trackers: [{ kind: 'jira', project: 'ACME', prefix: null, changesField: { id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' } }], agents: { cloud: { routine: 'trig_01HQACMESERVICE', default: 'local', quietMinutes: 120, max: 3, review: 'local' as const } } },
     worktrees: [
       { path: root, head: 'a1b2c3d', branch: 'dev', main: true, changed: 0, locked: false, prunable: false },
       { path: wt('ACME-12'), head: 'b2c3d4e', branch: 'task/ACME-12-case-escalation-rules', main: false, changed: 4, locked: false, prunable: false },
