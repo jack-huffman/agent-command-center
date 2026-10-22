@@ -1,8 +1,12 @@
 # Working on Agent Command Center
 
-- Read `docs/DECISIONS.md` before changing direction. Record new decisions there.
-  On a task branch, head a new entry `## D-??? <title> (<date>)` and refer to it
-  as D-???. Whoever merges gives it the next free number (D-045).
+- Read `docs/DECISIONS.md` (an index of `docs/decisions/`) before changing
+  direction. Record a new decision as its own file: on a task branch, add
+  `docs/decisions/new-<task>-<slug>.md`, headed `## D-<task> <title> (<date>)`,
+  and refer to it as `D-<task>` (such as D-T-97). The merge gives it the next
+  free number and writes that over `D-<task>` in the branch's own lines
+  (`acc decisions number`, D-T-102). Never edit `docs/DECISIONS.md`: it is
+  generated (`acc decisions index`).
 - The plugin and extension must not depend on any skill outside this repo (D-002).
 - Research and supporting notes stay local: `docs/research/` is gitignored, and
   nothing committed links to it. Anything taken from another repo is copied in,

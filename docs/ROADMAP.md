@@ -16,7 +16,7 @@ Every bullet below is one status line, in this form:
 - Evidence is a decision in [DECISIONS.md](DECISIONS.md) (D-nnn), a GitHub issue
   (GH-nnn) or a release in [the CHANGELOG](../CHANGELOG.md).
 - `scripts/test/roadmap.test.ts` fails on a status line with no status, no
-  date or no evidence, on a decision that isn't in DECISIONS.md, on a release
+  date or no evidence, on a decision that isn't in `docs/decisions/`, on a release
   that isn't in the CHANGELOG, and on a date that hasn't come yet. So when a
   status changes, change its date and its evidence in the same edit.
 

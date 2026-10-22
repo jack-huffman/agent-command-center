@@ -4,7 +4,7 @@
  *   - **Name**: done. Checked 2026-10-10. Evidence: D-012, GH-5, 0.36.0.
  *
  * A status line, wrapped over indented lines or not, needs one of four statuses, the date it was checked,
- * and at least one decision, issue or release after "Evidence:". A decision must be in DECISIONS.md, a
+ * and at least one decision, issue or release after "Evidence:". A decision must be in docs/decisions/, a
  * release in the CHANGELOG with its notes (packaging's `changelogEntry`), and no date may be later than today.
  */
 
@@ -39,7 +39,7 @@ export function statusLines(md: string): string[] {
   return lines;
 }
 
-/** The decisions DECISIONS.md has: every "## D-nnn" heading. */
+/** The decisions a text names in its headings: every "## D-nnn". */
 export const decisionsIn = (md: string): Set<string> => new Set([...md.matchAll(/^## (D-\d+)\b/gm)].map((m) => m[1] ?? ''));
 
 /** Whether a year, month and day are a real calendar day. */
@@ -48,9 +48,9 @@ function realDay(y: number, m: number, d: number): boolean {
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }
 
-/** Checks ROADMAP.md against the decisions and releases that exist, and today's date (yyyy-mm-dd). */
-export function checkRoadmap(roadmap: string, decisions: string, changelog: string, today: string): RoadmapCheck {
-  const haveD = decisionsIn(decisions);
+/** Checks ROADMAP.md against the decisions that exist (each decision file's text, T-102), the releases, and today's date (yyyy-mm-dd). */
+export function checkRoadmap(roadmap: string, decisions: string[], changelog: string, today: string): RoadmapCheck {
+  const haveD = new Set(decisions.flatMap((md) => [...decisionsIn(md)]));
   const problems: string[] = [];
   const lines = statusLines(roadmap);
   const statusAt = new RegExp(`^\\*\\*.+?\\*\\*: (${STATUSES.join('|')})\\.`);
@@ -66,7 +66,7 @@ export function checkRoadmap(roadmap: string, decisions: string, changelog: stri
     const at = line.indexOf('Evidence:');
     const evidence = at < 0 ? '' : line.slice(at);
     if (!/\b(?:D|GH)-\d+\b/.test(evidence) && !evidence.match(RELEASE)) bad('has no D-, GH- or release reference after "Evidence:"');
-    for (const d of new Set([...line.matchAll(/\bD-\d+\b/g)].map((m) => m[0]))) if (!haveD.has(d)) bad(`names ${d}, which DECISIONS.md doesn't have`);
+    for (const d of new Set([...line.matchAll(/\bD-\d+\b/g)].map((m) => m[0]))) if (!haveD.has(d)) bad(`names ${d}, which docs/decisions/ doesn't have`);
     for (const r of new Set(line.match(RELEASE) ?? [])) if (changelogEntry(changelog, r) === null) bad(`names release ${r}, which the CHANGELOG has no notes for`);
   }
   return { checked: lines.length, problems };

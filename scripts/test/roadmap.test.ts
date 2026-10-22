@@ -3,7 +3,7 @@
 // counts the lines it read and fails on none. The fixtures show it fails for each fault, so it isn't a
 // check that passes whatever it's given.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { localDay } from '../../packages/core/src/rules.ts';
@@ -12,7 +12,7 @@ import { checkRoadmap, statusLines } from '../roadmap.ts';
 const ROOT = join(import.meta.dirname, '..', '..');
 const read = (rel: string) => readFileSync(join(ROOT, rel), 'utf8');
 const TODAY = '2026-10-10';
-const DECISIONS = '## D-001 One (2026-10-01)\n\n## D-012 Two (2026-10-01)\n';
+const DECISIONS = ['## D-001 One (2026-10-01)\n', '## D-012 Two (2026-10-01)\n'];
 const CHANGELOG = '# Changelog\n\n## 0.39.0\n\n- a\n\n## 0.38.0\n\n- b\n';
 const run = (roadmap: string, today = TODAY) => checkRoadmap(roadmap, DECISIONS, CHANGELOG, today);
 const GOOD = '- **M1 Core**: done. Checked 2026-10-09. Evidence: D-012, GH-5, 0.39.0.\n';
@@ -20,7 +20,7 @@ const GOOD = '- **M1 Core**: done. Checked 2026-10-09. Evidence: D-012, GH-5, 0.
 test('ROADMAP.md: every status line has a status, a date and evidence, and names only decisions and releases that exist', () => {
   // Today where the check runs: a line checked this evening is not in the future in UTC's tomorrow.
   const today = localDay(new Date());
-  const got = checkRoadmap(read('docs/ROADMAP.md'), read('docs/DECISIONS.md'), read('CHANGELOG.md'), today);
+  const got = checkRoadmap(read('docs/ROADMAP.md'), readdirSync(join(ROOT, 'docs/decisions')).map((f) => read(`docs/decisions/${f}`)), read('CHANGELOG.md'), today);
   assert.ok(got.checked >= 10, `only ${got.checked} status lines were read: the check should see the roadmap's milestones and later items`);
   assert.deepEqual(got.problems, []);
 });
@@ -77,8 +77,8 @@ test('a status line with no status, or one that is not of the four, fails', () =
   }
 });
 
-test('a decision that DECISIONS.md does not have fails, and so does a release the CHANGELOG does not have', () => {
-  assert.match(run('- **M1 Core**: done. Checked 2026-10-09. Evidence: D-012, D-999.\n').problems.join('\n'), /names D-999, which DECISIONS\.md doesn't have/);
+test('a decision that docs/decisions/ does not have fails, and so does a release the CHANGELOG does not have', () => {
+  assert.match(run('- **M1 Core**: done. Checked 2026-10-09. Evidence: D-012, D-999.\n').problems.join('\n'), /names D-999, which docs\/decisions\/ doesn't have/);
   assert.match(run('- **M1 Core**: done. Checked 2026-10-09. Evidence: D-012, 9.9.9.\n').problems.join('\n'), /names release 9\.9\.9, which the CHANGELOG has no notes for/);
   // A heading with no notes under it is not a release the CHANGELOG has.
   assert.match(checkRoadmap('- **M1 Core**: done. Checked 2026-10-09. Evidence: 0.37.0.\n', DECISIONS, `${CHANGELOG}\n## 0.37.0\n`, TODAY).problems.join('\n'), /names release 0\.37\.0, which the CHANGELOG has no notes for/);
