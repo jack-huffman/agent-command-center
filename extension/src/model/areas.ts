@@ -37,7 +37,6 @@ export type Message =
   | import('./agent-page.ts').Message
   | import('./agents.ts').Message
   | import('./boards.ts').Message
-  | import('./changes-field.ts').Message
   | import('./connect.ts').Message
   | import('./criteria.ts').Message
   | import('./dispatch-sheet.ts').Message

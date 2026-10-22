@@ -28,7 +28,9 @@ import type { CriteriaActions } from './criteria.ts';
 import type { PlanActions } from './plan.ts';
 import type { VerifyActions } from './verify.ts';
 import { ticketVerify } from './model/verify.ts';
-import { changedPaths, type ChangesIn, ticketChanges } from './model/changes.ts';
+import { type ChangesIn, ticketChanges, ticketPaths } from './model/changes.ts';
+import { withFieldKept } from './model/changes-field.ts';
+import { writtenFor } from '../../packages/core/src/field-drafts.ts';
 import type { FieldActions } from './changes-field.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { branchFiles, IN_FLIGHT_STATES, plannedFiles } from '../../packages/core/src/overlap.ts';
@@ -338,25 +340,28 @@ export class TicketPanels implements vscode.Disposable {
     // The page's own load made this client, so it's cached; a client that failed to start says nothing of its fields, which is all three.
     const client = o.tracker !== null ? await this.trackers.client(p, o.tracker).catch(() => null) : null;
     const changes = task ? this.changes(p, task) : null;
+    const manifest = task && this.manifest && p.config.profile === 'salesforce' ? this.manifest.state(p.root, task.id) : null;
+    const updates = this.hub.updates(p.root);
     const model = ticketModel({
       project: p.root, tracker: o.tracker, trackerTitle: tracker ? this.trackers.title(tracker) : null, trackerKind: tracker?.kind ?? null, key: o.key,
       ticket: o.ticket, loading: o.loading, error: o.error, outside: o.outside, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null, task.environment) : [],
       signedInAs: o.tracker !== null ? await this.trackers.signedInAs(p, o.tracker) : null,
       analysis: task ? this.hub.analysis(p.root, task.id) : null,
-      trackerEdits: this.edits(o, p), trackerFields: client?.fields, updates: this.hub.updates(p.root), boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
+      trackerEdits: this.edits(o, p), trackerFields: client?.fields, updates, boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
       tracking: this.trackers.trackState(p.root, o.key).busy,
       review: task ? await this.review(o, p, task) : null,
       ...(task && this.criteria ? this.criteria.state(p.root, task.id) : {}),
-      manifest: task && this.manifest && p.config.profile === 'salesforce' ? ticketManifest({ task, profile: p.config.profile, org: p.config.environments.find((e) => e.branch === task.environment || e.name === task.environment)?.org ?? null, ...this.manifest.state(p.root, task.id) }) : null,
+      manifest: task && manifest ? ticketManifest({ task, profile: p.config.profile, org: p.config.environments.find((e) => e.branch === task.environment || e.name === task.environment)?.org ?? null, ...manifest }) : null,
       verify: task && this.verify ? ticketVerify({ task, github: p.config.github?.repo ?? null, ...this.verify.state(p.root, task.id), updates: this.hub.updates(p.root).filter((u) => u.task === task.id) }) : null,
       changes: changes ? ticketChanges(changes) : null,
     });
     // Its record changes (T-100): a section of its own, beside the ticket's other changes. Its tracker's
-    // changes field (T-105), once read: what it says, and the draft from the same changes.
+    // changes field (T-105), once read: what it says, and its draft update keeping each line a person wrote there.
     o.view.draw(task ? {
       ...model,
       records: ticketRecords({ task, analysis: this.hub.analysis(p.root, task.id), profile: p.config.profile, environments: p.config.environments }),
-      field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, changedPaths(changes)) ?? null : null,
+      field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, ticketPaths(changes), updates, manifest?.manifest ?? null) ?? null : null,
+      updates: this.fields ? withFieldKept(model.updates, this.fields.read(p, task.id), writtenFor(updates, task.id)) : model.updates,
     } : model);
   }
 
@@ -439,10 +444,6 @@ export class TicketPanels implements vscode.Disposable {
       // Record changes (T-100): this page's own task only.
       case 'record-add': case 'record-step':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.records?.act(m, (msg) => o.view.say(msg));
-        return;
-      // A person's Save to the ticket of its changes field (T-105): this page's own task, on its own tracker.
-      case 'changes-field-save':
-        if (m.project === o.project && m.task.toUpperCase() === o.key && o.tracker !== null) await this.fields?.save(p, o.tracker, m, (msg) => o.view.say(msg));
         return;
       // Manifest for this ticket (T-101): this page's own task only.
       case 'manifest-build': case 'manifest-retrieve': case 'manifest-commit': case 'manifest-file': case 'manifest-diff':

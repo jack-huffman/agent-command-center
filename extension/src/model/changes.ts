@@ -100,7 +100,7 @@ function changedNow(i: ChangesIn): { live: string[] | null; kept: Task['changes'
 }
 
 /** The paths the section lists as changed, which a tracker's changes field is drafted from too (T-105); none before there's work. */
-export const changedPaths = (i: ChangesIn): string[] => changedNow(i).changed ?? [];
+export const ticketPaths = (i: ChangesIn): string[] => changedNow(i).changed ?? [];
 
 /**
  * The section, or null when there's nothing to show: no plan that names paths, no work yet, and nothing

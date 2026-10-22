@@ -1,10 +1,13 @@
 /**
  * A tracker's changes field, read and saved (T-105). A ticket's page reads the field once each time it loads
- * the ticket, and keeps what it read here, by project and ticket. A save writes only what a person saved,
- * and only after the field is read again and still says what the page showed them, as D-177's text does.
- * Nothing here writes to a ticket on its own. Like the rest of logic/, no `vscode` import.
+ * the ticket, and keeps what it read here, by project and ticket. A save writes only the draft update a
+ * person saved, claimed first so a second window's Save can't write it again (D-066), and only after the
+ * field is read again: each line a person wrote there since is kept in what's written. Nothing here writes
+ * to a ticket on its own. Like the rest of logic/, no `vscode` import.
  */
+import { keptLines, withKept } from '../../../packages/core/src/changes-field.ts';
 import type { TextField, TrackerClient } from '../../../packages/core/src/trackers/types.ts';
+import type { AccResult } from './post-update.ts';
 import type { FieldRead } from '../model/changes-field.ts';
 import { EDITS_OFF } from '../model/task-sheet.ts';
 import { inProcessWords } from './processes.ts';
@@ -59,17 +62,18 @@ export interface SaveIn {
   key: string;
   /** The field's name, as the page shows it. */
   name: string;
+  /** The draft as the person saves it. */
   text: string;
-  /** What the field said when the page drew the draft. */
-  before: string;
+  /** Every text the Command Center drafted for the field: a line of the field that isn't in one is a person's. */
+  written: string[];
 }
 
-export type SaveOut = { ok: true } | { ok: false; error: string; now?: string };
+export type SaveOut = { ok: true; text: string } | { ok: false; error: string };
 
 /**
  * A person's save (T-105): refused, with nothing written, where the project names no field or its settings
- * keep edits off. Otherwise the field is read again; when it changed since the page showed it, nothing is
- * written, and the page gets what it says now. Then it's written, once.
+ * keep edits off. Otherwise the field is read again, and written once with the saved text and each line a
+ * person wrote in the field that it doesn't say, kept from the ticket. Returns what was written.
  */
 export async function saveField(client: FieldClient, i: SaveIn): Promise<SaveOut> {
   if (!i.field) return { ok: false, error: 'The project\'s settings name no field for a ticket\'s changes any more, so nothing was written.' };
@@ -77,12 +81,24 @@ export async function saveField(client: FieldClient, i: SaveIn): Promise<SaveOut
   if (!client.readField || !client.writeField) return { ok: false, error: 'This tracker has no fields to write, so nothing was written.' };
   try {
     const now = await client.readField(i.key, i.field);
-    if (now.trim() !== i.before.trim()) {
-      return { ok: false, error: `The ticket's ${i.name} changed since this page showed it, so nothing was written. The page shows what it says now: check your draft against it, then save again.`, now };
-    }
-    await client.writeField(i.key, i.field, i.text);
-    return { ok: true };
+    const text = withKept(i.text.trim(), keptLines(now, [...i.written, i.text]));
+    await client.writeField(i.key, i.field, text);
+    return { ok: true, text };
   } catch (e) {
     return { ok: false, error: `Couldn't save it: ${inProcessWords((e as Error).message)}` };
   }
+}
+
+type Acc = (args: string[], cwd: string) => Promise<AccResult>;
+
+/**
+ * Saves a changes field's draft update as postClaimed posts a comment: acc claims the draft, the field is
+ * saved, and a failed save puts the draft back with why. `says` turns a refused claim into words.
+ */
+export async function saveClaimed(client: FieldClient, acc: Acc, root: string, id: string, i: SaveIn, againArgs: string[], says: (r: AccResult) => string): Promise<SaveOut> {
+  const claimed = await acc(['update', 'posting', id, ...againArgs, '--json'], root);
+  if (claimed.code !== 0) return { ok: false, error: says(claimed) };
+  const r = await saveField(client, i);
+  if (!r.ok) await acc(['update', 'release', id, `--reason=${r.error}`, '--json'], root);
+  return r;
 }

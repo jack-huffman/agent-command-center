@@ -520,7 +520,7 @@ export function ticketModel(i: TicketInput): TicketModel {
     can: { status: !!t && !!i.trackerEdits && has('status'), assign: !!t && !!i.trackerEdits && has('assignee'), labels: !!t && !!i.trackerEdits && has('labels'), comment: !!t },
     editText: t && i.trackerEdits && i.task ? editTextAction(i.project, i.task) : null,
     lacks,
-    updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, i.now) : [],
+    updates: i.task ? updateCards(i.project, (i.updates ?? []).filter((u) => u.task === i.task!.id), i.github ?? null, i.boards ?? [], () => i.tracker, () => !!i.trackerEdits, i.now) : [],
     acc, analysis: i.row && i.task ? ticketAnalysis(i.row, i.analysis ?? null, { project: i.project, task: i.row.id }, i.updates ?? []) : null,
     review: i.task ? ticketReview(i.project, i.task.state, i.review) : null,
     criteria: i.task ? ticketCriteria({ task: i.task, draft: i.draft ?? null, drafting: !!i.drafting, edits: !!i.trackerEdits, kind: i.trackerKind, unkept: t?.unkept }) : null,

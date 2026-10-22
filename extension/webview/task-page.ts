@@ -189,8 +189,8 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.verify) main.append(renderVerify(m, m.verify));
   // Its Planned changes, then Changes (T-99), in a section of their own, apart from its plan.
   if (m.changes) main.append(renderChanges(m, m.changes));
-  // What the ticket's changes field says (T-105), beside what the Command Center found, and its draft.
-  if (m.field) main.append(renderField(m, m.field));
+  // What the ticket's changes field says (T-105), beside what the Command Center found.
+  if (m.field) main.append(renderField(m.field));
   // Its record changes (T-100): what it changes in an org that git never sees.
   if (m.records) main.append(renderRecords(m, m.records));
   // Manifest for this ticket (T-101): a Salesforce ticket's package.xml, in a section of its own.

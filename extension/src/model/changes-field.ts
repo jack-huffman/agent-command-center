@@ -2,21 +2,23 @@
  * A tracker's changes field (T-105): where a team keeps what a ticket changed, such as Jira's "Deployment
  * Notes". Settings' Trackers names it, a row of its own for each tracker, and so does the Connect page, once a
  * tracker's place is saved. A ticket's page reads the field back, beside the changes the Command Center found,
- * and says where they differ; where they do, it drafts the field's new text for a person to read, edit and
- * save to the ticket. Nothing is written until that save. Plain data: no vscode import, so it's testable.
+ * and says where they differ. The field's new text is an update draft (D-066), drafted when the ticket's
+ * changes change, that a person reads, edits and saves to the ticket, with each line a person wrote there kept.
+ * Nothing is written until that save. Plain data: no vscode import, so it's testable.
  */
 
-import { changesDraft, changesFieldRefusal, sameChanges } from '../../../packages/core/src/changes-field.ts';
+import { changesDraft, changesFieldRefusal, keptLines, sameChanges, withKept } from '../../../packages/core/src/changes-field.ts';
 import type { Profile, Tracker } from '../../../packages/core/src/config.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
+import type { TicketManifest } from '../../../packages/core/src/manifest.ts';
 import { outsideOf } from '../../../packages/core/src/outside-changes.ts';
 import { type Doc, fromMarkdown } from '../../../packages/core/src/trackers/doc.ts';
 import { GITHUB_SECTION } from '../../../packages/core/src/trackers/fields.ts';
 import { type FieldFormat, isTrackerKind, type TextField, type TrackerKind, trackerName } from '../../../packages/core/src/trackers/types.ts';
 import type { ConnectState } from './connect.ts';
 import type { SettingsAction } from './settings.ts';
-import { KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
-import { EDITS_OFF } from './task-sheet.ts';
+import { type Look, LOOK, type ModelArea } from './shared.ts';
+import type { UpdateCard } from './updates.ts';
 
 // ---------------------------------------------------------------- the setting
 
@@ -102,25 +104,13 @@ export const changesFieldRecord = (kind: TrackerKind, field: TextField | null): 
 export type FieldRead = { state: 'loading' } | { state: 'read'; text: string } | { state: 'failed'; error: string };
 
 /** How the field compares with what the Command Center found: orange where they differ, blue where they agree. */
-export const FIELD_LOOK: Record<'differs' | 'same' | 'empty' | 'reading' | 'failed' | 'draft', Look> = {
+export const FIELD_LOOK: Record<'differs' | 'same' | 'empty' | 'reading' | 'failed', Look> = {
   differs: { label: 'Differs from the changes the Command Center found', icon: 'diff', tone: 'orange' },
   same: { label: 'Says what the Command Center found', icon: 'pass', tone: 'blue' },
   empty: { label: 'Empty on the ticket', icon: 'circle-outline', tone: 'orange' },
   reading: { label: 'Reading it from the ticket', icon: 'sync~spin', tone: 'blue' },
   failed: { label: 'Couldn\'t read it', icon: 'warning', tone: 'orange' },
-  draft: { label: 'Draft, not saved', icon: 'comment-draft', tone: 'orange' },
 };
-
-export interface FieldDraft {
-  title: string;
-  /** Draft, not saved: orange, with its icon. */
-  look: Look;
-  /** The Command Center's text, as Markdown, for the person to edit. */
-  text: string;
-  /** What the field says now, which a save replaces: the page sends it back so a field changed since isn't overwritten. */
-  replaces: string;
-  save: { label: string; disabled: string | null };
-}
 
 export interface TicketField {
   task: string;
@@ -134,69 +124,63 @@ export interface TicketField {
   error: string | null;
   /** A muted line under the heading, or null. */
   note: string | null;
-  draft: FieldDraft | null;
 }
 
 export interface FieldIn {
   task: Pick<Task, 'id' | 'outside'>;
   kind: TrackerKind;
   field: TextField | null;
-  /** Whether the tracker's settings let a person's edits write to its tickets (D-066, D-177). */
-  edits: boolean;
   profile: Profile;
   /** What its work changed: its branch's paths while in flight, else what was kept when it merged. */
   paths: string[];
+  /** Its package.xml, where one was built for it (T-101). */
+  manifest?: Pick<TicketManifest, 'types' | 'deletions'> | null;
   read: FieldRead | null;
+  /** Every text the Command Center drafted for the field, as its updates keep them: what tells its lines from a person's. */
+  written: string[];
+  /** Whether a draft of the field's new text waits for a person (D-066). */
+  drafted: boolean;
   now: Date;
 }
 
 /**
- * The read-back and the draft (T-105), or null where the tracker names no field. The draft shows once the
- * field is read, when the Command Center found changes and the field doesn't say them already: the person
- * edits it and saves it, where the tracker's settings let edits write to tickets.
+ * The read-back (T-105), or null where the tracker names no field: what the ticket's field says, and whether
+ * it says what the Command Center found, the lines a person wrote there counted as kept. Its new text is a
+ * draft update, drafted when the ticket's changes change and listed with its other drafts; this only says so.
  */
 export function ticketField(i: FieldIn): TicketField | null {
   if (!i.field || changesFieldRefusal(i.kind)) return null;
   const name = fieldName(i.kind, i.field);
-  const base = { task: i.task.id, heading: `From the ticket's ${i.kind === 'github' ? GITHUB_SECTION : name}` };
-  if (!i.read || i.read.state === 'loading') return { ...base, look: FIELD_LOOK.reading, text: null, doc: null, error: null, note: null, draft: null };
-  if (i.read.state === 'failed') return { ...base, look: FIELD_LOOK.failed, text: null, doc: null, error: i.read.error, note: null, draft: null };
+  const base = { task: i.task.id, heading: `From the ticket's ${i.kind === 'github' ? GITHUB_SECTION : name}`, error: null };
+  if (!i.read || i.read.state === 'loading') return { ...base, look: FIELD_LOOK.reading, text: null, doc: null, note: null };
+  if (i.read.state === 'failed') return { ...base, look: FIELD_LOOK.failed, text: null, doc: null, error: i.read.error, note: null };
   const now = i.read.text.trim();
-  const doc = now ? fromMarkdown(now) : null;
-  const drafted = changesDraft({ profile: i.profile, paths: i.paths, outside: outsideOf(i.task).changes, at: i.now });
-  if (!drafted) {
-    return { ...base, look: now ? LOOK('The Command Center found no changes yet', 'circle-outline', 'neutral') : FIELD_LOOK.empty, text: now || null, doc, error: null, note: now ? 'Written on the ticket: the Command Center has nothing to add yet.' : null, draft: null };
+  const shown = { ...base, text: now || null, doc: now ? fromMarkdown(now) : null };
+  const found = changesDraft({ profile: i.profile, paths: i.paths, outside: outsideOf(i.task).changes, manifest: i.manifest ?? null, at: i.now });
+  if (!found) {
+    return { ...shown, look: now ? LOOK('The Command Center found no changes yet', 'circle-outline', 'neutral') : FIELD_LOOK.empty, note: now ? 'Written on the ticket: the Command Center has nothing to add yet.' : null };
   }
-  if (now && sameChanges(now, drafted)) return { ...base, look: FIELD_LOOK.same, text: now, doc, error: null, note: null, draft: null };
-  return {
-    ...base, look: now ? FIELD_LOOK.differs : FIELD_LOOK.empty, text: now || null, doc, error: null,
-    note: now ? 'What a developer wrote here by hand stays on the ticket until you save the draft below over it.' : null,
-    draft: {
-      title: `Update ${name}`, look: FIELD_LOOK.draft, text: drafted, replaces: now,
-      save: { label: 'Save to the ticket', disabled: i.edits ? null : `The ticket's ${name} can't change from here. ${EDITS_OFF}` },
-    },
-  };
+  if (now && sameChanges(now, withKept(found, keptLines(now, [...i.written, found])))) {
+    return { ...shown, look: FIELD_LOOK.same, note: i.drafted ? 'The field says this already: its draft update, in Activity, can be discarded.' : null };
+  }
+  const note = i.drafted
+    ? `Its draft update, in Activity, is the field's new text${now ? ': it keeps each line written here by hand, marked as kept from the ticket.' : '.'}`
+    : now ? 'What was written here by hand stays. The Command Center drafts the field\'s new text when the ticket\'s changes next change.' : null;
+  return { ...shown, look: now ? FIELD_LOOK.differs : FIELD_LOOK.empty, note };
 }
 
-/** What the extension tells the page once a save went, or didn't. */
-export const FIELD_SAVED = 'changes-field-saved';
-
-export type Message =
-  /**
-   * A person saves the drafted text, as edited, to the ticket's field (T-105), with what the field said
-   * when the page drew it, so a field changed since isn't written over.
-   */
-  { type: 'changes-field-save'; project: string; task: string; text: string; before: string };
-
-/** The most text a save carries. */
-export const FIELD_TEXT_MAX = 65_536;
+/**
+ * The ticket's draft of its changes field (T-105), once the field is read, with each line a person wrote
+ * there kept, marked as kept from the ticket: what Save to the ticket offers, so saving it as offered
+ * removes none. Other drafts, and this one before the read, are as acc wrote them: the save keeps those
+ * lines either way.
+ */
+export function withFieldKept(cards: UpdateCard[], read: FieldRead | null, written: string[]): UpdateCard[] {
+  if (read?.state !== 'read') return cards;
+  return cards.map((c) => (c.saves === null ? c : { ...c, text: withKept(c.text, keptLines(read.text, [...written, c.text])) }));
+}
 
 export const area: ModelArea = {
   // The setting's Choose… and Change… run it, from Settings and the Connect page.
   commands: [CHANGES_FIELD_COMMAND],
-  messages: {
-    'changes-field-save': (x) => short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string) && short(x.text, FIELD_TEXT_MAX) && !!(x.text as string).trim()
-      // What the field said may be nothing: an empty field.
-      && typeof x.before === 'string' && x.before.length <= FIELD_TEXT_MAX,
-  },
 };

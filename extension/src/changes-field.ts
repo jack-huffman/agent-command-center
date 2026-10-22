@@ -1,27 +1,33 @@
 // A tracker's changes field (T-105): Choose… in Settings' Trackers and on the Connect page picks the field from
-// the tracker's own, and acc writes the choice to the project's settings. A ticket's page reads the field back
-// and drafts its new text; only a person's Save to the ticket writes it.
+// the tracker's own, and acc writes the choice to the project's settings. A ticket's page reads the field back;
+// acc drafts its new text as an update when the ticket's changes change, and only a person's Save to the
+// ticket writes it.
 import * as vscode from 'vscode';
 import { changesFieldRefusal } from '../../packages/core/src/changes-field.ts';
+import { writtenFor } from '../../packages/core/src/field-drafts.ts';
 import type { Task } from '../../packages/core/src/ledger.ts';
+import type { TicketManifest } from '../../packages/core/src/manifest.ts';
+import type { TextField } from '../../packages/core/src/trackers/types.ts';
+import { isOpenUpdate, type Update } from '../../packages/core/src/updates.ts';
 import { trackerName } from '../../packages/core/src/trackers/types.ts';
 import type { ExtensionArea } from './area.ts';
 import type { Project } from './hub.ts';
-import { FieldReads, saveField } from './logic/changes-field.ts';
+import { FieldReads } from './logic/changes-field.ts';
 import { inProcessWords } from './logic/processes.ts';
-import { CHANGES_FIELD_LABEL, changesFieldPicks, changesFieldRecord, FIELD_SAVED, fieldName, type Message, noTextFields, type TicketField, ticketField } from './model/changes-field.ts';
-
-type Say = (msg: Record<string, unknown>) => void;
+import { CHANGES_FIELD_LABEL, changesFieldPicks, changesFieldRecord, type FieldRead, fieldName, noTextFields, type TicketField, ticketField } from './model/changes-field.ts';
 
 /** What a task's page asks of its tracker's changes field. */
 export interface FieldActions {
   /** Reads the ticket's field again, then redraws its page. Nothing where its tracker names no field. */
   load(p: Project, tracker: number, key: string): void;
-  /** The section, from what was read last and the task's changes. */
-  model(p: Project, tracker: number, task: Task, paths: string[]): TicketField | null;
-  /** A person's Save to the ticket. */
-  save(p: Project, tracker: number, m: Message, say: Say): Promise<void>;
+  /** The section, from what was read last, the task's changes, and its drafts of the field. */
+  model(p: Project, tracker: number, task: Task, paths: string[], updates: Update[], manifest: Pick<TicketManifest, 'types' | 'deletions'> | null): TicketField | null;
+  /** What was read last of a ticket's field, for its draft to keep what a person wrote there. */
+  read(p: Project, key: string): FieldRead | null;
+  /** A save wrote the field: the page shows what was written, then reads it again. */
+  saved(p: Project, tracker: number, key: string, field: TextField, text: string): void;
 }
+
 
 export const area: ExtensionArea = {
   register({ reg, hub, trackers, tickets }) {
@@ -32,24 +38,20 @@ export const area: ExtensionArea = {
         const t = fieldOf(p, index);
         if (t?.changesField) void reads.load(p.root, key, t.changesField, () => trackers.client(p, index));
       },
-      model(p, index, task, paths) {
+      model(p, index, task, paths, updates, manifest) {
         const t = fieldOf(p, index);
         if (!t) return null;
-        return ticketField({ task, kind: t.kind, field: t.changesField, edits: t.edits, profile: p.config.profile, paths, read: reads.read(p.root, task.id), now: new Date() });
+        const drafted = updates.some((u) => u.task === task.id && u.event === 'changes' && isOpenUpdate(u));
+        return ticketField({
+          task, kind: t.kind, field: t.changesField, profile: p.config.profile, paths, manifest, read: reads.read(p.root, task.id), written: writtenFor(updates, task.id), drafted, now: new Date(),
+        });
       },
-      async save(p, index, m, say) {
-        const t = fieldOf(p, index);
-        const field = t?.changesField ?? null;
-        const r = await trackers.client(p, index)
-          .then((c) => saveField(c, { field, edits: !!t?.edits, key: m.task, name: t && field ? fieldName(t.kind, field) : 'field', text: m.text, before: m.before }))
-          .catch((e: Error) => ({ ok: false as const, error: `Couldn't save it: ${inProcessWords(e.message)}` }));
-        if (r.ok) reads.wrote(p.root, m.task, m.text.trim());
-        else if ('now' in r && r.now !== undefined) reads.wrote(p.root, m.task, r.now);
-        say({ type: FIELD_SAVED, project: m.project, task: m.task, ok: r.ok, ...(r.ok ? {} : { error: r.error }) });
-        if (!r.ok) void vscode.window.showWarningMessage(r.error);
+      read: (p, key) => reads.read(p.root, key),
+      saved(p, index, key, field, text) {
+        reads.wrote(p.root, key, text);
         tickets.refresh(p.root);
         // Read again, so the page shows what the ticket says, as the tracker keeps it.
-        if (r.ok && field) void reads.load(p.root, m.task, field, () => trackers.client(p, index));
+        void reads.load(p.root, key, field, () => trackers.client(p, index));
       },
     };
 
