@@ -155,6 +155,11 @@ test('every other check\'s floor is in the floors file, raised only by a clean w
   const examined = { overlap: 999, clipped: 12, tab: 6, sideways: 10, overview: 9, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10 };
   assert.deepEqual(raisedFloors(floors, examined), { ...floors, 'screenshots.clipped': { floor: 12 }, 'screenshots.a11y': { floor: 40 } }, 'the beaten ones rise; a lower count leaves its floor; the page checks are never stored');
   assert.equal(raisedFloors(floors, { ...examined, clipped: 10, a11y: 10 }), null, 'an edge case: nothing beaten, nothing written');
+  // A person relaxed a11y to 8 (acc gate relax screenshots.a11y): the run reads that floor and passes at 9.
+  const renders: Render[] = [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...judge(fine(), true, []), examined: { ...examined, overlap: 180, tab: 6, words: 600, overview: 10, a11y: 9 } } }];
+  const relaxed = { ...floors, 'screenshots.a11y': { floor: 8, relaxed: { by: 'human:jordan', reason: 'a page went', at: '2026-10-22T09:00:00.000Z', was: 10 } } };
+  assert.deepEqual(runFailures(renders, true, [], runFloor(floors, ['tasks']), [], []), ['The run examined 9 for a11y, below its floor of 10.']);
+  assert.deepEqual(runFailures(renders, true, [], runFloor(relaxed, ['tasks']), [], []), [], 'relaxed, the lower count passes');
   const stored = JSON.parse(readFileSync(FLOORS_PATH, 'utf8')) as Record<string, unknown>;
   assert.deepEqual(Object.keys(stored).filter((k) => k.startsWith('screenshots.')).sort(), ['a11y', 'actions', 'buttons', 'clipped', 'covered', 'overview', 'raw', 'sideways'].map((c) => `screenshots.${c}`), 'the repo keeps each, and none for a page check');
 });

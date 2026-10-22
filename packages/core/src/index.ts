@@ -82,6 +82,7 @@ export * from './sprints.ts';
 export * from './started.ts';
 export * from './ste.ts';
 export * from './steps.ts';
+export * from './stored-floors.ts';
 export * from './stray-files.ts';
 export * from './sync.ts';
 export * from './template.ts';

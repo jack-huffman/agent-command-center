@@ -994,6 +994,28 @@ test('a person\'s old relax backs no other floor: once the environment\'s floor 
   assert.deepEqual([ran.raised, r.floorsText()], [[], formatFloors({ tests: { floor: 690 } })]);
 });
 
+test('a check\'s stored floor lowered by hand fails that check unrun; one a person relaxed, with a reason, lets it run (T-102)', () => {
+  const stored = { tests: { floor: 669 }, 'typecheck.files': { floor: 120 }, 'other.files': { floor: 5 } };
+  const r = ratchetRepo(stored);
+  r.set({ '.acc/floors.json': formatFloors({ ...stored, 'typecheck.files': { floor: 100 }, 'other.files': { floor: 1 } }) }, 'T-1: lower the bar');
+  const low = r.gate(true, ['typecheck']);
+  assert.deepEqual(low.results.map((x) => [x.gate, x.status, x.summary]), [['typecheck', 'fail', '.acc/floors.json lowers typecheck.files from 120 to 100, and no person relaxed it. Put it back: only a person relaxes a floor, with acc gate relax <name> --to <n> --reason "<why>".']], 'another check\'s floor isn\'t this one\'s');
+  assert.deepEqual(r.runs(), [], 'failed unrun');
+  const { 'typecheck.files': _gone, ...dropped } = stored;
+  r.set({ '.acc/floors.json': formatFloors(dropped) }, 'T-1: drop it');
+  assert.match(r.gate(true, ['typecheck']).results[0]!.summary, /^\.acc\/floors\.json drops typecheck\.files \(120\), and no person relaxed it\./, 'an edge case: a floor dropped is lowered too');
+
+  // A person puts it back, then relaxes it for T-1, saying why: the check runs again, and passes.
+  r.set({ '.acc/floors.json': formatFloors(stored) }, 'T-1: put the floor back');
+  relaxFloor(r.paths.relaxed, r.paths.floors, r.dir, r.c, { ratchet: 'typecheck.files', to: 100, reason: 'a page went', by: 'human:jordan', now, task: 'T-1' });
+  commitAll(r.dir, 'T-1: relax the typecheck floor');
+  assert.deepEqual(r.gate(true, ['typecheck']).results.map((x) => [x.gate, x.status]), [['typecheck', 'pass']]);
+  assert.deepEqual(r.runs(), ['typecheck']);
+  // Another task's branch isn't backed by T-1's relax (GH-130).
+  gitIn(r.dir, 'checkout', '-q', '-b', 'task/T-9');
+  assert.equal(r.gate(true, ['typecheck']).results[0]!.status, 'fail');
+});
+
 test('a relax is for one task: another task that began at the same floor can\'t lower it by hand, even naming the relaxed task (GH-130)', () => {
   const r = ratchetRepo();
   // A person relaxes tests from 669 to 640 for T-1, which commits it.

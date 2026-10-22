@@ -15,6 +15,7 @@ import type { Gate, GateInput, Outcome } from './gates.ts';
 import { writeAtomic } from './atomic.ts';
 import { type Ledger } from './ledger.ts';
 import type { RatchetDetails, Receipt } from './receipts.ts';
+import { storedFloorSpec } from './stored-floors.ts';
 
 /** Where the floors live, from the checkout's top: committed, beside the config. */
 export const FLOORS_FILE = '.acc/floors.json';
@@ -344,8 +345,9 @@ export interface RelaxRequest {
  */
 export function relaxFloor(relaxedFile: string, floorsFile: string, root: string, config: Pick<Config, 'gates'>, req: RelaxRequest): RelaxRecord {
   const ratchets = config.gates.ratchets ?? {};
-  const spec = ratchets[req.ratchet];
-  if (!spec) throw new AccError('usage', `No ratchet ${req.ratchet}. This project's ratchets: ${Object.keys(ratchets).join(', ') || 'none'}.`);
+  // A check's stored floor (T-102), such as screenshots.a11y, relaxes as a ratchet's floor does.
+  const spec = ratchets[req.ratchet] ?? storedFloorSpec(config, req.ratchet);
+  if (!spec) throw new AccError('usage', `No ratchet ${req.ratchet}. This project's ratchets: ${Object.keys(ratchets).join(', ') || 'none'}, or a check's floor in ${FLOORS_FILE}, such as ${Object.keys(config.gates.commands)[0] ?? '<check>'}.<what>.`);
   const reason = req.reason.trim();
   if (!reason) throw new AccError('usage', `Say why it's relaxed: acc gate relax ${req.ratchet} --to <n> --reason "<why>". The reason is kept with the floor.`);
   if (!Number.isFinite(req.to)) throw new AccError('usage', `--to takes the ${spec.limit} as a number, such as --to 640.`);
