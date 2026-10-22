@@ -30,6 +30,7 @@ export * from './edit.ts';
 export * from './efforts.ts';
 export * from './exec.ts';
 export * from './fetch.ts';
+export * from './field-drafts.ts';
 export * from './gates.ts';
 export * from './github.ts';
 export * from './held.ts';

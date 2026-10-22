@@ -48,8 +48,8 @@ const projectOf = (i: Placed): string => (i.fields.project?.key ?? i.key.replace
 /** The board's notice when it follows the active sprint and none is open (T-78). */
 export const NO_ACTIVE_SPRINT = 'This board has no active sprint, so it shows no tickets. When the next sprint starts, its tickets show here. To see the whole board or another sprint, use Change, above it.';
 
-/** Jira's custom field types that hold text (T-105), by the last part of their key: a long-text field keeps ADF. */
-const JIRA_TEXT_TYPES: Record<string, 'adf' | 'plain'> = { textarea: 'adf', textfield: 'plain' };
+/** Jira's custom field types that hold lines of text (T-105), by the last part of their key: only a long-text field, which keeps ADF. */
+const JIRA_TEXT_TYPES: Record<string, 'adf'> = { textarea: 'adf' };
 
 const CATEGORY: Record<string, StatusCategory> = { new: 'todo', indeterminate: 'doing', done: 'done' };
 const status = (s: JiraStatus): Status => ({ id: String(s.id), name: s.name, category: CATEGORY[s.statusCategory?.key ?? ''] ?? 'doing' });
@@ -372,8 +372,8 @@ export class JiraClient implements TrackerClient {
   }
 
   /**
-   * Its custom fields that hold text (T-105), by name: a long-text field (Jira's textarea) keeps ADF, a
-   * one-line text field plain text. Other fields, and Jira's own, aren't offered.
+   * Its custom fields that hold lines of text (T-105), by name: a long-text field (Jira's textarea), which
+   * keeps ADF. A one-line text field can't hold a list, so it isn't offered, nor are other fields or Jira's own.
    */
   async textFields(): Promise<TextField[]> {
     const all = await this.req<{ id: string; name: string; custom?: boolean; schema?: { type?: string; custom?: string } }[]>('GET', '/rest/api/3/field');

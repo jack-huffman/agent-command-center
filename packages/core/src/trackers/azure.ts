@@ -58,8 +58,8 @@ const colourOf = (colours: Map<string, string>, name: string): string | null => 
 /** A work item's tags, each with its colour from the board's card rules (T-95); a tag with no rule has none. */
 const tags = (s: unknown, colours: Map<string, string> = new Map()): Label[] =>
   (typeof s === 'string' ? s.split(';').map((t) => t.trim()).filter(Boolean).map((name) => ({ name, color: colourOf(colours, name) })) : []);
-/** Azure DevOps' field types that hold text (T-105): an HTML field keeps HTML; a string or plain-text one, plain text. */
-const AZURE_TEXT_TYPES: Partial<Record<string, 'html' | 'plain'>> = { html: 'html', string: 'plain', plaintext: 'plain' };
+/** Azure DevOps' field types that hold lines of text (T-105): an HTML field keeps HTML, a plain-text one plain text. A one-line string field isn't one. */
+const AZURE_TEXT_TYPES: Partial<Record<string, 'html' | 'plain'>> = { html: 'html', plaintext: 'plain' };
 
 const quote = (s: string): string => `'${s.replace(/'/g, "''")}'`;
 /** Whether an area path is the place's, or under it. Azure's paths ignore case. */
@@ -395,9 +395,10 @@ export class AzureClient implements TrackerClient {
   }
 
   /**
-   * The fields that hold text on the work item types its board shows (T-105), by name: an HTML field keeps
-   * HTML, a string or plain-text one plain text. Azure DevOps' own System fields, such as the title and
-   * description, and read-only ones aren't offered. A field one type has and another doesn't is offered.
+   * The fields that hold lines of text on the work item types its board shows (T-105), by name: an HTML field
+   * keeps HTML, a plain-text one plain text. A one-line string field can't hold a list, so it isn't offered,
+   * nor are Azure DevOps' own System fields, such as the title and description, or read-only ones. A field one
+   * type has and another doesn't is offered.
    */
   async textFields(): Promise<TextField[]> {
     const b = await this.boardInfo();

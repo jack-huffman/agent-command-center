@@ -6,6 +6,7 @@
  * here writes to a tracker.
  */
 import type { Profile } from './config.ts';
+import type { ManifestType, TicketManifest } from './manifest.ts';
 import type { OutsideChange } from './outside-changes.ts';
 import { outsideKind } from './outside-kinds.ts';
 import { sfComponent } from './sf-metadata.ts';
@@ -16,7 +17,7 @@ import { type FieldFormat, type TextField, type TrackerKind, trackerName } from 
 
 /** The formats a tracker's fields keep text in, so a setting can't name a format its tracker has no field for. */
 export const FIELD_FORMATS_OF: Record<TrackerKind, readonly FieldFormat[]> = {
-  github: ['markdown'], jira: ['adf', 'plain'], azure: ['html', 'plain'], monday: ['plain'], slack: [],
+  github: ['markdown'], jira: ['adf'], azure: ['html', 'plain'], monday: ['plain'], slack: [],
 };
 
 /** Why a tracker can't keep a ticket's changes in a field, or null where it can. Plain words, with no command (D-132). */
@@ -24,13 +25,13 @@ export const changesFieldRefusal = (kind: TrackerKind): string | null =>
   (FIELD_FORMATS_OF[kind].length ? null : `A ${trackerName(kind)} thread has no fields, so a ticket's changes stay on its page in the Command Center.`);
 
 /** The longest id or name a field may have. */
-const FIELD_TEXT_MAX = 200;
+const FIELD_NAME_MAX = 200;
 
 /** Why a tracker's `changesField` is refused, or null when it's one its kind can keep. */
 export function changesFieldProblem(kind: TrackerKind, v: unknown): string | null {
   const why = changesFieldRefusal(kind);
   if (why) return `"changesField" can't be set: ${why}`;
-  const text = (x: unknown) => typeof x === 'string' && !!x.trim() && x.length <= FIELD_TEXT_MAX;
+  const text = (x: unknown) => typeof x === 'string' && !!x.trim() && x.length <= FIELD_NAME_MAX;
   const formats = FIELD_FORMATS_OF[kind];
   if (!isObj(v) || !text(v.id) || !text(v.name) || !formats.includes(v.format as FieldFormat)) {
     return `"changesField" names a ${trackerName(kind)} field that holds text, as { "id": …, "name": …, "format": … }, its format one of ${formats.join(', ')}.`;
@@ -74,13 +75,22 @@ export interface ChangesDraftIn {
   paths: string[];
   /** Its changes outside git (T-100), such as record changes. */
   outside: OutsideChange[];
+  /** Its package.xml, where one was built for it (T-101): its members, and its deletions. */
+  manifest?: Pick<TicketManifest, 'types' | 'deletions'> | null;
   at: Date;
+}
+
+/** The manifest's groups: each type's members on a line, under the file they're in. */
+function manifestGroups(m: Pick<TicketManifest, 'types' | 'deletions'>): { head: string; items: string[] }[] {
+  const lines = (types: ManifestType[]) => types.filter((t) => t.members.length).map((t) => `${t.name}: ${t.members.join(', ')}`);
+  return [{ head: 'In its package.xml', items: lines(m.types) }, { head: 'Deleted, in its destructiveChangesPost.xml', items: lines(m.deletions) }].filter((g) => g.items.length);
 }
 
 /**
  * The field's text, as Markdown, from a ticket's changes: its components grouped by type (by folder outside
  * Salesforce), each type in bold over a list of names, then its changes outside git, each group under its
- * kind's label, each change in plain words, then the date. Null when it has no changes to say.
+ * kind's label, each change in plain words, then its package.xml's members where it has one, then the date.
+ * Null when it has no changes to say.
  */
 export function changesDraft(i: ChangesDraftIn): string | null {
   const sets = new Map<string, { other: boolean; names: Set<string> }>();
@@ -99,6 +109,7 @@ export function changesDraft(i: ChangesDraftIn): string | null {
     outside.set(label, [...(outside.get(label) ?? []), kind ? kind.words(c.detail) : JSON.stringify(c.detail)]);
   }
   groups.push(...[...outside.entries()].map(([head, items]) => ({ head, items })));
+  if (i.manifest) groups.push(...manifestGroups(i.manifest));
   if (!groups.length) return null;
   return [...groups.flatMap((g) => [`**${plain(g.head)}**`, '', ...g.items.map((n) => `- ${plain(n)}`), '']), draftedOn(i.at)].join('\n');
 }
@@ -109,3 +120,44 @@ const words = (markdown: string): string =>
 
 /** Whether a field's text already says what the draft does, ignoring the date it was drafted, spacing and Markdown. */
 export const sameChanges = (field: string, draft: string): boolean => words(field) === words(draft);
+
+// ---------------------------------------------------------------- what a person wrote in the field
+
+/** The heading over the lines a person wrote in the field, which every draft of it keeps. */
+export const KEPT_HEADING = 'Kept from the ticket';
+
+/** One line's words, without its Markdown, its list mark or its spacing: what lines are compared by. */
+const lineWords = (line: string): string =>
+  plainOf(fromMarkdown(line)).replace(/^\s*(?:[-*+]|\d+\.)\s+/, '').trim().replace(/\s+/g, ' ');
+
+const linesOf = (text: string): string[] => text.replace(/\r\n/g, '\n').split('\n').map((l) => l.trimEnd());
+
+/**
+ * The lines a person wrote in the field (T-105), as they are and in order: each line that isn't one the
+ * Command Center wrote in `written` (every text it drafted for the field), its kept heading or a date line.
+ * A line the Command Center wrote once and no longer finds, such as a component taken out, isn't kept.
+ */
+export function keptLines(field: string, written: string[]): string[] {
+  const ours = new Set(written.flatMap(linesOf).map(lineWords).filter((w) => w && !DATE_LINE.test(w)));
+  return linesOf(field).filter((l) => {
+    const w = lineWords(l);
+    return !!w && w !== KEPT_HEADING && !DATE_LINE.test(w) && !ours.has(w);
+  });
+}
+
+/**
+ * The draft with the lines a person wrote kept (T-105), under KEPT_HEADING, before its date line, so saving
+ * it as offered removes none of them. A line the draft says already, as a person's edit may, isn't added
+ * again, and a draft that has the heading takes the rest under it. The draft as it is when none is missing.
+ */
+export function withKept(draft: string, kept: string[]): string {
+  const lines = linesOf(draft.trimEnd());
+  const has = new Set(lines.map(lineWords).filter(Boolean));
+  const missing = kept.filter((l) => !has.has(lineWords(l)));
+  if (!missing.length) return draft;
+  const dated = lines.length > 0 && DATE_LINE.test(lineWords(lines.at(-1)!));
+  const body = dated ? lines.slice(0, -1) : [...lines];
+  while (body.length && !body.at(-1)!.trim()) body.pop();
+  const section = [...(has.has(KEPT_HEADING) ? [] : [`**${KEPT_HEADING}**`, '']), ...missing.flatMap((l) => [l, ''])];
+  return [...body, ...(body.length ? [''] : []), ...section, ...(dated ? [lines.at(-1)!] : [])].join('\n').trimEnd();
+}

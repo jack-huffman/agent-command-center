@@ -1,6 +1,6 @@
-// A tracker's changes field (T-105): each tracker lists only its fields that hold text, through stand-ins for its
+// A tracker's changes field (T-105): each tracker lists only its fields that hold lines of text, through stand-ins for its
 // fields API; the setting is checked; the Command Center drafts the field's text from metadata, record changes, or
-// both; each tracker gets it in its own format; and a GitHub issue keeps it under its own heading, the rest of
+// both, with its package.xml; each tracker gets it in its own format; and a GitHub issue keeps it under its own heading, the rest of
 // its description untouched.
 
 import assert from 'node:assert/strict';
@@ -43,7 +43,7 @@ function recorder(base: string, routes: [RegExp, unknown][]) {
 
 // ---------------------------------------------------------------- the field list, from each tracker's fields API
 
-test('Jira lists only its custom text and long-text fields: a long-text field keeps ADF, a one-line one plain text', async () => {
+test('Jira lists only its custom long-text fields, which keep ADF: a one-line text field can\'t hold a list, so it isn\'t offered', async () => {
   const { f, calls } = recorder('https://acme.atlassian.net', [[/^GET \/rest\/api\/3\/field$/, [
     { id: 'summary', name: 'Summary', custom: false, schema: { type: 'string', system: 'summary' } },
     { id: 'customfield_10042', name: 'Deployment Notes', custom: true, schema: { type: 'string', custom: 'com.atlassian.jira.plugin.system.customfieldtypes:textarea' } },
@@ -53,14 +53,11 @@ test('Jira lists only its custom text and long-text fields: a long-text field ke
     { id: 'customfield_10046', name: 'Odd', custom: true, schema: { type: 'string', custom: 'x:constructor' } },
   ]]]);
   const jira = new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'me@acme.co', token: 'tok', fetch: f });
-  assert.deepEqual(await jira.textFields(), [
-    { id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' },
-    { id: 'customfield_10043', name: 'Release Ticket', format: 'plain' },
-  ]);
+  assert.deepEqual(await jira.textFields(), [{ id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' }], 'Release Ticket is one line');
   assert.deepEqual(calls.map((c) => c.method), ['GET'], 'one read, and nothing written');
 });
 
-test('Azure DevOps lists the string and HTML fields on the board\'s work item types, leaving out its own System fields, read-only ones, and fields no board type has', async () => {
+test('Azure DevOps lists the HTML and plain-text fields on the board\'s work item types, leaving out one-line string fields, its own System fields, read-only ones, and fields no board type has', async () => {
   const { f, calls } = recorder('https://dev.azure.com/acme', [
     [/^GET \/CRM\/Sales\/_apis\/work\/boards\?/, { value: [{ id: 'b1', name: 'Stories' }] }],
     [/^GET \/CRM\/Sales\/_apis\/work\/boards\/b1\?/, { columns: [{ id: 'c1', name: 'New', columnType: 'incoming', stateMappings: { 'User Story': 'New', Bug: 'New' } }] }],
@@ -81,12 +78,11 @@ test('Azure DevOps lists the string and HTML fields on the board\'s work item ty
   assert.deepEqual(await az.textFields(), [
     { id: 'Custom.DeploymentNotes', name: 'Deployment Notes', format: 'html' },
     { id: 'Custom.Steps', name: 'Manual Steps', format: 'plain' },
-    { id: 'Custom.ReleaseTag', name: 'Release Tag', format: 'plain' },
-  ], 'a field Bug has counts, though User Story hasn\'t it; Task Notes is on no board type');
+  ], 'a field Bug has counts, though User Story hasn\'t it; Release Tag is one line; Task Notes is on no board type');
   assert.ok(calls.every((c) => c.method === 'GET'), 'nothing written');
 });
 
-test('monday.com lists the board\'s long-text columns, each plain text, and GitHub its description\'s section', async () => {
+test('monday.com lists the board\'s long-text columns, each plain text, leaving out its one-line text columns, and GitHub its description\'s section', async () => {
   const sent: string[] = [];
   const f = (async (_url: string, init: RequestInit) => {
     sent.push(JSON.parse(String(init.body)).query);
@@ -124,7 +120,8 @@ test('the setting: a field its tracker can keep is read, trimmed; one it can\'t 
   assert.equal(parseConfig(withTracker({ ...JIRA, changesField: null })).config!.trackers[0]!.changesField, null, 'edge: a choice cleared is none');
 
   const errs = (t: Record<string, unknown>) => parseConfig(withTracker(t)).errors.join('\n');
-  assert.match(errs({ ...JIRA, changesField: { ...NOTES, format: 'html' } }), /trackers\[0\]: "changesField" names a Jira field .* one of adf, plain/);
+  assert.match(errs({ ...JIRA, changesField: { ...NOTES, format: 'html' } }), /trackers\[0\]: "changesField" names a Jira field .* one of adf\./);
+  assert.match(errs({ ...JIRA, changesField: { ...NOTES, format: 'plain' } }), /one of adf\./, 'edge: a Jira field kept as plain text is one line, so it isn\'t one');
   assert.match(errs({ ...JIRA, changesField: 'customfield_10042' }), /"changesField" names a Jira field/);
   assert.match(errs({ ...JIRA, changesField: { ...NOTES, name: ' ' } }), /"changesField" names a Jira field/);
   assert.match(errs({ kind: 'slack', workspace: 'acme', channel: 'C0123ABCD', changesField: NOTES }), /"changesField" can't be set: A Slack thread has no fields/);
@@ -166,6 +163,20 @@ test('the draft for both: components first, then record changes; outside Salesfo
   assert.equal(generic, ['**src**', '', '- a.ts', '- b.ts', '', '**The top folder**', '', '- package.json', '', 'As of 22 Oct 2026.'].join('\n'));
   assert.deepEqual(changePlace(`${SF}/classes/A.cls`, 'salesforce'), { head: 'Apex Class', name: 'A', other: false });
   assert.deepEqual(changePlace('lib/x/y.ts', 'generic'), { head: 'lib/x', name: 'y.ts', other: false });
+});
+
+test('the draft with its package.xml: each type\'s members on a line, then its deletions, after its record changes', () => {
+  const md = changesDraft({
+    profile: 'salesforce', paths: PATHS.slice(0, 2), outside: [change('c1', RENAME)], at: AT,
+    manifest: { types: [{ name: 'ApexClass', members: ['JobHistoryService', 'JobHistoryServiceTest'] }, { name: 'Flow', members: [] }], deletions: [{ name: 'CustomField', members: ['Contact.Old__c'] }] },
+  })!;
+  assert.equal(md, [
+    '**Apex Class**', '', '- JobHistoryService', '', '**Record changes**', '', '- Account \'Acme Corp\': Name → \'Acme Corporation\'', '',
+    '**In its package.xml**', '', '- ApexClass: JobHistoryService, JobHistoryServiceTest', '', '**Deleted, in its destructiveChangesPost.xml**', '', '- CustomField: Contact.Old__c', '',
+    'As of 22 Oct 2026.',
+  ].join('\n'));
+  const none = changesDraft({ profile: 'salesforce', paths: [], outside: [], at: AT, manifest: { types: [], deletions: [] } });
+  assert.equal(none, null, 'edge: an empty manifest says nothing');
 });
 
 test('edge: nothing changed drafts nothing; a change of a kind nobody registered still shows; markup in a name reads back as itself', () => {

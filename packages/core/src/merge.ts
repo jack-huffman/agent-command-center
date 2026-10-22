@@ -2,6 +2,7 @@ import { firstSaid } from './text.ts';
 import { autoMergeFor, type Config, environmentByBranch } from './config.ts';
 import { keepChanges, mergedPaths } from './changes.ts';
 import { type CheckRead, readChecks } from './checks.ts';
+import { draftChangesField } from './field-drafts.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
 import { GH_TIMEOUT_MS, ghToken } from './land.ts';
 import { type Actor, type AutopilotMerge, type MergeMethod, mutate, readLedger } from './ledger.ts';
@@ -210,5 +211,7 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
     t.updatedAt = merged.at;
     emit({ type: 'task.updated', task: id, actor: opts.actor, by: opts.by, data: { merged } });
   });
+  // Merged, what it changed is kept: where its tracker keeps a ticket's changes in a field, a draft of its new text (T-105).
+  draftChangesField(paths, run, config, id, opts.by, now);
   return { sha: head, pr: merged.pr, method, reason: `Merged pull request #${pr.number} into ${env.branch} at ${short(head)}. acc sync moves ${id} to done.` };
 }
