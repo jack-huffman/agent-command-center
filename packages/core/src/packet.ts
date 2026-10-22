@@ -7,6 +7,7 @@ import { type Analysis, analysisSection } from './analyze.ts';
 import { recordPacketSection } from './records.ts';
 import { type ChecksReport, checksSection, type QueueReport, queueSection } from './checks.ts';
 import type { Verdict } from './review.ts';
+import { type Team, teamSection } from './team.ts';
 
 // ---------------------------------------------------------------- the packet (DESIGN.md section 8)
 
@@ -32,6 +33,8 @@ export interface PacketInput {
   analysis?: Analysis | null;
   /** The tasks it depends on, directly, with the note each one's builder left (D-106). */
   deps?: Pick<Task, 'id' | 'title' | 'run'>[];
+  /** Its team as dispatch saw it (T-103): the other tasks in flight, sharing first, and what merged since its branch left. */
+  team?: Team | null;
 }
 
 /**
@@ -175,6 +178,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
     ...analysisSection(p.analysis ?? null),
     ...recordPacketSection(p.analysis?.recordChanges ?? [], config.profile === 'salesforce'),
     ...depsSection(p.deps),
+    ...(p.team ? teamSection(p.team, 'builder') : []),
     ...lastRunSection(task, env),
     ...reviewSection(p.review),
     ...sentBackSection(task, p.review, p.head),
@@ -259,6 +263,8 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
   const sf = config.profile === 'salesforce';
   const allow = [
     'Bash(acc done*)', 'Bash(acc block *)', 'Bash(acc show *)', 'Bash(acc gate run)', 'Bash(acc gate run *)', 'Bash(acc gate list*)',
+    // Its team as of now, and taking in a teammate's merge (T-103): acc refresh merges into its own branch only, and pushes nothing.
+    'Bash(acc team*)', 'Bash(acc refresh)',
     'Bash(git status*)', 'Bash(git diff*)', 'Bash(git add *)', 'Bash(git commit *)', 'Bash(git log*)', 'Bash(git show *)',
     // Bringing its own base in, as the merge queue asks when it conflicts (GH-73), with or without flags such
     // as --no-edit: only where the queue runs, so where auto-merge is off, a Salesforce project above all, a

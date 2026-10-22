@@ -16,10 +16,11 @@ import { area as rules } from './rules.ts';
 import { area as setup } from './setup.ts';
 import { area as ste } from './ste.ts';
 import { area as tasks } from './tasks.ts';
+import { area as team } from './team.ts';
 import { area as tidy } from './tidy.ts';
 import { area as trackers } from './trackers.ts';
 import { area as tracking } from './tracking.ts';
 import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 
-export const AREAS = [agents, changes, checks, cloud, draft, environments, github, hooks, manifest, merging, pipeline, plan, rules, setup, ste, tasks, tidy, trackers, tracking, updates, verify];
+export const AREAS = [agents, changes, checks, cloud, draft, environments, github, hooks, manifest, merging, pipeline, plan, rules, setup, ste, tasks, team, tidy, trackers, tracking, updates, verify];

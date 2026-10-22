@@ -27,6 +27,7 @@ import { rulesText } from './rules.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { awaitStart, type FoundSession, NOT_STARTED, START_WAIT_MS, transcriptWrittenAt } from './started.ts';
 import { claudeProjectsDir } from './transcript.ts';
+import { teamForRun } from './team.ts';
 
 // ---------------------------------------------------------------- names and places (D-013)
 
@@ -380,6 +381,8 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     const cause = rework ? reworkCause(found) : null;
     // Read on every rework, so a person's send-back can match it against the passed review (T-76).
     const head = rework ? git(run, paths.root, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`).stdout.trim() : '';
+    // Its team as of now (T-103), with its branch where this run works.
+    const team = teamForRun(paths, config, before, run, found.id, branch, wt);
     const packet = renderPacket({
       task: found, config, env, worktree: wt, branch, rules, environmentSpecific: readList(wt, config.environmentSpecific), enterWorktree: where === 'local' && enter && !opts.foreground, cloud: where === 'cloud',
       // The Mac's acc path names the home folder, and means nothing in the cloud (GH-69): only a local builder gets it.
@@ -389,6 +392,7 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
       queue: head && cause === 'queue' ? readQueueReport(paths, found.id, head) : null,
       // The notes the tasks it builds on left (D-106).
       deps: found.deps.flatMap((d) => before.tasks.filter((t) => t.id === d)),
+      team,
     });
     mkdirSync(paths.packets, { recursive: true });
     const packetPath = join(paths.packets, `${found.id}.md`);

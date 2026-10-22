@@ -218,9 +218,11 @@ export const undoMerge = (config: Config, place: MergePlace, run: Runner): strin
  * Merges origin's copy of the base into the worktree as one commit (D-058), resolving only append-only
  * files both sides added to the end of, by keeping both. Null when there was nothing to merge in. A
  * conflict it can't resolve is a MergeConflict; anything else that stops it is an AccError. Either way the
- * branch is put back as it was. The repo's hooks run on the commit.
+ * branch is put back as it was. The repo's hooks run on the commit. With `leave`, as a builder's own acc
+ * refresh asks (T-103), a conflict it can't resolve is left in the worktree, half merged, for the builder
+ * to resolve; `by` names who resolved the rest in the commit's message.
  */
-export function mergeBaseIn(config: Config, place: MergePlace, run: Runner): { sha: string; resolved: string[] } | null {
+export function mergeBaseIn(config: Config, place: MergePlace, run: Runner, o: { leave?: boolean; by?: string } = {}): { sha: string; resolved: string[] } | null {
   const { env, branch, wt } = place;
   const git = gitIn(run, wt);
   const merge = merging(config, run, wt);
@@ -238,9 +240,10 @@ export function mergeBaseIn(config: Config, place: MergePlace, run: Runner): { s
     if (path === FLOORS_FILE ? resolveWith(run, wt, mergeBase, path, stages, mergeFloors, true) : listed(path, appendOnly) && resolveWith(run, wt, mergeBase, path, stages, appendOnlyMerge)) resolved.push(path);
     else left.push(path);
   }
+  if (left.length && o.leave) throw new MergeConflict(`Conflicts with ${env.branch} in ${left.join(', ')}. The merge is left in ${wt} for you to resolve: fix each file, git add it, then git commit. Nothing was pushed.`, left);
   if (left.length) throw new MergeConflict(`Conflicts with ${env.branch} that autopilot can't resolve: ${left.join(', ')}. ${putBack(config, place, run, ['merge', '--abort'])}`, left);
   if (merged.code !== 0 && !resolved.length) throw new AccError('refresh', `git couldn't merge ${env.branch} in: ${lastLines(merged)} ${putBack(config, place, run, ['merge', '--abort'])}`);
-  const message = [`Merge ${env.branch} into ${branch}`, ...(resolved.length ? ['', `Autopilot ${resolvedWords(resolved)}.`] : [])].join('\n');
+  const message = [`Merge ${env.branch} into ${branch}`, ...(resolved.length ? ['', `${o.by ?? 'Autopilot'} ${resolvedWords(resolved)}.`] : [])].join('\n');
   // The repo's hooks run, as on any commit.
   const commit = merge('commit', '-m', message);
   if (commit.code !== 0) throw new AccError('refresh', `The merge commit was refused: ${lastLines(commit)} ${putBack(config, place, run, ['merge', '--abort'])}`);

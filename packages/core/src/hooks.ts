@@ -13,6 +13,7 @@ import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
 import { repoPaths } from './paths.ts';
 import { ANALYST_COMMANDS } from './analyze.ts';
 import { noteRecordWrites } from './record-hooks.ts';
+import { teamNotice } from './team.ts';
 
 /** The repo folder with .acc/config.json at or above `cwd`, found without running git. */
 export function findAccRoot(cwd: string): string | null {
@@ -358,6 +359,23 @@ export function preToolUseHook(input: EventInput, ctx: HookContext): Record<stri
 }
 
 /**
+ * PostToolUse: a running builder is told, once a merge, when a teammate's work that shares files with its
+ * own merged into its environment's branch (T-103), with what it shares and that acc refresh takes it in.
+ */
+export function postToolUseHook(_input: EventInput, ctx: HookContext): Record<string, unknown> | null {
+  const b = builderFor(ctx);
+  if (!b || b.task.state !== 'running') return null;
+  try {
+    const paths = repoPaths(b.root, ctx.run);
+    const config = loadConfig(paths.config).config;
+    const said = teamNotice(paths, config, readLedger(paths.ledger), ctx.run, b.task.id);
+    return said ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: said } } : null;
+  } catch {
+    return null; // a notice is a help: without one the builder carries on, and acc team still says it
+  }
+}
+
+/**
  * The few lines a builder needs again after its context was compacted or the session resumed. `full` is
  * the full check, named where the builder's gates are the lighter ones and the merge queue runs it (GH-73).
  */
@@ -370,6 +388,8 @@ export function shortPacket(task: Task, gates: string[], full: string[] = []): s
     'Never push, merge a pull request, open one, or deploy.',
     // Every project's rules (GH-104), which keep parallel work mergeable, in one line.
     'Rules: put new behaviour in its own file, registered with one line where a list names every area; if another task\'s change breaks your build, `acc block` with the reason and don\'t edit its files; write a manifest or config file whole, to a temp file then a rename.',
+    // Its team (T-103): what the other builders change now, and taking in a teammate's merge early.
+    'Your team: `acc team` says what the other tasks in flight change; run it before you change a file the team shares. `acc refresh` takes in what merged since your branch left.',
     `Your full instructions: acc show ${task.id}.`,
   ].join('\n');
 }
