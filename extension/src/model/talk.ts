@@ -8,6 +8,7 @@
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { CHANGE_APPROVED } from '../../../packages/core/src/plan-choices.ts';
+import { isOpening, OPENING_ASK } from '../../../packages/core/src/plan-opening.ts';
 import { ANSWER_APPROVED, NOTE_APPROVED, type PlanTalk, proposalStale, proposalWords, TALK_MAX, type TalkProposal, type TalkQuote, type TalkWho } from '../../../packages/core/src/plan-talk.ts';
 import { planVersion } from '../../../packages/core/src/plan.ts';
 import { byName } from './plan.ts';
@@ -66,14 +67,34 @@ export interface TicketTurn {
   failed: string | null;
   /** A Claude Code session that's open now. */
   open: boolean;
+  /** Said before there was a plan (T-111): the page shows "Before the plan" for its version. */
+  before: boolean;
+  /** For the agent's answer before the plan (T-111): what it's unsure of, and its questions. */
+  unsure: string[];
+  asks: string[];
 }
 
-/** The task page's Talk it through section. */
+/** What is under way for a plan being made from the conversation (T-111): its ticket being read, then the plan. */
+export type Making = 'reading' | 'planning';
+
+/** What the conversation says while a plan is made from it (T-111). */
+export const MAKING_WORDS: Record<Making, string> = {
+  reading: 'Reading the ticket, its comments too, before the plan.',
+  planning: 'Making the plan from this conversation. Its steps show in the output panel.',
+};
+
+/** A task's conversation with its planning agent: in its own panel (T-111), and as one line on the task page. */
 export interface TicketTalk {
   task: string;
+  /** Before there is a plan, the opening conversation; once there is one, Talk it through (T-111). */
+  stage: 'opening' | 'plan';
   look: Look;
   note: string;
+  /** What it asks first, until something is said before the plan (T-111); else null. */
+  ask: string | null;
   turns: TicketTurn[];
+  /** The task page's one line (T-111): "Conversation · 12 messages", with when the last was said; null with nothing said. */
+  line: { words: string; at: string } | null;
   /** Send, and Discuss on the plan: null past the build; off with why while a message can't go. */
   send: { disabled: string | null } | null;
   /** A reply is on its way: the page shows the agent working. */
@@ -82,6 +103,12 @@ export interface TicketTalk {
   newPlan: Action | null;
   /** Open in Claude Code: null past the build; off with why while it can't. */
   claude: { disabled: string | null } | null;
+  /** Draft the plan (T-111): the plan made with the conversation, before there is one; off with why while it can't. */
+  draft: { disabled: string | null } | null;
+  /** Skip to the plan (T-111): the plan made from the ticket alone, as before; off with why while it can't. */
+  skip: { disabled: string | null } | null;
+  /** A plan being made from it (T-111): its ticket being read, then the plan. */
+  making: { phase: Making; words: string } | null;
 }
 
 export interface TalkIn {
@@ -93,7 +120,15 @@ export interface TalkIn {
   /** The Claude Code sessions opened from this window that are still open. */
   open: string[];
   ref: Ref;
+  /** A plan being made from this window (T-111): its ticket being read, or the plan. */
+  making?: Making | null;
 }
+
+/** The task page's words for a conversation (T-111): "Conversation · 1 message", "Conversation · 12 messages". */
+export const conversationWords = (messages: number): string => `Conversation · ${messages} message${messages === 1 ? '' : 's'}`;
+
+/** What the opening conversation says first, under its question (T-111). */
+export const OPENING_NOTE = 'Say it in your own words. The planning agent reads the ticket, says what it understood and what it\'s unsure of, and asks a few questions before it makes the plan.';
 
 /**
  * Why a proposal can't be used now, or null: it was made on an older version, whose choices the new one may
@@ -118,34 +153,53 @@ function askFirst(p: TalkProposal, a: Analysis): string | null {
   return same ? null : CHANGE_APPROVED;
 }
 
+/** Each turn as the page shows it, with its proposals' Use this; before there is a plan, it has none. */
+function ticketTurns(i: TalkIn, todo: boolean, busy: string | null): TicketTurn[] {
+  const a = i.analysis;
+  return i.talk.turns.map((t) => ({
+    id: t.id, who: t.who, ...TALK_WHO[t.who], by: t.who === 'you' || t.who === 'claude-code' ? byName(t.by) : null, at: t.at, version: t.version, text: t.text, about: t.about ?? null,
+    proposals: a ? (t.proposals ?? []).map((p) => ({
+      id: p.id, words: proposalWords(p, a), why: p.why, used: p.used ? { by: byName(p.used.by), at: p.used.at } : null,
+      use: p.used || !todo ? null : { disabled: stale(p, t.version, a) ?? busy },
+      ask: p.used ? null : askFirst(p, a),
+      from: !p.used && t.version !== planVersion(a) ? t.version : null,
+    })) : [],
+    recorded: t.recorded ?? [], failed: t.failed ?? null, open: t.who === 'claude-code' && !!t.sessionId && i.open.includes(t.sessionId),
+    before: isOpening(t), unsure: t.unsure ?? [], asks: t.asks ?? [],
+  }));
+}
+
 /**
- * The section for a task with a plan: its conversation, and Send, Make a new plan and Open in Claude Code,
- * which are only before the build. Null with no plan to talk about.
+ * A task's conversation with its planning agent. Before there is a plan, the opening conversation (T-111): its
+ * question first, Send, Draft the plan and Skip to the plan. With a plan, Talk it through (T-98): Send, Make a
+ * new plan and Open in Claude Code. Each is only before the build. Null past the build with nothing said.
  */
 export function ticketTalk(i: TalkIn): TicketTalk | null {
   const a = i.analysis;
-  if (!a) return null;
   const todo = i.task.state === 'todo';
-  const busy = i.analyzing ? 'Its plan is being made. Wait for it to finish.' : i.running ? 'Wait for the planning agent\'s reply.' : null;
+  if (!a && !todo && !i.talk.turns.length) return null;
+  const making = i.making ?? (i.analyzing ? 'planning' : null);
+  const busy = making ? 'Its plan is being made. Wait for it to finish.' : i.running ? 'Wait for the planning agent\'s reply.' : null;
   const said = i.talk.turns.some((t) => t.who === 'you' || t.who === 'claude-code');
+  const messages = i.talk.turns.filter((t) => t.who !== 'plan').length;
+  const last = i.talk.turns.at(-1);
+  const opening = !a;
+  const before = i.talk.turns.some((t) => t.who === 'you' && isOpening(t));
   return {
     task: i.task.id,
+    stage: opening ? 'opening' : 'plan',
     look: i.running ? TALK_LOOK.running : i.talk.turns.length ? TALK_LOOK.said : TALK_LOOK.none,
-    note: TALK_NOTE,
-    turns: i.talk.turns.map((t) => ({
-      id: t.id, who: t.who, ...TALK_WHO[t.who], by: t.who === 'you' || t.who === 'claude-code' ? byName(t.by) : null, at: t.at, version: t.version, text: t.text, about: t.about ?? null,
-      proposals: (t.proposals ?? []).map((p) => ({
-        id: p.id, words: proposalWords(p, a), why: p.why, used: p.used ? { by: byName(p.used.by), at: p.used.at } : null,
-        use: p.used || !todo ? null : { disabled: stale(p, t.version, a) ?? busy },
-        ask: p.used ? null : askFirst(p, a),
-        from: !p.used && t.version !== planVersion(a) ? t.version : null,
-      })),
-      recorded: t.recorded ?? [], failed: t.failed ?? null, open: t.who === 'claude-code' && !!t.sessionId && i.open.includes(t.sessionId),
-    })),
+    note: opening ? OPENING_NOTE : TALK_NOTE,
+    ask: opening && !before ? OPENING_ASK : null,
+    turns: ticketTurns(i, todo, busy),
+    line: messages && last ? { words: conversationWords(messages), at: last.at } : null,
     send: todo ? { disabled: busy } : null,
     running: i.running,
-    newPlan: todo && said ? { command: 'acc.task.analyze', label: 'Make a new plan', icon: 'refresh', ref: i.ref, ...(busy ? { disabled: busy } : {}) } : null,
-    claude: todo ? { disabled: i.analyzing ? 'Its plan is being made. Wait for it to finish.' : null } : null,
+    newPlan: !opening && todo && said ? { command: 'acc.task.analyze', label: 'Make a new plan', icon: 'refresh', ref: i.ref, ...(busy ? { disabled: busy } : {}) } : null,
+    claude: !opening && todo ? { disabled: i.analyzing ? 'Its plan is being made. Wait for it to finish.' : null } : null,
+    draft: opening && todo ? { disabled: busy ?? (before ? null : 'Say what you\'re thinking first, or skip to the plan.') } : null,
+    skip: opening && todo ? { disabled: busy } : null,
+    making: making ? { phase: making, words: MAKING_WORDS[making] } : null,
   };
 }
 

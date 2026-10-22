@@ -11,7 +11,7 @@ import { renderTeam } from './team.ts';
 import { renderRecords } from './record-changes.ts';
 import { renderField } from './changes-field.ts';
 import { renderManifest } from './manifest.ts';
-import { renderTalk } from './talk.ts';
+import { conversationLine } from './talk.ts';
 import { renderReview } from './review.ts';
 import { taskActions } from './task-actions.ts';
 import { dayName } from './days.ts';
@@ -181,8 +181,10 @@ export function renderTicket(m: TicketModel): Node[] {
     top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), work(el('span', '', rest.join(': ')), 'files'))), 'why-text', 2));
   }
   if (m.analysis) top.append(renderAnalysis(m, m.analysis));
-  // Talk it through (T-98): the conversation with the planning agent, in a section of its own beside the plan.
-  if (m.talk) top.append(renderTalk(m, m.talk));
+  // A conversation before its plan is made (T-111): its one line, in a plan section of its own until the plan
+  // comes. The conversation itself is in its panel, never here.
+  const line = !m.analysis && m.talk ? conversationLine(m.project, m.talk) : null;
+  if (line) top.append(el('section', 'analysis convo-before', el('div', 'an-head', el('h2', '', 'Plan'), status(m.talk!.look)), line));
   const main = el('div', 'ticket-main');
   // Where the tracker allows edits, Edit opens the task sheet, which writes the ticket's title and description (T-80).
   const descHead = m.editText ? el('div', 'desc-head', el('h2', '', 'Description'), descEdit(m.editText)) : el('h2', '', 'Description');
@@ -387,6 +389,21 @@ function whoMoved(by: string): string {
   return by.replace(/^human:/, '').replace(/^orchestrator.*/, 'The Command Center');
 }
 
+/** The width the page last told the extension (T-111), by task, so it says again only when it changes. */
+let toldWidth = '';
+
+/** Tells the extension how wide a task's page is (T-111), so its conversation opens beside it, or as a tab when narrow. */
+function tellWidth(): void {
+  const m = state.last;
+  if (m?.kind !== 'ticket') return;
+  const said = `${m.project}#${m.key}:${window.innerWidth}`;
+  if (said === toldWidth) return;
+  toldWidth = said;
+  api.postMessage({ type: 'page-width', project: m.project, task: m.key, width: window.innerWidth });
+}
+window.addEventListener('resize', tellWidth);
+
 export const area: PageArea = {
   views: { ticket: renderTicket },
+  after: tellWidth,
 };

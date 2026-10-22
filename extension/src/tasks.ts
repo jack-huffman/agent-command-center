@@ -26,6 +26,7 @@ import { editRefusal } from '../../packages/core/src/edit.ts';
 import { dispatchAgainOff } from './model/cards.ts';
 import { type Message as TaskSheetMessage, openTaskSheet, TASK_SHEET_DONE, TASK_SHEET_ROWS, taskSheetArgs, taskSheetInput } from './model/task-sheet.ts';
 import type { TicketEdits } from './ticket-edits.ts';
+import type { TicketPanels } from './ticket.ts';
 import { verdictFrom } from './model/dock-review.ts';
 import { laneMove } from './model/tasks.ts';
 import { sessionKey } from './model/shared.ts';
@@ -52,6 +53,9 @@ export class TaskCommands extends Sidebar {
 
   /** Reads a tracker task's whole ticket for Make a plan (T-110). */
   private readonly planTicket: PlanTicketHost | null;
+
+  /** The task pages (T-111): a plan's conversation to open, and the plans being made from this window. Set by the area. */
+  tickets: Pick<TicketPanels, 'conversation' | 'making'> | null = null;
 
   constructor(from: Sidebar, sheet: (root: string, id: string, ask?: SheetAsk) => boolean, taskSheet: (root: string, id: string | null) => boolean, edits: TicketEdits | null = null, planTicket: PlanTicketHost | null = null) {
     super(from.hub, from.acc, from.log, from.openTicket, from.helpers, from.terminals);
@@ -507,33 +511,61 @@ export class TaskCommands extends Sidebar {
   // ------------------------------------------------------------ the analysis before a build (D-052)
 
   /** The analyst runs in the output panel, like a review; its session can be watched while it reads. */
+  /**
+   * Make a plan: for a task with no plan yet, its conversation opens first (T-111), with its question, and Draft
+   * the plan or Skip to the plan there makes it. Make a new plan makes one at once, with what was said.
+   */
   private async analyzeTask(n: TaskNode): Promise<void> {
     if (n?.kind !== 'task') return;
     const { project, task } = n;
+    const talk = this.tickets?.conversation;
+    if (talk && this.helpers.run && !this.hub.analysis(project.root, task.id)) return talk.open(project.root, task.id);
+    return this.makePlan(project.root, task.id, false);
+  }
+
+  /** Draft the plan, or with `skip` Skip to the plan (T-111): from the conversation's panel. */
+  draftPlan(root: string, id: string, skip: boolean): void {
+    void this.makePlan(root, id, skip);
+  }
+
+  /**
+   * The whole ticket's file (T-110), in a folder `remove` deletes once acc ends. A file that can't be written is
+   * removed, the person is told why, and acc reads the description.
+   */
+  async planTicketFile(root: string, id: string): Promise<{ file: string | null; remove: () => void }> {
+    const kept = this.hub.ledger(root)?.tasks.find((t) => t.id === id.toUpperCase());
+    if (!this.planTicket || !kept) return { file: null, remove: () => {} };
+    const { file, failed, remove } = await planTicketFolder(this.planTicket, root, kept, () => mkdtempSync(join(tmpdir(), 'acc-plan-')));
+    if (failed) void vscode.window.showWarningMessage(failed);
+    return { file, remove };
+  }
+
+  /**
+   * Makes the plan in the output panel: its ticket read first, shown as under way, then acc analyze. Once at a
+   * time for a task: a second Make a plan, Draft the plan or Skip to the plan while one is under way is ignored.
+   */
+  private async makePlan(root: string, id: string, skip: boolean): Promise<void> {
     const acc = this.helpers.accCommand ?? 'acc';
     const done = () => void this.hub.loadTasks(true);
-    if (this.helpers.run) {
-      // The whole ticket first (T-110): its comments, related tickets and changes field, in a file removed once acc ends.
-      // A file that can't be written is removed, the person is told, and the plan reads the description.
-      const kept = this.hub.ledger(project.root)?.tasks.find((t) => t.id === task.id);
-      const { file, failed, remove } = this.planTicket && kept
-        ? await planTicketFolder(this.planTicket, project.root, kept, () => mkdtempSync(join(tmpdir(), 'acc-plan-')))
-        : { file: null, failed: null, remove: () => {} };
-      if (failed) void vscode.window.showWarningMessage(failed);
-      const ended = () => {
-        remove();
-        done();
-      };
-      // acc analyze exits 1 when the analysis has questions or says to split it: a new analysis is a run that
-      // worked, and its notice says what it found. An error writes none.
-      const before = this.hub.analysis(project.root, task.id)?.at ?? null;
-      const made = (code: number | null) => code === 0 || (this.hub.analysis(project.root, task.id)?.at ?? null) !== before;
-      this.helpers.run(`${acc} analyze ${task.id}${file ? ` --ticket ${shq(file)}` : ''}`, project.root, `Make a plan for ${task.id}`, ended, made);
-      // The analyst's session shows once acc has started it.
-      setTimeout(done, 2_000);
-    } else {
-      this.send(project.root, `acc analyze ${task.id}`);
-    }
+    if (!this.helpers.run) return this.send(root, `acc analyze ${id}${skip ? ' --skip-opening' : ''}`);
+    const making = this.tickets?.making;
+    if (making && !making.begin(root, id)) return;
+    // The whole ticket first (T-110): its comments, related tickets and changes field; the status bar and the
+    // conversation say so while it's read.
+    const read = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: `Reading ${id}'s ticket for its plan` }, () => this.planTicketFile(root, id));
+    making?.planning(root, id);
+    // acc analyze exits 1 when the analysis has questions or says to split it: a new analysis is a run that
+    // worked, and its notice says what it found. An error writes none.
+    const before = this.hub.analysis(root, id)?.at ?? null;
+    const made = (code: number | null) => code === 0 || (this.hub.analysis(root, id)?.at ?? null) !== before;
+    const ended = () => {
+      read.remove();
+      making?.end(root, id);
+      done();
+    };
+    this.helpers.run(`${acc} analyze ${id}${read.file ? ` --ticket ${shq(read.file)}` : ''}${skip ? ' --skip-opening' : ''}`, root, `Make a plan for ${id}`, ended, made);
+    // The analyst's session shows once acc has started it.
+    setTimeout(done, 2_000);
   }
 
   private watchAnalysis(n: TaskNode): void {
@@ -614,6 +646,10 @@ export const area: ExtensionArea = {
     const read = (root: string, key: string) => edits.sheetTicket(root, key);
     const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id, undefined, read, sheetDress(root, id)), edits, planTicketHost(hub, trackers));
     tasks.register(regNode);
+    // A plan's conversation (T-111): Make a plan opens it; Draft the plan and Skip to the plan there make it here.
+    tasks.tickets = tickets;
+    tickets.draftPlan = (root, id, skip) => tasks.draftPlan(root, id, skip);
+    tickets.planTicketFile = (root, id) => tasks.planTicketFile(root, id);
     // Dispatch's sheet (D-168): its Dispatch from the Command Center's page. A task's own tab, and the modal
     // over the board, show the sheet over that page, and send its Dispatch here too.
     receive('dispatch-sheet-go', (m) => void tasks.go(m));

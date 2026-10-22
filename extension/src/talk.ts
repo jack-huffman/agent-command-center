@@ -40,6 +40,8 @@ export const area: ExtensionArea = {
         t.show();
         t.sendText(['claude', ...l.args].map(shq).join(' '), true);
       },
+      // The whole ticket for the first message before a plan (T-111), read as Make a plan reads it.
+      ticket: (root, id) => tickets.planTicketFile?.(root, id) ?? Promise.resolve({ file: null, remove: () => {} }),
     }, (root) => tickets.refresh(root));
     tickets.talk = {
       state: (root, id) => talks.state(root, id),

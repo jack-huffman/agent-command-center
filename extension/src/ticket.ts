@@ -42,7 +42,9 @@ import { ticketRecords } from './model/record-changes.ts';
 import type { ManifestActions } from './manifest.ts';
 import { ticketManifest } from './model/manifest.ts';
 import type { TalkActions } from './talk.ts';
-import { ticketTalk } from './model/talk.ts';
+import { type TicketTalk, ticketTalk } from './model/talk.ts';
+import type { ConversationActions } from './conversation.ts';
+import { PlansMaking } from './logic/conversation.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -93,6 +95,8 @@ interface Open {
   edits: Map<string, string>;
   /** Its review's excerpts as last read (T-53), by the checkout, branch and verdict they were read for: a commit's change doesn't change. */
   excerpts: { key: string; value: (Excerpt | null)[] } | null;
+  /** How wide the page last said it was (T-111), so its conversation opens beside it or as a tab; null before it says. */
+  width: number | null;
 }
 
 /** Commands a ticket page may run: the ones its task's card offers, and Dispatch with… and Dispatch to the cloud, kept for one release to open the sheet (D-168). */
@@ -108,6 +112,10 @@ export class TicketPanels implements vscode.Disposable {
   /** The task in the modal over the Command Center's Tasks board, if any (GH-158). */
   private modal: Open | null = null;
   private readonly ctx: vscode.ExtensionContext;
+  /** Where the extension's files are, for a conversation's panel to draw its page from (T-111). */
+  get extensionUri(): vscode.Uri {
+    return this.ctx.extensionUri;
+  }
   private readonly hub: Hub;
   private readonly trackers: Trackers;
   private readonly resolve: (command: string, ref: Ref) => unknown;
@@ -143,6 +151,14 @@ export class TicketPanels implements vscode.Disposable {
   manifest: ManifestActions | null = null;
   /** Talk it through (T-98), set by its area: the conversation's state, and its buttons. */
   talk: TalkActions | null = null;
+  /** The conversation's own panel (T-111), set by its area: opened beside a page, and redrawn with it. */
+  conversation: ConversationActions | null = null;
+  /** Draft the plan and Skip to the plan (T-111), set by the Tasks area: the plan made, with the conversation or without. */
+  draftPlan: ((root: string, id: string, skip: boolean) => void) | null = null;
+  /** The whole ticket's file for a conversation's first message (T-111), set by the Tasks area, which reads it for Make a plan. */
+  planTicketFile: ((root: string, id: string) => Promise<{ file: string | null; remove: () => void }>) | null = null;
+  /** Plans being made from this window (T-111): a page and the conversation show its ticket being read, then the plan. */
+  readonly making = new PlansMaking((root) => this.refresh(root));
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
@@ -266,7 +282,7 @@ export class TicketPanels implements vscode.Disposable {
 
   /** A page that hasn't loaded yet. */
   private fresh(view: TicketView, root: string, tracker: number | null, key: string): Open {
-    return { view, tab: null, project: root, tracker, key: key.toUpperCase(), ticket: null, loading: tracker !== null, error: null, outside: null, connect: null, edits: new Map(), excerpts: null };
+    return { view, tab: null, project: root, tracker, key: key.toUpperCase(), ticket: null, loading: tracker !== null, error: null, outside: null, connect: null, edits: new Map(), excerpts: null, width: null };
   }
 
   /** Every page shown: each tab, and the modal (GH-158). */
@@ -277,11 +293,32 @@ export class TicketPanels implements vscode.Disposable {
   /** Settings changed the theme (GH-109): every task page restyles. The modal is in the Command Center's. */
   retheme(theme: ThemeChoice): void {
     for (const o of this.open.values()) o.tab.theme.set(theme);
+    this.conversation?.retheme(theme);
   }
 
-  /** Re-draws every open page, the modal too, for instance after the ledger or an agent changed. */
+  /**
+   * Re-draws every open page, the modal too, for instance after the ledger or an agent changed; and each
+   * conversation's panel (T-111), so a change made on a page shows in its conversation, and the other way round.
+   */
   refresh(root?: string): void {
     for (const o of this.pages()) if (!root || o.project === root) void this.post(o);
+    this.conversation?.refresh(root);
+  }
+
+  /** How wide the task's open page last said it was (T-111): its tab's, or the modal's; null when none says. */
+  widthOf(root: string, key: string): number | null {
+    return this.pages().find((o) => o.project === root && o.key === key.toUpperCase())?.width ?? null;
+  }
+
+  /**
+   * A task's conversation with its planning agent (T-98, T-111), as its page's line and its panel draw it: the
+   * same model in both places, so they agree. Null for a task that isn't kept, or past its build with nothing said.
+   */
+  talkModel(root: string, id: string): TicketTalk | null {
+    const task = this.hub.ledger(root)?.tasks.find((t) => t.id === id.toUpperCase());
+    if (!task || !this.talk) return null;
+    const row = this.hub.taskRows(root).find((r) => r.id === task.id);
+    return ticketTalk({ task, analysis: this.hub.analysis(root, task.id), analyzing: !!row?.analyzing, ...this.talk.state(root, task.id), ref: { project: root, task: task.id }, making: this.making.of(root, task.id) });
   }
 
   private project(o: Open): Project | undefined {
@@ -366,7 +403,7 @@ export class TicketPanels implements vscode.Disposable {
     // Its record changes (T-100), Talk it through (T-98) and its tracker's changes field (T-105), each a section of
     // its own: the field once read, with its draft update keeping each line a person wrote there.
     const analysis = task ? this.hub.analysis(p.root, task.id) : null;
-    const talk = task && this.talk ? ticketTalk({ task, analysis, analyzing: !!row?.analyzing, ...this.talk.state(p.root, task.id), ref: { project: p.root, task: task.id } }) : null;
+    const talk = task ? this.talkModel(p.root, task.id) : null;
     o.view.draw(task ? {
       ...model,
       records: ticketRecords({ task, analysis, profile: p.config.profile, environments: p.config.environments }),
@@ -466,6 +503,13 @@ export class TicketPanels implements vscode.Disposable {
       // Talk it through (T-98): this page's own task only.
       case 'talk-send': case 'talk-use': case 'talk-claude':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.talk?.act(m, (msg) => o.view.say(msg));
+        return;
+      // Its conversation's own panel (T-111): Open conversation, Discuss and Talk it through open it beside this page, or as a tab when it's narrow.
+      case 'conversation-open':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) this.conversation?.open(o.project, o.key, { about: m.about, width: o.width });
+        return;
+      case 'page-width':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) o.width = m.width;
         return;
       // Verify the developer's work (T-84): this page's own task only.
       case 'verify-run': case 'verify-clear':

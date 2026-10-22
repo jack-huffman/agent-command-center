@@ -6,7 +6,7 @@ import { api, memory, remember, state } from './state.ts';
 import { answerKey, askKey, pending, sendAnswer, sendUpdate } from './updates.ts';
 import { planActions, planDecisions, planEarlier, planHead, planShapes } from './plan.ts';
 import { reviewButton } from './review-plan.ts';
-import { discussButton } from './talk.ts';
+import { conversationLine, discussButton } from './talk.ts';
 import { planTicketLine } from './plan-behind.ts';
 
 // ---------------------------------------------------------------- a task's analysis (D-052)
@@ -105,6 +105,9 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   }
   // Review plan leads, then Build it and Talk it through, each off with why (T-97).
   if (p) sec.append(...planActions(m, a.task, p, a.review ? reviewButton(m, a.task, a.review) : null).filter((x): x is HTMLElement => !!x));
+  // Its conversation with the planning agent (T-111): one line and Open conversation; the turns are in its panel.
+  const talked = m.talk ? conversationLine(m.project, m.talk) : null;
+  if (talked) sec.append(talked);
   if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
   // The whole plan, folded and closed until opened.
   const whole = analysisFold(`${key}:whole`, 'The whole plan', [], false, { cls: 'an-whole', children: wholePlan(m, a, key) });

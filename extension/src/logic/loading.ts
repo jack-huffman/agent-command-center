@@ -5,13 +5,14 @@
  */
 
 /** The kinds of tab the Command Center opens. */
-export type TabKind = 'home' | 'ticket' | 'agent';
+export type TabKind = 'home' | 'ticket' | 'agent' | 'conversation';
 
 /** The line under the ring, for each kind of tab. It is the loading screen's accessible name too. */
 export const OPENING: Record<TabKind, string> = {
   home: 'Opening the Command Center',
   ticket: 'Opening the task',
   agent: 'Opening the agent',
+  conversation: 'Opening the conversation',
 };
 
 /** The id of the line, which names the screen. */

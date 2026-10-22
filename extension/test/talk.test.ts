@@ -1,4 +1,4 @@
-// Talk it through on a task's page (T-98): the conversation's model, its messages, the extension's side of
+// Talk it through (T-98), drawn in the conversation's panel since T-111: the conversation's model, its messages, the extension's side of
 // Send, Use this and Open in Claude Code, and the page's controls: Discuss, quote, send, reply, proposal, Use this.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -52,8 +52,9 @@ test('the conversation\'s model: who and when, the quote, each proposal in words
   assert.equal(model({ open: ['cc-acme-21'] })!.turns[2]!.open, true);
 });
 
-test('edge cases: no plan draws no section; nothing said has no Make a new plan; a reply on its way, a plan being made, a stale proposal, or past the build turn things off', () => {
-  assert.equal(model({ analysis: null }), null);
+test('edge cases: no plan past the build with nothing said is no conversation; nothing said has no Make a new plan; a reply on its way, a plan being made, a stale proposal, or past the build turn things off', () => {
+  assert.equal(model({ analysis: null, task: { id: 'ACME-21', state: 'running' }, talk: { v: 1, task: 'ACME-21', turns: [] } }), null);
+  assert.equal(model({ analysis: null })!.stage, 'opening', 'with no plan, the conversation before it (T-111)');
   const none = model({ talk: { v: 1, task: 'ACME-21', turns: [] } })!;
   assert.deepEqual([none.look, none.turns, none.newPlan], [TALK_LOOK.none, [], null]);
   const busy = model({ running: true })!;
@@ -212,14 +213,14 @@ test('Open in Claude Code launches claude in plan mode in the main checkout, wit
 const page = pageDom();
 let kept: unknown;
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: unknown) => { kept = s; } });
-const { renderTalk, discussButton, openTalk, talkPending, sendKey, useKey, kindOf, area } = await import('../webview/talk.ts');
+const { renderConversation, discussButton, openTalk, talkPending, sendKey, useKey, kindOf, area } = await import('../webview/talk.ts');
 const { planDecisions } = await import('../webview/plan.ts');
 const { state } = await import('../webview/state.ts');
 
 const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && x.textContent === label);
 const drawn = () => new Promise<void>((r) => queueMicrotask(r));
 const done = (msg: Record<string, unknown>) => (area.receive![TALK_DONE] as (m: unknown) => void)(msg);
-const draw = (m: TicketModel) => renderTalk(m, m.talk!) as unknown as PageElement;
+const draw = (m: TicketModel) => renderConversation(m.project, m.talk!) as unknown as PageElement;
 
 test('the conversation draws each turn with who and when, the quoted option, and its proposals; the next message\'s quote comes from memory', () => {
   kept = { opened: [], drafts: { ...TALK_STATE.drafts } };
@@ -246,15 +247,22 @@ test('Discuss on an option opens the conversation with it quoted and the cursor 
   kept = { opened: [], drafts: {} };
   state.draw = () => {};
   const m = { ...sampleTalkTicket(NOW), talk: model({ talk: { v: 1, task: 'ACME-21', turns: [] } }) };
-  assert.equal(draw(m).all('talk-turns').length + draw(m).all('talk-box').length, 0, 'closed: just Talk it through');
-  assert.equal(buttons(draw(m), 'Talk it through').length, 1);
-  // Talk it through, on the plan or here, opens it with nothing quoted.
+  assert.equal(draw(m).all('talk-turns').length, 0, 'nothing said yet');
+  assert.deepEqual([draw(m).all('talk-box').length, draw(m).all('talk-about').length], [1, 0], 'its panel opens with the box, nothing quoted');
+  // Talk it through, on the plan, asks for the panel, with nothing quoted (T-111).
+  page.sent.length = 0;
   openTalk(m.project, 'ACME-21');
-  assert.deepEqual([draw(m).all('talk-box').length, draw(m).all('talk-about').length], [1, 0]);
+  assert.deepEqual(page.sent, [{ type: 'conversation-open', project: m.project, task: 'ACME-21' }]);
   const discuss = (planDecisions(m, 'ACME-21', m.analysis!.planState!) as unknown as PageElement).all('talk-discuss');
   const option = discuss.find((b) => b.getAttribute('aria-label') === 'Discuss Backfill too, for Which converted leads get roles')!;
   assert.ok(option, 'each option has Discuss, named for what it\'s about');
+  page.sent.length = 0;
   option.click();
+  const quote = { ref: 'd2.b', text: 'Which converted leads get roles: Backfill too' };
+  assert.deepEqual(page.sent, [{ type: 'conversation-open', project: m.project, task: 'ACME-21', about: quote }], 'Discuss opens the panel with the option quoted');
+  assert.equal(isFromWebview(page.sent[0]), true);
+  // The panel is told the quote once it's ready.
+  (area.receive!['conversation-quote'] as (m: unknown) => void)({ type: 'conversation-quote', project: m.project, task: 'ACME-21', ...quote });
   const open = draw(m);
   const box = open.all('talk-box')[0]!;
   assert.match(open.all('talk-about')[0]!.textContent, /Option d2\.b: Which converted leads get roles: Backfill too/);

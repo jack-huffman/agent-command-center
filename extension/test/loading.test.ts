@@ -28,7 +28,7 @@ test('a tab of each kind opens on the loading screen, with that kind\'s line as 
     assert.ok(!app.includes('Loading…'), `${kind}: the old corner text is gone`);
     assert.ok(!/\sstyle=/.test(html), `${kind}: no inline style, which the page's CSP forbids`);
   }
-  assert.deepEqual(KINDS.map((k) => OPENING[k]), ['Opening the Command Center', 'Opening the task', 'Opening the agent']);
+  assert.deepEqual(KINDS.map((k) => OPENING[k]), ['Opening the Command Center', 'Opening the task', 'Opening the agent', 'Opening the conversation']);
 });
 
 test('the loading screen draws both marks, the dark one first, and escapes a mark\'s URL that holds a quote (edge case)', () => {
