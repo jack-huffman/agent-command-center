@@ -33,7 +33,7 @@ export const OLDER: Record<string, string[]> = {
   'extension/src/logic/tasks.ts': ['whileFirst', 'failedChecksLine', 'conflictLine'],
   'extension/src/model/about.ts': ['tagVersion'],
   'extension/src/model/cards.ts': ['canDispatch', 'AUTOPILOT_STEP', 'CARD_SAID'],
-  'extension/src/model/connect.ts': ['connectValues', 'CONNECT', 'connectValue'],
+  'extension/src/model/connect.ts': ['CONNECT', 'connectValue'],
   'extension/src/model/limits.ts': ['dollars'],
   'extension/src/model/overview.ts': ['mergeQueues'],
   'extension/src/model/questions.ts': ['alwaysWhat', 'questionsOf'],
