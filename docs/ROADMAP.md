@@ -140,6 +140,9 @@ where each one's done-when is written out.
 - **A GitHub check on every pull request, so autopilot can merge**: done.
   Checked 2026-10-22. Evidence: D-203. GitHub doesn't offer required checks on
   this private repo's plan; autopilot waits for the check itself.
+- **A Salesforce builder deploys to its sandbox, verifies and tests there**:
+  done. Checked 2026-10-23. Evidence: D-206. Supersedes D-011 for unprotected
+  environments; production and protected orgs stay validate-only.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).

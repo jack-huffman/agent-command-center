@@ -18,6 +18,14 @@ as the notes.
   you're asked to pick one (D-205): a plan's choices and questions, the
   conversation's questions and Review plan. Answer in my own words is always
   there. A question where you tick several still lists more.
+- A Salesforce builder deploys its work to the build org before it's done
+  (D-206): after it validates, it deploys its change to its environment's
+  sandbox, checks each component is there, and runs the named Apex tests in
+  the org; the ticket's Changes say Deployed to <org> with what the tests
+  found, and Done waits for it. A protected org or production is never
+  deployed to by a builder (Salesforce is asked which org it is), nor are
+  deletions or environment-specific files. Deploys to one org take turns, and
+  a task whose files overlap another in progress waits.
 
 ## 0.45.0
 
