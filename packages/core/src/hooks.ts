@@ -6,7 +6,9 @@
  */
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { commandsOf, expands } from './command-words.ts';
 import { builderGatesFor, fullGates, loadConfig, requiredGates } from './config.ts';
+import { deploysByHand } from './deploy-commands.ts';
 import type { Runner } from './exec.ts';
 import { readList } from './gates.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
@@ -79,6 +81,10 @@ export function guardEdit(b: Builder, filePath: string, envSpecific: string[]): 
   const abs = resolve(b.worktree, filePath);
   if (!under(abs, b.worktree)) return `You're the builder for ${b.task.id}, and your only workspace is ${b.worktree}. ${filePath} is outside it. Make the change in your worktree, or say what you need with acc block.`;
   const rel = relative(real(b.worktree), real(abs)).split(sep).join('/');
+  // The project's settings are a person's (D-T-115): a deploy reads where it goes from the main checkout, never from here.
+  if (rel === '.acc' || rel.startsWith('.acc/')) {
+    return `${rel} is the project's settings, which a person changes; acc writes the files under .acc/ itself, such as the floors a check raises. Leave it, and say in your note, or with acc block, what should change.`;
+  }
   if (envSpecific.some((p) => rel === p || rel.startsWith(`${p.replace(/\/+$/, '')}/`))) {
     return `${rel} is environment-specific (D-016): every org keeps its own version, and no task changes it. Leave it, and mention in your summary what it should say.`;
   }
@@ -86,136 +92,6 @@ export function guardEdit(b: Builder, filePath: string, envSpecific: string[]): 
 }
 
 // ---------------------------------------------------------------- PreToolUse: Bash
-
-/** What a `$( )` or backtick pair leaves in the word it stood in. */
-export const SUBSTITUTED = '$(...)';
-
-/** What a backslash escapes inside bash's $'…' (T-88): the characters it names, besides \nnn, \xHH, \uHHHH, \UHHHHHHHH and \cX. */
-const ANSI_C: Record<string, string> = { a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\\': '\\', "'": "'", '"': '"', '?': '?' };
-
-/**
- * Reads bash's $'…' quoting from just after its opening quote (T-88), as bash does: each backslash escape
- * decoded, so $'\x2d-upload-pack=sh' is --upload-pack=sh, the word git would see. `add` takes each
- * character. Returns the index of the closing quote, or the line's end when it never closes. The cloud
- * guard's rawCommandsOf has the same, and cloud-guard.test.ts keeps the two the same.
- */
-function ansiC(line: string, from: number, add: (c: string) => void): number {
-  let i = from;
-  while (i < line.length && line[i] !== "'") {
-    const c = line[i]!;
-    if (c !== '\\' || i + 1 >= line.length) { add(c); i++; continue; }
-    const e = line[i + 1]!;
-    let m: RegExpExecArray | null;
-    if (ANSI_C[e] !== undefined) { add(ANSI_C[e]); i += 2; }
-    else if ((m = /^[0-7]{1,3}/.exec(line.slice(i + 1, i + 4)))) { add(String.fromCharCode(parseInt(m[0], 8) & 0xff)); i += 1 + m[0].length; }
-    else if (e === 'x' && (m = /^[0-9a-fA-F]{1,2}/.exec(line.slice(i + 2, i + 4)))) { add(String.fromCharCode(parseInt(m[0], 16))); i += 2 + m[0].length; }
-    else if (e === 'u' && (m = /^[0-9a-fA-F]{1,4}/.exec(line.slice(i + 2, i + 6)))) { add(String.fromCodePoint(parseInt(m[0], 16))); i += 2 + m[0].length; }
-    else if (e === 'U' && (m = /^[0-9a-fA-F]{1,8}/.exec(line.slice(i + 2, i + 10)))) { add(String.fromCodePoint(Math.min(parseInt(m[0], 16), 0x10ffff))); i += 2 + m[0].length; }
-    else if (e === 'c' && i + 2 < line.length) { add(String.fromCharCode(line.charCodeAt(i + 2) & 0x1f)); i += 3; }
-    // A backslash before anything else stays, as bash keeps it.
-    else { add(c); i++; }
-  }
-  return i;
-}
-
-/**
- * A command line split into its commands, and each into words, as far as matters for these rules: quotes
- * kept together, separators cut, a `$( )` or backtick read as its own command even inside double quotes
- * (only single quotes are literal), a heredoc's body skipped, bash's `$'…'` read with its escapes decoded
- * (T-88). The command around a substitution stays whole, with SUBSTITUTED where the substitution stood;
- * the substitution's own commands come first. The cloud guard's rawCommandsOf splits the same way (GH-69),
- * and cloud-guard.test.ts keeps the two the same.
- */
-export function commandsOf(line: string): string[][] {
-  const out: string[][] = [];
-  let words: string[] = [];
-  let word = '';
-  let quote: '"' | "'" | null = null;
-  let any = false;
-  // What to go back to when a `$( )` or a backtick pair closes: the command it opened in, its word so far
-  // with SUBSTITUTED added, and the quote it opened inside, if any. A `(` alone opens a group, which cuts.
-  const stack: ({ group: true } | { group: false; back: '"' | null; tick: boolean; words: string[]; word: string })[] = [];
-  // Heredoc terminators still to skip, in order; a `<<` alone takes the next word as its terminator.
-  const heredocs: string[] = [];
-  let delimiterNext = false;
-  const end = () => {
-    if (any) {
-      if (delimiterNext) { heredocs.push(word.replace(/^['"]|['"]$/g, '')); delimiterNext = false; }
-      else if (word === '<<' || word === '<<-') delimiterNext = true;
-      else if (/^<<-?./.test(word)) heredocs.push(word.replace(/^<<-?/, '').replace(/^['"]|['"]$/g, ''));
-      words.push(word);
-    }
-    word = '';
-    any = false;
-  };
-  const next = () => { end(); if (words.length) out.push(words); words = []; };
-  const open = (back: '"' | null, tick: boolean) => { stack.push({ group: false, back, tick, words, word: word + SUBSTITUTED }); words = []; word = ''; any = false; quote = null; };
-  const close = (top: { back: '"' | null; words: string[]; word: string }) => { next(); words = top.words; word = top.word; any = true; quote = top.back; };
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]!;
-    if (quote === "'") {
-      if (c === "'") quote = null;
-      else { word += c; any = true; }
-      continue;
-    }
-    if (quote === '"') {
-      if (c === '"') { quote = null; continue; }
-      if (c === '\\' && i + 1 < line.length) { word += line[++i]; any = true; continue; }
-      if (c === '`') { open('"', true); continue; }
-      if (c === '$' && line[i + 1] === '(') { open('"', false); i++; continue; }
-      word += c;
-      any = true;
-      continue;
-    }
-    // bash's $'…' (T-88): its escapes decoded into the word; $"…" is "…" for the shell's locale.
-    if (c === '$' && line[i + 1] === "'") { i = ansiC(line, i + 2, (ch) => { word += ch; }); any = true; continue; }
-    if (c === '$' && line[i + 1] === '"') { quote = '"'; any = true; i++; continue; }
-    if (c === '"' || c === "'") { quote = c; any = true; continue; }
-    if (c === '\\' && i + 1 < line.length) { word += line[++i]; any = true; continue; }
-    if (c === '`') {
-      const top = stack[stack.length - 1];
-      if (top && !top.group && top.tick) { stack.pop(); close(top); }
-      else open(null, true);
-      continue;
-    }
-    if (c === '$' && line[i + 1] === '(') { open(null, false); i++; continue; }
-    if (c === '(') { next(); stack.push({ group: true }); continue; }
-    if (c === ')') {
-      const top = stack.pop();
-      if (top && !top.group) close(top);
-      else next();
-      continue;
-    }
-    if (c === '\n') {
-      next();
-      // A heredoc's body is the command's input, not commands: skip to its terminator line.
-      while (heredocs.length && i < line.length) {
-        const term = heredocs.shift();
-        let j = i + 1;
-        for (;;) {
-          const nl = line.indexOf('\n', j);
-          const l = nl < 0 ? line.slice(j) : line.slice(j, nl);
-          if (l.replace(/^\t+/, '') === term || nl < 0) { i = nl < 0 ? line.length : nl; break; }
-          j = nl + 1;
-        }
-      }
-      continue;
-    }
-    if (/\s/.test(c)) { end(); continue; }
-    if (c === ';' || c === '|' || c === '&') { next(); continue; }
-    word += c;
-    any = true;
-  }
-  // A substitution left open at the end still leaves its command whole: the shell would refuse the line.
-  for (let top = stack.pop(); top; top = stack.pop()) if (!top.group) close(top);
-  next();
-  // Leading environment assignments and wrappers don't change what runs.
-  return out.map((w) => {
-    let i = 0;
-    while (i < w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i]!) || ['nice', 'env', 'time', 'command', 'npx', 'sudo'].includes(w[i]!) || (w[i - 1] === 'nice' && /^-n$|^-\d+$/.test(w[i]!)) || (w[i - 2] === 'nice' && w[i - 1] === '-n'))) i++;
-    return w.slice(i);
-  }).filter((w) => w.length);
-}
 
 const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0-9_]*-\d+|https?:\/\/)/i;
 /**
@@ -225,23 +101,6 @@ const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0
  * clone pushes as (GH-113).
  */
 export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'collect', 'cloud', 'gate waive', 'gate relax', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss', 'github use', 'change step']);
-
-/**
- * Whether a command line has a backtick or a $ the shell would act on: anywhere outside single quotes,
- * unless a backslash escapes it. In a note, it would run or expand before acc saw the words (D-106).
- */
-export function expands(line: string): boolean {
-  let quote: '"' | "'" | null = null;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]!;
-    if (quote === "'") { if (c === "'") quote = null; continue; }
-    if (c === '\\') { i++; continue; }
-    if (c === '`' || c === '$') return true;
-    if (c === '"') quote = quote ? null : '"';
-    else if (c === "'" && !quote) quote = "'";
-  }
-  return false;
-}
 
 /** Whether a command word is acc: by its name, or its path, as the packet says to use when acc isn't found. */
 const isAcc = (cmd: string | undefined): boolean => !!cmd && cmd.split('/').pop() === 'acc';
@@ -273,10 +132,9 @@ export function guardBash(b: Builder, line: string): string | null {
     if ((cmd === 'gh' && sub === 'release' && ['create', 'upload', 'edit', 'delete'].includes(rest[0] ?? ''))
       || (cmd === 'npm' && (sub === 'run' || sub === 'run-script') && rest[0] === 'release')
       || (cmd === 'node' && args.some((a) => a.endsWith('scripts/release.mjs')))) return 'Releases are a person\'s: they run npm run release on main, after the merge. Finish with acc done.';
-    if (cmd === 'sf' && sub === 'project' && rest[0] === 'deploy') {
-      const verb = rest[1];
-      if (verb === 'quick' || verb === 'resume' || (verb === 'start' && !rest.includes('--dry-run'))) return 'Builders never deploy by hand (D-011, D-T-115): acc gate run validate checks without saving, and acc gate run deploy deploys your change to the build org, checks it\'s there and runs its tests. Never to a protected org.';
-    }
+    // Every form of a hand deploy, sf's and sfdx's alike (D-T-115); a check-only one is validate's own.
+    const form = deploysByHand(w);
+    if (form) return `Builders never deploy by hand (D-011, D-T-115): ${form} is refused. acc gate run validate checks without saving, and acc gate run deploy deploys your change to the build org, checks it's there and runs its tests. Never to a protected org.`;
     if (cmd === 'sf' && sub === 'org' && rest[0] === 'delete') return 'Builders never delete an org.';
     // A command is a person's by its name, or by its name and subcommand, such as acc rules import (GH-108)
     // or acc tidy add (GH-104), and accepting or dismissing a suggested rule (GH-102); acc tidy alone, and

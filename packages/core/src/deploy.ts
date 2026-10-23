@@ -130,24 +130,31 @@ function deployChanges(paths: RepoPaths, config: Config, run: Runner, env: Envir
 }
 
 /**
- * The files the environment's org already has from a task's own deploy (D-T-115): each path a task deployed
- * to this environment whose content then is what the branch's head has now, by git's blob id, with the task
- * that deployed it. A path changed since the task deployed it isn't here, so it goes again.
+ * The files the environment's org already has from a task's own deploy (D-T-115): each path whose latest
+ * deploy to this environment, across every task and by its time, put the content the branch's head has
+ * now, by git's blob id, with the task that deployed it. Only a path's latest deploy counts: the org holds
+ * what went last, so a path another task deployed later at other content goes again, as does one changed
+ * since. Each path's blobs are read once, for that latest deploy, not once an older deploy too.
  */
 export function deployedByTasks(paths: RepoPaths, run: Runner, env: Pick<Environment, 'branch'>, head: string): Map<string, string> {
   const blob = (sha: string, path: string): string | null => {
     const r = git(run, paths.root, 'rev-parse', '--verify', '--quiet', `${sha}:${path}`);
     return r.code === 0 ? r.stdout.trim() : null;
   };
-  const out = new Map<string, string>();
+  const latest = new Map<string, { task: string; sha: string; at: string }>();
   for (const t of readLedger(paths.ledger).tasks) {
     for (const d of t.deploys ?? []) {
       if (d.env !== env.branch) continue;
       for (const p of d.paths) {
-        const then = blob(d.sha, p);
-        if (then && then === blob(head, p)) out.set(p, t.id);
+        const have = latest.get(p);
+        if (!have || d.at > have.at) latest.set(p, { task: t.id, sha: d.sha, at: d.at });
       }
     }
+  }
+  const out = new Map<string, string>();
+  for (const [p, d] of latest) {
+    const then = blob(d.sha, p);
+    if (then && then === blob(head, p)) out.set(p, d.task);
   }
   return out;
 }

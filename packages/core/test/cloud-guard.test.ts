@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { GUARD_COMMAND, GUARD_MATCHER, GUARD_PATH, GUARD_SCRIPT, guardCommitted, guardInstalled, installGuard, PRE_PUSH_PATH, PRE_PUSH_SCRIPT, RECORD_LINE, ROLE_LINE, SESSION_COMMAND, SETTINGS_PATH, settingsRunGuard, VERDICT_LINE } from '../src/cloud-guard.ts';
 import { run } from '../src/exec.ts';
-import { commandsOf, SUBSTITUTED } from '../src/hooks.ts';
+import { commandsOf, SUBSTITUTED } from '../src/command-words.ts';
 import { gitIn, pool, spawnWith, tempDir } from './support.ts';
 
 const BRANCH = 'task/T-1-a-thing';

@@ -769,7 +769,7 @@ it. A `gates.commands` entry named `stray-files` replaces it.
 | `static` | `sf code-analyzer run` on changed files. Fails at severity 2 or worse, which is configurable | yes |
 | `lwc-tests` | `sfdx-lwc-jest --findRelatedTests` | when an LWC changed |
 | `validate` | A check-only deploy of the changed source to the environment's org (`sf project deploy start --dry-run`, D-024). Uses `NoTestRun` when no Apex changed. Otherwise `RunSpecifiedTests`, with the tests the builder names and its reason for each | yes |
-| `deploy` | The builder's own deploy of the changed source to its environment's org (D-T-115): `sf project deploy start` at validate's test level, then each component asked for with `sf org list metadata`, then the named Apex tests run in the org with `sf apex run test`, coverage reported. The task records the deploy, and its ticket's Changes say "Deployed to <org>". Only from the task's own worktree, on its branch, with validate passed on the commit; it skips elsewhere. Never to a protected org or production, never an environment-specific file or a deletion. One deploy to an org at a time, and it waits while another task in flight changes a file this one does | yes, wherever `validate` is |
+| `deploy` | The builder's own deploy of the changed source to its environment's org (D-T-115). Where it goes is read from the project's settings in the main checkout, or committed on the environment's branch, never from the task's worktree, and Salesforce is asked which org that is first (`sf org display`): a production org is refused whatever the settings say, and the receipt records the org's username. Then `sf project deploy start` at validate's test level, each component asked for with `sf org list metadata`, and the named Apex tests run in the org with `sf apex run test`, coverage reported. The task records the deploy, and its ticket's Changes say "Deployed to <org>". Only from the task's own worktree, on its branch, with validate passed on the commit; elsewhere (a refresh, the merge queue, a verify) it records a skip that says so, which satisfies that run but never `acc done`. Never to a protected org or production, never an environment-specific file or a deletion. One deploy to an org at a time, on a lock keyed by the org's username in acc's own slot folder; it stops, naming the task and file, while another task in flight changes a file this one does, and stops when a task in flight's branch can't be read here or from origin | yes, wherever `validate` is |
 
 - **Changed files** come from `git diff --name-only <branch>...HEAD`, minus
   environment-specific files.
@@ -990,17 +990,26 @@ writes and `acc decisions check` checks; it merges as a union of rows.
 **A Salesforce builder validates, then deploys to its build org (D-T-115).**
 `acc gate run deploy`, required wherever `validate` is, deploys the task's
 changed source to its environment's org, asks the org for each component, and
-runs the named Apex tests there; `acc done` refuses until it passed on the last
-commit. Two builders on one org take turns (a lock per org beside the
-heavy-check slots), and a builder whose changed files another task in flight
-also changes waits until that task merges or is set aside, never deploying over
-its work. It never deploys to a protected environment or production, an
-environment-specific file or a deletion; a raw `sf project deploy` from a
-builder is still refused (D-011). After the merge, `acc deploy <environment>`
-deploys the environment's branch to its org, one at a time, leaving out what
-its tasks already deployed themselves and saying when nothing's left. It sends
-only the changed components and never an environment-specific file. For a
-protected environment, it also needs a person's `--confirm-production`.
+runs the named Apex tests there; `acc done` refuses until the task's own deploy
+passed on the last commit: the skip a refresh or the merge queue records for it
+doesn't count. Where it goes is read from the project's settings in the main
+checkout, or committed on the environment's branch, never from the task's
+worktree (a builder's edits under `.acc/` are refused), and Salesforce is asked
+which org that is before anything goes: a production org is refused whatever
+the settings say. Two builders on one org take turns (a lock per org, keyed by
+its username, beside the heavy-check slots), and a builder whose changed files
+another task in flight also changes is stopped, told which task and file, and
+blocks until that task merges or is set aside, never deploying over its work; a
+task in flight whose branch can't be read here or from origin stops it too. It
+never deploys to a protected environment or production, an environment-specific
+file or a deletion; a hand deploy from a builder, in any of `sf`'s or `sfdx`'s
+forms, is still refused (D-011), and a command gate may neither deploy nor take
+the deploy gate's name. After the merge, `acc deploy <environment>` deploys the
+environment's branch to its org, one at a time, leaving out a file only when
+its latest deploy by any task put the branch's content in the org, and saying
+when nothing's left. It sends only the changed components and never an
+environment-specific file. For a protected environment, it also needs a
+person's `--confirm-production`.
 
 **Drift.** `acc drift <environment>` retrieves the baseline manifest into a
 throwaway worktree. It reports what changed in the org since its branch was last

@@ -2,24 +2,30 @@
  * The deploy gate (D-T-115): a Salesforce builder deploys its change to its environment's org, checks each
  * component is there, and runs the Apex tests it named in the org, before it hands back. It supersedes
  * D-011 for an environment that isn't protected: a builder validates, then deploys, through this gate only.
- * Two builders on one org take turns, with a lock per org beside the heavy-check slots, and a builder whose
- * changed files another task in flight also changes waits until that task merges or is set aside, never
- * deploying over its work: the person's choice. A real deploy stays a person's everywhere else: a protected
- * org, production, an environment-specific file, a deletion, and `acc deploy` after a merge.
+ * Where it goes is read from the project's settings in the main checkout, or on the environment's branch,
+ * never from the task's worktree, and Salesforce is asked which org that is before anything goes: a
+ * production org is refused whatever the settings say. Two builders on one org take turns, with a lock per
+ * org (by its username) beside the heavy-check slots, and a builder whose changed files another task in
+ * flight also changes stops and waits until that task merges or is set aside, never deploying over its
+ * work: the person's choice. A task in flight whose files can't be read stops it too. A real deploy stays a
+ * person's everywhere else: a protected org, production, an environment-specific file, a deletion, and
+ * `acc deploy` after a merge.
  */
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { type Config, type Environment, loadConfig, parseConfig } from './config.ts';
+import { DEPLOY_GATE } from './deploy-commands.ts';
 import type { RunResult } from './exec.ts';
-import { type ApexTest, deployProblems, type Exec, type Gate, type GateInput, type GateRunInfo, lastLine, type Outcome, outcome, packageDirs, parseDeployJson, under } from './gates.ts';
+import { type ApexTest, deployProblems, type Exec, type Gate, type GateInput, type GateRunInfo, lastLine, listed, listLines, type Outcome, outcome, packageDirs, parseDeployJson, under } from './gates.ts';
 import { mutate, readLedger } from './ledger.ts';
-import { inFlightFiles, overlaps, sharedFiles, sharesWords, taskList, waitWords } from './overlap.ts';
-import type { RepoPaths } from './paths.ts';
+import { parseOrgUrl } from './onboarding/helpers.ts';
+import { inFlightFilesStrict, overlaps, sharedFiles, sharesWords, taskList, waitWords } from './overlap.ts';
+import { mainCheckout, type RepoPaths, samePath } from './paths.ts';
 import { readReceipt, satisfies } from './receipts.ts';
 import { heavyDir, withSlot } from './semaphore.ts';
 import { sfComponent } from './sf-metadata.ts';
 import type { TestCounts } from './test-counts.ts';
 import { plural } from './text.ts';
-
-export const DEPLOY_GATE = 'deploy';
 
 /** Apex source: a class or trigger, or its -meta.xml. The same test as validate's. */
 const APEX = /\.(cls|trigger)(-meta\.xml)?$/;
@@ -28,6 +34,8 @@ const APEX = /\.(cls|trigger)(-meta\.xml)?$/;
 export interface TaskDeploy {
   env: string;
   org: string;
+  /** The org's username, as Salesforce said it before the deploy. Not kept by a deploy from before this was asked. */
+  username?: string;
   /** The commit deployed. */
   sha: string;
   at: string;
@@ -60,6 +68,94 @@ export function deployGateArgs(org: string, source: string[], tests: ApexTest[])
     ...tests.flatMap((t) => ['--tests', t.name]),
   ];
 }
+
+// ---------------------------------------------------------------- where it goes, as the project says
+
+/** The project's settings as a deploy trusts them, where they were read, and a reader for a file beside them. */
+export interface TrustedSettings {
+  config: Config;
+  /** Where they came from, as a person reads it. */
+  from: string;
+  /** A file's text from the same place, by its path from the repo's root, or null when it isn't there. */
+  read: (rel: string) => string | null;
+}
+
+/**
+ * The project's settings as a deploy trusts them (D-T-115): the main checkout's file when this run is in
+ * a worktree, else the environment branch's committed copy, this clone's first and origin's after it.
+ * Never this checkout's own file, which a builder could point at another org or unprotect. A problem says
+ * why none could be read.
+ */
+export function trustedSettings(run: Pick<GateRunInfo, 'paths' | 'runner'>, env: Pick<Environment, 'branch'>): TrustedSettings | { problem: string } {
+  const { paths, runner } = run;
+  let main: string;
+  try {
+    main = mainCheckout(runner, paths.root);
+  } catch (e) {
+    return { problem: (e as Error).message };
+  }
+  if (!samePath(main, paths.root)) {
+    try {
+      const { config } = loadConfig(join(main, '.acc', 'config.json'));
+      const read = (rel: string): string | null => {
+        try {
+          return readFileSync(join(main, rel), 'utf8');
+        } catch {
+          return null;
+        }
+      };
+      return { config, from: `the main checkout's settings (${main})`, read };
+    } catch (e) {
+      return { problem: `Couldn't read the project's settings from the main checkout, ${main}: ${(e as Error).message}` };
+    }
+  }
+  const show = (ref: string, rel: string): RunResult => runner('git', ['show', `${ref}:${rel}`], { cwd: paths.root });
+  const tried: string[] = [];
+  for (const ref of [`refs/heads/${env.branch}`, `refs/remotes/origin/${env.branch}`]) {
+    const r = show(ref, '.acc/config.json');
+    if (r.code !== 0) {
+      tried.push(ref);
+      continue;
+    }
+    let raw: unknown;
+    try {
+      raw = JSON.parse(r.stdout);
+    } catch (e) {
+      return { problem: `${ref}'s .acc/config.json isn't valid JSON: ${(e as Error).message}` };
+    }
+    const parsed = parseConfig(raw);
+    if (!parsed.config) return { problem: `${ref}'s .acc/config.json has problems: ${parsed.errors.join('; ')}` };
+    return { config: parsed.config, from: `${env.branch}'s committed settings (${ref})`, read: (rel) => { const f = show(ref, rel); return f.code === 0 ? f.stdout : null; } };
+  }
+  return { problem: `Couldn't read the project's settings from ${tried.join(' or ')}. A deploy reads where it goes from the main checkout, or from the environment's branch, never from this checkout's own .acc/config.json.` };
+}
+
+// ---------------------------------------------------------------- which org that is, as Salesforce says
+
+/** How Salesforce is asked which org an alias is: `sf org display`, which says its username and My Domain URL. */
+export const orgDisplayArgs = (org: string): string[] => ['org', 'display', '--target-org', org, '--json'];
+
+/** What Salesforce said an org is: its username, its id, its URL, and what kind of org the URL says (D-015). */
+export interface OrgShown {
+  username: string;
+  id: string | null;
+  instanceUrl: string;
+  kind: ReturnType<typeof parseOrgUrl>['kind'];
+}
+
+/** Reads `sf org display --json`, or null when sf gave no org: not logged in, or no such alias. */
+export function readOrgDisplay(r: RunResult): OrgShown | null {
+  try {
+    const j = parseDeployJson<{ status?: number; result?: { username?: string; id?: string; instanceUrl?: string } }>(r);
+    const res = j.result;
+    if (j.status !== 0 || !res || typeof res.username !== 'string' || typeof res.instanceUrl !== 'string') return null;
+    return { username: res.username, id: typeof res.id === 'string' ? res.id : null, instanceUrl: res.instanceUrl, kind: parseOrgUrl(res.instanceUrl).kind };
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------- is it there
 
 /** A deployed component the org can be asked for: its type, the name the org uses, and its paths. */
 export interface DeployedComponent {
@@ -109,6 +205,8 @@ export function readListed(r: RunResult): string[] | null {
   }
 }
 
+// ---------------------------------------------------------------- the tests, in the org
+
 /** The Apex test run's sf arguments: the named classes, with coverage, waited for. */
 export function apexTestArgs(org: string, tests: ApexTest[]): string[] {
   return ['apex', 'run', 'test', '--target-org', org, ...tests.flatMap((t) => ['--class-names', t.name]), '--result-format', 'json', '--code-coverage', '--wait', '60', '--json'];
@@ -140,8 +238,14 @@ export function readApexRun(r: RunResult, names: string[]): { tests: DeployTests
   return { tests, counts, failures, runId: s.testRunId ?? null };
 }
 
-/** Where an org's deploys take turns: a one-slot folder beside the heavy-check slots, named for the org. */
-export const orgLockDir = (org: string, base: string = heavyDir()): string => join(base, 'orgs', org.replace(/[^\w.-]+/g, '_'));
+// ---------------------------------------------------------------- taking turns, and the record
+
+/**
+ * Where an org's deploys take turns: a one-slot folder beside the heavy-check slots, named for the org's
+ * username (never its alias, which any settings file can give any org). In acc's own slot folder, which no
+ * environment variable moves: a builder's run can't choose another and dodge the lock.
+ */
+export const orgLockDir = (orgKey: string, base: string = heavyDir({})): string => join(base, 'orgs', orgKey.replace(/[^\w.-]+/g, '_'));
 
 /** Keeps a deploy on its task (D-T-115), so the ticket's Changes say "Deployed to <org>". Nothing without a task. */
 export function recordDeploy(paths: RepoPaths, now: () => Date, task: string | undefined, deploy: TaskDeploy): TaskDeploy | null {
@@ -171,19 +275,28 @@ export const testsWords = (t: DeployTests | null): string =>
 
 type DeployJson = { status?: number; message?: string; result?: Parameters<typeof deployProblems>[0] & { id?: string; success?: boolean; status?: string; numberComponentsTotal?: number } };
 
-/** The deploy, the check that it's there, and the tests, one org at a time: what the gate runs once it's allowed to. */
-function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, source: string[], tests: ApexTest[]): Outcome {
-  const org = input.env.org!;
+/** What the gate runs, once it's allowed to: which org, the other tasks, the deploy, the check that it's there, and the tests, one org at a time. */
+function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Environment, source: string[], tests: ApexTest[]): Outcome {
+  const org = env.org!;
   const { pass, fail, error, listOf } = outcome;
-  // Another task in flight changes a file this one does: wait, and never deploy over its work (the person's choice).
-  const flying = inFlightFiles(run.paths, readLedger(run.paths.ledger), run.runner, { except: run.task, fetch: true });
-  const shares = overlaps(input.changes.files, flying, sharedFiles(input.config));
+  // Which org this really is: Salesforce says, whatever the settings say. Production is never a builder's.
+  const shown = readOrgDisplay(exec('sf', orgDisplayArgs(org)));
+  if (!shown) return error(`Couldn't ask Salesforce which org ${org} is (sf org display): is it logged in on this machine? Nothing was deployed.`);
+  if (shown.kind === 'production') return error(`${org} is a production org (${shown.username} at ${shown.instanceUrl}), whatever the settings say. A builder never deploys to production (D-018): nothing was deployed.`);
+  const orgDetails = { org, username: shown.username, orgId: shown.id, instanceUrl: shown.instanceUrl, orgKind: shown.kind };
+  // Another task in flight changes a file this one does: stop, and never deploy over its work (the person's choice).
+  // One whose files can't be read stops it too: a deploy never goes over work it couldn't see.
+  const flying = inFlightFilesStrict(run.paths, readLedger(run.paths.ledger), run.runner, { except: run.task });
+  if (flying.unreadable.length) {
+    return error(`Couldn't read what ${taskList(flying.unreadable.map((u) => u.task))} changed, so this deploy can't tell whether it would go over their work: ${flying.unreadable.map((u) => `${u.task}, ${u.why}`).join('; ')}. Nothing was deployed. Run acc gate run deploy again once their branches are here, or block and say so: acc block "Waiting to deploy: can't read ${taskList(flying.unreadable.map((u) => u.task))}'s changes"`);
+  }
+  const shares = overlaps(input.changes.files, flying.shares, sharedFiles(input.config));
   if (shares.length) {
     const who = taskList(shares.map((s) => s.task));
-    return fail(`${waitWords(shares)}. Deploying now would put this branch's copy over ${who}'s work in ${org}. Wait until ${who} ${shares.length === 1 ? 'merges or is' : 'merge or are'} set aside, then run acc gate run deploy again. If that's long, block and say so: acc block "Waiting to deploy: ${sharesWords(shares)}"`, { org, waitsFor: shares });
+    return fail(`${waitWords(shares)}. Deploying now would put this branch's copy over ${who}'s work in ${org}. Wait until ${who} ${shares.length === 1 ? 'merges or is' : 'merge or are'} set aside, then run acc gate run deploy again. If that's long, block and say so: acc block "Waiting to deploy: ${sharesWords(shares)}"`, { ...orgDetails, waitsFor: shares });
   }
-  const owner = { what: `Deploy to ${org}`, ...(run.task ? { task: run.task } : {}), env: input.env.branch, project: input.config.project, cwd: input.root };
-  const lock = { dir: orgLockDir(org, run.slots?.dir), slots: 1, owner, onWait: run.onWait, ...(run.slots?.timeoutMs !== undefined ? { timeoutMs: run.slots.timeoutMs } : {}), ...(run.slots?.pollMs !== undefined ? { pollMs: run.slots.pollMs } : {}) };
+  const owner = { what: `Deploy to ${org}`, ...(run.task ? { task: run.task } : {}), env: env.branch, project: input.config.project, cwd: input.root };
+  const lock = { dir: orgLockDir(shown.username, run.slots?.dir), slots: 1, owner, onWait: run.onWait, ...(run.slots?.timeoutMs !== undefined ? { timeoutMs: run.slots.timeoutMs } : {}), ...(run.slots?.pollMs !== undefined ? { pollMs: run.slots.pollMs } : {}) };
   return withSlot(() => {
     const r = exec('sf', deployGateArgs(org, source, tests));
     let read: DeployJson;
@@ -194,7 +307,7 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, source: str
     }
     const res = read.result;
     if (!res?.id) return error(read.message?.trim() || lastLine(r.stderr) || 'sf returned no deploy result.');
-    const details: Record<string, unknown> = { jobId: res.id, org, testLevel: tests.length ? 'RunSpecifiedTests' : 'NoTestRun', tests };
+    const details: Record<string, unknown> = { jobId: res.id, ...orgDetails, testLevel: tests.length ? 'RunSpecifiedTests' : 'NoTestRun', tests };
     if (!res.success) {
       const problems = deployProblems(res);
       return fail(problems.length ? `The deploy to ${org} failed (job ${res.id}), ${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (read.message?.trim() || `The deploy to ${org} ${res.status ?? 'failed'} (job ${res.id}).`), { ...details, problems });
@@ -203,12 +316,12 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, source: str
     const { known, unknown } = deployedComponents(source);
     const missing: string[] = [];
     const unchecked: string[] = [...unknown];
-    const listed = new Map<string, string[] | null>();
+    const listedNames = new Map<string, string[] | null>();
     for (const c of known) {
       const args = listMetadataArgs(org, c);
       const key = args.join(' ');
-      if (!listed.has(key)) listed.set(key, readListed(exec('sf', args)));
-      const names = listed.get(key)!;
+      if (!listedNames.has(key)) listedNames.set(key, readListed(exec('sf', args)));
+      const names = listedNames.get(key)!;
       if (names === null) unchecked.push(`${c.label}: ${c.name}`);
       else if (!names.includes(c.name)) missing.push(`${c.label}: ${c.name}`);
     }
@@ -216,7 +329,7 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, source: str
     const verified = known.length - missing.length - (unchecked.length - unknown.length);
     Object.assign(details, { components, verified, unchecked, missing });
     const at = run.now().toISOString();
-    const record = (t: DeployTests | null) => recordDeploy(run.paths, run.now, run.task, { env: input.env.branch, org, sha: run.sha, at, jobId: res.id!, paths: source, components, verified, tests: t });
+    const record = (t: DeployTests | null) => recordDeploy(run.paths, run.now, run.task, { env: env.branch, org, username: shown.username, sha: run.sha, at, jobId: res.id!, paths: source, components, verified, tests: t });
     // The named tests run in the org, where the change now is: what they find is the deploy's result too.
     let ran: ReturnType<typeof readApexRun> = null;
     if (tests.length) {
@@ -238,22 +351,36 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, source: str
   }, lock);
 }
 
+/** Where the deploy gate runs, said by the skip every other run records (D-T-115). */
+export const DEPLOY_ELSEWHERE = 'the task\'s own worktree, on its branch, with acc gate run deploy';
+
 /**
- * The gate. It decides without running where it mustn't deploy: no org, a protected or production environment,
- * an environment-specific file, a deletion, Apex without its tests, validate not passed on this commit, an
- * uncommitted tree, or a run that isn't the builder's own (a refresh, a verify, the merge queue), which skips.
+ * The gate. A run that isn't the builder's own (a refresh, a verify, a cloud collect's isn't, the merge
+ * queue) skips, saying where it runs: the skip satisfies that run, never acc done. The builder's own run
+ * decides without deploying where it mustn't: settings it can't read, no org, a protected or production
+ * environment, an environment-specific file, a deletion, Apex without its tests, an uncommitted tree, or
+ * validate not passed on this commit.
  */
 export const deployGate: Gate = {
   name: DEPLOY_GATE, heavy: true, changeBound: true, about: 'deploys changed source to the environment\'s org, checks it\'s there, and runs the named Apex tests in the org',
   plan(input) {
-    const { root, env, changes, tests, run } = input;
+    const { root, changes, tests, run } = input;
     const { fail, error, skip, listOf } = outcome;
-    if (!env.org) return { outcome: error(`${env.name} has no org alias in .acc/config.json, so there's nowhere to deploy.`) };
+    if (!run?.deploys) return { outcome: { ...skip(`Not run here: a builder deploys from ${DEPLOY_ELSEWHERE}. This run checks without deploying, and acc done still waits for that deploy.`), elsewhere: DEPLOY_ELSEWHERE } };
+    // Where it goes: the project's settings, never this worktree's copy of them.
+    const trusted = trustedSettings(run, input.env);
+    if ('problem' in trusted) return { outcome: error(`${trusted.problem} Nothing was deployed.`) };
+    const env = trusted.config.environments.find((e) => e.branch === input.env.branch);
+    if (!env) return { outcome: error(`${input.env.name} isn't an environment in ${trusted.from}, so there's nowhere to deploy.`) };
+    if (!env.org) return { outcome: error(`${env.name} has no org alias in ${trusted.from}, so there's nowhere to deploy.`) };
     if (env.type === 'production' || env.protected) {
-      return { outcome: error(`${env.name} is ${env.type === 'production' ? 'production' : 'protected'}. A builder deploys only to its own unprotected build org (D-018); a protected org gets its deploy after a person merges, with acc deploy.`) };
+      return { outcome: error(`${env.name} is ${env.type === 'production' ? 'production' : 'protected'} in ${trusted.from}. A builder deploys only to its own unprotected build org (D-018); a protected org gets its deploy after a person merges, with acc deploy.`) };
     }
-    if (changes.envSpecific.length) {
-      return { outcome: fail(`This branch changes environment-specific files, which differ by design in every org and are never deployed by a task (D-016): ${listOf(changes.envSpecific)}. Undo those changes.`) };
+    // Environment-specific files, as this branch lists them and as the project's trusted copy of the list does (D-016).
+    const trustedList = trusted.config.environmentSpecific ? listLines(trusted.read(trusted.config.environmentSpecific) ?? '') : [];
+    const envSpecific = [...new Set([...changes.envSpecific, ...changes.files.filter((f) => listed(f, trustedList))])];
+    if (envSpecific.length) {
+      return { outcome: fail(`This branch changes environment-specific files, which differ by design in every org and are never deployed by a task (D-016): ${listOf(envSpecific)}. Undo those changes.`) };
     }
     if (changes.deleted.length) {
       return { outcome: fail(`Deletions (and renames) stay a person's: ${listOf(changes.deleted)}. acc never deploys a deletion. Restore them, or block the task and say what should be deleted.`) };
@@ -264,9 +391,8 @@ export const deployGate: Gate = {
     if (apex.length && !tests.length) {
       return { outcome: fail(`Apex changed (${listOf(apex)}). Name the test classes that cover it, as validate asks: acc gate run deploy --test <TestClass>="<why it covers the change>"`) };
     }
-    if (!run?.deploys) return { outcome: skip('Not run here: a builder deploys from its own worktree, on its branch, with acc gate run deploy. This run checks without deploying.') };
     if (run.dirty) return { outcome: fail('There are uncommitted changes. What goes to the org must be what\'s committed: commit, then run acc gate run deploy again.') };
     if (!satisfies(readReceipt(run.paths, run.sha, 'validate'))) return { outcome: fail('validate hasn\'t passed on this commit. Run acc gate run validate first: a deploy follows a check-only one.') };
-    return { tests: tests.length > 0, steps: (exec) => deploySteps(input, run, exec, source, tests) };
+    return { tests: tests.length > 0, steps: (exec) => deploySteps(input, run, exec, env, source, tests) };
   },
 };

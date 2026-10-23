@@ -4,12 +4,12 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.ts';
 import { criteriaPath } from '../src/criteria.ts';
-import { mainCheckout, setupWorktree } from '../src/dispatch.ts';
+import { setupWorktree } from '../src/dispatch.ts';
 import { baseRef } from '../src/review.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { receiptsAt } from '../src/receipts.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
-import { repoPaths } from '../src/paths.ts';
+import { mainCheckout, repoPaths } from '../src/paths.ts';
 import { steLint } from '../src/ste.ts';
 import { listUpdates } from '../src/updates.ts';
 import {

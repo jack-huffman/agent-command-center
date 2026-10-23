@@ -173,7 +173,8 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   const runner = fakeRunner({ [`nice -n 15 ${join(bin, 'prettier')} --check`]: ok('Checking formatting...\nAll matched files use Prettier code style!'), 'nice -n 15 sf project deploy start --dry-run': deployOk }, calls);
 
   const first = runGates(paths, c, dev(c), [], [], { run: runner, now, slots: slots() });
-  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail'], ['deploy', 'fail'], ['stray-files', 'skip']], 'deploy is required beside validate (D-T-115), and asks for the tests as validate does');
+  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail'], ['deploy', 'skip'], ['stray-files', 'skip']], 'deploy is required beside validate (D-T-115); a run that isn\'t the builder\'s own skips it, saying where it runs');
+  assert.equal(first.results[3]!.elsewhere, 'the task\'s own worktree, on its branch, with acc gate run deploy');
   assert.match(first.results[2]!.summary, /Apex changed .*--test <TestClass>=/);
   assert.ok(!calls.some((l) => l.includes('deploy start')), 'no validation without the tests that cover the Apex');
 

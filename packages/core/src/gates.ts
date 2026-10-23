@@ -8,7 +8,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { type Config, type Environment, fullGates, isTestGate, requiredGates, STRAY_FILES } from './config.ts';
-import { DEPLOY_GATE, deployGate } from './deploy-gate.ts';
+import { commandGateProblem, DEPLOY_GATE } from './deploy-commands.ts';
+import { deployGate } from './deploy-gate.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { type Ledger, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -87,6 +88,11 @@ export interface Outcome {
   counts?: TestCounts;
   /** That acc couldn't read what a test check ran, or what its count was compared with. */
   countsNote?: string;
+  /**
+   * Where this gate runs instead, when this run can't (D-T-115): the deploy gate, outside the task's own
+   * worktree. Its skip satisfies a refresh or the merge queue, but never acc done.
+   */
+  elsewhere?: string;
 }
 
 /**
@@ -468,9 +474,15 @@ const SALESFORCE_GATES = (): Gate[] => [format, lint, staticGate, lwcTests, vali
  * The project's gates: every profile's built-in stray-files (GH-103), the profile's own built-ins, then
  * `gates.commands`, which can replace a built-in by name, then `gates.ratchets` (GH-99), whose names are
  * their own. A builder's lighter check, one `gates.builder`
- * names that the full check doesn't, is bound to the change.
+ * names that the full check doesn't, is bound to the change. A command gate that deploys, or that takes the
+ * deploy gate's name, is refused here as parseConfig refuses it (D-T-115): a config built another way gets
+ * no further.
  */
 export function gatesFor(config: Config): Gate[] {
+  for (const [name, cmd] of Object.entries(config.gates.commands)) {
+    const problem = commandGateProblem(name, cmd, config.profile);
+    if (problem) throw new AccError('refused', problem);
+  }
   const heavy = (name: string) => config.gates.heavy.includes(name);
   const full = fullGates(config);
   const lighter = (name: string) => !!config.gates.builder?.includes(name) && !full.includes(name);
@@ -793,6 +805,7 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       startedAt: started.toISOString(), finishedAt: finished.toISOString(), durationMs: finished.getTime() - started.getTime(),
       summary: outcome.summary, command, log, ...(outcome.details ? { details: outcome.details } : {}),
       ...(outcome.counts ? { counts: outcome.counts } : {}), ...(outcome.countsNote ? { countsNote: outcome.countsNote } : {}),
+      ...(outcome.elsewhere ? { elsewhere: outcome.elsewhere } : {}),
       ...(waiver ? { waived: { ...waiver, was: 'hold' as const, wasSummary: held } } : {}),
     };
     if (!dirty) writeReceipt(paths, receipt);

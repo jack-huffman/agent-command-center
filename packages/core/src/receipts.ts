@@ -37,6 +37,12 @@ export interface Receipt {
   /** Set when a person set the gate aside on this commit (D-031): who, why, and what it had been. */
   waived?: { by: string; reason: string; at: string; was: GateStatus | null; wasSummary: string | null };
   /**
+   * Set when this run couldn't run the gate, and says where it runs instead (D-T-115): a deploy skipped by
+   * a refresh, a verify or the merge queue. The skip satisfies that run, but not acc done, which waits for
+   * the task's own run.
+   */
+  elsewhere?: string;
+  /**
    * Set when the receipt was carried from the commit before (GH-99): this commit only records the floors
    * acc raised there, which that commit's own checks measured.
    */
@@ -70,6 +76,13 @@ export function ratchetOf(r: Pick<Receipt, 'details'> | null | undefined): Ratch
  * wrote, until that floor is committed and checked (GH-99).
  */
 export const satisfies = (r: Pick<Receipt, 'status' | 'details'> | null): boolean => (r?.status === 'pass' || r?.status === 'skip') && !ratchetOf(r)?.raised;
+
+/**
+ * Whether a receipt counts towards acc done (D-T-115): one that satisfies, unless it's a skip for a gate
+ * that runs elsewhere. A deploy a refresh skipped on the branch's merge commit doesn't say the task
+ * deployed; only the task's own deploy, or a person's waiver, does.
+ */
+export const countsForDone = (r: Pick<Receipt, 'status' | 'details' | 'elsewhere' | 'waived'> | null): boolean => satisfies(r) && (!r?.elsewhere || !!r.waived);
 
 export function receiptPath(paths: RepoPaths, sha: string, gate: string): string {
   return join(paths.receipts, sha, `${gate}.json`);
@@ -147,7 +160,7 @@ export function receiptHooks(paths: RepoPaths, config: Config, run: Runner): Hoo
       const sha = run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: paths.root });
       if (sha.code !== 0) return required;
       const head = sha.stdout.trim();
-      const passed = (g: string) => satisfies(readReceipt(paths, head, g));
+      const passed = (g: string) => countsForDone(readReceipt(paths, head, g));
       const missing = required.filter((g) => !passed(g));
       // The full check passed on this commit, as the queue runs it on its merge: that covers a builder's. When
       // the two lists are the same, what's missing is in both, so the full check can't have passed.

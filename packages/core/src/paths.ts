@@ -77,3 +77,14 @@ export function samePath(a: string, b: string): boolean {
     return false;
   }
 }
+
+/**
+ * The main checkout: the first entry in `git worktree list`. Worktrees are placed beside it, and a deploy
+ * reads the project's settings from it, never from a task's worktree (D-T-115).
+ */
+export function mainCheckout(run: Runner, cwd: string): string {
+  const r = run('git', ['worktree', 'list', '--porcelain'], { cwd });
+  const first = /^worktree (.+)$/m.exec(r.stdout)?.[1];
+  if (r.code !== 0 || !first) throw new AccError('not-a-repo', `${cwd} isn't inside a git repository.`);
+  return first;
+}

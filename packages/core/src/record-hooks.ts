@@ -8,7 +8,7 @@
 import { join } from 'node:path';
 import { loadConfig } from './config.ts';
 import type { Builder, HookContext } from './hooks.ts';
-import { commandsOf } from './hooks.ts';
+import { commandsOf } from './command-words.ts';
 import { noteCommand } from './outside-changes.ts';
 import { repoPaths } from './paths.ts';
 

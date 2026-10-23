@@ -7,6 +7,7 @@ import { GITHUB_NO_PROJECT } from './trackers/github.ts';
 import { SLACK_CHANNEL, SLACK_PREFIX, SLACK_REACTION, SLACK_WORKSPACE } from './trackers/slack.ts';
 import { isTrackerKind, orList, type TextField, TRACKER_KINDS, type TrackerKind } from './trackers/types.ts';
 import { changesFieldProblem, readChangesField } from './changes-field.ts';
+import { commandGateProblem } from './deploy-commands.ts';
 
 export const PROFILES = ['generic', 'salesforce'] as const;
 export type Profile = (typeof PROFILES)[number];
@@ -657,6 +658,11 @@ export function parseConfig(raw: unknown): ParseResult {
   if (g.commands !== undefined) {
     if (!isObj(g.commands) || !Object.values(g.commands).every(isStr)) errors.push('"gates.commands" must map gate names to commands.');
     else Object.assign(commands, g.commands);
+    // A command gate never deploys, and none takes the deploy gate's name (D-T-115): the runner can't see inside a shell command.
+    for (const [name, cmd] of Object.entries(commands)) {
+      const problem = commandGateProblem(name, cmd, profile);
+      if (problem) errors.push(problem);
+    }
   }
   if (g.heavy !== undefined && !strList(g.heavy)) errors.push('"gates.heavy" must be a list of gate names.');
   if (g.builder !== undefined && !strList(g.builder)) errors.push('"gates.builder" must be a list of gate names: the lighter checks builders run where the merge queue runs the required ones.');

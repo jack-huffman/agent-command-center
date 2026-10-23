@@ -456,12 +456,13 @@ export function collect(paths: RepoPaths, config: Config, id: string, deps: Foll
     if (ff.code !== 0) return fail(`git couldn't fast-forward ${branch}: ${(ff.stderr || ff.stdout).trim().split('\n').at(-1)}`);
   }
   // The required checks, on this Mac, in the heavy-check slot, as a refresh runs them (D-058). The cloud's
-  // own runs don't count: receipts vouch for a commit on this machine.
+  // own runs don't count: receipts vouch for a commit on this machine. The collect is the task's own run
+  // here, in its worktree on its branch, so a Salesforce task's deploy goes from it (D-T-115): the cloud has no org.
   const gates = requiredGates(config, envBranch.branch, 'builder');
   let results: GateResult[] = [];
   if (gates.length) {
     try {
-      results = runGates({ ...paths, root: wt }, config, envBranch, gates, priorTests(paths, config, sha), { run, now, slots: deps.slots, task: id }).results;
+      results = runGates({ ...paths, root: wt }, config, envBranch, gates, priorTests(paths, config, sha), { run, now, slots: deps.slots, task: id, deploys: true }).results;
     } catch (e) {
       return fail(`its checks couldn't run: ${(e as Error).message}`);
     }

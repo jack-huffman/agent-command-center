@@ -11,7 +11,7 @@ import { readList } from './gates.ts';
 import { sleep } from './lock.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, type NotStarted, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
-import { type RepoPaths, samePath } from './paths.ts';
+import { mainCheckout, type RepoPaths, samePath } from './paths.ts';
 import { analysisProblems, readAnalysis } from './analyze.ts';
 import { plannedFiles, startLook, waits } from './overlap.ts';
 import { readChecksReport, readQueueReport } from './checks.ts';
@@ -44,14 +44,6 @@ export function slugify(title: string, max = 40): string {
 }
 
 export const taskBranch = (task: Pick<Task, 'id' | 'title'>): string => `task/${task.id}-${slugify(task.title)}`;
-
-/** The main checkout: the first entry in `git worktree list`. Worktrees are placed beside it. */
-export function mainCheckout(run: Runner, cwd: string): string {
-  const r = run('git', ['worktree', 'list', '--porcelain'], { cwd });
-  const first = /^worktree (.+)$/m.exec(r.stdout)?.[1];
-  if (r.code !== 0 || !first) throw new AccError('not-a-repo', `${cwd} isn't inside a git repository.`);
-  return first;
-}
 
 /**
  * `worktrees.root` from the config, relative to the main checkout. The default is Claude Code's own
