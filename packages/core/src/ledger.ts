@@ -635,8 +635,12 @@ export interface MoveRequest {
 }
 
 export interface Hooks {
-  /** Required checks that have no passing receipt on the task's current commit: a builder's, unless it says the merge's (GH-73). */
-  missingGates(task: Task, scope?: GateScope): string[];
+  /**
+   * Required checks that have no passing receipt on the task's current commit: a builder's, unless it says
+   * the merge's (GH-73). `own` asks for the task's own run on that very commit where a gate runs elsewhere
+   * (D-T-115), as a builder's acc done does; land, merge and review take its run on a commit before.
+   */
+  missingGates(task: Task, scope?: GateScope, opts?: { own?: boolean }): string[];
 }
 
 export const noGateHooks: Hooks = { missingGates: () => [] };
@@ -719,7 +723,8 @@ export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveR
       else if (env.protected) problems.push(`"${env.name}" is protected. Agents never work on it directly.`);
     }
     if (r === 'gatesPassed') {
-      const missing = hooks.missingGates(task);
+      // A builder's acc done needs the task's own deploy on this commit (D-T-115); a person's move takes one before it.
+      const missing = hooks.missingGates(task, 'builder', { own: req.actor === 'builder' });
       if (missing.length) problems.push(`These required checks haven't passed on the current commit: ${missing.join(', ')}. Commit everything, then run: acc gate run`);
     }
     if (r === 'note' && req.actor === 'builder') problems.push(...noteProblems(req.note, true));

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Config, fullGates, type GateScope, requiredGates } from './config.ts';
+import { DEPLOY_GATE } from './deploy-commands.ts';
 import type { Runner } from './exec.ts';
 import type { Hooks, Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -84,6 +85,22 @@ export const satisfies = (r: Pick<Receipt, 'status' | 'details'> | null): boolea
  */
 export const countsForDone = (r: Pick<Receipt, 'status' | 'details' | 'elsewhere' | 'waived'> | null): boolean => satisfies(r) && (!r?.elsewhere || !!r.waived);
 
+/**
+ * Whether a gate that runs elsewhere (D-T-115) was run by the task itself on `head` or a commit before it:
+ * a deploy the task recorded, to its own environment, whose commit is an ancestor of `head`, with a
+ * passing receipt of the task's own there. So a refresh's merge commit, or the merge queue's, carries the
+ * deploy its branch made, and land and merge take the skip recorded on it. Only the deploy gate records
+ * where the task ran it (`task.deploys`); another gate that says elsewhere has no record, and stays missing.
+ */
+export function ownRunBefore(paths: RepoPaths, run: Runner, task: Pick<Task, 'environment' | 'deploys'>, head: string, gate: string): boolean {
+  if (gate !== DEPLOY_GATE) return false;
+  for (const d of task.deploys ?? []) {
+    if (d.env !== task.environment || !countsForDone(readReceipt(paths, d.sha, gate))) continue;
+    if (run('git', ['merge-base', '--is-ancestor', d.sha, head], { cwd: paths.root }).code === 0) return true;
+  }
+  return false;
+}
+
 export function receiptPath(paths: RepoPaths, sha: string, gate: string): string {
   return join(paths.receipts, sha, `${gate}.json`);
 }
@@ -148,11 +165,13 @@ export function writeReceipt(paths: RepoPaths, receipt: Receipt): string {
 /**
  * Gate hooks backed by receipt files: a required gate counts only if it passed, or didn't apply, on the
  * branch's current commit. By scope (GH-73): a builder's commit needs the builder's checks where the merge
- * queue runs the full ones before the merge, and the full ones cover them; a merge needs the full ones.
+ * queue runs the full ones before the merge, and the full ones cover them; a merge needs the full ones. A
+ * gate that runs elsewhere (D-T-115) is settled by the task's own run on this commit or one before it,
+ * unless `own` asks for one on this very commit, as a builder's acc done does.
  */
 export function receiptHooks(paths: RepoPaths, config: Config, run: Runner): Hooks {
   return {
-    missingGates(task: Task, scope: GateScope = 'builder'): string[] {
+    missingGates(task: Task, scope: GateScope = 'builder', opts: { own?: boolean } = {}): string[] {
       const required = requiredGates(config, task.environment, scope);
       if (!required.length) return [];
       const branch = task.run?.branch;
@@ -160,7 +179,10 @@ export function receiptHooks(paths: RepoPaths, config: Config, run: Runner): Hoo
       const sha = run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: paths.root });
       if (sha.code !== 0) return required;
       const head = sha.stdout.trim();
-      const passed = (g: string) => countsForDone(readReceipt(paths, head, g));
+      const passed = (g: string) => {
+        const r = readReceipt(paths, head, g);
+        return countsForDone(r) || (!opts.own && satisfies(r) && ownRunBefore(paths, run, task, head, g));
+      };
       const missing = required.filter((g) => !passed(g));
       // The full check passed on this commit, as the queue runs it on its merge: that covers a builder's. When
       // the two lists are the same, what's missing is in both, so the full check can't have passed.

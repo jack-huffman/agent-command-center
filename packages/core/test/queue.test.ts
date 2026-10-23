@@ -15,7 +15,7 @@ import { ordinal, phaseWords, queueOrder, queuePlaces, queueWaits } from '../src
 import { waiveGates } from '../src/gates.ts';
 import { readReceipt, writeReceipt } from '../src/receipts.ts';
 import { latestVerdict, reviewCurrent, reviewedAt, reviewPath, type Verdict } from '../src/review.ts';
-import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
+import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
 const NOW = '2026-10-06T12:00:00Z';
 let clock = Date.parse(NOW);
@@ -266,6 +266,17 @@ test('a change to .acc/ that only raises floors joins the queue; one that relaxe
 });
 
 // ---------------------------------------------------------------- the head's turn
+
+test('a Salesforce task never joins the merge queue, auto-merge or not: a person merges every pull request there, so no merge commit of the queue\'s is a Salesforce task\'s and its deploy skip is never landed by the queue (D-T-115)', () => {
+  const queued = (environment: string): Task => ({ id: 'T-1', state: 'review', environment, autopilot: { failed: null, queued: { at: NOW, sha: 'a'.repeat(40) } } } as unknown as Task);
+  const sf = parseConfig(SF_CONFIG).config!;
+  assert.deepEqual(queueOrder({ tasks: [queued('dev')] }, sf), []);
+  // Even with auto-merge written on, under autonomy review: the profile alone keeps it out.
+  const on = { ...sf, autonomy: 'review', autopilot: { ...sf.autopilot, autoMerge: true } } as unknown as typeof sf;
+  assert.deepEqual([queueOrder({ tasks: [queued('dev')] }, on), queuePlaces({ tasks: [queued('dev')] }, on)], [[], []]);
+  const generic = parseConfig({ ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true } }).config!;
+  assert.deepEqual(queueOrder({ tasks: [queued('main')] }, generic).map((t) => t.id), ['T-1'], 'the same task on a generic project joins');
+});
 
 test('the head, up to date: its full check runs once on its own commit, it merges at that commit, and nothing is merged in; the rest wait and make no call for the queue (GH-73)', () => {
   const s = setup();

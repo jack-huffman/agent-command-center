@@ -10,7 +10,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { type Config, parseConfig, withDeploy } from '../src/config.ts';
-import { commandGateProblem, DEPLOY_GATE, deploysByHand, HAND_DEPLOY_DENIES, handDeployIn } from '../src/deploy-commands.ts';
+import { commandGateProblem, DEPLOY_GATE, deploysByHand, HAND_DEPLOY_DENIES, handDeployIn, isSalesforceCli } from '../src/deploy-commands.ts';
 import {
   apexTestArgs, DEPLOY_ELSEWHERE, deployedComponents, deployGate, deployGateArgs, type DeployTests, latestDeploys, listMetadataArgs, orgDisplayArgs, orgLockDir, readApexRun, readListed, readOrgDisplay, recordDeploy,
   type TaskDeploy, testsWords,
@@ -19,11 +19,14 @@ import { deploy, deployedByTasks, lastDeploy, writeDeployRecord } from '../src/d
 import { run, type RunResult } from '../src/exec.ts';
 import { assertCheckOnly, deployProblems, gatesFor, outcome, parseDeployJson, runGates } from '../src/gates.ts';
 import { guardBash, guardEdit } from '../src/hooks.ts';
+import { land } from '../src/land.ts';
 import { checkMove, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
+import { mergePr } from '../src/merge.ts';
 import { branchFilesAt, branchRef, inFlightFilesStrict } from '../src/overlap.ts';
 import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
-import { countsForDone, readReceipt, receiptHooks, satisfies, writeReceipt } from '../src/receipts.ts';
+import { countsForDone, ownRunBefore, readReceipt, receiptHooks, satisfies, writeReceipt } from '../src/receipts.ts';
+import { reviewPath, type Verdict } from '../src/review.ts';
 import { trustedSettings } from '../src/trusted-settings.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, sf, SF_CONFIG, tempDir } from './support.ts';
 
@@ -540,6 +543,94 @@ test('acc done refuses a Salesforce task until deploy passed on its last commit,
   assert.ok(hooks.missingGates(t).includes(DEPLOY_GATE));
 });
 
+/**
+ * dev moves on, and the task takes it in as a refresh or the merge queue does: a merge commit, its checks passed
+ * there, and the deploy skipped there as a run that isn't the builder's own. Returns the merge commit.
+ */
+function refreshed(f: ReturnType<typeof fixture>): string {
+  gitIn(f.dir, 'checkout', '-q', 'dev');
+  write(f.dir, 'force-app/main/default/classes/Other.cls', 'public class Other {}\n');
+  commitAll(f.dir, 'another task merged');
+  gitIn(f.dir, 'checkout', '-q', 'task/T-1-thing');
+  gitIn(f.dir, 'merge', '-q', '--no-edit', 'dev');
+  const merge = gitIn(f.dir, 'rev-parse', 'HEAD');
+  for (const g of ['format', 'validate', 'stray-files']) f.passed(g);
+  const skipped = deployRun(f, fakeSf([]), { deploys: false });
+  assert.equal(skipped.elsewhere, DEPLOY_ELSEWHERE);
+  return merge;
+}
+
+test('a refreshed Salesforce task is settled for land, merge and review by its own deploy before the merge commit, never for its builder\'s acc done; without a passing deploy of its own on an ancestor, the skip doesn\'t count', () => {
+  const f = fixture();
+  for (const g of ['format', 'stray-files']) f.passed(g);
+  const hooks = receiptHooks(f.paths, f.c, run);
+  assert.equal(deployRun(f, fakeSf([])).status, 'pass');
+  const deployed = f.sha;
+  const merge = refreshed(f);
+  const t = () => ledgerTask(f.paths);
+  assert.ok(ownRunBefore(f.paths, run, t(), merge, DEPLOY_GATE), 'the task deployed on an ancestor of the merge commit');
+  assert.ok(ownRunBefore(f.paths, run, t(), deployed, DEPLOY_GATE), 'and on the commit itself');
+  assert.deepEqual([hooks.missingGates(t()), hooks.missingGates(t(), 'merge'), hooks.missingGates(t(), 'builder', { own: true })], [[], [], [DEPLOY_GATE]], 'land, the queue and review take it; acc done asks for the builder\'s own deploy on this commit');
+  const note = { landed: ['Deployed'], moved: [], open: [] };
+  const ledger = readLedger(f.paths.ledger);
+  assert.match(checkMove(ledger, f.c, t(), { to: 'review', actor: 'builder', by: 'b', note }, hooks).join(), /haven't passed on the current commit: deploy/);
+  assert.deepEqual(checkMove(ledger, f.c, t(), { to: 'review', actor: 'human', by: 'h', note }, hooks), [], 'a person\'s move takes the deploy before it');
+  // What doesn't count: a commit that doesn't descend from the deploy, another environment's, another gate, no record, a failed receipt.
+  assert.ok(!ownRunBefore(f.paths, run, t(), gitIn(f.dir, 'rev-parse', 'dev'), DEPLOY_GATE), 'dev doesn\'t descend from the deploy');
+  assert.ok(!ownRunBefore(f.paths, run, { ...t(), environment: 'uat' }, merge, DEPLOY_GATE));
+  assert.ok(!ownRunBefore(f.paths, run, t(), merge, 'validate'), 'only the deploy gate records where the task ran it');
+  assert.ok(!ownRunBefore(f.paths, run, { ...t(), deploys: [] }, merge, DEPLOY_GATE), 'no deploy recorded');
+  writeReceipt(f.paths, { ...readReceipt(f.paths, deployed, DEPLOY_GATE)!, status: 'fail' });
+  assert.ok(!ownRunBefore(f.paths, run, t(), merge, DEPLOY_GATE), 'a deploy whose receipt failed');
+  assert.deepEqual([hooks.missingGates(t()), hooks.missingGates(t(), 'merge')], [[DEPLOY_GATE], [DEPLOY_GATE]]);
+  // A task that never deployed: the skip on its merge commit settles nothing, for anyone.
+  const g = fixture();
+  for (const x of ['format', 'stray-files']) g.passed(x);
+  refreshed(g);
+  const gh = receiptHooks(g.paths, g.c, run);
+  assert.deepEqual([gh.missingGates(ledgerTask(g.paths)), gh.missingGates(ledgerTask(g.paths), 'merge')], [[DEPLOY_GATE], [DEPLOY_GATE]]);
+});
+
+test('land takes a refreshed Salesforce task on its deploy before the merge commit, with the queue\'s scope and a person\'s alike; autopilot\'s merge refuses a Salesforce project before any check, so the queue never makes a Salesforce merge commit', () => {
+  const f = fixture();
+  for (const g of ['format', 'stray-files']) f.passed(g);
+  assert.equal(deployRun(f, fakeSf([])).status, 'pass');
+  const merge = refreshed(f);
+  // On GitHub: a bare origin, the task in review, reviewed on the merge commit.
+  const origin = tempDir('origin-');
+  run('git', ['init', '-q', '--bare', origin]);
+  gitIn(f.dir, 'remote', 'add', 'origin', origin);
+  gitIn(f.dir, 'push', '-q', 'origin', 'dev');
+  mutate(f.paths, now, (l, emit) => {
+    l.tasks.find((t) => t.id === 'T-1')!.state = 'review';
+    emit({ type: 'task.moved', task: 'T-1', actor: 'builder', by: 'b', data: { to: 'review' } });
+  });
+  const v: Verdict = { v: 1, task: 'T-1', sha: merge, env: 'dev', verdict: 'pass', summary: 'Fine.', criteria: [], findings: [], sessionId: 's', at: now().toISOString(), durationMs: 1, costUsd: null };
+  mkdirSync(f.paths.reviews, { recursive: true });
+  writeFileSync(reviewPath(f.paths, 'T-1', merge), JSON.stringify(v));
+  const calls: string[] = [];
+  const gh = fakeRunner({ 'gh auth token -u work-account': ok('gho_token\n'), 'gh pr list': ok('[]'), 'gh pr create': ok('https://github.com/acme-co/acme-salesforce/pull/7\n'), 'gh pr edit': ok('') }, calls);
+  const landed = land(f.paths, f.c, 'T-1', { run: gh, now, env: {} }, { gates: 'merge' });
+  assert.deepEqual([landed.opened, landed.pr.number, landed.pr.sha], [true, 7, merge], 'landed at the merge commit, on the deploy before it');
+  assert.equal(gitIn(origin, 'rev-parse', 'task/T-1-thing'), merge, 'pushed');
+  // A person's land, the builder's scope, takes it the same way.
+  const again = land(f.paths, f.c, 'T-1', { run: fakeRunner({ 'gh auth token -u work-account': ok('gho_token\n'), 'gh pr list': ok('[{"number":7,"url":"https://github.com/acme-co/acme-salesforce/pull/7"}]'), 'gh pr edit': ok('') }, calls), now, env: {} });
+  assert.deepEqual([again.opened, again.pr.number], [false, 7]);
+  // The merge queue's own merge: refused for every Salesforce project, before its checks are looked at.
+  assert.throws(() => mergePr(f.paths, f.c, 'T-1', { run: gh, now, env: {} }, { actor: 'orchestrator', by: 'autopilot' }), /A Salesforce project never auto-merges: a person merges every pull request there/);
+  // A refresh with no deploy of the task's own: land refuses, naming the gate.
+  const g = fixture();
+  for (const x of ['format', 'stray-files']) g.passed(x);
+  const m = refreshed(g);
+  mutate(g.paths, now, (l, emit) => {
+    l.tasks.find((t) => t.id === 'T-1')!.state = 'review';
+    emit({ type: 'task.moved', task: 'T-1', actor: 'builder', by: 'b', data: { to: 'review' } });
+  });
+  mkdirSync(g.paths.reviews, { recursive: true });
+  writeFileSync(reviewPath(g.paths, 'T-1', m), JSON.stringify({ ...v, sha: m }));
+  assert.throws(() => land(g.paths, g.c, 'T-1', { run: gh, now, env: {} }, { gates: 'merge' }), /checks aren't settled on [0-9a-f]{7}: deploy\./);
+});
+
 test('a builder\'s hand deploy is refused in every form, sf\'s and sfdx\'s, acc gate run deploy is allowed, and acc deploy stays a person\'s; the settings deny the same', () => {
   const b = { task: { id: 'T-1', run: { branch: 'task/T-1-a' } } } as never;
   for (const [line, form] of [
@@ -573,6 +664,7 @@ test('a builder\'s hand deploy is refused in every form, sf\'s and sfdx\'s, acc 
   }
   assert.equal(deploysByHand(['sf', 'deploy', 'metadata', 'resume', '--dry-run']), 'sf deploy metadata resume', 'a resume saves whatever the dry run says');
   assert.equal(deploysByHand([]), null, 'no command is no deploy');
+  assert.deepEqual([isSalesforceCli('sf'), isSalesforceCli('/usr/local/bin/sfdx'), isSalesforceCli('sfx'), isSalesforceCli(undefined)], [true, true, false, false], 'sf and sfdx by name or path');
   assert.equal(guardBash(b, 'acc gate run deploy'), null);
   assert.equal(guardBash(b, 'acc gate run deploy --test AccountTest="covers it"'), null);
   assert.match(guardBash(b, 'acc deploy dev')!, /acc deploy is a person's/);
