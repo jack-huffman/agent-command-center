@@ -549,12 +549,18 @@ test('a builder\'s hand deploy is refused in every form, sf\'s and sfdx\'s, acc 
     ['sfdx project deploy start --source-dir force-app', 'sfdx project deploy start'],
     ['/usr/local/bin/sf project deploy start --source-dir force-app', 'sf project deploy start'],
     ['npm test && sf project deploy start --source-dir force-app', 'sf project deploy start'],
+    // -c on an sf deploy is --ignore-conflicts, a real deploy; only sfdx's older commands take it as --checkonly.
+    ['sf project deploy start -c -d force-app -o "Acme UAT"', 'sf project deploy start'],
+    ['sf project deploy start --checkonly -d force-app', 'sf project deploy start'],
+    ['sf deploy metadata -c -d force-app', 'sf deploy metadata'],
+    ['sfdx project deploy start -c -d force-app', 'sfdx project deploy start'],
+    ['sfdx force:source:deploy --dry-run -p force-app', 'sfdx force:source:deploy'],
   ] as const) {
     assert.match(guardBash(b, line)!, new RegExp(`never deploy by hand .*${form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} is refused\\. acc gate run validate .*acc gate run deploy`), line);
     assert.equal(handDeployIn(line), form, line);
   }
   // Check-only forms are validate's own, and sf's other commands aren't deploys.
-  for (const line of ['sf project deploy start --dry-run --source-dir force-app', 'sf project:deploy:start --dry-run', 'sfdx force:source:deploy --checkonly -p force-app', 'sfdx force:mdapi:deploy -c -d out', 'sf project deploy validate --source-dir force-app', 'sf project retrieve start', 'sf org display', 'sfdx force:source:retrieve']) {
+  for (const line of ['sf project deploy start --dry-run --source-dir force-app', 'sf project:deploy:start --dry-run', 'sf project deploy start --dry-run -c -d force-app', 'sfdx project deploy start --dry-run -d force-app', 'sfdx force:source:deploy --checkonly -p force-app', 'sfdx force:mdapi:deploy -c -d out', 'sf project deploy validate --source-dir force-app', 'sf project retrieve start', 'sf org display', 'sfdx force:source:retrieve']) {
     assert.equal(guardBash(b, line), null, line);
     assert.equal(handDeployIn(line), null, line);
   }
@@ -571,10 +577,13 @@ test('a builder\'s hand deploy is refused in every form, sf\'s and sfdx\'s, acc 
   assert.ok(!generic.permissions.deny.some((d) => d.includes('sf ')), 'a generic project has no sf to deny');
 });
 
-test('a builder\'s edit under .acc/ in its worktree is refused: the settings are a person\'s, and acc writes the floors itself', () => {
+test('a builder\'s edit under .acc/ in its worktree is refused: the settings are a person\'s, and acc writes the floors itself; so is .git, the worktree\'s link to its git directory', () => {
   const f = fixture();
   const wt = realpathSync(f.dir);
   const b = { task: { id: 'T-1' }, worktree: wt, root: wt } as never;
+  // The worktree's .git file, or git's directory where it's one: repointed, the builder's commits would go elsewhere.
+  for (const p of ['.git', join(wt, '.git'), '.git/HEAD', '.git/hooks/pre-commit', '.git/config']) assert.match(guardEdit(b, p, [])!, /^\.git(\/[\w./-]+)? is git's own, which git and acc keep; a builder never edits it/, p);
+  for (const p of ['.gitignore', '.github/workflows/ci.yml', 'src/.gitkeep']) assert.equal(guardEdit(b, p, []), null, p);
   assert.match(guardEdit(b, join(wt, '.acc', 'config.json'), [])!, /^\.acc\/config\.json is the project's settings, which a person changes; acc writes the files under \.acc\/ itself, such as the floors a check raises\. Leave it/);
   assert.match(guardEdit(b, '.acc/floors.json', [])!, /the project's settings/);
   assert.match(guardEdit(b, '.acc', [])!, /the project's settings/);

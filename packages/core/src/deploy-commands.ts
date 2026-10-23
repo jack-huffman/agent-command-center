@@ -7,15 +7,22 @@
 import { commandsOf } from './command-words.ts';
 
 /** Whether a command word is sf or sfdx: by its name, or its path. */
-const isSalesforceCli = (cmd: string | undefined): cmd is string => !!cmd && ['sf', 'sfdx'].includes(cmd.split('/').pop() ?? '');
+export const isSalesforceCli = (cmd: string | undefined): cmd is string => !!cmd && ['sf', 'sfdx'].includes(cmd.split('/').pop() ?? '');
 
-/** A flag that makes the deploy check-only, so it saves nothing: sf's --dry-run, sfdx's --checkonly (-c). */
-const CHECK_ONLY = ['--dry-run', '--checkonly', '-c'];
+/**
+ * The flag that makes sf's deploy check-only, so it saves nothing: --dry-run alone. Its -c is
+ * --ignore-conflicts, a real deploy, and it takes no --checkonly.
+ */
+const SF_CHECK_ONLY = ['--dry-run'];
+/** The flag that makes sfdx's older force:source:deploy and force:mdapi:deploy check-only: --checkonly, or -c. */
+const SFDX_CHECK_ONLY = ['--checkonly', '-c'];
 
 /**
  * The form of a hand deploy a command is, or null: `sf project deploy start|quick|resume`, the same with
  * colons (`sf project:deploy:start`), sf's older `deploy metadata`, and sfdx's `force:source:deploy`,
- * `force:mdapi:deploy` and `force:source:push`. A check-only one (--dry-run, --checkonly) isn't a deploy.
+ * `force:mdapi:deploy` and `force:source:push`. A check-only one isn't a deploy: sf's `--dry-run`, by the
+ * subcommand whichever CLI runs it, and `--checkonly` or `-c` on sfdx's force:source:deploy and
+ * force:mdapi:deploy alone, since `-c` on an sf deploy is --ignore-conflicts, a real deploy.
  */
 export function deploysByHand(words: string[]): string | null {
   const [cmd, ...rest] = words;
@@ -28,11 +35,11 @@ export function deploysByHand(words: string[]): string | null {
     parts.push(...w.split(':'));
   }
   const sub = parts.join(' ');
-  const checkOnly = rest.some((w) => CHECK_ONLY.includes(w));
+  const has = (flags: string[]) => rest.some((w) => flags.includes(w));
   const form = (s: string) => `${cli} ${s}`;
-  if (/^project deploy (start|quick|resume)\b/.test(sub)) return checkOnly && sub.startsWith('project deploy start') ? null : form(sub.split(' ').slice(0, 3).join(' '));
-  if (/^deploy metadata\b/.test(sub)) return checkOnly && !/^deploy metadata (quick|resume)/.test(sub) ? null : form(sub.split(' ').slice(0, 3).join(' '));
-  if (/^force (source|mdapi) deploy\b/.test(sub)) return checkOnly ? null : form(parts.slice(0, 3).join(':'));
+  if (/^project deploy (start|quick|resume)\b/.test(sub)) return has(SF_CHECK_ONLY) && sub.startsWith('project deploy start') ? null : form(sub.split(' ').slice(0, 3).join(' '));
+  if (/^deploy metadata\b/.test(sub)) return has(SF_CHECK_ONLY) && !/^deploy metadata (quick|resume)/.test(sub) ? null : form(sub.split(' ').slice(0, 3).join(' '));
+  if (/^force (source|mdapi) deploy\b/.test(sub)) return has(SFDX_CHECK_ONLY) ? null : form(parts.slice(0, 3).join(':'));
   if (/^force source push\b/.test(sub)) return form('force:source:push');
   return null;
 }
