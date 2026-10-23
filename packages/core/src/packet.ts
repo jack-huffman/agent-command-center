@@ -286,7 +286,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
     'Bash(acc set *)', 'Bash(acc edit*)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc gate relax*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents set*)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc agents max*)', 'Bash(acc gate required*)', 'Bash(acc gate builder*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc rules import*)', 'Bash(acc rules accept*)', 'Bash(acc rules dismiss*)', 'Bash(acc trackers set*)', 'Bash(acc github use*)', 'Bash(acc tidy add*)', 'Bash(acc tidy skip*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)', 'Bash(acc machine*)', 'Bash(acc sync --close-done*)', 'Bash(acc collect*)', 'Bash(acc cloud*)', 'Bash(acc change step*)',
     // Releases are a person's (D-079): npm run * is allowed above, and deny beats allow.
     'Bash(gh release create*)', 'Bash(gh release upload*)', 'Bash(gh release edit*)', 'Bash(gh release delete*)', 'Bash(npm run release*)', 'Bash(nice -n 15 npm run release*)',
-    // Every form of a hand deploy, sf's and sfdx's (D-T-115), and deleting an org.
+    // Every form of a hand deploy, sf's and sfdx's (D-206), and deleting an org.
     ...(sf ? [...HAND_DEPLOY_DENIES, 'Bash(sf org delete *)'] : []),
   ];
   return {

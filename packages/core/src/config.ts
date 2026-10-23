@@ -367,7 +367,7 @@ export const BUILT_IN_GATES: Record<Profile, string[]> = {
 };
 
 /**
- * A Salesforce project's required checks, with deploy beside validate (D-T-115): a builder validates, then
+ * A Salesforce project's required checks, with deploy beside validate (D-206): a builder validates, then
  * deploys to its build org, so wherever validate is required, deploy is too, right after it. A list that
  * names deploy itself keeps its own order.
  */
@@ -658,7 +658,7 @@ export function parseConfig(raw: unknown): ParseResult {
   if (g.commands !== undefined) {
     if (!isObj(g.commands) || !Object.values(g.commands).every(isStr)) errors.push('"gates.commands" must map gate names to commands.');
     else Object.assign(commands, g.commands);
-    // A command gate never deploys, and none takes the deploy gate's name (D-T-115): the runner can't see inside a shell command.
+    // A command gate never deploys, and none takes the deploy gate's name (D-206): the runner can't see inside a shell command.
     for (const [name, cmd] of Object.entries(commands)) {
       const problem = commandGateProblem(name, cmd, profile);
       if (problem) errors.push(problem);

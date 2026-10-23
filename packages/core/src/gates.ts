@@ -2,7 +2,7 @@
  * Gates: named checks whose results are kept as receipts tied to a commit (DESIGN section 9, D-024).
  * A builder runs them with `acc gate run`; `acc done` accepts the task once every required gate has
  * passed, or didn't apply, on the branch's latest commit. Gates check. Only one deploys: the salesforce
- * profile's deploy gate, a builder's own deploy to its unprotected build org (D-T-115); every other gate is
+ * profile's deploy gate, a builder's own deploy to its unprotected build org (D-206); every other gate is
  * refused a real deploy (D-011).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -60,7 +60,7 @@ export interface GateInput {
   git: (args: string[], input?: string) => RunResult;
   /** What a ratchet is held to (GH-99), read when one asks: the floors here and where the branch began, or why they couldn't be. */
   floors?: () => RatchetFloors | { problem: string };
-  /** The run itself, for a gate that locks, looks at the other tasks, or records on its own: the deploy gate (D-T-115). */
+  /** The run itself, for a gate that locks, looks at the other tasks, or records on its own: the deploy gate (D-206). */
   run?: GateRunInfo;
 }
 
@@ -75,7 +75,7 @@ export interface GateRunInfo {
   onWait?: () => void;
   now: () => Date;
   /**
-   * Whether this run may deploy (D-T-115): acc gate run in a task's own worktree, on its branch. A refresh, a
+   * Whether this run may deploy (D-206): acc gate run in a task's own worktree, on its branch. A refresh, a
    * verify of a developer's pull request, a cloud collect and the merge queue check without deploying.
    */
   deploys: boolean;
@@ -90,7 +90,7 @@ export interface Outcome {
   /** That acc couldn't read what a test check ran, or what its count was compared with. */
   countsNote?: string;
   /**
-   * Where this gate runs instead, when this run can't (D-T-115): the deploy gate, outside the task's own
+   * Where this gate runs instead, when this run can't (D-206): the deploy gate, outside the task's own
    * worktree. Its skip satisfies a refresh or the merge queue, but never acc done.
    */
   elsewhere?: string;
@@ -105,7 +105,7 @@ export type Plan = { outcome: Outcome } | { cmd: string; args: string[]; read?: 
 /** Runs one of a gate's commands: niced, logged, and refused a real deploy unless the gate is the deploy gate. */
 export type Exec = (cmd: string, args: string[], opts?: { timeoutMs?: number }) => RunResult;
 
-/** A gate that runs several commands in turn and reads them itself, through `exec`: the deploy gate (D-T-115). */
+/** A gate that runs several commands in turn and reads them itself, through `exec`: the deploy gate (D-206). */
 export type StepsPlan = { steps: (exec: Exec) => Outcome; tests?: boolean };
 
 export interface Gate {
@@ -476,7 +476,7 @@ const SALESFORCE_GATES = (): Gate[] => [format, lint, staticGate, lwcTests, vali
  * `gates.commands`, which can replace a built-in by name, then `gates.ratchets` (GH-99), whose names are
  * their own. A builder's lighter check, one `gates.builder`
  * names that the full check doesn't, is bound to the change. A command gate that deploys, or that takes the
- * deploy gate's name, is refused here as parseConfig refuses it (D-T-115): a config built another way gets
+ * deploy gate's name, is refused here as parseConfig refuses it (D-206): a config built another way gets
  * no further.
  */
 export function gatesFor(config: Config): Gate[] {
@@ -621,7 +621,7 @@ export interface GateRunDeps {
    * a hold here, counts or not, so the queue's next merge of a waived head doesn't stop again (GH-100).
    */
   waivedOn?: string;
-  /** Whether this run may deploy (D-T-115): only acc gate run in a task's own worktree, on its branch, as `raise` is. */
+  /** Whether this run may deploy (D-206): only acc gate run in a task's own worktree, on its branch, as `raise` is. */
   deploys?: boolean;
 }
 
@@ -637,7 +637,7 @@ export interface GateRun {
 
 /**
  * A deploy that isn't check-only never runs from a gate (D-011, D-024), but for the deploy gate's own
- * `sf project deploy start` (D-T-115): never a quick deploy or a resume, which take a job acc didn't plan.
+ * `sf project deploy start` (D-206): never a quick deploy or a resume, which take a job acc didn't plan.
  */
 export function assertCheckOnly(cmd: string, args: string[], gate?: string): void {
   const i = args.indexOf('deploy');
@@ -691,7 +691,7 @@ export const niced = (cmd: string, args: string[]): [string, string[]] => (proce
 export function runGates(paths: RepoPaths, config: Config, env: Environment, names: string[], tests: ApexTest[], deps: GateRunDeps): GateRun {
   const root = paths.root;
   const all = gatesFor(config);
-  // In a worktree, a command gate or a ratchet runs only as the project's settings have it (D-T-115).
+  // In a worktree, a command gate or a ratchet runs only as the project's settings have it (D-206).
   const untrusted = untrustedGates({ paths, runner: deps.run }, config, env);
   if (untrusted) throw new AccError('refused', untrusted);
   const required = requiredGates(config, env.branch, 'builder');
@@ -741,7 +741,7 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       return { problem: (e as Error).message };
     }
   })());
-  // What the deploy gate needs of the run (D-T-115): the repo's state, the commit, the task, and whether it may deploy at all.
+  // What the deploy gate needs of the run (D-206): the repo's state, the commit, the task, and whether it may deploy at all.
   const runInfo: GateRunInfo = { paths, runner: deps.run, sha, dirty, ...(deps.task ? { task: deps.task } : {}), ...(deps.slots ? { slots: deps.slots } : {}), now: deps.now, deploys: !!deps.deploys };
   mkdirSync(input.scratch, { recursive: true });
   const carryFrom = carriedFrom(paths, config, deps.run, sha);

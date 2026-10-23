@@ -1,5 +1,5 @@
 /**
- * The commands that deploy to an org by hand, in every form Salesforce's CLIs take (D-T-115): the builder's
+ * The commands that deploy to an org by hand, in every form Salesforce's CLIs take (D-206): the builder's
  * hook refuses them, the builder's settings deny them, and a command gate (`gates.commands`) may not run
  * one, since the gate runner can't see inside a shell command. Only the salesforce profile's own deploy
  * gate deploys, and no command gate may take its name.
@@ -65,15 +65,15 @@ export const HAND_DEPLOY_DENIES = [
 export const DEPLOY_GATE = 'deploy';
 
 /**
- * Why a command gate can't be this one, or null (D-T-115): it's named for the built-in deploy gate on a
+ * Why a command gate can't be this one, or null (D-206): it's named for the built-in deploy gate on a
  * Salesforce project, which would replace it with a command the runner can't inspect, or its command
  * deploys by hand, which a check never does.
  */
 export function commandGateProblem(name: string, command: string, profile: string): string | null {
   if (name === DEPLOY_GATE && profile === 'salesforce') {
-    return `"gates.commands.${name}": ${name} is built into the salesforce profile and can't be replaced by a command: only acc's own deploy gate deploys, and only to the task's build org (D-T-115). Give the command a name of its own.`;
+    return `"gates.commands.${name}": ${name} is built into the salesforce profile and can't be replaced by a command: only acc's own deploy gate deploys, and only to the task's build org (D-206). Give the command a name of its own.`;
   }
   const form = handDeployIn(command);
-  if (form) return `"gates.commands.${name}": its command runs a real deploy (${form}). A check never deploys; only the salesforce profile's deploy gate does, through acc gate run deploy (D-T-115). A check-only deploy is sf project deploy start --dry-run.`;
+  if (form) return `"gates.commands.${name}": its command runs a real deploy (${form}). A check never deploys; only the salesforce profile's deploy gate does, through acc gate run deploy (D-206). A check-only deploy is sf project deploy start --dry-run.`;
   return null;
 }

@@ -38,7 +38,7 @@ export interface Receipt {
   /** Set when a person set the gate aside on this commit (D-031): who, why, and what it had been. */
   waived?: { by: string; reason: string; at: string; was: GateStatus | null; wasSummary: string | null };
   /**
-   * Set when this run couldn't run the gate, and says where it runs instead (D-T-115): a deploy skipped by
+   * Set when this run couldn't run the gate, and says where it runs instead (D-206): a deploy skipped by
    * a refresh, a verify or the merge queue. The skip satisfies that run, but not acc done, which waits for
    * the task's own run.
    */
@@ -79,14 +79,14 @@ export function ratchetOf(r: Pick<Receipt, 'details'> | null | undefined): Ratch
 export const satisfies = (r: Pick<Receipt, 'status' | 'details'> | null): boolean => (r?.status === 'pass' || r?.status === 'skip') && !ratchetOf(r)?.raised;
 
 /**
- * Whether a receipt counts towards acc done (D-T-115): one that satisfies, unless it's a skip for a gate
+ * Whether a receipt counts towards acc done (D-206): one that satisfies, unless it's a skip for a gate
  * that runs elsewhere. A deploy a refresh skipped on the branch's merge commit doesn't say the task
  * deployed; only the task's own deploy, or a person's waiver, does.
  */
 export const countsForDone = (r: Pick<Receipt, 'status' | 'details' | 'elsewhere' | 'waived'> | null): boolean => satisfies(r) && (!r?.elsewhere || !!r.waived);
 
 /**
- * Whether a gate that runs elsewhere (D-T-115) was run by the task itself on `head` or a commit before it:
+ * Whether a gate that runs elsewhere (D-206) was run by the task itself on `head` or a commit before it:
  * a deploy the task recorded, to its own environment, whose commit is an ancestor of `head`, with a
  * passing receipt of the task's own there. So a refresh's merge commit, or the merge queue's, carries the
  * deploy its branch made, and land and merge take the skip recorded on it. Only the deploy gate records
@@ -166,7 +166,7 @@ export function writeReceipt(paths: RepoPaths, receipt: Receipt): string {
  * Gate hooks backed by receipt files: a required gate counts only if it passed, or didn't apply, on the
  * branch's current commit. By scope (GH-73): a builder's commit needs the builder's checks where the merge
  * queue runs the full ones before the merge, and the full ones cover them; a merge needs the full ones. A
- * gate that runs elsewhere (D-T-115) is settled by the task's own run on this commit or one before it,
+ * gate that runs elsewhere (D-206) is settled by the task's own run on this commit or one before it,
  * unless `own` asks for one on this very commit, as a builder's acc done does.
  */
 export function receiptHooks(paths: RepoPaths, config: Config, run: Runner): Hooks {

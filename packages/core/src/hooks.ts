@@ -85,7 +85,7 @@ export function guardEdit(b: Builder, filePath: string, envSpecific: string[]): 
   if (rel === '.git' || rel.startsWith('.git/')) {
     return `${rel} is git's own, which git and acc keep; a builder never edits it. Use git's commands for what you need, and say with acc block if they aren't enough.`;
   }
-  // The project's settings are a person's (D-T-115): a deploy reads where it goes from the main checkout, never from here.
+  // The project's settings are a person's (D-206): a deploy reads where it goes from the main checkout, never from here.
   if (rel === '.acc' || rel.startsWith('.acc/')) {
     return `${rel} is the project's settings, which a person changes; acc writes the files under .acc/ itself, such as the floors a check raises. Leave it, and say in your note, or with acc block, what should change.`;
   }
@@ -110,7 +110,7 @@ export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'au
 const isAcc = (cmd: string | undefined): boolean => !!cmd && cmd.split('/').pop() === 'acc';
 
 /**
- * An environment variable that changes which acc, sf or git runs, or where it goes (D-T-115): PATH picks
+ * An environment variable that changes which acc, sf or git runs, or where it goes (D-206): PATH picks
  * another program by the name; SF_* and SFDX_* point sf at another org or login; GIT_* points git at
  * another repository or runs a program for it; NODE_OPTIONS loads code into acc before it runs.
  */
@@ -121,7 +121,7 @@ const steered = (cmd: string | undefined): string | null => (isAcc(cmd) ? 'acc' 
 const assignedIn = (args: string[]): string[] => args.map((a) => /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(a)?.[1]).filter((n): n is string => !!n);
 
 /**
- * Why a builder may not run this line for what its environment assignments set, or null (D-T-115): acc,
+ * Why a builder may not run this line for what its environment assignments set, or null (D-206): acc,
  * sf or git behind a PATH, SF_*, SFDX_*, GIT_* or NODE_OPTIONS assignment, which the hook can't follow,
  * and the same assigned, or exported, on its own for a later command on the line.
  */
@@ -175,9 +175,9 @@ export function guardBash(b: Builder, line: string): string | null {
     if ((cmd === 'gh' && sub === 'release' && ['create', 'upload', 'edit', 'delete'].includes(rest[0] ?? ''))
       || (cmd === 'npm' && (sub === 'run' || sub === 'run-script') && rest[0] === 'release')
       || (cmd === 'node' && args.some((a) => a.endsWith('scripts/release.mjs')))) return 'Releases are a person\'s: they run npm run release on main, after the merge. Finish with acc done.';
-    // Every form of a hand deploy, sf's and sfdx's alike (D-T-115); a check-only one is validate's own.
+    // Every form of a hand deploy, sf's and sfdx's alike (D-206); a check-only one is validate's own.
     const form = deploysByHand(w);
-    if (form) return `Builders never deploy by hand (D-011, D-T-115): ${form} is refused. acc gate run validate checks without saving, and acc gate run deploy deploys your change to the build org, checks it's there and runs its tests. Never to a protected org.`;
+    if (form) return `Builders never deploy by hand (D-011, D-206): ${form} is refused. acc gate run validate checks without saving, and acc gate run deploy deploys your change to the build org, checks it's there and runs its tests. Never to a protected org.`;
     if (cmd === 'sf' && sub === 'org' && rest[0] === 'delete') return 'Builders never delete an org.';
     // A command is a person's by its name, or by its name and subcommand, such as acc rules import (GH-108)
     // or acc tidy add (GH-104), and accepting or dismissing a suggested rule (GH-102); acc tidy alone, and

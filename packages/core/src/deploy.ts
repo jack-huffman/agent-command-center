@@ -41,7 +41,7 @@ export interface DeployPlan {
   files: string[];
   deleted: string[];
   leftOut: string[];
-  /** Files a task's own deploy already put in the org, at the content the branch has (D-T-115), so they aren't sent again. */
+  /** Files a task's own deploy already put in the org, at the content the branch has (D-206), so they aren't sent again. */
   deployedBy: { path: string; task: string }[];
   testLevel: 'NoTestRun' | 'RunLocalTests';
   /** A protected org: the deploy needs a person's confirmation. */
@@ -130,7 +130,7 @@ function deployChanges(paths: RepoPaths, config: Config, run: Runner, env: Envir
 }
 
 /**
- * The files the environment's org already has from a task's own deploy (D-T-115): each path whose latest
+ * The files the environment's org already has from a task's own deploy (D-206): each path whose latest
  * deploy to this environment, across every task and by its time, put the content the branch's head has
  * now, by git's blob id, with the task that deployed it. Only a path's latest deploy counts: the org holds
  * what went last, so a path another task deployed later at other content goes again, as does one changed
@@ -202,7 +202,7 @@ function deployNow(paths: RepoPaths, config: Config, envName: string, deps: Depl
   const steps = deps.steps ?? NO_STEPS;
   const plan = planDeploy(paths, config, envName, deps, opts);
   if (!plan.files.length && !plan.deleted.length) {
-    // Its tasks deployed themselves (D-T-115): nothing's left to send, and the record moves on so the next deploy starts here.
+    // Its tasks deployed themselves (D-206): nothing's left to send, and the record moves on so the next deploy starts here.
     if (plan.deployedBy.length) {
       const by = taskList([...new Set(plan.deployedBy.map((d) => d.task))]);
       steps.step('record', 'Record the deploy', () => writeDeployRecord(paths, { env: plan.env.branch, org: plan.org, sha: plan.head, at: now().toISOString(), by: opts.by, jobId: null, files: 0 }));

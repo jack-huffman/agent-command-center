@@ -4,7 +4,7 @@
 .chg-counts { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 4px; }
 .chg-count.on { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .chg-note { margin: 2px 0 6px; }
-/* The builder's own deploy (D-T-115): its state, when, and what the tests found, wrapping on a narrow page. */
+/* The builder's own deploy (D-206): its state, when, and what the tests found, wrapping on a narrow page. */
 .chg-deploy { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
 .chg-title { margin: 8px 0 2px; font-size: 0.95em; }
 .chg-set { margin: 4px 0 6px; }

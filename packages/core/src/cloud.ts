@@ -246,7 +246,7 @@ export function cloudGuard(run: Runner, root: string, envBranch: string, branch:
  * The checks a cloud builder runs in its session, and those only this Mac can run (GH-69): a gate that
  * needs an org login (Salesforce validate, deploy, drift) can't run in the cloud, whose network reaches
  * package registries and GitHub and no org. acc runs those when it collects, on this Mac, in the task's
- * worktree on its branch: the collect is the task's own run, so the deploy gate deploys from it (D-T-115).
+ * worktree on its branch: the collect is the task's own run, so the deploy gate deploys from it (D-206).
  */
 const ORG_GATES = ['validate', 'deploy', 'drift'];
 export function cloudChecks(config: Config, env: Environment): { inCloud: string[]; macOnly: string[] } {
@@ -457,7 +457,7 @@ export function collect(paths: RepoPaths, config: Config, id: string, deps: Foll
   }
   // The required checks, on this Mac, in the heavy-check slot, as a refresh runs them (D-058). The cloud's
   // own runs don't count: receipts vouch for a commit on this machine. The collect is the task's own run
-  // here, in its worktree on its branch, so a Salesforce task's deploy goes from it (D-T-115): the cloud has no org.
+  // here, in its worktree on its branch, so a Salesforce task's deploy goes from it (D-206): the cloud has no org.
   const gates = requiredGates(config, envBranch.branch, 'builder');
   let results: GateResult[] = [];
   if (gates.length) {

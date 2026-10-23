@@ -303,7 +303,7 @@ test('on Salesforce, the merge is validated with the Apex tests the branch\'s la
   assert.equal(deploy.length, 1);
   assert.match(deploy[0]!, new RegExp(`--source-dir ${SUM_CLS} --test-level RunSpecifiedTests --tests SumTest$`));
   assert.deepEqual(readReceipt(s.paths, r.sha!, 'validate')?.details?.tests, [{ name: 'SumTest', reason: 'covers Sum' }], 'and the merge commit\'s receipt names them, for the next refresh');
-  // The deploy isn't the refresh's to run (D-T-115): its skip satisfies the refresh, and never acc done on a task that never deployed.
+  // The deploy isn't the refresh's to run (D-206): its skip satisfies the refresh, and never acc done on a task that never deployed.
   const deployed = readReceipt(s.paths, r.sha!, 'deploy')!;
   assert.equal(deployed.status, 'skip');
   assert.match(deployed.elsewhere!, /the task's own worktree, on its branch, with acc gate run deploy/);

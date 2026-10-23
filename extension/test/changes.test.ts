@@ -140,10 +140,10 @@ test('the screenshot run draws Planned changes, Changes with one outside the pla
     assert.deepEqual([m.key, m.changes?.title, m.changes?.counts, !!m.changes?.keptAt, marks(m.changes)], want, kind);
   }
   const flying = sampleModel('ticket-changes') as ReturnType<typeof ticketModel>;
-  assert.deepEqual(flying.changes?.deployed.map((d) => d.org), ['Acme Dev'], 'the in-flight page draws the builder\'s deploy (D-T-115)');
+  assert.deepEqual(flying.changes?.deployed.map((d) => d.org), ['Acme Dev'], 'the in-flight page draws the builder\'s deploy (D-206)');
 });
 
-test('a task\'s deploys show under Changes as the latest to each org with what the tests found; none when it hasn\'t deployed, and none from an empty list (D-T-115)', () => {
+test('a task\'s deploys show under Changes as the latest to each org with what the tests found; none when it hasn\'t deployed, and none from an empty list (D-206)', () => {
   const deploy = (org: string, at: string, tests: TaskDeploy['tests']): TaskDeploy => ({ env: 'dev', org, sha: 'a', at, jobId: '0Af', paths: ['x'], components: ['Apex Class: A', 'Custom Field: B.C__c'], verified: 2, tests });
   const deploys = [deploy('Acme Dev', '2026-10-23T10:00:00.000Z', null), deploy('Acme Dev', '2026-10-23T11:00:00.000Z', { names: ['ATest'], outcome: 'pass', ran: 2, failed: 0, coverage: '91%' })];
   const c = ticketChanges(input({ task: task({ state: 'running', deploys }), live: ['src/a.ts'] }))!;
@@ -155,7 +155,7 @@ test('a task\'s deploys show under Changes as the latest to each org with what t
   assert.deepEqual(DEPLOY_LOOK.deployed, { label: 'Deployed to', icon: 'cloud-upload', tone: 'blue' });
 });
 
-test('the page draws "Deployed to <org>" under Changes, with when and what the tests found, and nothing when the task hasn\'t deployed (D-T-115)', async () => {
+test('the page draws "Deployed to <org>" under Changes, with when and what the tests found, and nothing when the task hasn\'t deployed (D-206)', async () => {
   pageDom();
   const { renderChanges } = await import('../webview/changes.ts');
   const m = { project: '/r', key: 'T-1' } as never;

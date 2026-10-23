@@ -161,7 +161,7 @@ export interface InFlightStrict {
 }
 
 /**
- * inFlightFiles that fails closed (D-T-115): a task whose branch isn't in this clone is read from origin's
+ * inFlightFiles that fails closed (D-206): a task whose branch isn't in this clone is read from origin's
  * copy after a fetch, and one that still can't be read is named, never left out as sharing nothing. A
  * deploy asks this, so it never goes over work it couldn't see. Origin's copy of each environment a pull
  * request goes into is fetched first, so a merged task is seen as merged.

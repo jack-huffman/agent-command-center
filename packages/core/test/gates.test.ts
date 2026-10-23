@@ -173,7 +173,7 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   const runner = fakeRunner({ [`nice -n 15 ${join(bin, 'prettier')} --check`]: ok('Checking formatting...\nAll matched files use Prettier code style!'), 'nice -n 15 sf project deploy start --dry-run': deployOk }, calls);
 
   const first = runGates(paths, c, dev(c), [], [], { run: runner, now, slots: slots() });
-  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail'], ['deploy', 'skip'], ['stray-files', 'skip']], 'deploy is required beside validate (D-T-115); a run that isn\'t the builder\'s own skips it, saying where it runs');
+  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail'], ['deploy', 'skip'], ['stray-files', 'skip']], 'deploy is required beside validate (D-206); a run that isn\'t the builder\'s own skips it, saying where it runs');
   assert.equal(first.results[3]!.elsewhere, 'the task\'s own worktree, on its branch, with acc gate run deploy');
   assert.match(first.results[2]!.summary, /Apex changed .*--test <TestClass>=/);
   assert.ok(!calls.some((l) => l.includes('deploy start')), 'no validation without the tests that cover the Apex');
@@ -195,7 +195,7 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
 
   // acc done looks at the task branch's commit: everything required has passed or didn't apply.
   const task = { run: { branch: 'task/DEV-1-thing' } } as never;
-  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['deploy'], 'validate passed; the deploy that follows it (D-T-115) hasn\'t');
+  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['deploy'], 'validate passed; the deploy that follows it (D-206) hasn\'t');
   write(dir, 'force-app/main/default/classes/Account.cls', 'public class Account {  }\n');
   commitAll(dir, 'again');
   assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['format', 'lint', 'validate', 'deploy', 'stray-files'], 'a new commit needs new receipts');
@@ -220,7 +220,7 @@ test('a missing tool is an error, not a failure, and validate refuses deletions 
   const paths = repoPaths(dir, run);
   const deployOk = ok(JSON.stringify({ status: 0, result: { id: '0Af9', success: true } }));
   const r = runGates(paths, c, dev(c), [], [], { run: fakeRunner({ 'nice -n 15 sf project deploy start': deployOk }), now, slots: slots() });
-  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['format', 'error'], ['lint', 'error'], ['lwc-tests', 'error'], ['validate', 'pass'], ['deploy', 'skip'], ['stray-files', 'pass']], 'a run that isn\'t the builder\'s own skips the deploy (D-T-115)');
+  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['format', 'error'], ['lint', 'error'], ['lwc-tests', 'error'], ['validate', 'pass'], ['deploy', 'skip'], ['stray-files', 'pass']], 'a run that isn\'t the builder\'s own skips the deploy (D-206)');
   assert.match(r.results[0]!.summary, /prettier isn't installed .*npm install/);
 
   gitIn(dir, 'rm', '-q', 'force-app/main/default/classes/Old.cls');

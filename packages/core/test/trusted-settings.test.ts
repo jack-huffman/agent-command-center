@@ -1,4 +1,4 @@
-// The project's settings as a run trusts them (D-T-115): read from the main checkout in a worktree, else
+// The project's settings as a run trusts them (D-206): read from the main checkout in a worktree, else
 // from the environment's branch with origin's copy first; and a run in a worktree runs a command gate or a
 // ratchet only as those settings have it, refusing one the worktree's own copy adds or changes.
 import assert from 'node:assert/strict';
@@ -50,7 +50,7 @@ function worktreeFixture() {
 test('a worktree whose settings add a command gate the main checkout lacks is refused by acc gate run, naming the gate and where the project\'s settings were read', () => {
   const f = worktreeFixture();
   const added = f.settle({ ...RAW, gates: { ...RAW.gates, required: ['lint', 'sneaky'], commands: { ...RAW.gates.commands, sneaky: 'git push origin main' } } }, 'add a gate');
-  assert.throws(() => f.gates(added), (e: Error & { code?: string }) => e.code === 'refused' && /^This checkout's \.acc\/config\.json names a check the project's settings don't, or with another command: gates\.commands\.sneaky isn't in the main checkout's settings \(.*\)\. A check runs only as the project's settings have it \(D-T-115\): a person changes them in the main checkout, and the task's branch takes the change with acc refresh\.$/.test(e.message));
+  assert.throws(() => f.gates(added), (e: Error & { code?: string }) => e.code === 'refused' && /^This checkout's \.acc\/config\.json names a check the project's settings don't, or with another command: gates\.commands\.sneaky isn't in the main checkout's settings \(.*\)\. A check runs only as the project's settings have it \(D-206\): a person changes them in the main checkout, and the task's branch takes the change with acc refresh\.$/.test(e.message));
   assert.throws(() => f.gates(added, ['lint']), /gates\.commands\.sneaky isn't in/, 'however few gates the run names: the settings are refused whole');
   assert.deepEqual(f.calls.filter((c) => c.startsWith('nice')), [], 'nothing ran');
   assert.equal(readReceipt(f.paths, gitIn(f.wt, 'rev-parse', 'HEAD'), 'lint'), null, 'no receipt');

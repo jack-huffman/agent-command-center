@@ -1,5 +1,5 @@
 /**
- * The deploy gate (D-T-115): a Salesforce builder deploys its change to its environment's org, checks each
+ * The deploy gate (D-206): a Salesforce builder deploys its change to its environment's org, checks each
  * component is there, and runs the Apex tests it named in the org, before it hands back. It supersedes
  * D-011 for an environment that isn't protected: a builder validates, then deploys, through this gate only.
  * Where it goes is read from the project's settings in the main checkout, or committed on the environment's
@@ -30,7 +30,7 @@ import { plural } from './text.ts';
 /** Apex source: a class or trigger, or its -meta.xml. The same test as validate's. */
 const APEX = /\.(cls|trigger)(-meta\.xml)?$/;
 
-/** A deploy a task made to its environment's org (D-T-115), kept on the task, so its ticket says "Deployed to <org>". */
+/** A deploy a task made to its environment's org (D-206), kept on the task, so its ticket says "Deployed to <org>". */
 export interface TaskDeploy {
   env: string;
   org: string;
@@ -186,7 +186,7 @@ export function readApexRun(r: RunResult, names: string[]): { tests: DeployTests
  */
 export const orgLockDir = (orgKey: string): string => join(heavyDir({}), 'orgs', orgKey.replace(/[^\w.-]+/g, '_'));
 
-/** Keeps a deploy on its task (D-T-115), so the ticket's Changes say "Deployed to <org>". Nothing without a task. */
+/** Keeps a deploy on its task (D-206), so the ticket's Changes say "Deployed to <org>". Nothing without a task. */
 export function recordDeploy(paths: RepoPaths, now: () => Date, task: string | undefined, deploy: TaskDeploy): TaskDeploy | null {
   if (!task) return null;
   return mutate(paths, now, (l, emit) => {
@@ -292,7 +292,7 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Enviro
 
 /**
  * Why a builder's own run mustn't deploy to the environment it names, or null when it may: a task deploys only
- * to its own environment, the one it builds from and lands on, never one chosen with --env (D-T-115).
+ * to its own environment, the one it builds from and lands on, never one chosen with --env (D-206).
  */
 export function deployEnvProblem(task: { id: string; environment: string } | null, env: { name: string; branch: string }): string | null {
   if (!task) return null;
@@ -300,7 +300,7 @@ export function deployEnvProblem(task: { id: string; environment: string } | nul
     : `${task.id} builds on ${task.environment}, so it deploys only to that environment's org, never to ${env.name}. Nothing was deployed.`;
 }
 
-/** Where the deploy gate runs, said by the skip every other run records (D-T-115). */
+/** Where the deploy gate runs, said by the skip every other run records (D-206). */
 export const DEPLOY_ELSEWHERE = 'the task\'s own worktree, on its branch, with acc gate run deploy';
 
 /**

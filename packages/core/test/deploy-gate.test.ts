@@ -1,4 +1,4 @@
-// The deploy gate (D-T-115): a Salesforce builder deploys its change to its build org, checks each component is
+// The deploy gate (D-206): a Salesforce builder deploys its change to its build org, checks each component is
 // there, and runs the named Apex tests in the org, with a fake sf that records every call. It reads where it goes
 // from the project's settings, never its worktree's copy; asks Salesforce which org that is and refuses production;
 // refuses where else it mustn't; takes turns on one org, by its username; stops while another task in flight
@@ -391,7 +391,7 @@ test('no gate but the deploy gate may run a real deploy, never a quick deploy or
   assert.throws(() => assertCheckOnly('sf', ['project', 'deploy', 'quick', '--job-id', '1'], DEPLOY_GATE), /real deploy/);
   assert.throws(() => assertCheckOnly('sf', ['project', 'deploy', 'resume', '--job-id', '1'], DEPLOY_GATE), /real deploy/);
   assertCheckOnly('sf', ['project', 'deploy', 'start', '--dry-run'], 'validate');
-  // A command gate runs through the shell, where the runner can't see: the config refuses one that deploys, in any form, and one named deploy (D-T-115).
+  // A command gate runs through the shell, where the runner can't see: the config refuses one that deploys, in any form, and one named deploy (D-206).
   const refused = (gates: Record<string, string>, profile = 'salesforce') => parseConfig({ ...(profile === 'salesforce' ? SF_CONFIG : GENERIC_CONFIG), gates: { commands: gates } }).errors.join('\n');
   assert.match(refused({ sneaky: 'sf project deploy start --target-org x' }), /"gates\.commands\.sneaky": its command runs a real deploy \(sf project deploy start\)\. A check never deploys; only the salesforce profile's deploy gate does/);
   assert.match(refused({ sneaky: 'npm test && sfdx force:mdapi:deploy -d out -u x' }), /runs a real deploy \(sfdx force:mdapi:deploy\)/);

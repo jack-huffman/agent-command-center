@@ -95,7 +95,7 @@ test('commands are read through quotes, chains and wrappers, the way the shell w
   assert.deepEqual(commandsOf('(cd x; git push)'), [['cd', 'x'], ['git', 'push']]);
 });
 
-test('acc, sf or git behind a PATH, SF_*, GIT_* or NODE_OPTIONS assignment is refused, as is one set alone or exported for them on the line; an assignment that steers nothing isn\'t (D-T-115)', () => {
+test('acc, sf or git behind a PATH, SF_*, GIT_* or NODE_OPTIONS assignment is refused, as is one set alone or exported for them on the line; an assignment that steers nothing isn\'t (D-206)', () => {
   const b = { task: { id: 'T-1', run: { branch: 'task/T-1-a' } } } as never;
   // Before the command, in each form the shell takes: a wrapper between, a path to acc, sfdx, a chain.
   for (const [line, program, name] of [

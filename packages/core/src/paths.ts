@@ -80,7 +80,7 @@ export function samePath(a: string, b: string): boolean {
 
 /**
  * The main checkout: the first entry in `git worktree list`. Worktrees are placed beside it, and a deploy
- * reads the project's settings from it, never from a task's worktree (D-T-115).
+ * reads the project's settings from it, never from a task's worktree (D-206).
  */
 export function mainCheckout(run: Runner, cwd: string): string {
   const r = run('git', ['worktree', 'list', '--porcelain'], { cwd });

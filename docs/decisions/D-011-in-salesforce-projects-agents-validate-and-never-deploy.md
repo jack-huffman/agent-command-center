@@ -5,7 +5,7 @@ Builders run `sf project deploy validate`, which leaves the org unchanged.
 Deploys happen after merge, from the target branch, one at a time. A protected
 (production) target also needs a person to confirm.
 
-_Note, 2026-10-23 (D-T-115):_ superseded for an environment that isn't
+_Note, 2026-10-23 (D-206):_ superseded for an environment that isn't
 protected. A Salesforce builder now validates, then deploys its change to its
 build org, verifies it there and runs its tests there, through `acc gate run
 deploy` alone, before it's done. Deploys to one org take turns, and a builder

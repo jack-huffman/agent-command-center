@@ -267,7 +267,7 @@ test('a change to .acc/ that only raises floors joins the queue; one that relaxe
 
 // ---------------------------------------------------------------- the head's turn
 
-test('a Salesforce task never joins the merge queue, auto-merge or not: a person merges every pull request there, so no merge commit of the queue\'s is a Salesforce task\'s and its deploy skip is never landed by the queue (D-T-115)', () => {
+test('a Salesforce task never joins the merge queue, auto-merge or not: a person merges every pull request there, so no merge commit of the queue\'s is a Salesforce task\'s and its deploy skip is never landed by the queue (D-206)', () => {
   const queued = (environment: string): Task => ({ id: 'T-1', state: 'review', environment, autopilot: { failed: null, queued: { at: NOW, sha: 'a'.repeat(40) } } } as unknown as Task);
   const sf = parseConfig(SF_CONFIG).config!;
   assert.deepEqual(queueOrder({ tasks: [queued('dev')] }, sf), []);

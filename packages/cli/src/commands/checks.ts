@@ -51,9 +51,9 @@ function cmdGateRun(o: Opts, names: string[]): number {
   const { paths, config, env, branch, task } = checkTarget(o);
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   pruneRelaxes(paths);
-  // A task's own worktree, on its branch, is the one place a floor is raised and a deploy goes (D-T-115).
+  // A task's own worktree, on its branch, is the one place a floor is raised and a deploy goes (D-206).
   const own = raisesHere(paths.root, config, branch, task);
-  // A task deploys only to its own environment, never one named with --env (D-T-115): that run fails.
+  // A task deploys only to its own environment, never one named with --env (D-206): that run fails.
   const wrongEnv = own ? deployEnvProblem(task, env) : null;
   if (wrongEnv && (!names.length || names.includes('deploy'))) {
     process.stderr.write(tone(`✗ ${wrongEnv}`, 'orange') + '\n');

@@ -245,7 +245,7 @@ test('stray-files is required in both profiles and both scopes with nothing set,
     const off = parseConfig({ ...raw, strayFiles: { required: false } }).config!;
     assert.ok(![...requiredGates(off, env, 'builder'), ...requiredGates(off, env, 'merge'), ...fullGates(off)].includes('stray-files'), `${c.profile} off`);
   }
-  assert.deepEqual(fullGates(parseConfig(clone(SF_CONFIG)).config!), ['format', 'validate', 'deploy', 'stray-files'], 'after the ones the project names, with deploy beside validate (D-T-115)');
+  assert.deepEqual(fullGates(parseConfig(clone(SF_CONFIG)).config!), ['format', 'validate', 'deploy', 'stray-files'], 'after the ones the project names, with deploy beside validate (D-206)');
   assert.deepEqual(fullGates(parseConfig({ ...clone(GENERIC_CONFIG), gates: { required: ['stray-files', 'check'] } }).config!), ['stray-files', 'check'], 'named once');
 });
 

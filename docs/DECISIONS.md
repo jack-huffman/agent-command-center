@@ -213,3 +213,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-203](decisions/D-203-ci-runs-the-full-check.md) | GitHub Actions runs the full check and the screenshot run on every pull request, and autopilot waits for it | 2026-10-22 |
 | [D-204](decisions/D-204-one-question-at-a-time.md) | Talking a plan through asks one question at a time, with answers to pick, and shows less at once | 2026-10-22 |
 | [D-205](decisions/D-205-a-single-choice-offers-three-options-and-your-own-words.md) | A single choice offers at most three options and your own words, everywhere a person is asked | 2026-10-22 |
+| [D-206](decisions/D-206-a-salesforce-builder-deploys-to-its-build-org.md) | A Salesforce builder deploys its work to its build org, verifies it and runs the tests there before it's done | 2026-10-23 |

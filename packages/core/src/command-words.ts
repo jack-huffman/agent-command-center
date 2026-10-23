@@ -1,6 +1,6 @@
 /**
  * A shell command line read as its commands and words (T-88), as far as the builder's rules need: the
- * builder's hook, the records hook and the config's own check of a command gate (D-T-115) all read a line
+ * builder's hook, the records hook and the config's own check of a command gate (D-206) all read a line
  * the same way. The cloud guard's rawCommandsOf splits the same way (GH-69), and cloud-guard.test.ts keeps
  * the two the same.
  */
@@ -43,7 +43,7 @@ function ansiC(line: string, from: number, add: (c: string) => void): number {
  * command around a substitution stays whole, with SUBSTITUTED where the substitution stood; the
  * substitution's own commands come first. The cloud guard's rawCommandsOf splits the same way (GH-69), and
  * cloud-guard.test.ts keeps the two the same. A leading assignment stays in its command's words, for the
- * hook to see what it sets (D-T-115); commandsOf strips it.
+ * hook to see what it sets (D-206); commandsOf strips it.
  */
 export function rawCommandsOf(line: string): string[][] {
   const out: string[][] = [];
@@ -138,7 +138,7 @@ const WRAPPERS = ['nice', 'env', 'time', 'command', 'npx', 'sudo'];
 
 /**
  * A command's words with its leading environment assignments and wrappers taken off, as what runs, and
- * the names those assignments set (D-T-115): `PATH=/x nice -n 15 acc done` runs acc, and sets PATH. A
+ * the names those assignments set (D-206): `PATH=/x nice -n 15 acc done` runs acc, and sets PATH. A
  * command of assignments alone runs nothing, and sets them for the shell's next commands.
  */
 export function stripLeading(w: string[]): { assigned: string[]; words: string[] } {

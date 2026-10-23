@@ -713,7 +713,7 @@ function httpProblem(prog, rest, line) {
 }
 
 function sfProblem(sub, rest) {
-  if (sub === 'project' && rest[0] === 'deploy' && ['start', 'quick', 'resume'].includes(rest[1] ?? '') && !rest.includes('--dry-run')) return 'Builders never deploy by hand (D-011, D-T-115): only acc gate run deploy does, on the Mac. A cloud session has no org anyway.';
+  if (sub === 'project' && rest[0] === 'deploy' && ['start', 'quick', 'resume'].includes(rest[1] ?? '') && !rest.includes('--dry-run')) return 'Builders never deploy by hand (D-011, D-206): only acc gate run deploy does, on the Mac. A cloud session has no org anyway.';
   return null;
 }
 

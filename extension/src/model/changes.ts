@@ -15,7 +15,7 @@ import type { Task } from '../../../packages/core/src/ledger.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import type { Look } from './shared.ts';
 
-/** The task's deploys as the page says them (D-T-115): the latest to each org, with what went and what the tests found. */
+/** The task's deploys as the page says them (D-206): the latest to each org, with what went and what the tests found. */
 export function ticketDeploys(deploys: TaskDeploy[] | null | undefined): TicketDeploy[] {
   return latestDeploys(deploys).map((d) => ({
     org: d.org, at: d.at,
@@ -30,7 +30,7 @@ export const CHANGE_LOOK: Record<'unplanned' | 'unmade', Look> = {
   unmade: { label: 'Planned, not changed', icon: 'circle-slash', tone: 'orange' },
 };
 
-/** How a builder's own deploy to its org shows under Changes (D-T-115): blue, with the org's name after "Deployed to". */
+/** How a builder's own deploy to its org shows under Changes (D-206): blue, with the org's name after "Deployed to". */
 export const DEPLOY_LOOK: Record<'deployed', Look> = {
   deployed: { label: 'Deployed to', icon: 'cloud-upload', tone: 'blue' },
 };
@@ -75,7 +75,7 @@ export interface TicketChanges {
   note: string | null;
   /** When the changes shown were kept with the task, for a task whose work merged; else null. */
   keptAt: string | null;
-  /** Each org its builder deployed to (D-T-115), its latest deploy there, newest first; empty when it hasn't. */
+  /** Each org its builder deployed to (D-206), its latest deploy there, newest first; empty when it hasn't. */
   deployed: TicketDeploy[];
   changed: ChangeGroup[];
   planned: ChangeGroup[];

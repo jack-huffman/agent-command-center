@@ -180,7 +180,7 @@ export const TABLES: Table[] = [
   // Verify the developer's work (T-84): the section's state, before, during, choosing, off, and its verdict.
   { name: 'a developer\'s pull request, verified', sources: ['extension/src/model/verify.ts#VERIFY_LOOK'], states: () => Object.entries(VERIFY_LOOK) },
   { name: 'a change against the plan, on a task\'s page (T-99)', sources: ['extension/src/model/changes.ts#CHANGE_LOOK'], states: () => Object.entries(CHANGE_LOOK) },
-  // The builder's own deploy to its org, under Changes (D-T-115): one state, blue, with the org's name after it.
+  // The builder's own deploy to its org, under Changes (D-206): one state, blue, with the org's name after it.
   { name: 'a task\'s deploy to its org, under Changes (T-115)', sources: ['extension/src/model/changes.ts#DEPLOY_LOOK'], states: () => Object.entries(DEPLOY_LOOK) },
   { name: 'a task\'s team, on its page: up to date or behind, and sharing files (T-103)', sources: ['extension/src/model/team.ts#TEAM_LOOK'], states: () => Object.entries(TEAM_LOOK) },
   // Record changes (T-100): each change made, planned or not, refused, and a promotion's step to do, done or skipped.
