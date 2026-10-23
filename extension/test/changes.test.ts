@@ -139,7 +139,8 @@ test('the screenshot run draws Planned changes, Changes with one outside the pla
     const m = sampleModel(kind as keyof typeof pages) as ReturnType<typeof ticketModel>;
     assert.deepEqual([m.key, m.changes?.title, m.changes?.counts, !!m.changes?.keptAt, marks(m.changes)], want, kind);
   }
-  assert.deepEqual(sampleModel('ticket-changes').changes?.deployed.map((d) => d.org), ['Acme Dev'], 'the in-flight page draws the builder\'s deploy (D-T-115)');
+  const flying = sampleModel('ticket-changes') as ReturnType<typeof ticketModel>;
+  assert.deepEqual(flying.changes?.deployed.map((d) => d.org), ['Acme Dev'], 'the in-flight page draws the builder\'s deploy (D-T-115)');
 });
 
 test('a task\'s deploys show under Changes as the latest to each org with what the tests found; none when it hasn\'t deployed, and none from an empty list (D-T-115)', () => {
