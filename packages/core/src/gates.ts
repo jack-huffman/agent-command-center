@@ -20,6 +20,7 @@ import { storedFloorsLowered } from './stored-floors.ts';
 import { escapeRegExp, plural } from './text.ts';
 import { apexCounts, countsLine, newlySkipped, NO_COUNTS, readTestCounts, type TestCounts } from './test-counts.ts';
 import { strayFilesGate } from './stray-files.ts';
+import { untrustedGates } from './trusted-settings.ts';
 
 export interface Changes {
   /** The commit the branch grew from: its merge base with the environment's branch. */
@@ -690,6 +691,9 @@ export const niced = (cmd: string, args: string[]): [string, string[]] => (proce
 export function runGates(paths: RepoPaths, config: Config, env: Environment, names: string[], tests: ApexTest[], deps: GateRunDeps): GateRun {
   const root = paths.root;
   const all = gatesFor(config);
+  // In a worktree, a command gate or a ratchet runs only as the project's settings have it (D-T-115).
+  const untrusted = untrustedGates({ paths, runner: deps.run }, config, env);
+  if (untrusted) throw new AccError('refused', untrusted);
   const required = requiredGates(config, env.branch, 'builder');
   const wanted = names.length ? names : required.some((g) => g !== STRAY_FILES) ? required : all.map((g) => g.name);
   const unknownNames = wanted.filter((n) => !all.some((g) => g.name === n));

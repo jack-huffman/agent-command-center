@@ -13,7 +13,7 @@ import { type Config, parseConfig, withDeploy } from '../src/config.ts';
 import { commandGateProblem, DEPLOY_GATE, deploysByHand, HAND_DEPLOY_DENIES, handDeployIn } from '../src/deploy-commands.ts';
 import {
   apexTestArgs, DEPLOY_ELSEWHERE, deployedComponents, deployGate, deployGateArgs, type DeployTests, latestDeploys, listMetadataArgs, orgDisplayArgs, orgLockDir, readApexRun, readListed, readOrgDisplay, recordDeploy,
-  type TaskDeploy, testsWords, trustedSettings,
+  type TaskDeploy, testsWords,
 } from '../src/deploy-gate.ts';
 import { deploy, deployedByTasks, lastDeploy, writeDeployRecord } from '../src/deploy.ts';
 import { run, type RunResult } from '../src/exec.ts';
@@ -24,6 +24,7 @@ import { branchFilesAt, branchRef, inFlightFilesStrict } from '../src/overlap.ts
 import { builderSettings } from '../src/packet.ts';
 import { repoPaths } from '../src/paths.ts';
 import { countsForDone, readReceipt, receiptHooks, satisfies, writeReceipt } from '../src/receipts.ts';
+import { trustedSettings } from '../src/trusted-settings.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, sf, SF_CONFIG, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-23T12:00:00Z');
@@ -270,7 +271,7 @@ test('the gate reads where it goes from the project\'s settings, never its workt
   assert.match(dropped.summary, /environment-specific files.*EmailToCase\.xml-meta\.xml/);
   // No settings anywhere trusted: an environment this clone has no branch for, and origin hasn't either.
   const nowhere = trustedSettings({ paths: f.paths, runner: run }, { branch: 'nowhere' });
-  assert.match((nowhere as { problem: string }).problem, /Couldn't read the project's settings from refs\/heads\/nowhere or refs\/remotes\/origin\/nowhere\. A deploy reads where it goes from the main checkout, or from the environment's branch, never from this checkout's own \.acc\/config\.json/);
+  assert.match((nowhere as { problem: string }).problem, /Couldn't read the project's settings from refs\/remotes\/origin\/nowhere or refs\/heads\/nowhere\. A deploy reads where it goes from the main checkout, or from the environment's branch, never from this checkout's own \.acc\/config\.json/);
   // Settings on the branch that don't parse are a problem too, not a fallback to the worktree's.
   gitIn(f.dir, 'checkout', '-q', 'qa');
   write(f.dir, '.acc/config.json', '{ not json');
@@ -407,36 +408,42 @@ test('no gate but the deploy gate may run a real deploy, never a quick deploy or
 
 // ---------------------------------------------------------------- taking turns on one org
 
-test('two deploys to one org take turns on a lock keyed by the org\'s username in acc\'s own folder: a deploy waits for it, gives up after its timeout, and says what it is while it holds it', () => {
+test('two deploys to one org take turns on a lock keyed by the org\'s username in acc\'s own folder, which no caller moves: a deploy waits for it, gives up after its timeout, and says what it is while it holds it', () => {
   const f = fixture();
-  const dir = tempDir('slots-');
-  const lock = orgLockDir('dev@acme.com.dev', dir);
-  assert.equal(lock, join(dir, 'orgs', 'dev_acme.com.dev'), 'beside the heavy-check slots, named for the org\'s username, never its alias');
-  // acc's own folder, whatever ACC_HEAVY_DIR says: a builder's environment can't move the lock.
-  const was = process.env.ACC_HEAVY_DIR;
+  // acc's own folder, under HOME, whatever ACC_HEAVY_DIR or the run's slot folder says: a builder's environment can't move the lock.
+  const home = tempDir('home-');
+  const was = { HOME: process.env.HOME, ACC_HEAVY_DIR: process.env.ACC_HEAVY_DIR };
+  process.env.HOME = home;
   process.env.ACC_HEAVY_DIR = tempDir('elsewhere-');
   try {
+    const lock = orgLockDir('dev@acme.com.dev');
+    assert.equal(lock, join(home, '.acc', 'heavy', 'orgs', 'dev_acme.com.dev'), 'beside the heavy-check slots, named for the org\'s username, never its alias');
     assert.equal(orgLockDir('u@x.com'), join(homedir(), '.acc', 'heavy', 'orgs', 'u_x.com'));
+    assert.equal(orgLockDir.length, 1, 'the key alone: no base to pass');
+    const dir = tempDir('slots-');
+    mkdirSync(join(lock, 'slot-0'), { recursive: true });
+    writeFileSync(join(lock, 'slot-0', 'owner'), JSON.stringify({ what: 'Deploy to Acme Dev', task: 'T-9', pid: process.pid, at: Date.now() }));
+    const calls: string[] = [];
+    let waited = 0;
+    assert.throws(() => runGates(f.paths, f.c, env(f.c), [DEPLOY_GATE], TESTS, { run: fakeSf(calls), now, slots: { dir, timeoutMs: 150, pollMs: 20 }, task: 'T-1', deploys: true, onWait: () => waited++ }), /stayed taken/);
+    assert.equal(waited, 1, 'the builder is told it waits');
+    assert.ok(!calls.some((l) => l.includes('deploy start')), 'nothing deployed over the other deploy');
+    assert.ok(!existsSync(join(dir, 'orgs')), 'the run\'s slot folder holds no org lock');
+    rmSync(join(lock, 'slot-0'), { recursive: true, force: true });
+    let owner: Record<string, unknown> | null = null;
+    const r = runGates(f.paths, f.c, env(f.c), [DEPLOY_GATE], TESTS, {
+      run: fakeSf(calls, { 'nice -n 15 sf project deploy start': () => { owner = JSON.parse(readFileSync(join(lock, 'slot-0', 'owner'), 'utf8')); return sf({ id: '0Af1', success: true }); } }),
+      now, slots: { dir, timeoutMs: 1000, pollMs: 20 }, task: 'T-1', deploys: true,
+    }).results[0]!;
+    assert.equal(r.status, 'pass', r.summary);
+    assert.deepEqual([owner!.what, owner!.task, owner!.env], ['Deploy to Acme Dev', 'T-1', 'dev']);
+    assert.ok(!existsSync(join(lock, 'slot-0')), 'released afterwards');
   } finally {
-    if (was === undefined) delete process.env.ACC_HEAVY_DIR;
-    else process.env.ACC_HEAVY_DIR = was;
+    for (const [k, v] of Object.entries(was)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
   }
-  mkdirSync(join(lock, 'slot-0'), { recursive: true });
-  writeFileSync(join(lock, 'slot-0', 'owner'), JSON.stringify({ what: 'Deploy to Acme Dev', task: 'T-9', pid: process.pid, at: Date.now() }));
-  const calls: string[] = [];
-  let waited = 0;
-  assert.throws(() => runGates(f.paths, f.c, env(f.c), [DEPLOY_GATE], TESTS, { run: fakeSf(calls), now, slots: { dir, timeoutMs: 150, pollMs: 20 }, task: 'T-1', deploys: true, onWait: () => waited++ }), /stayed taken/);
-  assert.equal(waited, 1, 'the builder is told it waits');
-  assert.ok(!calls.some((l) => l.includes('deploy start')), 'nothing deployed over the other deploy');
-  rmSync(join(lock, 'slot-0'), { recursive: true, force: true });
-  let owner: Record<string, unknown> | null = null;
-  const r = runGates(f.paths, f.c, env(f.c), [DEPLOY_GATE], TESTS, {
-    run: fakeSf(calls, { 'nice -n 15 sf project deploy start': () => { owner = JSON.parse(readFileSync(join(lock, 'slot-0', 'owner'), 'utf8')); return sf({ id: '0Af1', success: true }); } }),
-    now, slots: { dir, timeoutMs: 1000, pollMs: 20 }, task: 'T-1', deploys: true,
-  }).results[0]!;
-  assert.equal(r.status, 'pass', r.summary);
-  assert.deepEqual([owner!.what, owner!.task, owner!.env], ['Deploy to Acme Dev', 'T-1', 'dev']);
-  assert.ok(!existsSync(join(lock, 'slot-0')), 'released afterwards');
 });
 
 test('a deploy stops while another task in flight changes a file it changed, naming the task and file, and goes once that task is done; a task sharing none never waits', () => {

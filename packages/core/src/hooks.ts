@@ -6,7 +6,7 @@
  */
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { expands, rawCommandsOf, stripLeading } from './command-words.ts';
+import { commandsOf, expands, rawCommandsOf, stripLeading } from './command-words.ts';
 import { builderGatesFor, fullGates, loadConfig, requiredGates } from './config.ts';
 import { deploysByHand, isSalesforceCli } from './deploy-commands.ts';
 import type { Runner } from './exec.ts';

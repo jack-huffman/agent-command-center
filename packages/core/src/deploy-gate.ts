@@ -2,8 +2,8 @@
  * The deploy gate (D-T-115): a Salesforce builder deploys its change to its environment's org, checks each
  * component is there, and runs the Apex tests it named in the org, before it hands back. It supersedes
  * D-011 for an environment that isn't protected: a builder validates, then deploys, through this gate only.
- * Where it goes is read from the project's settings in the main checkout, or on the environment's branch,
- * never from the task's worktree, and Salesforce is asked which org that is before anything goes: a
+ * Where it goes is read from the project's settings in the main checkout, or committed on the environment's
+ * branch (origin's copy first), never from the task's worktree, and Salesforce is asked which org that is before anything goes: a
  * production org is refused whatever the settings say. Two builders on one org take turns, with a lock per
  * org (by its username) beside the heavy-check slots, and a builder whose changed files another task in
  * flight also changes stops and waits until that task merges or is set aside, never deploying over its
@@ -11,19 +11,19 @@
  * person's everywhere else: a protected org, production, an environment-specific file, a deletion, and
  * `acc deploy` after a merge.
  */
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Config, type Environment, loadConfig, parseConfig } from './config.ts';
+import type { Environment } from './config.ts';
 import { DEPLOY_GATE } from './deploy-commands.ts';
 import type { RunResult } from './exec.ts';
 import { type ApexTest, deployProblems, type Exec, type Gate, type GateInput, type GateRunInfo, lastLine, listed, listLines, type Outcome, outcome, packageDirs, parseDeployJson, under } from './gates.ts';
 import { mutate, readLedger } from './ledger.ts';
 import { parseOrgUrl } from './onboarding/helpers.ts';
 import { inFlightFilesStrict, overlaps, sharedFiles, sharesWords, taskList, waitWords } from './overlap.ts';
-import { mainCheckout, type RepoPaths, samePath } from './paths.ts';
+import type { RepoPaths } from './paths.ts';
 import { readReceipt, satisfies } from './receipts.ts';
 import { heavyDir, withSlot } from './semaphore.ts';
 import { sfComponent } from './sf-metadata.ts';
+import { trustedSettings } from './trusted-settings.ts';
 import type { TestCounts } from './test-counts.ts';
 import { plural } from './text.ts';
 
@@ -67,67 +67,6 @@ export function deployGateArgs(org: string, source: string[], tests: ApexTest[])
     '--test-level', tests.length ? 'RunSpecifiedTests' : 'NoTestRun',
     ...tests.flatMap((t) => ['--tests', t.name]),
   ];
-}
-
-// ---------------------------------------------------------------- where it goes, as the project says
-
-/** The project's settings as a deploy trusts them, where they were read, and a reader for a file beside them. */
-export interface TrustedSettings {
-  config: Config;
-  /** Where they came from, as a person reads it. */
-  from: string;
-  /** A file's text from the same place, by its path from the repo's root, or null when it isn't there. */
-  read: (rel: string) => string | null;
-}
-
-/**
- * The project's settings as a deploy trusts them (D-T-115): the main checkout's file when this run is in
- * a worktree, else the environment branch's committed copy, this clone's first and origin's after it.
- * Never this checkout's own file, which a builder could point at another org or unprotect. A problem says
- * why none could be read.
- */
-export function trustedSettings(run: Pick<GateRunInfo, 'paths' | 'runner'>, env: Pick<Environment, 'branch'>): TrustedSettings | { problem: string } {
-  const { paths, runner } = run;
-  let main: string;
-  try {
-    main = mainCheckout(runner, paths.root);
-  } catch (e) {
-    return { problem: (e as Error).message };
-  }
-  if (!samePath(main, paths.root)) {
-    try {
-      const { config } = loadConfig(join(main, '.acc', 'config.json'));
-      const read = (rel: string): string | null => {
-        try {
-          return readFileSync(join(main, rel), 'utf8');
-        } catch {
-          return null;
-        }
-      };
-      return { config, from: `the main checkout's settings (${main})`, read };
-    } catch (e) {
-      return { problem: `Couldn't read the project's settings from the main checkout, ${main}: ${(e as Error).message}` };
-    }
-  }
-  const show = (ref: string, rel: string): RunResult => runner('git', ['show', `${ref}:${rel}`], { cwd: paths.root });
-  const tried: string[] = [];
-  for (const ref of [`refs/heads/${env.branch}`, `refs/remotes/origin/${env.branch}`]) {
-    const r = show(ref, '.acc/config.json');
-    if (r.code !== 0) {
-      tried.push(ref);
-      continue;
-    }
-    let raw: unknown;
-    try {
-      raw = JSON.parse(r.stdout);
-    } catch (e) {
-      return { problem: `${ref}'s .acc/config.json isn't valid JSON: ${(e as Error).message}` };
-    }
-    const parsed = parseConfig(raw);
-    if (!parsed.config) return { problem: `${ref}'s .acc/config.json has problems: ${parsed.errors.join('; ')}` };
-    return { config: parsed.config, from: `${env.branch}'s committed settings (${ref})`, read: (rel) => { const f = show(ref, rel); return f.code === 0 ? f.stdout : null; } };
-  }
-  return { problem: `Couldn't read the project's settings from ${tried.join(' or ')}. A deploy reads where it goes from the main checkout, or from the environment's branch, never from this checkout's own .acc/config.json.` };
 }
 
 // ---------------------------------------------------------------- which org that is, as Salesforce says
@@ -243,9 +182,9 @@ export function readApexRun(r: RunResult, names: string[]): { tests: DeployTests
 /**
  * Where an org's deploys take turns: a one-slot folder beside the heavy-check slots, named for the org's
  * username (never its alias, which any settings file can give any org). In acc's own slot folder, which no
- * environment variable moves: a builder's run can't choose another and dodge the lock.
+ * environment variable and no caller moves: a builder's run can't choose another and dodge the lock.
  */
-export const orgLockDir = (orgKey: string, base: string = heavyDir({})): string => join(base, 'orgs', orgKey.replace(/[^\w.-]+/g, '_'));
+export const orgLockDir = (orgKey: string): string => join(heavyDir({}), 'orgs', orgKey.replace(/[^\w.-]+/g, '_'));
 
 /** Keeps a deploy on its task (D-T-115), so the ticket's Changes say "Deployed to <org>". Nothing without a task. */
 export function recordDeploy(paths: RepoPaths, now: () => Date, task: string | undefined, deploy: TaskDeploy): TaskDeploy | null {
@@ -296,7 +235,7 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Enviro
     return fail(`${waitWords(shares)}. Deploying now would put this branch's copy over ${who}'s work in ${org}. Wait until ${who} ${shares.length === 1 ? 'merges or is' : 'merge or are'} set aside, then run acc gate run deploy again. If that's long, block and say so: acc block "Waiting to deploy: ${sharesWords(shares)}"`, { ...orgDetails, waitsFor: shares });
   }
   const owner = { what: `Deploy to ${org}`, ...(run.task ? { task: run.task } : {}), env: env.branch, project: input.config.project, cwd: input.root };
-  const lock = { dir: orgLockDir(shown.username, run.slots?.dir), slots: 1, owner, onWait: run.onWait, ...(run.slots?.timeoutMs !== undefined ? { timeoutMs: run.slots.timeoutMs } : {}), ...(run.slots?.pollMs !== undefined ? { pollMs: run.slots.pollMs } : {}) };
+  const lock = { dir: orgLockDir(shown.username), slots: 1, owner, onWait: run.onWait, ...(run.slots?.timeoutMs !== undefined ? { timeoutMs: run.slots.timeoutMs } : {}), ...(run.slots?.pollMs !== undefined ? { pollMs: run.slots.pollMs } : {}) };
   return withSlot(() => {
     const r = exec('sf', deployGateArgs(org, source, tests));
     let read: DeployJson;
