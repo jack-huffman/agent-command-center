@@ -290,12 +290,22 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Enviro
   }, lock);
 }
 
+/**
+ * Why a builder's own run mustn't deploy to the environment it names, or null when it may: a task deploys only
+ * to its own environment, the one it builds from and lands on, never one chosen with --env (D-T-115).
+ */
+export function deployEnvProblem(task: { id: string; environment: string } | null, env: { name: string; branch: string }): string | null {
+  if (!task) return null;
+  return task.environment === env.branch ? null
+    : `${task.id} builds on ${task.environment}, so it deploys only to that environment's org, never to ${env.name}. Nothing was deployed.`;
+}
+
 /** Where the deploy gate runs, said by the skip every other run records (D-T-115). */
 export const DEPLOY_ELSEWHERE = 'the task\'s own worktree, on its branch, with acc gate run deploy';
 
 /**
- * The gate. A run that isn't the builder's own (a refresh, a verify, a cloud collect's isn't, the merge
- * queue) skips, saying where it runs: the skip satisfies that run, never acc done. The builder's own run
+ * The gate. A run that isn't the builder's own (a refresh, a verify, the merge queue) skips; a cloud collect
+ * is the task's own run, and deploys. One that isn't saying where it runs: the skip satisfies that run, never acc done. The builder's own run
  * decides without deploying where it mustn't: settings it can't read, no org, a protected or production
  * environment, an environment-specific file, a deletion, Apex without its tests, an uncommitted tree, or
  * validate not passed on this commit.

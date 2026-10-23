@@ -3,7 +3,7 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, drift, FLOORS_FILE, fullGates, gatesFor, gateTarget, loadConfig, mainCheckout, mutate, num, ratchetOf, readFloors, readLedger,
+  AccError, type ApexTest, autoMergeFor, builderGatesFor, type Config, deployEnvProblem, drift, FLOORS_FILE, fullGates, gatesFor, gateTarget, loadConfig, mainCheckout, mutate, num, ratchetOf, readFloors, readLedger,
   pruneRelaxed, receiptsAt, relaxFloor, type RepoPaths, requiredGates, run, runGates, satisfies, setBuilderGates, setRequiredGates, STRAY_FILES, type Task, testsText, valueOf, waiveGates,
 } from '../../../core/src/index.ts';
 import { gateLabel, table, tone } from '../format.ts';
@@ -53,8 +53,14 @@ function cmdGateRun(o: Opts, names: string[]): number {
   pruneRelaxes(paths);
   // A task's own worktree, on its branch, is the one place a floor is raised and a deploy goes (D-T-115).
   const own = raisesHere(paths.root, config, branch, task);
+  // A task deploys only to its own environment, never one named with --env (D-T-115): that run fails.
+  const wrongEnv = own ? deployEnvProblem(task, env) : null;
+  if (wrongEnv && (!names.length || names.includes('deploy'))) {
+    process.stderr.write(tone(`✗ ${wrongEnv}`, 'orange') + '\n');
+    return 1;
+  }
   const r = runGates(paths, config, env, names, apexTests(o), {
-    run, now, ...(task ? { task: task.id } : {}), raise: own, deploys: own,
+    run, now, ...(task ? { task: task.id } : {}), raise: own, deploys: own && !wrongEnv,
     onStart: (g) => say(tone(`  … ${g.name}${g.heavy ? ' (heavy)' : ''}`, 'dim')),
     onWait: (g) => say(tone(`  … ${g.name} is waiting for another heavy check on this machine${g.name === 'deploy' ? ', or another deploy to the org,' : ''} to finish`, 'dim')),
   });

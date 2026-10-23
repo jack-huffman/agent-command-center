@@ -102,6 +102,7 @@ test('acc, sf or git behind a PATH, SF_*, GIT_* or NODE_OPTIONS assignment is re
     ['PATH=/tmp/bin:$PATH acc gate run deploy', 'acc', 'PATH'],
     ['PATH=/x nice -n 15 /opt/acc/bin/acc done --landed "x"', 'acc', 'PATH'],
     ['NODE_OPTIONS=--require=/tmp/x.js acc gate run', 'acc', 'NODE_OPTIONS'],
+    ['HOME=/tmp/elsewhere acc gate run deploy', 'acc', 'HOME'],
     ['SF_TARGET_ORG=prod sf project deploy start --dry-run', 'sf', 'SF_TARGET_ORG'],
     ['SFDX_INSTANCE_URL=https://x sfdx force:source:retrieve', 'sfdx', 'SFDX_INSTANCE_URL'],
     ['GIT_DIR=/elsewhere git commit -m x', 'git', 'GIT_DIR'],

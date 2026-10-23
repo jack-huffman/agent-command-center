@@ -114,7 +114,7 @@ const isAcc = (cmd: string | undefined): boolean => !!cmd && cmd.split('/').pop(
  * another program by the name; SF_* and SFDX_* point sf at another org or login; GIT_* points git at
  * another repository or runs a program for it; NODE_OPTIONS loads code into acc before it runs.
  */
-const STEERING = /^(PATH|SF_\w*|SFDX_\w*|GIT_\w*|NODE_OPTIONS)$/;
+const STEERING = /^(PATH|HOME|SF_\w*|SFDX_\w*|GIT_\w*|NODE_OPTIONS)$/;
 /** The programs an assignment steers: acc, by name or path; sf and sfdx; git. */
 const steered = (cmd: string | undefined): string | null => (isAcc(cmd) ? 'acc' : isSalesforceCli(cmd) ? cmd.split('/').pop()! : cmd === 'git' ? 'git' : null);
 /** The names the assignments among a command's own words set: `export PATH=/x`, or `PATH=/x` alone. */

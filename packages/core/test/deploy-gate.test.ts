@@ -844,3 +844,11 @@ test('acc deploy sends a file whose latest deploy, by a task set aside, left oth
   assert.equal(left.deployed, false);
   assert.match(left.summary, /^Nothing's left to deploy to Dev: T-1 deployed 1 file itself/);
 });
+
+test('edge case: a builder deploys only to its own task\'s environment, never one named with --env', async () => {
+  const { deployEnvProblem } = await import('../src/deploy-gate.ts');
+  const task = { id: 'ACME-7', environment: 'dev' };
+  assert.equal(deployEnvProblem(task, { name: 'Dev', branch: 'dev' }), null, 'its own environment');
+  assert.match(deployEnvProblem(task, { name: 'UAT', branch: 'uat' }) ?? '', /ACME-7 builds on dev, so it deploys only to that environment's org, never to UAT\. Nothing was deployed\./);
+  assert.equal(deployEnvProblem(null, { name: 'UAT', branch: 'uat' }), null, 'no task: not a builder\'s own run, which skips anyway');
+});
