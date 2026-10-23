@@ -7416,17 +7416,17 @@ function parseCriteriaTicket(text3) {
   } catch {
     throw new AccError("usage", "The ticket file isn't JSON.");
   }
-  const str = (v) => typeof v === "string";
-  if (!x2 || !str(x2.key) || !str(x2.title) || !str(x2.markdown) || !Array.isArray(x2.comments) || !Array.isArray(x2.related)) {
+  const str2 = (v) => typeof v === "string";
+  if (!x2 || !str2(x2.key) || !str2(x2.title) || !str2(x2.markdown) || !Array.isArray(x2.comments) || !Array.isArray(x2.related)) {
     throw new AccError("usage", "The ticket file needs a key, a title, a markdown description, comments and related tickets.");
   }
   return {
     key: x2.key,
     title: x2.title,
-    url: str(x2.url) ? x2.url : null,
+    url: str2(x2.url) ? x2.url : null,
     markdown: clipText(x2.markdown, CRITERIA_TEXT_MAX),
-    comments: x2.comments.filter((c) => str(c?.markdown)).slice(-CRITERIA_COMMENTS_MAX).map((c) => ({ author: str(c.author) ? c.author : "Someone", created: str(c.created) ? c.created : "", markdown: clipText(c.markdown, COMMENT_MAX) })),
-    related: x2.related.filter((r) => str(r?.key)).map((r) => ({ key: r.key, title: str(r.title) ? r.title : "", relation: str(r.relation) ? r.relation : "related" })),
+    comments: x2.comments.filter((c) => str2(c?.markdown)).slice(-CRITERIA_COMMENTS_MAX).map((c) => ({ author: str2(c.author) ? c.author : "Someone", created: str2(c.created) ? c.created : "", markdown: clipText(c.markdown, COMMENT_MAX) })),
+    related: x2.related.filter((r) => str2(r?.key)).map((r) => ({ key: r.key, title: str2(r.title) ? r.title : "", relation: str2(r.relation) ? r.relation : "related" })),
     full: true
   };
 }
@@ -7644,25 +7644,25 @@ function parsePlanTicket(text3, task) {
   } catch {
     throw new AccError("usage", "The ticket file isn't JSON.");
   }
-  const str = (v) => typeof v === "string";
-  if (!isObj(x2) || !str(x2.key)) throw new AccError("usage", "The ticket file needs a key.");
+  const str2 = (v) => typeof v === "string";
+  if (!isObj(x2) || !str2(x2.key)) throw new AccError("usage", "The ticket file needs a key.");
   if (x2.key.toUpperCase() !== (task.source.key ?? task.id).toUpperCase()) throw new AccError("usage", `The ticket file is for ${x2.key}, not ${task.source.key ?? task.id}.`);
-  if (str(x2.unread)) return descriptionOnly(task, x2.unread.trim() || NOT_HANDED);
-  if (!str(x2.title) || !str(x2.markdown) || !Array.isArray(x2.comments) || !Array.isArray(x2.related)) {
+  if (str2(x2.unread)) return descriptionOnly(task, x2.unread.trim() || NOT_HANDED);
+  if (!str2(x2.title) || !str2(x2.markdown) || !Array.isArray(x2.comments) || !Array.isArray(x2.related)) {
     throw new AccError("usage", "The ticket file needs a key, a title, a markdown description, comments and related tickets, or why it wasn't read.");
   }
-  const comments = x2.comments.filter((c) => isObj(c) && str(c.markdown)).map((c) => ({ author: str(c.author) ? c.author : "Someone", created: str(c.created) ? c.created : "", markdown: c.markdown }));
+  const comments = x2.comments.filter((c) => isObj(c) && str2(c.markdown)).map((c) => ({ author: str2(c.author) ? c.author : "Someone", created: str2(c.created) ? c.created : "", markdown: c.markdown }));
   const fit = fitComments(comments);
-  const changes = isObj(x2.changes) && str(x2.changes.name) && str(x2.changes.markdown) && x2.changes.markdown.trim() ? { name: x2.changes.name, markdown: clipText(x2.changes.markdown, CRITERIA_TEXT_MAX) } : null;
+  const changes = isObj(x2.changes) && str2(x2.changes.name) && str2(x2.changes.markdown) && x2.changes.markdown.trim() ? { name: x2.changes.name, markdown: clipText(x2.changes.markdown, CRITERIA_TEXT_MAX) } : null;
   return {
     key: x2.key,
     title: x2.title,
-    url: str(x2.url) ? x2.url : null,
+    url: str2(x2.url) ? x2.url : null,
     markdown: clipText(x2.markdown, CRITERIA_TEXT_MAX),
     comments: fit.comments,
     omitted: fit.omitted + (typeof x2.omitted === "number" && x2.omitted > 0 ? Math.floor(x2.omitted) : 0),
-    related: x2.related.filter((r) => isObj(r) && str(r.key)).map((r) => ({ key: r.key, title: str(r.title) ? r.title : "", relation: str(r.relation) ? r.relation : "related", state: str(r.state) ? r.state : null })),
-    attachments: Array.isArray(x2.attachments) ? x2.attachments.filter(str) : [],
+    related: x2.related.filter((r) => isObj(r) && str2(r.key)).map((r) => ({ key: r.key, title: str2(r.title) ? r.title : "", relation: str2(r.relation) ? r.relation : "related", state: str2(r.state) ? r.state : null })),
+    attachments: Array.isArray(x2.attachments) ? x2.attachments.filter(str2) : [],
     changes,
     full: true,
     why: null
@@ -7735,6 +7735,47 @@ function readPlanTicket(paths, task) {
   }
 }
 
+// packages/core/src/talk-questions.ts
+var QUESTIONS_MAX = 3;
+var OPTIONS_MIN = 2;
+var OPTIONS_MAX = 3;
+var REPLY_WORDS = 80;
+var QUESTIONS_SCHEMA = {
+  type: "array",
+  maxItems: QUESTIONS_MAX,
+  description: `At most ${QUESTIONS_MAX} questions for the person, the ones that change the plan most, each asked on its own. Fold what you are unsure of into them. Empty when you have none`,
+  items: {
+    type: "object",
+    additionalProperties: false,
+    required: ["question", "why", "options"],
+    properties: {
+      question: { type: "string", description: "The question, in one sentence" },
+      why: { type: "string", description: "Why it matters to the plan, in one short line" },
+      options: { type: "array", minItems: OPTIONS_MIN, maxItems: OPTIONS_MAX, items: { type: "string" }, description: `${OPTIONS_MIN} to ${OPTIONS_MAX} short answers the person can pick, a few words each. Your suggestion first. Offer the ${OPTIONS_MAX} answers that matter most, never a long list: the person writes their own if more exist` }
+    }
+  }
+};
+var REPLY_RULES = [
+  `Keep your reply's own words to at most about ${REPLY_WORDS} words. No lists of questions in it.`,
+  `Ask each question as a question item, with ${OPTIONS_MIN} to ${OPTIONS_MAX} short answers, your suggestion first: the ${OPTIONS_MAX} that matter most, never a long list. If more exist, the person writes their own. At most ${QUESTIONS_MAX}, and only the ones that change the plan most.`,
+  "Do not list what you are unsure of apart: fold it into your questions."
+].join("\n");
+var str = (v) => typeof v === "string" ? v.trim() : "";
+function parseQuestions(v) {
+  const out3 = [];
+  for (const q2 of Array.isArray(v) ? v : []) {
+    const question = str(q2?.question);
+    if (!question) continue;
+    const options = [...new Set((Array.isArray(q2?.options) ? q2.options : []).map(str).filter(Boolean))].slice(0, OPTIONS_MAX);
+    out3.push({ question, why: str(q2?.why), options: options.length >= OPTIONS_MIN ? options : [] });
+    if (out3.length === QUESTIONS_MAX) break;
+  }
+  return out3;
+}
+var askOfWords = (question) => ({ question, why: "", options: [] });
+var turnQuestions = (t) => t.questions ?? (t.asks ?? []).map(askOfWords);
+var askedLine = (q2) => `  - Asked: ${q2.question}${q2.options.length ? ` (offered: ${q2.options.join("; ")})` : ""}`;
+
 // packages/core/src/plan-talk.ts
 var TALK_MAX = 4e3;
 var TALK_SESSION_VAR = "ACC_PLAN_TALK";
@@ -7789,9 +7830,9 @@ function quoteOf(a2, ref) {
 var TALK_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["reply", "proposals"],
+  required: ["reply", "proposals", "questions"],
   properties: {
-    reply: { type: "string", description: "Your answer to the person, in plain words. Say what you read in the code or the org to answer it" },
+    reply: { type: "string", description: "Your answer to the person, in plain words. Say what you read in the code or the org to answer it. At most about 80 words, and no questions" },
     proposals: {
       type: "array",
       description: "Each change to the plan you suggest, which the person can use with one click. Empty when you suggest none",
@@ -7808,7 +7849,8 @@ var TALK_SCHEMA = {
           why: { type: "string", description: "Why, in one sentence" }
         }
       }
-    }
+    },
+    questions: QUESTIONS_SCHEMA
   }
 };
 var TALK_SYSTEM = [
@@ -7816,6 +7858,7 @@ var TALK_SYSTEM = [
   "Answer from the code, and on Salesforce from the org: read again what you need, and say what you read. Never guess.",
   "You can't change anything: no edits, no writes, no deploys, and never the plan itself. When you suggest a change to the plan, give it as a proposal. The person uses it or not. Never say a change is made.",
   "Agree when they are right, and say so plainly when they are not, with the reason.",
+  REPLY_RULES,
   "Be concrete and brief: names, files, numbers. No filler."
 ].join("\n");
 function standing(a2) {
@@ -7839,7 +7882,7 @@ function talkPrompt(a2, text3, about) {
     text3.trim(),
     "",
     ...standing(a2),
-    "Answer them. Give each change you suggest to the plan as a proposal, using the ids above."
+    "Answer them. Give each change you suggest to the plan as a proposal, using the ids above, and each question as a question item."
   ].join("\n");
 }
 function parseTalkReply(stdout, a2) {
@@ -7851,27 +7894,27 @@ function parseTalkReply(stdout, a2) {
   }
   const s = r.structured_output;
   if (r.is_error || !s || typeof s.reply !== "string" || !s.reply.trim()) throw new AccError("talk", `The planning agent didn't reply (${r.subtype ?? "no result"}): ${String(r.result ?? "").slice(0, 300)}`);
-  const str = (v) => typeof v === "string" ? v.trim() : "";
+  const str2 = (v) => typeof v === "string" ? v.trim() : "";
   const proposals = [];
   for (const p of Array.isArray(s.proposals) ? s.proposals : []) {
-    const kind = str(p?.kind);
-    const text3 = str(p?.text);
-    const why = str(p?.why);
-    const d = a2.decisions?.find((x2) => x2.id === str(p?.decision).toLowerCase());
+    const kind = str2(p?.kind);
+    const text3 = str2(p?.text);
+    const why = str2(p?.why);
+    const d = a2.decisions?.find((x2) => x2.id === str2(p?.decision).toLowerCase());
     const next = { id: `p${proposals.length + 1}`, why };
     if (kind === "choose") {
-      const o = d?.options.find((x2) => x2.name.toLowerCase() === str(p.option).toLowerCase() || x2.id === str(p.option).toLowerCase());
+      const o = d?.options.find((x2) => x2.name.toLowerCase() === str2(p.option).toLowerCase() || x2.id === str2(p.option).toLowerCase());
       if (d && o) proposals.push({ ...next, kind, decision: d.id, option: o.name, text: "" });
     } else if (kind === "own") {
       if (d && text3) proposals.push({ ...next, kind, decision: d.id, text: text3 });
     } else if (kind === "answer") {
-      const q2 = a2.questions.find((x2) => x2.id === str(p.question).toLowerCase());
+      const q2 = a2.questions.find((x2) => x2.id === str2(p.question).toLowerCase());
       if (q2 && text3) proposals.push({ ...next, kind, question: q2.id, text: text3 });
     } else if (kind === "note" && text3) {
       proposals.push({ ...next, kind, text: text3 });
     }
   }
-  return { reply: s.reply.trim(), proposals, sessionId: typeof r.session_id === "string" ? r.session_id : null, costUsd: typeof r.total_cost_usd === "number" ? r.total_cost_usd : null };
+  return { reply: s.reply.trim(), proposals, questions: parseQuestions(s.questions), sessionId: typeof r.session_id === "string" ? r.session_id : null, costUsd: typeof r.total_cost_usd === "number" ? r.total_cost_usd : null };
 }
 function talkSession(a2, t) {
   const v = planVersion(a2);
@@ -7945,7 +7988,12 @@ function talkPlan(paths, config, id, message2, ref, deps, by) {
   } catch (e) {
     return fail3(e.message);
   }
-  steps2.done("talk", parsed.proposals.length ? `It proposes ${parsed.proposals.length} change${parsed.proposals.length === 1 ? "" : "s"}` : "It replied");
+  const asked = parsed.questions.length;
+  const said2 = [
+    parsed.proposals.length ? `proposes ${parsed.proposals.length} change${parsed.proposals.length === 1 ? "" : "s"}` : "",
+    asked ? `asks ${asked} question${asked === 1 ? "" : "s"}` : ""
+  ].filter(Boolean);
+  steps2.done("talk", said2.length ? `It ${said2.join(" and ")}` : "It replied");
   const reply = steps2.step("save", "Keep the reply", () => addTurn(paths, id, {
     who: "agent",
     by: a2.name ?? `analyst:${id}`,
@@ -7953,6 +8001,7 @@ function talkPlan(paths, config, id, message2, ref, deps, by) {
     version: v,
     text: parsed.reply,
     proposals: parsed.proposals,
+    questions: parsed.questions,
     sessionId: parsed.sessionId ?? session,
     costUsd: parsed.costUsd
   }));
@@ -8026,7 +8075,8 @@ function talkLines(t, a2) {
   return t.turns.flatMap((x2) => [
     `- ${who[x2.who]} (${x2.version ? `v${x2.version}` : "before the plan"})${x2.about ? `, about ${x2.about.kind} ${x2.about.ref} "${x2.about.text}"` : ""}: ${x2.text}`,
     ...(x2.proposals ?? []).map((p) => `  - Proposed: ${proposalWords(p, a2)}${p.used ? " (the person used it)" : " (not used)"}`),
-    ...(x2.recorded ?? []).map((r) => `  - Recorded: ${r}`)
+    ...(x2.recorded ?? []).map((r) => `  - Recorded: ${r}`),
+    ...x2.who === "agent" ? turnQuestions(x2).map(askedLine) : []
   ]);
 }
 function talkSection(paths, id, previous) {
@@ -8116,22 +8166,21 @@ function openInClaude(paths, config, id, by, now2, uuid = randomUUID2) {
 // packages/core/src/plan-opening.ts
 var OPENING_VERSION = 0;
 var OPENING_ASK = "What do you want to do here, and what are you thinking?";
-var OPENING_QUESTIONS_MAX = 3;
 var isOpening = (t) => t.version === OPENING_VERSION;
 var openingTurns = (t) => t.turns.filter(isOpening);
 var OPENING_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["understood", "unsure", "questions"],
+  required: ["understood", "questions"],
   properties: {
-    understood: { type: "string", description: "What you understood the person wants, from the ticket and their words, in plain words. Brief" },
-    unsure: { type: "array", items: { type: "string" }, description: "What you are unsure of, a line each. Empty when nothing" },
-    questions: { type: "array", maxItems: OPENING_QUESTIONS_MAX, items: { type: "string" }, description: `At most ${OPENING_QUESTIONS_MAX} questions for the person, the ones that change the plan most. Empty when you have none` }
+    understood: { type: "string", description: "What you understood the person wants, from the ticket and their words, in plain words. At most about 80 words, and no questions" },
+    questions: QUESTIONS_SCHEMA
   }
 };
 var OPENING_SYSTEM = [
   "You will plan this ticket. Before you investigate, the person who decides says what they want to do and what they are thinking.",
-  "Show what you understood from the ticket and their words, say what you are unsure of, and ask at most three questions: only the ones that change the plan most.",
+  "Show what you understood from the ticket and their words, and ask your questions.",
+  REPLY_RULES,
   "Do not investigate in depth yet: read the ticket, and look at the code or the org only to understand their words. The plan comes next, in this same session.",
   "You can't change anything: no edits, no writes, no deploys.",
   "Be concrete and brief: names, files, numbers. No filler."
@@ -8141,7 +8190,7 @@ function openingPrompt(task, text3, ticket) {
     ...ticket ? [`# ${task.id}: ${task.title}`, "", ...ticketLines(ticket), `# ${OPENING_ASK}`, ""] : ["# The person says", ""],
     text3.trim(),
     "",
-    "Answer them: what you understood, what you are unsure of, and your questions, if any."
+    "Answer them: what you understood, briefly, and your questions, if any."
   ].join("\n");
 }
 function parseOpeningReply(stdout) {
@@ -8153,11 +8202,9 @@ function parseOpeningReply(stdout) {
   }
   const s = r.structured_output;
   if (r.is_error || !s || typeof s.understood !== "string" || !s.understood.trim()) throw new AccError("talk", `The planning agent didn't reply (${r.subtype ?? "no result"}): ${String(r.result ?? "").slice(0, 300)}`);
-  const lines = (v) => Array.isArray(v) ? v.filter((x2) => typeof x2 === "string").map((x2) => x2.trim()).filter(Boolean) : [];
   return {
     understood: s.understood.trim(),
-    unsure: lines(s.unsure),
-    questions: lines(s.questions).slice(0, OPENING_QUESTIONS_MAX),
+    questions: parseQuestions(s.questions),
     sessionId: typeof r.session_id === "string" ? r.session_id : null,
     costUsd: typeof r.total_cost_usd === "number" ? r.total_cost_usd : null
   };
@@ -8175,7 +8222,7 @@ function openingSection(t) {
   return [
     "## What the person said before the plan",
     "",
-    ...said2.flatMap((x2) => x2.who === "you" ? [`- The person: ${x2.text}`] : [`- You (the planning agent): ${x2.text}`, ...(x2.unsure ?? []).map((u) => `  - Unsure: ${u}`), ...(x2.asks ?? []).map((q2) => `  - Asked: ${q2}`)]),
+    ...said2.flatMap((x2) => x2.who === "you" ? [`- The person: ${x2.text}`] : [`- You (the planning agent): ${x2.text}`, ...(x2.unsure ?? []).map((u) => `  - Unsure: ${u}`), ...turnQuestions(x2).map(askedLine)]),
     "",
     `This is what the person is thinking: ground the plan in it. Where a choice or a recommendation rests on what they said, name it in that choice's why or because, starting "You said: " with their words.`,
     ""
@@ -8252,8 +8299,7 @@ function startPlan(paths, config, id, message2, deps, by, ticket = null) {
     at: now2().toISOString(),
     version: OPENING_VERSION,
     text: parsed.understood,
-    unsure: parsed.unsure,
-    asks: parsed.questions,
+    questions: parsed.questions,
     sessionId: parsed.sessionId ?? session,
     costUsd: parsed.costUsd
   }));
@@ -8733,7 +8779,7 @@ var ANALYSIS_SCHEMA = {
     },
     decisions: {
       type: "array",
-      description: "Each design choice a reviewer would want a person to make, with two or three options. A small task may have none",
+      description: "Each design choice a reviewer would want a person to make, with two or three options: the three that matter most, never a long list. A small task may have none",
       items: {
         type: "object",
         additionalProperties: false,
@@ -8883,7 +8929,7 @@ function analysisPrompt(i) {
     "- Decide the approach: the steps, the files, any refactor the task needs first and why, the risks, and the tests that prove it.",
     "- Ask only what a person must decide: business rules, priorities, trade-offs. Never ask what you could find out yourself. Give each question your suggested answer.",
     "- Say who can answer each question: you (the person who runs the build) for priorities and how to build it, or author (who wrote the ticket, such as a client) for a business rule only they know.",
-    "- Name every design choice a reviewer would want a person to make, as a decision with two or three options: for example, a custom object or field history tracking, a record-triggered flow or Apex, where existing data comes from. Never hide a choice inside the approach: the approach follows the option you recommend. Give honest cons for each option, the one you recommend too. A small task may have no decisions.",
+    "- Name every design choice a reviewer would want a person to make, as a decision with two or three options (the three that matter most, never a long list: the person can always write their own): for example, a custom object or field history tracking, a record-triggered flow or Apex, where existing data comes from. Never hide a choice inside the approach: the approach follows the option you recommend. Give honest cons for each option, the one you recommend too. A small task may have no decisions.",
     "- If it is too big for one task (more than a few days), say split and list the smaller tasks.",
     SHAPE_PROMPT,
     ...sf2 ? ["", "For a Salesforce project, also cover:", ...SALESFORCE_FOCUS.map((f) => `- ${f}`), "", ...SALESFORCE_COOKBOOK] : [],
@@ -11155,13 +11201,13 @@ function parseHookInput(text3) {
     return null;
   }
   if (!x2 || typeof x2 !== "object") return null;
-  const str = (v) => typeof v === "string" && v.length > 0;
-  if (!str(x2.session_id) || !str(x2.cwd) || !str(x2.tool_name) || !x2.tool_input || typeof x2.tool_input !== "object") return null;
+  const str2 = (v) => typeof v === "string" && v.length > 0;
+  if (!str2(x2.session_id) || !str2(x2.cwd) || !str2(x2.tool_name) || !x2.tool_input || typeof x2.tool_input !== "object") return null;
   return {
     hook_event_name: String(x2.hook_event_name ?? ""),
     session_id: x2.session_id,
     cwd: x2.cwd,
-    transcript_path: str(x2.transcript_path) ? x2.transcript_path : void 0,
+    transcript_path: str2(x2.transcript_path) ? x2.transcript_path : void 0,
     tool_name: x2.tool_name,
     tool_input: x2.tool_input,
     permission_suggestions: Array.isArray(x2.permission_suggestions) ? x2.permission_suggestions : []
@@ -18486,7 +18532,7 @@ import { readFileSync as readFileSync45, realpathSync as realpathSync6 } from "n
 import { dirname as dirname16 } from "node:path";
 
 // package.json
-var package_default = { version: "0.45.0" };
+var package_default = { version: "0.46.0" };
 
 // packages/cli/src/shared.ts
 var VERSION = package_default.version;
@@ -20332,8 +20378,8 @@ var area12 = {
 
 // packages/cli/src/commands/plan-talk.ts
 var TALK_HELP = `  acc plan start <id> "<message>"       Start a plan with a conversation, before it is made: say what you want and
-                                        what you're thinking; the planning agent says what it understood, what it's
-                                        unsure of, and asks at most three questions. --ticket <file> as for analyze
+                                        what you're thinking; the planning agent says what it understood, and asks
+                                        at most three questions, each with answers. --ticket <file> as for analyze
   acc plan talk <id> "<message>"        Talk the plan through: the planning agent replies from the code (and the
                                         org), read-only. --about d1, d1.a, s2, r1 or q1 quotes what it's about
   acc plan use <id> <turn> <proposal>   Use a change the planning agent proposed: a choice, an answer or a note,
@@ -20341,6 +20387,10 @@ var TALK_HELP = `  acc plan start <id> "<message>"       Start a plan with a con
   acc plan note <id> "<text>"           Add a note to the plan, such as a changed step. --yes on an approved plan
   acc plan claude <id>                  How to open the plan in Claude Code, in plan mode, with the ticket, the
                                         plan and the conversation so far`;
+var questionLines = (reply) => turnQuestions(reply).flatMap((q2, i) => [
+  tone(`  ${i + 1}. ${q2.question}`, "blue"),
+  ...q2.options.map((x2, k2) => tone(`     ${String.fromCharCode(97 + k2)}) ${x2}${k2 === 0 ? " (suggested)" : ""}`, "dim"))
+]);
 var TALK_SUBCOMMANDS = ["start", "talk", "use", "note", "claude"];
 function recordedHere(root, id, line) {
   const { paths } = project(root);
@@ -20355,13 +20405,13 @@ function cmdStart(o, id, message2) {
   const kept = text3 !== null ? readLedger(paths.ledger).tasks.find((t) => t.id === task) : void 0;
   const ticket = text3 !== null && kept ? parsePlanTicket(text3, kept) : null;
   const { reply } = startPlan(paths, config, task, message2, { run, now, env: process.env, accCommand: accCommand(), steps: steps() }, by, ticket);
-  const n = reply.asks?.length ?? 0;
+  const n = turnQuestions(reply).length;
   steps().result(true, n ? `The planning agent replied, and asks ${n} question${n === 1 ? "" : "s"}.` : "The planning agent replied.");
   out(o, () => [
     tone(OPENING_ASK, "dim"),
     reply.text,
     ...(reply.unsure ?? []).map((u) => tone(`  Unsure: ${u}`, "dim")),
-    ...(reply.asks ?? []).map((q2) => tone(`  ${q2}`, "blue")),
+    ...questionLines(reply),
     tone(`Answer with acc plan start ${task} "\u2026", or make the plan with acc analyze ${task}.`, "dim")
   ].join("\n"), reply);
   return 0;
@@ -20377,7 +20427,8 @@ function cmdTalk(o, id, message2) {
   steps().result(true, n ? `The planning agent replied, and proposes ${n} change${n === 1 ? "" : "s"}.` : "The planning agent replied.");
   out(o, () => [
     reply.text,
-    ...(reply.proposals ?? []).map((p) => tone(`  ${reply.id}.${p.id} ${proposalWords(p, a2)}${p.why ? `: ${p.why}` : ""}. Use it with acc plan use ${task} ${reply.id} ${p.id}.`, "blue"))
+    ...(reply.proposals ?? []).map((p) => tone(`  ${reply.id}.${p.id} ${proposalWords(p, a2)}${p.why ? `: ${p.why}` : ""}. Use it with acc plan use ${task} ${reply.id} ${p.id}.`, "blue")),
+    ...questionLines(reply)
   ].join("\n"), reply);
   return 0;
 }
