@@ -1,11 +1,10 @@
 import { existsSync } from 'node:fs';
 import { type Config, type Environment, environmentByBranch, fullGates } from './config.ts';
-import { mainCheckout } from './dispatch.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
 import { type Gate, type GateResult, listed, priorTests, runGates } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { type Actor, mutate, readLedger, type Task } from './ledger.ts';
-import { type RepoPaths, repoPaths, samePath } from './paths.ts';
+import { mainCheckout, type RepoPaths, repoPaths, samePath } from './paths.ts';
 import { FLOORS_FILE, mergeFloors } from './ratchets.ts';
 import { satisfies } from './receipts.ts';
 import type { SlotOptions } from './semaphore.ts';

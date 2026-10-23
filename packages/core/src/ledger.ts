@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { writeAtomic } from './atomic.ts';
 import { releaseAwake } from './awake.ts';
 import type { KeptChanges } from './changes.ts';
+import type { TaskDeploy } from './deploy-gate.ts';
 import { autoMergeFor, type BuilderPlace, type Config, defaultEnvironment, environmentByBranch, type Effort, type GateScope } from './config.ts';
 import type { EffortPick } from './efforts.ts';
 import { AccError } from './exec.ts';
@@ -352,6 +353,8 @@ export interface Task {
   shapeFrom?: ShapeFrom | null;
   /** What its work changed, kept when it merges (T-99), so its page shows it after its branch is gone. */
   changes?: KeptChanges | null;
+  /** Each deploy its builder made to its environment's org (D-T-115), oldest first, so its page says "Deployed to <org>". */
+  deploys?: TaskDeploy[];
   /** Its changes outside git, such as records (T-100): kept, noted commands, and the steps to make them at promotion. */
   outside?: OutsideState;
   history: HistoryEntry[];
@@ -632,8 +635,12 @@ export interface MoveRequest {
 }
 
 export interface Hooks {
-  /** Required checks that have no passing receipt on the task's current commit: a builder's, unless it says the merge's (GH-73). */
-  missingGates(task: Task, scope?: GateScope): string[];
+  /**
+   * Required checks that have no passing receipt on the task's current commit: a builder's, unless it says
+   * the merge's (GH-73). `own` asks for the task's own run on that very commit where a gate runs elsewhere
+   * (D-T-115), as a builder's acc done does; land, merge and review take its run on a commit before.
+   */
+  missingGates(task: Task, scope?: GateScope, opts?: { own?: boolean }): string[];
 }
 
 export const noGateHooks: Hooks = { missingGates: () => [] };
@@ -716,7 +723,8 @@ export function checkMove(ledger: Ledger, config: Config, task: Task, req: MoveR
       else if (env.protected) problems.push(`"${env.name}" is protected. Agents never work on it directly.`);
     }
     if (r === 'gatesPassed') {
-      const missing = hooks.missingGates(task);
+      // A builder's acc done needs the task's own deploy on this commit (D-T-115); a person's move takes one before it.
+      const missing = hooks.missingGates(task, 'builder', { own: req.actor === 'builder' });
       if (missing.length) problems.push(`These required checks haven't passed on the current commit: ${missing.join(', ')}. Commit everything, then run: acc gate run`);
     }
     if (r === 'note' && req.actor === 'builder') problems.push(...noteProblems(req.note, true));

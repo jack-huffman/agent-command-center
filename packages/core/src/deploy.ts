@@ -7,6 +7,7 @@ import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from '.
 import { listed, listLines, niced, packageDirs, under } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { readLedger, type Task } from './ledger.ts';
+import { taskList } from './overlap.ts';
 import type { RepoPaths } from './paths.ts';
 import { envByName } from './promote.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
@@ -40,6 +41,8 @@ export interface DeployPlan {
   files: string[];
   deleted: string[];
   leftOut: string[];
+  /** Files a task's own deploy already put in the org, at the content the branch has (D-T-115), so they aren't sent again. */
+  deployedBy: { path: string; task: string }[];
   testLevel: 'NoTestRun' | 'RunLocalTests';
   /** A protected org: the deploy needs a person's confirmation. */
   confirm: boolean;
@@ -53,6 +56,14 @@ export function lastDeploy(paths: RepoPaths, env: string): DeployRecord | null {
   } catch {
     return null;
   }
+}
+
+/** Where an environment's branch got to in its org, written whole: a temp file beside it, then a rename. */
+export function writeDeployRecord(paths: RepoPaths, record: DeployRecord): void {
+  const file = deployRecordPath(paths, record.env);
+  mkdirSync(join(paths.stateDir, 'deploys'), { recursive: true });
+  writeFileSync(`${file}.tmp`, JSON.stringify(record, null, 2) + '\n');
+  renameSync(`${file}.tmp`, file);
 }
 
 const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
@@ -101,18 +112,51 @@ function deployChanges(paths: RepoPaths, config: Config, run: Runner, env: Envir
     }
   })();
   const specific = config.environmentSpecific ? listLines(show(config.environmentSpecific).stdout) : [];
+  const already = deployedByTasks(paths, run, env, head);
   const files: string[] = [];
   const deleted: string[] = [];
   const leftOut: string[] = [];
+  const deployedBy: DeployPlan['deployedBy'] = [];
   for (let i = 0; i + 1 < parts.length; i += 2) {
     const [status, f] = [parts[i]!, parts[i + 1]!];
     if (!under([f], dirs).length) continue;
     if (listed(f, specific)) leftOut.push(f);
     else if (status.startsWith('D')) deleted.push(f);
+    else if (already.has(f)) deployedBy.push({ path: f, task: already.get(f)! });
     else files.push(f);
   }
   const apex = files.some((f) => /\.(cls|trigger)(-meta\.xml)?$/.test(f));
-  return { env, org: env.org!, base, head, files, deleted, leftOut, testLevel: apex && !opts.noTests ? 'RunLocalTests' : 'NoTestRun', confirm: env.protected };
+  return { env, org: env.org!, base, head, files, deleted, leftOut, deployedBy, testLevel: apex && !opts.noTests ? 'RunLocalTests' : 'NoTestRun', confirm: env.protected };
+}
+
+/**
+ * The files the environment's org already has from a task's own deploy (D-T-115): each path whose latest
+ * deploy to this environment, across every task and by its time, put the content the branch's head has
+ * now, by git's blob id, with the task that deployed it. Only a path's latest deploy counts: the org holds
+ * what went last, so a path another task deployed later at other content goes again, as does one changed
+ * since. Each path's blobs are read once, for that latest deploy, not once an older deploy too.
+ */
+export function deployedByTasks(paths: RepoPaths, run: Runner, env: Pick<Environment, 'branch'>, head: string): Map<string, string> {
+  const blob = (sha: string, path: string): string | null => {
+    const r = git(run, paths.root, 'rev-parse', '--verify', '--quiet', `${sha}:${path}`);
+    return r.code === 0 ? r.stdout.trim() : null;
+  };
+  const latest = new Map<string, { task: string; sha: string; at: string }>();
+  for (const t of readLedger(paths.ledger).tasks) {
+    for (const d of t.deploys ?? []) {
+      if (d.env !== env.branch) continue;
+      for (const p of d.paths) {
+        const have = latest.get(p);
+        if (!have || d.at > have.at) latest.set(p, { task: t.id, sha: d.sha, at: d.at });
+      }
+    }
+  }
+  const out = new Map<string, string>();
+  for (const [p, d] of latest) {
+    const then = blob(d.sha, p);
+    if (then && then === blob(head, p)) out.set(p, d.task);
+  }
+  return out;
 }
 
 export interface DeployResult {
@@ -157,7 +201,15 @@ function deployNow(paths: RepoPaths, config: Config, envName: string, deps: Depl
   const { run, now } = deps;
   const steps = deps.steps ?? NO_STEPS;
   const plan = planDeploy(paths, config, envName, deps, opts);
-  if (!plan.files.length && !plan.deleted.length) return { plan, deployed: false, jobId: null, summary: `${plan.env.name} already has ${plan.env.branch} at ${plan.head.slice(0, 7)}.`, updates: [] };
+  if (!plan.files.length && !plan.deleted.length) {
+    // Its tasks deployed themselves (D-T-115): nothing's left to send, and the record moves on so the next deploy starts here.
+    if (plan.deployedBy.length) {
+      const by = taskList([...new Set(plan.deployedBy.map((d) => d.task))]);
+      steps.step('record', 'Record the deploy', () => writeDeployRecord(paths, { env: plan.env.branch, org: plan.org, sha: plan.head, at: now().toISOString(), by: opts.by, jobId: null, files: 0 }));
+      return { plan, deployed: false, jobId: null, summary: `Nothing's left to deploy to ${plan.env.name}: ${by} deployed ${plural(plan.deployedBy.length, 'file')} ${plan.deployedBy.length === 1 ? 'itself' : 'themselves'}, and ${plan.env.name} now counts as at ${plan.head.slice(0, 7)}.`, updates: [] };
+    }
+    return { plan, deployed: false, jobId: null, summary: `${plan.env.name} already has ${plan.env.branch} at ${plan.head.slice(0, 7)}.`, updates: [] };
+  }
   steps.step('ready', `Check it can go to ${plan.env.name}`, () => {
     if (plan.deleted.length) {
       throw new AccError('refused', `${plan.deleted.length} file(s) were deleted on ${plan.env.branch} since the last deploy (${plan.deleted.slice(0, 5).join(', ')}${plan.deleted.length > 5 ? ', …' : ''}). acc doesn't deploy deletions; remove them from the org by hand, or with a destructive-changes manifest.`);
@@ -191,13 +243,7 @@ function deployNow(paths: RepoPaths, config: Config, envName: string, deps: Depl
       return { plan, deployed: false, jobId, summary: `The deploy to ${plan.env.name} failed${jobId ? ` (job ${jobId})` : ''}: ${why}`, updates: [] };
     }
     steps.done('deploy', jobId ? `Job ${jobId}` : undefined);
-    steps.step('record', 'Record the deploy', () => {
-      const record: DeployRecord = { env: plan.env.branch, org: plan.org, sha: plan.head, at: now().toISOString(), by: opts.by, jobId, files: plan.files.length };
-      const file = deployRecordPath(paths, plan.env.branch);
-      mkdirSync(join(paths.stateDir, 'deploys'), { recursive: true });
-      writeFileSync(`${file}.tmp`, JSON.stringify(record, null, 2) + '\n');
-      renameSync(`${file}.tmp`, file);
-    });
+    steps.step('record', 'Record the deploy', () => writeDeployRecord(paths, { env: plan.env.branch, org: plan.org, sha: plan.head, at: now().toISOString(), by: opts.by, jobId, files: plan.files.length }));
     // Each ticket whose change went can hear so, once a person posts it. acc posts nothing (D-066).
     steps.start('updates', 'Draft the tickets\' updates');
     const updates: DeployResult['updates'] = [];

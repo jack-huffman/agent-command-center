@@ -3,7 +3,7 @@
  * lists them, such as a pinned browser its screenshot check draws with. The core names no project's
  * tools (D-003): a project that lists none skips the step.
  */
-import { mainCheckout } from '../dispatch.ts';
+import { mainCheckout } from '../paths.ts';
 import { fail, pass, skip } from './helpers.ts';
 import type { Step } from './types.ts';
 

@@ -36,7 +36,13 @@ export function sampleChangesTicket(now: number, which: ChangesSample): TicketMo
       `${D}/escalationRules/Case.escalationRules-meta.xml`, `${D}/classes/CaseRouting.cls`, `${D}/classes/CaseRouting.cls-meta.xml`, `${D}/classes/CaseRoutingTest.cls`,
       `${D}/objects/Case/fields/Tier__c.field-meta.xml`, `${D}/permissionsets/Support_Agent.permissionset-meta.xml`,
     ];
-    return { ...m, changes: ticketChanges({ task: { id: 'ACME-12', state: 'running' }, profile: 'salesforce', planned: ESCALATION_PLAN, live }) };
+    // Its builder deployed to the build org (D-T-115): every component listed there, and the routing tests passed in the org.
+    const deploys = [{
+      env: 'dev', org: 'Acme Dev', sha: 'b4d2c0ffee0000000000000000000000000000ab', at: new Date(now - 12 * MIN).toISOString(), jobId: '0AfKj000002Hx1pKAC',
+      paths: live, components: ['Escalation Rules: Case', 'Apex Class: CaseRouting', 'Apex Class: CaseRoutingTest', 'Custom Field: Case.Tier__c', 'Permission Set: Support_Agent'], verified: 5,
+      tests: { names: ['CaseRoutingTest'], outcome: 'pass' as const, ran: 4, failed: 0, coverage: '91%' },
+    }];
+    return { ...m, changes: ticketChanges({ task: { id: 'ACME-12', state: 'running', deploys }, profile: 'salesforce', planned: ESCALATION_PLAN, live }) };
   }
   // ACME-20 merged into dev: done, its branch gone, what it changed kept with it.
   const m = sampleTicket(now, 'ACME-20');

@@ -7,7 +7,7 @@ import { type Config, parseConfig } from '../src/config.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { displayState, mutate, type PullRequest, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { readReceipt, writeReceipt } from '../src/receipts.ts';
+import { countsForDone, readReceipt, satisfies, writeReceipt } from '../src/receipts.ts';
 import { FLOORS_FILE, formatFloors, relaxFloor } from '../src/ratchets.ts';
 import { appendOnlyMerge, CheckFailure, checkCommit, mergeBaseIn, MergeConflict, mergePlace, refresh } from '../src/refresh.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
@@ -303,6 +303,11 @@ test('on Salesforce, the merge is validated with the Apex tests the branch\'s la
   assert.equal(deploy.length, 1);
   assert.match(deploy[0]!, new RegExp(`--source-dir ${SUM_CLS} --test-level RunSpecifiedTests --tests SumTest$`));
   assert.deepEqual(readReceipt(s.paths, r.sha!, 'validate')?.details?.tests, [{ name: 'SumTest', reason: 'covers Sum' }], 'and the merge commit\'s receipt names them, for the next refresh');
+  // The deploy isn't the refresh's to run (D-T-115): its skip satisfies the refresh, and never acc done on a task that never deployed.
+  const deployed = readReceipt(s.paths, r.sha!, 'deploy')!;
+  assert.equal(deployed.status, 'skip');
+  assert.match(deployed.elsewhere!, /the task's own worktree, on its branch, with acc gate run deploy/);
+  assert.ok(satisfies(deployed) && !countsForDone(deployed), 'the refresh passes; acc done still waits for the builder\'s own deploy');
 });
 
 test('it won\'t merge into a worktree with changes, one that\'s gone, or a branch GitHub has commits for', () => {

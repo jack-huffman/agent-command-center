@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { run } from '../src/exec.ts';
-import { commandsOf, expands, guardBash, shortPacket } from '../src/hooks.ts';
+import { commandsOf, expands, rawCommandsOf, stripLeading } from '../src/command-words.ts';
+import { guardBash, shortPacket } from '../src/hooks.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import { builderSettings } from '../src/packet.ts';
@@ -92,6 +93,35 @@ test('commands are read through quotes, chains and wrappers, the way the shell w
   assert.deepEqual(commandsOf('FOO=1 nice -n 15 npm test'), [['npm', 'test']]);
   assert.deepEqual(commandsOf("echo 'git push'"), [['echo', 'git push']], 'a quoted mention isn\'t a push');
   assert.deepEqual(commandsOf('(cd x; git push)'), [['cd', 'x'], ['git', 'push']]);
+});
+
+test('acc, sf or git behind a PATH, SF_*, GIT_* or NODE_OPTIONS assignment is refused, as is one set alone or exported for them on the line; an assignment that steers nothing isn\'t (D-T-115)', () => {
+  const b = { task: { id: 'T-1', run: { branch: 'task/T-1-a' } } } as never;
+  // Before the command, in each form the shell takes: a wrapper between, a path to acc, sfdx, a chain.
+  for (const [line, program, name] of [
+    ['PATH=/tmp/bin:$PATH acc gate run deploy', 'acc', 'PATH'],
+    ['PATH=/x nice -n 15 /opt/acc/bin/acc done --landed "x"', 'acc', 'PATH'],
+    ['NODE_OPTIONS=--require=/tmp/x.js acc gate run', 'acc', 'NODE_OPTIONS'],
+    ['SF_TARGET_ORG=prod sf project deploy start --dry-run', 'sf', 'SF_TARGET_ORG'],
+    ['SFDX_INSTANCE_URL=https://x sfdx force:source:retrieve', 'sfdx', 'SFDX_INSTANCE_URL'],
+    ['GIT_DIR=/elsewhere git commit -m x', 'git', 'GIT_DIR'],
+    ['env GIT_SSH_COMMAND=sh git fetch origin', 'git', 'GIT_SSH_COMMAND'],
+    ['npm test && SF_ORG=prod sf org display', 'sf', 'SF_ORG'],
+  ] as const) {
+    assert.match(guardBash(b, line)!, new RegExp(`^Run ${program} plainly, without ${name}= before it: an assignment of PATH, SF_\\*, GIT_\\* or NODE_OPTIONS changes which program runs`), line);
+  }
+  // Set alone, or exported, and used by a later command on the line.
+  assert.match(guardBash(b, 'PATH=/tmp/bin; acc gate run deploy')!, /^Don't set PATH on a line that runs acc:/);
+  assert.match(guardBash(b, 'export SF_TARGET_ORG=prod && sf project retrieve start')!, /^Don't set SF_TARGET_ORG on a line that runs sf:/);
+  assert.match(guardBash(b, 'export GIT_DIR=/x NODE_OPTIONS=y\ngit status; acc team')!, /^Don't set GIT_DIR on a line that runs git, acc:/);
+  // An assignment that steers nothing, one before a program these rules don't guard, and a set with no such command after it.
+  for (const line of ['FOO=1 nice -n 15 git status', 'CI=1 acc gate run', 'PATH=/x npm test', 'PATH=/x', 'export PATH=/x', 'export PATH', 'SF_TARGET_ORG=prod echo hi', 'echo PATH=/x && git status']) assert.equal(guardBash(b, line), null, line);
+  // The parser underneath: the raw split keeps the assignments, and the stripper names them.
+  assert.deepEqual(rawCommandsOf('PATH=/x nice -n 15 acc done; FOO=1'), [['PATH=/x', 'nice', '-n', '15', 'acc', 'done'], ['FOO=1']]);
+  assert.deepEqual(stripLeading(['PATH=/x', 'A=b', 'nice', '-n', '15', 'acc', 'done']), { assigned: ['PATH', 'A'], words: ['acc', 'done'] });
+  assert.deepEqual(stripLeading(['FOO=1']), { assigned: ['FOO'], words: [] }, 'an assignment alone runs nothing');
+  assert.deepEqual(stripLeading([]), { assigned: [], words: [] }, 'no words at all');
+  assert.deepEqual(commandsOf('PATH=/x nice -n 15 acc done; FOO=1'), [['acc', 'done']], 'commandsOf strips, as before');
 });
 
 test('the short instructions give the finish command word for word, and a note the shell would expand is refused (D-106)', () => {

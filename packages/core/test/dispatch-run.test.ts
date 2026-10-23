@@ -212,7 +212,7 @@ test('Salesforce dispatch points the worktree at the environment\'s org', () => 
   const r = acc(repo, ['dispatch', 'T-1', '--without-analysis', '--json'], env);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(JSON.parse(readFileSync(join(r.json().worktree, '.sf', 'config.json'), 'utf8')), { 'target-org': 'Acme Dev' });
-  assert.match(readFileSync(r.json().packetPath, 'utf8'), /validate, never deploy/);
+  assert.match(readFileSync(r.json().packetPath, 'utf8'), /validate, then deploy, through acc only/);
 });
 
 test('cleanup keeps a worktree with uncommitted or unmerged work, and removes it once merged', () => {

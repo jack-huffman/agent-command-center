@@ -1,6 +1,7 @@
 // The builder's packet and its session's settings: what acc writes into a task's worktree when it dispatches it.
 
 import { autoMergeFor, builderGatesFor, type Config, type Environment, fullGates, requiredGates } from './config.ts';
+import { HAND_DEPLOY_DENIES } from './deploy-commands.ts';
 import { DONE_COMMAND, NOTE_LIMITS, noteMarkdown, type Task } from './ledger.ts';
 import { permissionHook } from './questions.ts';
 import { type Analysis, analysisSection } from './analyze.ts';
@@ -204,8 +205,9 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
   );
   if (sf) {
     lines.push(
-      '- **Salesforce:** validate, never deploy. `acc gate run validate` proves a change with a check-only deploy to the org; nothing is saved. Real deploys happen after a person merges.',
-      '- **Tests:** if you change Apex, name the test classes that cover it and why each is the right one: `acc gate run validate --test <TestClass>="<why>"`, once per class.',
+      '- **Salesforce:** validate, then deploy, through acc only. `acc gate run validate` proves a change with a check-only deploy to the org; nothing is saved. `acc gate run deploy` then deploys your change to the build org, checks each component is there, and runs the tests you named in the org: your work isn\'t done until it\'s in the org. Say in your note what\'s in the org and what the tests found.',
+      '- **Taking turns:** deploys to one org go one at a time, and if another task in flight changes a file you changed, deploy stops and names the task and file. Don\'t deploy over its work: run `acc block "Waiting to deploy: <which task and file>"` and stop; once that task merges or is set aside, the deploy goes. Where it goes comes from the project\'s settings, never your worktree\'s copy: don\'t edit anything under `.acc/`.',
+      '- **Tests:** if you change Apex, name the test classes that cover it and why each is the right one: `acc gate run validate --test <TestClass>="<why>"`, once per class. The deploy runs the same tests in the org.',
     );
   }
   lines.push('', '## The finish line', '');
@@ -225,7 +227,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
       lines.push(`   ${ratchets.map((g) => `\`${g}\``).join(', ')} ${ratchets.length === 1 ? 'is a ratchet' : 'are ratchets'}: a number that may only get better. When yours beats its floor, \`acc gate run\` writes the new floor to \`.acc/floors.json\`: commit that file, then run \`acc gate run\` again. Never make the number, or a floor in that file, worse by hand. If this change has to make one worse, block and say why: only a person relaxes a floor.`);
     }
     if (sf) {
-      lines.push('   If you changed Apex, add `--test <TestClass>="<why it covers the change>"` once per test class, for example `acc gate run --test AccountServiceTest="covers the new discount rule"`. Those flags are the only thing to add.');
+      lines.push('   If you changed Apex, add `--test <TestClass>="<why it covers the change>"` once per test class, for example `acc gate run --test AccountServiceTest="covers the new discount rule"`. Those flags are the only thing to add. The run validates, then deploys to the build org, verifies and tests there: `acc done` refuses until deploy passed on your last commit.');
     }
   } else {
     lines.push('2. **Checks:** run the project\'s tests or build if it has them, and report the results.');
@@ -243,7 +245,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
     // Merging the base into this branch is the builder's to do when the merge queue asks (GH-73); a pull request isn't.
     '- push, merge a pull request, or open one (a person, `acc land` and autopilot do that)',
   );
-  if (sf) lines.push('- deploy to any org (`sf project deploy start`)');
+  if (sf) lines.push('- deploy except through `acc gate run deploy`, and never to a protected org: `sf project deploy start` yourself is refused, and `acc deploy` is a person\'s, after the merge');
   lines.push(
     '- edit files outside this worktree, or check out another branch',
     '- change the ticket or the task list, apart from `acc done` and `acc block`',
@@ -284,7 +286,8 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
     'Bash(acc set *)', 'Bash(acc edit*)', 'Bash(acc dispatch *)', 'Bash(acc init*)', 'Bash(acc gate waive*)', 'Bash(acc gate relax*)', 'Bash(acc land*)', 'Bash(acc review*)', 'Bash(acc autopilot*)', 'Bash(acc agents set*)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc agents max*)', 'Bash(acc gate required*)', 'Bash(acc gate builder*)', 'Bash(acc analyze*)', 'Bash(acc analysis answer*)', 'Bash(acc rules import*)', 'Bash(acc rules accept*)', 'Bash(acc rules dismiss*)', 'Bash(acc trackers set*)', 'Bash(acc github use*)', 'Bash(acc tidy add*)', 'Bash(acc tidy skip*)', 'Bash(acc promote*)', 'Bash(acc deploy*)', 'Bash(acc update*)', 'Bash(acc resume*)', 'Bash(acc machine*)', 'Bash(acc sync --close-done*)', 'Bash(acc collect*)', 'Bash(acc cloud*)', 'Bash(acc change step*)',
     // Releases are a person's (D-079): npm run * is allowed above, and deny beats allow.
     'Bash(gh release create*)', 'Bash(gh release upload*)', 'Bash(gh release edit*)', 'Bash(gh release delete*)', 'Bash(npm run release*)', 'Bash(nice -n 15 npm run release*)',
-    ...(sf ? ['Bash(sf project deploy start*)', 'Bash(sf project deploy quick*)', 'Bash(sf org delete *)'] : []),
+    // Every form of a hand deploy, sf's and sfdx's (D-T-115), and deleting an org.
+    ...(sf ? [...HAND_DEPLOY_DENIES, 'Bash(sf org delete *)'] : []),
   ];
   return {
     env: { ACC_TASK: task.id, ACC_ROLE: 'builder', PATH: `${accBinDir}:${basePath}` },

@@ -106,9 +106,9 @@ test('a generic project that requires nothing runs every gate on a bare acc gate
 
 test('the gates: Salesforce built-ins, replaced by name from gates.commands; generic projects have only their commands; both have stray-files (GH-103)', () => {
   const sf = gatesFor(sfConfig({ required: ['format'], commands: { format: 'npm run prettier:verify', extra: 'true' } }));
-  assert.deepEqual(sf.map((g) => g.name), ['stray-files', 'lint', 'static', 'lwc-tests', 'validate', 'format', 'extra']);
+  assert.deepEqual(sf.map((g) => g.name), ['stray-files', 'lint', 'static', 'lwc-tests', 'validate', 'deploy', 'format', 'extra']);
   assert.equal(sf.find((g) => g.name === 'format')!.about, 'npm run prettier:verify');
-  assert.deepEqual(sf.filter((g) => g.heavy).map((g) => g.name), ['static', 'lwc-tests', 'validate']);
+  assert.deepEqual(sf.filter((g) => g.heavy).map((g) => g.name), ['static', 'lwc-tests', 'validate', 'deploy']);
   const generic = gatesFor(config({ ...GENERIC_CONFIG, gates: { commands: { check: 'npm run check', lint: 'true' }, heavy: ['lint'] } }));
   assert.deepEqual(generic.map((g) => [g.name, g.heavy]), [['stray-files', false], ['check', false], ['lint', true]], 'gates.heavy replaces the defaults');
   assert.deepEqual(config({ ...GENERIC_CONFIG }).gates.heavy, ['build', 'test', 'check']);
@@ -173,7 +173,8 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
   const runner = fakeRunner({ [`nice -n 15 ${join(bin, 'prettier')} --check`]: ok('Checking formatting...\nAll matched files use Prettier code style!'), 'nice -n 15 sf project deploy start --dry-run': deployOk }, calls);
 
   const first = runGates(paths, c, dev(c), [], [], { run: runner, now, slots: slots() });
-  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail'], ['stray-files', 'skip']]);
+  assert.deepEqual(first.results.map((r) => [r.gate, r.status]), [['format', 'pass'], ['lint', 'skip'], ['validate', 'fail'], ['deploy', 'skip'], ['stray-files', 'skip']], 'deploy is required beside validate (D-T-115); a run that isn\'t the builder\'s own skips it, saying where it runs');
+  assert.equal(first.results[3]!.elsewhere, 'the task\'s own worktree, on its branch, with acc gate run deploy');
   assert.match(first.results[2]!.summary, /Apex changed .*--test <TestClass>=/);
   assert.ok(!calls.some((l) => l.includes('deploy start')), 'no validation without the tests that cover the Apex');
 
@@ -194,10 +195,10 @@ test('the Salesforce gates decide from the changes, run under nice, and leave re
 
   // acc done looks at the task branch's commit: everything required has passed or didn't apply.
   const task = { run: { branch: 'task/DEV-1-thing' } } as never;
-  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), []);
+  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['deploy'], 'validate passed; the deploy that follows it (D-T-115) hasn\'t');
   write(dir, 'force-app/main/default/classes/Account.cls', 'public class Account {  }\n');
   commitAll(dir, 'again');
-  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['format', 'lint', 'validate', 'stray-files'], 'a new commit needs new receipts');
+  assert.deepEqual(receiptHooks(paths, c, run).missingGates(task), ['format', 'lint', 'validate', 'deploy', 'stray-files'], 'a new commit needs new receipts');
 });
 
 test('prior tests come from the salesforce profile: a commit\'s validate receipt, minus entries that aren\'t tests; none on a generic project', () => {
@@ -219,7 +220,7 @@ test('a missing tool is an error, not a failure, and validate refuses deletions 
   const paths = repoPaths(dir, run);
   const deployOk = ok(JSON.stringify({ status: 0, result: { id: '0Af9', success: true } }));
   const r = runGates(paths, c, dev(c), [], [], { run: fakeRunner({ 'nice -n 15 sf project deploy start': deployOk }), now, slots: slots() });
-  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['format', 'error'], ['lint', 'error'], ['lwc-tests', 'error'], ['validate', 'pass'], ['stray-files', 'pass']]);
+  assert.deepEqual(r.results.map((x) => [x.gate, x.status]), [['format', 'error'], ['lint', 'error'], ['lwc-tests', 'error'], ['validate', 'pass'], ['deploy', 'skip'], ['stray-files', 'pass']], 'a run that isn\'t the builder\'s own skips the deploy (D-T-115)');
   assert.match(r.results[0]!.summary, /prettier isn't installed .*npm install/);
 
   gitIn(dir, 'rm', '-q', 'force-app/main/default/classes/Old.cls');

@@ -29,7 +29,7 @@ test('the packet tells a Salesforce builder where it is, how to finish, and what
   const env = config.environments.find((e) => e.branch === 'dev')!;
   const p = renderPacket({ task: l.tasks[0]!, config, env, worktree: '/w/ACME-7', branch: 'task/ACME-7-add-a-field', rules: 'Use the selector pattern.', environmentSpecific: ['force-app/main/default/settings/MyDomain.settings-meta.xml'] });
   for (const must of ['# Task ACME-7: Add a field', 'Add Region__c to Account.', 'https://x/ACME-7', '`/w/ACME-7`', '`task/ACME-7-add-a-field`', 'started from `dev`', '`Acme Dev`',
-    'validate, never deploy', '`acc done`', '`acc block', '`format`, `validate`', 'push, merge a pull request, or open one', '`sf project deploy start`', 'MyDomain.settings-meta.xml', 'Use the selector pattern.']) {
+    'validate, then deploy, through acc only', '`acc gate run deploy`', '`acc done`', '`acc block', '`format`, `validate`, `deploy`', 'push, merge a pull request, or open one', 'deploy except through `acc gate run deploy`, and never to a protected org', '`sf project deploy start`', 'MyDomain.settings-meta.xml', 'Use the selector pattern.']) {
     assert.ok(p.includes(must), must);
   }
   assert.ok(!p.includes('refs #'), 'Jira tasks don\'t get GitHub refs');
@@ -147,7 +147,7 @@ test('where the merge queue runs the full check, the packet and the short one na
   assert.ok(p.includes('It runs the required checks (`typecheck`, `near-tests`, `stray-files`) on your latest commit'), p);
   assert.ok(p.includes('These are the lighter checks, such as the tests near what you changed. The full check (`check`) runs once, in the merge queue, before your pull request merges'));
   assert.ok(p.includes('- push, merge a pull request, or open one (a person, `acc land` and autopilot do that)'), 'merging the base in isn\'t forbidden');
-  assert.match(shortPacket(task, ['typecheck', 'near-tests'], ['check']), /run exactly `acc gate run` \(typecheck, near-tests\), then finish with your note, all on one line: `acc done --landed .*\nThe full check \(check\) runs once, in the merge queue, before the merge\.\nNever push, merge a pull request, open one, or deploy\./s);
+  assert.match(shortPacket(task, ['typecheck', 'near-tests'], ['check']), /run exactly `acc gate run` \(typecheck, near-tests\), then finish with your note, all on one line: `acc done --landed .*\nThe full check \(check\) runs once, in the merge queue, before the merge\.\nNever push, merge a pull request, or open one\. Never deploy except through `acc gate run deploy`.*never to a protected org\./s);
   // Elsewhere, as before: the required checks, and nothing about a queue.
   const off = parseConfig({ ...raw, autopilot: { autoMerge: false } }).config!;
   const plain = renderPacket({ task, config: off, env, worktree: '/w/GH-73', branch: 'task/GH-73-a-queue', rules: null, environmentSpecific: [] });

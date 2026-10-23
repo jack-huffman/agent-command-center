@@ -244,10 +244,11 @@ export function cloudGuard(run: Runner, root: string, envBranch: string, branch:
 
 /**
  * The checks a cloud builder runs in its session, and those only this Mac can run (GH-69): a gate that
- * needs an org login (Salesforce validate, drift) can't run in the cloud, whose network reaches package
- * registries and GitHub and no org. acc runs those when it collects.
+ * needs an org login (Salesforce validate, deploy, drift) can't run in the cloud, whose network reaches
+ * package registries and GitHub and no org. acc runs those when it collects, on this Mac, in the task's
+ * worktree on its branch: the collect is the task's own run, so the deploy gate deploys from it (D-T-115).
  */
-const ORG_GATES = ['validate', 'drift'];
+const ORG_GATES = ['validate', 'deploy', 'drift'];
 export function cloudChecks(config: Config, env: Environment): { inCloud: string[]; macOnly: string[] } {
   const required = requiredGates(config, env.branch, 'builder');
   const macOnly = required.filter((g) => config.profile === 'salesforce' && ORG_GATES.includes(g));
@@ -455,12 +456,13 @@ export function collect(paths: RepoPaths, config: Config, id: string, deps: Foll
     if (ff.code !== 0) return fail(`git couldn't fast-forward ${branch}: ${(ff.stderr || ff.stdout).trim().split('\n').at(-1)}`);
   }
   // The required checks, on this Mac, in the heavy-check slot, as a refresh runs them (D-058). The cloud's
-  // own runs don't count: receipts vouch for a commit on this machine.
+  // own runs don't count: receipts vouch for a commit on this machine. The collect is the task's own run
+  // here, in its worktree on its branch, so a Salesforce task's deploy goes from it (D-T-115): the cloud has no org.
   const gates = requiredGates(config, envBranch.branch, 'builder');
   let results: GateResult[] = [];
   if (gates.length) {
     try {
-      results = runGates({ ...paths, root: wt }, config, envBranch, gates, priorTests(paths, config, sha), { run, now, slots: deps.slots, task: id }).results;
+      results = runGates({ ...paths, root: wt }, config, envBranch, gates, priorTests(paths, config, sha), { run, now, slots: deps.slots, task: id, deploys: true }).results;
     } catch (e) {
       return fail(`its checks couldn't run: ${(e as Error).message}`);
     }

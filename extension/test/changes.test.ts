@@ -4,8 +4,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import type { TaskDeploy } from '../../packages/core/src/deploy-gate.ts';
 import type { Task } from '../../packages/core/src/ledger.ts';
-import { CHANGE_LOOK, changeSets, type ChangesIn, type TicketChanges, ticketChanges } from '../src/model/changes.ts';
+import { CHANGE_LOOK, changeSets, type ChangesIn, DEPLOY_LOOK, type TicketChanges, ticketChanges, ticketDeploys } from '../src/model/changes.ts';
 import { ticketModel } from '../src/model/task-page.ts';
 import { pageDom, type PageElement } from './page-dom.ts';
 
@@ -138,4 +139,32 @@ test('the screenshot run draws Planned changes, Changes with one outside the pla
     const m = sampleModel(kind as keyof typeof pages) as ReturnType<typeof ticketModel>;
     assert.deepEqual([m.key, m.changes?.title, m.changes?.counts, !!m.changes?.keptAt, marks(m.changes)], want, kind);
   }
+  const flying = sampleModel('ticket-changes') as ReturnType<typeof ticketModel>;
+  assert.deepEqual(flying.changes?.deployed.map((d) => d.org), ['Acme Dev'], 'the in-flight page draws the builder\'s deploy (D-T-115)');
+});
+
+test('a task\'s deploys show under Changes as the latest to each org with what the tests found; none when it hasn\'t deployed, and none from an empty list (D-T-115)', () => {
+  const deploy = (org: string, at: string, tests: TaskDeploy['tests']): TaskDeploy => ({ env: 'dev', org, sha: 'a', at, jobId: '0Af', paths: ['x'], components: ['Apex Class: A', 'Custom Field: B.C__c'], verified: 2, tests });
+  const deploys = [deploy('Acme Dev', '2026-10-23T10:00:00.000Z', null), deploy('Acme Dev', '2026-10-23T11:00:00.000Z', { names: ['ATest'], outcome: 'pass', ran: 2, failed: 0, coverage: '91%' })];
+  const c = ticketChanges(input({ task: task({ state: 'running', deploys }), live: ['src/a.ts'] }))!;
+  assert.deepEqual(c.deployed, [{ org: 'Acme Dev', at: '2026-10-23T11:00:00.000Z', look: { label: 'Deployed to Acme Dev', icon: 'cloud-upload', tone: 'blue' }, words: '2 components, 2 listed in the org · 2 tests passed in the org, 91% coverage' }], 'the look rides on the data, so the page needs no model import');
+  assert.deepEqual(ticketDeploys([deploy('Acme Dev', '2026-10-23T10:00:00.000Z', { names: ['ATest'], outcome: 'fail', ran: 2, failed: 1, coverage: '40%' })])[0]!.words, '2 components, 2 listed in the org · 1 test of 2 failed in the org');
+  assert.deepEqual(ticketChanges(input({ task: task({ state: 'running' }), live: ['src/a.ts'] }))!.deployed, []);
+  assert.deepEqual(ticketChanges(input({ task: task({ state: 'running', deploys: [] }), live: ['src/a.ts'] }))!.deployed, []);
+  assert.deepEqual(ticketChanges(input({ task: task({ state: 'todo', deploys }) }))!.deployed.length, 1, 'a plan-only section carries them too');
+  assert.deepEqual(DEPLOY_LOOK.deployed, { label: 'Deployed to', icon: 'cloud-upload', tone: 'blue' });
+});
+
+test('the page draws "Deployed to <org>" under Changes, with when and what the tests found, and nothing when the task hasn\'t deployed (D-T-115)', async () => {
+  pageDom();
+  const { renderChanges } = await import('../webview/changes.ts');
+  const m = { project: '/r', key: 'T-1' } as never;
+  const deploys: TaskDeploy[] = [{ env: 'dev', org: 'Acme Dev', sha: 'a', at: '2026-10-23T11:00:00.000Z', jobId: '0Af', paths: ['src/a.ts'], components: ['Apex Class: A'], verified: 1, tests: { names: ['ATest'], outcome: 'pass', ran: 2, failed: 0, coverage: '91%' } }];
+  const drawn = renderChanges(m, ticketChanges(input({ task: task({ state: 'running', deploys }), live: ['src/a.ts'] }))!) as unknown as PageElement;
+  const line = drawn.querySelector('.chg-deploy') as PageElement | null;
+  assert.ok(line, 'a deploy line');
+  assert.match(line!.textContent, /^Deployed to Acme Dev.*1 component, 1 listed in the org · 2 tests passed in the org, 91% coverage$/);
+  assert.ok(line!.querySelector('.codicon-cloud-upload'), 'with its icon');
+  const none = renderChanges(m, ticketChanges(input({ task: task({ state: 'running' }), live: ['src/a.ts'] }))!) as unknown as PageElement;
+  assert.equal(none.querySelector('.chg-deploy'), null);
 });
