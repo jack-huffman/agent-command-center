@@ -1,0 +1,16 @@
+{
+  "event": "pre-tool-use",
+  "env": {
+    "ACC_ROLE": "builder",
+    "ACC_TASK": "T-1"
+  },
+  "input": {
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "SF_TARGET_ORG=prod sf project deploy start --dry-run --source-dir force-app"
+    },
+    "hook_event_name": "PreToolUse",
+    "cwd": "{wt}"
+  },
+  "expect": "deny:Run sf plainly, without SF_TARGET_ORG= before it"
+}

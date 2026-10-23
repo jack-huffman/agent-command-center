@@ -37,14 +37,15 @@ function ansiC(line: string, from: number, add: (c: string) => void): number {
 }
 
 /**
- * A command line split into its commands, and each into words, as far as matters for these rules: quotes
- * kept together, separators cut, a `$( )` or backtick read as its own command even inside double quotes
- * (only single quotes are literal), a heredoc's body skipped, bash's `$'…'` read with its escapes decoded
- * (T-88). The command around a substitution stays whole, with SUBSTITUTED where the substitution stood;
- * the substitution's own commands come first. The cloud guard's rawCommandsOf splits the same way (GH-69),
- * and cloud-guard.test.ts keeps the two the same.
+ * A command line split into its commands, and each into words, nothing stripped: quotes kept together,
+ * separators cut, a `$( )` or backtick read as its own command even inside double quotes (only single
+ * quotes are literal), a heredoc's body skipped, bash's `$'…'` read with its escapes decoded (T-88). The
+ * command around a substitution stays whole, with SUBSTITUTED where the substitution stood; the
+ * substitution's own commands come first. The cloud guard's rawCommandsOf splits the same way (GH-69), and
+ * cloud-guard.test.ts keeps the two the same. A leading assignment stays in its command's words, for the
+ * hook to see what it sets (D-T-115); commandsOf strips it.
  */
-export function commandsOf(line: string): string[][] {
+export function rawCommandsOf(line: string): string[][] {
   const out: string[][] = [];
   let words: string[] = [];
   let word = '';
@@ -127,12 +128,36 @@ export function commandsOf(line: string): string[][] {
   // A substitution left open at the end still leaves its command whole: the shell would refuse the line.
   for (let top = stack.pop(); top; top = stack.pop()) if (!top.group) close(top);
   next();
-  // Leading environment assignments and wrappers don't change what runs.
-  return out.map((w) => {
-    let i = 0;
-    while (i < w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[i]!) || ['nice', 'env', 'time', 'command', 'npx', 'sudo'].includes(w[i]!) || (w[i - 1] === 'nice' && /^-n$|^-\d+$/.test(w[i]!)) || (w[i - 2] === 'nice' && w[i - 1] === '-n'))) i++;
-    return w.slice(i);
-  }).filter((w) => w.length);
+  return out;
+}
+
+/** An environment assignment, as the shell reads a leading word: NAME=…, with the name's letters. */
+const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+/** The wrappers that don't change what runs, stripped with the assignments before a command. */
+const WRAPPERS = ['nice', 'env', 'time', 'command', 'npx', 'sudo'];
+
+/**
+ * A command's words with its leading environment assignments and wrappers taken off, as what runs, and
+ * the names those assignments set (D-T-115): `PATH=/x nice -n 15 acc done` runs acc, and sets PATH. A
+ * command of assignments alone runs nothing, and sets them for the shell's next commands.
+ */
+export function stripLeading(w: string[]): { assigned: string[]; words: string[] } {
+  const assigned: string[] = [];
+  let i = 0;
+  while (i < w.length && (ASSIGNMENT.test(w[i]!) || WRAPPERS.includes(w[i]!) || (w[i - 1] === 'nice' && /^-n$|^-\d+$/.test(w[i]!)) || (w[i - 2] === 'nice' && w[i - 1] === '-n'))) {
+    if (ASSIGNMENT.test(w[i]!)) assigned.push(w[i]!.slice(0, w[i]!.indexOf('=')));
+    i++;
+  }
+  return { assigned, words: w.slice(i) };
+}
+
+/**
+ * rawCommandsOf's commands as what runs: leading environment assignments and wrappers stripped, and a
+ * command of assignments alone left out. What the builder's rules read a line as (T-88). The cloud guard's
+ * commandsOf strips the same way (GH-69), and cloud-guard.test.ts keeps the two the same.
+ */
+export function commandsOf(line: string): string[][] {
+  return rawCommandsOf(line).map((w) => stripLeading(w).words).filter((w) => w.length);
 }
 
 /**

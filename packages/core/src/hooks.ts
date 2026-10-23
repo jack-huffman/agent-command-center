@@ -6,9 +6,9 @@
  */
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { commandsOf, expands } from './command-words.ts';
+import { expands, rawCommandsOf, stripLeading } from './command-words.ts';
 import { builderGatesFor, fullGates, loadConfig, requiredGates } from './config.ts';
-import { deploysByHand } from './deploy-commands.ts';
+import { deploysByHand, isSalesforceCli } from './deploy-commands.ts';
 import type { Runner } from './exec.ts';
 import { readList } from './gates.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
@@ -81,6 +81,10 @@ export function guardEdit(b: Builder, filePath: string, envSpecific: string[]): 
   const abs = resolve(b.worktree, filePath);
   if (!under(abs, b.worktree)) return `You're the builder for ${b.task.id}, and your only workspace is ${b.worktree}. ${filePath} is outside it. Make the change in your worktree, or say what you need with acc block.`;
   const rel = relative(real(b.worktree), real(abs)).split(sep).join('/');
+  // The worktree's link to its git directory, or the directory itself (D-022): repointed, its commits would go elsewhere.
+  if (rel === '.git' || rel.startsWith('.git/')) {
+    return `${rel} is git's own, which git and acc keep; a builder never edits it. Use git's commands for what you need, and say with acc block if they aren't enough.`;
+  }
   // The project's settings are a person's (D-T-115): a deploy reads where it goes from the main checkout, never from here.
   if (rel === '.acc' || rel.startsWith('.acc/')) {
     return `${rel} is the project's settings, which a person changes; acc writes the files under .acc/ itself, such as the floors a check raises. Leave it, and say in your note, or with acc block, what should change.`;
@@ -105,9 +109,48 @@ export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'au
 /** Whether a command word is acc: by its name, or its path, as the packet says to use when acc isn't found. */
 const isAcc = (cmd: string | undefined): boolean => !!cmd && cmd.split('/').pop() === 'acc';
 
+/**
+ * An environment variable that changes which acc, sf or git runs, or where it goes (D-T-115): PATH picks
+ * another program by the name; SF_* and SFDX_* point sf at another org or login; GIT_* points git at
+ * another repository or runs a program for it; NODE_OPTIONS loads code into acc before it runs.
+ */
+const STEERING = /^(PATH|SF_\w*|SFDX_\w*|GIT_\w*|NODE_OPTIONS)$/;
+/** The programs an assignment steers: acc, by name or path; sf and sfdx; git. */
+const steered = (cmd: string | undefined): string | null => (isAcc(cmd) ? 'acc' : isSalesforceCli(cmd) ? cmd.split('/').pop()! : cmd === 'git' ? 'git' : null);
+/** The names the assignments among a command's own words set: `export PATH=/x`, or `PATH=/x` alone. */
+const assignedIn = (args: string[]): string[] => args.map((a) => /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(a)?.[1]).filter((n): n is string => !!n);
+
+/**
+ * Why a builder may not run this line for what its environment assignments set, or null (D-T-115): acc,
+ * sf or git behind a PATH, SF_*, SFDX_*, GIT_* or NODE_OPTIONS assignment, which the hook can't follow,
+ * and the same assigned, or exported, on its own for a later command on the line.
+ */
+function guardAssignments(raw: string[][]): string | null {
+  const steers = (names: string[]) => names.filter((n) => STEERING.test(n));
+  const programs = [...new Set(raw.map((w) => steered(stripLeading(w).words[0])).filter((p): p is string => !!p))];
+  for (const w of raw) {
+    const { assigned, words } = stripLeading(w);
+    const [cmd, ...rest] = words;
+    const program = steered(cmd);
+    const before = steers(assigned);
+    if (program && before.length) {
+      return `Run ${program} plainly, without ${before[0]}= before it: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
+    }
+    // Set for the rest of the line: an assignment alone, or an export, with acc, sf or git after it.
+    const kept = !cmd ? before : ['export', 'declare', 'typeset'].includes(cmd ?? '') ? steers(assignedIn(rest)) : [];
+    if (kept.length && programs.length) {
+      return `Don't set ${kept[0]} on a line that runs ${programs.join(', ')}: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
+    }
+  }
+  return null;
+}
+
 /** Why a builder may not run this, or null. Belt and braces with the builder's deny list (D-012). */
 export function guardBash(b: Builder, line: string): string | null {
-  const commands = commandsOf(line);
+  const raw = rawCommandsOf(line);
+  const commands = raw.map((w) => stripLeading(w).words).filter((w) => w.length);
+  const steeredBy = guardAssignments(raw);
+  if (steeredBy) return steeredBy;
   const ending = commands.find(([cmd, sub]) => isAcc(cmd) && (sub === 'done' || sub === 'block'));
   if (ending && expands(line)) {
     // The command it was, quoted back: a block stays a block, so a stuck builder isn't steered into finishing.
