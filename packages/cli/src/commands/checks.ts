@@ -51,10 +51,12 @@ function cmdGateRun(o: Opts, names: string[]): number {
   const { paths, config, env, branch, task } = checkTarget(o);
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   pruneRelaxes(paths);
+  // A task's own worktree, on its branch, is the one place a floor is raised and a deploy goes (D-T-115).
+  const own = raisesHere(paths.root, config, branch, task);
   const r = runGates(paths, config, env, names, apexTests(o), {
-    run, now, ...(task ? { task: task.id } : {}), raise: raisesHere(paths.root, config, branch, task),
+    run, now, ...(task ? { task: task.id } : {}), raise: own, deploys: own,
     onStart: (g) => say(tone(`  … ${g.name}${g.heavy ? ' (heavy)' : ''}`, 'dim')),
-    onWait: (g) => say(tone(`  … ${g.name} is waiting for another heavy check on this machine to finish`, 'dim')),
+    onWait: (g) => say(tone(`  … ${g.name} is waiting for another heavy check on this machine${g.name === 'deploy' ? ', or another deploy to the org,' : ''} to finish`, 'dim')),
   });
   // A raised floor isn't a failure: it's a file to commit (GH-99).
   const bad = r.results.filter((x) => !satisfies(x) && !ratchetOf(x)?.raised);

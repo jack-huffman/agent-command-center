@@ -355,15 +355,26 @@ function unknownKeys(raw: Record<string, unknown>): string[] {
 /** Gates that take the machine-wide slot unless `gates.heavy` says otherwise (D-024). */
 export const DEFAULT_HEAVY: Record<Profile, string[]> = {
   generic: ['build', 'test', 'check'],
-  salesforce: ['static', 'lwc-tests', 'validate'],
+  salesforce: ['static', 'lwc-tests', 'validate', 'deploy'],
 };
 
 /** The gates each profile has built in, by name, so a ratchet can't take one's name (GH-99). gates.ts has them. */
 export const BUILT_IN_GATES: Record<Profile, string[]> = {
   // Every profile has stray-files (GH-103), STRAY_FILES below, so a ratchet can't take its name.
   generic: ['stray-files'],
-  salesforce: ['format', 'lint', 'static', 'lwc-tests', 'validate', 'stray-files'],
+  salesforce: ['format', 'lint', 'static', 'lwc-tests', 'validate', 'deploy', 'stray-files'],
 };
+
+/**
+ * A Salesforce project's required checks, with deploy beside validate (D-T-115): a builder validates, then
+ * deploys to its build org, so wherever validate is required, deploy is too, right after it. A list that
+ * names deploy itself keeps its own order.
+ */
+export function withDeploy(profile: Profile, gates: string[]): string[] {
+  if (profile !== 'salesforce' || gates.includes('deploy') || !gates.includes('validate')) return gates;
+  const at = gates.indexOf('validate');
+  return [...gates.slice(0, at + 1), 'deploy', ...gates.slice(at + 1)];
+}
 
 /** The branch for an environment: its name in lower case (D-015). */
 export function branchFor(name: string): string {
@@ -765,7 +776,7 @@ export function parseConfig(raw: unknown): ParseResult {
       autonomy,
       worktrees: { root: isStr(w.root) ? w.root : null, setup: strList(w.setup) ? w.setup : [] },
       gates: {
-        required: strList(g.required) ? g.required : [],
+        required: withDeploy(profile, strList(g.required) ? g.required : []),
         commands,
         heavy: strList(g.heavy) ? g.heavy : DEFAULT_HEAVY[profile],
         severity: (g.severity as number | undefined) ?? 2,

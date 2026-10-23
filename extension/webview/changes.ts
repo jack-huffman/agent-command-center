@@ -50,6 +50,8 @@ export function renderChanges(m: TicketModel, c: TicketChanges): HTMLElement {
   sec.setAttribute('aria-label', c.title);
   if (c.note) sec.append(el('p', 'muted chg-note', c.note));
   if (c.keptAt && !plan) sec.append(el('p', 'muted small chg-note', 'Kept with the task ', when(c.keptAt), ', so they stay after its branch is gone.'));
+  // Its builder's own deploy to the org (D-T-115): "Deployed to Acme Dev", when, and what the tests found there.
+  for (const d of c.deployed) sec.append(el('p', 'small chg-note chg-deploy', status(d.look), when(d.at), el('span', 'muted', d.words)));
   sec.append(...(plan ? c.planned : c.changed).map(group));
   return sec;
 }

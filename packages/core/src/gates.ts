@@ -1,11 +1,14 @@
 /**
  * Gates: named checks whose results are kept as receipts tied to a commit (DESIGN section 9, D-024).
  * A builder runs them with `acc gate run`; `acc done` accepts the task once every required gate has
- * passed, or didn't apply, on the branch's latest commit. Gates check. They never deploy (D-011).
+ * passed, or didn't apply, on the branch's latest commit. Gates check. Only one deploys: the salesforce
+ * profile's deploy gate, a builder's own deploy to its unprotected build org (D-T-115); every other gate is
+ * refused a real deploy (D-011).
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { type Config, type Environment, fullGates, isTestGate, requiredGates, STRAY_FILES } from './config.ts';
+import { DEPLOY_GATE, deployGate } from './deploy-gate.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { type Ledger, readLedger, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -55,6 +58,25 @@ export interface GateInput {
   git: (args: string[], input?: string) => RunResult;
   /** What a ratchet is held to (GH-99), read when one asks: the floors here and where the branch began, or why they couldn't be. */
   floors?: () => RatchetFloors | { problem: string };
+  /** The run itself, for a gate that locks, looks at the other tasks, or records on its own: the deploy gate (D-T-115). */
+  run?: GateRunInfo;
+}
+
+/** What a run is: where the repo's state lives, which commit and task it's for, and whether it's a builder's own, which may deploy. */
+export interface GateRunInfo {
+  paths: RepoPaths;
+  runner: Runner;
+  sha: string;
+  dirty: boolean;
+  task?: string;
+  slots?: SlotOptions;
+  onWait?: () => void;
+  now: () => Date;
+  /**
+   * Whether this run may deploy (D-T-115): acc gate run in a task's own worktree, on its branch. A refresh, a
+   * verify of a developer's pull request, a cloud collect and the merge queue check without deploying.
+   */
+  deploys: boolean;
 }
 
 export interface Outcome {
@@ -71,7 +93,13 @@ export interface Outcome {
  * What a gate will do: decide without running anything, or run a command and read its result. `tests` says
  * whether the run runs tests where the gate's name doesn't, as validate does when it's given Apex tests.
  */
-export type Plan = { outcome: Outcome } | { cmd: string; args: string[]; read?: (r: RunResult) => Outcome; env?: Record<string, string>; tests?: boolean };
+export type Plan = { outcome: Outcome } | { cmd: string; args: string[]; read?: (r: RunResult) => Outcome; env?: Record<string, string>; tests?: boolean } | StepsPlan;
+
+/** Runs one of a gate's commands: niced, logged, and refused a real deploy unless the gate is the deploy gate. */
+export type Exec = (cmd: string, args: string[], opts?: { timeoutMs?: number }) => RunResult;
+
+/** A gate that runs several commands in turn and reads them itself, through `exec`: the deploy gate (D-T-115). */
+export type StepsPlan = { steps: (exec: Exec) => Outcome; tests?: boolean };
 
 export interface Gate {
   name: string;
@@ -91,6 +119,9 @@ const fail = (summary: string, details?: Record<string, unknown>): Outcome => ({
 const error = (summary: string): Outcome => ({ status: 'error', summary });
 const skip = (summary: string): Outcome => ({ status: 'skip', summary });
 const listOf = (items: string[], max = 3): string => items.slice(0, max).join(', ') + (items.length > max ? ` and ${items.length - max} more` : '');
+
+/** The outcome makers and the list shortener, for a gate in a module of its own (deploy-gate.ts). */
+export const outcome = { pass, fail, error, skip, listOf };
 
 /** The last line of output that says something, as a one-line summary. */
 export function lastLine(text: string): string {
@@ -372,15 +403,29 @@ interface DeployResult {
   details?: { componentFailures?: unknown; runTestResult?: { failures?: unknown; numTestsRun?: unknown; numFailures?: unknown } };
 }
 
+/** Reads an sf command's --json output, which sf prints on stdout whether or not the command worked. An older sf put the result under `data`. */
+export function parseDeployJson<T extends { result?: unknown; data?: unknown }>(r: RunResult): T {
+  const j = parseJsonOutput<T>(r.stdout);
+  return j.result === undefined && j.data !== undefined ? { ...j, result: j.data } : j;
+}
+
+/** What a failed deploy's result names: each component that failed, then each test that failed. */
+export function deployProblems(res: Pick<DeployResult, 'details'> | undefined): string[] {
+  return [
+    ...asList(res?.details?.componentFailures as { fileName?: string; fullName?: string; lineNumber?: number; problem?: string }[]).map((f) => `${f.fileName ?? f.fullName ?? '?'}${f.lineNumber ? `:${f.lineNumber}` : ''}: ${f.problem ?? 'failed'}`),
+    ...asList(res?.details?.runTestResult?.failures as { name?: string; methodName?: string; message?: string }[]).map((f) => `${f.name}.${f.methodName}: ${f.message}`),
+  ];
+}
+
 /** Reads `sf project deploy start --json`, which reports on stdout whether or not the deploy worked. */
 export function readDeploy(r: RunResult, org: string, tests: ApexTest[], sourceCount: number): Outcome {
-  let j: { status?: number; message?: string; result?: DeployResult; data?: DeployResult };
+  let j: { status?: number; message?: string; result?: DeployResult };
   try {
-    j = parseJsonOutput(r.stdout);
+    j = parseDeployJson(r);
   } catch {
     return error(lastLine(r.stderr || r.stdout) || `sf exited with ${r.code} and printed no JSON.`);
   }
-  const res = j.result ?? j.data;
+  const res = j.result;
   if (!res?.id) return error(j.message?.trim() || lastLine(r.stderr) || 'sf returned no deploy result.');
   const details = { jobId: res.id, org, testLevel: tests.length ? 'RunSpecifiedTests' : 'NoTestRun', tests };
   const n = res.numberComponentsTotal ?? sourceCount;
@@ -391,10 +436,7 @@ export function readDeploy(r: RunResult, org: string, tests: ApexTest[], sourceC
     const ran = tests.length ? `, ${plural(res.numberTestsCompleted ?? 0, 'test')} passed` : '';
     return withCounts(pass(`Validated ${plural(n, 'component')} against ${org}${ran}. Nothing was saved (job ${res.id}).`, details));
   }
-  const problems = [
-    ...asList(res.details?.componentFailures as { fileName?: string; fullName?: string; lineNumber?: number; problem?: string }[]).map((f) => `${f.fileName ?? f.fullName ?? '?'}${f.lineNumber ? `:${f.lineNumber}` : ''}: ${f.problem ?? 'failed'}`),
-    ...asList(res.details?.runTestResult?.failures as { name?: string; methodName?: string; message?: string }[]).map((f) => `${f.name}.${f.methodName}: ${f.message}`),
-  ];
+  const problems = deployProblems(res);
   return withCounts(fail(problems.length ? `${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (j.message?.trim() || `The validation ${res.status ?? 'failed'}.`), { ...details, problems }));
 }
 
@@ -419,7 +461,8 @@ const validate: Gate = {
   },
 };
 
-const SALESFORCE_GATES = [format, lint, staticGate, lwcTests, validate];
+/** Read when asked, not at load: deploy-gate.ts imports this module, so its gate is bound only once both have loaded. */
+const SALESFORCE_GATES = (): Gate[] => [format, lint, staticGate, lwcTests, validate, deployGate];
 
 /**
  * The project's gates: every profile's built-in stray-files (GH-103), the profile's own built-ins, then
@@ -431,7 +474,7 @@ export function gatesFor(config: Config): Gate[] {
   const heavy = (name: string) => config.gates.heavy.includes(name);
   const full = fullGates(config);
   const lighter = (name: string) => !!config.gates.builder?.includes(name) && !full.includes(name);
-  const builtIn = [strayFilesGate, ...(config.profile === 'salesforce' ? SALESFORCE_GATES : [])].map((g) => ({ ...g, heavy: heavy(g.name) }));
+  const builtIn = [strayFilesGate, ...(config.profile === 'salesforce' ? SALESFORCE_GATES() : [])].map((g) => ({ ...g, heavy: heavy(g.name) }));
   const custom = Object.entries(config.gates.commands).map(([name, cmd]) => commandGate(name, cmd, heavy(name), lighter(name)));
   const ratchets = Object.entries(config.gates.ratchets ?? {}).map(([name, spec]) => ratchetGate(name, spec, heavy(name)));
   return [...builtIn.filter((g) => !config.gates.commands[g.name]), ...custom, ...ratchets];
@@ -565,6 +608,8 @@ export interface GateRunDeps {
    * a hold here, counts or not, so the queue's next merge of a waived head doesn't stop again (GH-100).
    */
   waivedOn?: string;
+  /** Whether this run may deploy (D-T-115): only acc gate run in a task's own worktree, on its branch, as `raise` is. */
+  deploys?: boolean;
 }
 
 export interface GateRun {
@@ -577,12 +622,15 @@ export interface GateRun {
   raised: { gate: string; label: string; from: number | null; to: number }[];
 }
 
-/** A deploy that isn't check-only never runs from a gate (D-011, D-024). */
-export function assertCheckOnly(cmd: string, args: string[]): void {
+/**
+ * A deploy that isn't check-only never runs from a gate (D-011, D-024), but for the deploy gate's own
+ * `sf project deploy start` (D-T-115): never a quick deploy or a resume, which take a job acc didn't plan.
+ */
+export function assertCheckOnly(cmd: string, args: string[], gate?: string): void {
   const i = args.indexOf('deploy');
-  if (/(^|\/)sf$/.test(cmd) && i >= 0 && args[i + 1] !== 'validate' && !args.includes('--dry-run')) {
-    throw new AccError('refused', `A gate tried to run a real deploy (${[cmd, ...args.slice(0, 4)].join(' ')} …). Gates only validate.`);
-  }
+  if (!/(^|\/)sf$/.test(cmd) || i < 0 || args[i + 1] === 'validate' || args.includes('--dry-run')) return;
+  if (gate === DEPLOY_GATE && args[i + 1] === 'start') return;
+  throw new AccError('refused', `A gate tried to run a real deploy (${[cmd, ...args.slice(0, 4)].join(' ')} …). Gates only validate; the deploy gate alone deploys, with deploy start.`);
 }
 
 export interface SettleCheck {
@@ -677,6 +725,8 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       return { problem: (e as Error).message };
     }
   })());
+  // What the deploy gate needs of the run (D-T-115): the repo's state, the commit, the task, and whether it may deploy at all.
+  const runInfo: GateRunInfo = { paths, runner: deps.run, sha, dirty, ...(deps.task ? { task: deps.task } : {}), ...(deps.slots ? { slots: deps.slots } : {}), now: deps.now, deploys: !!deps.deploys };
   mkdirSync(input.scratch, { recursive: true });
   const carryFrom = carriedFrom(paths, config, deps.run, sha);
 
@@ -702,29 +752,35 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
     }
     deps.onStart?.(gate);
     const started = deps.now();
-    const plan = gate.plan(input);
+    const plan = gate.plan({ ...input, run: { ...runInfo, onWait: () => deps.onWait?.(gate) } });
     let outcome: Outcome;
     let command: string | null = null;
     let log: string | null = null;
     if ('outcome' in plan) {
       outcome = plan.outcome;
     } else {
-      assertCheckOnly(plan.cmd, plan.args);
-      command = shellLine(plan.cmd, plan.args);
-      const [cmd, args] = niced(plan.cmd, plan.args);
-      // sf gets a plain environment, so its --json output stays parseable whatever shell ran acc.
-      const exec = () => deps.run(cmd, args, { cwd: root, timeoutMs: (gate.heavy ? 90 : 20) * 60_000, env: plan.cmd === 'sf' ? sfEnv() : { ...checkEnv(process.env, gate.heavy ? join(input.scratch, 'heavy') : undefined), ...plan.env } });
+      // Each command a gate runs: refused a real deploy but for the deploy gate's own, niced, and logged in turn.
+      const ran: { line: string; r: RunResult }[] = [];
+      const exec: Exec = (cmd, args, o) => {
+        assertCheckOnly(cmd, args, gate.name);
+        const [c, a] = niced(cmd, args);
+        // sf gets a plain environment, so its --json output stays parseable whatever shell ran acc.
+        const r = deps.run(c, a, { cwd: root, timeoutMs: o?.timeoutMs ?? (gate.heavy ? 90 : 20) * 60_000, env: cmd === 'sf' ? sfEnv() : { ...checkEnv(process.env, gate.heavy ? join(input.scratch, 'heavy') : undefined), ...('env' in plan ? plan.env : {}) } });
+        ran.push({ line: shellLine(cmd, args), r });
+        return r;
+      };
       // The slot says what it's for: the Command Center shows which task each heavy check runs for (D-092).
       const owner = { what: gate.name, ...(deps.task ? { task: deps.task } : {}), project: config.project, cwd: root };
-      const r = gate.heavy ? withSlot(exec, { owner, ...deps.slots, onWait: () => deps.onWait?.(gate) }) : exec();
+      const go = 'steps' in plan ? () => plan.steps(exec) : () => (plan.read ?? exitRead)(exec(plan.cmd, plan.args));
+      outcome = gate.heavy ? withSlot(go, { owner, ...deps.slots, onWait: () => deps.onWait?.(gate) }) : go();
+      command = ran[0]?.line ?? null;
       log = join(input.scratch, `${gate.name}.log`);
-      writeFileSync(log, `$ ${command}\n# exit ${r.code}\n\n${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}`);
-      outcome = (plan.read ?? exitRead)(r);
-      // Any gate's output that holds a test summary is counted; a test gate's that doesn't says so (GH-100).
-      const counts = outcome.counts ?? readTestCounts(r.stdout, r.stderr);
+      writeFileSync(log, ran.map(({ line, r }) => `$ ${line}\n# exit ${r.code}\n\n${r.stdout}${r.stderr ? `\n--- stderr ---\n${r.stderr}` : ''}`).join('\n\n'));
+      // Any gate's output that holds a test summary is counted; a test gate's that doesn't says so (GH-100). A gate of several steps counts its own.
+      const counts = outcome.counts ?? ('steps' in plan || !ran[0] ? null : readTestCounts(ran[0].r.stdout, ran[0].r.stderr));
       if (counts) outcome = { ...outcome, counts };
       const compared = !gate.changeBound && !!changes;
-      const earlier = compared && counts && outcome.status === 'pass' ? earlierCounts(paths, deps.run, changes!.base, gate.name, command, sha) : null;
+      const earlier = compared && counts && command && outcome.status === 'pass' ? earlierCounts(paths, deps.run, changes!.base, gate.name, command, sha) : null;
       outcome = settle(outcome, { tests: plan.tests ?? isTestGate(config, gate.name), compared, earlier, env: env.branch });
     }
     const finished = deps.now();

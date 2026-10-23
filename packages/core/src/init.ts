@@ -179,7 +179,7 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
   if (profile === 'salesforce' || !t?.environments) discovered.push('environments');
 
   let settings: Settings = {
-    gates: { required: profile === 'salesforce' ? ['format', 'static', 'validate'] : [], commands: {} },
+    gates: { required: profile === 'salesforce' ? ['format', 'static', 'validate', 'deploy'] : [], commands: {} },
     agents: { max: 3, permissionMode: 'acceptEdits' },
     autonomy: 'manual',
   };

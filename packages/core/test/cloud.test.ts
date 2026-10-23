@@ -122,7 +122,7 @@ test('the fire\'s text wraps the packet: the branch on GitHub, the checks by com
   const l = emptyLedger();
   upsertTasks(l, sf, [{ source: { kind: 'jira', key: 'ACME-7', url: 'https://x/ACME-7' }, title: 'Add a field', brief: 'Add Region__c.' }], 'human', 'h', () => {}, now);
   const checks = cloudChecks(sf, env);
-  assert.deepEqual(checks, { inCloud: ['format'], macOnly: ['validate'] });
+  assert.deepEqual(checks, { inCloud: ['format'], macOnly: ['validate', 'deploy'] }, 'deploy needs an org too (D-T-115): the collect runs it, and it skips there');
   const withStray = cloudChecks(cfg({ ...RAW, strayFiles: { required: true } }), cfg().environments[0]!);
   assert.deepEqual(withStray, { inCloud: ['stray-files'], macOnly: [] }, 'a built-in check runs on the Mac at collect');
   const packet = renderPacket({ task: l.tasks[0]!, config: sf, env, worktree: '/Users/someone/w/ACME-7', branch: 'task/ACME-7-add-a-field', rules: 'Use the selector pattern.', environmentSpecific: [], cloud: true });

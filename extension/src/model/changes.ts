@@ -10,14 +10,40 @@
 import { type ChangeMark, type ChangeRow, planAgainst } from '../../../packages/core/src/changes.ts';
 import { changePlace } from '../../../packages/core/src/changes-field.ts';
 import type { Profile } from '../../../packages/core/src/config.ts';
+import { latestDeploys, type TaskDeploy, testsWords } from '../../../packages/core/src/deploy-gate.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
+import { plural } from '../../../packages/core/src/text.ts';
 import type { Look } from './shared.ts';
+
+/** The task's deploys as the page says them (D-T-115): the latest to each org, with what went and what the tests found. */
+export function ticketDeploys(deploys: TaskDeploy[] | null | undefined): TicketDeploy[] {
+  return latestDeploys(deploys).map((d) => ({
+    org: d.org, at: d.at,
+    look: { ...DEPLOY_LOOK.deployed, label: `${DEPLOY_LOOK.deployed.label} ${d.org}` },
+    words: `${plural(d.components.length, 'component')}, ${d.verified} listed in the org · ${testsWords(d.tests)}`,
+  }));
+}
 
 /** How a change outside the plan, and a planned one not made, show: orange, each with its icon and words. */
 export const CHANGE_LOOK: Record<'unplanned' | 'unmade', Look> = {
   unplanned: { label: 'Not in the plan', icon: 'diff-added', tone: 'orange' },
   unmade: { label: 'Planned, not changed', icon: 'circle-slash', tone: 'orange' },
 };
+
+/** How a builder's own deploy to its org shows under Changes (D-T-115): blue, with the org's name after "Deployed to". */
+export const DEPLOY_LOOK: Record<'deployed', Look> = {
+  deployed: { label: 'Deployed to', icon: 'cloud-upload', tone: 'blue' },
+};
+
+/** One org the task's builder deployed to, its latest deploy there: when, and what it came to, in a few words. */
+export interface TicketDeploy {
+  org: string;
+  at: string;
+  /** DEPLOY_LOOK's, with the org's name: "Deployed to Acme Dev". Carried as data, so the page draws it without the model. */
+  look: Look;
+  /** "6 components, 6 listed in the org · 2 tests passed in the org, 91% coverage". */
+  words: string;
+}
 
 /** One thing changed or planned: a component or a file, the paths it stands for, and its mark, if any. */
 export interface ChangeItem {
@@ -49,12 +75,14 @@ export interface TicketChanges {
   note: string | null;
   /** When the changes shown were kept with the task, for a task whose work merged; else null. */
   keptAt: string | null;
+  /** Each org its builder deployed to (D-T-115), its latest deploy there, newest first; empty when it hasn't. */
+  deployed: TicketDeploy[];
   changed: ChangeGroup[];
   planned: ChangeGroup[];
 }
 
 export interface ChangesIn {
-  task: Pick<Task, 'id' | 'state' | 'changes'>;
+  task: Pick<Task, 'id' | 'state' | 'changes' | 'deploys'>;
   profile: Profile;
   /** The plan's paths (plannedFiles); null with no plan, or one that names none. */
   planned: string[] | null;
@@ -111,7 +139,7 @@ export function ticketChanges(i: ChangesIn): TicketChanges | null {
   const done = i.task.state === 'done';
   const { live, kept, changed } = changedNow(i);
   const planned = filesGroup((i.planned ?? []).map((path) => ({ path, mark: 'planned' })), i.profile);
-  const base = { task: i.task.id, keptAt: !live && kept ? kept.at : null, planned };
+  const base = { task: i.task.id, keptAt: !live && kept ? kept.at : null, planned, deployed: ticketDeploys(i.task.deploys) };
   if (!changed) {
     if (done) return { ...base, title: 'Changes', counts: null, changed: [], note: `It merged before changes were kept with a task, so there's no record of what it changed.${planned.length ? ' Its plan named these.' : ''}` };
     return planned.length ? { ...base, title: 'Planned changes', counts: null, changed: [], note: null } : null;

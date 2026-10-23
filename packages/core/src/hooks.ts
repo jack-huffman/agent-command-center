@@ -275,7 +275,7 @@ export function guardBash(b: Builder, line: string): string | null {
       || (cmd === 'node' && args.some((a) => a.endsWith('scripts/release.mjs')))) return 'Releases are a person\'s: they run npm run release on main, after the merge. Finish with acc done.';
     if (cmd === 'sf' && sub === 'project' && rest[0] === 'deploy') {
       const verb = rest[1];
-      if (verb === 'quick' || verb === 'resume' || (verb === 'start' && !rest.includes('--dry-run'))) return 'Builders validate and never deploy (D-011). Use acc gate run validate, which is a check-only deploy.';
+      if (verb === 'quick' || verb === 'resume' || (verb === 'start' && !rest.includes('--dry-run'))) return 'Builders never deploy by hand (D-011, D-T-115): acc gate run validate checks without saving, and acc gate run deploy deploys your change to the build org, checks it\'s there and runs its tests. Never to a protected org.';
     }
     if (cmd === 'sf' && sub === 'org' && rest[0] === 'delete') return 'Builders never delete an org.';
     // A command is a person's by its name, or by its name and subcommand, such as acc rules import (GH-108)
@@ -385,7 +385,7 @@ export function shortPacket(task: Task, gates: string[], full: string[] = []): s
     `Work only in ${task.run?.worktree}, on ${task.run?.branch}.`,
     `Finish line: commit everything, run exactly \`acc gate run\`${gates.length ? ` (${gates.join(', ')})` : ''}, then finish with your note, all on one line: \`${DONE_COMMAND}\`. Give a flag again for each further line; use double quotes, with no backticks or $ inside. If you're stuck, run \`acc block "<what you need>"\` and stop.`,
     ...(full.length ? [`The full check (${full.join(', ')}) runs once, in the merge queue, before the merge.`] : []),
-    'Never push, merge a pull request, open one, or deploy.',
+    'Never push, merge a pull request, or open one. Never deploy except through `acc gate run deploy` (a Salesforce task\'s own deploy to its build org), and never to a protected org.',
     // Every project's rules (GH-104), which keep parallel work mergeable, in one line.
     'Rules: put new behaviour in its own file, registered with one line where a list names every area; if another task\'s change breaks your build, `acc block` with the reason and don\'t edit its files; write a manifest or config file whole, to a temp file then a rename.',
     // Its team (T-103): what the other builders change now, and taking in a teammate's merge early.

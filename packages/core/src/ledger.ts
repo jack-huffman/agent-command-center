@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { writeAtomic } from './atomic.ts';
 import { releaseAwake } from './awake.ts';
 import type { KeptChanges } from './changes.ts';
+import type { TaskDeploy } from './deploy-gate.ts';
 import { autoMergeFor, type BuilderPlace, type Config, defaultEnvironment, environmentByBranch, type Effort, type GateScope } from './config.ts';
 import type { EffortPick } from './efforts.ts';
 import { AccError } from './exec.ts';
@@ -352,6 +353,8 @@ export interface Task {
   shapeFrom?: ShapeFrom | null;
   /** What its work changed, kept when it merges (T-99), so its page shows it after its branch is gone. */
   changes?: KeptChanges | null;
+  /** Each deploy its builder made to its environment's org (D-T-115), oldest first, so its page says "Deployed to <org>". */
+  deploys?: TaskDeploy[];
   /** Its changes outside git, such as records (T-100): kept, noted commands, and the steps to make them at promotion. */
   outside?: OutsideState;
   history: HistoryEntry[];

@@ -225,7 +225,7 @@ doesn't know, at any level (GH-107).
 | `tidy.every` | How many tasks merge in the repo, after the last tidy-up a person added or skipped, before the Command Center offers a tidy-up task for them to confirm (GH-104). A whole number from 0 to 100; left out, 8; 0 never offers one ([section 12](#12-the-orchestrator-loop)) |
 | `worktrees.root` | Where task worktrees go. The default is `.claude/worktrees/` inside the repo, where a background agent started from the trusted main checkout can enter one without a trust prompt (D-022, [section 7](#7-dispatch)) |
 | `worktrees.setup` | Commands run in each new task worktree, in order, once it's made and `node_modules` is linked in from the main checkout, such as `npm ci`. One that fails stops the dispatch |
-| `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests` and `validate`. `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones. `acc gate required` and `acc gate builder` change the two lists, as Settings does (GH-111). `gates.tests` names the checks that run tests, besides `test` and Salesforce's `lwc-tests`: their receipts count what ran, and one that ran none needs a person (GH-100). `gates.nearIndexes` lists files, by their path from the repo's root, that each gather every code file in their folder for the tests near a change, where the folder's index would otherwise be guessed (D-155) |
+| `gates` | Which checks are required, plus per-check overrides ([section 9](#9-gates-and-receipts)). `gates.required` names the checks a commit needs before review and landing, and `gates.commands` gives each check its command. `gates.heavy` names those that take the machine-wide slot, one at a time across every repo (D-024); left out, `build`, `test` and `check`, or in Salesforce `static`, `lwc-tests`, `validate` and `deploy`. In a Salesforce project `deploy` is required wherever `validate` is, right after it (D-T-115). `gates.severity` is the Code Analyzer level that fails `static`, from 1 (only the worst problems) to 5 (everything), default 2. `gates.builder` names a builder's lighter checks, where the merge queue runs the required ones. `acc gate required` and `acc gate builder` change the two lists, as Settings does (GH-111). `gates.tests` names the checks that run tests, besides `test` and Salesforce's `lwc-tests`: their receipts count what ran, and one that ran none needs a person (GH-100). `gates.nearIndexes` lists files, by their path from the repo's root, that each gather every code file in their folder for the tests near a change, where the folder's index would otherwise be guessed (D-155) |
 | `gates.ratchets` | Checks whose command prints one number that may only get better (GH-99): each names its `command`, whose last line is the number, its `limit` (`floor`, which may only go up, or `ceiling`, which may only go down) and a short `label` for pages. Its name is a gate's, so it can be required or a builder's. Its floor lives in `.acc/floors.json`, committed ([section 9](#9-gates-and-receipts)) |
 | `secretScan.paths`, `secretScan.exclude` | Where setup's B3.secrets step looks for credentials in tracked files, and what it skips there. By default the whole repo, or in Salesforce `force-app`, `config` and `scripts`, skipping nothing |
 | `strayFiles.required`, `strayFiles.allow`, `strayFiles.data` | The built-in `stray-files` check ([section 9](#9-gates-and-receipts), GH-103). It's required, for builders and the merge queue, unless `strayFiles.required` is `false`. `strayFiles.allow` lists files, or folders, a change may add that it would fail, such as `LICENSE`. In Salesforce, `strayFiles.data` lists folders where data files (`.csv`, `.xls`, `.xlsx`, `.eml`) belong. Each is a path inside the repo, with no globs; left out, there are none. It's read from the checked commit's own config |
@@ -653,10 +653,12 @@ The packet is what a builder is told. It's built in code, by `renderPacket` in
 - **What came before** (D-106): on a re-dispatch, what the task's last run
   left; and for a task that depends on others, what theirs left.
 - **Never:**
-  - push, merge a pull request, open one, or deploy. Merging the base into its
+  - push, merge a pull request, or open one. Merging the base into its
     own branch is fine where the merge queue runs, as it asks when it conflicts;
     only there, and only its own base (`git merge origin/<its environment>`,
     with or without flags), is it allowed without asking
+  - deploy, except through `acc gate run deploy` on a Salesforce task, and
+    never to a protected org (D-T-115)
   - edit files outside the worktree
   - edit an environment-specific file
   - change the ticket
@@ -767,6 +769,7 @@ it. A `gates.commands` entry named `stray-files` replaces it.
 | `static` | `sf code-analyzer run` on changed files. Fails at severity 2 or worse, which is configurable | yes |
 | `lwc-tests` | `sfdx-lwc-jest --findRelatedTests` | when an LWC changed |
 | `validate` | A check-only deploy of the changed source to the environment's org (`sf project deploy start --dry-run`, D-024). Uses `NoTestRun` when no Apex changed. Otherwise `RunSpecifiedTests`, with the tests the builder names and its reason for each | yes |
+| `deploy` | The builder's own deploy of the changed source to its environment's org (D-T-115): `sf project deploy start` at validate's test level, then each component asked for with `sf org list metadata`, then the named Apex tests run in the org with `sf apex run test`, coverage reported. The task records the deploy, and its ticket's Changes say "Deployed to <org>". Only from the task's own worktree, on its branch, with validate passed on the commit; it skips elsewhere. Never to a protected org or production, never an environment-specific file or a deletion. One deploy to an org at a time, and it waits while another task in flight changes a file this one does | yes, wherever `validate` is |
 
 - **Changed files** come from `git diff --name-only <branch>...HEAD`, minus
   environment-specific files.
@@ -984,12 +987,20 @@ changed since it left the base, never elsewhere. `docs/DECISIONS.md` is an index
 of the numbered ones (number, title, date, link) that `acc decisions index`
 writes and `acc decisions check` checks; it merges as a union of rows.
 
-**Agents validate; they never deploy (D-011).** Parallel branches deploying to
-one shared sandbox would overwrite each other's work. A deploy happens after
-merge, from the environment's branch, one at a time, through
-`acc deploy <environment>`. It sends only the changed components and never an
-environment-specific file. For a protected environment, it also needs a person's
-`--confirm-production`.
+**A Salesforce builder validates, then deploys to its build org (D-T-115).**
+`acc gate run deploy`, required wherever `validate` is, deploys the task's
+changed source to its environment's org, asks the org for each component, and
+runs the named Apex tests there; `acc done` refuses until it passed on the last
+commit. Two builders on one org take turns (a lock per org beside the
+heavy-check slots), and a builder whose changed files another task in flight
+also changes waits until that task merges or is set aside, never deploying over
+its work. It never deploys to a protected environment or production, an
+environment-specific file or a deletion; a raw `sf project deploy` from a
+builder is still refused (D-011). After the merge, `acc deploy <environment>`
+deploys the environment's branch to its org, one at a time, leaving out what
+its tasks already deployed themselves and saying when nothing's left. It sends
+only the changed components and never an environment-specific file. For a
+protected environment, it also needs a person's `--confirm-production`.
 
 **Drift.** `acc drift <environment>` retrieves the baseline manifest into a
 throwaway worktree. It reports what changed in the org since its branch was last

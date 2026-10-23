@@ -29,7 +29,7 @@ test('the packet tells a Salesforce builder where it is, how to finish, and what
   const env = config.environments.find((e) => e.branch === 'dev')!;
   const p = renderPacket({ task: l.tasks[0]!, config, env, worktree: '/w/ACME-7', branch: 'task/ACME-7-add-a-field', rules: 'Use the selector pattern.', environmentSpecific: ['force-app/main/default/settings/MyDomain.settings-meta.xml'] });
   for (const must of ['# Task ACME-7: Add a field', 'Add Region__c to Account.', 'https://x/ACME-7', '`/w/ACME-7`', '`task/ACME-7-add-a-field`', 'started from `dev`', '`Acme Dev`',
-    'validate, never deploy', '`acc done`', '`acc block', '`format`, `validate`', 'push, merge a pull request, or open one', '`sf project deploy start`', 'MyDomain.settings-meta.xml', 'Use the selector pattern.']) {
+    'validate, then deploy, through acc only', '`acc gate run deploy`', '`acc done`', '`acc block', '`format`, `validate`, `deploy`', 'push, merge a pull request, or open one', 'deploy except through `acc gate run deploy`, and never to a protected org', '`sf project deploy start`', 'MyDomain.settings-meta.xml', 'Use the selector pattern.']) {
     assert.ok(p.includes(must), must);
   }
   assert.ok(!p.includes('refs #'), 'Jira tasks don\'t get GitHub refs');

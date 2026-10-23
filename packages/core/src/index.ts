@@ -25,6 +25,7 @@ export * from './config-edit.ts';
 export * from './config.ts';
 export * from './criteria.ts';
 export * from './decisions.ts';
+export * from './deploy-gate.ts';
 export * from './deploy.ts';
 export * from './dispatch.ts';
 export * from './drift.ts';
