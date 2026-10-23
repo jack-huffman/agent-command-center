@@ -7,7 +7,7 @@
       "name": "acc",
       "source": "./plugin",
       "description": "Dispatch agents to worktrees, run the required checks, review read-only, and open pull requests a person merges. Hooks keep builders in their worktree.",
-      "version": "0.45.0",
+      "version": "0.46.0",
       "category": "development"
     }
   ]

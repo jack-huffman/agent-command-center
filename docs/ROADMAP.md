@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-22**. Version 0.44.0 is
-the latest release (2026-10-21). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.45.0 is prepared and waits on a person
+Where each piece of the build stands, as of **2026-10-23**. Version 0.45.0 is
+the latest release (2026-10-22). 0.41.0 (2026-10-16) was the first with a
+`.sha256` beside its `.vsix`. Version 0.46.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -132,7 +132,9 @@ where each one's done-when is written out.
 - **Choose a board by seeing it**: done. Checked 2026-10-22. Evidence: D-193,
   D-194.
 - **Plans you talk through and review one step at a time**: done. Checked
-  2026-10-22. Evidence: D-200, D-201, D-202.
+  2026-10-23. Evidence: D-200, D-201, D-202, D-204, D-205. The conversation's
+  questions come one at a time too, with at most three options and your own
+  words.
 - **Parallel builders that work as a team, and merge on their own**: done.
   Checked 2026-10-22. Evidence: D-197, D-198, D-199.
 - **A GitHub check on every pull request, so autopilot can merge**: done.

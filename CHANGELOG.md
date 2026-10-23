@@ -5,6 +5,20 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.46.0
+
+- Talking a plan through asks one question at a time (D-204): the planning
+  agent's questions show as a card under its reply, "Question 2 of 3", with a
+  few options, its suggestion first and marked, and your own words. Keys pick
+  and Enter goes on; Back and Skip work; nothing is sent until you've been
+  through them all, and then your answers go back as one message. Long
+  replies fold behind Show more, earlier messages fold away, and a proposal is
+  one line with Why and Use this.
+- A single choice offers at most three options and your own words, wherever
+  you're asked to pick one (D-205): a plan's choices and questions, the
+  conversation's questions and Review plan. Answer in my own words is always
+  there. A question where you tick several still lists more.
+
 ## 0.45.0
 
 - Plain words for someone new (D-188): the app is the Command Center
