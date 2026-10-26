@@ -360,20 +360,27 @@ export function toAdf(doc: Doc): AdfNode {
 
 const inlineText = (c: Inline[]): string => c.map((i) => (i.t === 'br' ? '\n' : i.t === 'image' ? i.alt : i.text)).join('');
 
-/** The words of a document, for previews and search. */
-export function plainText(doc: Doc): string {
-  const walk = (bs: Block[]): string[] => bs.flatMap((b) => {
+/**
+ * The words of a document, for previews and search. With `lists`, plain text that still reads as a list: each
+ * item on its own line after "- " or its number, nested items indented, as a plain field is sent (T-105).
+ */
+export function plainText(doc: Doc, opts: { lists?: boolean } = {}): string {
+  const walk = (bs: Block[], indent: string): string[] => bs.flatMap((b): string[] => {
     switch (b.t) {
-      case 'p': case 'h': return [inlineText(b.c)];
-      case 'list': return b.items.flatMap((it) => walk(it.c));
-      case 'code': return [b.text];
-      case 'quote': return walk(b.c);
-      case 'table': return [...(b.head ? [b.head.map(inlineText).join(' ')] : []), ...b.rows.map((r) => r.map(inlineText).join(' '))];
-      case 'media': return [b.label];
+      case 'p': case 'h': return [indent + inlineText(b.c)];
+      case 'list': return b.items.flatMap((it, n) => {
+        if (!opts.lists) return walk(it.c, indent);
+        const [first, ...rest] = walk(it.c, `${indent}  `);
+        return [`${indent}${b.ordered ? `${(b.start ?? 1) + n}.` : '-'} ${(first ?? '').trimStart()}`, ...rest];
+      });
+      case 'code': return b.text.split('\n').map((l) => indent + l);
+      case 'quote': return walk(b.c, indent);
+      case 'table': return [...(b.head ? [b.head.map(inlineText).join(' ')] : []), ...b.rows.map((r) => r.map(inlineText).join(' '))].map((l) => indent + l);
+      case 'media': return [indent + b.label];
       case 'hr': return [];
     }
   });
-  return walk(doc.blocks).join('\n').trim();
+  return walk(doc.blocks, '').join('\n').trim();
 }
 
 // ---------------------------------------------------------------- Doc → markdown, for builders' briefs

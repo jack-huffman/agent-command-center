@@ -11,8 +11,8 @@ import type { OutsideChange } from '../src/outside-changes.ts';
 import type { RecordChange } from '../src/records.ts';
 import { AzureClient } from '../src/trackers/azure.ts';
 import type { AdfNode } from '../src/trackers/doc.ts';
-import { fieldMarkdown, fieldValue, GITHUB_CHANGES, GITHUB_SECTION, githubSection, plainOf, withGithubSection } from '../src/trackers/fields.ts';
-import { fromMarkdown } from '../src/trackers/doc.ts';
+import { fieldMarkdown, fieldValue, GITHUB_CHANGES, GITHUB_SECTION, githubSection, withGithubSection } from '../src/trackers/fields.ts';
+import { fromMarkdown, plainText } from '../src/trackers/doc.ts';
 import { GithubClient } from '../src/trackers/github.ts';
 import { JiraClient } from '../src/trackers/jira.ts';
 import { MondayClient } from '../src/trackers/monday.ts';
@@ -183,7 +183,7 @@ test('edge: nothing changed drafts nothing; a change of a kind nobody registered
   assert.equal(changesDraft({ profile: 'salesforce', paths: [], outside: [], at: AT }), null);
   const odd = changesDraft({ profile: 'generic', paths: ['docs/*star*.md'], outside: [{ ...change('c1', RENAME), kind: 'webhook', detail: { url: 'x' } }], at: AT })!;
   assert.match(odd, /\*\*Changes of kind webhook\*\*\n\n- \{"url":"x"\}/);
-  assert.equal(plainOf(fromMarkdown(odd)).split('\n')[1], '- *star*.md', 'the name is escaped, so it isn\'t read as emphasis');
+  assert.equal(plainText(fromMarkdown(odd), { lists: true }).split('\n')[1], '- *star*.md', 'the name is escaped, so it isn\'t read as emphasis');
 });
 
 test('sameChanges: a field that says the same, in any format or on another day, is the same; one that differs isn\'t', () => {
