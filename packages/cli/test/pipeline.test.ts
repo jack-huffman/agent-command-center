@@ -212,7 +212,7 @@ test('acc autopilot --every stops by itself once the Command Center that started
   assert.equal(acc(dir, ['add', 'Ready to start']).code, 0);
   // A stand-in for the extension host: a child of this test that lives until the test ends it. The test
   // ends it only once autopilot's output shows its first pass is done, so no clock decides whether a pass
-  // ran. Autopilot is then in its 120-second wait, and must leave it within a second of the host going.
+  // ran. Autopilot is then in its 120-second wait, and must leave it well within that once the host goes.
   const host = spawn('sleep', ['600'], { stdio: 'ignore' });
   const child = spawn(process.execPath, ['--no-warnings', fileURLToPath(new URL('../src/main.ts', import.meta.url)), 'autopilot', '--every', '120'], {
     cwd: dir,
@@ -233,8 +233,11 @@ test('acc autopilot --every stops by itself once the Command Center that started
     await passed;
     assert.match(out, /Nothing for autopilot to do\./, 'it did its pass first');
     host.kill();
+    const gone = Date.now();
     const code = await exited;
     assert.equal(code, 0, err);
+    // The wait checks the host each second; sitting out the 120 s would mean it stopped checking. 60 s leaves room for a busy machine.
+    assert.ok(Date.now() - gone < 60_000, `left its wait ${Date.now() - gone} ms after the host went`);
   } finally {
     host.kill();
     child.kill();
