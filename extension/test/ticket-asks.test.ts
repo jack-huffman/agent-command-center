@@ -52,3 +52,13 @@ test('the page can show a reason of its own without asking anything', () => {
   assert.equal(asks.error(key), 'The QA comment\'s draft isn\'t on this page.');
   assert.deepEqual([asks.busy(key), page.sent], [undefined, []]);
 });
+
+test('edge: a reason the page shows while an ask is on its way leaves the ask on its way, and acc\'s reply still lands', () => {
+  const asks = new TicketAsks();
+  asks.ask(key, 'verify', { type: 'verify-run' });
+  asks.fail(key, 'The QA comment\'s draft isn\'t on this page.');
+  assert.equal(asks.busy(key), 'verify', 'still on its way');
+  assert.equal(asks.error(key), 'The QA comment\'s draft isn\'t on this page.');
+  asks.done(reply({ ok: false, error: 'acc refused: the build org is busy' }));
+  assert.deepEqual([asks.busy(key), asks.error(key)], [undefined, 'acc refused: the build org is busy']);
+});

@@ -25,9 +25,9 @@ export class TicketAsks<W extends string = string> {
     return this.pending.error(key);
   }
 
-  /** Shows `why` beside the buttons without asking anything: the page itself found the reason. */
+  /** Shows `why` beside the buttons without asking anything: the page itself found the reason. What's on its way stays so. */
   fail(key: string, why: string): void {
-    this.pending.settle(key, why);
+    this.pending.fail(key, why);
     if (state.last) state.draw(state.last);
   }
 

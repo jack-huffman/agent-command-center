@@ -12,7 +12,7 @@ import { type AskReply, TicketAsks } from './ticket-asks.ts';
 
 type Ask = 'manifest-build' | 'manifest-retrieve' | 'manifest-commit' | 'manifest-file' | 'manifest-diff';
 
-/** What's on its way, by project and task: the message and what it's for, and why the last one didn't go. */
+/** What the manifest section has asked for, by task. */
 const asks = new TicketAsks();
 
 const which = (type: Ask, extra: Record<string, unknown>): string => `${type}${extra.check ? ':check' : ''}${extra.component ? `:${extra.component as string}` : ''}${extra.how ? `:${extra.how as string}` : ''}`;

@@ -10,7 +10,7 @@ import { button, el, icon, linkTo, peekKey, status, when, work } from './dom.ts'
 import { memory, type PageArea, remember, state } from './state.ts';
 import { TicketAsks } from './ticket-asks.ts';
 
-/** What's on its way, by project and task, and why the last one didn't go. */
+/** What the record-changes section has asked for, by task. */
 const asks = new TicketAsks();
 
 /**
