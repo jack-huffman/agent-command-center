@@ -1,7 +1,7 @@
 // acc manifest, manifest show, manifest retrieve and manifest commit (T-101): acc runs from its source, in a
 // Salesforce repo whose task ACME-7 has a branch, with a fake sf on PATH that records every call. It never deploys.
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -86,6 +86,16 @@ test('acc manifest --json builds it with sf, checks it against the org, keeps de
   assert.match(shown.out, /ACME-7's manifest: 1 component from task\/ACME-7-invoices/);
   assert.match(shown.out, /Deleted, in destructiveChangesPost\.xml:\n {2}ApexClass\n {4}Old/);
   assert.match(shown.out, /never deploys them/);
+});
+
+test('building a manifest drafts the ticket\'s changes field with its members, and writes nothing to the ticket (T-105)', () => {
+  const field = { id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' };
+  const { dir, env } = manifestRepo({ ...SF_CONFIG, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', changesField: field }] });
+  assert.equal(acc(dir, ['manifest', 'ACME-7'], undefined, env).code, 0);
+  const updates = join(dir, '.git', 'acc', 'updates');
+  const drafts = readdirSync(updates).map((f) => JSON.parse(readFileSync(join(updates, f), 'utf8'))).filter((u) => u.event === 'changes');
+  assert.deepEqual(drafts.map((u) => [u.state, u.by, u.field.id]), [['draft', 'acc manifest', field.id]]);
+  assert.match(drafts[0].text, /InvoiceService/);
 });
 
 test('acc manifest --check --out compares the org\'s copies, lists the org\'s changes, and writes both files', () => {
