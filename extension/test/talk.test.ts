@@ -408,3 +408,10 @@ test('edge case: a proposal from an older version shows it, Use this is off with
   assert.equal(page.document.activeElement, box, 'the cursor is in the box');
   assert.equal(buttons(draw(sampleTalkTicket(NOW)), 'Ask again').length, 0, 'none on the plan it was made on');
 });
+
+test('T-117: the stored talk keys are the same as before peekKey built them, for a lower-case ticket key too', () => {
+  const p = '/Users/me/code/acme-service';
+  assert.equal(sendKey(p, 'acme-21'), `talk:${p}#ACME-21:send`);
+  assert.equal(useKey(p, 'acme-21', 't2', 'p1'), `talk:${p}#ACME-21:t2.p1`);
+  assert.equal(earlierKey(p, 'acme-21'), `talk:${p}#ACME-21:earlier`);
+});

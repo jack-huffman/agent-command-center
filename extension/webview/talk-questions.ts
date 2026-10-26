@@ -5,7 +5,7 @@
 // is sent until the last is confirmed or skipped: then every answer goes at once, as the person's next message.
 
 import type { TalkAnswerIn, TicketQuestion, TicketTalk } from '../src/model/talk.ts';
-import { button, el, icon, md, work } from './dom.ts';
+import { button, el, icon, md, peekKey, work } from './dom.ts';
 import { memory, remember, state } from './state.ts';
 import { pickByKey, stepProgress, stepRadio, type StepState, stepTag } from './stepper.ts';
 
@@ -32,7 +32,7 @@ interface Card {
 }
 
 /** The remembered keys, under the reply's: the question it's at; what's picked in one; its own words; one confirmed or skipped; the card put aside. */
-export const questionsKey = (project: string, task: string, turn: string): string => `askq:${project}#${task.toUpperCase()}:${turn}`;
+export const questionsKey = (project: string, task: string, turn: string): string => `askq:${peekKey(project, task)}:${turn}`;
 const atKey = (b: string): string => `${b}:at`;
 const pickKey = (b: string, k: number): string => `${b}:pick:${k}`;
 const ownKey = (b: string, k: number): string => `${b}:own:${k}`;
@@ -136,7 +136,7 @@ function aside(c: Card, away: boolean): void {
 
 /** After the answers went (talk-done): what was picked for them is forgotten. */
 export function answersSent(project: string, task: string): void {
-  const prefix = `askq:${project}#${task.toUpperCase()}:`;
+  const prefix = `askq:${peekKey(project, task)}:`;
   remember((x) => {
     for (const k of Object.keys(x.drafts)) if (k.startsWith(prefix)) delete x.drafts[k];
     x.opened = x.opened.filter((y) => !y.startsWith(prefix));
