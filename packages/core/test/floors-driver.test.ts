@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { run } from '../src/exec.ts';
-import { FLOORS_ATTRIBUTE, FLOORS_DRIVER, FLOORS_DRIVER_COMMAND, floorsDriverFix, floorsDriverState, mergeFloorsFiles } from '../src/floors-driver.ts';
+import { FLOORS_ATTRIBUTE, FLOORS_DRIVER, FLOORS_DRIVER_COMMAND, floorsDriverFix, floorsDriverSet, floorsDriverState, mergeFloorsFiles, runsFloorsMerge } from '../src/floors-driver.ts';
 import { makeContext } from '../src/onboarding/helpers.ts';
 import { MERGE_STEPS } from '../src/onboarding/merge-steps.ts';
 import { STEPS } from '../src/onboarding/steps.ts';
@@ -71,4 +71,22 @@ test('Setup\'s step is registered among the safe defaults, skips a project with 
   assert.equal(step.check(makeContext(dir, run)).status, 'pass');
   gitIn(dir, 'config', '--unset', `merge.${FLOORS_DRIVER}.driver`);
   assert.match(step.check(makeContext(dir, run)).detail, /isn't in this clone's git config, so/, 'a clone without the driver says so, though .gitattributes names it');
+});
+
+test('a driver that runs acc by a path counts as set up, and one that is some other command says the plugin needs updating', () => {
+  assert.equal(runsFloorsMerge(FLOORS_DRIVER_COMMAND), true);
+  assert.equal(runsFloorsMerge('/Users/jo/acc/plugin/bin/acc floors merge %O %A %B'), true);
+  assert.equal(runsFloorsMerge('"/Users/jo/My Tools/acc" floors merge %O %A %B'), true);
+  assert.equal(runsFloorsMerge('acc merge-floors %O %A %B'), false);
+  assert.equal(runsFloorsMerge(''), false, 'and no driver at all is not one');
+  const step = MERGE_STEPS[0]!;
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, gates: { ratchets: { tests: { command: 'echo 1', limit: 'floor', label: 'tests' } } } }) });
+  gitIn(dir, 'config', `merge.${FLOORS_DRIVER}.driver`, '/opt/acc/bin/acc floors merge %O %A %B');
+  writeFileSync(join(dir, '.gitattributes'), `${FLOORS_ATTRIBUTE}\n`);
+  assert.equal(floorsDriverSet(run, dir), '/opt/acc/bin/acc floors merge %O %A %B');
+  assert.equal(step.check(makeContext(dir, run)).status, 'pass', 'a driver by path passes');
+  gitIn(dir, 'config', `merge.${FLOORS_DRIVER}.driver`, 'acc merge-floors %O %A %B');
+  const old = step.check(makeContext(dir, run));
+  assert.equal(old.status, 'fail');
+  assert.match(old.detail, /"acc merge-floors %O %A %B", which doesn't run acc's floors merge\. The plugin needs updating/);
 });

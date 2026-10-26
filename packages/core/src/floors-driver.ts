@@ -41,12 +41,25 @@ export function mergeFloorsFiles(run: Runner, common: string, ours: string, thei
   return false;
 }
 
+/** What the repo's git config holds for the driver's command, or '' when it holds none. */
+export function floorsDriverSet(run: Runner, root: string): string {
+  return run('git', ['config', '--get', `merge.${FLOORS_DRIVER}.driver`], { cwd: root }).stdout.trim();
+}
+
+/**
+ * Whether a driver command runs acc's `floors merge` with git's three files: the bare `acc`, or acc by the
+ * path a plugin or a launcher gives it (quoted or not), so a driver another acc set up isn't set up again.
+ */
+export function runsFloorsMerge(command: string): boolean {
+  return /^(?:"[^"]+"|'[^']+'|\S+) floors merge %O %A %B$/.test(command);
+}
+
 /** Whether a repo's git config and `.gitattributes` have the driver: each is needed for git to run it. */
 export function floorsDriverState(run: Runner, root: string): { configured: boolean; attributed: boolean } {
-  const driver = run('git', ['config', '--get', `merge.${FLOORS_DRIVER}.driver`], { cwd: root }).stdout.trim();
+  const driver = floorsDriverSet(run, root);
   const file = join(root, '.gitattributes');
   const lines = existsSync(file) ? readFileSync(file, 'utf8').split('\n').map((l) => l.trim()) : [];
-  return { configured: driver === FLOORS_DRIVER_COMMAND, attributed: lines.includes(FLOORS_ATTRIBUTE) };
+  return { configured: runsFloorsMerge(driver), attributed: lines.includes(FLOORS_ATTRIBUTE) };
 }
 
 /** The shell command that sets the driver up in a repo: its git config, and the `.gitattributes` line when it's missing. */
