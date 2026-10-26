@@ -11,6 +11,7 @@ import type { AccResult } from './post-update.ts';
 import type { FieldRead } from '../model/changes-field.ts';
 import { EDITS_OFF } from '../model/task-sheet.ts';
 import { inProcessWords } from './processes.ts';
+import { ticketKey } from './shared.ts';
 
 type FieldClient = Pick<TrackerClient, 'readField' | 'writeField'>;
 
@@ -23,13 +24,9 @@ export class FieldReads {
     this.redraw = redraw;
   }
 
-  private key(root: string, key: string): string {
-    return `${root}#${key.toUpperCase()}`;
-  }
-
   /** What was read last, or null before the first read. */
   read(root: string, key: string): FieldRead | null {
-    return this.reads.get(this.key(root, key)) ?? null;
+    return this.reads.get(ticketKey(root, key)) ?? null;
   }
 
   /**
@@ -37,7 +34,7 @@ export class FieldReads {
    * client that can't be made, or can't read fields, says why.
    */
   async load(root: string, key: string, field: TextField, client: () => Promise<FieldClient>): Promise<void> {
-    const k = this.key(root, key);
+    const k = ticketKey(root, key);
     if (!this.reads.has(k)) this.reads.set(k, { state: 'loading' });
     try {
       const c = await client();
@@ -51,7 +48,7 @@ export class FieldReads {
 
   /** A save wrote the field: the page shows what was written until it's read again. */
   wrote(root: string, key: string, text: string): void {
-    this.reads.set(this.key(root, key), { state: 'read', text });
+    this.reads.set(ticketKey(root, key), { state: 'read', text });
   }
 }
 

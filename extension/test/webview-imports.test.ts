@@ -1,4 +1,4 @@
-// The page imports no values from outside extension/webview (D-121), and its copies of `plural` and of the longest own option match the core's.
+// The page imports no values from outside extension/webview (D-121), and its copies of `plural`, of the longest own option and of a ticket's key match the core's and the extension's.
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { CHOICE_TEXT_MAX } from '../../packages/core/src/plan-choices.ts';
 import { plural as corePlural } from '../../packages/core/src/text.ts';
+import { ticketKey } from '../src/logic/shared.ts';
 
 const webview = resolve(dirname(fileURLToPath(import.meta.url)), '../webview');
 
@@ -79,4 +80,16 @@ test("the page's longest own option is the core's CHOICE_TEXT_MAX, read from pla
   const m = /export const OWN_MAX = (\d+);/.exec(readFileSync(join(webview, 'plan.ts'), 'utf8'));
   assert.ok(m, 'found no OWN_MAX in plan.ts');
   assert.equal(Number(m[1]), CHOICE_TEXT_MAX);
+});
+
+test("the page's peekKey is the extension's ticketKey, read from dom.ts's source", () => {
+  const m = /export const peekKey = \(project: string, key: string\): string => (.*);\n/.exec(readFileSync(join(webview, 'dom.ts'), 'utf8'));
+  assert.ok(m, 'found no peekKey in dom.ts');
+  const page = new Function(`return (project, key) => ${m[1]}`)() as (project: string, key: string) => string;
+  let cases = 0;
+  for (const [root, key] of [['/repo', 'acme-1'], ['/a b/c', 'GH-12'], ['', 'T-3']] as const) {
+    assert.equal(page(root, key), ticketKey(root, key), `${root} ${key}`);
+    cases += 1;
+  }
+  assert.equal(cases, 3);
 });

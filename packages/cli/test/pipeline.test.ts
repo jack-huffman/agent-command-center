@@ -207,7 +207,7 @@ test('a task autopilot couldn\'t move on shows as needs you, and acc show says w
   assert.match(acc(dir, ['show', 'T-1']).out, /! Autopilot couldn't update abcdef0 from its base: Conflicts with main that autopilot can't resolve: sum\.js\./);
 });
 
-test('acc autopilot --every stops by itself once the Command Center that started it has gone (D-064)', async () => {
+test('acc autopilot --every stops by itself once the Command Center that started it has gone (D-064)', { timeout: 180_000 }, async () => {
   const dir = repoWithConfig({ ...GENERIC_CONFIG, autonomy: 'review', github: { repo: 'acme/tool', account: 'jordan-kim' } });
   assert.equal(acc(dir, ['add', 'Ready to start']).code, 0);
   // A stand-in for the extension host: a child of this test that lives until the test ends it. The test
