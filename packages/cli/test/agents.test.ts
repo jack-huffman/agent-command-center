@@ -76,6 +76,27 @@ else fs.appendFileSync(${JSON.stringify(record)}, JSON.stringify({ cmd: 'claude'
   assert.match(blocked.err, /T-1 is blocked\. Only a running task's builder is resumed\./);
 });
 
+test('acc dispatch --again with a claude that is not found (exit 127) is refused in the Command Center\'s words, and stops and records nothing (T-94)', () => {
+  const dir = realpathSync(repoWithConfig());
+  assert.equal(acc(dir, ['add', 'Ticket updates are drafts']).code, 0);
+  const file = join(dir, '.git', 'acc', 'ledger.json');
+  const l = JSON.parse(readFileSync(file, 'utf8'));
+  l.tasks[0].state = 'running';
+  l.tasks[0].run = { bgId: 'bg9', sessionId: 'sess-9', worktree: dir, branch: 'main', startedAt: '2026-10-05T21:52:13.000Z' };
+  writeFileSync(file, JSON.stringify(l));
+  // A claude that every call says isn't found, and that writes down each call, so a stop would show.
+  const bin = tempDir('bin-');
+  const record = join(bin, 'calls.txt');
+  writeFileSync(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> ${record}\nexit 127\n`);
+  chmodSync(join(bin, 'claude'), 0o755);
+  const r = acc(dir, ['dispatch', 'T-1', '--again'], undefined, { PATH: `${bin}:${process.env.PATH}` });
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.err, /^.*Claude Code isn't on this Mac's path, so the Command Center can't see this builder/);
+  assert.ok(!(existsSync(record) ? readFileSync(record, 'utf8') : '').includes('stop'), 'nothing is stopped');
+  const after = JSON.parse(readFileSync(file, 'utf8')).tasks[0];
+  assert.deepEqual([after.state, after.run.bgId], ['running', 'bg9']);
+});
+
 test('acc agents names acc\'s default model where nobody chose one, apart from Claude Code\'s default effort (D-086)', () => {
   const dir = repoWithConfig();
   const shown = acc(dir, ['agents']);
