@@ -5,26 +5,20 @@
 import type { TicketCriteria, CriteriaButton } from '../src/model/criteria.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import { button, el, foldable, icon, peekKey, renderDoc, status, when } from './dom.ts';
-import { api, type PageArea, state } from './state.ts';
+import type { PageArea } from './state.ts';
+import { type AskReply, TicketAsks } from './ticket-asks.ts';
 
 type Ask = 'criteria-draft' | 'criteria-update' | 'criteria-sheet';
 
-/** What's on its way, by project and task, and why the last one didn't go. */
-const asked = new Map<string, Ask>();
-const failed = new Map<string, string>();
+const asks = new TicketAsks<Ask>();
 
 function ask(m: TicketModel, c: TicketCriteria, type: Ask): void {
-  const key = peekKey(m.project, c.task);
-  if (asked.has(key)) return;
-  asked.set(key, type);
-  failed.delete(key);
-  api.postMessage({ type, project: m.project, task: c.task });
-  if (state.last) state.draw(state.last);
+  asks.ask(peekKey(m.project, c.task), type, { type, project: m.project, task: c.task });
 }
 
 /** A button of the section: off with why, or while another of its buttons is on its way. */
 function action(m: TicketModel, c: TicketCriteria, b: CriteriaButton, type: Ask, iconName: string, primary: boolean): HTMLButtonElement {
-  const busy = asked.get(peekKey(m.project, c.task));
+  const busy = asks.busy(peekKey(m.project, c.task));
   const label = busy === type ? (type === 'criteria-draft' ? 'Drafting…' : 'Opening…') : b.label;
   const x = button(label, busy === type ? 'loading~spin' : iconName, () => ask(m, c, type), primary ? 'primary' : '');
   const why = b.disabled ?? (busy ? 'Wait for the one on its way' : null);
@@ -42,7 +36,7 @@ export function renderCriteria(m: TicketModel, c: TicketCriteria): HTMLElement {
   if (c.note) sec.append(el('p', 'muted an-note', c.note));
   if (c.body) sec.append(foldable(`criteria:${key}`, renderDoc(c.body, ''), null, 10));
   if (c.read) sec.append(el('p', 'muted an-note', c.read, ' Nothing is on the ticket until you save the description or post the update.'));
-  const error = failed.get(key);
+  const error = asks.error(key);
   if (error) sec.append(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', error)));
   sec.append(el('div', 'actions an-actions',
     ...(c.sheet ? [action(m, c, c.sheet, 'criteria-sheet', 'edit', true)] : []),
@@ -51,15 +45,8 @@ export function renderCriteria(m: TicketModel, c: TicketCriteria): HTMLElement {
   return sec;
 }
 
-/** How a button went: done redraws with what acc did; a refusal shows why, to try again. */
-function done(msg: { action?: string; project?: string; task?: string; ok?: boolean; error?: string }): void {
-  const key = peekKey(msg.project ?? '', msg.task ?? '');
-  if (!asked.has(key)) return;
-  asked.delete(key);
-  if (msg.ok) failed.delete(key);
-  else failed.set(key, msg.error?.trim() || 'It didn\'t go, and the Command Center didn\'t say why.');
-  if (state.last) state.draw(state.last);
-}
+/** How a button went: done redraws with what was done; a refusal shows why, to try again. */
+const done = (msg: AskReply): void => asks.done(msg);
 
 export const area: PageArea = {
   receive: { 'criteria-done': done },
