@@ -6,7 +6,7 @@ import { epicKeys, loadConfig, parseConfig, replaceTracker, writeConfig } from '
 import { readmePlaces } from '../src/setup.ts';
 import { JIRA } from '../src/trackers/connect.ts';
 import { JiraClient } from '../src/trackers/jira.ts';
-import { placeText, TrackerError } from '../src/trackers/types.ts';
+import { epicWords, placeText, TrackerError } from '../src/trackers/types.ts';
 import { GENERIC_CONFIG, tempDir } from './support.ts';
 
 // A Jira tracker that follows several epics (T-107): the settings, the board's query, and what's inside it.
@@ -102,7 +102,9 @@ test('edge: a board with several epics and none of their tickets says so, naming
     'GET /rest/agile/1.0/board/42/issue?jql=': { total: 0, issues: [] },
   });
   const b = await new JiraClient({ site: SITE, project: 'MSP', email: 'e', token: 't', board: 42, epics: ['MSP-3', 'MSP-7'], fetch: f }).board();
-  assert.match(b.notice!, /^No ticket in epic MSP-3 or MSP-7 is on this board\./);
+  assert.match(b.notice!, /^No ticket in epics MSP-3 or MSP-7 is on this board\./);
+  assert.equal(epicWords(['MSP-3']), 'epic MSP-3');
+  assert.equal(epicWords(['MSP-3', 'MSP-7']), 'epics MSP-3 or MSP-7');
   // One epic Jira hasn't: the board says which.
   const { fetch: missing } = jira({
     'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [] } }, 'GET /rest/api/3/project/MSP/statuses': [],
@@ -124,7 +126,7 @@ test('intake\'s place check: a ticket under any of the epics is inside, a sub-ta
   const c = new JiraClient({ site: SITE, project: 'MSP', email: 'e', token: 't', epics: ['MSP-3', 'MSP-7'], fetch: f });
   assert.equal(c.place, 'Jira · MSP · epics MSP-3 or MSP-7', 'before the board loads, without their names');
   assert.deepEqual(await c.outside(['MSP-4', 'MSP-8', 'MSP-5', 'MSP-9', 'MSP-7']), [
-    { key: 'MSP-9', why: 'it isn\'t in epic MSP-3 or MSP-7' },
+    { key: 'MSP-9', why: 'it isn\'t in epics MSP-3 or MSP-7' },
     { key: 'MSP-7', why: 'it\'s the epic itself, and only the tickets in it count' },
   ], 'the first epic\'s child, the second\'s, and a sub-task of the second\'s are inside');
 });

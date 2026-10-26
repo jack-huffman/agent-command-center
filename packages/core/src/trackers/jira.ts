@@ -6,7 +6,7 @@ import { type AdfNode, adfUnkept, fromAdf, fromMarkdown, toAdf, toMarkdown, unke
 import { fieldMarkdown, fieldValue } from './fields.ts';
 import { isEmail, typeKindOf } from './normal.ts';
 import {
-  type Board, type BoardCard, type BoardColumn, inBatches, type Label, orList, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Sprint,
+  type Board, type BoardCard, type BoardColumn, epicWords, inBatches, type Label, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Sprint,
   type Status, type StatusCategory, type TextField, type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
 } from './types.ts';
 
@@ -166,7 +166,7 @@ export class JiraClient implements TrackerClient {
       const up = await this.req<Placed>('GET', `/rest/api/3/issue/${encodeURIComponent(parent)}?fields=parent`);
       if (this.epics.includes(up.fields.parent?.key?.toUpperCase() ?? '')) return this.outsideSprint(i.key);
     }
-    return `it isn't in epic ${orList(this.epics)}`;
+    return `it isn't in ${epicWords(this.epics)}`;
   }
 
   private async req<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
@@ -254,7 +254,7 @@ export class JiraClient implements TrackerClient {
     const notice = noSprint
       ? NO_ACTIVE_SPRINT
       : this.epics.length && !cards.length
-        ? `No ticket in epic ${orList(this.epics)} is on this board. Its own filter may leave them out: widen the filter in Jira, or pick another board with Change, above it.`
+        ? `No ticket in ${epicWords(this.epics)} is on this board. Its own filter may leave them out: widen the filter in Jira, or pick another board with Change, above it.`
         : null;
     return {
       source: 'jira-board', title: config.name, url: `${this.base}/jira/software/projects/${encodeURIComponent(this.o.project)}/boards/${id}`, columns, cards, notice,

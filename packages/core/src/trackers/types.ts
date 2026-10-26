@@ -293,6 +293,9 @@ export const outsideError = (o: Outside, place: string): TrackerError =>
 /** "billing", "billing or invoices", "billing, invoices or refunds". */
 export const orList = (names: string[]): string => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`);
 
+/** "epic ACME-3", or with several "epics ACME-3 or ACME-7": the one wording a Jira place, an outside reason and an empty board use (T-107). */
+export const epicWords = (epics: string[]): string => `epic${epics.length > 1 ? 's' : ''} ${orList(epics)}`;
+
 /**
  * Where a tracker's tickets come from, in words (D-072): "Jira · ACME · epic ACME-3 Premium Support", or with
  * several epics "Jira · ACME · epics ACME-3 Premium Support or ACME-7 Renewals" (T-107),
@@ -318,7 +321,7 @@ export function placeText(p: {
   }
   if (p.kind === 'jira') {
     const epics = (p.epics ?? []).map((e, i) => (p.epicNames?.[i] ? `${e} ${p.epicNames[i]}` : e));
-    return `Jira · ${p.project ?? '?'}${epics.length ? ` · epic${epics.length > 1 ? 's' : ''} ${orList(epics)}` : ''}${p.sprint ? ` · ${sprintPlace(p.sprint, p.sprints ?? null)}` : ''}`;
+    return `Jira · ${p.project ?? '?'}${epics.length ? ` · ${epicWords(epics)}` : ''}${p.sprint ? ` · ${sprintPlace(p.sprint, p.sprints ?? null)}` : ''}`;
   }
   return `Azure DevOps · ${p.project ?? '?'}${p.team ? ` · ${p.team}` : ''}${p.areaPath ? ` · area ${p.areaPath}` : ''}`;
 }
