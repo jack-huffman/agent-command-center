@@ -9,7 +9,7 @@ import type { Task } from '../../../packages/core/src/ledger.ts';
 import { latestVerification, type PrChoice, readPrChoice, type Verification, verifying, verifyRefusal } from '../../../packages/core/src/verify.ts';
 import { accRefusal } from './connect.ts';
 import { inProcessWords } from './processes.ts';
-import { stateOf, ticketKey } from './shared.ts';
+import { BusyTickets, stateOf } from './shared.ts';
 
 type Result = { code: number; stdout: string; stderr: string };
 
@@ -35,18 +35,19 @@ export interface VerifyState {
 export class Verifications {
   private readonly host: VerifyHost;
   private readonly changed: (root: string, id: string) => void;
-  /** The verifications this window started, by project and task, while acc runs them. */
-  private readonly busy = new Set<string>();
+  /** The verifications this window started, while acc runs them. */
+  private readonly busy: BusyTickets;
 
   constructor(host: VerifyHost, changed: (root: string, id: string) => void = () => {}) {
     this.host = host;
     this.changed = changed;
+    this.busy = new BusyTickets(changed);
   }
 
   /** Whether one is under way: started here, or by acc anywhere while its process lives. */
   running(root: string, id: string): boolean {
     const p = this.host.project(root);
-    return this.busy.has(ticketKey(root, id)) || (!!p && !!verifying(stateOf(p), id.toUpperCase()));
+    return this.busy.has(root, id) || (!!p && !!verifying(stateOf(p), id.toUpperCase()));
   }
 
   /** The task's latest verification, the choice acc kept, and whether one runs. A choice older than the latest verification is spent. */
@@ -66,27 +67,23 @@ export class Verifications {
    */
   async verify(root: string, raw: string, pr?: number): Promise<VerifyReply> {
     const id = raw.toUpperCase();
-    const key = ticketKey(root, id);
     const p = this.host.project(root);
     if (!p) return { ok: false, error: 'That project isn\'t open any more.' };
     const why = verifyRefusal(this.host.task(root, id), id, { github: p.github });
     if (why) return { ok: false, error: inProcessWords(why) };
     if (this.running(root, id)) return { ok: false, error: `${id}'s pull request is being verified now.` };
-    this.busy.add(key);
-    this.changed(root, id);
     const started = new Date().toISOString();
-    try {
-      const r = await this.host.acc(['verify', id, ...(pr ? ['--pr', String(pr)] : []), '--json'], root, `Verify ${id}'s pull request`);
-      const no = accRefusal(r);
-      if (no === null) return { ok: true };
-      const choice = readPrChoice(stateOf(p), id);
-      return choice && choice.at >= started ? { ok: true } : { ok: false, error: no };
-    } catch (e) {
-      return { ok: false, error: inProcessWords((e as Error).message) };
-    } finally {
-      this.busy.delete(key);
-      this.changed(root, id);
-    }
+    return this.busy.run<VerifyReply>(root, id, async () => {
+      try {
+        const r = await this.host.acc(['verify', id, ...(pr ? ['--pr', String(pr)] : []), '--json'], root, `Verify ${id}'s pull request`);
+        const no = accRefusal(r);
+        if (no === null) return { ok: true };
+        const choice = readPrChoice(stateOf(p), id);
+        return choice && choice.at >= started ? { ok: true } : { ok: false, error: no };
+      } catch (e) {
+        return { ok: false, error: inProcessWords((e as Error).message) };
+      }
+    });
   }
 
   /** Clears the verification: acc removes its worktree and what it kept. Its QA comment's draft stays. */
