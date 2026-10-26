@@ -266,17 +266,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
 /** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model }
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -1090,6 +1090,15 @@ export const CASES: Case[] = [
       const sent = t.sent('conversation-open');
       const page = d.ticket as { project: string; key: string };
       t.check('Open conversation asks for the panel once', sent.length === 1 && sent[0]!.project === page.project && sent[0]!.task === page.key && sent[0]!.about === undefined, sent);
+    },
+  },
+  {
+    name: 'ticket talk: beside a conversation the plan section has no Make a new plan, which is the conversation panel\'s alone (T-116)',
+    page: 'ticket-talk',
+    async run(t) {
+      t.check('the page has a conversation line', t.all('.convo-line').length === 1, t.all('.convo-line').length);
+      const make = t.all<HTMLButtonElement>('button').filter((x) => x.textContent?.trim() === 'Make a new plan');
+      t.check('and no Make a new plan, among the plan\'s actions or anywhere on the page', make.length === 0, make.map((x) => x.parentElement?.className));
     },
   },
   {
@@ -2132,6 +2141,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'The task page draws the conversation\'s turns', file: 'talk.ts', find: "const line = el('div', 'convo-line', icon('comment-discussion'),", replace: "const line = el('div', 'convo-line', ...s.turns.map((x) => turn(project, s, x)), icon('comment-discussion'),", kills: [caseNamed('conversation: the task page shows')] },
   { name: 'Make a plan on the task page asks for another command', file: 'dom.ts', find: "api.postMessage({ type: 'run', command: a.command, ref: a.ref })", replace: "api.postMessage({ type: 'run', command: a.command === 'acc.task.analyze' ? 'acc.task.show' : a.command, ref: a.ref })", kills: [caseNamed('conversation: Make a plan on the task page')] },
   { name: 'Draft the plan ignores the opening conversation', file: 'talk.ts', find: "api.postMessage({ type: 'conversation-draft', project, task: s.task }), s.draft.disabled", replace: "api.postMessage({ type: 'conversation-draft', project, task: s.task, skip: true }), s.draft.disabled", kills: [caseNamed('conversation: the panel opens at its question')] },
+  { name: 'the plan section keeps Make a new plan beside a conversation', file: 'analysis.ts', find: 'const actions = m.talk?.newPlan ? a.actions.filter((x) => x.command !== m.talk!.newPlan!.command) : a.actions;', replace: 'const actions = a.actions;', kills: [caseNamed('ticket talk: beside a conversation the plan section')] },
   { name: 'Enter alone sends the message', file: 'talk.ts', find: "if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))", replace: "if (e.key === 'Enter')", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];

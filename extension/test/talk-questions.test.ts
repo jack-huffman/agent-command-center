@@ -302,3 +302,11 @@ test('edge case: a short reply doesn\'t fold, and a conversation with nothing ea
   assert.equal(s.all('talk-folded').length + buttons(s, 'Show more').length, 0);
   assert.equal(s.all('talk-earlier').length, 0);
 });
+
+test('T-117: the stored question keys are the same as before peekKey built them, for a lower-case ticket key too', () => {
+  assert.equal(questionsKey(ROOT, 'acme-21', 't2'), `askq:${ROOT}#ACME-21:t2`);
+  kept = { opened: [`askq:${ROOT}#ACME-21:t2:away`], drafts: { [`askq:${ROOT}#ACME-21:t2:pick:0`]: 'o1', [`askq:${ROOT}#ACME-22:t2:pick:0`]: 'o2' } };
+  answersSent(ROOT, 'acme-21');
+  assert.deepEqual(kept.opened, [], 'the prefix clears the same keys');
+  assert.deepEqual(kept.drafts, { [`askq:${ROOT}#ACME-22:t2:pick:0`]: 'o2' });
+});

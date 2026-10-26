@@ -15,11 +15,11 @@ import { isFromWebview } from '../src/model/messages.ts';
 import { inProcessWords } from '../src/logic/processes.ts';
 import { GITHUB_PROJECTS, sampleBoard, sampleConnect } from '../scripts/fixtures/connect.ts';
 import { PAGE_HEIGHT } from '../scripts/screenshot.ts';
+import { jiraFor } from './support.ts';
 
 const ROOT = '/Users/me/code/acme-service';
 const EMAIL = 'jordan.kim@example.com';
 const TOKEN = 'secret-token-0123456789';
-const b64 = (s: string) => Buffer.from(s).toString('base64');
 const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
 const base = { id: 'c', root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const };
 const ready = (options: ConnectState['pickers'][string]['options'], selected: string[] = []): ConnectState['pickers'][string] => ({ options, selected, state: 'ready', error: null });
@@ -33,15 +33,9 @@ const signedIn = (d: TrackerDescription, host: string): ConnectState => {
 };
 
 /** Jira, answering only this email and token: two projects, two epics and two boards. */
-const jira = (async (url: string, init: { headers: Record<string, string> }) => {
-  if (init.headers.Authorization !== `Basic ${b64(`${EMAIL}:${TOKEN}`)}`) return new Response('', { status: 401 });
-  const u = new URL(url);
-  if (u.pathname === '/rest/api/3/myself') return Response.json({ accountId: 'a1', displayName: 'Jordan Kim' });
-  if (u.pathname === '/rest/api/3/project/search') return Response.json({ values: [{ key: 'ACME', name: 'Acme Service Desk' }] });
-  if (u.pathname === '/rest/api/3/search/jql') return Response.json({ issues: [{ key: 'ACME-31', fields: { summary: 'Renewals' } }, { key: 'ACME-30', fields: { summary: 'Partner portal' } }] });
-  if (u.pathname === '/rest/agile/1.0/board') return Response.json({ values: [{ id: 9, name: 'Support', type: 'kanban' }] });
-  return new Response('', { status: 404 });
-}) as unknown as typeof fetch;
+const jira = jiraFor({ email: EMAIL, token: TOKEN }, {
+  projects: [{ key: 'ACME', name: 'Acme Service Desk' }], epics: [['ACME-31', 'Renewals'], ['ACME-30', 'Partner portal']], boards: [{ id: 9, name: 'Support', type: 'kanban' }],
+});
 
 /**
  * The Connect page with stand-ins, its board reader counting each place it's asked for. `boards` gives a place's

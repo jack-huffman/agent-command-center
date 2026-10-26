@@ -8,7 +8,7 @@
 // Each button asks the extension, and shows it's on its way until the extension says how it went.
 
 import type { TicketProposal, TicketTalk, TicketTurn } from '../src/model/talk.ts';
-import { actionButton, button, el, icon, md, status, when, work } from './dom.ts';
+import { actionButton, button, el, icon, md, peekKey, status, when, work } from './dom.ts';
 import { Pending } from './pending.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { answersSent, questionCard } from './talk-questions.ts';
@@ -18,7 +18,7 @@ const TALK_MAX = 4000;
 
 /** Messages, Use this and Open in Claude Code on their way to acc, and why the last one didn't go. */
 export const talkPending = new Pending<'send' | 'use' | 'claude'>();
-const base = (project: string, task: string): string => `talk:${project}#${task.toUpperCase()}`;
+const base = (project: string, task: string): string => `talk:${peekKey(project, task)}`;
 export const sendKey = (project: string, task: string): string => `${base(project, task)}:send`;
 export const useKey = (project: string, task: string, turn: string, proposal: string): string => `${base(project, task)}:${turn}.${proposal}`;
 const claudeKey = (project: string, task: string): string => `${base(project, task)}:claude`;
