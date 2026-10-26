@@ -18,9 +18,9 @@ export const MERGE_STEPS: Step[] = [
       if (!Object.keys(ctx.config.gates.ratchets ?? {}).length) return skip('The project has no floors to merge.');
       const state = floorsDriverState(ctx.run, ctx.paths.root);
       if (state.configured && state.attributed) return pass('git keeps the better of each floor when two branches raised them.');
-      // A driver that is set but doesn't run `floors merge` belongs to an acc from before it did.
+      // A driver that is set but doesn't run acc's `floors merge`: the fix sets acc's in its place.
       const set = floorsDriverSet(ctx.run, ctx.paths.root);
-      if (set && !state.configured) return fail(`The floors file's merge driver in this clone's git config is "${set}", which doesn't run acc's floors merge. The plugin needs updating; this step then sets the driver again.`, floorsDriverFix(state));
+      if (set && !state.configured) return fail(`The floors file's merge driver in this clone's git config is "${set}", which doesn't run acc's floors merge. This step replaces it with acc's.`, floorsDriverFix(state));
       const missing = [...(state.configured ? [] : ['this clone\'s git config']), ...(state.attributed ? [] : ['.gitattributes'])];
       return fail(`The floors file's merge driver isn't in ${missing.join(' or ')}, so two raised floors conflict.`, floorsDriverFix(state));
     },

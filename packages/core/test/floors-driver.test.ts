@@ -73,7 +73,7 @@ test('Setup\'s step is registered among the safe defaults, skips a project with 
   assert.match(step.check(makeContext(dir, run)).detail, /isn't in this clone's git config, so/, 'a clone without the driver says so, though .gitattributes names it');
 });
 
-test('a driver that runs acc by a path counts as set up, and one that is some other command says the plugin needs updating', () => {
+test('a driver that runs acc by a path counts as set up, and one that is some other command says this step replaces it', () => {
   assert.equal(runsFloorsMerge(FLOORS_DRIVER_COMMAND), true);
   assert.equal(runsFloorsMerge('/Users/jo/acc/plugin/bin/acc floors merge %O %A %B'), true);
   assert.equal(runsFloorsMerge('"/Users/jo/My Tools/acc" floors merge %O %A %B'), true);
@@ -88,5 +88,5 @@ test('a driver that runs acc by a path counts as set up, and one that is some ot
   gitIn(dir, 'config', `merge.${FLOORS_DRIVER}.driver`, 'acc merge-floors %O %A %B');
   const old = step.check(makeContext(dir, run));
   assert.equal(old.status, 'fail');
-  assert.match(old.detail, /"acc merge-floors %O %A %B", which doesn't run acc's floors merge\. The plugin needs updating/);
+  assert.match(old.detail, /"acc merge-floors %O %A %B", which doesn't run acc's floors merge\. This step replaces it with acc's/);
 });

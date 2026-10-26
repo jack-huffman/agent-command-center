@@ -110,7 +110,7 @@ test('GitHub without a Project: Open and Closed columns, and the notice says why
     ['api graphql -f query=query($owner', projectsAnswer([])],
     ['issue list -R o/r --state open', JSON.stringify([issue(1, 'OPEN'), issue(2, 'OPEN')])],
     ['issue list -R o/r --state closed', JSON.stringify([issue(3, 'CLOSED')])],
-  ]);
+  ], 'prefix');
   const b = await new GithubClient({ repo: 'o/r', token: 'tok', account: 'me', exec }).board();
   assert.equal(b.source, 'github-state');
   assert.deepEqual(b.columns.map((c) => [c.name, c.statusIds]), [['Open', ['OPEN']], ['Closed', ['CLOSED']]]);
@@ -125,7 +125,7 @@ test('GitHub without Projects access says how to grant it, instead of failing', 
   const { exec } = fakeGh([
     ['api graphql', { code: 1, stderr: "error: your authentication token is missing required scopes [read:project]\nTo request it, run:  gh auth refresh -s read:project" }],
     ['issue list', '[]'],
-  ]);
+  ], 'prefix');
   const b = await new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec }).board();
   assert.equal(b.source, 'github-state');
   assert.match(b.notice!, /give me access to Projects\. gh refreshes only its active account, so run gh auth switch -u me, then gh auth refresh -h github\.com -s project and sign in as me, then switch back/);
@@ -143,7 +143,7 @@ test('GitHub with a Project: its Status options are the columns, in order, and a
     ['api graphql -f query=query($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n    projectsV2', projectsAnswer([project])],
     ['api graphql -f query=query($id', JSON.stringify(items)],
     ['project item-edit', ''],
-  ]);
+  ], 'prefix');
   const gh = new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec });
   const b = await gh.board();
   assert.equal(b.source, 'github-project');
@@ -168,7 +168,7 @@ test('a GitHub issue: body and comments rendered from markdown, status from its 
     ['issue view 9 -R o/r --json assignees', JSON.stringify({ assignees: [{ login: 'pat' }] })],
     ['issue comment', ''], ['issue reopen', ''], ['issue close', ''], ['issue edit', ''],
     ['api repos/o/r/assignees', 'jane\npat\njo'],
-  ]);
+  ], 'prefix');
   const gh = new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec });
   const t = await gh.ticket('GH-9');
   assert.deepEqual([t.key, t.status.name, t.status.category, t.reporter!.name], ['GH-9', 'Closed as not planned', 'done', 'Pat']);
@@ -344,7 +344,7 @@ test('GitHub labels hold the place: one list per label, merged, on the Open and 
     ['issue view 6 ', JSON.stringify({ ...issue(6, 'OPEN', lab('docs')), body: '', author: null, comments: [], createdAt: '', updatedAt: '' })],
     ['issue view 7 ', JSON.stringify({ ...issue(7, 'OPEN', lab('BILLING')), body: '', author: null, comments: [], createdAt: '', updatedAt: '' })],
     ['issue view 8 ', JSON.stringify({ ...issue(8, 'OPEN', lab('billing')), url: 'https://github.com/other/repo/issues/3', body: '', author: null, comments: [], createdAt: '', updatedAt: '' })],
-  ]);
+  ], 'prefix');
   const gh = new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec, labels: ['billing', 'invoices'] });
   const b = await gh.board();
   assert.deepEqual(b.cards.map((c) => c.key), ['GH-5', 'GH-4', 'GH-2', 'GH-1'], 'each issue once, newest first');
@@ -367,7 +367,7 @@ test('GitHub labels hold a Project board too: an issue with none of them isn\'t 
   const { exec, calls } = fakeGh([
     ['api graphql -f query=query($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n    projectsV2', projectsAnswer([project])],
     ['api graphql -f query=query($id', JSON.stringify(items)],
-  ]);
+  ], 'prefix');
   const b = await new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec, labels: ['billing'] }).board();
   assert.deepEqual(b.cards.map((c) => c.key), ['GH-1']);
   assert.equal(b.place, 'GitHub · o/r · label billing');

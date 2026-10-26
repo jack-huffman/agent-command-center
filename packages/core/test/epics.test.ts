@@ -62,18 +62,13 @@ test('the Connect page ticks epics: an existing tracker opens with each ticked, 
   assert.equal(preview.placeJql(), 'project = "ACME" AND parent in (ACME-3, ACME-7)');
 });
 
-/** The shared stand-in Jira (support.ts), with each path it was asked. */
-function jira(routes: Record<string, unknown>) {
-  const j = fakeJira(routes);
-  return { fetch: j.fetch, calls: j.calls };
-}
 const issue = (key: string, parent: string | null, subtask = false) => ({
   key, fields: { summary: key, status: { id: '1', name: 'To Do', statusCategory: { key: 'new' } }, assignee: null, issuetype: { name: subtask ? 'Sub-task' : 'Story', subtask }, labels: [], project: { key: 'MSP' }, ...(parent ? { parent: { key: parent, fields: { summary: parent } } } : {}) },
 });
 const jql = (path: string) => new URL(`https://x${path}`).searchParams.get('jql');
 
 test('the board asks for the tickets under any of the epics, and their sub-tasks, and names each epic', async () => {
-  const { fetch: f, calls } = jira({
+  const { fetch: f, calls } = fakeJira({
     'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
     'GET /rest/api/3/project/MSP/statuses': [{ statuses: [{ id: '1', name: 'To Do', statusCategory: { key: 'new' } }] }],
     'GET /rest/api/3/issue/MSP-3?fields=summary': { fields: { summary: 'Premium Support' } },
@@ -88,7 +83,7 @@ test('the board asks for the tickets under any of the epics, and their sub-tasks
 });
 
 test('edge: a board with several epics and none of their tickets says so, naming them', async () => {
-  const { fetch: f } = jira({
+  const { fetch: f } = fakeJira({
     'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
     'GET /rest/api/3/project/MSP/statuses': [],
     'GET /rest/api/3/issue/MSP-3?fields=summary': { fields: { summary: 'A' } },
@@ -100,7 +95,7 @@ test('edge: a board with several epics and none of their tickets says so, naming
   assert.equal(epicWords(['MSP-3']), 'epic MSP-3');
   assert.equal(epicWords(['MSP-3', 'MSP-7']), 'epics MSP-3 or MSP-7');
   // One epic Jira hasn't: the board says which.
-  const { fetch: missing } = jira({
+  const { fetch: missing } = fakeJira({
     'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [] } }, 'GET /rest/api/3/project/MSP/statuses': [],
     'GET /rest/api/3/issue/MSP-3?fields=summary': { fields: { summary: 'A' } },
   });
@@ -109,7 +104,7 @@ test('edge: a board with several epics and none of their tickets says so, naming
 });
 
 test('intake\'s place check: a ticket under any of the epics is inside, a sub-task of one too, and one under none is outside', async () => {
-  const { fetch: f } = jira({
+  const { fetch: f } = fakeJira({
     'GET /rest/api/3/issue/MSP-4?': issue('MSP-4', 'MSP-3'),
     'GET /rest/api/3/issue/MSP-8?fields=parent': { key: 'MSP-8', fields: { parent: { key: 'MSP-7' } } },
     'GET /rest/api/3/issue/MSP-8?': issue('MSP-8', 'MSP-7'),

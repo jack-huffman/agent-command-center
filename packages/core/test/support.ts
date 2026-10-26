@@ -257,13 +257,13 @@ export function fakeJira(routes: Record<string, unknown | ((body: unknown) => un
   return { fetch: f, calls };
 }
 
-/** A stand-in gh: answers by the first fixture whose text the call's arguments hold, and records what it was asked, with the env it got. */
-export function fakeGh(answers: [string, string | ((input?: string) => string) | { code: number; stderr: string }][]): { exec: Exec; calls: { args: string; input?: string; token?: string; quiet: boolean }[] } {
+/** A stand-in gh: answers by the first fixture whose text the call's arguments hold (or start with, under `prefix`), and records what it was asked, with the env it got. */
+export function fakeGh(answers: [string, string | ((input?: string) => string) | { code: number; stderr: string }][], match: 'part' | 'prefix' = 'part'): { exec: Exec; calls: { args: string; input?: string; token?: string; quiet: boolean }[] } {
   const calls: { args: string; input?: string; token?: string; quiet: boolean }[] = [];
   const exec: Exec = async (_cmd, args, opts) => {
     const line = args.join(' ');
     calls.push({ args: line, input: opts?.input, token: opts?.env?.GH_TOKEN, quiet: opts?.env?.GH_NO_UPDATE_NOTIFIER === '1' && opts?.env?.GH_PROMPT_DISABLED === '1' });
-    const hit = answers.find(([part]) => line.includes(part));
+    const hit = answers.find(([part]) => (match === 'prefix' ? line.startsWith(part) : line.includes(part)));
     if (!hit) return { code: 1, stdout: '', stderr: `no fixture for: gh ${line}` };
     const a = hit[1];
     if (typeof a === 'object') return { code: a.code, stdout: '', stderr: a.stderr };

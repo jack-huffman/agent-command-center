@@ -76,7 +76,7 @@ else fs.appendFileSync(${JSON.stringify(record)}, JSON.stringify({ cmd: 'claude'
   assert.match(blocked.err, /T-1 is blocked\. Only a running task's builder is resumed\./);
 });
 
-test('acc dispatch --again with a claude that is not found (exit 127) is refused in the Command Center\'s words, and stops and records nothing (T-94)', () => {
+test('acc dispatch --again with a claude that is not found (exit 127) is refused in the Command Center\'s words, and stops and records nothing (T-93)', () => {
   const dir = realpathSync(repoWithConfig());
   assert.equal(acc(dir, ['add', 'Ticket updates are drafts']).code, 0);
   const file = join(dir, '.git', 'acc', 'ledger.json');
@@ -91,7 +91,7 @@ test('acc dispatch --again with a claude that is not found (exit 127) is refused
   chmodSync(join(bin, 'claude'), 0o755);
   const r = acc(dir, ['dispatch', 'T-1', '--again'], undefined, { PATH: `${bin}:${process.env.PATH}` });
   assert.equal(r.code, 1, r.out);
-  assert.match(r.err, /^.*Claude Code isn't on this Mac's path, so the Command Center can't see this builder/);
+  assert.match(r.err, /Claude Code isn't on this Mac's path, so the Command Center can't see this builder/);
   assert.ok(!(existsSync(record) ? readFileSync(record, 'utf8') : '').includes('stop'), 'nothing is stopped');
   const after = JSON.parse(readFileSync(file, 'utf8')).tasks[0];
   assert.deepEqual([after.state, after.run.bgId], ['running', 'bg9']);
