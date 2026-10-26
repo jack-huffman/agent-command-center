@@ -13,6 +13,7 @@ import type { TaskRow } from '../src/logic/shared.ts';
 import { planBehind, planTicketRead, withTicketRead } from '../src/model/plan-behind.ts';
 import { tempDir } from '../../packages/core/test/support.ts';
 import { sampleAnalyses } from '../scripts/fixtures/analysis.ts';
+import { sampleTalkTicket } from '../scripts/fixtures/talk.ts';
 import { sampleTicket } from '../scripts/fixtures/task-page.ts';
 import { type PageElement, pageDom } from './page-dom.ts';
 
@@ -165,6 +166,19 @@ test('the plan section carries what it read, and its Make a new plan moves onto 
   assert.deepEqual(withTicketRead(an, r)!.actions.map((a) => a.command), ['acc.task.watchAnalysis'], 'one Make a new plan, on the line');
   assert.equal(withTicketRead(an, planTicketRead(row(), planned(), TICKET.comments, REF))!.actions.length, 2, 'not behind: it stays where it was');
   assert.equal(withTicketRead(null, r), null, 'edge: no plan section');
+});
+
+test('a ticket with a conversation has Make a new plan in its panel alone, and the plan section still says it is behind (T-116)', () => {
+  const behind = { ...sampleTicket(NOW, 'ACME-21', false, null, null, 'behind'), talk: sampleTalkTicket(NOW).talk };
+  assert.ok(behind.talk!.newPlan, 'the conversation offers it');
+  const drawn = renderAnalysis(behind, behind.analysis!) as unknown as PageElement;
+  const buttons = (p: PageElement) => p.all().filter((x) => x.tagName === 'BUTTON' && x.textContent === 'Make a new plan');
+  assert.equal(buttons(drawn).length, 0, 'none in the plan section');
+  assert.match(drawn.all('plan-behind')[0]!.textContent, /2 new comments since this plan/);
+  assert.ok(drawn.all('an-actions').every((a) => !/Make a new plan/.test(a.textContent)), 'nor among its other actions');
+  // Edge: said nothing yet, so there is no panel offer, and the plan section keeps it.
+  const quiet = { ...behind, talk: { ...behind.talk!, newPlan: null } };
+  assert.equal(buttons(renderAnalysis(quiet, quiet.analysis!) as unknown as PageElement).length, 1, 'edge: without a conversation it stays here');
 });
 
 test('the page draws the line and Make a new plan where ACME-21 is behind, and names the comments it read either way', () => {
