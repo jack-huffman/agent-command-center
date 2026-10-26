@@ -1,7 +1,7 @@
 // acc sync --close-done, acc autopilot, and what a task in review shows: the pipeline (pipeline.ts).
 // acc runs from its source, in throwaway repos (support.ts).
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -207,23 +207,39 @@ test('a task autopilot couldn\'t move on shows as needs you, and acc show says w
   assert.match(acc(dir, ['show', 'T-1']).out, /! Autopilot couldn't update abcdef0 from its base: Conflicts with main that autopilot can't resolve: sum\.js\./);
 });
 
-test('acc autopilot --every stops by itself once the Command Center that started it has gone (D-064)', () => {
+test('acc autopilot --every stops by itself once the Command Center that started it has gone (D-064)', async () => {
   const dir = repoWithConfig({ ...GENERIC_CONFIG, autonomy: 'review', github: { repo: 'acme/tool', account: 'jordan-kim' } });
   assert.equal(acc(dir, ['add', 'Ready to start']).code, 0);
-  // A stand-in for the extension host: a process that lives for eight seconds, so autopilot's first pass
-  // finishes before it goes, even on a loaded machine, and the wait it is cut short of is 120 seconds, so
-  // a slow start can't make the two look alike. It's the shell's child, so
-  // once it ends nothing here leaves it unreaped while this test waits.
-  const host = spawnSync('sh', ['-c', 'sleep 8 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
-  const pid = host.stdout.trim();
-  assert.match(pid, /^\d+$/);
-  const started = Date.now();
-  const r = acc(dir, ['autopilot', '--every', '120'], undefined, { ACC_AUTOPILOT_PARENT: pid }, { timeout: 90_000 });
-  const took = Date.now() - started;
-  assert.equal(r.code, 0, r.err);
-  assert.ok(took < 60_000, `stopped ${took} ms after it started, not at the end of its 120-second wait`);
-  assert.match(r.out, /Nothing for autopilot to do\./, 'it did its pass first');
-  assert.match(r.err, /The Command Center that started autopilot closed, so it stops\./);
+  // A stand-in for the extension host: a child of this test that lives until the test ends it. The test
+  // ends it only once autopilot's output shows its first pass is done, so no clock decides whether a pass
+  // ran. Autopilot is then in its 120-second wait, and must leave it within a second of the host going.
+  const host = spawn('sleep', ['600'], { stdio: 'ignore' });
+  const child = spawn(process.execPath, ['--no-warnings', fileURLToPath(new URL('../src/main.ts', import.meta.url)), 'autopilot', '--every', '120'], {
+    cwd: dir,
+    env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_AUTOPILOT_PARENT: String(host.pid) },
+  });
+  let out = '';
+  let err = '';
+  child.stderr.on('data', (d) => { err += d; });
+  const exited = new Promise<number | null>((resolve) => child.on('close', resolve));
+  const passed = new Promise<void>((resolve) => {
+    child.stdout.on('data', (d) => {
+      out += d;
+      if (/Nothing for autopilot to do\./.test(out)) resolve();
+    });
+    child.on('close', () => resolve());
+  });
+  try {
+    await passed;
+    assert.match(out, /Nothing for autopilot to do\./, 'it did its pass first');
+    host.kill();
+    const code = await exited;
+    assert.equal(code, 0, err);
+  } finally {
+    host.kill();
+    child.kill();
+  }
+  assert.match(err, /The Command Center that started autopilot closed, so it stops\./);
   assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')), 'and let go of its lock');
 });
 
