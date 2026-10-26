@@ -214,10 +214,7 @@ test('acc autopilot --every stops by itself once the Command Center that started
   // ends it only once autopilot's output shows its first pass is done, so no clock decides whether a pass
   // ran. Autopilot is then in its 120-second wait, and must leave it well within that once the host goes.
   const host = spawn('sleep', ['600'], { stdio: 'ignore' });
-  const child = spawn(process.execPath, ['--no-warnings', fileURLToPath(new URL('../src/main.ts', import.meta.url)), 'autopilot', '--every', '120'], {
-    cwd: dir,
-    env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_AUTOPILOT_PARENT: String(host.pid) },
-  });
+  const child = acc.start(dir, ['autopilot', '--every', '120'], { ACC_AUTOPILOT_PARENT: String(host.pid) });
   let out = '';
   let err = '';
   child.stderr.on('data', (d) => { err += d; });

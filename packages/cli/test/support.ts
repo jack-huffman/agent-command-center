@@ -3,7 +3,7 @@
 // (D-099), so the near-tests gate finds a module's tests by name. Each file names '../src/main.ts' itself,
 // which is how the gate finds every CLI test for a change to main.ts or anything it loads.
 
-import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
+import { type ChildProcessWithoutNullStreams, spawn as spawnAsync, spawnSync, type SpawnSyncOptions } from 'node:child_process';
 import { join } from 'node:path';
 import { GENERIC_CONFIG, makeRepo, tempDir } from '../../core/test/support.ts';
 
@@ -31,12 +31,15 @@ export type SpawnOptions = Omit<SpawnSyncOptions, 'cwd' | 'input' | 'env' | 'enc
  * environment by hand.
  */
 export function cli(main: string) {
-  return (cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv = {}, spawn: SpawnOptions = {}): AccRun => {
-    const r = spawnSync(process.execPath, ['--no-warnings', main, ...args], {
-      ...spawn, cwd, input, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_REPOS_FILE: REPOS_FILE, ACC_MACHINE_FILE: MACHINE_FILE, ...env },
-    });
+  const accEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({ ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_HEAVY_DIR: HEAVY_DIR, ACC_REPOS_FILE: REPOS_FILE, ACC_MACHINE_FILE: MACHINE_FILE, ...env });
+  const run = (cwd: string, args: string[], input?: string, env: NodeJS.ProcessEnv = {}, spawn: SpawnOptions = {}): AccRun => {
+    const r = spawnSync(process.execPath, ['--no-warnings', main, ...args], { ...spawn, cwd, input, encoding: 'utf8', env: accEnv(env) });
     return { code: r.status ?? 1, out: r.stdout, err: r.stderr, json: () => JSON.parse(r.stdout) };
   };
+  /** acc started without waiting for it, for a test that watches what it prints while it runs, in the same environment. */
+  const start = (cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): ChildProcessWithoutNullStreams =>
+    spawnAsync(process.execPath, ['--no-warnings', main, ...args], { cwd, env: accEnv(env) });
+  return Object.assign(run, { start });
 }
 
 /** For a test of moving tasks by hand, not their checks: stray-files off, so a task needs none (GH-103). */
