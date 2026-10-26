@@ -1093,6 +1093,15 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'ticket talk: beside a conversation the plan section has no Make a new plan, which is the conversation panel\'s alone (T-116)',
+    page: 'ticket-talk',
+    async run(t) {
+      t.check('the page has a conversation line', t.all('.convo-line').length === 1, t.all('.convo-line').length);
+      const make = t.all<HTMLButtonElement>('button').filter((x) => x.textContent?.trim() === 'Make a new plan');
+      t.check('and no Make a new plan, among the plan\'s actions or anywhere on the page', make.length === 0, make.map((x) => x.parentElement?.className));
+    },
+  },
+  {
     name: 'task page: a review lists its findings, must-fix first, each with its lines, and a click on a file and line asks to open it there',
     page: 'ticket-review',
     async run(t) {
@@ -2132,6 +2141,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'The task page draws the conversation\'s turns', file: 'talk.ts', find: "const line = el('div', 'convo-line', icon('comment-discussion'),", replace: "const line = el('div', 'convo-line', ...s.turns.map((x) => turn(project, s, x)), icon('comment-discussion'),", kills: [caseNamed('conversation: the task page shows')] },
   { name: 'Make a plan on the task page asks for another command', file: 'dom.ts', find: "api.postMessage({ type: 'run', command: a.command, ref: a.ref })", replace: "api.postMessage({ type: 'run', command: a.command === 'acc.task.analyze' ? 'acc.task.show' : a.command, ref: a.ref })", kills: [caseNamed('conversation: Make a plan on the task page')] },
   { name: 'Draft the plan ignores the opening conversation', file: 'talk.ts', find: "api.postMessage({ type: 'conversation-draft', project, task: s.task }), s.draft.disabled", replace: "api.postMessage({ type: 'conversation-draft', project, task: s.task, skip: true }), s.draft.disabled", kills: [caseNamed('conversation: the panel opens at its question')] },
+  { name: 'the plan section keeps Make a new plan beside a conversation', file: 'analysis.ts', find: 'const actions = m.talk?.newPlan ? a.actions.filter((x) => x.command !== m.talk!.newPlan!.command) : a.actions;', replace: 'const actions = a.actions;', kills: [caseNamed('ticket talk: beside a conversation the plan section')] },
   { name: 'Enter alone sends the message', file: 'talk.ts', find: "if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))", replace: "if (e.key === 'Enter')", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];
