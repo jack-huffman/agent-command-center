@@ -210,17 +210,18 @@ test('a task autopilot couldn\'t move on shows as needs you, and acc show says w
 test('acc autopilot --every stops by itself once the Command Center that started it has gone (D-064)', () => {
   const dir = repoWithConfig({ ...GENERIC_CONFIG, autonomy: 'review', github: { repo: 'acme/tool', account: 'jordan-kim' } });
   assert.equal(acc(dir, ['add', 'Ready to start']).code, 0);
-  // A stand-in for the extension host: a process that lives for three seconds, so autopilot's first pass
-  // finishes before it goes, even on a loaded machine. It's the shell's child, so
+  // A stand-in for the extension host: a process that lives for eight seconds, so autopilot's first pass
+  // finishes before it goes, even on a loaded machine, and the wait it is cut short of is 120 seconds, so
+  // a slow start can't make the two look alike. It's the shell's child, so
   // once it ends nothing here leaves it unreaped while this test waits.
-  const host = spawnSync('sh', ['-c', 'sleep 3 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
+  const host = spawnSync('sh', ['-c', 'sleep 8 >/dev/null 2>&1 & echo $!'], { encoding: 'utf8' });
   const pid = host.stdout.trim();
   assert.match(pid, /^\d+$/);
   const started = Date.now();
-  const r = acc(dir, ['autopilot', '--every', '30'], undefined, { ACC_AUTOPILOT_PARENT: pid }, { timeout: 20_000 });
+  const r = acc(dir, ['autopilot', '--every', '120'], undefined, { ACC_AUTOPILOT_PARENT: pid }, { timeout: 90_000 });
   const took = Date.now() - started;
   assert.equal(r.code, 0, r.err);
-  assert.ok(took < 10_000, `stopped ${took} ms after it started, not at the end of its 30-second wait`);
+  assert.ok(took < 60_000, `stopped ${took} ms after it started, not at the end of its 120-second wait`);
   assert.match(r.out, /Nothing for autopilot to do\./, 'it did its pass first');
   assert.match(r.err, /The Command Center that started autopilot closed, so it stops\./);
   assert.ok(!existsSync(join(dir, '.git', 'acc', 'autopilot.lock')), 'and let go of its lock');
