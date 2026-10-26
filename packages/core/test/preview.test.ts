@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { AZURE, boardKind, type Ctx, DESCRIPTIONS, GITHUB, JIRA, MONDAY, SLACK, SLACK_NO_BOARD } from '../src/trackers/connect.ts';
-import { CARD_TITLES, countValues, placeKey, PREVIEW_CARDS, previewLine, readPlace } from '../src/trackers/preview.ts';
+import { CARD_TITLES, countValues, dependentKeys, placeKey, PREVIEW_CARDS, previewLine, readPlace } from '../src/trackers/preview.ts';
 import type { Board, TrackerClient } from '../src/trackers/types.ts';
 
 const BOARD: Board = { source: 'jira-board', title: 'ACME board', url: null, notice: null, place: 'Jira · ACME', columns: [], cards: [] };
@@ -83,6 +83,12 @@ test('a card\'s count reads its place: that choice made, and every list that dep
   // The same choices are the same place, and a card's count is the preview's board once it's chosen.
   assert.equal(placeKey(countValues(JIRA.pickers, values, 'epics', 'ACME-31')), placeKey(values));
   assert.notEqual(placeKey(countValues(JIRA.pickers, values, 'epics', 'ACME-30')), placeKey(values));
+});
+
+test('the lists that depend on a choice are named, however far down, and a last list has none', () => {
+  assert.deepEqual(dependentKeys(JIRA.pickers, 'board'), ['sprint']);
+  assert.deepEqual(dependentKeys(JIRA.pickers, 'sprint'), [], 'nothing depends on the last list');
+  assert.deepEqual(dependentKeys(JIRA.pickers, 'nope'), [], 'a key no list has');
 });
 
 test('the preview\'s line counts its tickets and columns, with one of each said once', () => {

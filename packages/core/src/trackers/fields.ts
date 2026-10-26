@@ -5,7 +5,7 @@
  * GitHub has no such field, so a ticket's changes are a section of the issue's description under a heading
  * the Command Center owns, and the rest of the description is never touched.
  */
-import { type AdfNode, type Doc, fromAdf, type Inline, fromHtml, fromMarkdown, toAdf, toHtml, toMarkdown } from './doc.ts';
+import { type AdfNode, fromAdf, fromHtml, fromMarkdown, plainText, toAdf, toHtml, toMarkdown } from './doc.ts';
 import type { FieldFormat, TextField } from './types.ts';
 
 /** The heading of a GitHub issue's section that holds its changes. Text above and below it is the person's. */
@@ -13,26 +13,6 @@ export const GITHUB_SECTION = 'Changes (kept by the Command Center)';
 
 /** GitHub's one place for a ticket's changes: the section of the description under GITHUB_SECTION. */
 export const GITHUB_CHANGES: TextField = { id: 'description', name: GITHUB_SECTION, format: 'markdown' };
-
-/** Plain text that still reads as a list: each item on its own line after "- ", each paragraph on its own. */
-export function plainOf(doc: Doc): string {
-  const inline = (c: Inline[]): string => c.map((i) => (i.t === 'br' ? '\n' : i.t === 'image' ? i.alt : i.text)).join('');
-  const walk = (bs: Doc['blocks'], indent: string): string[] => bs.flatMap((b): string[] => {
-    switch (b.t) {
-      case 'p': case 'h': return [indent + inline(b.c)];
-      case 'list': return b.items.flatMap((it, n) => {
-        const [first, ...rest] = walk(it.c, `${indent}  `);
-        return [`${indent}${b.ordered ? `${(b.start ?? 1) + n}.` : '-'} ${(first ?? '').trimStart()}`, ...rest];
-      });
-      case 'code': return b.text.split('\n').map((l) => indent + l);
-      case 'quote': return walk(b.c, indent);
-      case 'table': return [...(b.head ? [b.head.map(inline).join(' ')] : []), ...b.rows.map((r) => r.map(inline).join(' '))].map((l) => indent + l);
-      case 'media': return [indent + b.label];
-      case 'hr': return [];
-    }
-  });
-  return walk(doc.blocks, '').join('\n').trim();
-}
 
 /**
  * What a field is sent, from Markdown, in its format: Markdown as it is, HTML, ADF, or plain text. Empty
@@ -45,7 +25,7 @@ export function fieldValue(markdown: string, format: FieldFormat): string | AdfN
     case 'markdown': return markdown.trim();
     case 'html': return toHtml(doc);
     case 'adf': return toAdf(doc);
-    case 'plain': return plainOf(doc);
+    case 'plain': return plainText(doc, { lists: true });
   }
 }
 

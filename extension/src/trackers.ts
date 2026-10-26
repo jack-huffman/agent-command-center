@@ -22,7 +22,7 @@ import { credWho, signedInWho } from './logic/sign-in-name.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
 import { readBoardCache, writeBoardCache } from './logic/board-cache.ts';
-import { stateOf } from './logic/shared.ts';
+import { stateOf, ticketKey } from './logic/shared.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
 
@@ -230,7 +230,7 @@ export class Trackers implements vscode.Disposable {
 
   /** Whether a ticket is being tracked now, and why its last Track didn't go (D-074). */
   trackState(root: string, key: string): TrackState {
-    const k = `${root}#${key.toUpperCase()}`;
+    const k = ticketKey(root, key);
     return { busy: !!this.tracking.what(k), error: this.tracking.error(k) ?? null };
   }
 

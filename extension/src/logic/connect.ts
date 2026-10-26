@@ -12,6 +12,7 @@ import { isObj } from '../../../packages/core/src/text.ts';
 import type { Ticket } from '../../../packages/core/src/trackers/types.ts';
 import type { Pending } from '../../webview/pending.ts';
 import { inProcessWords } from './processes.ts';
+import { ticketKey } from './shared.ts';
 
 /**
  * Which of a repo's tasks to ask a Jira or Azure DevOps tracker about once its board has loaded (D-072):
@@ -249,7 +250,7 @@ export function cardTracking(cards: { key: string }[], state: (key: string) => T
  */
 export function liveTrackKeys(inFlight: string[], boards: Iterable<readonly [string, readonly { board: { cards: readonly { key: string }[] } | null }[]]>): Set<string> {
   const live = new Set(inFlight);
-  for (const [root, states] of boards) for (const s of states) for (const c of s.board?.cards ?? []) live.add(`${root}#${c.key.toUpperCase()}`);
+  for (const [root, states] of boards) for (const s of states) for (const c of s.board?.cards ?? []) live.add(ticketKey(root, c.key));
   return live;
 }
 

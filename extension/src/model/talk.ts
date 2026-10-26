@@ -7,7 +7,7 @@
 
 import type { Analysis } from '../../../packages/core/src/analyze.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
-import { CHANGE_APPROVED } from '../../../packages/core/src/plan-choices.ts';
+import { CHANGE_APPROVED, sameChoice } from '../../../packages/core/src/plan-choices.ts';
 import { isOpening, OPENING_ASK } from '../../../packages/core/src/plan-opening.ts';
 import { ANSWER_APPROVED, NOTE_APPROVED, type PlanTalk, proposalStale, proposalWords, TALK_MAX, type TalkProposal, type TalkQuote, type TalkTurn, type TalkWho } from '../../../packages/core/src/plan-talk.ts';
 import { planVersion } from '../../../packages/core/src/plan.ts';
@@ -174,7 +174,7 @@ function askFirst(p: TalkProposal, a: Analysis): string | null {
   if (p.kind === 'note') return NOTE_APPROVED;
   if (p.kind === 'answer') return ANSWER_APPROVED;
   const d = a.decisions?.find((x) => x.id === p.decision);
-  const same = p.kind === 'choose' ? d?.choice?.option === d?.options.find((o) => o.name === p.option)?.id : d?.choice?.option === null && d.choice.text === p.text;
+  const same = p.kind === 'choose' ? d?.choice?.option === d?.options.find((o) => o.name === p.option)?.id : sameChoice(d?.choice, { option: null, text: p.text });
   return same ? null : CHANGE_APPROVED;
 }
 

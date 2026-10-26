@@ -6,26 +6,20 @@
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { TicketVerify, VerifyButton } from '../src/model/verify.ts';
 import { button, el, icon, linkTo, peekKey, status, when, work } from './dom.ts';
-import { api, type PageArea, state } from './state.ts';
+import type { PageArea } from './state.ts';
+import { type AskReply, TicketAsks } from './ticket-asks.ts';
 
 type Ask = 'verify-run' | 'verify-clear';
 
-/** What's on its way, by project and task, and why the last one didn't go. */
-const asked = new Map<string, Ask>();
-const failed = new Map<string, string>();
+const asks = new TicketAsks<Ask>();
 
 function ask(m: TicketModel, v: TicketVerify, type: Ask, pr?: number): void {
-  const key = peekKey(m.project, v.task);
-  if (asked.has(key)) return;
-  asked.set(key, type);
-  failed.delete(key);
-  api.postMessage({ type, project: m.project, task: v.task, ...(pr ? { pr } : {}) });
-  if (state.last) state.draw(state.last);
+  asks.ask(peekKey(m.project, v.task), type, { type, project: m.project, task: v.task, ...(pr ? { pr } : {}) });
 }
 
 /** A button of the section: off with why, or while another of its buttons is on its way. */
 function action(m: TicketModel, v: TicketVerify, b: VerifyButton, type: Ask, iconName: string, cls: string, pr?: number): HTMLButtonElement {
-  const busy = asked.get(peekKey(m.project, v.task));
+  const busy = asks.busy(peekKey(m.project, v.task));
   const label = busy === type && !pr ? (type === 'verify-run' ? 'Verifying…' : 'Clearing…') : b.label;
   const x = button(label, busy === type && !pr ? 'loading~spin' : iconName, () => ask(m, v, type, pr), cls);
   const why = b.disabled ?? (busy ? 'Wait for the one on its way' : null);
@@ -76,15 +70,14 @@ export function renderVerify(m: TicketModel, v: TicketVerify): HTMLElement {
   if (v.findings.length) {
     sec.append(el('h3', 'vf-h', 'Findings'), el('ul', 'vf-list', ...v.findings.map((f) => row(f.look, work(el('span', '', f.message), 'agent-text'), f.place ? work(el('span', 'muted mono vf-sub', f.place), 'files') : null))));
   }
-  const error = failed.get(key);
+  const error = asks.error(key);
   if (error) sec.append(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', error)));
   const comment = v.comment;
   // The person's next step once there is a verification: the QA comment, to edit and post. Before one, Verify.
   const primary = (first: boolean): string => (first ? 'primary' : '');
   const open = comment ? button(comment.label, 'comment-draft', () => {
     if (comment.update && openComment(comment.update)) return;
-    failed.set(key, 'The QA comment\'s draft isn\'t on this page. Look in the update drafts.');
-    if (state.last) state.draw(state.last);
+    asks.fail(key, 'The QA comment\'s draft isn\'t on this page. Look in the update drafts.');
   }, primary(true)) : null;
   if (open && comment?.disabled) {
     open.disabled = true;
@@ -97,15 +90,8 @@ export function renderVerify(m: TicketModel, v: TicketVerify): HTMLElement {
   return sec;
 }
 
-/** How a button went: done redraws with what acc did; a refusal shows why, to try again. */
-function done(msg: { action?: string; project?: string; task?: string; ok?: boolean; error?: string }): void {
-  const key = peekKey(msg.project ?? '', msg.task ?? '');
-  if (!asked.has(key)) return;
-  asked.delete(key);
-  if (msg.ok) failed.delete(key);
-  else failed.set(key, msg.error?.trim() || 'It didn\'t go, and the Command Center didn\'t say why.');
-  if (state.last) state.draw(state.last);
-}
+/** How a button went: done redraws with what was done; a refusal shows why, to try again. */
+const done = (msg: AskReply): void => asks.done(msg);
 
 export const area: PageArea = {
   receive: { 'verify-done': done },

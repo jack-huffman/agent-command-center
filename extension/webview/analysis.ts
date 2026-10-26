@@ -100,7 +100,7 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
     sec.append(el('div', 'plan-short', status(p.look), p.approval ? el('span', 'muted small', `by ${p.approval.by} `, when(p.approval.at)) : null,
       a.review ? el('span', 'plan-left', icon(a.review.left.endsWith('to review') ? 'list-selection' : 'pass'), a.review.left) : null));
     // What it read of the ticket, and comments since (T-110).
-    const read = planTicketLine(a);
+    const read = planTicketLine(a, !!m.talk?.newPlan);
     if (read) sec.append(read);
   }
   // Review plan leads, then Build it and Talk it through, each off with why (T-97).
@@ -108,7 +108,9 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   // Its conversation with the planning agent (T-111): one line and Open conversation; the turns are in its panel.
   const talked = m.talk ? conversationLine(m.project, m.talk) : null;
   if (talked) sec.append(talked);
-  if (a.actions.length) sec.append(el('div', 'actions an-actions', ...a.actions.map(actionButton)));
+  // With a conversation, Make a new plan is the conversation panel's alone (T-116); without one it stays here.
+  const actions = m.talk?.newPlan ? a.actions.filter((x) => x.command !== m.talk!.newPlan!.command) : a.actions;
+  if (actions.length) sec.append(el('div', 'actions an-actions', ...actions.map(actionButton)));
   // The whole plan, folded and closed until opened.
   const whole = analysisFold(`${key}:whole`, 'The whole plan', [], false, { cls: 'an-whole', children: wholePlan(m, a, key) });
   if (whole) sec.append(whole);

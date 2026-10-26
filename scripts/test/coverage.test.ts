@@ -61,7 +61,7 @@ export const OLDER: Record<string, string[]> = {
   'extension/webview/connect.ts': ['connectTyped', 'renderConnect'],
   'extension/webview/detail.ts': ['openDetail', 'closeDetail'],
   'extension/webview/dock.ts': ['stickToBottom', 'renderDock'],
-  'extension/webview/dom.ts': ['linkTo', 'menuButton', 'peekKey', 'peekable', 'clippedSpan', 'keptInput', 'keepFocus'],
+  'extension/webview/dom.ts': ['linkTo', 'menuButton', 'peekable', 'clippedSpan', 'keptInput', 'keepFocus'],
   'extension/webview/landing.ts': ['runDo', 'opensKey', 'landingRow', 'showAll'],
   'extension/webview/limits.ts': ['renderLimits'],
   'extension/webview/modal.ts': ['makeModal'],

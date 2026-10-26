@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto';
 import type { Tracker } from '../../packages/core/src/config.ts';
 import { hostsInUse, repoIdentity, type RepoInUse, usedBy } from '../../packages/core/src/repos.ts';
 import { type Ctx, describe, DESCRIPTIONS, type PickerSpec, type SignIn, type SignInMethod, type TrackerDescription, type Values } from '../../packages/core/src/trackers/connect.ts';
-import { countValues, placeKey, readPlace } from '../../packages/core/src/trackers/preview.ts';
+import { countValues, dependentKeys, placeKey, readPlace } from '../../packages/core/src/trackers/preview.ts';
 import { type Exec, type TrackerClient, TrackerError } from '../../packages/core/src/trackers/types.ts';
 import { area as page, blankConnect, COUNT_MOST, type ConnectMessage, connectModel, type ConnectModel, type ConnectOption, type ConnectState, connectValues } from './model/connect.ts';
 import { connectChangesField } from './model/changes-field.ts';
@@ -655,12 +655,9 @@ export class ConnectSession {
   private choose(key: string, next: string[]): void {
     const s = this.s!;
     s.pickers[key]!.selected = next;
-    const below = new Set([key]);
-    for (const q of this.d.pickers) {
-      if (!q.dependsOn.some((k) => below.has(k))) continue;
-      below.add(q.key);
-      this.gens[q.key] = (this.gens[q.key] ?? 0) + 1;
-      s.pickers[q.key] = { options: [], selected: [], state: 'waiting', error: null };
+    for (const k of dependentKeys(this.d.pickers, key)) {
+      this.gens[k] = (this.gens[k] ?? 0) + 1;
+      s.pickers[k] = { options: [], selected: [], state: 'waiting', error: null };
     }
     this.loadReady();
   }

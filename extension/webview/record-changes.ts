@@ -7,11 +7,11 @@
 import type { RecordForm, StepRow, TicketRecords } from '../src/model/record-changes.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import { button, el, icon, linkTo, peekKey, status, when, work } from './dom.ts';
-import { api, memory, type PageArea, remember, state } from './state.ts';
+import { memory, type PageArea, remember, state } from './state.ts';
+import { TicketAsks } from './ticket-asks.ts';
 
-/** What's on its way, by project and task, and why the last one didn't go. */
-const asked = new Map<string, string>();
-const failed = new Map<string, string>();
+/** What the record-changes section has asked for, by task. */
+const asks = new TicketAsks();
 
 /**
  * The open form, and the step whose Skip is open, kept in the tab's memory with what's typed, so a redraw or a
@@ -40,12 +40,7 @@ export const whoWords = (by: string): string => (by.startsWith('builder:') ? 'it
 const textLines = (s: string): string[] => s.split('\n').map((l) => l.trim()).filter(Boolean);
 
 function send(m: TicketModel, r: TicketRecords, what: string, msg: Record<string, unknown>): void {
-  const key = peekKey(m.project, r.task);
-  if (asked.has(key)) return;
-  asked.set(key, what);
-  failed.delete(key);
-  api.postMessage({ project: m.project, task: r.task, ...msg });
-  redraw();
+  asks.ask(peekKey(m.project, r.task), what, { project: m.project, task: r.task, ...msg });
 }
 
 /** A field of the form: its label over its box, and a muted line under it. */
@@ -90,12 +85,12 @@ function form(m: TicketModel, r: TicketRecords, f: RecordForm): HTMLElement {
     action.append(o);
   }
   action.addEventListener('change', () => { f.action = action.value as RecordForm['action']; keep(FORM_KEY, key, f); redraw(); });
-  const busy = asked.get(key) === 'record-add';
+  const busy = asks.busy(key) === 'record-add';
   const save = button(busy ? 'Saving…' : 'Save the change', busy ? 'loading~spin' : 'save', () => {
     if (formOff(f)) return;
     send(m, r, 'record-add', { type: 'record-add', object: f.object.trim(), action: f.action, match: f.match, set: f.action === 'delete' ? [] : f.set, why: f.why.trim() });
   }, 'primary');
-  const off = formOff(f) ?? (asked.has(key) ? 'Wait for the one on its way' : null);
+  const off = formOff(f) ?? (asks.busy(key) ? 'Wait for the one on its way' : null);
   save.disabled = !!off;
   if (off) save.title = off;
   const cancel = button('Cancel', 'close', () => { keep(FORM_KEY, key, null); redraw(); }, 'ghost');
@@ -113,11 +108,11 @@ function step(m: TicketModel, r: TicketRecords, s: StepRow): HTMLElement {
   const key = peekKey(m.project, r.task);
   const skip = kept<Skip>(SKIP_KEY, key);
   const mine = skip?.step === stepKey(s);
-  const busy = asked.has(key) ? 'Wait for the one on its way' : null;
+  const busy = asks.busy(key) ? 'Wait for the one on its way' : null;
   // Its buttons go under its words, over the commands, so the commands keep the row's width at any size.
   let actions: HTMLElement | null = null;
   if (s.done && s.skip && !mine) {
-    const done = button(asked.get(key) === `done:${stepKey(s)}` ? 'Marking…' : s.done.label, 'check', () => send(m, r, `done:${stepKey(s)}`, { type: 'record-step', change: s.change, env: s.env, skip: null }), 'small');
+    const done = button(asks.busy(key) === `done:${stepKey(s)}` ? 'Marking…' : s.done.label, 'check', () => send(m, r, `done:${stepKey(s)}`, { type: 'record-step', change: s.change, env: s.env, skip: null }), 'small');
     const sk = button(s.skip.label, 'debug-step-over', () => { keep(SKIP_KEY, key, { step: stepKey(s), reason: '' }); redraw(); }, 'ghost small');
     for (const b of [done, sk]) { b.disabled = !!busy; if (busy) b.title = busy; }
     actions = el('div', 'rc-step-actions', done, sk);
@@ -135,7 +130,7 @@ function step(m: TicketModel, r: TicketRecords, s: StepRow): HTMLElement {
     reason.className = 'ts-box';
     reason.value = skip.reason;
     reason.placeholder = 'Production already has it';
-    const go = button(asked.get(key) === `skip:${stepKey(s)}` ? 'Skipping…' : 'Skip it', 'debug-step-over', () => {
+    const go = button(asks.busy(key) === `skip:${stepKey(s)}` ? 'Skipping…' : 'Skip it', 'debug-step-over', () => {
       if (!skip.reason.trim()) return;
       send(m, r, `skip:${stepKey(s)}`, { type: 'record-step', change: s.change, env: s.env, skip: skip.reason.trim() });
     }, 'small');
@@ -168,7 +163,7 @@ export function renderRecords(m: TicketModel, r: TicketRecords): HTMLElement {
       el('p', 'muted vf-sub', 'Git doesn\'t carry these. Make each one in the org, then mark it. Nothing makes them by itself.'),
       el('ul', 'vf-list', ...p.steps.map((s) => step(m, r, s)))));
   }
-  const error = failed.get(key);
+  const error = asks.error(key);
   if (error) sec.append(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', error)));
   const f = kept<RecordForm>(FORM_KEY, key);
   if (f) sec.append(form(m, r, f));
@@ -182,14 +177,7 @@ export function renderRecords(m: TicketModel, r: TicketRecords): HTMLElement {
 
 /** How a button went: done closes its form and redraws with what acc kept; a refusal shows why, to try again. */
 function done(msg: { action?: string; project?: string; task?: string; ok?: boolean; error?: string }): void {
-  const key = peekKey(msg.project ?? '', msg.task ?? '');
-  if (!asked.has(key)) return;
-  asked.delete(key);
-  if (msg.ok) {
-    failed.delete(key);
-    keep(msg.action === 'record-add' ? FORM_KEY : SKIP_KEY, key, null);
-  } else failed.set(key, msg.error?.trim() || 'It didn\'t go, and the Command Center didn\'t say why.');
-  redraw();
+  asks.done(msg, (key) => keep(msg.action === 'record-add' ? FORM_KEY : SKIP_KEY, key, null));
 }
 
 export const area: PageArea = {

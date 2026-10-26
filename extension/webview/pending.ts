@@ -45,6 +45,11 @@ export class Pending<W extends string> {
     return was;
   }
 
+  /** Shows why without touching what's on its way: the page found a reason of its own, and acc's reply still lands. */
+  fail(key: string, why: string): void {
+    this.errors.set(key, why);
+  }
+
   /** Whatever has left the page leaves nothing behind: no "Sending…", no old error. */
   forget(live: ReadonlySet<string>): void {
     for (const k of [...this.sending.keys()]) if (!live.has(k)) this.sending.delete(k);

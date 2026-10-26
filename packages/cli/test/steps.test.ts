@@ -163,19 +163,20 @@ const CASES: { name: string; make: () => { dir: string; args: string[]; env?: No
   },
 ];
 
-test('each long command prints what it printed before, with ACC_STEPS or without, and writes steps only with it (T-65)', () => {
-  let checked = 0;
-  for (const c of CASES) {
+// One test a command, so a busy machine spends its time budget on one command at a time, not on all of them in one.
+test('the long commands this file covers are listed: a run that finds none checks nothing (T-65)', () => {
+  assert.ok(CASES.length >= 1);
+});
+
+for (const c of CASES) {
+  test(`${c.name} prints what it printed before, with ACC_STEPS or without, and writes steps only with it (T-65)`, () => {
     const r = both(c.make);
     assert.deepEqual(r.plain, { code: c.code, out: c.out, err: c.err }, `${c.name}: its plain output`);
     assert.deepEqual(r.stepped, r.plain, `${c.name}: the same with ACC_STEPS`);
     assert.equal(r.events[0]?.id, c.first, `${c.name}: its first step`);
     assert.deepEqual([r.events.at(-1)?.kind, r.events.at(-1)?.ok], ['result', c.ok], `${c.name}: its result last`);
-    checked++;
-  }
-  assert.equal(checked, CASES.length);
-  assert.ok(checked >= 1);
-});
+  });
+}
 
 // ---------------------------------------------------------------- each command's steps, in order
 

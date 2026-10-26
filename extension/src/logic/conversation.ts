@@ -4,6 +4,7 @@
  * of logic/, no `vscode` import, so it can be tested with node:test.
  */
 import type { Making } from '../model/talk.ts';
+import { ticketKey } from './shared.ts';
 
 /**
  * The narrowest task page its conversation opens beside: narrower, and the two halves would each be too narrow
@@ -33,11 +34,9 @@ export class PlansMaking {
     this.changed = changed;
   }
 
-  private static key = (root: string, id: string): string => `${root}#${id.toUpperCase()}`;
-
   /** Starts one, reading its ticket first: false, and nothing changes, when one is under way already. */
   begin(root: string, id: string): boolean {
-    const k = PlansMaking.key(root, id);
+    const k = ticketKey(root, id);
     if (this.now.has(k)) return false;
     this.now.set(k, 'reading');
     this.changed(root, id);
@@ -46,7 +45,7 @@ export class PlansMaking {
 
   /** Its ticket is read: the plan is being made. */
   planning(root: string, id: string): void {
-    const k = PlansMaking.key(root, id);
+    const k = ticketKey(root, id);
     if (!this.now.has(k)) return;
     this.now.set(k, 'planning');
     this.changed(root, id);
@@ -54,11 +53,11 @@ export class PlansMaking {
 
   /** It ended, made or not. */
   end(root: string, id: string): void {
-    if (this.now.delete(PlansMaking.key(root, id))) this.changed(root, id);
+    if (this.now.delete(ticketKey(root, id))) this.changed(root, id);
   }
 
   /** What is under way for the task, or null. */
   of(root: string, id: string): Making | null {
-    return this.now.get(PlansMaking.key(root, id)) ?? null;
+    return this.now.get(ticketKey(root, id)) ?? null;
   }
 }

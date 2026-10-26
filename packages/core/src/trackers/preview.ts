@@ -29,11 +29,18 @@ export const placeKey = (values: Values): string => JSON.stringify(values);
 export function countValues(pickers: PickerSpec[], values: Values, key: string, value: string): Values {
   const p = pickers.find((x) => x.key === key);
   const out: Values = { ...values, [key]: value ? (p?.multi ? [value] : value) : null };
+  for (const k of dependentKeys(pickers, key)) out[k] = null;
+  return out;
+}
+
+/** The keys of the lists that depend on this one, however far down: choosing it clears every one. */
+export function dependentKeys(pickers: PickerSpec[], key: string): string[] {
   const below = new Set([key]);
+  const out: string[] = [];
   for (const q of pickers) {
     if (!q.dependsOn.some((k) => below.has(k))) continue;
     below.add(q.key);
-    out[q.key] = null;
+    out.push(q.key);
   }
   return out;
 }

@@ -7,28 +7,23 @@
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { ManifestButton, ManifestFileAsk, ManifestRow, TicketManifestSection } from '../src/model/manifest.ts';
 import { button, el, icon, peekKey, status, when, work } from './dom.ts';
-import { api, type PageArea, state } from './state.ts';
+import type { PageArea } from './state.ts';
+import { type AskReply, TicketAsks } from './ticket-asks.ts';
 
 type Ask = 'manifest-build' | 'manifest-retrieve' | 'manifest-commit' | 'manifest-file' | 'manifest-diff';
 
-/** What's on its way, by project and task: the message and what it's for, and why the last one didn't go. */
-const asked = new Map<string, string>();
-const failed = new Map<string, string>();
+/** What the manifest section has asked for, by task. */
+const asks = new TicketAsks();
 
 const which = (type: Ask, extra: Record<string, unknown>): string => `${type}${extra.check ? ':check' : ''}${extra.component ? `:${extra.component as string}` : ''}${extra.how ? `:${extra.how as string}` : ''}`;
 
 function ask(m: TicketModel, s: TicketManifestSection, type: Ask, extra: Record<string, unknown> = {}): void {
-  const key = peekKey(m.project, s.task);
-  if (asked.has(key)) return;
-  asked.set(key, which(type, extra));
-  failed.delete(key);
-  api.postMessage({ type, project: m.project, task: s.task, ...extra });
-  if (state.last) state.draw(state.last);
+  asks.ask(peekKey(m.project, s.task), which(type, extra), { type, project: m.project, task: s.task, ...extra });
 }
 
 /** A button of the section: off with why, or while another of its buttons is on its way; the one on its way spins. */
 function action(m: TicketModel, s: TicketManifestSection, b: ManifestButton, type: Ask, iconName: string, cls: string, extra: Record<string, unknown> = {}): HTMLButtonElement {
-  const busy = asked.get(peekKey(m.project, s.task));
+  const busy = asks.busy(peekKey(m.project, s.task));
   const mine = busy === which(type, extra);
   const x = button(b.label, mine ? 'loading~spin' : iconName, () => ask(m, s, type, extra), cls);
   const why = b.disabled ?? (busy ? 'Wait for the one on its way' : null);
@@ -87,7 +82,7 @@ export function renderManifest(m: TicketModel, s: TicketManifestSection): HTMLEl
     if (s.deletionsNote) sec.append(el('div', 'notice why mf-never', icon('info'), el('span', '', s.deletionsNote)));
   }
   if (s.leftOut) sec.append(el('p', 'muted mf-note', s.leftOut));
-  const error = failed.get(key);
+  const error = asks.error(key);
   if (error) sec.append(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', error)));
   const file = (b: ManifestButton | null, how: ManifestFileAsk, iconName: string) => (b ? action(m, s, b, 'manifest-file', iconName, 'ghost', { how }) : null);
   sec.append(el('div', 'actions an-actions',
@@ -100,14 +95,7 @@ export function renderManifest(m: TicketModel, s: TicketManifestSection): HTMLEl
 }
 
 /** How a button went: done redraws with what was done; a refusal shows why, to try again. */
-function done(msg: { project?: string; task?: string; ok?: boolean; error?: string }): void {
-  const key = peekKey(msg.project ?? '', msg.task ?? '');
-  if (!asked.has(key)) return;
-  asked.delete(key);
-  if (msg.ok) failed.delete(key);
-  else failed.set(key, msg.error?.trim() || 'It didn\'t go, and the Command Center didn\'t say why.');
-  if (state.last) state.draw(state.last);
-}
+const done = (msg: AskReply): void => asks.done(msg);
 
 export const area: PageArea = {
   receive: { 'manifest-done': done },

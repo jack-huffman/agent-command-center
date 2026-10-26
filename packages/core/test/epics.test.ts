@@ -6,8 +6,8 @@ import { epicKeys, loadConfig, parseConfig, replaceTracker, writeConfig } from '
 import { readmePlaces } from '../src/setup.ts';
 import { JIRA } from '../src/trackers/connect.ts';
 import { JiraClient } from '../src/trackers/jira.ts';
-import { placeText, TrackerError } from '../src/trackers/types.ts';
-import { GENERIC_CONFIG, tempDir } from './support.ts';
+import { epicWords, placeText, TrackerError } from '../src/trackers/types.ts';
+import { fakeJira, GENERIC_CONFIG, tempDir } from './support.ts';
 
 // A Jira tracker that follows several epics (T-107): the settings, the board's query, and what's inside it.
 
@@ -62,24 +62,13 @@ test('the Connect page ticks epics: an existing tracker opens with each ticked, 
   assert.equal(preview.placeJql(), 'project = "ACME" AND parent in (ACME-3, ACME-7)');
 });
 
-/** A stand-in Jira that answers by method and path prefix, and records each path asked. */
-function jira(routes: Record<string, unknown>) {
-  const paths: string[] = [];
-  const f = (async (url: string, init: RequestInit) => {
-    const path = url.replace(`https://${SITE}`, '');
-    paths.push(path);
-    const key = Object.keys(routes).find((k) => `${init.method ?? 'GET'} ${path}`.startsWith(k));
-    return new Response(JSON.stringify(key ? routes[key] : { errorMessages: ['Not found'] }), { status: key ? 200 : 404 });
-  }) as unknown as typeof fetch;
-  return { fetch: f, paths };
-}
 const issue = (key: string, parent: string | null, subtask = false) => ({
   key, fields: { summary: key, status: { id: '1', name: 'To Do', statusCategory: { key: 'new' } }, assignee: null, issuetype: { name: subtask ? 'Sub-task' : 'Story', subtask }, labels: [], project: { key: 'MSP' }, ...(parent ? { parent: { key: parent, fields: { summary: parent } } } : {}) },
 });
 const jql = (path: string) => new URL(`https://x${path}`).searchParams.get('jql');
 
 test('the board asks for the tickets under any of the epics, and their sub-tasks, and names each epic', async () => {
-  const { fetch: f, paths } = jira({
+  const { fetch: f, calls } = fakeJira({
     'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
     'GET /rest/api/3/project/MSP/statuses': [{ statuses: [{ id: '1', name: 'To Do', statusCategory: { key: 'new' } }] }],
     'GET /rest/api/3/issue/MSP-3?fields=summary': { fields: { summary: 'Premium Support' } },
@@ -90,11 +79,11 @@ test('the board asks for the tickets under any of the epics, and their sub-tasks
   const b = await new JiraClient({ site: SITE, project: 'MSP', email: 'e', token: 't', board: 42, epics: ['msp-3', 'MSP-7', 'MSP-3'], fetch: f }).board();
   assert.deepEqual(b.cards.map((c) => c.key), ['MSP-4', 'MSP-8', 'MSP-5'], 'each epic\'s child and a sub-task of one; not a stray under another epic');
   assert.equal(b.place, 'Jira · MSP · epics MSP-3 Premium Support or MSP-7 Renewals');
-  assert.deepEqual(paths.filter((p) => p.includes('/issue?jql=')).map(jql), ['project = "MSP" AND parent in (MSP-3, MSP-7)', 'project = "MSP" AND parent in (MSP-4, MSP-8)'], 'each epic asked once');
+  assert.deepEqual(calls.map((c) => c.path).filter((p) => p.includes('/issue?jql=')).map(jql), ['project = "MSP" AND parent in (MSP-3, MSP-7)', 'project = "MSP" AND parent in (MSP-4, MSP-8)'], 'each epic asked once');
 });
 
 test('edge: a board with several epics and none of their tickets says so, naming them', async () => {
-  const { fetch: f } = jira({
+  const { fetch: f } = fakeJira({
     'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
     'GET /rest/api/3/project/MSP/statuses': [],
     'GET /rest/api/3/issue/MSP-3?fields=summary': { fields: { summary: 'A' } },
@@ -102,9 +91,11 @@ test('edge: a board with several epics and none of their tickets says so, naming
     'GET /rest/agile/1.0/board/42/issue?jql=': { total: 0, issues: [] },
   });
   const b = await new JiraClient({ site: SITE, project: 'MSP', email: 'e', token: 't', board: 42, epics: ['MSP-3', 'MSP-7'], fetch: f }).board();
-  assert.match(b.notice!, /^No ticket in epic MSP-3 or MSP-7 is on this board\./);
+  assert.match(b.notice!, /^No ticket in epics MSP-3 or MSP-7 is on this board\./);
+  assert.equal(epicWords(['MSP-3']), 'epic MSP-3');
+  assert.equal(epicWords(['MSP-3', 'MSP-7']), 'epics MSP-3 or MSP-7');
   // One epic Jira hasn't: the board says which.
-  const { fetch: missing } = jira({
+  const { fetch: missing } = fakeJira({
     'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [] } }, 'GET /rest/api/3/project/MSP/statuses': [],
     'GET /rest/api/3/issue/MSP-3?fields=summary': { fields: { summary: 'A' } },
   });
@@ -113,7 +104,7 @@ test('edge: a board with several epics and none of their tickets says so, naming
 });
 
 test('intake\'s place check: a ticket under any of the epics is inside, a sub-task of one too, and one under none is outside', async () => {
-  const { fetch: f } = jira({
+  const { fetch: f } = fakeJira({
     'GET /rest/api/3/issue/MSP-4?': issue('MSP-4', 'MSP-3'),
     'GET /rest/api/3/issue/MSP-8?fields=parent': { key: 'MSP-8', fields: { parent: { key: 'MSP-7' } } },
     'GET /rest/api/3/issue/MSP-8?': issue('MSP-8', 'MSP-7'),
@@ -124,7 +115,7 @@ test('intake\'s place check: a ticket under any of the epics is inside, a sub-ta
   const c = new JiraClient({ site: SITE, project: 'MSP', email: 'e', token: 't', epics: ['MSP-3', 'MSP-7'], fetch: f });
   assert.equal(c.place, 'Jira · MSP · epics MSP-3 or MSP-7', 'before the board loads, without their names');
   assert.deepEqual(await c.outside(['MSP-4', 'MSP-8', 'MSP-5', 'MSP-9', 'MSP-7']), [
-    { key: 'MSP-9', why: 'it isn\'t in epic MSP-3 or MSP-7' },
+    { key: 'MSP-9', why: 'it isn\'t in epics MSP-3 or MSP-7' },
     { key: 'MSP-7', why: 'it\'s the epic itself, and only the tickets in it count' },
   ], 'the first epic\'s child, the second\'s, and a sub-task of the second\'s are inside');
 });

@@ -6,11 +6,13 @@ import { autopilotEvent } from '../src/autopilot-log.ts';
 import { autopilotPass } from '../src/autopilot.ts';
 import { type Config, parseConfig } from '../src/config.ts';
 import { AccError, run, type RunOptions, type RunResult } from '../src/exec.ts';
+import { draftChangesField } from '../src/field-drafts.ts';
 import { waiveGates } from '../src/gates.ts';
 import { displayState, type LedgerEvent, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { mergeMethod, mergePr } from '../src/merge.ts';
 import { repoPaths } from '../src/paths.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
+import { listUpdates } from '../src/updates.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-06T12:00:00Z');
@@ -314,4 +316,33 @@ test('a gh that ran out of time after GitHub merged is a merge, as GitHub then s
     'gh pr view 42 -R acme/tool --json state,headRefOid,mergeable,mergeStateStatus,reviewDecision,baseRefName,isDraft': (() => { let n = 0; return () => (++n === 1 ? ok(JSON.stringify({ state: 'OPEN', headRefOid: u.sha, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', baseRefName: 'main' })) : bad('HTTP 502')); })(),
   } });
   assert.throws(() => mergePr(u.paths, u.config, 'T-1', deps([], silent), by), (e: AccError) => e.code === 'merge' && e.message === 'gh couldn\'t merge pull request #42: gh didn\'t finish within 2 minutes, so acc stopped it. GitHub didn\'t say afterwards whether it merged.');
+});
+
+test('a merge drafts the ticket\'s changes field once; sync\'s later draft says the same and makes none, or, where a squash dropped a file, replaces it, so one is open (T-105)', () => {
+  const tracker = { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', changesField: { id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' } };
+  const s = setup({ raw: { trackers: [tracker] }, files: { 'extra.js': 'export const extra = 1;\n' } });
+  mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.source = { kind: 'jira', key: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7' };
+    emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'test', data: {} });
+  });
+  mergePr(s.paths, s.config, 'T-1', deps([], github(s.sha)), by);
+  const drafts = () => listUpdates(s.paths).filter((u) => u.event === 'changes');
+  const [draft, ...more] = drafts();
+  assert.deepEqual([more.length, draft?.by, draft?.field?.id], [0, 'orchestrator:autopilot', 'customfield_10042']);
+  assert.match(draft!.text, /sum\.js/);
+  assert.match(draft!.text, /extra\.js/);
+  mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.state = 'done';
+    emit({ type: 'task.updated', task: 'T-1', actor: 'sync', by: 'acc sync', data: {} });
+  });
+  assert.equal(draftChangesField(s.paths, run, s.config, 'T-1', 'acc sync', now), null, 'done, with the same paths kept: nothing new to say');
+  // A squash that dropped extra.js: sync keeps what the merge commit brought, and its draft replaces the merge's.
+  mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.changes = { at: now().toISOString(), paths: ['sum.js'] };
+    emit({ type: 'task.updated', task: 'T-1', actor: 'sync', by: 'acc sync', data: {} });
+  });
+  const second = draftChangesField(s.paths, run, s.config, 'T-1', 'acc sync', now)!;
+  assert.deepEqual(second.replaces, [draft!.id]);
+  assert.doesNotMatch(second.text, /extra\.js/);
+  assert.deepEqual(drafts().map((u) => u.id), [second.id], 'one draft is open: the merge\'s is replaced');
 });

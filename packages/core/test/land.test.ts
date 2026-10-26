@@ -21,10 +21,10 @@ const now = () => new Date('2026-10-02T12:00:00Z');
 const RAW = { ...GENERIC_CONFIG, github: { repo: 'acme/tool', account: 'jordan-kim' }, gates: { required: ['test'], commands: { test: 'true' } }, strayFiles: { required: false } };
 
 /** A repo whose origin is a local bare repo, with T-1 in review on its own branch. */
-function setup(source: { kind: 'github' | 'jira' | 'azure' | 'manual'; key: string | null; url?: string } = { kind: 'jira', key: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7' }) {
+function setup(source: { kind: 'github' | 'jira' | 'azure' | 'manual'; key: string | null; url?: string } = { kind: 'jira', key: 'ACME-7', url: 'https://acme.atlassian.net/browse/ACME-7' }, raw: typeof RAW = RAW) {
   const origin = tempDir('origin-');
   run('git', ['init', '-q', '--bare', origin]);
-  const dir = makeRepo({ '.acc/config.json': JSON.stringify(RAW) });
+  const dir = makeRepo({ '.acc/config.json': JSON.stringify(raw) });
   const base = gitIn(dir, 'branch', '--show-current').trim();
   gitIn(dir, 'remote', 'add', 'origin', origin);
   gitIn(dir, 'push', '-q', 'origin', base);
@@ -33,7 +33,7 @@ function setup(source: { kind: 'github' | 'jira' | 'azure' | 'manual'; key: stri
   gitIn(dir, 'add', '-A');
   gitIn(dir, 'commit', '-q', '-m', 'T-1: add sum');
   gitIn(dir, 'checkout', '-q', base);
-  const config = parseConfig(RAW).config as Config;
+  const config = parseConfig(raw).config as Config;
   const paths = repoPaths(dir, run);
   mutate(paths, now, (l, emit) => {
     upsertTasks(l, config, [{ source, title: 'Add a sum function', brief: 'sum(a, b)' }], 'human', 'human:test', emit, now);
@@ -425,4 +425,43 @@ test('sync: an open pull request records the files it conflicts in with its base
   assert.deepEqual(sync(s.paths, s.config, { run: named, now, env: {} }).changes, [], 'offline, what git last said stands');
   assert.equal(readLedger(s.paths.ledger).seq, seq);
   assert.deepEqual(readLedger(s.paths.ledger).tasks[0]!.pr?.conflicts, ['sum.js']);
+});
+
+// ---------------------------------------------------------------- a ticket's changes field, drafted (T-105)
+
+/** The project's Jira keeps a ticket's changes in a field, so a land and a merge draft that field's new text. */
+const TRACKED = { ...RAW, trackers: [{ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', changesField: { id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' } }] } as unknown as typeof RAW;
+const changesDrafts = (s: { paths: ReturnType<typeof repoPaths> }) => listUpdates(s.paths).filter((u) => u.event === 'changes');
+
+test('land drafts the ticket\'s changes field from the branch it opens a pull request for, and writes nothing to the ticket (T-105)', () => {
+  const s = setup(undefined, TRACKED);
+  waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+  passReview(s.paths, s.id, s.sha, s.base);
+  land(s.paths, s.config, s.id, { run: gh([]), now, env: {} }, { by: 'human:jordan' });
+  const [draft, ...more] = changesDrafts(s);
+  assert.deepEqual([more.length, draft?.state, draft?.by, draft?.field?.id], [0, 'draft', 'human:jordan', 'customfield_10042']);
+  assert.match(draft!.text, /sum\.js/);
+});
+
+test('an edge case: the merge sync sees drafts the field once, not again, after land drafted it (T-105)', () => {
+  const s = setup(undefined, TRACKED);
+  waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+  passReview(s.paths, s.id, s.sha, s.base);
+  land(s.paths, s.config, s.id, { run: gh([]), now, env: {} });
+  const merged = fakeRunner({ 'gh auth token -u jordan-kim': ok('gho_token\n'), 'gh pr view': ok(JSON.stringify({ number: 42, state: 'MERGED', url: 'https://github.com/acme/tool/pull/42', mergeCommit: { oid: 'c0ffee'.padEnd(40, '0') }, statusCheckRollup: [] })) });
+  const r = sync(s.paths, s.config, { run: merged, now, env: {} });
+  assert.deepEqual(r.changes.map((c) => c.moved?.to), ['done']);
+  assert.equal(changesDrafts(s).length, 1, 'the draft land made says the same: no second one');
+});
+
+test('sync drafts the field when a pull request merged on GitHub moves its task to done, from the paths acc kept (T-105)', () => {
+  const s = setup(undefined, TRACKED);
+  mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.pr = { number: 42, url: 'https://github.com/acme/tool/pull/42', state: 'open' };
+    emit({ type: 'task.updated', task: s.id, actor: 'human', by: 'test', data: {} });
+  });
+  sync(s.paths, s.config, { run: view('MERGED'), now, env: {} });
+  const [draft, ...more] = changesDrafts(s);
+  assert.deepEqual([more.length, draft?.by, draft?.state], [0, 'acc sync', 'draft']);
+  assert.match(draft!.text, /sum\.js/);
 });

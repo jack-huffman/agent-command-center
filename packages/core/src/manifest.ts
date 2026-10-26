@@ -564,7 +564,7 @@ export interface BranchCommit {
  * "Use the org's copy" and "Add to this ticket": retrieves one component from the development org into the
  * ticket's branch, and commits what changed, as the person. Refused while its builder works there, or with
  * changes in its worktree that aren't committed. A file left untracked there before the click stays out
- * of the commit. The kept check drops the component, as it's dealt with.
+ * of the commit, unless the retrieve wrote it: then it's the org's copy, and goes in. The kept check drops the component, as it's dealt with.
  */
 export function retrieveIntoBranch(paths: RepoPaths, config: Config, id: string, component: string, deps: ManifestDeps): BranchCommit {
   const c = splitComponent(component);
@@ -574,12 +574,14 @@ export function retrieveIntoBranch(paths: RepoPaths, config: Config, id: string,
   return onBranch(paths, deps.run, t, deps.now, (dir) => {
     const why = branchRefusal(deps.run, t, dir);
     if (why) throw new AccError('refused', why);
-    // A file left untracked before the click isn't the org's copy: it stays out of the commit.
-    const before = new Set(changedFiles(deps.run, dir).filter((e) => e.startsWith('??')).map((e) => e.slice(3)));
+    // A file left untracked before the click isn't the org's copy: it stays out of the commit, unless the retrieve
+    // wrote it (its text changed), when what's there now is the org's copy.
+    const readText = (f: string): string | null => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), 'utf8') : null);
+    const before = new Map(changedFiles(deps.run, dir).filter((e) => e.startsWith('??')).map((e) => e.slice(3)).map((f) => [f, readText(f)]));
     const args = ['project', 'retrieve', 'start', '--metadata', component, '--target-org', t.env.org!, '--ignore-conflicts', '--wait', '30', '--json'];
     const said = sfJson<unknown>(deps.run(...niced('sf', args), { cwd: dir, timeoutMs: 40 * 60_000, env: sfEnv() }));
     if (!said.ok) throw new AccError('sf', `The retrieve of ${component} from ${t.env.org} failed: ${said.message}`);
-    const files = under(changedFiles(deps.run, dir).map((e) => e.slice(3)), packageDirs(dir)).filter((f) => !before.has(f));
+    const files = under(changedFiles(deps.run, dir).map((e) => e.slice(3)), packageDirs(dir)).filter((f) => !before.has(f) || readText(f) !== before.get(f));
     if (!files.length) throw new AccError('no-change', `${t.env.org}'s copy of ${component} is the same as the branch's, so there's nothing to commit.`);
     const message = `${t.key}: Use ${t.env.org}'s copy of ${c.type} ${c.member}`;
     const sha = commitFiles(deps.run, dir, files, message);

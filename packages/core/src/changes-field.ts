@@ -11,8 +11,8 @@ import type { OutsideChange } from './outside-changes.ts';
 import { outsideKind } from './outside-kinds.ts';
 import { sfComponent } from './sf-metadata.ts';
 import { isObj } from './text.ts';
-import { fromMarkdown } from './trackers/doc.ts';
-import { GITHUB_CHANGES, plainOf } from './trackers/fields.ts';
+import { fromMarkdown, plainText } from './trackers/doc.ts';
+import { GITHUB_CHANGES } from './trackers/fields.ts';
 import { type FieldFormat, type TextField, type TrackerKind, trackerName } from './trackers/types.ts';
 
 /** The formats a tracker's fields keep text in, so a setting can't name a format its tracker has no field for. */
@@ -116,7 +116,7 @@ export function changesDraft(i: ChangesDraftIn): string | null {
 
 /** A field's text, as words a person reads, without its date line or spacing: what two texts are compared by. */
 const words = (markdown: string): string =>
-  plainOf(fromMarkdown(markdown)).split('\n').map((l) => l.trim().replace(/\s+/g, ' ')).filter((l) => l && !DATE_LINE.test(l)).join('\n');
+  plainText(fromMarkdown(markdown), { lists: true }).split('\n').map((l) => l.trim().replace(/\s+/g, ' ')).filter((l) => l && !DATE_LINE.test(l)).join('\n');
 
 /** Whether a field's text already says what the draft does, ignoring the date it was drafted, spacing and Markdown. */
 export const sameChanges = (field: string, draft: string): boolean => words(field) === words(draft);
@@ -128,7 +128,7 @@ export const KEPT_HEADING = 'Kept from the ticket';
 
 /** One line's words, without its Markdown, its list mark or its spacing: what lines are compared by. */
 const lineWords = (line: string): string =>
-  plainOf(fromMarkdown(line)).replace(/^\s*(?:[-*+]|\d+\.)\s+/, '').trim().replace(/\s+/g, ' ');
+  plainText(fromMarkdown(line), { lists: true }).replace(/^\s*(?:[-*+]|\d+\.)\s+/, '').trim().replace(/\s+/g, ' ');
 
 const linesOf = (text: string): string[] => text.replace(/\r\n/g, '\n').split('\n').map((l) => l.trimEnd());
 

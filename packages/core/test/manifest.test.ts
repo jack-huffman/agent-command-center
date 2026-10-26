@@ -319,6 +319,17 @@ test('edge: a source file left untracked in the worktree before Use the org\'s c
   assert.throws(() => retrieveIntoBranch(paths, config, 'ACME-7', 'ApexClass:Old', { run: fakeSf({ ...ORG, copies: {} }, []), now }), /same as the branch's/, 'the untracked file alone is nothing to commit');
 });
 
+test('edge: an untracked file the retrieve writes is the org\'s copy and goes in the commit, while one it leaves alone stays out', () => {
+  const { paths, config, wt } = setup();
+  writeFileSync(join(wt, D, 'classes/Scratch.cls'), 'public class Scratch {}\n');
+  writeFileSync(join(wt, D, 'classes/OrgOnly.cls'), 'public class OrgOnly { /* a draft */ }\n');
+  const org = { ...ORG, copies: { [`${D}/classes/OrgOnly.cls`]: 'public class OrgOnly {}\n' } };
+  const c = retrieveIntoBranch(paths, config, 'ACME-7', 'ApexClass:OrgOnly', { run: fakeSf(org, []), now });
+  assert.deepEqual(c.files, [`${D}/classes/OrgOnly.cls`], 'the file the retrieve rewrote, not the one it left');
+  assert.equal(gitIn(wt, 'show', `HEAD:${D}/classes/OrgOnly.cls`), 'public class OrgOnly {}', 'committed as the org has it');
+  assert.match(gitIn(wt, 'status', '--porcelain', '--untracked-files=all'), /\?\? .*Scratch\.cls/, 'the other stays untracked');
+});
+
 test('edge: with no worktree, Use the org\'s copy works in a scratch checkout of the branch, removed after', () => {
   const { dir, paths, config, wt } = setup();
   gitIn(dir, 'worktree', 'remove', '--force', wt);

@@ -15,7 +15,7 @@ import { withSheetCriteria } from '../model/criteria.ts';
 import type { TaskSheet } from '../model/task-sheet.ts';
 import { accRefusal } from './connect.ts';
 import { inProcessWords } from './processes.ts';
-import { stateOf } from './shared.ts';
+import { BusyTickets, stateOf } from './shared.ts';
 
 type Result = { code: number; stdout: string; stderr: string };
 
@@ -35,13 +35,12 @@ export type CriteriaReply = { ok: true; section?: string } | { ok: false; error:
 
 export class CriteriaDrafts {
   private readonly host: CriteriaHost;
-  private readonly changed: (root: string, id: string) => void;
-  /** The drafts this window started, by project and task, while acc runs them. */
-  private readonly busy = new Set<string>();
+  /** The drafts this window started, while acc runs them. */
+  private readonly busy: BusyTickets;
 
   constructor(host: CriteriaHost, changed: (root: string, id: string) => void = () => {}) {
     this.host = host;
-    this.changed = changed;
+    this.busy = new BusyTickets(changed);
   }
 
   /** The task's stored draft, or null. */
@@ -53,7 +52,7 @@ export class CriteriaDrafts {
   /** Whether a draft is under way: started here, or by acc anywhere while its process lives. */
   drafting(root: string, id: string): boolean {
     const p = this.host.project(root);
-    return this.busy.has(`${root}#${id.toUpperCase()}`) || (!!p && !!drafting(stateOf(p), id.toUpperCase()));
+    return this.busy.has(root, id) || (!!p && !!drafting(stateOf(p), id.toUpperCase()));
   }
 
   /**
@@ -63,37 +62,34 @@ export class CriteriaDrafts {
    */
   async draft(root: string, raw: string): Promise<CriteriaReply> {
     const id = raw.toUpperCase();
-    const key = `${root}#${id}`;
     const p = this.host.project(root);
     const task = p ? this.host.task(root, id) : undefined;
     if (!p) return { ok: false, error: 'That project isn\'t open any more.' };
     const why = criteriaRefusal(task, id);
     if (why) return { ok: false, error: why };
     if (this.drafting(root, id)) return { ok: false, error: `${id}'s acceptance criteria are being drafted now.` };
-    this.busy.add(key);
-    this.changed(root, id);
-    const dir = mkdtempSync(join(tmpdir(), 'acc-criteria-'));
-    try {
-      let ticket: string | null = null;
+    return this.busy.run<CriteriaReply>(root, id, async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'acc-criteria-'));
       try {
-        ticket = JSON.stringify(criteriaTicket(await this.host.ticket(root, task!.source.key ?? id)));
-      } catch {
-        // Offline, or signed out: acc drafts from the description it keeps, and the draft says so.
+        let ticket: string | null = null;
+        try {
+          ticket = JSON.stringify(criteriaTicket(await this.host.ticket(root, task!.source.key ?? id)));
+        } catch {
+          // Offline, or signed out: acc drafts from the description it keeps, and the draft says so.
+        }
+        const file = join(dir, 'ticket.json');
+        if (ticket) writeFileSync(file, ticket);
+        const r = await this.host.acc(['draft', 'criteria', id, ...(ticket ? ['--ticket', file] : []), '--json'], root, `Draft ${id}'s acceptance criteria`);
+        const no = accRefusal(r);
+        if (no !== null) return { ok: false, error: no };
+        const d = this.stored(root, id);
+        return d ? { ok: true, section: criteriaSection(d.markdown) } : { ok: false, error: 'The draft wasn\'t kept.' };
+      } catch (e) {
+        return { ok: false, error: inProcessWords((e as Error).message) };
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
       }
-      const file = join(dir, 'ticket.json');
-      if (ticket) writeFileSync(file, ticket);
-      const r = await this.host.acc(['draft', 'criteria', id, ...(ticket ? ['--ticket', file] : []), '--json'], root, `Draft ${id}'s acceptance criteria`);
-      const no = accRefusal(r);
-      if (no !== null) return { ok: false, error: no };
-      const d = this.stored(root, id);
-      return d ? { ok: true, section: criteriaSection(d.markdown) } : { ok: false, error: 'The draft wasn\'t kept.' };
-    } catch (e) {
-      return { ok: false, error: inProcessWords((e as Error).message) };
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-      this.busy.delete(key);
-      this.changed(root, id);
-    }
+    });
   }
 
   /** The stored draft as an update draft, to edit and post as a comment. acc writes it; nothing is posted. */

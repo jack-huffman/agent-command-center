@@ -232,3 +232,36 @@ export function saidLine(said: string, max = 200): string {
 
 /** Where acc keeps a project's state, from its ledger's path. */
 export const stateOf = (p: { ledgerPath: string }): { stateDir: string } => ({ stateDir: dirname(p.ledgerPath) });
+
+/** One ticket in one project, as `<root>#<KEY>`: how a busy set, a tab list and a track state tell tickets apart. */
+export const ticketKey = (root: string, key: string): string => `${root}#${key.toUpperCase()}`;
+
+/**
+ * The tickets this window has a job running for, by project and task (T-93): a job is marked busy before it
+ * starts and clear after it ends, however it ended, and the page is told each time.
+ */
+export class BusyTickets {
+  private readonly keys = new Set<string>();
+  private readonly changed: (root: string, id: string) => void;
+
+  constructor(changed: (root: string, id: string) => void = () => {}) {
+    this.changed = changed;
+  }
+
+  has(root: string, id: string): boolean {
+    return this.keys.has(ticketKey(root, id));
+  }
+
+  /** Runs `job` with the ticket busy; it is clear again, and the page told, when the job returns or throws. */
+  async run<T>(root: string, id: string, job: () => Promise<T>): Promise<T> {
+    const key = ticketKey(root, id);
+    this.keys.add(key);
+    this.changed(root, id);
+    try {
+      return await job();
+    } finally {
+      this.keys.delete(key);
+      this.changed(root, id);
+    }
+  }
+}

@@ -123,6 +123,19 @@ test('acc change record drafts the field\'s new text from the command line, and 
   assert.equal(readLedger(r.paths.ledger).tasks.find((t) => t.id === 'ACME-12')!.state, 'running');
 });
 
+test('moving a task to review or done by hand drafts the field\'s new text from the command line', () => {
+  const r = repo();
+  const acc = (args: string[]) => spawnSync(process.execPath, ['--no-warnings', MAIN, ...args], { cwd: r.root, encoding: 'utf8', env: { ...process.env, ACC_ROLE: '', ACC_TASK: '' } });
+  const moved = acc(['set', 'ACME-12', 'review', '--force', '--reason', 'covered by a test']);
+  assert.equal(moved.status, 0, moved.stderr);
+  const [u, ...more] = listUpdates(r.paths).filter((x) => x.event === 'changes');
+  assert.deepEqual([more.length, u?.state, u?.field?.id], [0, 'draft', NOTES.id]);
+  assert.match(u!.text, /CaseRouting/);
+  const done = acc(['set', 'ACME-12', 'done', '--force', '--reason', 'covered by a test']);
+  assert.equal(done.status, 0, done.stderr);
+  assert.equal(listUpdates(r.paths).filter((x) => x.event === 'changes').length, 1, 'done, with the same changes: no second draft');
+});
+
 // ---------------------------------------------------------------- what a person wrote in the field
 
 const HAND = 'Escalation Rules: Case\n\nAfter the deploy, turn on the Premium escalation rule in Setup.';

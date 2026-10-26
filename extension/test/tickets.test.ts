@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { accImport, accRefusal, cardTracking, liveTrackKeys, outsideKeys, placeCandidates, trackInput, type TrackSteps, trackTicket } from '../src/logic/connect.ts';
 import { addTaskArgs, draftFromOpen, rowAnalysis } from '../src/logic/tasks.ts';
-import type { TaskRow } from '../src/logic/shared.ts';
+import { BusyTickets, type TaskRow, ticketKey } from '../src/logic/shared.ts';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { type BoardInput, initials, priorityIcon, trackerBoard, typeIcon } from '../src/model/boards.ts';
 import { sampleTicket } from '../scripts/fixtures/task-page.ts';
@@ -595,4 +595,20 @@ test('a card acc couldn\'t move on its GitHub Project shows on the task page, wh
   // Moved on to another state, the failure is the last state's, so it no longer shows.
   const model = readFileSync(new URL('../src/model/task-page.ts', import.meta.url), 'utf8');
   assert.ok(model.includes('cardFailed: reasonInWords(cardFailure(i.task)'), 'read through core\'s cardFailure, which checks the state, and said in process words (GH-163)');
+});
+
+test('a ticket\'s key joins its project and its upper-cased key, so a lower-case key finds the same ticket', () => {
+  assert.equal(ticketKey('/repo', 'acme-1'), '/repo#ACME-1');
+  assert.equal(ticketKey('/repo', 'ACME-1'), ticketKey('/repo', 'acme-1'));
+});
+
+test('a ticket is busy while its job runs, and clear again, with the page told, when the job throws too', async () => {
+  const told: string[] = [];
+  const busy = new BusyTickets((root, id) => told.push(`${root}#${id}:${busy.has(root, id)}`));
+  assert.equal(busy.has('/repo', 'ACME-1'), false);
+  assert.equal(await busy.run('/repo', 'acme-1', async () => (busy.has('/repo', 'ACME-1') ? 'busy inside' : 'clear inside')), 'busy inside');
+  assert.equal(busy.has('/repo', 'ACME-1'), false);
+  await assert.rejects(busy.run('/repo', 'ACME-1', async () => { throw new Error('acc stopped'); }), /acc stopped/);
+  assert.equal(busy.has('/repo', 'ACME-1'), false, 'a job that throws leaves it clear');
+  assert.deepEqual(told, ['/repo#acme-1:true', '/repo#acme-1:false', '/repo#ACME-1:true', '/repo#ACME-1:false']);
 });
