@@ -232,3 +232,6 @@ export function saidLine(said: string, max = 200): string {
 
 /** Where acc keeps a project's state, from its ledger's path. */
 export const stateOf = (p: { ledgerPath: string }): { stateDir: string } => ({ stateDir: dirname(p.ledgerPath) });
+
+/** One ticket in one project, as `<root>#<KEY>`: how a busy set, a tab list and a track state tell tickets apart. */
+export const ticketKey = (root: string, key: string): string => `${root}#${key.toUpperCase()}`;

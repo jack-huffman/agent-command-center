@@ -9,7 +9,7 @@ import { Pending } from './pending.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { discussButton, openTalk } from './talk.ts';
 
-/** The longest own option a page sends, as acc takes it. */
+/** The longest own option a page sends, as acc takes it: a copy of CHOICE_TEXT_MAX in the core, on purpose, as the page imports no values from outside it (D-121). */
 export const OWN_MAX = 4000;
 
 /** Choices and approvals on their way to acc, and why the last one didn't go. */

@@ -9,7 +9,7 @@ import type { Task } from '../../../packages/core/src/ledger.ts';
 import { latestVerification, type PrChoice, readPrChoice, type Verification, verifying, verifyRefusal } from '../../../packages/core/src/verify.ts';
 import { accRefusal } from './connect.ts';
 import { inProcessWords } from './processes.ts';
-import { stateOf } from './shared.ts';
+import { stateOf, ticketKey } from './shared.ts';
 
 type Result = { code: number; stdout: string; stderr: string };
 
@@ -46,7 +46,7 @@ export class Verifications {
   /** Whether one is under way: started here, or by acc anywhere while its process lives. */
   running(root: string, id: string): boolean {
     const p = this.host.project(root);
-    return this.busy.has(`${root}#${id.toUpperCase()}`) || (!!p && !!verifying(stateOf(p), id.toUpperCase()));
+    return this.busy.has(ticketKey(root, id)) || (!!p && !!verifying(stateOf(p), id.toUpperCase()));
   }
 
   /** The task's latest verification, the choice acc kept, and whether one runs. A choice older than the latest verification is spent. */
@@ -66,7 +66,7 @@ export class Verifications {
    */
   async verify(root: string, raw: string, pr?: number): Promise<VerifyReply> {
     const id = raw.toUpperCase();
-    const key = `${root}#${id}`;
+    const key = ticketKey(root, id);
     const p = this.host.project(root);
     if (!p) return { ok: false, error: 'That project isn\'t open any more.' };
     const why = verifyRefusal(this.host.task(root, id), id, { github: p.github });

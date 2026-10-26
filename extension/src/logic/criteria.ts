@@ -15,7 +15,7 @@ import { withSheetCriteria } from '../model/criteria.ts';
 import type { TaskSheet } from '../model/task-sheet.ts';
 import { accRefusal } from './connect.ts';
 import { inProcessWords } from './processes.ts';
-import { stateOf } from './shared.ts';
+import { stateOf, ticketKey } from './shared.ts';
 
 type Result = { code: number; stdout: string; stderr: string };
 
@@ -53,7 +53,7 @@ export class CriteriaDrafts {
   /** Whether a draft is under way: started here, or by acc anywhere while its process lives. */
   drafting(root: string, id: string): boolean {
     const p = this.host.project(root);
-    return this.busy.has(`${root}#${id.toUpperCase()}`) || (!!p && !!drafting(stateOf(p), id.toUpperCase()));
+    return this.busy.has(ticketKey(root, id)) || (!!p && !!drafting(stateOf(p), id.toUpperCase()));
   }
 
   /**
@@ -63,7 +63,7 @@ export class CriteriaDrafts {
    */
   async draft(root: string, raw: string): Promise<CriteriaReply> {
     const id = raw.toUpperCase();
-    const key = `${root}#${id}`;
+    const key = ticketKey(root, id);
     const p = this.host.project(root);
     const task = p ? this.host.task(root, id) : undefined;
     if (!p) return { ok: false, error: 'That project isn\'t open any more.' };

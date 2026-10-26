@@ -21,6 +21,7 @@ import type { Trackers } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
 import { addTaskArgs, draftFromOpen } from './logic/tasks.ts';
 import { inProcessWords } from './logic/processes.ts';
+import { ticketKey } from './logic/shared.ts';
 import { type Excerpt, fileInCheckout, mergeBase, reviewExcerpts } from './logic/review-excerpts.ts';
 import { openReview } from './rules.ts';
 import { pickField } from './ticket-edits.ts';
@@ -202,7 +203,7 @@ export class TicketPanels implements vscode.Disposable {
     const project = this.hub.project(root);
     if (!project) return;
     const index = tracker === undefined ? this.trackers.trackerFor(project, key) : tracker;
-    const id = `${root}#${key.toUpperCase()}`;
+    const id = ticketKey(root, key);
     const existing = this.open.get(id);
     if (existing) {
       existing.tab.panel.reveal();
