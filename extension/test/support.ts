@@ -57,3 +57,20 @@ export const asks = { verdict: 'questions' as const, at: 't1', open: [ask('q1'),
 export const tooBig = { verdict: 'split' as const, at: 't1', open: [], split: ['One part', 'Another part', 'The rest'] };
 // Ready to build from: nothing open, and its plan approved (T-97).
 export const analysed = { verdict: 'ready' as const, at: 't1', open: [], split: [], approved: true };
+
+/**
+ * Jira, answering only this email and token (T-117): who you are, then the projects, epics and boards given.
+ * `search` answers the epics' search itself, to hold it back or fail it. Core's fakeJira answers acme.atlassian.net
+ * by route and never checks who asks; the Connect page's tests need the check (a wrong sign-in is a 401), so they keep this.
+ */
+export function jiraFor(who: { email: string; token: string }, data: { projects: { key: string; name: string }[]; epics: [string, string][]; boards: { id: number; name: string; type: string }[]; search?: (url: URL) => Response | Promise<Response> }): typeof fetch {
+  return (async (url: string, init: { headers: Record<string, string> }) => {
+    if (init.headers.Authorization !== `Basic ${Buffer.from(`${who.email}:${who.token}`).toString('base64')}`) return new Response(JSON.stringify({ errorMessages: ['Unauthorized'] }), { status: 401 });
+    const u = new URL(url);
+    if (u.pathname === '/rest/api/3/myself') return Response.json({ accountId: 'a1', displayName: 'Jordan Kim' });
+    if (u.pathname === '/rest/api/3/project/search') return Response.json({ values: data.projects });
+    if (u.pathname === '/rest/api/3/search/jql') return data.search ? data.search(u) : Response.json({ issues: data.epics.map(([key, summary]) => ({ key, fields: { summary } })) });
+    if (u.pathname === '/rest/agile/1.0/board') return Response.json({ values: data.boards });
+    return new Response('', { status: 404 });
+  }) as unknown as typeof fetch;
+}

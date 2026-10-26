@@ -9,6 +9,7 @@ import { JiraClient } from '../src/trackers/jira.ts';
 import { MondayClient } from '../src/trackers/monday.ts';
 import { hexOf } from '../src/trackers/normal.ts';
 import type { Exec } from '../src/trackers/types.ts';
+import { fakeGhBy } from './support.ts';
 
 test('hexOf keeps six hex digits, with or without a #, and nothing else (edge cases)', () => {
   assert.deepEqual(['#CC293D', 'cc293d', ' #009CCC '].map(hexOf), ['CC293D', 'cc293d', '009CCC']);
@@ -123,10 +124,7 @@ test('edge case: an Azure ticket whose colour calls fail, or whose project has n
 
 // ---------------------------------------------------------------- GitHub
 
-/** A stand-in gh: answers by a function of the whole line. */
-function fakeGh(answer: (line: string) => string): Exec {
-  return async (_cmd, args) => ({ code: 0, stdout: answer(args.join(' ')), stderr: '' });
-}
+const fakeGh = (answer: (line: string) => string): Exec => fakeGhBy(answer).exec;
 const gh = (exec: Exec) => new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec });
 const noProjects = JSON.stringify({ data: { repository: { projectsV2: { nodes: [] } } } });
 

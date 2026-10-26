@@ -271,3 +271,15 @@ export function fakeGh(answers: [string, string | ((input?: string) => string) |
   };
   return { exec, calls };
 }
+
+/** A stand-in gh that answers by a function of the whole argument line (a string is its output, an object a failure), and records each line. fakeGh answers by fixture text; this one is for an answer that depends on the line's shape. */
+export function fakeGhBy(answer: (line: string) => string | { code: number; stderr: string }): { exec: Exec; lines: string[] } {
+  const lines: string[] = [];
+  const exec: Exec = async (_cmd, args) => {
+    const line = args.join(' ');
+    lines.push(line);
+    const a = answer(line);
+    return typeof a === 'string' ? { code: 0, stdout: a, stderr: '' } : { code: a.code, stdout: '', stderr: a.stderr };
+  };
+  return { exec, lines };
+}

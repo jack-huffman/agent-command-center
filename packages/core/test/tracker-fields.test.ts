@@ -8,7 +8,7 @@ import { JIRA_PRIORITY, JiraClient } from '../src/trackers/jira.ts';
 import { MondayClient } from '../src/trackers/monday.ts';
 import { isEmail, personName, TYPE_KIND, typeKindOf } from '../src/trackers/normal.ts';
 import { type Exec, TYPE_KINDS } from '../src/trackers/types.ts';
-import { fakeJira } from './support.ts';
+import { fakeGhBy as fakeGh, fakeJira } from './support.ts';
 
 // ---------------------------------------------------------------- the normal form
 
@@ -207,17 +207,6 @@ test('a Jira ticket: people with their address where Jira gives it, its type\'s 
 
 // ---------------------------------------------------------------- GitHub
 
-/** A stand-in gh: answers by argument prefix, a function of the whole line, and records each line. */
-function fakeGh(answer: (line: string) => string | { code: number; stderr: string }): { exec: Exec; lines: string[] } {
-  const lines: string[] = [];
-  const exec: Exec = async (_cmd, args) => {
-    const line = args.join(' ');
-    lines.push(line);
-    const a = answer(line);
-    return typeof a === 'string' ? { code: 0, stdout: a, stderr: '' } : { code: a.code, stdout: '', stderr: a.stderr };
-  };
-  return { exec, lines };
-}
 const noProjects = JSON.stringify({ data: { repository: { projectsV2: { nodes: [] } } } });
 const view = (extra: object) => JSON.stringify({ number: 9, title: 'T', body: '', state: 'OPEN', url: 'https://github.com/o/r/issues/9', author: { login: 'pat' }, assignees: [], labels: [], comments: [], ...extra });
 const gh = (exec: Exec) => new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec });

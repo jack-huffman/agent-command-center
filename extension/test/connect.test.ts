@@ -13,14 +13,13 @@ import { type ConnectDeps, type ConnectProject, ConnectSession, type StartProjec
 import { credInUse, credKey, credWrites, type CredWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic/connect.ts';
 import { blankConnect, type ConnectMessage, connectModel, type ConnectModel } from '../src/model/connect.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { root } from './support.ts';
+import { jiraFor, root } from './support.ts';
 
 const ROOT = '/Users/me/code/acme-service';
 const SITE = 'acme.atlassian.net';
 const EMAIL = 'jordan.kim@example.com';
 const TOKEN = 'secret-token-0123456789';
 const ACME: ConnectProject & { ledgerPath: string } = { name: 'Acme Service', root: ROOT, config: { github: { repo: 'acme/service', account: 'jordan-kim' } }, ledgerPath: `${ROOT}/.git/acc/ledger.json` };
-const b64 = (s: string) => Buffer.from(s).toString('base64');
 const settle = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
 /** The board every place reads as here (T-106), so Save, which waits for the preview, can go. */
 const BOARD: Board = { source: 'jira-board', title: 'ACME board', url: null, notice: null, place: 'Jira · ACME', columns: [{ id: 'c1', name: 'To Do', category: 'todo', statusIds: ['1'] }], cards: [] };
@@ -33,17 +32,10 @@ const full = (t: Record<string, unknown>): Tracker => ({
 
 type Answer = Response | Promise<Response>;
 /** Jira, answering only this email and token. Epics can be held back or fail. */
-function jira(epics?: (url: URL) => Answer): typeof fetch {
-  return (async (url: string, init: { headers: Record<string, string> }) => {
-    if (init.headers.Authorization !== `Basic ${b64(`${EMAIL}:${TOKEN}`)}`) return new Response(JSON.stringify({ errorMessages: ['Unauthorized'] }), { status: 401 });
-    const u = new URL(url);
-    if (u.pathname === '/rest/api/3/myself') return Response.json({ accountId: 'a1', displayName: 'Jordan Kim' });
-    if (u.pathname === '/rest/api/3/project/search') return Response.json({ values: [{ key: 'ACME', name: 'Acme Service Desk' }, { key: 'OPS', name: 'Operations' }] });
-    if (u.pathname === '/rest/api/3/search/jql') return epics ? epics(u) : Response.json({ issues: [{ key: 'ACME-31', fields: { summary: 'Renewals' } }] });
-    if (u.pathname === '/rest/agile/1.0/board') return Response.json({ values: [{ id: 7, name: 'ACME board', type: 'scrum' }, { id: 9, name: 'Support', type: 'kanban' }] });
-    return new Response('', { status: 404 });
-  }) as unknown as typeof fetch;
-}
+const jira = (search?: (url: URL) => Answer): typeof fetch => jiraFor({ email: EMAIL, token: TOKEN }, {
+  projects: [{ key: 'ACME', name: 'Acme Service Desk' }, { key: 'OPS', name: 'Operations' }], epics: [['ACME-31', 'Renewals']],
+  boards: [{ id: 7, name: 'ACME board', type: 'scrum' }, { id: 9, name: 'Support', type: 'kanban' }], search,
+});
 
 /** Azure DevOps, answering only the Microsoft sign-in's header. */
 const azure = (async (url: string, init: { headers: Record<string, string> }) => {
