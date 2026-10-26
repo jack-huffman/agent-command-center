@@ -8,6 +8,7 @@ import { JIRA_PRIORITY, JiraClient } from '../src/trackers/jira.ts';
 import { MondayClient } from '../src/trackers/monday.ts';
 import { isEmail, personName, TYPE_KIND, typeKindOf } from '../src/trackers/normal.ts';
 import { type Exec, TYPE_KINDS } from '../src/trackers/types.ts';
+import { fakeJira } from './support.ts';
 
 // ---------------------------------------------------------------- the normal form
 
@@ -169,16 +170,8 @@ test('Azure\'s me names the person, with their address, and an email-shaped name
 
 // ---------------------------------------------------------------- Jira
 
-/** A stand-in for Jira Cloud: answers by method and path prefix. */
-function fakeJira(routes: Record<string, unknown>) {
-  return (async (url: string, init: RequestInit) => {
-    const at = `${init.method ?? 'GET'} ${url.replace('https://acme.atlassian.net', '')}`;
-    const key = Object.keys(routes).find((k) => at.startsWith(k));
-    return key ? Response.json(routes[key]) : Response.json({ errorMessages: ['Not found'] }, { status: 404 });
-  }) as unknown as typeof fetch;
-}
 const jiraStatus = (id: string, name: string, key: string) => ({ id, name, statusCategory: { key } });
-const jira = (routes: Record<string, unknown>) => new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'me@acme.co', token: 't', fetch: fakeJira(routes) });
+const jira = (routes: Record<string, unknown>) => new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'me@acme.co', token: 't', fetch: fakeJira(routes).fetch });
 
 test('Jira\'s five priorities have their levels, and a priority a site named itself has none (edge case)', async () => {
   assert.deepEqual(JIRA_PRIORITY, { highest: 1, high: 2, medium: 3, low: 4, lowest: 5 });

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, globSync, lstatSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { delimiter, dirname, join, relative } from 'node:path';
 import { run, type Runner, type RunOptions, type RunResult } from '../src/exec.ts';
+import type { Exec } from '../src/trackers/types.ts';
 import { tempDir } from './temp-root.ts';
 
 export { RUN_ROOT, tempDir } from './temp-root.ts';
@@ -235,4 +236,38 @@ export function spawnWith(cmd: string, args: readonly string[], input: string, o
     child.on('close', (code) => done({ code, out, err }));
     child.stdin.end(input);
   });
+}
+
+// ---------------------------------------------------------------- stand-ins for a tracker's own tools
+
+/** A stand-in for Jira Cloud (acme.atlassian.net): answers by method and path prefix, with an optional status per prefix, and records each request. */
+export function fakeJira(routes: Record<string, unknown | ((body: unknown) => unknown)>, status: Record<string, number> = {}) {
+  const calls: { method: string; path: string; body: unknown; auth: string | null }[] = [];
+  const f = (async (url: string, init: RequestInit) => {
+    const path = url.replace('https://acme.atlassian.net', '');
+    const method = init.method ?? 'GET';
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    calls.push({ method, path, body, auth: (init.headers as Record<string, string>).Authorization ?? null });
+    const key = Object.keys(routes).find((k) => `${method} ${path}`.startsWith(k));
+    const code = Object.entries(status).find(([k]) => `${method} ${path}`.startsWith(k))?.[1] ?? (key ? 200 : 404);
+    const r = key ? routes[key] : { errorMessages: ['Not found'] };
+    const payload = typeof r === 'function' ? (r as (b: unknown) => unknown)(body) : r;
+    return new Response(payload === undefined ? null : JSON.stringify(payload), { status: payload === undefined && code === 200 ? 204 : code });
+  }) as unknown as typeof fetch;
+  return { fetch: f, calls };
+}
+
+/** A stand-in gh: answers by the first fixture whose text the call's arguments hold, and records what it was asked, with the env it got. */
+export function fakeGh(answers: [string, string | ((input?: string) => string) | { code: number; stderr: string }][]): { exec: Exec; calls: { args: string; input?: string; token?: string; quiet: boolean }[] } {
+  const calls: { args: string; input?: string; token?: string; quiet: boolean }[] = [];
+  const exec: Exec = async (_cmd, args, opts) => {
+    const line = args.join(' ');
+    calls.push({ args: line, input: opts?.input, token: opts?.env?.GH_TOKEN, quiet: opts?.env?.GH_NO_UPDATE_NOTIFIER === '1' && opts?.env?.GH_PROMPT_DISABLED === '1' });
+    const hit = answers.find(([part]) => line.includes(part));
+    if (!hit) return { code: 1, stdout: '', stderr: `no fixture for: gh ${line}` };
+    const a = hit[1];
+    if (typeof a === 'object') return { code: a.code, stdout: '', stderr: a.stderr };
+    return { code: 0, stdout: typeof a === 'function' ? a(opts?.input) : a, stderr: '' };
+  };
+  return { exec, calls };
 }

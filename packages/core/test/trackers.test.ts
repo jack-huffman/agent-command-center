@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { fakeGh, fakeJira } from './support.ts';
 import { type AdfNode, fromAdf, fromMarkdown, plainText, safeHref, toAdf } from '../src/trackers/doc.ts';
 import { categoryOf, GithubClient } from '../src/trackers/github.ts';
 import { jiraSprintOptions } from '../src/trackers/connect.ts';
 import { JiraClient, jiraSprints, NO_ACTIVE_SPRINT } from '../src/trackers/jira.ts';
-import { type Exec, FIELD_LACKS, movesInto, TRACKER_FIELDS, TrackerError, trackerHasField } from '../src/trackers/types.ts';
+import { FIELD_LACKS, movesInto, TRACKER_FIELDS, TrackerError, trackerHasField } from '../src/trackers/types.ts';
 
 test('trackerHasField: a tracker without fields has all three; one with a list has only those (T-28)', () => {
   for (const f of TRACKER_FIELDS) {
@@ -101,21 +102,6 @@ test('a comment typed as markdown goes to Jira as ADF, and plain text reads natu
 
 // ---------------------------------------------------------------- GitHub
 
-/** A stand-in gh: answers by argument prefix and records what it was asked, with the env it got. */
-function fakeGh(answers: [string, string | ((input?: string) => string) | { code: number; stderr: string }][]): { exec: Exec; calls: { args: string; input?: string; token?: string; quiet: boolean }[] } {
-  const calls: { args: string; input?: string; token?: string; quiet: boolean }[] = [];
-  const exec: Exec = async (cmd, args, opts) => {
-    const line = args.join(' ');
-    calls.push({ args: line, input: opts?.input, token: opts?.env?.GH_TOKEN, quiet: opts?.env?.GH_NO_UPDATE_NOTIFIER === '1' && opts?.env?.GH_PROMPT_DISABLED === '1' });
-    const hit = answers.find(([prefix]) => line.startsWith(prefix));
-    if (!hit) return { code: 1, stdout: '', stderr: `no fixture for: gh ${line}` };
-    const a = hit[1];
-    if (typeof a === 'object') return { code: a.code, stdout: '', stderr: a.stderr };
-    return { code: 0, stdout: typeof a === 'function' ? a(opts?.input) : a, stderr: '' };
-  };
-  return { exec, calls };
-}
-
 const projectsAnswer = (nodes: unknown[]) => JSON.stringify({ data: { repository: { projectsV2: { nodes } } } });
 const issue = (n: number, state: string, extra: object = {}) => ({ number: n, title: `Issue ${n}`, url: `https://github.com/o/r/issues/${n}`, state, assignees: [{ login: 'jane', name: 'Jane Doe' }], labels: [{ name: 'bug', color: 'd73a4a' }], ...extra });
 
@@ -203,23 +189,6 @@ test('a GitHub issue: body and comments rendered from markdown, status from its 
 });
 
 // ---------------------------------------------------------------- Jira
-
-/** A stand-in for Jira Cloud: answers by method and path, and records each request. */
-function fakeJira(routes: Record<string, unknown | ((body: unknown) => unknown)>, status: Record<string, number> = {}) {
-  const calls: { method: string; path: string; body: unknown; auth: string | null }[] = [];
-  const f = (async (url: string, init: RequestInit) => {
-    const path = url.replace('https://acme.atlassian.net', '');
-    const method = init.method ?? 'GET';
-    const body = init.body ? JSON.parse(String(init.body)) : undefined;
-    calls.push({ method, path, body, auth: (init.headers as Record<string, string>).Authorization ?? null });
-    const key = Object.keys(routes).find((k) => `${method} ${path}`.startsWith(k));
-    const code = Object.entries(status).find(([k]) => `${method} ${path}`.startsWith(k))?.[1] ?? (key ? 200 : 404);
-    const r = key ? routes[key] : { errorMessages: ['Not found'] };
-    const payload = typeof r === 'function' ? (r as (b: unknown) => unknown)(body) : r;
-    return new Response(payload === undefined ? null : JSON.stringify(payload), { status: payload === undefined && code === 200 ? 204 : code });
-  }) as unknown as typeof fetch;
-  return { fetch: f, calls };
-}
 
 const jiraStatus = (id: string, name: string, key: string) => ({ id, name, statusCategory: { key } });
 
