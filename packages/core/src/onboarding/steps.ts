@@ -180,7 +180,7 @@ const pluginAddAndInstall = (shell: Shell): string => chain(shell, MARKETPLACE_A
 /** The shell a check's fix lines are written for: the system it runs for (a test sets one), else the one acc runs on. */
 const fixShell = (ctx: CheckContext): Shell => shellOf(ctx.system ?? SYSTEM);
 
-/** A step's fix whose line differs by system: fix for the system acc runs on, and fixOn for any (D-T-123). */
+/** A step's fix whose line differs by system: fix for the system acc runs on, and fixOn for any (D-209). */
 const bySystem = (fixOn: (system: InstallSystem) => Fix): Pick<Step, 'fix' | 'fixOn'> => ({ fix: fixOn(SYSTEM), fixOn });
 
 /** A step's fix on a system, as its page for that system shows it: fix itself on the system acc runs on. */

@@ -1,4 +1,4 @@
-// A test's stand-in program (D-T-123): an sh script a Mac starts by name, and on Windows npm's .cmd beside it
+// A test's stand-in program (D-209): an sh script a Mac starts by name, and on Windows npm's .cmd beside it
 // for a node runner that runs the script by Git's sh, so acc's start helper finds it by PATHEXT as it finds
 // npm's claude, and runs it by node when a word holds a line break.
 import assert from 'node:assert/strict';

@@ -4,7 +4,7 @@ import { AccError } from './exec.ts';
 import { startSync } from './start.ts';
 
 /**
- * The one way acc runs a shell command line, on every system (D-T-123). A Mac or Linux has /bin/sh. Windows
+ * The one way acc runs a shell command line, on every system (D-209). A Mac or Linux has /bin/sh. Windows
  * has no sh of its own, so acc uses the sh that Git for Windows ships: git is a required install, and its sh
  * runs a project's check commands as they are written. Nothing else in acc spawns a shell
  * (scripts/test/one-shell.test.ts).
@@ -75,7 +75,7 @@ export const shownCommand = (cmd: string): string => (/^sh(\.exe)?$/i.test(basen
 export const shellLine = (cmd: string, args: string[]): string => [cmd, ...args].map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ');
 
 /**
- * How a shell line, a hook or a settings file runs acc (D-T-123): by the launcher beside acc.mjs, which finds
+ * How a shell line, a hook or a settings file runs acc (D-209): by the launcher beside acc.mjs, which finds
  * a runtime as it always does (D-077), so the line sets no variable of its own and reads the same to a Mac's
  * sh and to Git's sh on Windows (a hook's shell there, as Claude Code's docs say). Run from its source, with
  * no launcher beside it, acc is this runtime and that script. On Windows the paths use forward slashes,
@@ -92,7 +92,7 @@ export function accLine(script: string, deps: { platform: NodeJS.Platform; exist
 export const NICE_LEVEL = 15;
 
 /**
- * A program that lowers its own priority, then runs the command it's given and exits as it did (D-T-123).
+ * A program that lowers its own priority, then runs the command it's given and exits as it did (D-209).
  * Node's os.setPriority works on a Mac, Linux and Windows, where the nice command is only on the first two.
  * The command inherits the lowered priority, and so does everything it starts. A stop acc sends it is passed
  * on, so a check stopped at its timeout stops too.

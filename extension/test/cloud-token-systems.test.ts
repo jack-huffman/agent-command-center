@@ -1,4 +1,4 @@
-// The routine's token is kept in the macOS keychain, so on Windows it's not available yet (D-T-123): acc never
+// The routine's token is kept in the macOS keychain, so on Windows it's not available yet (D-209): acc never
 // runs the Mac's security command there, Setup's step says why rather than failing, and the Token… button is
 // off with that reason. On a Mac nothing changes. A token given in the environment works everywhere.
 import assert from 'node:assert/strict';

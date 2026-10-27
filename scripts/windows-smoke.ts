@@ -1,5 +1,5 @@
 /**
- * The smoke run of acc on a machine as a person has it (D-T-123), run by CI's Windows job after the build:
+ * The smoke run of acc on a machine as a person has it (D-209), run by CI's Windows job after the build:
  *
  * - `acc doctor --part machine`, by name through the launchers the build put in dist/, as each shell finds
  *   them: through this machine's sh (inShell) everywhere, which finds the sh launcher, `acc`; on Windows

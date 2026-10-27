@@ -60,7 +60,7 @@ export interface Step {
   profiles?: Profile[];
   fix?: Fix;
   /**
-   * The fix on each system, where its line differs by system (D-T-123): fix is this for the system acc runs
+   * The fix on each system, where its line differs by system (D-209): fix is this for the system acc runs
    * on, and a step's page for another system reads it (fixFor).
    */
   fixOn?: (system: InstallSystem) => Fix;

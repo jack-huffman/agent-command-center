@@ -1,4 +1,4 @@
-// A stand-in program for a test (D-T-123): an sh script, made executable, that a Mac and Linux start by name.
+// A stand-in program for a test (D-209): an sh script, made executable, that a Mac and Linux start by name.
 // Windows can't start a script with no extension, so there it also gets the .cmd npm writes for a program,
 // as npm installs claude there, which runs a node script beside it that runs the stand-in by the sh acc runs
 // command lines with (Git for Windows' sh). acc's start helper finds the .cmd by PATHEXT and runs it as it

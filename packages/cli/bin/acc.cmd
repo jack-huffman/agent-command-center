@@ -1,5 +1,5 @@
 @echo off
-rem acc's launcher for Windows' own shells, cmd and PowerShell (D-077, D-T-123). It does what the sh
+rem acc's launcher for Windows' own shells, cmd and PowerShell (D-077, D-209). It does what the sh
 rem launcher `acc` beside it does, for the shells that can't run that one: Git's sh, which runs Claude
 rem Code's hooks on Windows, runs `acc` itself. It runs the bundled acc.mjs beside it with the first
 rem runtime it finds, so acc works with no Node installed:

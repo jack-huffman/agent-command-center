@@ -1,4 +1,4 @@
-// The Windows smoke run's judgment of a doctor run (D-T-123): acc ran, printed the machine's steps, and each
+// The Windows smoke run's judgment of a doctor run (D-209): acc ran, printed the machine's steps, and each
 // step it needs passed. A step for a tool the runner lacks may fail; acc not running at all may not.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';

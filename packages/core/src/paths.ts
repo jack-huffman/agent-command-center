@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { AccError, type Runner } from './exec.ts';
 
 /**
- * A Windows path as Windows compares them (D-T-123): one kind of slash, no trailing one, and no case. git
+ * A Windows path as Windows compares them (D-209): one kind of slash, no trailing one, and no case. git
  * gives C:/Users/…, Node and Claude Code C:\Users\…, and each is the same folder.
  */
 export const windowsPathKey = (path: string): string => path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();

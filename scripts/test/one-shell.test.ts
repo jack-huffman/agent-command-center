@@ -1,4 +1,4 @@
-// acc runs on a Mac and on Windows alike (D-T-123), and this keeps it so. In acc's own code, outside the two
+// acc runs on a Mac and on Windows alike (D-209), and this keeps it so. In acc's own code, outside the two
 // helpers and the exceptions named below, it fails on: a program started without the start helper
 // (spawn, spawnSync, execFile and the like from node:child_process); an sh started by name, or a shell
 // asked for (shell: true), rather than through inShell; a command line that sets a variable inline
@@ -30,7 +30,7 @@ export interface Hit { file: string; line: number; rule: Rule; text: string }
 
 /** Each exception: a file, the rule it's let off, how many lines it reaches (pinned), and why. */
 export const EXCEPTIONS: readonly { file: string; rule: Rule; lines: number; why: string }[] = [
-  { file: 'packages/core/src/awake.ts', rule: 'start', lines: 2, why: 'Keep-awake is the Mac\'s only (D-T-123): caffeinate and ps, which only a Mac has, and both are programs, not shims.' },
+  { file: 'packages/core/src/awake.ts', rule: 'start', lines: 2, why: 'Keep-awake is the Mac\'s only (D-209): caffeinate and ps, which only a Mac has, and both are programs, not shims.' },
   { file: 'extension/src/report-panel.ts', rule: 'start', lines: 1, why: 'It asks sw_vers, a program only a Mac has, and only on a Mac; elsewhere it names the system from Node.' },
   { file: 'packages/core/src/cloud-guard.ts', rule: 'start', lines: 6, why: 'The cloud guard\'s own script, written out for a cloud session, runs on its own with no acc beside it; it starts git, an .exe on Windows too.' },
   { file: 'packages/core/src/cloud-guard.ts', rule: 'nice', lines: 2, why: 'It reads commands an agent types, where nice is a wrapper to see past; acc runs nothing with it.' },

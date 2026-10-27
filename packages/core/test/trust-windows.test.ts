@@ -1,4 +1,4 @@
-// Claude Code's trust, read on Windows (D-T-123): git names a folder C:/Users/…, Node C:\Users\…, and
+// Claude Code's trust, read on Windows (D-209): git names a folder C:/Users/…, Node C:\Users\…, and
 // ~/.claude.json keys it in Claude Code's own spelling, so on Windows each spelling of one folder is the
 // same folder. A Mac reads the key as it did, exactly.
 import assert from 'node:assert/strict';

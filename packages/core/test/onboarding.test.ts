@@ -338,7 +338,7 @@ test('A4.plugin\'s names and address are the marketplace\'s and the plugin\'s ow
   assert.ok(!/<[^>]+>/.test(fix), 'Do it runs it as it is, with nothing to fill in');
 });
 
-test('edge case: a step whose line differs by system gives each system its own, whichever system acc runs on; a step without one gives its fix (D-T-123)', () => {
+test('edge case: a step whose line differs by system gives each system its own, whichever system acc runs on; a step without one gives its fix (D-209)', () => {
   const a4 = STEPS.find((s) => s.id === 'A4.plugin')!;
   assert.equal(stepFix(a4, 'windows')!.command, `${ADD}; if ($?) { ${INSTALL} }`, 'PowerShell 5.1 has no &&');
   assert.equal(stepFix(a4)!.command, a4.fix!.command, 'on the system acc runs on, its fix');

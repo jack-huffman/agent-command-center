@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { win32 } from 'node:path';
 
 /**
- * The one way acc starts a program, on every system (D-T-123). A Mac or Linux starts it as named, as before.
+ * The one way acc starts a program, on every system (D-209). A Mac or Linux starts it as named, as before.
  * Windows can't start a .cmd or .bat without cmd.exe, and the tools npm and the Salesforce installer put on
  * PATH are .cmd shims: sf, npm, npx, code, and claude when npm installed it. So on Windows the name is
  * looked up on PATH with PATHEXT, as cmd would, and a .cmd or .bat runs through cmd.exe, its words escaped

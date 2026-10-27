@@ -1,5 +1,5 @@
 // acc ships as three files side by side, everywhere it ships (D-077): `acc`, a small sh launcher that finds
-// a runtime, `acc.cmd`, the same launcher for cmd and PowerShell on Windows (D-T-123), and `acc.mjs`, the
+// a runtime, `acc.cmd`, the same launcher for cmd and PowerShell on Windows (D-209), and `acc.mjs`, the
 // bundle they run. So acc works with no Node installed, and resolves by name in every shell.
 import { chmodSync, copyFileSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';

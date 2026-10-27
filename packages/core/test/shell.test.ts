@@ -1,4 +1,4 @@
-// The one way acc runs a shell command line (D-T-123): which sh it picks on each system, the plain reason
+// The one way acc runs a shell command line (D-209): which sh it picks on each system, the plain reason
 // when Windows has no Git sh, the launcher line hooks and settings run acc by, and the lowered priority acc
 // runs its checks at, which os.setPriority gives on every system.
 import assert from 'node:assert/strict';

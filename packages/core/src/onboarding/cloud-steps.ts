@@ -68,7 +68,7 @@ export const CLOUD_STEPS: Step[] = [
       const need = optedIn(ctx);
       if (need) return need;
       if (readCloudToken(ctx.run, ctx.config!.github!.repo, ctx.env, ctx.platform)) return pass('The routine\'s token is in the keychain.');
-      // No keychain here (D-T-123): said as a step this system can't take yet, not as one left undone.
+      // No keychain here (D-209): said as a step this system can't take yet, not as one left undone.
       const unavailable = cloudTokenUnavailable(ctx.platform);
       return unavailable ? skip(`${unavailable}.`) : fail(`No token for ${ctx.config!.github!.repo} in the keychain.`);
     },

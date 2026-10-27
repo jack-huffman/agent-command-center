@@ -218,7 +218,7 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
     : [
       action('acc.cloud.routine', 'Routine prompt', 'clippy', `Copy the routine prompt for ${p.name}`),
       action('acc.cloud.enable', cloud?.routine ? 'Change routine…' : 'Add the routine…', 'edit', `${cloud?.routine ? 'Change routine' : 'Add the routine'}: give the Command Center ${p.name}'s routine`, !cloud?.routine),
-      // Off with why where there's no keychain to keep it in (D-T-123).
+      // Off with why where there's no keychain to keep it in (D-209).
       action('acc.cloud.token', 'Token…', 'key', `Token: keep the routine's token for ${p.name}`, false, cloudTokenUnavailable(platform)),
       action('acc.cloud.default', 'Default…', 'arrow-swap', `Default: choose where ${p.name}'s builders go`),
       action('acc.cloud.review', 'Reviews…', 'checklist', `Reviews: choose where ${p.name}'s reviews run`),

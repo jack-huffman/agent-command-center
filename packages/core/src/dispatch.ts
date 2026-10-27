@@ -69,7 +69,7 @@ export function claudeStatePath(env: NodeJS.ProcessEnv = process.env): string {
  * Whether Claude Code trusts this folder for background sessions: accepted once with \`claude\` there. On
  * Windows a folder has several spellings: git gives C:/Users/…, Node C:\Users\…, and Claude Code keys
  * ~/.claude.json by its own. So there both slashes are tried, and the drive letter and the rest compare
- * without case, as Windows compares paths (D-T-123).
+ * without case, as Windows compares paths (D-209).
  */
 export function isTrusted(folder: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
   let state: { projects?: Record<string, { hasTrustDialogAccepted?: boolean }> };

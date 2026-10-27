@@ -1,4 +1,4 @@
-// The one way acc starts a program (D-T-123): as named on a Mac or Linux; on Windows looked up with PATH and
+// The one way acc starts a program (D-209): as named on a Mac or Linux; on Windows looked up with PATH and
 // PATHEXT, a .cmd shim such as sf's run through cmd.exe with every word escaped. The escaping is a
 // command-injection boundary, so it's tried with hostile words: each must reach the program as it was, and
 // none may run a command of its own.

@@ -112,7 +112,7 @@ export const CLOUD_TOKEN_ENV = 'ACC_CLOUD_TOKEN';
 export const CLOUD_TOKEN = /^[A-Za-z0-9_-]{20,}$/;
 
 /**
- * Why this machine can't keep the routine's token, or null where it can (D-T-123): it's kept in the macOS
+ * Why this machine can't keep the routine's token, or null where it can (D-209): it's kept in the macOS
  * keychain, by the security command, which Windows has no counterpart of that acc uses yet. Elsewhere than
  * Windows nothing changes: a Mac reads its keychain, and Linux (CI) as before. A token given in the
  * environment (CLOUD_TOKEN_ENV) still works everywhere.
