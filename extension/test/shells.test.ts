@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { INSTALL_LINES, INSTALL_SYSTEMS, shellOf } from '../../packages/core/src/onboarding/install-lines.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
+import { shellQuote } from '../../packages/core/src/onboarding/fix-lines.ts';
 import { shq } from '../src/logic/shared.ts';
 import { encodedPowerShell, fenceFor, psq, quoteFor, runnerLine, terminalShell } from '../src/logic/shells.ts';
 import { importRulesCommand, initCommand, stepMedia } from '../src/logic/setup.ts';
@@ -31,6 +32,7 @@ test('PowerShell quoting doubles a single quote and leaves $, backticks, spaces 
   assert.equal(psq('it‘s’'), "'it‘‘s’’'", 'curly single quotes are quotes to PowerShell');
   assert.equal(psq(''), "'\"\"'", 'the empty word is \'""\', since 5.1 drops a plain empty one');
   assert.equal(quoteFor('powershell'), psq);
+  assert.equal(shq, shellQuote, 'the extension\'s shq is core\'s quoting itself, not a copy that could drift');
   for (const w of ['plain', 'a b', "it's", '$x', '']) assert.equal(quoteFor('sh')(w), shq(w), `sh quotes ${JSON.stringify(w)} as the extension's shq does`);
 });
 

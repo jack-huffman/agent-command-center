@@ -5,8 +5,8 @@
  */
 import type { Shell } from './install-lines.ts';
 
-/** POSIX single quoting: a word of plain characters as it is, anything else in single quotes with ' as '\''. */
-const shellQuote = (s: string): string => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+/** POSIX single quoting: a word of plain characters as it is, anything else in single quotes with ' as '\''. The extension's shq is this one. */
+export const shellQuote = (s: string): string => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
 
 /**
  * Quotes one native-command argument for Windows PowerShell 5.1. Single quotes, with ' doubled (a curly single quote
