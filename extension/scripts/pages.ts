@@ -57,6 +57,8 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * line, the panel as Make a plan opens it, mid-conversation with a reply on its way, and Talk it through once v2 is made.
  * Then the agent's questions one at a time, part-way through (T-113), and a long Talk it through, folded.
  * Then Environments on a machine that isn't logged in to Production, its Open org and Deploy… off (T-125).
+ * Then a project with two Jira Service Management queue boards (T-128), on the Tasks tab and in Settings' Trackers and
+ * sign-ins, and the Connect page with a service desk's queues as cards: two ticked, and a sign-in that isn't an agent's.
  */
 export const PAGES = [
   // The Command Center's sections
@@ -88,6 +90,7 @@ export const PAGES = [
   'tasks-monday',
   'tasks-github',
   'tasks-sprint',
+  'tasks-queues',
   'tasks-slack',
   'tasks-slack-refused',
   'tasks-slack-board',
@@ -210,12 +213,15 @@ export const PAGES = [
   'connect-github-board',
   'connect-github-access',
   'connect-jira-epics',
+  'connect-jira-queues',
+  'connect-jira-queues-refused',
   // Settings, with Notices in Slack at each state
   'slack-none',
   'slack-off',
   'slack-paused',
   'settings-agents',
   'settings-trackers',
+  'settings-queues',
   'settings-limits',
   'settings-about',
   'settings-about-failed',
