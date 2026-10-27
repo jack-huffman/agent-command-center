@@ -7,6 +7,7 @@
 // pass having run nothing.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { startSync } from '../packages/core/src/start.ts';
 import { nearReaders } from './near-reads.ts';
 
 if (process.env.ACC_NEAR_TESTS === undefined) {
@@ -29,8 +30,9 @@ if (!tests.length) {
 }
 console.log(`Tests near the change: ${tests.join(', ')}`);
 if (tests.some((t) => /^(extension\/test|scripts\/test)\//.test(t) || t === 'packages/cli/test/launcher.test.ts' || t === 'packages/cli/test/junk.test.ts')) {
-  const build = spawnSync('npm', ['run', 'build'], { stdio: 'inherit' });
-  if (build.status !== 0) process.exit(build.status ?? 1);
+  // Started by acc's start helper: on Windows npm is a .cmd, which only cmd.exe runs.
+  const build = startSync('npm', ['run', 'build'], { stdio: 'inherit' });
+  if ('problem' in build || build.status !== 0) process.exit(('problem' in build ? null : build.status) ?? 1);
 }
 // The same compile cache as npm test's (D-165), so each acc these tests start compiles nothing it compiled before.
 const cache = new URL('./compile-cache.ts', import.meta.url).href;

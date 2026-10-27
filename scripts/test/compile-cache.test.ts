@@ -6,6 +6,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { tempDir } from '../../packages/core/test/support.ts';
 import { CACHE_DIR } from '../compile-cache.ts';
 
@@ -16,7 +17,7 @@ const PRELOAD = join(ROOT, 'scripts', 'compile-cache.ts');
 function preloaded(script: string, env: Record<string, string | undefined>): string {
   const base = { ...process.env, ...env };
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete base[k];
-  const r = spawnSync(process.execPath, ['--no-warnings', '--import', PRELOAD, '-e', script], { env: base, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, ['--no-warnings', '--import', pathToFileURL(PRELOAD).href, '-e', script], { env: base, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
 }

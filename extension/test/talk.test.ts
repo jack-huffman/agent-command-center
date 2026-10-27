@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Analysis } from '../../packages/core/src/analyze.ts';
 import { writeAnalysis } from '../../packages/core/src/analyze.ts';
 import { parseConfig, type Config } from '../../packages/core/src/config.ts';
@@ -150,10 +150,10 @@ function fakeAcc(): string {
   const core = fileURLToPath(new URL('../../packages/core/src/', import.meta.url));
   const file = join(tempDir(), 'acc.mjs');
   writeFileSync(file, [
-    `import { openInClaude } from ${JSON.stringify(join(core, 'plan-talk.ts'))};`,
-    `import { parseConfig } from ${JSON.stringify(join(core, 'config.ts'))};`,
-    `import { run } from ${JSON.stringify(join(core, 'exec.ts'))};`,
-    `import { repoPaths } from ${JSON.stringify(join(core, 'paths.ts'))};`,
+    `import { openInClaude } from ${JSON.stringify(pathToFileURL(join(core, 'plan-talk.ts')).href)};`,
+    `import { parseConfig } from ${JSON.stringify(pathToFileURL(join(core, 'config.ts')).href)};`,
+    `import { run } from ${JSON.stringify(pathToFileURL(join(core, 'exec.ts')).href)};`,
+    `import { repoPaths } from ${JSON.stringify(pathToFileURL(join(core, 'paths.ts')).href)};`,
     `import { readFileSync } from 'node:fs';`,
     'const [, , what, sub, id] = process.argv;',
     `if (what !== 'plan' || sub !== 'claude') { console.log(JSON.stringify({ message: 'only plan claude' })); process.exit(1); }`,
