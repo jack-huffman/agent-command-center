@@ -12,7 +12,8 @@ import { needsTerminal } from './logic/runs.ts';
 import { shq } from './logic/shared.ts';
 import { inProcessWords, processLine } from './logic/processes.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
-import { domainItem, NO_PRODUCTION, sandboxDomains } from './logic/no-production.ts';
+import { asksProduction, domainItem, productionChoices, productionNext } from './logic/no-production.ts';
+import { MY_DOMAIN } from '../../packages/core/src/sf-discovery.ts';
 import { sourceProblem } from '../../packages/core/src/source.ts';
 import { type RunResult, runFile } from './run.ts';
 import type { Runs } from './runs.ts';
@@ -108,6 +109,11 @@ export class Setup implements vscode.Disposable {
 
   private cwd(): string {
     return this.folder()?.uri.fsPath ?? homedir();
+  }
+
+  /** The folder the project's checks run in, null with none open: results() are its project's (D-T-125). */
+  root(): string | null {
+    return this.folder()?.uri.fsPath ?? null;
   }
 
   /** The folder's .acc/config.json, there or not: setUp(), isProject() and config() all find it here. Null with no folder open. */
@@ -495,7 +501,7 @@ export class Setup implements vscode.Disposable {
     })));
     let domain = looks.map((l) => (l.u.kind === 'unknown' ? null : l.u.domain)).find(Boolean) ?? null;
     if (!domain) {
-      domain = (await vscode.window.showInputBox({ title: 'Your Salesforce My Domain', prompt: 'The part before .my.salesforce.com in your Production URL', placeHolder: 'acme', ignoreFocusOut: true, validateInput: (v) => (/^[a-z0-9-]+$/i.test(v.trim()) ? null : 'Letters, digits and dashes, such as acme') }))?.trim().toLowerCase() ?? null;
+      domain = (await vscode.window.showInputBox({ title: 'Your Salesforce My Domain', prompt: 'The part before .my.salesforce.com in your Production URL', placeHolder: 'acme', ignoreFocusOut: true, validateInput: (v) => (MY_DOMAIN.test(v.trim().toLowerCase()) ? null : 'Letters, digits and dashes, such as acme') }))?.trim().toLowerCase() ?? null;
       if (!domain) return;
     }
     const sorted = [...looks].sort((a, b) => Number(a.ok || a.away) - Number(b.ok || b.away));
@@ -598,22 +604,16 @@ export class Setup implements vscode.Disposable {
       parsed = null;
     }
     const orgs = productionOrgs(parsed);
-    const other = { label: '$(add) Log in to another Production org…' };
-    const pick = await vscode.window.showQuickPick([...orgs.map((label) => ({ label })), other, NO_PRODUCTION], { title: 'Which org is Production?', placeHolder: orgs.length ? undefined : 'No Production org is logged in yet' });
-    if (!pick) return undefined;
-    if (pick === other) {
-      this.runCommand('sf org login web --alias "<alias>" --instance-url https://<domain>.my.salesforce.com');
-      return undefined;
-    }
-    if (pick !== NO_PRODUCTION) return { productionOrg: pick.label };
-    const domains = sandboxDomains(parsed);
-    if (!domains.length) {
+    const next = productionNext(await vscode.window.showQuickPick(productionChoices(orgs), { title: 'Which org is Production?', placeHolder: orgs.length ? undefined : 'No Production org is logged in yet' }), parsed);
+    if (next.kind === 'org') return { productionOrg: next.productionOrg };
+    if (next.kind === 'login-production') this.runCommand('sf org login web --alias "<alias>" --instance-url https://<domain>.my.salesforce.com');
+    if (next.kind === 'login-sandbox') {
       const login = 'Log in to a sandbox';
       const go = await vscode.window.showWarningMessage('No sandbox is logged in on this machine.', { modal: true, detail: 'Without Production, the project\'s environments are the sandboxes you\'re logged in to. Log in to one, then choose again.' }, login);
       if (go === login) this.runCommand('sf org login web --alias "<alias>" --instance-url https://<domain>--<sandbox>.sandbox.my.salesforce.com');
-      return undefined;
     }
-    const domain = await vscode.window.showQuickPick(domains.map(domainItem), { title: 'Which My Domain is the project\'s?', placeHolder: 'Its logged-in sandboxes become the environments; Production is recorded with no org on this machine' });
+    if (next.kind !== 'ask-domain') return undefined;
+    const domain = await vscode.window.showQuickPick(next.domains.map(domainItem), { title: 'Which My Domain is the project\'s?', placeHolder: 'Its logged-in sandboxes become the environments; Production is recorded with no org on this machine' });
     return domain ? { myDomain: domain.domain } : undefined;
   }
 
@@ -658,8 +658,7 @@ export class Setup implements vscode.Disposable {
       if (!kind) return undefined;
       picked = kind.profile;
     }
-    const profile = shown.profile ?? picked;
-    const production = profile === 'salesforce' ? await this.pickProduction() : {};
+    const production = asksProduction(shown.profile, picked) ? await this.pickProduction() : {};
     if (!production) return undefined;
     return { init: { from: source, profile: picked, ...production }, templateTracker: shown.tracker };
   }

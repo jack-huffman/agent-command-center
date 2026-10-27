@@ -32,8 +32,10 @@ aren't found; the notes say so.
   offers the sandbox login. A team template that is Salesforce asks the same.
 - **Filling in Production later.** The settings are written the same way, Production with `"org": null`.
   Someone with access to Production runs `acc setup production --org <alias>` (new): it checks the alias is
-  logged in to a Production org, reads its sandbox list, corrects each listed sandbox's type to Salesforce's,
-  names the sandboxes the settings lack, and changes only Production's org and those types. Then they commit
+  logged in to a Production org, refuses one on another My Domain than the sandboxes logged in on that
+  machine, reads its sandbox list, corrects each listed sandbox's type to Salesforce's, and names the
+  sandboxes the settings lack. In the settings file it changes only Production's org and those types; every
+  other key each environment has stays as the file has it (`writeJsonKey`). Then they commit
   the settings and make production's branch with `acc setup branches`.
 
 **Every place that reads Production's org,** and what each does without it:
@@ -42,6 +44,7 @@ aren't found; the notes say so.
    Production here it is skipped, and says it runs where Production is logged in. It used to fail on
    Production with no org.
 2. **B6.org-match** (Each branch points at the right org): Production's line passes with the reason above.
+   When a sandbox fails the step, the failure still ends with Production's line, so item 8 knows.
 3. **B6.branches** (A branch for every environment): a missing production branch isn't a failure while
    Production isn't here, since it's retrieved from Production; the line says who makes it. A sandbox's
    missing branch still fails.
@@ -55,8 +58,11 @@ aren't found; the notes say so.
    without Production.
 7. **B6's Do it** (log in to an environment's org) lists Production, when it has an org alias, last, with a
    "not needed" mark and reason; Production with no org isn't listed.
-8. **The Environments page**: Production with no org on this machine shows Open org and Deploy… disabled,
-   with the reason (`PRODUCTION_NO_ORG`). Compare reads branches only, and works.
+8. **The Environments page**: Production's Open org and Deploy… are disabled, with the reason
+   (`PRODUCTION_AWAY`), when Production has no org, and when it has an alias that the last Setup check
+   (B6.org-match, run in this project's folder) found isn't logged in here (`productionNotHere`). Before
+   that check, or for another project than the one it ran in, the extension doesn't know, and they stay
+   on as before. Compare reads branches only, and works.
 9. **A team template's preview** (B0.template, `previewCommand`) uses `--my-domain <my-domain>` for a
    project whose Production has no org.
 10. **acc deploy** and **acc drift** to Production refuse an environment with no org already, with the

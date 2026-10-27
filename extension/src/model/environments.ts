@@ -11,8 +11,8 @@ import { settingsKey } from './settings.ts';
 
 export { promotionPaths };
 
-/** Why Production's org controls are disabled in a project set up without access to it (D-T-125). */
-export const PRODUCTION_NO_ORG = 'This machine has no org for Production. Someone with access to Production opens and deploys it.';
+/** Why Production's org controls are disabled on a machine that isn't logged in to it (D-T-125). */
+export const PRODUCTION_AWAY = 'This machine isn\'t logged in to Production. Someone with access to Production opens and deploys it.';
 
 // ---------------------------------------------------------------- the repo's GitHub identity (D-028)
 
@@ -76,7 +76,11 @@ export interface EnvironmentsModel {
   slackMoved: { label: string; icon: string; section: 'settings'; part: string };
 }
 
-export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null): EnvironmentsModel {
+/**
+ * notHere: whether this machine is known not to be logged in to a project's Production, whose branch is
+ * given (productionNotHere, from the last Setup check). Not known, its org controls stay on.
+ */
+export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null, notHere: (root: string, branch: string) => boolean = () => false): EnvironmentsModel {
   return {
     kind: 'environments',
     slackMoved: { label: 'Open Notices in Slack', icon: 'settings-gear', section: 'settings', part: settingsKey('slack') },
@@ -88,8 +92,9 @@ export function environmentsModel(hub: HubLike, identity: (root: string) => Iden
       envs: inPromotionOrder(p.config.environments).map((e) => {
         const ref: Ref = { project: p.root, env: e.branch };
         const actions: Action[] = [];
-        // A project set up without Production (D-T-125) has no org for it here: its org controls say why.
-        const away = p.config.profile === 'salesforce' && e.type === 'production' && !e.org ? PRODUCTION_NO_ORG : undefined;
+        // Production with no org here, or one the last Setup check found isn't logged in (D-T-125): its org
+        // controls are off and say why, rather than fail when used.
+        const away = p.config.profile === 'salesforce' && e.type === 'production' && (!e.org || notHere(p.root, e.branch)) ? PRODUCTION_AWAY : undefined;
         if (e.org || away) actions.push({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref, ...(away ? { disabled: away } : {}) });
         if (p.config.github) actions.push({ command: 'acc.env.openGithub', label: 'GitHub', icon: 'github', ref });
         if (p.branch !== e.branch) actions.push({ command: 'acc.env.compare', label: 'Compare', icon: 'diff', ref });
