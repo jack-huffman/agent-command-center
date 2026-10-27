@@ -129,15 +129,25 @@ they **build it**, and they review and merge it. [ONBOARDING.md](docs/ONBOARDING
 
 ### What you need
 
-- **macOS**, on Apple Silicon or Intel. The Command Center runs on no other platform.
+- **macOS** (Apple Silicon or Intel) or **Windows**, with no WSL. On a Mac,
+  **Homebrew** installs what's missing (Setup checks it's there, and offers its
+  installer); on Windows, **winget** does. The walkthrough gives the line for
+  your system. (Linux isn't a supported
+  platform, but its lines are given.)
 - **VSCode.**
-- **Claude Code**, the terminal CLI (`brew install --cask claude-code`), signed
-  in to your Claude account.
-- **A GitHub account**, and the GitHub CLI (`brew install gh`).
-- **git 2.40 or later**, and **Homebrew**, which the walkthrough uses to
-  install what's missing.
-- **For Salesforce projects:** Node 20 or later, the Salesforce CLI and its
-  Code Analyzer plugin.
+- **Claude Code**, the terminal CLI, signed in to your Claude account. On a Mac:
+  `brew install --cask claude-code`. On Windows, in PowerShell:
+  `irm https://claude.ai/install.ps1 | iex`.
+- **A GitHub account**, and the GitHub CLI. On a Mac: `brew install gh`. On
+  Windows: `winget install --id GitHub.cli -e`.
+- **git 2.40 or later.** On a Mac: `brew install git`. On Windows: `winget
+  install --id Git.Git -e`. **Git for Windows is required on Windows**: the
+  Command Center runs its shell commands with the `sh` it ships.
+- **On Windows, restart VSCode after installing a tool.** A tool installed
+  while VSCode is open isn't on its PATH until VSCode restarts.
+- **For Salesforce projects:** Node 20 or later (`brew install node` on a Mac,
+  `winget install --id OpenJS.NodeJS.LTS -e` on Windows), the Salesforce CLI and
+  its Code Analyzer plugin.
 
 The Command Center itself needs no Node: with no node 20 or later on PATH, it runs on VSCode's
 own runtime, which the extension records each time it starts. Salesforce

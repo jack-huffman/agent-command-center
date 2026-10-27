@@ -42,7 +42,7 @@ export function expectedFiles(): Map<string, string> {
   manifest.contributes.commands = contributedCommands();
   manifest.contributes.walkthroughs = buildWalkthroughs(STEPS);
   files.set('package.json', JSON.stringify(manifest, null, 2) + '\n');
-  for (const s of STEPS) files.set(mediaPath(s.id), stepMedia(s));
+  for (const s of STEPS) files.set(mediaPath(s.id), stepMedia(s, 'mac'));
   return files;
 }
 

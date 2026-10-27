@@ -21,6 +21,7 @@ const TRACK_Q = 'sf data query --use-tooling-api -q SELECT COUNT() FROM SourceMe
 /** Fixtures for a fully set-up machine and Salesforce project. Tests override single entries. */
 function healthy(): Record<string, RunResult | ((o?: { env?: NodeJS.ProcessEnv }) => RunResult)> {
   return {
+    'brew --version': ok('Homebrew 4.5.0'),
     'node --version': ok('v23.11.0'),
     'gh --version': ok('gh version 2.101.0 (2026-09-15)'),
     'claude --version': ok('2.1.287 (Claude Code)'),
@@ -260,7 +261,7 @@ test('an old CLI without --bg fails A1.claude with the update command', () => {
 test('Claude Code that isn\'t installed is installed with Homebrew, which needs no Node', () => {
   const f = healthy();
   f['claude --version'] = { code: 127, stdout: '', stderr: 'not found' };
-  const ctx = makeContext(tempDir(), fakeRunner(f), testEnv());
+  const ctx = { ...makeContext(tempDir(), fakeRunner(f), testEnv()), system: 'mac' as const };
   const res = runSteps(ctx, 'machine', ['A1.claude'])[0]!.result;
   assert.equal(res.status, 'fail');
   assert.equal(res.fix, 'brew install --cask claude-code');
@@ -271,7 +272,7 @@ function plugin(list: RunResult, markets: RunResult = ok('[]'), calls: string[] 
   const f = healthy();
   f['claude plugin list --json'] = list;
   f['claude plugin marketplace list --json'] = markets;
-  return runSteps(makeContext(tempDir(), fakeRunner(f, calls), testEnv(), acc), 'machine', ['A4.plugin'])[0]!.result;
+  return runSteps({ ...makeContext(tempDir(), fakeRunner(f, calls), testEnv(), acc), system: 'mac' }, 'machine', ['A4.plugin'])[0]!.result;
 }
 const ACC = { id: 'acc@agent-command-center', version: '0.35.0', scope: 'user', enabled: true };
 const ADD = 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center';
@@ -664,4 +665,50 @@ test('the plugin is behind acc only when both are x.y.z and it\'s older: the one
   assert.deepEqual(userPlugin([{ id: 'acc@agent-command-center', scope: 'project', version: '1.0.0', enabled: true }, { id: 'acc@agent-command-center', scope: 'user', version: '0.37.0', enabled: false }]), { version: '0.37.0', enabled: false });
   assert.deepEqual(userPlugin([{ id: 'acc@agent-command-center', scope: 'user', version: 37 }]), { version: null, enabled: false });
   assert.equal(userPlugin([{ id: 'other@x', scope: 'user' }]), null);
+});
+
+/** The fix a project step gives for a system (T-124): sh on a Mac and Linux, Windows PowerShell 5.1 on Windows. */
+function fixFor(id: string, system: 'mac' | 'windows' | 'linux', fixtures = healthy(), repo = sfRepo()): string | undefined {
+  const ctx = { ...makeContext(repo, fakeRunner(fixtures), testEnv({ CLAUDE_CONFIG_DIR: trustDir(repo) })), system };
+  return runSteps(ctx, 'project', [id])[0]!.result.fix;
+}
+
+test('B2.credentials\' fix is built for its shell: && and \'\' on a Mac, `; if ($?)` and \'""\' on Windows, where PowerShell 5.1 has no && and drops an empty argument (T-124)', () => {
+  const f = healthy();
+  f['gh api user --jq .login'] = ok('someone-else');
+  const mac = fixFor('B2.credentials', 'mac', f)!;
+  const win = fixFor('B2.credentials', 'windows', f)!;
+  assert.ok(mac.startsWith("git config credential.helper '' && git config --add credential.helper '!f()"), mac);
+  assert.ok(win.startsWith("git config credential.helper '\"\"'; if ($?) { git config --add credential.helper '!f()"), win);
+  assert.ok(!win.includes('&&'), 'no && on Windows');
+  assert.ok(win.includes('test \\"$1\\" = get'), 'a double quote is written \\" so 5.1 keeps it');
+  assert.ok(!mac.includes('\\"'), 'sh needs no such escape');
+});
+
+test('B8.cli-tracking\'s fix quotes the org for its shell, and a single org needs no chain (T-124)', () => {
+  const f = healthy();
+  f['sf org list'] = sf({ nonScratchOrgs: [{ alias: 'Acme Dev', tracksSource: false }] });
+  assert.equal(fixFor('B8.cli-tracking', 'mac', f), "sf org enable tracking -o 'Acme Dev'");
+  assert.equal(fixFor('B8.cli-tracking', 'windows', f), "sf org enable tracking -o 'Acme Dev'");
+});
+
+test('A4.plugin\'s fix and its update line are built for the shell of the system they run on (T-124)', () => {
+  const add = 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center';
+  const install = 'claude plugin install acc@agent-command-center --scope user';
+  const run = (system: 'mac' | 'windows') => {
+    const f = healthy();
+    f['claude plugin list --json'] = ok('[]');
+    f['claude plugin marketplace list --json'] = ok('[]');
+    return runSteps({ ...makeContext(tempDir(), fakeRunner(f), testEnv()), system }, 'machine', ['A4.plugin'])[0]!.result;
+  };
+  assert.equal(run('mac').fix, `${add} && ${install}`);
+  assert.equal(run('windows').fix, `${add}; if ($?) { ${install} }`);
+  const old = JSON.stringify([{ id: 'acc@agent-command-center', version: '0.0.1', scope: 'user', enabled: true }]);
+  const update = (system: 'mac' | 'windows') => {
+    const f = healthy();
+    f['claude plugin list --json'] = ok(old);
+    return runSteps({ ...makeContext(tempDir(), fakeRunner(f), testEnv()), system, version: '9.9.9' }, 'machine', ['A4.plugin'])[0]!.result.fix;
+  };
+  assert.equal(update('mac'), 'claude plugin marketplace update agent-command-center && claude plugin update acc@agent-command-center --scope user');
+  assert.equal(update('windows'), 'claude plugin marketplace update agent-command-center; if ($?) { claude plugin update acc@agent-command-center --scope user }');
 });

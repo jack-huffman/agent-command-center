@@ -7,6 +7,7 @@ import { registerHooks } from 'node:module';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { tempDir } from '../../packages/core/test/support.ts';
+import { runnerLine } from '../src/logic/shells.ts';
 import { runCard } from '../src/model/runs.ts';
 import { pageSource } from './support.ts';
 import { until } from './vscode.ts';
@@ -187,6 +188,23 @@ test('a run of acc gets a steps file of its own: its steps reach the card as the
     const file = readFileSync(fake.where, 'utf8').trim();
     assert.match(file, /acc-steps-[^/]+\/steps\.jsonl$/);
     assert.equal(existsSync(dirname(file)), false, 'its folder is gone once it ended');
+  } finally {
+    runs.dispose();
+  }
+});
+
+test('a Setup fix whose spawned line differs (Windows encodes it for PowerShell) keeps the readable command, so an acc fix still reports its steps (T-124)', async () => {
+  const fake = fakeAcc();
+  const runs = new Runs(log, () => {}, fake.bin);
+  const encoded = runnerLine('acc deploy dev', 'windows');
+  assert.match(encoded, /-EncodedCommand /, 'on Windows the line the shell gets is the encoded one');
+  try {
+    // A Mac can't run powershell.exe, so a plain acc line stands in for what the shell gets; the command is what's read.
+    const id = runs.start('acc deploy dev', { cwd: folder(), label: 'Deploy Dev', spawn: 'acc deploy dev' });
+    const view = runs.views().find((r) => r.id === id)!;
+    assert.equal(view.command, 'acc deploy dev', 'the log and the card show the readable line, not base64');
+    await until(() => runCard(runs.views().find((r) => r.id === id)!).steps?.length === 1, 20_000, 'its first step');
+    await ended(runs, id);
   } finally {
     runs.dispose();
   }

@@ -117,7 +117,14 @@ test('with no runtime, a hook exits 0 without a word, and anything else names th
   const lines = r.err.split('\n').filter(Boolean);
   assert.equal(lines.length, 1, r.err);
   assert.match(lines[0]!, /^✗ acc needs Node 20 or later: /);
-  for (const fix of ['VSCode with Agent Command Center', 'brew install node', 'ACC_NODE']) assert.ok(lines[0]!.includes(fix), `names ${fix}`);
+  const here = process.platform === 'darwin' ? 'brew install node' : null;
+  for (const fix of ['VSCode with Agent Command Center', 'ACC_NODE', ...(here ? [here] : [])]) assert.ok(lines[0]!.includes(fix), `names ${fix}`);
+  // The install line follows the system: ACC_OS stands in for what uname says (T-124).
+  const said2 = (os: string) => launch(acc, ['done'], { ...env, ACC_OS: os }).err;
+  assert.match(said2('Darwin'), /run brew install node, or set ACC_NODE/);
+  for (const os of ['MINGW64_NT-10.0-26100', 'MSYS_NT-10.0', 'CYGWIN_NT-10.0']) assert.match(said2(os), /run winget install --id OpenJS\.NodeJS\.LTS -e, then restart VSCode, or set ACC_NODE/, os);
+  assert.match(said2('Linux'), /install it from https:\/\/nodejs\.org\/en\/download, or set ACC_NODE/);
+  assert.doesNotMatch(said2('Windows'), /brew/, 'a Windows launcher never says brew');
   assert.doesNotMatch(r.err, /\x1b\[/, 'no colour when stderr isn\'t a terminal');
   // No runtime file at all says the same.
   assert.equal(launch(acc, ['done'], { ...env, ACC_RUNTIME_FILE: join(s.dir, 'none') }).err, r.err);

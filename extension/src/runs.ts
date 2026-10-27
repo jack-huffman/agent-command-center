@@ -34,6 +34,11 @@ interface Run extends RunInput {
 export interface StartOptions {
   cwd: string;
   label?: string;
+  /**
+   * The line the shell is given, when it isn't the command itself (T-124): on Windows, Setup's fix is encoded for
+   * PowerShell here, while `command` stays the readable line the log shows and runsAcc reads.
+   */
+  spawn?: string;
   /** The setup step it does, so the step can show it's under way and check itself after. */
   step?: string;
   /**
@@ -179,8 +184,9 @@ export class Runs implements vscode.Disposable {
     let child: ChildProcess;
     try {
       // A shell, since setup's fixes are command lines: the one acc runs everywhere (inShell), so a line reads
-      // the same on Windows. Its own process group, so Stop ends all of it.
-      const [sh, args] = inShell(command);
+      // the same on Windows, where Setup's encoded PowerShell line (opts.spawn) runs from it as written. Its own
+      // process group, so Stop ends all of it.
+      const [sh, args] = inShell(opts.spawn ?? command);
       const started = startChild(sh, args, { cwd: opts.cwd, env: sfEnv({ ...process.env, ...opts.env, ...stepsEnv, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
       if ('problem' in started) throw new Error(started.problem);
       child = started;

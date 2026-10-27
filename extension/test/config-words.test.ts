@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CONFIG_KEYS } from '../../packages/core/src/config.ts';
+import { BREW_INSTALL, INSTALL_LINES, INSTALL_SYSTEMS, installCommand } from '../../packages/core/src/onboarding/install-lines.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import { CONFIG_WORDS, DOTTED_KEYS, escapeRegExp, inConfigWords } from '../src/logic/config-words.ts';
 import { inProcessWords, toolLineDoes } from '../src/logic/processes.ts';
@@ -80,13 +81,35 @@ test('another tool\'s command line is named by what it does, for each line the s
     ['claude update', 'Update Claude Code'],
     ['claude   # then accept the trust prompt and type /exit', 'Open Claude Code in this folder, to trust it'],
     ['brew install --cask claude-code', 'Install Claude Code'],
+    ['irm https://claude.ai/install.ps1 | iex', 'Install Claude Code'],
+    ['curl -fsSL https://claude.ai/install.sh | bash', 'Install Claude Code'],
+    ['winget install --id Git.Git -e', 'Install git'],
+    ['winget install --id OpenJS.NodeJS.LTS -e', 'Install Node'],
+    ['winget install --id GitHub.cli -e', 'Install the GitHub command line'],
+    ['sudo apt-get install git', 'Install git'],
     ['gh auth login   # as jordan-kim', 'Sign in to GitHub as this repo\'s account'],
     ['gh repo edit acme/service --default-branch dev', 'Set the repo\'s default branch on GitHub'],
     ['git config user.name "A" && git config user.email "a@example.com"', 'Set the name and email on this repo\'s commits'],
     ['cd "/work/acme" && npm install', 'Install the project\'s tools'],
+    // The same lines as Do it builds them on Windows, where PowerShell 5.1 has no && (T-124).
+    ['claude plugin marketplace add https://github.com/jack-huffman/agent-command-center; if ($?) { claude plugin install acc@agent-command-center --scope user }', "Install the Command Center's Claude Code plugin"],
+    ['claude plugin marketplace update agent-command-center; if ($?) { claude plugin update acc@agent-command-center --scope user }', "Update the Command Center's Claude Code plugin"],
+    ["git config user.name 'A'; if ($?) { git config user.email a@example.com }", 'Set the name and email on this repo\'s commits'],
+    ["cd '/work/acme'; if ($?) { npm install }", 'Install the project\'s tools'],
+    ['winget install --id Git.Git -e', 'Install git'],
     ['sf org login web --alias "dev" --instance-url https://acme.my.salesforce.com', 'Log in to the org'],
   ];
   for (const [line, does] of lines) assert.equal(toolLineDoes(line), does, line);
+  // Each line of the install table, and Homebrew's installer, is named without being typed here: the words come from the table (T-124).
+  let fromTable = 0;
+  for (const tool of Object.keys(INSTALL_LINES) as (keyof typeof INSTALL_LINES)[]) {
+    for (const system of INSTALL_SYSTEMS) {
+      const c = installCommand(tool, system);
+      if (c) { fromTable++; assert.notEqual(toolLineDoes(c), null, `${tool} on ${system}`); }
+    }
+  }
+  assert.ok(fromTable >= 10, `${fromTable} table lines checked`);
+  assert.equal(toolLineDoes(BREW_INSTALL), 'Install Homebrew');
   // Every command a step carries as its fix, whatever the check works out, is named.
   const fixed = STEPS.flatMap((s) => (s.fix?.command && !s.fix.command.startsWith('acc ') ? [s.fix.command] : []));
   assert.ok(fixed.length >= 8, `${fixed.length} commands`);

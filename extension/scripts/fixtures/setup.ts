@@ -1,4 +1,5 @@
 /** Setup's steps, as acc doctor reports them. */
+import { installCommand } from '../../../packages/core/src/onboarding/install-lines.ts';
 import { STEPS } from '../../../packages/core/src/onboarding/steps.ts';
 import type { DoctorItem } from '../../src/logic/setup.ts';
 
@@ -36,7 +37,7 @@ export function sampleSetup(): { items: DoctorItem[]; confirmed: Set<string> } {
  */
 export function sampleFirstSetup(machineReady: boolean): { items: DoctorItem[]; confirmed: Set<string>; setUp: false } {
   const todo: Record<string, Partial<DoctorItem>> = machineReady ? {} : {
-    'A1.gh': { status: 'fail', detail: 'gh isn\'t installed.', fix: 'brew install gh' },
+    'A1.gh': { status: 'fail', detail: 'gh isn\'t installed.', fix: installCommand('gh', 'mac')! },
     'A4.plugin': { status: 'fail', detail: 'The plugin isn\'t installed in Claude Code, and its marketplace isn\'t added.', fix: 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center && claude plugin install acc@agent-command-center --scope user' },
   };
   const items = STEPS.filter((s) => s.part === 'machine').map((s): DoctorItem => ({ id: s.id, part: s.part, title: s.title, status: 'pass', detail: 'Looks right.', ...todo[s.id] }));

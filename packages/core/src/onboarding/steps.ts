@@ -18,7 +18,9 @@ import { orList } from '../trackers/types.ts';
 import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, pluginBehind, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
-import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
+import type { CheckContext, CheckResult, Fix, Step, StepResult } from './types.ts';
+import { chain, quoteArg } from './fix-lines.ts';
+import { BREW_INSTALL, installCommand, type InstallSystem, type InstallTool, installText, needsBrew, restartNote, type Shell, shellOf, SYSTEM } from './install-lines.ts';
 import { CLOUD_STEPS } from './cloud-steps.ts';
 import { TOOL_STEPS } from './tool-steps.ts';
 import { MERGE_STEPS } from './merge-steps.ts';
@@ -156,7 +158,11 @@ export const vsixName = (version: string): string => `${PLUGIN.marketplace}-${ve
 const MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
 const PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
 /** A private marketplace doesn't update itself (D-081), so the plugin is updated by hand after a release. */
-const PLUGIN_UPDATE = `claude plugin marketplace update ${PLUGIN.marketplace} && claude plugin update ${PLUGIN_ID} --scope user`;
+const pluginUpdate = (shell: Shell): string => chain(shell, `claude plugin marketplace update ${PLUGIN.marketplace}`, `claude plugin update ${PLUGIN_ID} --scope user`);
+/** Adds the marketplace, then installs the plugin; the line is built for the shell Do it runs it in (T-124). */
+const pluginAddAndInstall = (shell: Shell): string => chain(shell, MARKETPLACE_ADD, PLUGIN_INSTALL);
+/** The shell a check's fix lines are written for: the system it runs for (a test sets one), else the one acc runs on. */
+const fixShell = (ctx: CheckContext): Shell => shellOf(ctx.system ?? SYSTEM);
 
 /**
  * The acc plugin as `claude plugin list --json` lists it for every session (user scope): its version, when
@@ -201,12 +207,34 @@ export const parsePluginList = (r: RunResult): ClaudeList => parseClaudeList(r, 
 /** A list `claude … --json` prints, run now. */
 const claudeList = (ctx: CheckContext, args: string[]): ClaudeList => parseClaudeList(ctx.run('claude', args, { env: ctx.env }), args);
 
-function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: string, profiles?: Step['profiles']): Step {
+/** How to install a tool on a system: its command, or its maker's page; on Windows it also says to restart VSCode (T-124). */
+function installFix(tool: InstallTool, system: InstallSystem): Fix {
+  const command = installCommand(tool, system);
+  const text = [installText(tool, system), restartNote(system)].filter(Boolean).join(' ') || undefined;
+  return { ...(command ? { command } : {}), ...(text ? { text } : {}) };
+}
+
+/** The result for a tool that isn't there: the line for the system the check runs for, and, on Windows, to restart VSCode. */
+function notInstalled(ctx: CheckContext, detail: string, tool: InstallTool | null): CheckResult {
+  if (!tool) return fail(detail);
+  const system = ctx.system ?? SYSTEM;
+  const note = restartNote(system);
+  // A Mac line that is a brew command needs Homebrew: Do it installs that first, as A4.plugin's installs Claude Code (T-124).
+  if (needsBrew(tool, system) && !brewInstalled(ctx)) return fail(`${detail} Homebrew isn't installed: do A1.brew first.`, BREW_INSTALL);
+  return fail(note ? `${detail} ${note}` : detail, installCommand(tool, system) ?? undefined);
+}
+
+/** Whether `brew --version` runs here; asked once for all the steps that need it. */
+const brewInstalled = (ctx: CheckContext): boolean => cached(ctx, 'brew', () => ctx.run('brew', ['--version'], { env: ctx.env }).code === 0);
+
+/** A step for a tool found by its version. fix is a tool's install (from the per-system table) or a command to run as it is. */
+function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: { tool: InstallTool } | string, profiles?: Step['profiles']): Step {
+  const tool = typeof fix === 'string' ? null : fix.tool;
   return {
-    id, part: 'machine', group: 'A1', title, why, profiles, fix: { command: fix },
+    id, part: 'machine', group: 'A1', title, why, profiles, fix: typeof fix === 'string' ? { command: fix } : installFix(fix.tool, SYSTEM), ...(tool ? { install: tool } : {}),
     check(ctx) {
       const r = ctx.run(cmd, args, { env: ctx.env });
-      if (r.code === 127) return fail(`${cmd} isn't installed.`);
+      if (r.code === 127) return notInstalled(ctx, `${cmd} isn't installed.`, tool);
       if (r.code !== 0) return fail(`${cmd} didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
       const v = firstVersion(r.stdout + r.stderr);
       if (min && (!v || !versionAtLeast(v, min))) return fail(`${cmd} ${v ?? '(unknown version)'} is older than ${min}.`);
@@ -229,17 +257,29 @@ export const GROUP_TITLES: Record<string, string> = {
 
 export const STEPS: Step[] = [
   // ------------------------------------------------------------ Part A: this machine
-  versionStep('A1.git', 'git 2.40 or later', 'Worktrees and the shared git directory need a recent git.', 'git', ['--version'], '2.40', 'brew install git'),
+  {
+    id: 'A1.brew', part: 'machine', group: 'A1', title: 'Homebrew (on a Mac)',
+    why: 'On a Mac, git, Node, the GitHub CLI and Claude Code are installed with Homebrew. Windows installs with winget, so this step is only for a Mac.',
+    fix: { command: BREW_INSTALL },
+    check(ctx) {
+      if ((ctx.system ?? SYSTEM) !== 'mac') return skip('Only on a Mac: Windows installs with winget, and Linux with its own package manager.');
+      const r = ctx.run('brew', ['--version'], { env: ctx.env });
+      if (r.code === 127) return fail('Homebrew isn\'t installed.');
+      if (r.code !== 0) return fail(`brew didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
+      return pass(`brew ${firstVersion(r.stdout) ?? ''}`.trim());
+    },
+  },
+  versionStep('A1.git', 'git 2.40 or later', 'Worktrees and the shared git directory need a recent git.', 'git', ['--version'], '2.40', { tool: 'git' }),
   // acc itself needs no Node: its launcher falls back to VSCode's runtime (D-077).
-  versionStep('A1.node', 'Node 20 or later', 'The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn\'t need it.', 'node', ['--version'], '20', 'brew install node', ['salesforce']),
-  versionStep('A1.gh', 'GitHub CLI', 'Pull requests, issues and the per-repo account all go through gh.', 'gh', ['--version'], null, 'brew install gh'),
+  versionStep('A1.node', 'Node 20 or later', 'The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn\'t need it.', 'node', ['--version'], '20', { tool: 'node' }, ['salesforce']),
+  versionStep('A1.gh', 'GitHub CLI', 'Pull requests, issues and the per-repo account all go through gh.', 'gh', ['--version'], null, { tool: 'gh' }),
   {
     id: 'A1.claude', part: 'machine', group: 'A1', title: 'Claude Code CLI with background sessions',
     why: 'Builders run as `claude --bg` sessions (D-009). The VSCode extension ships its own copy, so the terminal CLI can fall far behind.',
-    fix: { command: 'claude update' },
+    fix: { command: 'claude update' }, install: 'claude',
     check(ctx) {
       const v = ctx.run('claude', ['--version'], { env: ctx.env });
-      if (v.code === 127) return fail('claude isn\'t installed.', 'brew install --cask claude-code');
+      if (v.code === 127) return notInstalled(ctx, 'claude isn\'t installed.', 'claude');
       const h = ctx.run('claude', ['--help'], { env: ctx.env });
       if (!/--bg\b/.test(h.stdout)) return fail(`claude ${firstVersion(v.stdout) ?? ''} has no --bg. Update it.`);
       return pass(`claude ${firstVersion(v.stdout) ?? ''}`.trim());
@@ -294,13 +334,13 @@ export const STEPS: Step[] = [
     id: 'A4.plugin', part: 'machine', group: 'A4', title: 'The Command Center\'s Claude Code plugin',
     why: 'Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents the Command Center\'s skills and its reviewer. It\'s installed once, for every Claude Code session, and does nothing in a repo without .acc/config.json.',
     fix: {
-      command: `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`,
+      command: pluginAddAndInstall(shellOf(SYSTEM)),
       text: 'Claude Code clones this private repo with your own git credentials, so accept the invitation to it first. Sessions already running don\'t load the plugin: start a new one.',
     },
     check(ctx) {
       const read = claudeList(ctx, PLUGIN_LIST_ARGS);
       // Its Do it installs Claude Code itself: the plugin's own commands would only say claude isn't found.
-      if (!read.ok && read.missing) return fail(`${read.error} Do A1.claude first.`, 'brew install --cask claude-code');
+      if (!read.ok && read.missing) return notInstalled(ctx, `${read.error} Do A1.claude first.`, 'claude');
       if (!read.ok) return unknown(`Couldn't read Claude Code's plugins: ${read.error}`);
       const list = read.list;
       const mine = list.filter((p) => p.id === PLUGIN_ID);
@@ -309,7 +349,7 @@ export const STEPS: Step[] = [
       if (user?.enabled) {
         // Only an older plugin fails: its hooks may not know what this acc asks of builders. A newer one is fine (GH-62).
         if (pluginBehind(user.version, ctx.version)) {
-          return fail(`The plugin ${version} is installed, older than this Command Center (${ctx.version}).`, PLUGIN_UPDATE);
+          return fail(`The plugin ${version} is installed, older than this Command Center (${ctx.version}).`, pluginUpdate(fixShell(ctx)));
         }
         return pass(`The plugin ${version}, for every Claude Code session.`);
       }
@@ -318,7 +358,7 @@ export const STEPS: Step[] = [
       const only = scopes.length ? ` It's installed for one project only (${scopes.join(', ')} scope), not for every session.` : '';
       const markets = claudeList(ctx, ['plugin', 'marketplace', 'list', '--json']);
       if (markets.ok && markets.list.some((m) => m.name === PLUGIN.marketplace)) return fail(`The plugin isn't installed in Claude Code.${only}`, PLUGIN_INSTALL);
-      return fail(`The plugin isn't installed in Claude Code, and its marketplace isn't added.${only}`, `${MARKETPLACE_ADD} && ${PLUGIN_INSTALL}`);
+      return fail(`The plugin isn't installed in Claude Code, and its marketplace isn't added.${only}`, pluginAddAndInstall(fixShell(ctx)));
     },
   },
 
@@ -463,7 +503,7 @@ export const STEPS: Step[] = [
       const email = get('user.email');
       if (name === want.name && email === want.email) return pass(`${name} <${email}>`);
       return fail(`Commits would be ${name || '(no name)'} <${email || 'no email'}>, not ${want.name} <${want.email}>.`,
-        `git config user.name "${want.name}" && git config user.email "${want.email}"`);
+        chain(fixShell(ctx), `git config user.name ${quoteArg(fixShell(ctx))(want.name)}`, `git config user.email ${quoteArg(fixShell(ctx))(want.email)}`));
     },
   },
   {
@@ -487,7 +527,9 @@ export const STEPS: Step[] = [
       if (need) return need;
       const account = ctx.config!.github?.account;
       if (!account) return skip('No GitHub account in the config.');
-      const helper = `git config credential.helper '' && git config --add credential.helper '${credentialHelper(ctx.config!.github!.account)}'`;
+      // The empty word that resets the helper list is '""' in PowerShell 5.1, which drops a plain '' argument (T-124).
+      const q = quoteArg(fixShell(ctx));
+      const helper = chain(fixShell(ctx), `git config credential.helper ${q('')}`, `git config --add credential.helper ${q(credentialHelper(ctx.config!.github!.account))}`);
       const fill = ctx.run('git', ['credential', 'fill'], {
         cwd: ctx.paths!.root, input: 'protocol=https\nhost=github.com\n\n', env: { ...ctx.env, GIT_TERMINAL_PROMPT: '0' },
       });
@@ -636,7 +678,7 @@ export const STEPS: Step[] = [
       const all: { alias?: string; tracksSource?: boolean }[] = Object.values(list.result ?? {}).filter(Array.isArray).flat() as never;
       const off = envs.filter((e) => !all.some((o) => o.alias === e.org && o.tracksSource === true));
       return off.length
-        ? fail(`The CLI treats ${off.map((e) => `"${e.org}"`).join(', ')} as untracked.`, off.map((e) => `sf org enable tracking -o "${e.org}"`).join(' && '))
+        ? fail(`The CLI treats ${off.map((e) => `"${e.org}"`).join(', ')} as untracked.`, chain(fixShell(ctx), ...off.map((e) => `sf org enable tracking -o ${quoteArg(fixShell(ctx))(e.org!)}`)))
         : pass('The CLI tracks source for every Developer sandbox.');
     },
   },
@@ -780,7 +822,7 @@ export const STEPS: Step[] = [
       const absent = config.profile !== 'salesforce' ? [] : required
         .filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync(join(main, 'node_modules', '.bin', TOOLS[n]!)))
         .map((n) => TOOLS[n]!);
-      if (absent.length) return fail(`Not installed in ${main}: ${absent.join(', ')}.`, `cd "${main}" && npm install`);
+      if (absent.length) return fail(`Not installed in ${main}: ${absent.join(', ')}.`, chain(fixShell(ctx), `cd ${quoteArg(fixShell(ctx))(main)}`, 'npm install'));
       return pass(`Ready: ${required.join(', ')}.`);
     },
   },

@@ -52,7 +52,13 @@ else
   # The extension writes the path and a newline; read it with or without one.
   [ -r "$file" ] && { IFS= read -r rt <"$file" || :; }
   runnable "$rt" && as_node "$rt" "$mjs" "$@"
-  problem='acc needs Node 20 or later: open VSCode with Agent Command Center once, run brew install node, or set ACC_NODE.'
+  # The install line for the system this runs on (the same as packages/core/src/onboarding/install-lines.ts). ACC_OS stands in for uname -s in tests.
+  case ${ACC_OS:-$(uname -s 2>/dev/null)} in
+    Darwin) get='run brew install node' ;;
+    MINGW*|MSYS*|CYGWIN*|Windows*) get='run winget install --id OpenJS.NodeJS.LTS -e, then restart VSCode' ;;
+    *) get='install it from https://nodejs.org/en/download' ;;
+  esac
+  problem="acc needs Node 20 or later: open VSCode with Agent Command Center once, $get, or set ACC_NODE."
 fi
 
 if [ "${1:-}" = hook ]; then
