@@ -9,7 +9,8 @@ import { AZURE, type Ctx, GITHUB, GITHUB_ISSUES, JIRA, MONDAY, SLACK, SLACK_NO_B
 import { GITHUB_NO_PROJECT, projectsAccess } from '../../packages/core/src/trackers/github.ts';
 import { countValues, placeKey } from '../../packages/core/src/trackers/preview.ts';
 import type { Board, TrackerClient } from '../../packages/core/src/trackers/types.ts';
-import { type ConnectDeps, ConnectSession, READS_AT_ONCE } from '../src/connect.ts';
+import { type ConnectDeps, ConnectSession } from '../src/connect.ts';
+import { READS_AT_ONCE } from '../src/logic/board-reads.ts';
 import { blankConnect, cardCount, COUNT_MOST, type ConnectMessage, connectModel, type ConnectModel, connectPreview, type ConnectState, connectValues, LISTS_TITLE, SEARCH_FROM, USE_BOARD } from '../src/model/connect.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { inProcessWords } from '../src/logic/processes.ts';

@@ -13,6 +13,7 @@ import { type Ctx, describe, DESCRIPTIONS, type PickerSpec, type SignIn, type Si
 import { countValues, dependentKeys, placeKey, readPlace } from '../../packages/core/src/trackers/preview.ts';
 import { type Exec, type TrackerClient, TrackerError } from '../../packages/core/src/trackers/types.ts';
 import { TRACKER_NAME_MAX } from '../../packages/core/src/config.ts';
+import { READS_AT_ONCE } from './logic/board-reads.ts';
 import { area as page, BOARD_NAME_FIELD, blankConnect, COUNT_MOST, type ConnectMessage, connectModel, type ConnectModel, type ConnectOption, type ConnectState, connectValues } from './model/connect.ts';
 import { connectChangesField } from './model/changes-field.ts';
 import type { HomeSection } from './model/shared.ts';
@@ -91,8 +92,6 @@ export interface ConnectDeps {
   preview?: (d: TrackerDescription, ctx: Ctx) => Pick<TrackerClient, 'board'> | string | null;
 }
 
-/** How many boards the page reads at once (T-106), for the preview and the cards' counts, so a long list never floods a tracker. */
-export const READS_AT_ONCE = 3;
 
 export interface OpenOptions {
   root?: string;
