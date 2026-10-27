@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../../packages/core/src/config.ts';
+import { INSTALL_LINES } from '../../packages/core/src/onboarding/install-lines.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import { repoKey } from '../src/logic/connect.ts';
@@ -392,4 +393,20 @@ test('a step command names a step that\'s there, or none: acc.step.check, acc.st
   assert.equal(stepIdOf({ item: { id: 'A1.git' } }, ids), 'A1.git', 'a Setup row');
   // Each of these threw "Unknown step", so the command rejected.
   for (const junk of [undefined, null, '', '../x', 'B99.nope', 0, {}, { item: null }, { item: { id: 5 } }, ['B0.repo']]) assert.equal(stepIdOf(junk, ids), undefined, JSON.stringify(junk));
+});
+
+test('a step that installs a tool shows its line for a Mac, Windows and Linux on its page, and Windows is told to restart VSCode (T-124)', () => {
+  const installing = STEPS.filter((s) => s.install);
+  assert.equal(installing.length, 4, 'git, Node, gh and Claude Code');
+  for (const s of installing) {
+    const media = stepMedia(s);
+    for (const system of ['mac', 'windows'] as const) {
+      const line = INSTALL_LINES[s.install!][system];
+      assert.ok('command' in line && media.includes(`\`\`\`bash\n${line.command}\n\`\`\``), `${s.id} shows its ${system} line`);
+    }
+    assert.match(media, /On a Mac:[\s\S]*On Windows:[\s\S]*On Linux:/, s.id);
+    assert.match(media, /restart VSCode/, s.id);
+  }
+  assert.ok(stepMedia(step('A1.node')).includes('[The maker\'s install page](https://nodejs.org/en/download)'), 'Linux with no one line gets the page');
+  assert.ok(stepMedia(step('A1.claude')).includes('```bash\nclaude update\n```'), 'Claude Code keeps its update line');
 });

@@ -25,12 +25,14 @@ the project's GitHub repo.
 
 ### A1. Install the tools
 
-| Step | Check | Install or fix |
-|---|---|---|
-| **git 2.40 or later** (`A1.git`) | `git --version` | `brew install git` |
-| **Node 20 or later** (`A1.node`) | `node --version` | Salesforce projects only, for the Salesforce CLI. acc itself needs no Node: it runs on VSCode's own runtime. `brew install node` |
-| **GitHub CLI** (`A1.gh`) | `gh --version` | `brew install gh` |
-| **Claude Code CLI with background sessions** (`A1.claude`) | `claude --help` lists `--bg` | `brew install --cask claude-code`, then `claude update`. The VSCode extension ships its own copy, so the terminal CLI can fall far behind |
+Each install line is for the system acc runs on: a Mac (Homebrew) or Windows (winget, and Claude Code's own PowerShell installer). Setup gives the one for your system, and each step's page lists all of them (`packages/core/src/onboarding/install-lines.ts`). **Git for Windows is required on Windows**: acc runs its shell commands with the `sh` it ships. On Windows, a tool installed while VSCode is open isn't on its PATH until VSCode restarts, so restart VSCode after each install.
+
+| Step | Check | On a Mac | On Windows |
+|---|---|---|---|
+| **git 2.40 or later** (`A1.git`) | `git --version` | `brew install git` | `winget install --id Git.Git -e` |
+| **Node 20 or later** (`A1.node`) | `node --version` | `brew install node`. Salesforce projects only, for the Salesforce CLI. acc itself needs no Node: it runs on VSCode's own runtime | `winget install --id OpenJS.NodeJS.LTS -e` (the same) |
+| **GitHub CLI** (`A1.gh`) | `gh --version` | `brew install gh` | `winget install --id GitHub.cli -e` |
+| **Claude Code CLI with background sessions** (`A1.claude`) | `claude --help` lists `--bg` | `brew install --cask claude-code`, then `claude update` | `irm https://claude.ai/install.ps1 \| iex` in PowerShell, then `claude update`. The VSCode extension ships its own copy, so the terminal CLI can fall far behind |
 | **Agents bill your Claude subscription** (`A1.claude-billing`) | See below | See below |
 | **Salesforce CLI** (`A1.sf`) | `sf --version` | Salesforce projects only. `npm install -g @salesforce/cli` |
 | **Salesforce Code Analyzer** (`A1.code-analyzer`) | `sf plugins` lists `code-analyzer` | Salesforce projects only. `sf plugins install code-analyzer` |

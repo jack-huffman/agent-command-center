@@ -9,6 +9,7 @@ import type { CheckStatus, Step } from '../../../packages/core/src/onboarding/ty
 import { isObj, plural } from '../../../packages/core/src/text.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { StartProject } from '../connect.ts';
+import { INSTALL_LINES, INSTALL_SYSTEMS, type InstallLine, type InstallSystem, RESTART_NOTE } from '../../../packages/core/src/onboarding/install-lines.ts';
 import { inProcessWords, processLine, processName } from './processes.ts';
 import { shq } from './shared.ts';
 
@@ -65,6 +66,25 @@ export function stepDescription(step: Step): string {
   return lines.join('\n');
 }
 
+const SYSTEM_NAMES: Record<InstallSystem, string> = { mac: 'On a Mac', windows: 'On Windows', linux: 'On Linux' };
+
+/**
+ * A tool's install on each system, as a step's page shows it (T-124): the line to run, or the maker's page where
+ * there's no one line. doesIt is true when Do it runs the line for the system acc runs on. On Windows a tool
+ * installed while VSCode is open isn't on its PATH until VSCode restarts, and the page says so.
+ */
+function installPage(lines: Record<InstallSystem, InstallLine>, doesIt: boolean): string[] {
+  const out = [doesIt ? '**Do it** runs the line for your system in a terminal, so you see exactly what happens:' : 'If it isn\'t installed yet, the line for each system:', ''];
+  for (const system of INSTALL_SYSTEMS) {
+    const line = lines[system];
+    out.push(`${SYSTEM_NAMES[system]}:`, '');
+    if ('command' in line) out.push('```bash', line.command, '```', '');
+    else out.push(`[The maker's install page](${line.page}) (there's no one line to run).`, '');
+  }
+  out.push(RESTART_NOTE.replace('After it installs', 'On Windows, after it installs'), '');
+  return out;
+}
+
 /** The page shown beside the step: what it is, why it matters, and exactly what fixing it involves. */
 export function stepMedia(step: Step): string {
   const out = [`# ${step.title}`, '', `\`${step.id}\``, '', inProcessWords(step.why), ''];
@@ -72,11 +92,16 @@ export function stepMedia(step: Step): string {
   const f = step.fix;
   if (f?.command || f?.fromCheck || f?.vscode || f?.text || f?.setupPath || f?.docs) out.push('## How to fix it', '');
   // acc's own fix is named as its process (GH-163); another tool's command is shown as it runs.
+  const installs = step.install ? INSTALL_LINES[step.install] : null;
   const does = f?.command ? processLine(f.command) : null;
-  if (does) out.push(`**Do it**: ${does}. It runs in a terminal, so you see exactly what happens.`, '');
+  // A step that installs a tool shows its line for each system, so the page reads the same on any of them (T-124).
+  const fixIsInstall = !!installs && (!f?.command || Object.values(installs).some((l) => 'command' in l && l.command === f.command));
+  if (fixIsInstall) out.push(...installPage(installs!, true));
+  else if (does) out.push(`**Do it**: ${does}. It runs in a terminal, so you see exactly what happens.`, '');
   else if (f?.command) out.push('**Do it** runs this in a terminal, so you see exactly what happens:', '', '```bash', f.command, '```', '');
+  if (installs && !fixIsInstall) out.push(...installPage(installs, false));
   if (f?.fromCheck) out.push('**Do it** runs the exact command the check works out for this repo, in a terminal you can see.', '');
-  if (f?.text) {
+  if (f?.text && !fixIsInstall) {
     // The by-hand path a fix ends on stays as the tool takes it, in a bash block like another tool's Do it,
     // so someone in a terminal is told what to type, not only what it does (GH-168).
     const byHand = /^([\s\S]*?)\s*In a terminal: `?([^`]+?)`?\.?$/.exec(f.text);

@@ -18,7 +18,8 @@ import { orList } from '../trackers/types.ts';
 import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, pluginBehind, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
-import type { CheckContext, CheckResult, Step, StepResult } from './types.ts';
+import type { CheckContext, CheckResult, Fix, Step, StepResult } from './types.ts';
+import { installCommand, type InstallSystem, type InstallTool, installText, restartNote, SYSTEM } from './install-lines.ts';
 import { CLOUD_STEPS } from './cloud-steps.ts';
 import { TOOL_STEPS } from './tool-steps.ts';
 import { MERGE_STEPS } from './merge-steps.ts';
@@ -201,12 +202,28 @@ export const parsePluginList = (r: RunResult): ClaudeList => parseClaudeList(r, 
 /** A list `claude … --json` prints, run now. */
 const claudeList = (ctx: CheckContext, args: string[]): ClaudeList => parseClaudeList(ctx.run('claude', args, { env: ctx.env }), args);
 
-function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: string, profiles?: Step['profiles']): Step {
+/** How to install a tool on a system: its command, or its maker's page; on Windows it also says to restart VSCode (T-124). */
+function installFix(tool: InstallTool, system: InstallSystem): Fix {
+  const command = installCommand(tool, system);
+  const text = [installText(tool, system), restartNote(system)].filter(Boolean).join(' ') || undefined;
+  return { ...(command ? { command } : {}), ...(text ? { text } : {}) };
+}
+
+/** The result for a tool that isn't there: the line for the system the check runs for, and, on Windows, to restart VSCode. */
+function notInstalled(detail: string, tool: InstallTool | null, system: InstallSystem): CheckResult {
+  if (!tool) return fail(detail);
+  const note = restartNote(system);
+  return fail(note ? `${detail} ${note}` : detail, installCommand(tool, system) ?? undefined);
+}
+
+/** A step for a tool found by its version. fix is a tool's install (from the per-system table) or a command to run as it is. */
+function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: { tool: InstallTool } | string, profiles?: Step['profiles']): Step {
+  const tool = typeof fix === 'string' ? null : fix.tool;
   return {
-    id, part: 'machine', group: 'A1', title, why, profiles, fix: { command: fix },
+    id, part: 'machine', group: 'A1', title, why, profiles, fix: typeof fix === 'string' ? { command: fix } : installFix(fix.tool, SYSTEM), ...(tool ? { install: tool } : {}),
     check(ctx) {
       const r = ctx.run(cmd, args, { env: ctx.env });
-      if (r.code === 127) return fail(`${cmd} isn't installed.`);
+      if (r.code === 127) return notInstalled(`${cmd} isn't installed.`, tool, ctx.system ?? SYSTEM);
       if (r.code !== 0) return fail(`${cmd} didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
       const v = firstVersion(r.stdout + r.stderr);
       if (min && (!v || !versionAtLeast(v, min))) return fail(`${cmd} ${v ?? '(unknown version)'} is older than ${min}.`);
@@ -229,17 +246,17 @@ export const GROUP_TITLES: Record<string, string> = {
 
 export const STEPS: Step[] = [
   // ------------------------------------------------------------ Part A: this machine
-  versionStep('A1.git', 'git 2.40 or later', 'Worktrees and the shared git directory need a recent git.', 'git', ['--version'], '2.40', 'brew install git'),
+  versionStep('A1.git', 'git 2.40 or later', 'Worktrees and the shared git directory need a recent git.', 'git', ['--version'], '2.40', { tool: 'git' }),
   // acc itself needs no Node: its launcher falls back to VSCode's runtime (D-077).
-  versionStep('A1.node', 'Node 20 or later', 'The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn\'t need it.', 'node', ['--version'], '20', 'brew install node', ['salesforce']),
-  versionStep('A1.gh', 'GitHub CLI', 'Pull requests, issues and the per-repo account all go through gh.', 'gh', ['--version'], null, 'brew install gh'),
+  versionStep('A1.node', 'Node 20 or later', 'The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn\'t need it.', 'node', ['--version'], '20', { tool: 'node' }, ['salesforce']),
+  versionStep('A1.gh', 'GitHub CLI', 'Pull requests, issues and the per-repo account all go through gh.', 'gh', ['--version'], null, { tool: 'gh' }),
   {
     id: 'A1.claude', part: 'machine', group: 'A1', title: 'Claude Code CLI with background sessions',
     why: 'Builders run as `claude --bg` sessions (D-009). The VSCode extension ships its own copy, so the terminal CLI can fall far behind.',
-    fix: { command: 'claude update' },
+    fix: { command: 'claude update' }, install: 'claude',
     check(ctx) {
       const v = ctx.run('claude', ['--version'], { env: ctx.env });
-      if (v.code === 127) return fail('claude isn\'t installed.', 'brew install --cask claude-code');
+      if (v.code === 127) return notInstalled('claude isn\'t installed.', 'claude', ctx.system ?? SYSTEM);
       const h = ctx.run('claude', ['--help'], { env: ctx.env });
       if (!/--bg\b/.test(h.stdout)) return fail(`claude ${firstVersion(v.stdout) ?? ''} has no --bg. Update it.`);
       return pass(`claude ${firstVersion(v.stdout) ?? ''}`.trim());
@@ -300,7 +317,7 @@ export const STEPS: Step[] = [
     check(ctx) {
       const read = claudeList(ctx, PLUGIN_LIST_ARGS);
       // Its Do it installs Claude Code itself: the plugin's own commands would only say claude isn't found.
-      if (!read.ok && read.missing) return fail(`${read.error} Do A1.claude first.`, 'brew install --cask claude-code');
+      if (!read.ok && read.missing) return notInstalled(`${read.error} Do A1.claude first.`, 'claude', ctx.system ?? SYSTEM);
       if (!read.ok) return unknown(`Couldn't read Claude Code's plugins: ${read.error}`);
       const list = read.list;
       const mine = list.filter((p) => p.id === PLUGIN_ID);

@@ -84,7 +84,8 @@ it or the issue filed for it, after **Fixed in / filed as**.
 | No Node on PATH | | `command -v node` prints nothing |
 | No `~/.acc` | | `ls ~/.acc` says no such file |
 | No Command Center plugin in Claude Code | | `claude plugin list` doesn't list acc, or claude isn't installed |
-| Homebrew installed before the run? | | `command -v brew` |
+| Package manager for this system before the run? (Homebrew on a Mac, winget on Windows) | | `command -v brew` on a Mac, `winget --version` on Windows |
+| Git for Windows installed before the run? (Windows only) | | `git --version` shows `windows` in it |
 | git before the run | | `git --version` |
 | gh installed before the run? | | `command -v gh` |
 | Claude Code installed before the run? | | `command -v claude` |
@@ -96,8 +97,10 @@ Follow the README's **Install and first run**, from **What you need** to
 
 ### What you need
 
-Look for: anything the README assumes you already have. Homebrew isn't checked
-by any step, but most fixes use it.
+Look for: anything the README assumes you already have. The package manager
+(Homebrew on a Mac, winget on Windows) isn't checked by any step, but most
+fixes use it. On Windows, Git for Windows is required, and VSCode needs a
+restart after a tool is installed.
 
 - **Showed:**
 - **Unclear:**

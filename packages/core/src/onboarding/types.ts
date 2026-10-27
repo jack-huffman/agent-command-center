@@ -1,6 +1,7 @@
 import type { Config, Profile } from '../config.ts';
 import type { Runner } from '../exec.ts';
 import type { RepoPaths } from '../paths.ts';
+import type { InstallSystem, InstallTool } from './install-lines.ts';
 
 export type CheckStatus = 'pass' | 'fail' | 'unknown' | 'skip';
 
@@ -42,6 +43,8 @@ export interface CheckContext {
   cache: Map<string, unknown>;
   /** acc's own version, when the caller knows it: A4.plugin fails on an older plugin (GH-62). */
   version: string | null;
+  /** The system the install lines are for. Absent, it's the one acc runs on (SYSTEM): only tests set it (T-124). */
+  system?: InstallSystem;
 }
 
 export interface Step {
@@ -54,6 +57,8 @@ export interface Step {
   /** Profiles this step applies to. Absent means every profile. */
   profiles?: Profile[];
   fix?: Fix;
+  /** The tool this step's fix installs: its line for each system is in install-lines.ts, and the step's page shows them all (T-124). */
+  install?: InstallTool;
   /** Something the step always offers, whatever its result, such as Import rules… (GH-108): a VSCode command. */
   offer?: { vscode: string; label: string; icon: string };
   check(ctx: CheckContext): CheckResult;

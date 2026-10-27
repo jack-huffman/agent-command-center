@@ -260,7 +260,7 @@ test('an old CLI without --bg fails A1.claude with the update command', () => {
 test('Claude Code that isn\'t installed is installed with Homebrew, which needs no Node', () => {
   const f = healthy();
   f['claude --version'] = { code: 127, stdout: '', stderr: 'not found' };
-  const ctx = makeContext(tempDir(), fakeRunner(f), testEnv());
+  const ctx = { ...makeContext(tempDir(), fakeRunner(f), testEnv()), system: 'mac' as const };
   const res = runSteps(ctx, 'machine', ['A1.claude'])[0]!.result;
   assert.equal(res.status, 'fail');
   assert.equal(res.fix, 'brew install --cask claude-code');
@@ -271,7 +271,7 @@ function plugin(list: RunResult, markets: RunResult = ok('[]'), calls: string[] 
   const f = healthy();
   f['claude plugin list --json'] = list;
   f['claude plugin marketplace list --json'] = markets;
-  return runSteps(makeContext(tempDir(), fakeRunner(f, calls), testEnv(), acc), 'machine', ['A4.plugin'])[0]!.result;
+  return runSteps({ ...makeContext(tempDir(), fakeRunner(f, calls), testEnv(), acc), system: 'mac' }, 'machine', ['A4.plugin'])[0]!.result;
 }
 const ACC = { id: 'acc@agent-command-center', version: '0.35.0', scope: 'user', enabled: true };
 const ADD = 'claude plugin marketplace add https://github.com/jack-huffman/agent-command-center';
