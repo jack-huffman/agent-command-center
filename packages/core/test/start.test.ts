@@ -7,7 +7,8 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { run } from '../src/exec.ts';
-import { cmdWord, startChild, startFile, startFor, startOf, windowsProgram } from '../src/start.ts';
+import { cmdWord, npmShimScript, startChild, startFile, startFor, startOf, windowsProgram } from '../src/start.ts';
+import { npmShim } from './stand-in.ts';
 import { tempDir } from './support.ts';
 
 /** Words a ticket or a path could hold that cmd would otherwise read as its own. */
@@ -68,6 +69,29 @@ test('edge case: a word with a line break isn\'t handed to a .cmd, which would e
     assert.ok('problem' in s && /sf\.cmd is a Windows command script, and cmd can't be handed a line break/.test(s.problem), JSON.stringify(s));
   }
   assert.ok(!('problem' in startOf('claude', ['-p', 'two\nlines'], win(['C:\\Tools\\claude.exe']))), 'an .exe takes it as any word');
+});
+
+test('npm\'s claude shim takes a multi-line prompt on Windows: its node script runs by node, never through cmd', () => {
+  const shim = 'C:\\Users\\jordan\\AppData\\Roaming\\npm\\claude.cmd';
+  const script = 'C:\\Users\\jordan\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js';
+  const read = (p: string) => (p === shim ? npmShim('node_modules\\@anthropic-ai\\claude-code\\cli.js') : null);
+  assert.equal(npmShimScript(shim, read(shim)), script);
+  const prompt = 'Read your task.\n\n& echo pwned';
+  const deps = { ...win([shim, 'C:\\Program Files\\nodejs\\node.exe'], { Path: 'C:\\Users\\jordan\\AppData\\Roaming\\npm;C:\\Program Files\\nodejs', PATHEXT: '.EXE;.CMD' }), read };
+  assert.deepEqual(startOf('claude', ['--bg', prompt], deps), { file: 'C:\\Program Files\\nodejs\\node.exe', args: [script, '--bg', prompt], verbatim: false });
+  const beside = { ...deps, exists: (p: string) => [shim, 'C:\\Users\\jordan\\AppData\\Roaming\\npm\\node.exe'].includes(p) };
+  assert.equal((startOf('claude', ['--bg', prompt], beside) as { file: string }).file, 'C:\\Users\\jordan\\AppData\\Roaming\\npm\\node.exe', 'the node.exe beside the shim first, as the shim does');
+  assert.equal((startOf('claude', ['--version'], deps) as { file: string }).file, 'cmd.exe', 'a word with no line break goes through the shim as any');
+});
+
+test('edge case: a .cmd that isn\'t npm\'s shim, a shim that can\'t be read, or no node is refused with why', () => {
+  const shim = 'C:\\Tools\\claude.cmd';
+  assert.equal(npmShimScript(shim, '@echo off\r\nC:\\Tools\\claude.exe %*\r\n'), null);
+  assert.equal(npmShimScript(shim, null), null);
+  const why = /claude\.cmd is a Windows command script, and cmd can't be handed a line break/;
+  const noNode = { ...win([shim], { Path: 'C:\\Tools', PATHEXT: '.EXE;.CMD' }), read: () => npmShim('cli.js') };
+  assert.match((startOf('claude', ['a\nb'], noNode) as { problem: string }).problem, why, 'node is nowhere');
+  assert.match((startOf('claude', ['a\nb'], win([shim], { Path: 'C:\\Tools' })) as { problem: string }).problem, why, 'nothing read');
 });
 
 test('startChild and startFile start a program with its words as they are, and say why one can\'t start', async () => {

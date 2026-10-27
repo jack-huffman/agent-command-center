@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { nodeStandIn } from './stand-in.ts';
 import { tempDir } from './support.ts';
 
 const MAIN = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url));
@@ -15,7 +16,7 @@ export function fakeClaude(): { bin: string; dir: string; calls: () => { args: s
   const dir = tempDir('fake-claude-');
   const bin = join(dir, 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'claude'), `#!/usr/bin/env node
+  nodeStandIn(join(bin, 'claude'), `#!/usr/bin/env node
 const fs = require('fs'); const path = require('path');
 const dir = ${JSON.stringify(dir)};
 const args = process.argv.slice(2);

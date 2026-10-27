@@ -12,7 +12,7 @@ import { startFor, startSync } from './start.ts';
 import { sleep } from './lock.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, type NotStarted, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
-import { mainCheckout, type RepoPaths, samePath } from './paths.ts';
+import { mainCheckout, pathKey, type RepoPaths, samePath } from './paths.ts';
 import { analysisProblems, readAnalysis } from './analyze.ts';
 import { plannedFiles, startLook, waits } from './overlap.ts';
 import { readChecksReport, readQueueReport } from './checks.ts';
@@ -86,13 +86,10 @@ export function isTrusted(folder: string, env: NodeJS.ProcessEnv = process.env, 
     // keep the raw path
   }
   const trusted = Object.entries(state.projects ?? {}).filter(([, p]) => p?.hasTrustDialogAccepted === true).map(([k]) => k);
-  const same = platform === 'win32' ? windowsPathKey : (k: string) => k;
+  const same = (k: string) => pathKey(k, platform);
   const wanted = new Set([...keys].map(same));
   return trusted.some((k) => wanted.has(same(k)));
 }
-
-/** A Windows path as Windows compares them: one kind of slash, no trailing one, and no case. */
-export const windowsPathKey = (path: string): string => path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
 
 // ---------------------------------------------------------------- dispatch
 

@@ -15,3 +15,21 @@ export function standIn(path: string, script: string, platform: NodeJS.Platform 
 
 /** The .cmd that runs a stand-in script by Git's sh, with every word it was given. */
 export const standInCmd = (name: string, sh: string): string => `@"${sh}" "%~dp0${name}" %*\r\n`;
+
+/**
+ * Writes a stand-in program that is a node script (it starts #!/usr/bin/env node). On Windows its .cmd is
+ * the shim npm writes for a package's program, as npm installs claude there, so acc runs it as it runs
+ * npm's claude: through cmd, or by node when a word holds a line break (start.ts, npmShimScript).
+ */
+export function nodeStandIn(path: string, script: string, platform: NodeJS.Platform = process.platform): void {
+  writeFileSync(path, script);
+  chmodSync(path, 0o755);
+  if (platform === 'win32') writeFileSync(`${path}.cmd`, npmShim(basename(path)));
+}
+
+/** npm's .cmd shim (cmd-shim) for a node script beside it: node.exe there, else node on PATH. */
+export const npmShim = (script: string): string => [
+  '@ECHO off', 'GOTO start', ':find_dp0', 'SET dp0=%~dp0', 'EXIT /b', ':start', 'SETLOCAL', 'CALL :find_dp0', '',
+  'IF EXIST "%dp0%\\node.exe" (', '  SET "_prog=%dp0%\\node.exe"', ') ELSE (', '  SET "_prog=node"', '  SET PATHEXT=%PATHEXT:;.JS;=;%', ')', '',
+  `endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\${script}" %*`, '',
+].join('\r\n');

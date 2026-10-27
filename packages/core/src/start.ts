@@ -1,5 +1,5 @@
 import { type ChildProcess, execFile, type ExecFileException, type ExecFileOptions, spawn, type SpawnOptions, spawnSync, type SpawnSyncOptions, type SpawnSyncReturns } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { win32 } from 'node:path';
 
 /**
@@ -14,13 +14,17 @@ import { win32 } from 'node:path';
  * again here: each word is quoted for the program's own reading of its command line, then every one of
  * cmd's special characters, the quotes too, gets a caret, so cmd reads none of them as its own. A .cmd
  * shim hands its words on through %*, which cmd reads a second time, so they get a second caret. A line
- * break ends cmd's command line wherever it is, so a word holding one is refused, not sent.
+ * break ends cmd's command line wherever it is, so a word holding one never goes through cmd: an npm shim
+ * (claude installed by npm, with dispatch's multi-line prompt) runs its node script by node instead, and
+ * any other .cmd is refused, not sent.
  */
 
 export interface StartDeps {
   platform: NodeJS.Platform;
   env: NodeJS.ProcessEnv;
   exists: (path: string) => boolean;
+  /** Reads a .cmd, to find the node script an npm shim runs. */
+  read?: (path: string) => string | null;
 }
 
 /** How a program is started: the file, its arguments, and whether they go to Windows as they are. */
@@ -60,7 +64,24 @@ export function cmdWord(word: string): string {
   return w.replace(CMD_META, '^$1').replace(CMD_META, '^$1');
 }
 
-const realDeps = (env: NodeJS.ProcessEnv = process.env): StartDeps => ({ platform: process.platform, env, exists: existsSync });
+const readText = (path: string): string | null => {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+};
+
+const realDeps = (env: NodeJS.ProcessEnv = process.env): StartDeps => ({ platform: process.platform, env, exists: existsSync, read: readText });
+
+/**
+ * The node script an npm shim runs, from the .cmd npm wrote (cmd-shim): its last line starts "%_prog%" with
+ * "%dp0%\<script>" and every word. Null for any other .cmd.
+ */
+export function npmShimScript(cmdFile: string, text: string | null): string | null {
+  const m = text ? /"%_prog%"\s+"%~?dp0%?\\([^"]+)"\s+%\*/.exec(text) : null;
+  return m ? win32.join(win32.dirname(cmdFile), m[1]!) : null;
+}
 
 /** How to start a program on this machine, looked up on the PATH of the environment it will get. */
 export const startFor = (cmd: string, args: string[], env: NodeJS.ProcessEnv = process.env): Start => startOf(cmd, args, realDeps(env));
@@ -115,7 +136,14 @@ export function startOf(cmd: string, args: string[], deps: StartDeps = realDeps(
   const file = windowsProgram(cmd, deps);
   if (!file) return { file: cmd, args, verbatim: false };
   if (!/\.(cmd|bat)$/i.test(file)) return { file, args, verbatim: false };
-  if ([cmd, ...args].some((a) => /[\r\n]/.test(a))) return { problem: `${win32.basename(file)} is a Windows command script, and cmd can't be handed a line break in its words. Run it with that text in a file instead.` };
+  if ([cmd, ...args].some((a) => /[\r\n]/.test(a))) {
+    // An npm shim's script runs by node, as the shim would run it: the node.exe beside it, else node on PATH.
+    const script = npmShimScript(file, deps.read?.(file) ?? null);
+    const beside = win32.join(win32.dirname(file), 'node.exe');
+    const node = script && (deps.exists(beside) ? beside : windowsProgram('node', deps));
+    if (script && node) return { file: node, args: [script, ...args], verbatim: false };
+    return { problem: `${win32.basename(file)} is a Windows command script, and cmd can't be handed a line break in its words. Run it with that text in a file instead.` };
+  }
   // The program's own path gets carets only, as cross-spawn's does: cmd reads it as one word, spaces and all.
   const line = [file.replace(CMD_META, '^$1'), ...args.map(cmdWord)].join(' ');
   return { file: envOf(deps.env, 'COMSPEC') ?? 'cmd.exe', args: ['/d', '/s', '/c', `"${line}"`], verbatim: true };

@@ -120,3 +120,9 @@ test('a repo listed is read as acc reads its config: its own GitHub repo names a
   assert.equal(parseConfig({ schema: 1, project: 'x', environments: [{ name: 'main', default: true }] }).config!.trackers.length, 0);
   assert.equal(usedBy([r!], { kind: 'github', host: 'acme/web', value: 'billing' }, OWN)?.words, 'used by acme-web');
 });
+
+test('edge case: a listed root is kept when it is absolute on this system, a Windows drive path on Windows too, and a relative one never', () => {
+  const env = envFor();
+  writeFileSync(env.ACC_REPOS_FILE, JSON.stringify({ schema: 1, repos: ['/Users/jordan/acme', 'C:\\Users\\jordan\\acme', 'acme', 7] }));
+  assert.deepEqual(listedRepos(env), process.platform === 'win32' ? ['/Users/jordan/acme', 'C:\\Users\\jordan\\acme'] : ['/Users/jordan/acme']);
+});

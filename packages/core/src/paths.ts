@@ -2,6 +2,15 @@ import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { AccError, type Runner } from './exec.ts';
 
+/**
+ * A Windows path as Windows compares them (D-T-123): one kind of slash, no trailing one, and no case. git
+ * gives C:/Users/…, Node and Claude Code C:\Users\…, and each is the same folder.
+ */
+export const windowsPathKey = (path: string): string => path.replaceAll('\\', '/').replace(/\/+$/, '').toLowerCase();
+
+/** A path as this system compares them: Windows' key there, the path as it is elsewhere. */
+export const pathKey = (path: string, platform: NodeJS.Platform = process.platform): string => (platform === 'win32' ? windowsPathKey(path) : path);
+
 export interface RepoPaths {
   /** Top of the current checkout (main checkout or a worktree). */
   root: string;
@@ -69,10 +78,13 @@ export function repoPaths(cwd: string, run: Runner): RepoPaths {
  * Whether two paths name one folder, however each is spelled: through symlinks such as macOS's /var to
  * /private/var, and as Claude Code lists a session's real path. A path that doesn't exist matches only itself.
  */
-export function samePath(a: string, b: string): boolean {
-  if (a === b) return true;
+export function samePath(a: string, b: string, platform: NodeJS.Platform = process.platform): boolean {
+  // On Windows also its slashes, its case and its short 8.3 names (C:\Users\RUNNER~1), which only the native
+  // realpath spells out (pathKey).
+  if (a === b || pathKey(a, platform) === pathKey(b, platform)) return true;
+  const real = platform === 'win32' ? realpathSync.native : realpathSync;
   try {
-    return realpathSync(a) === realpathSync(b);
+    return pathKey(real(a), platform) === pathKey(real(b), platform);
   } catch {
     return false;
   }

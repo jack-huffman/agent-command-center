@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { alive, withLock } from './lock.ts';
+import { pathKey } from './paths.ts';
 
 /**
  * What an agent asks a person (D-030): a permission prompt, or a question it put with AskUserQuestion.
@@ -472,8 +473,14 @@ export function pendingQuestions(dir: string): Question[] {
 }
 
 /** Whether one of these questions comes from an agent working in a folder, or under it. */
-export const askingUnder = (questions: Pick<Question, 'cwd'>[], dir: string): boolean =>
-  questions.some((q) => q.cwd === dir || q.cwd.startsWith(dir.endsWith('/') ? dir : `${dir}/`));
+export const askingUnder = (questions: Pick<Question, 'cwd'>[], dir: string, platform: NodeJS.Platform = process.platform): boolean => {
+  // On Windows the folder an agent asks in and the worktree git names are spelled apart (pathKey).
+  const d = pathKey(dir, platform);
+  return questions.some((q) => {
+    const cwd = pathKey(q.cwd, platform);
+    return cwd === d || cwd.startsWith(d.endsWith('/') ? d : `${d}/`);
+  });
+};
 
 /**
  * Answers a question, once. False when it was already answered (another window got there first) or

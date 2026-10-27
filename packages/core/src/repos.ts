@@ -8,7 +8,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { type Config, parseConfig, type Tracker } from './config.ts';
 import { orList } from './trackers/types.ts';
 
@@ -21,7 +21,7 @@ const configOf = (root: string): string => join(root, '.acc', 'config.json');
 export function listedRepos(env: NodeJS.ProcessEnv = process.env): string[] {
   try {
     const j = JSON.parse(readFileSync(reposFile(env), 'utf8')) as { repos?: unknown };
-    return Array.isArray(j.repos) ? [...new Set(j.repos.filter((r): r is string => typeof r === 'string' && r.startsWith('/')))] : [];
+    return Array.isArray(j.repos) ? [...new Set(j.repos.filter((r): r is string => typeof r === 'string' && isAbsolute(r)))] : [];
   } catch {
     return [];
   }

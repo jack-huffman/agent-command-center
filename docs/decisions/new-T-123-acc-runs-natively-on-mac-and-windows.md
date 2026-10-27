@@ -22,8 +22,10 @@ nothing else works. A Mac behaves as before; where its behaviour differs at all,
   That is cross-spawn's escaping (MIT, github.com/moxystudio/node-cross-spawn), written again here, and a
   command-injection boundary: `packages/core/test/start.test.ts` sends 17 hostile words, `&`, `|`, `%PATH%`,
   quotes, carets and more, through a real `.cmd` on Windows, and each must arrive as it was, with no command
-  run. A word holding a line break isn't handed to a `.cmd` (cmd would end its line there); acc says why
-  instead. A missing program still comes back as code 127. `startSync`, `startChild` and `startFile` are the
+  run. A word holding a line break never goes through cmd (cmd would end its line there): an npm shim, such
+  as claude installed by npm with dispatch's multi-line prompt, has its node script run by node, as the shim
+  would run it (`npmShimScript`); any other `.cmd` is refused, with why. A missing program still comes back as
+  code 127. A program that exits without reading all of its input gives its answer, not spawnSync's EPIPE. `startSync`, `startChild` and `startFile` are the
   only places in acc's shipped code that start a program: the runner (`exec.ts`), the extension's `runFile`
   and trackers' `exec`, dispatch's foreground claude, resume's detached claude and the output panel's runs.
   On a Mac and Linux they start the program as named, as before.
@@ -50,11 +52,19 @@ nothing else works. A Mac behaves as before; where its behaviour differs at all,
   (`NICE_SCRIPT`) that lowers its own priority with `os.setPriority(15)` and then starts the command, which
   inherits it, as does everything it starts (on Windows, the below-normal class). A stop at the timeout is
   passed on to the command on a Mac and Linux; on Windows a process is ended without a signal to pass on, so a
-  stopped check's command may run on there. The screenshot run lowers Chrome the same way, by its pid.
+  stopped check's command may run on there. The screenshot run lowers Chrome the same way, by its pid. gh is
+  never run through the script: its timeout stops it with SIGKILL, which the script can't pass on.
+- **Paths compare as Windows compares them.** git names a folder `C:/Users/…`, Node and Claude Code
+  `C:\Users\…`, and a temp folder can come in its short 8.3 form. On Windows `pathKey` makes one spelling
+  (one slash, no case, no trailing slash), and `samePath` also spells out short names. Claude Code's trust
+  (`isTrusted`), an agent asking in a worktree (`askingUnder`) and the main checkout's check compare that way,
+  and the list of repos on this machine keeps a Windows root (`isAbsolute`, not a leading `/`). A Mac compares
+  exactly as before.
 - **Home.** Every read of HOME already had a fallback (`homedir()`, or USERPROFILE for the machine folder),
   so nothing changed there.
 - **Mac-only for now.** Keep-awake (caffeinate) stays the Mac's. So does the routine's token for cloud
-  builders, which lives in the macOS keychain through `security`: on another system acc never runs it,
+  builders, which lives in the macOS keychain through `security`: on Windows acc never runs it (Linux, where
+  CI runs, keeps the keychain stand-in its tests use, as before),
   `cloudTokenUnavailable` gives the reason ("Not available on Windows yet: the routine's token is kept in the
   macOS keychain"), Setup's token step skips with it, and Settings' Token… button is off with it. A token in
   ACC_CLOUD_TOKEN still works everywhere.
@@ -66,6 +76,10 @@ nothing else works. A Mac behaves as before; where its behaviour differs at all,
   (`scripts/windows-tests.ts`), installs the Salesforce CLI, and runs `scripts/windows-smoke.ts --sf`:
   `acc doctor --part machine` by name through Git's sh and through cmd, from a folder outside any project,
   needing git, node, gh and sf's steps to pass, then git, node, npm, gh and sf run by acc's runner, sf niced
-  too, counting its checks. It runs no screenshot run: Windows minutes cost twice Linux's on this repo. The
-  test files that can't run on Windows yet are `WINDOWS_SKIPS`, each with why, printed with their count before
-  the run; `scripts/test/windows-tests.test.ts` fails when the list is longer than where the branch left main.
+  too, counting its checks. It runs no screenshot run: Windows minutes cost twice Linux's on this repo. What
+  can't run on Windows yet is `WINDOWS_SKIPS`: whole test files, and single tests that skip through
+  `skipOnWindows`, each with why, printed with their count before the run;
+  `scripts/test/windows-tests.test.ts` fails when the list is longer than where the branch left main. A
+  test's stand-in program (`packages/core/test/stand-in.ts`) gets a `.cmd` beside it on Windows, Git's sh for
+  an sh script and npm's own shim for a node script, so acc starts it by name as it starts sf; the tests'
+  temp root is its long path there, with TEMP and TMP set.

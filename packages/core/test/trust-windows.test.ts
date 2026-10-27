@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { isTrusted, windowsPathKey } from '../src/dispatch.ts';
+import { isTrusted } from '../src/dispatch.ts';
+import { askingUnder } from '../src/questions.ts';
+import { pathKey, samePath, windowsPathKey } from '../src/paths.ts';
 import { tempDir } from './support.ts';
 
 /** A Claude config folder whose ~/.claude.json holds these projects, and the env that reads it. */
@@ -38,4 +40,24 @@ test('a Mac reads the key exactly as before: another case or slash is another fo
 test('windowsPathKey makes one spelling of a Windows path', () => {
   assert.equal(windowsPathKey('C:\\Users\\Jordan\\'), 'c:/users/jordan');
   assert.equal(windowsPathKey('c:/users/jordan'), 'c:/users/jordan');
+});
+
+test('edge case: samePath on Windows takes git\'s C:/… and Node\'s C:\\… as one folder, even where neither exists; a Mac as before', () => {
+  assert.equal(samePath('C:/Users/jordan/acme', 'C:\\Users\\Jordan\\acme\\', 'win32'), true);
+  assert.equal(samePath('C:/Users/jordan/acme', 'C:/Users/jordan/acme-two', 'win32'), false);
+  assert.equal(samePath('/Users/jordan/acme', '/Users/Jordan/acme', 'darwin'), false, 'a Mac compares as it did');
+});
+
+test('pathKey is Windows\' key on Windows and the path as it is elsewhere', () => {
+  assert.equal(pathKey('C:\\Users\\Jordan', 'win32'), 'c:/users/jordan');
+  assert.equal(pathKey('/Users/Jordan/', 'darwin'), '/Users/Jordan/');
+});
+
+test('edge case: on Windows an agent asking in C:\\…\\src is under the worktree git names C:/…, and a sibling folder is not', () => {
+  const asked = [{ cwd: 'C:\\Users\\jordan\\acme\\.claude\\worktrees\\T-1\\src' }];
+  assert.equal(askingUnder(asked, 'C:/Users/jordan/acme/.claude/worktrees/T-1', 'win32'), true);
+  assert.equal(askingUnder(asked, 'C:/Users/jordan/acme/.claude/worktrees/T-12', 'win32'), false);
+  assert.equal(askingUnder([{ cwd: '/r/wt/src' }], '/r/wt', 'darwin'), true, 'a Mac as before');
+  assert.equal(askingUnder([{ cwd: '/r/WT/src' }], '/r/wt', 'darwin'), false, 'a Mac compares case as before');
+  assert.equal(askingUnder([], 'C:/x', 'win32'), false, 'no questions');
 });

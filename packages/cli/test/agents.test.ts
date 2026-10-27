@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { builderSettings, guardAnalyst, guardBash, mutate, parseConfig, registerLedger, repoPaths, run, transcriptDir } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/support.ts';
 import { cli, LIMITS_CONFIG, repoWithConfig } from './support.ts';
-import { standIn } from '../../core/test/stand-in.ts';
+import { nodeStandIn, standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -28,7 +28,7 @@ test('acc show says a running task\'s builder stopped, with what it last said, a
   // Stand-ins for claude (no sessions listed; a resume writes down how it was run) and caffeinate.
   const bin = tempDir('bin-');
   const record = join(bin, 'records.jsonl');
-  writeFileSync(join(bin, 'claude'), `#!/usr/bin/env node
+  nodeStandIn(join(bin, 'claude'), `#!/usr/bin/env node
 const fs = require('fs');
 const args = process.argv.slice(2);
 if (args[0] === 'agents') console.log('[]');
