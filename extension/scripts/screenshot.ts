@@ -37,8 +37,10 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { type HomeSection } from '../src/model/shared.ts';
+import { conversationTitle } from '../src/model/conversation.ts';
 import { type HomeModel, homeModel, type Model } from '../src/model/home.ts';
 import { type GroupKey, landing, overviewCards } from '../src/model/landing.ts';
+import { REPORT_TITLE } from '../src/model/report.ts';
 import { FinishedJobs } from '../src/progress.ts';
 import { sampleAgent } from './fixtures/agent-page.ts';
 import { sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
@@ -374,8 +376,11 @@ export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown
   : kind === 'ticket-edit-unkept' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'unkept') }]
   : kind === 'ticket-criteria-sheet' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'criteria') }]
   : kind === 'ticket-edit-changed' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'edits') }, { type: 'task-sheet-done', project: ROOT, task: 'ACME-19', ok: false, conflict: SAMPLE_THEIRS }] : []);
-/** The title each kind of tab carries, as htmlFor in panels.ts gives it: a page needs one to be named (T-55). */
-export const TAB_TITLES: Record<string, string> = { home: 'Command Center', ticket: 'Ticket', agent: 'Agent' };
+/**
+ * The title each kind of tab carries, as htmlFor in panels.ts gives it: a page needs one to be named (T-55).
+ * A plan's conversation is titled for its ticket, ACME-21 in the run (T-111), and Report a problem as its panel is (T-118).
+ */
+export const TAB_TITLES: Record<string, string> = { home: 'Command Center', ticket: 'Ticket', agent: 'Agent', conversation: conversationTitle('ACME-21'), report: REPORT_TITLE };
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
 export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' ? settingsKey('trackers')
   : kind.startsWith('slack-') ? settingsKey('slack') : kind === 'settings-github' ? settingsKey('github') : kind === 'settings-page' ? settingsKey('page') : kind.startsWith('settings-about') ? settingsKey('about')

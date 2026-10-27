@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { A11Y_EXCEPTIONS, A11Y_TAGS, A11Y_TEXT, type A11yException, axeScript, COLLECT_A11Y, excuses, type GeoA11y, incompleteSummary, judgeA11y } from '../scripts/a11y.ts';
 import { CHECKS, COLLECT_GEOMETRY, type GeoSnapshot, GEOMETRY_EXCEPTIONS, geometrySummary, judge, type Render, runFloor, runFailures } from '../scripts/geometry.ts';
-import { pageFor, PAGES, sampleModel, TAB_TITLES } from '../scripts/screenshot.ts';
+import { pageFor, PAGES, sampleModel, TAB_TITLES, viewOf } from '../scripts/screenshot.ts';
 import { pageSource, root } from './support.ts';
 
 const part = (o: Partial<GeoA11y> = {}): GeoA11y => ({ violations: [], examined: 40, incomplete: [], ...o });
@@ -103,9 +103,20 @@ test('the page the run writes holds axe\'s script before the harness\'s own, and
   assert.ok(!/<\/script/i.test(axeScript()), 'nothing in it can close its element');
   assert.ok(!pageFor('tasks', 'dark', model).includes(axeScript()), 'a page drawn for the colour check doesn\'t load axe');
   assert.match(page, /<title>Command Center<\/title>/, 'and the page has a title, as the tab does');
-  assert.deepEqual(TAB_TITLES, { home: 'Command Center', ticket: 'Ticket', agent: 'Agent' }, 'the titles htmlFor in panels.ts gives');
+  assert.deepEqual(TAB_TITLES, { home: 'Command Center', ticket: 'Ticket', agent: 'Agent', conversation: 'ACME-21 · Plan conversation', report: 'Report a problem' }, 'the titles htmlFor in panels.ts gives, and the conversation\'s and report\'s panels pass it');
   assert.ok(readFileSync(join(root, 'src', 'panels.ts'), 'utf8').includes("title = kind === 'ticket' ? 'Ticket' : kind === 'agent' ? 'Agent' : 'Command Center'"), 'which is where they come from');
   assert.match(pageFor('ticket', 'dark', sampleModel('ticket'), 'light', false, true), /<title>Ticket<\/title>/);
+  assert.match(pageFor('report', 'dark', sampleModel('report'), 'light', false, true), /<title>Report a problem<\/title>/);
+});
+
+test('every page the run draws has a title, so none is named undefined (edge case: a kind of tab added after the titles were written)', () => {
+  // One page of each kind of tab, drawn as the run draws it.
+  const first = new Map(PAGES.map((p) => [viewOf(p), p] as const).reverse());
+  assert.ok(first.size >= 5, `${first.size} kinds of tab`);
+  for (const [view, kind] of first) {
+    assert.ok(TAB_TITLES[view], `the ${view} tab has a title`);
+    assert.match(pageFor(kind, 'dark', sampleModel(kind)), new RegExp(`<title>${TAB_TITLES[view]}</title>`), kind);
+  }
   assert.deepEqual(A11Y_TAGS, ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'], 'the rules for WCAG 2.1 AA');
   assert.ok(PAGES.length > 0);
 });
