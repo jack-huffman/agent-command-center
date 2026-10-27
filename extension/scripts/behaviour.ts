@@ -1990,6 +1990,12 @@ export const CASES: Case[] = [
       t.check('Enter in the box shows the first board found, and the button names it', button().textContent?.includes(b.picked) === true, button().textContent);
       t.check('the choice is kept for the project', (t.memory().modes as Record<string, string>)[t.data.project] === `board:${b.id}`, t.memory().modes);
       t.check('the extension is told which board is on show, to read it first', t.sent('board-shown').some((m) => m.board === b.id), t.sent('board-shown'));
+      // All boards with one opened: the opened board draws whole, and the folds under it don't share the page's height.
+      t.remember({ modes: { [t.data.project]: 'all' }, opened: [] });
+      await t.post({ type: 'state', model: b.model });
+      await t.click(t.all<HTMLButtonElement>('.board-fold')[1]!);
+      const opened = t.find('.board');
+      t.check('edge case: All boards with one opened scrolls as a page, and the opened board is drawn whole, not squeezed', !t.find('.home-main').classList.contains('fill-board') && opened.getBoundingClientRect().height >= 120, opened.getBoundingClientRect().height);
     },
   },
   {
@@ -2089,6 +2095,7 @@ const caseNamed = (start: string): string => {
 
 export const MUTANTS: Mutant[] = [
   { name: 'typing in the board list finds nothing', file: 'board-switch.ts', find: "find.addEventListener('input', () => { typed.set(root, find.value); fill(find.value); });", replace: "find.addEventListener('input', () => { typed.set(root, find.value); });", kills: [caseNamed('board switch: ten boards')] },
+  { name: 'All boards with one opened fills the page\'s height', file: 'main.ts', find: " && main.querySelectorAll('.tracker').length <= 1) main.classList.add('fill-board');", replace: ") main.classList.add('fill-board');", kills: [caseNamed('board switch: ten boards')] },
   { name: 'Enter in the board list\'s box picks nothing', file: 'board-switch.ts', find: "items.querySelector<HTMLElement>('.board-group .board-item')?.click();", replace: '', kills: [caseNamed('board switch: ten boards')] },
   { name: 'Escape does nothing', file: 'modal.ts', find: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); shut(); });", replace: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); });", kills: [caseNamed('task modal: Escape'), caseNamed('detail modal: Escape'), caseNamed('palette: Escape')] },
   { name: 'a backdrop click does nothing', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (downOnBackdrop && onBackdrop(dialog, e)) { /* stub */ }', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
