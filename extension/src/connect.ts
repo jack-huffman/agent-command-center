@@ -680,9 +680,12 @@ export class ConnectSession {
       // Save is off until the sign-in is ok, and signedIn() sets this.signIn then, so the check always runs (T-87).
       if (d.beforeSave && this.signIn) await d.beforeSave(this.ctx(this.signIn));
       const defaults = d.pickers.filter((p) => s.pickers[p.key]!.options.find((o) => o.value === s.pickers[p.key]!.selected[0])?.default).map((p) => p.key);
-      const record = d.toConfig({ host: s.host, values: connectValues(s, d), defaults, ownRepo: s.ownRepo });
+      const chosen = { host: s.host, values: connectValues(s, d), defaults, ownRepo: s.ownRepo };
+      const record = d.toConfig(chosen);
       if (start) await this.deps.start(start, record);
       else await this.deps.write(s.root!, s.existing?.index ?? null, record);
+      // The same choices' other trackers, each added beside it (T-128): a service desk's other queues ticked.
+      for (const other of d.more?.(chosen) ?? []) await this.deps.write(s.root!, null, other);
     } catch (e) {
       // acc's reason beside Save, or, when the page closed while acc ran, in the log.
       if (this.s !== s) { this.deps.log(`[connect] ${d.name}: ${start ? 'the project wasn\'t started' : 'couldn\'t save'}: ${(e as Error).message}`); return; }
