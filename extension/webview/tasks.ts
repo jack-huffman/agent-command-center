@@ -1,6 +1,7 @@
 // The Tasks section: My work, the tasks added to the Command Center, and each tracker's own board.
 
-import { addAnother, type TrackerBoard, type TrackerCard, type Who } from '../src/model/boards.ts';
+import { addAnother } from '../src/model/add-board.ts';
+import type { TrackerBoard, TrackerCard, Who } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
 import { boardKeys, liveLine } from './board-nav.ts';
 import { boardChoice, boardCounts, boardOpen, boardSwitch, tellShown, toggleBoard } from './board-switch.ts';

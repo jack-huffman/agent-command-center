@@ -252,12 +252,6 @@ export function placeAdds(place: string, title: string): boolean {
   return parts.length > 1 && parts.slice(1).some((part) => !title.includes(part));
 }
 
-/**
- * Add a board's argument for acc.trackers.add (T-127): the project, and that Save adds another board. The Tasks
- * toolbar's Add a board and a saved board's Add another board both send it.
- */
-export const addAnother = (root: string): string => JSON.stringify({ root, add: true });
-
 /** Which boards show each ticket (T-127), by its key upper-cased: a ticket two boards show is one task, on both. */
 export function boardsShowing(boards: readonly Pick<TrackerBoard, 'name' | 'columns'>[]): Map<string, string[]> {
   const on = new Map<string, string[]>();
