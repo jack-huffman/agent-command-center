@@ -104,7 +104,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/machine.ts': ['machineJsonToWrite', 'setMachineKey'],
   'packages/core/src/merge.ts': ['NO_CHECKS_GRACE_MS', 'BLOCKED_NO_CHECKS_MS', 'MERGE_METHODS'],
   'packages/core/src/names.ts': ['NAME_SEP'],
-  'packages/core/src/onboarding/helpers.ts': ['versionAtLeast', 'firstVersion', 'sfJson', 'ghEnv', 'LICENSE_TO_TYPE', 'SECRET_PATTERN'],
+  'packages/core/src/onboarding/helpers.ts': ['versionAtLeast', 'firstVersion', 'ghEnv', 'LICENSE_TO_TYPE', 'SECRET_PATTERN'],
   'packages/core/src/onboarding/steps.ts': ['PLUGIN_LIST_ARGS', 'parseClaudeList', 'GROUP_TITLES'],
   'packages/core/src/overlap.ts': ['IN_FLIGHT_STATES', 'nulPaths', 'startCandidates', 'startLook', 'sharesWords'],
   'packages/core/src/promote.ts': ['envByName', 'skipWarning'],
