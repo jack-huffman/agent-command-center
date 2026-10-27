@@ -2,6 +2,7 @@
 // Open in Claude Code, which opens the plan in a terminal in the project's main checkout, in plan mode. Each
 // asks acc; the page shows what acc kept.
 import type * as vscode from 'vscode';
+import { terminalShell } from '../../packages/core/src/shell.ts';
 import type { ExtensionArea } from './area.ts';
 import { shq } from './logic/shared.ts';
 import { Talks, type TalkState } from './logic/talk.ts';
@@ -35,7 +36,7 @@ export const area: ExtensionArea = {
       // A message runs in the output panel, where the planning agent's steps show (D-171); the rest are quick.
       acc: (args, cwd, label) => (label && sidebar.helpers.runAccShown ? sidebar.helpers.runAccShown(args, cwd, label) : acc(args, cwd)),
       launch(task, l, ended) {
-        const t = code.window.createTerminal({ name: `Plan ${task} in Claude Code`, cwd: l.cwd, env: l.env, iconPath: new code.ThemeIcon('comment-discussion') });
+        const t = code.window.createTerminal({ name: `Plan ${task} in Claude Code`, cwd: l.cwd, env: l.env, iconPath: new code.ThemeIcon('comment-discussion'), ...terminalShell() });
         terminals.set(t, ended);
         t.show();
         t.sendText(['claude', ...l.args].map(shq).join(' '), true);

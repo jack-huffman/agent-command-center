@@ -299,7 +299,7 @@ export function scanVsix(vsix: string, m: Matcher, run: Runner = realRun): { hit
  */
 export function pluginFiles(root: string, bin: 'dist' | 'plugin'): [string, string][] {
   const files = filesIn(join(root, 'plugin'), 'plugin').filter(([name]) => bin === 'plugin' || !name.startsWith('plugin/bin/'));
-  if (bin === 'dist') files.push(['plugin/bin/acc', join(root, 'dist', 'acc')], ['plugin/bin/acc.mjs', join(root, 'dist', 'acc.mjs')]);
+  if (bin === 'dist') files.push(['plugin/bin/acc', join(root, 'dist', 'acc')], ['plugin/bin/acc.cmd', join(root, 'dist', 'acc.cmd')], ['plugin/bin/acc.mjs', join(root, 'dist', 'acc.mjs')]);
   files.push(['.claude-plugin/marketplace.json', join(root, '.claude-plugin', 'marketplace.json')]);
   return files;
 }
@@ -427,7 +427,7 @@ export interface PackageSteps {
   decideCheck?: () => CheckDecision;
   /** vsce: packages the extension into this file. */
   vsce: (out: string) => boolean;
-  /** Copies the launcher and acc.mjs into plugin/bin, together. */
+  /** Copies the launchers and acc.mjs into plugin/bin, together. */
   shipPlugin: () => void;
   terms: () => { terms: Terms; notes: string[] };
 }
@@ -530,7 +530,7 @@ export async function release(d: ReleaseDeps): Promise<Released> {
   let packed: unknown;
   try { packed = (JSON.parse(inZip('extension/package.json').stdout) as Json).version; } catch { packed = null; }
   if (packed !== version) return no(`dist/${vsixName(version)} holds version ${String(packed ?? 'unknown')}, not ${version}. Run npm run package again.`);
-  for (const f of ['acc', 'acc.mjs']) {
+  for (const f of ['acc', 'acc.cmd', 'acc.mjs']) {
     const mine = join(d.root, 'plugin', 'bin', f);
     if (!existsSync(mine) || readFileSync(mine, 'utf8') !== inZip(`extension/dist/bin/${f}`).stdout) {
       return no(`plugin/bin/${f} isn't the ${f} in the .vsix. The plugin and the extension ship the same acc: package them together (npm run package), commit plugin/bin and push, then release.`);

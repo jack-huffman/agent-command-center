@@ -1,8 +1,9 @@
 // Builds the CLI bundle the plugin ships (D-012), regenerates the walkthrough from core's step list
 // (D-017), and bundles the extension with its own copy of the CLI and the onboarding guide.
 //
-// acc ships as two files side by side, everywhere it ships (D-077): `acc`, a small sh launcher that finds
-// a runtime, and `acc.mjs`, the bundle it runs. So acc works with no Node installed.
+// acc ships as three files side by side, everywhere it ships (D-077): `acc`, a small sh launcher that finds
+// a runtime, `acc.cmd`, the same for cmd and PowerShell on Windows (D-T-123), and `acc.mjs`, the bundle they
+// run. So acc works with no Node installed.
 import { build } from 'esbuild';
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

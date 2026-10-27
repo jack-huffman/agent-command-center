@@ -4,14 +4,15 @@ import * as vscode from 'vscode';
 import {
   type Answer, answerQuestion, listen, LISTENER_EVERY_MS, pendingQuestions, permissionHook, type Question, questionHistory, questionsDir, stopListening,
 } from '../../packages/core/src/questions.ts';
+import { accLine } from '../../packages/core/src/shell.ts';
 import type { Hub } from './hub.ts';
-import { isUnder, shq } from './logic/shared.ts';
+import { isUnder } from './logic/shared.ts';
 import { answerOf, type QuestionCard, questionCards } from './model/questions.ts';
 import { questionEvent, type SlackSink } from './slack.ts';
 import type { ExtensionArea } from './area.ts';
 
-/** How a shell runs the bundled acc: by VSCode's own runtime, so node needn't be on PATH. */
-export const accShellCommand = (accScript: string): string => `ELECTRON_RUN_AS_NODE=1 ${shq(process.execPath)} ${shq(accScript)}`;
+/** How a shell runs the bundled acc: by the launcher beside it, which falls back to VSCode's own runtime, so node needn't be on PATH. */
+export const accShellCommand = (accScript: string): string => accLine(accScript);
 
 /** Settings for a background session this window starts, so its questions come here too. */
 export const sessionSettings = (accScript: string): string => JSON.stringify({ hooks: permissionHook(accShellCommand(accScript)) });
