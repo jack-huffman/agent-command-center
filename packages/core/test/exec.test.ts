@@ -52,4 +52,12 @@ test('edge case: a program that exits without reading all its input gives its an
   assert.deepEqual(unpiped(ran), { pid: 1, output: [], stdout: 'out', stderr: '', status: 0, signal: null });
   const never = { pid: 0, output: [], stdout: '', stderr: '', status: null, signal: null, error: epipe };
   assert.equal(unpiped(never), never, 'a program that never ran keeps its error');
+  // Windows says its pipe was ended (EOF), or that the write still waiting was cancelled, where a Mac says EPIPE.
+  for (const code of ['EOF', 'ECANCELED']) {
+    assert.deepEqual(unpiped({ ...ran, error: Object.assign(new Error(`spawnSync node ${code}`), { code }) }), { pid: 1, output: [], stdout: 'out', stderr: '', status: 0, signal: null }, code);
+  }
+  for (const code of ['ENOENT', 'ETIMEDOUT', 'ENOBUFS']) {
+    const other = { ...ran, status: null, signal: 'SIGTERM' as const, error: Object.assign(new Error(`spawnSync claude ${code}`), { code }) };
+    assert.equal(unpiped(other), other, `${code} stays: a program stopped at its timeout or for its output isn't an answer`);
+  }
 });

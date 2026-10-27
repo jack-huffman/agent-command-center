@@ -91,8 +91,8 @@ export const startFor = (cmd: string, args: string[], env: NodeJS.ProcessEnv = p
 
 /**
  * Starts a program and waits for it (spawnSync). A program that exits without reading all of the input it was
- * given leaves spawnSync an EPIPE beside its exit: the program ran and answered, so its answer is what comes
- * back, as it is for a program that read everything.
+ * given leaves spawnSync an error beside its exit (UNREAD): the program ran and answered, so its answer is
+ * what comes back, as it is for a program that read everything.
  */
 export function startSync(cmd: string, args: string[], opts: SpawnSyncOptions): SpawnSyncReturns<string | Buffer> | { problem: string } {
   const s = startFor(cmd, args, opts.env);
@@ -101,9 +101,16 @@ export function startSync(cmd: string, args: string[], opts: SpawnSyncOptions): 
   return unpiped(r);
 }
 
-/** A result whose only error is the EPIPE of input the program didn't read, with that error taken off. */
+/**
+ * How input a program left unread fails to be written: EPIPE on a Mac and Linux; on Windows EOF (its pipe
+ * says it was ended), or ECANCELED for a write still waiting when the program exited and its pipe closed.
+ * A timeout (ETIMEDOUT) or too much output (ENOBUFS) keeps its error.
+ */
+const UNREAD = new Set(['EPIPE', 'EOF', 'ECANCELED']);
+
+/** A result whose only error is the broken pipe of input the program didn't read, with that error taken off. */
 export function unpiped<T extends SpawnSyncReturns<string | Buffer>>(r: T): T {
-  const broken = (r.error as NodeJS.ErrnoException | undefined)?.code === 'EPIPE' && (r.status !== null || r.signal !== null);
+  const broken = UNREAD.has((r.error as NodeJS.ErrnoException | undefined)?.code ?? '') && (r.status !== null || r.signal !== null);
   if (!broken) return r;
   const { error: _, ...rest } = r;
   return rest as T;

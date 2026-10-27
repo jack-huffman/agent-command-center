@@ -180,6 +180,12 @@ const pluginAddAndInstall = (shell: Shell): string => chain(shell, MARKETPLACE_A
 /** The shell a check's fix lines are written for: the system it runs for (a test sets one), else the one acc runs on. */
 const fixShell = (ctx: CheckContext): Shell => shellOf(ctx.system ?? SYSTEM);
 
+/** A step's fix whose line differs by system: fix for the system acc runs on, and fixOn for any (D-T-123). */
+const bySystem = (fixOn: (system: InstallSystem) => Fix): Pick<Step, 'fix' | 'fixOn'> => ({ fix: fixOn(SYSTEM), fixOn });
+
+/** A step's fix on a system, as its page for that system shows it: fix itself on the system acc runs on. */
+export const fixFor = (step: Pick<Step, 'fix' | 'fixOn'>, system: InstallSystem = SYSTEM): Fix | undefined => step.fixOn?.(system) ?? step.fix;
+
 /**
  * The acc plugin as `claude plugin list --json` lists it for every session (user scope): its version, when
  * it names one, and whether it's on. Null when it isn't installed there. A4.plugin and Settings' About
@@ -247,7 +253,7 @@ const brewInstalled = (ctx: CheckContext): boolean => cached(ctx, 'brew', () => 
 function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: { tool: InstallTool } | string, profiles?: Step['profiles']): Step {
   const tool = typeof fix === 'string' ? null : fix.tool;
   return {
-    id, part: 'machine', group: 'A1', title, why, profiles, fix: typeof fix === 'string' ? { command: fix } : installFix(fix.tool, SYSTEM), ...(tool ? { install: tool } : {}),
+    id, part: 'machine', group: 'A1', title, why, profiles, ...(typeof fix === 'string' ? { fix: { command: fix } } : bySystem((s) => installFix(fix.tool, s))), ...(tool ? { install: tool } : {}),
     check(ctx) {
       const r = ctx.run(cmd, args, { env: ctx.env });
       if (r.code === 127) return notInstalled(ctx, `${cmd} isn't installed.`, tool);
@@ -349,10 +355,10 @@ export const STEPS: Step[] = [
   {
     id: 'A4.plugin', part: 'machine', group: 'A4', title: 'The Command Center\'s Claude Code plugin',
     why: 'Its hooks keep each builder inside its own worktree and away from pushes, merges and deploys, and send it back to the finish line if it stops early. It also gives agents the Command Center\'s skills and its reviewer. It\'s installed once, for every Claude Code session, and does nothing in a repo without .acc/config.json.',
-    fix: {
-      command: pluginAddAndInstall(shellOf(SYSTEM)),
+    ...bySystem((system) => ({
+      command: pluginAddAndInstall(shellOf(system)),
       text: 'Claude Code clones this private repo with your own git credentials, so accept the invitation to it first. Sessions already running don\'t load the plugin: start a new one.',
-    },
+    })),
     check(ctx) {
       const read = claudeList(ctx, PLUGIN_LIST_ARGS);
       // Its Do it installs Claude Code itself: the plugin's own commands would only say claude isn't found.

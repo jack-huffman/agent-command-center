@@ -6,7 +6,7 @@ import { basename, join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../../packages/core/src/config.ts';
 import { INSTALL_LINES } from '../../packages/core/src/onboarding/install-lines.ts';
-import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
+import { fixFor, STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import { repoKey } from '../src/logic/connect.ts';
 import { afterFullCheck, afterStepCheck, buildWalkthroughs, commandLink, COMMANDS, contextKey, type DoctorItem, EXTENSION_ID, hasPlaceholder, importRulesCommand, initArgs, initCommand, initOutput, isComplete, machineCache, mediaPath, pendingProject, productionOrgs, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, shownRules, shownTemplate, startTracker, statusText, stepDescription, stepIdOf, stepMedia, summarize, templateDetail } from '../src/logic/setup.ts';
@@ -90,21 +90,23 @@ test('the acc plugin is a machine step after the GitHub login, and installs in a
   assert.equal(ids.indexOf('A4.plugin'), ids.indexOf('A2.gh-login') + 1);
   assert.equal(machine!.steps.find((s) => s.id === 'A4.plugin')!.when, undefined, 'every profile');
   const a4 = step('A4.plugin');
-  assert.ok(needsTerminal(a4.fix!.command!));
+  for (const system of ['mac', 'windows'] as const) assert.ok(needsTerminal(fixFor(a4, system)!.command!), system);
   assert.ok(needsTerminal('claude plugin install acc@agent-command-center --scope user'));
   assert.ok(needsTerminal('claude plugin enable acc@agent-command-center --scope user'));
-  const media = stepMedia(a4);
-  assert.ok(media.includes(`\`\`\`bash\n${a4.fix!.command}\n\`\`\``), 'its page shows the command Do it runs');
+  // A Mac's page, whichever system the test runs on: Do it's line there, in a bash block.
+  const media = stepMedia(a4, 'mac');
+  assert.ok(media.includes(`\`\`\`bash\n${fixFor(a4, 'mac')!.command}\n\`\`\``), 'its page shows the command Do it runs');
+  assert.ok(stepMedia(a4, 'windows').includes(`\`\`\`powershell\n${fixFor(a4, 'windows')!.command}\n\`\`\``), 'and Windows\'s, in a powershell block');
   assert.match(media, /accept the invitation/);
   assert.match(media, /start a new one/);
 });
 
 test('a fix that ends on a terminal command keeps that command on the step\'s page, in a bash block, and a fix without one is unchanged', () => {
-  const login = stepMedia(step('A2.gh-login'));
+  const login = stepMedia(step('A2.gh-login'), 'mac');
   assert.ok(login.includes('In a terminal:\n\n```bash\ngh auth login\n```'), login);
   assert.doesNotMatch(login, /In a terminal: sign in to GitHub/);
   assert.match(login, /"Do it" opens VSCode's GitHub sign-in/);
-  const plain = stepMedia({ id: 'X1.test', title: 'A test step', why: 'Why it matters.', fix: { text: 'Open the page and press Save.' } } as never);
+  const plain = stepMedia({ id: 'X1.test', title: 'A test step', why: 'Why it matters.', fix: { text: 'Open the page and press Save.' } } as never, 'mac');
   assert.match(plain, /Open the page and press Save\./);
   assert.doesNotMatch(plain, /```bash/);
 });
@@ -213,17 +215,17 @@ test('acc init offers only logged-in Production orgs', () => {
     scratchOrgs: [{ alias: 'scratch', instanceUrl: 'https://x.my.salesforce.com', isSandbox: false, isScratch: true }],
   } };
   assert.deepEqual(productionOrgs(list), ['Acme Production']);
-  assert.equal(initCommand({ profile: 'salesforce', productionOrg: 'Acme Production' }), 'acc init --profile salesforce --production-org \'Acme Production\'');
-  assert.equal(initCommand({ profile: 'generic' }), 'acc init --profile generic');
+  assert.equal(initCommand({ profile: 'salesforce', productionOrg: 'Acme Production' }, 'sh'), 'acc init --profile salesforce --production-org \'Acme Production\'');
+  assert.equal(initCommand({ profile: 'generic' }, 'sh'), 'acc init --profile generic');
 });
 
 test('a team template\'s acc init quotes its source and org, and the recent list keeps the five newest, each source once (GH-80)', () => {
   const src = 'git@github.com:acme/acc-templates.git#salesforce.json';
-  assert.equal(initCommand({ from: src, profile: 'salesforce', productionOrg: 'Acme Production' }), `acc init --from '${src}' --profile salesforce --production-org 'Acme Production'`);
-  assert.equal(initCommand({ from: '~/team/acme tools.json' }), 'acc init --from \'~/team/acme tools.json\'', 'acc expands ~ itself');
+  assert.equal(initCommand({ from: src, profile: 'salesforce', productionOrg: 'Acme Production' }, 'sh'), `acc init --from '${src}' --profile salesforce --production-org 'Acme Production'`);
+  assert.equal(initCommand({ from: '~/team/acme tools.json' }, 'sh'), 'acc init --from \'~/team/acme tools.json\'', 'acc expands ~ itself');
   const url = 'https://github.com/acme/acc-templates/blob/main/generic.json';
-  assert.equal(initCommand({ from: url }), `acc init --from ${url}`);
-  assert.equal(initCommand({ from: url, profile: 'generic' }), `acc init --from ${url} --profile generic`, 'a template with no profile gets the one the person chose');
+  assert.equal(initCommand({ from: url }, 'sh'), `acc init --from ${url}`);
+  assert.equal(initCommand({ from: url, profile: 'generic' }, 'sh'), `acc init --from ${url} --profile generic`, 'a template with no profile gets the one the person chose');
 
   const t = (n: number) => ({ source: `~/team/t${n}.json`, name: `T${n}` });
   let list = [1, 2, 3, 4, 5].reduce((l, n) => rememberTemplate(l, t(n)), [] as ReturnType<typeof t>[]);
@@ -249,8 +251,8 @@ test('what acc template show --json said is read as the template, its problems, 
 test('From a Jira epic: acc init gets the tracker as one argument, a template\'s tracker fills in the page, and acc\'s words come back (GH-81)', () => {
   const tracker = { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epic: 'ACME-3' };
   assert.deepEqual(initArgs({ profile: 'generic', tracker }), ['--profile', 'generic', '--tracker', JSON.stringify(tracker)]);
-  assert.equal(initCommand({ profile: 'generic', tracker }), `acc init --profile generic --tracker '${JSON.stringify(tracker)}'`, 'the JSON is one argument');
-  assert.equal(initCommand({ tracker: { kind: 'github', labels: ['won\'t fix'] } }), `acc init --tracker '{"kind":"github","labels":["won'\\''t fix"]}'`);
+  assert.equal(initCommand({ profile: 'generic', tracker }, 'sh'), `acc init --profile generic --tracker '${JSON.stringify(tracker)}'`, 'the JSON is one argument');
+  assert.equal(initCommand({ tracker: { kind: 'github', labels: ['won\'t fix'] } }, 'sh'), `acc init --tracker '{"kind":"github","labels":["won'\\''t fix"]}'`);
   assert.deepEqual(initArgs({ from: '~/team/acme tools.json', profile: 'salesforce', productionOrg: 'Acme Production' }), ['--from', '~/team/acme tools.json', '--profile', 'salesforce', '--production-org', 'Acme Production'], 'each value one argument, unquoted, for running acc itself');
 
   // The template's tracker, as acc template show --json gives it: its site and project, never a place (D-097).
@@ -288,7 +290,8 @@ test('a project started from an epic signs in under the key it has once acc init
   // As the hub builds a project from its folder once it's written.
   const loaded = { config: written, ledgerPath: join(common, 'acc', 'ledger.json') };
   assert.equal(repoKey(pending), repoKey(loaded));
-  assert.equal(repoKey(pending), `git:${common}`);
+  // The shared folder as Node joins it: git says C:/… on Windows, and a joined path is C:\… there.
+  assert.equal(repoKey(pending), `git:${join(common)}`);
   // With a GitHub repo, by the repo, as every clone shares it.
   const withGithub = pendingProject({ root: dir, dry: { ok: true, project: 'acme-renewals', github: { repo: 'Acme/Renewals', account: 'jordan-kim' } }, commonDir: common, args, tracker: null });
   assert.equal(repoKey(withGithub), repoKey({ config: { github: { repo: 'Acme/Renewals' } }, ledgerPath: '/elsewhere/.git/acc/ledger.json' }));
@@ -321,8 +324,8 @@ test('what acc rules import --dry-run --json said is read as the copy it would w
   assert.match(rulesDetail(shownRules(JSON.stringify({ ...dry, commit: 'c0ffee'.padEnd(40, '0'), replaces: null, lines: 1, preview: ['x'] })) as Extract<ReturnType<typeof shownRules>, { ok: true }>), /^From ~\/team\/acme\.md, at commit c0ffee0: 1 line\.\n\nx\n/);
   assert.deepEqual(shownRules(JSON.stringify({ error: 'bad-rules', message: "Use https://: the Command Center doesn't fetch a rules file over plain http." })), { ok: false, errors: ["Use https://: the Command Center doesn't fetch a rules file over plain http."] });
   assert.deepEqual(shownRules('', 'node: not found'), { ok: false, errors: ['node: not found'] });
-  assert.equal(importRulesCommand({ source: 'https://github.com/acme/acc-rules/blob/main/salesforce.md' }), 'acc rules import https://github.com/acme/acc-rules/blob/main/salesforce.md');
-  assert.equal(importRulesCommand({ source: '~/Team Rules/acme.md', name: 'acme-2', force: true }), 'acc rules import \'~/Team Rules/acme.md\' --name acme-2 --force');
+  assert.equal(importRulesCommand({ source: 'https://github.com/acme/acc-rules/blob/main/salesforce.md' }, 'sh'), 'acc rules import https://github.com/acme/acc-rules/blob/main/salesforce.md');
+  assert.equal(importRulesCommand({ source: '~/Team Rules/acme.md', name: 'acme-2', force: true }, 'sh'), 'acc rules import \'~/Team Rules/acme.md\' --name acme-2 --force');
 });
 
 test('org logins go where an environment\'s name says, gh\'s active account is read, and aliases with spaces stay whole', async () => {
@@ -399,16 +402,17 @@ test('a step command names a step that\'s there, or none: acc.step.check, acc.st
 test('a step that installs a tool shows its line for a Mac, Windows and Linux on its page, and Windows is told to restart VSCode (T-124)', () => {
   const installing = STEPS.filter((s) => s.install);
   assert.equal(installing.length, 4, 'git, Node, gh and Claude Code');
-  for (const s of installing) {
-    const media = stepMedia(s);
+  // The page for a Mac and for Windows, whichever system the test runs on: each shows every system's line.
+  for (const s of installing) for (const on of ['mac', 'windows'] as const) {
+    const media = stepMedia(s, on);
     for (const system of ['mac', 'windows'] as const) {
       const line = INSTALL_LINES[s.install!][system];
       const fence = system === 'windows' ? 'powershell' : 'bash';
-      assert.ok('command' in line && media.includes(`\`\`\`${fence}\n${line.command}\n\`\`\``), `${s.id} shows its ${system} line`);
+      assert.ok('command' in line && media.includes(`\`\`\`${fence}\n${line.command}\n\`\`\``), `${s.id}'s ${on} page shows its ${system} line`);
     }
     assert.match(media, /On a Mac:[\s\S]*On Windows:[\s\S]*On Linux:/, s.id);
     assert.match(media, /restart VSCode/, s.id);
   }
-  assert.ok(stepMedia(step('A1.node')).includes('[The maker\'s install page](https://nodejs.org/en/download)'), 'Linux with no one line gets the page');
-  assert.ok(stepMedia(step('A1.claude')).includes('```bash\nclaude update\n```'), 'Claude Code keeps its update line');
+  assert.ok(stepMedia(step('A1.node'), 'mac').includes('[The maker\'s install page](https://nodejs.org/en/download)'), 'Linux with no one line gets the page');
+  assert.ok(stepMedia(step('A1.claude'), 'mac').includes('```bash\nclaude update\n```'), 'Claude Code keeps its update line');
 });

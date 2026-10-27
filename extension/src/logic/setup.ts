@@ -5,6 +5,7 @@
 
 import { join } from 'node:path';
 import type { Tracker } from '../../../packages/core/src/config.ts';
+import { fixFor } from '../../../packages/core/src/onboarding/steps.ts';
 import type { CheckStatus, Step } from '../../../packages/core/src/onboarding/types.ts';
 import { isObj, plural } from '../../../packages/core/src/text.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
@@ -94,7 +95,7 @@ export function stepMedia(step: Step, system: InstallSystem = SYSTEM): string {
   const fence = fenceFor(shellOf(system));
   const out = [`# ${step.title}`, '', `\`${step.id}\``, '', inProcessWords(step.why), ''];
   if (step.offer) out.push(`**${step.offer.label}** is here whatever the step shows.`, '');
-  const f = step.fix;
+  const f = fixFor(step, system);
   if (f?.command || f?.fromCheck || f?.vscode || f?.text || f?.setupPath || f?.docs) out.push('## How to fix it', '');
   // acc's own fix is named as its process (GH-163); another tool's command is shown as it runs.
   const installs = step.install ? INSTALL_LINES[step.install] : null;

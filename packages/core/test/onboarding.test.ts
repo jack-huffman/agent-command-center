@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { run, type RunResult } from '../src/exec.ts';
 import { makeContext, parseOrgUrl, pluginBehind } from '../src/onboarding/helpers.ts';
-import { NEARBY_LIMIT, nearbyFolders, nearbyRepo, PLUGIN, runSteps, STEPS, userPlugin } from '../src/onboarding/steps.ts';
+import { fixFor as stepFix, NEARBY_LIMIT, nearbyFolders, nearbyRepo, PLUGIN, runSteps, STEPS, userPlugin } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
 import { repoPaths } from '../src/paths.ts';
 import { importRules, renderHeader, rulesDigest } from '../src/rules.ts';
@@ -333,9 +333,22 @@ test('A4.plugin\'s names and address are the marketplace\'s and the plugin\'s ow
   const manifest = JSON.parse(doc('plugin/.claude-plugin/plugin.json'));
   assert.deepEqual(PLUGIN, { marketplace: market.name, name: market.plugins[0].name, repo: manifest.repository });
   assert.equal(market.plugins[0].source, './plugin');
-  const fix = STEPS.find((s) => s.id === 'A4.plugin')!.fix!.command!;
+  const fix = stepFix(STEPS.find((s) => s.id === 'A4.plugin')!, 'mac')!.command!;
   assert.equal(fix, `${ADD} && ${INSTALL}`);
   assert.ok(!/<[^>]+>/.test(fix), 'Do it runs it as it is, with nothing to fill in');
+});
+
+test('edge case: a step whose line differs by system gives each system its own, whichever system acc runs on; a step without one gives its fix (D-T-123)', () => {
+  const a4 = STEPS.find((s) => s.id === 'A4.plugin')!;
+  assert.equal(stepFix(a4, 'windows')!.command, `${ADD}; if ($?) { ${INSTALL} }`, 'PowerShell 5.1 has no &&');
+  assert.equal(stepFix(a4)!.command, a4.fix!.command, 'on the system acc runs on, its fix');
+  const git = STEPS.find((s) => s.id === 'A1.git')!;
+  assert.deepEqual([stepFix(git, 'mac')!.command, stepFix(git, 'windows')!.command], ['brew install git', 'winget install --id Git.Git -e']);
+  assert.match(stepFix(git, 'windows')!.text!, /restart VSCode/, 'Windows is told to restart VSCode');
+  assert.equal(stepFix(git, 'mac')!.text, undefined);
+  const sf = STEPS.find((s) => s.id === 'A1.sf')!;
+  assert.equal(sf.fixOn, undefined);
+  assert.deepEqual(stepFix(sf, 'windows'), sf.fix, 'one line for every system');
 });
 
 test('Node is a Salesforce project\'s step: acc itself doesn\'t need it (D-077)', () => {
