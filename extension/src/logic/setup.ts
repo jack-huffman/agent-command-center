@@ -332,7 +332,7 @@ export function pendingProject(i: { root: string; dry: Extract<InitOutput, { ok:
 export function startTracker(t: Record<string, unknown> | null): StartProject['tracker'] {
   const d = t && typeof t.kind === 'string' ? describe(t.kind) : undefined;
   if (!t || !d) return null;
-  const blank: Tracker = { kind: d.kind as Tracker['kind'], site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, reaction: null, doneReaction: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epics: [], sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, changesField: null };
+  const blank: Tracker = { kind: d.kind as Tracker['kind'], site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, reaction: null, doneReaction: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epics: [], sprint: null, queue: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, changesField: null };
   const { host, values } = d.fromConfig({ ...blank, ...t } as Tracker, null);
   const ids = new Set(d.pickers.filter((p) => p.identifies).map((p) => p.key));
   return { kind: d.kind, host: host || null, values: Object.fromEntries(Object.entries(values).filter(([k, v]) => ids.has(k) && v !== null)) };

@@ -54,6 +54,7 @@ export const CONFIG_WORDS: Record<ConfigKey, string> = {
   'trackers[].skipLabels': 'the labels a tracker skips',
   'trackers[].epics': 'a tracker\'s epics',
   'trackers[].sprint': 'a tracker\'s sprint',
+  'trackers[].queue': 'a tracker\'s queue',
   'trackers[].labels': 'a tracker\'s labels',
   'trackers[].areaPath': 'a tracker\'s area',
   'trackers[].group': 'a tracker\'s group',

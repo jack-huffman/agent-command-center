@@ -27,7 +27,7 @@ const BOARD: Board = { source: 'jira-board', title: 'ACME board', url: null, not
 const full = (t: Record<string, unknown>): Tracker => ({
   kind: t.kind as Tracker['kind'], site: (t.site as string) ?? null, project: (t.project as string) ?? null, repo: (t.repo as string) ?? null, organization: (t.organization as string) ?? null,
   account: (t.account as string) ?? null, workspace: (t.workspace as string) ?? null, channel: (t.channel as string) ?? null, reaction: (t.reaction as string) ?? null, doneReaction: (t.doneReaction as string) ?? null, team: (t.team as string) ?? null, board: (t.board as number | string) ?? null, statusColumn: (t.statusColumn as string) ?? null, prefix: (t.prefix as string) ?? null,
-  skipLabels: (t.skipLabels as string[]) ?? [], epics: (t.epics as string[]) ?? (t.epic ? [t.epic as string] : []), sprint: (t.sprint as 'active' | number) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true, statusFor: (t.statusFor as Record<string, string>) ?? null, changesField: null,
+  skipLabels: (t.skipLabels as string[]) ?? [], epics: (t.epics as string[]) ?? (t.epic ? [t.epic as string] : []), sprint: (t.sprint as 'active' | number) ?? null, queue: (t.queue as number) ?? null, labels: (t.labels as string[]) ?? [], areaPath: (t.areaPath as string) ?? null, group: (t.group as string) ?? null, edits: t.edits === true, statusFor: (t.statusFor as Record<string, string>) ?? null, changesField: null,
 });
 
 type Answer = Response | Promise<Response>;
@@ -469,8 +469,8 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
   assert.equal(h.model().save.can, true);
   h.send({ type: 'connect-save' });
   await settle();
-  assert.deepEqual(h.started, [{ root: NEW_ROOT, args: ['--profile', 'generic'], record: { kind: 'jira', site: SITE, project: 'ACME', board: 9, epic: 'ACME-31', epics: null, sprint: null } }]);
-  assert.equal(h.writes, 0, 'acc init writes the config, once: nothing patches it after');
+  assert.deepEqual(h.started, [{ root: NEW_ROOT, args: ['--profile', 'generic'], record: { kind: 'jira', site: SITE, project: 'ACME', board: 9, epic: 'ACME-31', epics: null, sprint: null, queue: null } }]);
+  assert.equal(h.writes, 0, 'acc init writes the config: an epic leaves no other tracker to add after it');
   assert.deepEqual([h.saved, h.session.model()], [['Jira, started'], null], 'then the projects load, Setup checks again, and the Tasks tab opens');
   assert.deepEqual([...h.secrets.keys()], [siteCredKey('jira', SITE)], 'nothing new kept');
 
@@ -907,10 +907,10 @@ test('the tick doesn\'t know one tracker from another: monday.com\'s is built fr
 test('the Connect page offers no picker for a tracker key nothing reads yet, and with none listed it offers them all (GH-107)', () => {
   const jira = DESCRIPTIONS.find((d) => d.kind === 'jira')!;
   const s = blankConnect(jira, { id: 'p', root: ROOT, projectName: 'Acme Service', ownRepo: null, ghAccount: null, from: 'tasks', existing: { index: 0, title: 'Jira · ACME', host: SITE, values: { project: 'ACME', epics: ['ACME-3'], board: '7' } } });
-  assert.deepEqual(connectModel(s).pickers.map((p) => p.key), ['project', 'epics', 'board', 'sprint']);
+  assert.deepEqual(connectModel(s).pickers.map((p) => p.key), ['project', 'queues', 'epics', 'board', 'sprint']);
   assert.deepEqual(connectModel(s, DESCRIPTIONS, {}), connectModel(s), 'the real list is empty today, so nothing is hidden');
   const hidden = connectModel(s, DESCRIPTIONS, { 'trackers[].epics': 'GH-1 will read it.' });
-  assert.deepEqual(hidden.pickers.map((p) => p.key), ['project', 'board', 'sprint']);
+  assert.deepEqual(hidden.pickers.map((p) => p.key), ['project', 'queues', 'board', 'sprint']);
   // Not offered isn't dropped: Save writes back the epic the tracker already has.
   assert.equal(s.pickers.epics!.selected[0], 'ACME-3');
 });
@@ -1251,4 +1251,93 @@ test('Slack\'s history-scope check can\'t be skipped: with a reaction set and no
   assert.deepEqual(h.raw, [{ kind: 'slack', workspace: 'acme', channel: 'C0SUPPORT1', reaction: 'ticket', edits: true }], 'nothing written');
   assert.equal(h.writes, 0);
   assert.ok(!asked.includes('conversations.history'));
+});
+
+/** Jira as `jira()` answers it, with ACME a service desk of two queues (T-128), or refusing them as to a non-agent. */
+const serviceDesk = (queues: 'agent' | 'not-agent' | 'software'): typeof fetch => (async (url: string, init: RequestInit) => {
+  const u = new URL(url);
+  if (u.pathname === '/rest/api/3/project/ACME') return Response.json({ projectTypeKey: queues === 'software' ? 'software' : 'service_desk' });
+  if (u.pathname === '/rest/servicedeskapi/servicedesk/projectKey:ACME/queue') {
+    if (queues === 'not-agent') return Response.json({ errorMessages: ['You are not an agent'] }, { status: 403 });
+    return Response.json({ isLastPage: true, values: [{ id: '12', name: 'Unassigned issues', jql: 'project = ACME AND assignee is EMPTY', issueCount: 4 }, { id: '14', name: 'Waiting for support', jql: 'project = ACME AND status = "Waiting for support"', issueCount: 2 }] });
+  }
+  return jira()(url, init);
+}) as unknown as typeof fetch;
+
+test('a service desk\'s queues are cards; ticking two saves a queue board each, and the epics, board and sprint step aside (T-128)', async () => {
+  const h = harness({ fetch: serviceDesk('agent') });
+  await h.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  h.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  let m = h.model();
+  const queues = picker(m, 'queues');
+  assert.equal(queues.hidden, false);
+  assert.deepEqual(queues.options.map((o) => [o.value, o.label, o.detail]), [['12', 'Unassigned issues', '4 tickets'], ['14', 'Waiting for support', '2 tickets']]);
+  assert.deepEqual(['epics', 'board'].map((k) => picker(m, k).hidden), [false, false], 'none ticked: the project\'s epics, as before');
+  h.send({ type: 'connect-pick', key: 'queues', value: ['12', '14'] });
+  await settle();
+  m = h.model();
+  assert.deepEqual(['epics', 'board', 'sprint'].map((k) => [picker(m, k).hidden, picker(m, k).required]), [[true, false], [true, false], [true, false]]);
+  assert.equal(m.save.can, true);
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'jira', site: SITE, project: 'ACME', queue: 12 }, { kind: 'jira', site: SITE, project: 'ACME', queue: 14 }], 'one tracker a queue, so each is its own board');
+  assert.equal(h.writes, 2);
+  // Unticked again, the epics come back.
+  const back = harness({ fetch: serviceDesk('agent') });
+  await back.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  back.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  back.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  back.send({ type: 'connect-pick', key: 'queues', value: ['12'] });
+  back.send({ type: 'connect-pick', key: 'queues', value: null });
+  await settle();
+  assert.equal(picker(back.model(), 'epics').hidden, false, 'a choice cleared: its epics are offered again');
+});
+
+test('starting a project from a service desk with two queues ticked: acc init takes the first, and the second is added to the new project after it (T-128)', async () => {
+  const repos = [other('acme-billing', 'github:acme/billing', [{ kind: 'jira', site: SITE, project: 'OPS' }])];
+  const h = harness({ fetch: serviceDesk('agent'), secrets: JIRA_SITE_SIGN_IN(), repos });
+  assert.equal(await h.session.open({ start: RENEWALS, from: 'setup' }), true);
+  await settle();
+  h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'queues', value: ['12', '14'] });
+  await settle();
+  assert.equal(h.model().save.can, true);
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.started.map((s) => [s.root, s.record.queue]), [[NEW_ROOT, 12]], 'acc init starts the project with the first queue');
+  assert.deepEqual(h.raw, [{ kind: 'jira', site: SITE, project: 'ACME', queue: 14 }], 'the second queue is written to the new project, one tracker each');
+  assert.equal(h.writes, 1);
+  assert.deepEqual(h.saved, ['Jira, started'], 'then the project loads');
+});
+
+test('no queues for a project that isn\'t a service desk, and no agent access is said in plain words, with the epics still offered (T-128)', async () => {
+  const plain = harness({ fetch: serviceDesk('software') });
+  await plain.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  plain.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  plain.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  let m = plain.model();
+  assert.deepEqual([picker(m, 'queues').hidden, picker(m, 'queues').look], [true, null], 'not drawn: nothing to pick, and nothing to say');
+  assert.equal(picker(m, 'epics').hidden, false);
+  assert.equal(m.save.can, true, 'the empty list holds nothing up');
+
+  const refused = harness({ fetch: serviceDesk('not-agent') });
+  await refused.session.open({ root: ROOT, kind: 'jira', from: 'tasks' });
+  refused.send({ type: 'connect-test', host: SITE, fields: { email: EMAIL, token: TOKEN } });
+  await settle();
+  refused.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  m = refused.model();
+  const q = picker(m, 'queues');
+  assert.deepEqual([q.hidden, q.options, q.look?.icon, q.look?.tone], [false, [], 'warning', 'orange']);
+  assert.match(q.look?.label ?? '', /Only a Jira Service Management agent can see the ACME service desk's queues, and this sign-in isn't one\./);
+  assert.equal(picker(m, 'epics').hidden, false, 'its epics are still offered');
+  assert.equal(m.save.can, true);
 });
