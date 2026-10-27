@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BREW_INSTALL, INSTALL_LINES, needsBrew, INSTALL_SYSTEMS, type InstallTool, installCommand, installLine, installText, restartNote, RESTART_NOTE, SYSTEM, systemOf } from '../src/onboarding/install-lines.ts';
+import { BREW_INSTALL, INSTALL_LINES, needsBrew, INSTALL_SYSTEMS, type InstallTool, installCommand, installLine, installText, restartNote, RESTART_NOTE, RESTART_PAGE_NOTE, SYSTEM, systemOf } from '../src/onboarding/install-lines.ts';
 import { makeContext } from '../src/onboarding/helpers.ts';
 import { runSteps, STEPS } from '../src/onboarding/steps.ts';
 import { fakeRunner, ok, tempDir } from './support.ts';
@@ -31,6 +31,8 @@ test('where a maker gives Linux no one line, the line is its page, not a command
 test('only Windows is told to restart VSCode after an install', () => {
   assert.equal(restartNote('windows'), RESTART_NOTE);
   assert.match(RESTART_NOTE, /isn't on its PATH until VSCode restarts/);
+  // The step page's sentence and Setup's note share one source: they differ only in how they open.
+  assert.equal(RESTART_PAGE_NOTE.replace('On Windows, after it installs', 'After it installs'), RESTART_NOTE);
   assert.equal(restartNote('mac'), '');
   assert.equal(restartNote('linux'), '');
 });
