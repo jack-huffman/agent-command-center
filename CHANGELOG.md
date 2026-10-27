@@ -22,6 +22,8 @@ as the notes.
   release, and the first-run checklist lists what to prepare before helping
   someone new install it, and where a first run usually stops.
 - No client's name is in the repo, and a check keeps it so without naming one.
+- A disabled button looks disabled on every page, dimmed with a not-allowed
+  cursor, and says why it's off when you point at it.
 
 ## 0.46.0
 
