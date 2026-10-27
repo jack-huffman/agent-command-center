@@ -664,8 +664,9 @@ export class ConnectSession {
 
   /**
    * Asks acc to write the tracker to the repo's config (GH-112), then shows its board, or Settings when it
-   * was opened from there. A project being started is written once, by acc init with the tracker (GH-81):
-   * until then nothing is, and when acc refuses, its words stay here.
+   * was opened from there. A project being started is written by acc init with the tracker (GH-81):
+   * until then nothing is, and when acc refuses, its words stay here. Only a service desk's further ticked
+   * queues (T-128) are written after it, one tracker each, to the new project's config.
    */
   private async save(): Promise<void> {
     const s = this.s!;

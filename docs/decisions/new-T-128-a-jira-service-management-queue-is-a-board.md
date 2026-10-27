@@ -17,7 +17,10 @@ T-127 adds the Tasks tab's switch between a project's boards; this entry is the 
   answers 403 to anyone else, and the page says so in plain words, with the epics still offered.
 - **Reading a queue.** Its tickets come from the queue's own JQL, held to the project (`project = KEY AND
   (filter)`, then the queue's ORDER BY), through Jira's search (`/rest/api/3/search/jql`, page by page), and
-  become the same tickets every tracker fills (D-185). The columns are the tickets' statuses, in the order of
+  become the same tickets every tracker fills (D-185). This is a departure from the brief's "the same Jira
+  search path the board uses now": a Jira board reads its tickets through the agile path
+  (`/rest/agile/1.0/board/{id}/issue`), but a queue has no agile board to ask, so a queue reads through
+  `searchIssues` (`/rest/api/3/search/jql`) instead. A person can confirm or change this. The columns are the tickets' statuses, in the order of
   their status category (To do, In progress, Done), and within one as first seen. An empty queue says so.
 - **Place check (D-072).** A ticket is inside when the JQL of the board's queue, or of another queue board on
   the same project, picks it out: `key = X AND ((queue 1) OR (queue 2))`, each queue's ORDER BY taken off. One

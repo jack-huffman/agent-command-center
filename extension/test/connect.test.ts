@@ -470,7 +470,7 @@ test('From a Jira epic: the site every project shares fills in signed in, the ep
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(h.started, [{ root: NEW_ROOT, args: ['--profile', 'generic'], record: { kind: 'jira', site: SITE, project: 'ACME', board: 9, epic: 'ACME-31', epics: null, sprint: null, queue: null } }]);
-  assert.equal(h.writes, 0, 'acc init writes the config, once: nothing patches it after');
+  assert.equal(h.writes, 0, 'acc init writes the config: an epic leaves no other tracker to add after it');
   assert.deepEqual([h.saved, h.session.model()], [['Jira, started'], null], 'then the projects load, Setup checks again, and the Tasks tab opens');
   assert.deepEqual([...h.secrets.keys()], [siteCredKey('jira', SITE)], 'nothing new kept');
 
@@ -1296,6 +1296,24 @@ test('a service desk\'s queues are cards; ticking two saves a queue board each, 
   back.send({ type: 'connect-pick', key: 'queues', value: null });
   await settle();
   assert.equal(picker(back.model(), 'epics').hidden, false, 'a choice cleared: its epics are offered again');
+});
+
+test('starting a project from a service desk with two queues ticked: acc init takes the first, and the second is added to the new project after it (T-128)', async () => {
+  const repos = [other('acme-billing', 'github:acme/billing', [{ kind: 'jira', site: SITE, project: 'OPS' }])];
+  const h = harness({ fetch: serviceDesk('agent'), secrets: JIRA_SITE_SIGN_IN(), repos });
+  assert.equal(await h.session.open({ start: RENEWALS, from: 'setup' }), true);
+  await settle();
+  h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'queues', value: ['12', '14'] });
+  await settle();
+  assert.equal(h.model().save.can, true);
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.started.map((s) => [s.root, s.record.queue]), [[NEW_ROOT, 12]], 'acc init starts the project with the first queue');
+  assert.deepEqual(h.raw, [{ kind: 'jira', site: SITE, project: 'ACME', queue: 14 }], 'the second queue is written to the new project, one tracker each');
+  assert.equal(h.writes, 1);
+  assert.deepEqual(h.saved, ['Jira, started'], 'then the project loads');
 });
 
 test('no queues for a project that isn\'t a service desk, and no agent access is said in plain words, with the epics still offered (T-128)', async () => {
