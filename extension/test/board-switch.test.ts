@@ -7,13 +7,14 @@ import { test } from 'node:test';
 import { tasksModel } from '../src/model/tasks.ts';
 import { boardName, boardsShowing, withBoards } from '../src/model/boards.ts';
 import { sampleSeveralBoards } from '../scripts/fixtures/boards.ts';
+import { addAnother as extensionAddAnother } from '../src/logic/connect.ts';
 import { sampleHub } from '../scripts/fixtures/hub.ts';
 import { type PageElement, pageDom } from './page-dom.ts';
 
 const page = pageDom();
 let kept: Record<string, unknown> = {};
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: Record<string, unknown>) => { kept = s; } });
-const { boardChoice, boardCounts, boardOpen, boardSwitch, FILTER_FROM, SEGMENTED_MOST, switchGroups, tellShown, toggleBoard } = await import('../webview/board-switch.ts');
+const { addAnother, boardChoice, boardCounts, boardOpen, boardSwitch, FILTER_FROM, SEGMENTED_MOST, switchGroups, tellShown, toggleBoard } = await import('../webview/board-switch.ts');
 const { renderTasks } = await import('../webview/tasks.ts');
 const { state } = await import('../webview/state.ts');
 let draws = 0;
@@ -92,6 +93,8 @@ test('Add a board on the toolbar opens the Connect page to add another board to 
   const before = page.sent.length;
   add.click();
   assert.deepEqual(page.sent.slice(before), [{ type: 'toolbar', command: 'acc.trackers.add', arg: JSON.stringify({ root: ROOT, add: true }) }]);
+  // The page's copy (D-121) and the extension's, which a saved board's Add another board sends, give one argument.
+  for (const root of [ROOT, '', 'C:\\code\\acme "x"']) assert.equal(addAnother(root), extensionAddAnother(root), `edge case: ${JSON.stringify(root)}`);
 });
 
 test('four boards: one button names the board on show and opens a list with My work, All boards and each site\'s boards; no box to find one', () => {

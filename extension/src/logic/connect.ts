@@ -224,6 +224,12 @@ export async function accRemoveTracker(acc: AccRun, root: string, index: number,
 export const ADD_ANOTHER = 'Add another board';
 
 /**
+ * Add a board's argument for acc.trackers.add (T-127): the project, and that Save adds another board. A saved
+ * board's Add another board sends it; the page's Add a board sends its copy in board-switch.ts (D-121).
+ */
+export const addAnother = (root: string): string => JSON.stringify({ root, add: true });
+
+/**
  * Remove's question (T-127), naming the board and its project, what it does and doesn't do, its button, and
  * what's said once it's done. Settings' Remove and the Connect page's ask the same.
  */

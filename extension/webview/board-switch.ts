@@ -14,6 +14,12 @@ export const SEGMENTED_MOST = 3;
 /** The list gets a box to find a board by typing once it holds more boards than this (T-127). */
 export const FILTER_FROM = 5;
 
+/**
+ * Add a board's argument for acc.trackers.add: the project, and that Save adds another board. The page imports no
+ * values from the extension (D-121), so this is a copy of extension/src/logic/connect.ts's; board-commands.test.ts pins the two alike.
+ */
+export const addAnother = (root: string): string => JSON.stringify({ root, add: true });
+
 /** What a project's Tasks tab shows: a board by its id, every board, or My work, as the tab's memory keeps it. */
 export type BoardChoice = `board:${string}` | 'all' | 'agents';
 

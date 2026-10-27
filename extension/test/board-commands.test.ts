@@ -2,8 +2,7 @@
 // Add another board's offer, and the page's message that says which board is on show.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { accRemoveTracker, accSetTracker, ADD_ANOTHER, removeAsk } from '../src/logic/connect.ts';
-import { addAnother } from '../src/model/add-board.ts';
+import { accRemoveTracker, accSetTracker, ADD_ANOTHER, addAnother, removeAsk } from '../src/logic/connect.ts';
 import { area } from '../src/model/boards.ts';
 import { pageSource } from './support.ts';
 
