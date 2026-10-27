@@ -5,6 +5,32 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.48.0
+
+- The Command Center works on Windows as it does on a Mac (D-209), with no WSL.
+  Git for Windows is required: acc runs its shell commands with the shell it
+  ships, so a project's checks run as written. Tools installed as `.cmd` files,
+  such as the Salesforce CLI, npm and VSCode's `code`, are found and run
+  there, and every word passed to one is escaped. acc resolves by name through
+  a new `acc.cmd` beside its launcher. A Windows check runs on every push.
+  Cloud builders keep their token in the macOS keychain, so on Windows they
+  say they aren't available yet, with that reason.
+- Setup tells you what to install for your own system: Homebrew lines on a
+  Mac, `winget` lines and Claude Code's PowerShell installer on Windows, and
+  each maker's line on Linux. On Windows it says to restart VSCode after an
+  install. On a Mac, Setup checks that Homebrew is installed first, and offers
+  its installer.
+- On Windows, Do it runs each fix in PowerShell, whatever your default
+  terminal is, quoted for PowerShell; on a Mac it runs as before. The run's
+  log still shows the readable command.
+- You can set up a Salesforce project, and use the Command Center on it,
+  without access to Production (D-208). Joining a project, Setup passes with
+  Production not logged in here, and says someone with access looks after it;
+  Production's Open org and Deploy… are off with that reason. Starting one,
+  "I don't have access to Production" finds the environments from the
+  sandboxes you're logged in to on your company's Salesforce domain, and
+  someone with access can record Production later.
+
 ## 0.47.0
 
 - Report a problem (D-207): from the Command Palette, Settings' About or a

@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-27**. Version 0.46.0 is
-the latest release (2026-10-23). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.47.0 is prepared and waits on a person
+Where each piece of the build stands, as of **2026-10-27**. Version 0.47.0 is
+the latest release (2026-10-27). 0.41.0 (2026-10-16) was the first with a
+`.sha256` beside its `.vsix`. Version 0.48.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -61,7 +61,8 @@ where each one's done-when is written out.
 - **The first run on a fresh machine**: waiting on a person. Checked
   2026-10-27. Evidence: D-088, GH-88. [FIRST-RUN.md](FIRST-RUN.md) is the
   checklist, brought up to 0.46.0 with the author's preparation and the likely
-  stops. It needs a Mac that has never run acc and someone to fill it in. A
+  stops, and how to install on Windows (0.48.0). It needs a Mac or a Windows
+  machine that has never run acc and someone to fill it in. A
   follow-up that fixes what the run finds can't start until then.
 
 ## Cloud builders
@@ -147,6 +148,13 @@ where each one's done-when is written out.
 - **Report a problem from the Command Center**: done. Checked 2026-10-27.
   Evidence: D-207. Posting needs a GitHub account that can reach this repo;
   without one, the page offers the issue text to send another way.
+- **The Command Center on Windows, natively**: done. Checked 2026-10-27.
+  Evidence: D-209, release 0.48.0. CI's Windows job runs the unit tests and
+  finds and runs git, node, npm, gh and the Salesforce CLI through acc's
+  runner. It hasn't been run by a person on a Windows machine yet; 15 tests
+  skip there, each named with why.
+- **Set up a Salesforce project without access to Production**: done. Checked
+  2026-10-27. Evidence: D-208, release 0.48.0.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
