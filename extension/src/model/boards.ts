@@ -3,7 +3,7 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import type { PriorityLevel, Status, StatusCategory, TrackerKind, TypeKind } from '../../../packages/core/src/trackers/types.ts';
+import { orList, type PriorityLevel, type Status, type StatusCategory, type TrackerKind, trackerName, type TypeKind } from '../../../packages/core/src/trackers/types.ts';
 import { conflictLine, failedChecksLine, waitsForFiles, whileFirst } from '../logic/tasks.ts';
 import { taskNames, type TaskRow, type Tone } from '../logic/shared.ts';
 import { signInScope } from '../logic/connect.ts';
@@ -84,6 +84,14 @@ export const priorityIcon = (level: PriorityLevel | null): string | null => (lev
 /** What the extension knows about one tracker's board (see trackers.ts). */
 export interface BoardInput {
   index: number;
+  /** Which board it is (T-127), by its settings but its name; its index where none is given, as in a preview. */
+  id?: string;
+  /** Its own name from its settings (T-127), or null for the one the tracker gives. */
+  name?: string | null;
+  /** Its site, organization, account or workspace (T-127), which the board switch groups by. */
+  host?: string;
+  /** Its place is narrower than its project (T-127): epics, labels, an area path, a channel. That place names it. */
+  narrowed?: boolean;
   kind: TrackerKind;
   title: string;
   board: { source: string; title: string; url: string | null; notice: string | null; columns: { id: string; name: string; category: StatusCategory; statusIds: string[] }[]; cards: { key: string; title: string; url: string; status: { id: string; name: string }; type: string | null; typeKind?: TypeKind | null; typeColor?: string | null; assignees: { id?: string; name: string; email?: string }[]; labels: { name: string; color: string | null }[]; priority: string | null; priorityLevel?: PriorityLevel | null; fullTitle?: string }[] } | null;
@@ -146,10 +154,17 @@ export interface TrackerColumn {
 
 export interface TrackerBoard {
   index: number;
+  /** Which board it is (T-127): what the Tasks tab remembers the board on show by. */
+  id: string;
+  /** Its name (T-127), on the board switch, its heading and in Settings: its own, else the one its tracker gives. */
+  name: string;
+  /** Where it is, for the switch's list to group by (T-127): its site, organization, account or workspace, or its tracker's name. */
+  group: string;
   kind: TrackerKind;
   title: string;
-  /** Its name on the Tasks tab's board switch: BOARD_WORD for its kind, such as "GitHub board", else its title. */
-  tab: string;
+  /** How many tickets it holds, and how many of their tasks need you (T-127), for the switch's list. */
+  tickets: number;
+  needs: number;
   source: string | null;
   url: string | null;
   notice: string | null;
@@ -237,8 +252,32 @@ export function placeAdds(place: string, title: string): boolean {
   return parts.length > 1 && parts.slice(1).some((part) => !title.includes(part));
 }
 
-/** What a tracker's board is called on the Tasks tab's switch, beside the Agent board: by its kind, never its title. */
-export const BOARD_WORD: Record<TrackerKind, string> = { github: 'GitHub board', jira: 'Jira board', azure: 'Azure DevOps board', monday: 'monday.com board', slack: 'Slack board' };
+/** Which boards show each ticket (T-127), by its key upper-cased: a ticket two boards show is one task, on both. */
+export function boardsShowing(boards: readonly Pick<TrackerBoard, 'name' | 'columns'>[]): Map<string, string[]> {
+  const on = new Map<string, string[]>();
+  for (const b of boards) for (const c of b.columns) for (const card of c.cards) {
+    const k = card.key.toUpperCase();
+    const names = on.get(k) ?? [];
+    if (!names.includes(b.name)) on.set(k, [...names, b.name]);
+  }
+  return on;
+}
+
+/** A Needs you line's detail with the boards its ticket is on (T-127): "Acme Service · on Renewals · blocked". */
+export function withBoards(detail: string, project: string, names: readonly string[]): string {
+  const on = `on ${orList([...names])}`;
+  return detail.startsWith(`${project} · `) ? `${project} · ${on} · ${detail.slice(project.length + 3)}` : `${on} · ${detail}`;
+}
+
+/**
+ * A board's name (T-127): its own, from its settings; else, where its place is narrower than its project, that place
+ * ("epics ACME-3 Premium Support or ACME-7 Renewals", "labels billing", "channel C0123ABCD"); else the board the tracker
+ * gives ("ACME Service board", a GitHub Project's title); and before it's read, its tracker and project ("Jira · ACME").
+ */
+export function boardName(b: Pick<BoardInput, 'name' | 'narrowed' | 'place' | 'title'> & { board: { title: string } | null }): string {
+  const narrow = b.narrowed && b.place ? b.place.split(' · ').slice(2).join(' · ') : '';
+  return b.name?.trim() || narrow || b.board?.title || b.title;
+}
 
 /** Change's title: the sign-in moved here from its own row, "Signed in as jordan@acme.example, for every project on acme.atlassian.net." (T-42). */
 export function changeTitle(signIn: Look | null, signedInAs: string | null): string {
@@ -264,8 +303,10 @@ export function trackerBoard(b: BoardInput, rows: TaskRow[], root: string): Trac
   }));
   const title = b.board?.title ?? b.title;
   const signIn = b.signedInAs && b.signInScope ? LOOK(`Signed in as ${b.signedInAs}, ${signInScope(b.signInScope.shared, b.signInScope.host)}`, b.signInScope.shared ? 'globe' : 'repo', 'blue') : null;
+  const tickets = columns.reduce((n, c) => n + c.cards.length, 0);
+  const needs = columns.reduce((n, c) => n + c.cards.filter((x) => x.acc?.needsYou).length, 0);
   return {
-    index: b.index, kind: b.kind, title, tab: BOARD_WORD[b.kind] ?? title, source: b.board?.source ?? null, url: b.board?.url ?? null,
+    index: b.index, id: b.id ?? String(b.index), name: boardName(b), group: b.host || trackerName(b.kind), kind: b.kind, title, tickets, needs, source: b.board?.source ?? null, url: b.board?.url ?? null,
     notice: b.board?.notice ? inProcessWords(b.board.notice) : null, error: b.error, connect: b.connect, loading: b.loading, signedInAs: b.signedInAs ?? null, me: b.me ? whoKey(b.me).key : null,
     signIn,
     place: b.place && placeAdds(b.place, title) ? b.place : null, left: b.left ?? [], movedOut: movedOut(b.place ?? null, b.left ?? []), columns,
@@ -280,23 +321,37 @@ export type Message =
   /** Track on a tracker board's card: acc keeps the ticket as a task (D-074). */
   | { type: 'track'; project: string; tracker: number; key: string }
   /** Track from a Slack tracker's box: the thread a pasted link names (T-31). */
-  | { type: 'track-link'; project: string; tracker: number; link: string };
+  | { type: 'track-link'; project: string; tracker: number; link: string }
+  /** The board the Tasks tab shows (T-127), by its id, or null for My work or All boards: it's read first. */
+  | { type: 'board-shown'; project: string; board: string | null };
 
 export const area: ModelArea = {
   commands: [
-    'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add',
+    'acc.trackers.signIn', 'acc.trackers.refresh', 'acc.trackers.add', 'acc.trackers.remove',
   ],
   home: {
     order: 14,
     attention({ i, attention }, p) {
       for (const b of i.boards(p.root)) {
-        if (b.error && b.connect) attention.push({ key: `b:${p.root}:${b.index}`, look: LOOK('Not signed in', 'plug', 'orange'), title: b.title, detail: `${p.name} · ${b.error}`, project: p.name, actions: [], extra: { command: b.connect.command, label: b.connect.label, icon: 'plug', arg: b.connect.arg } });
+        if (b.error && b.connect) attention.push({ key: `b:${p.root}:${b.index}`, look: LOOK('Not signed in', 'plug', 'orange'), title: boardName(b), detail: `${p.name} · ${b.error}`, project: p.name, actions: [], extra: { command: b.connect.command, label: b.connect.label, icon: 'plug', arg: b.connect.arg } });
+      }
+    },
+    // With several boards (T-127), what needs you on the Overview names the board its ticket is on.
+    after({ tasks, attention }) {
+      for (const p of tasks.projects) {
+        if (p.boards.length < 2) continue;
+        const on = boardsShowing(p.boards);
+        for (const a of attention) {
+          const names = a.key.startsWith(`t:${p.root}:`) ? on.get(a.key.slice(`t:${p.root}:`.length).toUpperCase()) : undefined;
+          if (names) a.detail = withBoards(a.detail, p.name, names);
+        }
       }
     },
   },
   messages: {
     move: (x) => short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && Number.isInteger(x.tracker) && typeof x.to === 'string' && x.to.length <= 200,
     track: (x) => short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && Number.isInteger(x.tracker),
+    'board-shown': (x) => short(x.project, 4096) && (x.board === null || (typeof x.board === 'string' && /^[\w-]{1,64}$/.test(x.board))),
     'track-link': (x) => short(x.project, 4096) && short(x.link, 2000) && Number.isInteger(x.tracker),
   },
 };

@@ -3,6 +3,7 @@
 import type { TrackerBoard, TrackerCard, Who } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
 import { boardKeys, liveLine } from './board-nav.ts';
+import { boardChoice, boardCounts, boardOpen, boardSwitch, tellShown, toggleBoard } from './board-switch.ts';
 import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
 import { shows } from './person-filter.ts';
 import { personFilter } from './person-menu.ts';
@@ -28,26 +29,23 @@ export function renderTasks(m: TasksModel): Node[] {
     const needs = p.columns.find((c) => c.group === 'needs-you')?.cards.length ?? 0;
     const summary = p.total ? `${p.name}: ${plural(p.total, 'task')}, ${ready} ready${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.` : `${p.name}: no tasks yet.`;
     if (p.boards.length) {
-      const mode = memory().modes[p.root] ?? 'tracker';
-      const toggle = el('div', 'segmented');
-      toggle.setAttribute('role', 'group');
-      toggle.setAttribute('aria-label', 'Which board');
-      for (const [m, label, ic] of [['tracker', p.boards.length === 1 ? p.boards[0]!.tab : 'Tracker boards', KIND_ICON[p.boards[0]!.kind] ?? 'issues'], ['agents', WORDS.myWork, 'hubot']] as const) {
-        const b = el('button', `seg${mode === m ? ' on' : ''}`, icon(ic), label) as HTMLButtonElement;
-        b.type = 'button';
-        // What each board shows: the tracker's tickets in its own columns, or the tickets added to your work, by stage.
-        b.title = m === 'tracker' ? 'The tickets as the tracker has them, in its own columns' : `The tickets you've added, by stage: Ready, Running, In review, ${WORDS.sentBack}, Blocked, Done`;
-        b.setAttribute('aria-pressed', String(mode === m));
-        b.addEventListener('click', () => { remember((s) => { s.modes[p.root] = m; }); if (state.last) state.draw(state.last); });
-        toggle.append(b);
-      }
-      tools.unshift(toggle);
-      if (mode === 'tracker') {
-        const cards = p.boards.reduce((n, b) => n + b.columns.reduce((k, c) => k + c.cards.length, 0), 0);
-        // A Slack channel with no board to count (T-31) counts its tasks instead; one with a board (T-85) counts its cards.
-        const counted = p.boards.some((b) => !b.paste || b.columns.length) ? `${p.name}: ${plural(cards, 'ticket')} on the board${ready ? `, ${ready} ready for an agent` : ''}${needs ? `, ${needs} need${needs === 1 ? 's' : ''} you` : ''}.` : summary;
+      // Which board is on show (T-127): the one kept for this project while it's there, else the first.
+      const choice = boardChoice(p.boards, memory().modes[p.root]);
+      tellShown(p.root, choice);
+      tools.unshift(boardSwitch(p.root, p.boards, choice, (k) => KIND_ICON[k] ?? 'issues'));
+      // Another tracker for this project, of any kind (T-127): the Connect page adds it as another board.
+      tools.push(toolbarButton('acc.trackers.add', 'Add a board', 'add', JSON.stringify({ root: p.root, add: true })));
+      if (choice !== 'agents') {
+        const shown = choice === 'all' ? p.boards : p.boards.filter((b) => `board:${b.id}` === choice);
+        const cards = shown.reduce((n, b) => n + b.tickets, 0);
+        // A ticket two boards show is one task: All boards counts it once.
+        const waiting = new Set(shown.flatMap((b) => b.columns.flatMap((c) => c.cards.filter((x) => x.acc?.needsYou).map((x) => x.key.toUpperCase())))).size;
+        const where = choice === 'all' ? `on ${plural(shown.length, 'board')}` : `on ${shown[0]!.name}`;
+        // The header counts the board on show (T-127). A Slack channel with no board to count (T-31) counts its tasks instead.
+        const counted = shown.some((b) => !b.paste || b.columns.length) ? `${p.name}: ${plural(cards, 'ticket')} ${where}${waiting ? `, ${waiting} need${waiting === 1 ? 's' : ''} you` : ''}.` : summary;
         const head = header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', counted, ...tools);
-        return el('div', 'project', head, once(), ...p.boards.map((b) => renderTrackerBoard(p.root, b)));
+        // All boards (T-127): each folded to its heading and counts until it's opened, so ten don't run on for pages.
+        return el('div', 'project', head, once(), ...shown.map((b) => renderTrackerBoard(p.root, b, choice === 'all' ? { open: boardOpen(p.root, b.id), toggle: () => toggleBoard(p.root, b.id) } : undefined)));
       }
     }
     const board = el('div', 'board agent-board');
@@ -256,7 +254,12 @@ function threadLink(root: string, b: TrackerBoard, paste: NonNullable<TrackerBoa
       paste.tracked && !paste.error && !paste.busy ? el('div', 'cfield-status', icon('check', 'blue'), el('span', '', `Added ${paste.tracked} to your work. It's on ${WORDS.myWork}.`)) : null));
 }
 
-export function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
+/**
+ * One tracker's board. `fold`, in All boards (T-127): its heading is a button that opens or folds it, and folded it
+ * shows only its heading, its counts and, when it can't be read, an orange icon.
+ */
+export function renderTrackerBoard(root: string, b: TrackerBoard, fold?: { open: boolean; toggle: () => void }): HTMLElement {
+  if (fold && !fold.open) return el('section', 'tracker folded', el('div', 'tracker-head', foldHead(b, fold)));
   const tools: Child[] = [];
   // Its person filter (T-79): Everyone, Mine, Unassigned, or one person. A board with no columns, as a Slack box without a board, has no cards to filter.
   const filter = b.columns.length ? personFilter(`tracker:${root}#${b.index}`, b.columns.flatMap((c) => c.cards), b.me) : null;
@@ -275,7 +278,7 @@ export function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   tools.push(change);
   const out = el('section', 'tracker',
     el('div', 'tracker-head',
-      el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.title, b.loading ? el('span', 'muted loading', icon('sync~spin'), loadingWords(b)) : null),
+      fold ? foldHead(b, fold) : el('h2', '', icon(KIND_ICON[b.kind] ?? 'issues'), b.name, b.loading ? el('span', 'muted loading', icon('sync~spin'), loadingWords(b)) : null),
       el('div', 'toolbar', ...tools)));
   // One quiet source line under its name (T-42): where its tickets come from (D-072) when that narrows it,
   // else what its columns are. Who it's signed in as sits in Change's title, and in Settings, Trackers.
@@ -346,6 +349,18 @@ export function renderTrackerBoard(root: string, b: TrackerBoard): HTMLElement {
   });
   out.append(live, board);
   return out;
+}
+
+/** A board's heading in All boards (T-127): a button with its name and counts, which opens or folds it. */
+function foldHead(b: TrackerBoard, fold: { open: boolean; toggle: () => void }): HTMLElement {
+  const counts = boardCounts(b);
+  const btn = el('button', 'board-fold', icon(fold.open ? 'chevron-down' : 'chevron-right'), b.error ? icon('warning', 'orange') : icon(KIND_ICON[b.kind] ?? 'issues'),
+    el('span', 'board-fold-name', b.name), el('span', `board-fold-count${counts.failed ? ' tone-orange' : ' muted'}`, counts.text)) as HTMLButtonElement;
+  btn.type = 'button';
+  btn.title = `${b.name}: ${counts.text}`;
+  btn.setAttribute('aria-expanded', String(fold.open));
+  btn.addEventListener('click', fold.toggle);
+  return el('h2', 'board-fold-head', btn);
 }
 
 export const area: PageArea = {

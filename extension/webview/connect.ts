@@ -57,6 +57,18 @@ function connectPicker(m: ConnectModel, p: ConnectPicker): HTMLElement {
   return row;
 }
 
+/** The board's name (T-127): taken in when the field is left, and written with the rest on Save. Empty is its tracker's own. */
+function boardNameRow(m: ConnectModel): HTMLElement {
+  const id = 'connect-board-name';
+  const k = `${m.id}:${m.boardName.field}`;
+  const input = keptInput(`connect:${k}`, connectTyped.get(k) ?? m.boardName.value, m.boardName.placeholder, (v) => connectTyped.set(k, v), () => input.blur(), 'text');
+  input.id = id;
+  input.maxLength = m.boardName.max;
+  input.setAttribute('aria-label', 'Board\'s name');
+  input.addEventListener('change', () => { connectSend(m, { type: 'connect-set', field: m.boardName.field, value: input.value }); connectSent.set(k, m.rev); });
+  return connectRow(id, 'Board\'s name', [el('div', 'cfield-input', input)], m.boardName.hint, null);
+}
+
 /** The tick that keeps the sign-in for every project on its site, or this one only (GH-79). Sent when it changes. */
 function connectShare(m: ConnectModel): HTMLElement {
   const box = document.createElement('input');
@@ -109,11 +121,13 @@ export function renderConnect(m: ConnectModel): Node[] {
   out.push(step(2, 'Sign in', ...signIn));
   // Until it's signed in there's nothing to list: say so, rather than show empty lists that look ready.
   const waiting = m.signIn.editing && m.pickers.some((p) => !p.fixed) ? el('p', 'muted small connect-hint', icon('lock'), ' Sign in above, and its lists fill in here.') : null;
-  const steps = [...out.splice(head), step(3, m.listsTitle, waiting, ...m.pickers.filter((p) => !p.hidden).map((p) => connectPicker(m, p)), m.changesField ? changesFieldConnect(m.changesField) : null)];
+  const steps = [...out.splice(head), step(3, m.listsTitle, waiting, ...m.pickers.filter((p) => !p.hidden).map((p) => connectPicker(m, p)), m.changesField ? changesFieldConnect(m.changesField) : null, boardNameRow(m))];
   const save = button(m.save.label, 'check', () => connectSend(m, { type: 'connect-save' }), 'primary');
   save.disabled = !m.save.can;
   if (m.save.why) save.title = m.save.why.label;
-  const foot = el('div', 'connect-foot', save, button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost'), (m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null);
+  // Remove an existing board (T-127): the extension asks first, naming it.
+  const remove = m.remove ? button(m.remove.label, 'trash', () => api.postMessage({ type: 'toolbar', command: m.remove!.command, arg: m.remove!.arg }), 'ghost connect-remove') : null;
+  const foot = el('div', 'connect-foot', save, button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost'), remove, (m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null);
   // The steps, and the board they'd make beside them (T-106): Use this board is in its foot, so it's seen first.
   out.push(el('div', 'connect-body', el('div', 'connect-steps', ...steps), previewPanel(m, foot)));
   return [el('div', 'connect', ...out)];

@@ -21,7 +21,8 @@ export interface Draft { picks: Record<number, string[]>; other: Record<number, 
  * being written, the output panel, and which of an agent's steps are opened.
  */
 interface Memory {
-  modes: Record<string, 'tracker' | 'agents'>;
+  /** What each project's Tasks tab shows (T-127): a board by its id (`board:<id>`), `all`, or `agents` for My work. */
+  modes: Record<string, string>;
   drafts: Record<string, string>;
   /** What each update's edit was typed against, by its draft's key (GH-46). */
   bases: Record<string, EditBase>;

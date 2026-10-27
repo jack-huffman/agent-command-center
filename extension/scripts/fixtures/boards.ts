@@ -27,7 +27,7 @@ export function sampleBoards(): BoardInput[] {
     return { ...c, typeKind: typeKindOf(c.type), priorityLevel: c.priority ? JIRA_PRIORITY[c.priority.toLowerCase()] ?? null : null };
   };
   return [{
-    index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example', me: { id: 'jordan', name: 'Jordan Kim' },
+    index: 0, id: 'b-acme-premium', host: 'acme.atlassian.net', narrowed: true, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example', me: { id: 'jordan', name: 'Jordan Kim' },
     // A sign-in for every project on the site (GH-79), said under the place.
     signInScope: { shared: true, host: 'acme.atlassian.net' },
     place: 'Jira · ACME · epic ACME-3 Premium Support',
@@ -130,7 +130,7 @@ export function sampleGithubBoards(): BoardInput[] {
     ({ key: `GH-${n}`, title, url: `https://github.com/acme/tool/issues/${n}`, status: s, type: type?.[0] ?? null, typeKind: typeKindOf(type?.[0]), typeColor: type ? GITHUB_TYPE_COLOUR[type[1]]! : null,
       assignees: [], labels: labels.map((name) => ({ name, color: GITHUB_LABELS[name] ?? null })), priority: null });
   return [{
-    index: 0, kind: 'github', title: 'GitHub · acme/tool', error: null, connect: null, loading: false, signedInAs: 'jordan-kim', place: 'GitHub · acme/tool', left: [],
+    index: 0, id: 'b-acme-tool', host: '', narrowed: false, kind: 'github', title: 'GitHub · acme/tool', error: null, connect: null, loading: false, signedInAs: 'jordan-kim', place: 'GitHub · acme/tool', left: [],
     board: {
       source: 'github-state', title: 'Issues · acme/tool', url: 'https://github.com/acme/tool/issues',
       notice: 'To use your GitHub Project\'s columns, give jordan-kim access to Projects. gh refreshes only its active account, so run gh auth switch -u jordan-kim, then gh auth refresh -h github.com -s project and sign in as jordan-kim, then switch back to the account you use.',
@@ -177,7 +177,7 @@ export function sampleSlackBoards(sample: SlackBoardSample = 'off'): BoardInput[
     ],
   } : null;
   return [{
-    index: 0, kind: 'slack', title: 'Slack · acme',
+    index: 0, id: 'b-acme-slack', host: 'acme', narrowed: true, kind: 'slack', title: 'Slack · acme',
     error: sample === 'scope' ? `The Slack app needs the channels:history scope for conversations.history. Add it on the app's OAuth & Permissions page at ${SLACK_APPS}, then install the app again.` : null,
     connect: null, loading: false, signedInAs: 'Acme Command Center',
     signInScope: { shared: false, host: 'acme' }, place: 'Slack · acme · channel C0123ABCD', left: [], board,

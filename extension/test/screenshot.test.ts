@@ -109,7 +109,7 @@ test('every section of the page, and a ticket, has sample data built by the real
         'tasks-slack-empty': [false, null, 2, 0, false], 'tasks-slack-scope': [false, 'channels:history', 0, 0, false],
       };
       assert.deepEqual([m.kind, (m as HomeModel).section, b.kind, !!b.off, b.error?.match(/channels:history/)?.[0] ?? null, b.columns.length, b.columns.reduce((n, c) => n + c.cards.length, 0), !!b.paste?.error], ['home', 'tasks', 'slack', ...wants[kind]!], kind);
-    } else if (kind === 'tasks-github') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.tab, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'GitHub board', null]);
+    } else if (kind === 'tasks-github') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.name, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'Issues · acme/tool', null]);
     // A Jira board following the active sprint (T-78): its place names the sprint and its dates.
     else if (kind === 'tasks-sprint') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.place], ['home', 'tasks', 'Jira · ACME · active sprint ACME Sprint 13 (20 Oct to 2 Nov)']);
     // The Agents tab with agents that would bill per token (D-089), and Settings at How agents run (GH-110).

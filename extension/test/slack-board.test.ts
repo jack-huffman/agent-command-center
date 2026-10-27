@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { NO_REACTION } from '../../packages/core/src/trackers/slack.ts';
-import { BOARD_WORD, type BoardInput, trackerBoard } from '../src/model/boards.ts';
+import { type BoardInput, trackerBoard } from '../src/model/boards.ts';
 import { sampleSlackBoards } from '../scripts/fixtures/boards.ts';
 import { choicesFor, EVERYONE, MINE, NO_ME, PERSON, shows, UNASSIGNED } from '../webview/person-filter.ts';
 import { row } from './support.ts';
@@ -12,7 +12,7 @@ const slack = (sample: Parameters<typeof sampleSlackBoards>[0]): BoardInput => s
 
 test('a Slack board shows its marked messages Open and Done, beside the box for a thread\'s link, and its cards stay put', () => {
   const b = trackerBoard(slack('board'), [], '/r');
-  assert.deepEqual([b.tab, BOARD_WORD.slack, b.source, b.title, b.off, b.error, b.moves], ['Slack board', 'Slack board', 'slack', 'Messages marked :ticket:', null, null, false]);
+  assert.deepEqual([b.name, b.source, b.title, b.off, b.error, b.moves], ['channel C0123ABCD', 'slack', 'Messages marked :ticket:', null, null, false]);
   assert.deepEqual(b.columns.map((c) => [c.name, c.icon, c.tone, c.done, c.cards.length]), [['Open', 'circle-outline', 'neutral', false, 3], ['Done', 'check', 'neutral', true, 2]]);
   assert.ok(b.paste, 'a thread\'s link can still be pasted');
   assert.equal(b.place, 'Slack · acme · channel C0123ABCD');

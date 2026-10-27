@@ -182,7 +182,7 @@ test('a second Track while one is on its way starts nothing, and the box doesn\'
 test('a Slack tracker shows a box for a thread\'s link in place of a board, which names the channel, and no refusal', () => {
   const [input] = sampleSlackBoards();
   const b = trackerBoard(input!, [], '/r');
-  assert.deepEqual([b.kind, b.error, b.columns, b.tab], ['slack', null, [], 'Slack board']);
+  assert.deepEqual([b.kind, b.error, b.columns, b.name], ['slack', null, [], 'channel C0123ABCD']);
   assert.deepEqual(b.paste, { hint: pasteHint(PLACE), example: exampleLink(PLACE), link: null, busy: false, error: null, tracked: null });
   assert.match(b.paste!.hint, /^Paste the link to a thread in channel C0123ABCD of acme\.slack\.com\./);
   const refused = trackerBoard(sampleSlackBoards('refused')[0]!, [], '/r').paste!;

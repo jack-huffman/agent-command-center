@@ -1,0 +1,35 @@
+/* ---------------------------------------------------------------- the board switch (T-127) */
+/* Up to three boards: a row of buttons beside My work. A long name is cut, whole in its title. */
+.segmented.board-switch { flex-wrap: wrap; max-width: 100%; }
+.board-switch .seg { min-width: 0; max-width: 100%; }
+.board-switch .seg-name { min-width: 0; max-width: 18em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* More: one button that names the board on show, and its list. */
+.board-switch-list { position: relative; display: inline-flex; max-width: 100%; }
+.board-switch-btn { max-width: 100%; min-width: 0; }
+.board-switch-name { min-width: 0; max-width: 22em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.board-menu { top: calc(100% + 2px); left: 0; right: auto; width: min(360px, calc(100vw - 32px)); max-height: min(70vh, 520px); overflow-y: auto; }
+.board-find { display: block; box-sizing: border-box; width: 100%; margin: 2px 0 6px; padding: 4px 6px; border: 1px solid var(--vscode-input-border, var(--line)); border-radius: 3px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; }
+.board-find:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.board-group { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--line); }
+.board-group-name { padding: 2px 8px; font-size: 0.85em; font-weight: 600; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.board-item { align-items: flex-start; white-space: normal; }
+.board-item > .codicon { flex: none; margin-top: 2px; }
+.board-item.on { font-weight: 600; }
+.board-item-text { display: flex; flex-direction: column; min-width: 0; }
+.board-item-name { overflow-wrap: anywhere; }
+.board-item-note { font-size: 0.88em; font-weight: normal; overflow-wrap: anywhere; }
+.board-none { margin: 6px 8px; }
+
+/* All boards: each folded to a button with its name and counts, which opens it. */
+.tracker.folded { padding-bottom: 0; }
+.tracker.folded .tracker-head { margin-bottom: 0; }
+.board-fold-head { min-width: 0; max-width: 100%; }
+.board-fold { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 100%; padding: 2px 4px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.board-fold:hover { background: var(--vscode-toolbar-hoverBackground); }
+.board-fold:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.board-fold-name { overflow-wrap: anywhere; }
+.board-fold-count { font-size: 0.8em; font-weight: normal; overflow-wrap: anywhere; }
+
+/* The Connect page's Remove, apart from Save and Cancel. */
+.connect-remove { margin-left: auto; }

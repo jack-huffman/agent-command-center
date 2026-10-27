@@ -13,7 +13,7 @@ import { type FinishedJobs, inProgress } from '../progress.ts';
 import type { SlackCard } from '../slack.ts';
 import type { AgentModel } from './agent-page.ts';
 import { agentsModel, type AgentsModel, billingLook, sessionFolders, type WhereView } from './agents.ts';
-import type { BoardInput } from './boards.ts';
+import { type BoardInput, boardName } from './boards.ts';
 import type { ConnectModel } from './connect.ts';
 import type { ConversationModel } from './conversation.ts';
 import type { ReportModel } from './report.ts';
@@ -175,7 +175,7 @@ export function homeModel(i: HomeInput): HomeModel {
 
   // Only History's first page goes to the page; it asks for the rest as a person scrolls (D-170).
   const history = historyPage(historyItems(hub, i.runs ?? []), 'all');
-  const projects = hub.projects.map((p) => ({ name: p.name, root: p.root, branch: p.branch, account: p.config.github?.account ?? null, trackers: i.boards(p.root).map((b) => b.title) }));
+  const projects = hub.projects.map((p) => ({ name: p.name, root: p.root, branch: p.branch, account: p.config.github?.account ?? null, trackers: i.boards(p.root).map((b) => boardName(b)) }));
   const queue = mergeQueues(hub, i.autopilot);
   const nav = parts.flatMap((a) => (a.nav ? [a.nav(c)] : []));
   const runs = (i.runs ?? []).map((r) => runCard(r));

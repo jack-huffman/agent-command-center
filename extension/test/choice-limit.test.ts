@@ -28,6 +28,7 @@ const RADIO_MODULES: Record<string, string> = {
   'choose-board.ts': 'exempt: the Connect page\'s boards, teams and epics are things to pick from, not questions',
   'dispatch-sheet.ts': 'exempt: the dispatch sheet\'s model, effort and place are settings, each a short fixed list',
   'person-menu.ts': 'exempt: the person filter is a menu of the people on the project, not a question',
+  'board-switch.ts': 'navigation, not a question (T-127): up to SEGMENTED_MOST boards are a row of buttons beside My work, with no radio group; past it, one menu of the boards to find and pick from, as the person filter is a menu of people. board-switch.test.ts pins both',
 };
 
 const RADIO = /radiogroup|'radio'|"radio"|menuitemradio/;

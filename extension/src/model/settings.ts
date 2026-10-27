@@ -18,7 +18,7 @@ import { intervalWords, type Pace, PACE_WORDS, PACES, POLL_INTERVALS, POLL_KEYS,
 import type { DoctorItem } from '../logic/setup.ts';
 import type { SlackCard } from '../slack.ts';
 import { billingLook, WHERE_VIEWS, type WhereView } from './agents.ts';
-import type { BoardInput } from './boards.ts';
+import { type BoardInput, boardName } from './boards.ts';
 import type { IdentityCard } from './environments.ts';
 import type { AboutModel } from './about.ts';
 import type { LimitsModel } from './limits.ts';
@@ -279,7 +279,7 @@ export interface SettingsAction {
  * the config, and VSCode's secret storage for a sign-out (D-064).
  */
 export interface TrackerAction extends SettingsAction {
-  command: 'acc.trackers.signIn' | 'acc.trackers.signOut' | 'acc.trackers.add';
+  command: 'acc.trackers.signIn' | 'acc.trackers.signOut' | 'acc.trackers.add' | 'acc.trackers.remove';
   /** The tracker, as each command takes it: `{"root": …, "index": …}`. Null for Connect a tracker, which needs none. */
   arg: string | null;
 }
@@ -291,7 +291,7 @@ export interface TrackerSetting {
   /** Its kind in words, with its icon: Jira, GitHub Issues, Azure DevOps, monday.com. */
   name: string;
   icon: string;
-  /** "Jira · ACME". */
+  /** Its board's name, the same as the Tasks tab's switch shows (T-127): "ACME Service board", or its own. */
   title: string;
   /** Where its tickets come from, such as "Jira · ACME · epic ACME-3 Premium Support". */
   place: string;
@@ -335,7 +335,8 @@ const kindOf = (kind: TrackerKind): { name: string; icon: string } => {
  */
 export function trackerSetting(b: BoardInput, p: { root: string; name: string }, changesField: TextField | null = null): TrackerSetting {
   const arg = JSON.stringify({ root: p.root, index: b.index });
-  const whose = `${b.title}, in ${p.name}`;
+  const name = boardName(b);
+  const whose = `${name}, in ${p.name}`;
   const scope = b.signInScope ? signInScope(b.signInScope.shared, b.signInScope.host) : 'for this project';
   // A board that can't be read for want of a sign-in says so with a Sign in button (D-073): its sign-in failed.
   const refused = !!b.error && !!b.connect;
@@ -363,10 +364,12 @@ export function trackerSetting(b: BoardInput, p: { root: string; name: string },
       { command: 'acc.trackers.signIn' as const, label: b.signedInAs ? 'Sign in again' : 'Sign in', icon: 'sign-in', arg, name: `${b.signedInAs ? 'Sign in again to' : 'Sign in to'} ${whose}`, primary: fix, disabled: null },
       { command: 'acc.trackers.signOut' as const, label: 'Sign out', icon: 'sign-out', arg, name: `Sign out of ${whose}`, primary: false, disabled: b.signedInAs ? null : 'It isn\'t signed in, so there\'s nothing to sign out of.' },
     ]),
-    { command: 'acc.trackers.add', label: 'Change place…', icon: 'edit', arg, name: `Change place: where ${whose} gets its tickets, and its board`, primary: false, disabled: null },
+    { command: 'acc.trackers.add', label: 'Change place…', icon: 'edit', arg, name: `Change place: where ${whose} gets its tickets, its board and its name`, primary: false, disabled: null },
+    // Asked first, naming it (T-127); its tasks stay on My work.
+    { command: 'acc.trackers.remove', label: 'Remove…', icon: 'trash', arg, name: `Remove ${whose}`, primary: false, disabled: null },
   ];
   return {
-    index: b.index, kind: b.kind, ...kindOf(b.kind), title: b.title, place: b.place ?? b.title, board, signIn, from: PROJECT, signInFrom: b.kind === 'github' ? GH_SIGN_IN_KEPT : SIGN_IN_KEPT, actions,
+    index: b.index, kind: b.kind, ...kindOf(b.kind), title: name, place: b.place ?? b.title, board, signIn, from: PROJECT, signInFrom: b.kind === 'github' ? GH_SIGN_IN_KEPT : SIGN_IN_KEPT, actions,
     changes: changesFieldRow(b.kind, changesField, arg, whose),
   };
 }

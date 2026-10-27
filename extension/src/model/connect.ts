@@ -3,7 +3,7 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import { type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
+import { type ConfigPath, keyShown, TRACKER_NAME_MAX, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
 import { declaredKeys, DESCRIPTIONS, type Option, type TrackerDescription, type Values } from '../../../packages/core/src/trackers/connect.ts';
 import { CARD_TITLES, countValues, placeKey, PREVIEW_CARDS, previewLine } from '../../../packages/core/src/trackers/preview.ts';
 import { type Board, orList } from '../../../packages/core/src/trackers/types.ts';
@@ -55,8 +55,15 @@ export interface ConnectState {
   ownRepo: string | null;
   ghAccount: string | null;
   kind: string;
-  /** The tracker being changed, by its place in the list, or null for a new one. */
-  existing: { index: number; title: string } | null;
+  /**
+   * The tracker being changed, by its place in the list, or null for a new one. given: the name its tracker gives
+   * its board (T-127), which an empty name keeps.
+   */
+  existing: { index: number; title: string; given?: string } | null;
+  /** Add a board (T-127): Save adds another board, never in place of one for the same project. */
+  add: boolean;
+  /** The board's name as typed (T-127): its own name, or empty for the one its tracker gives. */
+  name: string;
   /**
    * A project being started from an epic, an area path or labels (GH-81): acc init writes its config on
    * Save, the place is required, and the whole project isn't offered.
@@ -180,6 +187,10 @@ export interface ConnectModel {
   save: { can: boolean; label: string; look: Look | null; why: Look | null };
   /** Where a ticket's changes are kept (T-105), once the place is chosen; left out before. */
   changesField?: ChangesFieldRow | null;
+  /** The board's name (T-127): as typed, the tracker's own name for it when it's left empty, and what it's for. */
+  boardName: { field: string; max: number; value: string; placeholder: string; hint: string };
+  /** Remove an existing board (T-127): the command and its tracker, which asks first. Null for a new one. */
+  remove: { command: 'acc.trackers.remove'; arg: string; label: string } | null;
 }
 
 /**
@@ -251,7 +262,7 @@ const whyOff = (words: string): Look => LOOK(words, 'lock', 'neutral');
 /** A fresh page for one kind of tracker, or for an existing one with its choices filled in. */
 export function blankConnect(d: TrackerDescription, i: {
   id: string; root: string | null; projects?: ConnectState['projects']; projectName: string; ownRepo: string | null; ghAccount: string | null; from: HomeSection;
-  gitEmail?: string | null; existing?: { index: number; title: string; host: string; values: Values } | null; start?: boolean;
+  gitEmail?: string | null; existing?: { index: number; title: string; host: string; values: Values; name?: string | null; given?: string } | null; start?: boolean; add?: boolean;
 }): ConnectState {
   const method = d.methods[0]!;
   const fields = Object.fromEntries(d.methods.flatMap((m) => m.fields).filter((f) => f.type !== 'secret').map((f) => [f.key, f.prefill === 'git-email' ? i.gitEmail ?? '' : '']));
@@ -262,7 +273,8 @@ export function blankConnect(d: TrackerDescription, i: {
   }));
   return {
     id: i.id, rev: 0, root: i.root, projects: i.projects ?? [], projectName: i.projectName, ownRepo: i.ownRepo, ghAccount: i.ghAccount, kind: d.kind,
-    existing: i.existing ? { index: i.existing.index, title: i.existing.title } : null, start: !!i.start && !i.existing, from: i.from,
+    existing: i.existing ? { index: i.existing.index, title: i.existing.title, ...(i.existing.given ? { given: i.existing.given } : {}) } : null, start: !!i.start && !i.existing, from: i.from,
+    add: !!i.add && !i.existing && !i.start, name: i.existing?.name ?? '',
     host: i.existing?.host ?? (d.host.prefill === 'github-repo' ? i.ownRepo ?? '' : ''), hostError: null,
     method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, share: true, shareTouched: false, pickers, boards: {}, saving: false, saveError: null,
   };
@@ -363,7 +375,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
         : !seen ? whyOff('Wait for the board to show first.') : null;
   return {
     id: s.id, rev: s.rev,
-    title: s.start ? `Start ${s.projectName} from ${placeName} in ${name}` : s.existing ? `Change ${s.existing.title}` : 'Connect a tracker',
+    title: s.start ? `Start ${s.projectName} from ${placeName} in ${name}` : s.existing ? `Change ${s.name || s.existing.given || s.existing.title}` : s.add ? `Add a board to ${s.projectName}` : 'Connect a tracker',
     summary: s.start ? `Starting the project writes ${s.projectName}'s settings, with its tickets from the ${placeLabel} you pick. Until then nothing is written, and picking only reads ${name}: nothing is ever written to it. The sign-in stays in VSCode on this machine.`
       : s.root ? `For ${s.projectName}. The Command Center writes it to the project's settings, and the sign-in stays in VSCode on this machine, never in the settings.` : 'Choose the project to connect a tracker to.',
     back: { section: s.from, label: `Back to ${SECTION_WORD[s.from]}`, part: s.from === 'settings' ? settingsKey('trackers') : null },
@@ -384,6 +396,11 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     place: s.start ? { key: d.place.key, words: d.place.words } : null,
     preview,
     countMost: COUNT_MOST,
+    boardName: {
+      field: BOARD_NAME_FIELD, max: TRACKER_NAME_MAX, value: s.name, placeholder: s.existing?.given ?? 'The name its tracker gives it',
+      hint: 'Shown on the Tasks tab\'s switch between boards, and in Settings. Leave it empty for the name its tracker gives it.',
+    },
+    remove: s.existing && s.root ? { command: 'acc.trackers.remove', arg: JSON.stringify({ root: s.root, index: s.existing.index }), label: 'Remove this board…' } : null,
     save: {
       // Only from the preview (T-106): the place is kept once its board has been drawn.
       can: placeMade && seen && !s.saving, label: s.start ? 'Start the project' : USE_BOARD,
@@ -396,6 +413,8 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
 export type ConnectMessage = Extract<Message, { session: string }>;
 
 export const CONNECT = declaredKeys();
+/** The board's name on the Connect page (T-127), sent as connect-set's field. No tracker's sign-in has a field by this key. */
+export const BOARD_NAME_FIELD = 'boardName';
 /** How many cards' counts the page asks for at once (T-106): the first ones a list or its search shows. */
 export const COUNT_MOST = 24;
 export const connectValue = (v: unknown): boolean => v === null || (typeof v === 'string' && v.length <= 500) || (Array.isArray(v) && v.length <= 200 && v.every((x) => typeof x === 'string' && x.length <= 500));
@@ -428,7 +447,7 @@ export const area: ModelArea = {
     'connect-project': (x) => session(x) && short(x.root, 4096),
     'connect-kind': (x) => session(x) && CONNECT.kinds.has(x.kind as string),
     'connect-method': (x) => session(x) && CONNECT.methods.has(x.method as string),
-    'connect-set': (x) => session(x) && CONNECT.fields.has(x.field as string) && typeof x.value === 'string' && x.value.length <= 4096,
+    'connect-set': (x) => session(x) && (CONNECT.fields.has(x.field as string) || x.field === BOARD_NAME_FIELD) && typeof x.value === 'string' && x.value.length <= 4096,
     'connect-test': (x) => {
       if (!session(x) || typeof x.host !== 'string' || x.host.length > 4096) return false;
       const f = x.fields as Record<string, unknown> | null;

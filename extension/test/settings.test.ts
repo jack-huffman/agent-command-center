@@ -454,7 +454,8 @@ const wantsSignIn = { command: 'acc.trackers.signIn', label: 'Sign in to Jira', 
 
 test('each tracker says its kind, place and board, and who it signs in as, for every project on its site or this one only (D-072, D-091)', () => {
   const shared = trackerSetting(tracked(0, 'jira', 'Jira · ACME', { signedInAs: 'jordan@acme.example', signInScope: { shared: true, host: 'acme.atlassian.net' }, place: 'Jira · ACME · epic ACME-3 Premium Support', board: read('ACME board') }), ACME);
-  assert.deepEqual([shared.kind, shared.name, shared.icon, shared.title, shared.place], ['jira', 'Jira', 'issues', 'Jira · ACME', 'Jira · ACME · epic ACME-3 Premium Support']);
+  assert.deepEqual([shared.kind, shared.name, shared.icon, shared.title, shared.place], ['jira', 'Jira', 'issues', 'ACME board', 'Jira · ACME · epic ACME-3 Premium Support'], 'its board\'s name, as the Tasks tab\'s switch shows it (T-127)');
+  assert.equal(trackerSetting(tracked(0, 'jira', 'Jira · ACME', { name: 'Premium', board: read('ACME board') }), ACME).title, 'Premium', 'a board renamed shows its own name here too');
   assert.deepEqual(shared.board, { label: 'ACME board', icon: 'project', tone: 'neutral' });
   assert.deepEqual(shared.signIn, { label: 'Signed in as jordan@acme.example, for every project on acme.atlassian.net', icon: 'globe', tone: 'blue' });
   // Where each is kept: the place and board in the project's .acc/config.json, the sign-in in VSCode here.
@@ -504,20 +505,21 @@ test('each tracker\'s buttons are commands the page may ask for, with its tracke
     ['acc.trackers.signIn', 'Sign in again', 'sign-in', false, null],
     ['acc.trackers.signOut', 'Sign out', 'sign-out', false, null],
     ['acc.trackers.add', 'Change place…', 'edit', false, null],
+    ['acc.trackers.remove', 'Remove…', 'trash', false, null],
   ]);
   // Each takes its tracker as the commands parse it: the project's root and its place in the list.
   for (const a of t.actions) assert.deepEqual(JSON.parse(a.arg!), { root: '/r', index: 1 });
-  assert.deepEqual(t.actions.map((a) => a.name), ['Sign in again to Jira · ACME, in Acme', 'Sign out of Jira · ACME, in Acme', 'Change place: where Jira · ACME, in Acme gets its tickets, and its board']);
+  assert.deepEqual(t.actions.map((a) => a.name), ['Sign in again to Jira · ACME, in Acme', 'Sign out of Jira · ACME, in Acme', 'Change place: where Jira · ACME, in Acme gets its tickets, its board and its name', 'Remove Jira · ACME, in Acme']);
   // Not signed in: Sign in leads, and Sign out can't be used, and says why.
   const none = trackerSetting(tracked(0, 'jira', 'Jira · ACME', { error: 'Sign in to Jira (acme.atlassian.net) for this repo to see its board and tickets.', connect: wantsSignIn }), ACME);
-  assert.deepEqual(none.actions.map((a) => [a.label, a.primary, a.disabled]), [['Sign in', true, null], ['Sign out', false, 'It isn\'t signed in, so there\'s nothing to sign out of.'], ['Change place…', false, null]]);
+  assert.deepEqual(none.actions.map((a) => [a.label, a.primary, a.disabled]), [['Sign in', true, null], ['Sign out', false, 'It isn\'t signed in, so there\'s nothing to sign out of.'], ['Change place…', false, null], ['Remove…', false, null]]);
   const refused = trackerSetting(tracked(0, 'jira', 'Jira · ACME', { signedInAs: 'j', signInScope: { shared: false, host: 'a' }, error: 'Jira refused it.', connect: wantsSignIn }), ACME);
-  assert.deepEqual(refused.actions.map((a) => [a.label, a.primary, a.disabled]), [['Sign in again', true, null], ['Sign out', false, null], ['Change place…', false, null]]);
+  assert.deepEqual(refused.actions.map((a) => [a.label, a.primary, a.disabled]), [['Sign in again', true, null], ['Sign out', false, null], ['Change place…', false, null], ['Remove…', false, null]]);
   // GitHub signs in through gh, so it has its place to change and nothing else.
-  assert.deepEqual(trackerSetting(tracked(0, 'github', 'GitHub · o/r', { signedInAs: 'me' }), ACME).actions.map((a) => a.command), ['acc.trackers.add']);
+  assert.deepEqual(trackerSetting(tracked(0, 'github', 'GitHub · o/r', { signedInAs: 'me' }), ACME).actions.map((a) => a.command), ['acc.trackers.add', 'acc.trackers.remove'], 'its place to change, and Remove (T-127)');
 
   // The page may ask for each: Sign out is drawn only here, Sign in and Change place on the boards too.
-  for (const c of ['acc.trackers.signIn', 'acc.trackers.signOut', 'acc.trackers.add']) assert.ok(PAGE_COMMANDS.includes(c), c);
+  for (const c of ['acc.trackers.signIn', 'acc.trackers.signOut', 'acc.trackers.add', 'acc.trackers.remove']) assert.ok(PAGE_COMMANDS.includes(c), c);
   assert.ok(boardsArea.commands!.includes('acc.trackers.signIn') && boardsArea.commands!.includes('acc.trackers.add') && !boardsArea.commands!.includes('acc.trackers.signOut'));
   // Each is registered and contributed, and takes its tracker as the page sends it.
   const trackers = source('src', 'trackers.ts');
