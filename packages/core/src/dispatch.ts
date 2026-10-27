@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
@@ -8,10 +7,12 @@ import { environmentProtection, protectionWarnings } from './protection.ts';
 import { PUSH_TIMEOUT_MS } from './land.ts';
 import { fetchBranches } from './sync.ts';
 import { readList } from './gates.ts';
+import { inShell } from './shell.ts';
+import { startFor, startSync } from './start.ts';
 import { sleep } from './lock.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, type NotStarted, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
-import { mainCheckout, type RepoPaths, samePath } from './paths.ts';
+import { mainCheckout, pathKey, type RepoPaths, samePath } from './paths.ts';
 import { analysisProblems, readAnalysis } from './analyze.ts';
 import { plannedFiles, startLook, waits } from './overlap.ts';
 import { readChecksReport, readQueueReport } from './checks.ts';
@@ -64,8 +65,13 @@ export function claudeStatePath(env: NodeJS.ProcessEnv = process.env): string {
   return env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : join(env.HOME || homedir(), '.claude.json');
 }
 
-/** Whether Claude Code trusts this folder for background sessions: accepted once with \`claude\` there. */
-export function isTrusted(folder: string, env: NodeJS.ProcessEnv = process.env): boolean {
+/**
+ * Whether Claude Code trusts this folder for background sessions: accepted once with \`claude\` there. On
+ * Windows a folder has several spellings: git gives C:/Users/…, Node C:\Users\…, and Claude Code keys
+ * ~/.claude.json by its own. So there both slashes are tried, and the drive letter and the rest compare
+ * without case, as Windows compares paths (D-T-123).
+ */
+export function isTrusted(folder: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): boolean {
   let state: { projects?: Record<string, { hasTrustDialogAccepted?: boolean }> };
   try {
     state = JSON.parse(readFileSync(claudeStatePath(env), 'utf8'));
@@ -75,10 +81,14 @@ export function isTrusted(folder: string, env: NodeJS.ProcessEnv = process.env):
   const keys = new Set([folder, folder.normalize('NFC')]);
   try {
     keys.add(realpathSync(folder));
+    if (platform === 'win32') keys.add(realpathSync.native(folder));
   } catch {
     // keep the raw path
   }
-  return [...keys].some((k) => state.projects?.[k]?.hasTrustDialogAccepted === true);
+  const trusted = Object.entries(state.projects ?? {}).filter(([, p]) => p?.hasTrustDialogAccepted === true).map(([k]) => k);
+  const same = (k: string) => pathKey(k, platform);
+  const wanted = new Set([...keys].map(same));
+  return trusted.some((k) => wanted.has(same(k)));
 }
 
 // ---------------------------------------------------------------- dispatch
@@ -179,7 +189,7 @@ export function setupWorktree(run: Runner, config: Config, env: Environment, mai
     excludeEverywhere(run, main, 'node_modules');
   }
   for (const cmd of config.worktrees.setup) {
-    const r = run('sh', ['-c', cmd], { cwd: wt });
+    const r = run(...inShell(cmd), { cwd: wt });
     if (r.code !== 0) throw new AccError('dispatch', `Setup command failed in the worktree: ${cmd}\n${(r.stderr || r.stdout).trim()}`);
   }
 }
@@ -449,12 +459,15 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     }
 
     if (opts.foreground) {
+      // Started as every system needs it (startSync); one Windows can't start is refused before the task is recorded as running.
+      const start = startFor('claude', [...base, prompt], deps.env);
+      if ('problem' in start) throw new AccError('dispatch', `${start.problem} The worktree is kept at ${wt}.`);
       const task = record(null, null);
       // The session is this terminal's, so the Mac stays awake while acc waits on it (D-067).
       const awake = holdAwake(process.pid, deps.awake);
       steps.start('start', 'Run the builder in this terminal');
       try {
-        spawnSync('claude', [...base, prompt], { cwd: wt, stdio: 'inherit', env: deps.env });
+        startSync('claude', [...base, prompt], { cwd: wt, stdio: 'inherit', env: deps.env });
       } finally {
         awake?.release();
       }

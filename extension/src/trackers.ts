@@ -1,10 +1,10 @@
-import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import { type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
+import { startFile } from '../../packages/core/src/start.ts';
 import type { IntakeResult } from '../../packages/core/src/intake.ts';
 import { readSprints, sprintTracker } from '../../packages/core/src/sprints.ts';
 import { AzureClient } from '../../packages/core/src/trackers/azure.ts';
@@ -67,11 +67,12 @@ interface Loaded {
 /** Runs gh and friends with an argument list, feeding stdin when asked: comments travel that way, never as arguments. gh runs as acc's runner runs it (D-051). */
 export const exec: Exec = (cmd, args, opts) => new Promise((resolve) => {
   const env = opts?.env ?? process.env;
-  const child = execFile(cmd, args, { env: isGh(cmd) ? ghEnv(env) : env, timeout: 60_000, killSignal: isGh(cmd) ? 'SIGKILL' : 'SIGTERM', maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+  // Started as every system needs it (startFile): on Windows, a .cmd shim runs through cmd.exe.
+  const child = startFile(cmd, args, { env: isGh(cmd) ? ghEnv(env) : env, timeout: 60_000, killSignal: isGh(cmd) ? 'SIGKILL' : 'SIGTERM', maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
     const raw = (err as { code?: unknown } | null)?.code;
     resolve({ code: err ? (typeof raw === 'number' ? raw : raw === 'ENOENT' ? 127 : 1) : 0, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') || (err && !stdout ? String(err.message) : '') });
   });
-  if (opts?.input !== undefined) child.stdin?.end(opts.input);
+  if (opts?.input !== undefined) child?.stdin?.end(opts.input);
 });
 
 const azureScopes = (tenant: string | null): string[] => [AZURE_SCOPE, ...(tenant ? [`VSCODE_TENANT:${tenant}`] : [])];

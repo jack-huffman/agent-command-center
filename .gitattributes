@@ -5,3 +5,8 @@
 extension/scripts/pages.ts merge=union
 # The decisions' index, a row a decision by number: two merges' new rows are both kept, in order.
 docs/DECISIONS.md merge=union
+# cmd reads a launcher with Windows line endings: its labels and gotos can misread one without.
+*.cmd text eol=crlf
+# The sh launchers keep Unix line endings wherever they are checked out, Windows too: sh reads a CR as part of a word.
+packages/cli/bin/acc text eol=lf
+plugin/bin/acc text eol=lf

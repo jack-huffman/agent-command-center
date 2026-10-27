@@ -3,12 +3,13 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { installGuard, mutate, parseConfig, readLedger, repoPaths, run, upsertTasks } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, gitIn, tempDir } from '../../core/test/support.ts';
 import { cli, repoWithConfig, UNCHECKED } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -30,7 +31,7 @@ function doneRepo() {
   });
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+  standIn(join(bin, 'gh'), `#!/bin/sh
 case "$1 $2" in
   "auth token") [ "$4" = "me" ] && echo tok-me || exit 1 ;;
   "issue view") [ "$3" = 3 ] && echo '{"state": "OPEN", "stateReason": null, "url": "https://github.com/o/r/issues/3"}' || echo '{"state": "CLOSED", "stateReason": "COMPLETED", "url": "https://github.com/o/r/issues/4"}' ;;
@@ -39,7 +40,7 @@ case "$1 $2" in
 esac
 `);
   chmodSync(join(bin, 'gh'), 0o755);
-  return { dir, env: { PATH: `${bin}:${process.env.PATH}` }, ledger: repoPaths(dir, run).ledger };
+  return { dir, env: { PATH: `${bin}${delimiter}${process.env.PATH}` }, ledger: repoPaths(dir, run).ledger };
 }
 
 test('acc sync --close-done closes the issues of tasks already done, listing each; --plan only lists them, and a second run does nothing', () => {
@@ -273,11 +274,11 @@ function cloudRepo(raw: Record<string, unknown>) {
   // Both stand-ins in one folder, first on PATH, so neither the real claude nor the real curl is ever run.
   const bin = join(tempDir('cloud-bin-'), 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'claude'), `#!/bin/sh\ncase "$1 $2" in\n  "auth status") echo '{"loggedIn":true,"authMethod":"claude.ai"}' ;;\n  *) echo '${verdict}' ;;\nesac\n`);
-  writeFileSync(join(bin, 'curl'), `#!/bin/sh\nprintf '%s\\n200\\n' '${fired}'\n`);
+  standIn(join(bin, 'claude'), `#!/bin/sh\ncase "$1 $2" in\n  "auth status") echo '{"loggedIn":true,"authMethod":"claude.ai"}' ;;\n  *) echo '${verdict}' ;;\nesac\n`);
+  standIn(join(bin, 'curl'), `#!/bin/sh\nprintf '%s\\n200\\n' '${fired}'\n`);
   chmodSync(join(bin, 'claude'), 0o755);
   chmodSync(join(bin, 'curl'), 0o755);
-  return { dir, origin, env: { PATH: `${bin}:${process.env.PATH}`, ACC_CLOUD_TOKEN: 'tok_0123456789abcdefghij' }, ledger: repoPaths(dir, run).ledger };
+  return { dir, origin, env: { PATH: `${bin}${delimiter}${process.env.PATH}`, ACC_CLOUD_TOKEN: 'tok_0123456789abcdefghij' }, ledger: repoPaths(dir, run).ledger };
 }
 
 const CLOUD_RAW = { ...UNCHECKED, github: { repo: 'acme/tool', account: 'acme-bot' }, agents: { max: 2, cloud: { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW' } } };

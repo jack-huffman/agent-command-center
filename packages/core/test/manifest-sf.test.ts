@@ -23,10 +23,10 @@ const EXPECTED_SHA = '5256324d11d2c290c2b6d75dd04033195ce60c3b883f70f4b0484b1788
 
 const sha = (text: string | Buffer): string => createHash('sha256').update(text).digest('hex');
 
-/** The fixture's files, by path from its root, sorted. A fixture that's missing or empty is an error, never a skip. */
+/** The fixture's files, by path from its root with forward slashes on every system, sorted. A fixture that's missing or empty is an error, never a skip. */
 function fixtureFiles(dir: string): string[] {
   if (!existsSync(dir)) throw new Error(`The manifest fixture is missing: ${dir}.`);
-  const walk = (d: string): string[] => readdirSync(d).filter((f) => f !== '.DS_Store').flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : [relative(dir, join(d, f))]));
+  const walk = (d: string): string[] => readdirSync(d).filter((f) => f !== '.DS_Store').flatMap((f) => (statSync(join(d, f)).isDirectory() ? walk(join(d, f)) : [relative(dir, join(d, f)).replaceAll('\\', '/')]));
   const files = walk(dir).sort();
   if (!files.length) throw new Error(`The manifest fixture is empty: ${dir}.`);
   return files;

@@ -6,6 +6,7 @@ import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { cloneAccount, githubIdentity, parseGhStatus, pushSetup, useGithubAccount, withCloneAccount } from '../src/github.ts';
 import { GENERIC_CONFIG, gitIn, makeRepo, tempDir } from './support.ts';
+import { standIn } from './stand-in.ts';
 
 const STATUS = [
   'github.com',
@@ -22,7 +23,7 @@ const STATUS = [
 function fakeGh(): NodeJS.ProcessEnv {
   const bin = join(tempDir('fake-gh-'), 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+  standIn(join(bin, 'gh'), `#!/bin/sh
 case "$1 $2" in
   "auth status") cat >&2 <<'OUT'
 ${STATUS}

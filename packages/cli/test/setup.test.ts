@@ -5,6 +5,8 @@ import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'n
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { samePath } from '../../core/src/paths.ts';
+import { recordedSource } from '../../core/src/source.ts';
 import { makeRepo, tempDir } from '../../core/test/support.ts';
 import { cli, REPOS_FILE, repoWithConfig } from './support.ts';
 
@@ -45,7 +47,8 @@ test('init --tracker writes the tracker picked on the Connect page, narrowed to 
   const r = acc(dir, ['init', '--profile', 'generic', '--project', 'acme-portal', '--tracker', JSON.stringify({ kind: 'github', repo: null, labels: ['billing'] }), '--json']);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')).trackers, [{ kind: 'github', labels: ['billing'] }]);
-  assert.ok((JSON.parse(readFileSync(REPOS_FILE, 'utf8')) as { repos: string[] }).repos.includes(realpathSync(dir)), 'listed for the Connect page\'s "used by"');
+  // Listed as git names the root: C:/… on Windows, where Node says C:\….
+  assert.ok((JSON.parse(readFileSync(REPOS_FILE, 'utf8')) as { repos: string[] }).repos.some((r) => samePath(r, realpathSync(dir))), 'listed for the Connect page\'s "used by"');
 
   for (const bad of ['not json', '[1]', 'null']) {
     const refused = acc(makeRepo(), ['init', '--profile', 'generic', '--tracker', bad]);
@@ -73,7 +76,9 @@ test('init --from a team template records it, template show says what it sets, a
   const r = acc(dir, ['init', '--from', file, '--profile', 'generic', '--json']);
   assert.equal(r.code, 0, r.err);
   const cfg = JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8'));
-  assert.deepEqual([cfg.template.name, cfg.template.source], ['ACME tools', file]);
+  // Recorded with ~/ when it's under the home folder (D-079), as the temp folder is on Windows; elsewhere as it is.
+  assert.deepEqual([cfg.template.name, cfg.template.source], ['ACME tools', recordedSource(file)]);
+  assert.ok(cfg.template.source === file || cfg.template.source.startsWith('~/'), cfg.template.source);
   assert.match(cfg.template.digest, /^sha256:[0-9a-f]{64}$/);
   assert.deepEqual([cfg.autonomy, cfg.agents.max, cfg.gates.required], ['review', 2, ['test']]);
   assert.deepEqual([r.json().fromTemplate, r.json().discovered], [['gates', 'autonomy', 'agents'], ['project', 'commitIdentity', 'environments']]);

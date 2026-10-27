@@ -267,7 +267,7 @@ function packageWith(dir: string, bundle: string, decide?: () => CheckDecision) 
 function packagable(changelog = `## ${VERSION}\n\n- Things.\n`): string {
   return root({
     [CHANGELOG]: changelog, '.acc/config.json': JSON.stringify({ github: { repo: REPO, account: 'jack-huffman' } }),
-    'plugin/skills/a/SKILL.md': '# A skill\n', 'dist/acc': '#!/bin/sh\n', 'dist/acc.mjs': '// acc\n',
+    'plugin/skills/a/SKILL.md': '# A skill\n', 'dist/acc': '#!/bin/sh\n', 'dist/acc.cmd': '@echo off\r\n', 'dist/acc.mjs': '// acc\n',
   });
 }
 
@@ -378,8 +378,8 @@ const RELEASE_URL = `https://github.com/${REPO}/releases/tag/v${VERSION}`;
 /** A repo ready to release: the versions, an entry, the .vsix, and plugin/bin the same as the .vsix's. */
 function releasable(): string {
   const dir = packagable(`## ${VERSION}\n\n- What changed.\n\n## 0.0.1\n\n- Old.\n`);
-  const bin = { acc: '#!/bin/sh\nexec node acc.mjs\n', 'acc.mjs': '// the bundle\n' };
-  zip(join(dir, 'dist', vsixName(VERSION)), { 'extension/package.json': `{"version":"${VERSION}"}\n`, 'extension/dist/bin/acc': bin.acc, 'extension/dist/bin/acc.mjs': bin['acc.mjs'] });
+  const bin = { acc: '#!/bin/sh\nexec node acc.mjs\n', 'acc.cmd': '@echo off\r\nnode "%~dp0acc.mjs" %*\r\n', 'acc.mjs': '// the bundle\n' };
+  zip(join(dir, 'dist', vsixName(VERSION)), { 'extension/package.json': `{"version":"${VERSION}"}\n`, 'extension/dist/bin/acc': bin.acc, 'extension/dist/bin/acc.cmd': bin['acc.cmd'], 'extension/dist/bin/acc.mjs': bin['acc.mjs'] });
   mkdirSync(join(dir, 'plugin', 'bin'), { recursive: true });
   for (const [f, text] of Object.entries(bin)) writeFileSync(join(dir, 'plugin', 'bin', f), text);
   return dir;

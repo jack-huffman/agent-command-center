@@ -2,7 +2,7 @@
 // once it may. These were dispatch.test.ts's; they're their own file so npm test runs them beside it (T-57).
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { dispatch, type DispatchOptions } from '../src/dispatch.ts';
@@ -221,7 +221,7 @@ test('acc dispatch: a held task says what it waits for, --held starts it once it
     'src/a.ts': 'a\n', 'src/c.ts': 'c\n', ...IGNORE,
   }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   for (const title of ['One', 'Two', 'Three', 'Four']) acc(repo, ['add', title]);
   const analyses = join(repo, '.git', 'acc', 'analyses');
   writePlan(analyses, 'T-1', ['src/a.ts', 'README.md']);

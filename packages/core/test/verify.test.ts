@@ -10,6 +10,7 @@ import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { receiptsAt } from '../src/receipts.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { mainCheckout, repoPaths } from '../src/paths.ts';
+import { shownCommand } from '../src/shell.ts';
 import { steLint } from '../src/ste.ts';
 import { listUpdates } from '../src/updates.ts';
 import {
@@ -86,7 +87,8 @@ function runner(o: { lists?: { search: unknown[]; all: unknown[] }; views?: Reco
   const prompts: string[] = [];
   const agentCalls: { args: string[]; opts?: RunOptions }[] = [];
   const r = (cmd: string, args: string[], opts?: RunOptions): RunResult => {
-    calls.push([cmd, ...args].join(' '));
+    // This machine's sh is `sh` here, as acc shows it: on Windows it's Git's sh, by its whole path.
+    calls.push([shownCommand(cmd), ...args].join(' '));
     if (cmd === 'gh') {
       if (args[0] === 'auth') return { code: 0, stdout: 'gho_test\n', stderr: '' };
       if (args[0] === 'pr' && args[1] === 'list') return { code: 0, stdout: JSON.stringify(args.includes('--search') ? o.lists?.search ?? [] : o.lists?.all ?? []), stderr: '' };
@@ -133,7 +135,8 @@ test('one pull request found: its head is checked out with no branch, the checks
   assert.equal(wt, join(mainCheckout(run, dir), '.claude', 'worktrees', 'verify-ACME-7'));
   assert.equal(gitIn(wt, 'rev-parse', 'HEAD'), sha);
   assert.throws(() => gitIn(wt, 'symbolic-ref', '--quiet', 'HEAD'), 'no branch is checked out');
-  assert.match(gitIn(dir, 'worktree', 'list', '--porcelain'), new RegExp(`worktree ${wt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\nHEAD ${sha}\\ndetached`));
+  // git prints its paths with forward slashes, on Windows too.
+  assert.match(gitIn(dir, 'worktree', 'list', '--porcelain'), new RegExp(`worktree ${wt.replaceAll('\\', '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\nHEAD ${sha}\\ndetached`));
   assert.equal(gitIn(dir, 'branch', '--list'), '* main', 'no local branch for the pull request');
   assert.ok(r.calls.some((c) => c === `git worktree add --detach ${wt} ${sha}`));
   // The checks ran in the worktree: one passed, and one that couldn't run is skipped with its reason.

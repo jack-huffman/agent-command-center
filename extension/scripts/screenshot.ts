@@ -557,11 +557,8 @@ function staleBuild(): string | null {
   return newest > statSync(built).mtimeMs ? 'the built webview is older than its source' : null;
 }
 
-/** Chrome under nice, so the machine stays usable: the program to run and its arguments. */
-const niced = (chrome: string, args: string[]): [string, string[]] => (process.platform === 'win32' ? [chrome, args] : ['nice', ['-n', '15', chrome, ...args]]);
-
-/** Runs Chrome under nice for at most shotTimeout() (GH-167), gathering what it prints, without blocking (T-58), so jobs draw at once. */
-const chromeAsync = (chrome: string, args: string[]): Promise<Ran> => runAsync(...niced(chrome, args), shotTimeout());
+/** Runs Chrome at lowered priority for at most shotTimeout() (GH-167), gathering what it prints, without blocking (T-58), so jobs draw at once. */
+const chromeAsync = (chrome: string, args: string[]): Promise<Ran> => runAsync(chrome, args, shotTimeout(), true);
 
 /** A job's own Chrome profile, under the run's work folder: a Chrome running at once in another job never shares it (T-58). */
 export const profileArg = (work: string, slot: number): string => `--user-data-dir=${join(work, `profile-${slot}`)}`;

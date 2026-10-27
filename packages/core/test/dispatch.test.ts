@@ -2,7 +2,7 @@
 // end is in dispatch-run.test.ts, and conflict-aware dispatch in held.test.ts (T-57).
 import assert from 'node:assert/strict';
 import { existsSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { builderSettings, renderPacket } from '../src/packet.ts';
@@ -18,8 +18,8 @@ test('names: slugs are short and branch-safe, and worktrees sit beside the repo 
   assert.equal(slugify('one two three four five six seven eight nine ten'), 'one-two-three-four-five-six-seven-eight');
   assert.equal(taskBranch({ id: 'AV-12', title: 'Login page' }), 'task/AV-12-login-page');
   const cfg = parseConfig(JSON.parse(JSON.stringify(GENERIC_CONFIG))).config!;
-  assert.equal(worktreeRoot(cfg, '/x/Acme'), '/x/Acme/.claude/worktrees');
-  assert.equal(worktreeRoot({ ...cfg, worktrees: { root: '../trees', setup: [] } }, '/x/Acme'), '/x/trees');
+  assert.equal(worktreeRoot(cfg, '/x/Acme'), join('/x/Acme', '.claude', 'worktrees'));
+  assert.equal(worktreeRoot({ ...cfg, worktrees: { root: '../trees', setup: [] } }, '/x/Acme'), resolve('/x/trees'));
 });
 
 test('the packet tells a Salesforce builder where it is, how to finish, and what never to touch', () => {
@@ -174,7 +174,7 @@ test('where the merge queue runs the full check, the packet and the short one na
 test('builder settings: identity, acc on PATH, and the dangerous commands denied even if the user allows them', () => {
   const config = parseConfig(JSON.parse(JSON.stringify(SF_CONFIG))).config!;
   const s = builderSettings({ id: 'ACME-7' } as never, config, '/acc/bin', '/usr/bin') as { env: Record<string, string>; permissions: { allow: string[]; deny: string[] } };
-  assert.deepEqual(s.env, { ACC_TASK: 'ACME-7', ACC_ROLE: 'builder', PATH: '/acc/bin:/usr/bin' });
+  assert.deepEqual(s.env, { ACC_TASK: 'ACME-7', ACC_ROLE: 'builder', PATH: `/acc/bin${delimiter}/usr/bin` });
   for (const d of ['Bash(git push*)', 'Bash(gh pr *)', 'Bash(sf project deploy start*)', 'Bash(acc set *)', 'Bash(git checkout *)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc trackers set*)', 'Bash(gh release create*)', 'Bash(npm run release*)']) assert.ok(s.permissions.deny.includes(d), d);
   assert.ok(s.permissions.allow.includes('Bash(sf project deploy validate *)'));
   // A builder works from the brief it was given, so it can't edit its task (T-74).
@@ -186,7 +186,7 @@ test('a builder runs with the project\'s model and this clone\'s effort, when th
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, agents: { builder: { model: 'opus', effort: 'high' } } }), ...IGNORE }));
   gitIn(repo, 'config', 'acc.builder.effort', 'low');
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   assert.equal(acc(repo, ['add', 'Write the changelog']).code, 0);
   assert.equal(acc(repo, ['dispatch', 'T-1', '--json'], env).code, 0);
   const launch = claude.calls().find((c) => c.args[0] === '--bg')!;
@@ -198,7 +198,7 @@ const modelOfLaunch = (args: string[]) => args[args.indexOf('--model') + 1];
 test('a builder nobody chose a model for runs the Command Center\'s default, and its run says so without calling it picked (D-086)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
   const r = acc(repo, ['dispatch', 'T-1'], env);
   assert.equal(r.code, 0, r.err);
@@ -215,7 +215,7 @@ test('a model picked for a task reaches claude --bg over the project\'s and the 
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET, agents: { builder: { model: 'opus', fallbackModel: 'sonnet' } } }), ...IGNORE }));
   gitIn(repo, 'config', 'acc.builder.model', 'haiku');
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
   const r = acc(repo, ['dispatch', 'T-1', '--model', 'sonnet', '--json'], env);
   assert.equal(r.code, 0, r.err);
@@ -244,7 +244,7 @@ test('a model picked for a task reaches claude --bg over the project\'s and the 
 test('a task nobody picked a model for follows the clone\'s choice as it is at each re-dispatch (D-086)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET, agents: { builder: { model: 'opus' } } }), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
   const r = acc(repo, ['dispatch', 'T-1', '--json'], env);
   assert.equal(modelOfLaunch(claude.calls().filter((c) => c.args[0] === '--bg')[0]!.args), 'opus', 'the project\'s');
@@ -263,7 +263,7 @@ test('dispatch refuses a model that isn\'t a model name before it makes a worktr
   const repo = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE });
   const claude = fakeClaude();
   acc(repo, ['add', 'Work']);
-  const r = acc(repo, ['dispatch', 'T-1', '--model', 'two words'], { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) });
+  const r = acc(repo, ['dispatch', 'T-1', '--model', 'two words'], { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) });
   assert.equal(r.code, 2, 'a usage error');
   assert.match(r.err, /"two words" isn't a model name/);
   assert.equal(existsSync(join(repo, '.claude', 'worktrees', 'T-1')), false, 'no worktree was made');
@@ -277,7 +277,7 @@ test('an effort picked for a task reaches claude --bg over the project\'s and th
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET, agents: { builder: { effort: 'low' } } }), ...IGNORE }));
   gitIn(repo, 'config', 'acc.builder.effort', 'medium');
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
   const r = acc(repo, ['dispatch', 'T-1', '--effort', 'xhigh', '--json'], env);
   assert.equal(r.code, 0, r.err);
@@ -308,7 +308,7 @@ test('an effort picked for a task reaches claude --bg over the project\'s and th
 test('a task nobody picked an effort for follows the clone\'s, records it, and names none when nothing is set (D-128)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
   const r = acc(repo, ['dispatch', 'T-1'], env);
   assert.equal(r.code, 0, r.err);
@@ -326,7 +326,7 @@ test('a task nobody picked an effort for follows the clone\'s, records it, and n
 test('dispatch refuses a level the model doesn\'t take, in words, with the levels it does and where acc\'s list came from, before anything starts (D-128)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Work']);
   // Claude Opus 4.6 takes max but not xhigh.
   const r = acc(repo, ['dispatch', 'T-1', '--model', 'claude-opus-4-6', '--effort', 'xhigh'], env);
@@ -349,7 +349,7 @@ test('dispatch refuses a level the model doesn\'t take, in words, with the level
 test('an effort picked for a task can be cleared: --effort default drops it, and a model picked that doesn\'t take it drops it and says so (D-128)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   const launches = () => claude.calls().filter((c) => c.args[0] === '--bg');
   const rework = (why: string) => {
     acc(join(repo, '.claude', 'worktrees', 'T-1'), ['done', ...NOTE], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });
@@ -389,7 +389,7 @@ test('an effort picked for a task can be cleared: --effort default drops it, and
 test('every dispatch checks the model and effort pair, not only one that picks either: a pick meeting a changed clone model is refused in acc\'s words (D-128)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
   assert.equal(acc(repo, ['dispatch', 'T-1', '--effort', 'xhigh'], env).code, 0);
   acc(join(repo, '.claude', 'worktrees', 'T-1'), ['done', ...NOTE], { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' });

@@ -85,8 +85,8 @@ test('this machine\'s total is a key of machine.json, beside its heavy-check slo
   assert.equal(machineAgents({}), null);
   assert.throws(() => setMachineAgents(4, {}), (e: Error & { code?: string }) => e.code === 'refused' && /no HOME\. Set HOME, or ACC_MACHINE_FILE/.test(e.message));
   assert.throws(() => setMachineAgents(null, {}), /no HOME/);
-  assert.equal(machineDir({ HOME: '/home/someone' }), '/home/someone/.acc');
-  assert.equal(machineJson({ HOME: '/home/someone' }), '/home/someone/.acc/machine.json');
+  assert.equal(machineDir({ HOME: '/home/someone' }), join('/home/someone', '.acc'));
+  assert.equal(machineJson({ HOME: '/home/someone' }), join('/home/someone', '.acc', 'machine.json'));
   assert.equal(machineJson(env), file);
   const home = tempDir('home-');
   assert.equal(setMachineAgents(5, { HOME: home }), 5);

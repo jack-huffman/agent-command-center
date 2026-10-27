@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import * as vscode from 'vscode';
 import { MODEL_NAME } from '../../packages/core/src/config.ts';
+import { terminalShell } from '../../packages/core/src/shell.ts';
 import type { Hub, Project } from './hub.ts';
 import type { AgentSession } from './logic/shared.ts';
 import { CLAUDE_EXTENSION, claudeSessionUri, isSessionId, sessionFor } from './logic/agents.ts';
@@ -69,7 +70,7 @@ export class Sidebar {
   protected terminal(name: string, cwd: string): vscode.Terminal {
     const t = this.terminals.get(name);
     if (t && !t.exitStatus) return t;
-    const created = vscode.window.createTerminal({ name, cwd, iconPath: new vscode.ThemeIcon('hubot') });
+    const created = vscode.window.createTerminal({ name, cwd, iconPath: new vscode.ThemeIcon('hubot'), ...terminalShell() });
     this.terminals.set(name, created);
     return created;
   }

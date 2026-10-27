@@ -1,10 +1,12 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import * as vscode from 'vscode';
 import { sfEnv } from '../../packages/core/src/exec.ts';
+import { inShell } from '../../packages/core/src/shell.ts';
+import { startChild } from '../../packages/core/src/start.ts';
 import { readStepEvents, STEPS_VAR } from '../../packages/core/src/steps.ts';
 import { fileInCheckout } from './logic/review-excerpts.ts';
 import { appendOutput, promptOf, type RunPrompt } from './logic/runs.ts';
@@ -181,8 +183,13 @@ export class Runs implements vscode.Disposable {
     }
     let child: ChildProcess;
     try {
-      // A shell, since setup's fixes are command lines. Its own process group, so Stop ends all of it.
-      child = spawn(opts.spawn ?? command, { cwd: opts.cwd, shell: true, env: sfEnv({ ...process.env, ...opts.env, ...stepsEnv, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+      // A shell, since setup's fixes are command lines: the one acc runs everywhere (inShell), so a line reads
+      // the same on Windows, where Setup's encoded PowerShell line (opts.spawn) runs from it as written. Its own
+      // process group, so Stop ends all of it.
+      const [sh, args] = inShell(opts.spawn ?? command);
+      const started = startChild(sh, args, { cwd: opts.cwd, env: sfEnv({ ...process.env, ...opts.env, ...stepsEnv, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+      if ('problem' in started) throw new Error(started.problem);
+      child = started;
     } catch (e) {
       this.output(run, `${(e as Error).message}\n`);
       this.finish(run, 127);

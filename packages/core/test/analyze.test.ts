@@ -184,7 +184,7 @@ test('the Mac stays awake while the analyst runs, for acc\'s own process, and no
 
 test('an analysis\'s file is named by a task id, never by a path out of .git/acc/analyses (GH-106)', () => {
   const paths = repoPaths(makeRepo(), run);
-  assert.match(analysisPath(paths, 'GH-106'), /\/\.git\/acc\/analyses\/GH-106\.json$/);
+  assert.match(analysisPath(paths, 'GH-106').replaceAll('\\', '/'), /\/\.git\/acc\/analyses\/GH-106\.json$/);
   for (const id of ['../../X', '../../../../OUTSIDE/X', '/etc/passwd', 'a/b', '', '.', 'X..Y']) {
     assert.throws(() => analysisPath(paths, id), /isn't a task id/, id);
     assert.equal(readAnalysis(paths, id), null, `${id} reads as not analyzed`);

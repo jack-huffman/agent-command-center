@@ -3,12 +3,13 @@
 // acc runs from its source, in throwaway repos, with a fake claude.
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { GENERIC_CONFIG } from '../../core/test/support.ts';
 import { TALK_HELP, TALK_SUBCOMMANDS } from '../src/commands/plan-talk.ts';
 import { cli, repoWithConfig } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -20,9 +21,9 @@ function openRepo() {
   answer({ understood: 'You want two years of stage history.', questions: [{ question: 'Closed deals too?', why: 'They double the rows.', options: ['Open only', 'Closed too'], own: false }] });
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> "${dir}/.claude-args"\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
+  standIn(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> "${dir}/.claude-args"\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
   chmodSync(join(bin, 'claude'), 0o755);
-  return { dir, answer, store: join(dir, '.git', 'acc', 'analyses'), env: { PATH: `${bin}:${process.env.PATH}`, USER: 'jordan' } };
+  return { dir, answer, store: join(dir, '.git', 'acc', 'analyses'), env: { PATH: `${bin}${delimiter}${process.env.PATH}`, USER: 'jordan' } };
 }
 
 /** Each call's arguments, from its -p: the system prompt they carry spans lines. */

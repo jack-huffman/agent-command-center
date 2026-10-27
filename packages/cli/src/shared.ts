@@ -4,7 +4,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ParseArgsOptionsConfig } from 'node:util';
-import { AccError, type Actor, ACTORS, type AutopilotStepName, cardWords, closesIssues, type Config, followCards, loadConfig, NO_STEPS, readLedger, type RepoPaths, repoPaths, run, type Steps, stepsFrom, STEPS_VAR, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
+import { AccError, accLine, type Actor, ACTORS, type AutopilotStepName, cardWords, closesIssues, type Config, followCards, loadConfig, NO_STEPS, readLedger, type RepoPaths, repoPaths, run, type Steps, stepsFrom, STEPS_VAR, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
 import { tone } from './format.ts';
 import pkg from '../../../package.json' with { type: 'json' };
 
@@ -138,9 +138,7 @@ export const accBinDir = (): string => {
   }
 };
 
-const shellQuote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
-
-/** How a shell runs this same acc: by this runtime, so it works where node isn't on PATH (VSCode's own). */
+/** How a shell runs this same acc: by the launcher beside it, which finds a runtime where node isn't on PATH (VSCode's own). */
 export const accCommand = (): string => {
   let script = process.argv[1] ?? '';
   try {
@@ -148,7 +146,7 @@ export const accCommand = (): string => {
   } catch {
     // keep the path as given
   }
-  return `${process.versions.electron ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}${shellQuote(process.execPath)} ${shellQuote(script)}`;
+  return accLine(script);
 };
 
 const STEP_WORD: Record<AutopilotStepName, string> = { review: 'review', land: 'land', dispatch: 're-dispatch', refresh: 'update', resume: 'resume', checks: 'send back', merge: 'merge', start: 'start', queue: 'take' };

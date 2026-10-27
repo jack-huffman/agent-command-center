@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_JOBS, inOrder, jobsOption, pool, type Ran, runAsync, runJobs, splitJobs } from '../scripts/jobs.ts';
@@ -179,7 +179,7 @@ async function drawThree(jobs: number, dies: string | null = null): Promise<{ dr
   let timedOut = false;
   const draw = async (args: string[]): Promise<Ran> => {
     const png = arg(args, '--screenshot');
-    const name = png.split('/').at(-1)!;
+    const name = basename(png);
     const [, view, width] = /^(.+)-(?:dark|light)-(\d+)\.png$/.exec(name)!;
     const profile = arg(args, '--user-data-dir');
     assert.ok(!busy.has(profile), `two Chromes at once in ${profile}`);
@@ -202,7 +202,8 @@ async function drawThree(jobs: number, dies: string | null = null): Promise<{ dr
   mkdirSync(work, { recursive: true });
   mkdirSync(out, { recursive: true });
   const drawn = await drawPages(['tasks', 'agents', 'settings-about'], { themes: ['dark', 'light'], widths: [1000, 620, 500], height: undefined, jobs, work, out, now: Date.UTC(2026, 0, 1), print: 'print', browser: { name: 'chrome-headless-shell', version: '155.0.8059.84' }, draw, log: (l) => log.push(l) });
-  return { drawn, log: log.map((l) => l.replace(out, '<out>')), finished, most, profiles, out };
+  // With forward slashes, so a log reads the same on every system.
+  return { drawn, log: log.map((l) => l.replace(out, '<out>').replaceAll('\\', '/')), finished, most, profiles, out };
 }
 
 test('three pages drawn with --jobs 1 and --jobs 3 give the same findings, counts, log and record, in the pages\' order (T-58)', async () => {
@@ -238,7 +239,7 @@ test('three pages drawn with --jobs 1 and --jobs 3 give the same findings, count
 
 test('a Chrome that dies fails its own drawing only, named, and the other drawings are drawn (T-58)', async () => {
   const r = await drawThree(3, 'settings-about-light-620.png');
-  assert.deepEqual(r.drawn.failures.map((f) => f.replace(r.out, '<out>')), ['Chrome didn\'t write <out>/settings-about-light-620.png (exit SIGSEGV).']);
+  assert.deepEqual(r.drawn.failures.map((f) => f.replace(r.out, '<out>').replaceAll('\\', '/')), ['Chrome didn\'t write <out>/settings-about-light-620.png (exit SIGSEGV).']);
   assert.equal(r.drawn.renders.length, 17);
   assert.equal(Object.keys(r.drawn.taken).length, 17);
   assert.ok(!existsSync(join(r.out, 'settings-about-light-620.png')));
@@ -271,7 +272,7 @@ test('chromeSaid picks the FATAL or ERROR line, else the last line, and says so 
 });
 
 test('a job\'s profile is its own folder under the run\'s work folder (T-58)', () => {
-  assert.equal(profileArg('/tmp/w', 2), '--user-data-dir=/tmp/w/profile-2');
+  assert.equal(profileArg('/tmp/w', 2), `--user-data-dir=${join('/tmp/w', 'profile-2')}`);
   assert.notEqual(profileArg('/tmp/w', 0), profileArg('/tmp/w', 1));
 });
 

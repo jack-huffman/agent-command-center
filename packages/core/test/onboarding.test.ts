@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { run, type RunResult } from '../src/exec.ts';
 import { makeContext, parseOrgUrl, pluginBehind } from '../src/onboarding/helpers.ts';
-import { NEARBY_LIMIT, nearbyFolders, nearbyRepo, PLUGIN, runSteps, STEPS, userPlugin } from '../src/onboarding/steps.ts';
+import { fixFor as stepFix, NEARBY_LIMIT, nearbyFolders, nearbyRepo, PLUGIN, runSteps, STEPS, userPlugin } from '../src/onboarding/steps.ts';
 import type { CheckStatus } from '../src/onboarding/types.ts';
 import { repoPaths } from '../src/paths.ts';
 import { importRules, renderHeader, rulesDigest } from '../src/rules.ts';
@@ -333,9 +333,22 @@ test('A4.plugin\'s names and address are the marketplace\'s and the plugin\'s ow
   const manifest = JSON.parse(doc('plugin/.claude-plugin/plugin.json'));
   assert.deepEqual(PLUGIN, { marketplace: market.name, name: market.plugins[0].name, repo: manifest.repository });
   assert.equal(market.plugins[0].source, './plugin');
-  const fix = STEPS.find((s) => s.id === 'A4.plugin')!.fix!.command!;
+  const fix = stepFix(STEPS.find((s) => s.id === 'A4.plugin')!, 'mac')!.command!;
   assert.equal(fix, `${ADD} && ${INSTALL}`);
   assert.ok(!/<[^>]+>/.test(fix), 'Do it runs it as it is, with nothing to fill in');
+});
+
+test('edge case: a step whose line differs by system gives each system its own, whichever system acc runs on; a step without one gives its fix (D-T-123)', () => {
+  const a4 = STEPS.find((s) => s.id === 'A4.plugin')!;
+  assert.equal(stepFix(a4, 'windows')!.command, `${ADD}; if ($?) { ${INSTALL} }`, 'PowerShell 5.1 has no &&');
+  assert.equal(stepFix(a4)!.command, a4.fix!.command, 'on the system acc runs on, its fix');
+  const git = STEPS.find((s) => s.id === 'A1.git')!;
+  assert.deepEqual([stepFix(git, 'mac')!.command, stepFix(git, 'windows')!.command], ['brew install git', 'winget install --id Git.Git -e']);
+  assert.match(stepFix(git, 'windows')!.text!, /restart VSCode/, 'Windows is told to restart VSCode');
+  assert.equal(stepFix(git, 'mac')!.text, undefined);
+  const sf = STEPS.find((s) => s.id === 'A1.sf')!;
+  assert.equal(sf.fixOn, undefined);
+  assert.deepEqual(stepFix(sf, 'windows'), sf.fix, 'one line for every system');
 });
 
 test('Node is a Salesforce project\'s step: acc itself doesn\'t need it (D-077)', () => {
@@ -377,6 +390,9 @@ test('A1.claude-billing passes when nothing points Claude Code at per-token bill
   assert.match(step.fix?.text ?? '', /on purpose, .* is fine/);
 });
 
+// The home settings file as the step names it: under ~ with this system's separator (~\.claude\... on Windows).
+const HOME_SETTINGS = join('~', '.claude', 'settings.json');
+
 test('A1.claude-billing names each source of per-token billing, and never its value', () => {
   const KEY = 'sk-ant-api03-' + 'q'.repeat(24);
   const helper = `echo ${KEY}`;
@@ -385,10 +401,10 @@ test('A1.claude-billing names each source of per-token billing, and never its va
     { env: { ANTHROPIC_AUTH_TOKEN: KEY }, want: 'ANTHROPIC_AUTH_TOKEN in the environment' },
     { env: { CLAUDE_CODE_USE_BEDROCK: '1' }, want: 'CLAUDE_CODE_USE_BEDROCK in the environment' },
     { env: { CLAUDE_CODE_USE_VERTEX: 'true' }, want: 'CLAUDE_CODE_USE_VERTEX in the environment' },
-    { home: { '.claude/settings.json': { apiKeyHelper: helper } }, want: 'apiKeyHelper in ~/.claude/settings.json' },
-    { home: { '.claude/settings.json': { env: { ANTHROPIC_API_KEY: KEY } } }, want: 'ANTHROPIC_API_KEY under env in ~/.claude/settings.json' },
-    { home: { '.claude/settings.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } }, want: 'ANTHROPIC_AUTH_TOKEN under env in ~/.claude/settings.json' },
-    { home: { '.claude/settings.json': { env: { CLAUDE_CODE_USE_VERTEX: '1' } } }, want: 'CLAUDE_CODE_USE_VERTEX under env in ~/.claude/settings.json' },
+    { home: { '.claude/settings.json': { apiKeyHelper: helper } }, want: `apiKeyHelper in ${HOME_SETTINGS}` },
+    { home: { '.claude/settings.json': { env: { ANTHROPIC_API_KEY: KEY } } }, want: `ANTHROPIC_API_KEY under env in ${HOME_SETTINGS}` },
+    { home: { '.claude/settings.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } }, want: `ANTHROPIC_AUTH_TOKEN under env in ${HOME_SETTINGS}` },
+    { home: { '.claude/settings.json': { env: { CLAUDE_CODE_USE_VERTEX: '1' } } }, want: `CLAUDE_CODE_USE_VERTEX under env in ${HOME_SETTINGS}` },
     { repo: { '.claude/settings.json': { apiKeyHelper: helper } }, want: 'apiKeyHelper in .claude/settings.json' },
     { repo: { '.claude/settings.json': { env: { ANTHROPIC_API_KEY: KEY } } }, want: 'ANTHROPIC_API_KEY under env in .claude/settings.json' },
     { repo: { '.claude/settings.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } }, want: 'ANTHROPIC_AUTH_TOKEN under env in .claude/settings.json' },
@@ -408,7 +424,7 @@ test('A1.claude-billing names each source of per-token billing, and never its va
     home: { '.claude/settings.json': { apiKeyHelper: helper } },
     repo: { '.claude/settings.local.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } },
   });
-  assert.equal(all.detail, 'Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY in the environment, CLAUDE_CODE_USE_BEDROCK in the environment, apiKeyHelper in ~/.claude/settings.json, ANTHROPIC_AUTH_TOKEN under env in .claude/settings.local.json.');
+  assert.equal(all.detail, `Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY in the environment, CLAUDE_CODE_USE_BEDROCK in the environment, apiKeyHelper in ${HOME_SETTINGS}, ANTHROPIC_AUTH_TOKEN under env in .claude/settings.local.json.`);
 });
 
 test('A1.claude-billing reads CLAUDE_CONFIG_DIR\'s settings when set, and never quotes a file it can\'t parse', () => {
@@ -418,7 +434,7 @@ test('A1.claude-billing reads CLAUDE_CONFIG_DIR\'s settings when set, and never 
   const moved = billing({ env: { CLAUDE_CONFIG_DIR: dir }, home: { '.claude/settings.json': { apiKeyHelper: 'key.sh' } } });
   assert.equal(moved.detail, `Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY under env in ${join(dir, 'settings.json')}.`);
   const broken = billing({ home: { '.claude/settings.json': `{ "env": { "ANTHROPIC_API_KEY": "${KEY}" }, }` } });
-  assert.deepEqual(broken, { status: 'unknown', detail: 'Not valid JSON, so not checked: ~/.claude/settings.json.' });
+  assert.deepEqual(broken, { status: 'unknown', detail: `Not valid JSON, so not checked: ${HOME_SETTINGS}.` });
   const both = billing({ env: { ANTHROPIC_API_KEY: KEY }, repo: { '.claude/settings.json': `${KEY}` } });
   assert.equal(both.status, 'fail');
   assert.equal(both.detail, 'Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY in the environment. Not valid JSON, so not checked: .claude/settings.json.');

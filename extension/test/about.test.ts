@@ -135,7 +135,8 @@ test('gh\'s and claude\'s answers, read as A4 reads them', () => {
 
 test('About and A4 read the plugin list through one parser, and say each way it fails in the same words (GH-147)', () => {
   const ACC = { id: 'acc@agent-command-center', scope: 'user', version: '0.37.0', enabled: true };
-  const a4 = (r: RunResult) => runSteps(makeContext(tempDir(), fakeRunner({ 'brew --version': ok('Homebrew 4.5.0'), 'claude plugin list --json': r, 'claude plugin marketplace list --json': ok('[]') }), { ...process.env, CLAUDE_CONFIG_DIR: tempDir('claude-state-') }, '0.37.0'), 'machine', ['A4.plugin'])[0]!.result;
+  // A Mac's checks, whichever system the test runs on: Windows adds a restart note to the fix's words.
+  const a4 = (r: RunResult) => runSteps({ ...makeContext(tempDir(), fakeRunner({ 'brew --version': ok('Homebrew 4.5.0'), 'claude plugin list --json': r, 'claude plugin marketplace list --json': ok('[]') }), { ...process.env, CLAUDE_CONFIG_DIR: tempDir('claude-state-') }, '0.37.0'), system: 'mac' }, 'machine', ['A4.plugin'])[0]!.result;
   const cases: [string, RunResult, ClaudeList][] = [
     ['claude isn\'t installed', { code: 127, stdout: '', stderr: 'not found' }, { ok: false, missing: true, error: 'claude isn\'t installed.' }],
     ['exits with an error', { code: 1, stdout: '', stderr: 'error: unknown option \'--json\'\nmore' }, { ok: false, missing: false, error: 'claude plugin list didn\'t run: error: unknown option \'--json\'' }],

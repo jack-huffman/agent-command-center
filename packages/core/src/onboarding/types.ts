@@ -43,6 +43,8 @@ export interface CheckContext {
   cache: Map<string, unknown>;
   /** acc's own version, when the caller knows it: A4.plugin fails on an older plugin (GH-62). */
   version: string | null;
+  /** The system the checks run on, when it isn't this one: a test's. Absent: process.platform. */
+  platform?: NodeJS.Platform;
   /** The system the install lines are for. Absent, it's the one acc runs on (SYSTEM): only tests set it (T-124). */
   system?: InstallSystem;
 }
@@ -57,6 +59,11 @@ export interface Step {
   /** Profiles this step applies to. Absent means every profile. */
   profiles?: Profile[];
   fix?: Fix;
+  /**
+   * The fix on each system, where its line differs by system (D-T-123): fix is this for the system acc runs
+   * on, and a step's page for another system reads it (fixFor).
+   */
+  fixOn?: (system: InstallSystem) => Fix;
   /** The tool this step's fix installs: its line for each system is in install-lines.ts, and the step's page shows them all (T-124). */
   install?: InstallTool;
   /** Something the step always offers, whatever its result, such as Import rules… (GH-108): a VSCode command. */

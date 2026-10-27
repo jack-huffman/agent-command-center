@@ -1,6 +1,6 @@
-import { execFile } from 'node:child_process';
 import type * as vscode from 'vscode';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
+import { startFile } from '../../packages/core/src/start.ts';
 import { LAND_TIMEOUT_MS, UPDATE_POST_TIMEOUT_MS } from '../../packages/core/src/land.ts';
 import { CRITERIA_TIMEOUT_MS } from '../../packages/core/src/criteria.ts';
 import { MANIFEST_TIMEOUT_MS } from '../../packages/core/src/manifest.ts';
@@ -19,7 +19,8 @@ export function runFile(file: string, args: string[], cwd: string, env: NodeJS.P
   return new Promise((resolve) => {
     const abort = new AbortController();
     const sub = token?.onCancellationRequested(() => abort.abort());
-    execFile(file, args, { cwd, env: isGh(file) ? ghEnv(env) : env, timeout: timeoutMs, killSignal: isGh(file) ? 'SIGKILL' : 'SIGTERM', maxBuffer: 32 * 1024 * 1024, signal: abort.signal }, (err, stdout, stderr) => {
+    // Started as every system needs it (startFile): on Windows, a .cmd shim such as sf's runs through cmd.exe.
+    startFile(file, args, { cwd, env: isGh(file) ? ghEnv(env) : env, timeout: timeoutMs, killSignal: isGh(file) ? 'SIGKILL' : 'SIGTERM', maxBuffer: 32 * 1024 * 1024, signal: abort.signal }, (err, stdout, stderr) => {
       sub?.dispose();
       const raw = (err as { code?: unknown } | null)?.code;
       const code = err ? (typeof raw === 'number' ? raw : raw === 'ENOENT' ? 127 : 1) : 0;

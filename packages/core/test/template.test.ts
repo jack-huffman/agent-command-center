@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { loadConfig, parseConfig, writeConfig } from '../src/config.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
@@ -153,7 +153,7 @@ test('a path is recorded relative to the repo inside it, as ~/… under the home
   assert.equal(recordedSource(join(home, 'team', 'acme.json'), { home, root: repo }), '~/team/acme.json');
   assert.equal(recordedSource('~/team/acme.json', { home, root: repo }), '~/team/acme.json');
   assert.equal(recordedSource('templates/acme.json', { base: repo, home, root: repo }), 'templates/acme.json');
-  assert.equal(recordedSource('/srv/team/acme.json', { home, root: repo }), '/srv/team/acme.json');
+  assert.equal(recordedSource('/srv/team/acme.json', { home, root: repo }), resolve('/srv/team/acme.json'), 'outside both: the full path, as this system writes it');
   // A name that starts with - stays ./-…, so sourceProblem never refuses it as an option.
   assert.equal(recordedSource('./-template.json', { base: repo, home, root: repo }), './-template.json');
   const url = 'https://github.com/acme/acc-templates/blob/main/salesforce.json';

@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { agentArgs, withCloneAgents } from './agents.ts';
@@ -14,6 +13,7 @@ import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { claudeProjectsDir, lastSaid, savedFolder } from './transcript.ts';
 import { SERVICE_DOWN } from './started.ts';
+import { startChild } from './start.ts';
 
 /**
  * Resume (D-067): a running task whose builder stopped before acc done or acc block, as GH-41's did when
@@ -142,7 +142,12 @@ export type Launcher = (cmd: string, args: string[], o: { cwd: string; env: Node
 const launchDetached: Launcher = (cmd, args, o) => {
   const fd = openSync(o.log, 'a');
   try {
-    const child = spawn(cmd, args, { cwd: o.cwd, env: o.env, detached: true, stdio: ['ignore', fd, fd] });
+    // Started as every system needs it (startChild); one Windows can't start says why in the log.
+    const child = startChild(cmd, args, { cwd: o.cwd, env: o.env, detached: true, stdio: ['ignore', fd, fd] });
+    if ('problem' in child) {
+      appendFileSync(o.log, `${child.problem}\n`);
+      return null;
+    }
     child.on('error', () => undefined);
     child.unref();
     return child.pid ?? null;

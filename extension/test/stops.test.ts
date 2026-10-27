@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { tempDir } from '../../packages/core/test/support.ts';
 import { runningCount, SIGNAL_EXITS, stop, stopAll, stopOnExit, track } from '../scripts/stops.ts';
 import { until } from './vscode.ts';
+import { skipOnWindows } from '../../scripts/windows-tests.ts';
 
 const scripts = join(import.meta.dirname, '..', 'scripts');
 
@@ -56,7 +57,10 @@ const isUp = (pid: number): boolean => {
 };
 
 for (const ending of Object.keys(ENDS) as Ending[]) {
-  test(`a run that ends by ${ending} stops every fake browser it started, and each one's helper, leaving none running`, async () => {
+  const name = `a run that ends by ${ending} stops every fake browser it started, and each one's helper, leaving none running`;
+  // A signal sent from outside is POSIX's; Windows has none (WINDOWS_SKIPS).
+  const skip = ending === 'SIGTERM' || ending === 'SIGINT' ? skipOnWindows('extension/test/stops.test.ts', name) : false;
+  test(name, { skip }, async () => {
     const dir = tempDir();
     const run = spawn(process.execPath, ['--no-warnings', '--input-type=module', '-e', driver(dir, ending)], { stdio: ['ignore', 'ignore', 'pipe'] });
     let err = '';

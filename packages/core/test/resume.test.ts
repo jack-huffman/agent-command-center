@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { awakePath } from '../src/awake.ts';
 import { parseConfig, type Config } from '../src/config.ts';
@@ -58,7 +58,7 @@ test('Resume carries the session on in its folder, with the rules it was dispatc
   assert.deepEqual(l.args.slice(2, 10), ['--resume', SID, '--permission-mode', 'acceptEdits', '--model', 'opus', '--effort', 'high']);
   assert.equal(l.args.at(-2), '--settings');
   const settings = JSON.parse(l.args.at(-1)!);
-  assert.deepEqual([settings.env.ACC_ROLE, settings.env.ACC_TASK, settings.env.PATH], ['builder', 'GH-41', '/acc/bin:/usr/bin']);
+  assert.deepEqual([settings.env.ACC_ROLE, settings.env.ACC_TASK, settings.env.PATH], ['builder', 'GH-41', `/acc/bin${delimiter}/usr/bin`]);
   assert.ok(settings.permissions.deny.includes('Bash(acc resume*)'), 'a builder can\'t resume itself, or anyone');
   assert.ok(settings.hooks, 'its questions still come to the Command Center');
   assert.deepEqual([l.env.ACC_ROLE, l.env.ACC_TASK, l.env.HOME], ['builder', 'GH-41', '/home/me']);

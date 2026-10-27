@@ -2,10 +2,11 @@
 // Salesforce repo whose task ACME-7 has a branch, with a fake sf on PATH that records every call. It never deploys.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { gitIn, SF_CONFIG, tempDir } from '../../core/test/support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 import { cli, repoWithConfig } from './support.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
@@ -64,10 +65,10 @@ function manifestRepo(raw: Record<string, unknown> = SF_CONFIG) {
   mkdirSync(bin);
   const script = join(tempDir('acc-fake-sf-'), 'sf.mjs');
   writeFileSync(script, FAKE_SF);
-  writeFileSync(join(bin, 'sf'), `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
+  standIn(join(bin, 'sf'), `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
   chmodSync(join(bin, 'sf'), 0o755);
   const log = join(tempDir('acc-sf-log-'), 'calls.jsonl');
-  return { dir, log, env: { PATH: `${bin}:${process.env.PATH}`, FAKE_SF_LOG: log } };
+  return { dir, log, env: { PATH: `${bin}${delimiter}${process.env.PATH}`, FAKE_SF_LOG: log } };
 }
 
 const sfCalls = (log: string): { args: string[]; cwd: string }[] => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);

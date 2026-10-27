@@ -20,6 +20,7 @@ import { branchProtection, environmentProtection, protectionWarnings } from '../
 import { sync } from '../src/sync.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 import { cfg, CLOUD, CLOUD_FIXTURES, cloudClone, commitAndPush, FIRED, fired, now, RAW, repoWithOrigin, task } from './cloud-support.ts';
+import { standIn } from './stand-in.ts';
 
 // ---------------------------------------------------------------- off by default
 
@@ -324,7 +325,7 @@ test('acc follows a cloud builder through its branch: a push is noted, no push f
 test('a cloud builder that blocks moves its task to blocked with its reason; one whose checks fail here stays running, needing you, and collects again once fixed', () => {
   // A check that fails the first time and passes the second: a script the project names.
   const script = join(tempDir('gate-'), 'check.sh');
-  writeFileSync(script, '#!/bin/sh\ntest -f passes.txt\n');
+  standIn(script, '#!/bin/sh\ntest -f passes.txt\n');
   run('chmod', ['755', script]);
   const raw = { ...RAW, gates: { required: ['check'], commands: { check: `sh ${script}` } } };
   const repo = fired(raw);

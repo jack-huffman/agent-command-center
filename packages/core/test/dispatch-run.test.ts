@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { awakePath } from '../src/awake.ts';
@@ -19,12 +19,12 @@ import { fakeAwake, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, 
 test('dispatch end to end: worktree from the environment branch, packet, background session, ledger', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   assert.equal(acc(repo, ['add', 'Write the changelog', '--brief', 'Add CHANGELOG.md with one entry.']).code, 0);
   const r = acc(repo, ['dispatch', 'T-1', '--json'], env);
   assert.equal(r.code, 0, r.err);
   const out = r.json();
-  assert.equal(out.worktree, `${repo}/.claude/worktrees/T-1`);
+  assert.equal(out.worktree, join(repo, '.claude', 'worktrees', 'T-1'));
   assert.equal(out.branch, 'task/T-1-write-the-changelog');
   assert.equal(out.bgId, 'bg1');
   assert.equal(out.sessionId, 'sess-1');
@@ -91,7 +91,7 @@ test('a dispatch records its own new session, not an older one of the same name 
     { id: 'clone', sessionId: 'sess-clone', name, kind: 'background', cwd: repo, startedAt: Date.now() - 3_600_000, state: 'working', pid: 3999998 },
     { id: 'there', sessionId: 'sess-there', name, kind: 'background', cwd: '/elsewhere/Tool', startedAt: Date.now() + 60_000, state: 'working', pid: 3999997 },
   ]));
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   assert.equal(acc(repo, ['add', 'Write the changelog']).code, 0);
   const r = acc(repo, ['dispatch', 'T-1', '--json'], env);
   assert.equal(r.code, 0, r.err);
@@ -102,7 +102,7 @@ test('a dispatch records its own new session, not an older one of the same name 
 test('dispatch refuses tasks that aren\'t ready, and stops at the agent cap', () => {
   const repo = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, agents: { max: 1 } }), ...IGNORE });
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'First']);
   acc(repo, ['add', 'Second', '--dep', 'T-1']);
   acc(repo, ['add', 'Third']);
@@ -115,7 +115,7 @@ test('dispatch refuses tasks that aren\'t ready, and stops at the agent cap', ()
 test('a builder can block with a reason, but can\'t mark work done or move other tasks', () => {
   const repo = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE });
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Work']);
   const wt = acc(repo, ['dispatch', 'T-1', '--json'], env).json().worktree;
   const b = { ...env, ACC_ROLE: 'builder', ACC_TASK: 'T-1' };
@@ -130,7 +130,7 @@ test('a builder can block with a reason, but can\'t mark work done or move other
 test('a builder finishes with a note that its next run, a task that depends on it and acc show read (D-106)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
   acc(repo, ['add', 'Link the changelog', '--dep', 'T-1']);
   const wt = acc(repo, ['dispatch', 'T-1', '--json'], env).json().worktree;
@@ -183,7 +183,7 @@ test('a builder finishes with a note that its next run, a task that depends on i
 test('a re-dispatch after a run that left no note tells its builder to check the tree first (D-106)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Write the changelog']);
   acc(repo, ['add', 'Link the changelog', '--dep', 'T-1']);
   assert.equal(acc(repo, ['dispatch', 'T-1'], env).code, 0);
@@ -206,7 +206,7 @@ test('Salesforce dispatch points the worktree at the environment\'s org', () => 
   gitIn(repo, 'branch', 'dev');
   const claude = fakeClaude();
   acc(repo, ['add', 'A field']);
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   // A Salesforce task waits for its analysis (D-052), unless a person says to go without.
   assert.match(acc(repo, ['dispatch', 'T-1'], env).err, /hasn't been analyzed.*acc analyze T-1/s);
   const r = acc(repo, ['dispatch', 'T-1', '--without-analysis', '--json'], env);
@@ -218,7 +218,7 @@ test('Salesforce dispatch points the worktree at the environment\'s org', () => 
 test('cleanup keeps a worktree with uncommitted or unmerged work, and removes it once merged', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   acc(repo, ['add', 'Docs']);
   const { worktree, branch } = acc(repo, ['dispatch', 'T-1', '--json'], env).json();
   assert.match(acc(repo, ['cleanup', 'T-1']).out, /still running/);
@@ -283,7 +283,7 @@ test('dispatch refuses before touching anything when Claude Code doesn\'t trust 
   const repo = makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE });
   const claude = fakeClaude();
   acc(repo, ['add', 'Work']);
-  const r = acc(repo, ['dispatch', 'T-1'], { PATH: `${claude.bin}:${process.env.PATH}`, HOME: tempDir('home-') });
+  const r = acc(repo, ['dispatch', 'T-1'], { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: tempDir('home-') });
   assert.equal(r.code, 1);
   assert.match(r.err, /doesn't trust .* yet.*Run `claude` once in that folder, accept the trust prompt/s);
   assert.equal(existsSync(join(repo, '.claude', 'worktrees', 'T-1')), false, 'no worktree was made');
@@ -294,7 +294,7 @@ test('dispatch refuses before touching anything when Claude Code doesn\'t trust 
 test('a rework a person sent back gets the passed review\'s findings in the written packet only while the review is of the branch head (T-76)', () => {
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, ...QUIET }), ...IGNORE }));
   const claude = fakeClaude();
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: trustingHome(repo) };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(repo) };
   const paths = repoPaths(repo, run);
   assert.equal(acc(repo, ['add', 'Write the changelog']).code, 0);
   const first = acc(repo, ['dispatch', 'T-1', '--json'], env);

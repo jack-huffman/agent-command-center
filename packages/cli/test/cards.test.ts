@@ -3,11 +3,12 @@
 // throwaway repos (support.ts), with a gh on PATH that stands in for GitHub's GraphQL.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { mutate, parseConfig, readLedger, repoPaths, run, upsertTasks } from '../../core/src/index.ts';
 import { cli, repoWithConfig, UNCHECKED } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -28,7 +29,7 @@ function cardRepo(tracker: Record<string, unknown> = { kind: 'github', edits: tr
   const options = JSON.stringify(COLUMNS.map((name, i) => ({ id: `opt-${i}`, name })));
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+  standIn(join(bin, 'gh'), `#!/bin/sh
 echo "$@" >> "${dir}/calls"
 case "$1 $2" in
   "auth token") [ "$4" = "me" ] && echo tok-me || exit 1 ;;
@@ -50,7 +51,7 @@ esac
   const read = (f: string) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), 'utf8') : '');
   const column = () => COLUMNS[Number(read('column').trim().slice(4))];
   const writes = () => read('writes').split('\n').filter(Boolean).map((o) => COLUMNS[Number(o.slice(4))]);
-  return { dir, env: { PATH: `${bin}:${process.env.PATH}` }, ledger: repoPaths(dir, run).ledger, column, writes, calls: () => read('calls') };
+  return { dir, env: { PATH: `${bin}${delimiter}${process.env.PATH}` }, ledger: repoPaths(dir, run).ledger, column, writes, calls: () => read('calls') };
 }
 
 test('acc set, done and block move the task\'s card on its GitHub Project to the column for its new state (GH-146)', () => {

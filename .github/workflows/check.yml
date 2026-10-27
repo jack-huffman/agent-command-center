@@ -100,3 +100,52 @@ jobs:
             ${{ runner.temp }}/acc-ci/
           retention-days: 7
           if-no-files-found: ignore
+
+  # acc on Windows as on a Mac (D-T-123): typecheck, the unit tests but for the files scripts/windows-tests.ts
+  # names (it prints them, with their count), and acc run by name through its launchers, with the Salesforce
+  # CLI's .cmd shim run by acc's runner. No screenshot run: Windows minutes cost twice Linux's on this repo,
+  # so the job keeps to what proves acc works there.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        # Git for Windows' bash, the sh acc runs command lines with there.
+        shell: bash
+    steps:
+      # The files as the repo has them: the runner's git would turn line ends into CRLF, which tests compare.
+      - name: Line endings as committed
+        run: git config --global core.autocrlf false
+
+      # Every commit: some tests read the repo's history, and the skip list's check compares it with main's.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: package.json
+          cache: npm
+
+      - name: Git identity
+        run: |
+          git config --global user.name "CI"
+          git config --global user.email "ci@example.invalid"
+          git config --global init.defaultBranch main
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # The launchers and acc.mjs in dist/, which the smoke run starts by name.
+      - run: npm run build
+
+      - name: Unit tests
+        run: node --no-warnings scripts/windows-tests.ts
+
+      # A .cmd shim to run, as a person's Windows machine has it.
+      - name: Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: acc by name, and its runner
+        run: node --no-warnings scripts/windows-smoke.ts --sf

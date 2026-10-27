@@ -5,6 +5,7 @@
 
 import { sep } from 'node:path';
 import { worktreeRoot } from '../../../packages/core/src/dispatch.ts';
+import { pathKey } from '../../../packages/core/src/paths.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import type { HubLike, Look, ModelArea, ProjectLike } from './shared.ts';
 
@@ -33,10 +34,16 @@ export function worktreeLook(w: Pick<ProjectLike['worktrees'][number], 'prunable
   return w.changed > 0 ? { label: `${w.changed} changed`, icon: 'diff-modified', tone: 'orange' } : { label: 'Clean', icon: 'check', tone: 'blue' };
 }
 
-/** A worktree's path from the project's worktrees folder (`worktreeRoot`: "ACME-12"); a path outside it stays whole. */
-export function fromWorktreesFolder(path: string, folder: string): string {
-  const prefix = folder.endsWith(sep) ? folder : folder + sep;
-  return path.startsWith(prefix) && path.length > prefix.length ? path.slice(prefix.length) : path;
+/**
+ * A worktree's path from the project's worktrees folder (`worktreeRoot`: "ACME-12"); a path outside it stays
+ * whole. On Windows git names the worktree C:/… and Node the folder C:\…, so the two compare as one
+ * spelling there (pathKey); a Mac compares them as they are.
+ */
+export function fromWorktreesFolder(path: string, folder: string, platform: NodeJS.Platform = process.platform): string {
+  const slash = platform === 'win32' ? '/' : sep;
+  const [p, f] = [pathKey(path, platform), pathKey(folder, platform)];
+  const prefix = f.endsWith(slash) ? f : f + slash;
+  return p.startsWith(prefix) && p.length > prefix.length ? path.slice(prefix.length) : path;
 }
 
 export function worktreesModel(hub: HubLike): WorktreesModel {

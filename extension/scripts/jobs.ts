@@ -4,6 +4,8 @@
  * the order they'd have come one at a time, so the log and what's noted are the same whatever K is.
  */
 import { spawn } from 'node:child_process';
+import { setPriority } from 'node:os';
+import { NICE_LEVEL } from '../../packages/core/src/shell.ts';
 import { stop, track } from './stops.ts';
 
 /** How many jobs or slots k gives for n items: a whole number, at least 1, at most n. */
@@ -99,12 +101,14 @@ export interface Ran { status: number | null; signal: NodeJS.Signals | null; std
  * It runs in a process group of its own, tracked until it closes, so a run that stops stops it and its
  * helpers too (T-68).
  */
-export function runAsync(cmd: string, args: string[], timeout: number): Promise<Ran> {
+export function runAsync(cmd: string, args: string[], timeout: number, nice = false): Promise<Ran> {
   return new Promise((resolve) => {
     let finished = false;
     const done = (r: Ran): void => { if (!finished) { finished = true; clearTimeout(timer); resolve(r); } };
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32' });
     track(child);
+    // At lowered priority, so the machine stays usable (os.setPriority works on every system, where nice doesn't).
+    if (nice && child.pid) try { setPriority(child.pid, NICE_LEVEL); } catch { /* it has already ended */ }
     const out: Buffer[] = [];
     // What it says on stderr, so a Chrome that can't start says why (T-108); only the first 64 KB is kept.
     const said: Buffer[] = [];

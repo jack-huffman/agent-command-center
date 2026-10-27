@@ -1,23 +1,31 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, globSync, lstatSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, globSync, lstatSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { delimiter, dirname, join, relative } from 'node:path';
 import { run, type Runner, type RunOptions, type RunResult } from '../src/exec.ts';
+import { shownCommand } from '../src/shell.ts';
 import type { Exec } from '../src/trackers/types.ts';
+import { testGlobs } from '../../../scripts/test-globs.ts';
+import { standIn } from './stand-in.ts';
 import { tempDir } from './temp-root.ts';
 
 export { RUN_ROOT, tempDir } from './temp-root.ts';
 
 /** The test files npm test runs: the quoted globs in package.json's test script, expanded, sorted. */
 export function npmTestFiles(root: string): string[] {
-  const script = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts.test as string;
-  const globs = [...script.matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? '');
-  return [...new Set(globs.flatMap((g) => globSync(g, { cwd: root })))].sort();
+  // With forward slashes on every system, as git names files: Windows' glob gives backslashes.
+  return [...new Set(testGlobs(root).flatMap((g) => globSync(g, { cwd: root })).map((f) => f.replaceAll('\\', '/')))].sort();
 }
 
 export const ok = (stdout = ''): RunResult => ({ code: 0, stdout, stderr: '' });
 export const bad = (stderr = 'failed', code = 1): RunResult => ({ code, stdout: '', stderr });
 export const sf = (result: unknown, status = 0): RunResult => ({ code: status ? 1 : 0, stdout: JSON.stringify({ status, result, message: status ? 'sf error' : undefined }), stderr: '' });
+
+/**
+ * A run as a test records it: one run at lowered priority as `nice -n 15 …`, and this machine's sh as `sh`,
+ * so a test reads the same on every system.
+ */
+export const callLine = (cmd: string, args: string[], opts?: RunOptions): string => [...(opts?.nice ? ['nice', '-n', '15'] : []), shownCommand(cmd), ...args].join(' ');
 
 /**
  * A runner that answers from fixtures keyed by "cmd arg arg…" (prefix match, longest wins) and falls
@@ -26,7 +34,7 @@ export const sf = (result: unknown, status = 0): RunResult => ({ code: status ? 
 export function fakeRunner(fixtures: Record<string, RunResult | ((opts?: RunOptions) => RunResult)>, calls: string[] = []): Runner {
   const keys = Object.keys(fixtures).sort((a, b) => b.length - a.length);
   return (cmd, args, opts) => {
-    const line = [cmd, ...args].join(' ');
+    const line = callLine(cmd, args, opts);
     calls.push(line);
     const key = keys.find((k) => line === k || line.startsWith(k + ' '));
     if (key) {
@@ -49,8 +57,7 @@ export const launchedSessions = (calls: string[]) => (): RunResult => ok(JSON.st
 export function fakeBin(name: string, script: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const bin = join(tempDir('fake-bin-'), 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, name), `#!/bin/sh\n${script}`);
-  chmodSync(join(bin, name), 0o755);
+  standIn(join(bin, name), `#!/bin/sh\n${script}`);
   return { ...env, PATH: `${bin}${delimiter}${process.env.PATH}` };
 }
 

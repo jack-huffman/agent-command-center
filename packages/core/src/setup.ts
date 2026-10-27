@@ -9,7 +9,7 @@ import { dirname, join } from 'node:path';
 import type { Config, Environment } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
 import { BASELINE_MANIFEST } from './drift.ts';
-import { lastLine, listed, niced, packageDirs, readList, under } from './gates.ts';
+import { lastLine, listed, packageDirs, readList, under } from './gates.ts';
 import type { RepoPaths } from './paths.ts';
 import { promotionPaths } from './promote.ts';
 import { orList } from './trackers/types.ts';
@@ -109,7 +109,7 @@ export function buildBaseline(paths: RepoPaths, config: Config, deps: SetupDeps)
     if (!dirs.length) return steps.skip(`list-${name}`, label, 'It has no Salesforce source');
     deps.onStep?.(`Listing the components on ${name}`);
     steps.step(`list-${name}`, label, () => {
-      const r = run(...niced('sf', ['project', 'generate', 'manifest', ...dirs.flatMap((d) => ['--source-dir', d]), '--output-dir', out, '--name', name, '--json']), { cwd: dir, env: sfEnv(), timeoutMs: 10 * 60_000 });
+      const r = run('sf', ['project', 'generate', 'manifest', ...dirs.flatMap((d) => ['--source-dir', d]), '--output-dir', out, '--name', name, '--json'], { cwd: dir, env: sfEnv(), timeoutMs: 10 * 60_000, nice: true });
       const file = join(out, `${name}.xml`);
       if (r.code !== 0 || !existsSync(file)) throw new AccError('sf', `sf couldn't list the components on ${name}: ${lastLine(r.stderr || r.stdout)}`);
       xmls.push(readFileSync(file, 'utf8'));
@@ -149,7 +149,7 @@ export interface SeededBranch {
 
 /** Retrieves the baseline manifest from an org into a checkout. The org is only read. */
 function retrieveInto(run: Runner, dir: string, org: string, deps: SetupDeps): string | null {
-  const r = withSlot(() => run(...niced('sf', ['project', 'retrieve', 'start', '--manifest', BASELINE_MANIFEST, '--target-org', org, '--ignore-conflicts', '--wait', '60', '--json']), { cwd: dir, env: sfEnv(), timeoutMs: 70 * 60_000 }), { owner: { what: `Retrieve the baseline from ${org}`, cwd: dir }, ...deps.slots });
+  const r = withSlot(() => run('sf', ['project', 'retrieve', 'start', '--manifest', BASELINE_MANIFEST, '--target-org', org, '--ignore-conflicts', '--wait', '60', '--json'], { cwd: dir, env: sfEnv(), timeoutMs: 70 * 60_000, nice: true }), { owner: { what: `Retrieve the baseline from ${org}`, cwd: dir }, ...deps.slots });
   try {
     const j = parseJsonOutput<{ status?: number; message?: string }>(r.stdout);
     if (r.code === 0 && j.status === 0) return null;

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { arrivedAt } from './carried.ts';
 import type { Config, Environment } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
-import { listed, listLines, niced, packageDirs, under } from './gates.ts';
+import { listed, listLines, packageDirs, under } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { readLedger, type Task } from './ledger.ts';
 import { taskList } from './overlap.ts';
@@ -225,9 +225,8 @@ function deployNow(paths: RepoPaths, config: Config, envName: string, deps: Depl
       if (add.code !== 0) throw new AccError('git', `Couldn't check out ${plan.head.slice(0, 7)}: ${add.stderr.trim()}`);
     });
     steps.start('deploy', `Deploy to ${plan.env.name}`, `${plural(plan.files.length, 'file')}, ${plan.testLevel === 'RunLocalTests' ? 'with the org\'s local tests' : 'no tests'}`);
-    const [cmd, args] = niced('sf', deployArgs(plan));
     const owner = { what: `Deploy ${plan.env.branch}`, env: plan.env.branch, project: config.project };
-    const r = withSlot(() => run(cmd, args, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000 }), { owner, ...deps.slots, onWait: deps.onWait });
+    const r = withSlot(() => run('sf', deployArgs(plan), { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000, nice: true }), { owner, ...deps.slots, onWait: deps.onWait });
     let result: { status?: number; message?: string; result?: { id?: string; success?: boolean; status?: string; details?: { componentFailures?: { fullName?: string; problem?: string }[] | { fullName?: string; problem?: string } } } };
     try {
       result = parseJsonOutput(r.stdout);

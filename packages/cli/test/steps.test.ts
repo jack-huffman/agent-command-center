@@ -5,7 +5,7 @@
 
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { fakeClaude, IGNORE, trustingHome } from '../../core/test/dispatch-support.ts';
@@ -19,6 +19,7 @@ import { readStepEvents } from '../../core/src/steps.ts';
 import { GENERIC_CONFIG, gitIn, makeRepo, SF_CONFIG, tempDir } from '../../core/test/support.ts';
 import { openSteps, steps } from '../src/shared.ts';
 import { cli } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -32,7 +33,7 @@ interface Fail { deploy?: true; check?: true; list?: string; analyst?: true }
 function fakes(fail: Fail = {}): string {
   const bin = join(tempDir('fake-tools-'), 'bin');
   mkdirSync(bin);
-  const tool = (name: string, script: string) => { writeFileSync(join(bin, name), `#!/bin/sh\n${script}`); chmodSync(join(bin, name), 0o755); };
+  const tool = (name: string, script: string) => { standIn(join(bin, name), `#!/bin/sh\n${script}`); chmodSync(join(bin, name), 0o755); };
   const failed = `echo '{"status":1,"result":{"success":false,"details":{"componentFailures":{"fullName":"B","problem":"Invalid type: Foo"}}}}'; exit 1`;
   // sf lists a checkout's components into the file it's told, and deploys or checks with success.
   tool('sf', `if [ "$1 $2 $3" = "project generate manifest" ]; then
@@ -80,6 +81,9 @@ function stable(text: string, dir: string): string {
   return s.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<session>').replace(/\d{8}-\d{4}/g, '<stamp>');
 }
 
+/** A path in the repo as acc prints it on this system, after stable: <repo>\manifest on Windows. */
+const inRepo = (...parts: string[]): string => join('<repo>', ...parts);
+
 /** A command run twice in two copies of one fixture: without ACC_STEPS, then with it. */
 function both(make: () => { dir: string; args: string[]; env?: NodeJS.ProcessEnv }) {
   const plain = make();
@@ -114,7 +118,7 @@ function generic(config: unknown = GENERIC_CONFIG): string {
 const CASES: { name: string; make: () => { dir: string; args: string[]; env?: NodeJS.ProcessEnv }; code: number; out: string; err: string; first: string; ok: boolean }[] = [
   {
     name: 'deploy',
-    make: () => { const { dir, base } = sfRepo(); return { dir, args: ['deploy', 'dev', '--since', base], env: { PATH: `${fakes()}:${process.env.PATH}` } }; },
+    make: () => { const { dir, base } = sfRepo(); return { dir, args: ['deploy', 'dev', '--since', base], env: { PATH: `${fakes()}${delimiter}${process.env.PATH}` } }; },
     code: 0,
     out: 'Dev (Acme Dev): dev from <sha> to <sha>\n  1 to deploy, tests: RunLocalTests\n    force-app/main/default/classes/B.cls\n✓ Deployed 1 file(s) from dev at <sha> to Dev (job 0Af1).\n',
     err: '',
@@ -123,13 +127,13 @@ const CASES: { name: string; make: () => { dir: string; args: string[]; env?: No
   },
   {
     name: 'promote',
-    make: () => { const { dir } = sfRepo(); return { dir, args: ['promote', 'dev', '--to', 'uat'], env: { PATH: `${fakes()}:${process.env.PATH}` } }; },
+    make: () => { const { dir } = sfRepo(); return { dir, args: ['promote', 'dev', '--to', 'uat'], env: { PATH: `${fakes()}${delimiter}${process.env.PATH}` } }; },
     code: 0, out: 'Dev (dev at <sha>) → UAT (uat at <sha>)\n  1 to bring over\n    force-app/main/default/classes/B.cls\nOpened pull request #9  https://github.com/acme-co/acme-salesforce/pull/9\nIt merges only when a person merges it. Deploy after that with acc deploy.\n', err: 'Building promote/dev-to-uat-<stamp> from uat\nValidating against UAT (Acme UAT). Nothing is saved to the org.\nPushing promote/dev-to-uat-<stamp>\n', first: 'branches', ok: true,
   },
   {
     name: 'dispatch',
-    make: () => { const dir = generic(); return { dir, args: ['dispatch', 'T-1'], env: { PATH: `${fakeClaude().bin}:${process.env.PATH}`, HOME: trustingHome(dir) } }; },
-    code: 0, out: 'T-1 → ↻ Running\n  worktree: <repo>/.claude/worktrees/T-1\n  branch:   task/T-1-write-the-changelog\n  name:     Tool · T-1 Write the changelog · builder\n  model:    claude-opus-5-5\n  effort:   the model\'s default\n  where:    This Mac\n  agent:    background session bg1. Watch it with: claude attach bg1\n  packet:   <repo>/.git/acc/packets/T-1.md\n', err: '', first: 'task', ok: true,
+    make: () => { const dir = generic(); return { dir, args: ['dispatch', 'T-1'], env: { PATH: `${fakeClaude().bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(dir) } }; },
+    code: 0, out: `T-1 → ↻ Running\n  worktree: ${inRepo('.claude', 'worktrees', 'T-1')}\n  branch:   task/T-1-write-the-changelog\n  name:     Tool · T-1 Write the changelog · builder\n  model:    claude-opus-5-5\n  effort:   the model's default\n  where:    This Mac\n  agent:    background session bg1. Watch it with: claude attach bg1\n  packet:   ${inRepo('.git', 'acc', 'packets', 'T-1.md')}\n`, err: '', first: 'task', ok: true,
   },
   {
     name: 'land',
@@ -138,13 +142,13 @@ const CASES: { name: string; make: () => { dir: string; args: string[]; env?: No
   },
   {
     name: 'analyze',
-    make: () => ({ dir: generic(), args: ['analyze', 'T-1'], env: { PATH: `${fakes()}:${process.env.PATH}` } }),
+    make: () => ({ dir: generic(), args: ['analyze', 'T-1'], env: { PATH: `${fakes()}${delimiter}${process.env.PATH}` } }),
     code: 0, out: '✓ Ready to build: Adds a changelog.\n\nAcceptance criteria\n  - CHANGELOG.md has one entry\n\nWhat is there now\n  - Docs: There is no changelog.  the repo\n\nApproach\n  - Add CHANGELOG.md\n\nThis plan read the description only: This task isn\'t from a tracker, so it has no comments.\nSize S. Session sess-analyst.\n', err: 'Analyzing T-1. The analyst reads the ticket and the code, and changes nothing. Session <session>, named Tool · T-1 Write the changelog · analysis.\n', first: 'task', ok: true,
   },
   {
     name: 'setup baseline',
-    make: () => { const { dir } = sfRepo(); return { dir, args: ['setup', 'baseline'], env: { PATH: `${fakes()}:${process.env.PATH}` } }; },
-    code: 0, out: 'Wrote <repo>/manifest/baseline-package.xml: 1 components of 1 types, from production, uat, dev.\nCommit it on every environment\'s branch, so each is retrieved with the same list.\n', err: 'Listing the components on production\nListing the components on uat\nListing the components on dev\n', first: 'fetch', ok: true,
+    make: () => { const { dir } = sfRepo(); return { dir, args: ['setup', 'baseline'], env: { PATH: `${fakes()}${delimiter}${process.env.PATH}` } }; },
+    code: 0, out: `Wrote ${inRepo('manifest', 'baseline-package.xml')}: 1 components of 1 types, from production, uat, dev.\nCommit it on every environment's branch, so each is retrieved with the same list.\n`, err: 'Listing the components on production\nListing the components on uat\nListing the components on dev\n', first: 'fetch', ok: true,
   },
   {
     name: 'setup branches',
@@ -154,12 +158,12 @@ const CASES: { name: string; make: () => { dir: string; args: string[]; env?: No
   {
     name: 'setup lists',
     make: () => ({ dir: sfRepo().dir, args: ['setup', 'lists'] }),
-    code: 0, out: 'Wrote <repo>/manifest/environment-specific.txt with 0 environment-specific paths.\nWrote <repo>/manifest/known-drift.txt with 0 known-drift paths.\n  dev: 1 other difference from production that neither list explains: real drift, or work in progress. force-app/main/default/classes/B.cls\nRead both lists before committing them: each line keeps a file out of promotions (environment-specific) or out of drift checks (known drift).\n', err: '', first: 'fetch', ok: true,
+    code: 0, out: `Wrote ${inRepo('manifest', 'environment-specific.txt')} with 0 environment-specific paths.\nWrote ${inRepo('manifest', 'known-drift.txt')} with 0 known-drift paths.\n` + '  dev: 1 other difference from production that neither list explains: real drift, or work in progress. force-app/main/default/classes/B.cls\nRead both lists before committing them: each line keeps a file out of promotions (environment-specific) or out of drift checks (known drift).\n', err: '', first: 'fetch', ok: true,
   },
   {
     name: 'setup readme',
     make: () => ({ dir: generic(), args: ['setup', 'readme'] }),
-    code: 0, out: 'Added an environments section to <repo>/README.md. Keep it the same on every non-production branch.\n', err: '', first: 'readme', ok: true,
+    code: 0, out: `Added an environments section to ${inRepo('README.md')}. Keep it the same on every non-production branch.\n`, err: '', first: 'readme', ok: true,
   },
 ];
 
@@ -201,7 +205,7 @@ function trail(dir: string, args: string[], env: NodeJS.ProcessEnv = {}): { code
   return { code: r.code, trail: out, notes };
 }
 
-const withFakes = (fail: Fail = {}) => ({ PATH: `${fakes(fail)}:${process.env.PATH}` });
+const withFakes = (fail: Fail = {}) => ({ PATH: `${fakes(fail)}${delimiter}${process.env.PATH}` });
 
 test('deploy reports its steps in order, and one whose deploy fails stops there with sf\'s failure, then a failed result', () => {
   const ok = sfRepo();
@@ -226,14 +230,14 @@ test('promote reports its steps in order, and one whose check fails in the org s
 
 test('dispatch reports its steps in order, and one whose builder won\'t start fails at the start, after its worktree is made', () => {
   const ok = generic();
-  assert.deepEqual(trail(ok, ['dispatch', 'T-1'], { PATH: `${fakeClaude().bin}:${process.env.PATH}`, HOME: trustingHome(ok) }).trail,
+  assert.deepEqual(trail(ok, ['dispatch', 'T-1'], { PATH: `${fakeClaude().bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(ok) }).trail,
     ['task done', 'files skipped', 'worktree done', 'setup done', 'packet done', 'start done', 'record done', 'result ok']);
   const bad = generic();
   const bin = join(tempDir('no-claude-'), 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'claude'), '#!/bin/sh\necho "Not signed in" >&2\nexit 1\n');
+  standIn(join(bin, 'claude'), '#!/bin/sh\necho "Not signed in" >&2\nexit 1\n');
   chmodSync(join(bin, 'claude'), 0o755);
-  const r = trail(bad, ['dispatch', 'T-1'], { PATH: `${bin}:${process.env.PATH}`, HOME: trustingHome(bad) });
+  const r = trail(bad, ['dispatch', 'T-1'], { PATH: `${bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(bad) });
   assert.equal(r.code, 1);
   assert.deepEqual(r.trail, ['task done', 'files skipped', 'worktree done', 'setup done', 'packet done', 'start failed', 'result failed']);
   assert.match(r.notes.start!, /Claude Code didn't start the agent: Not signed in/);

@@ -85,11 +85,11 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/closing.ts': ['GH_CALL_MS', 'editsTracker', 'firstLine', 'closeWords'],
   'packages/core/src/config.ts': ['PROFILES', 'ENV_TYPES', 'AUTONOMY', 'PERMISSION_MODES', 'MODEL_NAME', 'AGENT_ROLES', 'RATCHET_LIMITS', 'RATCHET_NAME', 'TEMPLATE_DIGEST', 'DEFAULT_HEAVY', 'parseEnvironments', 'environmentByBranch', 'STRAY_FILES', 'withStrayFiles'],
   'packages/core/src/deploy.ts': ['deployRecordPath'],
-  'packages/core/src/dispatch.ts': ['isClaudeWorktree', 'claudeStatePath', 'isTrusted', 'builderModel'],
+  'packages/core/src/dispatch.ts': ['isClaudeWorktree', 'claudeStatePath', 'builderModel'],
   'packages/core/src/drift.ts': ['BASELINE_MANIFEST', 'environmentNamed'],
   'packages/core/src/efforts.ts': ['effortSourceWords', 'checkEffortName', 'checkEffortPick', 'modelTakes', 'effortFixWords', 'dispatchEffort'],
   'packages/core/src/exec.ts': ['ghEnv', 'isGh'],
-  'packages/core/src/gates.ts': ['lastLine', 'packageDirs', 'baseFor', 'changedPaths', 'niced'],
+  'packages/core/src/gates.ts': ['lastLine', 'packageDirs', 'baseFor', 'changedPaths'],
   'packages/core/src/github.ts': ['CLONE_ACCOUNT_KEY', 'credentialHelper', 'ghAccounts'],
   'packages/core/src/held.ts': ['holdWords'],
   'packages/core/src/holding.ts': ['startingNow', 'claimHeld', 'releaseHeld'],
@@ -108,7 +108,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/onboarding/steps.ts': ['PLUGIN_LIST_ARGS', 'parseClaudeList', 'GROUP_TITLES'],
   'packages/core/src/overlap.ts': ['IN_FLIGHT_STATES', 'nulPaths', 'startCandidates', 'startLook', 'sharesWords'],
   'packages/core/src/promote.ts': ['envByName', 'skipWarning'],
-  'packages/core/src/questions.ts': ['questionsDir', 'ALLOWED_MODES', 'LISTENER_EVERY_MS', 'HOOK_TIMEOUT_S', 'askingUnder'],
+  'packages/core/src/questions.ts': ['questionsDir', 'ALLOWED_MODES', 'LISTENER_EVERY_MS', 'HOOK_TIMEOUT_S'],
   'packages/core/src/queue.ts': ['joinQueue', 'leaveQueue', 'holdHead', 'queueTurn'],
   'packages/core/src/ratchets.ts': ['writeFloors', 'floorsAt', 'limitOf', 'valueOf', 'isWorse', 'num', 'ratchetGate', 'relaxCounts', 'relaxedTo'],
   'packages/core/src/receipts.ts': ['ratchetOf', 'receiptPath', 'EARLIER_LIMIT', 'earlierCounts'],
@@ -330,7 +330,7 @@ test('every export a source module has is named by a test, but the older ones OL
   const { walked, modules, missing } = await unnamed();
   // It ran: the modules on disk are the oracle for what was walked, and none walked is no check.
   const onDisk = [...readdirSync(join(ROOT, 'packages')).map((p) => `packages/${p}/src`), 'extension/src']
-    .flatMap((d) => readdirSync(join(ROOT, d), { recursive: true, encoding: 'utf8' }).map((f) => `${d}/${f}`))
+    .flatMap((d) => readdirSync(join(ROOT, d), { recursive: true, encoding: 'utf8' }).map((f) => `${d}/${f.replaceAll('\\', '/')}`))
     .concat(readdirSync(join(ROOT, 'extension', 'webview')).map((f) => `extension/webview/${f}`))
     .filter((f) => f.endsWith('.ts')).sort();
   assert.ok(modules.length > 0, 'walked no source modules');

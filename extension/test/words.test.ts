@@ -173,7 +173,7 @@ test('no notice, quick pick, status bar or page string in the extension\'s code 
   const found: string[] = [];
   const used: Record<string, number> = Object.fromEntries(LITERAL.map((l) => [l.name, 0]));
   for (const f of files) {
-    const rel = relative(root, f);
+    const rel = relative(root, f).replaceAll('\\', '/');
     for (const [i, raw] of readFileSync(f, 'utf8').split('\n').entries()) {
       const c = code(raw);
       if (!c.trim()) continue;
@@ -240,7 +240,7 @@ test('no string in the extension\'s code says acc by name or a retired word, but
   const found: string[] = [];
   const used: Record<string, number> = Object.fromEntries(NAMED.map((l) => [l.name, 0]));
   for (const f of files) {
-    const rel = relative(root, f);
+    const rel = relative(root, f).replaceAll('\\', '/');
     for (const [i, raw] of readFileSync(f, 'utf8').split('\n').entries()) {
       const c = code(raw);
       if (!c.trim() || LITERAL.some((l) => l.name === 'the extension\'s own log' && l.file.test(rel) && l.line.test(c))) continue;

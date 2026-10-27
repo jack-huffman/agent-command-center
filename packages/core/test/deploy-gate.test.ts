@@ -415,8 +415,10 @@ test('two deploys to one org take turns on a lock keyed by the org\'s username i
   const f = fixture();
   // acc's own folder, under HOME, whatever ACC_HEAVY_DIR or the run's slot folder says: a builder's environment can't move the lock.
   const home = tempDir('home-');
-  const was = { HOME: process.env.HOME, ACC_HEAVY_DIR: process.env.ACC_HEAVY_DIR };
+  // On Windows homedir() reads USERPROFILE, not HOME, so both are set.
+  const was = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, ACC_HEAVY_DIR: process.env.ACC_HEAVY_DIR };
   process.env.HOME = home;
+  process.env.USERPROFILE = home;
   process.env.ACC_HEAVY_DIR = tempDir('elsewhere-');
   try {
     const lock = orgLockDir('dev@acme.com.dev');

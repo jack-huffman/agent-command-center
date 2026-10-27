@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { appendOutput, needsTerminal, promptOf } from '../src/logic/runs.ts';
 import { claudeSessionUri, isSessionId } from '../src/logic/agents.ts';
@@ -38,7 +39,7 @@ test('a transcript reads as a timeline: the instructions folded, what it said, a
   const [prompt, , bash, read, failing, edit] = t.entries;
   assert.ok(prompt?.k === 'prompt' && prompt.instructions, 'a long first prompt is the task\'s instructions');
   assert.ok(bash?.k === 'tool' && bash.title === 'See what changed' && bash.code === 'git status' && bash.status === 'done' && bash.result === 'nothing to commit');
-  assert.ok(read?.k === 'tool' && read.title === 'Read src/a.ts' && read.result === null, 'a file it read isn\'t repeated on the page');
+  assert.ok(read?.k === 'tool' && read.title === `Read ${join('src', 'a.ts')}` && read.result === null, 'a file it read isn\'t repeated on the page');
   assert.ok(failing?.k === 'tool' && failing.status === 'error' && failing.result === '1 failing');
   assert.ok(edit?.k === 'tool' && edit.status === 'running', 'no result yet');
   assert.equal(t.open.size, 1);

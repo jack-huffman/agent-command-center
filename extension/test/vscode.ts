@@ -2,9 +2,10 @@
 // window: activate.test.ts checks what they do, and junk.test.ts that none of them throws on bad arguments
 // (GH-106). It's strict: reading an API it doesn't have throws "fake vscode has no <name>", so a gap in the
 // stand-in reads as one, never as a bug in the extension.
-import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
+import { standIn } from '../../packages/core/test/stand-in.ts';
 import { tempDir } from '../../packages/core/test/support.ts';
 
 const disposable = { dispose() {} };
@@ -204,14 +205,16 @@ export function sandboxEnv(prefix: string, tool: (name: string, at: (...p: strin
   const sandbox = realpathSync(tempDir(prefix));
   const at = (...p: string[]) => join(sandbox, ...p);
   for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
+  // On Windows the home is USERPROFILE too, and Windows makes a profile's AppData\Roaming in it the first
+  // time a program the extension starts asks for that folder. A real profile has it already, so this one does.
+  if (process.platform === 'win32') mkdirSync(at('home', 'AppData', 'Roaming'), { recursive: true });
   writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
   for (const name of SANDBOX_TOOLS) {
-    writeFileSync(at('bin', name), `#!/bin/sh\n${tool(name, at)}`);
-    chmodSync(at('bin', name), 0o755);
+    standIn(at('bin', name), `#!/bin/sh\n${tool(name, at)}`);
   }
   const saved = { ...process.env };
   Object.assign(process.env, {
-    HOME: at('home'), CLAUDE_CONFIG_DIR: at('home', '.claude'), PATH: `${at('bin')}:${process.env.PATH}`, NO_COLOR: '1',
+    HOME: at('home'), USERPROFILE: at('home'), CLAUDE_CONFIG_DIR: at('home', '.claude'), PATH: `${at('bin')}${delimiter}${process.env.PATH}`, NO_COLOR: '1',
     ACC_QUESTIONS_DIR: at('state', 'questions'), ACC_HEAVY_DIR: at('state', 'heavy'), ACC_MACHINE_FILE: at('state', 'machine.json'), ACC_REPOS_FILE: at('state', 'repos.json'),
     ACC_RUNTIME_FILE: at('state', 'runtime'), ACC_SLACK_DIR: at('state', 'slack'),
   });

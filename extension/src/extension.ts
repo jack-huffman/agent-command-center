@@ -6,6 +6,7 @@ import { Hub } from './hub.ts';
 import type { Answer } from '../../packages/core/src/questions.ts';
 import { agentArgs, withCloneAgents } from '../../packages/core/src/agents.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
+import { terminalShell } from '../../packages/core/src/shell.ts';
 import { resumeCommand } from '../../packages/core/src/resume.ts';
 import { reposInUse } from '../../packages/core/src/repos.ts';
 import { recordRuntime } from '../../packages/core/src/runtime.ts';
@@ -85,7 +86,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const terminals = new Map<string, vscode.Terminal>();
   const inTerminal = (command: string, cwd: string) => {
     let t = terminals.get(cwd);
-    if (!t || t.exitStatus) { t = vscode.window.createTerminal({ name: 'acc', cwd, iconPath: new vscode.ThemeIcon('terminal') }); terminals.set(cwd, t); }
+    if (!t || t.exitStatus) { t = vscode.window.createTerminal({ name: 'acc', cwd, iconPath: new vscode.ThemeIcon('terminal'), ...terminalShell() }); terminals.set(cwd, t); }
     t.show();
     t.sendText(command, true);
   };

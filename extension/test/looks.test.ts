@@ -587,7 +587,7 @@ test('the page draws each state with the one state chip: a ticket\'s page, its r
 
 const SOURCE_DIRS = ['extension/src', 'extension/webview'];
 const sources = (): { file: string; text: string }[] => SOURCE_DIRS.flatMap((d) => readdirSync(join(repo, d), { recursive: true, encoding: 'utf8' })
-  .filter((f) => f.endsWith('.ts')).map((f) => ({ file: relative(repo, join(repo, d, f)), text: readFileSync(join(repo, d, f), 'utf8') })));
+  .filter((f) => f.endsWith('.ts')).map((f) => ({ file: relative(repo, join(repo, d, f)).replaceAll('\\', '/'), text: readFileSync(join(repo, d, f), 'utf8') })));
 
 /** The text from an open bracket to its match. */
 function balanced(text: string, at: number): number {

@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { readLedger } from '../src/ledger.ts';
@@ -17,7 +17,7 @@ test('parallel writers never lose an update or corrupt the ledger', async () => 
   const repo = makeRepo();
   const cfg = JSON.stringify(parseConfig(JSON.parse(JSON.stringify(SF_CONFIG))).config);
   const worker = (n: number) => `
-    import * as core from ${JSON.stringify(coreSrc)};
+    import * as core from ${JSON.stringify(pathToFileURL(coreSrc).href)};
     const paths = core.repoPaths(${JSON.stringify(repo)}, core.run);
     const config = ${cfg};
     for (let i = 0; i < 15; i++) {

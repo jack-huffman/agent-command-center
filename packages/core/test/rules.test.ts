@@ -2,7 +2,7 @@
 // files, in one fixed order, and updated only when a person chooses.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { analysisPrompt } from '../src/analyze.ts';
 import { parseConfig } from '../src/config.ts';
@@ -44,7 +44,7 @@ test('a path is copied into .acc/rules/ under its own name, after a header namin
   const parsed = parseRulesFile(text);
   assert.equal(parsed.problem, null);
   assert.equal(parsed.body, ACME, 'the source\'s text follows the header unchanged');
-  assert.deepEqual(parsed.header, { source: `~/${file.slice(home.length + 1)}`, commit: null, copied: '2026-10-07', sha256: rulesDigest(ACME) }, 'a home path is written ~/…, never in full (D-079)');
+  assert.deepEqual(parsed.header, { source: `~/${file.slice(home.length + 1).split(sep).join('/')}`, commit: null, copied: '2026-10-07', sha256: rulesDigest(ACME) }, 'a home path is written ~/…, never in full (D-079)');
   assert.ok(!text.includes(home), 'no home path in the committed file');
   assert.equal(text, renderHeader(parsed.header!) + ACME, 'the header round-trips');
   assert.match(text.split('\n')[0]!, /^<!-- acc-rules v1: .*acc rules diff/);
