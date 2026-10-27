@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import type { Tracker } from '../../packages/core/src/config.ts';
 import { boardIds, outsideEvery, READS_AT_ONCE, readInTurn, sourceGroups } from '../src/logic/board-reads.ts';
 
-const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ name: null, site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, reaction: null, doneReaction: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epics: [], sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, changesField: null, ...t });
+const tracker = (t: Partial<Tracker> & Pick<Tracker, 'kind'>): Tracker => ({ name: null, site: null, project: null, repo: null, organization: null, account: null, workspace: null, channel: null, reaction: null, doneReaction: null, team: null, board: null, statusColumn: null, prefix: null, skipLabels: [], epics: [], sprint: null, queue: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, changesField: null, ...t });
 const ACME = tracker({ kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epics: ['ACME-3'] });
 
 const boardId = (t: Tracker): string => boardIds([t])[0]!;

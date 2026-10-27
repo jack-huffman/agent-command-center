@@ -323,12 +323,14 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const pickers: ConnectPicker[] = d.pickers.filter((p) => keyShown(`trackers[].${p.key}` as ConfigPath, unread)).map((p) => {
     const ps = s.pickers[p.key] ?? { options: [], selected: [], state: 'waiting', error: null };
     const fixed = !!s.existing && !!p.identifies;
+    // Set aside while another list has a choice (T-128): a queue board takes no epic, board or sprint.
+    const off = !!p.unless && !!s.pickers[p.unless]?.selected.length;
     // Starting a project from its place, the place is required: the whole project is Other project's (GH-81).
     const place = s.start && p.key === d.place.key;
     const whole = p.whole && !place ? p.whole({ host: s.host, values, labels }) : null;
     const pickerLook = fixed ? null : ps.state === 'loading' ? LOOK('Loading', 'sync~spin', 'blue')
       : ps.state === 'failed' ? LOOK(`Couldn't list them: ${ps.error ?? 'no answer'}${whole ? ' You can take the whole project now, and narrow it later.' : p.fallback ? ` ${p.fallback}` : ''}`, 'warning', 'orange')
-        : ps.state === 'ready' && !ps.options.length && !whole ? LOOK('None that this sign-in can see', 'warning', 'orange') : null;
+        : ps.state === 'ready' && !ps.options.length && !whole && !p.hideEmpty ? LOOK('None that this sign-in can see', 'warning', 'orange') : null;
     // A card's count is the board with its choice made (T-106): read once the page asks, as it draws the card.
     const counts = !!p.counts && !fixed && ok;
     const count = (v: string) => (counts ? cardCount(s.boards[placeKey(countValues(d.pickers, values, p.key, v))], p.key === d.place.key && !!v) : null);
@@ -342,9 +344,10 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
       key: p.key, label: p.label, multi: !!p.multi, whole, wholeCount: whole ? count('') : null, options, search: options.length > SEARCH_FROM, selected: ps.selected, look: pickerLook,
       used: used.length ? LOOK(`${used.map((o) => `${o.label}: ${o.usedBy}`).join('; ')}, so two repos would show ${used.every((o) => o.usedBy!.startsWith('overlaps')) ? 'some of ' : ''}the same tickets.`, 'warning', 'orange') : null,
       // One whose list failed needn't hold Save when the tracker does without it (Jira's first board).
-      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: place || (!p.whole && !p.multi && !(p.fallback && ps.state === 'failed')),
+      disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: !off && (place || (!p.whole && !p.multi && !(p.fallback && ps.state === 'failed'))),
       // Shown once there's a choice to make, or to say why its list couldn't be read.
-      hidden: !!p.hideSingle && ps.state !== 'failed' && options.length <= 1, hint: place ? d.place.words : p.hint ?? null,
+      // A list that's only drawn with something in it (T-128) waits unseen while it loads, and is drawn when it fails, to say why.
+      hidden: off || (!!p.hideSingle && ps.state !== 'failed' && options.length <= 1) || (!!p.hideEmpty && ps.state !== 'failed' && !options.length), hint: place ? d.place.words : p.hint ?? null,
     };
   });
   const ready = pickers.every((p) => p.fixed || !p.required || p.selected.length) && pickers.every((p) => p.look?.icon !== 'sync~spin');

@@ -60,6 +60,8 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * Then a project's several boards on the Tasks tab (T-127): two, on the first and switched to the second; four, with
  * the list of boards open and switched to the third; and ten across three Jira sites, the list open and filtered by
  * site, All boards with each folded but one, and switched to a board whose site's sign-in has run out.
+ * Then a project with two Jira Service Management queue boards (T-128), on the Tasks tab and in Settings' Trackers and
+ * sign-ins, and the Connect page with a service desk's queues as cards: two ticked, and a sign-in that isn't an agent's.
  */
 export const PAGES = [
   // The Command Center's sections
@@ -91,6 +93,7 @@ export const PAGES = [
   'tasks-monday',
   'tasks-github',
   'tasks-sprint',
+  'tasks-queues',
   'tasks-slack',
   'tasks-slack-refused',
   'tasks-slack-board',
@@ -221,12 +224,15 @@ export const PAGES = [
   'connect-github-board',
   'connect-github-access',
   'connect-jira-epics',
+  'connect-jira-queues',
+  'connect-jira-queues-refused',
   // Settings, with Notices in Slack at each state
   'slack-none',
   'slack-off',
   'slack-paused',
   'settings-agents',
   'settings-trackers',
+  'settings-queues',
   'settings-limits',
   'settings-about',
   'settings-about-failed',

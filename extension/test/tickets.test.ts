@@ -612,3 +612,24 @@ test('a ticket is busy while its job runs, and clear again, with the page told, 
   assert.equal(busy.has('/repo', 'ACME-1'), false, 'a job that throws leaves it clear');
   assert.deepEqual(told, ['/repo#acme-1:true', '/repo#acme-1:false', '/repo#ACME-1:true', '/repo#ACME-1:false']);
 });
+
+test('a comment from the ticket page on a queue board\'s ticket goes to the service desk request comment with public false, never Jira\'s own (D-177, T-128)', async () => {
+  const { JiraClient } = await import('../../packages/core/src/trackers/jira.ts');
+  const { deskQueues } = await import('../../packages/core/src/config.ts');
+  const { fakeJira } = await import('../../packages/core/test/support.ts');
+  const { calls, fetch: f } = fakeJira({ 'POST /rest/servicedeskapi/request/': { id: '1' } });
+  // The client as the extension builds it for a queue board (trackers.ts makeClient), and as the page's comment action calls it.
+  const trackers = [{ kind: 'jira', site: 'acme.atlassian.net', project: 'SUP', queue: 12 }, { kind: 'jira', site: 'acme.atlassian.net', project: 'SUP', queue: 14 }] as Parameters<typeof deskQueues>[0];
+  const client = new JiraClient({ site: 'acme.atlassian.net', project: 'SUP', email: 'e', token: 't', queues: deskQueues(trackers, trackers[0]!), fetch: f });
+  assert.equal(ticketActionRefusal('comment', false), null, 'the page lets a comment through, whether or not the tracker edits');
+  await client.comment('SUP-7', 'Looks **good**');
+  const posts = calls.filter((c) => c.method === 'POST');
+  assert.deepEqual(posts.map((c) => [c.path, c.body]), [['/rest/servicedeskapi/request/SUP-7/comment', { body: 'Looks **good**', public: false }]]);
+  assert.ok(!calls.some((c) => c.path.startsWith('/rest/api/3/issue/')), 'never Jira\'s own comment, which a customer would see');
+  // The page's route: its comment action calls the tracker's client comment, and nothing else posts a comment.
+  const page = readFileSync(new URL('../src/ticket.ts', import.meta.url), 'utf8');
+  assert.equal(page.match(/client\.comment\(/g)?.length, 1, 'one route for a comment on the page, the client\'s');
+  assert.ok(!/\/comment['"`]/.test(page), 'the page posts no comment path of its own');
+  const made = readFileSync(new URL('../src/trackers.ts', import.meta.url), 'utf8');
+  assert.match(made, /queues: deskQueues\(p\.config\.trackers, t\)/, 'a queue board\'s client knows its queues');
+});

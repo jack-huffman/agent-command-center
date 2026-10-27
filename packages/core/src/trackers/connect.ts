@@ -9,7 +9,8 @@ import { epicKeys, type Tracker } from '../config.ts';
 import { plural } from '../text.ts';
 import { AzureClient, azureAreas, azureBoards, azureProjects, azureTeams, azureWhoAmI, tenantOf } from './azure.ts';
 import { GITHUB_NO_PROJECT, githubBoard, GithubClient, type GithubProject, projectsAccess } from './github.ts';
-import { JiraClient, jiraBoards, jiraEpics, jiraProjects, jiraSprints } from './jira.ts';
+import { JiraClient, jiraBoards, jiraEpics, jiraProjects, jiraQueueList, jiraSprints } from './jira.ts';
+import { queueDetail } from './jira-queue.ts';
 import { MondayClient, mondayBoards, mondayGroups, mondayMe, mondayStatusColumns, mondayTokenPage } from './monday.ts';
 import { SLACK_APPS, SLACK_REACTIONS, slackApp, slackCanRead, slackChannels, SlackClient } from './slack.ts';
 import { type Exec, type Person, type Sprint, sprintDates, type TrackerClient, TrackerError } from './types.ts';
@@ -108,6 +109,10 @@ export interface PickerSpec {
   idValues?: boolean;
   /** Drawn only when there's a choice to make: a list of one is chosen without being shown. */
   hideSingle?: boolean;
+  /** Drawn only when its list holds something, or couldn't be read (T-128): a Jira project that isn't a service desk has no queues. */
+  hideEmpty?: boolean;
+  /** Not drawn, and not needed, while this other picker has a choice (T-128): a queue board takes no epic, board or sprint. */
+  unless?: string;
   /** What the tracker does without a choice, when its list couldn't load: then Save needn't wait for it. */
   fallback?: string;
   /** Each choice's card says how many tickets its board would hold (T-106), read when the card is drawn. */
@@ -163,6 +168,8 @@ export interface TrackerDescription {
   beforeSave?: (ctx: Ctx) => Promise<void>;
   /** The tracker as .acc/config.json keeps it. A key set to null is taken out of an existing one. */
   toConfig: (c: Chosen) => Record<string, unknown>;
+  /** More trackers the same choices make, each added beside it (T-128): a service desk's second and later queues. */
+  more?: (c: Chosen) => Record<string, unknown>[];
   /** An existing tracker's host and choices, to open it on the page. */
   fromConfig: (t: Tracker, ownRepo: string | null) => { host: string; values: Values };
 }
@@ -228,17 +235,23 @@ export const JIRA: TrackerDescription = {
   pickers: [
     { key: 'project', label: 'Project', dependsOn: [], identifies: true, load: async (ctx) => (await jiraProjects(ctx.host, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((p) => ({ value: p.key, label: p.key, detail: p.name })) },
     {
-      key: 'epics', label: 'Epics', dependsOn: ['project'], multi: true, whole: (c) => `The whole ${one(c.values.project) ?? ''} project`, counts: true,
+      // A service desk's queues (T-128), each its own board; a project that isn't a service desk has none, so it isn't drawn.
+      key: 'queues', label: 'Queues', dependsOn: ['project'], multi: true, hideEmpty: true, idValues: true,
+      hint: 'Tick queues to make each one a board of its own, with the tickets the queue holds. Tick none to take the project\'s epics instead.',
+      load: async (ctx) => ((await jiraQueueList(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)) ?? []).map((q) => ({ value: String(q.id), label: q.name, detail: queueDetail(q) })),
+    },
+    {
+      key: 'epics', label: 'Epics', dependsOn: ['project'], multi: true, unless: 'queues', whole: (c) => `The whole ${one(c.values.project) ?? ''} project`, counts: true,
       hint: 'Tick epics to take only their tickets and their sub-tasks. Tick none for the whole project.',
       load: async (ctx) => (await jiraEpics(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((e) => ({ value: e.key, label: e.key, detail: e.name })),
     },
     {
-      key: 'board', label: 'Board', dependsOn: ['project'], hint: 'Its columns are the Tasks tab\'s. Its own filter still applies, so pick one that shows the place\'s tickets.',
+      key: 'board', label: 'Board', dependsOn: ['project'], unless: 'queues', hint: 'Its columns are the Tasks tab\'s. Its own filter still applies, so pick one that shows the place\'s tickets.',
       fallback: 'Without one, the Tasks tab shows the project\'s first board.', counts: true,
       load: async (ctx) => (await jiraBoards(ctx.host, one(ctx.values.project)!, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)).map((b, i) => ({ value: String(b.id), label: b.name, detail: boardKind(b.type), preferred: i === 0 })),
     },
     {
-      key: 'sprint', label: 'Sprint', dependsOn: ['project', 'board'], idValues: true, whole: () => 'The whole board',
+      key: 'sprint', label: 'Sprint', dependsOn: ['project', 'board'], idValues: true, unless: 'queues', whole: () => 'The whole board',
       hint: 'Follow the active sprint, whichever it is, or one sprint. The whole board shows its backlog and every sprint.',
       fallback: 'Without one, the Tasks tab shows the whole board.',
       load: async (ctx) => jiraSprintOptions(await jiraSprints(ctx.host, one(ctx.values.project)!, one(ctx.values.board) ? Number(one(ctx.values.board)) : null, jiraWith(ctx).email, jiraWith(ctx).token, ctx.fetch)),
@@ -249,12 +262,31 @@ export const JIRA: TrackerDescription = {
   preview: (ctx) => {
     const project = one(ctx.values.project);
     const board = one(ctx.values.board);
+    // Queues ticked (T-128): the first one's board, as its own tracker shows it.
+    const queues = queueValues(ctx.values.queues);
+    if (project && queues.length) return new JiraClient({ site: ctx.host, project, ...jiraWith(ctx), queues, fetch: ctx.fetch });
     return project ? new JiraClient({ site: ctx.host, project, ...jiraWith(ctx), board: board ? Number(board) : null, epics: many(ctx.values.epics), sprint: sprintValue(one(ctx.values.sprint)), fetch: ctx.fetch }) : null;
   },
   // Its epics as the file keeps them (T-107): one as "epic", several as "epics", and the other taken out.
-  toConfig: (c) => ({ kind: 'jira', site: c.host, project: one(c.values.project), board: one(c.values.board) ? Number(one(c.values.board)) : null, ...epicKeys(many(c.values.epics)), sprint: sprintValue(one(c.values.sprint)) }),
-  fromConfig: (t) => ({ host: t.site ?? '', values: { project: t.project, epics: t.epics.length ? t.epics : null, board: t.board === null ? null : String(t.board), sprint: t.sprint === null ? null : String(t.sprint) } }),
+  // A queue ticked (T-128) is a queue board: no board, epics or sprint, which its JQL stands in for.
+  toConfig: (c) => {
+    const queue = queueValues(c.values.queues)[0];
+    if (queue) return queueConfig(c, queue);
+    return { kind: 'jira', site: c.host, project: one(c.values.project), board: one(c.values.board) ? Number(one(c.values.board)) : null, ...epicKeys(many(c.values.epics)), sprint: sprintValue(one(c.values.sprint)), queue: null };
+  },
+  // Each queue after the first is a tracker of its own, so the Tasks tab lists each as a board (T-128).
+  more: (c) => queueValues(c.values.queues).slice(1).map((q) => queueConfig(c, q)),
+  fromConfig: (t) => ({
+    host: t.site ?? '',
+    values: { project: t.project, queues: t.queue === null ? null : [String(t.queue)], epics: t.epics.length ? t.epics : null, board: t.board === null ? null : String(t.board), sprint: t.sprint === null ? null : String(t.sprint) },
+  }),
 };
+
+/** The queues ticked (T-128), as ids, in the order ticked. */
+const queueValues = (v: string | string[] | null | undefined): number[] => many(v).filter((x) => /^\d+$/.test(x)).map(Number);
+
+/** A queue board as the file keeps it (T-128): the site, the project and the queue, with no board, epics or sprint. */
+const queueConfig = (c: Chosen, queue: number): Record<string, unknown> => ({ kind: 'jira', site: c.host, project: one(c.values.project), queue, board: null, epic: null, epics: null, sprint: null });
 
 /** A Jira board's kind as its card says it (T-106): Scrum or Kanban, else Jira's own word. */
 export const boardKind = (type: string): string => ({ scrum: 'Scrum', kanban: 'Kanban', simple: 'Team-managed' } as Record<string, string>)[type.toLowerCase()] ?? type;

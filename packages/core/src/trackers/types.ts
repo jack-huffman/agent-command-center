@@ -147,9 +147,10 @@ export interface BoardCard {
 export interface Board {
   /**
    * What the columns come from: a Jira board, a GitHub Project, GitHub's open and closed, a monday.com board's
-   * status column, or a Slack channel's messages marked with a reaction, Open and Done (T-85).
+   * status column, a Slack channel's messages marked with a reaction, Open and Done (T-85), or a Jira Service
+   * Management queue, whose columns are its tickets' statuses (T-128).
    */
-  source: 'jira-board' | 'github-project' | 'github-state' | 'azure-board' | 'monday-board' | 'slack';
+  source: 'jira-board' | 'jira-queue' | 'github-project' | 'github-state' | 'azure-board' | 'monday-board' | 'slack';
   title: string;
   url: string | null;
   columns: BoardColumn[];
@@ -310,6 +311,8 @@ export function placeText(p: {
   epics?: string[]; epicNames?: (string | null)[];
   /** A Jira board's sprint (T-78): "active" or an id, from the config, and once the board has loaded, the sprints it found. */
   sprint?: 'active' | number | null; sprints?: Sprint[] | null;
+  /** A Jira Service Management queue board (T-128): the queue's id, and once the board has loaded, its name and its service desk's. */
+  queue?: number | null; queueName?: string | null; deskName?: string | null;
   account?: string | null; board?: string | number | null; boardName?: string | null; group?: string | null; groupName?: string | null;
   workspace?: string | null; channel?: string | null;
 }): string {
@@ -320,6 +323,8 @@ export function placeText(p: {
     return `GitHub · ${p.repo ?? '?'}${labels.length ? ` · label${labels.length > 1 ? 's' : ''} ${orList(labels)}` : ''}`;
   }
   if (p.kind === 'jira') {
+    // A queue board (T-128): "Jira · ACME · service desk Acme Support · queue Unassigned issues".
+    if (p.queue) return `Jira · ${p.project ?? '?'}${p.deskName ? ` · service desk ${p.deskName}` : ''} · queue ${p.queueName ?? p.queue}`;
     const epics = (p.epics ?? []).map((e, i) => (p.epicNames?.[i] ? `${e} ${p.epicNames[i]}` : e));
     return `Jira · ${p.project ?? '?'}${epics.length ? ` · ${epicWords(epics)}` : ''}${p.sprint ? ` · ${sprintPlace(p.sprint, p.sprints ?? null)}` : ''}`;
   }

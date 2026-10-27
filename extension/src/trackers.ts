@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
-import { type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
+import { deskQueues, type Tracker, trackerForKey } from '../../packages/core/src/config.ts';
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
 import { startFile } from '../../packages/core/src/start.ts';
 import type { IntakeResult } from '../../packages/core/src/intake.ts';
@@ -162,7 +162,7 @@ export class Trackers implements vscode.Disposable {
 
   /** Where a tracker's tickets come from, as its config says (D-072). */
   place(t: Tracker): string {
-    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epics: t.epics, sprint: t.sprint, labels: t.labels, areaPath: t.areaPath, account: t.account, board: t.board, group: t.group, workspace: t.workspace, channel: t.channel });
+    return placeText({ kind: t.kind, project: t.project, repo: t.repo, team: t.team, epics: t.epics, sprint: t.sprint, queue: t.queue, labels: t.labels, areaPath: t.areaPath, account: t.account, board: t.board, group: t.group, workspace: t.workspace, channel: t.channel });
   }
 
   /**
@@ -293,7 +293,7 @@ export class Trackers implements vscode.Disposable {
     }
     if (t.kind === 'jira') {
       if (!c || c.kind !== 'jira') throw new TrackerError('auth', `Sign in to Jira (${t.site}) for this repo to see its board and tickets.`);
-      return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epics: t.epics, sprint: t.sprint });
+      return new JiraClient({ site: t.site!, project: t.project!, email: c.email, token: c.token, board: typeof t.board === 'number' ? t.board : null, epics: t.epics, sprint: t.sprint, queues: deskQueues(p.config.trackers, t) });
     }
     if (t.kind === 'monday') {
       if (!c || c.kind !== 'monday') throw new TrackerError('auth', `Sign in to monday.com (${t.account}) for this repo to see its board and items.`);

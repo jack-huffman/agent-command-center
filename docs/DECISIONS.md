@@ -217,3 +217,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-207](decisions/D-207-report-a-problem.md) | Report a problem: a person drafts a GitHub issue from the Command Center, sees exactly what it says, and posts it | 2026-10-27 |
 | [D-208](decisions/D-208-setup-without-production-access.md) | A person with no access to Production still sets up a Salesforce project and uses the Command Center | 2026-10-27 |
 | [D-209](decisions/D-209-acc-runs-natively-on-mac-and-windows.md) | acc runs natively on a Mac and on Windows, with no WSL | 2026-10-27 |
+| [D-210](decisions/D-210-a-jira-service-management-queue-is-a-board.md) | A Jira Service Management queue is a board a project holds, and acc's comments on its tickets stay internal | 2026-10-27 |

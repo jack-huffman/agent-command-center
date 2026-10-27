@@ -4,6 +4,7 @@
  */
 import { type AdfNode, adfUnkept, fromAdf, fromMarkdown, toAdf, toMarkdown, unkeptRefusal } from './doc.ts';
 import { fieldMarkdown, fieldValue } from './fields.ts';
+import { isServiceDesk, type JiraQueue, jiraQueues, type JiraReq, queuesJql, queueWords, serviceDeskName, splitJql, statusColumns } from './jira-queue.ts';
 import { isEmail, typeKindOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, epicWords, inBatches, type Label, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Sprint,
@@ -23,6 +24,11 @@ export interface JiraOptions {
   epics?: string[];
   /** "active" for the board's open sprints, or a sprint's id: only its tickets count, with or without an epic (T-78). By default, the whole board. */
   sprint?: 'active' | number | null;
+  /**
+   * A Jira Service Management queue board (T-128): its queue's id first, then the ids of the project's other
+   * queue boards. The board shows the first queue's tickets; a ticket in any of them is in the place.
+   */
+  queues?: number[];
   fetch?: typeof fetch;
 }
 
@@ -76,6 +82,12 @@ export class JiraClient implements TrackerClient {
   private readonly sprint: 'active' | number | null;
   private boardIdCache: Promise<number> | null = null;
   private sprintsCache: Promise<Sprint[]> | null = null;
+  private readonly queues: number[];
+  private queuesCache: Promise<JiraQueue[]> | null = null;
+  /** Whether each project, by key, is a service desk, whose comments acc posts as internal (T-128). */
+  private readonly desks = new Map<string, Promise<boolean>>();
+  /** Its requests, for the queue helpers in jira-queue.ts (T-128). */
+  private readonly ask: JiraReq = (m, p, b) => this.req(m, p, b);
 
   constructor(o: JiraOptions) {
     this.o = o;
@@ -83,7 +95,8 @@ export class JiraClient implements TrackerClient {
     this.title = `Jira · ${o.project}`;
     this.epics = [...new Set((o.epics ?? []).map((e) => e.trim().toUpperCase()).filter(Boolean))];
     this.sprint = o.sprint ?? null;
-    this.place = placeText({ kind: 'jira', project: o.project, epics: this.epics, sprint: this.sprint });
+    this.queues = [...new Set(o.queues ?? [])];
+    this.place = placeText({ kind: 'jira', project: o.project, epics: this.epics, sprint: this.sprint, queue: this.queues[0] ?? null });
   }
 
   /**
@@ -138,6 +151,35 @@ export class JiraClient implements TrackerClient {
     return this.sprint === 'active' ? 'the active sprint' : `sprint ${found[0]?.name ?? this.sprint}`;
   }
 
+  /**
+   * The queues the place is held to (T-128), in the order the options name them: the board's first. Read once
+   * per client; a failed read is tried again next time. A queue the service desk no longer has says so.
+   */
+  private queueList(): Promise<JiraQueue[]> {
+    this.queuesCache ??= (async () => {
+      const all = await jiraQueues(this.ask, this.o.project, false);
+      if (!all) throw new TrackerError('not-found', `${this.o.project} isn't a Jira Service Management service desk now, so it has no queues. Pick another board with Change.`);
+      return this.queues.map((id) => {
+        const q = all.find((x) => x.id === id);
+        if (!q) throw new TrackerError('not-found', `Queue ${id} isn't in the ${this.o.project} service desk now, or this sign-in can't see it. Pick another board with Change.`);
+        return q;
+      });
+    })();
+    const read = this.queuesCache;
+    read.catch(() => {
+      if (this.queuesCache === read) this.queuesCache = null;
+    });
+    return read;
+  }
+
+  /** Why a ticket in the project is outside the queues (T-128): none of their JQL picks it out. Null when one does. */
+  private async outsideQueues(key: string): Promise<string | null> {
+    const queues = await this.queueList();
+    const jql = `key = ${key.toUpperCase()} AND ${queuesJql(queues)}`;
+    const r = await this.req<{ issues: { key: string }[] }>('GET', `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=key&maxResults=1`);
+    return r.issues.length ? null : `it isn't in ${queueWords(queues.map((q) => q.name))}`;
+  }
+
   /** Why a ticket in the project and epic is still outside the sprint (T-78), or null when it's in it or no sprint is set. */
   private async outsideSprint(key: string): Promise<string | null> {
     if (this.sprint === null) return null;
@@ -157,6 +199,7 @@ export class JiraClient implements TrackerClient {
     const project = projectOf(i);
     if (project !== this.o.project.toUpperCase()) return i.key.toUpperCase() !== asked.toUpperCase() ? `it moved to ${i.key}, in project ${project}` : `it's in project ${project}`;
     if (projectOnly) return null;
+    if (this.queues.length) return this.outsideQueues(i.key);
     if (!this.epics.length) return this.outsideSprint(i.key);
     if (this.epics.includes(i.key.toUpperCase())) return 'it\'s the epic itself, and only the tickets in it count';
     const parent = i.fields.parent?.key?.toUpperCase();
@@ -214,6 +257,7 @@ export class JiraClient implements TrackerClient {
   }
 
   async board(): Promise<Board> {
+    if (this.queues.length) return this.queueBoard();
     const id = await this.boardId();
     const [config, statuses, epicNames, sprints] = await Promise.all([
       this.req<{ name: string; columnConfig: { columns: { name: string; statuses: { id: string }[] }[] } }>('GET', `/rest/agile/1.0/board/${id}/configuration`),
@@ -245,11 +289,7 @@ export class JiraClient implements TrackerClient {
       }
       issues = [...children, ...subtasks];
     }
-    const cards: BoardCard[] = issues.map((i) => ({
-      key: i.key, title: i.fields.summary, url: `${this.base}/browse/${i.key}`, status: status(i.fields.status),
-      type: i.fields.issuetype?.name ?? null, typeKind: typeKindOf(i.fields.issuetype?.name, !!i.fields.issuetype?.subtask), typeColor: null, assignees: i.fields.assignee ? [person(i.fields.assignee)] : [],
-      labels: (i.fields.labels ?? []).map((name): Label => ({ name, color: null })), ...priorityOf(i.fields.priority),
-    }));
+    const cards: BoardCard[] = issues.map((i) => this.card(i));
     // The board's filter and the place both apply, so a filter that leaves the epic's tickets out shows nothing.
     const notice = noSprint
       ? NO_ACTIVE_SPRINT
@@ -260,6 +300,49 @@ export class JiraClient implements TrackerClient {
       source: 'jira-board', title: config.name, url: `${this.base}/jira/software/projects/${encodeURIComponent(this.o.project)}/boards/${id}`, columns, cards, notice,
       place: placeText({ kind: 'jira', project: this.o.project, epics: this.epics, epicNames, sprint: this.sprint, sprints }),
       ...(sprints ? { sprints } : {}),
+    };
+  }
+
+  /**
+   * A queue's board (T-128): the tickets its JQL picks out in the project, in the queue's own order, through
+   * Jira's search. Its columns are their statuses, in the order of their category.
+   */
+  private async queueBoard(): Promise<Board> {
+    const [queues, desk] = await Promise.all([this.queueList(), serviceDeskName(this.ask, this.o.project)]);
+    const q = queues[0]!;
+    const { filter, order } = splitJql(q.jql);
+    // Held to the project as well, so a queue's JQL that spans projects shows only this one's (D-072).
+    const jql = `project = ${jqlString(this.o.project)}${filter ? ` AND (${filter})` : ''}${order ? ` ${order}` : ''}`;
+    const project = this.o.project.toUpperCase();
+    const issues = (await this.searchIssues(jql, MAX_CARDS)).filter((i) => projectOf(i) === project);
+    const cards: BoardCard[] = issues.map((i) => this.card(i));
+    return {
+      source: 'jira-queue', title: q.name, url: `${this.base}/jira/servicedesk/projects/${encodeURIComponent(this.o.project)}/queues/custom/${q.id}`,
+      columns: statusColumns(cards.map((c) => c.status)), cards,
+      notice: cards.length ? null : `The queue ${q.name} holds no tickets now. When one comes in, it shows here.`,
+      place: placeText({ kind: 'jira', project: this.o.project, queue: q.id, queueName: q.name, deskName: desk }),
+    };
+  }
+
+  /** The issues a JQL query picks out, up to `max`, through Jira's search, page by page. */
+  private async searchIssues(jql: string, max: number): Promise<BoardIssue[]> {
+    const out: BoardIssue[] = [];
+    let token: string | null = null;
+    while (out.length < max) {
+      const page: { issues: BoardIssue[]; nextPageToken?: string; isLast?: boolean } = await this.req('GET', `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=${Math.min(100, max - out.length)}&fields=summary,status,assignee,issuetype,priority,labels,project,parent${token ? `&nextPageToken=${encodeURIComponent(token)}` : ''}`);
+      out.push(...page.issues);
+      if (page.isLast !== false || !page.nextPageToken || !page.issues.length) break;
+      token = page.nextPageToken;
+    }
+    return out.slice(0, max);
+  }
+
+  /** A board's card from an issue. */
+  private card(i: BoardIssue): BoardCard {
+    return {
+      key: i.key, title: i.fields.summary, url: `${this.base}/browse/${i.key}`, status: status(i.fields.status),
+      type: i.fields.issuetype?.name ?? null, typeKind: typeKindOf(i.fields.issuetype?.name, !!i.fields.issuetype?.subtask), typeColor: null, assignees: i.fields.assignee ? [person(i.fields.assignee)] : [],
+      labels: (i.fields.labels ?? []).map((name): Label => ({ name, color: null })), ...priorityOf(i.fields.priority),
     };
   }
 
@@ -348,9 +431,32 @@ export class JiraClient implements TrackerClient {
     await this.req('POST', `/rest/api/3/issue/${encodeURIComponent(key)}/transitions`, { transition: { id: t.id } });
   }
 
+  /**
+   * A comment on a service desk's ticket is internal, never shown to the customer (T-128): posted as a request
+   * comment with public false, since Jira's own comment can't be made internal. Any other ticket's is Jira's
+   * own comment, in ADF. A queue board's tickets are a service desk's without asking.
+   */
   async comment(key: string, markdown: string): Promise<void> {
     if (!markdown.trim()) throw new TrackerError('refused', 'The comment is empty.');
+    if (await this.onServiceDesk(key)) {
+      await this.req('POST', `/rest/servicedeskapi/request/${encodeURIComponent(key)}/comment`, { body: markdown.trim(), public: false });
+      return;
+    }
     await this.req('POST', `/rest/api/3/issue/${encodeURIComponent(key)}/comment`, { body: toAdf(fromMarkdown(markdown)) });
+  }
+
+  /** Whether a ticket is a service desk's (T-128), by its key's project: asked once per project per client. */
+  private onServiceDesk(key: string): Promise<boolean> {
+    const project = key.toUpperCase().replace(/-\d+$/, '');
+    if (this.queues.length && project === this.o.project.toUpperCase()) return Promise.resolve(true);
+    let known = this.desks.get(project);
+    if (!known) {
+      known = isServiceDesk(this.ask, project);
+      this.desks.set(project, known);
+      // A failed read is asked again next time, and fails the comment: never posted where a customer might see it.
+      known.catch(() => this.desks.delete(project));
+    }
+    return known;
   }
 
   /**
@@ -435,6 +541,15 @@ export async function jiraEpics(site: string, project: string, email: string, to
   const jql = `project = ${jqlString(project)} AND issuetype = Epic AND statusCategory != Done ORDER BY created DESC`;
   const r = await c.req<{ issues: { key: string; fields: { summary?: string } }[] }>('GET', `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&fields=summary&maxResults=100`);
   return r.issues.map((i) => ({ key: i.key, name: i.fields.summary ?? '' }));
+}
+
+/**
+ * A project's Jira Service Management queues, each with how many tickets it holds, for picking queue boards
+ * (T-128). Null when the project isn't a service desk; a sign-in that isn't an agent's is refused in plain words.
+ */
+export async function jiraQueueList(site: string, project: string, email: string, token: string, f: typeof fetch = fetch): Promise<JiraQueue[] | null> {
+  const c = new JiraClient({ site, project, email, token, fetch: f }) as unknown as { req: JiraReq };
+  return jiraQueues((m, p, b) => c.req(m, p, b), project);
 }
 
 export async function jiraBoards(site: string, project: string, email: string, token: string, f: typeof fetch = fetch): Promise<{ id: number; name: string; type: string }[]> {
