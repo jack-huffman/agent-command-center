@@ -14,7 +14,7 @@ export interface InitOptions {
   project?: string;
   productionOrg?: string;
   /**
-   * A Salesforce project set up without access to Production (D-T-125): its environments are the sandboxes
+   * A Salesforce project set up without access to Production (D-208): its environments are the sandboxes
    * logged in on this My Domain, and Production has no org. Not with productionOrg.
    */
   myDomain?: string;

@@ -281,7 +281,7 @@ export function productionOrgs(sfOrgList: unknown): string[] {
 export interface InitChoice {
   profile?: 'salesforce' | 'generic';
   productionOrg?: string;
-  /** Without access to Production (D-T-125): the My Domain whose logged-in sandboxes are the environments. */
+  /** Without access to Production (D-208): the My Domain whose logged-in sandboxes are the environments. */
   myDomain?: string;
   from?: string;
 }

@@ -1,4 +1,4 @@
-/** A machine that isn't logged in to the sample project's Production (D-T-125), as the last Setup check found it. */
+/** A machine that isn't logged in to the sample project's Production (D-208), as the last Setup check found it. */
 import { PRODUCTION_NOT_HERE } from '../../../packages/core/src/sf-discovery.ts';
 import type { DoctorItem } from '../../src/logic/setup.ts';
 import { ROOT } from './shared.ts';

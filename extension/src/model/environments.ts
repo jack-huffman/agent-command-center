@@ -11,7 +11,7 @@ import { settingsKey } from './settings.ts';
 
 export { promotionPaths };
 
-/** Why Production's org controls are disabled on a machine that isn't logged in to it (D-T-125). */
+/** Why Production's org controls are disabled on a machine that isn't logged in to it (D-208). */
 export const PRODUCTION_AWAY = 'This machine isn\'t logged in to Production. Someone with access to Production opens and deploys it.';
 
 // ---------------------------------------------------------------- the repo's GitHub identity (D-028)
@@ -92,7 +92,7 @@ export function environmentsModel(hub: HubLike, identity: (root: string) => Iden
       envs: inPromotionOrder(p.config.environments).map((e) => {
         const ref: Ref = { project: p.root, env: e.branch };
         const actions: Action[] = [];
-        // Production with no org here, or one the last Setup check found isn't logged in (D-T-125): its org
+        // Production with no org here, or one the last Setup check found isn't logged in (D-208): its org
         // controls are off and say why, rather than fail when used.
         const away = p.config.profile === 'salesforce' && e.type === 'production' && (!e.org || notHere(p.root, e.branch)) ? PRODUCTION_AWAY : undefined;
         if (e.org || away) actions.push({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref, ...(away ? { disabled: away } : {}) });

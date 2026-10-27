@@ -243,7 +243,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'overview-landing' || kind === 'overview-answer' || kind === 'overview-drafts' || kind === 'overview-history' || kind === 'overview-since' || OVERVIEW_LISTS[kind]) {
     return homeModel({ hub: sampleLandingHub(now), section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleLandingRuns(), edited: sampleEdited, slack: sampleSlack('on', now), autopilot: () => 'on', now, ...(kind === 'overview-since' ? { since: sampleSince() } : {}) });
   }
-  // Environments where the last Setup check found this machine isn't logged in to Production (D-T-125).
+  // Environments where the last Setup check found this machine isn't logged in to Production (D-208).
   if (kind === 'environments-away') {
     return homeModel({ hub: sampleHub(now), section: 'environments', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetupWithoutProduction(), runs: [], theme, now });
   }

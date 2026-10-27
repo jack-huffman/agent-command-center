@@ -81,7 +81,7 @@ export const PAGES = [
   'queue-off',
   'queue-held',
   'rules',
-  // Environments on a machine that isn't logged in to Production (D-T-125): its Open org and Deploy… off, with why
+  // Environments on a machine that isn't logged in to Production (D-208): its Open org and Deploy… off, with why
   'environments-away',
   'rules-accept',
   // The Tasks tab: each tracker's board, the agent board, the person filter and the first steps

@@ -324,7 +324,7 @@ export function loadTemplate(run: Runner, source: string, opts: FetchOptions & {
  * The template's environments over the discovered ones (D-097). A generic project takes the template's as
  * they are. In a Salesforce project, Production's sandbox list decides which environments exist and their
  * types; the template's promotesTo, default and protected win for each sandbox it names. What doesn't
- * match either way is said in a note. Set up without Production (D-T-125), the logged-in sandboxes decide
+ * match either way is said in a note. Set up without Production (D-208), the logged-in sandboxes decide
  * which exist, and `guessed` names the branches whose type was guessed: the template's type wins for those.
  */
 export function overlayEnvironments(tEnvs: TemplateEnvironment[], base: RawEnv[], profile: Profile, notes: string[], guessed: Set<string> | null = null): RawEnv[] {
@@ -505,7 +505,7 @@ export function previewCommand(t: Template | null, record: TemplateRecord, confi
     'acc init --from', quoted(record.source),
     ...(t?.profile ? [] : ['--profile', config.profile]),
     // A project turning Salesforce has no Production org yet: the command names where it goes. One set up
-    // without Production (D-T-125) has Production with no org, and is previewed the same way.
+    // without Production (D-208) has Production with no org, and is previewed the same way.
     ...(profile === 'salesforce' ? (env && !prod ? ['--my-domain', '<my-domain>'] : ['--production-org', prod ? quoted(prod) : '<production-org-alias>']) : []),
     '--dry-run',
   ].join(' ');

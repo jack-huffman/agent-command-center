@@ -49,7 +49,7 @@ export function actionButton(a: Action): HTMLElement {
   const b = el('button', `btn${a.primary ? ' primary' : ''}${a.danger ? ' danger' : ''}`, icon(a.icon), a.label) as HTMLButtonElement;
   b.type = 'button';
   b.title = a.disabled ? `${a.label}: ${a.disabled}` : explains(a.command, a.label);
-  // One that can't run here, such as Production's Open org on a machine not logged in to it (D-T-125), says why.
+  // One that can't run here, such as Production's Open org on a machine not logged in to it (D-208), says why.
   if (a.disabled) {
     b.disabled = true;
     b.setAttribute('aria-description', a.disabled);

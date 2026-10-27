@@ -77,7 +77,7 @@ export interface HomeInput {
   boards: (root: string) => BoardInput[];
   identity: (root: string) => IdentityCard | null;
   /** setUp: whether the folder has a .acc/config.json (GH-138); left out, it's taken as set up. */
-  setup: { items: DoctorItem[]; confirmed: Set<string>; setUp?: boolean | null; /** The folder the items were checked in (D-T-125). */ root?: string | null };
+  setup: { items: DoctorItem[]; confirmed: Set<string>; setUp?: boolean | null; /** The folder the items were checked in (D-208). */ root?: string | null };
   runs?: RunInput[];
   /** The edit a task's page holds for an update, unsent, following the drafts it replaced. */
   edited?: (root: string, id: string, replaces: string[]) => string | null;

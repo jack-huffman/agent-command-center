@@ -39,7 +39,7 @@ function fakeSf(byName: Record<string, string>, orgFiles: Record<string, Record<
       for (const [f, text] of Object.entries(orgFiles[org]!)) write(opts!.cwd!, f, text);
       return ok(JSON.stringify({ status: 0, result: { files: [] } }));
     }
-    // An org with files is logged in; Production's is checked before its branch is made (D-T-125).
+    // An org with files is logged in; Production's is checked before its branch is made (D-208).
     if (a[0] === 'org' && a[1] === 'display') {
       const org = a[a.indexOf('-o') + 1]!;
       return orgFiles[org] ? ok(JSON.stringify({ status: 0, result: { instanceUrl: 'https://acme.my.salesforce.com' } })) : { code: 1, stdout: JSON.stringify({ status: 1, message: `No authorization information found for ${org}.` }), stderr: '' };

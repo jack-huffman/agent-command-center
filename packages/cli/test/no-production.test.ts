@@ -1,4 +1,4 @@
-// acc init --my-domain and acc setup production (D-T-125), run from source with a stand-in sf on PATH.
+// acc init --my-domain and acc setup production (D-208), run from source with a stand-in sf on PATH.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

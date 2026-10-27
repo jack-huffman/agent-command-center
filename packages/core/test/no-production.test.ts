@@ -1,5 +1,5 @@
 // A person with no access to Production still sets up a Salesforce project and uses the Command Center
-// (D-T-125): Setup's steps pass on the rest, acc init finds the environments from one My Domain's logged-in
+// (D-208): Setup's steps pass on the rest, acc init finds the environments from one My Domain's logged-in
 // sandboxes, and someone with access records Production's org later.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';

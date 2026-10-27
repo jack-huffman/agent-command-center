@@ -198,7 +198,7 @@ function cmdSetup(o: Opts, what: string | undefined): number {
     return failed.length ? 1 : 0;
   }
   if (what === 'production') {
-    // Someone with access to Production records its org in a project set up without it (D-T-125).
+    // Someone with access to Production records its org in a project set up without it (D-208).
     const org = o.org as string | undefined;
     if (!org) throw new AccError('usage', 'acc setup production --org <alias>: the alias you\'re logged in to Production as.');
     const r = recordProduction(run, paths, config, org);

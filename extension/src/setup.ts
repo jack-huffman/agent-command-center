@@ -112,7 +112,7 @@ export class Setup implements vscode.Disposable {
     return this.folder()?.uri.fsPath ?? homedir();
   }
 
-  /** The folder the project's checks run in, null with none open: results() are its project's (D-T-125). */
+  /** The folder the project's checks run in, null with none open: results() are its project's (D-208). */
   root(): string | null {
     return this.folder()?.uri.fsPath ?? null;
   }
@@ -496,7 +496,7 @@ export class Setup implements vscode.Disposable {
       }
       const u = parseOrgUrl(url);
       const ok = r.code === 0 && (e.type === 'production' ? u.kind === 'production' : u.kind === 'sandbox' && u.sandbox === e.branch);
-      // Production not logged in isn't needed for setting up or building (D-T-125), so it's listed last.
+      // Production not logged in isn't needed for setting up or building (D-208), so it's listed last.
       const away = r.code !== 0 && e.type === 'production';
       const why = away ? 'Not logged in, and not needed for setting up or building: someone with access to Production looks after it' : r.code !== 0 ? 'Not logged in' : ok ? 'Logged in to the right org' : u.kind === 'sandbox' ? `Points at the "${u.sandbox}" sandbox` : 'Points at a different org';
       return { e, u, ok, away, why };
@@ -593,7 +593,7 @@ export class Setup implements vscode.Disposable {
   }
 
   /**
-   * Which logged-in org is Production, or, for a person without access to it (D-T-125), which My Domain's
+   * Which logged-in org is Production, or, for a person without access to it (D-208), which My Domain's
    * logged-in sandboxes to use. Undefined when the person backed out, or went to log in to another org.
    */
   private async pickProduction(): Promise<Pick<InitChoice, 'productionOrg' | 'myDomain'> | undefined> {

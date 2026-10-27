@@ -95,7 +95,7 @@ const devEnvs = (ctx: CheckContext): Environment[] =>
   sfEnvs(ctx).filter((e) => (e.type === 'developer' || e.type === 'developer_pro') && e.org);
 
 /**
- * Production, when this machine has no org for it or isn't logged in to its org (D-T-125): a person without
+ * Production, when this machine has no org for it or isn't logged in to its org (D-208): a person without
  * access to Production still sets up and builds, so the steps that read it pass on the rest. Null when
  * Production is logged in here, or there's none.
  */
@@ -634,7 +634,7 @@ export const STEPS: Step[] = [
       const need = needsProject(ctx);
       if (need) return need;
       const missing = ctx.config!.environments.filter((e) => !hasBranch(ctx, e.branch));
-      // Production's branch is retrieved from Production: without it here, someone with access makes it (D-T-125).
+      // Production's branch is retrieved from Production: without it here, someone with access makes it (D-208).
       const away = ctx.config!.profile === 'salesforce' ? missing.find((e) => e.type === 'production' && productionAway(ctx)) : undefined;
       const rest = missing.filter((e) => e !== away);
       if (rest.length) return fail(`No branch for ${rest.map((e) => e.branch).join(', ')}.`);
@@ -653,7 +653,7 @@ export const STEPS: Step[] = [
       const ok: string[] = [];
       let away = '';
       for (const e of sfEnvs(ctx)) {
-        // No org for Production here, or not logged in to it, isn't a problem: a wrong org still is (D-T-125).
+        // No org for Production here, or not logged in to it, isn't a problem: a wrong org still is (D-208).
         if (e.type === 'production' && productionAway(ctx)) { away = `${e.branch}: ${PRODUCTION_NOT_HERE}`; ok.push(away); continue; }
         if (!e.org) { problems.push(`${e.name} has no org alias.`); continue; }
         const d = sfJson(ctx, ['org', 'display', '-o', e.org]);
@@ -731,7 +731,7 @@ export const STEPS: Step[] = [
         counts.push(`${paths.length} ${label}`);
       }
       // The lists are drafted against production's branch: without it, and without Production here to make
-      // it, Do it can't run, so the step waits for someone with access (D-T-125).
+      // it, Do it can't run, so the step waits for someone with access (D-208).
       const prod = ctx.config!.environments.find((e) => e.type === 'production');
       if (problems.length && prod && !hasBranch(ctx, prod.branch) && productionAway(ctx)) {
         return skip(`They're drafted from how each sandbox differs from ${prod.branch}'s branch, which is retrieved from Production. ${PRODUCTION_NOT_HERE}`);

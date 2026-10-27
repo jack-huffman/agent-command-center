@@ -1,4 +1,4 @@
-// Setting up and using the Command Center without access to Production (D-T-125): B0.config's Do it asks
+// Setting up and using the Command Center without access to Production (D-208): B0.config's Do it asks
 // which org is Production, or which My Domain's logged-in sandboxes to use, and the Environments page knows
 // when this machine isn't logged in to Production.
 import { listedOrgs, PRODUCTION_NOT_HERE, sandboxAliases } from '../../../packages/core/src/sf-discovery.ts';
@@ -69,7 +69,7 @@ export function productionNext(pick: ProductionChoice | undefined, sfOrgList: un
 export const asksProduction = (shown: string | null | undefined, picked: string | undefined): boolean => (shown ?? picked) === 'salesforce';
 
 /**
- * Whether this machine is known not to be logged in to a project's Production (D-T-125): the last Setup
+ * Whether this machine is known not to be logged in to a project's Production (D-208): the last Setup
  * check, run in `setupRoot`, said so on B6.org-match's line for Production's branch. Before that check, or
  * for another project than the one it ran in, it isn't known.
  */

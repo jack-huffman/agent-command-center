@@ -140,7 +140,7 @@ export function buildBaseline(paths: RepoPaths, config: Config, deps: SetupDeps)
 export interface SeededBranch {
   env: string;
   branch: string;
-  /** made: created and seeded from its org. failed: why it couldn't be. skipped: Production's, not here (D-T-125). */
+  /** made: created and seeded from its org. failed: why it couldn't be. skipped: Production's, not here (D-208). */
   status: 'made' | 'failed' | 'skipped';
   note: string;
   /** Files that differ from production's branch, a first measure of drift. */
@@ -212,7 +212,7 @@ export function seedBranches(paths: RepoPaths, config: Config, deps: SetupDeps, 
     }
   };
   if (prod && !refFor(run, paths.root, prod.branch)) {
-    // Production's branch is retrieved from Production. Without it on this machine (D-T-125), it's left for
+    // Production's branch is retrieved from Production. Without it on this machine (D-208), it's left for
     // someone with access, and each sandbox's branch starts from this checkout instead.
     const away = sf && prod.type === 'production' && (!prod.org || sfRun(run, paths.root, ['org', 'display', '-o', prod.org]).status !== 0);
     if (away) {
@@ -291,7 +291,7 @@ export function draftLists(paths: RepoPaths, config: Config, deps: SetupDeps): L
   const prod = config.environments.find((e) => e.type === 'production');
   const prodRef = prod ? refFor(run, paths.root, prod.branch) : null;
   if (!prod || !prodRef) {
-    // Set up without Production (D-T-125), its branch waits for someone with access to Production.
+    // Set up without Production (D-208), its branch waits for someone with access to Production.
     throw new AccError('refused', prod && !prod.org
       ? 'There\'s no production branch to compare the others with yet. It\'s retrieved from Production, so someone with access to Production makes it first (B6).'
       : 'There\'s no production branch to compare the others with yet. Make the branches first (B6).');

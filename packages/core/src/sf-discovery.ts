@@ -1,5 +1,5 @@
 /**
- * Finding a Salesforce project's environments (D-018), with or without access to Production (D-T-125).
+ * Finding a Salesforce project's environments (D-018), with or without access to Production (D-208).
  * Without it, the sandboxes this person is logged in to on one My Domain are the environments, and
  * Production is recorded with no org; someone with access records its org later (recordProduction).
  */
@@ -12,12 +12,12 @@ import type { RepoPaths } from './paths.ts';
 import type { RawEnv } from './init.ts';
 
 /**
- * Production's line wherever this machine has no Production org, or isn't logged in to it (D-T-125): setup
+ * Production's line wherever this machine has no Production org, or isn't logged in to it (D-208): setup
  * and building never need it, since a builder never deploys there (D-018).
  */
 export const PRODUCTION_NOT_HERE = 'This machine isn\'t logged in to Production. Setting up and building don\'t need it: someone with access to Production looks after it.';
 
-/** What a sandbox's type is taken as when Production's sandbox list can't be read (D-T-125). */
+/** What a sandbox's type is taken as when Production's sandbox list can't be read (D-208). */
 export const GUESSED_TYPE: EnvType = 'partial';
 
 /** One sf command's --json answer; an sf that prints no JSON fails, with its first line as the message. */
@@ -81,7 +81,7 @@ export function finishEnvironments(envs: RawEnv[], notes: string[]): RawEnv[] {
 export const MY_DOMAIN = /^[a-z0-9-]+$/;
 
 /**
- * The environments, without Production (D-T-125): every sandbox this person is logged in to on one My
+ * The environments, without Production (D-208): every sandbox this person is logged in to on one My
  * Domain, and Production with no org. A sandbox the CLI tracks source for is a Developer sandbox, as only
  * those can be; any other is taken as GUESSED_TYPE, which isn't treated as source tracked, and a note says
  * so. `guessed` gets each branch whose type was guessed.
@@ -114,7 +114,7 @@ export interface ProductionRecorded {
 }
 
 /**
- * Records Production's org in a project set up without it (D-T-125): checks the alias is logged in to a
+ * Records Production's org in a project set up without it (D-208): checks the alias is logged in to a
  * Production org on the sandboxes' My Domain, reads its sandbox list, corrects each listed sandbox's type to
  * Salesforce's, and names the ones the config lacks. In the settings file it changes only Production's org
  * and those types: every other key an environment has stays as the file has it.
