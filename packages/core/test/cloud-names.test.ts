@@ -50,9 +50,9 @@ test('claudeLogin says signed in only for a claude.ai account, and why not for e
 
 test('deleteCloudToken takes the repo\'s token out of the keychain, and says false when there was none', () => {
   const calls: string[] = [];
-  assert.equal(deleteCloudToken(fakeRunner({ 'security delete-generic-password': ok() }, calls), 'acme/tool', {}), true);
+  assert.equal(deleteCloudToken(fakeRunner({ 'security delete-generic-password': ok() }, calls), 'acme/tool', {}, 'darwin'), true);
   assert.deepEqual(calls, ['security delete-generic-password -s acc-cloud-routine -a acme/tool']);
-  assert.equal(deleteCloudToken(fakeRunner({ 'security delete-generic-password': bad('not found', 44) }), 'acme/tool', {}), false);
+  assert.equal(deleteCloudToken(fakeRunner({ 'security delete-generic-password': bad('not found', 44) }), 'acme/tool', {}, 'darwin'), false);
 });
 
 test('cloudUrl is a cloud run\'s session page, and null before the fire answers or for a local run', () => {
@@ -85,7 +85,7 @@ test('enableCloud opts in with the defaults, changes one key at a time after, re
 test('Setup\'s cloud steps skip a project that hasn\'t opted in, and check each need of one that has', () => {
   assert.deepEqual(CLOUD_STEPS.map((s) => s.id), ['B15.cloud-github-app', 'B15.cloud-routine', 'B15.cloud-token', 'B15.cloud-login', 'B15.cloud-guard']);
   const ctx = (cloud: unknown, fixtures: Parameters<typeof fakeRunner>[0] = {}): CheckContext => ({
-    cwd: '/r', run: fakeRunner(fixtures), env: {}, paths: { root: '/r' } as never, config: parseConfig({ ...RAW, agents: { max: 2, cloud } }).config, configErrors: [], cache: new Map(), version: null,
+    cwd: '/r', run: fakeRunner(fixtures), env: {}, paths: { root: '/r' } as never, config: parseConfig({ ...RAW, agents: { max: 2, cloud } }).config, configErrors: [], cache: new Map(), version: null, platform: 'darwin',
   });
   const step = (id: string) => CLOUD_STEPS.find((s) => s.id === id)!;
   for (const s of CLOUD_STEPS) assert.equal(s.check(ctx(null)).status, 'skip', `${s.id}: skipped when not opted in`);

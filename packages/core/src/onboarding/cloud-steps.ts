@@ -3,7 +3,7 @@
  * to the cloud, each with its check and its guide. A project that hasn't opted in skips them all: the
  * cloud is never the default, and nothing here nags about it.
  */
-import { claudeLogin, readCloudToken, ROUTINES_URL } from '../cloud.ts';
+import { claudeLogin, cloudTokenUnavailable, readCloudToken, ROUTINES_URL } from '../cloud.ts';
 import { guardCommitted } from '../cloud-guard.ts';
 import { fail, pass, skip, unknown } from './helpers.ts';
 import type { CheckContext, CheckResult, Step } from './types.ts';
@@ -67,7 +67,10 @@ export const CLOUD_STEPS: Step[] = [
     check(ctx) {
       const need = optedIn(ctx);
       if (need) return need;
-      return readCloudToken(ctx.run, ctx.config!.github!.repo, ctx.env) ? pass('The routine\'s token is in the keychain.') : fail(`No token for ${ctx.config!.github!.repo} in the keychain.`);
+      if (readCloudToken(ctx.run, ctx.config!.github!.repo, ctx.env, ctx.platform)) return pass('The routine\'s token is in the keychain.');
+      // No keychain here (D-T-123): said as a step this system can't take yet, not as one left undone.
+      const unavailable = cloudTokenUnavailable(ctx.platform);
+      return unavailable ? skip(`${unavailable}.`) : fail(`No token for ${ctx.config!.github!.repo} in the keychain.`);
     },
   },
   {

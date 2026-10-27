@@ -111,10 +111,19 @@ export const CLOUD_TOKEN_ENV = 'ACC_CLOUD_TOKEN';
 /** A routine's API token, as claude.ai shows it: a bearer token, letters, digits, dashes and underscores. */
 export const CLOUD_TOKEN = /^[A-Za-z0-9_-]{20,}$/;
 
-/** The routine's token for a repo: the environment's, else the macOS keychain's. Null when there's none. */
-export function readCloudToken(run: Runner, repo: string, env: NodeJS.ProcessEnv): string | null {
+/**
+ * Why this machine can't keep the routine's token, or null on a Mac, where it can (D-T-123): it's kept in the
+ * macOS keychain, by the security command, which Windows has no counterpart of that acc uses yet. A token
+ * given in the environment (CLOUD_TOKEN_ENV) still works everywhere.
+ */
+export const cloudTokenUnavailable = (platform: NodeJS.Platform = process.platform): string | null =>
+  platform === 'darwin' ? null : `Not available on ${platform === 'win32' ? 'Windows' : 'this system'} yet: the routine's token is kept in the macOS keychain`;
+
+/** The routine's token for a repo: the environment's, else the macOS keychain's. Null when there's none, or no keychain. */
+export function readCloudToken(run: Runner, repo: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string | null {
   const given = env[CLOUD_TOKEN_ENV]?.trim();
   if (given) return given;
+  if (cloudTokenUnavailable(platform)) return null;
   const r = run('security', ['find-generic-password', '-s', CLOUD_TOKEN_SERVICE, '-a', repo, '-w'], { env, timeoutMs: 20_000 });
   const token = r.code === 0 ? r.stdout.trim() : '';
   return token && CLOUD_TOKEN.test(token) ? token : null;
@@ -124,15 +133,18 @@ export function readCloudToken(run: Runner, repo: string, env: NodeJS.ProcessEnv
  * Keeps the routine's token in the keychain, replacing any for the repo. `security` reads its command from
  * stdin in interactive mode, so the token never goes on a command line another process could read.
  */
-export function writeCloudToken(run: Runner, repo: string, token: string, env: NodeJS.ProcessEnv): void {
+export function writeCloudToken(run: Runner, repo: string, token: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): void {
+  const unavailable = cloudTokenUnavailable(platform);
+  if (unavailable) throw new AccError('refused', `${unavailable}. Set ${CLOUD_TOKEN_ENV} to the token instead.`);
   if (!CLOUD_TOKEN.test(token)) throw new AccError('usage', 'That doesn\'t look like a routine\'s API token: letters, digits, dashes and underscores, 20 or more.');
   const quote = (s: string) => `"${s.replace(/(["\\])/g, '\\$1')}"`;
   const r = run('security', ['-i'], { env, input: `add-generic-password -U -s ${quote(CLOUD_TOKEN_SERVICE)} -a ${quote(repo)} -w ${quote(token)}\n`, timeoutMs: 20_000 });
   if (r.code !== 0) throw new AccError('cloud', `The keychain wouldn't keep the token: ${(r.stderr || r.stdout).trim().split('\n')[0] || `security exited ${r.code}`}`);
 }
 
-/** Takes the routine's token out of the keychain. True when there was one. */
-export function deleteCloudToken(run: Runner, repo: string, env: NodeJS.ProcessEnv): boolean {
+/** Takes the routine's token out of the keychain. True when there was one; never where there's no keychain. */
+export function deleteCloudToken(run: Runner, repo: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): boolean {
+  if (cloudTokenUnavailable(platform)) return false;
   return run('security', ['delete-generic-password', '-s', CLOUD_TOKEN_SERVICE, '-a', repo], { env, timeoutMs: 20_000 }).code === 0;
 }
 

@@ -42,6 +42,8 @@ export interface CheckContext {
   cache: Map<string, unknown>;
   /** acc's own version, when the caller knows it: A4.plugin fails on an older plugin (GH-62). */
   version: string | null;
+  /** The system the checks run on, when it isn't this one: a test's. Absent: process.platform. */
+  platform?: NodeJS.Platform;
 }
 
 export interface Step {

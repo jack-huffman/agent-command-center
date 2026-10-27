@@ -7,7 +7,7 @@
 
 import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
 import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
-import { BUILDER_PLACE_LOOK, type CloudNeed, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
+import { BUILDER_PLACE_LOOK, type CloudNeed, cloudOffered, cloudReason, cloudTokenUnavailable } from '../../../packages/core/src/cloud.ts';
 import type { Protection } from '../../../packages/core/src/protection.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { TextField, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
@@ -201,7 +201,7 @@ export function autoMergeSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): 
 }
 
 /** Cloud builders (GH-69): off unless the project opted in, with what it still needs and the buttons to change it. */
-export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, protection: Protection[] | null = null): CloudSetting | null {
+export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, protection: Protection[] | null = null, platform: NodeJS.Platform = process.platform): CloudSetting | null {
   if (!keyShown('agents.cloud.routine', unread)) return null;
   const cloud = p.config.agents?.cloud ?? null;
   const needs: CloudNeed[] = cloudOffered({ github: p.config.github, agents: { cloud } });
@@ -218,7 +218,8 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
     : [
       action('acc.cloud.routine', 'Routine prompt', 'clippy', `Copy the routine prompt for ${p.name}`),
       action('acc.cloud.enable', cloud?.routine ? 'Change routine…' : 'Add the routine…', 'edit', `${cloud?.routine ? 'Change routine' : 'Add the routine'}: give the Command Center ${p.name}'s routine`, !cloud?.routine),
-      action('acc.cloud.token', 'Token…', 'key', `Token: keep the routine's token for ${p.name}`),
+      // Off with why where there's no keychain to keep it in (D-T-123).
+      action('acc.cloud.token', 'Token…', 'key', `Token: keep the routine's token for ${p.name}`, false, cloudTokenUnavailable(platform)),
       action('acc.cloud.default', 'Default…', 'arrow-swap', `Default: choose where ${p.name}'s builders go`),
       action('acc.cloud.review', 'Reviews…', 'checklist', `Reviews: choose where ${p.name}'s reviews run`),
       action('acc.cloud.disable', 'Turn off', 'circle-slash', `Turn off cloud builders for ${p.name}`),
