@@ -375,7 +375,7 @@ export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown
   : kind === 'ticket-criteria-sheet' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'criteria') }]
   : kind === 'ticket-edit-changed' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'edits') }, { type: 'task-sheet-done', project: ROOT, task: 'ACME-19', ok: false, conflict: SAMPLE_THEIRS }] : []);
 /** The title each kind of tab carries, as htmlFor in panels.ts gives it: a page needs one to be named (T-55). */
-export const TAB_TITLES: Record<string, string> = { home: 'Command Center', ticket: 'Ticket', agent: 'Agent', report: 'Report a problem' };
+export const TAB_TITLES: Record<string, string> = { home: 'Command Center', ticket: 'Ticket', agent: 'Agent' };
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
 export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' ? settingsKey('trackers')
   : kind.startsWith('slack-') ? settingsKey('slack') : kind === 'settings-github' ? settingsKey('github') : kind === 'settings-page' ? settingsKey('page') : kind.startsWith('settings-about') ? settingsKey('about')
