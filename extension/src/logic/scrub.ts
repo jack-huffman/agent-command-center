@@ -67,6 +67,11 @@ const NOT_TICKETS = new Set(['UTF-8', 'UTF-16', 'UTF-32', 'ISO-8601', 'SHA-1', '
 /** Credentials by shape: the repo's own secret scan's (POSIX, put in JavaScript's terms), and a name followed by its value. */
 const SECRETS = new RegExp(SECRET_PATTERN.replace(/\[:space:\]/g, '\\s'), 'g');
 const NAMED_SECRET = /\b(token|secret|password|passwd|api[_-]?key|authorization|bearer)(\s*[=:]\s*|\s+)(?!<)[^\s"',;]+/gi;
+/** A host a network error names with no URL around it, as Node and gh say it: the error word stays. */
+const NET_ERROR_HOST = /\b(ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ECONNRESET|EAI_AGAIN|getaddrinfo|resolve host:?|connect to)(\s+)(?:[\w-]+(?:\.[\w-]+)+|\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?/gi;
+/** A bare host name ending in a common or an internal domain, where no path or address holds it. */
+const BARE_HOST = /(?<![\w/<@.-])(?:[\w-]+\.)+(?:com|net|org|io|co|internal|local|corp|lan|intra|example|cloud)(?::\d+)?(?![\w-]|\.\w)/gi;
+const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g;
 /** A Salesforce session id: its org's id, a !, then the rest. */
 const SESSION_ID = /\b00D[A-Za-z0-9]{12,15}![\w.]{20,}/g;
 
@@ -96,6 +101,9 @@ export function scrub(text: string, ctx: ScrubContext): { text: string; replaced
   s = swap(s, URL_HOST, 'host', (_m, scheme) => `${scheme}${PLACEHOLDER.host}`);
   s = swap(s, EMAIL, 'email');
   s = swap(s, SITES, 'site');
+  s = swap(s, NET_ERROR_HOST, 'host', (_m, word, sp) => `${word}${sp}${PLACEHOLDER.host}`);
+  s = swap(s, BARE_HOST, 'host');
+  s = swap(s, IPV4, 'host');
   s = swap(s, TICKET, 'ticket', (m) => (NOT_TICKETS.has(m) ? m : PLACEHOLDER.ticket));
   // Any word left that looks like a token: a secret's prefix, or 20 characters or more mixing letters and digits.
   s = swap(s, /[A-Za-z0-9_+=-]{20,}|\b(?:ghp_|gho_|ghu_|ghs_|ghr_|github_pat_|sk-|xox|AKIA|eyJ)[A-Za-z0-9_.+=-]+/g, 'token', (m) => (tokenLike(m) ? PLACEHOLDER.token : m));

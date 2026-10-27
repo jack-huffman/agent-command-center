@@ -11,7 +11,7 @@ import type { CheckStatus } from '../../../packages/core/src/onboarding/types.ts
 import { RELEASES_REPO, type AboutFacts } from './about.ts';
 import { type Look, LOOK, type ModelArea } from './shared.ts';
 
-/** A command as every action is one (D-099): its id, what it takes, and whether it can run now, with why not. */
+/** A command, as every action is one: its id, what it takes, and whether it can run now, with why not. */
 export interface CommandSpec<S> {
   id: string;
   /** What it takes, in a line. */

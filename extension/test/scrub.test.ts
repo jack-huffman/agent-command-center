@@ -49,6 +49,10 @@ const SECRETS: { what: string; text: string }[] = [
   { what: 'an email not in the settings', text: 'pat.kim@vendor.example' },
   { what: 'a URL\'s host', text: 'globex--uat.sandbox.my.salesforce.com' },
   { what: 'another URL\'s host', text: 'build.internal.example:8443' },
+  { what: 'a host a network error names', text: 'build.globex.internal' },
+  { what: 'a bare host with its port', text: 'api.initech.example:443' },
+  { what: 'a bare host in a sentence', text: 'cache.globex.corp' },
+  { what: 'an IP address', text: '10.20.30.40' },
   { what: 'a ticket key', text: 'GFS-1182' },
   { what: 'another tracker\'s ticket key', text: 'OPS-77' },
   { what: 'a GitHub token', text: 'ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8' },
@@ -69,6 +73,7 @@ const ERROR = [
   `Board: globex.atlassian.net, Initech Rollout in initech-devops for Blue Team (Initech CRM)`,
   `GH_TOKEN=ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8 password: hunter2-correct-horse Slack xoxb-1234567890-abcdefghij`,
   `Session x9Fk2LmQ7rT4vB8nW1pZ5sJ3 ended; jordan was signed in`,
+  `getaddrinfo ENOTFOUND build.globex.internal; connect ECONNREFUSED 10.20.30.40:443; then api.initech.example:443 and cache.globex.corp.`,
 ].join('\n');
 
 const ctx = (): ScrubContext => scrubContext(HOME, 'jordan', [{ root: ROOT, config: CONFIG }, { root: OTHER, config: OTHER_CONFIG }]);
