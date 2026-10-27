@@ -463,7 +463,7 @@ test('a task\'s page shows each update waiting to be posted, with who it posts a
 
 test('pasted tracker URLs give the organization or site', async () => {
   const { parseHost } = await import('../src/logic/connect.ts');
-  assert.equal(parseHost('azure', 'https://dev.azure.com/avalign-co/CRM/_boards/board/t/Team/Stories'), 'avalign-co');
+  assert.equal(parseHost('azure', 'https://dev.azure.com/acme/CRM/_boards/board/t/Team/Stories'), 'acme');
   assert.equal(parseHost('azure', 'acme.visualstudio.com/CRM'), 'acme');
   assert.equal(parseHost('azure', 'acme'), 'acme');
   assert.equal(parseHost('azure', 'not a url!'), null);
