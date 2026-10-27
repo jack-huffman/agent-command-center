@@ -41,13 +41,14 @@ test('Location follows the configured worktrees folder, and the default .claude/
     const h = hub();
     const p = h.projects[0]!;
     p.config = { ...p.config, worktrees: root === undefined ? undefined : { root } };
-    p.worktrees = [p.worktrees[0]!, { ...p.worktrees[1]!, path: resolve(path) }];
+    // Each path as this system spells an absolute one, as the hub reads them: a drive letter on Windows.
+    p.worktrees = [{ ...p.worktrees[0]!, path: resolve('/r') }, { ...p.worktrees[1]!, path: resolve(path) }];
     return worktreesModel(h).projects[0]!.worktrees[1]!.place;
   };
   assert.equal(place('../builds', '/builds/ACME-12'), 'ACME-12', 'a configured root outside the repo');
   assert.equal(place('../builds', '/r/.claude/worktrees/ACME-12'), resolve('/r/.claude/worktrees/ACME-12'), 'not under the configured root: whole path');
   assert.equal(place(undefined, '/r/.claude/worktrees/ACME-12'), 'ACME-12', 'the default folder');
-  assert.equal(place('/abs/trees', '/abs/trees/AV-9'), 'AV-9', 'an absolute root');
+  assert.equal(place(resolve('/abs/trees'), '/abs/trees/AV-9'), 'AV-9', 'an absolute root');
 });
 
 test('edge case: on Windows a worktree git names C:/… sits in the folder Node names C:\\…, whatever the case; a Mac compares as before', () => {

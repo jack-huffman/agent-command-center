@@ -24,7 +24,7 @@ test('dispatch end to end: worktree from the environment branch, packet, backgro
   const r = acc(repo, ['dispatch', 'T-1', '--json'], env);
   assert.equal(r.code, 0, r.err);
   const out = r.json();
-  assert.equal(out.worktree, `${repo}/.claude/worktrees/T-1`);
+  assert.equal(out.worktree, join(repo, '.claude', 'worktrees', 'T-1'));
   assert.equal(out.branch, 'task/T-1-write-the-changelog');
   assert.equal(out.bgId, 'bg1');
   assert.equal(out.sessionId, 'sess-1');

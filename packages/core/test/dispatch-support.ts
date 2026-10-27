@@ -44,6 +44,9 @@ if (args[0] === '--bg') {
 export function trustingHome(...repos: string[]): string {
   const home = tempDir('home-');
   writeFileSync(join(home, '.claude.json'), JSON.stringify({ projects: Object.fromEntries(repos.map((r) => [realpathSync(r), { hasTrustDialogAccepted: true }])) }));
+  // Git for Windows' own config turns line endings to CRLF on checkout. A home that doesn't say otherwise
+  // would leave a worktree acc makes here changed to the tests' own git, which keeps LF (D-T-123).
+  writeFileSync(join(home, '.gitconfig'), '[core]\n\tautocrlf = false\n');
   return home;
 }
 

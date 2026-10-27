@@ -25,7 +25,8 @@ nothing else works. A Mac behaves as before; where its behaviour differs at all,
   run. A word holding a line break never goes through cmd (cmd would end its line there): an npm shim, such
   as claude installed by npm with dispatch's multi-line prompt, has its node script run by node, as the shim
   would run it (`npmShimScript`); any other `.cmd` is refused, with why. A missing program still comes back as
-  code 127. A program that exits without reading all of its input gives its answer, not spawnSync's EPIPE. `startSync`, `startChild` and `startFile` are the
+  code 127. A program that exits without reading all of its input gives its answer, not spawnSync's error
+  for the input it left unread: EPIPE on a Mac and Linux, EOF or ECANCELED on Windows (`unpiped`). `startSync`, `startChild` and `startFile` are the
   only places in acc's shipped code that start a program: the runner (`exec.ts`), the extension's `runFile`
   and trackers' `exec`, dispatch's foreground claude, resume's detached claude and the output panel's runs.
   On a Mac and Linux they start the program as named, as before.
@@ -80,6 +81,13 @@ nothing else works. A Mac behaves as before; where its behaviour differs at all,
   can't run on Windows yet is `WINDOWS_SKIPS`: whole test files, and single tests that skip through
   `skipOnWindows`, each with why, printed with their count before the run;
   `scripts/test/windows-tests.test.ts` fails when the list is longer than where the branch left main. A
-  test's stand-in program (`packages/core/test/stand-in.ts`) gets a `.cmd` beside it on Windows, Git's sh for
-  an sh script and npm's own shim for a node script, so acc starts it by name as it starts sf; the tests'
-  temp root is its long path there, with TEMP and TMP set.
+  test's stand-in program (`packages/core/test/stand-in.ts`) gets npm's own `.cmd` shim beside it on Windows,
+  so acc starts it by name as it starts npm's claude: through cmd, or by node when a word holds a line break,
+  as dispatch's and the drafter's prompts do. For a node script the shim runs the script; for an sh script it
+  runs a node runner beside it, which runs the script by Git's sh, each word quoted as Git's sh reads its
+  command line. The tests' temp root is its long path there, with TEMP and TMP set.
+- **A step's line on each system.** A Setup step whose fix differs by system, A4.plugin's `&&` chain (a
+  PowerShell `if ($?)` on Windows) and a tool's install line, has its fix for each system (`fixOn`); `fix` is
+  the one for the system acc runs on, which Do it runs. A step's page for a system shows that system's
+  (`fixFor`), so the walkthrough files, which the build writes for a Mac, show a Mac's lines whichever system
+  builds them.

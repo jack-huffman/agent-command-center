@@ -205,6 +205,9 @@ export function sandboxEnv(prefix: string, tool: (name: string, at: (...p: strin
   const sandbox = realpathSync(tempDir(prefix));
   const at = (...p: string[]) => join(sandbox, ...p);
   for (const d of ['home/.claude', 'state/questions', 'state/heavy', 'state/slack', 'bin']) mkdirSync(at(d), { recursive: true });
+  // On Windows the home is USERPROFILE too, and Windows makes a profile's AppData\Roaming in it the first
+  // time a program the extension starts asks for that folder. A real profile has it already, so this one does.
+  if (process.platform === 'win32') mkdirSync(at('home', 'AppData', 'Roaming'), { recursive: true });
   writeFileSync(at('home', '.claude.json'), '{"projects":{}}\n');
   for (const name of SANDBOX_TOOLS) {
     standIn(at('bin', name), `#!/bin/sh\n${tool(name, at)}`);

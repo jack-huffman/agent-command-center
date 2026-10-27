@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { againRefusal } from '../../packages/core/src/again.ts';
 import { UNSEEN_WORDS } from '../../packages/core/src/started.ts';
@@ -88,7 +88,7 @@ function claudeOnPath(): { dir: string; fail: string } {
 test('the hub\'s silence starts once when claude agents fails, and an answer clears it (T-93)', async () => {
   const bin = claudeOnPath();
   const saved = process.env.PATH;
-  process.env.PATH = `${bin.dir}:${saved}`;
+  process.env.PATH = `${bin.dir}${delimiter}${saved}`;
   try {
     const hub = new Hub();
     assert.equal(hub.agentsSilentSince, null, 'edge: before the first look');
@@ -120,7 +120,7 @@ test('a missing claude stays out of the silence clock and reads as its own state
     assert.equal(hub.agentsSilentSince, null, 'it never starts the clock, so nothing reads as "not answering"');
     assert.match(UNSEEN_WORDS.missing.line, /isn't on this Mac's path/);
     const bin = claudeOnPath();
-    process.env.PATH = `${bin.dir}:${saved}`;
+    process.env.PATH = `${bin.dir}${delimiter}${saved}`;
     await hub.loadAgents();
     assert.equal(hub.claudeMissing, false, 'installed again, it is a silence like any');
     assert.ok(hub.agentsSilentSince !== null);

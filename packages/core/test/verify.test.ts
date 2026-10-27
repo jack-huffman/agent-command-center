@@ -10,6 +10,7 @@ import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { receiptsAt } from '../src/receipts.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { mainCheckout, repoPaths } from '../src/paths.ts';
+import { shownCommand } from '../src/shell.ts';
 import { steLint } from '../src/ste.ts';
 import { listUpdates } from '../src/updates.ts';
 import {
@@ -86,7 +87,8 @@ function runner(o: { lists?: { search: unknown[]; all: unknown[] }; views?: Reco
   const prompts: string[] = [];
   const agentCalls: { args: string[]; opts?: RunOptions }[] = [];
   const r = (cmd: string, args: string[], opts?: RunOptions): RunResult => {
-    calls.push([cmd, ...args].join(' '));
+    // This machine's sh is `sh` here, as acc shows it: on Windows it's Git's sh, by its whole path.
+    calls.push([shownCommand(cmd), ...args].join(' '));
     if (cmd === 'gh') {
       if (args[0] === 'auth') return { code: 0, stdout: 'gho_test\n', stderr: '' };
       if (args[0] === 'pr' && args[1] === 'list') return { code: 0, stdout: JSON.stringify(args.includes('--search') ? o.lists?.search ?? [] : o.lists?.all ?? []), stderr: '' };

@@ -81,6 +81,9 @@ function stable(text: string, dir: string): string {
   return s.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<session>').replace(/\d{8}-\d{4}/g, '<stamp>');
 }
 
+/** A path in the repo as acc prints it on this system, after stable: <repo>\manifest on Windows. */
+const inRepo = (...parts: string[]): string => join('<repo>', ...parts);
+
 /** A command run twice in two copies of one fixture: without ACC_STEPS, then with it. */
 function both(make: () => { dir: string; args: string[]; env?: NodeJS.ProcessEnv }) {
   const plain = make();
@@ -130,7 +133,7 @@ const CASES: { name: string; make: () => { dir: string; args: string[]; env?: No
   {
     name: 'dispatch',
     make: () => { const dir = generic(); return { dir, args: ['dispatch', 'T-1'], env: { PATH: `${fakeClaude().bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(dir) } }; },
-    code: 0, out: 'T-1 → ↻ Running\n  worktree: <repo>/.claude/worktrees/T-1\n  branch:   task/T-1-write-the-changelog\n  name:     Tool · T-1 Write the changelog · builder\n  model:    claude-opus-5-5\n  effort:   the model\'s default\n  where:    This Mac\n  agent:    background session bg1. Watch it with: claude attach bg1\n  packet:   <repo>/.git/acc/packets/T-1.md\n', err: '', first: 'task', ok: true,
+    code: 0, out: `T-1 → ↻ Running\n  worktree: ${inRepo('.claude', 'worktrees', 'T-1')}\n  branch:   task/T-1-write-the-changelog\n  name:     Tool · T-1 Write the changelog · builder\n  model:    claude-opus-5-5\n  effort:   the model's default\n  where:    This Mac\n  agent:    background session bg1. Watch it with: claude attach bg1\n  packet:   ${inRepo('.git', 'acc', 'packets', 'T-1.md')}\n`, err: '', first: 'task', ok: true,
   },
   {
     name: 'land',
@@ -145,7 +148,7 @@ const CASES: { name: string; make: () => { dir: string; args: string[]; env?: No
   {
     name: 'setup baseline',
     make: () => { const { dir } = sfRepo(); return { dir, args: ['setup', 'baseline'], env: { PATH: `${fakes()}${delimiter}${process.env.PATH}` } }; },
-    code: 0, out: 'Wrote <repo>/manifest/baseline-package.xml: 1 components of 1 types, from production, uat, dev.\nCommit it on every environment\'s branch, so each is retrieved with the same list.\n', err: 'Listing the components on production\nListing the components on uat\nListing the components on dev\n', first: 'fetch', ok: true,
+    code: 0, out: `Wrote ${inRepo('manifest', 'baseline-package.xml')}: 1 components of 1 types, from production, uat, dev.\nCommit it on every environment's branch, so each is retrieved with the same list.\n`, err: 'Listing the components on production\nListing the components on uat\nListing the components on dev\n', first: 'fetch', ok: true,
   },
   {
     name: 'setup branches',
@@ -155,12 +158,12 @@ const CASES: { name: string; make: () => { dir: string; args: string[]; env?: No
   {
     name: 'setup lists',
     make: () => ({ dir: sfRepo().dir, args: ['setup', 'lists'] }),
-    code: 0, out: 'Wrote <repo>/manifest/environment-specific.txt with 0 environment-specific paths.\nWrote <repo>/manifest/known-drift.txt with 0 known-drift paths.\n  dev: 1 other difference from production that neither list explains: real drift, or work in progress. force-app/main/default/classes/B.cls\nRead both lists before committing them: each line keeps a file out of promotions (environment-specific) or out of drift checks (known drift).\n', err: '', first: 'fetch', ok: true,
+    code: 0, out: `Wrote ${inRepo('manifest', 'environment-specific.txt')} with 0 environment-specific paths.\nWrote ${inRepo('manifest', 'known-drift.txt')} with 0 known-drift paths.\n` + '  dev: 1 other difference from production that neither list explains: real drift, or work in progress. force-app/main/default/classes/B.cls\nRead both lists before committing them: each line keeps a file out of promotions (environment-specific) or out of drift checks (known drift).\n', err: '', first: 'fetch', ok: true,
   },
   {
     name: 'setup readme',
     make: () => ({ dir: generic(), args: ['setup', 'readme'] }),
-    code: 0, out: 'Added an environments section to <repo>/README.md. Keep it the same on every non-production branch.\n', err: '', first: 'readme', ok: true,
+    code: 0, out: `Added an environments section to ${inRepo('README.md')}. Keep it the same on every non-production branch.\n`, err: '', first: 'readme', ok: true,
   },
 ];
 
