@@ -165,7 +165,8 @@ test('acc verify refuses a task with no ticket, an agent, another repo\'s pull r
   assert.equal(fork.code, 1);
   assert.match(fork.json().message, /is in someone\/fork, not acme\/service/);
   assert.match(acc(dir, ['verify', 'ACME-7', '--pr', ' ', '--json'], undefined, env).json().message, /--pr takes a pull request's number/);
-  const long = acc(dir, ['verify', 'clear', 'X'.repeat(102_400), '--json']);
+  // Longer than any file name (255), and short enough for Windows' 32,767-character command line.
+  const long = acc(dir, ['verify', 'clear', 'X'.repeat(8_192), '--json']);
   assert.deepEqual([long.code, long.json().error], [2, 'usage'], 'edge: an id too long for a file name');
   assert.match(acc(dir, ['verify']).err, /acc verify <id>/);
   assert.match(acc(dir, ['verify', 'show']).err, /acc verify <id>/);
