@@ -21,15 +21,19 @@ hold several trackers, but the Tasks tab drew every board stacked down the page 
   past three it is one menu of things to pick from, as the person filter is a menu of people, and the check names
   the module with that reason. `extension/test/board-switch.test.ts` pins both forms.
 - **Remembered per project.** The choice is kept in the tab's memory, as the tracker or My work choice was
-  (`memory().modes`), now `board:<id>`, `all` or `agents`. A board's id (`boardId`) is a hash of its settings but its
-  name, so a rename keeps the choice. A board that's gone falls back to the first; an older tab's `tracker` is the
+  (`memory().modes`), now `board:<id>`, `all` or `agents`. A board's id (`boardIds`) is a hash of its settings but its
+  name, so a rename keeps the choice. Two boards in the very same place, differing only by name, still get two ids:
+  the later one adds its place in the list, so the switch never matches both. Such a pair is a mistake, so
+  `parseConfig` warns of it and the Connect page's Change refuses to make one, naming the other board; the reads go
+  by each board's place in the list, so each of the pair is read. A board that's gone falls back to the first; an older tab's `tracker` is the
   first board; All boards kept, with three boards or fewer left, is the first board too.
 - **The header and the person filter follow the board on show.** The header counts that board's tickets and those
   that need you ("Acme Service: 5 tickets on Renewals, 2 need you."), or says it can't be read now. Each board keeps
   its own person filter, as before. The board keys (`board-nav.ts`) work on the board drawn.
 - **All boards** keeps the stacked view, from the list. With ten boards a stack runs on for pages, so each board
   starts folded to a button with its name and counts, and opens on a click; which are opened is kept in the tab's
-  memory. The header counts a ticket two boards show once.
+  memory. The header counts a ticket two boards show once, and once if it needs you: it counts
+  the distinct ticket keys across the boards on show.
 - **A board's name** (`boardName`, `extension/src/model/boards.ts`). Each board is named as its tracker gives it:
   where its place is narrower than its project, that place ("epic ACME-3 Premium Support", "labels billing", "channel
   C0123ABCD"); else the board its tracker gives (the Jira board's name, the GitHub Project's title); and before it's
@@ -58,12 +62,12 @@ hold several trackers, but the Tasks tab drew every board stacked down the page 
   its other boards. A builder can't run it (the builder's deny list holds it, as it holds `acc trackers set`).
 - **Several sites, read in turn.** Each board uses its own site's sign-in (D-091), so boards on three clients' Jira
   sites sign in three ways, and one site's failure is its own board's error: the others read on. A project's boards
-  are read three at a time (`BOARD_READS` in `extension/src/logic/board-reads.ts`), the board on show first. The page
+  are read three at a time (`READS_AT_ONCE` in `extension/src/logic/board-reads.ts`), the board on show first. The page
   tells the extension which board is on show (`board-shown`), and a board switched to while others are read goes
   next. A refresh reads the board on show at once and the others behind it. Each board is read once a refresh, as
   one board was before, so no site is asked more often than that. Three, because the board on show must not wait on
   nine others, and three at once keeps one Jira site to the three requests at a time the Connect page already uses
-  for its previews (`READS_AT_ONCE`, T-106). Each board
+  for its previews (T-106): both read the one constant. Each board
   is drawn as soon as it's read, so the list's counts and Needs you fill in one by one.
 - **The Overview.** Its Needs you rows for a task name the board or boards its ticket is on, after the project
   ("Acme Service · on Renewals · blocked"), when the project has more than one board. Its counts were already every
