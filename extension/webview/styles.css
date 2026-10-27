@@ -116,6 +116,7 @@ h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode
 .btn.ghost:disabled:hover, .btn.ghost.is-disabled:hover, .btn.icon-only:disabled:hover, .btn.menu-caret:disabled:hover { background: transparent; border-color: transparent; }
 .btn.ghost:disabled:hover, .btn.ghost.is-disabled:hover { border-color: var(--edge); color: var(--accent); }
 .btn:disabled:active, .btn.is-disabled:active { transform: none; }
+.btn.menu-caret:disabled, .btn.menu-caret:disabled:hover, .grid tr:hover .btn.menu-caret:disabled { color: var(--vscode-descriptionForeground); background: transparent; border-color: transparent; }
 /* A press shows at once, with no transition; hover keeps its fade. A button shrinks a little. A row as wide
    as its list darkens instead, as a wide row that shrinks seems to jump. feel.test.ts holds every kind of
    button the page draws to a rule here. */

@@ -100,7 +100,10 @@ export interface GeoSnapshot {
 export interface GeoActionSet { what: string; next: Box[]; rest: Box[] }
 
 /** A disabled button as drawn (T-121): its computed opacity and cursor, which an enabled one doesn't have. */
-export interface GeoDisabled { what: string; text: string; opacity: number; cursor: string }
+export interface GeoDisabled { what: string; text: string; opacity: number; cursor: string; why: boolean }
+
+/** Disabled buttons whose reason is in the text beside them, not in a title (T-121): a button's words, and why each is named. */
+export const REASON_BESIDE: Record<string, string> = {};
 
 /** The most opacity a disabled button is drawn with, and the cursor it shows: the shared rule in styles.css (T-121). */
 export const DISABLED_LOOK = { maxOpacity: 0.7, cursor: 'not-allowed' } as const;
@@ -111,6 +114,7 @@ export function judgeDisabled(drawn: GeoDisabled[]): { what: string; detail: str
   for (const d of drawn) {
     if (d.opacity > DISABLED_LOOK.maxOpacity) out.push({ what: d.what, detail: `${quote(d.text).trim() || 'it'} is disabled and drawn at opacity ${d.opacity}, as clear as an enabled button` });
     if (d.cursor !== DISABLED_LOOK.cursor) out.push({ what: d.what, detail: `${quote(d.text).trim() || 'it'} is disabled and shows the ${d.cursor} cursor, not ${DISABLED_LOOK.cursor}` });
+    if (!d.why && !(d.text in REASON_BESIDE)) out.push({ what: d.what, detail: `${quote(d.text).trim() || 'it'} is disabled and gives no reason: no title or aria-description, and it isn't in REASON_BESIDE` });
   }
   return out;
 }
@@ -565,7 +569,7 @@ function collectGeometry(more) {
   const boxOf = (e) => { const r = e.getBoundingClientRect(); return box(r.left, r.top, r.right, r.bottom); };
   const actionSets = [...document.querySelectorAll('[data-action-set]')].filter(visible).map((s) => ({ what: what(s), next: [...s.querySelectorAll(':scope > .ta-btn')].filter(visible).map(boxOf), rest: [...s.querySelectorAll(':scope > .ta-grid > .ta-btn')].filter(visible).map(boxOf) }));
   // Each disabled button, as drawn (T-121): a .btn that is disabled, or kept focusable with .is-disabled.
-  const disabled = [...document.querySelectorAll('.btn:disabled, .btn.is-disabled')].filter(visible).map((b) => ({ what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), opacity: Number(style(b).opacity), cursor: style(b).cursor }));
+  const disabled = [...document.querySelectorAll('.btn:disabled, .btn.is-disabled')].filter(visible).map((b) => ({ what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), opacity: Number(style(b).opacity), cursor: style(b).cursor, why: !!(b.getAttribute('title') || b.getAttribute('aria-description')) }));
   const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, fonts: window.accFontsFirst ?? 0 };
   const write = (parts) => {
     const out = document.createElement('script');

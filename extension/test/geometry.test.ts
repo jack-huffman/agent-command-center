@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, DISABLED_LOOK, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
 import { root } from './support.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
@@ -281,12 +281,14 @@ test('a task\'s actions are equal in height, the grid\'s equal in width, and the
 });
 
 test('the disabled check (T-121): a disabled button drawn as clear as an enabled one, or with another cursor, fails; the shared rule passes; edge case: a page with none examines none', () => {
-  const d = (opacity: number, cursor: string) => ({ what: 'div > button.btn.primary', text: 'Post to GitHub', opacity, cursor });
+  const d = (opacity: number, cursor: string) => ({ what: 'div > button.btn.primary', text: 'Post to GitHub', opacity, cursor, why: true });
   assert.deepEqual(judgeDisabled([d(0.45, DISABLED_LOOK.cursor)]), [], 'dimmed, not-allowed');
   assert.equal(judgeDisabled([d(1, DISABLED_LOOK.cursor)]).length, 1, 'drawn at full opacity');
   assert.equal(judgeDisabled([d(0.45, 'pointer')]).length, 1, 'the pointer cursor of an enabled button');
   assert.equal(judgeDisabled([d(1, 'pointer')]).length, 2, 'both wrong');
   assert.deepEqual(judgeDisabled([]), []);
+  assert.equal(judgeDisabled([{ ...d(0.45, DISABLED_LOOK.cursor), why: false }]).length, 1, 'no title or description, and not named as beside its text');
+  assert.equal(judgeDisabled([{ ...d(0.45, DISABLED_LOOK.cursor), why: false, text: Object.keys(REASON_BESIDE)[0] ?? 'x' }]).length, Object.keys(REASON_BESIDE).length ? 0 : 1, 'a named button may give its reason in the text beside it');
   assert.equal(judge(fine(), true, []).examined.disabled, 0, 'none drawn, none examined');
   const v = judge(fine({ disabled: [d(1, 'pointer')] }), true, []);
   assert.equal(v.examined.disabled, 1);

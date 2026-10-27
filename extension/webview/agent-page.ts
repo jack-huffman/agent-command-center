@@ -147,6 +147,7 @@ function agentReply(m: AgentModel, r: NonNullable<AgentModel['reply']>): HTMLEle
     remember((x) => { delete x.drafts[key]; });
   }, 'primary small') as HTMLButtonElement;
   send.disabled = !r.can;
+  if (!r.can) send.title = r.hint;
   box.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send.click(); } });
   const hint = r.can ? el('span', 'muted small', r.hint) : el('span', 'muted small reply-why', icon('info'), r.hint);
   return el('div', 'composer agent-reply', box, el('div', 'composer-bar', hint, el('span', 'spacer'), send));

@@ -37,7 +37,7 @@ export function onDone(msg: { action?: string; ok?: boolean; error?: string; pro
   if (msg.ok && page) { const m = page; remember((s) => { delete s.drafts[`${m.project}#${m.key}`]; }); if (box) box.value = ''; }
   if (box) box.disabled = false;
   const send = document.querySelector<HTMLButtonElement>('.composer .btn.primary');
-  if (send) { send.replaceChildren(icon('comment'), 'Comment'); send.disabled = !box?.value.trim(); }
+  if (send) { send.replaceChildren(icon('comment'), 'Comment'); send.disabled = !box?.value.trim(); send.title = send.disabled ? 'Write a comment first' : ''; }
 }
 
 // ---------------------------------------------------------------- ticket updates (D-066)

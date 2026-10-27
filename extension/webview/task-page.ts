@@ -73,19 +73,23 @@ function composer(m: TicketModel): HTMLElement {
   box.setAttribute('aria-label', `Comment on ${m.key}`);
   const send = el('button', 'btn primary', icon('comment'), 'Comment') as HTMLButtonElement;
   send.type = 'button';
+  const EMPTY = 'Write a comment first';
   send.disabled = !box.value.trim();
+  send.title = send.disabled ? EMPTY : '';
   const keys = navigator.platform.includes('Mac') ? '⌘ Enter to post' : 'Ctrl+Enter to post';
   // Who comments and how to post are two parts with a gap between them, not a dot in a run of text.
   const hint = el('span', 'muted small composer-hint', m.signedInAs ? el('span', 'acting', icon('account'), `Commenting as ${m.signedInAs}`) : null, el('span', '', keys));
   const post = () => {
     if (!box.value.trim() || send.disabled) return;
     send.disabled = true;
+    send.title = 'Your comment is posting';
     box.disabled = true;
     send.replaceChildren(icon('sync~spin'), 'Posting');
     ticketAction('comment', box.value);
   };
   box.addEventListener('input', () => {
     send.disabled = !box.value.trim();
+    send.title = send.disabled ? EMPTY : '';
     remember((s) => { s.drafts[`${m.project}#${m.key}`] = box.value; });
   });
   box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); } });

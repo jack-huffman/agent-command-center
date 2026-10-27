@@ -226,9 +226,10 @@ function composer(project: string, s: TicketTalk): HTMLElement {
     redraw();
   };
   const send = button(busy ? 'Sending…' : 'Send', busy ? 'loading~spin' : 'send', go, s.draft?.disabled === null ? '' : 'primary');
+  const EMPTY = 'Type a message first';
   send.disabled = !draft.trim() || !!why;
-  if (why) { send.title = why; send.setAttribute('aria-description', why); }
-  box.addEventListener('input', () => { remember((x) => { x.drafts[key] = box.value; }); send.disabled = !box.value.trim() || !!why; });
+  if (why) { send.title = why; send.setAttribute('aria-description', why); } else if (send.disabled) send.title = EMPTY;
+  box.addEventListener('input', () => { remember((x) => { x.drafts[key] = box.value; }); send.disabled = !box.value.trim() || !!why; if (!why) send.title = send.disabled ? EMPTY : ''; });
   // Ctrl or Cmd with Enter sends; Enter alone starts a new line.
   box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); } });
   if (focusBox) { focusBox = false; queueMicrotask(() => box.focus()); }

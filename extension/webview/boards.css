@@ -117,7 +117,6 @@
 .tcard-acc { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 0.92em; }
 /* Its one next step goes full width, on a row of its own under its state (D-168). */
 .tcard-acc > .ta-btn { flex: 1 0 100%; margin-top: 2px; }
-/* A Track on its way says Tracking…, and stops looking like a button to press (D-074). */
 .card .openable.card-title { cursor: pointer; }
 .card .openable.card-title:hover { color: var(--vscode-textLink-foreground); }
 
