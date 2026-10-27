@@ -189,11 +189,14 @@ test('a repo\'s shared git folder is .git, or where a linked worktree\'s .git fi
     '/sub/.git': 'gitdir: ../super/.git/modules/sub\n',
     '/junk/.git': 'not a pointer',
   };
-  const fake = { isDir: (p: string) => p === '/m/.git', read: (f: string) => files[f] ?? null };
-  assert.equal(commonDirOf('/m', fake), '/m/.git');
-  assert.equal(commonDirOf('/a/b', fake), '/a/main/.git', 'relative');
-  assert.equal(commonDirOf('/c', fake), '/x/.git', 'absolute');
-  assert.equal(commonDirOf('/sub', fake), '/super/.git/modules/sub', 'no commondir: its own folder');
+  // On Windows path.join/resolve write backslashes and resolve adds the drive: the fake and the
+  // comparisons read paths in POSIX form, which on a Mac leaves them as they are.
+  const posix = (p: string | null) => p?.replace(/^[A-Za-z]:/, '').replaceAll('\\', '/') ?? null;
+  const fake = { isDir: (p: string) => posix(p) === '/m/.git', read: (f: string) => files[posix(f)!] ?? null };
+  assert.equal(posix(commonDirOf('/m', fake)), '/m/.git');
+  assert.equal(posix(commonDirOf('/a/b', fake)), '/a/main/.git', 'relative');
+  assert.equal(posix(commonDirOf('/c', fake)), '/x/.git', 'absolute');
+  assert.equal(posix(commonDirOf('/sub', fake)), '/super/.git/modules/sub', 'no commondir: its own folder');
   assert.equal(commonDirOf('/junk', fake), null);
   assert.equal(commonDirOf('/none', fake), null);
   // As git really writes a linked worktree's files.
@@ -214,7 +217,7 @@ test('a session\'s ledger is its project\'s here; elsewhere, its repo\'s, a buil
     repoFor: (p: string) => repoRoot(p, '/Users/me', (d) => ['/Users/me/clients/Acme', '/Users/me/linked'].includes(d)),
     commonDir: (r: string) => (r === '/Users/me/linked' ? '/Users/me/clients/Acme/.git' : r === '/Users/me/clients/Acme' ? `${r}/.git` : null),
   };
-  const acme = '/Users/me/clients/Acme/.git/acc/ledger.json';
+  const acme = join('/Users/me/clients/Acme/.git', 'acc', 'ledger.json');
   assert.equal(sessionLedger('/here/.claude/worktrees/X', o), '/here/.git/acc/ledger.json');
   for (const cwd of ['/Users/me/clients/Acme', '/Users/me/clients/Acme/', '/Users/me/clients/Acme/force-app/main', '/Users/me/clients/Acme/.claude/worktrees/ACME-38', '/Users/me/clients/Acme/.claude/worktrees/ACME-38/src', '/Users/me/linked']) {
     assert.equal(sessionLedger(cwd, o), acme, cwd);

@@ -2,7 +2,7 @@
 // stops what half-started; "can't tell" is a state of its own; Dispatch again; and stale sessions don't count.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { AGAIN_REASON, againRefusal, dispatchAgain } from '../src/again.ts';
 import { nextStep } from '../src/autopilot-rules.ts';
@@ -230,7 +230,7 @@ test('acc show: no answer past the grace shows the Needs you line, an answer aga
   const claude = fakeClaude();
   // Claude Code's config folder holds its trust and its projects, where no conversation is saved for it.
   const home = trustingHome(repo);
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: home, CLAUDE_CONFIG_DIR: home };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: home, CLAUDE_CONFIG_DIR: home };
   assert.equal(acc(repo, ['add', 'Write the changelog'], env).code, 0);
   const d = acc(repo, ['dispatch', 'T-1'], env);
   assert.equal(d.code, 0, d.err + d.out);
@@ -371,7 +371,7 @@ test('acc dispatch --again with no claude on the path refuses with the missing w
   const repo = realpathSync(makeRepo({ '.acc/config.json': JSON.stringify(GENERIC_CONFIG), ...IGNORE }));
   const claude = fakeClaude();
   const home = trustingHome(repo);
-  const env = { PATH: `${claude.bin}:${process.env.PATH}`, HOME: home, CLAUDE_CONFIG_DIR: home };
+  const env = { PATH: `${claude.bin}${delimiter}${process.env.PATH}`, HOME: home, CLAUDE_CONFIG_DIR: home };
   assert.equal(acc(repo, ['add', 'Write the changelog'], env).code, 0);
   assert.equal(acc(repo, ['dispatch', 'T-1'], env).code, 0);
   // The path without any claude: the stand-in's folder and every folder that holds one are left out.

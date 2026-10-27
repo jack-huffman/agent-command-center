@@ -133,7 +133,8 @@ test('one pull request found: its head is checked out with no branch, the checks
   assert.equal(wt, join(mainCheckout(run, dir), '.claude', 'worktrees', 'verify-ACME-7'));
   assert.equal(gitIn(wt, 'rev-parse', 'HEAD'), sha);
   assert.throws(() => gitIn(wt, 'symbolic-ref', '--quiet', 'HEAD'), 'no branch is checked out');
-  assert.match(gitIn(dir, 'worktree', 'list', '--porcelain'), new RegExp(`worktree ${wt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\nHEAD ${sha}\\ndetached`));
+  // git prints its paths with forward slashes, on Windows too.
+  assert.match(gitIn(dir, 'worktree', 'list', '--porcelain'), new RegExp(`worktree ${wt.replaceAll('\\', '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\nHEAD ${sha}\\ndetached`));
   assert.equal(gitIn(dir, 'branch', '--list'), '* main', 'no local branch for the pull request');
   assert.ok(r.calls.some((c) => c === `git worktree add --detach ${wt} ${sha}`));
   // The checks ran in the worktree: one passed, and one that couldn't run is skipped with its reason.

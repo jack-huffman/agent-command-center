@@ -41,6 +41,6 @@ test('the model an agent last answered with is read from its transcript\'s end, 
 });
 
 test('Claude Code\'s projects folder follows CLAUDE_CONFIG_DIR', () => {
-  assert.equal(claudeProjectsDir({ CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home/me' }), '/cfg/projects');
-  assert.equal(claudeProjectsDir({ HOME: '/home/me' }), '/home/me/.claude/projects');
+  assert.equal(claudeProjectsDir({ CLAUDE_CONFIG_DIR: '/cfg', HOME: '/home/me' }), join('/cfg', 'projects'));
+  assert.equal(claudeProjectsDir({ HOME: '/home/me' }), join('/home/me', '.claude', 'projects'));
 });

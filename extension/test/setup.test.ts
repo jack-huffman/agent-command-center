@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
@@ -276,7 +276,7 @@ test('a project started from an epic signs in under the key it has once acc init
   assert.ok(dry.ok, JSON.stringify(dry));
   const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
   const pending = pendingProject({ root: dir, dry, commonDir: common, args, tracker: null });
-  assert.deepEqual([pending.name, pending.args, pending.tracker], [dir.split('/').pop(), ['--profile', 'generic'], null]);
+  assert.deepEqual([pending.name, pending.args, pending.tracker], [basename(dir), ['--profile', 'generic'], null]);
 
   const tracker = { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epic: 'ACME-3' };
   const done = acc(['init', ...pending.args, ...initArgs({ tracker }), '--json']);

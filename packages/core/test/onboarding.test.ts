@@ -376,6 +376,9 @@ test('A1.claude-billing passes when nothing points Claude Code at per-token bill
   assert.match(step.fix?.text ?? '', /on purpose, .* is fine/);
 });
 
+// The home settings file as the step names it: under ~ with this system's separator (~\.claude\... on Windows).
+const HOME_SETTINGS = join('~', '.claude', 'settings.json');
+
 test('A1.claude-billing names each source of per-token billing, and never its value', () => {
   const KEY = 'sk-ant-api03-' + 'q'.repeat(24);
   const helper = `echo ${KEY}`;
@@ -384,10 +387,10 @@ test('A1.claude-billing names each source of per-token billing, and never its va
     { env: { ANTHROPIC_AUTH_TOKEN: KEY }, want: 'ANTHROPIC_AUTH_TOKEN in the environment' },
     { env: { CLAUDE_CODE_USE_BEDROCK: '1' }, want: 'CLAUDE_CODE_USE_BEDROCK in the environment' },
     { env: { CLAUDE_CODE_USE_VERTEX: 'true' }, want: 'CLAUDE_CODE_USE_VERTEX in the environment' },
-    { home: { '.claude/settings.json': { apiKeyHelper: helper } }, want: 'apiKeyHelper in ~/.claude/settings.json' },
-    { home: { '.claude/settings.json': { env: { ANTHROPIC_API_KEY: KEY } } }, want: 'ANTHROPIC_API_KEY under env in ~/.claude/settings.json' },
-    { home: { '.claude/settings.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } }, want: 'ANTHROPIC_AUTH_TOKEN under env in ~/.claude/settings.json' },
-    { home: { '.claude/settings.json': { env: { CLAUDE_CODE_USE_VERTEX: '1' } } }, want: 'CLAUDE_CODE_USE_VERTEX under env in ~/.claude/settings.json' },
+    { home: { '.claude/settings.json': { apiKeyHelper: helper } }, want: `apiKeyHelper in ${HOME_SETTINGS}` },
+    { home: { '.claude/settings.json': { env: { ANTHROPIC_API_KEY: KEY } } }, want: `ANTHROPIC_API_KEY under env in ${HOME_SETTINGS}` },
+    { home: { '.claude/settings.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } }, want: `ANTHROPIC_AUTH_TOKEN under env in ${HOME_SETTINGS}` },
+    { home: { '.claude/settings.json': { env: { CLAUDE_CODE_USE_VERTEX: '1' } } }, want: `CLAUDE_CODE_USE_VERTEX under env in ${HOME_SETTINGS}` },
     { repo: { '.claude/settings.json': { apiKeyHelper: helper } }, want: 'apiKeyHelper in .claude/settings.json' },
     { repo: { '.claude/settings.json': { env: { ANTHROPIC_API_KEY: KEY } } }, want: 'ANTHROPIC_API_KEY under env in .claude/settings.json' },
     { repo: { '.claude/settings.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } }, want: 'ANTHROPIC_AUTH_TOKEN under env in .claude/settings.json' },
@@ -407,7 +410,7 @@ test('A1.claude-billing names each source of per-token billing, and never its va
     home: { '.claude/settings.json': { apiKeyHelper: helper } },
     repo: { '.claude/settings.local.json': { env: { ANTHROPIC_AUTH_TOKEN: KEY } } },
   });
-  assert.equal(all.detail, 'Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY in the environment, CLAUDE_CODE_USE_BEDROCK in the environment, apiKeyHelper in ~/.claude/settings.json, ANTHROPIC_AUTH_TOKEN under env in .claude/settings.local.json.');
+  assert.equal(all.detail, `Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY in the environment, CLAUDE_CODE_USE_BEDROCK in the environment, apiKeyHelper in ${HOME_SETTINGS}, ANTHROPIC_AUTH_TOKEN under env in .claude/settings.local.json.`);
 });
 
 test('A1.claude-billing reads CLAUDE_CONFIG_DIR\'s settings when set, and never quotes a file it can\'t parse', () => {
@@ -417,7 +420,7 @@ test('A1.claude-billing reads CLAUDE_CONFIG_DIR\'s settings when set, and never 
   const moved = billing({ env: { CLAUDE_CONFIG_DIR: dir }, home: { '.claude/settings.json': { apiKeyHelper: 'key.sh' } } });
   assert.equal(moved.detail, `Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY under env in ${join(dir, 'settings.json')}.`);
   const broken = billing({ home: { '.claude/settings.json': `{ "env": { "ANTHROPIC_API_KEY": "${KEY}" }, }` } });
-  assert.deepEqual(broken, { status: 'unknown', detail: 'Not valid JSON, so not checked: ~/.claude/settings.json.' });
+  assert.deepEqual(broken, { status: 'unknown', detail: `Not valid JSON, so not checked: ${HOME_SETTINGS}.` });
   const both = billing({ env: { ANTHROPIC_API_KEY: KEY }, repo: { '.claude/settings.json': `${KEY}` } });
   assert.equal(both.status, 'fail');
   assert.equal(both.detail, 'Agents would bill per token, not your Claude subscription: ANTHROPIC_API_KEY in the environment. Not valid JSON, so not checked: .claude/settings.json.');

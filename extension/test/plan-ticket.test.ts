@@ -128,9 +128,11 @@ test('Make a plan reads the ticket first and hands its file to acc, which is rem
   assert.equal(ran.length, 1);
   const m = /^acc analyze ACME-7 --ticket (\S+)$/.exec(ran[0]!.command);
   assert.ok(m, ran[0]!.command);
-  assert.match(readFileSync(m![1]!, 'utf8'), /Kelsey and Mike will send back the 77 contacts by Wednesday/);
+  // The line goes to a shell, so a path it must quote (a Windows one, with its backslashes) comes back quoted.
+  const ticket = m![1]!.replace(/^'(.*)'$/, '$1');
+  assert.match(readFileSync(ticket, 'utf8'), /Kelsey and Mike will send back the 77 contacts by Wednesday/);
   ran[0]!.onExit?.(0);
-  assert.ok(!existsSync(m![1]!), 'the file is gone once acc ends');
+  assert.ok(!existsSync(ticket), 'the file is gone once acc ends');
   // A task with no tracker plans from its description: no file, and no tracker asked.
   await cmds.get('acc.task.analyze')!({ kind: 'task', project: { root: ROOT }, task: { id: 'T-1', source: { kind: 'manual', url: null } } });
   assert.equal(ran[1]!.command, 'acc analyze T-1');

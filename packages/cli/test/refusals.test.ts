@@ -27,7 +27,8 @@ test('a file that can\'t be read is a usage error in words, not a raw ENOENT: ac
   const folder = tempDir('acc-folder-');
   assert.match(oneLine(acc(dir, ['import', '--file', join(folder, 'missing.json')]), 2), /^✗ Can't read .*missing\.json: there's no such file\.$/);
   assert.match(oneLine(acc(dir, ['import', '--file', folder]), 2), /: it's a folder\.$/);
-  assert.match(oneLine(acc(dir, ['import', '--file', 'x'.repeat(5000)]), 2), /: the name is too long\.$/);
+  // Windows reports a too-long name as ENOENT, not ENAMETOOLONG, and acc says what the system said.
+  assert.match(oneLine(acc(dir, ['import', '--file', 'x'.repeat(5000)]), 2), process.platform === 'win32' ? /: there's no such file\.$/ : /: the name is too long\.$/);
   for (const kind of ['jira', 'azure', 'monday']) assert.match(oneLine(acc(dir, ['intake', kind, '--file', join(folder, 'nope.json')]), 2), /there's no such file/, kind);
   const json = acc(dir, ['import', '--file', folder, '--json']);
   assert.equal(json.code, 2);
@@ -58,7 +59,8 @@ test('an id that climbs out of the repo reaches no file: acc analysis, acc analy
 
 test('a failure that echoes a long argument cuts it to 200 characters, and keeps acc\'s own words: acc show, dispatch, review and every other id (GH-106)', () => {
   const dir = repoWithConfig();
-  const long = 'x'.repeat(100_000);
+  // Windows takes a command line of 32,767 characters at most, so the word is as long as it can be there.
+  const long = 'x'.repeat(process.platform === 'win32' ? 20_000 : 100_000);
   for (const args of [['show', long], ['dispatch', long], ['review', long]]) {
     const line = oneLine(acc(dir, args), 1);
     assert.ok(line.length <= 260, `acc ${args[0]}: ${line.length} characters`);

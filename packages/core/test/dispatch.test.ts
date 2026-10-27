@@ -2,7 +2,7 @@
 // end is in dispatch-run.test.ts, and conflict-aware dispatch in held.test.ts (T-57).
 import assert from 'node:assert/strict';
 import { existsSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { builderSettings, renderPacket } from '../src/packet.ts';
@@ -18,8 +18,8 @@ test('names: slugs are short and branch-safe, and worktrees sit beside the repo 
   assert.equal(slugify('one two three four five six seven eight nine ten'), 'one-two-three-four-five-six-seven-eight');
   assert.equal(taskBranch({ id: 'AV-12', title: 'Login page' }), 'task/AV-12-login-page');
   const cfg = parseConfig(JSON.parse(JSON.stringify(GENERIC_CONFIG))).config!;
-  assert.equal(worktreeRoot(cfg, '/x/Acme'), '/x/Acme/.claude/worktrees');
-  assert.equal(worktreeRoot({ ...cfg, worktrees: { root: '../trees', setup: [] } }, '/x/Acme'), '/x/trees');
+  assert.equal(worktreeRoot(cfg, '/x/Acme'), join('/x/Acme', '.claude', 'worktrees'));
+  assert.equal(worktreeRoot({ ...cfg, worktrees: { root: '../trees', setup: [] } }, '/x/Acme'), resolve('/x/trees'));
 });
 
 test('the packet tells a Salesforce builder where it is, how to finish, and what never to touch', () => {
@@ -174,7 +174,7 @@ test('where the merge queue runs the full check, the packet and the short one na
 test('builder settings: identity, acc on PATH, and the dangerous commands denied even if the user allows them', () => {
   const config = parseConfig(JSON.parse(JSON.stringify(SF_CONFIG))).config!;
   const s = builderSettings({ id: 'ACME-7' } as never, config, '/acc/bin', '/usr/bin') as { env: Record<string, string>; permissions: { allow: string[]; deny: string[] } };
-  assert.deepEqual(s.env, { ACC_TASK: 'ACME-7', ACC_ROLE: 'builder', PATH: '/acc/bin:/usr/bin' });
+  assert.deepEqual(s.env, { ACC_TASK: 'ACME-7', ACC_ROLE: 'builder', PATH: `/acc/bin${delimiter}/usr/bin` });
   for (const d of ['Bash(git push*)', 'Bash(gh pr *)', 'Bash(sf project deploy start*)', 'Bash(acc set *)', 'Bash(git checkout *)', 'Bash(acc agents autonomy*)', 'Bash(acc agents auto-merge*)', 'Bash(acc trackers set*)', 'Bash(gh release create*)', 'Bash(npm run release*)']) assert.ok(s.permissions.deny.includes(d), d);
   assert.ok(s.permissions.allow.includes('Bash(sf project deploy validate *)'));
   // A builder works from the brief it was given, so it can't edit its task (T-74).

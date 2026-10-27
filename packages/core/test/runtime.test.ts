@@ -17,8 +17,11 @@ test('recordRuntime writes the path and a newline, creating the folder, and only
   const helper = '/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)';
   assert.equal(recordRuntime(helper, env), true);
   assert.equal(readFileSync(env.ACC_RUNTIME_FILE, 'utf8'), `${helper}\n`);
-  assert.equal(statSync(dir).mode & 0o777, 0o700);
-  assert.equal(statSync(env.ACC_RUNTIME_FILE).mode & 0o777, 0o600);
+  // Windows has no POSIX modes.
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(dir).mode & 0o777, 0o700);
+    assert.equal(statSync(env.ACC_RUNTIME_FILE).mode & 0o777, 0o600);
+  }
 
   const before = statSync(env.ACC_RUNTIME_FILE).mtimeMs;
   assert.equal(recordRuntime(helper, env), false, 'unchanged, so not written');

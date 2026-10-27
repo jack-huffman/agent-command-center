@@ -313,7 +313,7 @@ test('failing checks on a commit autopilot already sent back don\'t need you whi
 test('mutate writes the snapshot and the event log together, in the shared git directory (D-008)', () => {
   const repo = makeRepo();
   const paths = repoPaths(repo, run);
-  assert.match(paths.ledger, /\.git\/acc\/ledger\.json$/);
+  assert.match(paths.ledger.replaceAll('\\', '/'), /\.git\/acc\/ledger\.json$/);
   mutate(paths, clock, (l, emit) => upsertTasks(l, config, [{ source: { kind: 'jira', key: 'ACME-1' }, title: 'x' }], 'human', 'h', emit, clock));
   moveTask(paths, config, 'ACME-1', { to: 'running', actor: 'human', by: 'h' }, noGateHooks, clock);
   const l = readLedger(paths.ledger);

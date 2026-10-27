@@ -42,7 +42,8 @@ test('a question waits for its answer, the first answer wins, and both files are
   const q = await questionIn(dir);
   assert.equal(q.tool, 'Bash');
   assert.equal(q.sessionId, 'sess-1');
-  assert.equal(statSync(join(dir, `${q.id}.json`)).mode & 0o077, 0, 'readable only by this user');
+  // Windows has no POSIX modes.
+  if (process.platform !== 'win32') assert.equal(statSync(join(dir, `${q.id}.json`)).mode & 0o077, 0, 'readable only by this user');
   assert.equal(answerQuestion(dir, q.id, { decision: 'allow' }), true);
   assert.equal(answerQuestion(dir, q.id, { decision: 'deny' }), false, 'another window got there first');
   const r = await waiting;
@@ -210,7 +211,8 @@ test('the history keeps its newest 1,000 records: 1,000 stay as they are, and th
   assert.equal(statSync(file).ino, inode, 'and not rewritten');
   appendHistory(dir, record(1000), 1);
   assert.deepEqual(historyIds(dir), ids(1, 1001), 'the oldest went, the newest stayed, in order');
-  assert.equal(statSync(file).mode & 0o077, 0, 'still readable only by this user');
+  // Windows has no POSIX modes.
+  if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o077, 0, 'still readable only by this user');
   assert.deepEqual(readdirSync(dir).filter((f) => f.endsWith('.tmp')), [], 'written to a temp file and renamed over it');
 });
 

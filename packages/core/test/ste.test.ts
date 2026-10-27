@@ -159,7 +159,9 @@ function oracleTexts(): [string, string][] {
   ];
   const md = (dir: string): string[] => readdirSync(join(ROOT, dir)).flatMap((f) => {
     const p = join(ROOT, dir, f);
-    return statSync(p).isDirectory() ? md(relative(ROOT, p)) : f.endsWith('.md') ? [relative(ROOT, p)] : [];
+    // Forward slashes on every system: each name below is made from them.
+    const rel = relative(ROOT, p).replaceAll('\\', '/');
+    return statSync(p).isDirectory() ? md(rel) : f.endsWith('.md') ? [rel] : [];
   });
   const files = [...md('plugin'), ...md('docs').filter((f) => !f.startsWith('docs/research')), '.acc/rules.md', 'README.md', 'CLAUDE.md'];
   return [...samples.map((s, i): [string, string] => [`sample-${i}.md`, s]), ...files.map((f): [string, string] => [f.replaceAll('/', '__'), readFileSync(join(ROOT, f), 'utf8')])];

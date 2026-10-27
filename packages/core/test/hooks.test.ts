@@ -50,7 +50,9 @@ async function hookAsync(event: string, input: unknown, env: Record<string, stri
 
 test('every hook fixture gets the outcome it expects, and no hook ever exits 2 or fails loudly', async () => {
   const r = repo();
-  const fill = (s: string) => s.replaceAll('{wt}', r.wt).replaceAll('{root}', r.root).replaceAll('{outside}', r.outside);
+  // Each path goes into the fixture's JSON as a JSON string's inside, so a Windows path's backslashes stay backslashes.
+  const inJson = (p: string) => JSON.stringify(p).slice(1, -1);
+  const fill = (s: string) => s.replaceAll('{wt}', inJson(r.wt)).replaceAll('{root}', inJson(r.root)).replaceAll('{outside}', inJson(r.outside));
   const files = readdirSync(FIXTURES).filter((f) => f.endsWith('.json')).sort();
   assert.ok(files.length >= 20, 'a fixture for each rule');
   type Fixture = { event: string; env: Record<string, string>; input: { cwd?: string } | string; expect: string };

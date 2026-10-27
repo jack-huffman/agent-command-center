@@ -212,7 +212,7 @@ test('what the notices keep: a missing or broken file is nothing told yet, and a
   assert.equal(team.landed.length, 2);
   assert.deepEqual(readSeen(s.paths, 'T-2').told, [s.merge6, s.tidy]);
   assert.equal(teamNotice(s.paths, s.config, s.ledger, run, 'T-2'), null);
-  assert.equal(teamForRun({ ...s.paths, stateDir: '/dev/null/none' }, s.config, s.ledger, run, 'T-2', 'task/T-2', s.wt2), null, 'a team acc can\'t keep leaves the packet without one');
+  assert.equal(teamForRun({ ...s.paths, stateDir: join(s.root, 'README.md', 'none') }, s.config, s.ledger, run, 'T-2', 'task/T-2', s.wt2), null, 'a team acc can\'t keep leaves the packet without one');
 });
 
 test('acc hook post-tool-use tells a running builder of a shared merge once, and says nothing to anyone else', () => {
