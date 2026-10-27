@@ -12,6 +12,7 @@ import { needsTerminal } from './logic/runs.ts';
 import { shq } from './logic/shared.ts';
 import { inProcessWords, processLine } from './logic/processes.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
+import { domainItem, NO_PRODUCTION, sandboxDomains } from './logic/no-production.ts';
 import { sourceProblem } from '../../packages/core/src/source.ts';
 import { type RunResult, runFile } from './run.ts';
 import type { Runs } from './runs.ts';
@@ -39,7 +40,7 @@ const RECENT_TEMPLATES = 'acc.recentTemplates';
 const RECENT_RULES = 'acc.recentRules';
 /** "What kind of project is this?": B0.config's Do it asks, and so does a team template that sets no profile. */
 const PROJECT_KINDS = [
-  { label: '$(cloud) Salesforce project', description: 'Finds every org from Production\'s sandbox list', profile: 'salesforce' as const },
+  { label: '$(cloud) Salesforce project', description: 'Finds every org from Production\'s sandbox list, or from your sandboxes without Production', profile: 'salesforce' as const },
   { label: '$(folder) Other project', description: 'One branch, no orgs', profile: 'generic' as const },
 ];
 const FROM_TEMPLATE = { label: '$(repo) From a team template…', description: 'Your team\'s settings, from a file, a GitHub file or a git repo', profile: 'template' as const };
@@ -487,18 +488,20 @@ export class Setup implements vscode.Disposable {
       }
       const u = parseOrgUrl(url);
       const ok = r.code === 0 && (e.type === 'production' ? u.kind === 'production' : u.kind === 'sandbox' && u.sandbox === e.branch);
-      const why = r.code !== 0 ? 'Not logged in' : ok ? 'Logged in to the right org' : u.kind === 'sandbox' ? `Points at the "${u.sandbox}" sandbox` : 'Points at a different org';
-      return { e, u, ok, why };
+      // Production not logged in isn't needed for setting up or building (D-T-125), so it's listed last.
+      const away = r.code !== 0 && e.type === 'production';
+      const why = away ? 'Not logged in, and not needed for setting up or building: someone with access to Production looks after it' : r.code !== 0 ? 'Not logged in' : ok ? 'Logged in to the right org' : u.kind === 'sandbox' ? `Points at the "${u.sandbox}" sandbox` : 'Points at a different org';
+      return { e, u, ok, away, why };
     })));
     let domain = looks.map((l) => (l.u.kind === 'unknown' ? null : l.u.domain)).find(Boolean) ?? null;
     if (!domain) {
       domain = (await vscode.window.showInputBox({ title: 'Your Salesforce My Domain', prompt: 'The part before .my.salesforce.com in your Production URL', placeHolder: 'acme', ignoreFocusOut: true, validateInput: (v) => (/^[a-z0-9-]+$/i.test(v.trim()) ? null : 'Letters, digits and dashes, such as acme') }))?.trim().toLowerCase() ?? null;
       if (!domain) return;
     }
-    const sorted = [...looks].sort((a, b) => Number(a.ok) - Number(b.ok));
+    const sorted = [...looks].sort((a, b) => Number(a.ok || a.away) - Number(b.ok || b.away));
     const pick = await vscode.window.showQuickPick(sorted.map((l) => ({
-      label: `${l.ok ? '$(pass)' : '$(warning)'} ${l.e.name}`, description: l.e.org!, detail: `${l.why}. Logs in at ${expectedOrgUrl(domain!, l.e)}`, l,
-    })), { title: 'Log in to which environment\'s org?', placeHolder: looks.every((l) => l.ok) ? 'Every environment is already logged in to the right org' : 'The ones that need it are first' });
+      label: `${l.ok ? '$(pass)' : l.away ? '$(circle-slash)' : '$(warning)'} ${l.e.name}`, description: l.e.org!, detail: `${l.why}. Logs in at ${expectedOrgUrl(domain!, l.e)}`, l,
+    })), { title: 'Log in to which environment\'s org?', placeHolder: looks.every((l) => l.ok || l.away) ? 'Every environment that setting up needs is logged in to the right org' : 'The ones that need it are first' });
     if (!pick) return;
     const e = pick.l.e;
     this.runCommand(`sf org login web --alias ${shq(e.org!)} --instance-url ${expectedOrgUrl(domain, e)}`, 'B6.org-match');
@@ -528,8 +531,8 @@ export class Setup implements vscode.Disposable {
   private async choose(kind: 'salesforce' | 'generic' | 'template'): Promise<{ init: InitChoice; templateTracker: Record<string, unknown> | null } | undefined> {
     if (kind === 'template') return this.templateChoice();
     if (kind === 'generic') return { init: { profile: 'generic' }, templateTracker: null };
-    const productionOrg = await this.pickProductionOrg();
-    return productionOrg ? { init: { profile: 'salesforce', productionOrg }, templateTracker: null } : undefined;
+    const production = await this.pickProduction();
+    return production ? { init: { profile: 'salesforce', ...production }, templateTracker: null } : undefined;
   }
 
   /** Starts a project on the Connect page (GH-81): the extension opens it there. */
@@ -581,24 +584,37 @@ export class Setup implements vscode.Disposable {
     this.log.info(`acc init started ${p.name} in ${p.root}, with its tracker: ${JSON.stringify(tracker)}`);
   }
 
-  /** Which logged-in org is Production. Undefined when the person backed out, or went to log in to another. */
-  private async pickProductionOrg(): Promise<string | undefined> {
+  /**
+   * Which logged-in org is Production, or, for a person without access to it (D-T-125), which My Domain's
+   * logged-in sandboxes to use. Undefined when the person backed out, or went to log in to another org.
+   */
+  private async pickProduction(): Promise<Pick<InitChoice, 'productionOrg' | 'myDomain'> | undefined> {
     const list = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Finding your logged-in Production orgs' },
       () => runFile('sf', ['org', 'list', '--json'], this.cwd(), { ...process.env, SF_NO_UPDATE_NOTIFIER: 'true' }));
-    let orgs: string[] = [];
+    let parsed: unknown = null;
     try {
-      orgs = productionOrgs(JSON.parse(list.stdout));
+      parsed = JSON.parse(list.stdout);
     } catch {
-      orgs = [];
+      parsed = null;
     }
-    const other = '$(add) Log in to another Production org…';
-    const pick = await vscode.window.showQuickPick([...orgs, other], { title: 'Which org is Production?', placeHolder: orgs.length ? undefined : 'No Production org is logged in yet' });
+    const orgs = productionOrgs(parsed);
+    const other = { label: '$(add) Log in to another Production org…' };
+    const pick = await vscode.window.showQuickPick([...orgs.map((label) => ({ label })), other, NO_PRODUCTION], { title: 'Which org is Production?', placeHolder: orgs.length ? undefined : 'No Production org is logged in yet' });
     if (!pick) return undefined;
     if (pick === other) {
       this.runCommand('sf org login web --alias "<alias>" --instance-url https://<domain>.my.salesforce.com');
       return undefined;
     }
-    return pick;
+    if (pick !== NO_PRODUCTION) return { productionOrg: pick.label };
+    const domains = sandboxDomains(parsed);
+    if (!domains.length) {
+      const login = 'Log in to a sandbox';
+      const go = await vscode.window.showWarningMessage('No sandbox is logged in on this machine.', { modal: true, detail: 'Without Production, the project\'s environments are the sandboxes you\'re logged in to. Log in to one, then choose again.' }, login);
+      if (go === login) this.runCommand('sf org login web --alias "<alias>" --instance-url https://<domain>--<sandbox>.sandbox.my.salesforce.com');
+      return undefined;
+    }
+    const domain = await vscode.window.showQuickPick(domains.map(domainItem), { title: 'Which My Domain is the project\'s?', placeHolder: 'Its logged-in sandboxes become the environments; Production is recorded with no org on this machine' });
+    return domain ? { myDomain: domain.domain } : undefined;
   }
 
   /**
@@ -643,9 +659,9 @@ export class Setup implements vscode.Disposable {
       picked = kind.profile;
     }
     const profile = shown.profile ?? picked;
-    const productionOrg = profile === 'salesforce' ? await this.pickProductionOrg() : undefined;
-    if (profile === 'salesforce' && !productionOrg) return undefined;
-    return { init: { from: source, profile: picked, productionOrg }, templateTracker: shown.tracker };
+    const production = profile === 'salesforce' ? await this.pickProduction() : {};
+    if (!production) return undefined;
+    return { init: { from: source, profile: picked, ...production }, templateTracker: shown.tracker };
   }
 
   /**

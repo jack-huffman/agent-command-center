@@ -164,6 +164,19 @@ only* are hidden for a `generic` project.
   acc init --profile generic
   ```
 
+  **No access to Production?** You can still set up and build: builders never
+  deploy to Production. **Do it** offers **I don't have access to
+  Production** beside the orgs, then asks which My Domain's sandboxes to use.
+  The environments are the sandboxes you're logged in to there, and
+  Production is recorded with no org on this machine. A sandbox the CLI tracks
+  is taken as Developer, any other as Partial; correct a type in the config if
+  you know better. In a terminal: `acc init --profile salesforce --my-domain
+  <domain>`. Later, someone with access to Production runs
+  `acc setup production --org <alias>`, which records Production's org and
+  corrects the types from its sandbox list, then commits the config. Joining a
+  project that's already set up needs no Production login either: its line in
+  Setup says it isn't needed.
+
   If your team keeps a template of its settings, choose **From a team
   template…** instead, and give its path or URL. It sets what the team agreed
   on, such as the checks and the tracker, and the Command Center finds the rest. Setup lists

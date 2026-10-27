@@ -14,6 +14,7 @@ import type { RepoPaths } from './paths.ts';
 import { promotionPaths } from './promote.ts';
 import { orList } from './trackers/types.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { PRODUCTION_NOT_HERE, sfJson } from './sf-discovery.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { escapeMarkup } from './text.ts';
 
@@ -139,8 +140,8 @@ export function buildBaseline(paths: RepoPaths, config: Config, deps: SetupDeps)
 export interface SeededBranch {
   env: string;
   branch: string;
-  /** made: created and seeded from its org. failed: why it couldn't be. */
-  status: 'made' | 'failed';
+  /** made: created and seeded from its org. failed: why it couldn't be. skipped: Production's, not here (D-T-125). */
+  status: 'made' | 'failed' | 'skipped';
   note: string;
   /** Files that differ from production's branch, a first measure of drift. */
   differs: number | null;
@@ -210,7 +211,15 @@ export function seedBranches(paths: RepoPaths, config: Config, deps: SetupDeps, 
       else steps.fail(`make-${e.branch}`, (err as Error).message);
     }
   };
-  if (prod && !refFor(run, paths.root, prod.branch)) seed(prod, 'HEAD', false);
+  if (prod && !refFor(run, paths.root, prod.branch)) {
+    // Production's branch is retrieved from Production. Without it on this machine (D-T-125), it's left for
+    // someone with access, and each sandbox's branch starts from this checkout instead.
+    const away = sf && prod.type === 'production' && (!prod.org || sfJson(run, paths.root, ['org', 'display', '-o', prod.org]).status !== 0);
+    if (away) {
+      steps.skip(`make-${prod.branch}`, `Make ${prod.branch}`, 'This machine isn\'t logged in to Production');
+      out.push({ env: prod.name, branch: prod.branch, status: 'skipped', note: `not made: it's retrieved from Production. ${PRODUCTION_NOT_HERE}`, differs: null });
+    } else seed(prod, 'HEAD', false);
+  }
   const prodRef = prod ? refFor(run, paths.root, prod.branch) : null;
   for (const e of config.environments) {
     if (e === prod || refFor(run, paths.root, e.branch)) continue;
@@ -281,7 +290,12 @@ export function draftLists(paths: RepoPaths, config: Config, deps: SetupDeps): L
   fetchStep(run, paths.root, steps);
   const prod = config.environments.find((e) => e.type === 'production');
   const prodRef = prod ? refFor(run, paths.root, prod.branch) : null;
-  if (!prod || !prodRef) throw new AccError('refused', 'There\'s no production branch to compare the others with yet. Make the branches first (B6).');
+  if (!prod || !prodRef) {
+    // Set up without Production (D-T-125), its branch waits for someone with access to Production.
+    throw new AccError('refused', prod && !prod.org
+      ? 'There\'s no production branch to compare the others with yet. It\'s retrieved from Production, so someone with access to Production makes it first (B6).'
+      : 'There\'s no production branch to compare the others with yet. Make the branches first (B6).');
+  }
   const specific = new Set<string>();
   const drift = new Set<string>();
   const unexplained: ListsResult['unexplained'] = [];

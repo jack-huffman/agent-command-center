@@ -13,6 +13,7 @@ import { readmePlaces } from '../setup.ts';
 import { DATA_EXT } from '../stray-files.ts';
 import { parseSource } from '../source.ts';
 import { NO_TRACKING_REASON, usesSourceTracking } from '../source-tracking.ts';
+import { PRODUCTION_NOT_HERE } from '../sf-discovery.ts';
 import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
 import {
@@ -90,6 +91,17 @@ function filesOnEnvironmentBranches(ctx: CheckContext): Set<string> {
 const sfEnvs = (ctx: CheckContext): Environment[] => (ctx.config?.environments ?? []).filter((e) => e.type !== 'none');
 const devEnvs = (ctx: CheckContext): Environment[] =>
   sfEnvs(ctx).filter((e) => (e.type === 'developer' || e.type === 'developer_pro') && e.org);
+
+/**
+ * Production, when this machine has no org for it or isn't logged in to its org (D-T-125): a person without
+ * access to Production still sets up and builds, so the steps that read it pass on the rest. Null when
+ * Production is logged in here, or there's none.
+ */
+const productionAway = (ctx: CheckContext): Environment | null => {
+  const prod = ctx.config?.environments.find((e) => e.type === 'production');
+  if (!prod) return null;
+  return !prod.org || sfJson(ctx, ['org', 'display', '-o', prod.org]).status !== 0 ? prod : null;
+};
 
 /** Variables that make Claude Code bill per token: an API key, or a cloud account (Bedrock, Vertex) when true. */
 const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
@@ -429,8 +441,9 @@ export const STEPS: Step[] = [
       if (need) return need;
       const prod = ctx.config!.environments.find((e) => e.type === 'production');
       if (!prod) return fail('There\'s no Production environment.');
-      if (!prod.org) return fail('Production has no org alias.');
-      const q = sfJson(ctx, ['data', 'query', '--use-tooling-api', '-q', 'SELECT SandboxName, LicenseType FROM SandboxInfo', '-o', prod.org]);
+      // Only Production can list its sandboxes: without it, someone with access runs this check.
+      if (productionAway(ctx)) return skip(`${PRODUCTION_NOT_HERE} This check compares the settings with Production's sandbox list, so it runs where Production is logged in.`);
+      const q = sfJson(ctx, ['data', 'query', '--use-tooling-api', '-q', 'SELECT SandboxName, LicenseType FROM SandboxInfo', '-o', prod.org!]);
       if (q.status !== 0) return unknown(`Couldn't read Production's sandbox list: ${q.message ?? 'sf failed'}`);
       const records: { SandboxName: string; LicenseType: string }[] = q.result?.records ?? [];
       const problems: string[] = [];
@@ -575,8 +588,13 @@ export const STEPS: Step[] = [
       const need = needsProject(ctx);
       if (need) return need;
       const has = (ref: string) => ctx.run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: ctx.paths!.root }).code === 0;
-      const missing = ctx.config!.environments.filter((e) => !has(`refs/heads/${e.branch}`) && !has(`refs/remotes/origin/${e.branch}`)).map((e) => e.branch);
-      return missing.length ? fail(`No branch for ${missing.join(', ')}.`) : pass(ctx.config!.environments.map((e) => e.branch).join(', '));
+      const missing = ctx.config!.environments.filter((e) => !has(`refs/heads/${e.branch}`) && !has(`refs/remotes/origin/${e.branch}`));
+      // Production's branch is retrieved from Production: without it here, someone with access makes it (D-T-125).
+      const away = ctx.config!.profile === 'salesforce' ? missing.find((e) => e.type === 'production' && productionAway(ctx)) : undefined;
+      const rest = missing.filter((e) => e !== away);
+      if (rest.length) return fail(`No branch for ${rest.map((e) => e.branch).join(', ')}.`);
+      const made = ctx.config!.environments.filter((e) => e !== away).map((e) => e.branch).join(', ');
+      return pass(away ? `${made}. No branch for ${away.branch} yet: it's retrieved from Production. ${PRODUCTION_NOT_HERE}` : made);
     },
   },
   {
@@ -589,6 +607,8 @@ export const STEPS: Step[] = [
       const problems: string[] = [];
       const ok: string[] = [];
       for (const e of sfEnvs(ctx)) {
+        // No org for Production here, or not logged in to it, isn't a problem: a wrong org still is (D-T-125).
+        if (e.type === 'production' && productionAway(ctx)) { ok.push(`${e.branch}: ${PRODUCTION_NOT_HERE}`); continue; }
         if (!e.org) { problems.push(`${e.name} has no org alias.`); continue; }
         const d = sfJson(ctx, ['org', 'display', '-o', e.org]);
         if (d.status !== 0) { problems.push(`"${e.org}" isn't logged in (${d.message ?? 'sf failed'}).`); continue; }
@@ -662,6 +682,13 @@ export const STEPS: Step[] = [
         const gone = here.filter((p) => !elsewhere.has(p));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(', ')}${gone.length > 3 ? ' …' : ''}.`);
         counts.push(`${paths.length} ${label}`);
+      }
+      // The lists are drafted against production's branch: without it, and without Production here to make
+      // it, Do it can't run, so the step waits for someone with access (D-T-125).
+      const prod = ctx.config!.environments.find((e) => e.type === 'production');
+      const has = (ref: string) => ctx.run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: ctx.paths!.root }).code === 0;
+      if (problems.length && prod && !has(`refs/heads/${prod.branch}`) && !has(`refs/remotes/origin/${prod.branch}`) && productionAway(ctx)) {
+        return skip(`They're drafted from how each sandbox differs from ${prod.branch}'s branch, which is retrieved from Production. ${PRODUCTION_NOT_HERE}`);
       }
       return problems.length ? fail(problems.join(' ')) : pass(counts.join(', '));
     },
