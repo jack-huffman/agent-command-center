@@ -68,10 +68,24 @@ export const startFor = (cmd: string, args: string[], env: NodeJS.ProcessEnv = p
 // The three ways acc starts a program, each as startFor says. A start Windows can't make comes back as its
 // problem, never thrown.
 
-/** Starts a program and waits for it (spawnSync). */
+/**
+ * Starts a program and waits for it (spawnSync). A program that exits without reading all of the input it was
+ * given leaves spawnSync an EPIPE beside its exit: the program ran and answered, so its answer is what comes
+ * back, as it is for a program that read everything.
+ */
 export function startSync(cmd: string, args: string[], opts: SpawnSyncOptions): SpawnSyncReturns<string | Buffer> | { problem: string } {
   const s = startFor(cmd, args, opts.env);
-  return 'problem' in s ? s : spawnSync(s.file, s.args, { ...opts, windowsVerbatimArguments: s.verbatim });
+  if ('problem' in s) return s;
+  const r = spawnSync(s.file, s.args, { ...opts, windowsVerbatimArguments: s.verbatim });
+  return unpiped(r);
+}
+
+/** A result whose only error is the EPIPE of input the program didn't read, with that error taken off. */
+export function unpiped<T extends SpawnSyncReturns<string | Buffer>>(r: T): T {
+  const broken = (r.error as NodeJS.ErrnoException | undefined)?.code === 'EPIPE' && (r.status !== null || r.signal !== null);
+  if (!broken) return r;
+  const { error: _, ...rest } = r;
+  return rest as T;
 }
 
 /** Starts a program and gives its process (spawn). */

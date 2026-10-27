@@ -14,10 +14,10 @@ const ROUTINE = 'trig_01ABCDEFGHJKLMNOPQRSTUVW';
 const TOKEN = 'tok_0123456789abcdefghij';
 const KEYCHAIN = { 'security find-generic-password': ok(`${TOKEN}\n`), 'security delete-generic-password': ok(), 'security -i': ok() };
 
-test('a Mac keeps the token in its keychain; Windows and Linux say it isn\'t available there yet', () => {
+test('a Mac keeps the token in its keychain; Windows says it isn\'t available there yet; Linux (CI) is unchanged', () => {
   assert.equal(cloudTokenUnavailable('darwin'), null);
   assert.equal(cloudTokenUnavailable('win32'), 'Not available on Windows yet: the routine\'s token is kept in the macOS keychain');
-  assert.equal(cloudTokenUnavailable('linux'), 'Not available on this system yet: the routine\'s token is kept in the macOS keychain');
+  assert.equal(cloudTokenUnavailable('linux'), null);
 });
 
 test('edge case: on Windows acc never runs security, and refuses to keep a token with why', () => {

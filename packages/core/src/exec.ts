@@ -37,8 +37,9 @@ export const run: Runner = (cmd, args, opts = {}) => {
   const timeout = opts.timeoutMs ?? 120_000;
   const env = gh ? ghEnv(opts.env) : opts.env ?? process.env;
   // Started as every system needs it (startSync): on Windows, a .cmd shim such as sf's runs through cmd.exe.
-  // Niced, the script that lowers the priority starts the command as startFor says.
-  const inner = opts.nice ? startFor(cmd, args, env) : null;
+  // Niced, the script that lowers the priority starts the command as startFor says. gh is never niced: it's
+  // stopped at its timeout by SIGKILL, which would end the script and leave gh running.
+  const inner = opts.nice && !gh ? startFor(cmd, args, env) : null;
   if (inner && 'problem' in inner) return { code: 1, stdout: '', stderr: inner.problem };
   const how = inner ? nicedCommand(inner.file, inner.args, env, inner.verbatim) : { cmd, args, env };
   const r = startSync(how.cmd, how.args, {

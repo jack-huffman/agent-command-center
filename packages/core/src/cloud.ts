@@ -112,12 +112,13 @@ export const CLOUD_TOKEN_ENV = 'ACC_CLOUD_TOKEN';
 export const CLOUD_TOKEN = /^[A-Za-z0-9_-]{20,}$/;
 
 /**
- * Why this machine can't keep the routine's token, or null on a Mac, where it can (D-T-123): it's kept in the
- * macOS keychain, by the security command, which Windows has no counterpart of that acc uses yet. A token
- * given in the environment (CLOUD_TOKEN_ENV) still works everywhere.
+ * Why this machine can't keep the routine's token, or null where it can (D-T-123): it's kept in the macOS
+ * keychain, by the security command, which Windows has no counterpart of that acc uses yet. Elsewhere than
+ * Windows nothing changes: a Mac reads its keychain, and Linux (CI) as before. A token given in the
+ * environment (CLOUD_TOKEN_ENV) still works everywhere.
  */
 export const cloudTokenUnavailable = (platform: NodeJS.Platform = process.platform): string | null =>
-  platform === 'darwin' ? null : `Not available on ${platform === 'win32' ? 'Windows' : 'this system'} yet: the routine's token is kept in the macOS keychain`;
+  platform === 'win32' ? 'Not available on Windows yet: the routine\'s token is kept in the macOS keychain' : null;
 
 /** The routine's token for a repo: the environment's, else the macOS keychain's. Null when there's none, or no keychain. */
 export function readCloudToken(run: Runner, repo: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string | null {
