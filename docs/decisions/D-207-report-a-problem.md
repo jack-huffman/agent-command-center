@@ -1,4 +1,4 @@
-## D-T-118 Report a problem: a person drafts a GitHub issue from the Command Center, sees exactly what it says, and posts it (2026-10-27)
+## D-207 Report a problem: a person drafts a GitHub issue from the Command Center, sees exactly what it says, and posts it (2026-10-27)
 
 T-118. People besides the author now use the Command Center. When something breaks they need one easy way to
 tell the author, with what is needed to fix it, and nothing from their client work.
