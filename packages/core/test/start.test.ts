@@ -7,7 +7,7 @@ import { existsSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { run } from '../src/exec.ts';
-import { cmdWord, startFor, startOf, windowsProgram } from '../src/start.ts';
+import { cmdWord, startChild, startFile, startFor, startOf, windowsProgram } from '../src/start.ts';
 import { tempDir } from './support.ts';
 
 /** Words a ticket or a path could hold that cmd would otherwise read as its own. */
@@ -68,6 +68,23 @@ test('edge case: a word with a line break isn\'t handed to a .cmd, which would e
     assert.ok('problem' in s && /sf\.cmd is a Windows command script, and cmd can't be handed a line break/.test(s.problem), JSON.stringify(s));
   }
   assert.ok(!('problem' in startOf('claude', ['-p', 'two\nlines'], win(['C:\\Tools\\claude.exe']))), 'an .exe takes it as any word');
+});
+
+test('startChild and startFile start a program with its words as they are, and say why one can\'t start', async () => {
+  const words = ['a&b', '%PATH%', 'space here'];
+  const child = startChild(process.execPath, ['-e', 'console.log(JSON.stringify(process.argv.slice(1)))', '--', ...words], { stdio: ['ignore', 'pipe', 'ignore'] });
+  assert.ok(!('problem' in child));
+  let out = '';
+  child.stdout!.on('data', (b: Buffer) => { out += b.toString('utf8'); });
+  assert.equal(await new Promise((resolve) => child.on('close', resolve)), 0);
+  assert.deepEqual(JSON.parse(out), words);
+  const filed = await new Promise<[number | string | null, string]>((resolve) => {
+    startFile(process.execPath, ['-e', 'console.log(process.argv[1])', '--', 'a&b'], {}, (err, stdout) => resolve([err?.code ?? null, stdout]));
+  });
+  assert.deepEqual(filed, [null, 'a&b\n']);
+  // Edge case: a program that isn't there fails as one does, in the callback, not thrown.
+  const missing = await new Promise<number | string | null | undefined>((resolve) => { startFile('acc-no-such-program', [], {}, (err) => resolve(err?.code)); });
+  assert.equal(missing, 'ENOENT');
 });
 
 test('a real .cmd shim gets every hostile word as it was, and runs none as a command (Windows; elsewhere, a stand-in)', () => {
