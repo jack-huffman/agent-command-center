@@ -177,9 +177,10 @@ test('the config keeps a queue board, refuses a queue that isn\'t one, and two q
   assert.deepEqual(deskQueues(ok.config!.trackers, ok.config!.trackers[1]!), [14, 12], 'its own queue first, then the other');
   // Opened again on the Connect page, a queue board has its queue ticked, and no epics, board or sprint.
   assert.deepEqual(JIRA.fromConfig(ok.config!.trackers[0]!, null), { host: SITE, values: { project: 'SUP', queues: ['12'], epics: null, board: null, sprint: null } });
-  // A queue board beside the project's own board is two trackers whose keys clash, as before.
+  // A queue board beside the project's own board reads one source, one project on one site (T-127): a ticket both
+  // show is one task, posted through the same project, so their keys don't clash.
   const mixed = parseConfig({ ...BASE, trackers: [{ kind: 'jira', site: SITE, project: 'SUP' }, QUEUE_TRACKER] });
-  assert.equal(mixed.warnings.filter((w) => /keys like SUP-12/.test(w)).length, 1);
+  assert.equal(mixed.warnings.filter((w) => /keys like SUP-12/.test(w)).length, 0);
   assert.deepEqual(deskQueues(mixed.config!.trackers, mixed.config!.trackers[0]!), [], 'no queue: no queues');
   const refused: [Record<string, unknown>, RegExp][] = [
     [{ ...QUEUE_TRACKER, queue: 0 }, /must be a Jira Service Management queue's id/],
