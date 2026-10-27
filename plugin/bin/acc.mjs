@@ -1671,19 +1671,16 @@ function fromMarkdown(md, opts = {}) {
   if (!md?.trim()) return emptyDoc();
   return { blocks: blocks(k.lexer(md.replace(/\r\n/g, "\n"), { gfm: true }), opts) };
 }
-
-// packages/core/src/trackers/fields.ts
-var GITHUB_SECTION = "Changes (kept by the Command Center)";
-var GITHUB_CHANGES = { id: "description", name: GITHUB_SECTION, format: "markdown" };
-function plainOf(doc) {
-  const inline2 = (c) => c.map((i) => i.t === "br" ? "\n" : i.t === "image" ? i.alt : i.text).join("");
+var inlineText = (c) => c.map((i) => i.t === "br" ? "\n" : i.t === "image" ? i.alt : i.text).join("");
+function plainText(doc, opts = {}) {
   const walk = (bs, indent) => bs.flatMap((b) => {
     switch (b.t) {
       case "p":
       case "h":
-        return [indent + inline2(b.c)];
+        return [indent + inlineText(b.c)];
       case "list":
         return b.items.flatMap((it2, n) => {
+          if (!opts.lists) return walk(it2.c, indent);
           const [first, ...rest] = walk(it2.c, `${indent}  `);
           return [`${indent}${b.ordered ? `${(b.start ?? 1) + n}.` : "-"} ${(first ?? "").trimStart()}`, ...rest];
         });
@@ -1692,7 +1689,7 @@ function plainOf(doc) {
       case "quote":
         return walk(b.c, indent);
       case "table":
-        return [...b.head ? [b.head.map(inline2).join(" ")] : [], ...b.rows.map((r) => r.map(inline2).join(" "))].map((l3) => indent + l3);
+        return [...b.head ? [b.head.map(inlineText).join(" ")] : [], ...b.rows.map((r) => r.map(inlineText).join(" "))].map((l3) => indent + l3);
       case "media":
         return [indent + b.label];
       case "hr":
@@ -1702,12 +1699,17 @@ function plainOf(doc) {
   return walk(doc.blocks, "").join("\n").trim();
 }
 
+// packages/core/src/trackers/fields.ts
+var GITHUB_SECTION = "Changes (kept by the Command Center)";
+var GITHUB_CHANGES = { id: "description", name: GITHUB_SECTION, format: "markdown" };
+
 // packages/core/src/trackers/types.ts
 var TRACKER_KINDS = ["github", "jira", "azure", "monday", "slack"];
 var isTrackerKind = (v) => TRACKER_KINDS.includes(v);
 var TRACKER_NAMES = { github: "GitHub", jira: "Jira", azure: "Azure DevOps", monday: "monday.com", slack: "Slack" };
 var trackerName = (kind) => TRACKER_NAMES[kind];
 var orList = (names3) => names3.length < 2 ? names3.join("") : `${names3.slice(0, -1).join(", ")} or ${names3.at(-1)}`;
+var epicWords = (epics) => `epic${epics.length > 1 ? "s" : ""} ${orList(epics)}`;
 function placeText(p) {
   if (p.kind === "slack") return `Slack \xB7 ${p.workspace ?? "?"} \xB7 channel ${p.channel ?? "?"}`;
   if (p.kind === "monday") return `monday.com \xB7 ${p.account ?? "?"} \xB7 ${p.boardName ?? `board ${p.board ?? "?"}`}${p.group ? ` \xB7 group ${p.groupName ?? p.group}` : ""}`;
@@ -1717,7 +1719,7 @@ function placeText(p) {
   }
   if (p.kind === "jira") {
     const epics = (p.epics ?? []).map((e, i) => p.epicNames?.[i] ? `${e} ${p.epicNames[i]}` : e);
-    return `Jira \xB7 ${p.project ?? "?"}${epics.length ? ` \xB7 epic${epics.length > 1 ? "s" : ""} ${orList(epics)}` : ""}${p.sprint ? ` \xB7 ${sprintPlace(p.sprint, p.sprints ?? null)}` : ""}`;
+    return `Jira \xB7 ${p.project ?? "?"}${epics.length ? ` \xB7 ${epicWords(epics)}` : ""}${p.sprint ? ` \xB7 ${sprintPlace(p.sprint, p.sprints ?? null)}` : ""}`;
   }
   return `Azure DevOps \xB7 ${p.project ?? "?"}${p.team ? ` \xB7 ${p.team}` : ""}${p.areaPath ? ` \xB7 area ${p.areaPath}` : ""}`;
 }
@@ -2063,7 +2065,7 @@ function changesDraft(i) {
   if (!groups.length) return null;
   return [...groups.flatMap((g) => [`**${plain(g.head)}**`, "", ...g.items.map((n) => `- ${plain(n)}`), ""]), draftedOn(i.at)].join("\n");
 }
-var words = (markdown) => plainOf(fromMarkdown(markdown)).split("\n").map((l3) => l3.trim().replace(/\s+/g, " ")).filter((l3) => l3 && !DATE_LINE.test(l3)).join("\n");
+var words = (markdown) => plainText(fromMarkdown(markdown), { lists: true }).split("\n").map((l3) => l3.trim().replace(/\s+/g, " ")).filter((l3) => l3 && !DATE_LINE.test(l3)).join("\n");
 var sameChanges = (field, draft) => words(field) === words(draft);
 
 // packages/core/src/command-words.ts
@@ -11549,11 +11551,12 @@ function retrieveIntoBranch(paths, config, id, component, deps) {
   return onBranch(paths, deps.run, t, deps.now, (dir) => {
     const why = branchRefusal(deps.run, t, dir);
     if (why) throw new AccError("refused", why);
-    const before = new Set(changedFiles(deps.run, dir).filter((e) => e.startsWith("??")).map((e) => e.slice(3)));
+    const readText2 = (f) => existsSync16(join26(dir, f)) ? readFileSync26(join26(dir, f), "utf8") : null;
+    const before = new Map(changedFiles(deps.run, dir).filter((e) => e.startsWith("??")).map((e) => e.slice(3)).map((f) => [f, readText2(f)]));
     const args = ["project", "retrieve", "start", "--metadata", component, "--target-org", t.env.org, "--ignore-conflicts", "--wait", "30", "--json"];
     const said2 = sfJson2(deps.run(...niced("sf", args), { cwd: dir, timeoutMs: 40 * 6e4, env: sfEnv() }));
     if (!said2.ok) throw new AccError("sf", `The retrieve of ${component} from ${t.env.org} failed: ${said2.message}`);
-    const files = under(changedFiles(deps.run, dir).map((e) => e.slice(3)), packageDirs(dir)).filter((f) => !before.has(f));
+    const files = under(changedFiles(deps.run, dir).map((e) => e.slice(3)), packageDirs(dir)).filter((f) => !before.has(f) || readText2(f) !== before.get(f));
     if (!files.length) throw new AccError("no-change", `${t.env.org}'s copy of ${component} is the same as the branch's, so there's nothing to commit.`);
     const message2 = `${t.key}: Use ${t.env.org}'s copy of ${c.type} ${c.member}`;
     const sha = commitFiles(deps.run, dir, files, message2);
@@ -16307,11 +16310,17 @@ function mergeFloorsFiles(run2, common, ours, theirs) {
   run2("git", ["merge-file", "-L", "ours", "-L", "base", "-L", "theirs", ours, common, theirs]);
   return false;
 }
+function floorsDriverSet(run2, root) {
+  return run2("git", ["config", "--get", `merge.${FLOORS_DRIVER}.driver`], { cwd: root }).stdout.trim();
+}
+function runsFloorsMerge(command) {
+  return /^(?:"[^"]+"|'[^']+'|\S+) floors merge %O %A %B$/.test(command);
+}
 function floorsDriverState(run2, root) {
-  const driver = run2("git", ["config", "--get", `merge.${FLOORS_DRIVER}.driver`], { cwd: root }).stdout.trim();
+  const driver = floorsDriverSet(run2, root);
   const file = join41(root, ".gitattributes");
   const lines = existsSync26(file) ? readFileSync39(file, "utf8").split("\n").map((l3) => l3.trim()) : [];
-  return { configured: driver === FLOORS_DRIVER_COMMAND, attributed: lines.includes(FLOORS_ATTRIBUTE) };
+  return { configured: runsFloorsMerge(driver), attributed: lines.includes(FLOORS_ATTRIBUTE) };
 }
 function floorsDriverFix(state) {
   return [
@@ -18073,6 +18082,8 @@ var MERGE_STEPS = [
       if (!Object.keys(ctx.config.gates.ratchets ?? {}).length) return skip("The project has no floors to merge.");
       const state = floorsDriverState(ctx.run, ctx.paths.root);
       if (state.configured && state.attributed) return pass("git keeps the better of each floor when two branches raised them.");
+      const set = floorsDriverSet(ctx.run, ctx.paths.root);
+      if (set && !state.configured) return fail(`The floors file's merge driver in this clone's git config is "${set}", which doesn't run acc's floors merge. This step replaces it with acc's.`, floorsDriverFix(state));
       const missing = [...state.configured ? [] : ["this clone's git config"], ...state.attributed ? [] : [".gitattributes"]];
       return fail(`The floors file's merge driver isn't in ${missing.join(" or ")}, so two raised floors conflict.`, floorsDriverFix(state));
     }
@@ -19018,7 +19029,7 @@ import { readFileSync as readFileSync46, realpathSync as realpathSync6 } from "n
 import { dirname as dirname16 } from "node:path";
 
 // package.json
-var package_default = { version: "0.46.0" };
+var package_default = { version: "0.47.0" };
 
 // packages/cli/src/shared.ts
 var VERSION = package_default.version;
