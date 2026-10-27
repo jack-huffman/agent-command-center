@@ -83,21 +83,27 @@ const rule = { project: '/r', id: 'r-1', kind: 'rule', by: 'rule', head: 'H', li
 test('a rule\'s Confirm says to give a title and a line while one is empty, and says it is being sent while it is (edge case: a send on its way)', () => {
   kept = { opened: [`${ruleKey(rule)}:draft`] };
   // The page's small document has no settable textContent, which the check's <option>s set.
-  const make = page.document.createElement.bind(page.document);
+  const had = Object.hasOwn(page.document, 'createElement');
+  const original = page.document.createElement;
+  const make = original.bind(page.document);
   page.document.createElement = (tag: string): PageElement => { const e = make(tag); if (tag === 'option') Object.defineProperty(e, 'textContent', { value: '', writable: true }); return e; };
-  const draw = (): PageElement => ruleDetail(rule) as unknown as PageElement;
-  const fresh = draw();
-  const confirm = buttons(fresh, 'Confirm')[0]!;
-  assert.deepEqual([confirm.disabled, confirm.title], [false, '']);
-  const title = fresh.all().find((x) => x.getAttribute('id') === `rule-${rule.id}-title`) ?? fresh.all().find((x) => (x as unknown as { id: string }).id === `rule-${rule.id}-title`)!;
-  type(title, '');
-  assert.deepEqual([confirm.disabled, confirm.title], [true, 'Give the rule a title and a line first']);
-  type(title, 'Back again');
-  assert.deepEqual([confirm.disabled, confirm.title], [false, '']);
-  assert.ok(rulePending.start(ruleKey(rule), 'accept'));
-  const sending = buttons(draw(), 'Confirm')[0]!;
-  assert.deepEqual([sending.disabled, sending.title], [true, 'Wait for it to be sent']);
-  rulePending.settle(ruleKey(rule), null);
+  try {
+    const draw = (): PageElement => ruleDetail(rule) as unknown as PageElement;
+    const fresh = draw();
+    const confirm = buttons(fresh, 'Confirm')[0]!;
+    assert.deepEqual([confirm.disabled, confirm.title], [false, '']);
+    const title = fresh.all().find((x) => x.getAttribute('id') === `rule-${rule.id}-title`) ?? fresh.all().find((x) => (x as unknown as { id: string }).id === `rule-${rule.id}-title`)!;
+    type(title, '');
+    assert.deepEqual([confirm.disabled, confirm.title], [true, 'Give the rule a title and a line first']);
+    type(title, 'Back again');
+    assert.deepEqual([confirm.disabled, confirm.title], [false, '']);
+    assert.ok(rulePending.start(ruleKey(rule), 'accept'));
+    const sending = buttons(draw(), 'Confirm')[0]!;
+    assert.deepEqual([sending.disabled, sending.title], [true, 'Wait for it to be sent']);
+  } finally {
+    rulePending.settle(ruleKey(rule), null);
+    if (had) page.document.createElement = original; else delete (page.document as Partial<typeof page.document>).createElement;
+  }
 });
 
 // ---------------------------------------------------------------- the conversation's Send, the agent reply's Send, Comment (T-121)
@@ -164,15 +170,23 @@ test('Comment says it is posting once pressed, and its reset says to write a com
   send.click();
   assert.deepEqual(sendState(send), [true, 'Your comment is posting']);
   // The page's small document has no selector search: hand the reset the composer it would find.
-  (page.document as unknown as Record<string, unknown>).querySelector = (sel: string) => (sel === '.composer .comment-box' ? box : sel === '.composer .btn.primary' ? send : null);
-  // A refusal keeps the words, so Comment is on again with no reason.
-  updatesDone({ action: 'comment', ok: false, error: 'No access' });
-  assert.deepEqual(sendState(send), [false, '']);
-  // A post that went clears the box, so Comment is off again, saying to write one.
-  state.last = { ...m, kind: 'ticket' } as unknown as typeof state.last;
-  updatesDone({ action: 'comment', ok: true });
-  assert.deepEqual(sendState(send), [true, COMMENT_EMPTY]);
-  state.last = undefined as unknown as typeof state.last;
+  const doc = page.document as unknown as Record<string, unknown>;
+  const had = Object.hasOwn(doc, 'querySelector');
+  const search = doc.querySelector;
+  const last = state.last;
+  doc.querySelector = (sel: string) => (sel === '.composer .comment-box' ? box : sel === '.composer .btn.primary' ? send : null);
+  try {
+    // A refusal keeps the words, so Comment is on again with no reason.
+    updatesDone({ action: 'comment', ok: false, error: 'No access' });
+    assert.deepEqual(sendState(send), [false, '']);
+    // A post that went clears the box, so Comment is off again, saying to write one.
+    state.last = { ...m, kind: 'ticket' } as unknown as typeof state.last;
+    updatesDone({ action: 'comment', ok: true });
+    assert.deepEqual(sendState(send), [true, COMMENT_EMPTY]);
+  } finally {
+    state.last = last;
+    if (had) doc.querySelector = search; else delete doc.querySelector;
+  }
 });
 
 test('a disabled button named in the list of reasons beside its text passes without a title, and one not named still fails (edge case: a button that gives its reason in the text beside it)', () => {
