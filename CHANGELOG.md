@@ -5,6 +5,24 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.47.0
+
+- Report a problem (D-207): from the Command Palette, Settings' About or a
+  failed Setup step, the Command Center drafts a GitHub issue for its author,
+  with what happened in your words and the versions, Setup's results and the
+  last error attached. Paths, email addresses, web and host names, IP
+  addresses, ticket keys, orgs, usernames and anything shaped like a token are
+  replaced before you see it; the page shows the whole issue as it will be
+  posted, and nothing is sent until you click Post to GitHub. Where your
+  GitHub account can't reach the repo, it says so and offers Copy the issue
+  text. The repo has a matching issue template.
+- With a conversation, Make a new plan is in the conversation panel alone; the
+  plan section keeps it when there's no conversation.
+- The install steps in the README, ONBOARDING.md and FIRST-RUN.md match this
+  release, and the first-run checklist lists what to prepare before helping
+  someone new install it, and where a first run usually stops.
+- No client's name is in the repo, and a check keeps it so without naming one.
+
 ## 0.46.0
 
 - Talking a plan through asks one question at a time (D-204): the planning

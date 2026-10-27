@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-23**. Version 0.45.0 is
-the latest release (2026-10-22). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.46.0 is prepared and waits on a person
+Where each piece of the build stands, as of **2026-10-27**. Version 0.46.0 is
+the latest release (2026-10-23). 0.41.0 (2026-10-16) was the first with a
+`.sha256` beside its `.vsix`. Version 0.47.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -59,8 +59,9 @@ where each one's done-when is written out.
   `.sha256`, and refuses a release with none (D-173). 0.41.0's checksum was checked against its `.vsix` on 2026-10-16.
   0.42.0 (2026-10-20) is the first release it can offer.
 - **The first run on a fresh machine**: waiting on a person. Checked
-  2026-10-16. Evidence: D-088, GH-88. [FIRST-RUN.md](FIRST-RUN.md) is the
-  checklist. It needs a Mac that has never run acc and someone to fill it in. A
+  2026-10-27. Evidence: D-088, GH-88. [FIRST-RUN.md](FIRST-RUN.md) is the
+  checklist, brought up to 0.46.0 with the author's preparation and the likely
+  stops. It needs a Mac that has never run acc and someone to fill it in. A
   follow-up that fixes what the run finds can't start until then.
 
 ## Cloud builders
@@ -143,6 +144,9 @@ where each one's done-when is written out.
 - **A Salesforce builder deploys to its sandbox, verifies and tests there**:
   done. Checked 2026-10-23. Evidence: D-206. Supersedes D-011 for unprotected
   environments; production and protected orgs stay validate-only.
+- **Report a problem from the Command Center**: done. Checked 2026-10-27.
+  Evidence: D-207. Posting needs a GitHub account that can reach this repo;
+  without one, the page offers the issue text to send another way.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
