@@ -14,7 +14,7 @@ import type { RepoPaths } from './paths.ts';
 import { promotionPaths } from './promote.ts';
 import { orList } from './trackers/types.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
-import { PRODUCTION_NOT_HERE, sfJson } from './sf-discovery.ts';
+import { PRODUCTION_NOT_HERE, sfRun } from './sf-discovery.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { escapeMarkup } from './text.ts';
 
@@ -214,7 +214,7 @@ export function seedBranches(paths: RepoPaths, config: Config, deps: SetupDeps, 
   if (prod && !refFor(run, paths.root, prod.branch)) {
     // Production's branch is retrieved from Production. Without it on this machine (D-T-125), it's left for
     // someone with access, and each sandbox's branch starts from this checkout instead.
-    const away = sf && prod.type === 'production' && (!prod.org || sfJson(run, paths.root, ['org', 'display', '-o', prod.org]).status !== 0);
+    const away = sf && prod.type === 'production' && (!prod.org || sfRun(run, paths.root, ['org', 'display', '-o', prod.org]).status !== 0);
     if (away) {
       steps.skip(`make-${prod.branch}`, `Make ${prod.branch}`, 'This machine isn\'t logged in to Production');
       out.push({ env: prod.name, branch: prod.branch, status: 'skipped', note: `not made: it's retrieved from Production. ${PRODUCTION_NOT_HERE}`, differs: null });

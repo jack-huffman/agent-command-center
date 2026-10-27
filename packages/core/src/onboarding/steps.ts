@@ -103,6 +103,10 @@ const productionAway = (ctx: CheckContext): Environment | null => {
   return !prod.org || sfJson(ctx, ['org', 'display', '-o', prod.org]).status !== 0 ? prod : null;
 };
 
+/** Whether an environment's branch is here, as a local branch or origin's. */
+const hasBranch = (ctx: CheckContext, branch: string): boolean =>
+  [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`].some((ref) => ctx.run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: ctx.paths!.root }).code === 0);
+
 /** Variables that make Claude Code bill per token: an API key, or a cloud account (Bedrock, Vertex) when true. */
 const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
 const CLOUD_VARS = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX'];
@@ -587,8 +591,7 @@ export const STEPS: Step[] = [
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
-      const has = (ref: string) => ctx.run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: ctx.paths!.root }).code === 0;
-      const missing = ctx.config!.environments.filter((e) => !has(`refs/heads/${e.branch}`) && !has(`refs/remotes/origin/${e.branch}`));
+      const missing = ctx.config!.environments.filter((e) => !hasBranch(ctx, e.branch));
       // Production's branch is retrieved from Production: without it here, someone with access makes it (D-T-125).
       const away = ctx.config!.profile === 'salesforce' ? missing.find((e) => e.type === 'production' && productionAway(ctx)) : undefined;
       const rest = missing.filter((e) => e !== away);
@@ -606,9 +609,10 @@ export const STEPS: Step[] = [
       if (need) return need;
       const problems: string[] = [];
       const ok: string[] = [];
+      let away = '';
       for (const e of sfEnvs(ctx)) {
         // No org for Production here, or not logged in to it, isn't a problem: a wrong org still is (D-T-125).
-        if (e.type === 'production' && productionAway(ctx)) { ok.push(`${e.branch}: ${PRODUCTION_NOT_HERE}`); continue; }
+        if (e.type === 'production' && productionAway(ctx)) { away = `${e.branch}: ${PRODUCTION_NOT_HERE}`; ok.push(away); continue; }
         if (!e.org) { problems.push(`${e.name} has no org alias.`); continue; }
         const d = sfJson(ctx, ['org', 'display', '-o', e.org]);
         if (d.status !== 0) { problems.push(`"${e.org}" isn't logged in (${d.message ?? 'sf failed'}).`); continue; }
@@ -620,7 +624,8 @@ export const STEPS: Step[] = [
         else if (url.sandbox !== e.branch) problems.push(`"${e.org}" is the "${url.sandbox}" sandbox, but its branch is "${e.branch}".`);
         else ok.push(`${e.branch} → ${url.domain}--${url.sandbox}`);
       }
-      return problems.length ? fail(problems.join(' '), 'sf org login web --alias "<alias>" --instance-url <My Domain URL>') : pass(ok.join(', '));
+      // A failure still says Production isn't here, so the Environments page knows to turn its org controls off.
+      return problems.length ? fail([...problems, away].filter(Boolean).join(' '), 'sf org login web --alias "<alias>" --instance-url <My Domain URL>') : pass(ok.join(', '));
     },
   },
   {
@@ -686,8 +691,7 @@ export const STEPS: Step[] = [
       // The lists are drafted against production's branch: without it, and without Production here to make
       // it, Do it can't run, so the step waits for someone with access (D-T-125).
       const prod = ctx.config!.environments.find((e) => e.type === 'production');
-      const has = (ref: string) => ctx.run('git', ['rev-parse', '--verify', '--quiet', ref], { cwd: ctx.paths!.root }).code === 0;
-      if (problems.length && prod && !has(`refs/heads/${prod.branch}`) && !has(`refs/remotes/origin/${prod.branch}`) && productionAway(ctx)) {
+      if (problems.length && prod && !hasBranch(ctx, prod.branch) && productionAway(ctx)) {
         return skip(`They're drafted from how each sandbox differs from ${prod.branch}'s branch, which is retrieved from Production. ${PRODUCTION_NOT_HERE}`);
       }
       return problems.length ? fail(problems.join(' ')) : pass(counts.join(', '));

@@ -4,7 +4,7 @@ import { branchFor, parseConfig, type Config, type EnvType, type Profile } from 
 import { credentialHelper } from './github.ts';
 import { AccError, type Runner } from './exec.ts';
 import { LICENSE_TO_TYPE, parseOrgUrl } from './onboarding/helpers.ts';
-import { discoverFromMyDomain, finishEnvironments, listedOrgs, sandboxAliases, sfJson } from './sf-discovery.ts';
+import { discoverFromMyDomain, finishEnvironments, listedOrgs, sandboxAliases, sfRun } from './sf-discovery.ts';
 import { type LoadedTemplate, loadTemplate, overlayEnvironments, overlaySettings, pickedTracker, type Settings, templateTrackers } from './template.ts';
 
 export interface InitOptions {
@@ -68,15 +68,15 @@ export interface InitPlan {
 
 /** Proposes every Salesforce environment from Production's sandbox list and the logged-in aliases (D-018). */
 export function discoverSalesforce(run: Runner, root: string, productionOrg: string, notes: string[]): RawEnv[] {
-  const prod = sfJson(run, root, ['org', 'display', '-o', productionOrg]);
+  const prod = sfRun(run, root, ['org', 'display', '-o', productionOrg]);
   if (prod.status !== 0) throw new AccError('init', `"${productionOrg}" isn't logged in: ${prod.message ?? 'sf failed'}`);
   const url = parseOrgUrl(String(prod.result?.instanceUrl ?? ''));
   if (url.kind !== 'production') throw new AccError('init', `"${productionOrg}" isn't a Production org (${prod.result?.instanceUrl}).`);
 
-  const q = sfJson(run, root, ['data', 'query', '--use-tooling-api', '-q', 'SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName', '-o', productionOrg]);
+  const q = sfRun(run, root, ['data', 'query', '--use-tooling-api', '-q', 'SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName', '-o', productionOrg]);
   if (q.status !== 0) throw new AccError('init', `Couldn't read Production's sandbox list: ${q.message ?? 'sf failed'}`);
   const sandboxes: { SandboxName: string; LicenseType: string }[] = q.result?.records ?? [];
-  const aliasFor = sandboxAliases(listedOrgs(sfJson(run, root, ['org', 'list'])), url.domain);
+  const aliasFor = sandboxAliases(listedOrgs(sfRun(run, root, ['org', 'list'])), url.domain);
 
   const envs: RawEnv[] = [{ name: 'Production', type: 'production', org: productionOrg, default: false, protected: true, promotesTo: [] }];
   for (const s of sandboxes) {

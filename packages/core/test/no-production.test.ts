@@ -12,7 +12,7 @@ import { makeContext } from '../src/onboarding/helpers.ts';
 import { runSteps } from '../src/onboarding/steps.ts';
 import { repoPaths } from '../src/paths.ts';
 import { draftLists, seedBranches } from '../src/setup.ts';
-import { discoverFromMyDomain, finishEnvironments, GUESSED_TYPE, listedOrgs, MY_DOMAIN, PRODUCTION_NOT_HERE, recordProduction, sandboxAliases, sfJson } from '../src/sf-discovery.ts';
+import { discoverFromMyDomain, finishEnvironments, GUESSED_TYPE, listedOrgs, MY_DOMAIN, PRODUCTION_NOT_HERE, recordProduction, sandboxAliases, sfRun } from '../src/sf-discovery.ts';
 import { previewCommand } from '../src/template.ts';
 import { bad, fakeRunner, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
 
@@ -72,6 +72,7 @@ test('a sandbox that isn\'t logged in still fails, even without Production', () 
   assert.equal(r.status, 'fail');
   assert.match(r.detail, /"Acme Dev" isn't logged in/);
   assert.doesNotMatch(r.detail, /Acme Production/);
+  assert.ok(r.detail.endsWith(`production: ${PRODUCTION_NOT_HERE}`), 'the failure still says Production isn\'t here, for the Environments page');
 });
 
 test('every org is listed: without Production the check is skipped with who runs it, and with it, it reads the list', () => {
@@ -202,7 +203,7 @@ test('the shared discovery pieces: listed orgs, aliases by branch, and the defau
   const aliases = sandboxAliases(listedOrgs(JSON.parse(LOGGED_IN.stdout)), 'acme');
   assert.deepEqual([...aliases.keys()], ['dev', 'uat']);
   assert.equal(MY_DOMAIN.test('acme-co'), true);
-  assert.equal(sfJson(fakeRunner({ 'sf org list': ok('not json') }), '/', ['org', 'list']).status, 1, 'sf that prints no JSON fails');
+  assert.equal(sfRun(fakeRunner({ 'sf org list': ok('not json') }), '/', ['org', 'list']).status, 1, 'sf that prints no JSON fails');
   assert.throws(() => finishEnvironments([{ name: 'Production', type: 'production', org: null, default: false, protected: true, promotesTo: [] }], []), /Log in to at least one sandbox/);
   const guessed = new Set<string>();
   discoverFromMyDomain(fakeRunner({ 'sf org list': LOGGED_IN }), '/', 'acme', [], guessed);
@@ -211,11 +212,11 @@ test('the shared discovery pieces: listed orgs, aliases by branch, and the defau
 
 // ---------------------------------------------------------------- acc setup production
 
-function recorded(production: RunResult, sandboxes = sf({ records: [{ SandboxName: 'UAT', LicenseType: 'FULL' }, { SandboxName: 'Dev', LicenseType: 'DEVELOPER' }, { SandboxName: 'Train', LicenseType: 'DEVELOPER_PRO' }] })) {
+function recorded(production: RunResult, sandboxes = sf({ records: [{ SandboxName: 'UAT', LicenseType: 'FULL' }, { SandboxName: 'Dev', LicenseType: 'DEVELOPER' }, { SandboxName: 'Train', LicenseType: 'DEVELOPER_PRO' }] }), list: RunResult = LOGGED_IN) {
   const config = { ...withProduction(null), environments: [{ name: 'Production', type: 'production', org: null }, { name: 'uat', type: 'partial', org: 'acme-uat', promotesTo: ['production'] }, { name: 'dev', type: 'developer', org: 'acme-dev', default: true, promotesTo: ['uat', 'production'] }] };
   const repo = makeRepo({ '.acc/config.json': JSON.stringify(config, null, 2) });
   const paths = repoPaths(repo, run);
-  const runner = fakeRunner({ 'sf org display -o acme-prod': production, 'sf data query --use-tooling-api -q SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName -o acme-prod': sandboxes });
+  const runner = fakeRunner({ 'sf org display -o acme-prod': production, 'sf org list': list, 'sf data query --use-tooling-api -q SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName -o acme-prod': sandboxes });
   return { paths, config: sfConfig(config), runner };
 }
 
@@ -226,6 +227,18 @@ test('someone with access records Production\'s org: the types are corrected fro
   const written = sfConfig(JSON.parse(readFileSync(paths.config, 'utf8')));
   assert.deepEqual(written.environments.map((e) => [e.branch, e.type, e.org, e.default]), [['production', 'production', 'acme-prod', false], ['uat', 'full', 'acme-uat', false], ['dev', 'developer', 'acme-dev', true]]);
   assert.equal(written.project, config.project, 'the rest of the settings are kept');
+  const raw = JSON.parse(readFileSync(paths.config, 'utf8')).environments;
+  assert.deepEqual(raw, [{ name: 'Production', type: 'production', org: 'acme-prod' }, { name: 'uat', type: 'full', org: 'acme-uat', promotesTo: ['production'] }, { name: 'dev', type: 'developer', org: 'acme-dev', default: true, promotesTo: ['uat', 'production'] }],
+    'only the org and the corrected type change: no branch, protected or other key acc reads is written in');
+});
+
+test('recording Production refuses a Production org on another My Domain than the sandboxes, and still records one when no sandbox is logged in here', () => {
+  const { paths, config, runner } = recorded(sf({ instanceUrl: 'https://globex.my.salesforce.com' }));
+  const before = readFileSync(paths.config, 'utf8');
+  assert.throws(() => recordProduction(runner, paths, config, 'acme-prod'), /on the globex My Domain, but the project's sandboxes are on acme/);
+  assert.equal(readFileSync(paths.config, 'utf8'), before);
+  const none = recorded(sf({ instanceUrl: 'https://acme.my.salesforce.com' }), undefined, NOT_LOGGED_IN);
+  assert.equal(recordProduction(none.runner, none.paths, none.config, 'acme-prod').domain, 'acme', 'an sf org list that fails names no sandbox to compare with');
 });
 
 test('recording Production refuses an org that isn\'t logged in, isn\'t Production, or can\'t list its sandboxes, and writes nothing', () => {
