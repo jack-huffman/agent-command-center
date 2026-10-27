@@ -84,8 +84,7 @@ test('while it posts, Post says so and waits; posted, the link shows; where it c
   button(denied, 'Copy the issue text')!.click();
   const m = sampleReport('report-no-access');
   assert.deepEqual(page.sent, [{ type: 'report-copy', text: issueText('T', { 'what-happened': 'H', expected: '', attached: m.attached }) }]);
-  assert.equal(button(denied, 'Post to GitHub')!.disabled, true, 'no access: Post is off, and says why (T-121)');
-  assert.match(button(denied, 'Post to GitHub')!.title, /can't reach the Command Center's repo/);
+  assert.equal(button(denied, 'Post to GitHub')!.disabled, false, 'it can be posted again, once the account has access');
 });
 
 test('Post\'s reasons: the model\'s own first, then a title, then what happened (edge cases)', () => {
