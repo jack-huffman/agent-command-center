@@ -5,6 +5,7 @@
  * testable.
  */
 
+import { reportAction } from './about.ts';
 import type { HomeModel } from './home.ts';
 import { type SettingsPart, settingsKey } from './settings.ts';
 import type { Action, HomeSection, Ref } from './shared.ts';
@@ -97,6 +98,9 @@ export function paletteItems(m: Omit<HomeModel, 'palette'>): PaletteItem[] {
   });
   out.push(header('add-task', 'Add task', 'add', 'acc.task.add'), header('start-agent', 'Start an agent', 'hubot', 'acc.agent.new'), header('add-tracker', 'Add a tracker', 'plug', 'acc.trackers.add'));
   out.push({ id: 'action:refresh', kind: 'action', title: 'Refresh', hint: '', words: 'Refresh', icon: 'refresh', does: { kind: 'refresh' } });
+  // Report a problem (T-118), as Settings' About offers it: off with its reason while a report posts.
+  const report = m.settings.about?.report ?? reportAction({});
+  out.push({ id: 'action:report', kind: 'action', title: report.label, hint: report.disabled ?? '', words: words(report.label, 'issue bug GitHub'), icon: report.icon, does: { kind: 'toolbar', command: report.command }, ...(report.disabled ? { disabled: report.disabled } : {}) });
   out.push(...steps, ...edits);
   // Agents' Stop finished, through the same command as its header's button; off with its reason when there's none.
   const n = m.agents.stopFinished;

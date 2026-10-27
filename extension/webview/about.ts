@@ -1,7 +1,7 @@
 // Settings' About (GH-114): the versions of acc, the extension and the plugin, each with where it's read
 // from, then the latest release, with its notes and Install and reload when it's newer, and Check now. Every
 // button asks the extension: Check now reads again, Install and reload is the extension's own update (T-62),
-// and the plugin's Update is Setup's own A4 fix. The page writes nothing.
+// and the plugin's Update is Setup's own A4 fix. Report a problem opens its own tab (T-118). The page writes nothing.
 
 import type { AboutModel, AboutRow } from '../src/model/about.ts';
 import type { SettingFrom } from '../src/model/settings.ts';
@@ -30,5 +30,11 @@ export function renderAbout(m: AboutModel | null, folded: readonly string[]): No
       el('p', 'muted small settings-meaning', r.when)),
     settingsButton(r.check));
   release.dataset.about = 'release';
-  return [...m.rows.map((r) => versionRow(r, folded)), release];
+  // Report a problem (T-118): its own tab, where the whole issue shows before anything is posted.
+  const report = el('div', 'settings-row has-change about-row about-report',
+    el('span', 'settings-name', icon('report'), el('span', 'strong', 'Something wrong?')),
+    el('div', 'settings-value', el('p', 'muted small settings-meaning', 'Report a problem drafts an issue for the Command Center\'s author, with the versions and Setup\'s results attached, and the details of your client work replaced with placeholders. You see all of it, and can change any of it, before it\'s posted.')),
+    settingsButton(m.report));
+  report.dataset.about = 'report';
+  return [...m.rows.map((r) => versionRow(r, folded)), release, report];
 }

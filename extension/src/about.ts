@@ -51,13 +51,15 @@ export class About {
   private checking: Promise<void> | null = null;
   private readonly looked: ((r: NonNullable<AboutFacts['release']>) => void)[] = [];
   private readonly d: AboutDeps;
+  /** Whether a report is posting now (T-118), as Report a problem says: its button waits while one is. */
+  reporting: () => boolean = () => false;
 
   constructor(d: AboutDeps) {
     this.d = d;
   }
 
   facts(): AboutFacts {
-    return { extension: this.d.extension(), acc: this.acc, plugin: this.plugin, release: this.release, reading: !!this.reading, checking: !!this.checking, checkedAt: this.checkedAt, auto: this.d.auto() };
+    return { extension: this.d.extension(), acc: this.acc, plugin: this.plugin, release: this.release, reading: !!this.reading, checking: !!this.checking, checkedAt: this.checkedAt, auto: this.d.auto(), reporting: this.reporting() };
   }
 
   /** Hears of each look for a release, whoever asked for it, once it's stored (T-62). */

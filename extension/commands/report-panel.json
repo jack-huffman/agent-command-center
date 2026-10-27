@@ -1,0 +1,8 @@
+[
+  {
+    "command": "acc.report",
+    "title": "Report a problem with the Command Center",
+    "category": "Agent Command Center",
+    "icon": "$(report)"
+  }
+]

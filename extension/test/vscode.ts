@@ -42,6 +42,8 @@ export function fakeVscode(folder: string) {
     opened: [] as string[],
     /** The account VSCode's GitHub sign-in comes back as, when a test wants one to; else the person closes it. */
     signsInAs: undefined as string | undefined,
+    /** What was put on the clipboard (T-118). */
+    copied: [] as string[],
   };
   type Item = { text: string; tooltip: string; command: unknown; name: string; shown: boolean; show(): void; hide(): void; dispose(): void };
   const item = (): Item => ({ text: '', tooltip: '', command: undefined, name: '', shown: false, show() { this.shown = true; }, hide() { this.shown = false; }, dispose() {} });
@@ -168,7 +170,9 @@ export function fakeVscode(folder: string) {
         return { id: 'session', accessToken: 'token', account: { id: calls.signsInAs, label: calls.signsInAs }, scopes };
       },
     },
-    env: { uriScheme: 'vscode', openExternal: async (u: { toString(): string }) => { calls.opened.push(String(u)); return true; }, clipboard: { writeText: async () => {}, readText: async () => '' } },
+    env: { uriScheme: 'vscode', openExternal: async (u: { toString(): string }) => { calls.opened.push(String(u)); return true; }, clipboard: { writeText: async (t: string) => { calls.copied.push(t); }, readText: async () => '' } },
+    // VSCode's own version, as Report a problem attaches it (T-118).
+    version: '1.105.1',
   };
   return { api: strict(api), calls, status, trees, treeShown, panels, autopilot, settings };
 }

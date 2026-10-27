@@ -48,6 +48,8 @@ import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleTalkApproved } from './fixtures/talk.ts';
 import { sampleConversationQuestions, sampleConversationReady, sampleConversationStart, sampleConversationTicket } from './fixtures/conversation.ts';
 import { conversationModel } from '../src/model/conversation.ts';
+import { sampleReport } from './fixtures/report.ts';
+import { issueBody } from '../webview/report-text.ts';
 import { sampleChoosing } from './fixtures/connect.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
@@ -237,6 +239,11 @@ export interface BehaviourData {
    */
   questions: { model: Model; asked: string[]; own: string; sent: Record<string, unknown> };
   /**
+   * Report a problem (T-118): the words typed in each box, the line taken out of what's attached, the message
+   * Post sends then and the issue text the preview shows, and the draft once GitHub's account can't reach the repo.
+   */
+  report: { title: string; happened: string; expected: string; cut: string; sent: Record<string, unknown>; text: string; noAccess: Model };
+  /**
    * Review plan on ACME-21 (T-109): its title, what Enter on the first step's suggestion sends, what the fourth
    * step's third option sends, the page's model with nothing left for the person, what Approve then sends, and
    * the remembered key that opens The whole plan.
@@ -266,17 +273,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'report';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118). */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; report: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'report' ? models.report : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -1090,6 +1097,41 @@ export const CASES: Case[] = [
       const sent = t.sent('conversation-open');
       const page = d.ticket as { project: string; key: string };
       t.check('Open conversation asks for the panel once', sent.length === 1 && sent[0]!.project === page.project && sent[0]!.task === page.key && sent[0]!.about === undefined, sent);
+    },
+  },
+  {
+    name: 'report: nothing is sent while the draft is written; Post is off until a title and what happened are typed, then sends the issue as the preview shows it, with what was taken out of what\'s attached left out; where it can\'t go, Copy the issue text copies the same (T-118)',
+    page: 'report',
+    async run(t) {
+      const d = t.data.report;
+      const post = (): HTMLButtonElement => {
+        const b = t.all<HTMLButtonElement>('button').find((x) => x.textContent?.trim() === 'Post to GitHub');
+        if (!b) throw new Error('not found: Post to GitHub');
+        return b;
+      };
+      t.check('Post is off with no title, and says why', post().disabled && post().title === 'Give it a title', post().title);
+      await t.type(t.find<HTMLInputElement>('#report-title'), d.title);
+      t.check('then off until what happened is said', post().disabled && post().title === 'Say what happened', post().title);
+      await t.type(t.find<HTMLTextAreaElement>('#report-what-happened'), d.happened);
+      await t.type(t.find<HTMLTextAreaElement>('#report-expected'), d.expected);
+      const attached = t.find<HTMLTextAreaElement>('#report-attached');
+      await t.type(attached, attached.value.split('\n').filter((l) => l !== d.cut).join('\n'));
+      await t.settle();
+      t.check('nothing is sent while the draft is written', t.sent('report-post').length === 0 && t.sent('report-copy').length === 0, t.sent('report-post'));
+      t.check('the preview shows the issue as it will be posted', t.find('.report-preview').textContent === d.text, t.find('.report-preview').textContent);
+      t.check('and Post is on', !post().disabled, post().title);
+      await t.click(post());
+      const sent = t.sent('report-post');
+      t.check('Post sends the title and body once, as the preview shows them', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
+      await t.post({ type: 'state', model: d.noAccess });
+      const state = t.find('.report-state');
+      t.check('where GitHub\'s account can\'t reach the repo, it says so', state.textContent?.includes('can\'t reach') === true, state.textContent);
+      t.check('and what was typed is still there', t.find<HTMLTextAreaElement>('#report-what-happened').value === d.happened && t.find<HTMLInputElement>('#report-title').value === d.title);
+      const copy = t.all<HTMLButtonElement>('button', state).find((x) => x.textContent?.trim() === 'Copy the issue text');
+      if (!copy) throw new Error('not found: Copy the issue text');
+      await t.click(copy);
+      const copied = t.sent('report-copy');
+      t.check('Copy the issue text copies the issue the preview shows', copied.length === 1 && copied[0]!.text === d.text, copied);
     },
   },
   {
@@ -2141,6 +2183,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'The task page draws the conversation\'s turns', file: 'talk.ts', find: "const line = el('div', 'convo-line', icon('comment-discussion'),", replace: "const line = el('div', 'convo-line', ...s.turns.map((x) => turn(project, s, x)), icon('comment-discussion'),", kills: [caseNamed('conversation: the task page shows')] },
   { name: 'Make a plan on the task page asks for another command', file: 'dom.ts', find: "api.postMessage({ type: 'run', command: a.command, ref: a.ref })", replace: "api.postMessage({ type: 'run', command: a.command === 'acc.task.analyze' ? 'acc.task.show' : a.command, ref: a.ref })", kills: [caseNamed('conversation: Make a plan on the task page')] },
   { name: 'Draft the plan ignores the opening conversation', file: 'talk.ts', find: "api.postMessage({ type: 'conversation-draft', project, task: s.task }), s.draft.disabled", replace: "api.postMessage({ type: 'conversation-draft', project, task: s.task, skip: true }), s.draft.disabled", kills: [caseNamed('conversation: the panel opens at its question')] },
+  { name: 'Post sends what was attached before the person changed it', file: 'report.ts', find: 'body: issueBody(t.fields) });', replace: 'body: issueBody({ ...t.fields, attached: m.attached }) });', kills: [caseNamed('report:')] },
+  { name: 'the draft is sent as it is typed', file: 'report.ts', find: 'keep(s.id, b.value); update(); });', replace: "keep(s.id, b.value); update(); api.postMessage({ type: 'report-post', title: t.title, body: issueBody(t.fields) }); });", kills: [caseNamed('report:')] },
   { name: 'the plan section keeps Make a new plan beside a conversation', file: 'analysis.ts', find: 'const actions = m.talk?.newPlan ? a.actions.filter((x) => x.command !== m.talk!.newPlan!.command) : a.actions;', replace: 'const actions = a.actions;', kills: [caseNamed('ticket talk: beside a conversation the plan section')] },
   { name: 'Enter alone sends the message', file: 'talk.ts', find: "if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))", replace: "if (e.key === 'Enter')", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
@@ -2218,9 +2262,21 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     plan: planData(now),
     talk: talkData(now),
     conversation: conversationData(now),
+    report: reportData(),
     questions: questionsData(now),
     planReview: planReviewData(models.ticket),
   };
+}
+
+/** What Report a problem's case expects (T-118), from the draft's fixture and the body the page's own module builds: the oracle. */
+function reportData(): BehaviourData['report'] {
+  const typed = { title: 'The checks stop on the org check', happened: 'I clicked Run the checks, and it stopped.', expected: 'The checks to run.' };
+  const m = sampleReport('report');
+  const cut = m.attached.split('\n').find((l) => l.startsWith('- This machine:'));
+  if (!cut) throw new Error('The report case needs the draft to attach this machine\'s line.');
+  const fields = { 'what-happened': typed.happened, expected: typed.expected, attached: m.attached.split('\n').filter((l) => l !== cut).join('\n') };
+  const body = issueBody(fields);
+  return { ...typed, cut, sent: { type: 'report-post', title: typed.title, body }, text: `${typed.title}\n\n${body}`, noAccess: sampleReport('report-no-access') };
 }
 
 /** What Review plan's case expects (T-109), from ACME-21's page: the steps in their order, and the messages its confirms send. */
@@ -2679,7 +2735,7 @@ const MODEL = ${JSON.stringify(model).replace(/</g, '\\u003c')};
 ${harness(c, data, model)}
 </script>
 </head>
-<body class="vscode-light" data-view="${model.kind === 'ticket' || model.kind === 'agent' || model.kind === 'conversation' ? model.kind : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app">${c.opening ? loadingScreen(model.kind === 'ticket' ? 'ticket' : 'home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : ''}</main><script src="${script}"></script></body></html>
+<body class="vscode-light" data-view="${model.kind === 'ticket' || model.kind === 'agent' || model.kind === 'conversation' || model.kind === 'report' ? model.kind : 'home'}" data-logo-dark="webview/acc-dark.svg" data-logo-light="webview/acc-light.svg"><main id="app">${c.opening ? loadingScreen(model.kind === 'ticket' ? 'ticket' : 'home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' }) : ''}</main><script src="${script}"></script></body></html>
 `;
 }
 
