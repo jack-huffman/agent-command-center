@@ -750,7 +750,7 @@ export const STEPS: Step[] = [
       } catch {
         // fall back to this checkout
       }
-      return isTrusted(main, ctx.env) ? pass(`Trusted: ${main}`) : fail(`Claude Code hasn't been trusted in ${main} yet.`, 'claude   # then accept the trust prompt and type /exit');
+      return isTrusted(main, ctx.env, ctx.platform) ? pass(`Trusted: ${main}`) : fail(`Claude Code hasn't been trusted in ${main} yet.`, 'claude   # then accept the trust prompt and type /exit');
     },
   },
   {
