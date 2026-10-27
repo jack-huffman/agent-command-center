@@ -13,23 +13,41 @@ project's steps as far as a Developer Edition org goes.
 
 ## Before the run (for the author)
 
-- [ ] **A release with GH-62 in it**, 0.36.0 or later. Earlier ones don't have
-  A4's version check or Setup's fix for steps that no longer apply.
-- [ ] **A machine that has never run acc.** Another Mac, or a new macOS user on
-  one, not the author's own account: its `~/.claude`, `~/.acc` and keychain
-  are shared with the builders running there, so sign-ins would pass that
-  shouldn't, and removing the plugin would break them.
-- [ ] **The tester has read access** to
-  `https://github.com/jack-huffman/agent-command-center`: an invitation,
-  accepted with the GitHub account they'll use.
-- [ ] **A throwaway private repo** under the tester's own GitHub account, for
-  the generic project. A README is enough:
+- [ ] **A release of 0.46.0 or later.** This script was checked
+  against 0.46.0, so an earlier release may differ. Check that the release has
+  its `.vsix` and `.vsix.sha256` files: Install and reload needs both.
+- [ ] **The invitation is sent, and the tester has accepted it** with the
+  GitHub account they'll use. On a personal repo a collaborator can push, and
+  private repos on this plan have no branch protection, so tell them in plain
+  words: never push to `main`. They need only to read it.
+- [ ] **Their own Mac, or their own macOS user on yours.** Not the author's
+  account: its `~/.claude`, `~/.acc` and keychain are shared with the builders
+  running there, so sign-ins would pass that shouldn't, and removing the plugin
+  would break them.
+- [ ] **A throwaway private repo first**, under the tester's own GitHub
+  account, for the generic project. A README is enough:
   `gh repo create acc-first-run --private --add-readme --clone`, once gh is
-  signed in.
+  signed in. Do the generic project end to end before any real repo.
+- [ ] **Time set aside.** No run has been timed yet; until one has, plan on
+  half a day for the machine steps, a generic project and one dispatched task,
+  with downloads and Claude sign-ins in it. Note the real time at the top of
+  your notes.
 - [ ] **A Salesforce Developer Edition org** for the Salesforce project, signed
   up for this run. Never a client's org. A Developer Edition org has no
   sandboxes, so the Salesforce run is expected to stop at B1.orgs or soon
   after: note where.
+
+## Where a first run most likely stops
+
+| Where | What happens | What to do |
+| --- | --- | --- |
+| A fresh VSCode, `code` not on PATH | `code --install-extension` says command not found | Command Palette → **Shell Command: Install 'code' command in PATH**, or Extensions view → **⋯** → **Install from VSIX…** and pick the file. Then **Developer: Reload Window** |
+| `git ls-remote` asks for a password or can't find the repo, or A4 can't clone the plugin | git has no credentials for the private repo | Check the invitation was accepted with gh's account. Then `gh auth setup-git`: it changes the **global** git config, so every repo on that Mac then gets github.com credentials from gh's active account (except a repo with its own helper, B2). Tell the tester before running it |
+| A4 passes, but Claude Code doesn't have the plugin | Sessions already running don't load a new plugin | Start a new Claude Code session (close the terminal's `claude` and open a new one) |
+| A4 fails after a new release: the plugin is older than the extension | A private marketplace updates itself only when `GITHUB_TOKEN` is set | Run A4's **Do it**, or by hand `claude plugin marketplace update agent-command-center` then `claude plugin update acc@agent-command-center --scope user`, then a new Claude Code session. Do this after every release, including the tester's first update |
+| `acc` isn't found in a terminal | The extension adds `acc` to terminals opened after it starts | Open a new VSCode terminal after the reload |
+| A1.claude fails: no `--bg` | The terminal's Claude Code is older than the one in VSCode | `claude update` (A1.claude's **Do it**) |
+| A1.claude-billing fails | An API key, Bedrock or Vertex setting is found | Remove the setting it names, or tick **I've done this** if it's on purpose |
 
 ## How to fill it in
 
@@ -112,9 +130,11 @@ was on your PATH. A fresh VSCode doesn't put it there: note whether you used
 
 ## This machine
 
-After the reload, the walkthrough **Agent Command Center: set up this
-machine** should open by itself, once. Note whether it did. Do the steps with
-no project folder open.
+After the reload, nothing opens by itself. Click the Command Center's icon in
+the activity bar: with no project set up, it opens on Setup at **This
+machine**. Open the walkthrough **Agent Command Center: set up this machine**
+with the **Machine walkthrough** button or from the Command Palette. Note
+whether you found it easily. Do the steps with no project folder open.
 
 With no project open, the machine walkthrough also lists the Salesforce tools:
 A1.node, A1.sf and A1.code-analyzer (D-077). **Did those rows confuse you,
@@ -219,9 +239,10 @@ named once it passed: it should be the release you installed.
 
 ## A generic project, to a dispatched task
 
-Open the throwaway repo's folder. Its walkthrough doesn't open by itself
-outside a Salesforce folder: run **Agent Command Center: Onboard this project**
-from the Command Palette, and note whether that was easy to find.
+Open the throwaway repo's folder. The project walkthrough doesn't open by
+itself in any folder: use Setup's **Project walkthrough** button or **Agent
+Command Center: Onboard this project** from the Command Palette, and note
+whether that was easy to find.
 
 **At B0.config, check one thing on the Setup page** (the Command Center's
 Setup section). Before **Do it**, note whether This machine lists **Node 20 or
@@ -482,8 +503,8 @@ working, then In review with a pull request. Don't merge it unless you want to.
 Sign the Salesforce CLI in to the Developer Edition org (`sf org login web`).
 Make a second throwaway repo like the first, put a Salesforce DX project at
 its root (`sfdx-project.json` and `force-app/`; `sf project generate` makes one
-in a folder of its own), and open it. Note how you made it. The
-project walkthrough should open by itself there. The steps the generic run
+in a folder of its own), and open it. Note how you made it. Open the project
+walkthrough the same way. The steps the generic run
 already covered show again: note only what differed. The Salesforce steps
 are below. Stop where the org can't go further, and note which step and why.
 

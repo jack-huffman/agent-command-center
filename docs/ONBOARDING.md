@@ -108,7 +108,11 @@ purpose, mark the step done.
   extension and the plugin. It says when the plugin is older than the
   extension, with the same fix as this step, and when a newer release is out,
   with a link to its notes. It looks for one as gh's active account, so that
-  account needs read access to the repo.
+  account needs read access to the repo. The extension also looks by itself a
+  minute after VSCode starts and every six hours (the setting
+  `agentCommandCenter.updates.check`, on by default), and its notification's
+  **Install and reload** updates the extension only: the plugin still needs the
+  hand update above.
 
 ### Optional: The Command Center's notices in Slack
 
