@@ -114,10 +114,12 @@ export function boardSwitch(root: string, boards: readonly Board[], choice: Boar
     items.replaceChildren(
       ...(query.trim() ? [] : [item('agents', icon('hubot'), WORDS.myWork, null), item('all', icon('layers'), 'All boards', { text: 'Each board folded, one under another', failed: false })]),
       ...groups.map((g) => {
-        const box = el('div', 'board-group', el('div', 'board-group-name', g.group), ...g.boards.map((b) => item(`board:${b.id}`, boardIcon(b, kindIcon), b.name, boardCounts(b))));
+        // The site's name is the group's label, so a screen reader hears it once.
+        const heading = el('div', 'board-group-name', g.group);
+        heading.setAttribute('aria-hidden', 'true');
+        const box = el('div', 'board-group', heading, ...g.boards.map((b) => item(`board:${b.id}`, boardIcon(b, kindIcon), b.name, boardCounts(b))));
         box.setAttribute('role', 'group');
         box.setAttribute('aria-label', g.group);
-        box.firstElementChild!.setAttribute('aria-hidden', 'true');
         return box;
       }),
       ...(groups.length ? [] : [el('p', 'muted board-none', `No board's name has “${query.trim()}” in it.`)]),

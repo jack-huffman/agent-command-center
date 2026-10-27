@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { replaceTracker, type Tracker, trackerForKey, withTracker } from '../../packages/core/src/config.ts';
+import { addBoard, replaceTracker, type Tracker, trackerForKey, withTracker } from '../../packages/core/src/config.ts';
 import type { RepoInUse } from '../../packages/core/src/repos.ts';
 import { DESCRIPTIONS, type TrackerDescription } from '../../packages/core/src/trackers/connect.ts';
 import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
@@ -90,6 +90,7 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
     projects: () => [project],
     trackers: () => h.raw.map(full),
     title: (t) => `${t.kind} · ${t.project ?? t.repo}`,
+    given: (_root, index) => `Board ${index}`,
     // As the extension reads it: a Microsoft sign-in asks VSCode for a header, and one from before GH-51 is Jira's token.
     storedSignIn: async (p, kind, host) => {
       const found = credInUse(await readCreds((k) => h.secrets.get(k), p, kind, host));
@@ -104,10 +105,10 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
     ghToken: async () => 'gh-token',
     microsoft: async () => (h.microsoftAsked++, { header: 'Bearer ms-token', cred: { account: { id: 'm1', label: 'jordan@acme.example' }, tenant: 'tenant-1' } }),
     // As acc trackers set writes it (GH-112), or refuses with its reason.
-    write: async (_root, index, record) => {
+    write: async (_root, index, record, add) => {
       if (o.refuse) throw new Error(o.refuse);
       h.writes++;
-      h.raw = index === null ? withTracker(h.raw, record) : replaceTracker(h.raw, index, record);
+      h.raw = index !== null ? replaceTracker(h.raw, index, record) : add ? addBoard(h.raw, record) : withTracker(h.raw, record);
     },
     signedIn: async (r) => { h.signedIn.push(r); },
     saved: async (_root, name, from, started) => { h.saved.push(started ? `${name}, started` : name); h.savedFrom.push(from); },
@@ -235,7 +236,7 @@ test('an existing tracker opens signed in, its project fixed and its done epic k
   await h.session.open({ root: ROOT, index: 1, from: 'tasks' });
   await settle();
   let m = h.model();
-  assert.deepEqual([m.title, m.kinds.length, m.host.fixed, m.host.value], ['Change jira · ACME', 0, true, SITE]);
+  assert.deepEqual([m.title, m.kinds.length, m.host.fixed, m.host.value], ['Change Board 1', 0, true, SITE], 'named as the Tasks tab names it (T-127)');
   assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim, for this project only', 'still this repo\'s own sign-in (D-027)');
   assert.deepEqual([picker(m, 'project').fixed, picker(m, 'project').selected], [true, ['ACME']], 'another project is another tracker');
   const epic = picker(m, 'epics');
@@ -252,6 +253,47 @@ test('an existing tracker opens signed in, its project fixed and its done epic k
   h.send({ type: 'connect-save' });
   await settle();
   assert.deepEqual(h.raw, [{ kind: 'github', skipLabels: ['milestone'] }, { kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-31', board: 9, edits: true }], 'in place, keeping what the page doesn\'t manage');
+});
+
+test('Add a board adds a second board of the same Jira project beside the first, with the name typed, never in its place (T-127)', async () => {
+  const h = harness({ trackers: [{ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3' }] });
+  h.secrets.set(credKey(ACME, 'jira', SITE), JSON.stringify({ kind: 'jira', method: 'token', email: EMAIL, token: TOKEN }));
+  await h.session.open({ root: ROOT, kind: 'jira', add: true, from: 'tasks' });
+  h.send({ type: 'connect-test', host: SITE, fields: {} });
+  await settle();
+  let m = h.model();
+  assert.equal(m.title, 'Add a board to Acme Service');
+  assert.deepEqual([m.boardName.value, m.boardName.placeholder, m.remove], ['', 'The name its tracker gives it', null], 'a new board: no name yet, and nothing to remove');
+  assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim, for this project only', 'the site\'s sign-in, shared by its boards (D-091)');
+  h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'epics', value: ['ACME-31'] });
+  h.send({ type: 'connect-set', field: m.boardName.field, value: '  Renewals  ' });
+  await settle();
+  m = h.model();
+  assert.equal(m.boardName.value, 'Renewals', 'trimmed');
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3' }, { kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-31', board: 7, name: 'Renewals' }], 'the first board stays, the second beside it');
+});
+
+test('an existing board shows its name to change, the name its tracker gives when it\'s emptied, and Remove; an empty name takes its own out (T-127)', async () => {
+  const h = harness({ trackers: [{ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3', name: 'Premium' }] });
+  h.secrets.set(credKey(ACME, 'jira', SITE), JSON.stringify({ kind: 'jira', method: 'token', email: EMAIL, token: TOKEN }));
+  await h.session.open({ root: ROOT, index: 0, from: 'tasks' });
+  await settle();
+  let m = h.model();
+  assert.deepEqual([m.title, m.boardName.value, m.boardName.placeholder], ['Change Premium', 'Premium', 'Board 0']);
+  assert.deepEqual(m.remove, { command: 'acc.trackers.remove', arg: JSON.stringify({ root: ROOT, index: 0 }), label: 'Remove this board…' });
+  h.send({ type: 'connect-set', field: m.boardName.field, value: 'x'.repeat(200) });
+  assert.equal(h.model().boardName.value.length, h.model().boardName.max, 'edge case: a name too long is cut to the most a board takes');
+  h.send({ type: 'connect-set', field: m.boardName.field, value: '   ' });
+  await settle();
+  m = h.model();
+  assert.equal(m.title, 'Change Board 0', 'edge case: a name cleared shows the name its tracker gives');
+  h.send({ type: 'connect-save' });
+  await settle();
+  assert.deepEqual(h.raw, [{ kind: 'jira', site: SITE, project: 'ACME', epic: 'ACME-3', board: 7 }], 'its own name taken out of the settings');
 });
 
 test('opened from Settings, Back and Save go back to its Trackers and sign-ins; acc\'s refusal stays beside Save (GH-112)', async () => {

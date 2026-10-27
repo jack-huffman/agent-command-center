@@ -63,6 +63,13 @@ test('every section of the page, and a ticket, has sample data built by the real
       else if (kind === 'tasks-person') assert.deepEqual(state.filters, { [board]: 'person:pat' });
       else if (kind === 'tasks-person-none') assert.ok(!tasks.boards[0]!.columns.some((c) => c.cards.some((card) => card.people.some((p) => p.key === 'nobody'))) && state.filters?.[board] === 'person:nobody', 'nobody has a card on the board');
       else assert.deepEqual([state.filters, state.modes?.[ROOT]], [{ [`agents:${ROOT}`]: 'mine' }, 'agents']);
+    } else if (kind.startsWith('tasks-boards-')) {
+      // A project's several boards (T-127): two, four or ten, the ten across three Jira sites with one not signed in.
+      const boards = (m as HomeModel).tasks.projects[0]!.boards;
+      assert.equal(boards.length, kind.includes('-ten') ? 10 : kind.includes('-four') ? 4 : 2);
+      assert.equal(new Set(boards.map((b) => b.id)).size, boards.length, 'each board has its own id');
+      if (kind.includes('-ten')) assert.deepEqual([...new Set(boards.map((b) => b.group))], ['acme.atlassian.net', 'GitHub', 'globex.atlassian.net', 'initech.atlassian.net']);
+      if (kind.includes('-ten')) assert.deepEqual(boards.filter((b) => b.error).map((b) => b.name), ['ERP sync', 'epic INI-7 HR onboarding']);
     } else if (kind === 'tasks-agents') {
       // The agent board, with two builders in the cloud (GH-69): the page starts on it, and the cards say where each runs.
       const cards = (m as HomeModel).tasks.projects[0]!.columns.flatMap((c) => c.cards);

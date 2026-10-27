@@ -17,13 +17,13 @@ import { type Board, type Exec, movesInto, placeText, signInLabel, type Ticket, 
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
 import { boardName } from './model/boards.ts';
-import { accImport, accRemoveTracker, removeAsk, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
+import { accImport, accRemoveTracker, removeAsk, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
 import { inProcessWords } from './logic/processes.ts';
 import { credWho, signedInWho } from './logic/sign-in-name.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
 import { readBoardCache, writeBoardCache } from './logic/board-cache.ts';
-import { boardId, readInTurn, sourceGroups } from './logic/board-reads.ts';
+import { boardId, outsideEvery, readInTurn, sourceGroups } from './logic/board-reads.ts';
 import { stateOf, ticketKey } from './logic/shared.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
@@ -432,12 +432,7 @@ export class Trackers implements vscode.Disposable {
     const indexes = group?.members.map((m) => m.index) ?? [];
     const cards = group?.members.flatMap((m) => m.board?.cards ?? []) ?? [];
     const keys = group?.others ? placeCandidates(this.hub.ledger(p.root)?.tasks ?? [], { kind: s.kind, index: s.index, cards }, (key) => (indexes.includes(this.trackerFor(p, key) ?? -1) ? s.index : null)) : [];
-    let outside = await outsideKeys(keys, (k) => client.outside(k));
-    for (const other of group?.others ?? []) {
-      if (!outside.length) break;
-      const too = new Set((await outsideKeys(outside.map((o) => o.key), (k) => other.outside(k))).map((o) => o.key.toUpperCase()));
-      outside = outside.filter((o) => too.has(o.key.toUpperCase()));
-    }
+    const outside = await outsideEvery(keys, [client, ...(group?.others ?? [])].map((c) => (k: string[]) => c.outside(k)));
     const t = this.trackers(p)[s.index];
     const tracker = t?.kind === 'jira' && t.sprint !== null ? sprintTracker(t) : null;
     const sprint = tracker ? await lookAtSprint(readSprints(stateOf(p))[tracker], s.board, client, new Date()) : null;

@@ -6,6 +6,7 @@
 import { createHash } from 'node:crypto';
 import type { Tracker } from '../../../packages/core/src/config.ts';
 import { sameSource } from '../../../packages/core/src/config.ts';
+import { outsideKeys } from './connect.ts';
 
 /** How many of a project's boards are read at once (T-127): the one on show, and two more behind it. */
 export const BOARD_READS = 3;
@@ -45,4 +46,18 @@ export function sourceGroups(trackers: readonly Tracker[]): number[][] {
     else groups.push([i]);
   });
   return groups;
+}
+
+/**
+ * The keys every board of one source says have left the repo's place (T-127): the first board's answer, narrowed by
+ * each other's in turn. A ticket one of them still holds stays, and a read that fails says none have left (D-048).
+ */
+export async function outsideEvery<T extends { key: string }>(keys: string[], reads: readonly ((keys: string[]) => Promise<T[]>)[]): Promise<T[]> {
+  let outside: T[] = keys.length && reads.length ? await outsideKeys(keys, reads[0]!) : [];
+  for (const read of reads.slice(1)) {
+    if (!outside.length) break;
+    const too = new Set((await outsideKeys(outside.map((o) => o.key), read)).map((o) => o.key.toUpperCase()));
+    outside = outside.filter((o) => too.has(o.key.toUpperCase()));
+  }
+  return outside;
 }

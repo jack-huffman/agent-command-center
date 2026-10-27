@@ -31,7 +31,7 @@ export interface GeoControl {
   box: Box;
   /** The indexes of the controls it sits inside: a button in a card that opens is part of the card. */
   inside: number[];
-  /** Its sticky or fixed layer, or the open menu it is in, such as a card's ⋯ (D-168), which floats over the page by design; null in the page's flow. */
+  /** Its sticky or fixed layer, or the open menu it is in, such as a card's ⋯ (D-168) or the board switch's list with its box to find a board (T-127, a .more-menu), which floats over the page by design; null in the page's flow. */
   layer: number | null;
 }
 
@@ -470,7 +470,7 @@ function collectGeometry(more) {
     return { c, ellipsis, folded };
   }
   const layers = new Map();
-  const layerOf = (e) => { for (let p = e; p; p = p.parentElement) { const s = style(p).position; if (s === 'sticky' || s === 'fixed' || p.getAttribute('role') === 'menu') { if (!layers.has(p)) layers.set(p, layers.size); return layers.get(p); } } return null; };
+  const layerOf = (e) => { for (let p = e; p; p = p.parentElement) { const s = style(p).position; if (s === 'sticky' || s === 'fixed' || p.getAttribute('role') === 'menu' || p.classList.contains('more-menu')) { if (!layers.has(p)) layers.set(p, layers.size); return layers.get(p); } } return null; };
   const visible = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true });
 
   const found = [...document.querySelectorAll('button, a[href], a.ext, input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab], [role=link]')].filter(visible);
