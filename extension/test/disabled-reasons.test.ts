@@ -83,6 +83,7 @@ const rule = { project: '/r', id: 'r-1', kind: 'rule', by: 'rule', head: 'H', li
 test('a rule\'s Confirm says to give a title and a line while one is empty, and says it is being sent while it is (edge case: a send on its way)', () => {
   kept = { opened: [`${ruleKey(rule)}:draft`] };
   // The page's small document has no settable textContent, which the check's <option>s set.
+  const had = Object.hasOwn(page.document, 'createElement');
   const original = page.document.createElement;
   const make = original.bind(page.document);
   page.document.createElement = (tag: string): PageElement => { const e = make(tag); if (tag === 'option') Object.defineProperty(e, 'textContent', { value: '', writable: true }); return e; };
@@ -101,7 +102,7 @@ test('a rule\'s Confirm says to give a title and a line while one is empty, and 
     assert.deepEqual([sending.disabled, sending.title], [true, 'Wait for it to be sent']);
   } finally {
     rulePending.settle(ruleKey(rule), null);
-    page.document.createElement = original;
+    if (had) page.document.createElement = original; else delete (page.document as Partial<typeof page.document>).createElement;
   }
 });
 

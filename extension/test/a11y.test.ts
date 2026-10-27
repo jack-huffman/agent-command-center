@@ -115,7 +115,7 @@ test('every page the run draws has a title, so none is named undefined (edge cas
   assert.ok(first.size >= 5, `${first.size} kinds of tab`);
   for (const [view, kind] of first) {
     assert.ok(TAB_TITLES[view], `the ${view} tab has a title`);
-    assert.match(pageFor(kind, 'dark', sampleModel(kind)), new RegExp(`<title>${TAB_TITLES[view]}</title>`), kind);
+    assert.ok(pageFor(kind, 'dark', sampleModel(kind)).includes(`<title>${TAB_TITLES[view]}</title>`), kind);
   }
   assert.deepEqual(A11Y_TAGS, ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'], 'the rules for WCAG 2.1 AA');
   assert.ok(PAGES.length > 0);
