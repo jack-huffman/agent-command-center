@@ -6,6 +6,9 @@ import { PRODUCTION_NOT_HERE } from '../../packages/core/src/sf-discovery.ts';
 import { asksProduction, domainItem, LOGIN_PRODUCTION, NO_PRODUCTION, productionChoices, productionNext, productionNotHere, type SandboxDomain, sandboxDomains } from '../src/logic/no-production.ts';
 import { type DoctorItem, initArgs, initCommand, productionOrgs } from '../src/logic/setup.ts';
 import { environmentsModel, PRODUCTION_AWAY } from '../src/model/environments.ts';
+import type { HomeModel } from '../src/model/home.ts';
+import { PAGES, sampleModel } from '../scripts/screenshot.ts';
+import { pageDom, type PageElement } from './page-dom.ts';
 import { envs, hub } from './support.ts';
 
 const LIST = {
@@ -92,6 +95,28 @@ test('joining: Production has an alias this machine isn\'t logged in to, and the
   assert.ok(cards.filter((e) => e.branch !== 'production').every((e) => e.actions.every((a) => !a.disabled)), 'the sandboxes\' controls stay on');
   const failed = productionNotHere([orgMatch(`"x" isn't a sandbox. production: ${PRODUCTION_NOT_HERE}`, 'fail')], root, (path) => h.projectFor(path));
   assert.equal(failed(root, 'production'), true, 'a failure on a sandbox still says Production isn\'t here');
+});
+
+test('the page draws a disabled environment action disabled, with why in its title, and a click sends nothing; edge case: an enabled one still runs', async () => {
+  const page = pageDom();
+  const { actionButton } = await import('../webview/dom.ts');
+  const ref = { project: '/r', env: 'production' };
+  const off = actionButton({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref, disabled: PRODUCTION_AWAY }) as unknown as PageElement;
+  assert.deepEqual([off.disabled, off.title, off.getAttribute('aria-description')], [true, `Open org: ${PRODUCTION_AWAY}`, PRODUCTION_AWAY]);
+  off.click();
+  assert.equal(page.sent.length, 0, 'a disabled button sends nothing');
+  const on = actionButton({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref }) as unknown as PageElement;
+  assert.equal(on.disabled, false);
+  on.click();
+  assert.deepEqual(page.sent, [{ type: 'run', command: 'acc.env.openOrg', ref }]);
+});
+
+test('the screenshot run draws Environments on a machine not logged in to Production, its Open org and Deploy… off', () => {
+  assert.ok(PAGES.includes('environments-away'));
+  const m = sampleModel('environments-away') as HomeModel;
+  assert.equal(m.section, 'environments');
+  const prod = m.environments.projects[0]!.envs.find((e) => e.type === 'production')!;
+  assert.deepEqual(prod.actions.filter((a) => a.disabled).map((a) => a.label), ['Open org', 'Deploy…']);
 });
 
 test('Production\'s controls stay on before the first Setup check, when it found Production logged in, and for another project than the one checked', () => {

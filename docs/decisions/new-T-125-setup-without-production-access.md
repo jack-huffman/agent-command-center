@@ -62,7 +62,8 @@ aren't found; the notes say so.
    (`PRODUCTION_AWAY`), when Production has no org, and when it has an alias that the last Setup check
    (B6.org-match, run in this project's folder) found isn't logged in here (`productionNotHere`). Before
    that check, or for another project than the one it ran in, the extension doesn't know, and they stay
-   on as before. Compare reads branches only, and works.
+   on as before. The page's `actionButton` draws a disabled action disabled, its reason in its title; it
+   used to ignore `disabled`. Compare reads branches only, and works.
 9. **A team template's preview** (B0.template, `previewCommand`) uses `--my-domain <my-domain>` for a
    project whose Production has no org.
 10. **acc deploy** and **acc drift** to Production refuse an environment with no org already, with the
