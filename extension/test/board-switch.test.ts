@@ -13,7 +13,7 @@ import { type PageElement, pageDom } from './page-dom.ts';
 const page = pageDom();
 let kept: Record<string, unknown> = {};
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: Record<string, unknown>) => { kept = s; } });
-const { boardChoice, boardCounts, FILTER_FROM, SEGMENTED_MOST, switchGroups } = await import('../webview/board-switch.ts');
+const { boardChoice, boardCounts, boardOpen, boardSwitch, FILTER_FROM, SEGMENTED_MOST, switchGroups, tellShown, toggleBoard } = await import('../webview/board-switch.ts');
 const { renderTasks } = await import('../webview/tasks.ts');
 const { state } = await import('../webview/state.ts');
 let draws = 0;
@@ -166,4 +166,27 @@ test('a board\'s name: its own, else its narrower place, else its tracker\'s boa
 test('what needs you on the Overview names the board its ticket is on, after its project', () => {
   assert.equal(withBoards('Acme · blocked', 'Acme', ['Renewals']), 'Acme · on Renewals · blocked');
   assert.equal(withBoards('blocked', 'Acme', ['A', 'B']), 'on A or B · blocked', 'edge case: a detail that doesn\'t start with its project');
+});
+
+test('boardSwitch draws either form from the boards alone, any kind; tellShown tells once per change; toggleBoard opens and folds a board', () => {
+  kept = {};
+  const kinds = (k: string) => `kind-${k}`;
+  const two = boardSwitch('/p', model(2).projects[0]!.boards, 'agents', kinds) as unknown as PageElement;
+  assert.deepEqual(two.all('seg').map((b) => b.getAttribute('aria-pressed')), ['false', 'false', 'true'], 'My work on show');
+  // A kind this module has never heard of, as T-128's queue will be: drawn the same, with the icon it's given.
+  const odd = model(4).projects[0]!.boards.map((b) => ({ ...b, kind: 'queue' as never }));
+  const list = boardSwitch('/p', odd, `board:${odd[2]!.id}`, kinds) as unknown as PageElement;
+  assert.equal(list.all('board-switch-btn')[0]!.getAttribute('aria-label'), `Board on show: ${odd[2]!.name}. Choose another`);
+  assert.ok(list.all().some((e) => e.className.includes('kind-queue')), 'the kind\'s icon comes from the caller');
+  const sent = () => page.sent.filter((m) => (m as { type: string; project: string }).type === 'board-shown' && (m as { project: string }).project === '/q').length;
+  tellShown('/q', 'board:x');
+  tellShown('/q', 'board:x');
+  assert.equal(sent(), 1, 'the same board twice tells once');
+  tellShown('/q', 'all');
+  assert.equal((page.sent.at(-1) as { board: string | null }).board, null, 'edge case: All boards tells none, so no board jumps the queue');
+  assert.equal(boardOpen('/q', 'x'), false);
+  toggleBoard('/q', 'x');
+  assert.equal(boardOpen('/q', 'x'), true);
+  toggleBoard('/q', 'x');
+  assert.equal(boardOpen('/q', 'x'), false, 'a second click folds it again');
 });

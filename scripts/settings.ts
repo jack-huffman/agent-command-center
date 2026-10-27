@@ -76,6 +76,8 @@ export const READ_IN: Partial<Record<ConfigPath, ReadPlace[]>> = {
   'trackers[].reaction': TRACKER_CLIENTS,
   'trackers[].doneReaction': TRACKER_CLIENTS,
   'trackers[].team': TRACKER_CLIENTS,
+  // A board's own name (T-127): read where the extension says which board a tracker is.
+  'trackers[].name': [{ file: 'extension/src/trackers.ts', via: /\bname: t\.name\b/ }],
   'trackers[].board': TRACKER_CLIENTS,
   'trackers[].statusColumn': TRACKER_CLIENTS,
   'trackers[].prefix': TRACKER_CLIENTS,

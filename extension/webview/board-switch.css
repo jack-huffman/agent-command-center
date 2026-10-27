@@ -27,6 +27,7 @@
 .board-fold-head { min-width: 0; max-width: 100%; }
 .board-fold { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 100%; padding: 2px 4px; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .board-fold:hover { background: var(--vscode-toolbar-hoverBackground); }
+.board-fold:active { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
 .board-fold:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
 .board-fold-name { overflow-wrap: anywhere; }
 .board-fold-count { font-size: 0.8em; font-weight: normal; overflow-wrap: anywhere; }

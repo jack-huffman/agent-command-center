@@ -359,7 +359,7 @@ test('an Azure DevOps tracker names its organization and project, and may name a
   const base = { schema: 1, project: 'P', profile: 'generic', environments: [{ name: 'main', default: true }] };
   const ok = parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'acme', project: 'CRM', team: 'Sales', board: 'Stories', prefix: 'av' }] });
   assert.deepEqual(ok.errors, []);
-  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', site: null, project: 'CRM', repo: null, organization: 'acme', account: null, workspace: null, channel: null, reaction: null, doneReaction: null, team: 'Sales', board: 'Stories', statusColumn: null, prefix: 'AV', skipLabels: [], epics: [], sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, changesField: null });
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'azure', name: null, site: null, project: 'CRM', repo: null, organization: 'acme', account: null, workspace: null, channel: null, reaction: null, doneReaction: null, team: 'Sales', board: 'Stories', statusColumn: null, prefix: 'AV', skipLabels: [], epics: [], sprint: null, labels: [], areaPath: null, group: null, edits: false, statusFor: null, changesField: null });
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', project: 'CRM' }] }).errors.join(), /needs "organization" and "project"/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'azure', organization: 'a', project: 'b', board: 3 }] }).errors.join(), /an Azure board's name/);
   assert.match(parseConfig({ ...base, trackers: [{ kind: 'jira', site: 's', project: 'K', board: 'Main' }] }).errors.join(), /Jira board id/);
@@ -406,7 +406,7 @@ test('a monday.com tracker names its account and board, and may name a group, a 
   const base = clone(GENERIC_CONFIG);
   const ok = parseConfig({ ...base, trackers: [{ kind: 'monday', account: 'Acme', board: 1234567890, group: 'topics', statusColumn: 'status_1', prefix: 'av' }] });
   assert.deepEqual(ok.errors, []);
-  assert.deepEqual(ok.config!.trackers[0], { kind: 'monday', site: null, project: null, repo: null, organization: null, account: 'acme', workspace: null, channel: null, reaction: null, doneReaction: null, team: null, board: 1234567890, statusColumn: 'status_1', prefix: 'AV', skipLabels: [], epics: [], sprint: null, labels: [], areaPath: null, group: 'topics', edits: false, statusFor: null, changesField: null });
+  assert.deepEqual(ok.config!.trackers[0], { kind: 'monday', name: null, site: null, project: null, repo: null, organization: null, account: 'acme', workspace: null, channel: null, reaction: null, doneReaction: null, team: null, board: 1234567890, statusColumn: 'status_1', prefix: 'AV', skipLabels: [], epics: [], sprint: null, labels: [], areaPath: null, group: 'topics', edits: false, statusFor: null, changesField: null });
   for (const bad of [{ board: 1 }, { account: 'acme' }, { account: 'acme', board: '1234' }, { account: 'acme', board: -3 }, { account: 'acme', board: 2 ** 53 }, { account: 'acme.monday.com', board: 1 }]) {
     assert.match(errorsOf({ ...base, trackers: [{ kind: 'monday', ...bad }] }), /a monday\.com tracker needs "account" \(as in acme\.monday\.com\) and "board"/, JSON.stringify(bad));
   }
@@ -531,7 +531,7 @@ const EVERY_KEY = {
   environmentSpecific: 'manifest/environment-specific.txt',
   knownDrift: 'manifest/known-drift.txt',
   trackers: [
-    { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', board: 7, epics: ['ACME-3', 'ACME-7'], sprint: 'active', changesField: { id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' } },
+    { kind: 'jira', name: 'Premium support', site: 'acme.atlassian.net', project: 'ACME', board: 7, epics: ['ACME-3', 'ACME-7'], sprint: 'active', changesField: { id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' } },
     { kind: 'github', repo: 'acme-co/tickets', skipLabels: ['milestone'], labels: ['billing'], edits: true, statusFor: { review: 'QA' } },
     { kind: 'azure', organization: 'acme', project: 'CRM', team: 'Billing', board: 'Stories', prefix: 'AB', areaPath: 'CRM\\Billing' },
     { kind: 'monday', account: 'acme', board: 42, statusColumn: 'status', prefix: 'MON', group: 'topics' },

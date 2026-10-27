@@ -11,7 +11,7 @@ import { MondayClient } from '../../packages/core/src/trackers/monday.ts';
 import type { Board, Exec } from '../../packages/core/src/trackers/types.ts';
 import { type ConnectDeps, type ConnectProject, ConnectSession, type StartProject } from '../src/connect.ts';
 import { credInUse, credKey, credWrites, type CredWrites, outsideKeys, placeCandidates, readCreds, siteCredKey } from '../src/logic/connect.ts';
-import { blankConnect, type ConnectMessage, connectModel, type ConnectModel } from '../src/model/connect.ts';
+import { BOARD_NAME_FIELD, blankConnect, CONNECT, type ConnectMessage, connectModel, type ConnectModel } from '../src/model/connect.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { jiraFor, root } from './support.ts';
 
@@ -264,6 +264,7 @@ test('Add a board adds a second board of the same Jira project beside the first,
   let m = h.model();
   assert.equal(m.title, 'Add a board to Acme Service');
   assert.deepEqual([m.boardName.value, m.boardName.placeholder, m.remove], ['', 'The name its tracker gives it', null], 'a new board: no name yet, and nothing to remove');
+  assert.ok(m.boardName.field === BOARD_NAME_FIELD && !CONNECT.fields.has(BOARD_NAME_FIELD), 'the name\'s field is no sign-in\'s field');
   assert.equal(m.signIn.look.label, 'Signed in as Jordan Kim, for this project only', 'the site\'s sign-in, shared by its boards (D-091)');
   h.send({ type: 'connect-pick', key: 'project', value: 'ACME' });
   await settle();
