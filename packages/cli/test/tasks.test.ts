@@ -2,12 +2,13 @@
 // acc runs from its source, in throwaway repos (support.ts).
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { DISPLAY, mutate, readLedger, repoPaths, run } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, gitIn } from '../../core/test/support.ts';
 import { cli, repoWithConfig, UNCHECKED } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -59,9 +60,9 @@ test('status: one line of counts by display state, nothing in play, and every st
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
   const mark = join(dir, 'claude-ran');
-  writeFileSync(join(bin, 'claude'), `#!/bin/sh\ntouch "${mark}"\n`);
+  standIn(join(bin, 'claude'), `#!/bin/sh\ntouch "${mark}"\n`);
   chmodSync(join(bin, 'claude'), 0o755);
-  const status = (...args: string[]) => acc(dir, ['status', ...args], undefined, { PATH: `${bin}:${process.env.PATH}` });
+  const status = (...args: string[]) => acc(dir, ['status', ...args], undefined, { PATH: `${bin}${delimiter}${process.env.PATH}` });
 
   assert.equal(status().out.trim(), 'Nothing in play.');
   const zero = Object.fromEntries(Object.keys(DISPLAY).map((s) => [s, 0]));
@@ -134,7 +135,7 @@ test('intake github reads open issues as the repo\'s account and upserts them', 
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
   const issues = JSON.stringify([{ number: 4, title: 'Fix login', body: 'Depends on #3', url: 'https://github.com/o/r/issues/4', labels: [] }]);
-  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+  standIn(join(bin, 'gh'), `#!/bin/sh
 case "$1 $2" in
   "auth token") [ "$4" = "me" ] && echo tok-me || exit 1 ;;
   "issue list") [ "$GH_TOKEN" = "tok-me" ] || { echo "wrong account" >&2; exit 1; }; echo '${issues}' ;;
@@ -142,7 +143,7 @@ case "$1 $2" in
 esac
 `);
   chmodSync(join(bin, 'gh'), 0o755);
-  const r = acc(dir, ['intake', 'github', '--json'], undefined, { PATH: `${bin}:${process.env.PATH}` });
+  const r = acc(dir, ['intake', 'github', '--json'], undefined, { PATH: `${bin}${delimiter}${process.env.PATH}` });
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(r.json().added, ['GH-4']);
   assert.equal(acc(dir, ['intake', 'jira']).code, 2, 'Jira intake needs the Command Center\'s report');
@@ -235,7 +236,7 @@ test('intake github moves closed issues\' tasks to done, removes skipped ones, a
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
   const issues = JSON.stringify([{ number: 3, title: 'M3', body: '', url: 'u3', labels: [{ name: 'milestone' }] }, { number: 4, title: 'Issue 4', body: '', url: 'u4', labels: [] }]);
-  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+  standIn(join(bin, 'gh'), `#!/bin/sh
 case "$1 $2" in
   "auth token") echo tok ;;
   "issue list") echo '${issues}' ;;
@@ -244,7 +245,7 @@ case "$1 $2" in
 esac
 `);
   chmodSync(join(bin, 'gh'), 0o755);
-  const env = { PATH: `${bin}:${process.env.PATH}` };
+  const env = { PATH: `${bin}${delimiter}${process.env.PATH}` };
   const text = acc(dir, ['intake', 'github'], undefined, env);
   assert.equal(text.code, 0, text.err);
   assert.deepEqual(text.out.trim().split('\n'), [

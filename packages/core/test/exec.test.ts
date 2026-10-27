@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import { run } from '../src/exec.ts';
 import { unpiped } from '../src/start.ts';
 import { fakeBin, tempDir } from './support.ts';
+import { skipOnWindows } from '../../../scripts/windows-tests.ts';
 
 /** The variables a program was started with, from its own `env`. */
 const envOf = (stdout: string): Record<string, string> => Object.fromEntries(stdout.split('\n').filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
@@ -32,7 +33,8 @@ test('a gh that hangs past its timeout is stopped then, even after its work is d
   assert.equal(run('gh', [], { env: fakeBin('gh', 'echo fine\n') }).timedOut, undefined, 'a gh that finishes in time isn\'t marked');
 });
 
-test('edge case: a gh run asked for lowered priority isn\'t lowered, so its timeout stops gh itself, not a script around it', () => {
+const GH_NICE = 'edge case: a gh run asked for lowered priority isn\'t lowered, so its timeout stops gh itself, not a script around it';
+test(GH_NICE, { skip: skipOnWindows('packages/core/test/exec.test.ts', GH_NICE) }, () => {
   const dir = tempDir('gh-nice-');
   const pidFile = join(dir, 'pid');
   const r = run('gh', ['pr', 'list'], { env: fakeBin('gh', `echo $$ > '${pidFile}'\nexec sleep 10\n`), timeoutMs: 1_000, nice: true });

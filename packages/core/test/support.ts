@@ -1,19 +1,20 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, globSync, lstatSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, globSync, lstatSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { delimiter, dirname, join, relative } from 'node:path';
 import { run, type Runner, type RunOptions, type RunResult } from '../src/exec.ts';
 import { shownCommand } from '../src/shell.ts';
 import type { Exec } from '../src/trackers/types.ts';
+import { testGlobs } from '../../../scripts/test-globs.ts';
+import { standIn } from './stand-in.ts';
 import { tempDir } from './temp-root.ts';
 
 export { RUN_ROOT, tempDir } from './temp-root.ts';
 
 /** The test files npm test runs: the quoted globs in package.json's test script, expanded, sorted. */
 export function npmTestFiles(root: string): string[] {
-  const script = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts.test as string;
-  const globs = [...script.matchAll(/"([^"]+)"/g)].map((m) => m[1] ?? '');
-  return [...new Set(globs.flatMap((g) => globSync(g, { cwd: root })))].sort();
+  // With forward slashes on every system, as git names files: Windows' glob gives backslashes.
+  return [...new Set(testGlobs(root).flatMap((g) => globSync(g, { cwd: root })).map((f) => f.replaceAll('\\', '/')))].sort();
 }
 
 export const ok = (stdout = ''): RunResult => ({ code: 0, stdout, stderr: '' });
@@ -56,8 +57,7 @@ export const launchedSessions = (calls: string[]) => (): RunResult => ok(JSON.st
 export function fakeBin(name: string, script: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const bin = join(tempDir('fake-bin-'), 'bin');
   mkdirSync(bin);
-  writeFileSync(join(bin, name), `#!/bin/sh\n${script}`);
-  chmodSync(join(bin, name), 0o755);
+  standIn(join(bin, name), `#!/bin/sh\n${script}`);
   return { ...env, PATH: `${bin}${delimiter}${process.env.PATH}` };
 }
 

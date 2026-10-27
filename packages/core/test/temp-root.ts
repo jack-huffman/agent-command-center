@@ -2,13 +2,21 @@
 // goes inside it, so a run leaves nothing behind in the system temp directory, even after a failed test.
 // TMPDIR points at it too, so what the code under test and the programs it starts make there lands
 // inside it as well.
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-/** This process's root, under the system temp directory as it was when the process started. */
-export const RUN_ROOT = mkdtempSync(join(tmpdir(), `acc-run-${process.pid}-`));
+const made = mkdtempSync(join(tmpdir(), `acc-run-${process.pid}-`));
+/**
+ * This process's root, under the system temp directory as it was when the process started. On Windows the
+ * temp directory is often given in its short form (C:\Users\RUNNER~1) where git and Claude Code give the long
+ * one, so the root is its long form there, and a test's paths compare with theirs. A Mac keeps the path as
+ * tmpdir() gave it.
+ */
+export const RUN_ROOT = process.platform === 'win32' ? realpathSync.native(made) : made;
 process.env.TMPDIR = RUN_ROOT;
+// Windows' tmpdir() reads TEMP and TMP, not TMPDIR.
+if (process.platform === 'win32') process.env.TEMP = process.env.TMP = RUN_ROOT;
 
 const removeRoot = () => rmSync(RUN_ROOT, { recursive: true, force: true, maxRetries: 3 });
 process.on('exit', removeRoot);

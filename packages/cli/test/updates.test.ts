@@ -2,11 +2,12 @@
 // acc runs from its source, in throwaway repos (support.ts).
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { GENERIC_CONFIG } from '../../core/test/support.ts';
 import { cli, repoWithConfig } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -23,7 +24,7 @@ function ticketsRepo() {
   for (const id of ['GH-3', 'ACME-7']) assert.equal(acc(dir, ['set', id, 'running']).code, 0);
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+  standIn(join(bin, 'gh'), `#!/bin/sh
 case "$1 $2" in
   "auth token") [ "$4" = "me" ] && echo tok-me || exit 1 ;;
   "issue comment") [ "$GH_TOKEN" = "tok-me" ] || { echo "wrong account" >&2; exit 1; }; echo "$1 $2 $3 $4 $5 $6" > "${dir}/gh-args"; cat "$7" > "${dir}/gh-body"; echo https://github.com/o/r/issues/3#issuecomment-1 ;;
@@ -31,7 +32,7 @@ case "$1 $2" in
 esac
 `);
   chmodSync(join(bin, 'gh'), 0o755);
-  return { dir, env: { PATH: `${bin}:${process.env.PATH}` }, updates: join(dir, '.git', 'acc', 'updates') };
+  return { dir, env: { PATH: `${bin}${delimiter}${process.env.PATH}` }, updates: join(dir, '.git', 'acc', 'updates') };
 }
 
 test('acc block --client blocks and drafts an update with the question; a plain block stays internal', () => {
@@ -98,7 +99,7 @@ test('a GitHub draft isn\'t posted on an issue now in another repo: it stays a d
   assert.equal(acc(dir, ['set', 'GH-3', 'blocked', '--client', 'Which browsers must it support?']).code, 0);
   const bin = join(dir, '.movedbin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'gh'), `#!/bin/sh
+  standIn(join(bin, 'gh'), `#!/bin/sh
 case "$1 $2" in
   "auth token") echo tok-me ;;
   "issue view") echo '{"url": "https://github.com/other/repo/issues/9"}' ;;
@@ -107,7 +108,7 @@ case "$1 $2" in
 esac
 `);
   chmodSync(join(bin, 'gh'), 0o755);
-  const r = acc(dir, ['update', 'post', 'GH-3.1'], undefined, { PATH: `${bin}:${process.env.PATH}` });
+  const r = acc(dir, ['update', 'post', 'GH-3.1'], undefined, { PATH: `${bin}${delimiter}${process.env.PATH}` });
   assert.equal(r.code, 1);
   assert.match(r.err, /#3 is in other\/repo now, not this repo's o\/r, so GH-3\.1 isn't posted\. Discard it if it no longer applies: acc update discard GH-3\.1/);
   assert.ok(!existsSync(join(dir, 'commented')), 'nothing was posted');

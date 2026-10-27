@@ -2,11 +2,12 @@
 // with the task, and only a person makes it an update. acc runs from its source, with a fake claude.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { GENERIC_CONFIG } from '../../core/test/support.ts';
 import { cli, repoWithConfig } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -28,9 +29,9 @@ function draftRepo(answer: unknown = ANSWER) {
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
   writeFileSync(join(dir, '.answer.json'), JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-criteria', total_cost_usd: 0.1, structured_output: answer }));
-  writeFileSync(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> "${dir}/.claude-args"\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
+  standIn(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> "${dir}/.claude-args"\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
   chmodSync(join(bin, 'claude'), 0o755);
-  return { dir, env: { PATH: `${bin}:${process.env.PATH}` }, updates: join(dir, '.git', 'acc', 'updates') };
+  return { dir, env: { PATH: `${bin}${delimiter}${process.env.PATH}` }, updates: join(dir, '.git', 'acc', 'updates') };
 }
 
 const TICKET = {

@@ -2,11 +2,12 @@
 // plan keeps what it read. acc runs from its source, with a fake claude.
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { GENERIC_CONFIG } from '../../core/test/support.ts';
 import { cli, repoWithConfig } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -23,9 +24,9 @@ function planRepo() {
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
   writeFileSync(join(dir, '.answer.json'), JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-plan', total_cost_usd: 0.1, structured_output: ANSWER }));
-  writeFileSync(join(bin, 'claude'), `#!/bin/sh\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
+  standIn(join(bin, 'claude'), `#!/bin/sh\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
   chmodSync(join(bin, 'claude'), 0o755);
-  return { dir, env: { PATH: `${bin}:${process.env.PATH}` } };
+  return { dir, env: { PATH: `${bin}${delimiter}${process.env.PATH}` } };
 }
 
 test('acc analyze --ticket gives the planning agent every comment, and the plan keeps how many it read and the newest', () => {

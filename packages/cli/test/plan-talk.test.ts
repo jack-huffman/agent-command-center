@@ -2,12 +2,13 @@
 // it proposes, notes the plan, and opens it in Claude Code. acc runs from its source, in throwaway repos.
 import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { GENERIC_CONFIG } from '../../core/test/support.ts';
 import { recordedHere, TALK_HELP, TALK_SUBCOMMANDS, talkCommand } from '../src/commands/plan-talk.ts';
 import { cli, repoWithConfig } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -31,9 +32,9 @@ function talkRepo() {
   }));
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> "${dir}/.claude-args"\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
+  standIn(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> "${dir}/.claude-args"\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
   chmodSync(join(bin, 'claude'), 0o755);
-  return { dir, store, env: { PATH: `${bin}:${process.env.PATH}`, USER: 'jordan' } };
+  return { dir, store, env: { PATH: `${bin}${delimiter}${process.env.PATH}`, USER: 'jordan' } };
 }
 
 const talk = (store: string) => JSON.parse(readFileSync(join(store, 'ACME-7.talk.json'), 'utf8'));

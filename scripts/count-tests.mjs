@@ -7,14 +7,7 @@
 // With no arguments it counts the files npm test runs, by the globs in package.json's test script; given
 // globs, it counts those.
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-/** The globs npm test passes to node --test: the quoted arguments of package.json's test script. */
-function testGlobs(root) {
-  const script = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts?.test ?? '';
-  return [...script.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-}
+import { testGlobs } from './test-globs.ts';
 
 // node:test as each test file sees it: every test declared is skipped, so no body runs, and the hooks
 // around them do nothing. describe still runs its body, which only declares the tests in it.

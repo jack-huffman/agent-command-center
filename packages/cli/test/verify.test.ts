@@ -3,11 +3,12 @@
 // fake gh and claude that record what they're asked, and a real origin on disk.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { gitIn, tempDir } from '../../core/test/support.ts';
 import { cli, repoWithConfig } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -56,7 +57,7 @@ function verifyRepo(found: 'one' | 'none' | 'two' = 'one') {
   writeFileSync(join(dir, '.answer.json'), JSON.stringify({ type: 'result', subtype: 'success', is_error: false, session_id: 'sess-verify', total_cost_usd: 0.2, structured_output: ANSWER }));
   const bin = join(dir, '.fakebin');
   mkdirSync(bin);
-  writeFileSync(join(bin, 'gh'), [
+  standIn(join(bin, 'gh'), [
     '#!/bin/sh',
     `echo "$@" >> "${dir}/.gh-args"`,
     'case "$1 $2" in',
@@ -67,10 +68,10 @@ function verifyRepo(found: 'one' | 'none' | 'two' = 'one') {
     'esac',
     '',
   ].join('\n'));
-  writeFileSync(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> "${dir}/.claude-args"\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
+  standIn(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> "${dir}/.claude-args"\ncat > "${dir}/.claude-prompt"\ncat "${dir}/.answer.json"\n`);
   chmodSync(join(bin, 'gh'), 0o755);
   chmodSync(join(bin, 'claude'), 0o755);
-  return { dir, sha, env: { PATH: `${bin}:${process.env.PATH}` }, store: join(dir, '.git', 'acc', 'verifications'), wt: join(gitIn(dir, 'rev-parse', '--show-toplevel'), '.claude', 'worktrees', 'verify-ACME-7') };
+  return { dir, sha, env: { PATH: `${bin}${delimiter}${process.env.PATH}` }, store: join(dir, '.git', 'acc', 'verifications'), wt: join(gitIn(dir, 'rev-parse', '--show-toplevel'), '.claude', 'worktrees', 'verify-ACME-7') };
 }
 
 const ghArgs = (dir: string): string[] => (existsSync(join(dir, '.gh-args')) ? readFileSync(join(dir, '.gh-args'), 'utf8').trim().split('\n') : []);

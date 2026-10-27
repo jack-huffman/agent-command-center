@@ -11,6 +11,7 @@ import { tempDir } from '../../packages/core/test/support.ts';
 import type { TaskRow } from '../src/logic/shared.ts';
 import { cardActions, dispatchAgainOff } from '../src/model/cards.ts';
 import { row } from './support.ts';
+import { standIn } from '../../packages/core/test/stand-in.ts';
 
 /** tasks.ts and hub.ts import vscode, which only VSCode has: this stand-in holds what they call, and records what's shown. */
 const said = { warn: [] as string[], info: [] as string[] };
@@ -79,7 +80,7 @@ function claudeOnPath(): { dir: string; fail: string } {
   const fail = join(dir, 'fail');
   writeFileSync(fail, '');
   const script = join(dir, 'claude');
-  writeFileSync(script, `#!/bin/sh\nif [ -e "${fail}" ]; then echo "connect ENOENT /tmp/cc-daemon-1/x/control.sock" >&2; exit 1; fi\necho '[]'\n`);
+  standIn(script, `#!/bin/sh\nif [ -e "${fail}" ]; then echo "connect ENOENT /tmp/cc-daemon-1/x/control.sock" >&2; exit 1; fi\necho '[]'\n`);
   chmodSync(script, 0o755);
   return { dir, fail };
 }

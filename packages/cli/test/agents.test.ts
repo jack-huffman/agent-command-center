@@ -3,12 +3,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { builderSettings, guardAnalyst, guardBash, mutate, parseConfig, registerLedger, repoPaths, run, transcriptDir } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/support.ts';
 import { cli, LIMITS_CONFIG, repoWithConfig } from './support.ts';
+import { standIn } from '../../core/test/stand-in.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -33,10 +34,10 @@ const args = process.argv.slice(2);
 if (args[0] === 'agents') console.log('[]');
 else fs.appendFileSync(${JSON.stringify(record)}, JSON.stringify({ cmd: 'claude', args, cwd: process.cwd(), role: process.env.ACC_ROLE, task: process.env.ACC_TASK }) + '\\n');
 `);
-  writeFileSync(join(bin, 'caffeinate'), `#!/bin/sh\nprintf '{"cmd":"caffeinate","args":["%s","%s","%s"]}\\n' "$1" "$2" "$3" >> ${JSON.stringify(record)}\n`);
+  standIn(join(bin, 'caffeinate'), `#!/bin/sh\nprintf '{"cmd":"caffeinate","args":["%s","%s","%s"]}\\n' "$1" "$2" "$3" >> ${JSON.stringify(record)}\n`);
   chmodSync(join(bin, 'claude'), 0o755);
   chmodSync(join(bin, 'caffeinate'), 0o755);
-  const env = { PATH: `${bin}:${process.env.PATH}`, CLAUDE_CONFIG_DIR: config };
+  const env = { PATH: `${bin}${delimiter}${process.env.PATH}`, CLAUDE_CONFIG_DIR: config };
 
   const show = acc(dir, ['show', 'T-1'], undefined, env).out;
   assert.match(show, /^T-1 {2}! Needs you {2}Ticket updates are drafts\n/);
@@ -87,9 +88,9 @@ test('acc dispatch --again with a claude that is not found (exit 127) is refused
   // A claude that every call says isn't found, and that writes down each call, so a stop would show.
   const bin = tempDir('bin-');
   const record = join(bin, 'calls.txt');
-  writeFileSync(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> ${record}\nexit 127\n`);
+  standIn(join(bin, 'claude'), `#!/bin/sh\necho "$@" >> ${record}\nexit 127\n`);
   chmodSync(join(bin, 'claude'), 0o755);
-  const r = acc(dir, ['dispatch', 'T-1', '--again'], undefined, { PATH: `${bin}:${process.env.PATH}` });
+  const r = acc(dir, ['dispatch', 'T-1', '--again'], undefined, { PATH: `${bin}${delimiter}${process.env.PATH}` });
   assert.equal(r.code, 1, r.out);
   assert.match(r.err, /Claude Code isn't on this Mac's path, so the Command Center can't see this builder/);
   assert.ok(!(existsSync(record) ? readFileSync(record, 'utf8') : '').includes('stop'), 'nothing is stopped');
