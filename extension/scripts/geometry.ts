@@ -114,7 +114,7 @@ export function judgeDisabled(drawn: GeoDisabled[]): { what: string; detail: str
   for (const d of drawn) {
     if (d.opacity > DISABLED_LOOK.maxOpacity) out.push({ what: d.what, detail: `${quote(d.text).trim() || 'it'} is disabled and drawn at opacity ${d.opacity}, as clear as an enabled button` });
     if (d.cursor !== DISABLED_LOOK.cursor) out.push({ what: d.what, detail: `${quote(d.text).trim() || 'it'} is disabled and shows the ${d.cursor} cursor, not ${DISABLED_LOOK.cursor}` });
-    if (!d.why && !(d.text in REASON_BESIDE)) out.push({ what: d.what, detail: `${quote(d.text).trim() || 'it'} is disabled and gives no reason: no title or aria-description, and it isn't in REASON_BESIDE` });
+    if (!d.why && !Object.hasOwn(REASON_BESIDE, d.text)) out.push({ what: d.what, detail: `${quote(d.text).trim() || 'it'} is disabled and gives no reason: no title or aria-description, and it isn't in REASON_BESIDE` });
   }
   return out;
 }

@@ -48,11 +48,14 @@ test('Comment says to write a comment first while the box is empty, and clears o
   const send = all.find((e) => e.tagName === 'BUTTON' && e.textContent === 'Comment')!;
   const box = all.find((e) => e.classList.contains('comment-box'))! as PageElement & { value: string };
   const typeIn = (text: string): void => { box.value = text; for (const f of box.listeners.get('input') ?? []) f({}); };
-  assert.deepEqual([send.disabled, send.title], [true, 'Write a comment first']);
+  // The composer and its reset after a post (updates.ts) say the one reason.
+  const { COMMENT_EMPTY } = await import('../webview/updates.ts');
+  assert.equal(COMMENT_EMPTY, 'Write a comment first');
+  assert.deepEqual([send.disabled, send.title], [true, COMMENT_EMPTY]);
   typeIn('Looks right');
   assert.deepEqual([send.disabled, send.title], [false, '']);
   typeIn(' ');
-  assert.deepEqual([send.disabled, send.title], [true, 'Write a comment first']);
+  assert.deepEqual([send.disabled, send.title], [true, COMMENT_EMPTY]);
 });
 
 test('the head\'s type and priority are each titled with what they are, "Type: …" and "Priority: …"', async () => {
