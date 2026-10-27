@@ -13,3 +13,5 @@ does. The author chose to let a sandbox deploy go without them.
 - A check-only validate is still how a change proves itself first (D-024).
   T-1's validate compiled the same 17 files in the pilot's sandbox and ran
   the four test classes there.
+
+Note (2026-10-27, T-120): the client's and the firm's names in this entry became neutral words; the facts are unchanged.

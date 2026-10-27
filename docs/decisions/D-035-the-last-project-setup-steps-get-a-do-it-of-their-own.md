@@ -31,3 +31,5 @@ B5, B6, B9 and B10 were terminal recipes in ONBOARDING.md. Each is now an
 
 None of them commits to an existing branch. A person reads the drafts and
 commits them on each environment's branch.
+
+Note (2026-10-27, T-120): the client's and the firm's names in this entry became neutral words; the facts are unchanged.

@@ -11,13 +11,13 @@ import { test } from 'node:test';
 
 const ROOT = join(import.meta.dirname, '..', '..');
 
-/** SHA-256 of each banned name, lower-cased: the client, its GitHub org and the author's work account. Only ever add one. */
+/** SHA-256 of each banned name, lower-cased, with the kind of name it stands for. Only ever add one. */
 export const BANNED = [
-  '292629891a423ebb54e81406137f0de2be3fc52b0d3a9ecae1d5c9535ba8fbef',
-  '757a8170ff11860eabec9cef30f939ab6bedf541f1b2486d403fc2247bfbd998',
-  '91997bc71cebc54d3472ad53c3dcfca028e85b67af43eefb9fee1ae83906475c',
-  '0e52e4f8b025f97500e5242d5393b3a052aa51137beaebb5e73a48b5045f025a',
-  'ea941f2092577b99dead68368af67c3aabbc668307917b31bc70ff603c5da412',
+  '292629891a423ebb54e81406137f0de2be3fc52b0d3a9ecae1d5c9535ba8fbef', // the pilot client
+  '757a8170ff11860eabec9cef30f939ab6bedf541f1b2486d403fc2247bfbd998', // the author's firm, and its GitHub org
+  '91997bc71cebc54d3472ad53c3dcfca028e85b67af43eefb9fee1ae83906475c', // the author's work GitHub account
+  '0e52e4f8b025f97500e5242d5393b3a052aa51137beaebb5e73a48b5045f025a', // the pilot client's Azure DevOps org
+  'ea941f2092577b99dead68368af67c3aabbc668307917b31bc70ff603c5da412', // the work account's user name alone
 ];
 
 export const hashOf = (word: string): string => createHash('sha256').update(word.toLowerCase()).digest('hex');
