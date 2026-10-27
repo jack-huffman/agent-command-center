@@ -16,6 +16,7 @@ import type { RepoPaths } from './paths.ts';
 import { carriesOver, FLOORS_FILE, floorsAt, judgeRatchet, type RatchetFloors, ratchetGate, readFloors, readRelaxed, relaxesFor, withRaises, writeFloors } from './ratchets.ts';
 import { earlierCounts, type GateStatus, ratchetOf, readReceipt, type Receipt, receiptsAt, writeReceipt } from './receipts.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
+import { inShell, shellLine, shownCommand } from './shell.ts';
 import { storedFloorsLowered } from './stored-floors.ts';
 import { escapeRegExp, plural } from './text.ts';
 import { apexCounts, countsLine, newlySkipped, NO_COUNTS, readTestCounts, type TestCounts } from './test-counts.ts';
@@ -137,9 +138,6 @@ export function lastLine(text: string): string {
   return line.length > 200 ? `${line.slice(0, 197)}…` : line;
 }
 
-/** A command as you'd type it, so a logged line can be pasted back into a shell. */
-export const shellLine = (cmd: string, args: string[]): string => [cmd, ...args].map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`)).join(' ');
-
 const exitRead = (r: RunResult): Outcome => (r.code === 0 ? pass('Passed.') : r.code === 127 ? error(lastLine(r.stderr) || 'The command wasn\'t found.') : fail(lastLine(r.stdout + '\n' + r.stderr) || `Exited with ${r.code}.`));
 
 // ---------------------------------------------------------------- the gates
@@ -171,8 +169,9 @@ function commandGate(name: string, command: string, heavy: boolean, changeBound:
       const read = floors?.();
       const lowered = read && !('problem' in read) ? storedFloorsLowered(name, read) : null;
       if (lowered) return { outcome: { status: 'fail', summary: lowered } };
+      const [cmd, args] = inShell(command);
       return {
-        cmd: 'sh', args: ['-c', command], read: exitRead,
+        cmd, args, read: exitRead,
         env: { ACC_CHANGED: changes.files.join('\n'), ACC_NEAR_TESTS: near().join('\n') },
       };
     },
@@ -679,9 +678,6 @@ export function settle(outcome: Outcome, check: SettleCheck): Outcome {
   return { ...outcome, status: 'hold', summary: `${c.skipped} skipped, up from ${before.skipped} on ${at}${fresh.length ? `: ${listOf(fresh)} newly skipped` : ''}.`, countsNote: note };
 }
 
-/** Every gate runs under nice, so checks don't make the machine stutter. */
-export const niced = (cmd: string, args: string[]): [string, string[]] => (process.platform === 'win32' ? [cmd, args] : ['nice', ['-n', '15', cmd, ...args]]);
-
 /**
  * Runs gates in a checkout and records a receipt for each on its current commit. With no names it
  * runs the required gates, a builder's where the merge queue runs the full ones (GH-73), or every gate
@@ -779,10 +775,10 @@ export function runGates(paths: RepoPaths, config: Config, env: Environment, nam
       const ran: { line: string; r: RunResult }[] = [];
       const exec: Exec = (cmd, args, o) => {
         assertCheckOnly(cmd, args, gate.name);
-        const [c, a] = niced(cmd, args);
         // sf gets a plain environment, so its --json output stays parseable whatever shell ran acc.
-        const r = deps.run(c, a, { cwd: root, timeoutMs: o?.timeoutMs ?? (gate.heavy ? 90 : 20) * 60_000, env: cmd === 'sf' ? sfEnv() : { ...checkEnv(process.env, gate.heavy ? join(input.scratch, 'heavy') : undefined), ...('env' in plan ? plan.env : {}) } });
-        ran.push({ line: shellLine(cmd, args), r });
+        // Every gate runs at lowered priority, so checks don't make the machine stutter.
+        const r = deps.run(cmd, args, { cwd: root, timeoutMs: o?.timeoutMs ?? (gate.heavy ? 90 : 20) * 60_000, nice: true, env: cmd === 'sf' ? sfEnv() : { ...checkEnv(process.env, gate.heavy ? join(input.scratch, 'heavy') : undefined), ...('env' in plan ? plan.env : {}) } });
+        ran.push({ line: shellLine(shownCommand(cmd), args), r });
         return r;
       };
       // The slot says what it's for: the Command Center shows which task each heavy check runs for (D-092).

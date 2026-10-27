@@ -15,7 +15,7 @@ import { writeAtomic } from './atomic.ts';
 import type { Config, Environment } from './config.ts';
 import { environmentNamed, filesFor } from './drift.ts';
 import { AccError, parseJsonOutput, type Runner, sfEnv } from './exec.ts';
-import { baseFor, lastLine, listed, niced, packageDirs, readList, under } from './gates.ts';
+import { baseFor, lastLine, listed, packageDirs, readList, under } from './gates.ts';
 import { readLedger, type Task } from './ledger.ts';
 import { branchFiles, nulPaths } from './overlap.ts';
 import type { RepoPaths } from './paths.ts';
@@ -471,7 +471,7 @@ function checkAgainstOrg(paths: RepoPaths, config: Config, t: Ticket, m: TicketM
     const manifest = join(dir, '.acc-ticket-package.xml');
     writeFileSync(manifest, m.package);
     const args = ['project', 'retrieve', 'start', '--manifest', manifest, '--target-org', org, '--ignore-conflicts', '--wait', '60', '--json'];
-    const r = withSlot(() => deps.run(...niced('sf', args), { cwd: dir, timeoutMs: 70 * 60_000, env: sfEnv() }), { owner: { what: `Manifest check for ${m.task}`, env: t.env.branch, project: config.project }, ...deps.slots });
+    const r = withSlot(() => deps.run('sf', args, { cwd: dir, timeoutMs: 70 * 60_000, env: sfEnv(), nice: true }), { owner: { what: `Manifest check for ${m.task}`, env: t.env.branch, project: config.project }, ...deps.slots });
     rmSync(manifest, { force: true });
     const said = sfJson<unknown>(r);
     if (!said.ok) throw new AccError('sf', `The retrieve from ${org} failed: ${said.message}`);
@@ -579,7 +579,7 @@ export function retrieveIntoBranch(paths: RepoPaths, config: Config, id: string,
     const readText = (f: string): string | null => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), 'utf8') : null);
     const before = new Map(changedFiles(deps.run, dir).filter((e) => e.startsWith('??')).map((e) => e.slice(3)).map((f) => [f, readText(f)]));
     const args = ['project', 'retrieve', 'start', '--metadata', component, '--target-org', t.env.org!, '--ignore-conflicts', '--wait', '30', '--json'];
-    const said = sfJson<unknown>(deps.run(...niced('sf', args), { cwd: dir, timeoutMs: 40 * 60_000, env: sfEnv() }));
+    const said = sfJson<unknown>(deps.run('sf', args, { cwd: dir, timeoutMs: 40 * 60_000, env: sfEnv(), nice: true }));
     if (!said.ok) throw new AccError('sf', `The retrieve of ${component} from ${t.env.org} failed: ${said.message}`);
     const files = under(changedFiles(deps.run, dir).map((e) => e.slice(3)), packageDirs(dir)).filter((f) => !before.has(f) || readText(f) !== before.get(f));
     if (!files.length) throw new AccError('no-change', `${t.env.org}'s copy of ${component} is the same as the branch's, so there's nothing to commit.`);

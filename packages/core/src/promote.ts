@@ -5,7 +5,7 @@ import { addPromotionSteps, stepsSection } from './change-steps.ts';
 import { carriedTasks } from './carried.ts';
 import { type Config, type Environment } from './config.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
-import { assertCheckOnly, listed, listLines, niced, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
+import { assertCheckOnly, listed, listLines, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { mutate, type Promotion, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -279,9 +279,8 @@ function promoteNow(paths: RepoPaths, config: Config, fromName: string, toName: 
       steps.start('check', checkLabel, 'A check-only deploy: nothing is saved to the org');
       const args = promotionCheckArgs(plan.to.org, source);
       assertCheckOnly('sf', args);
-      const [cmd, a] = niced('sf', args);
       const owner = { what: `Validate ${plan.from.branch} → ${plan.to.branch}`, env: plan.to.branch, project: config.project };
-      const r = withSlot(() => run(cmd, a, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000 }), { owner, ...deps.slots });
+      const r = withSlot(() => run('sf', args, { cwd: wt, env: sfEnv(), timeoutMs: 120 * 60_000, nice: true }), { owner, ...deps.slots });
       validation = readDeploy(r, plan.to.org, [], source.length);
       if (validation.status !== 'pass') {
         steps.fail('check', validation.summary);

@@ -11,7 +11,7 @@ import { repoPaths } from '../src/paths.ts';
 import { mutate, type Promotion, readLedger, upsertTasks } from '../src/ledger.ts';
 import { sync } from '../src/sync.ts';
 import { claimUpdate, draftUpdate, listUpdates, markPosted } from '../src/updates.ts';
-import { bad, fakeRunner, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
+import { bad, callLine, fakeRunner, gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-02T12:00:00Z');
 const config = (over: Record<string, unknown> = {}): Config => {
@@ -59,7 +59,7 @@ function repo() {
 
 const gh = (calls: string[]) => {
   const fake = fakeRunner({ 'gh auth token -u work-account': ok('gho\n'), 'gh pr create': ok('https://github.com/acme-co/acme-salesforce/pull/9\n') });
-  return (cmd: string, args: string[], opts?: RunOptions) => { if (cmd !== 'git') calls.push([cmd, ...args].join(' ')); return fake(cmd, args, opts); };
+  return (cmd: string, args: string[], opts?: RunOptions) => { if (cmd !== 'git') calls.push(callLine(cmd, args, opts)); return fake(cmd, args, opts); };
 };
 
 test('a promotion takes what the source changed, leaves environment-specific files and the destination\'s own fixes alone, and names deletions', () => {
@@ -126,7 +126,7 @@ test('the usual path\'s skipped environments: a chain of first choices up to the
 
 const sfOk = (calls: string[]) => {
   const fake = fakeRunner({ nice: ok(JSON.stringify({ status: 0, result: { id: '0Af1', success: true } })) });
-  return (cmd: string, args: string[], opts?: RunOptions) => { if (cmd !== 'git') calls.push([cmd, ...args].join(' ')); return fake(cmd, args, opts); };
+  return (cmd: string, args: string[], opts?: RunOptions) => { if (cmd !== 'git') calls.push(callLine(cmd, args, opts)); return fake(cmd, args, opts); };
 };
 
 test('a deploy sends what changed on the branch since the last one, never an environment-specific file, and remembers where it got to', () => {
@@ -231,7 +231,7 @@ test('a Salesforce promotion is checked against the destination\'s org first, pr
   const c = config();
   const calls: string[] = [];
   const failing = fakeRunner({ 'gh auth token -u work-account': ok('gho\n'), nice: { code: 1, stderr: '', stdout: JSON.stringify({ status: 1, result: { success: false, details: { componentFailures: { fullName: 'A', problem: 'Bad' } } } }) } });
-  const r = promote(paths, c, 'dev', 'production', { run: (cmd, args, opts) => { if (cmd !== 'git') calls.push([cmd, ...args].join(' ')); return failing(cmd, args, opts); }, now, env: {}, slots: { dir: tempDir('slots-') } }, { allowDeletions: true });
+  const r = promote(paths, c, 'dev', 'production', { run: (cmd, args, opts) => { if (cmd !== 'git') calls.push(callLine(cmd, args, opts)); return failing(cmd, args, opts); }, now, env: {}, slots: { dir: tempDir('slots-') } }, { allowDeletions: true });
   assert.equal(r.pr, null);
   assert.match(r.stopped!, /Validation against Production didn't pass/);
   assert.match(calls[0]!, /^nice -n 15 sf project deploy start --dry-run --target-org Acme Production .* --test-level RunLocalTests$/);

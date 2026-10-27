@@ -1,5 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { basename } from 'node:path';
+import { nicedCommand } from './shell.ts';
+import { startFor, startSync } from './start.ts';
 
 export interface RunResult {
   code: number;
@@ -14,6 +15,8 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   input?: string;
   timeoutMs?: number;
+  /** Run it at lowered priority, so the machine stays usable while it works (nicedCommand). */
+  nice?: boolean;
 }
 
 /** Runs a command and returns its result. Never throws; a missing binary, or one stopped at its timeout, is code 127. */
@@ -32,9 +35,15 @@ export const isGh = (cmd: string): boolean => basename(cmd) === 'gh';
 export const run: Runner = (cmd, args, opts = {}) => {
   const gh = isGh(cmd);
   const timeout = opts.timeoutMs ?? 120_000;
-  const r = spawnSync(cmd, args, {
+  const env = gh ? ghEnv(opts.env) : opts.env ?? process.env;
+  // Started as every system needs it (startSync): on Windows, a .cmd shim such as sf's runs through cmd.exe.
+  // Niced, the script that lowers the priority starts the command as startFor says.
+  const inner = opts.nice ? startFor(cmd, args, env) : null;
+  if (inner && 'problem' in inner) return { code: 1, stdout: '', stderr: inner.problem };
+  const how = inner ? nicedCommand(inner.file, inner.args, env, inner.verbatim) : { cmd, args, env };
+  const r = startSync(how.cmd, how.args, {
     cwd: opts.cwd,
-    env: gh ? ghEnv(opts.env) : opts.env ?? process.env,
+    env: how.env,
     input: opts.input,
     encoding: 'utf8',
     timeout,
@@ -44,11 +53,12 @@ export const run: Runner = (cmd, args, opts = {}) => {
     killSignal: gh ? 'SIGKILL' : 'SIGTERM',
     maxBuffer: 64 * 1024 * 1024,
   });
+  if ('problem' in r) return { code: 1, stdout: '', stderr: r.problem };
   if ((r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT') {
     return { code: 127, stdout: '', stderr: `${basename(cmd)} didn't finish within ${within(timeout)}, so acc stopped it.`, timedOut: true };
   }
   if (r.error) return { code: 127, stdout: '', stderr: r.error.message };
-  return { code: r.status ?? 1, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+  return { code: r.status ?? 1, stdout: String(r.stdout ?? ''), stderr: String(r.stderr ?? '') };
 };
 
 export class AccError extends Error {

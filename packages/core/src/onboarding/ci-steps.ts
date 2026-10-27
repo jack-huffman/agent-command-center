@@ -6,7 +6,7 @@
  */
 import { defaultEnvironment } from '../config.ts';
 import { quotedChecks } from '../checks.ts';
-import { shellLine } from '../gates.ts';
+import { shellLine } from '../shell.ts';
 import { requiredChecks, type RequiredChecks } from '../protection.ts';
 import { cached, fail, ghEnv, pass, skip, unknown } from './helpers.ts';
 import type { Step } from './types.ts';

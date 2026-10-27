@@ -4,6 +4,7 @@
  * tools (D-003): a project that lists none skips the step.
  */
 import { mainCheckout } from '../paths.ts';
+import { inShell } from '../shell.ts';
 import { fail, pass, skip } from './helpers.ts';
 import type { Step } from './types.ts';
 
@@ -24,7 +25,7 @@ export const TOOL_STEPS: Step[] = [
         // fall back to this checkout
       }
       for (const t of tools) {
-        const r = ctx.run('sh', ['-c', t.check], { cwd: root, env: ctx.env });
+        const r = ctx.run(...inShell(t.check), { cwd: root, env: ctx.env });
         if (r.code !== 0) {
           const said = (r.stderr || r.stdout).trim().split('\n')[0];
           return fail(`${t.title} isn't set up yet${said ? `: ${said}` : '.'} ${t.why}`, t.fix);

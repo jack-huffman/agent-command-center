@@ -1,5 +1,6 @@
 // The builder's packet and its session's settings: what acc writes into a task's worktree when it dispatches it.
 
+import { delimiter } from 'node:path';
 import { autoMergeFor, builderGatesFor, type Config, type Environment, fullGates, requiredGates } from './config.ts';
 import { HAND_DEPLOY_DENIES } from './deploy-commands.ts';
 import { DONE_COMMAND, NOTE_LIMITS, noteMarkdown, type Task } from './ledger.ts';
@@ -290,7 +291,7 @@ export function builderSettings(task: Task, config: Config, accBinDir: string, b
     ...(sf ? [...HAND_DEPLOY_DENIES, 'Bash(sf org delete *)'] : []),
   ];
   return {
-    env: { ACC_TASK: task.id, ACC_ROLE: 'builder', PATH: `${accBinDir}:${basePath}` },
+    env: { ACC_TASK: task.id, ACC_ROLE: 'builder', PATH: `${accBinDir}${delimiter}${basePath}` },
     permissions: { allow, deny },
     // Its permission prompts and questions go to the Command Center when one is open (D-030).
     ...(accCommand ? { hooks: permissionHook(accCommand) } : {}),

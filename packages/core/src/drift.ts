@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config, Environment } from './config.ts';
 import { AccError, parseJsonOutput, type Runner, sfEnv } from './exec.ts';
-import { lastLine, listed, niced, packageDirs, readList, shellLine, under } from './gates.ts';
+import { lastLine, listed, packageDirs, readList, under } from './gates.ts';
+import { shellLine } from './shell.ts';
 import type { RepoPaths } from './paths.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
 
@@ -130,7 +131,7 @@ export function drift(paths: RepoPaths, config: Config, envName: string, deps: D
   if (add.code !== 0) throw new AccError('git', `Couldn't make a throwaway worktree: ${lastLine(add.stderr)}`);
   try {
     const args = ['project', 'retrieve', 'start', '--manifest', manifest, '--target-org', env.org!, '--ignore-conflicts', '--wait', '60', '--json'];
-    const retrieve = () => deps.run(...niced('sf', args), { cwd: dir, timeoutMs: 70 * 60_000, env: sfEnv() });
+    const retrieve = () => deps.run('sf', args, { cwd: dir, timeoutMs: 70 * 60_000, env: sfEnv(), nice: true });
     const r = withSlot(retrieve, { owner: { what: `Drift check on ${env.branch}`, env: env.branch, project: config.project }, ...deps.slots, onWait: deps.onWait });
     const log = join(paths.logs, 'drift', `${env.branch}.log`);
     mkdirSync(join(paths.logs, 'drift'), { recursive: true });

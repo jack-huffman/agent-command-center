@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
@@ -8,6 +7,8 @@ import { environmentProtection, protectionWarnings } from './protection.ts';
 import { PUSH_TIMEOUT_MS } from './land.ts';
 import { fetchBranches } from './sync.ts';
 import { readList } from './gates.ts';
+import { inShell } from './shell.ts';
+import { startFor, startSync } from './start.ts';
 import { sleep } from './lock.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, type FileShare, mutate, noGateHooks, type NotStarted, readLedger, reworkCause, type ReworkCause, type Task } from './ledger.ts';
@@ -179,7 +180,7 @@ export function setupWorktree(run: Runner, config: Config, env: Environment, mai
     excludeEverywhere(run, main, 'node_modules');
   }
   for (const cmd of config.worktrees.setup) {
-    const r = run('sh', ['-c', cmd], { cwd: wt });
+    const r = run(...inShell(cmd), { cwd: wt });
     if (r.code !== 0) throw new AccError('dispatch', `Setup command failed in the worktree: ${cmd}\n${(r.stderr || r.stdout).trim()}`);
   }
 }
@@ -449,12 +450,15 @@ export function dispatch(paths: RepoPaths, config: Config, id: string, deps: Dis
     }
 
     if (opts.foreground) {
+      // Started as every system needs it (startSync); one Windows can't start is refused before the task is recorded as running.
+      const start = startFor('claude', [...base, prompt], deps.env);
+      if ('problem' in start) throw new AccError('dispatch', `${start.problem} The worktree is kept at ${wt}.`);
       const task = record(null, null);
       // The session is this terminal's, so the Mac stays awake while acc waits on it (D-067).
       const awake = holdAwake(process.pid, deps.awake);
       steps.start('start', 'Run the builder in this terminal');
       try {
-        spawnSync('claude', [...base, prompt], { cwd: wt, stdio: 'inherit', env: deps.env });
+        startSync('claude', [...base, prompt], { cwd: wt, stdio: 'inherit', env: deps.env });
       } finally {
         awake?.release();
       }

@@ -16,6 +16,7 @@ import { writeAtomic } from './atomic.ts';
 import { type Ledger } from './ledger.ts';
 import type { RatchetDetails, Receipt } from './receipts.ts';
 import { storedFloorSpec } from './stored-floors.ts';
+import { inShell } from './shell.ts';
 
 /** Where the floors live, from the checkout's top: committed, beside the config. */
 export const FLOORS_FILE = '.acc/floors.json';
@@ -193,7 +194,8 @@ export function ratchetGate(name: string, spec: RatchetSpec, heavy: boolean): Ga
     plan: (input: GateInput) => {
       const floors = input.floors?.();
       if (!floors || 'problem' in floors) return { outcome: { status: 'error', summary: floors?.problem ?? `${name}'s floors weren't read.` } };
-      return { cmd: 'sh', args: ['-c', spec.command], env: { ACC_CHANGED: input.changes.files.join('\n') }, read: (r: RunResult) => readRatchet(name, spec, r, floors, input.env.branch) };
+      const [cmd, args] = inShell(spec.command);
+      return { cmd, args, env: { ACC_CHANGED: input.changes.files.join('\n') }, read: (r: RunResult) => readRatchet(name, spec, r, floors, input.env.branch) };
     },
   };
 }

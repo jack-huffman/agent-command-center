@@ -391,7 +391,7 @@ test('the doctor step for drift reads the last report: never run, clean, or with
 
 
 test('logged commands can be pasted back into a shell', async () => {
-  const { shellLine } = await import('../src/gates.ts');
+  const { shellLine } = await import('../src/shell.ts');
   assert.equal(shellLine('sf', ['project', 'deploy', 'start', '--target-org', 'Acme Dev SB', '--source-dir', 'force-app/a.cls']), "sf project deploy start --target-org 'Acme Dev SB' --source-dir force-app/a.cls");
   assert.equal(shellLine('sh', ['-c', "echo 'hi'"]), `sh -c 'echo '\\''hi'\\'''`);
 });
