@@ -609,6 +609,14 @@ export function parseConfig(raw: unknown): ParseResult {
       if (first === undefined) seen.set(p, i);
       else if (!sameSource(trackers[first]!, t)) warnings.push(`trackers[${first}] and trackers[${i}] both give tickets keys like ${p}-12, so those keys go to trackers[${first}]. Give one of them its own "prefix".`);
     });
+    // Two trackers in the very same place, differing only by name (T-127): one board shown twice.
+    const places = new Map<string, number>();
+    trackers.forEach((t, i) => {
+      const k = boardKeys(t as unknown as Record<string, unknown>);
+      const first = places.get(k);
+      if (first === undefined) places.set(k, i);
+      else warnings.push(`trackers[${first}] and trackers[${i}] are the same board: the same place, differing only by name. Give one other epics, labels or another place, or take it out.`);
+    });
   }
 
   const a = isObj(raw.agents) ? raw.agents : {};
@@ -1134,8 +1142,15 @@ const setKeys = (t: Record<string, unknown>) => Object.fromEntries(Object.entrie
 export function replaceTracker(trackers: Record<string, unknown>[], index: number, tracker: Record<string, unknown>): Record<string, unknown>[] {
   const was = trackers[index];
   if (!was || was.kind !== tracker.kind) throw new AccError('config-changed', 'The trackers in .acc/config.json changed since this page opened. Open it again from the board.');
-  return trackers.map((t, k) => (k === index ? setKeys({ ...t, ...tracker }) : t));
+  const next = trackers.map((t, k) => (k === index ? setKeys({ ...t, ...tracker }) : t));
+  // A Change that gives this board the very place of another (T-127) is refused, in words that name the other.
+  const other = next.findIndex((t, k) => k !== index && boardKeys(t) === boardKeys(next[index]!));
+  if (other >= 0) throw new AccError('usage', `That's the same place as ${boardLabel(next[other]!, other)}: choose other epics, labels or another place, or change that board instead.`);
+  return next;
 }
+
+/** A board as a person knows it, for a message: its own name, else its place in the list (T-127). */
+const boardLabel = (t: Record<string, unknown>, index: number): string => (isStr(t.name) && t.name.trim() ? `the board “${t.name.trim()}”` : `board ${index + 1} in the project's list`);
 
 /**
  * Connects a tracker, or changes one, in the repo's .acc/config.json, as acc trackers set does for the

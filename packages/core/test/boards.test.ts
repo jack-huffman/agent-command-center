@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { addBoard, parseConfig, removeTracker, sameSource, TRACKER_NAME_MAX, trackerForKey } from '../src/config.ts';
+import { addBoard, parseConfig, removeTracker, replaceTracker, sameSource, TRACKER_NAME_MAX, trackerForKey } from '../src/config.ts';
 import { GENERIC_CONFIG, tempDir } from './support.ts';
 
 // A project's several boards (T-127): each board's own name, two boards of one project, adding one, and taking one out.
@@ -43,6 +43,16 @@ test('addBoard always adds, gives a second Slack channel its own prefix, and ref
   const slack = { kind: 'slack', workspace: 'acme', channel: 'C1' };
   assert.equal(addBoard([slack], { ...slack, channel: 'C2' })[1]!.prefix, 'SL2');
   assert.deepEqual(addBoard([], ACME), [ACME], 'edge case: the first board');
+});
+
+test('edge case: two trackers in the very same place are one board twice: parseConfig warns, and a Change that makes them so is refused, naming the other', () => {
+  const twice = config([{ ...ACME, epics: ['ACME-3'], name: 'Premium' }, { epics: ['ACME-3'], ...ACME, name: 'Support' }]);
+  assert.deepEqual(twice.warnings, ['trackers[0] and trackers[1] are the same board: the same place, differing only by name. Give one other epics, labels or another place, or take it out.']);
+  const was = [{ ...ACME, epics: ['ACME-3'], name: 'Premium' }, { ...ACME, epics: ['ACME-7'] }];
+  assert.throws(() => replaceTracker(was, 1, { ...ACME, epics: ['ACME-3'] }), /That's the same place as the board “Premium”/);
+  assert.throws(() => replaceTracker([ACME, { ...ACME, epics: ['ACME-7'] }], 1, { ...ACME, epics: null }), /same place as board 1 in the project's list/, 'an unnamed board by its place');
+  assert.deepEqual(replaceTracker(was, 1, { ...ACME, epics: ['ACME-9'], name: 'Renewals' })[1], { ...ACME, epics: ['ACME-9'], name: 'Renewals' }, 'another place is fine');
+  assert.deepEqual(replaceTracker(was, 0, { ...ACME, name: 'Gold' })[0], { ...ACME, epics: ['ACME-3'], name: 'Gold' }, 'renaming a board in its own place is fine');
 });
 
 test('removeTracker takes out the one at its place, keeps the rest of the file, and refuses another kind or no tracker there', () => {

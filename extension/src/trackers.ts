@@ -23,7 +23,7 @@ import { credWho, signedInWho } from './logic/sign-in-name.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
 import { readBoardCache, writeBoardCache } from './logic/board-cache.ts';
-import { boardId, outsideEvery, readInTurn, sourceGroups } from './logic/board-reads.ts';
+import { boardIds, outsideEvery, readInTurn, sourceGroups } from './logic/board-reads.ts';
 import { stateOf, ticketKey } from './logic/shared.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
@@ -223,11 +223,12 @@ export class Trackers implements vscode.Disposable {
   }
 
   /**
-   * Which board a tracker is (T-127): its id, its own name, the site the switch groups it under, and whether its
-   * place is narrower than its project (epics, labels, an area path, a channel), which names it when it has no name.
+   * Which board a tracker is (T-127): its id (`id`, from boardIds over the project's list), its own name, the site
+   * the switch groups it under, and whether its place is narrower than its project (epics, labels, an area path, a
+   * channel), which names it when it has no name.
    */
-  private which(t: Tracker): Pick<Loaded, 'id' | 'name' | 'host' | 'narrowed'> {
-    return { id: boardId(t), name: t.name, host: hostOf(t), narrowed: t.epics.length > 0 || t.labels.length > 0 || !!t.areaPath || t.kind === 'slack' };
+  private which(t: Tracker, id: string): Pick<Loaded, 'id' | 'name' | 'host' | 'narrowed'> {
+    return { id, name: t.name, host: hostOf(t), narrowed: t.epics.length > 0 || t.labels.length > 0 || !!t.areaPath || t.kind === 'slack' };
   }
 
   /**
@@ -325,8 +326,9 @@ export class Trackers implements vscode.Disposable {
     } catch (e) {
       this.log.warn(`[trackers] couldn't read the last boards: ${(e as Error).message}`);
     }
+    const ids = boardIds(list);
     const states: Loaded[] = list.map((t, index) => ({
-      index, ...this.which(t), kind: t.kind, title: this.title(t), place: cached[index]?.board.place ?? this.place(t), left: [], board: cached[index]?.board ?? null,
+      index, ...this.which(t, ids[index]!), kind: t.kind, title: this.title(t), place: cached[index]?.board.place ?? this.place(t), left: [], board: cached[index]?.board ?? null,
       error: null, connect: null, loading: true, signedInAs: null, signInScope: null, me: cached[index]?.me ?? null, off: null,
     }));
     this.boards.set(p.root, states);
@@ -347,9 +349,10 @@ export class Trackers implements vscode.Disposable {
       }
       // The last load's boards by id (T-127): a board taken out, or one moved up the list, never shows another's cards.
       const prevById = new Map((this.boards.get(p.root) ?? this.seed(p)).map((s) => [s.id, s]));
+      const ids = boardIds(list);
       const states: Loaded[] = await Promise.all(list.map(async (t, index) => {
         const as = await this.signedInFor(p, index);
-        const which = this.which(t);
+        const which = this.which(t, ids[index]!);
         const was = prevById.get(which.id);
         return {
           // The last board's place, with its epic's name, until this load says otherwise: no flicker every refresh.
@@ -360,10 +363,11 @@ export class Trackers implements vscode.Disposable {
       this.boards.set(p.root, states);
       this.emitter.fire(p.root);
       const clients = new Map<number, TrackerClient>();
-      // The board on show first, then the rest, BOARD_READS at a time (T-127). Each fills in as it's read, and one
-      // site's failure is that board's own: the others read on.
-      await readInTurn(states.map((s) => s.id), () => this.shown.get(p.root) ?? null, async (id) => {
-        const s = states.find((x) => x.id === id)!;
+      // The board on show first, then the rest, READS_AT_ONCE at a time (T-127), each by its place in the list. Each
+      // fills in as it's read, and one site's failure is that board's own: the others read on.
+      const shownAt = (): number | null => { const i = states.findIndex((x) => x.id === this.shown.get(p.root)); return i >= 0 ? i : null; };
+      await readInTurn(states.length, shownAt, async (index) => {
+        const s = states[index]!;
         try {
           const client = await this.client(p, s.index);
           clients.set(s.index, client);
