@@ -232,6 +232,8 @@ test('a Jira ticket: ADF description and comments, related tickets, transitions 
     ] },
     'POST /rest/api/3/issue/MSP-1/transitions': undefined,
     'POST /rest/api/3/issue/MSP-1/comment': { id: '101' },
+    // A comment asks whether the project is a service desk, whose comments are internal (T-128): MSP isn't.
+    'GET /rest/api/3/project/MSP': { projectTypeKey: 'software' },
     'PUT /rest/api/3/issue/MSP-1/assignee': undefined,
     'PUT /rest/api/3/issue/MSP-1': undefined,
   });

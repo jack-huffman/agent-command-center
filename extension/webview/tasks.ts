@@ -145,7 +145,7 @@ export function renderTasks(m: TasksModel): Node[] {
   });
 }
 
-const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'github-project': 'GitHub Project', 'github-state': 'Open and closed columns', 'azure-board': 'Azure board', 'monday-board': 'monday.com board', slack: 'Messages marked with its reaction' };
+const SOURCE_LABEL: Record<string, string> = { 'jira-board': 'Jira board', 'jira-queue': 'Jira Service Management queue', 'github-project': 'GitHub Project', 'github-state': 'Open and closed columns', 'azure-board': 'Azure board', 'monday-board': 'monday.com board', slack: 'Messages marked with its reaction' };
 export const KIND_ICON: Record<string, string> = { github: 'github', jira: 'issues', azure: 'azure-devops', monday: 'table', slack: 'comment-discussion', acc: 'checklist' };
 export const KIND_NAME: Record<string, string> = { github: 'GitHub', jira: 'Jira', azure: 'Azure DevOps', monday: 'monday.com', slack: 'Slack' };
 

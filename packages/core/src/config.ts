@@ -140,6 +140,12 @@ export interface Tracker {
    * every sprint.
    */
   sprint: 'active' | number | null;
+  /**
+   * Jira only: a Jira Service Management queue's id (T-128). The tracker's board is that queue, its tickets the
+   * ones the queue's JQL picks out, and a project's queue boards are each a tracker of their own. Not with
+   * epics or a sprint. Unset, the project's board.
+   */
+  queue: number | null;
   labels: string[];
   areaPath: string | null;
   group: string | null;
@@ -289,7 +295,7 @@ export const CONFIG_KEYS = [
   'environments[].protected', 'environments[].promotesTo', 'environmentSpecific', 'knownDrift',
   'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
   'trackers[].workspace', 'trackers[].channel', 'trackers[].reaction', 'trackers[].doneReaction', 'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
-  'trackers[].epics', 'trackers[].sprint', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
+  'trackers[].epics', 'trackers[].sprint', 'trackers[].queue', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'trackers[].statusFor', 'trackers[].changesField.id', 'trackers[].changesField.name', 'trackers[].changesField.format',
   'agents.max', 'agents.permissionMode', 'agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel',
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel',
@@ -388,6 +394,18 @@ const strList = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr
 /** Paths inside the repo, as git names them: never absolute, never climbing out. */
 const inRepo = (v: unknown): v is string[] => strList(v) && !v.some((f) => f.startsWith('/') || f.split('/').includes('..'));
 const JIRA_ISSUE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
+
+/**
+ * Why a tracker's `queue` is refused (T-128), or null when it's one: a Jira Service Management queue's id, a
+ * whole number above 0, on a Jira tracker with no epics and no sprint, since the queue's JQL is its place.
+ */
+export function queueProblem(t: Record<string, unknown>): string | null {
+  if (t.kind !== 'jira') return '"queue" applies only to a Jira tracker: it\'s a Jira Service Management queue.';
+  if (!Number.isSafeInteger(t.queue) || (t.queue as number) < 1) return '"queue" must be a Jira Service Management queue\'s id, such as 12.';
+  const epics = (t.epic !== undefined && t.epic !== null) || (Array.isArray(t.epics) && t.epics.length);
+  if (epics || (t.sprint !== undefined && t.sprint !== null)) return 'a queue\'s tickets are the ones its own JQL picks out, so it takes no "epic", "epics" or "sprint". Take them out, or make the queue a tracker of its own.';
+  return null;
+}
 
 /**
  * Why a tracker's `sprint` is refused (T-78), or null when it's one: "active", or a sprint's id, a whole
@@ -525,6 +543,14 @@ export function parseConfig(raw: unknown): ParseResult {
         const empty = Array.isArray(t[p.key]) && !(t[p.key] as unknown[]).length;
         if (t.kind !== p.kind && !empty) warnings.push(`trackers[${i}]: "${p.key}" applies only to ${p.on} tracker, so it's ignored.`);
       }
+      // A queue is a Jira Service Management board (T-128): Jira's only, and its JQL is the place, so no epics or sprint.
+      if (t.queue !== undefined && t.queue !== null) {
+        const why = queueProblem(t);
+        if (why) {
+          errors.push(`trackers[${i}]: ${why}`);
+          return;
+        }
+      }
       // A sprint narrows a Jira board only (T-78): on any other tracker it's an error, not a key ignored.
       if (t.sprint !== undefined && t.sprint !== null) {
         const why = sprintProblem(t.kind, t.sprint);
@@ -579,6 +605,7 @@ export function parseConfig(raw: unknown): ParseResult {
         skipLabels: t.kind === 'github' && strList(t.skipLabels) ? t.skipLabels : [],
         epics: t.kind === 'jira' ? [...new Set([t.epic, ...(strList(t.epics) ? t.epics : [])].filter(isStr).map((e) => e.trim().toUpperCase()))] : [],
         sprint: t.kind === 'jira' && (t.sprint === 'active' || Number.isSafeInteger(t.sprint)) ? (t.sprint as 'active' | number) : null,
+        queue: t.kind === 'jira' && Number.isSafeInteger(t.queue) ? (t.queue as number) : null,
         labels: t.kind === 'github' && strList(t.labels) ? t.labels.map((l) => l.trim()) : [],
         areaPath: t.kind === 'azure' && isStr(t.areaPath) ? t.areaPath.trim() : null,
         group: t.kind === 'monday' && isStr(t.group) ? t.group.trim() : null,
@@ -594,6 +621,8 @@ export function parseConfig(raw: unknown): ParseResult {
       const p = keyPrefix(t);
       if (!p) return;
       const first = seen.get(p);
+      // A service desk's queue boards share its project's keys (T-128): each ticket goes to the first, which takes in them all.
+      if (first !== undefined && sameDesk(trackers[first]!, t)) return;
       if (first === undefined) seen.set(p, i);
       else warnings.push(`trackers[${first}] and trackers[${i}] both give tickets keys like ${p}-12, so those keys go to trackers[${first}]. Give one of them its own "prefix".`);
     });
@@ -1043,6 +1072,17 @@ export function keyPrefix(t: Pick<Tracker, 'kind' | 'project' | 'prefix'>): stri
   return t.project ? t.project.toUpperCase() : null;
 }
 
+/** Two queue boards of one Jira service desk (T-128): the same site and project, each with a queue. */
+export const sameDesk = (a: Pick<Tracker, 'kind' | 'site' | 'project' | 'queue'>, b: Pick<Tracker, 'kind' | 'site' | 'project' | 'queue'>): boolean =>
+  a.kind === 'jira' && b.kind === 'jira' && a.queue !== null && b.queue !== null && a.site === b.site && a.project?.toUpperCase() === b.project?.toUpperCase();
+
+/**
+ * The queues a queue board's place holds (T-128): its own first, then each other queue board on its service
+ * desk, since a ticket goes to the first of them and its place check speaks for them all. Empty with no queue.
+ */
+export const deskQueues = (trackers: Tracker[], t: Tracker): number[] =>
+  (t.queue === null ? [] : [t.queue, ...trackers.filter((o) => sameDesk(o, t) && o.queue !== t.queue).map((o) => o.queue!)]);
+
 /**
  * Which tracker a ticket key belongs to, by its index: GH-12 to GitHub, AB-123 to the Azure DevOps tracker
  * with that prefix, MON-123 to the monday.com one with its, MSP-7 to the Jira project MSP. A repo with two
@@ -1061,7 +1101,8 @@ export function trackerForKey(trackers: Pick<Tracker, 'kind' | 'project' | 'pref
 /**
  * The raw trackers list with one tracker added, or put in place of the one it describes (same kind,
  * project and site, organization or repo; a monday.com one by its account and board, since a board is its
- * project; a Slack one by its workspace and channel, since a channel is its project). Settings the new one
+ * project; a Slack one by its workspace and channel, since a channel is its project; a Jira one with a queue by
+ * its queue too, T-128). Settings the new one
  * doesn't name, such as a GitHub tracker's
  * skipLabels (D-048), are kept: re-adding a tracker never quietly drops them. A setting it names as null
  * is taken out, so re-adding one as the whole project clears its epic, labels or area path (D-072).
@@ -1071,8 +1112,10 @@ export function withTracker(trackers: Record<string, unknown>[], tracker: Record
   // A repo left out and one named null are both the project's own.
   const where = (t: Record<string, unknown>) => t.site ?? t.organization ?? t.account ?? t.workspace ?? t.repo ?? null;
   // What stands for a project where the tracker has none: a monday.com board, or a Slack channel (by its id, as the config keeps it, upper-cased).
+  // A Jira Service Management queue (T-128) is a board of its own, so each queue is its own tracker.
   const board = (t: Record<string, unknown>) => (t.kind === 'monday' && t.board !== undefined && t.board !== null ? String(t.board)
-    : t.kind === 'slack' && isStr(t.channel) ? t.channel.trim().toUpperCase() : null);
+    : t.kind === 'slack' && isStr(t.channel) ? t.channel.trim().toUpperCase()
+      : t.kind === 'jira' && t.queue !== undefined && t.queue !== null ? `queue ${String(t.queue)}` : null);
   const i = trackers.findIndex((t) => t.kind === tracker.kind && (t.project ?? null) === (tracker.project ?? null) && where(t) === where(tracker) && board(t) === board(tracker));
   if (i < 0) return [...trackers, setKeys(ownPrefix(trackers, tracker))];
   return trackers.map((t, k) => (k === i ? setKeys({ ...t, ...tracker }) : t));
