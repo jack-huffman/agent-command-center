@@ -281,12 +281,15 @@ export function productionOrgs(sfOrgList: unknown): string[] {
 export interface InitChoice {
   profile?: 'salesforce' | 'generic';
   productionOrg?: string;
+  /** Without access to Production (D-208): the My Domain whose logged-in sandboxes are the environments. */
+  myDomain?: string;
   from?: string;
 }
 
 /** acc init's arguments, each value one argument: a choice, and a tracker picked on the Connect page as JSON (GH-81). */
 export const initArgs = (o: InitChoice & { tracker?: Record<string, unknown> }): string[] => [
   ...(o.from ? ['--from', o.from] : []), ...(o.profile ? ['--profile', o.profile] : []), ...(o.productionOrg ? ['--production-org', o.productionOrg] : []),
+  ...(o.myDomain ? ['--my-domain', o.myDomain] : []),
   ...(o.tracker ? ['--tracker', JSON.stringify(o.tracker)] : []),
 ];
 

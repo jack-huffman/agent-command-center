@@ -170,6 +170,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     }
     // Someone new (T-96): the Tasks tab with its first steps, which every other shot starts dismissed.
     else if (kind === 'tasks-first') assert.deepEqual([m.kind, (m as HomeModel).section, shotState(kind), shotState('tasks'), shotState('tasks-agents')], ['home', 'tasks', {}, { firstStepsSeen: true }, { modes: { [ROOT]: 'agents' }, firstStepsSeen: true }]);
+    // Environments on a machine not logged in to Production (T-125): its Open org and Deploy… off.
+    else if (kind === 'environments-away') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.projects[0]!.envs.find((e) => e.type === 'production')!.actions.filter((a) => a.disabled).length], ['home', 'environments', 2]);
     else if (kind === 'settings-limits') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.limits?.caps.map((c) => c.value)], ['home', 'settings', ['1', '16', 'None']]);
     else assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).connect], ['home', kind === 'output' ? 'setup' : kind, null]);
   }

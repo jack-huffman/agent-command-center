@@ -2,7 +2,7 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, makeContext, parseSource, planInit, prepareImports, type Profile, readTemplate, rememberRepo, repoPaths, RULES_DIR, rulesName, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeImport, writeReadme } from '../../../core/src/index.ts';
+import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, makeContext, parseSource, planInit, prepareImports, type Profile, readTemplate, recordProduction, rememberRepo, repoPaths, RULES_DIR, rulesName, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeImport, writeReadme } from '../../../core/src/index.ts';
 import { checkLabel, table, tone } from '../format.ts';
 import { type CommandArea, now, type Opts, out, personOnly, project, steps, VERSION } from '../shared.ts';
 
@@ -77,6 +77,7 @@ function cmdInit(o: Opts): number {
     cwd: process.cwd(),
     project: o.project as string | undefined,
     productionOrg: o['production-org'] as string | undefined,
+    myDomain: o['my-domain'] as string | undefined,
     githubRepo: o['github-repo'] as string | undefined,
     githubAccount: o['github-account'] as string | undefined,
     commitName: o['commit-name'] as string | undefined,
@@ -171,6 +172,7 @@ function cmdTemplate(o: Opts, sub: string | undefined, source: string | undefine
     ...(commands.length ? ['', 'Check commands, which run on each machine that uses it:', ...commands.map(([gate, cmd]) => `  ${gate}: ${cmd}`)] : []),
     '',
     `Start a project from it: acc init --from '${source.replace(/'/g, `'\\''`)}'${t.profile === 'salesforce' ? ' --production-org <alias>' : ''}`,
+    ...(t.profile === 'salesforce' ? ['Without access to Production, use --my-domain <domain> in place of --production-org.'] : []),
   ].join('\n'), { source, ok: true, errors: [], name: t.name, description: t.description, profile: t.profile, digest: r.digest, sets, commands: t.gates?.commands ?? {}, rules: t.rules ?? [], template: t });
   return 0;
 }
@@ -189,10 +191,25 @@ function cmdSetup(o: Opts, what: string | undefined): number {
   if (what === 'branches') {
     personOnly(o, 'make environment branches');
     const r = seedBranches(paths, config, deps, { push: o.push === true });
-    out(o, () => (r.length ? r.map((b) => `  ${b.status === 'made' ? '✓' : '✗'} ${b.branch.padEnd(16)} ${b.note}${b.differs !== null ? `; ${b.differs} files differ from production` : ''}`).join('\n') : 'Every environment already has its branch.'), r);
+    out(o, () => (r.length ? r.map((b) => `  ${b.status === 'made' ? '✓' : b.status === 'skipped' ? '–' : '✗'} ${b.branch.padEnd(16)} ${b.note}${b.differs !== null ? `; ${b.differs} files differ from production` : ''}`).join('\n') : 'Every environment already has its branch.'), r);
     const failed = r.filter((b) => b.status === 'failed');
-    steps().result(!failed.length, failed.length ? `${failed.map((b) => b.branch).join(', ')} couldn't be made.` : r.length ? `Made ${r.map((b) => b.branch).join(', ')}.` : 'Every environment already has its branch.');
+    const made = r.filter((b) => b.status === 'made');
+    steps().result(!failed.length, failed.length ? `${failed.map((b) => b.branch).join(', ')} couldn't be made.` : made.length ? `Made ${made.map((b) => b.branch).join(', ')}.` : r.length ? 'No branch was made.' : 'Every environment already has its branch.');
     return failed.length ? 1 : 0;
+  }
+  if (what === 'production') {
+    // Someone with access to Production records its org in a project set up without it (D-208).
+    const org = o.org as string | undefined;
+    if (!org) throw new AccError('usage', 'acc setup production --org <alias>: the alias you\'re logged in to Production as.');
+    const r = recordProduction(run, paths, config, org);
+    out(o, () => [
+      `Recorded ${org} as Production's org (${r.domain}) in ${paths.config}.`,
+      ...(r.corrected.length ? [`Corrected from Production's sandbox list: ${r.corrected.join('; ')}.`] : []),
+      ...(r.missing.length ? [`Production also has ${r.missing.join(', ')}, which the settings don't list. Add each one, or run acc init --force --production-org ${JSON.stringify(org)} to find them all again.`] : []),
+      'Commit the settings, then make production\'s branch: acc setup branches.',
+    ].join('\n'), r);
+    steps().result(true, `Recorded ${org} as Production's org.`);
+    return 0;
   }
   if (what === 'lists') {
     const r = draftLists(paths, config, deps);
@@ -211,7 +228,7 @@ function cmdSetup(o: Opts, what: string | undefined): number {
     steps().result(true, 'Wrote the README\'s environments section.');
     return 0;
   }
-  throw new AccError('usage', 'acc setup baseline | branches [--push] | lists | readme');
+  throw new AccError('usage', 'acc setup baseline | branches [--push] | lists | readme | production --org <alias>');
 }
 
 export const area: CommandArea = {
@@ -225,9 +242,14 @@ export const area: CommandArea = {
   acc setup branches [--push]           B6: make each missing environment branch, seeded from its org
   acc setup lists                       B9: draft the environment-specific and known-drift lists
   acc setup readme                      B10: write the README's environments table
+  acc setup production --org <alias>    Record Production's org in a project set up without it, and correct
+                                        each sandbox's type from Production's sandbox list
   acc init --profile salesforce --production-org <alias> [--project <name>] [--github-repo <o/r>]
            [--github-account <a>] [--commit-name <n> --commit-email <e>] [--configure-git]
            [--jira-site <site> --jira-project <key>] [--dry-run] [--force]
+  acc init --profile salesforce --my-domain <domain> [...]
+                                        Without access to Production: the sandboxes you're logged in to on
+                                        that My Domain, and Production with no org on this machine
   acc init --profile generic [...]
   acc init --from <template> [--production-org <alias>] [...]
                                         Start from a team template: a path, a GitHub file URL, or <git-url>#<path>.
@@ -242,6 +264,8 @@ export const area: CommandArea = {
     profile: { type: 'string' },
     project: { type: 'string' },
     'production-org': { type: 'string' },
+    'my-domain': { type: 'string' },
+    org: { type: 'string' },
     'github-repo': { type: 'string' },
     'github-account': { type: 'string' },
     'commit-name': { type: 'string' },
@@ -255,7 +279,7 @@ export const area: CommandArea = {
     force: { type: 'boolean', default: false },
     push: { type: 'boolean', default: false },
   },
-  subcommands: { template: ['show'], setup: ['baseline', 'branches', 'lists', 'readme'] },
+  subcommands: { template: ['show'], setup: ['baseline', 'branches', 'lists', 'readme', 'production'] },
   commands: {
     doctor: (o) => cmdDoctor(o, false),
     onboard: (o) => cmdDoctor(o, true),

@@ -4,6 +4,7 @@ import { branchFor, parseConfig, type Config, type EnvType, type Profile } from 
 import { credentialHelper } from './github.ts';
 import { AccError, type Runner } from './exec.ts';
 import { LICENSE_TO_TYPE, parseOrgUrl } from './onboarding/helpers.ts';
+import { discoverFromMyDomain, finishEnvironments, listedOrgs, sandboxAliases, sfRun } from './sf-discovery.ts';
 import { type LoadedTemplate, loadTemplate, overlayEnvironments, overlaySettings, pickedTracker, type Settings, templateTrackers } from './template.ts';
 
 export interface InitOptions {
@@ -12,6 +13,11 @@ export interface InitOptions {
   profile?: Profile;
   project?: string;
   productionOrg?: string;
+  /**
+   * A Salesforce project set up without access to Production (D-208): its environments are the sandboxes
+   * logged in on this My Domain, and Production has no org. Not with productionOrg.
+   */
+  myDomain?: string;
   githubRepo?: string;
   githubAccount?: string;
   commitName?: string;
@@ -60,62 +66,27 @@ export interface InitPlan {
   readAs: string | null;
 }
 
-const sfJson = (run: Runner, root: string, args: string[]): any => {
-  const r = run('sf', [...args, '--json'], { cwd: root, env: { ...process.env, SF_NO_UPDATE_NOTIFIER: 'true', SF_DISABLE_TELEMETRY: 'true' } });
-  try {
-    return JSON.parse(r.stdout);
-  } catch {
-    return { status: r.code || 1, message: (r.stderr || r.stdout).trim().split('\n')[0] };
-  }
-};
-
 /** Proposes every Salesforce environment from Production's sandbox list and the logged-in aliases (D-018). */
 export function discoverSalesforce(run: Runner, root: string, productionOrg: string, notes: string[]): RawEnv[] {
-  const prod = sfJson(run, root, ['org', 'display', '-o', productionOrg]);
+  const prod = sfRun(run, root, ['org', 'display', '-o', productionOrg]);
   if (prod.status !== 0) throw new AccError('init', `"${productionOrg}" isn't logged in: ${prod.message ?? 'sf failed'}`);
   const url = parseOrgUrl(String(prod.result?.instanceUrl ?? ''));
   if (url.kind !== 'production') throw new AccError('init', `"${productionOrg}" isn't a Production org (${prod.result?.instanceUrl}).`);
 
-  const q = sfJson(run, root, ['data', 'query', '--use-tooling-api', '-q', 'SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName', '-o', productionOrg]);
+  const q = sfRun(run, root, ['data', 'query', '--use-tooling-api', '-q', 'SELECT SandboxName, LicenseType FROM SandboxInfo ORDER BY SandboxName', '-o', productionOrg]);
   if (q.status !== 0) throw new AccError('init', `Couldn't read Production's sandbox list: ${q.message ?? 'sf failed'}`);
   const sandboxes: { SandboxName: string; LicenseType: string }[] = q.result?.records ?? [];
-
-  const list = sfJson(run, root, ['org', 'list']);
-  const orgs: { alias?: string; instanceUrl?: string }[] = list.status === 0 ? (Object.values(list.result ?? {}).filter(Array.isArray).flat() as never) : [];
-  const aliasFor = new Map<string, string>();
-  for (const o of [...orgs].sort((a, b) => String(a.alias).localeCompare(String(b.alias)))) {
-    if (!o.alias || !o.instanceUrl) continue;
-    const u = parseOrgUrl(o.instanceUrl);
-    if (u.kind === 'sandbox' && u.domain === url.domain && !aliasFor.has(u.sandbox)) aliasFor.set(u.sandbox, o.alias);
-  }
+  const aliasFor = sandboxAliases(listedOrgs(sfRun(run, root, ['org', 'list'])), url.domain);
 
   const envs: RawEnv[] = [{ name: 'Production', type: 'production', org: productionOrg, default: false, protected: true, promotesTo: [] }];
   for (const s of sandboxes) {
     const branch = branchFor(s.SandboxName);
     const type = (LICENSE_TO_TYPE[s.LicenseType] ?? 'partial') as EnvType;
-    const org = aliasFor.get(branch) ?? null;
+    const org = aliasFor.get(branch)?.alias ?? null;
     if (!org) notes.push(`${s.SandboxName} (${type}) has no logged-in alias yet. Run: sf org login web --alias "<alias>" --instance-url https://${url.domain}--${branch}.sandbox.my.salesforce.com`);
     envs.push({ name: s.SandboxName, type, org, default: false, protected: false, promotesTo: [] });
   }
-
-  // Usual paths: Developer → first Partial → first Full → Production. Each may also go straight to Production.
-  const first = (t: EnvType) => envs.find((e) => e.type === t && e.org)?.name ?? envs.find((e) => e.type === t)?.name;
-  const partial = first('partial');
-  const full = first('full');
-  const uniq = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x).map(branchFor))];
-  for (const e of envs) {
-    if (e.type === 'developer' || e.type === 'developer_pro') e.promotesTo = uniq([partial, full, 'Production']);
-    else if (e.type === 'partial') e.promotesTo = uniq([full, 'Production']);
-    else if (e.type === 'full') e.promotesTo = ['production'];
-  }
-
-  const candidates = envs.filter((e) => e.org && (e.type === 'developer' || e.type === 'developer_pro'));
-  const fallback = envs.filter((e) => e.org && e.type !== 'production');
-  const def = candidates[0] ?? fallback[0];
-  if (!def) throw new AccError('init', 'Log in to at least one sandbox first, so day-to-day work has somewhere to go.');
-  def.default = true;
-  if (!candidates.length) notes.push(`There's no logged-in Developer sandbox, so "${def.name}" is the default. Agents work best against a source-tracked Developer sandbox.`);
-  return envs;
+  return finishEnvironments(envs, notes);
 }
 
 function originRepo(run: Runner, root: string): string | undefined {
@@ -164,9 +135,13 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
   const profile: Profile = opts.profile ?? t?.profile ?? 'generic';
 
   let environments: RawEnv[];
+  // The sandboxes whose type was guessed without Production's list: a template's type wins for those.
+  const guessed = new Set<string>();
   if (profile === 'salesforce') {
-    if (!opts.productionOrg) throw new AccError('init', 'A Salesforce project needs --production-org <alias>, so its sandboxes can be found.');
-    environments = discoverSalesforce(run, root, opts.productionOrg, notes);
+    if (opts.productionOrg && opts.myDomain) throw new AccError('init', 'Give --production-org or --my-domain, not both: --my-domain is for setting up without access to Production.');
+    if (opts.myDomain) environments = discoverFromMyDomain(run, root, opts.myDomain, notes, guessed);
+    else if (opts.productionOrg) environments = discoverSalesforce(run, root, opts.productionOrg, notes);
+    else throw new AccError('init', 'A Salesforce project needs --production-org <alias>, so its sandboxes can be found, or, without access to Production, --my-domain <domain>, to find the sandboxes you\'re logged in to.');
   } else {
     const head = run('git', ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], { cwd: root }).stdout.trim().replace(/^origin\//, '');
     const cur = run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim();
@@ -188,7 +163,7 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
   if (t) {
     if (t.profile) fromTemplate.push('profile');
     if (t.environments) {
-      environments = overlayEnvironments(t.environments, environments, profile, notes);
+      environments = overlayEnvironments(t.environments, environments, profile, notes, opts.myDomain ? guessed : null);
       fromTemplate.push('environments');
     }
     settings = overlaySettings(t, settings);

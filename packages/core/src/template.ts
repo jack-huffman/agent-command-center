@@ -324,21 +324,23 @@ export function loadTemplate(run: Runner, source: string, opts: FetchOptions & {
  * The template's environments over the discovered ones (D-097). A generic project takes the template's as
  * they are. In a Salesforce project, Production's sandbox list decides which environments exist and their
  * types; the template's promotesTo, default and protected win for each sandbox it names. What doesn't
- * match either way is said in a note.
+ * match either way is said in a note. Set up without Production (D-208), the logged-in sandboxes decide
+ * which exist, and `guessed` names the branches whose type was guessed: the template's type wins for those.
  */
-export function overlayEnvironments(tEnvs: TemplateEnvironment[], base: RawEnv[], profile: Profile, notes: string[]): RawEnv[] {
+export function overlayEnvironments(tEnvs: TemplateEnvironment[], base: RawEnv[], profile: Profile, notes: string[], guessed: Set<string> | null = null): RawEnv[] {
   if (profile !== 'salesforce') {
     return tEnvs.map((e) => ({ name: e.name, type: e.type ?? 'none', org: null, default: e.default, protected: e.protected, promotesTo: [...e.promotesTo] }));
   }
   const named = new Map(tEnvs.map((e) => [e.branch, e]));
   const exists = new Set(base.map((e) => branchFor(e.name)));
   const out = base.map((e) => ({ ...e, promotesTo: [...e.promotesTo] }));
-  for (const e of tEnvs) if (!exists.has(e.branch)) notes.push(`The template's ${e.name} isn't one of Production's sandboxes, so it's left out.`);
+  const oneOf = guessed ? 'one of the logged-in sandboxes' : 'one of Production\'s sandboxes';
+  for (const e of tEnvs) if (!exists.has(e.branch)) notes.push(`The template's ${e.name} isn't ${oneOf}, so it's left out.`);
   const tDefault = tEnvs.find((e) => e.default);
   const useDefault = !!tDefault && exists.has(tDefault.branch);
   if (tDefault && !useDefault) {
     const stays = out.find((e) => e.default);
-    notes.push(`The template's default, ${tDefault.name}, isn't one of Production's sandboxes${stays ? `, so ${stays.name} stays the default` : ''}.`);
+    notes.push(`The template's default, ${tDefault.name}, isn't ${oneOf}${stays ? `, so ${stays.name} stays the default` : ''}.`);
   }
   for (const e of out) {
     const branch = branchFor(e.name);
@@ -348,9 +350,12 @@ export function overlayEnvironments(tEnvs: TemplateEnvironment[], base: RawEnv[]
       if (useDefault) e.default = false;
       continue;
     }
-    if (t.type && t.type !== e.type) notes.push(`The template says ${t.name} is ${t.type}, but Production's sandbox list says ${e.type}, and that wins.`);
+    if (t.type && t.type !== e.type && guessed?.has(branch)) {
+      notes.push(`The template says ${t.name} is ${t.type}, so it's ${t.type}, not the ${e.type} guessed without Production's sandbox list.`);
+      e.type = t.type;
+    } else if (t.type && t.type !== e.type) notes.push(`The template says ${t.name} is ${t.type}, but Production's sandbox list says ${e.type}, and that wins.`);
     const dropped = t.promotesTo.filter((b) => !exists.has(b));
-    if (dropped.length) notes.push(`${e.name}'s promotion to ${dropped.join(', ')} is left out: ${dropped.length === 1 ? 'that isn\'t one of Production\'s sandboxes' : 'those aren\'t Production\'s sandboxes'}.`);
+    if (dropped.length) notes.push(`${e.name}'s promotion to ${dropped.join(', ')} is left out: ${dropped.length === 1 ? `that isn't ${oneOf}` : `those aren't ${guessed ? 'logged-in sandboxes' : 'Production\'s sandboxes'}`}.`);
     e.promotesTo = t.promotesTo.filter((b) => exists.has(b));
     e.protected = e.type === 'production' || t.protected;
     if (useDefault) e.default = t.default;
@@ -494,12 +499,14 @@ const quoted = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 /** The command that previews a template over this project, writing nothing: B0.template's fix. */
 export function previewCommand(t: Template | null, record: TemplateRecord, config: Config): string {
   const profile = t?.profile ?? config.profile;
-  const prod = config.environments.find((e) => e.type === 'production')?.org;
+  const env = config.environments.find((e) => e.type === 'production');
+  const prod = env?.org;
   return [
     'acc init --from', quoted(record.source),
     ...(t?.profile ? [] : ['--profile', config.profile]),
-    // A project turning Salesforce has no Production org yet: the command names where it goes.
-    ...(profile === 'salesforce' ? ['--production-org', prod ? quoted(prod) : '<production-org-alias>'] : []),
+    // A project turning Salesforce has no Production org yet: the command names where it goes. One set up
+    // without Production (D-208) has Production with no org, and is previewed the same way.
+    ...(profile === 'salesforce' ? (env && !prod ? ['--my-domain', '<my-domain>'] : ['--production-org', prod ? quoted(prod) : '<production-org-alias>']) : []),
     '--dry-run',
   ].join(' ');
 }

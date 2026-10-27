@@ -38,6 +38,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['setup branches'], name: 'Make the environment branches' },
   { acc: ['setup lists'], name: 'Draft the drift lists' },
   { acc: ['setup readme'], name: 'Write the README\'s environments table' },
+  { acc: ['setup production'], name: 'Record Production\'s org' },
   { acc: ['init'], name: 'Set up this project' },
   { acc: ['template', 'template show'], name: 'Read a team template' },
   { acc: ['rules import'], name: 'Import the team\'s rules', command: 'acc.importRules' },

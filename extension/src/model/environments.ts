@@ -11,6 +11,9 @@ import { settingsKey } from './settings.ts';
 
 export { promotionPaths };
 
+/** Why Production's org controls are disabled on a machine that isn't logged in to it (D-208). */
+export const PRODUCTION_AWAY = 'This machine isn\'t logged in to Production. Someone with access to Production opens and deploys it.';
+
 // ---------------------------------------------------------------- the repo's GitHub identity (D-028)
 
 /** How the repo's GitHub identity reads at a glance: what's wrong, if anything, in words (never colour alone). */
@@ -73,7 +76,11 @@ export interface EnvironmentsModel {
   slackMoved: { label: string; icon: string; section: 'settings'; part: string };
 }
 
-export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null): EnvironmentsModel {
+/**
+ * notHere: whether this machine is known not to be logged in to a project's Production, whose branch is
+ * given (productionNotHere, from the last Setup check). Not known, its org controls stay on.
+ */
+export function environmentsModel(hub: HubLike, identity: (root: string) => IdentityCard | null = () => null, notHere: (root: string, branch: string) => boolean = () => false): EnvironmentsModel {
   return {
     kind: 'environments',
     slackMoved: { label: 'Open Notices in Slack', icon: 'settings-gear', section: 'settings', part: settingsKey('slack') },
@@ -85,12 +92,15 @@ export function environmentsModel(hub: HubLike, identity: (root: string) => Iden
       envs: inPromotionOrder(p.config.environments).map((e) => {
         const ref: Ref = { project: p.root, env: e.branch };
         const actions: Action[] = [];
-        if (e.org) actions.push({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref });
+        // Production with no org here, or one the last Setup check found isn't logged in (D-208): its org
+        // controls are off and say why, rather than fail when used.
+        const away = p.config.profile === 'salesforce' && e.type === 'production' && (!e.org || notHere(p.root, e.branch)) ? PRODUCTION_AWAY : undefined;
+        if (e.org || away) actions.push({ command: 'acc.env.openOrg', label: 'Open org', icon: 'globe', ref, ...(away ? { disabled: away } : {}) });
         if (p.config.github) actions.push({ command: 'acc.env.openGithub', label: 'GitHub', icon: 'github', ref });
         if (p.branch !== e.branch) actions.push({ command: 'acc.env.compare', label: 'Compare', icon: 'diff', ref });
         // A person moves work between environments (D-034): a pull request onward, then a deploy after it merges.
         if (e.promotesTo.length && p.config.github) actions.push({ command: 'acc.env.promote', label: 'Promote…', icon: 'git-merge', ref });
-        if (p.config.profile === 'salesforce' && e.org) actions.push({ command: 'acc.env.deploy', label: 'Deploy…', icon: 'cloud-upload', ref });
+        if (p.config.profile === 'salesforce' && (e.org || away)) actions.push({ command: 'acc.env.deploy', label: 'Deploy…', icon: 'cloud-upload', ref, ...(away ? { disabled: away } : {}) });
         const current = p.branch === e.branch;
         const badges = [e.default ? 'default' : '', e.protected ? 'protected' : '', current ? 'checked out' : ''].filter(Boolean);
         return { name: e.name, branch: e.branch, type: e.type, typeWords: envTypeWords(e.type), icon: ENV_ICON[e.type] ?? 'git-branch', org: e.org, badges, current, promotesTo: e.promotesTo, actions };

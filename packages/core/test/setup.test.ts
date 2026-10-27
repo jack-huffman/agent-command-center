@@ -39,6 +39,11 @@ function fakeSf(byName: Record<string, string>, orgFiles: Record<string, Record<
       for (const [f, text] of Object.entries(orgFiles[org]!)) write(opts!.cwd!, f, text);
       return ok(JSON.stringify({ status: 0, result: { files: [] } }));
     }
+    // An org with files is logged in; Production's is checked before its branch is made (D-208).
+    if (a[0] === 'org' && a[1] === 'display') {
+      const org = a[a.indexOf('-o') + 1]!;
+      return orgFiles[org] ? ok(JSON.stringify({ status: 0, result: { instanceUrl: 'https://acme.my.salesforce.com' } })) : { code: 1, stdout: JSON.stringify({ status: 1, message: `No authorization information found for ${org}.` }), stderr: '' };
+    }
     return { code: 127, stdout: '', stderr: `no fake for ${a.join(' ')}` };
   };
 }
@@ -75,7 +80,7 @@ test('B6: missing branches are made, production first from this checkout, each s
   assert.equal(gitIn(dir, 'show', 'uat:force-app/main/default/classes/A.cls'), 'uat');
   assert.equal(run('git', ['show', 'uat:force-app/main/default/classes/Local.cls'], { cwd: dir }).code !== 0, true, 'a sandbox starts from a cleared source folder');
   assert.match(gitIn(dir, 'log', '-1', '--format=%s', 'uat'), /^Baseline: UAT org metadata, retrieved 2026-10-02$/);
-  assert.ok(calls.every((c) => c.startsWith('project retrieve start --manifest manifest/baseline-package.xml')), 'only reads the orgs');
+  assert.ok(calls.every((c) => c.startsWith('project retrieve start --manifest manifest/baseline-package.xml') || c === 'org display -o Acme Production --json'), 'only reads the orgs');
   // Once Dev is logged in, a second run makes only what's still missing.
   const loggedIn = fakeSf({}, { 'Acme Dev': { 'force-app/main/default/classes/A.cls': 'dev' } });
   assert.deepEqual(seedBranches(repoPaths(dir, run), config(), { run: loggedIn, now, slots: { dir: tempDir('slots-') } }).map((b) => [b.branch, b.status]), [['dev', 'made']]);

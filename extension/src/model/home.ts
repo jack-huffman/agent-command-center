@@ -7,6 +7,7 @@ import { autoMergeOn, trackerForKey } from '../../../packages/core/src/config.ts
 import { agentLook } from '../logic/agents.ts';
 import { analysisWait } from '../logic/tasks.ts';
 import type { DoctorItem } from '../logic/setup.ts';
+import { productionNotHere } from '../logic/no-production.ts';
 import { fileList, prConflicts, saidLine, shortPath, type TaskRow } from '../logic/shared.ts';
 import { type FinishedJobs, inProgress } from '../progress.ts';
 import type { SlackCard } from '../slack.ts';
@@ -76,7 +77,7 @@ export interface HomeInput {
   boards: (root: string) => BoardInput[];
   identity: (root: string) => IdentityCard | null;
   /** setUp: whether the folder has a .acc/config.json (GH-138); left out, it's taken as set up. */
-  setup: { items: DoctorItem[]; confirmed: Set<string>; setUp?: boolean | null };
+  setup: { items: DoctorItem[]; confirmed: Set<string>; setUp?: boolean | null; /** The folder the items were checked in (D-208). */ root?: string | null };
   runs?: RunInput[];
   /** The edit a task's page holds for an update, unsent, following the drafts it replaced. */
   edited?: (root: string, id: string, replaces: string[]) => string | null;
@@ -149,7 +150,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const tasks = tasksModel(hub, i.boards);
   const agents = agentsModel(hub, i.setup.items, i.whereView ?? 'folder');
   const worktrees = worktreesModel(hub);
-  const environments = environmentsModel(hub, i.identity);
+  const environments = environmentsModel(hub, i.identity, productionNotHere(i.setup.items, i.setup.root, (path) => hub.projectFor(path)));
   const setup = setupModel(i.setup.items, i.setup.confirmed, i.setup.setUp ?? true);
   // Limits read every repo's ledger acc noted on this machine, so only while Settings shows (GH-111).
   const limits = i.section === 'settings' ? hub.limits?.() ?? null : null;
