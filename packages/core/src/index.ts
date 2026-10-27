@@ -81,6 +81,7 @@ export * from './rules.ts';
 export * from './runtime.ts';
 export * from './semaphore.ts';
 export * from './setup.ts';
+export * from './sf-discovery.ts';
 export * from './sf-metadata.ts';
 export * from './shape-first.ts';
 export * from './shape-split.ts';

@@ -56,6 +56,7 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * Then a plan's conversation in its own panel (T-111): ACME-21's page before its plan with the conversation's one
  * line, the panel as Make a plan opens it, mid-conversation with a reply on its way, and Talk it through once v2 is made.
  * Then the agent's questions one at a time, part-way through (T-113), and a long Talk it through, folded.
+ * Then Environments on a machine that isn't logged in to Production, its Open org and Deploy… off (T-125).
  */
 export const PAGES = [
   // The Command Center's sections
@@ -80,6 +81,8 @@ export const PAGES = [
   'queue-off',
   'queue-held',
   'rules',
+  // Environments on a machine that isn't logged in to Production (D-T-125): its Open org and Deploy… off, with why
+  'environments-away',
   'rules-accept',
   // The Tasks tab: each tracker's board, the agent board, the person filter and the first steps
   'tasks-monday',
