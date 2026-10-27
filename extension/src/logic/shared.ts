@@ -6,6 +6,7 @@
 import { dirname } from 'node:path';
 import type { Approach } from '../../../packages/core/src/analyze.ts';
 import type { BuilderPlace, Effort } from '../../../packages/core/src/config.ts';
+import { shellQuote } from '../../../packages/core/src/onboarding/fix-lines.ts';
 import { isObj } from '../../../packages/core/src/text.ts';
 import type { AutopilotStepName, CloudRun, FileShare, QueuePhase } from '../../../packages/core/src/ledger.ts';
 import type { Unseen } from '../../../packages/core/src/started.ts';
@@ -221,8 +222,8 @@ export function nodeArg(a: unknown): unknown {
   }
 }
 
-/** Quotes one word for a POSIX shell, so an org alias with spaces stays one argument. */
-export const shq = (s: string): string => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`);
+/** Quotes one word for a POSIX shell, so an org alias with spaces stays one argument: core's, so the two can't drift (T-124). */
+export const shq = shellQuote;
 
 /** Text on one line, cut to `max` with … when longer: the last thing a stopped agent said, or a Slack notice's title. */
 export function saidLine(said: string, max = 200): string {

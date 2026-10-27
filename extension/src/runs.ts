@@ -32,6 +32,11 @@ interface Run extends RunInput {
 export interface StartOptions {
   cwd: string;
   label?: string;
+  /**
+   * The line the shell is given, when it isn't the command itself (T-124): on Windows, Setup's fix is encoded for
+   * PowerShell here, while `command` stays the readable line the log shows and runsAcc reads.
+   */
+  spawn?: string;
   /** The setup step it does, so the step can show it's under way and check itself after. */
   step?: string;
   /**
@@ -177,7 +182,7 @@ export class Runs implements vscode.Disposable {
     let child: ChildProcess;
     try {
       // A shell, since setup's fixes are command lines. Its own process group, so Stop ends all of it.
-      child = spawn(command, { cwd: opts.cwd, shell: true, env: sfEnv({ ...process.env, ...opts.env, ...stepsEnv, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+      child = spawn(opts.spawn ?? command, { cwd: opts.cwd, shell: true, env: sfEnv({ ...process.env, ...opts.env, ...stepsEnv, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
     } catch (e) {
       this.output(run, `${(e as Error).message}\n`);
       this.finish(run, 127);

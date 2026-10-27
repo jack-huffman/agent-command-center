@@ -84,7 +84,8 @@ it or the issue filed for it, after **Fixed in / filed as**.
 | No Node on PATH | | `command -v node` prints nothing |
 | No `~/.acc` | | `ls ~/.acc` says no such file |
 | No Command Center plugin in Claude Code | | `claude plugin list` doesn't list acc, or claude isn't installed |
-| Homebrew installed before the run? | | `command -v brew` |
+| winget before the run? (Windows only; on a Mac, Homebrew is a step Setup checks: A1.brew) | | `winget --version` |
+| Git for Windows installed before the run? (Windows only) | | `git --version` shows `windows` in it |
 | git before the run | | `git --version` |
 | gh installed before the run? | | `command -v gh` |
 | Claude Code installed before the run? | | `command -v claude` |
@@ -96,8 +97,10 @@ Follow the README's **Install and first run**, from **What you need** to
 
 ### What you need
 
-Look for: anything the README assumes you already have. Homebrew isn't checked
-by any step, but most fixes use it.
+Look for: anything the README assumes you already have. On a Mac, Homebrew is
+checked by A1.brew. winget isn't checked by any step, but the Windows fixes use
+it. On Windows, Git for Windows is required, and VSCode needs a
+restart after a tool is installed.
 
 - **Showed:**
 - **Unclear:**
@@ -142,6 +145,18 @@ A1.node, A1.sf and A1.code-analyzer (D-077). **Did those rows confuse you,
 since a generic project doesn't need them?** Answer here:
 
 - **Answer:**
+
+### A1.brew: Homebrew (on a Mac)
+
+Look for: on a Mac, whether Setup says Homebrew is missing before it tells you
+to install git, and whether the later steps say to do this one first. On
+Windows the step is skipped with a reason: note whether it says so.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
 
 ### A1.git: git 2.40 or later
 

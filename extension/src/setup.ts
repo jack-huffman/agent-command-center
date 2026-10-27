@@ -9,7 +9,8 @@ import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, 
 import type { StartProject } from './connect.ts';
 import { KIND_QUESTION } from './logic/first-open.ts';
 import { needsTerminal } from './logic/runs.ts';
-import { shq } from './logic/shared.ts';
+import { quoteFor, runnerLine, terminalShell } from './logic/shells.ts';
+import { SYSTEM, shellOf } from '../../packages/core/src/onboarding/install-lines.ts';
 import { inProcessWords, processLine } from './logic/processes.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { sourceProblem } from '../../packages/core/src/source.ts';
@@ -294,7 +295,8 @@ export class Setup implements vscode.Disposable {
       // acc's own command is named as its process (GH-163); another tool's by its step, or its first words.
       const label = processLine(command) ?? (checkAfter ? this.step(checkAfter).title : command.split(' ').slice(0, 3).join(' '));
       const after = () => { if (checkAfter) void this.check(checkAfter, true).then(() => this.refreshSoon('after a setup command')); else this.refreshSoon('after a setup command'); };
-      this.runs.start(command, { cwd: this.cwd(), label, step: checkAfter, onExit: after });
+      // On Windows the runner gets the line encoded for PowerShell; the label and the log keep the readable one (T-124).
+      this.runs.start(command, { cwd: this.cwd(), spawn: runnerLine(command), label, step: checkAfter, onExit: after });
       return;
     }
     this.runInTerminal(command, checkAfter);
@@ -303,7 +305,7 @@ export class Setup implements vscode.Disposable {
   /** Commands that need a terminal: a fill-in-the-blanks one, or one that reads the keyboard itself. */
   runInTerminal(command: string, checkAfter?: string): void {
     if (!this.terminal || this.terminal.exitStatus) {
-      this.terminal = vscode.window.createTerminal({ name: TERMINAL_NAME, cwd: this.cwd(), iconPath: new vscode.ThemeIcon('checklist') });
+      this.terminal = vscode.window.createTerminal({ name: TERMINAL_NAME, cwd: this.cwd(), ...terminalShell(), iconPath: new vscode.ThemeIcon('checklist') });
     }
     this.terminal.show();
     const fillIn = hasPlaceholder(command);
@@ -501,7 +503,7 @@ export class Setup implements vscode.Disposable {
     })), { title: 'Log in to which environment\'s org?', placeHolder: looks.every((l) => l.ok) ? 'Every environment is already logged in to the right org' : 'The ones that need it are first' });
     if (!pick) return;
     const e = pick.l.e;
-    this.runCommand(`sf org login web --alias ${shq(e.org!)} --instance-url ${expectedOrgUrl(domain, e)}`, 'B6.org-match');
+    this.runCommand(`sf org login web --alias ${quoteFor(shellOf(SYSTEM))(e.org!)} --instance-url ${expectedOrgUrl(domain, e)}`, 'B6.org-match');
     void vscode.window.showInformationMessage(`Sign in to ${e.name} in the browser that opens. The step re-checks itself when you're done.`);
   }
 

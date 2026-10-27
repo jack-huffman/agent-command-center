@@ -9,8 +9,9 @@ import type { CheckStatus, Step } from '../../../packages/core/src/onboarding/ty
 import { isObj, plural } from '../../../packages/core/src/text.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { StartProject } from '../connect.ts';
+import { INSTALL_LINES, INSTALL_SYSTEMS, type InstallLine, type InstallSystem, RESTART_PAGE_NOTE, type Shell, shellOf, SYSTEM } from '../../../packages/core/src/onboarding/install-lines.ts';
 import { inProcessWords, processLine, processName } from './processes.ts';
-import { shq } from './shared.ts';
+import { fenceFor, quoteFor } from './shells.ts';
 
 export const PUBLISHER = 'JackHuffman';
 export const NAME = 'agent-command-center';
@@ -65,22 +66,51 @@ export function stepDescription(step: Step): string {
   return lines.join('\n');
 }
 
-/** The page shown beside the step: what it is, why it matters, and exactly what fixing it involves. */
-export function stepMedia(step: Step): string {
+const SYSTEM_NAMES: Record<InstallSystem, string> = { mac: 'On a Mac', windows: 'On Windows', linux: 'On Linux' };
+
+/**
+ * A tool's install on each system, as a step's page shows it (T-124): the line to run, or the maker's page where
+ * there's no one line. doesIt is true when Do it runs the line for the system acc runs on. On Windows a tool
+ * installed while VSCode is open isn't on its PATH until VSCode restarts, and the page says so.
+ */
+function installPage(lines: Record<InstallSystem, InstallLine>, doesIt: boolean): string[] {
+  const out = [doesIt ? '**Do it** runs the line for your system in a terminal, so you see exactly what happens:' : 'If it isn\'t installed yet, the line for each system:', ''];
+  for (const system of INSTALL_SYSTEMS) {
+    const line = lines[system];
+    out.push(`${SYSTEM_NAMES[system]}:`, '');
+    if ('command' in line) out.push(`\`\`\`${fenceFor(line.shell)}`, line.command, '```', '');
+    else out.push(`[The maker's install page](${line.page}) (there's no one line to run).`, '');
+  }
+  out.push(RESTART_PAGE_NOTE, '');
+  return out;
+}
+
+/**
+ * The page shown beside the step: what it is, why it matters, and exactly what fixing it involves. A line that
+ * isn't a tool's install is shown in the code block of the shell it is for: bash on a Mac, powershell on Windows
+ * (T-124). The walkthrough's files are written once for every machine, so generate.ts asks for a Mac's.
+ */
+export function stepMedia(step: Step, system: InstallSystem = SYSTEM): string {
+  const fence = fenceFor(shellOf(system));
   const out = [`# ${step.title}`, '', `\`${step.id}\``, '', inProcessWords(step.why), ''];
   if (step.offer) out.push(`**${step.offer.label}** is here whatever the step shows.`, '');
   const f = step.fix;
   if (f?.command || f?.fromCheck || f?.vscode || f?.text || f?.setupPath || f?.docs) out.push('## How to fix it', '');
   // acc's own fix is named as its process (GH-163); another tool's command is shown as it runs.
+  const installs = step.install ? INSTALL_LINES[step.install] : null;
   const does = f?.command ? processLine(f.command) : null;
-  if (does) out.push(`**Do it**: ${does}. It runs in a terminal, so you see exactly what happens.`, '');
-  else if (f?.command) out.push('**Do it** runs this in a terminal, so you see exactly what happens:', '', '```bash', f.command, '```', '');
+  // A step that installs a tool shows its line for each system, so the page reads the same on any of them (T-124).
+  const fixIsInstall = !!installs && (!f?.command || Object.values(installs).some((l) => 'command' in l && l.command === f.command));
+  if (fixIsInstall) out.push(...installPage(installs!, true));
+  else if (does) out.push(`**Do it**: ${does}. It runs in a terminal, so you see exactly what happens.`, '');
+  else if (f?.command) out.push('**Do it** runs this in a terminal, so you see exactly what happens:', '', `\`\`\`${fence}`, f.command, '```', '');
+  if (installs && !fixIsInstall) out.push(...installPage(installs, false));
   if (f?.fromCheck) out.push('**Do it** runs the exact command the check works out for this repo, in a terminal you can see.', '');
-  if (f?.text) {
+  if (f?.text && !fixIsInstall) {
     // The by-hand path a fix ends on stays as the tool takes it, in a bash block like another tool's Do it,
     // so someone in a terminal is told what to type, not only what it does (GH-168).
     const byHand = /^([\s\S]*?)\s*In a terminal: `?([^`]+?)`?\.?$/.exec(f.text);
-    if (byHand) out.push(inProcessWords(byHand[1]!), '', 'In a terminal:', '', '```bash', byHand[2]!, '```', '');
+    if (byHand) out.push(inProcessWords(byHand[1]!), '', 'In a terminal:', '', `\`\`\`${fence}`, byHand[2]!, '```', '');
     else out.push(inProcessWords(f.text), '');
   }
   if (f?.setupPath) out.push('**Open in Salesforce** opens Setup in the right org.', '');
@@ -116,6 +146,8 @@ export function buildWalkthroughs(steps: Step[]): WalkthroughJson[] {
     media: { markdown: mediaPath(s.id) },
     completionEvents: [`onContext:${contextKey(s.id)}`],
     ...(s.profiles && !s.profiles.includes('generic') ? { when: 'acc.profile != generic' } : {}),
+    // Homebrew is a Mac's: VSCode's own isMac context key keeps it off the Windows and Linux walkthroughs (T-124).
+    ...(s.id === 'A1.brew' ? { when: 'isMac' } : {}),
   });
   return [
     { ...WALKTHROUGHS.machine, steps: steps.filter((s) => s.part === 'machine').map(toJson) },
@@ -259,7 +291,7 @@ export const initArgs = (o: InitChoice & { tracker?: Record<string, unknown> }):
 ];
 
 /** acc init as B0.config's Do it runs it in a terminal: each argument quoted as the shell needs. */
-export const initCommand = (o: InitChoice & { tracker?: Record<string, unknown> }): string => ['acc init', ...initArgs(o).map(shq)].join(' ');
+export const initCommand = (o: InitChoice & { tracker?: Record<string, unknown> }, shell: Shell = shellOf(SYSTEM)): string => ['acc init', ...initArgs(o).map(quoteFor(shell))].join(' ');
 
 /** What `acc init --json` wrote, or with --dry-run would write (GH-81): the project's name and GitHub, or acc's own words. */
 export type InitOutput = { ok: true; project: string; github: { repo: string; account: string } | null } | { ok: false; error: string };
@@ -360,8 +392,8 @@ export const templateDetail = (t: Extract<ShownTemplate, { ok: true }>): string 
 };
 
 /** `acc rules import`, with a copy's name when one is given, and --force to replace one already there (GH-108). */
-export const importRulesCommand = (o: { source: string; name?: string; force?: boolean }): string =>
-  ['acc rules import', shq(o.source), ...(o.name ? ['--name', shq(o.name)] : []), ...(o.force ? ['--force'] : [])].join(' ');
+export const importRulesCommand = (o: { source: string; name?: string; force?: boolean }, shell: Shell = shellOf(SYSTEM)): string =>
+  ['acc rules import', quoteFor(shell)(o.source), ...(o.name ? ['--name', quoteFor(shell)(o.name)] : []), ...(o.force ? ['--force'] : [])].join(' ');
 
 export type ShownRules =
   | {
