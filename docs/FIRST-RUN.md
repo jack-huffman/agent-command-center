@@ -16,8 +16,9 @@ project's steps as far as a Developer Edition org goes.
 - [ ] **A release of 0.46.0 or later.** This script was checked
   against 0.46.0, so an earlier release may differ. Check that the release has
   its `.vsix` and `.vsix.sha256` files: Install and reload needs both.
-- [ ] **The invitation is sent, and the tester has accepted it** with the
-  GitHub account they'll use. On a personal repo a collaborator can push, and
+- [ ] **The invitation to the Agent Command Center repo is sent** (Settings →
+  Collaborators, the repo README's Getting access names), **and the tester has
+  accepted it** with the GitHub account they'll use. On a personal repo a collaborator can push, and
   private repos on this plan have no branch protection, so tell them in plain
   words: never push to `main`. They need only to read it.
 - [ ] **Their own Mac, or their own macOS user on yours.** Not the author's
