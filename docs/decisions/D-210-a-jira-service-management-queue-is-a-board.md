@@ -1,4 +1,4 @@
-## D-T-128 A Jira Service Management queue is a board a project holds, and acc's comments on its tickets stay internal (2026-10-27)
+## D-210 A Jira Service Management queue is a board a project holds, and acc's comments on its tickets stay internal (2026-10-27)
 
 T-128. The person asked (2026-10-27) for Jira Service Management queues as boards: each of a service desk's
 queues, such as "Unassigned issues" or "Waiting for support", is a board a project holds, with its tickets.
