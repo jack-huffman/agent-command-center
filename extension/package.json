@@ -1046,7 +1046,8 @@
             },
             "completionEvents": [
               "onContext:acc.step.A1.brew"
-            ]
+            ],
+            "when": "isMac"
           },
           {
             "id": "A1.git",

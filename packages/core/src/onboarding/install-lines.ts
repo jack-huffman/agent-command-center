@@ -21,21 +21,28 @@ export const systemOf = (platform: string): InstallSystem => (platform === 'darw
 export const SYSTEM: InstallSystem = systemOf(process.platform);
 
 /**
- * Every install line Setup gives, by tool and then by system. Where each comes from, and what was read:
- * - Claude Code: https://code.claude.com/docs/en/setup, read 2026-10-27: Homebrew's cask, its PowerShell installer and its shell installer
- * - Homebrew (A1.brew, BREW_INSTALL below): https://brew.sh
- * - git: https://git-scm.com/downloads (Windows: Git for Windows, which acc needs for its `sh`; Linux: the Debian and Ubuntu line)
- * - GitHub CLI: https://github.com/cli/cli#installation (Linux needs a repository added in several lines, so the
- *   page; its Linux guide, read 2026-10-27, gives no one line)
- * - Node: https://nodejs.org/en/download (Linux has no one line, so the page)
- * The git, GitHub CLI and Node winget ids are those T-124 was given; the maker's page for each is to be read again
- * when a line changes. Both core and extension tests fail on a tool with no mac or windows entry.
+ * Every install line Setup gives, by tool and then by system. Each was read on 2026-10-27; the exact line the
+ * maker's page gives is beside its entry. Both core and extension tests fail on a tool with no mac or windows entry.
+ * - Claude Code: https://code.claude.com/docs/en/setup: `brew install --cask claude-code`, `irm https://claude.ai/install.ps1 | iex`
+ *   and `curl -fsSL https://claude.ai/install.sh | bash`
+ * - Homebrew (A1.brew, BREW_INSTALL below): https://brew.sh: `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
+ * - git: Windows https://git-scm.com/install/windows (git-scm.com/download/win redirects there) gives
+ *   `winget install --id Git.Git -e --source winget`; this table keeps T-124's `-e` line, the same package, and the page
+ *   says that package isn't maintained by the Git for Windows project (acc needs Git for Windows for its `sh`, T-123).
+ *   Linux https://git-scm.com/install/linux gives `apt-get install git` for Debian and Ubuntu. A Mac: Homebrew's `brew install git`.
+ * - GitHub CLI: https://github.com/cli/cli#installation, which links its per-system pages: docs/install_windows.md gives
+ *   `winget install --id GitHub.cli --source winget` (this table keeps T-124's `-e` line, the same package);
+ *   docs/install_macos.md gives `brew install gh`. Linux needs a repository added in several lines, so its page.
+ * - Node: https://nodejs.org/en/download shows its package-manager lines only in a browser (the page as fetched on
+ *   2026-10-27 had none), so the winget id was read in the maker-independent winget manifest repository instead,
+ *   github.com/microsoft/winget-pkgs, manifests/o/OpenJS/NodeJS/LTS (versions 24.21.0 to 24.22.1): `winget install --id OpenJS.NodeJS.LTS -e`.
+ *   Node's Homebrew formula is `brew install node`. Linux has no one line, so the page.
  */
 export const INSTALL_LINES: Record<InstallTool, Record<InstallSystem, InstallLine>> = {
   git: {
     mac: sh('brew install git'),
     windows: ps('winget install --id Git.Git -e'),
-    linux: sh('sudo apt install git'),
+    linux: sh('sudo apt-get install git'),
   },
   node: {
     mac: sh('brew install node'),
@@ -82,5 +89,8 @@ export const installText = (tool: InstallTool, system: InstallSystem = SYSTEM): 
  * What a fix that installs a tool adds on Windows (T-124): a tool installed while VSCode is open isn't on its
  * PATH until VSCode restarts. Empty on a Mac and on Linux, where a new terminal is enough.
  */
-export const RESTART_NOTE = 'After it installs, restart VSCode: a tool installed while VSCode is open isn\'t on its PATH until VSCode restarts.';
+const RESTART_WHY = 'a tool installed while VSCode is open isn\'t on its PATH until VSCode restarts.';
+export const RESTART_NOTE = `After it installs, restart VSCode: ${RESTART_WHY}`;
+/** The same sentence as a step's page says it, which shows every system's lines and so names Windows. */
+export const RESTART_PAGE_NOTE = `On Windows, after it installs, restart VSCode: ${RESTART_WHY}`;
 export const restartNote = (system: InstallSystem = SYSTEM): string => (system === 'windows' ? RESTART_NOTE : '');

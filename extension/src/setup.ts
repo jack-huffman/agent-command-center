@@ -296,7 +296,7 @@ export class Setup implements vscode.Disposable {
       const label = processLine(command) ?? (checkAfter ? this.step(checkAfter).title : command.split(' ').slice(0, 3).join(' '));
       const after = () => { if (checkAfter) void this.check(checkAfter, true).then(() => this.refreshSoon('after a setup command')); else this.refreshSoon('after a setup command'); };
       // On Windows the runner gets the line encoded for PowerShell; the label and the log keep the readable one (T-124).
-      this.runs.start(runnerLine(command), { cwd: this.cwd(), label, step: checkAfter, onExit: after });
+      this.runs.start(command, { cwd: this.cwd(), spawn: runnerLine(command), label, step: checkAfter, onExit: after });
       return;
     }
     this.runInTerminal(command, checkAfter);

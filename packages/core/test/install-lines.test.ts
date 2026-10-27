@@ -13,7 +13,7 @@ test('the system is read from the platform acc runs on, and anything but a Mac o
 });
 
 test('the table gives the lines the person decided on for a Mac and for Windows', () => {
-  assert.deepEqual(INSTALL_SYSTEMS.map((s) => installCommand('git', s)), ['brew install git', 'winget install --id Git.Git -e', 'sudo apt install git']);
+  assert.deepEqual(INSTALL_SYSTEMS.map((s) => installCommand('git', s)), ['brew install git', 'winget install --id Git.Git -e', 'sudo apt-get install git']);
   assert.deepEqual(['mac', 'windows'].map((s) => installCommand('gh', s as 'mac')), ['brew install gh', 'winget install --id GitHub.cli -e']);
   assert.deepEqual(['mac', 'windows'].map((s) => installCommand('node', s as 'mac')), ['brew install node', 'winget install --id OpenJS.NodeJS.LTS -e']);
   assert.deepEqual(['mac', 'windows'].map((s) => installCommand('claude', s as 'mac')), ['brew install --cask claude-code', 'irm https://claude.ai/install.ps1 | iex']);

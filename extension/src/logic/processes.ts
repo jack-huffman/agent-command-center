@@ -13,6 +13,7 @@
  * Like the rest of logic/, no `vscode` import: the page, the models and node:test all read it.
  */
 
+import { BREW_INSTALL, INSTALL_SYSTEMS, type InstallTool, installCommand } from '../../../packages/core/src/onboarding/install-lines.ts';
 import { escapeRegExp, inConfigWords } from './config-words.ts';
 import { upper } from '../../webview/upper.ts';
 
@@ -319,6 +320,17 @@ export function processLine(line: string): string | null {
   return `${said.slice(1, -1)}${/\s--(dry-run|plan)\b/.test(t) ? ', as a preview that changes nothing' : ''}`;
 }
 
+/** What joins two commands in a fix line: && in sh, `; if ($?) {` in PowerShell 5.1 (packages/core/src/onboarding/fix-lines.ts). */
+const THEN = '(?:&&|; if \\(\\$\\?\\) \\{)';
+
+/** What each install line does, built from the one table (INSTALL_LINES) and Homebrew's installer, so a line is never typed twice (T-124). */
+const TOOL_WORDS: Record<InstallTool, string> = { git: 'Install git', node: 'Install Node', gh: 'Install the GitHub command line', claude: 'Install Claude Code' };
+const INSTALL_DOES: { line: RegExp; does: string }[] = [
+  { line: new RegExp(`^${escapeRegExp(BREW_INSTALL)}$`), does: 'Install Homebrew' },
+  ...(Object.keys(TOOL_WORDS) as InstallTool[]).flatMap((tool) =>
+    INSTALL_SYSTEMS.flatMap((system) => { const c = installCommand(tool, system); return c ? [{ line: new RegExp(`^${escapeRegExp(c)}$`), does: TOOL_WORDS[tool] }] : []; })),
+];
+
 /**
  * What another tool's command line does, as a process (GH-168): `claude plugin install acc@…` is "Install the
  * Command Center's Claude Code plugin". Setup shows what Do it does in these words and keeps the line itself behind
@@ -326,28 +338,23 @@ export function processLine(line: string): string | null {
  * page shows it as it always has: extension/test/config-words.test.ts runs each line Setup's steps give.
  */
 const TOOL_LINES: readonly { line: RegExp; does: string }[] = [
-  { line: /^claude plugin marketplace update\b.*&& claude plugin update\b/, does: 'Update the Command Center\'s Claude Code plugin' },
-  { line: /^claude plugin (?:marketplace add\b.*&& claude plugin )?install\b/, does: 'Install the Command Center\'s Claude Code plugin' },
+  { line: new RegExp(`^claude plugin marketplace update\\b.*${THEN} claude plugin update\\b`), does: 'Update the Command Center\'s Claude Code plugin' },
+  { line: new RegExp(`^claude plugin (?:marketplace add\\b.*${THEN} claude plugin )?install\\b`), does: 'Install the Command Center\'s Claude Code plugin' },
   { line: /^claude plugin enable\b/, does: 'Turn on the Command Center\'s Claude Code plugin' },
   { line: /^claude update$/, does: 'Update Claude Code' },
   { line: /^claude auth login$/, does: 'Sign in to Claude Code with your claude.ai account' },
   { line: /^claude(?:\s+#.*)?$/, does: 'Open Claude Code in this folder, to trust it' },
-  { line: /^\/bin\/bash -c "\$\(curl -fsSL https:\/\/raw\.githubusercontent\.com\/Homebrew\/install\/HEAD\/install\.sh\)"$/, does: 'Install Homebrew' },
-  // The install lines of each system (packages/core/src/onboarding/install-lines.ts): Homebrew, winget, the makers' installers and apt (T-124).
-  { line: /^(?:brew install --cask claude-code|irm https:\/\/claude\.ai\/install\.ps1 \| iex|curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash)$/, does: 'Install Claude Code' },
-  { line: /^(?:brew install git|winget install --id Git\.Git -e|sudo apt install git)$/, does: 'Install git' },
-  { line: /^(?:brew install node|winget install --id OpenJS\.NodeJS\.LTS -e)$/, does: 'Install Node' },
-  { line: /^(?:brew install gh|winget install --id GitHub\.cli -e)$/, does: 'Install the GitHub command line' },
+  ...INSTALL_DOES,
   { line: /^npm install -g @salesforce\/cli$/, does: 'Install the Salesforce command line' },
   { line: /^sf plugins install code-analyzer$/, does: 'Install the Salesforce code analyzer' },
   { line: /^gh auth login\b/, does: 'Sign in to GitHub as this repo\'s account' },
   { line: /^gh repo edit\b.*--default-branch\b/, does: 'Set the repo\'s default branch on GitHub' },
-  { line: /^git config user\.name\b.*&& git config user\.email\b/, does: 'Set the name and email on this repo\'s commits' },
+  { line: new RegExp(`^git config user\\.name\\b.*${THEN} git config user\\.email\\b`), does: 'Set the name and email on this repo\'s commits' },
   { line: /^git config user\.(?:name|email)\b/, does: 'Set the name or email on this repo\'s commits' },
   { line: /^git config credential\.helper\b/, does: 'Make git push as this repo\'s GitHub account' },
   { line: /^printf\b.*>> \.gitignore$/, does: 'Add the missing lines to the repo\'s ignore list' },
   { line: /^git rm\b/, does: 'Stop tracking those files in git, and keep them on disk' },
-  { line: /^(?:cd "[^"]*" && )?npm install$/, does: 'Install the project\'s tools' },
+  { line: new RegExp(`^(?:cd (?:"[^"]*"|'[^']*'|\\S+)(?: && |; if \\(\\$\\?\\) \\{ ))?npm install(?: \\})?$`), does: 'Install the project\'s tools' },
   { line: /^sf org login web\b/, does: 'Log in to the org' },
   { line: /^sf org enable tracking\b/, does: 'Turn on source tracking in the org' },
   { line: /^sf config set target-org\b/, does: 'Make this org the default for the repo' },

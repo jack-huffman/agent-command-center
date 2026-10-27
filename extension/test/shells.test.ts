@@ -25,13 +25,13 @@ test('PowerShell quoting doubles a single quote and leaves $, backticks, spaces 
   assert.equal(psq('acme-dev'), 'acme-dev');
   assert.equal(psq('Acme Dev SB'), "'Acme Dev SB'");
   assert.equal(psq("Pat's org"), "'Pat''s org'");
-  assert.equal(psq('$HOME `x` "q"'), "'$HOME `x` \"q\"'");
+  assert.equal(psq('$HOME `x` "q"'), '\'$HOME `x` \\"q\\"\'', 'a double quote is written \\" so 5.1 keeps it');
   assert.equal(psq('a,b'), "'a,b'", 'a comma is PowerShell\'s array operator');
   assert.equal(psq('@x'), "'@x'", 'an @ is splatting');
   assert.equal(psq('it‘s’'), "'it‘‘s’’'", 'curly single quotes are quotes to PowerShell');
-  assert.equal(psq(''), "''", 'the empty word is still one argument');
+  assert.equal(psq(''), "'\"\"'", 'the empty word is \'""\', since 5.1 drops a plain empty one');
   assert.equal(quoteFor('powershell'), psq);
-  assert.equal(quoteFor('sh'), shq);
+  for (const w of ['plain', 'a b', "it's", '$x', '']) assert.equal(quoteFor('sh')(w), shq(w), `sh quotes ${JSON.stringify(w)} as the extension's shq does`);
 });
 
 test('acc init and a rules import quote each argument for their shell', () => {

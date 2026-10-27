@@ -9,7 +9,7 @@ import type { CheckStatus, Step } from '../../../packages/core/src/onboarding/ty
 import { isObj, plural } from '../../../packages/core/src/text.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { StartProject } from '../connect.ts';
-import { INSTALL_LINES, INSTALL_SYSTEMS, type InstallLine, type InstallSystem, RESTART_NOTE, type Shell, shellOf, SYSTEM } from '../../../packages/core/src/onboarding/install-lines.ts';
+import { INSTALL_LINES, INSTALL_SYSTEMS, type InstallLine, type InstallSystem, RESTART_PAGE_NOTE, type Shell, shellOf, SYSTEM } from '../../../packages/core/src/onboarding/install-lines.ts';
 import { inProcessWords, processLine, processName } from './processes.ts';
 import { fenceFor, quoteFor } from './shells.ts';
 
@@ -81,7 +81,7 @@ function installPage(lines: Record<InstallSystem, InstallLine>, doesIt: boolean)
     if ('command' in line) out.push(`\`\`\`${fenceFor(line.shell)}`, line.command, '```', '');
     else out.push(`[The maker's install page](${line.page}) (there's no one line to run).`, '');
   }
-  out.push(RESTART_NOTE.replace('After it installs', 'On Windows, after it installs'), '');
+  out.push(RESTART_PAGE_NOTE, '');
   return out;
 }
 
@@ -146,6 +146,8 @@ export function buildWalkthroughs(steps: Step[]): WalkthroughJson[] {
     media: { markdown: mediaPath(s.id) },
     completionEvents: [`onContext:${contextKey(s.id)}`],
     ...(s.profiles && !s.profiles.includes('generic') ? { when: 'acc.profile != generic' } : {}),
+    // Homebrew is a Mac's: VSCode's own isMac context key keeps it off the Windows and Linux walkthroughs (T-124).
+    ...(s.id === 'A1.brew' ? { when: 'isMac' } : {}),
   });
   return [
     { ...WALKTHROUGHS.machine, steps: steps.filter((s) => s.part === 'machine').map(toJson) },

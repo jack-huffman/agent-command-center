@@ -4,16 +4,13 @@
  */
 
 import { type InstallSystem, type Shell, shellOf, SYSTEM } from '../../../packages/core/src/onboarding/install-lines.ts';
-import { shq } from './shared.ts';
+import { powerShellQuote, quoteArg } from '../../../packages/core/src/onboarding/fix-lines.ts';
 
-/**
- * Quotes one word for PowerShell: single quotes, with ' doubled, so $, backticks and spaces stay as typed. A single
- * quote PowerShell reads as one includes the curly ones (‘ ’ ‚ ‛), so each of those is doubled too.
- */
-export const psq = (s: string): string => (/^[\w./-]+$/.test(s) ? s : `'${s.replace(/['‘’‚‛]/g, (q) => q + q)}'`);
+/** Quotes one word for PowerShell 5.1: the one quoting packages/core/src/onboarding/fix-lines.ts gives the lines core builds. */
+export const psq = powerShellQuote;
 
 /** The function that quotes a word for a shell. */
-export const quoteFor = (shell: Shell): ((s: string) => string) => (shell === 'powershell' ? psq : shq);
+export const quoteFor = quoteArg;
 
 /** The language of a code block on a step's page: bash on a Mac and Linux, powershell on Windows. */
 export const fenceFor = (shell: Shell): 'bash' | 'powershell' => (shell === 'powershell' ? 'powershell' : 'bash');

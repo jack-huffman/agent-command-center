@@ -44,7 +44,8 @@ test('every step ticks itself from its own context key, and Salesforce-only step
     for (const s of wt.steps) {
       assert.deepEqual(s.completionEvents, [`onContext:${contextKey(s.id)}`]);
       const sfOnly = step(s.id).profiles?.includes('salesforce') && !step(s.id).profiles?.includes('generic');
-      assert.equal(s.when, sfOnly ? 'acc.profile != generic' : undefined, s.id);
+      // Homebrew's step is a Mac's: VSCode's isMac key hides it elsewhere (T-124).
+      assert.equal(s.when, sfOnly ? 'acc.profile != generic' : s.id === 'A1.brew' ? 'isMac' : undefined, s.id);
       assert.ok(existsSync(join(root, mediaPath(s.id))), `${s.id} media`);
     }
   }
