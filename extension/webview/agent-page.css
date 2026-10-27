@@ -59,7 +59,6 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .agent-reply { flex: none; margin-top: 10px; }
 .agent-reply .reply-box { min-height: 56px; }
 .agent-reply .reply-box:disabled { opacity: 0.6; cursor: not-allowed; }
-.agent-reply .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 .agent-reply .reply-why { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Stop (T-47): ends the agent's work, so it sits at the far end of the bar, set off by a rule, apart from the buttons that open things. */

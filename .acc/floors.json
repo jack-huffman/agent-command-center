@@ -1,6 +1,6 @@
 {
   "tests": {
-    "floor": 2663
+    "floor": 2679
   },
   "screenshots.clipped": {
     "floor": 110986
@@ -25,5 +25,8 @@
   },
   "screenshots.actions": {
     "floor": 1212
+  },
+  "screenshots.disabled": {
+    "floor": 879
   }
 }

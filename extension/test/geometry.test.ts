@@ -1,10 +1,10 @@
 // The screenshot run's geometry checks (GH-105), on drawings made up to break one rule each, so a check
 // that stopped looking can't pass. The run itself measures the real pages in Chrome: npm run screenshot.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
 import { root } from './support.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
@@ -20,7 +20,7 @@ const found = (s: GeoSnapshot, home = true) => judge(s, home, []).violations.map
 test('a drawing that breaks no rule passes, and says how much each check examined (GH-105)', () => {
   const v = judge(fine(), true, []);
   assert.deepEqual(v.violations, []);
-  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1, covered: 0, raw: 0, a11y: 3, actions: 0 });
+  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1, covered: 0, raw: 0, a11y: 3, actions: 0, disabled: 0 });
 });
 
 test('the raw check (T-64): an output panel that draws a block of raw output, pre.dock-out as it did or any pre, fails; one drawn as rows passes; edge case: a page with no panel examines none', () => {
@@ -124,7 +124,7 @@ test('an exception excuses only its own check on what it names, and counts what 
 test('a whole run fails below its floors, and on an exception that excused nothing; a run of a few pages doesn\'t (GH-105)', () => {
   const verdict = judge(fine(), true, []);
   const renders: Render[] = [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...verdict, violations: [{ check: 'overlap', what: 'button.a', detail: 'overlaps button.b' }] } }];
-  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0, raw: 0, a11y: 0, actions: 0 };
+  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0, raw: 0, a11y: 0, actions: 0, disabled: 0 };
   const unused = [{ name: 'the strip', check: 'sideways' as const, what: /strip/, reason: 'made up' }];
   assert.deepEqual(runFailures(renders, false, unused, floor, [], []), ['tasks dark 500px: overlap: button.a: overlaps button.b']);
   assert.deepEqual(runFailures(renders, true, unused, floor, [], []), [
@@ -148,11 +148,11 @@ test('the floors that follow the pages are worked out from them: a new page rais
 });
 
 test('every other check\'s floor is in the floors file, raised only by a clean whole run, and only up (T-102)', () => {
-  const floors: Record<string, { floor: number }> = { tests: { floor: 5 }, ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions'].map((c) => [floorName(c as never), { floor: 10 }])) };
-  assert.deepEqual(runFloor(floors, ['tasks']), { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 10, actions: 10 });
+  const floors: Record<string, { floor: number }> = { tests: { floor: 5 }, ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions', 'disabled'].map((c) => [floorName(c as never), { floor: 10 }])) };
+  assert.deepEqual(runFloor(floors, ['tasks']), { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 10, actions: 10, disabled: 10 });
   const { 'screenshots.a11y': _gone, ...without } = floors;
   assert.throws(() => runFloor(without, ['tasks']), /\.acc\/floors\.json has no floor for the screenshot run's a11y check \("screenshots\.a11y"\)/, 'a missing floor is an error, never a floor of nothing');
-  const examined = { overlap: 999, clipped: 12, tab: 6, sideways: 10, overview: 9, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10 };
+  const examined = { overlap: 999, clipped: 12, tab: 6, sideways: 10, overview: 9, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10, disabled: 10 };
   assert.deepEqual(raisedFloors(floors, examined), { ...floors, 'screenshots.clipped': { floor: 11 }, 'screenshots.a11y': { floor: 39 } }, 'the beaten ones rise, stored 1% below; a lower count leaves its floor; the page checks are never stored');
   assert.equal(raisedFloors(floors, { ...examined, clipped: 11, a11y: 10 }), null, 'an edge case: a count whose margin doesn\'t beat the floor writes nothing');
   // A person relaxed a11y to 8 (acc gate relax screenshots.a11y): the run reads that floor and passes at 9.
@@ -161,14 +161,14 @@ test('every other check\'s floor is in the floors file, raised only by a clean w
   assert.deepEqual(runFailures(renders, true, [], runFloor(floors, ['tasks']), [], []), ['The run examined 9 for a11y, below its floor of 10.']);
   assert.deepEqual(runFailures(renders, true, [], runFloor(relaxed, ['tasks']), [], []), [], 'relaxed, the lower count passes');
   const stored = JSON.parse(readFileSync(FLOORS_PATH, 'utf8')) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(stored).filter((k) => k.startsWith('screenshots.') && !k.startsWith('screenshots.ci.')).sort(), ['a11y', 'actions', 'buttons', 'clipped', 'covered', 'overview', 'raw', 'sideways'].map((c) => `screenshots.${c}`), 'the repo keeps each, and none for a page check');
+  assert.deepEqual(Object.keys(stored).filter((k) => k.startsWith('screenshots.') && !k.startsWith('screenshots.ci.')).sort(), ['a11y', 'actions', 'buttons', 'clipped', 'covered', 'disabled', 'overview', 'raw', 'sideways'].map((c) => `screenshots.${c}`), 'the repo keeps each, and none for a page check');
 });
 
 test('a raised floor is stored about 1% below the clean run\'s count, so a later run 0.2% under that count passes and one 2% under fails; edge case: a count of 0 stores 0 (T-108)', () => {
   assert.equal(FLOOR_MARGIN_PERCENT, 1);
   assert.deepEqual([storedFloor(100000), storedFloor(445830), storedFloor(99), storedFloor(0)], [99000, 441371, 98, 0], 'rounded down');
-  const floors: Record<string, { floor: number }> = Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions'].map((c) => [floorName(c as never), { floor: 10 }]));
-  const examined = { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 100000, actions: 10 };
+  const floors: Record<string, { floor: number }> = Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions', 'disabled'].map((c) => [floorName(c as never), { floor: 10 }]));
+  const examined = { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 100000, actions: 10, disabled: 10 };
   const raised = raisedFloors(floors, examined);
   assert.deepEqual(raised?.[floorName('a11y')], { floor: 99000 });
   const floor = runFloor(raised!, ['tasks']);
@@ -179,11 +179,11 @@ test('a raised floor is stored about 1% below the clean run\'s count, so a later
 });
 
 test('a CI run is held to its own floor where it has one, else the Mac\'s, and raises only its own; edge case: a Mac run never reads or raises a CI floor (T-108)', () => {
-  const floors: Record<string, { floor: number }> = { ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions'].map((c) => [floorName(c as never), { floor: 10 }])), [ciFloorName('clipped')]: { floor: 7 } };
+  const floors: Record<string, { floor: number }> = { ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions', 'disabled'].map((c) => [floorName(c as never), { floor: 10 }])), [ciFloorName('clipped')]: { floor: 7 } };
   assert.equal(ciFloorName('a11y'), 'screenshots.ci.a11y');
   assert.deepEqual([runFloor(floors, ['tasks'], true).clipped, runFloor(floors, ['tasks'], true).a11y], [7, 10], 'its own floor for clipped; the Mac\'s for a check with none');
   assert.equal(runFloor(floors, ['tasks'], false).clipped, 10, 'the Mac\'s run reads the Mac\'s floor');
-  const examined = { overlap: 999, clipped: 9, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10 };
+  const examined = { overlap: 999, clipped: 9, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10, disabled: 10 };
   assert.deepEqual(raisedFloors(floors, examined, true), { ...floors, [ciFloorName('clipped')]: { floor: 8 } }, 'its own clipped floor rises; the Mac\'s a11y floor stays, and no CI floor is made for it');
   assert.deepEqual(raisedFloors(floors, { ...examined, clipped: 12 }, false), { ...floors, [floorName('clipped')]: { floor: 11 }, [floorName('a11y')]: { floor: 39 } }, 'a Mac run leaves the CI floor as it is');
   assert.equal(raisedFloors(floors, { ...examined, clipped: 7 }, true), null, 'nothing beaten, nothing written');
@@ -278,4 +278,28 @@ test('a task\'s actions are equal in height, the grid\'s equal in width, and the
   assert.ok(runFailures([{ page: 'ticket', theme: 'dark', width: 500, verdict: none }], false).includes('The task pages gave no action buttons to check.'));
   assert.ok(!runFailures([{ page: 'ticket', theme: 'dark', width: 500, verdict: v }], false).includes('The task pages gave no action buttons to check.'));
   assert.ok(COLLECT_GEOMETRY.includes('[data-action-set]') && COLLECT_GEOMETRY.includes("p.getAttribute('role') === 'menu'"), 'the page measures each set, and an open menu floats over the page');
+});
+
+test('the disabled check (T-121): a disabled button drawn as clear as an enabled one, or with another cursor, fails; the shared rule passes; edge case: a page with none examines none', () => {
+  const d = (opacity: number, cursor: string) => ({ what: 'div > button.btn.primary', text: 'Post to GitHub', opacity, cursor, why: true });
+  assert.deepEqual(judgeDisabled([d(0.45, DISABLED_LOOK.cursor)]), [], 'dimmed, not-allowed');
+  assert.equal(judgeDisabled([d(1, DISABLED_LOOK.cursor)]).length, 1, 'drawn at full opacity');
+  assert.equal(judgeDisabled([d(0.45, 'pointer')]).length, 1, 'the pointer cursor of an enabled button');
+  assert.equal(judgeDisabled([d(1, 'pointer')]).length, 2, 'both wrong');
+  assert.deepEqual(judgeDisabled([]), []);
+  assert.equal(judgeDisabled([{ ...d(0.45, DISABLED_LOOK.cursor), why: false }]).length, 1, 'no title or description, and not named as beside its text');
+  assert.equal(judgeDisabled([{ ...d(0.45, DISABLED_LOOK.cursor), why: false, text: Object.keys(REASON_BESIDE)[0] ?? 'x' }]).length, Object.keys(REASON_BESIDE).length ? 0 : 1, 'a named button may give its reason in the text beside it');
+  assert.equal(judge(fine(), true, []).examined.disabled, 0, 'none drawn, none examined');
+  const v = judge(fine({ disabled: [d(1, 'pointer')] }), true, []);
+  assert.equal(v.examined.disabled, 1);
+  assert.equal(v.violations.filter((x) => x.check === 'disabled').length, 2);
+});
+
+test('the shared disabled rule is in styles.css, and no other stylesheet gives .btn a rule of its own (T-121)', () => {
+  const dir = join(root, 'webview');
+  const css = readFileSync(join(dir, 'styles.css'), 'utf8');
+  assert.match(css, /\.btn:disabled, \.btn\.is-disabled \{[^}]*opacity: 0\.45;[^}]*cursor: not-allowed/);
+  for (const f of readdirSync(dir).filter((n) => n.endsWith('.css') && n !== 'styles.css')) {
+    assert.doesNotMatch(readFileSync(join(dir, f), 'utf8'), /\.btn[\w.-]*:disabled|\.btn\.is-disabled/, `${f} has its own disabled button rule`);
+  }
 });

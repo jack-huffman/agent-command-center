@@ -1,6 +1,4 @@
 /* Settings' About (GH-114): a row per version and one for the latest release, each with its button on the
    right; a newer release's notes link sits beside its state, and wraps under it on a narrow tab. */
 .about-row .settings-now a.ext { display: inline-flex; align-items: center; gap: 4px; }
-.about-row > .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.about-row > .btn:disabled:hover { background: var(--raised); border-color: var(--edge); }
 .about-install { margin-top: 6px; }

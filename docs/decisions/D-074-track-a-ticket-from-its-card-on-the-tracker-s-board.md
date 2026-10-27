@@ -34,3 +34,5 @@ GH-50 held the board to the repo's place.
   A refusal doesn't reload the board, or the reason would go with the card; the
   next scheduled load takes both away. A track still on its way is never
   forgotten.
+
+Note (2026-10-27, T-121): a Track button on its way now takes the shared disabled look, dimmed with a not-allowed cursor, like every disabled button.

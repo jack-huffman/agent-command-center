@@ -43,6 +43,21 @@ test('edge case: with no one signed in, the hint is only how to post', async () 
   assert.ok(!hint.textContent.includes('Commenting as') && !hint.textContent.includes('·'), hint.textContent);
 });
 
+test('Comment says to write a comment first while the box is empty, and clears once there is one (edge case: a box cleared again)', async () => {
+  const all = await drawn({ ...sampleTrackerTicket(Date.now(), 'azure'), signedInAs: null });
+  const send = all.find((e) => e.tagName === 'BUTTON' && e.textContent === 'Comment')!;
+  const box = all.find((e) => e.classList.contains('comment-box'))! as PageElement & { value: string };
+  const typeIn = (text: string): void => { box.value = text; for (const f of box.listeners.get('input') ?? []) f({}); };
+  // The composer and its reset after a post (updates.ts) say the one reason.
+  const { COMMENT_EMPTY } = await import('../webview/updates.ts');
+  assert.equal(COMMENT_EMPTY, 'Write a comment first');
+  assert.deepEqual([send.disabled, send.title], [true, COMMENT_EMPTY]);
+  typeIn('Looks right');
+  assert.deepEqual([send.disabled, send.title], [false, '']);
+  typeIn(' ');
+  assert.deepEqual([send.disabled, send.title], [true, COMMENT_EMPTY]);
+});
+
 test('the head\'s type and priority are each titled with what they are, "Type: …" and "Priority: …"', async () => {
   const m = sampleTrackerTicket(Date.now(), 'azure');
   assert.ok(m.type && m.priority, 'the sample has both');

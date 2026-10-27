@@ -39,4 +39,3 @@
 /* Cancel, then Dispatch, the default, on the right. */
 .ds-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 10px 18px 14px; border-top: 1px solid var(--edge); }
 .ds-foot .btn { min-width: 96px; justify-content: center; }
-.ds-foot .btn:disabled { opacity: 0.55; cursor: default; }

@@ -48,8 +48,6 @@
 .settings-tracker-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
 .settings-tracker-name { display: flex; align-items: center; gap: 6px; margin: 0; min-width: 0; font-size: 1em; }
 .settings-tracker-name > span:last-child { overflow-wrap: anywhere; }
-.settings-tracker-actions .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.settings-tracker-actions .btn:disabled:hover { background: var(--raised); border-color: var(--edge); }
 .settings-tracker-row { padding: 4px 0 0; border-top: 0; }
 .settings-tracker-row .settings-name { padding-top: 0; }
 .settings-tracker-row .settings-now { padding-top: 0; }

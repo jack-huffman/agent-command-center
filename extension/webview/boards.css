@@ -117,9 +117,6 @@
 .tcard-acc { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); font-size: 0.92em; }
 /* Its one next step goes full width, on a row of its own under its state (D-168). */
 .tcard-acc > .ta-btn { flex: 1 0 100%; margin-top: 2px; }
-/* A Track on its way says Tracking…, and stops looking like a button to press (D-074). */
-.tcard-track:disabled, .ticket-track:disabled { cursor: default; }
-.tcard-track:disabled:hover, .ticket-track:disabled:hover { background: var(--raised); border-color: var(--edge); }
 .card .openable.card-title { cursor: pointer; }
 .card .openable.card-title:hover { color: var(--vscode-textLink-foreground); }
 
@@ -155,7 +152,6 @@
 /* A Slack tracker's box for a thread's link (T-31), in place of a board: its label beside the box, as on
    the Connect page, and above it below 620 px. */
 .thread-link { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 14px; align-items: start; max-width: 820px; margin: 12px 0 0; }
-.thread-link .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 @media (max-width: 620px) {
   .thread-link { grid-template-columns: minmax(0, 1fr); }
   .thread-link .cfield-label { padding-top: 0; }

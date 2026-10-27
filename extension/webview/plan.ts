@@ -141,9 +141,10 @@ function ownOption(m: TicketModel, task: string, plan: TicketPlan, d: TicketDeci
     pick(m, task, plan, d, { text: input.value.trim() });
   };
   const go = button('Choose', 'check', choose, 'primary small');
-  go.disabled = !draft.trim() || !!planPending.what(key);
+  const ready = (v: string) => { go.disabled = !v.trim() || !!planPending.what(key); go.title = go.disabled ? (v.trim() ? 'Wait for the choice on its way' : 'Type your own option first') : ''; };
+  ready(draft);
   focusOnceDrawn(go, confirmKey(key, 'own'));
-  const input = keptInput(key, draft, `Your own option for ${d.title}`, (v) => { remember((x) => { x.drafts[key] = v; }); go.disabled = !v.trim(); }, choose);
+  const input = keptInput(key, draft, `Your own option for ${d.title}`, (v) => { remember((x) => { x.drafts[key] = v; }); ready(v); }, choose);
   input.maxLength = OWN_MAX;
   const cancel = button('Cancel', 'close', () => { toggle(); if (state.last) state.draw(state.last); }, 'ghost small');
   return el('div', 'plan-own open', input, go, cancel);

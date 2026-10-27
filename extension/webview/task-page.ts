@@ -18,7 +18,7 @@ import { dayName } from './days.ts';
 import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, labelChips, linkTo, md, openable, person, renderDoc, stateChip, status, typeMark, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
-import { updateDraft } from './updates.ts';
+import { COMMENT_EMPTY, updateDraft } from './updates.ts';
 import { upper } from './upper.ts';
 import { addToWorkTitle, WORDS } from './plain-words.ts';
 
@@ -74,18 +74,21 @@ function composer(m: TicketModel): HTMLElement {
   const send = el('button', 'btn primary', icon('comment'), 'Comment') as HTMLButtonElement;
   send.type = 'button';
   send.disabled = !box.value.trim();
+  send.title = send.disabled ? COMMENT_EMPTY : '';
   const keys = navigator.platform.includes('Mac') ? '⌘ Enter to post' : 'Ctrl+Enter to post';
   // Who comments and how to post are two parts with a gap between them, not a dot in a run of text.
   const hint = el('span', 'muted small composer-hint', m.signedInAs ? el('span', 'acting', icon('account'), `Commenting as ${m.signedInAs}`) : null, el('span', '', keys));
   const post = () => {
     if (!box.value.trim() || send.disabled) return;
     send.disabled = true;
+    send.title = 'Your comment is posting';
     box.disabled = true;
     send.replaceChildren(icon('sync~spin'), 'Posting');
     ticketAction('comment', box.value);
   };
   box.addEventListener('input', () => {
     send.disabled = !box.value.trim();
+    send.title = send.disabled ? COMMENT_EMPTY : '';
     remember((s) => { s.drafts[`${m.project}#${m.key}`] = box.value; });
   });
   box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); } });

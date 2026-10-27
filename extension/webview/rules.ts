@@ -89,7 +89,7 @@ function ruleDraft(c: RuleCard): HTMLElement {
     if (!now.line.trim() || !now.title.trim()) return;
     send(c, 'accept', { type: 'rule-accept', project: c.project, id: c.id, line: now.line.trim(), title: now.title.trim(), check: now.check, ...(now.note.trim() ? { note: now.note.trim() } : {}) });
   }, 'primary');
-  const ready = () => { const n = draftOf(c); confirm.disabled = sending || !n.line.trim() || !n.title.trim(); };
+  const ready = () => { const n = draftOf(c); confirm.disabled = sending || !n.line.trim() || !n.title.trim(); confirm.title = !confirm.disabled ? '' : sending ? 'Wait for it to be sent' : 'Give the rule a title and a line first'; };
   ready();
   const cancel = button('Cancel', 'close', () => { forget(c); redraw(); }, 'ghost');
 
