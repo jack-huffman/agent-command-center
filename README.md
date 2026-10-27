@@ -179,8 +179,9 @@ A fresh VSCode doesn't put `code` on your PATH: run **Shell Command: Install
 Extensions view → **⋯** → **Install from VSIX…**, and pick the file. Then
 reload the window (**Developer: Reload Window**).
 
-After that, the extension finds a newer release by itself and offers it in a
-notification. **Install and reload** (also in Settings' **About**) downloads
+After that, the extension finds a newer release by itself (a minute after
+VSCode starts, then every six hours, unless the setting
+`agentCommandCenter.updates.check` is off) and offers it in a notification. **Install and reload** (also in Settings' **About**) downloads
 the release's `.vsix` as gh's signed-in account, checks it against the
 release's `.sha256`, installs it, reloads the window and opens the Command
 Center on the new version. A newer release also installs by hand, the same
@@ -223,8 +224,8 @@ way as the first, over the old one.
    and ticket source; its **Project walkthrough** button, or **Agent Command
    Center: Onboard this project**, opens them as VSCode's walkthrough.
 4. **The Command Center.** Click its icon in the activity bar. **Setup** shows
-   every step and what's left, and `acc doctor` in any VSCode terminal runs the
-   same checks.
+   every step and what's left, and `acc doctor` in a VSCode terminal opened
+   after the extension started runs the same checks.
 
 ### What the Command Center changes on your machine
 
