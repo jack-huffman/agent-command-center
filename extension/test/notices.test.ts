@@ -107,9 +107,9 @@ test('D-044\'s review notices stay quiet for a review autopilot ran, and still s
 
 test('all of acc is one status bar item: what needs you first, a spinner while busy, the rest in its tooltip (D-065)', async () => {
   const { combinedStatus } = await import('../src/logic/status.ts');
-  const base = { rows: [], needsYou: 0, asking: null, running: [], checking: false, setup: { done: 31, total: 32, todo: 0 }, autopilot: [], account: { name: 'jhuffman-aleysian', ok: true } };
+  const base = { rows: [], needsYou: 0, asking: null, running: [], checking: false, setup: { done: 31, total: 32, todo: 0 }, autopilot: [], account: { name: 'jordan-kim', ok: true } };
   assert.equal(combinedStatus(base).text, '', 'nothing to say: it hides');
-  assert.match(combinedStatus(base).tooltip.join('\n'), /GitHub: jhuffman-aleysian/);
+  assert.match(combinedStatus(base).tooltip.join('\n'), /GitHub: jordan-kim/);
   assert.equal(combinedStatus({ ...base, needsYou: 3 }).text, '$(bell) 3 need you');
   assert.equal(combinedStatus({ ...base, needsYou: 3 }).attention, true);
   assert.equal(combinedStatus({ ...base, needsYou: 3, checking: true }).text, '$(bell) 3 need you $(sync~spin)', 'busy: a spinner, not another item');

@@ -23,6 +23,11 @@
   reviewer's call. Checked by
   `scripts/test/rules.test.ts`, whose `UNCHECKED` list names the rules that predate this one. That list
   may only shrink.
+- No client's name is committed: not in a file, a test, a decision or a note, because the repo may be shared
+  beyond the author. Say "the client's name", "the pilot client" or a fictional name (acme, jordan-kim). The
+  check keeps a list of SHA-256 hashes of banned names, never the names. To add one, run
+  `node scripts/name-hash.mjs <name>` and paste the hash into `BANNED` in the test. Checked by
+  `scripts/test/no-client-names.test.ts`, which reads every tracked text file and fails on none read.
 - Write each requirement that an agent reads in STE Strict mode (ASD-STE100 Simplified Technical
   English): the goal, each criterion, each assumption and each out-of-scope item. The analyst's prompt
   holds the rules. acc checks the wording of each requirement line it reads, and the task page shows each

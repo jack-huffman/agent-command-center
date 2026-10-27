@@ -21,7 +21,7 @@ B5, B6, B9 and B10 were terminal recipes in ONBOARDING.md. Each is now an
     domain settings.
   - App logos go to known drift, and so does any file whose two versions have
     the same lines in another order: Salesforce's ordering noise, measured
-    rather than guessed by file type. On Avalign that's 3 object files, where
+    rather than guessed by file type. On the pilot client that's 3 object files, where
     "every object file" would have been 52.
   - It names the differences neither list explains, and never overwrites a
     list you have.
