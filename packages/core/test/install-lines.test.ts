@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { INSTALL_LINES, INSTALL_SYSTEMS, type InstallTool, installCommand, installLine, installText, restartNote, RESTART_NOTE, SYSTEM, systemOf } from '../src/onboarding/install-lines.ts';
+import { BREW_INSTALL, INSTALL_LINES, needsBrew, INSTALL_SYSTEMS, type InstallTool, installCommand, installLine, installText, restartNote, RESTART_NOTE, SYSTEM, systemOf } from '../src/onboarding/install-lines.ts';
 import { makeContext } from '../src/onboarding/helpers.ts';
 import { runSteps, STEPS } from '../src/onboarding/steps.ts';
 import { fakeRunner, ok, tempDir } from './support.ts';
@@ -25,7 +25,7 @@ test('where a maker gives Linux no one line, the line is its page, not a command
     assert.match(installText(tool, 'linux') ?? '', /^Install it from https:\/\//, tool);
   }
   assert.equal(installText('git', 'mac'), null, 'a line to run needs no page');
-  assert.deepEqual(installLine('git', 'windows'), { command: 'winget install --id Git.Git -e' });
+  assert.deepEqual(installLine('git', 'windows'), { command: 'winget install --id Git.Git -e', shell: 'powershell' });
 });
 
 test('only Windows is told to restart VSCode after an install', () => {
@@ -56,7 +56,7 @@ test('a tool that isn\'t installed gets the line for the system the check runs f
   ];
   for (const [call, tool, ids] of missing) {
     for (const system of INSTALL_SYSTEMS) {
-      const ctx = { ...makeContext(tempDir(), fakeRunner({ [call]: MISSING }), {}), system };
+      const ctx = { ...makeContext(tempDir(), fakeRunner({ [call]: MISSING, 'brew --version': ok('Homebrew 4.5.0') }), {}), system };
       const res = runSteps(ctx, 'machine', ids)[0]!.result;
       assert.equal(res.status, 'fail', `${tool} on ${system}`);
       assert.equal(res.fix, installCommand(tool, system) ?? undefined, `${tool} on ${system}`);
@@ -71,6 +71,43 @@ test('Node, a Salesforce step, gets its Windows line, and the plugin step names 
   const plugin = runSteps({ ...makeContext(tempDir(), fakeRunner({ 'claude plugin list --json': MISSING }), {}), system: 'windows' as const }, 'machine', ['A4.plugin'])[0]!.result;
   assert.equal(plugin.fix, 'irm https://claude.ai/install.ps1 | iex');
   assert.match(plugin.detail, /Do A1\.claude first\./);
+});
+
+const onMac = (fixtures: Parameters<typeof fakeRunner>[0], system: 'mac' | 'windows' | 'linux' = 'mac') => ({ ...makeContext(tempDir(), fakeRunner(fixtures), {}), system });
+
+test('A1.brew passes on a Mac that has Homebrew, and fails with Homebrew\'s own installer when it is missing', () => {
+  const present = runSteps(onMac({ 'brew --version': ok('Homebrew 4.5.0\nHomebrew/homebrew-core') }), 'machine', ['A1.brew'])[0]!.result;
+  assert.deepEqual([present.status, present.detail], ['pass', 'brew 4.5.0']);
+  const missing = runSteps(onMac({ 'brew --version': MISSING }), 'machine', ['A1.brew'])[0]!.result;
+  assert.deepEqual([missing.status, missing.detail], ['fail', 'Homebrew isn\'t installed.']);
+  assert.equal(STEPS.find((s) => s.id === 'A1.brew')!.fix?.command, BREW_INSTALL);
+  assert.equal(BREW_INSTALL, '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"');
+  const broken = runSteps(onMac({ 'brew --version': { code: 1, stdout: '', stderr: 'Error: broken' } }), 'machine', ['A1.brew'])[0]!.result;
+  assert.deepEqual([broken.status, broken.detail], ['fail', 'brew didn\'t run: Error: broken']);
+});
+
+test('A1.brew is skipped with a reason on Windows and Linux, and is the first of the tools', () => {
+  for (const system of ['windows', 'linux'] as const) {
+    const r = runSteps(onMac({}, system), 'machine', ['A1.brew'])[0]!.result;
+    assert.equal(r.status, 'skip', system);
+    assert.match(r.detail, /^Only on a Mac/, system);
+  }
+  const ids = STEPS.map((s) => s.id);
+  assert.ok(ids.indexOf('A1.brew') < ids.indexOf('A1.git'), 'before the steps whose Mac line is a brew command');
+});
+
+test('while Homebrew is missing on a Mac, a step whose line is a brew command says to do A1.brew first, and Windows doesn\'t', () => {
+  const none = { 'brew --version': MISSING };
+  for (const [call, id] of [['git --version', 'A1.git'], ['node --version', 'A1.node'], ['gh --version', 'A1.gh'], ['claude --version', 'A1.claude']] as const) {
+    const r = runSteps(onMac({ ...none, [call]: MISSING }), 'machine', [id])[0]!.result;
+    assert.match(r.detail, /do A1\.brew first\.$/, id);
+    assert.equal(r.fix, BREW_INSTALL, id);
+    const win = runSteps(onMac({ ...none, [call]: MISSING }, 'windows'), 'machine', [id])[0]!.result;
+    assert.doesNotMatch(win.detail, /A1\.brew/, `${id} on Windows`);
+  }
+  const plugin = runSteps(onMac({ ...none, 'claude plugin list --json': MISSING }), 'machine', ['A4.plugin'])[0]!.result;
+  assert.match(plugin.detail, /Do A1\.claude first\. Homebrew isn't installed: do A1\.brew first\./);
+  assert.ok(needsBrew('git', 'mac') && !needsBrew('git', 'windows') && !needsBrew('claude', 'linux'));
 });
 
 test('an installed tool says nothing of installing, on any system', () => {

@@ -130,8 +130,9 @@ they **build it**, and they review and merge it. [ONBOARDING.md](docs/ONBOARDING
 ### What you need
 
 - **macOS** (Apple Silicon or Intel) or **Windows**, with no WSL. On a Mac,
-  **Homebrew** installs what's missing; on Windows, **winget** does, and the
-  walkthrough gives the line for your system. (Linux isn't a supported
+  **Homebrew** installs what's missing (Setup checks it's there, and offers its
+  installer); on Windows, **winget** does. The walkthrough gives the line for
+  your system. (Linux isn't a supported
   platform, but its lines are given.)
 - **VSCode.**
 - **Claude Code**, the terminal CLI, signed in to your Claude account. On a Mac:

@@ -332,6 +332,7 @@ const TOOL_LINES: readonly { line: RegExp; does: string }[] = [
   { line: /^claude update$/, does: 'Update Claude Code' },
   { line: /^claude auth login$/, does: 'Sign in to Claude Code with your claude.ai account' },
   { line: /^claude(?:\s+#.*)?$/, does: 'Open Claude Code in this folder, to trust it' },
+  { line: /^\/bin\/bash -c "\$\(curl -fsSL https:\/\/raw\.githubusercontent\.com\/Homebrew\/install\/HEAD\/install\.sh\)"$/, does: 'Install Homebrew' },
   // The install lines of each system (packages/core/src/onboarding/install-lines.ts): Homebrew, winget, the makers' installers and apt (T-124).
   { line: /^(?:brew install --cask claude-code|irm https:\/\/claude\.ai\/install\.ps1 \| iex|curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash)$/, does: 'Install Claude Code' },
   { line: /^(?:brew install git|winget install --id Git\.Git -e|sudo apt install git)$/, does: 'Install git' },

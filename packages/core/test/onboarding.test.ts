@@ -21,6 +21,7 @@ const TRACK_Q = 'sf data query --use-tooling-api -q SELECT COUNT() FROM SourceMe
 /** Fixtures for a fully set-up machine and Salesforce project. Tests override single entries. */
 function healthy(): Record<string, RunResult | ((o?: { env?: NodeJS.ProcessEnv }) => RunResult)> {
   return {
+    'brew --version': ok('Homebrew 4.5.0'),
     'node --version': ok('v23.11.0'),
     'gh --version': ok('gh version 2.101.0 (2026-09-15)'),
     'claude --version': ok('2.1.287 (Claude Code)'),

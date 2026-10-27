@@ -19,7 +19,7 @@ import {
   cached, fail, firstVersion, ghEnv, LICENSE_TO_TYPE, parseOrgUrl, pass, pluginBehind, readText, SECRET_PATTERN, sfJson, skip, unknown, versionAtLeast,
 } from './helpers.ts';
 import type { CheckContext, CheckResult, Fix, Step, StepResult } from './types.ts';
-import { installCommand, type InstallSystem, type InstallTool, installText, restartNote, SYSTEM } from './install-lines.ts';
+import { BREW_INSTALL, installCommand, type InstallSystem, type InstallTool, installText, needsBrew, restartNote, SYSTEM } from './install-lines.ts';
 import { CLOUD_STEPS } from './cloud-steps.ts';
 import { TOOL_STEPS } from './tool-steps.ts';
 import { MERGE_STEPS } from './merge-steps.ts';
@@ -210,11 +210,17 @@ function installFix(tool: InstallTool, system: InstallSystem): Fix {
 }
 
 /** The result for a tool that isn't there: the line for the system the check runs for, and, on Windows, to restart VSCode. */
-function notInstalled(detail: string, tool: InstallTool | null, system: InstallSystem): CheckResult {
+function notInstalled(ctx: CheckContext, detail: string, tool: InstallTool | null): CheckResult {
   if (!tool) return fail(detail);
+  const system = ctx.system ?? SYSTEM;
   const note = restartNote(system);
+  // A Mac line that is a brew command needs Homebrew: Do it installs that first, as A4.plugin's installs Claude Code (T-124).
+  if (needsBrew(tool, system) && !brewInstalled(ctx)) return fail(`${detail} Homebrew isn't installed: do A1.brew first.`, BREW_INSTALL);
   return fail(note ? `${detail} ${note}` : detail, installCommand(tool, system) ?? undefined);
 }
+
+/** Whether `brew --version` runs here; asked once for all the steps that need it. */
+const brewInstalled = (ctx: CheckContext): boolean => cached(ctx, 'brew', () => ctx.run('brew', ['--version'], { env: ctx.env }).code === 0);
 
 /** A step for a tool found by its version. fix is a tool's install (from the per-system table) or a command to run as it is. */
 function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: { tool: InstallTool } | string, profiles?: Step['profiles']): Step {
@@ -223,7 +229,7 @@ function versionStep(id: string, title: string, why: string, cmd: string, args: 
     id, part: 'machine', group: 'A1', title, why, profiles, fix: typeof fix === 'string' ? { command: fix } : installFix(fix.tool, SYSTEM), ...(tool ? { install: tool } : {}),
     check(ctx) {
       const r = ctx.run(cmd, args, { env: ctx.env });
-      if (r.code === 127) return notInstalled(`${cmd} isn't installed.`, tool, ctx.system ?? SYSTEM);
+      if (r.code === 127) return notInstalled(ctx, `${cmd} isn't installed.`, tool);
       if (r.code !== 0) return fail(`${cmd} didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
       const v = firstVersion(r.stdout + r.stderr);
       if (min && (!v || !versionAtLeast(v, min))) return fail(`${cmd} ${v ?? '(unknown version)'} is older than ${min}.`);
@@ -246,6 +252,18 @@ export const GROUP_TITLES: Record<string, string> = {
 
 export const STEPS: Step[] = [
   // ------------------------------------------------------------ Part A: this machine
+  {
+    id: 'A1.brew', part: 'machine', group: 'A1', title: 'Homebrew (on a Mac)',
+    why: 'On a Mac, git, Node, the GitHub CLI and Claude Code are installed with Homebrew. Windows installs with winget, so this step is only for a Mac.',
+    fix: { command: BREW_INSTALL },
+    check(ctx) {
+      if ((ctx.system ?? SYSTEM) !== 'mac') return skip('Only on a Mac: Windows installs with winget, and Linux with its own package manager.');
+      const r = ctx.run('brew', ['--version'], { env: ctx.env });
+      if (r.code === 127) return fail('Homebrew isn\'t installed.');
+      if (r.code !== 0) return fail(`brew didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
+      return pass(`brew ${firstVersion(r.stdout) ?? ''}`.trim());
+    },
+  },
   versionStep('A1.git', 'git 2.40 or later', 'Worktrees and the shared git directory need a recent git.', 'git', ['--version'], '2.40', { tool: 'git' }),
   // acc itself needs no Node: its launcher falls back to VSCode's runtime (D-077).
   versionStep('A1.node', 'Node 20 or later', 'The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn\'t need it.', 'node', ['--version'], '20', { tool: 'node' }, ['salesforce']),
@@ -256,7 +274,7 @@ export const STEPS: Step[] = [
     fix: { command: 'claude update' }, install: 'claude',
     check(ctx) {
       const v = ctx.run('claude', ['--version'], { env: ctx.env });
-      if (v.code === 127) return notInstalled('claude isn\'t installed.', 'claude', ctx.system ?? SYSTEM);
+      if (v.code === 127) return notInstalled(ctx, 'claude isn\'t installed.', 'claude');
       const h = ctx.run('claude', ['--help'], { env: ctx.env });
       if (!/--bg\b/.test(h.stdout)) return fail(`claude ${firstVersion(v.stdout) ?? ''} has no --bg. Update it.`);
       return pass(`claude ${firstVersion(v.stdout) ?? ''}`.trim());
@@ -317,7 +335,7 @@ export const STEPS: Step[] = [
     check(ctx) {
       const read = claudeList(ctx, PLUGIN_LIST_ARGS);
       // Its Do it installs Claude Code itself: the plugin's own commands would only say claude isn't found.
-      if (!read.ok && read.missing) return notInstalled(`${read.error} Do A1.claude first.`, 'claude', ctx.system ?? SYSTEM);
+      if (!read.ok && read.missing) return notInstalled(ctx, `${read.error} Do A1.claude first.`, 'claude');
       if (!read.ok) return unknown(`Couldn't read Claude Code's plugins: ${read.error}`);
       const list = read.list;
       const mine = list.filter((p) => p.id === PLUGIN_ID);

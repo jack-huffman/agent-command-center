@@ -1038,6 +1038,17 @@
         "description": "Tools, accounts and the Command Center's Claude Code plugin that agents need. Each step ticks itself when its check passes.",
         "steps": [
           {
+            "id": "A1.brew",
+            "title": "Homebrew (on a Mac)",
+            "description": "On a Mac, git, Node, the GitHub CLI and Claude Code are installed with Homebrew. Windows installs with winget, so this step is only for a Mac.\n\n[Check](command:acc.step.check?%5B%22A1.brew%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.brew%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.brew.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.brew"
+            ]
+          },
+          {
             "id": "A1.git",
             "title": "git 2.40 or later",
             "description": "Worktrees and the shared git directory need a recent git.\n\n[Check](command:acc.step.check?%5B%22A1.git%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.git%22%5D)",

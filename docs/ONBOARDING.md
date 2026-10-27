@@ -29,6 +29,7 @@ Each install line is for the system acc runs on: a Mac (Homebrew) or Windows (wi
 
 | Step | Check | On a Mac | On Windows |
 |---|---|---|---|
+| **Homebrew (on a Mac)** (`A1.brew`) | `brew --version`. Only on a Mac: Windows skips it | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`. While it's missing, the Mac lines below say to do this step first | Not needed: winget comes with Windows |
 | **git 2.40 or later** (`A1.git`) | `git --version` | `brew install git` | `winget install --id Git.Git -e` |
 | **Node 20 or later** (`A1.node`) | `node --version` | `brew install node`. Salesforce projects only, for the Salesforce CLI. acc itself needs no Node: it runs on VSCode's own runtime | `winget install --id OpenJS.NodeJS.LTS -e` (the same) |
 | **GitHub CLI** (`A1.gh`) | `gh --version` | `brew install gh` | `winget install --id GitHub.cli -e` |

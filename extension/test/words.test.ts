@@ -197,7 +197,7 @@ test('the walkthrough speaks in processes too: each step\'s page and description
   for (const s of STEPS) {
     for (const [what, text] of [['page', stepMedia(s)], ['description', stepDescription(s)]] as const) {
       // Another tool's command, shown to copy in a bash block, is that tool's line, not acc's.
-      const words = text.replace(/```bash\n[\s\S]*?```/g, '');
+      const words = text.replace(/```(?:bash|powershell)\n[\s\S]*?```/g, '');
       assert.deepEqual(rulesHit(words), [], `${s.id}'s ${what}: ${words.slice(0, 200)}`);
     }
     if (s.fix?.command?.startsWith('acc ')) assert.ok(!stepMedia(s).includes(s.fix.command), `${s.id}'s page names its process, not ${s.fix.command}`);

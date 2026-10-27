@@ -402,7 +402,8 @@ test('a step that installs a tool shows its line for a Mac, Windows and Linux on
     const media = stepMedia(s);
     for (const system of ['mac', 'windows'] as const) {
       const line = INSTALL_LINES[s.install!][system];
-      assert.ok('command' in line && media.includes(`\`\`\`bash\n${line.command}\n\`\`\``), `${s.id} shows its ${system} line`);
+      const fence = system === 'windows' ? 'powershell' : 'bash';
+      assert.ok('command' in line && media.includes(`\`\`\`${fence}\n${line.command}\n\`\`\``), `${s.id} shows its ${system} line`);
     }
     assert.match(media, /On a Mac:[\s\S]*On Windows:[\s\S]*On Linux:/, s.id);
     assert.match(media, /restart VSCode/, s.id);
