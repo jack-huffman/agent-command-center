@@ -9,6 +9,7 @@ import { plural } from '../../../packages/core/src/text.ts';
 import { KIND_QUESTION, SETUP_PARTS } from '../logic/first-open.ts';
 import { inProcessWords, processLine, toolLineDoes } from '../logic/processes.ts';
 import { type DoctorItem, hasRunnableFix } from '../logic/setup.ts';
+import { REPORT_COMMAND } from './report.ts';
 import { type Action, type Look, LOOK, type ModelArea, type Ref } from './shared.ts';
 
 // ---------------------------------------------------------------- setup
@@ -108,6 +109,8 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: b
     if (open && step?.fix?.setupPath) actions.push({ command: 'acc.step.openSetup', label: 'Open in Salesforce', icon: 'globe', ref });
     if (status === 'unknown') actions.push({ command: 'acc.step.confirm', label: 'I\'ve done this', icon: 'check', ref });
     if (step?.fix?.docs) actions.push({ command: 'acc.openGuide', label: 'Guide', icon: 'book', ref });
+    // A step whose check failed can be reported (T-118): the draft starts with the step and its result.
+    if (status === 'fail') actions.push({ command: REPORT_COMMAND.id, label: 'Report a problem', icon: 'report', ref });
     const look = STATUS[status] ?? STATUS.skip;
     // A fix that's a VSCode command runs from Do it; one of acc's is named as its process (GH-163). Another
     // tool's command line is named too, and kept to show on request, for someone who runs it by hand (GH-168).

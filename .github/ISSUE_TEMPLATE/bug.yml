@@ -1,0 +1,28 @@
+# A problem with the Command Center (T-118). Its fields are the sections of the Command Center's own Report a
+# problem draft, in the same order (extension/webview/report-text.ts): a draft posted from there fills each one.
+# extension/test/report-template.test.ts checks the two agree.
+name: Report a problem
+description: Something in the Command Center didn't work as you expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The Command Center can draft this for you: Report a problem, in VSCode's Command Palette or in Settings' About, fills in What's attached and replaces the details of your client work with placeholders. Leave out anything from a client's work: names, sites, orgs, ticket keys and paths.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what the Command Center did.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What you thought it would do.
+  - type: textarea
+    id: attached
+    attributes:
+      label: What's attached
+      description: The versions of the extension, its command-line engine and its Claude Code plugin; macOS's and VSCode's versions; the project's profile; Setup's results; and the last error you saw.

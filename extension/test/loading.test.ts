@@ -18,7 +18,7 @@ const base = { toString: () => 'file:///ext/dist/webview' } as never;
 const KINDS = Object.keys(OPENING) as TabKind[];
 
 test('a tab of each kind opens on the loading screen, with that kind\'s line as its name', () => {
-  assert.deepEqual(KINDS, ['home', 'ticket', 'agent', 'conversation']);
+  assert.deepEqual(KINDS, ['home', 'ticket', 'agent', 'conversation', 'report']);
   for (const kind of KINDS) {
     const html = htmlFor(webview, base, kind, 'n0nce');
     const app = /<main id="app">([\s\S]*?)<\/main>/.exec(html)?.[1] ?? '';
@@ -28,7 +28,7 @@ test('a tab of each kind opens on the loading screen, with that kind\'s line as 
     assert.ok(!app.includes('Loading…'), `${kind}: the old corner text is gone`);
     assert.ok(!/\sstyle=/.test(html), `${kind}: no inline style, which the page's CSP forbids`);
   }
-  assert.deepEqual(KINDS.map((k) => OPENING[k]), ['Opening the Command Center', 'Opening the task', 'Opening the agent', 'Opening the conversation']);
+  assert.deepEqual(KINDS.map((k) => OPENING[k]), ['Opening the Command Center', 'Opening the task', 'Opening the agent', 'Opening the conversation', 'Opening the report']);
 });
 
 test('the loading screen draws both marks, the dark one first, and escapes a mark\'s URL that holds a quote (edge case)', () => {

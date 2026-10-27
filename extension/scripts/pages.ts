@@ -173,6 +173,11 @@ export const PAGES = [
   // The agent's questions one at a time, part-way through, and a long conversation folded (T-113)
   'conversation-questions',
   'conversation-long',
+  // Report a problem (T-118): the draft as it opens, filled in, where GitHub's account can't reach the repo, and posted
+  'report',
+  'report-filled',
+  'report-no-access',
+  'report-posted',
   'ticket-changes-field',
   'ticket-team',
   'ticket-team-alone',
@@ -229,5 +234,5 @@ export const STILL: readonly Page[] = ['loading'];
 /** The widths every page is shot at unless --width says. */
 export const WIDTHS = [1000, 620, 500] as const;
 
-/** The kind of tab a page is drawn in: a ticket's, a plan's conversation (T-111), an agent's, or the Command Center's own. */
-export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind.startsWith('conversation') ? 'conversation' : kind === 'agent' ? kind : 'home');
+/** The kind of tab a page is drawn in: a ticket's, a plan's conversation (T-111), a report's (T-118), an agent's, or the Command Center's own. */
+export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind.startsWith('conversation') ? 'conversation' : kind.startsWith('report') ? 'report' : kind === 'agent' ? kind : 'home');

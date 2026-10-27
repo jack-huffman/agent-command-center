@@ -1,0 +1,3 @@
+# The issue templates (T-118): the bug template's fields match the Command Center's Report a problem draft. A blank
+# issue stays allowed, for the tasks the author files by hand.
+blank_issues_enabled: true

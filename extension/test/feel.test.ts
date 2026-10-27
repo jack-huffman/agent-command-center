@@ -189,6 +189,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'manifest.ts', at: /s\.built \? '' : 'primary'\),$/, why: 'Manifest for this ticket (T-101): Build the manifest, before there is one.' },
   { file: 'manifest.ts', at: /s\.built \? 'primary' : '', \{ check: true \}\),$/, why: 'Manifest for this ticket (T-101): once it\'s built, Check against the org, which reads the org\'s fresh copies.' },
   { file: 'criteria.ts', at: /primary \? 'primary' : ''\);$/, why: 'Drafted acceptance criteria (T-81): Draft acceptance criteria before there is a draft, then Add to the description, the person\'s next step, as the model marks it.' },
+  { file: 'report.ts', at: /^ *\}, 'primary'\);$/, why: 'Post to GitHub on Report a problem (T-118): the draft\'s one way out, and nothing is sent until the person clicks it.' },
   { file: 'analysis.ts', at: /button\('Answer'/, why: 'Answer: the analysis waits on the person\'s answer.' },
   { file: 'plan.ts', at: /button\('Choose this'/, why: 'Choose this on the recommended option, while nobody has chosen (T-97): the plan waits on the person\'s choice.' },
   { file: 'plan.ts', at: /button\('Choose', 'check'/, why: 'Choose: the person\'s own option, typed in the box beside it (T-97).' },

@@ -12,6 +12,7 @@ import { PLUGIN } from '../../../packages/core/src/onboarding/steps.ts';
 import { COMMANDS } from '../logic/setup.ts';
 import { durationWords } from './limits.ts';
 import type { SettingFrom } from './settings.ts';
+import { REPORT_COMMAND } from './report.ts';
 import { LOOK, type Look, type ModelArea } from './shared.ts';
 
 /** The repo whose Releases are acc's: the marketplace's own, as owner/name. */
@@ -59,6 +60,8 @@ export interface AboutFacts {
   checkedAt: number | null;
   /** Whether the extension looks for a release by itself (T-62), as its setting says. */
   auto: boolean;
+  /** Whether a report is posting now (T-118): Report a problem waits while one is. */
+  reporting?: boolean;
 }
 
 /** A button: one of the commands the page may ask for. Disabled, it says why. */
@@ -97,10 +100,18 @@ export interface AboutModel {
     when: string;
     check: AboutAction;
   };
+  /** Report a problem (T-118): a draft issue for the Command Center's author, seen in full before it's posted. */
+  report: AboutAction;
 }
 
-/** The commands About runs: Check now, Install and reload (T-62), and Setup's own fix for A4 (D-088). */
+/** The commands About runs: Check now, Install and reload (T-62), and Setup's own fix for A4 (D-088). Report a problem is report.ts's. */
 export const ABOUT_COMMANDS = { check: 'acc.about.check', install: 'acc.update.install', fix: COMMANDS.fix } as const;
+
+/** Report a problem's button (T-118), off with its command's reason while a report posts. report.ts reads this module's RELEASES_REPO, so its command is read here only when the button is made. */
+export function reportAction(f: Pick<AboutFacts, 'reporting'>): AboutAction {
+  const can = REPORT_COMMAND.enabled({ posting: !!f.reporting });
+  return { command: REPORT_COMMAND.id, label: 'Report a problem', icon: 'report', arg: null, name: 'Report a problem: draft an issue for the Command Center\'s author, and see all of it before it\'s posted', primary: false, disabled: can.ok ? null : can.why };
+}
 
 /** A release's tag as a version: v0.38.0 is 0.38.0. */
 export const tagVersion = (tag: string): string => tag.replace(/^v(?=\d)/, '');
@@ -190,6 +201,7 @@ export function aboutModel(f: AboutFacts, now: number): AboutModel {
         : `Looking by itself is off in VSCode's settings: looked for when Settings opens, at most every ${durationWords(RELEASE_EVERY_MS)}, or now with Check now.`}`,
       check: { command: ABOUT_COMMANDS.check, label: 'Check now', icon: 'refresh', arg: null, name: 'Check now for a newer release, and read the versions again', primary: false, disabled: f.checking ? 'It\'s looking now.' : null },
     },
+    report: reportAction(f),
   };
 }
 

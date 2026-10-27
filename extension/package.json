@@ -334,6 +334,12 @@
         "icon": "$(debug-stop)"
       },
       {
+        "command": "acc.report",
+        "title": "Report a problem with the Command Center",
+        "category": "Agent Command Center",
+        "icon": "$(report)"
+      },
+      {
         "command": "acc.settings.theme",
         "title": "Choose the Command Center's theme",
         "category": "Agent Command Center",

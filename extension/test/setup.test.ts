@@ -352,9 +352,9 @@ test('setup counts steps done, and offers fixes only where something is open', (
   assert.equal(m.total, 4);
   assert.equal(m.done, 2);
   const steps = m.parts.flatMap((p) => p.steps);
-  assert.deepEqual(steps.find((s) => s.id === 'B2.identity')!.actions.map((a) => a.label), ['Do it', 'Check']);
+  assert.deepEqual(steps.find((s) => s.id === 'B2.identity')!.actions.map((a) => a.label), ['Do it', 'Check', 'Report a problem']);
   const tickets = steps.find((s) => s.id === 'B14.tickets')!;
-  assert.deepEqual(tickets.actions.map((a) => a.label), ['Do it', 'Check', 'Guide'], 'Do it runs Add a tracker or Sign in, in VSCode');
+  assert.deepEqual(tickets.actions.map((a) => a.label), ['Do it', 'Check', 'Guide', 'Report a problem'], 'Do it runs Add a tracker or Sign in, in VSCode');
   assert.equal(tickets.fix, null, 'a VSCode command isn\'t shown as one to copy');
   assert.deepEqual(steps.find((s) => s.id === 'B0.repo')!.actions.map((a) => a.label), ['Check', 'Guide'], 'passing steps keep only Check and the guide')
   assert.deepEqual(steps.find((s) => s.id === 'A4.plugin')!.actions.map((a) => a.label), ['Check']);
@@ -369,7 +369,7 @@ test('setup shows the acc plugin under its own section, with Do it while it fail
   const machine = m.parts.find((p) => p.part === 'machine')!;
   assert.deepEqual(machine.sections.map((s) => [s.title, s.todo]), [['Accounts', 0], ['The Claude Code plugin', 1]]);
   const a4 = machine.steps.find((s) => s.id === 'A4.plugin')!;
-  assert.deepEqual(a4.actions.map((a) => a.label), ['Do it', 'Check']);
+  assert.deepEqual(a4.actions.map((a) => a.label), ['Do it', 'Check', 'Report a problem']);
   assert.deepEqual([a4.fix, a4.does], [add, "Install the Command Center's Claude Code plugin"], 'the step says what Do it does in words, and keeps the command line to show on request (GH-168)');
   assert.deepEqual([a4.look.label, a4.look.tone], ['To do', 'orange']);
 });

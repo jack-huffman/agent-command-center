@@ -37,27 +37,27 @@ test('paletteItems finds every section, part of Settings, task, agent and action
   for (const t of of('task')) assert.ok(t.words.includes(t.hint), `${t.hint}'s words hold its key`);
   const agents = m.agents.repos.flatMap((r) => [...r.tasks.flatMap((t) => t.agents), ...r.finished]);
   assert.deepEqual(of('agent').map((i) => [i.title, i.does]), agents.map((a) => [a.name, { kind: 'run', command: 'acc.agent.watch', ref: { session: a.key } }]), 'each agent opens its page');
-  // The header's four, each card's next step with what its button sends, and Agents' Stop finished.
+  // The header's four and Report a problem (T-118), each card's next step with what its button sends, and Agents' Stop finished.
   const root = m.overview.projects[0]!.root;
   const actions = of('action');
-  assert.deepEqual(actions.slice(0, 4).map((a) => [a.title, a.does]), [
+  assert.deepEqual(actions.slice(0, 5).map((a) => [a.title, a.does]), [
     ['Add task', { kind: 'toolbar', command: 'acc.task.add', project: root }], ['Start an agent', { kind: 'toolbar', command: 'acc.agent.new', project: root }],
-    ['Add a tracker', { kind: 'toolbar', command: 'acc.trackers.add', project: root }], ['Refresh', { kind: 'refresh' }],
+    ['Add a tracker', { kind: 'toolbar', command: 'acc.trackers.add', project: root }], ['Refresh', { kind: 'refresh' }], ['Report a problem', { kind: 'toolbar', command: 'acc.report' }],
   ]);
   const steps = cards.flatMap(({ card }) => { const s = paletteStep(card.actions); return s ? [{ card, s }] : []; });
   assert.ok(steps.length >= 4, `the sample offers Dispatch, Resume, Answer and Watch steps, found ${steps.length}`);
-  assert.deepEqual(actions.slice(4, 4 + steps.length).map((a) => [a.title, a.hint, a.does]), steps.map(({ card, s }) => [`${s.label}: ${card.title}`, card.id, s.question ? { kind: 'answer', question: s.question } : { kind: 'run', command: s.command, ref: s.ref }]));
+  assert.deepEqual(actions.slice(5, 5 + steps.length).map((a) => [a.title, a.hint, a.does]), steps.map(({ card, s }) => [`${s.label}: ${card.title}`, card.id, s.question ? { kind: 'answer', question: s.question } : { kind: 'run', command: s.command, ref: s.ref }]));
   // Then Edit for each task that can be edited now (T-74): none whose builder runs, nor one that's done.
   const editable = cards.filter(({ card }) => card.actions.some((a) => a.command === 'acc.task.edit' && !a.disabled));
   assert.ok(editable.length > 0 && editable.length < cards.length, `some tasks can be edited and some can't, found ${editable.length} of ${cards.length}`);
-  assert.deepEqual(actions.slice(4 + steps.length, -1).map((a) => [a.title, a.hint, a.does, a.disabled]), editable.map(({ card }) => [`Edit: ${card.title}`, card.id, { kind: 'run', command: 'acc.task.edit', ref: { project: card.actions[0]!.ref.project, task: card.id } }, undefined]));
+  assert.deepEqual(actions.slice(5 + steps.length, -1).map((a) => [a.title, a.hint, a.does, a.disabled]), editable.map(({ card }) => [`Edit: ${card.title}`, card.id, { kind: 'run', command: 'acc.task.edit', ref: { project: card.actions[0]!.ref.project, task: card.id } }, undefined]));
   const kinds = (cs: { s: Action }[]) => new Set(cs.map(({ s }) => (s.command === 'acc.task.show' ? 'Answer' : s.command)));
   assert.deepEqual(kinds(steps), new Set(['acc.task.dispatch', 'acc.task.dispatchAnyway', 'acc.task.watch', 'Answer']), 'each kind of next step it has');
   // Its stopped builders are left out of the busy Overview: the Tasks sample has them, with Resume.
   const resumes = paletteItems(sampleModel('tasks', NOW) as HomeModel).filter((i) => i.does.kind === 'run' && i.does.command === 'acc.task.resume');
   assert.deepEqual(resumes.map((i) => i.hint), ['ACME-28', 'ACME-29']);
   assert.deepEqual([actions.at(-1)!.title, actions.at(-1)!.does, actions.at(-1)!.disabled], ['Stop finished sessions', { kind: 'toolbar', command: 'acc.agents.stopFinished' }, undefined]);
-  assert.equal(items.length, m.nav.length + m.settings.parts.length + cards.length + agents.length + 4 + steps.length + editable.length + 1, 'nothing else, and nothing twice');
+  assert.equal(items.length, m.nav.length + m.settings.parts.length + cards.length + agents.length + 5 + steps.length + editable.length + 1, 'nothing else, and nothing twice');
   assert.equal(new Set(items.map((i) => i.id)).size, items.length, 'each id once, so what was run is remembered by it');
   for (const i of items) assert.ok(i.words.startsWith(i.title), `${i.id}'s words start with its title, so its matches are drawn in it`);
 });
