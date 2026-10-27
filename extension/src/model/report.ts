@@ -143,6 +143,9 @@ export const NOT_POSTED: Record<Extract<PostResult, { ok: false }>['why'], { lab
   failed: { label: 'GitHub didn\'t take the issue', meaning: 'Copy the issue text and send it to the Command Center\'s author another way, or post again.' },
 };
 
+/** Why Post is off once GitHub said the account can't reach the repo (T-121): posting again would be refused the same way. The other failures can be posted again, once Setup or the network is put right. */
+export const NO_ACCESS_OFF = 'Your GitHub account can\'t reach the Command Center\'s repo. Copy the issue text instead.';
+
 export function reportModel(i: { draft: number; attached: string; scrubbed: string | null; happened: string; state: ReportState }): ReportModel {
   const base = { kind: 'report' as const, title: REPORT_TITLE, draft: i.draft, repo: RELEASES_REPO, attached: i.attached, scrubbed: i.scrubbed, happened: i.happened, posting: i.state.kind === 'posting' };
   const s = i.state;
@@ -150,7 +153,7 @@ export function reportModel(i: { draft: number; attached: string; scrubbed: stri
   if (s.kind === 'posted') return { ...base, look: LOOK('Posted', 'pass', 'blue'), meaning: 'Thank you. The issue is on GitHub, where the Command Center\'s author reads it.', url: s.url, copy: false, postOff: 'It\'s posted.' };
   if (s.kind === 'not-posted') {
     const n = NOT_POSTED[s.result.why];
-    return { ...base, look: LOOK(s.result.why === 'failed' && s.result.said ? `${n.label}: ${s.result.said}` : n.label, 'warning', 'orange'), meaning: n.meaning, url: null, copy: true, postOff: null };
+    return { ...base, look: LOOK(s.result.why === 'failed' && s.result.said ? `${n.label}: ${s.result.said}` : n.label, 'warning', 'orange'), meaning: n.meaning, url: null, copy: true, postOff: s.result.why === 'no-access' ? NO_ACCESS_OFF : null };
   }
   return { ...base, look: null, meaning: null, url: null, copy: false, postOff: null };
 }

@@ -7,6 +7,8 @@ import { pending } from './updates.ts';
 
 // ---------------------------------------------------------------- agents' questions (D-030)
 
+/** Why the send button is off until every question has an answer. */
+const UNANSWERED = 'Answer every question first';
 const emptyDraft = (): Draft => ({ picks: {}, other: {}, denying: false, reason: '', sent: false });
 function draftOf(id: string): Draft {
   return memory().answers[id] ?? emptyDraft();
@@ -124,7 +126,7 @@ export function questionCard(q: QuestionCard, opts: { watch: boolean; claudeInHe
       const other = keptInput(`other:${q.id}:${i}`, d.other[i] ?? '', 'Or type your own answer', (v) => {
         saveDraft(q.id, (dd) => { dd.other[i] = v; if (v.trim() && !x.multiSelect) dd.picks[i] = []; });
         const sendBtn = card.querySelector<HTMLButtonElement>('.q-send');
-        if (sendBtn) sendBtn.disabled = !q.questions.every((_, k) => (k === i ? !!v.trim() || (draftOf(q.id).picks[k]?.length ?? 0) > 0 : answered(k)));
+        if (sendBtn) { sendBtn.disabled = !q.questions.every((_, k) => (k === i ? !!v.trim() || (draftOf(q.id).picks[k]?.length ?? 0) > 0 : answered(k))); sendBtn.title = sendBtn.disabled ? UNANSWERED : ''; }
       });
       set.append(opts, other);
       card.append(set);
@@ -136,6 +138,7 @@ export function questionCard(q: QuestionCard, opts: { watch: boolean; claudeInHe
       sendAnswer(q, { decision: 'allow', answers });
     }, 'primary q-send');
     send.disabled = !q.questions.every((_, i) => answered(i));
+    send.title = send.disabled ? UNANSWERED : '';
     const decide = button('Let it decide', 'sparkle', () => sendAnswer(q, { decision: 'deny', message: 'They chose not to answer: decide for yourself, and say what you chose.' }));
     tools.push(send, decide, el('span', 'q-aside', terminal, watch));
   }

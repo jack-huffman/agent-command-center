@@ -22,7 +22,6 @@
 /* Cancel, then Save, the default, on the right. */
 .ts-foot { flex: none; display: flex; justify-content: flex-end; gap: 8px; padding: 10px 18px 14px; border-top: 1px solid var(--edge); }
 .ts-foot .btn { min-width: 96px; justify-content: center; }
-.ts-foot .btn:disabled { opacity: 0.55; cursor: default; }
 /* Where the project allows edits (T-80): the ticket's status, assignee and labels, each its value with
    its Change beside it, and the choice when the ticket changed after the sheet opened: the two versions
    side by side, stacked when the sheet is narrow, then Use theirs and Keep mine. */

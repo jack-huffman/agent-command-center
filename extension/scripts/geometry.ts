@@ -18,7 +18,7 @@ import { FLOORS_FILE, type Floors, readFloors, valueOf } from '../../packages/co
 import { PAGES, type Page, STILL, viewOf, WIDTHS } from './pages.ts';
 import { PALETTE_THEMES } from './styles.ts';
 
-export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'raw', 'a11y', 'actions'] as const;
+export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'raw', 'a11y', 'actions', 'disabled'] as const;
 export type Check = (typeof CHECKS)[number];
 
 /** A box in the page's coordinates, in CSS pixels. */
@@ -92,10 +92,28 @@ export interface GeoSnapshot {
   panels?: { what: string; raw: string[] }[];
   /** Each set of a task's actions the page marks with data-action-set (D-168): its next step's box, and the rest's. */
   actionSets?: GeoActionSet[];
+  /** Each disabled button drawn (T-121): the disabled check fails on one drawn as clear as an enabled button. */
+  disabled?: GeoDisabled[];
 }
 
 /** A task's actions as drawn: the next step, full width, and the rest in the grid under it. */
 export interface GeoActionSet { what: string; next: Box[]; rest: Box[] }
+
+/** A disabled button as drawn (T-121): its computed opacity and cursor, which an enabled one doesn't have. */
+export interface GeoDisabled { what: string; text: string; opacity: number; cursor: string }
+
+/** The most opacity a disabled button is drawn with, and the cursor it shows: the shared rule in styles.css (T-121). */
+export const DISABLED_LOOK = { maxOpacity: 0.7, cursor: 'not-allowed' } as const;
+
+/** The findings for the disabled buttons a page drew: each must be drawn dimmer than an enabled one, with the not-allowed cursor (T-121). */
+export function judgeDisabled(drawn: GeoDisabled[]): { what: string; detail: string }[] {
+  const out: { what: string; detail: string }[] = [];
+  for (const d of drawn) {
+    if (d.opacity > DISABLED_LOOK.maxOpacity) out.push({ what: d.what, detail: `${quote(d.text).trim() || 'it'} is disabled and drawn at opacity ${d.opacity}, as clear as an enabled button` });
+    if (d.cursor !== DISABLED_LOOK.cursor) out.push({ what: d.what, detail: `${quote(d.text).trim() || 'it'} is disabled and shows the ${d.cursor} cursor, not ${DISABLED_LOOK.cursor}` });
+  }
+  return out;
+}
 
 /**
  * A task's actions share one size and one place (D-168): every button in a set is as high as the first,
@@ -256,6 +274,8 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   const buttons = s.buttons ?? [];
   for (const f of judgeButtons(buttons, expected)) found.push({ check: 'buttons', what: 'the Overview', detail: f });
   const actionSets = s.actionSets ?? [];
+  const disabled = s.disabled ?? [];
+  for (const f of judgeDisabled(disabled)) found.push({ check: 'disabled', what: f.what, detail: f.detail });
   for (const f of judgeActions(actionSets)) found.push({ check: 'actions', what: f.what, detail: f.detail });
   if (s.doc.scroll > s.doc.view + 1) found.push({ check: 'sideways', what: 'the page', detail: `scrolls sideways by ${s.doc.scroll - s.doc.view} px` });
   for (const x of s.scrollers) if (!x.allowed && x.scroll > x.client + 1) found.push({ check: 'sideways', what: x.what, detail: `scrolls sideways by ${x.scroll - x.client} px` });
@@ -265,7 +285,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
   const a11y = judgeA11y(s.a11y, a11yExceptions);
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, raw: panels.length, a11y: a11y.examined, actions: actionSets.reduce((n, x) => n + x.next.length + x.rest.length, 0) };
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, raw: panels.length, a11y: a11y.examined, actions: actionSets.reduce((n, x) => n + x.next.length + x.rest.length, 0), disabled: disabled.length };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -544,7 +564,9 @@ function collectGeometry(more) {
   // Each set of a task's actions (D-168): the next step's box, and each of the rest's.
   const boxOf = (e) => { const r = e.getBoundingClientRect(); return box(r.left, r.top, r.right, r.bottom); };
   const actionSets = [...document.querySelectorAll('[data-action-set]')].filter(visible).map((s) => ({ what: what(s), next: [...s.querySelectorAll(':scope > .ta-btn')].filter(visible).map(boxOf), rest: [...s.querySelectorAll(':scope > .ta-grid > .ta-btn')].filter(visible).map(boxOf) }));
-  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, fonts: window.accFontsFirst ?? 0 };
+  // Each disabled button, as drawn (T-121): a .btn that is disabled, or kept focusable with .is-disabled.
+  const disabled = [...document.querySelectorAll('.btn:disabled, .btn.is-disabled')].filter(visible).map((b) => ({ what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), opacity: Number(style(b).opacity), cursor: style(b).cursor }));
+  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, fonts: window.accFontsFirst ?? 0 };
   const write = (parts) => {
     const out = document.createElement('script');
     out.type = 'application/json';

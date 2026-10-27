@@ -69,5 +69,4 @@
 /* Back and Skip for now on the left, Confirm on the right; on the summary, Close and Approve this plan. */
 .rp-foot { flex: none; padding: 10px 18px 14px; border-top: 1px solid var(--edge); }
 .rp-foot-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.rp-foot .btn:disabled { opacity: 0.55; cursor: default; }
 .rp-foot .plan-why, .rp-foot .aq-error { margin: 8px 0 0; }

@@ -33,7 +33,6 @@
 .connect-test .btn { flex: none; }
 .connect-test .cfield-status { flex: 1 1 200px; padding-top: 3px; }
 .connect-test .status { white-space: normal; padding-top: 3px; }
-.connect .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* A choice another repo on this machine uses (GH-81): an icon and words in the tick, wrapping under its
    label at 500 px rather than widening it. */

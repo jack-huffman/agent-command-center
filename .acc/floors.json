@@ -25,5 +25,8 @@
   },
   "screenshots.actions": {
     "floor": 1212
+  },
+  "screenshots.disabled": {
+    "floor": 879
   }
 }

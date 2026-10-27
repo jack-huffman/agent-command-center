@@ -107,6 +107,15 @@ h3 { font-size: 0.95em; font-weight: 600; margin: 4px 0 6px; color: var(--vscode
 .btn.ghost { background: transparent; box-shadow: none; color: var(--accent); }
 .btn.ghost:hover { background: var(--accent-soft); border-color: var(--accent-edge); }
 .btn.danger:hover { color: var(--orange); }
+/* A disabled button, primary or secondary, in every page: dimmed, a not-allowed cursor and no hover change.
+   .is-disabled is a button kept focusable to say why on hover (Limits). The screenshot run's disabled check
+   (geometry.ts) holds each drawn one to this. Its title or the text beside it says why it is off. */
+.btn:disabled, .btn.is-disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.btn:disabled:hover, .btn.is-disabled:hover { background: var(--raised); border-color: var(--edge); color: var(--vscode-foreground); }
+.btn.primary:disabled:hover, .btn.primary.is-disabled:hover { background: var(--vscode-button-background); border-color: transparent; color: var(--vscode-button-foreground); }
+.btn.ghost:disabled:hover, .btn.ghost.is-disabled:hover, .btn.icon-only:disabled:hover, .btn.menu-caret:disabled:hover { background: transparent; border-color: transparent; }
+.btn.ghost:disabled:hover, .btn.ghost.is-disabled:hover { border-color: var(--edge); color: var(--accent); }
+.btn:disabled:active, .btn.is-disabled:active { transform: none; }
 /* A press shows at once, with no transition; hover keeps its fade. A button shrinks a little. A row as wide
    as its list darkens instead, as a wide row that shrinks seems to jump. feel.test.ts holds every kind of
    button the page draws to a rule here. */

@@ -8,7 +8,6 @@
 .slack-kinds .ticks { grid-row: 1; }
 .slack-hook .cfield-input { grid-row: 1; }
 .slack .tick .codicon { color: var(--vscode-descriptionForeground); }
-.slack .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 @media (max-width: 620px) {
   .slack-kinds, .slack-hook { grid-template-columns: minmax(0, 1fr); }
   .slack-kinds > :not(.slack-label), .slack-hook > :not(.slack-label), .slack-kinds .ticks, .slack-hook .cfield-input { grid-column: 1; grid-row: auto; }

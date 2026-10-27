@@ -41,8 +41,9 @@ export function analysisQuestion(project: string, task: string, q: AnalysisAsk, 
   }
   const draft = memory().drafts[key] ?? '';
   const answer = button('Answer', 'send', () => send(input.value), 'primary');
-  answer.disabled = !draft.trim();
-  const input = keptInput(key, draft, 'Or type your own answer', (v) => { remember((x) => { x.drafts[key] = v; }); answer.disabled = !v.trim(); }, () => send(input.value));
+  const ready = (v: string) => { answer.disabled = !v.trim(); answer.title = answer.disabled ? 'Type an answer first' : ''; };
+  ready(draft);
+  const input = keptInput(key, draft, 'Or type your own answer', (v) => { remember((x) => { x.drafts[key] = v; }); ready(v); }, () => send(input.value));
   input.maxLength = 4000;
   box.append(el('div', 'aq-own', input, answer));
   return box;

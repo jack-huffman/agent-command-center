@@ -10,7 +10,7 @@ import { sampleReport, SAMPLE_REPORT_FACTS } from '../scripts/fixtures/report.ts
 import { aboutModel, reportAction, RELEASES_REPO } from '../src/model/about.ts';
 import { isFromWebview, PAGE_COMMANDS } from '../src/model/messages.ts';
 import { paletteItems } from '../src/model/palette.ts';
-import { area as reportModelArea, attachedText, issueArgs, NOT_POSTED, parsePost, REPORT_BODY_MAX, REPORT_COMMAND, REPORT_POSTING, REPORT_TITLE, REPORT_TITLE_MAX, type ReportFacts, type ReportModel, reportModel } from '../src/model/report.ts';
+import { area as reportModelArea, attachedText, issueArgs, NO_ACCESS_OFF, NOT_POSTED, parsePost, REPORT_BODY_MAX, REPORT_COMMAND, REPORT_POSTING, REPORT_TITLE, REPORT_TITLE_MAX, type ReportFacts, type ReportModel, reportModel } from '../src/model/report.ts';
 import { setupModel } from '../src/model/setup.ts';
 import { ERROR_LINES, type ReportDeps, Reports, runError, stepArg } from '../src/report.ts';
 import type { RunResult } from '../src/run.ts';
@@ -195,7 +195,7 @@ test('where gh isn\'t signed in, can\'t reach the repo or isn\'t installed, the 
     await reports.open();
     await reports.post('T', 'B');
     const m = calls.redrawn.at(-1)!;
-    assert.deepEqual([m.copy, m.url, m.look?.tone, m.look?.icon, m.postOff, m.meaning], [true, null, 'orange', 'warning', null, NOT_POSTED[why].meaning], why);
+    assert.deepEqual([m.copy, m.url, m.look?.tone, m.look?.icon, m.postOff, m.meaning], [true, null, 'orange', 'warning', why === 'no-access' ? NO_ACCESS_OFF : null, NOT_POSTED[why].meaning], why);
     assert.ok(m.look!.label.startsWith(NOT_POSTED[why].label), m.look!.label);
     assert.ok(/copy the issue text/i.test(m.meaning ?? ''), why);
     assert.ok(!m.look!.label.includes('/Users/me'), 'what gh said is scrubbed too');
