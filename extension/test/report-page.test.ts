@@ -22,7 +22,7 @@ test('the draft opens with a labelled box for the title and each section, what\'
   kept = { drafts: {} };
   const m = sampleReport('report');
   const p = draw(m);
-  for (const [id, label] of [['title', 'Title'], ['what-happened', 'What happened'], ['expected', 'What you expected'], ['attached', 'What\'s attached']]) {
+  for (const [id, label] of [['title', 'Title'], ['what-happened', 'What happened'], ['expected', 'What you expected'], ['attached', 'What\'s attached']] as [string, string][]) {
     const b = box(p, id);
     assert.ok(b, `a box for ${id}`);
     const l = p.all().find((x) => x.tagName === 'LABEL' && x.getAttribute('for') === `report-${id}`);
