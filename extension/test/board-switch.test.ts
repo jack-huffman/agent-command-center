@@ -30,9 +30,10 @@ const model = (n: 2 | 4 | 10) => {
  * The Tasks tab drawn in this small document. Each board's columns are left out, with its counts kept from the model:
  * a board's keys need a browser (the behaviour run's), and the switch, the header and the folds need none.
  */
-const drawn = (n: 2 | 4 | 10): PageElement => {
+const drawn = (n: 2 | 4 | 10, change: (m: ReturnType<typeof model>) => void = () => undefined, columns = false): PageElement => {
   const m = model(n);
-  for (const p of m.projects) p.boards = p.boards.map((b) => ({ ...b, columns: [] }));
+  change(m);
+  if (!columns) for (const p of m.projects) p.boards = p.boards.map((b) => ({ ...b, columns: [] }));
   const out = page.document.createElement('div');
   out.append(...(renderTasks(m) as unknown as PageElement[]));
   return out;
@@ -153,6 +154,32 @@ test('All boards: each board folded to a button with its name and counts, opened
   const m = model(2).projects[0]!;
   const both = boardsShowing(m.boards).get('ACME-12');
   assert.deepEqual(both, ['epic ACME-3 Premium Support', 'Renewals']);
+  // The header's number, with the boards' columns in place (folded, none draws its body): each key once.
+  const boards = model(10).projects[0]!.boards;
+  const sum = boards.reduce((n, b) => n + b.tickets, 0);
+  const keys = new Set(boards.flatMap((b) => b.columns.flatMap((c) => c.cards.map((x) => x.key.toUpperCase())))).size;
+  assert.ok(keys < sum, 'the sample has a ticket on two boards');
+  kept = { modes: { [ROOT]: 'all' }, opened: [] };
+  assert.match(drawn(10, () => undefined, true).textContent, new RegExp(`Acme Service: ${keys} tickets on 10 boards`), `${keys}, not ${sum}`);
+});
+
+test('edge case: two boards in the very same place, differing only by name, each show by its own id, and the switch picks each', () => {
+  // The ids the extension gives such a pair (boardIds): the later one adds its place in the list.
+  const twin = (m: ReturnType<typeof model>) => {
+    const p = m.projects[0]!;
+    p.boards = [p.boards[0]!, { ...p.boards[0]!, id: `${p.boards[0]!.id}-1`, name: 'Support twin' }];
+  };
+  kept = {};
+  const out = drawn(2, twin);
+  const segs = out.all('board-switch')[0]!.all('seg');
+  assert.deepEqual(segs.map((b) => [b.textContent, b.getAttribute('aria-pressed')]), [['epic ACME-3 Premium Support', 'true'], ['Support twin', 'false'], ['My work', 'false']], 'one on show, never both');
+  segs[1]!.click();
+  const second = drawn(2, twin);
+  assert.deepEqual(second.all('board-switch')[0]!.all('seg').map((b) => b.getAttribute('aria-pressed')), ['false', 'true', 'false']);
+  assert.equal(second.all('tracker').length, 1, 'the twin alone, not both');
+  assert.match(second.textContent, /on Support twin\./);
+  second.all('board-switch')[0]!.all('seg')[0]!.click();
+  assert.match(drawn(2, twin).textContent, /on epic ACME-3 Premium Support\./, 'and back to the first');
 });
 
 test('a board\'s name: its own, else its narrower place, else its tracker\'s board, else its tracker and project', () => {

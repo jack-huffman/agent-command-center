@@ -1,6 +1,6 @@
 // The Tasks section: My work, the tasks added to the Command Center, and each tracker's own board.
 
-import type { TrackerBoard, TrackerCard, Who } from '../src/model/boards.ts';
+import { addAnother, type TrackerBoard, type TrackerCard, type Who } from '../src/model/boards.ts';
 import type { TasksModel } from '../src/model/tasks.ts';
 import { boardKeys, liveLine } from './board-nav.ts';
 import { boardChoice, boardCounts, boardOpen, boardSwitch, tellShown, toggleBoard } from './board-switch.ts';
@@ -34,12 +34,13 @@ export function renderTasks(m: TasksModel): Node[] {
       tellShown(p.root, choice);
       tools.unshift(boardSwitch(p.root, p.boards, choice, (k) => KIND_ICON[k] ?? 'issues'));
       // Another tracker for this project, of any kind (T-127): the Connect page adds it as another board.
-      tools.push(argButton('acc.trackers.add', 'Add a board', 'add', JSON.stringify({ root: p.root, add: true })));
+      tools.push(argButton('acc.trackers.add', 'Add a board', 'add', addAnother(p.root)));
       if (choice !== 'agents') {
         const shown = choice === 'all' ? p.boards : p.boards.filter((b) => `board:${b.id}` === choice);
-        const cards = shown.reduce((n, b) => n + b.tickets, 0);
-        // A ticket two boards show is one task: All boards counts it once.
-        const waiting = new Set(shown.flatMap((b) => b.columns.flatMap((c) => c.cards.filter((x) => x.acc?.needsYou).map((x) => x.key.toUpperCase())))).size;
+        // A ticket two boards show is one task: All boards counts it, and whether it needs you, once.
+        const keys = (keep: (x: TrackerCard) => boolean) => new Set(shown.flatMap((b) => b.columns.flatMap((c) => c.cards.filter(keep).map((x) => x.key.toUpperCase())))).size;
+        const cards = choice === 'all' ? keys(() => true) : shown[0]!.tickets;
+        const waiting = keys((x) => !!x.acc?.needsYou);
         const where = choice === 'all' ? `on ${plural(shown.length, 'board')}` : `on ${shown[0]!.name}`;
         // The header counts the board on show (T-127). A Slack channel with no board to count (T-31) counts its tasks instead.
         // A board that couldn't be read says so, not that it holds no tickets.

@@ -2,7 +2,8 @@
 // Add another board's offer, and the page's message that says which board is on show.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { accRemoveTracker, accSetTracker, ADD_ANOTHER, addAnother, removeAsk } from '../src/logic/connect.ts';
+import { accRemoveTracker, accSetTracker, ADD_ANOTHER, removeAsk } from '../src/logic/connect.ts';
+import { addAnother } from '../src/model/boards.ts';
 import { area } from '../src/model/boards.ts';
 import { pageSource } from './support.ts';
 
@@ -43,6 +44,7 @@ test('a saved board\'s message offers Add another board, which opens the Connect
   assert.deepEqual(JSON.parse(addAnother('/r')), { root: '/r', add: true });
   const ext = pageSource('../src/extension.ts');
   assert.ok(ext.includes("executeCommand('acc.trackers.add', addAnother(root))"), 'its button runs Add a board for the project saved');
+  assert.ok(pageSource('../webview/tasks.ts').includes("'Add a board', 'add', addAnother(p.root)"), 'the Tasks toolbar\'s Add a board sends the same argument');
 });
 
 test('the page may say which board is on show, by its id, or none; anything else is refused', () => {
