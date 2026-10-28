@@ -1,4 +1,4 @@
-## D-T-136 A calmer Plan tab: a made choice is one line, each fact once, sections that fold (2026-10-28)
+## D-218 A calmer Plan tab: a made choice is one line, each fact once, sections that fold (2026-10-28)
 
 T-136. The person, on a task's Plan tab: "the plan UI is still way too cluttered. How do we let it breathe more
 and feel more organized and clean?" The tab was one long stream at one weight, and it said things twice: "Plan v1
