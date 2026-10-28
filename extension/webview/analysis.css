@@ -41,8 +41,16 @@
 /* Whether one of its questions went to the client, or a button to draft it. */
 .aq-client { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 6px; font-size: 0.92em; }
 .aq-client .aq-error { margin: 0; }
-/* A task's drafted acceptance criteria (T-81) wear the analysis's card, with the gap the blocks around them keep. */
-.task-panel > .criteria { margin-bottom: 16px; padding-bottom: 12px; }
+/*
+ * A task's drafted acceptance criteria (T-81), below the plan in its tab: no box, as the plan has none (T-136); a
+ * line above it as between the plan's sections, its heading quiet as theirs, and the plan's space between its parts.
+ */
+.analysis.criteria { border: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none; background: none; padding: var(--space-3) 0 0; }
+.task-panel > .criteria { margin-bottom: var(--space-5); }
+.analysis.criteria > * { margin-top: 0; margin-bottom: 0; }
+.analysis.criteria > * + * { margin-top: var(--space-3); }
+.analysis.criteria .an-head h2 { font-size: 1em; text-transform: none; letter-spacing: normal; color: var(--vscode-foreground); }
+.analysis.criteria.cc-section.collapsed { padding-bottom: 0; }
 
 /* A task's plan (T-97): its version and approval, what changed, each choice as option cards, and its buttons. */
 .plan-changes + .plan-notes { margin-top: var(--space-3); }
@@ -151,3 +159,5 @@
 .po-more > summary .count { margin-left: 2px; }
 .po-more[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
 .po-more > .po-part { margin-top: 2px; }
+/* With the criteria draft under it, the plan's last section leaves the line between them to the draft. */
+.task-panel > .plan-tab:has(+ .criteria) > .an-sec:last-child { border-bottom: 0; }
