@@ -1,4 +1,4 @@
-## D-T-143 A board opens on my tasks (2026-10-28)
+## D-222 A board opens on my tasks (2026-10-28)
 
 Amends D-178's default. The person filter (T-79) opened every board on Everyone. A board with no remembered choice now opens on Mine when the tracker says who the person is (the tracker's own user, as Mine already uses), and on Everyone otherwise.
 
