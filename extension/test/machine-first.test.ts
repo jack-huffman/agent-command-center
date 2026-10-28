@@ -18,10 +18,14 @@ const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 const item = (id: string, status: DoctorItem['status'], over: Partial<DoctorItem> = {}): DoctorItem =>
   ({ id, part: 'machine', title: id, status, detail: `${id}: ${status}`, ...over });
 
-/** The machine as the screenshots show it: git ready, the GitHub CLI missing, Claude Code installed but not on PATH. */
+/**
+ * A machine with the GitHub CLI ready, git missing, and Claude Code installed but not on PATH. git is the one
+ * missing because it has a one-line install on every system, so it has a Do it on any runner; the GitHub CLI has
+ * none on Linux, only its maker's page.
+ */
 const MACHINE: DoctorItem[] = [
-  item('A1.git', 'pass'),
-  item('A1.gh', 'fail', { fix: 'brew install gh' }),
+  item('A1.gh', 'pass'),
+  item('A1.git', 'fail', { fix: 'brew install git' }),
   item('A1.claude', 'fail', { place: '/opt/homebrew/bin', fix: brewShellenv('/opt/homebrew/bin'), ask: 'Add Homebrew\'s shellenv line to ~/.zprofile, so /opt/homebrew/bin is on your PATH?' }),
 ];
 
@@ -30,7 +34,7 @@ test('a project being started lists what this machine still needs first, one mis
   const f = m.machineFirst!;
   assert.equal(f.part, MACHINE_FIRST_PART);
   assert.equal(f.title, 'Before the project starts: 2 things this machine needs');
-  assert.deepEqual(f.rows.map((r) => [r.id, r.look.label]), [['A1.gh', 'To do'], ['A1.claude', 'Not on PATH']], 'only what is still to do, in Setup\'s order');
+  assert.deepEqual(f.rows.map((r) => [r.id, r.look.label]), [['A1.git', 'To do'], ['A1.claude', 'Not on PATH']], 'only what is still to do, in Setup\'s order');
   assert.deepEqual(f.rows.map((r) => r.actions[0]!.label), ['Do it', 'Do it'], 'each with its Do it');
   assert.deepEqual(f.actions.map((a) => [a.label, a.command, !!a.primary]), [['Go on anyway', 'acc.start.goOn', false], ['Not now', 'acc.start.notNow', false]]);
   assert.match(f.detail, /they stay in Setup, under This machine/);
@@ -38,7 +42,7 @@ test('a project being started lists what this machine still needs first, one mis
 });
 
 test('edge case: once nothing is left, the list says the machine is ready and Start the project is the one to press', () => {
-  const ready = machineFirst({ profile: 'salesforce', ids: ['A1.git'] }, setupModel(MACHINE, new Set()).parts[0]!.steps);
+  const ready = machineFirst({ profile: 'salesforce', ids: ['A1.gh'] }, setupModel(MACHINE, new Set()).parts[0]!.steps);
   assert.equal(ready.title, 'This machine is ready');
   assert.deepEqual(ready.rows, []);
   assert.match(ready.detail, /every tool a Salesforce project needs\. Nothing has been written yet/);

@@ -90,7 +90,8 @@ function testEnv(over: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 }
 
 function statuses(repo: string, fixtures = healthy()): Record<string, { status: CheckStatus; detail: string }> {
-  const ctx = makeContext(repo, fakeRunner(fixtures), testEnv({ CLAUDE_CONFIG_DIR: trustDir(repo) }));
+  // A Mac's, as the fixtures are, whatever runs the test: Windows has steps of its own (winget, Git's sh), T-133.
+  const ctx = { ...makeContext(repo, fakeRunner(fixtures), testEnv({ CLAUDE_CONFIG_DIR: trustDir(repo) })), system: 'mac' as const, platform: 'darwin' as const };
   return Object.fromEntries(runSteps(ctx).map(({ step, result }) => [step.id, result]));
 }
 
