@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometries, dumpedGeometry, MEASURE_TABS, mergedVerdict, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, drawnIn, dumpedGeometries, dumpedGeometry, MEASURE_TABS, mergedVerdict, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
 import { root } from './support.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
@@ -194,7 +194,7 @@ test('a page measures its geometry only when the run asks, and the run reads it 
   const model = sampleModel('agents');
   assert.ok(!pageFor('agents', 'dark', model).includes('collectGeometry'), 'a page drawn for the colour check doesn\'t measure');
   const page = pageFor('agents', 'dark', model, 'light', false, true);
-  assert.ok(page.includes(COLLECT_GEOMETRY) && page.includes('document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y, () => measureTabs((then) => collectGeometry(collectA11y, then)))))))') && page.includes(MEASURE_TABS), 'measured once its fonts have loaded, two frames have drawn and the selected tab has settled (GH-167), then checked by axe (T-55), then each other tab of a task page (T-134)');
+  assert.ok(page.includes(COLLECT_GEOMETRY) && page.includes('document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y, () => measureTabs((panel, then) => collectGeometry(() => collectA11y(panel), then, panel)))))))') && page.includes(MEASURE_TABS), 'measured once its fonts have loaded, two frames have drawn and the selected tab has settled (GH-167), then checked by axe (T-55), then each other tab of a task page (T-134)');
   assert.ok(page.includes('window.requestAnimationFrame = '), 'with frame callbacks run on a timer, as the colour check does');
   assert.doesNotThrow(() => new Function(COLLECT_GEOMETRY), 'the collector is valid script');
   assert.equal(dumpedGeometry('<html><body><main></main></body></html>'), null);
@@ -220,19 +220,63 @@ test('a task page is measured once per tab it shows, and its drawing\'s verdict 
 
 test('edge case: MEASURE_TABS shows each other tab in turn, measures it, and brings back the tab and scroll on show', () => {
   const shown: string[] = [];
-  const tab = (id: string, on: boolean) => ({ id, on, getAttribute: () => String(on), click() { for (const t of tabs) t.on = t === this; shown.push(id); } });
+  const tab = (id: string, on: boolean) => ({ id, on, getAttribute: (a: string) => (a === 'aria-controls' ? `task-panel-${id}` : String(on)), click() { for (const t of tabs) t.on = t === this; shown.push(id); } });
   const tabs = [tab('ticket', false), tab('plan', true), tab('changes', false)];
   const root = { scrollTop: 120, scrollLeft: 0 };
-  const document = { querySelectorAll: (q: string) => (q === '*' ? [] : tabs), scrollingElement: root };
+  const document = { querySelectorAll: (q: string) => (q === '*' ? [] : tabs), scrollingElement: root, getElementById: (id: string) => ({ id }) };
   const measured: string[] = [];
-  const measure = (then: () => void) => { measured.push(tabs.find((t) => t.on)!.id); root.scrollTop = 0; then(); };
+  const within: string[] = [];
+  const measure = (panel: { id: string }, then: () => void) => { measured.push(tabs.find((t) => t.on)!.id); within.push(panel.id); root.scrollTop = 0; then(); };
   new Function('document', 'requestAnimationFrame', 'measure', `${MEASURE_TABS}\nmeasureTabs(measure);`)(document, (f: () => void) => f(), measure);
   assert.deepEqual(measured, ['ticket', 'changes'], 'each tab not on show, measured once');
+  assert.deepEqual(within, ['task-panel-ticket', 'task-panel-changes'], 'inside the panel its tab controls');
   assert.deepEqual(shown, ['ticket', 'changes', 'plan'], 'and the tab on show comes back last');
   assert.equal(root.scrollTop, 120, 'with its scroll');
   const none: string[] = [];
   new Function('document', 'requestAnimationFrame', 'measure', `${MEASURE_TABS}\nmeasureTabs(measure);`)({ querySelectorAll: () => [], scrollingElement: null }, (f: () => void) => f(), () => none.push('x'));
   assert.deepEqual(none, [], 'a page with no tabs is measured once, as drawn');
+});
+
+/** Runs the page's collector on a fake page, two buttons outside the tabs and one in a tab's panel, and returns the dump it writes. */
+async function collectedOn(withinPanel: boolean): Promise<GeoSnapshot> {
+  const button = (cls: string) => ({ tagName: 'BUTTON', className: `btn ${cls}`, classList: Object.assign(['btn', cls], { contains: () => false }), parentElement: null, textContent: cls, getAttribute: () => null, checkVisibility: () => true, matches: () => false, getBoundingClientRect: () => ({ left: 0, top: 0, right: 40, bottom: 20, width: 40, height: 20 }) });
+  const outside = [button('notice'), button('side')];
+  const inside = [button('in-panel')];
+  const found = (els: unknown[]) => (q: string) => (q.startsWith('button') || q.startsWith('.btn:disabled') || q === '*' || q === 'body *' ? els : []);
+  const written: { textContent?: string }[] = [];
+  const panel = { classList: [], querySelectorAll: found(inside) };
+  const document = {
+    body: { querySelectorAll: () => [], append: (e: { textContent?: string }) => written.push(e) },
+    documentElement: { clientWidth: 1000, scrollWidth: 1000 }, querySelectorAll: found([...outside, ...inside]), querySelector: () => null,
+    createTreeWalker: () => ({ nextNode: () => null }), createRange: () => ({}), createElement: () => ({}),
+  };
+  new Function('document', 'window', 'getComputedStyle', 'NodeFilter', 'panel', `${COLLECT_GEOMETRY}\ncollectGeometry(null, undefined, panel);`)(document, { innerHeight: 900 }, () => ({}), { SHOW_TEXT: 4 }, withinPanel ? panel : null);
+  for (let i = 0; i < 10 && !written.length; i++) await new Promise((r) => setTimeout(r, 0));
+  assert.equal(written.length, 1, 'the dump is written once');
+  return JSON.parse(written[0]!.textContent!) as GeoSnapshot;
+}
+
+test('edge case: a later measure of a tab\'s panel holds only what is inside it, so what is outside the tabs counts once per drawing (T-134)', async () => {
+  const page = await collectedOn(false);
+  const tab = await collectedOn(true);
+  assert.deepEqual(page.controls.map((c) => c.text), ['notice', 'side', 'in-panel'], 'the page as drawn holds everything');
+  assert.deepEqual(tab.controls.map((c) => c.text), ['in-panel'], 'the panel\'s measure holds only its own controls');
+  assert.deepEqual(tab.disabled?.map((d) => d.text), ['in-panel'], 'and its own disabled buttons');
+  assert.deepEqual([page.scoped, tab.scoped], [false, true]);
+  const v = mergedVerdict([page, tab].map((x) => ({ panel: x.panel, verdict: judge(x, false) })));
+  assert.equal(v.examined.overlap, 4, 'three as drawn, then the panel\'s one: the notices and side column once');
+  assert.equal(v.examined.disabled, 4);
+  assert.equal(judge(tab, false).examined.sideways, 0, 'the page itself is not counted again for sideways');
+  assert.equal(judge(page, false).examined.sideways, 1);
+});
+
+test('the screenshots gate\'s drawn classes come from the first measure only, the one the PNG shows (T-134)', () => {
+  const shot = { ...fine({}), drawn: ['task-tabs', 'task-panel-ticket', 'task-tabs'] };
+  const hidden = { ...fine({}), drawn: ['task-panel-plan', 'plan-only'], panel: 'plan', scoped: true };
+  assert.deepEqual(drawnIn([shot, hidden]), ['task-panel-ticket', 'task-tabs'], 'a tab shown for a moment and hidden again is not in the shot');
+  assert.deepEqual(drawnIn([]), [], 'edge case: a drawing with no measure drew nothing');
+  assert.deepEqual(drawnIn([fine({})]), [], 'edge case: a measure with no drawn list');
+  assert.ok(readFileSync(join(root, 'scripts', 'screenshot.ts'), 'utf8').includes('drawn: drawnIn(shots)'), 'which is what the run records for the gate');
 });
 
 test('each Overview row button is named by its label as drawn: a missing or wrong aria-label fails (T-25)', () => {

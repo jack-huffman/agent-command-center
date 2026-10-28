@@ -84,7 +84,7 @@ import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
-import { CHECKS, COLLECT_GEOMETRY, examinedIn, type ExpectedButton, FLOORS_PATH, GEOMETRY_EXCEPTIONS, dumpedGeometries, geometrySummary, MEASURE_TABS, mergedVerdict, ciFloorName, isCiRun, judge, raisedFloors, type Render, runFailures, runFloor } from './geometry.ts';
+import { CHECKS, COLLECT_GEOMETRY, examinedIn, type ExpectedButton, FLOORS_PATH, GEOMETRY_EXCEPTIONS, drawnIn, dumpedGeometries, geometrySummary, MEASURE_TABS, mergedVerdict, ciFloorName, isCiRun, judge, raisedFloors, type Render, runFailures, runFloor } from './geometry.ts';
 import { FLOORS_FILE, readFloors, writeFloors } from '../../packages/core/src/ratchets.ts';
 import { drawRetried, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
@@ -548,7 +548,7 @@ function forceHover() {
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
 }${FONTS_FIRST}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + MEASURE_TABS + COLLECT_A11Y + SETTLE : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') fontsFirst(document.fonts, () => setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y, () => measureTabs((then) => collectGeometry(collectA11y, then))))))); }, 300);` : ''} })); },
+  postMessage(m) { if (m.type === 'ready') fontsFirst(document.fonts, () => setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y, () => measureTabs((panel, then) => collectGeometry(() => collectA11y(panel), then, panel))))))); }, 300);` : ''} })); },
   getState() { return ${JSON.stringify(shotState(kind))}; }, setState() {},
 });
 </script>
@@ -871,7 +871,7 @@ export async function drawPages(views: Page[], d: DrawPagesDeps): Promise<DrawnP
         if (unwaited) { one.failure = unwaited; continue; }
         const verdict = mergedVerdict(shots.map((s) => ({ panel: s.panel, verdict: judge(s, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view), expectedButtons(model)) })));
         one.render = { page: view, theme, width, verdict };
-        if (d.print !== null) one.note = [name, { fingerprint: d.print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shots.flatMap((s) => s.drawn ?? []))].sort(), browser: d.browser }];
+        if (d.print !== null) one.note = [name, { fingerprint: d.print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: drawnIn(shots), browser: d.browser }];
         one.lines.push(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${shots.length > 1 ? `, ${shots.length} tabs measured` : ''}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
       }
     }

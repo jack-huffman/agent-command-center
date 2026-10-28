@@ -58,5 +58,10 @@ still comes first, above the tabs.
   width; the other task page shots open on the tab they were made to show. Each drawing of a task page is
   measured once per tab it shows: after the page as drawn, each other tab's panel is shown in turn and measured,
   and the tab and scroll on show come back before the shot (`MEASURE_TABS`, `mergedVerdict` in
-  `extension/scripts/geometry.ts`). So what a hidden tab draws is still judged, and the run's counts keep their
-  floors. `extension/test/geometry.test.ts` checks both.
+  `extension/scripts/geometry.ts`). So what a hidden tab draws is still judged. Each later measure holds only
+  what is inside the shown tab's panel (`collectGeometry`'s `within`, and axe runs on that panel), and does not
+  count the page again for sideways. So what is outside the tabs (the notices, the Details and Agent panels, the
+  header, the rail) is counted once per drawing, and the run's counts are not inflated by measuring it once per
+  tab. The screenshots gate's drawn classes come from the first measure only (`drawnIn`), as that is the page the
+  PNG shows; the `ticket-tab-*` shots draw each tab in a real shot. `extension/test/geometry.test.ts` checks
+  each of these.

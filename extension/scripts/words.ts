@@ -99,21 +99,21 @@ export function judgeWords(said: readonly GeoSaid[], rules = WORD_RULES, regions
 }
 
 /**
- * The page's side, run inside collectGeometry: every text node in the body but scripts and styles, and each
- * element's title, aria-label, placeholder and alt, with the data-work region it sits in. `what` and
- * `words` are the collector's own.
+ * The page's side, run inside collectGeometry: every text node under root (the body, or a later measure's tab
+ * panel, T-134) but scripts and styles, and each element's title, aria-label, placeholder and alt, with the
+ * data-work region it sits in. `what`, `words` and `root` are the collector's own.
  */
 export const COLLECT_WORDS = `
   const said = [];
   const region = (e) => { const w = e.closest('[data-work]'); return w ? w.getAttribute('data-work') : null; };
-  const every = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const every = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let n = every.nextNode(); n; n = every.nextNode()) {
     const e = n.parentElement;
     const t = words(n.textContent);
     if (!e || !t || e.closest('script, style')) continue;
     said.push({ what: what(e), text: t, work: region(e) });
   }
-  for (const e of document.body.querySelectorAll('[title], [aria-label], [placeholder], [alt]')) {
+  for (const e of root.querySelectorAll('[title], [aria-label], [placeholder], [alt]')) {
     for (const a of ['title', 'aria-label', 'placeholder', 'alt']) {
       const t = words(e.getAttribute(a));
       if (t) said.push({ what: what(e) + '[' + a + ']', text: t, work: region(e) });

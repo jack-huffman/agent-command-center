@@ -108,14 +108,15 @@ export function axeScript(): string {
 }
 
 /**
- * The page's side: runs axe on the whole document with A11Y_TAGS' rules, and resolves to the `a11y` part
+ * The page's side: runs axe on the whole document, or on within, a later measure's tab panel
+ * (T-134), with A11Y_TAGS' rules, and resolves to the `a11y` part
  * of the dump. A node's text is the text it draws (its textContent where it draws none, as an SVG part has
  * no innerText), its spaces collapsed, cut to A11Y_TEXT. A contrast node's colours name the --vscode-*
  * variables on <html> whose colour its text's is, compared as the page computes both. When axe fails to run,
  * the part says why and examined nothing, which the check fails.
  */
 export const COLLECT_A11Y = `
-function collectA11y() {
+function collectA11y(within) {
   const words = (s) => (s || '').replace(/\\s+/g, ' ').trim();
   const selector = (t) => t.map((p) => (Array.isArray(p) ? p.join(' ') : String(p))).join(' ');
   const count = (rs) => rs.reduce((n, r) => n + r.nodes.length, 0);
@@ -140,7 +141,7 @@ function collectA11y() {
     return d.fgColor + ' on ' + d.bgColor + ', ' + d.contrastRatio + ':1, ' + (vars.length ? vars.sort().join(' ') : 'no theme colour');
   };
   if (!window.axe) return Promise.resolve({ a11y: { violations: [], examined: 0, incomplete: [], error: 'axe is not on the page' } });
-  return window.axe.run(document, { runOnly: { type: 'tag', values: ${JSON.stringify(A11Y_TAGS)} }, elementRef: true }).then((r) => ({ a11y: {
+  return window.axe.run(within || document, { runOnly: { type: 'tag', values: ${JSON.stringify(A11Y_TAGS)} }, elementRef: true }).then((r) => ({ a11y: {
     violations: r.violations.map((v) => ({ rule: v.id, impact: v.impact ?? null, help: v.help, nodes: v.nodes.map((n) => ({ selector: selector(n.target), text: words(n.element?.innerText ?? n.element?.textContent).slice(0, ${A11Y_TEXT}), colour: colour(n) })) })),
     examined: count(r.passes) + count(r.violations) + count(r.incomplete),
     incomplete: r.incomplete.map((i) => ({ rule: i.id, nodes: i.nodes.length })),
