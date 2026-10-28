@@ -2247,7 +2247,7 @@ export const CASES: Case[] = [
       t.check('the path and Deploy come before the list', parts.indexOf('block dp') === 0 && parts.indexOf('block chg') > 0, parts);
       const go = t.find<HTMLButtonElement>('.dp-go');
       const why = t.find('.dp-why').textContent ?? '';
-      t.check('Deploy to QA is off, saying the validate check failed and how to clear it', go.disabled && /The validate check failed: fix it, or accept it anyway, first\./.test(why) && go.title.endsWith(why), [go.disabled, why, go.title]);
+      t.check('Deploy to QA is off, naming the checks that failed (validate among them) and how to clear them', go.disabled && /^The validate, .+ checks failed: fix them, or accept them anyway, first\.$/.test(why) && go.title.endsWith(why), [go.disabled, why, go.title]);
       await t.click(go);
       t.check('off, a click sends nothing', t.sent('deploy-check').length === 0 && t.sent('deploy-go').length === 0);
       // With its checks cleared, the conflict with dev holds it up, in its own words.
