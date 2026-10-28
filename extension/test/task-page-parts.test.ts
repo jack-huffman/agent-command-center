@@ -117,8 +117,7 @@ test('the Agent panel draws its State as the one state chip, with the state\'s i
   const m = sampleTicket(Date.now(), 'ACME-12');
   assert.ok(m.acc, 'ACME-12 is kept by acc');
   const panel = (await drawn(m)).find((e) => e.classList.contains('side-agent'))!;
-  const rows = children(children(panel).find((e) => e.tagName === 'DL')!);
-  const state = rows[rows.findIndex((r) => r.textContent === 'State') + 1]!;
+  const state = panel.all('agent-state')[0]!;
   const chip = state.all('state-chip')[0];
   assert.ok(chip, 'a state chip');
   assert.equal(chip.textContent, m.acc.look.label);

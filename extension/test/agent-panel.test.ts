@@ -182,3 +182,17 @@ test('the glance never has more than the state, its checks and its reason: no fa
   const waits = sampleTicket(NOW, 'ACME-35');
   assert.match(text(foldOf(panel({ ...waits, acc: { ...waits.acc!, waitingOn: ['ACME-12', 'ACME-19'] } })!, 'agent-hold')), /^Waiting on ACME-12, ACME-19$/);
 });
+
+test('renderAgentPanel hands Accept anyway\'s gate to the page, and a task with no checks draws no Details checks (edge case)', async () => {
+  saved = undefined;
+  const { renderAgentPanel } = await import('../webview/agent-panel.ts');
+  const m = sampleTicket(NOW);
+  const waived: string[] = [];
+  const p = renderAgentPanel(m, m.acc!, (gate) => waived.push(gate)) as unknown as PageElement;
+  const first = p.all('check-waive')[0]!;
+  first.click();
+  assert.deepEqual(waived, [m.acc!.checks.find((c) => c.waivable)!.gate]);
+  const none = renderAgentPanel(m, { ...m.acc!, checks: [] }, () => {}) as unknown as PageElement;
+  assert.equal(none.all('check').length, 0);
+  assert.equal(none.all('agent-checks').length, 0, 'no checks, no summary line');
+});

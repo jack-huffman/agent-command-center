@@ -149,7 +149,7 @@ test('the review case opens ACME-19\'s page and expects its findings, must-fix f
   const d = behaviourData(models(), now);
   assert.deepEqual(d.review.findings.map((f) => f.label), ['Must fix', 'Worth a look', 'Worth a look']);
   assert.deepEqual(d.review.click, { type: 'review-file', project: '/Users/me/code/acme-service', task: 'ACME-19', file: 'force-app/main/default/classes/WelcomeEmailService.cls', line: 31 });
-  const c = CASES.find((x) => x.page === 'ticket-review');
+  const c = CASES.find((x) => x.page === 'ticket-review' && !x.name.includes('(T-142)'));
   assert.ok(c, 'a case opens the review');
   assert.equal((caseModel(c, models()) as { key: string }).key, 'ACME-19');
   assert.deepEqual(MUTANTS.filter((x) => x.kills.includes(c.name)).map((x) => x.name), ['a review that needs you doesn\'t say so on its tab', 'the review lists its findings in the reviewer\'s order', 'a finding\'s file and line sends nothing']);
