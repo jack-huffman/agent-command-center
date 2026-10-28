@@ -405,7 +405,8 @@ function sampleReviewTicket(now: number, edits: boolean, criteria: 'drafted' | '
     draft: criteria ? sampleCriteria(now) : null,
     checks: [
       { gate: 'format', status: 'pass', summary: '2 changed files formatted.' },
-      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: WelcomeEmailServiceTest, 6 of 6 passing.', counts: '6 run, 0 skipped' },    ],
+      { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: WelcomeEmailServiceTest, 6 of 6 passing.', counts: '6 run, 0 skipped' },
+    ],
     review: {
       verdict: {
         task: 'ACME-19', sha: '7c3e9a1', verdict: 'changes', sessionId: 'rv-acme-19', name: R19, at: reviewed,

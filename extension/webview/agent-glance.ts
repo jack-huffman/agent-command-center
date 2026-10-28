@@ -4,11 +4,13 @@
 import type { Action, Look } from '../src/model/shared.ts';
 import type { CheckRow, TicketAcc } from '../src/model/task-page.ts';
 
+// A copy of `plural` in dom.ts, on purpose: dom.ts calls acquireVsCodeApi() when loaded, and the screenshot run
+// imports this module in Node. extension/test/webview-imports.test.ts already pins dom.ts's against the core one.
 const count = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Its checks in one line (T-142): "3 failed: validate, violations, stray-files · 1 needs you: flow-tests · 3 more".
- * Only the checks that failed or need a person are named, in orange; the rest are counted ("3 more", their rows
+ * Its checks in one line (T-142): "3 failed: validate, violations, stray-files · 1 needs you: flow-tests · 4 more".
+ * Only the checks that failed or need a person are named, in orange; the rest are counted ("4 more", their rows
  * are in Details). Where none failed or waits, the line counts each kind: "4 passed, 1 not run". A line of
  * checks none of which ran says so in one phrase. The icon and the words carry it; the colour only adds.
  * Null with no checks.

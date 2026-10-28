@@ -204,6 +204,10 @@ test('a blocked task that also waits on other tasks keeps its Waiting on row in 
   // The session's own words are a row of Details too, where the glance leaves its chip out or merges it.
   const working = panel(sampleAgentPanelTicket(NOW, 'disagree'))!;
   assert.equal(detailRows(working).get('Session'), 'Working');
+  // Where the session's words are the state's, the row would repeat the chip above: none is drawn (edge case).
+  const same = sampleTicket(NOW).acc!;
+  assert.ok(same.agent && same.agent.label === same.look.label, 'the sample task\'s session says what its state says');
+  assert.equal(detailRows(panel(sampleTicket(NOW))!).has('Session'), false);
 });
 
 test('renderAgentPanel hands Accept anyway\'s gate to the page, and a task with no checks draws no Details checks (edge case)', async () => {

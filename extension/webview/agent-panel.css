@@ -21,4 +21,4 @@
 .agent-fold[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
 .agent-fold > .task-actions, .agent-fold > .fields, .agent-fold > .checks { margin-top: var(--space-2); }
 /* One action beside the next step takes the grid's whole width, so the two rows are as wide as one another. */
-.ta-grid:has(> .ta-btn:only-child) { grid-template-columns: minmax(0, 1fr); }
+.side-agent .ta-grid:has(> .ta-btn:only-child) { grid-template-columns: minmax(0, 1fr); }

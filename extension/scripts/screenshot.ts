@@ -217,7 +217,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
   // The Agent panel (T-142): ACME-12 blocked, and blocked while its builder's session still works; with Details, and More actions, open.
   if (kind === 'ticket-agent-blocked' || kind === 'ticket-agent-disagree') return sampleAgentPanelTicket(now, kind === 'ticket-agent-blocked' ? 'blocked' : 'disagree');
-  if (kind === 'ticket-agent-failed') return sampleAgentPanelTicket(now, 'failed');
+  if (kind === 'ticket-agent-failed' || kind === 'ticket-agent-open') return sampleAgentPanelTicket(now, 'failed');
   if (kind === 'ticket-agent-details' || kind === 'ticket-agent-more') return sampleTicket(now);
   if (kind === 'ticket-waits') return sampleAgentPanelTicket(now, 'queued');
   if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
@@ -462,7 +462,7 @@ export const shotState = (kind: Page): Record<string, unknown> => {
 };
 
 /** The task pages whose shots leave the Agent panel's Details and More actions closed, as the page opens them (T-142). */
-const AGENT_FOLDS_CLOSED: readonly Page[] = ['ticket', 'ticket-checks', 'ticket-note', 'ticket-track', 'ticket-stopped', 'ticket-agent-blocked', 'ticket-agent-disagree', 'ticket-agent-failed'];
+const AGENT_FOLDS_CLOSED: readonly Page[] = ['ticket', 'ticket-checks', 'ticket-note', 'ticket-track', 'ticket-stopped', 'ticket-agent-blocked', 'ticket-agent-disagree', 'ticket-agent-failed', 'ticket-agent-details', 'ticket-agent-more'];
 
 /**
  * Every other task page's shot has the Agent panel's Details and More actions open (T-142), so what they hold is

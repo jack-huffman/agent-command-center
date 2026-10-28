@@ -2,6 +2,7 @@
 // next step and the two that fit its state; the rest of its actions under More actions; and every other fact
 // under Details, folded and closed at first. Nothing the panel showed before is gone: each is a fold or a menu away.
 
+import type { Action } from '../src/model/shared.ts';
 import type { TicketAcc, TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { button, type Child, clippedSpan, el, icon, linkTo, stateChip, status, work } from './dom.ts';
 import { checkSummary, detailsKey, splitActions, stateGlance } from './agent-glance.ts';
@@ -52,8 +53,8 @@ function checkRows(a: TicketAcc, onWaive: (gate: string) => void): HTMLElement |
 function facts(a: TicketAcc): HTMLElement {
   return el('dl', 'fields',
     ...field('Environment', el('span', 'mono', a.environment)),
-    // The session's own words, where the glance merges them into the state or says they disagree.
-    ...(a.agent ? field('Session', stateChip(a.agent)) : []),
+    // The session's own words, only where they differ from the state's: the same words would repeat its chip above.
+    ...(a.agent && a.agent.label !== a.look.label ? field('Session', stateChip(a.agent)) : []),
     // The tasks it waits on: at a glance only where no blocker is the reason (holdLine), here whenever it waits.
     ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
     // Its effort beside it, when it isn't the model's default (D-128).
@@ -77,6 +78,9 @@ function holdLine(a: TicketAcc): HTMLElement | null {
   return el('p', 'agent-hold muted small', icon('clock'), Object.assign(el('span', 'agent-hold-text', text), { title: text }));
 }
 
+/** Open in Claude Code… is too long for half the panel, so its tile says Claude Code; its tip and command are the same. */
+const shortLabel = (a: Action): Action => (a.label === 'Open in Claude Code' ? { ...a, label: 'Claude Code' } : a);
+
 /** The panel's body: the glance, the actions, More actions and Details. The caller makes it fold to its header line. */
 export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key'>, a: TicketAcc, onWaive: (gate: string) => void): HTMLElement {
   const g = stateGlance(a);
@@ -87,7 +91,7 @@ export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key'>, a: Tic
     g.disagree ? el('p', 'agent-disagree', icon('warning', 'orange'), el('span', '', g.disagree)) : el('div', 'agent-state', stateChip(a.look), g.session ? Object.assign(stateChip(g.session), { title: 'Its builder\'s session' }) : null),
     sum ? el('p', `agent-checks tone-${sum.tone}`, status(sum)) : null,
     holdLine(a));
-  const moreSet = taskActions(more);
+  const moreSet = taskActions(more.map(shortLabel));
   return el('section', `side-panel side-agent${a.look.tone === 'orange' ? ' attention' : ''}`, el('h2', '', icon('hubot'), 'Agent'),
     glance,
     // Its actions in one size and place (D-168): the next step full width, the two that fit its state under it.

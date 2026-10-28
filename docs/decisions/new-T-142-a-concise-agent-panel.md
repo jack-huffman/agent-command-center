@@ -35,5 +35,7 @@ The panel still folds to its header line; what is inside it changed.
   its builder working, in review, sent back and not in the work; it pins the check words, the fold's default and
   memory, every action by command and the off action's reason. The behaviour run has a case for the panel in a
   browser and a mutant, "a failed check isn't named in the summary", which it must catch. The screenshot run draws
-  the panel blocked, blocked while its builder works, with Details open and with More actions open, besides the
-  pages that already show it, at every width and theme.
+  the panel blocked, blocked while its builder works, with a failed check (ticket-agent-failed), with Details open
+  and with More actions open (each page opens only its own fold), at every width and theme. Every other task page's
+  shot opens both folds by default, so what they hold is measured on each page. The Open in Claude Code action's tile in More actions
+  says Claude Code, so no label is cut off; Details' Session row shows only where its words differ from the state's.

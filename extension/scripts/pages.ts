@@ -160,6 +160,7 @@ export const PAGES = [
   'ticket-agent-failed',
   'ticket-agent-details',
   'ticket-agent-more',
+  'ticket-agent-open',
   'ticket-waits',
   'ticket-note',
   'ticket-review',
