@@ -1,4 +1,4 @@
-## D-T-135 Review is a tab on a task page, between Changes and Verify (2026-10-28)
+## D-217 Review is a tab on a task page, between Changes and Verify (2026-10-28)
 
 T-135. The person asked for the Review side section on a task page to be a tab. This amends D-216's list of
 tabs, which becomes Ticket, Plan, Changes, Review and Verify.
