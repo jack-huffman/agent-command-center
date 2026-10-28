@@ -84,7 +84,6 @@ export function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
   const summary = m.total ? `${m.done} of ${m.total} steps done${todo ? `. ${plural(todo, 'step')} to do.` : m.start ? '.' : '. Everything is set up.'}` : 'Checking…';
   // The walkthroughs open only when asked for, from here or VSCode's Get Started page (GH-138).
   const out: Node[] = [header('Setup', m.start ? `${summary} This folder isn't set up yet.` : summary,
-    toolbarButton('acc.openMachineWalkthrough', 'Machine walkthrough', 'device-desktop'),
     toolbarButton('acc.checkMachine', 'Check this machine', 'device-desktop'),
     toolbarButton('acc.openMachineWalkthrough', 'Machine walkthrough', 'book'),
     toolbarButton('acc.openProjectWalkthrough', 'Project walkthrough', 'repo'))];
