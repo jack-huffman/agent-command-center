@@ -229,3 +229,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-219](decisions/D-219-deploy-one-ticket-to-its-next-environment.md) | Deploy one ticket to its next environment: a check first, then the person's yes, and its branch kept in step | 2026-10-28 |
 | [D-220](decisions/D-220-a-changes-tab-that-says-what-changed-and-deploys-it.md) | A Changes tab that says what changed and deploys it, with a confirmation | 2026-10-28 |
 | [D-221](decisions/D-221-buttons-in-a-row-share-one-size.md) | Buttons in one row share one size, and the screenshot run fails a row that mixes sizes | 2026-10-28 |
+| [D-222](decisions/D-222-a-board-opens-on-my-tasks.md) | A board opens on my tasks | 2026-10-28 |

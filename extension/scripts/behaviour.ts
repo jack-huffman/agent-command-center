@@ -39,7 +39,7 @@ import { isFromWebview, type FromWebview } from '../src/model/messages.ts';
 import { type HistoryItem, historyItems } from '../src/model/history.ts';
 import { LOOK } from '../src/model/shared.ts';
 import { type TrackerCard, trackerBoard } from '../src/model/boards.ts';
-import { sampleSeveralBoards } from './fixtures/boards.ts';
+import { everyoneKept, sampleSeveralBoards } from './fixtures/boards.ts';
 import { PERSON } from '../webview/person-filter.ts';
 import { HISTORY_PAGE, historyReply } from '../src/model/history-pages.ts';
 import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
@@ -2108,7 +2108,7 @@ export const CASES: Case[] = [
       const p = t.data.people;
       const tracker = () => t.find(`.board[data-keys="${CSS.escape(p.board)}"]`).closest<HTMLElement>('.tracker')!;
       const button = () => t.find('.person-btn', tracker());
-      t.check('the header says Everyone with the number of cards', button().textContent?.trim() === p.everyone, button().textContent);
+      t.check('the header says Mine with its count, since the board knows who is signed in and nothing was chosen (T-143)', button().textContent?.trim() === p.mine, button().textContent);
       t.check('the menu is shut', !!t.find('.person-menu', tracker()).hidden);
       await t.click(button());
       const items = t.all('.person-item', tracker());
@@ -2191,11 +2191,85 @@ export const CASES: Case[] = [
       await t.post({ type: 'state', model: t.model });
       const tracker = () => t.find('.person-btn').closest<HTMLElement>('.tracker')!;
       t.check('the header counts none', t.find('.person-btn', tracker()).textContent?.trim().startsWith('gone · 0 of') === true, t.find('.person-btn', tracker()).textContent);
-      t.check('the board says no card matches', t.find('.person-none', tracker()).textContent?.includes('No card here is') === true, t.find('.person-none', tracker()).textContent);
+      t.check('the board says no card matches', t.find('.person-none', tracker()).textContent?.includes('No card here is gone') === true, t.find('.person-none', tracker()).textContent);
       t.check('no card is drawn on it', t.all('article.card', tracker()).length === 0);
       await t.click(t.find('.person-none button', tracker()));
       t.check('Show everyone brings every card back, and the header says Everyone', t.find('.person-btn', tracker()).textContent?.trim() === p.everyone && t.all('article.card', tracker()).length > 0, t.find('.person-btn', tracker()).textContent);
-      t.check('the choice is cleared from the tab\'s memory', !(t.memory().filters as Record<string, string> | undefined)?.[p.board], t.memory().filters);
+      t.check('Everyone is kept as the person\'s choice, so the board does not go back to Mine (T-143)', (t.memory().filters as Record<string, string> | undefined)?.[p.board] === 'everyone', t.memory().filters);
+    },
+  },
+  {
+    name: 'person filter: a board opens on Mine when the tracker knows the person, else on Everyone with its line, and a choice kept wins (T-143)',
+    page: 'tasks',
+    async run(t) {
+      const p = t.data.people;
+      const tracker = () => t.find('.person-btn').closest<HTMLElement>('.tracker')!;
+      const header = () => t.find('.person-btn', tracker()).textContent?.trim();
+      t.check('a known person: the board opens on Mine', header() === p.mine, header());
+      t.check('a known person: no line says why not', t.all('.person-why', tracker()).length === 0);
+      const unknown = structuredClone(t.model) as typeof t.model;
+      if (unknown.kind !== 'home') throw new Error('The person filter cases need a home model.');
+      unknown.tasks.projects[0]!.boards[0]!.me = null;
+      await t.post({ type: 'state', model: unknown });
+      t.check('edge case: nobody known: the board opens on Everyone', header() === p.everyone, header());
+      t.check('edge case: nobody known: a quiet line says to sign in', /^Showing everyone: sign in to .+ to see just yours$/.test(t.find('.person-why', tracker()).textContent ?? ''), t.all('.person-why', tracker()).map((w) => w.textContent));
+      t.remember({ filters: { [p.board]: p.choice } });
+      await t.post({ type: 'state', model: unknown });
+      t.check('a kept choice wins over the default, and the line goes', header()?.startsWith(`${p.person} · `) === true && t.all('.person-why', tracker()).length === 0, header());
+      t.remember({ filters: { [p.board]: 'everyone' } });
+      await t.post({ type: 'state', model: t.model });
+      t.check('a kept Everyone wins over Mine on a board that knows the person', header() === p.everyone, header());
+    },
+  },
+  {
+    name: 'person filter: board switching: each board opens on its own choice, a kept one or the default (T-143)',
+    page: 'tasks',
+    async run(t) {
+      const b = t.data.boards;
+      const model = structuredClone(b.model) as typeof t.model;
+      if (model.kind !== 'home') throw new Error('The person filter cases need a home model.');
+      const [one, two] = model.tasks.projects[0]!.boards;
+      one!.me = 'jordan'; two!.me = 'jordan';
+      const key = (x: { index: number }) => `tracker:${t.data.project}#${x.index}`;
+      t.remember({ modes: { [t.data.project]: `board:${one!.id}` }, filters: { [key(two!)]: 'everyone' } });
+      await t.post({ type: 'state', model });
+      const header = () => t.find('.person-btn').textContent?.trim() ?? '';
+      t.check('the board with no kept choice opens on Mine', header().startsWith('Mine'), header());
+      t.remember({ modes: { [t.data.project]: `board:${two!.id}` }, filters: { [key(two!)]: 'everyone' } });
+      await t.post({ type: 'state', model });
+      t.check('the board with a kept Everyone opens on it', header().startsWith('Everyone'), header());
+    },
+  },
+  {
+    name: 'person filter: the agent board in My work opens on Mine when it knows the person, and Everyone when it does not (T-143)',
+    page: 'tasks',
+    async run(t) {
+      const model = structuredClone(t.model) as typeof t.model;
+      if (model.kind !== 'home') throw new Error('The person filter cases need a home model.');
+      const project = model.tasks.projects[0]!;
+      project.me = 'dispatcher';
+      t.remember({ modes: { [project.root]: 'agents' }, filters: {} });
+      await t.post({ type: 'state', model });
+      const header = () => t.find('.agent-board').closest<HTMLElement>('.project')!.querySelector('.person-btn')?.textContent?.trim() ?? '';
+      t.check('the agent board, with no kept choice and a known person, opens on Mine', header().startsWith('Mine'), header());
+      project.me = null;
+      await t.post({ type: 'state', model });
+      t.check('edge case: the agent board with nobody known opens on Everyone', header().startsWith('Everyone'), header());
+    },
+  },
+  {
+    name: 'person filter: edge case: Mine with nothing in it says so, with Show everyone (T-143)',
+    page: 'tasks',
+    async run(t) {
+      const p = t.data.people;
+      const model = structuredClone(t.model) as typeof t.model;
+      if (model.kind !== 'home') throw new Error('The person filter cases need a home model.');
+      model.tasks.projects[0]!.boards[0]!.me = 'nobody-here';
+      await t.post({ type: 'state', model });
+      const none = () => t.find('.person-none');
+      t.check('the board opens on Mine and says nothing is assigned to the person', none().textContent?.includes('Nothing assigned to you here.') === true, none().textContent);
+      await t.click(t.find('.person-none button'));
+      t.check('Show everyone brings the cards back, and the board stays on Everyone', t.find('.person-btn').textContent?.trim() === p.everyone && t.all('.person-none').length === 0, t.find('.person-btn').textContent);
     },
   },
   {
@@ -2451,7 +2525,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'a board draws every card, whatever the filter shows', file: 'tasks.ts', find: "const cards = c.cards.filter(showing);\n    const col = el('section', `column tone-edge-${c.tone}${c.done ?", replace: "const cards = c.cards;\n    const col = el('section', `column tone-edge-${c.tone}${c.done ?", kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right'), caseNamed('person filter: a board where no card')] },
   { name: 'a board forgets its choice on a redraw', file: 'person-menu.ts', find: 'const kept = memory().filters?.[key];', replace: 'const kept: string | undefined = undefined;', kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right')] },
   { name: 'a board with no card says a choice hides them', file: 'tasks.ts', find: 'if (b.columns.some((c) => c.cards.length) && !b.columns.some((c) => c.cards.some(showing))) out.append', replace: 'if (!b.columns.some((c) => c.cards.some(showing))) out.append', kills: [caseNamed('person filter: edge case: a tracker board')] },
-  { name: 'Show everyone does nothing', file: 'person-menu.ts', find: "back.addEventListener('click', () => keep(key, null));", replace: "back.addEventListener('click', () => {});", kills: [caseNamed('person filter: a board where no card')] },
+  { name: 'a board with a known person opens on Everyone', file: 'person-filter.ts', find: '(!choice ? (me ? MINE : EVERYONE)', replace: '(!choice ? EVERYONE', kills: [caseNamed('person filter: a board opens on Mine'), caseNamed('person filter: board switching'), caseNamed('person filter: the agent board'), caseNamed('person filter: edge case: Mine with nothing')] },
+  { name: 'Show everyone does nothing', file: 'person-menu.ts', find: "back.addEventListener('click', () => keep(key, EVERYONE));", replace: "back.addEventListener('click', () => {});", kills: [caseNamed('person filter: a board where no card')] },
   { name: 'the board\'s live line stays silent', file: 'board-nav.ts', find: "live.replaceChildren(icon(look.icon, look.tone), el('span', '', text));", replace: 'void look;', kills: [caseNamed('board keys: Space, Right and Enter'), caseNamed('board keys: Escape'), caseNamed('board keys: Space on a card')] },
   { name: 'Dispatch goes without the sheet', file: 'dispatch-sheet.ts', find: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) openSheet(msg.sheet); } },", replace: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) api.postMessage({ type: 'dispatch-sheet-go', project: msg.sheet.project, task: msg.sheet.task, model: msg.sheet.models[0]!.value, where: msg.sheet.place }); } },", kills: [caseNamed('dispatch sheet: a card'), caseNamed('dispatch sheet: the task page')] },
   { name: 'Escape on the task sheet saves', file: 'task-sheet.ts', find: "const m = makeModal('task-sheet', [heading], shut);", replace: "const m = makeModal('task-sheet', [heading], save);", kills: [caseNamed('task sheet: a Jira task')] },
@@ -2977,7 +3052,11 @@ export function judgeMutants(results: { mutant: Mutant; applied: number; runs: B
 function harness(c: Case, data: BehaviourData, model: Model): string {
   // Where the page keeps a tab's scroll (the page script's pageKey), for a case whose tab remembers one. It remembers its section too, as a tab that was open does; with none the first model counts as a section change, which skips the scroll.
   const key = model.kind === 'home' ? (model.connect ? 'home:connect' : `home:${model.section}`) : model.kind;
-  const seeded = c.opening ? { opened: [], drafts: {}, section: model.kind === 'home' ? model.section : undefined, scroll: { [key]: { y: c.opening.scroll, boards: [] } } } : undefined;
+  // A board with no kept choice opens on Mine (T-143), which hides the cards most cases look for: every case but the person filter's own starts with each board kept on Everyone.
+  const everyone: Record<string, string> = {};
+  if (model.kind === 'home' && !c.name.startsWith('person filter:')) for (const pr of model.tasks?.projects ?? []) Object.assign(everyone, everyoneKept(pr.root));
+  const seeded0 = c.opening ? { opened: [], drafts: {}, section: model.kind === 'home' ? model.section : undefined, scroll: { [key]: { y: c.opening.scroll, boards: [] } } } : undefined;
+  const seeded = Object.keys(everyone).length ? { ...seeded0, filters: everyone } : seeded0;
   const fns = [...HELPERS.map((f) => `const ${f.name} = ${f.toString().replace(/^async function \w+/, 'async function').replace(/^function \w+/, 'function')};`), `const RUN = ${c.run.toString().replace(/^async run/, 'async function')};`].join('\n');
   return `
 window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);

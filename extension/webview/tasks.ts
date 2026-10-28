@@ -266,7 +266,7 @@ export function renderTrackerBoard(root: string, b: TrackerBoard, fold?: { open:
   if (fold && !fold.open) return el('section', 'tracker folded', el('div', 'tracker-head', foldHead(b, fold)));
   const tools: Child[] = [];
   // Its person filter (T-79): Everyone, Mine, Unassigned, or one person. A board with no columns, as a Slack box without a board, has no cards to filter.
-  const filter = b.columns.length ? personFilter(`tracker:${root}#${b.index}`, b.columns.flatMap((c) => c.cards), b.me) : null;
+  const filter = b.columns.length ? personFilter(`tracker:${root}#${b.index}`, b.columns.flatMap((c) => c.cards), b.me, KIND_NAME[b.kind] ?? 'the tracker') : null;
   if (filter) tools.push(filter.control);
   if (b.url) {
     const open = el('button', 'btn ghost', icon('link-external'), `Open in ${KIND_NAME[b.kind] ?? 'the tracker'}`) as HTMLButtonElement;

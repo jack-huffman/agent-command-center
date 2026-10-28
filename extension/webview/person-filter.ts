@@ -17,10 +17,17 @@ export interface Choice { id: string; label: string; icon: string; count: number
 export const NO_ME = 'The tracker did not say who is signed in, so Mine cannot tell which cards are yours.';
 
 /**
- * The choice that applies: Mine with nobody to mean falls back to Everyone, since a filter that hides every
- * card for a reason the person can't act on would only look like an empty board.
+ * The choice that applies (T-143): one the person made, else Mine when the tracker knows who they are, else
+ * Everyone. Mine with nobody to mean falls back to Everyone, since a filter that hides every card for a reason
+ * the person can't act on would only look like an empty board.
  */
-export const effective = (choice: string | undefined, me: string | null): string => (!choice || (choice === MINE && !me) ? EVERYONE : choice);
+export const effective = (choice: string | undefined, me: string | null): string => (!choice ? (me ? MINE : EVERYONE) : choice === MINE && !me ? EVERYONE : choice);
+
+/**
+ * The quiet line for a board showing Everyone because it can't say who the person is: nobody known and no choice
+ * but Everyone, or a kept Mine that can't be honoured now (signed out). A kept Everyone or person needs none.
+ */
+export const everyoneWhy = (choice: string | undefined, me: string | null, tracker: string): string | null => (!me && (!choice || choice === MINE) ? `Showing everyone: sign in to ${tracker} to see just yours` : null);
 
 /** Whether a card with these people shows under a choice. */
 export function shows(choice: string, people: readonly Who[], me: string | null): boolean {
@@ -58,4 +65,4 @@ export function headerLine(choices: readonly Choice[], choice: string | undefine
 }
 
 /** What the board says when its choice shows no card. */
-export const noMatch = (label: string): string => (label === 'Unassigned' ? 'Every card on this board has someone.' : `No card here is ${label === 'Mine' ? 'yours' : `${label}'s`}.`);
+export const noMatch = (label: string): string => (label === 'Unassigned' ? 'Every card on this board has someone.' : label === 'Mine' ? 'Nothing assigned to you here.' : `No card here is ${label}'s.`);

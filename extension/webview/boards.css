@@ -158,7 +158,8 @@
 }
 
 /* A board's person filter (T-79): its button says the choice and count; its menu reuses the ⋯ menu's look. */
-.person-filter { position: relative; }
+.person-filter { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.person-why { font-size: 0.88em; }
 .person-btn { max-width: 100%; }
 .person-btn > span:not(.codicon) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .person-menu { top: calc(100% + 2px); left: 0; right: auto; max-width: min(300px, 80vw); }

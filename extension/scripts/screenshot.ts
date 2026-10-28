@@ -43,7 +43,7 @@ import { type GroupKey, landing, overviewCards } from '../src/model/landing.ts';
 import { REPORT_TITLE } from '../src/model/report.ts';
 import { FinishedJobs } from '../src/progress.ts';
 import { sampleAgent } from './fixtures/agent-page.ts';
-import { sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSeveralBoards, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
+import { everyoneKept, sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSeveralBoards, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
 import { sampleAzureBoards, sampleAzureLoading, sampleAzureRefreshing, sampleTrackerTicket, type TrackerTicketSample } from './fixtures/tracker-tickets.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
 import { sampleIdentities, sampleIdentity } from './fixtures/environments.ts';
@@ -327,6 +327,9 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
     : kind.startsWith('tasks-boards-') ? () => sampleSeveralBoards(kind.startsWith('tasks-boards-ten') ? 10 : kind.startsWith('tasks-boards-four') ? 4 : 2)
     // A Slack channel (T-31, T-85): its board off beside the box for a thread's link, with a link Track refused,
     // its board of marked messages Open and Done, an empty board, and an app without the scope to read the channel.
+    // A board that can't say who is signed in opens on Everyone with its line, and one whose person has no card opens on Mine, empty (T-143).
+    : kind === 'tasks-person-signed-out' ? () => sampleBoards().map((b) => ({ ...b, me: null }))
+    : kind === 'tasks-person-mine-none' ? () => sampleBoards().map((b) => ({ ...b, me: { id: 'sam', name: 'Sam Ortiz' } }))
     : kind.startsWith('tasks-slack') ? () => sampleSlackBoards(kind === 'tasks-slack' ? 'off' : kind.slice('tasks-slack-'.length) as SlackBoardSample) : sampleBoards;
   // The Command Center's own preferences, each set to other than its default (GH-113).
   const prefs = kind === 'settings-page' ? { pace: 'relaxed' as const, opensOn: 'tasks' as const } : {};
@@ -449,10 +452,13 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
  * The page's memory as a shot starts (T-96): startState's, with the Tasks tab's first steps already dismissed,
  * as a person who has used it before sees it, but on tasks-first, which shows them as someone new does.
  */
+/** The shots that show a board on its own default (T-143): Mine, or Everyone with its line, as a board with no kept choice opens. */
+const OWN_DEFAULT = new Set<Page>(['tasks-first', 'tasks-person-menu', 'tasks-person-mine', 'tasks-person-signed-out', 'tasks-person-mine-none']);
+/** Every other shot keeps its boards on Everyone, so a board shows all its cards, as it did before Mine became the default. */
 export const shotState = (kind: Page): Record<string, unknown> => {
-  const start = (startState(kind) as Record<string, unknown> | undefined) ?? {};
-  const opened = [...((start.opened as string[] | undefined) ?? []), ...agentFoldsOpen(kind)];
-  return { ...start, ...(opened.length ? { opened } : {}), ...(kind === 'tasks-first' ? {} : { firstStepsSeen: true }) };
+  const start = (startState(kind) as { filters?: Record<string, string>; opened?: string[] } | undefined) ?? {};
+  const opened = [...(start.opened ?? []), ...agentFoldsOpen(kind)];
+  return { ...start, ...(opened.length ? { opened } : {}), ...(OWN_DEFAULT.has(kind) ? {} : { filters: { ...everyoneKept(ROOT), ...start.filters } }), ...(kind === 'tasks-first' ? {} : { firstStepsSeen: true }) };
 };
 
 /** The task pages whose shots leave the Agent panel's Details and More actions closed, as the page opens them (T-142). */
