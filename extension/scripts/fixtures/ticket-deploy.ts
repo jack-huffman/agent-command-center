@@ -16,7 +16,7 @@ import { type DeployRun, ticketDeploy } from '../../src/model/ticket-deploy.ts';
 import { MIN, ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
-export type DeploySample = 'before' | 'work' | 'deployed' | 'steps' | 'checking' | 'passed' | 'failed' | 'typed';
+export type DeploySample = 'before' | 'work' | 'deployed' | 'steps' | 'checking' | 'passed' | 'failed' | 'typed' | 'done';
 
 const D = 'force-app/main/default';
 const env = (name: string, promotesTo: string[], more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo, ...more });
@@ -45,7 +45,7 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   const at = (min: number) => new Date(now - min * MIN).toISOString();
   const m = sampleTicket(now);
   const deployedOnce = which !== 'before' && which !== 'work';
-  const inUat = which === 'steps' || which === 'typed';
+  const inUat = which === 'steps' || which === 'typed' || which === 'done';
   const promotions = [
     ...(deployedOnce ? [{ from: 'dev', to: 'qa', pr: { number: 61, url: 'https://github.com/acme/service/pull/61' }, state: 'merged' as const, at: at(180), mergedAt: at(178) }] : []),
     ...(inUat ? [{ from: 'qa', to: 'uat', pr: { number: 64, url: 'https://github.com/acme/service/pull/64' }, state: 'merged' as const, at: at(25), mergedAt: at(24) }] : []),
@@ -53,11 +53,15 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   const outside: OutsideState = {
     changes: [
       { id: 'c1', kind: 'record', detail: tier, why: 'Premium cases route on it', planned: true, actor: 'builder', by: 'builder:ACME-12', at: at(300) },
-      ...(inUat ? [{ id: 'c2', kind: 'deletion', detail: { component: 'Apex Class: LegacyRouting', path: `${D}/classes/LegacyRouting.cls` }, why: 'The ticket deletes it, and a deploy never deletes', planned: false, actor: 'human' as const, by: 'human:jordan', at: at(24) }] : []),
+      // Its first deploy, to QA, kept the class it deletes as a step in each org it reaches.
+      ...(deployedOnce ? [{ id: 'c2', kind: 'deletion', detail: { component: 'Apex Class: LegacyRouting', path: `${D}/classes/LegacyRouting.cls` }, why: 'The ticket deletes it, and a deploy never deletes', planned: false, actor: 'human' as const, by: 'human:jordan', at: at(178) }] : []),
     ],
     noted: [], none: [],
     steps: [
-      ...(deployedOnce ? [{ change: 'c1', env: 'qa', org: 'acme-qa', state: 'done' as const, reason: null, by: 'human:jordan', at: at(170), added: at(178) }] : []),
+      ...(deployedOnce ? [
+        { change: 'c1', env: 'qa', org: 'acme-qa', state: 'done' as const, reason: null, by: 'human:jordan', at: at(170), added: at(178) },
+        { change: 'c2', env: 'qa', org: 'acme-qa', state: 'done' as const, reason: null, by: 'human:jordan', at: at(168), added: at(178) },
+      ] : []),
       ...(inUat ? [
         { change: 'c1', env: 'uat', org: 'acme-uat', state: 'todo' as const, reason: null, by: null, at: null, added: at(24) },
         { change: 'c2', env: 'uat', org: 'acme-uat', state: 'todo' as const, reason: null, by: null, at: null, added: at(24) },
@@ -78,6 +82,7 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   const run: DeployRun | null = which === 'checking' ? { to: to.branch, toName: to.name, phase: 'checking', progress: 'Check in acme-uat', plan: null, result: null, error: null }
     : which === 'passed' || which === 'typed' ? { to: to.branch, toName: to.name, phase: 'passed', progress: null, plan: plan(to, true), result: null, error: null }
       : which === 'failed' ? { to: to.branch, toName: to.name, phase: 'failed', progress: null, plan: plan(to, false), result: null, error: null }
+        : which === 'done' ? { to: 'uat', toName: 'UAT', phase: 'deployed', progress: null, plan: plan(ENVS[2]!, true), error: null, result: { plan: plan(ENVS[2]!, true), deployed: true, jobId: '0AfKj000003Ck9pKAC', pr: { number: 64, url: 'https://github.com/acme/service/pull/64' }, merged: true, summary: 'Deployed ACME-12 to UAT: Deployed 5 components in acme-uat, 4 tests passed. Pull request #64 merged into uat.', warning: null, update: null } }
         : null;
   const records = ticketRecords({ task, analysis: null, profile: 'salesforce', environments: ENVS });
   return { ...m, project: ROOT, changes, records, deploy: ticketDeploy({ config: CONFIG, task, tasks: [task], running: false, run }) };

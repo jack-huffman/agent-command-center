@@ -11,6 +11,7 @@ import { type ChangeMark, type ChangeRow, planAgainst } from '../../../packages/
 import { changePlace } from '../../../packages/core/src/changes-field.ts';
 import type { Profile } from '../../../packages/core/src/config.ts';
 import { latestDeploys, type TaskDeploy, testsWords } from '../../../packages/core/src/deploy-gate.ts';
+import { type DeletedComponent, DELETION_KIND } from '../../../packages/core/src/deletion-kind.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import type { Look } from './shared.ts';
@@ -99,7 +100,7 @@ export interface TicketChanges {
 }
 
 export interface ChangesIn {
-  task: Pick<Task, 'id' | 'state' | 'changes' | 'deploys'>;
+  task: Pick<Task, 'id' | 'state' | 'changes' | 'deploys'> & Partial<Pick<Task, 'outside'>>;
   profile: Profile;
   /** The plan's paths (plannedFiles); null with no plan, or one that names none. */
   planned: string[] | null;
@@ -166,6 +167,10 @@ function changeList(profile: Profile, planned: ChangeGroup[], changed: ChangeGro
 
 const items = (groups: ChangeGroup[]): number => groups.reduce((n, g) => n + g.sets.reduce((m, s) => m + s.items.length, 0), 0);
 
+/** The paths a ticket's deploy kept as deletions to make by hand (T-138): how a merged task's list knows what it deleted. */
+const keptDeletions = (t: Partial<Pick<Task, 'outside'>>): string[] =>
+  (t.outside?.changes ?? []).flatMap((c) => (c.kind === DELETION_KIND.kind ? [(c.detail as DeletedComponent).path] : []));
+
 /** What the section lists as changed: once it's done, what acc kept; in flight, its branch's paths, else what acc kept at its land. Null for none. */
 function changedNow(i: ChangesIn): { live: string[] | null; kept: Task['changes'] | null; changed: string[] | null } {
   const kept = i.task.changes?.paths.length ? i.task.changes : null;
@@ -191,7 +196,7 @@ export function ticketChanges(i: ChangesIn): TicketChanges | null {
     return planned.length ? { ...base, list: changeList(i.profile, planned, null), title: 'Planned changes', counts: null, changed: [], note: null } : null;
   }
   const rows = planAgainst(i.planned, changed);
-  const groups = filesGroup(rows, i.profile, i.deleted);
+  const groups = filesGroup(rows, i.profile, i.deleted ?? keptDeletions(i.task));
   const made = filesGroup(rows.filter((r) => r.mark !== 'unmade'), i.profile);
   return { ...base, list: changeList(i.profile, planned, groups), title: 'Changes', counts: { planned: planned.length ? items(planned) : null, changed: items(made) }, changed: groups, note: null };
 }

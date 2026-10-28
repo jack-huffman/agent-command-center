@@ -70,7 +70,8 @@ test('the sheet says the destination, the components, the tests, and what\'s lef
   // Edge: before the check comes back, it says what it's doing and holds no facts.
   const checking = deploySheet('ACME-7', run({ phase: 'checking', plan: null }));
   assert.deepEqual([checking.progress, checking.components, checking.checkId], ['Checking against UAT…', null, null]);
-  assert.equal(deploySheet('ACME-7', run({ phase: 'checking', plan: null, progress: 'Checking in acme-uat' })).progress, 'Checking in acme-uat');
+  const stepped = deploySheet('ACME-7', run({ phase: 'checking', plan: null, progress: 'Check in acme-uat' }));
+  assert.deepEqual([stepped.progress, stepped.step], ['Checking against UAT…', 'Check in acme-uat'], 'the progress words, then the step it\'s on');
   assert.equal(deploySheet('ACME-7', run({ plan: plan({ confirm: true, confirmName: 'Production' }) })).confirm, 'Production');
 });
 
@@ -79,7 +80,7 @@ test('the tab needs the person for a passed check not yet confirmed, and says a 
   assert.equal(at(run()).needs, 'Check passed: deploy to UAT');
   assert.equal(at(run({ phase: 'failed' })).needs, null);
   const hidden = at(run({ phase: 'deploying', progress: 'Deploy to UAT', hidden: true }));
-  assert.deepEqual([hidden.sheet, hidden.status?.words, hidden.deploy?.disabled !== null], [null, 'Deploy to UAT', true], 'cancelled while it deploys: the tab says what it does');
+  assert.deepEqual([hidden.sheet, hidden.status?.words, hidden.deploy?.disabled !== null], [null, 'Deploying to UAT… Deploy to UAT', true], 'cancelled while it deploys: the tab says what it does');
   const result = { deployed: true, summary: 'Deployed ACME-7 to UAT.', pr: { number: 9, url: 'u9' }, warning: null } as TaskDeployResult;
   const done = at(run({ phase: 'deployed', result }));
   assert.deepEqual([done.status?.words, done.status?.pr?.number, done.sheet?.result?.summary], ['Deployed ACME-7 to UAT.', 9, 'Deployed ACME-7 to UAT.']);

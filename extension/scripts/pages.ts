@@ -64,7 +64,7 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * the list of boards open and switched to the third; and ten across three Jira sites, the list open and filtered by
  * site, All boards with each folded but one, and switched to a board whose site's sign-in has run out.
  * Then ACME-12's Changes tab with its deploy (T-138): before work, its work in review, deployed once to QA, and in UAT with
- * steps left to do by hand; then the deploy sheet over it checking against UAT, passed, failed, and Production's, which asks for its name.
+ * steps left to do by hand; then the deploy sheet over it checking against UAT, passed, failed, Production's, which asks for its name, and deployed with its result.
  * Then a project with two Jira Service Management queue boards (T-128), on the Tasks tab and in Settings' Trackers and
  * sign-ins, and the Connect page with a service desk's queues as cards: two ticked, and a sign-in that isn't an agent's.
  */
@@ -190,7 +190,7 @@ export const PAGES = [
   'ticket-records-form',
   'ticket-records-promoted',
   'ticket-manifest',
-  // The Changes tab with its deploy (T-138): before work, with work, deployed once, steps left; the sheet checking, passed, failed, and Production's typed name
+  // The Changes tab with its deploy (T-138): before work, with work, deployed once, steps left; the sheet checking, passed, failed, Production's typed name, and deployed
   'ticket-deploy-before',
   'ticket-deploy-work',
   'ticket-deploy-deployed',
@@ -199,6 +199,7 @@ export const PAGES = [
   'ticket-deploy-passed',
   'ticket-deploy-failed',
   'ticket-deploy-typed',
+  'ticket-deploy-done',
   'ticket-plan-approved',
   'ticket-plan-changed',
   'ticket-plan-short',

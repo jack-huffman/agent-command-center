@@ -168,3 +168,9 @@ test('the page draws the list first, its counts, a deletion in words with an ico
   const none = renderList(m, ticketChanges(input({ task: task({ id: 'T-2', state: 'done' }) }))!) as unknown as PageElement;
   assert.match(none.textContent, /^Files changedIt merged before changes were kept with a task, so there's no record of what it changed\. Its plan named these\.$/);
 });
+
+test('edge case: once merged, a component its deploy kept as a deletion is still marked deleted in the list (T-138)', () => {
+  const outside = { changes: [{ id: 'c1', kind: 'deletion', detail: { component: 'File: old.ts', path: 'src/old.ts' }, why: 'w', planned: false, actor: 'human' as const, by: 'human:jordan', at: 'x' }], noted: [], none: [], steps: [] };
+  const c = ticketChanges(input({ task: { ...task({ state: 'done', changes: { at: 'x', paths: ['src/a.ts', 'src/old.ts'] } }), outside } }))!;
+  assert.deepEqual(listed(c.list.sets), ['src 2: a.ts, old.ts [deleted]']);
+});

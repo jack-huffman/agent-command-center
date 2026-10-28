@@ -50,6 +50,7 @@ const fact = (name: string, ...value: (Node | string | null)[]): HTMLElement[] =
 /** The sheet's body for where it is now. */
 function body(s: DeploySheet): HTMLElement[] {
   const out: HTMLElement[] = [el('p', 'dsh-state', status(s.progress ? { ...s.look, label: s.progress } : s.look))];
+  if (s.step) out.push(el('p', 'muted small dsh-step', s.step));
   if (s.phase === 'checking' || (s.phase === 'deploying' && !s.components)) return out;
   const facts: HTMLElement[] = [...fact('Destination', el('strong', '', s.toName), s.org ? el('span', 'muted', ` · ${s.org}`) : null)];
   if (s.components) {
@@ -62,7 +63,7 @@ function body(s: DeploySheet): HTMLElement[] {
   facts.push(...fact('By hand', s.byHand.length ? el('ul', 'dsh-list', ...s.byHand.map((b) => el('li', '', el('strong', '', `${b.label}: ${b.items.length}`), ' ', work(el('span', 'muted', b.items.join(', ')), 'files')))) : el('span', 'muted', 'Nothing')));
   out.push(el('dl', 'fields dsh-facts', ...facts));
   if (s.phase === 'failed') {
-    out.push(el('div', 'notice attention dsh-failed', icon('warning', 'orange'), el('div', '', el('strong', '', 'Nothing can deploy until the check passes.'),
+    out.push(el('div', 'notice attention why dsh-failed', icon('warning', 'orange'), el('div', 'why-text', el('strong', '', 'Nothing can deploy until the check passes.'),
       s.problems.length ? el('ul', 'dsh-list', ...s.problems.map((p) => work(el('li', '', p), 'output'))) : work(el('p', '', s.summary ?? ''), 'output'))));
   }
   if (s.phase === 'passed' && s.summary) out.push(work(el('p', 'muted small', s.summary), 'output'));
@@ -73,7 +74,6 @@ function body(s: DeploySheet): HTMLElement[] {
     box.id = 'dsh-name';
     box.value = typed;
     box.spellcheck = false;
-    box.placeholder = s.confirm;
     box.addEventListener('input', () => { typed = box.value; foot(); });
     const label = el('label', 'ts-label', `${s.toName} is protected. Type ${s.confirm} to deploy to it.`);
     label.setAttribute('for', 'dsh-name');

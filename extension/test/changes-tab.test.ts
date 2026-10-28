@@ -103,7 +103,7 @@ test('the sheet\'s Deploy is on only after a passed check, and for a protected o
   const { goOff } = await import('../webview/deploy-sheet.ts');
   const sheet = (more: Partial<DeploySheet> = {}): DeploySheet => ({
     task: 'ACME-7', to: 'uat', toName: 'UAT', org: 'acme-uat', phase: 'passed', look: SHEET_LOOK.passed, progress: null, components: { count: 3, types: [] }, tests: null,
-    byHand: [], problems: [], summary: null, checkId: '0Af1', confirm: null, result: null, error: null, ...more,
+    step: null, byHand: [], problems: [], summary: null, checkId: '0Af1', confirm: null, result: null, error: null, ...more,
   });
   assert.equal(goOff(sheet(), ''), null);
   assert.equal(goOff(sheet({ phase: 'checking', checkId: null }), ''), 'Wait for the check to pass');

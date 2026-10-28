@@ -74,8 +74,10 @@ export interface DeploySheet {
   org: string | null;
   phase: SheetPhase;
   look: Look;
-  /** "Checking against UAT…", then the step it's on; null once it's done. */
+  /** "Checking against UAT…" or "Deploying to UAT…" while it runs; null once it's done. */
   progress: string | null;
+  /** The step acc is on, in its own process words, under the progress; null before the first, or once it's done. */
+  step: string | null;
   components: { count: number; types: { name: string; members: string[] }[] } | null;
   tests: string | null;
   byHand: ByHand[];
@@ -154,7 +156,8 @@ export function ticketPath(config: Pick<Config, 'environments'>, t: Pick<Task, '
 export function deployOff(i: Pick<DeployIn, 'config' | 'task' | 'tasks' | 'running' | 'run'>, to: Environment): string | null {
   const can = taskDeployEnabled(i.config, i.task);
   if (!can.ok) return can.why;
-  if (i.running || i.run?.phase === 'checking' || i.run?.phase === 'deploying') return 'A deploy of this ticket is under way. Wait for it to finish.';
+  if (i.run?.phase === 'checking') return 'Its check is under way. Wait for it to finish.';
+  if (i.running || i.run?.phase === 'deploying') return 'A deploy of this ticket is under way. Wait for it to finish.';
   if (!to.org) return `${to.name} has no org in the project's settings.`;
   const waiting = missingDeps(i.tasks, i.task, to);
   if (waiting.length) return `It depends on ${waiting.join(', ')}, which ${waiting.length === 1 ? 'isn\'t' : 'aren\'t'} in ${to.name} yet.`;
@@ -172,9 +175,11 @@ export function deploySheet(task: string, run: DeployRun): DeploySheet {
   ].filter((b) => b.items.length) : [];
   const passed = run.phase === 'passed' && !!p?.check?.passed && !!p.check.id;
   const r = run.result;
+  const running = run.phase === 'checking' || run.phase === 'deploying';
   return {
     task, to: run.to, toName: run.toName, org: p?.org ?? null, phase: run.phase, look: SHEET_LOOK[run.phase],
-    progress: run.phase === 'checking' || run.phase === 'deploying' ? run.progress ?? `${run.phase === 'checking' ? 'Checking against' : 'Deploying to'} ${run.toName}…` : null,
+    progress: running ? `${run.phase === 'checking' ? 'Checking against' : 'Deploying to'} ${run.toName}…` : null,
+    step: running ? run.progress : null,
     components: p ? { count, types: p.types.map((t) => ({ name: t.name, members: t.members })) } : null,
     tests: p?.tests ?? null,
     byHand,
@@ -198,7 +203,7 @@ export function ticketDeploy(i: DeployIn): TicketDeploy | null {
   const sheet = all && !i.run?.hidden ? all : null;
   // The tab says what's under way, and how a deploy went, whether its sheet is open or not; a check's result is the sheet's.
   const status = all && all.phase !== 'passed' && all.phase !== 'failed'
-    ? { look: all.look, words: all.progress ?? all.result?.summary ?? all.error ?? all.look.label, pr: all.result?.pr ?? null } : null;
+    ? { look: all.look, words: (all.progress && all.step ? `${all.progress} ${all.step}` : all.progress) ?? all.result?.summary ?? all.error ?? all.look.label, pr: all.result?.pr ?? null } : null;
   return {
     task: i.task.id, path, deploy: buttons[0] ?? null, others: buttons.slice(1, 4), sheet, status,
     needs: sheet?.phase === 'passed' && sheet.checkId ? `Check passed: deploy to ${sheet.toName}` : null,
