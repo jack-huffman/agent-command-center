@@ -40,6 +40,8 @@ import { TicketPanels, type UpdateActions } from './ticket.ts';
 import { TicketEdits } from './ticket-edits.ts';
 import { exec, Trackers } from './trackers.ts';
 import { ConnectSession } from './connect.ts';
+import { ADD_ANOTHER, addAnother } from './logic/connect.ts';
+import { boardName } from './model/boards.ts';
 import { Slack, slackCard, SLACK_STATE } from './slack.ts';
 import { trackerName } from '../../packages/core/src/trackers/types.ts';
 import { AREAS } from './areas.ts';
@@ -355,7 +357,9 @@ export function activate(context: vscode.ExtensionContext): void {
     gitEmail: (root) => trackers.gitEmail(root),
     ghToken: (root, account) => trackers.ghToken(root, account),
     microsoft: (host, spec) => trackers.microsoft(host, spec),
-    write: (root, index, record) => trackers.write(root, index, record),
+    write: (root, index, record, add) => trackers.write(root, index, record, add),
+    // The name its tracker gives a board (T-127), as the Tasks tab draws it with no name of its own.
+    given: (root, index) => { const b = trackers.boardStates(root)[index]; return b?.board ? boardName({ ...b, name: null }) : null; },
     // A sign-in for every project on a site lets their boards load too (GH-79).
     signedIn: async (root, kind, host) => { await trackers.reload(root, { kind, host }); tickets.refresh(); await setup.recheck('B14.tickets'); },
     saved: async (root, name, from, started) => {
@@ -367,9 +371,11 @@ export function activate(context: vscode.ExtensionContext): void {
       if (settings) panels.show('settings', settingsKey('trackers'));
       else panels.show('tasks');
       const project = hub.project(root)?.name ?? 'the project';
+      // Saved, it offers Add another board (T-127), which opens the Connect page again for this project.
       void vscode.window.showInformationMessage(started
         ? `${project} is started: its settings now hold ${name}, and its tickets are on the Tasks tab. Review the project's settings and commit them; Setup's B10 writes the README's line for where its tickets come from.`
-        : `${name} for ${project} is saved in the project's settings, and its tickets are on the Tasks tab${settings ? ': Settings lists it under Trackers and sign-ins' : ''}. Commit the settings on each environment's branch, so every checkout shows the same board.`);
+        : `${name} for ${project} is saved in the project's settings, and its tickets are on the Tasks tab${settings ? ': Settings lists it under Trackers and sign-ins' : ''}. Commit the settings on each environment's branch, so every checkout shows the same board.`, ADD_ANOTHER)
+        .then((pick) => (pick === ADD_ANOTHER ? vscode.commands.executeCommand('acc.trackers.add', addAnother(root)) : undefined));
       if (started) await setup.refresh('a project started on the Connect page');
       else await setup.recheck('B14.tickets');
     },

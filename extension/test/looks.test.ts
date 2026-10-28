@@ -95,8 +95,8 @@ function chipStates(): [string, Shown][] {
   return [
     ...pages.flatMap((m): [string, Shown][] => (m.status ? [[`${m.key}'s page`, state(m.status)]] : [])),
     ...pages.flatMap((m) => m.related.flatMap((r): [string, Shown][] => (r.status ? [[`${m.key}'s related ${r.key}`, state(r.status)]] : []))),
-    ...boards.flatMap((b) => b.columns.map((c): [string, Shown] => [`${b.tab}'s column ${c.name}`, { label: c.name, icon: c.icon, tone: c.tone }])),
-    ...boards.flatMap((b) => b.columns.flatMap((c) => c.cards.flatMap((x): [string, Shown][] => (x.acc ? [[`${b.tab}'s card ${x.key}`, x.acc.look]] : [])))),
+    ...boards.flatMap((b) => b.columns.map((c): [string, Shown] => [`${b.name}'s column ${c.name}`, { label: c.name, icon: c.icon, tone: c.tone }])),
+    ...boards.flatMap((b) => b.columns.flatMap((c) => c.cards.flatMap((x): [string, Shown][] => (x.acc ? [[`${b.name}'s card ${x.key}`, x.acc.look]] : [])))),
   ];
 }
 

@@ -49,8 +49,9 @@ function renderHome(m: HomeModel): Node[] {
   main.setAttribute('role', 'tabpanel');
   // Which section it shows, so the screenshot run knows the Overview's lines (GH-160).
   main.dataset.section = covers.some((c) => c !== null) ? 'cover' : current;
-  // One board on the page: it fills the height below its heading, so all of it scrolls sideways.
-  if (section?.fill && main.querySelectorAll('.board').length === 1) main.classList.add('fill-board');
+  // One board on the page: it fills the height below its heading, so all of it scrolls sideways. All boards with
+  // one opened (T-127) has one board among other boards' folds, which would share the height: the page scrolls instead.
+  if (section?.fill && main.querySelectorAll('.board').length === 1 && main.querySelectorAll('.tracker').length <= 1) main.classList.add('fill-board');
   // The output panel sits under the section, on every section, while there's output to show.
   return [el('div', 'home', renderNav(m, current), el('div', 'home-col', main, renderDock(state.runs)))];
 }

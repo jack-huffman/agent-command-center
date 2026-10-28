@@ -12,7 +12,9 @@ import { hostsInUse, repoIdentity, type RepoInUse, usedBy } from '../../packages
 import { type Ctx, describe, DESCRIPTIONS, type PickerSpec, type SignIn, type SignInMethod, type TrackerDescription, type Values } from '../../packages/core/src/trackers/connect.ts';
 import { countValues, dependentKeys, placeKey, readPlace } from '../../packages/core/src/trackers/preview.ts';
 import { type Exec, type TrackerClient, TrackerError } from '../../packages/core/src/trackers/types.ts';
-import { area as page, blankConnect, COUNT_MOST, type ConnectMessage, connectModel, type ConnectModel, type ConnectOption, type ConnectState, connectValues } from './model/connect.ts';
+import { TRACKER_NAME_MAX } from '../../packages/core/src/config.ts';
+import { READS_AT_ONCE } from './logic/board-reads.ts';
+import { area as page, BOARD_NAME_FIELD, blankConnect, COUNT_MOST, type ConnectMessage, connectModel, type ConnectModel, type ConnectOption, type ConnectState, connectValues } from './model/connect.ts';
 import { connectChangesField } from './model/changes-field.ts';
 import type { HomeSection } from './model/shared.ts';
 import type { ExtensionArea } from './area.ts';
@@ -56,8 +58,13 @@ export interface ConnectDeps {
   ghToken(root: string, account: string): Promise<string>;
   /** VSCode's Microsoft sign-in, asking which account: the header to use, and what to keep. */
   microsoft(host: string, spec: NonNullable<SignInMethod['microsoft']>): Promise<{ header: string; cred: Record<string, unknown> }>;
-  /** Asks acc to write the tracker to the repo's .acc/config.json (GH-112): in place of the one at index, or added. Throws acc's reason. */
-  write(root: string, index: number | null, record: Record<string, unknown>): Promise<void>;
+  /**
+   * Asks acc to write the tracker to the repo's .acc/config.json (GH-112): in place of the one at index, or added;
+   * with add (Add a board, T-127), always as another board. Throws acc's reason.
+   */
+  write(root: string, index: number | null, record: Record<string, unknown>, add?: boolean): Promise<void>;
+  /** The name a project's tracker gives its board (T-127), as the Tasks tab shows it with no name of its own; null before it's read. */
+  given?(root: string, index: number): string | null;
   /** Signed in: the boards that can use it load now, this project's and every one on the site (GH-79). Null for a project not started yet. */
   signedIn(root: string | null, kind: string, host: string): Promise<void>;
   /**
@@ -85,8 +92,6 @@ export interface ConnectDeps {
   preview?: (d: TrackerDescription, ctx: Ctx) => Pick<TrackerClient, 'board'> | string | null;
 }
 
-/** How many boards the page reads at once (T-106), for the preview and the cards' counts, so a long list never floods a tracker. */
-export const READS_AT_ONCE = 3;
 
 export interface OpenOptions {
   root?: string;
@@ -95,6 +100,8 @@ export interface OpenOptions {
   index?: number;
   /** Opened from a Sign in button: the sign-in shows, ready to type. */
   signIn?: boolean;
+  /** Opened from Add a board (T-127): Save adds another board, even of a project a board has. */
+  add?: boolean;
   /** A project to start from an epic, an area path or labels (GH-81), in place of one that's open. */
   start?: StartProject;
   from: HomeSection;
@@ -150,7 +157,8 @@ export class ConnectSession {
     this.s = blankConnect(d, {
       id: randomBytes(8).toString('hex'), root: p?.root ?? null, projects: start ? [] : projects.map((x) => ({ root: x.root, name: x.name })), projectName: p?.name ?? '',
       ownRepo: p?.config.github?.repo ?? null, ghAccount: p?.config.github?.account ?? null, from: o.from, gitEmail: this.email, start: !!start,
-      existing: t ? { index: o.index!, title: this.deps.title(t), ...d.fromConfig(t, p?.config.github?.repo ?? null) } : null,
+      existing: t ? { index: o.index!, title: this.deps.title(t), name: t.name, given: this.deps.given?.(p!.root, o.index!) ?? undefined, ...d.fromConfig(t, p?.config.github?.repo ?? null) } : null,
+      add: !!o.add,
     });
     if (t && o.signIn) this.s.signIn.again = true;
     // Where a team template says the tracker is (GH-81): its site, and its project, filled in.
@@ -244,7 +252,7 @@ export class ConnectSession {
   private async reopen(o: { root?: string; kind: string }): Promise<void> {
     if (!this.s) return;
     // A project being started stays the one being started, whichever tracker it's started from (GH-81).
-    await this.open({ ...o, from: this.s.from, ...(this.start ? { start: this.start } : {}) });
+    await this.open({ ...o, from: this.s.from, ...(this.start ? { start: this.start } : {}), ...(this.s.add ? { add: true } : {}) });
   }
 
   private ctx(signIn: SignIn): Ctx {
@@ -270,6 +278,11 @@ export class ConnectSession {
   private set(field: string, value: string): void {
     const s = this.s!;
     const d = this.d;
+    // The board's name (T-127): kept as typed, and written with the rest on Save.
+    if (field === BOARD_NAME_FIELD) {
+      s.name = value.trim().slice(0, TRACKER_NAME_MAX);
+      return this.bump();
+    }
     if (field === d.host.key) {
       if (s.existing) return;
       const parsed = d.host.parse(value);
@@ -683,8 +696,11 @@ export class ConnectSession {
       const defaults = d.pickers.filter((p) => s.pickers[p.key]!.options.find((o) => o.value === s.pickers[p.key]!.selected[0])?.default).map((p) => p.key);
       const chosen = { host: s.host, values: connectValues(s, d), defaults, ownRepo: s.ownRepo };
       const record = d.toConfig(chosen);
+      // Its name (T-127): an empty one is the tracker's own, so a renamed board's name is taken out.
+      if (s.name) record.name = s.name;
+      else if (s.existing) record.name = null;
       if (start) await this.deps.start(start, record);
-      else await this.deps.write(s.root!, s.existing?.index ?? null, record);
+      else await this.deps.write(s.root!, s.existing?.index ?? null, record, s.add);
       // The same choices' other trackers, each added beside it (T-128): a service desk's other queues ticked.
       for (const other of d.more?.(chosen) ?? []) await this.deps.write(s.root!, null, other);
     } catch (e) {

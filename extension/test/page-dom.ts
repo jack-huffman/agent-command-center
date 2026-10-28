@@ -54,6 +54,26 @@ export class PageElement {
   }
   /** The first element under it with one class, written as .name: the only selector the page's drawing asks of it. */
   querySelector(selector: string): PageElement | null { return /^\.[\w-]+$/.test(selector) ? this.all(selector.slice(1))[0] ?? null : null; }
+  /**
+   * The elements under it a simple selector finds (T-127): a list of them split by commas, each a tag and classes
+   * (article.card, .a.b), one under another (.a .b), or its own children (:scope > .column). No more than the board asks.
+   */
+  querySelectorAll(selector: string): PageElement[] {
+    const matches = (e: PageElement, compound: string): boolean => {
+      const [tag, ...classes] = compound.split('.');
+      return (!tag || e.tagName === tag.toUpperCase()) && classes.every((c) => e.classList.contains(c));
+    };
+    const found = selector.split(',').flatMap((part) => {
+      const own = part.trim().startsWith(':scope >');
+      const steps = part.trim().replace(/^:scope >\s*/, '').split(/\s+/);
+      let at: PageElement[] = [this];
+      steps.forEach((step, i) => {
+        at = at.flatMap((x) => (own && i === 0 ? x.children.filter((c): c is PageElement => typeof c !== 'string') : x.all())).filter((e) => matches(e, step));
+      });
+      return at;
+    });
+    return [...new Set(found)];
+  }
 }
 
 export class PageDocument {
@@ -62,6 +82,8 @@ export class PageDocument {
   activeElement: PageElement = this.body;
   createElement(tag: string): PageElement { return new PageElement(tag, this); }
   createTextNode(text: string): string { return text; }
+  /** The elements a simple selector finds under the body (T-127), as an element's querySelectorAll does. */
+  querySelectorAll(selector: string): PageElement[] { return this.body.querySelectorAll(selector); }
   /** Listeners the page sets on the document as it loads, such as the ⋯ menus' close on a click elsewhere. */
   readonly listeners = new Map<string, ((e: unknown) => void)[]>();
   addEventListener(type: string, f: (e: unknown) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), f]); }

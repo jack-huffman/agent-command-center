@@ -196,19 +196,53 @@ export async function accImport(acc: (args: string[], cwd: string) => Promise<{ 
 /**
  * The Connect page's Save (GH-112): `acc trackers set --json` with the tracker, through a file that's
  * removed after, so acc writes .acc/config.json and the Command Center never does (D-064). In place of the
- * one at `index`, or added. Throws acc's reason when it refuses.
+ * one at `index`, or added: with `add` (Add a board, T-127) always as another board, never in place of one
+ * for the same project. Throws acc's reason when it refuses.
  */
-export async function accSetTracker(acc: (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>, root: string, index: number | null, record: Record<string, unknown>): Promise<void> {
+export async function accSetTracker(acc: AccRun, root: string, index: number | null, record: Record<string, unknown>, add = false): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'acc-tracker-'));
   try {
     const file = join(dir, 'tracker.json');
     writeFileSync(file, JSON.stringify(record));
-    const why = accRefusal(await acc(['trackers', 'set', '--file', file, ...(index === null ? [] : ['--index', String(index)]), '--json'], root));
+    const why = accRefusal(await acc(['trackers', 'set', '--file', file, ...(index === null ? (add ? ['--new'] : []) : ['--index', String(index)]), '--json'], root));
     if (why !== null) throw new Error(why);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+/**
+ * Asks acc to take the tracker at `index` out of the repo's .acc/config.json (T-127), naming its kind, so a list
+ * that changed since is refused. Its tasks stay in the ledger, on My work. Throws acc's reason when it refuses.
+ */
+export async function accRemoveTracker(acc: AccRun, root: string, index: number, kind: string): Promise<void> {
+  const why = accRefusal(await acc(['trackers', 'remove', '--index', String(index), '--kind', kind, '--json'], root));
+  if (why !== null) throw new Error(why);
+}
+
+/** What a saved board's message offers (T-127): the Connect page again, to add another board to the project. */
+export const ADD_ANOTHER = 'Add another board';
+
+/**
+ * Add a board's argument for acc.trackers.add (T-127): the project, and that Save adds another board. A saved
+ * board's Add another board sends it; the page's Add a board sends its copy in board-switch.ts (D-121).
+ */
+export const addAnother = (root: string): string => JSON.stringify({ root, add: true });
+
+/**
+ * Remove's question (T-127), naming the board and its project, what it does and doesn't do, its button, and
+ * what's said once it's done. Settings' Remove and the Connect page's ask the same.
+ */
+export function removeAsk(name: string, project: string): { message: string; detail: string; go: string; done: string } {
+  return {
+    message: `Remove ${name} from ${project}?`,
+    detail: 'Its tickets leave the Tasks tab, and the Command Center takes it out of the project\'s settings, for you to commit. The tasks you added from it stay on My work. Nothing changes in the tracker, and its sign-in stays for its other boards.',
+    go: 'Remove board',
+    done: `${name} is removed from ${project}'s settings. Its tasks stay on My work. Commit the settings on each environment's branch, so every checkout shows the same boards.`,
+  };
+}
+
+type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 
 /** What `acc import` takes for a tracker's ticket: its title, description and label names. The ticket isn't changed (D-066). */
 export function trackInput(t: Pick<Ticket, 'kind' | 'key' | 'url' | 'title' | 'markdown' | 'labels'>): TaskInput[] {

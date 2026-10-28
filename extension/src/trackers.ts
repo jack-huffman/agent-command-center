@@ -16,12 +16,14 @@ import { SLACK_PREFIX, SlackClient } from '../../packages/core/src/trackers/slac
 import { type Board, type Exec, movesInto, placeText, signInLabel, type Ticket, type TrackerClient, TrackerError, trackerName, type Transition } from '../../packages/core/src/trackers/types.ts';
 import { Pending } from '../webview/pending.ts';
 import type { Hub, Project } from './hub.ts';
-import { accImport, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, outsideKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
+import { boardName } from './model/boards.ts';
+import { accImport, accRemoveTracker, removeAsk, accSetTracker, cardTracking, credInUse, credSite, credWrites, type CredWrites, liveTrackKeys, placeCandidates, readCreds, reloadRoots, repoKey, signOutPlan, type StoredCreds, trackerHost, type TrackReply, type TrackState, trackTicket } from './logic/connect.ts';
 import { inProcessWords } from './logic/processes.ts';
 import { credWho, signedInWho } from './logic/sign-in-name.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
 import { readBoardCache, writeBoardCache } from './logic/board-cache.ts';
+import { boardIds, outsideEvery, readInTurn, sourceGroups } from './logic/board-reads.ts';
 import { stateOf, ticketKey } from './logic/shared.ts';
 import { runFile } from './run.ts';
 import type { ExtensionArea } from './area.ts';
@@ -43,6 +45,14 @@ export interface BoardState extends Loaded {
 
 interface Loaded {
   index: number;
+  /** Which board it is (T-127), by its settings but its name: what the Tasks tab remembers the board on show by. */
+  id: string;
+  /** Its name as a person gave it in its settings (T-127), or null for the one the tracker gives. */
+  name: string | null;
+  /** Its site, organization, account or workspace (T-127), which the board switch groups by. Empty for GitHub. */
+  host: string;
+  /** Its place is narrower than its project or repo (T-127): its name, when it has none of its own, is that place. */
+  narrowed: boolean;
   kind: Tracker['kind'];
   title: string;
   /** Where its tickets come from (D-072): the config's, until the board says it with the epic's name. */
@@ -118,6 +128,8 @@ export class Trackers implements vscode.Disposable {
   onSprint: ((root: string, text: string) => void) | null = null;
   /** The sprint changes this window has told, by tracker and sprint, so two loads at once tell one once. */
   private readonly sprintsTold = new Set<string>();
+  /** The board each project's Tasks tab shows (T-127), by its id, as the page says: read first on every load. */
+  private readonly shown = new Map<string, string>();
 
   constructor(secrets: vscode.SecretStorage, hub: Hub, log: vscode.LogOutputChannel, acc: AccRun | null = null) {
     this.secrets = secrets;
@@ -210,6 +222,24 @@ export class Trackers implements vscode.Disposable {
     return out;
   }
 
+  /**
+   * Which board a tracker is (T-127): its id (`id`, from boardIds over the project's list), its own name, the site
+   * the switch groups it under, and whether its place is narrower than its project (epics, labels, an area path, a
+   * channel), which names it when it has no name.
+   */
+  private which(t: Tracker, id: string): Pick<Loaded, 'id' | 'name' | 'host' | 'narrowed'> {
+    return { id, name: t.name, host: hostOf(t), narrowed: t.epics.length > 0 || t.labels.length > 0 || !!t.areaPath || t.kind === 'slack' };
+  }
+
+  /**
+   * The board a project's Tasks tab shows (T-127), as the page says when it's switched: read first on each load,
+   * and next while a load is still reading the others.
+   */
+  showBoard(root: string, id: string | null): void {
+    if (id) this.shown.set(root, id);
+    else this.shown.delete(root);
+  }
+
   /** Which tracker a ticket key belongs to: GH-12 to GitHub, AB-123 to Azure, MON-123 to monday.com, MSP-7 to the Jira project MSP. */
   trackerFor(p: Project, key: string): number | null {
     return trackerForKey(this.trackers(p), key);
@@ -296,8 +326,9 @@ export class Trackers implements vscode.Disposable {
     } catch (e) {
       this.log.warn(`[trackers] couldn't read the last boards: ${(e as Error).message}`);
     }
+    const ids = boardIds(list);
     const states: Loaded[] = list.map((t, index) => ({
-      index, kind: t.kind, title: this.title(t), place: cached[index]?.board.place ?? this.place(t), left: [], board: cached[index]?.board ?? null,
+      index, ...this.which(t, ids[index]!), kind: t.kind, title: this.title(t), place: cached[index]?.board.place ?? this.place(t), left: [], board: cached[index]?.board ?? null,
       error: null, connect: null, loading: true, signedInAs: null, signInScope: null, me: cached[index]?.me ?? null, off: null,
     }));
     this.boards.set(p.root, states);
@@ -316,20 +347,30 @@ export class Trackers implements vscode.Disposable {
         this.emitter.fire(p.root);
         return;
       }
-      const prev = this.boards.get(p.root) ?? this.seed(p);
+      // The last load's boards by id (T-127): a board taken out, or one moved up the list, never shows another's cards.
+      const prevById = new Map((this.boards.get(p.root) ?? this.seed(p)).map((s) => [s.id, s]));
+      const ids = boardIds(list);
       const states: Loaded[] = await Promise.all(list.map(async (t, index) => {
         const as = await this.signedInFor(p, index);
+        const which = this.which(t, ids[index]!);
+        const was = prevById.get(which.id);
         return {
           // The last board's place, with its epic's name, until this load says otherwise: no flicker every refresh.
-          index, kind: t.kind, title: this.title(t), place: prev[index]?.board?.place ?? this.place(t), left: prev[index]?.left ?? [], board: prev[index]?.board ?? null,
-          error: null, connect: null, loading: true, signedInAs: as?.who ?? null, signInScope: as?.scope ?? null, me: prev[index]?.me ?? null, off: null,
+          index, ...which, kind: t.kind, title: this.title(t), place: was?.board?.place ?? this.place(t), left: was?.left ?? [], board: was?.board ?? null,
+          error: null, connect: null, loading: true, signedInAs: as?.who ?? null, signInScope: as?.scope ?? null, me: was?.me ?? null, off: null,
         };
       }));
       this.boards.set(p.root, states);
       this.emitter.fire(p.root);
-      await Promise.all(states.map(async (s) => {
+      const clients = new Map<number, TrackerClient>();
+      // The board on show first, then the rest, READS_AT_ONCE at a time (T-127), each by its place in the list. Each
+      // fills in as it's read, and one site's failure is that board's own: the others read on.
+      const shownAt = (): number | null => { const i = states.findIndex((x) => x.id === this.shown.get(p.root)); return i >= 0 ? i : null; };
+      await readInTurn(states.length, shownAt, async (index) => {
+        const s = states[index]!;
         try {
           const client = await this.client(p, s.index);
+          clients.set(s.index, client);
           // A Slack channel names its messages' reaction for a board (T-85). Without one, its client refuses with
           // why and how to turn it on, which the box for a thread's link shows above itself, never as an error.
           if (s.kind === 'slack' && !list[s.index]!.reaction) {
@@ -343,15 +384,26 @@ export class Trackers implements vscode.Disposable {
           s.me = s.kind === 'slack' ? null : await Promise.resolve().then(() => client.me()).catch(() => null);
           s.place = s.board.place;
           s.error = null;
-          await this.followPlace(p, s, client);
         } catch (e) {
           s.error = inProcessWords((e as Error).message);
           if (e instanceof TrackerError && e.kind === 'auth') s.connect = this.signInButton(p, s.index, list[s.index]!);
           this.log.warn(`[trackers] ${s.title}: ${s.error}`);
         } finally {
           s.loading = false;
+          if (this.boards.get(p.root) === states) this.emitter.fire(p.root);
         }
-      }));
+      });
+      // With every board read, each source's tickets that left the repo's place (D-072): boards of one source, such
+      // as two of one Jira project with other epics, are asked together, so a ticket one shows is never taken off.
+      for (const group of sourceGroups(list)) {
+        const members = group.map((i) => states[i]!);
+        const read = members.every((s) => s.board && !s.error && clients.has(s.index));
+        for (const s of members) {
+          if (!s.board || s.error || !clients.has(s.index)) continue;
+          const others = read ? members.filter((o) => o !== s).map((o) => clients.get(o.index)!) : null;
+          await this.followPlace(p, s, clients.get(s.index)!, s === members[0] ? { members, others } : null).catch((e: Error) => this.log.warn(`[trackers] ${s.title}: ${e.message}`));
+        }
+      }
       // The boards that loaded are kept in the repo's state folder for the next window; one that failed keeps its last.
       try {
         writeBoardCache(stateOf(p), list, states.map((s) => (s.board && !s.error ? { board: s.board, me: s.me ?? null } : null)), new Date());
@@ -376,10 +428,15 @@ export class Trackers implements vscode.Disposable {
    * changes a ticket. A Jira board held to a sprint (T-78) also hands acc the sprint it shows, when that's
    * new, and a change of sprint is told once, after acc has kept it.
    */
-  private async followPlace(p: Project, s: Loaded, client: TrackerClient): Promise<void> {
+  private async followPlace(p: Project, s: Loaded, client: TrackerClient, group: { members: Loaded[]; others: TrackerClient[] | null } | null): Promise<void> {
     if (s.kind === 'github' || !s.board || !this.acc) return;
-    const keys = placeCandidates(this.hub.ledger(p.root)?.tasks ?? [], { kind: s.kind, index: s.index, cards: s.board.cards }, (key) => this.trackerFor(p, key));
-    const outside = await outsideKeys(keys, (k) => client.outside(k));
+    // Only the first board of a source asks about its tickets (T-127), for every board of that source: a ticket
+    // any of them shows stays, and one is outside only when every one of them says so. While one of them
+    // couldn't be read, none is asked about (D-048). The others still follow their sprints.
+    const indexes = group?.members.map((m) => m.index) ?? [];
+    const cards = group?.members.flatMap((m) => m.board?.cards ?? []) ?? [];
+    const keys = group?.others ? placeCandidates(this.hub.ledger(p.root)?.tasks ?? [], { kind: s.kind, index: s.index, cards }, (key) => (indexes.includes(this.trackerFor(p, key) ?? -1) ? s.index : null)) : [];
+    const outside = await outsideEvery(keys, [client, ...(group?.others ?? [])].map((c) => (k: string[]) => c.outside(k)));
     const t = this.trackers(p)[s.index];
     const tracker = t?.kind === 'jira' && t.sprint !== null ? sprintTracker(t) : null;
     const sprint = tracker ? await lookAtSprint(readSprints(stateOf(p))[tracker], s.board, client, new Date()) : null;
@@ -495,7 +552,7 @@ export class Trackers implements vscode.Disposable {
    * One of the trackers that takes a sign-in: the one named, the only one, or the one a person picks.
    * Null when no project here has one.
    */
-  async pickTracker(arg: unknown, title: string): Promise<{ p: Project; index: number; t: Tracker } | null> {
+  async pickTracker(arg: unknown, title: string, any = false): Promise<{ p: Project; index: number; t: Tracker } | null> {
     if (typeof arg === 'string') {
       try {
         const { root, index } = JSON.parse(arg) as { root: string; index: number };
@@ -506,7 +563,7 @@ export class Trackers implements vscode.Disposable {
         // fall through to asking
       }
     }
-    const choices = this.hub.projects.flatMap((p) => this.trackers(p).map((t, index) => ({ p, index, t }))).filter((c) => c.t.kind !== 'github');
+    const choices = this.hub.projects.flatMap((p) => this.trackers(p).map((t, index) => ({ p, index, t }))).filter((c) => any || c.t.kind !== 'github');
     if (choices.length <= 1) return choices[0] ?? null;
     const pick = await vscode.window.showQuickPick(choices.map((c) => ({ label: this.title(c.t), description: c.p.name, detail: hostOf(c.t), c })), { title });
     return pick?.c ?? null;
@@ -614,9 +671,15 @@ export class Trackers implements vscode.Disposable {
    * replacing one for the same project. Keys it doesn't name are kept, and those it names as null are taken
    * out (D-072). The Command Center never writes the file itself (D-064). Throws acc's reason.
    */
-  async write(root: string, index: number | null, record: Record<string, unknown>): Promise<void> {
+  async write(root: string, index: number | null, record: Record<string, unknown>, add = false): Promise<void> {
     if (!this.acc) throw new Error('This window can\'t run the Command Center.');
-    await accSetTracker(this.acc, root, index, record);
+    await accSetTracker(this.acc, root, index, record, add);
+  }
+
+  /** Asks acc to take a board out of the repo's config (T-127). Its tasks stay on My work. Throws acc's reason. */
+  async remove(root: string, index: number, kind: string): Promise<void> {
+    if (!this.acc) throw new Error('This window can\'t run the Command Center.');
+    await accRemoveTracker(this.acc, root, index, kind);
   }
 
   /**
@@ -631,9 +694,9 @@ export class Trackers implements vscode.Disposable {
 }
 
 export const area: ExtensionArea = {
-  register({ reg, hub, setup, trackers, connect, panels, receive }) {
+  register({ reg, hub, setup, trackers, connect, panels, receive, tickets }) {
     /** Opens the Connect page over the section that's showing, which its Back returns to. */
-    const openConnect = async (o: { root?: string; kind?: string; index?: number; signIn?: boolean }) => {
+    const openConnect = async (o: { root?: string; kind?: string; index?: number; signIn?: boolean; add?: boolean }) => {
       if (!(await connect.open({ ...o, from: panels.current() }))) {
         void vscode.window.showInformationMessage('Onboard this project first: Agent Command Center: Onboard this project.');
         return;
@@ -643,11 +706,13 @@ export const area: ExtensionArea = {
     // From a project's button its root comes along, and from the Jira button the kind too; a board's Change
     // sends its tracker as JSON. Setup's buttons send a step or an item instead, whose kind isn't a tracker's.
     reg('acc.trackers.add', (n?: unknown) => {
-      let a = n as { root?: unknown; kind?: unknown; index?: unknown } | undefined;
+      let a = n as { root?: unknown; kind?: unknown; index?: unknown; add?: unknown } | undefined;
       if (typeof n === 'string') try { a = JSON.parse(n); } catch { a = undefined; }
       return openConnect({
         root: typeof a?.root === 'string' ? a.root : undefined, kind: typeof a?.kind === 'string' && describe(a.kind) ? a.kind : undefined,
         index: Number.isInteger(a?.index) ? a!.index as number : undefined,
+        // Add a board on the Tasks tab, or after a board is saved (T-127): always another board, never in place of one.
+        ...(a?.add === true ? { add: true } : {}),
       });
     });
     // Every Sign in to Jira or Azure DevOps opens that tracker on the Connect page, at its sign-in.
@@ -655,6 +720,30 @@ export const area: ExtensionArea = {
       const chosen = await trackers.pickTracker(arg, 'Sign in to which tracker?');
       await openConnect(chosen ? { root: chosen.p.root, index: chosen.index, signIn: true } : {});
     });
+    // Remove a board (T-127), from Settings or its Change on the Connect page: asked first, naming it. acc takes it
+    // out of the project's settings; its tasks stay on My work.
+    reg('acc.trackers.remove', async (arg?: unknown) => {
+      const chosen = await trackers.pickTracker(arg, 'Remove which board?', true);
+      if (!chosen) return;
+      const b = trackers.boardStates(chosen.p.root)[chosen.index];
+      const ask = removeAsk(b ? boardName(b) : trackers.title(chosen.t), chosen.p.name);
+      if ((await vscode.window.showWarningMessage(ask.message, { modal: true, detail: ask.detail }, ask.go)) !== ask.go) return;
+      try {
+        await trackers.remove(chosen.p.root, chosen.index, chosen.t.kind);
+      } catch (e) {
+        void vscode.window.showErrorMessage(`Couldn't remove it: ${(e as Error).message}`);
+        return;
+      }
+      // The Connect page for it, or any tracker of the project, lists places that have moved: it closes.
+      if (connect.state()?.root === chosen.p.root) connect.close();
+      await hub.loadProjects();
+      await trackers.reload(chosen.p.root);
+      tickets.refresh();
+      void vscode.window.showInformationMessage(ask.done);
+      await setup.recheck('B14.tickets');
+    });
+    // The board the Tasks tab shows (T-127): read first from now on.
+    receive('board-shown', (m) => { if (hub.project(m.project)) trackers.showBoard(m.project, m.board); });
     reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });
     // Setup's "From a Jira epic…" (GH-81): the Connect page, over Setup, for a folder with no config yet.
     setup.useStarter(async (start) => {

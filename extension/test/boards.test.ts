@@ -15,10 +15,10 @@ test('a board says who it\'s signed in as, and whether every project on the site
   assert.deepEqual([gh.signIn, gh.signedInAs], [null, 'jordan-kim'], 'GitHub signs in through gh as the repo\'s account (D-007), as before');
 });
 
-test('a board says each thing once: a repo\'s issues are "Issues" on the switch, and a place shows only when it narrows the board', () => {
+test('a board says each thing once: a repo\'s issues are named "Issues" on the switch, and a place shows only when it narrows the board', () => {
   // The whole repo, which "Issues · acme/tool" already names: no place line, and the switch says Issues.
   const gh = trackerBoard(sampleGithubBoards()[0]!, [], '/r');
-  assert.deepEqual([gh.title, gh.tab, gh.place, gh.signedInAs], ['Issues · acme/tool', 'GitHub board', null, 'jordan-kim']);
+  assert.deepEqual([gh.title, gh.name, gh.place, gh.signedInAs], ['Issues · acme/tool', 'Issues · acme/tool', null, 'jordan-kim']);
   // Narrowed to labels, or another board's name: the place stays, and the switch says the board's name.
   assert.equal(placeAdds('GitHub · acme/tool · labels billing or invoices', 'Issues · acme/tool'), true);
   assert.equal(placeAdds('GitHub · acme/tool', 'Issues · acme/tool'), false);
@@ -27,7 +27,7 @@ test('a board says each thing once: a repo\'s issues are "Issues" on the switch,
   assert.equal(placeAdds('Jira · ACME', 'ACME board'), false, 'a whole Jira project, too');
   assert.equal(placeAdds('GitHub', 'Issues · acme/tool'), true, 'a place with nothing after the tracker says it');
   const jira = trackerBoard(sampleBoards()[0]!, [], '/r');
-  assert.equal(jira.tab, 'Jira board', 'named by its kind on the switch, beside the Agent board, never by its title');
+  assert.equal(jira.name, 'epic ACME-3 Premium Support', 'named on the switch by the epic its tickets come from (T-127)');
   assert.ok(jira.place, 'a Jira epic narrows its board');
   assert.ok(trackerBoard(sampleMondayBoards()[0]!, [], '/r').place, 'and so does a monday.com group');
 });

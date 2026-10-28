@@ -48,6 +48,7 @@ export const CONFIG_WORDS: Record<ConfigKey, string> = {
   'trackers[].reaction': 'the reaction that puts a Slack message on the board',
   'trackers[].doneReaction': 'the reaction that marks a Slack message done',
   'trackers[].team': 'a tracker\'s team',
+  'trackers[].name': 'a board\'s name',
   'trackers[].board': 'a tracker\'s board',
   'trackers[].statusColumn': 'a tracker\'s status column',
   'trackers[].prefix': 'a tracker\'s ticket prefix',

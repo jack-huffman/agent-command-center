@@ -57,6 +57,9 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * line, the panel as Make a plan opens it, mid-conversation with a reply on its way, and Talk it through once v2 is made.
  * Then the agent's questions one at a time, part-way through (T-113), and a long Talk it through, folded.
  * Then Environments on a machine that isn't logged in to Production, its Open org and Deploy… off (T-125).
+ * Then a project's several boards on the Tasks tab (T-127): two, on the first and switched to the second; four, with
+ * the list of boards open and switched to the third; and ten across three Jira sites, the list open and filtered by
+ * site, All boards with each folded but one, and switched to a board whose site's sign-in has run out.
  * Then a project with two Jira Service Management queue boards (T-128), on the Tasks tab and in Settings' Trackers and
  * sign-ins, and the Connect page with a service desk's queues as cards: two ticked, and a sign-in that isn't an agent's.
  */
@@ -110,6 +113,14 @@ export const PAGES = [
   'tasks-azure-loading',
   'tasks-azure-refreshing',
   'tasks-first',
+  // A project's several boards (T-127): two, four and ten across three Jira sites, each switched, the list open and filtered, and All boards folded
+  'tasks-boards-two',
+  'tasks-boards-two-switched',
+  'tasks-boards-four',
+  'tasks-boards-four-switched',
+  'tasks-boards-ten',
+  'tasks-boards-ten-all',
+  'tasks-boards-ten-signin',
   // The output panel over the Tasks board, on a review, a run as rows, and a run as steps
   'output-passed',
   'output-changes',

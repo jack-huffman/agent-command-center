@@ -18,6 +18,12 @@
     "icon": "$(account)"
   },
   {
+    "command": "acc.trackers.remove",
+    "title": "Remove a board…",
+    "category": "Agent Command Center",
+    "icon": "$(trash)"
+  },
+  {
     "command": "acc.trackers.signOut",
     "title": "Sign out of a tracker",
     "category": "Agent Command Center",

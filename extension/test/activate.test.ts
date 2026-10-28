@@ -165,8 +165,10 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(ctx.workspaceState.get('acc.agents.where'), 'path', 'not a view the page can ask for');
     tab.receive!({ type: 'run', command: 'workbench.action.quit', ref: {} });
     // The palette's key (T-52): acc.palette tells the open page to open its palette, and opens no second page.
+    const postedBefore = tab.posted.length;
     await calls.commands.get('acc.palette')!();
-    assert.deepEqual(tab.posted.at(-1), { type: 'palette' }, 'acc.palette posts the palette message to the page');
+    // A board read meanwhile redraws the page too (T-127: each board is drawn as it's read), so it's found among the posts.
+    assert.ok(tab.posted.slice(postedBefore).some((m) => JSON.stringify(m) === JSON.stringify({ type: 'palette' })), 'acc.palette posts the palette message to the page');
     assert.equal(panels.length, 1, 'it opens no second page');
 
     // Every answer sent from a page gets a reply, so it never stays on "Sending your answer…" (D-059).

@@ -38,7 +38,8 @@ import { loadingScreen } from '../src/logic/loading.ts';
 import { isFromWebview, type FromWebview } from '../src/model/messages.ts';
 import { type HistoryItem, historyItems } from '../src/model/history.ts';
 import { LOOK } from '../src/model/shared.ts';
-import type { TrackerCard } from '../src/model/boards.ts';
+import { type TrackerCard, trackerBoard } from '../src/model/boards.ts';
+import { sampleSeveralBoards } from './fixtures/boards.ts';
 import { PERSON } from '../webview/person-filter.ts';
 import { HISTORY_PAGE, historyReply } from '../src/model/history-pages.ts';
 import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
@@ -263,6 +264,8 @@ export interface BehaviourData {
     moved: Model;
     stuck: { card: string; model: Model; says: string };
   };
+  /** Ten boards on three Jira sites (T-127): the Tasks tab's model, what's typed to find a site's boards, what it finds, and the board Enter then shows. */
+  boards: { model: Model; typed: string; found: string[]; picked: string; id: string };
   /** What the person filter's cases expect (T-79): the Jira board's key, one person with cards in two columns, the arrows through them, a card hidden by it, and the header's words. */
   people: { board: string; person: string; choice: string; first: string; down: string; right: string; hidden: string; labels: string[]; header: string; mine: string; everyone: string };
 }
@@ -1962,6 +1965,40 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'board switch: ten boards open one list from its button, a typed site finds its boards, Down goes to them, Enter on the box shows the first, and Escape shuts it (T-127)',
+    page: 'tasks',
+    async run(t) {
+      const b = t.data.boards;
+      await t.post({ type: 'state', model: b.model });
+      const button = () => t.find<HTMLButtonElement>('.board-switch-btn');
+      const menu = () => t.find('.board-menu');
+      t.check('the list is shut, and its button is named for the board on show', !!menu().hidden && /^Board on show: /.test(button().getAttribute('aria-label') ?? ''), button().getAttribute('aria-label'));
+      await t.click(button());
+      const box = t.find<HTMLInputElement>('.board-find');
+      t.check('it opens, and focus goes to the box to find a board', !menu().hidden && document.activeElement === box && button().getAttribute('aria-expanded') === 'true', document.activeElement?.className);
+      box.value = b.typed;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      await t.settle();
+      const names = () => t.all('.board-item', menu()).map((i) => i.querySelector('.board-item-name')?.textContent);
+      t.check('what\'s typed finds that site\'s boards, and only them', JSON.stringify(names()) === JSON.stringify(b.found), names());
+      await press(t, box, 'ArrowDown');
+      t.check('Down goes from the box to the first board found', document.activeElement === t.all('.board-item', menu())[0], document.activeElement?.textContent);
+      await press(t, document.activeElement as HTMLElement, 'Escape');
+      t.check('Escape shuts it, and focus goes back to its button', !!menu().hidden && document.activeElement === button(), document.activeElement?.className);
+      await t.click(button());
+      await press(t, t.find('.board-find'), 'Enter');
+      t.check('Enter in the box shows the first board found, and the button names it', button().textContent?.includes(b.picked) === true, button().textContent);
+      t.check('the choice is kept for the project', (t.memory().modes as Record<string, string>)[t.data.project] === `board:${b.id}`, t.memory().modes);
+      t.check('the extension is told which board is on show, to read it first', t.sent('board-shown').some((m) => m.board === b.id), t.sent('board-shown'));
+      // All boards with one opened: the opened board draws whole, and the folds under it don't share the page's height.
+      t.remember({ modes: { [t.data.project]: 'all' }, opened: [] });
+      await t.post({ type: 'state', model: b.model });
+      await t.click(t.all<HTMLButtonElement>('.board-fold')[1]!);
+      const opened = t.find('.board');
+      t.check('edge case: All boards with one opened scrolls as a page, and the opened board is drawn whole, not squeezed', !t.find('.home-main').classList.contains('fill-board') && opened.getBoundingClientRect().height >= 120, opened.getBoundingClientRect().height);
+    },
+  },
+  {
     name: 'person filter: Down and Right go between the cards that show, and skip the ones it hides',
     page: 'tasks',
     async run(t) {
@@ -2057,6 +2094,9 @@ const caseNamed = (start: string): string => {
 };
 
 export const MUTANTS: Mutant[] = [
+  { name: 'typing in the board list finds nothing', file: 'board-switch.ts', find: "find.addEventListener('input', () => { typed.set(root, find.value); fill(find.value); });", replace: "find.addEventListener('input', () => { typed.set(root, find.value); });", kills: [caseNamed('board switch: ten boards')] },
+  { name: 'All boards with one opened fills the page\'s height', file: 'main.ts', find: " && main.querySelectorAll('.tracker').length <= 1) main.classList.add('fill-board');", replace: ") main.classList.add('fill-board');", kills: [caseNamed('board switch: ten boards')] },
+  { name: 'Enter in the board list\'s box picks nothing', file: 'board-switch.ts', find: "items.querySelector<HTMLElement>('.board-group .board-item')?.click();", replace: '', kills: [caseNamed('board switch: ten boards')] },
   { name: 'Escape does nothing', file: 'modal.ts', find: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); shut(); });", replace: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); });", kills: [caseNamed('task modal: Escape'), caseNamed('detail modal: Escape'), caseNamed('palette: Escape')] },
   { name: 'a backdrop click does nothing', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (downOnBackdrop && onBackdrop(dialog, e)) { /* stub */ }', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
   { name: 'a drag out of it closes it', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (onBackdrop(dialog, e)) shut();', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
@@ -2256,6 +2296,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     steps: stepsData(now),
     keys: keysData(models.tasks),
     people: peopleData(models.tasks),
+    boards: boardsData(models.tasks),
     sheet: sheetData(now),
     taskSheet: taskSheetData(now),
     criteria: { model: sampleTicket(now, 'ACME-19', true, 'drafted'), project: ROOT, error: 'ACME-19\'s ticket can\'t take an update.' },
@@ -2479,6 +2520,15 @@ function keysData(model: Model): BehaviourData['keys'] {
  * What the person filter's cases expect (T-79), from the Jira board's model: one person who has cards in two
  * columns with a column between them that has none of theirs, and the cards an arrow goes between.
  */
+/** The Tasks tab with ten boards on three Jira sites (T-127), the boards drawn as the extension draws them. */
+function boardsData(model: Model): BehaviourData['boards'] {
+  if (model.kind !== 'home') throw new Error('The board switch case needs a home model.');
+  const boards = sampleSeveralBoards(10).map((b) => trackerBoard(b, [], ROOT));
+  const tasks = { ...model.tasks, projects: model.tasks.projects.map((p, i) => (i === 0 ? { ...p, boards } : p)) };
+  const found = boards.filter((b) => b.group === 'globex.atlassian.net');
+  return { model: { ...model, tasks }, typed: 'globex', found: found.map((b) => b.name), picked: found[0]!.name, id: found[0]!.id };
+}
+
 function peopleData(model: Model): BehaviourData['people'] {
   if (model.kind !== 'home') throw new Error('The person filter cases need a home model.');
   const project = model.tasks.projects[0]!;

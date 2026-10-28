@@ -27,7 +27,7 @@ export function sampleBoards(): BoardInput[] {
     return { ...c, typeKind: typeKindOf(c.type), priorityLevel: c.priority ? JIRA_PRIORITY[c.priority.toLowerCase()] ?? null : null };
   };
   return [{
-    index: 0, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example', me: { id: 'jordan', name: 'Jordan Kim' },
+    index: 0, id: 'b-acme-premium', host: 'acme.atlassian.net', narrowed: true, kind: 'jira', title: 'Jira · ACME', error: null, connect: null, loading: false, signedInAs: 'jordan@acme.example', me: { id: 'jordan', name: 'Jordan Kim' },
     // A sign-in for every project on the site (GH-79), said under the place.
     signInScope: { shared: true, host: 'acme.atlassian.net' },
     place: 'Jira · ACME · epic ACME-3 Premium Support',
@@ -130,7 +130,7 @@ export function sampleGithubBoards(): BoardInput[] {
     ({ key: `GH-${n}`, title, url: `https://github.com/acme/tool/issues/${n}`, status: s, type: type?.[0] ?? null, typeKind: typeKindOf(type?.[0]), typeColor: type ? GITHUB_TYPE_COLOUR[type[1]]! : null,
       assignees: [], labels: labels.map((name) => ({ name, color: GITHUB_LABELS[name] ?? null })), priority: null });
   return [{
-    index: 0, kind: 'github', title: 'GitHub · acme/tool', error: null, connect: null, loading: false, signedInAs: 'jordan-kim', place: 'GitHub · acme/tool', left: [],
+    index: 0, id: 'b-acme-tool', host: '', narrowed: false, kind: 'github', title: 'GitHub · acme/tool', error: null, connect: null, loading: false, signedInAs: 'jordan-kim', place: 'GitHub · acme/tool', left: [],
     board: {
       source: 'github-state', title: 'Issues · acme/tool', url: 'https://github.com/acme/tool/issues',
       notice: 'To use your GitHub Project\'s columns, give jordan-kim access to Projects. gh refreshes only its active account, so run gh auth switch -u jordan-kim, then gh auth refresh -h github.com -s project and sign in as jordan-kim, then switch back to the account you use.',
@@ -177,7 +177,7 @@ export function sampleSlackBoards(sample: SlackBoardSample = 'off'): BoardInput[
     ],
   } : null;
   return [{
-    index: 0, kind: 'slack', title: 'Slack · acme',
+    index: 0, id: 'b-acme-slack', host: 'acme', narrowed: true, kind: 'slack', title: 'Slack · acme',
     error: sample === 'scope' ? `The Slack app needs the channels:history scope for conversations.history. Add it on the app's OAuth & Permissions page at ${SLACK_APPS}, then install the app again.` : null,
     connect: null, loading: false, signedInAs: 'Acme Command Center',
     signInScope: { shared: false, host: 'acme' }, place: 'Slack · acme · channel C0123ABCD', left: [], board,
@@ -200,4 +200,47 @@ export function sampleSprintBoards(): BoardInput[] {
     left: ['ACME-18 left this repo\'s place: it isn\'t in the active sprint; ACME-18 is still blocked'],
     board: { ...jira!.board!, cards: jira!.board!.cards.filter((c) => inSprint.includes(c.key)) },
   }];
+}
+
+/** How many boards a project holds in the Tasks tab's several-board samples (T-127). */
+export type SeveralBoards = 2 | 4 | 10;
+
+/**
+ * A project with several boards (T-127). Two: the Jira epic's board, and a second board of the same project, its
+ * Renewals epic, which shares a ticket with the first (one task, on both). Four: those, a GitHub repo's issues and a
+ * board on a second Jira site. Ten: boards on three Jira sites, acme, globex and initech, and a GitHub repo; initech's
+ * sign-in has run out, so its boards say why, in orange, and still switch.
+ */
+export function sampleSeveralBoards(n: SeveralBoards): BoardInput[] {
+  const [jira] = sampleBoards();
+  const cards = jira!.board!.cards;
+  const pickCards = (keys: number[]) => cards.filter((c) => keys.includes(Number(c.key.slice('ACME-'.length))));
+  const board = (i: number, o: { id: string; host: string; name?: string; epic: string; keys: number[]; title?: string; error?: boolean }): BoardInput => ({
+    ...jira!, index: i, id: o.id, host: o.host, name: o.name ?? null, narrowed: true, title: `Jira · ${o.title ?? 'ACME'}`,
+    place: `Jira · ${o.title ?? 'ACME'} · epic ${o.epic}`, left: [], tracking: {},
+    signInScope: { shared: true, host: o.host },
+    ...(o.error ? {
+      board: null, signedInAs: null, me: null,
+      error: `Sign in to Jira (${o.host}) for this repo to see its board and tickets.`,
+      connect: { command: 'acc.trackers.signIn', label: 'Sign in to Jira', arg: JSON.stringify({ root: '/Users/me/code/acme-service', index: i }) },
+    } : { board: { ...jira!.board!, title: `${o.title ?? 'ACME'} board`, cards: pickCards(o.keys) } }),
+  });
+  const [github] = sampleGithubBoards();
+  const two: BoardInput[] = [
+    jira!,
+    // Its own name, and ACME-12, which the first board shows too: one task, on both.
+    board(1, { id: 'b-acme-renewals', host: 'acme.atlassian.net', name: 'Renewals', epic: 'ACME-5 Renewals', keys: [12, 24, 28, 33, 8] }),
+  ];
+  if (n === 2) return two;
+  const four = [...two, { ...github!, index: 2 }, board(3, { id: 'b-globex-portal', host: 'globex.atlassian.net', epic: 'GLX-2 Partner portal', title: 'GLX', keys: [23, 25, 27, 10] })];
+  if (n === 4) return four;
+  return [
+    ...four,
+    board(4, { id: 'b-globex-billing', host: 'globex.atlassian.net', name: 'Billing fixes', epic: 'GLX-9 Billing', title: 'GLX', keys: [21, 19, 15] }),
+    board(5, { id: 'b-globex-support', host: 'globex.atlassian.net', epic: 'GLX-11 Support queue', title: 'GLX', keys: [30, 31, 34, 14] }),
+    board(6, { id: 'b-acme-leads', host: 'acme.atlassian.net', name: 'Lead scoring', epic: 'ACME-8 Leads', keys: [22, 27, 33] }),
+    board(7, { id: 'b-acme-cases', host: 'acme.atlassian.net', epic: 'ACME-9 Case management', keys: [16, 17, 32, 34] }),
+    board(8, { id: 'b-initech-erp', host: 'initech.atlassian.net', name: 'ERP sync', epic: 'INI-4 ERP', title: 'INI', keys: [], error: true }),
+    board(9, { id: 'b-initech-hr', host: 'initech.atlassian.net', epic: 'INI-7 HR onboarding', title: 'INI', keys: [], error: true }),
+  ];
 }

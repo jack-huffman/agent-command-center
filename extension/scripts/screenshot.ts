@@ -43,7 +43,7 @@ import { type GroupKey, landing, overviewCards } from '../src/model/landing.ts';
 import { REPORT_TITLE } from '../src/model/report.ts';
 import { FinishedJobs } from '../src/progress.ts';
 import { sampleAgent } from './fixtures/agent-page.ts';
-import { sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
+import { sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSeveralBoards, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
 import { sampleAzureBoards, sampleAzureLoading, sampleAzureRefreshing, sampleTrackerTicket, type TrackerTicketSample } from './fixtures/tracker-tickets.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
 import { sampleIdentities, sampleIdentity } from './fixtures/environments.ts';
@@ -262,11 +262,13 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   const connect = kind === 'connect-jira-queues' || kind === 'connect-jira-queues-refused' ? sampleQueueConnect(kind.endsWith('refused')) : kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') || kind.startsWith('tasks-boards') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : kind === 'tasks-azure' ? sampleAzureBoards : kind === 'tasks-azure-loading' ? sampleAzureLoading : kind === 'tasks-azure-refreshing' ? sampleAzureRefreshing : kind === 'tasks-sprint' ? sampleSprintBoards
     // Two Jira Service Management queue boards on one project (T-128), on the Tasks tab and in Settings.
     : kind === 'tasks-queues' || kind === 'settings-queues' ? sampleQueueBoards
+    // A project's several boards (T-127): two, four, or ten across three Jira sites.
+    : kind.startsWith('tasks-boards-') ? () => sampleSeveralBoards(kind.startsWith('tasks-boards-ten') ? 10 : kind.startsWith('tasks-boards-four') ? 4 : 2)
     // A Slack channel (T-31, T-85): its board off beside the box for a thread's link, with a link Track refused,
     // its board of marked messages Open and Done, an empty board, and an app without the scope to read the channel.
     : kind.startsWith('tasks-slack') ? () => sampleSlackBoards(kind === 'tasks-slack' ? 'off' : kind.slice('tasks-slack-'.length) as SlackBoardSample) : sampleBoards;
@@ -286,6 +288,16 @@ function stepsState(k: StepSample): unknown {
   const step = STEP_SAMPLE_OPEN[k];
   return { dock: { open: true, run: id }, ...(step ? { opened: [`run-step:${id}:${step}`] } : {}) };
 }
+
+/** What each several-boards shot starts with (T-127): the board on show, the list open and what's typed in it, and All boards' opened board. */
+const BOARD_SHOTS: Partial<Record<Page, unknown>> = {
+  'tasks-boards-two-switched': { modes: { [ROOT]: 'board:b-acme-renewals' } },
+  'tasks-boards-four': { openBoards: ROOT },
+  'tasks-boards-four-switched': { modes: { [ROOT]: 'board:b-globex-portal' } },
+  'tasks-boards-ten': { openBoards: ROOT, boardQuery: 'globex' },
+  'tasks-boards-ten-all': { modes: { [ROOT]: 'all' }, opened: [`board-open:${ROOT}#b-acme-renewals`] },
+  'tasks-boards-ten-signin': { modes: { [ROOT]: 'board:b-initech-erp' } },
+};
 
 /** ACME-21's The whole plan, open (T-109), and the start of the keys its Review plan remembers. */
 const WHOLE_PLAN = 'an:/Users/me/code/acme-service#ACME-21:whole';
@@ -328,6 +340,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   // A person with no card on the Jira board, as a refresh leaves one whose cards all moved: the board says so, with Show everyone.
   : kind === 'tasks-person-none' ? { filters: { [`tracker:${ROOT}#0`]: 'person:nobody' } }
   : kind === 'tasks-person-agents' ? { modes: { [ROOT]: 'agents' }, filters: { [`agents:${ROOT}`]: 'mine' } }
+  // A project's several boards (T-127): switched to another board, the list open, filtered by a site, and All boards with one opened.
+  : BOARD_SHOTS[kind] ? BOARD_SHOTS[kind]
   // Add a change made by hand (T-100), opened and half-filled, and a step's Skip open, as the tab's memory keeps them.
   : kind === 'ticket-records-form' ? RECORDS_FORM_STATE
   // ACME-21's plan (T-97): its second choice's own option open, and the later plans with their earlier versions open.

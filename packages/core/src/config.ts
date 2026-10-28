@@ -88,6 +88,11 @@ export type CardState = (typeof CARD_STATES)[number];
 
 export interface Tracker {
   kind: TrackerKind;
+  /**
+   * The board's name on the Tasks tab's switch and in Settings (T-127), as a person renamed it. Unset, the
+   * name the tracker gives: its board, its epics, its Project, its channel.
+   */
+  name: string | null;
   /** Jira: the site, such as acme.atlassian.net. */
   site: string | null;
   /** Jira: the project key. Azure DevOps: the project name. */
@@ -293,7 +298,7 @@ export const CONFIG_KEYS = [
   'schema', 'project', 'profile', 'github.repo', 'github.account', 'github.checks', 'commitIdentity.name', 'commitIdentity.email',
   'environments[].name', 'environments[].branch', 'environments[].type', 'environments[].org', 'environments[].default',
   'environments[].protected', 'environments[].promotesTo', 'environmentSpecific', 'knownDrift',
-  'trackers[].kind', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
+  'trackers[].kind', 'trackers[].name', 'trackers[].site', 'trackers[].project', 'trackers[].repo', 'trackers[].organization', 'trackers[].account',
   'trackers[].workspace', 'trackers[].channel', 'trackers[].reaction', 'trackers[].doneReaction', 'trackers[].team', 'trackers[].board', 'trackers[].statusColumn', 'trackers[].prefix', 'trackers[].skipLabels',
   'trackers[].epics', 'trackers[].sprint', 'trackers[].queue', 'trackers[].labels', 'trackers[].areaPath', 'trackers[].group', 'trackers[].edits',
   'trackers[].statusFor', 'trackers[].changesField.id', 'trackers[].changesField.name', 'trackers[].changesField.format',
@@ -587,8 +592,14 @@ export function parseConfig(raw: unknown): ParseResult {
         errors.push(`trackers[${i}]: "board" must be ${t.kind === 'azure' ? 'an Azure board\'s name, such as Stories' : t.kind === 'github' ? `a GitHub Project number, or "${GITHUB_NO_PROJECT}" for no Project` : 'a Jira board id or a GitHub Project number'}.`);
         return;
       }
+      // A board's own name (T-127): a few words, shown on the Tasks tab's switch and in Settings.
+      if (t.name !== undefined && t.name !== null && (typeof t.name !== 'string' || t.name.trim().length > TRACKER_NAME_MAX)) {
+        errors.push(`trackers[${i}]: "name" must be the board's name, in up to ${TRACKER_NAME_MAX} characters.`);
+        return;
+      }
       trackers.push({
         kind: t.kind,
+        name: isStr(t.name) && t.name.trim() ? t.name.trim() : null,
         site: isStr(t.site) ? t.site : null,
         project: isStr(t.project) ? t.project : null,
         repo: isStr(t.repo) ? t.repo : null,
@@ -616,6 +627,7 @@ export function parseConfig(raw: unknown): ParseResult {
       });
     });
     // Two trackers whose keys start the same: a ticket's key finds only the first, so the second's can't post.
+    // Two boards of one project on one site (T-127), such as other epics, post through the same project: no warning.
     const seen = new Map<string, number>();
     trackers.forEach((t, i) => {
       const p = keyPrefix(t);
@@ -624,7 +636,15 @@ export function parseConfig(raw: unknown): ParseResult {
       // A service desk's queue boards share its project's keys (T-128): each ticket goes to the first, which takes in them all.
       if (first !== undefined && sameDesk(trackers[first]!, t)) return;
       if (first === undefined) seen.set(p, i);
-      else warnings.push(`trackers[${first}] and trackers[${i}] both give tickets keys like ${p}-12, so those keys go to trackers[${first}]. Give one of them its own "prefix".`);
+      else if (!sameSource(trackers[first]!, t)) warnings.push(`trackers[${first}] and trackers[${i}] both give tickets keys like ${p}-12, so those keys go to trackers[${first}]. Give one of them its own "prefix".`);
+    });
+    // Two trackers in the very same place, differing only by name (T-127): one board shown twice.
+    const places = new Map<string, number>();
+    trackers.forEach((t, i) => {
+      const k = boardKeys(t as unknown as Record<string, unknown>);
+      const first = places.get(k);
+      if (first === undefined) places.set(k, i);
+      else warnings.push(`trackers[${first}] and trackers[${i}] are the same board: the same place, differing only by name. Give one other epics, labels or another place, or take it out.`);
     });
   }
 
@@ -1072,6 +1092,21 @@ export function keyPrefix(t: Pick<Tracker, 'kind' | 'project' | 'prefix'>): stri
   return t.project ? t.project.toUpperCase() : null;
 }
 
+/** The longest name a board takes (T-127). */
+export const TRACKER_NAME_MAX = 80;
+
+/**
+ * Whether two trackers read one source (T-127): the same kind, site, organization, account or workspace, and
+ * project, repo, monday.com board or Slack channel. Their tickets are one set, each kept as one task, however
+ * the two narrow it (epics, labels, an area path, a group).
+ */
+export function sameSource(a: Pick<Tracker, 'kind' | 'site' | 'organization' | 'account' | 'workspace' | 'project' | 'repo' | 'board' | 'channel'>, b: typeof a): boolean {
+  if (a.kind !== b.kind) return false;
+  const where = (t: typeof a) => t.site ?? t.organization ?? t.account ?? t.workspace ?? null;
+  const what = (t: typeof a) => (t.kind === 'monday' ? String(t.board ?? '') : t.kind === 'slack' ? t.channel : t.kind === 'github' ? t.repo : t.project);
+  return where(a) === where(b) && what(a) === what(b);
+}
+
 /** Two queue boards of one Jira service desk (T-128): the same site and project, each with a queue. */
 export const sameDesk = (a: Pick<Tracker, 'kind' | 'site' | 'project' | 'queue'>, b: Pick<Tracker, 'kind' | 'site' | 'project' | 'queue'>): boolean =>
   a.kind === 'jira' && b.kind === 'jira' && a.queue !== null && b.queue !== null && a.site === b.site && a.project?.toUpperCase() === b.project?.toUpperCase();
@@ -1150,8 +1185,15 @@ const setKeys = (t: Record<string, unknown>) => Object.fromEntries(Object.entrie
 export function replaceTracker(trackers: Record<string, unknown>[], index: number, tracker: Record<string, unknown>): Record<string, unknown>[] {
   const was = trackers[index];
   if (!was || was.kind !== tracker.kind) throw new AccError('config-changed', 'The trackers in .acc/config.json changed since this page opened. Open it again from the board.');
-  return trackers.map((t, k) => (k === index ? setKeys({ ...t, ...tracker }) : t));
+  const next = trackers.map((t, k) => (k === index ? setKeys({ ...t, ...tracker }) : t));
+  // A Change that gives this board the very place of another (T-127) is refused, in words that name the other.
+  const other = next.findIndex((t, k) => k !== index && boardKeys(t) === boardKeys(next[index]!));
+  if (other >= 0) throw new AccError('usage', `That's the same place as ${boardLabel(next[other]!, other)}: choose other epics, labels or another place, or change that board instead.`);
+  return next;
 }
+
+/** A board as a person knows it, for a message: its own name, else its place in the list (T-127). */
+const boardLabel = (t: Record<string, unknown>, index: number): string => (isStr(t.name) && t.name.trim() ? `the board “${t.name.trim()}”` : `board ${index + 1} in the project's list`);
 
 /**
  * Connects a tracker, or changes one, in the repo's .acc/config.json, as acc trackers set does for the
@@ -1159,22 +1201,61 @@ export function replaceTracker(trackers: Record<string, unknown>[], index: numbe
  * The config it would make is checked first, and one with problems is refused with nothing written. The
  * rest of the file is kept as it was. Returns where the tracker is in the list, and the config's warnings.
  */
-export function saveTracker(file: string, index: number | null, record: Record<string, unknown>): { index: number; warnings: string[] } {
+export function saveTracker(file: string, index: number | null, record: Record<string, unknown>, add = false): { index: number; warnings: string[] } {
   if (!isObj(record) || !isTrackerKind(record.kind)) throw new AccError('usage', `A tracker needs a "kind": ${orList([...TRACKER_KINDS])}.`);
   if (index !== null && (!Number.isInteger(index) || index < 0)) throw new AccError('usage', 'The tracker to change is its place in the list, from 0.');
-  let raw: Record<string, unknown>;
-  try {
-    raw = JSON.parse(readFileSync(file, 'utf8'));
-  } catch (e) {
-    throw new AccError(existsSync(file) ? 'bad-config' : 'no-config', existsSync(file) ? `${file} isn't valid JSON: ${(e as Error).message}` : `No ${file}. Run "acc init" first.`);
-  }
-  if (!isObj(raw)) throw new AccError('bad-config', `${file} must be a JSON object.`);
+  const raw = readRaw(file);
   const was = Array.isArray(raw.trackers) ? raw.trackers as Record<string, unknown>[] : [];
-  const trackers = index === null ? withTracker(was, record) : replaceTracker(was, index, record);
+  const trackers = index !== null ? replaceTracker(was, index, record) : add ? addBoard(was, record) : withTracker(was, record);
   const wanted = { ...raw, trackers };
   const checked = parseConfig(wanted);
   if (!checked.config) throw new AccError('bad-config', `That tracker would leave ${file} with problems, so nothing was written:\n- ${checked.errors.join('\n- ')}`);
   writeAtomic(file, JSON.stringify(wanted, null, 2) + '\n');
   // Added, it's where withTracker put it: in place of the one it describes, or last. Either is a new object.
   return { index: index ?? trackers.findIndex((t, k) => was[k] !== t), warnings: checked.warnings };
+}
+
+function readRaw(file: string): Record<string, unknown> {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new AccError(existsSync(file) ? 'bad-config' : 'no-config', existsSync(file) ? `${file} isn't valid JSON: ${(e as Error).message}` : `No ${file}. Run "acc init" first.`);
+  }
+  if (!isObj(raw)) throw new AccError('bad-config', `${file} must be a JSON object.`);
+  return raw;
+}
+
+/** A tracker's settings that say which board it is: every key but its name (T-127). */
+const boardKeys = (t: Record<string, unknown>): string => JSON.stringify(canonical(setKeys({ ...t, name: null })));
+const canonical = (x: unknown): unknown => (Array.isArray(x) ? x.map(canonical) : isObj(x) ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, canonical(x[k])])) : x);
+
+/**
+ * The raw trackers list with one more board (T-127): Add a board always adds, so two boards of one Jira project
+ * with other epics sit side by side, where withTracker would put the new one in place of the first. The very
+ * same board twice is refused. A monday.com or Slack one whose keys another gives gets a prefix of its own.
+ */
+export function addBoard(trackers: Record<string, unknown>[], tracker: Record<string, unknown>): Record<string, unknown>[] {
+  const next = setKeys(ownPrefix(trackers, tracker));
+  if (trackers.some((t) => boardKeys(t) === boardKeys(next))) throw new AccError('usage', 'That board is in the project already: choose other epics, labels or another place, or change the one there.');
+  return [...trackers, next];
+}
+
+/**
+ * Takes the tracker at `index` out of the repo's .acc/config.json (T-127), as the Connect page's and Settings'
+ * Remove ask. `kind` is the kind the page showed: another kind there means the list changed since, and nothing
+ * is written. Only the file changes: tasks added from the board stay in the ledger, on My work.
+ */
+export function removeTracker(file: string, index: number, kind: string): { removed: Record<string, unknown>; warnings: string[] } {
+  if (!Number.isInteger(index) || index < 0) throw new AccError('usage', 'The tracker to remove is its place in the list, from 0.');
+  const raw = readRaw(file);
+  const was = Array.isArray(raw.trackers) ? raw.trackers as Record<string, unknown>[] : [];
+  const removed = was[index];
+  if (!removed || removed.kind !== kind) throw new AccError('config-changed', 'The trackers in .acc/config.json changed since this page opened. Open it again from the board.');
+  const trackers = was.filter((_, k) => k !== index);
+  const wanted = { ...raw, trackers };
+  const checked = parseConfig(wanted);
+  if (!checked.config) throw new AccError('bad-config', `Removing it would leave ${file} with problems, so nothing was written:\n- ${checked.errors.join('\n- ')}`);
+  writeAtomic(file, JSON.stringify(wanted, null, 2) + '\n');
+  return { removed, warnings: checked.warnings };
 }
