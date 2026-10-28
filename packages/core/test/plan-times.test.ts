@@ -1,13 +1,13 @@
 // How long a project's plans take (T-131): each recorded as it ends, the newest kept, and the typical time once
 // there are a few.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { PLAN_TIMES_KEPT, PLAN_TIMES_MIN, planTimes, recordPlanTime, typicalPlanMs } from '../src/plan-times.ts';
+import { tempDir } from './support.ts';
 
-const fresh = () => ({ analyses: join(mkdtempSync(join(tmpdir(), 'acc-plan-times-')), 'analyses') });
+const fresh = () => ({ analyses: join(tempDir(), 'analyses') });
 const at = '2026-10-27T12:00:00Z';
 
 test('durations are recorded oldest first, written whole, and only the last PLAN_TIMES_KEPT kept', () => {
