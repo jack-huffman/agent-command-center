@@ -17,6 +17,14 @@ import type { RawEnv } from './init.ts';
  */
 export const PRODUCTION_NOT_HERE = 'This machine isn\'t logged in to Production. Setting up and building don\'t need it: someone with access to Production looks after it.';
 
+/**
+ * Whether this machine is away from Production (D-208): its environment has no org here, or its org isn't
+ * logged in. `displayStatus` runs `sf org display` for an alias and gives its status, so a caller with a
+ * cache (Setup's steps) asks sf once and one without (acc setup) asks directly. False when there's no Production.
+ */
+export const productionIsAway = (prod: { org?: string | null } | undefined, displayStatus: (org: string) => number): boolean =>
+  !!prod && (!prod.org || displayStatus(prod.org) !== 0);
+
 /** What a sandbox's type is taken as when Production's sandbox list can't be read (D-208). */
 export const GUESSED_TYPE: EnvType = 'partial';
 

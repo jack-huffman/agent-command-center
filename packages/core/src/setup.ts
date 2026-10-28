@@ -14,7 +14,7 @@ import type { RepoPaths } from './paths.ts';
 import { promotionPaths } from './promote.ts';
 import { orList } from './trackers/types.ts';
 import { type SlotOptions, withSlot } from './semaphore.ts';
-import { PRODUCTION_NOT_HERE, sfRun } from './sf-discovery.ts';
+import { PRODUCTION_NOT_HERE, productionIsAway, sfRun } from './sf-discovery.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { escapeMarkup } from './text.ts';
 
@@ -214,7 +214,7 @@ export function seedBranches(paths: RepoPaths, config: Config, deps: SetupDeps, 
   if (prod && !refFor(run, paths.root, prod.branch)) {
     // Production's branch is retrieved from Production. Without it on this machine (D-208), it's left for
     // someone with access, and each sandbox's branch starts from this checkout instead.
-    const away = sf && prod.type === 'production' && (!prod.org || sfRun(run, paths.root, ['org', 'display', '-o', prod.org]).status !== 0);
+    const away = sf && prod.type === 'production' && productionIsAway(prod, (org) => sfRun(run, paths.root, ['org', 'display', '-o', org]).status);
     if (away) {
       steps.skip(`make-${prod.branch}`, `Make ${prod.branch}`, 'This machine isn\'t logged in to Production');
       out.push({ env: prod.name, branch: prod.branch, status: 'skipped', note: `not made: it's retrieved from Production. ${PRODUCTION_NOT_HERE}`, differs: null });
@@ -292,7 +292,7 @@ export function draftLists(paths: RepoPaths, config: Config, deps: SetupDeps): L
   const prodRef = prod ? refFor(run, paths.root, prod.branch) : null;
   if (!prod || !prodRef) {
     // Set up without Production (D-208), its branch waits for someone with access to Production.
-    throw new AccError('refused', prod && !prod.org
+    throw new AccError('refused', productionIsAway(prod, (org) => sfRun(run, paths.root, ['org', 'display', '-o', org]).status)
       ? 'There\'s no production branch to compare the others with yet. It\'s retrieved from Production, so someone with access to Production makes it first (B6).'
       : 'There\'s no production branch to compare the others with yet. Make the branches first (B6).');
   }
