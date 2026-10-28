@@ -1586,8 +1586,8 @@ The extension handles every workspace folder that has `.acc/config.json`.
   ([section 8](#8-the-packet)). A ticket acc doesn't keep yet can be tracked
   from there. Tasks with no tracker get the same page
   from their brief and history.
-- **Its content is in tabs** (T-134): Ticket (the description, related tickets
-  and activity, together), Plan, Changes and Verify, each shown only with
+- **Its content is in tabs** (T-134, T-135): Ticket (the description, related tickets
+  and activity, together), Plan, Changes, Review and Verify, each shown only with
   something in it. A tab that needs the person says "needs you" with an orange
   bell. The notices that need the person stay above the tabs, and Details and
   the Agent panel beside them. A page opens on a link's tab, else one that

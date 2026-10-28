@@ -172,6 +172,10 @@ export const PAGES = [
   'ticket-tab-plan',
   'ticket-tab-changes',
   'ticket-tab-verify',
+  // The Review tab (T-135): a review that sent work back, one with findings that block nothing, and one that passed
+  'ticket-tab-review',
+  'ticket-tab-review-findings',
+  'ticket-tab-review-passed',
   'ticket-plan-needs-you',
   'ticket-github',
   'ticket-azure',

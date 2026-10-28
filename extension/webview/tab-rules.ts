@@ -1,4 +1,4 @@
-// A task page's tabs (T-134): Ticket, Plan, Changes and Verify, each shown only with something in it, with a
+// A task page's tabs (T-134, T-135): Ticket, Plan, Changes, Review and Verify, each shown only with something in it, with a
 // count where it helps and, where something in it needs the person, the words that say so. Which tab a page
 // opens on is decided here too, apart from the drawing (task-tabs.ts). The page imports only types from outside
 // its folder (D-121), so these rules live here; what a link may name is the model's (src/model/task-tabs.ts).
@@ -7,16 +7,17 @@ import type { Look } from '../src/model/shared.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import { plural } from './dom.ts';
 
-export type TabId = 'ticket' | 'plan' | 'changes' | 'verify';
+export type TabId = 'ticket' | 'plan' | 'changes' | 'review' | 'verify';
 
 /** The tabs in the order the page draws them. */
-export const TAB_ORDER: readonly TabId[] = ['ticket', 'plan', 'changes', 'verify'];
+export const TAB_ORDER: readonly TabId[] = ['ticket', 'plan', 'changes', 'review', 'verify'];
 
 /** Each tab's name and icon. */
 export const TAB_LOOK: Record<TabId, { name: string; icon: string }> = {
   ticket: { name: 'Ticket', icon: 'issues' },
   plan: { name: 'Plan', icon: 'checklist' },
   changes: { name: 'Changes', icon: 'diff' },
+  review: { name: 'Review', icon: 'eye' },
   verify: { name: 'Verify', icon: 'verified' },
 };
 
@@ -45,8 +46,8 @@ function changeCount(m: TicketModel): number {
 }
 
 /**
- * The tabs a ticket's page shows, in order. Ticket always: it holds the description. Plan, Changes and Verify
- * only with something in them, so a tab is never shown empty.
+ * The tabs a ticket's page shows, in order. Ticket always: it holds the description. Plan, Changes, Review and
+ * Verify only with something in them, so a tab is never shown empty.
  */
 export function taskTabs(m: TicketModel): TaskTab[] {
   const tab = (id: TabId, count: string | null, needs: string | null): TaskTab => ({ id, ...TAB_LOOK[id], count, needs });
@@ -62,6 +63,8 @@ export function taskTabs(m: TicketModel): TaskTab[] {
     const n = changeCount(m);
     out.push(tab('changes', n ? String(n) : null, orange(m.field?.look) ?? orange(m.records?.look) ?? orange(m.manifest?.look)));
   }
+  // Its review (T-135): the findings counted where there are any, and orange where the review's state waits on the person.
+  if (m.review) out.push(tab('review', m.review.findings.length ? String(m.review.findings.length) : null, orange(m.review.look)));
   if (m.verify) out.push(tab('verify', null, orange(m.verify.look)));
   return out;
 }
@@ -70,7 +73,7 @@ export function taskTabs(m: TicketModel): TaskTab[] {
 export const tabName = (t: TaskTab): string => `${t.name}${t.count ? `, ${t.count}` : ''}${t.needs ? `: ${NEEDS_YOU}` : ''}`;
 
 /**
- * The tab a part a link names opens (T-134): the plan, a verification, the changes or the ticket; a comment,
+ * The tab a part a link names opens (T-134): the plan, a verification, the changes, the review (T-135) or the ticket; a comment,
  * `comment:<id>`, opens Ticket. Null for a part no tab holds.
  */
 export function partTab(part: string | null | undefined): TabId | null {
@@ -80,10 +83,11 @@ export function partTab(part: string | null | undefined): TabId | null {
 }
 
 /**
- * Which tab that needs the person a page opens on, first to last: a plan holds up the build, a verification
- * the developer's work, the changes the release; an update to post waits on no one else.
+ * Which tab that needs the person a page opens on, first to last: a plan holds up the build, a review that
+ * sent work back holds up its rework (T-135: it comes before the developer's verification, which comes after
+ * it), a verification the developer's work, the changes the release; an update to post waits on no one else.
  */
-export const NEEDS_FIRST: readonly TabId[] = ['plan', 'verify', 'changes', 'ticket'];
+export const NEEDS_FIRST: readonly TabId[] = ['plan', 'review', 'verify', 'changes', 'ticket'];
 
 /**
  * The tab a page opens on: the one a link asked for, where it's shown; else one that needs the person, in

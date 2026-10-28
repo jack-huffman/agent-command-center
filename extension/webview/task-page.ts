@@ -199,6 +199,7 @@ export function renderTicket(m: TicketModel): Node[] {
   // The Command Center's sections, each folding to its header line (T-132), in the tab that holds them.
   const plan: HTMLElement[] = [];
   const changes: HTMLElement[] = [];
+  const review: HTMLElement[] = [];
   const verify: HTMLElement[] = [];
   const add = (into: HTMLElement[], sec: HTMLElement | null, id: string, summary: string | null = null): void => { if (sec) into.push(collapsible(sec, id, m, summary)); };
   if (m.analysis) add(plan, renderAnalysis(m, m.analysis), 'plan', oneLine(m.analysis.note) ?? oneLine(m.analysis.summary));
@@ -221,9 +222,11 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.manifest) add(changes, renderManifest(m, m.manifest), 'manifest');
   // Its team (T-103): the tasks it shares files with, and whether it took in the latest merges.
   if (m.team) add(changes, renderTeam(m.team), 'team');
+  // Its review's findings (T-53), in a tab of their own (T-135).
+  if (m.review) review.push(renderReview(m.review));
   // Verify the developer's work (T-84).
   if (m.verify) add(verify, renderVerify(m, m.verify), 'verify', oneLine(m.verify.summary) ?? oneLine(m.verify.note));
-  const main = el('div', 'ticket-main', renderTabs(m, tabs, chosen, { ticket, plan, changes, verify }));
+  const main = el('div', 'ticket-main', renderTabs(m, tabs, chosen, { ticket, plan, changes, review, verify }));
 
   // The side column: the ticket's fields, then acc's side of it. Details lists only the rows its tracker has
   // something for (T-91); a row with nothing in it stays only to hold its Change or Add.
@@ -287,8 +290,6 @@ export function renderTicket(m: TicketModel): Node[] {
     });
     side.append(collapsible(el('section', 'side-panel side-agent', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'This ticket isn\'t in your work yet. Add it, and an agent can plan it and build it. The ticket itself isn\'t changed.'), el('div', 'actions', track)), 'agent', m, 'Not in your work yet'));
   }
-  // Its review's findings, under the Agent panel (T-53).
-  if (m.review) side.append(renderReview(m.review));
   out.push(el('div', 'ticket-grid', top.childElementCount ? top : null, main, side));
   return out;
 }

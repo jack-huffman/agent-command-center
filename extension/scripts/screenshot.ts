@@ -66,6 +66,7 @@ import { sampleSetupWithoutProduction } from './fixtures/no-production.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { SECTIONS_COLLAPSED, sampleSectionsTicket } from './fixtures/sections.ts';
+import { sampleReviewTabTicket } from './fixtures/review-tab.ts';
 import { samplePlanNeedsYouTicket, sampleTabsTicket } from './fixtures/task-tabs.ts';
 import { sampleTalkTicket, TALK_STATE } from './fixtures/talk.ts';
 import { REPORT_TYPED, sampleReport } from './fixtures/report.ts';
@@ -137,10 +138,11 @@ export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-r
  * Each task page's shot opens on the tab that shows what it was made to show (T-134), as a link naming it would:
  * the rest open by the page's own rules.
  */
-export const SHOT_TAB: Partial<Record<Page, 'ticket' | 'plan' | 'changes' | 'verify'>> = {
+export const SHOT_TAB: Partial<Record<Page, 'ticket' | 'plan' | 'changes' | 'review' | 'verify'>> = {
   ...Object.fromEntries((['ticket-plan-approved', 'ticket-plan-shapes', 'ticket-plan-short', 'ticket-plan-choices', 'ticket-review-choice', 'ticket-review-question', 'ticket-review-answered', 'ticket-review-summary', 'ticket-talk', 'ticket-conversation', 'ticket-progress', 'ticket-note', 'ticket-sections', 'ticket-sections-collapsed', 'ticket-criteria-sheet', 'ticket-tab-plan'] as Page[]).map((k) => [k, 'plan'])),
   ...Object.fromEntries((['ticket-planned', 'ticket-changes', 'ticket-kept', 'ticket-records', 'ticket-records-form', 'ticket-records-promoted', 'ticket-manifest', 'ticket-changes-field', 'ticket-team', 'ticket-team-alone', 'ticket-tab-changes'] as Page[]).map((k) => [k, 'changes'])),
   ...Object.fromEntries((['ticket-verify-pass', 'ticket-verify-changes', 'ticket-verify-choice', 'ticket-tab-verify'] as Page[]).map((k) => [k, 'verify'])),
+  ...Object.fromEntries((['ticket-tab-review', 'ticket-tab-review-findings', 'ticket-tab-review-passed'] as Page[]).map((k) => [k, 'review'])),
   'ticket-tab-ticket': 'ticket',
 };
 
@@ -216,6 +218,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-sections' || kind === 'ticket-sections-collapsed') return sampleSectionsTicket(now);
   // ACME-21 with every tab (T-134), on each in turn; and its plan needing approval again, which opens on Plan.
   if (kind === 'ticket-tab-ticket' || kind === 'ticket-tab-plan' || kind === 'ticket-tab-changes' || kind === 'ticket-tab-verify') return sampleTabsTicket(now);
+  if (kind === 'ticket-tab-review' || kind === 'ticket-tab-review-findings' || kind === 'ticket-tab-review-passed') return sampleReviewTabTicket(now, kind === 'ticket-tab-review' ? 'needs' : (kind.slice('ticket-tab-review-'.length) as 'findings' | 'passed'));
   if (kind === 'ticket-plan-needs-you') return samplePlanNeedsYouTicket(now);
   // A ticket's Planned changes, then Changes (T-99): ACME-35's plan, ACME-12's work with a change outside its plan, and ACME-20's kept after its merge.
   if (kind === 'ticket-planned' || kind === 'ticket-changes' || kind === 'ticket-kept') return sampleChangesTicket(now, kind.slice('ticket-'.length) as ChangesSample);

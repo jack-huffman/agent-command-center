@@ -1278,7 +1278,13 @@ export const CASES: Case[] = [
     name: 'task page: a review lists its findings, must-fix first, each with its lines, and a click on a file and line asks to open it there',
     page: 'ticket-review',
     async run(t) {
-      const box = t.find('.side-review');
+      // The review is a tab (T-135): the one a sent-back review opens on, saying in words that it needs the person.
+      const rtab = t.find<HTMLButtonElement>('[role="tab"][data-tab="review"]');
+      const rneeds = t.find('.task-tab-needs', rtab);
+      t.check('the page opens on its Review tab, which needs the person', rtab.getAttribute('aria-selected') === 'true' && getComputedStyle(t.find('.task-panel-review')).display !== 'none', rtab.outerHTML);
+      t.check('the Review tab says it needs you, in words, with an orange icon, after its count', rneeds.textContent === 'needs you' && rneeds.querySelector('.codicon-bell') !== null && /^Review\s*3\s*needs you$/.test(rtab.innerText.trim()), rtab.innerText);
+      t.check('and the side column holds no Review panel', t.all('.ticket-side .side-review').length === 0 && t.all('.ticket-side [data-section]').every((x) => ['details', 'agent'].includes((x as HTMLElement).dataset.section ?? '')));
+      const box = t.find('.review-block');
       const items = t.all('.rv-finding', box);
       const want = t.data.review.findings;
       t.check('a finding for each in the model', items.length === want.length && items.length > 0, { shown: items.length, expected: want.length });
@@ -2224,6 +2230,7 @@ const caseNamed = (start: string): string => {
 export const MUTANTS: Mutant[] = [
   { name: 'a collapsed section doesn\'t stay collapsed', file: 'collapse.ts', find: 'show(memory().folded.includes(k));', replace: 'show(false);', kills: [caseNamed('task page: a Command Center section collapses')] },
   { name: 'a tab that needs you doesn\'t say so', file: 'task-tabs.ts', find: "t.needs ? el('span', 'task-tab-needs', icon('bell', 'orange'), NEEDS_YOU) : null", replace: 'null', kills: [caseNamed('task page: its tabs open on the plan')] },
+  { name: 'a review that needs you doesn\'t say so on its tab', file: 'tab-rules.ts', find: 'orange(m.review.look)', replace: 'null', kills: [caseNamed('task page: a review lists its findings')] },
   { name: 'the opening tab ignores what needs you', file: 'tab-rules.ts', find: '  if (needs) return needs;\n', replace: '', kills: [caseNamed('task page: its tabs open on the plan')] },
   { name: 'the arrow keys move between no tabs', file: 'task-tabs.ts', find: "      if (to < 0) return;\n", replace: '      return;\n', kills: [caseNamed('task page: its tabs open on the plan')] },
   { name: 'Enter and Space on a section\'s button do nothing', file: 'collapse.ts', find: "if (e.key !== 'Enter' && e.key !== ' ') return;", replace: 'return;', kills: [caseNamed('task page: a Command Center section collapses')] },
