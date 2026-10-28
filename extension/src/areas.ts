@@ -17,6 +17,7 @@ import { area as limits } from './limits.ts';
 import { area as manifest } from './manifest.ts';
 import { area as notices } from './notices.ts';
 import { area as palette } from './palette.ts';
+import { area as planProgress } from './plan-progress.ts';
 import { area as plan } from './plan.ts';
 import { area as progress } from './progress.ts';
 import { area as questions } from './questions.ts';
@@ -37,4 +38,4 @@ import { area as trackers } from './trackers.ts';
 import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agents, autopilot, branches, changesField, cloud, connect, conversation, criteria, dockReview, environments, history, identity, limits, manifest, notices, palette, plan, progress, questions, recordChanges, reportPanel, rules, runs, selfUpdate, settings, setup, slack, talk, taskModal, tasks, ticket, tidy, trackers, verify, worktrees];
+export const AREAS = [about, agents, autopilot, branches, changesField, cloud, connect, conversation, criteria, dockReview, environments, history, identity, limits, manifest, notices, palette, planProgress, plan, progress, questions, recordChanges, reportPanel, rules, runs, selfUpdate, settings, setup, slack, talk, taskModal, tasks, ticket, tidy, trackers, verify, worktrees];

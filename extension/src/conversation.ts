@@ -22,6 +22,10 @@ export interface ConversationActions {
   refresh(root?: string): void;
   /** Settings changed the theme (GH-109). */
   retheme(theme: ThemeChoice): void;
+  /** The tasks whose panel is on show now (T-131). */
+  shown(): { root: string; id: string }[];
+  /** Tells the task's panel, if it's on show, a message such as its plan's progress (T-131). */
+  tell(root: string, id: string, msg: Record<string, unknown>): void;
 }
 
 interface Panel {
@@ -93,6 +97,15 @@ export class ConversationPanels implements ConversationActions, vscode.Disposabl
     for (const p of this.open_.values()) p.theme.set(theme);
   }
 
+  shown(): { root: string; id: string }[] {
+    return [...this.open_.values()].filter((p) => p.panel.visible).map((p) => ({ root: p.root, id: p.key }));
+  }
+
+  tell(root: string, id: string, msg: Record<string, unknown>): void {
+    const p = this.open_.get(`${root}#${id.toUpperCase()}`);
+    if (p?.panel.visible) void p.panel.webview.postMessage(msg);
+  }
+
   private post(p: Panel): void {
     if (!p.panel.visible) return;
     const task = this.hub.ledger(p.root)?.tasks.find((t) => t.id === p.key);
@@ -120,6 +133,10 @@ export class ConversationPanels implements ConversationActions, vscode.Disposabl
       // The same actions the task page's conversation had (T-98); the page and this panel redraw after each.
       case 'talk-send': case 'talk-use': case 'talk-claude': case 'talk-answers':
         if (mine(m.project, m.task)) await this.tickets.talk?.act(m, say);
+        return;
+      // Watch its session and Stop on the planning agent's progress (T-131).
+      case 'plan-watch': case 'plan-stop':
+        if (mine(m.project, m.task)) await this.tickets.planProgress?.act(m);
         return;
       // Draft the plan, or Skip to the plan: the Tasks area makes it, once at a time.
       case 'conversation-draft':

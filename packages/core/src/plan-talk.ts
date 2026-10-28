@@ -133,10 +133,13 @@ export function addTurn(paths: RepoPaths, task: string, turn: Omit<TalkTurn, 'id
   return kept;
 }
 
-/** A talk under way for the task: its process. Null once that has gone. */
-export function talking(paths: RepoPaths, task: string): { pid: number; startedAt: string } | null {
+/** A reply under way, as its marker keeps it: the session it answers in (T-131), which an older acc didn't write. */
+export interface Talking { pid: number; startedAt: string; sessionId?: string }
+
+/** A talk under way for the task: its process, and its session. Null once that has gone. */
+export function talking(paths: RepoPaths, task: string): Talking | null {
   try {
-    const r = JSON.parse(readFileSync(talkingPath(paths, task), 'utf8')) as { pid: number; startedAt: string };
+    const r = JSON.parse(readFileSync(talkingPath(paths, task), 'utf8')) as Talking;
     return alive(r.pid) ? r : null;
   } catch {
     return null;
@@ -314,7 +317,7 @@ export function talkPlan(paths: RepoPaths, config: Config, id: string, message: 
   const session = talkSession(a, readTalk(paths, id));
   const cwd = analystDir(paths, config, id, true);
   const marker = talkingPath(paths, id);
-  writeFileSync(marker, JSON.stringify({ pid: process.pid, startedAt: now().toISOString() }));
+  writeFileSync(marker, JSON.stringify({ pid: process.pid, startedAt: now().toISOString(), sessionId: session } satisfies Talking));
   steps.start('talk', 'Ask the planning agent', 'It reads again, and changes nothing');
   const awake = holdAwake(process.pid, deps.awake);
   let out: RunResult;

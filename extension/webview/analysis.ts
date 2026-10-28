@@ -8,6 +8,7 @@ import { planActions, planDecisions, planEarlier, planHead, planShapes } from '.
 import { reviewButton } from './review-plan.ts';
 import { conversationLine, discussButton } from './talk.ts';
 import { planTicketLine } from './plan-behind.ts';
+import { planProgressBlock } from './plan-progress.ts';
 
 // ---------------------------------------------------------------- a task's analysis (D-052)
 
@@ -93,6 +94,9 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
     el('div', 'an-head', el('h2', '', 'Plan'), status(a.look), a.wording ? status(a.wording.look) : null, a.size ? el('span', 'chip an-size', `Size ${a.size}`) : null, el('span', 'spacer'), a.at ? when(a.at) : null));
   sec.setAttribute('aria-label', `Analysis: ${a.look.label}`);
   if (a.note) sec.append(el('p', 'muted an-note', a.note));
+  // What the planning agent is doing while a plan is made or a reply comes (T-131).
+  const progress = m.talk ? planProgressBlock(m.project, a.task, m.talk.progress) : null;
+  if (progress) sec.append(progress);
   if (a.summary) sec.append(foldable(`${key}:summary`, el('p', 'an-summary', md(a.summary)), null, 4));
   if (a.split.length) sec.append(el('div', 'an-split', el('div', 'strong', 'Split it into'), el('ol', 'an-list', ...a.split.map((x) => el('li', '', md(x))))));
   // The plan in short (T-109): its version and approval, and what's left to review, in words.

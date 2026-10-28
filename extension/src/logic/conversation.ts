@@ -28,10 +28,14 @@ export const startArgs = (task: string, text: string, ticket: string | null = nu
  */
 export class PlansMaking {
   private readonly now = new Map<string, Making>();
+  /** When each began (T-131): its progress counts its time from there, the ticket's reading too. */
+  private readonly began = new Map<string, number>();
   private readonly changed: (root: string, id: string) => void;
+  private readonly clock: () => number;
 
-  constructor(changed: (root: string, id: string) => void = () => {}) {
+  constructor(changed: (root: string, id: string) => void = () => {}, clock: () => number = Date.now) {
     this.changed = changed;
+    this.clock = clock;
   }
 
   /** Starts one, reading its ticket first: false, and nothing changes, when one is under way already. */
@@ -39,6 +43,7 @@ export class PlansMaking {
     const k = ticketKey(root, id);
     if (this.now.has(k)) return false;
     this.now.set(k, 'reading');
+    this.began.set(k, this.clock());
     this.changed(root, id);
     return true;
   }
@@ -51,8 +56,14 @@ export class PlansMaking {
     this.changed(root, id);
   }
 
+  /** When the one under way began, or null with none (T-131). */
+  since(root: string, id: string): number | null {
+    return this.began.get(ticketKey(root, id)) ?? null;
+  }
+
   /** It ended, made or not. */
   end(root: string, id: string): void {
+    this.began.delete(ticketKey(root, id));
     if (this.now.delete(ticketKey(root, id))) this.changed(root, id);
   }
 

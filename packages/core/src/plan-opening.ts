@@ -16,7 +16,7 @@ import { AccError, type RunResult } from './exec.ts';
 import { readLedger, type Task } from './ledger.ts';
 import { sessionName } from './names.ts';
 import type { RepoPaths } from './paths.ts';
-import { addTurn, type PlanTalk, readTalk, TALK_MAX, type TalkDeps, talking, talkingPath, type TalkTurn, writeTalk } from './plan-talk.ts';
+import { addTurn, type PlanTalk, readTalk, TALK_MAX, type TalkDeps, type Talking, talking, talkingPath, type TalkTurn, writeTalk } from './plan-talk.ts';
 import { type PlanTicket, ticketLines, ticketWithout } from './plan-ticket.ts';
 import { NO_STEPS } from './steps.ts';
 import { askedLine, parseQuestions, QUESTIONS_MAX, QUESTIONS_SCHEMA, REPLY_RULES, type TalkAsk, turnQuestions } from './talk-questions.ts';
@@ -149,7 +149,7 @@ export function startPlan(paths: RepoPaths, config: Config, id: string, message:
   const cwd = analystDir(paths, config, id, !!resume);
   const session = resume ?? (deps.uuid ?? randomUUID)();
   const marker = talkingPath(paths, id);
-  writeFileSync(marker, JSON.stringify({ pid: process.pid, startedAt: now().toISOString() }));
+  writeFileSync(marker, JSON.stringify({ pid: process.pid, startedAt: now().toISOString(), sessionId: session } satisfies Talking));
   steps.start('talk', 'Ask the planning agent', 'It reads the ticket, and changes nothing');
   const awake = holdAwake(process.pid, deps.awake);
   let out: RunResult;

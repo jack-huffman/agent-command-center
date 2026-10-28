@@ -14,7 +14,7 @@ import {
   parseOpeningReply, planningSession, startPlan,
 } from '../src/plan-opening.ts';
 import { parsePlanTicket } from '../src/plan-ticket.ts';
-import { readTalk, talkingPath, talkLines, talkPlan, talkSection, talkSession, writeTalk } from '../src/plan-talk.ts';
+import { readTalk, talking, talkingPath, talkLines, talkPlan, talkSection, talkSession, writeTalk } from '../src/plan-talk.ts';
 import { fakeRunner, GENERIC_CONFIG, makeRepo, SF_CONFIG } from './support.ts';
 
 const now = () => new Date('2026-10-22T12:00:00Z');
@@ -205,4 +205,14 @@ test('edge case: before anything is said there is no opening section and no plan
   assert.deepEqual(openingSection(empty), []);
   assert.equal(planningSession(empty, { sessionId: 'p', at: '2026-10-22T11:00:00Z' }), null, 'a plan made without one keeps today\'s way');
   assert.equal(openingPrompt({ id: 'ACME-7', title: 'T' }, ' Hi ', null), '# The person says\n\nHi\n\nAnswer them: what you understood, briefly, and your questions, if any.');
+});
+
+test('the first message\'s marker names the new session, and a later one the session it resumes (T-131)', () => {
+  const { paths, config, id } = setup();
+  const seen: (string | undefined)[] = [];
+  const answers = claude([result(FIRST, 'sess-open')]);
+  const deps = { run: (cmd: string, args: string[], opts?: RunOptions) => { if (cmd === 'claude') seen.push(talking(paths, id)?.sessionId); return answers(cmd, args, opts); }, now, env: {}, uuid: () => 'sess-new' };
+  startPlan(paths, config, id, 'Two years of history.', deps, 'human:me');
+  startPlan(paths, config, id, 'Open deals only.', deps, 'human:me');
+  assert.deepEqual(seen, ['sess-new', 'sess-open'], 'new, then the session the first reply was in');
 });
