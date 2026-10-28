@@ -187,8 +187,9 @@ export const PAGES = [
   'conversation-start',
   'conversation',
   'conversation-talk',
-  // The agent's questions one at a time, part-way through, and a long conversation folded (T-113)
+  // The agent's questions one at a time, part-way through, and a long conversation folded (T-113); the review before they go (T-130)
   'conversation-questions',
+  'conversation-questions-review',
   'conversation-long',
   // Report a problem (T-118): the draft as it opens, filled in, where GitHub's account can't reach the repo, and posted
   'report',
