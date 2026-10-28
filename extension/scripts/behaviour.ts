@@ -364,14 +364,15 @@ export const HELPERS = [openTask, openRules, shownRule, page, press, openPalette
 export const CASES: Case[] = [
   {
     name: 'loading screen: a tab rebuilt with a saved scroll returns to it on its first model',
-    // A task's page, which is long enough to scroll at this size; the calm Overview isn't (T-36).
+    // A task's page, which is long enough to scroll at this size; the calm Overview isn't (T-36). With its content in
+    // tabs (T-134) it shows one tab, so it scrolls less: 100 px is still well inside its range.
     page: 'ticket-questions',
-    opening: { scroll: 150 },
+    opening: { scroll: 100 },
     async run(t) {
       const main = document.scrollingElement as HTMLElement;
-      t.check('the page scrolls at this size, so the scroll is worth checking', main.scrollHeight - main.clientHeight > 150, { scroll: main.scrollHeight, client: main.clientHeight });
+      t.check('the page scrolls at this size, so the scroll is worth checking', main.scrollHeight - main.clientHeight > 100, { scroll: main.scrollHeight, client: main.clientHeight });
       t.check('the first model replaced the loading screen', t.all('.opening').length === 0, t.all('.opening').length);
-      t.check('the page is at the saved scroll', main.scrollTop === 150, { now: main.scrollTop });
+      t.check('the page is at the saved scroll', main.scrollTop === 100, { now: main.scrollTop });
     },
   },
   {
