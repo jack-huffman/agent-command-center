@@ -34,6 +34,8 @@ import { sfComponent } from './sf-metadata.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { plural } from './text.ts';
 import { draftUpdate } from './updates.ts';
+import { DELETION_KIND } from './deletion-kind.ts';
+import { outsideOf } from './outside-changes.ts';
 
 /** A command, as every action is one: its id, what it takes, and whether it can run now, with why not. */
 export interface TaskCommand<S> {
@@ -259,7 +261,7 @@ function conflictWords(paths: RepoPaths, run: Runner, wt: string, t: Task, to: E
 }
 
 /** Each other task this one depends on that isn't in the destination yet. */
-function missingDeps(tasks: Task[], t: Task, to: Environment): string[] {
+export function missingDeps(tasks: Task[], t: Task, to: Environment): string[] {
   return t.deps.filter((id) => {
     const d = tasks.find((x) => x.id === id);
     if (!d) return false;
@@ -357,7 +359,7 @@ function withBuilt<T>(paths: RepoPaths, config: Config, id: string, toName: stri
     const plan: TaskDeployPlan = {
       task: id, key: task.source.key ?? id, from, to, org: to.org!, confirm: production || to.protected, confirmName: to.name,
       commits: commits.map((c) => c.sha), base, ...sorted,
-      records: stepsOf(stepping, to.branch).filter((s) => s.step.state === 'todo').map((s) => s.words),
+      records: stepsOf(stepping, to.branch).filter((s) => s.step.state === 'todo' && s.change.kind !== DELETION_KIND.kind).map((s) => s.words),
       types: pkg ? manifestTypes(pkg) : [], testLevel,
       tests: testLevel === 'RunLocalTests' ? `The org's local tests, since Apex is in it` : opts.noTests ? 'None: skipped, as asked' : 'None: no Apex is in it',
       check: null,
@@ -560,6 +562,8 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
           const promotion: Promotion = { from: plan.from.branch, to: plan.to.branch, pr, state: mergeSha ? 'merged' : 'open', at, ...(mergeSha ? { mergeSha, mergedAt: at } : {}) };
           if (record) t.deploys = [...(t.deploys ?? []), record];
           t.promotions = [...(t.promotions ?? []), promotion];
+          // Each component it deletes is kept as a change outside git (T-138), so it's a step in every org it reaches.
+          keepDeletions(t, plan.deletions, opts.by, at);
           // Its record changes become steps to make by hand in the destination, as at a promotion (T-100).
           addPromotionSteps(t, plan.to, at);
           t.updatedAt = at;
@@ -591,6 +595,18 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
       warning: problems.length ? `It's in ${plan.org}. ${problems.join(' ')}` : null,
     };
   });
+}
+
+/** Keeps each component the ticket deletes, that it doesn't keep yet, as the person's change outside git, before its steps are added. */
+export function keepDeletions(t: Task, deletions: HandDeletion[], by: string, at: string): void {
+  if (!deletions.length) return;
+  const o = outsideOf(t);
+  for (const d of deletions) {
+    if (o.changes.some((c) => c.kind === DELETION_KIND.kind && (c.detail as { component?: string }).component === d.component)) continue;
+    const n = o.changes.reduce((m, c) => Math.max(m, Number(c.id.slice(1)) || 0), 0) + 1;
+    o.changes.push({ id: `c${n}`, kind: DELETION_KIND.kind, detail: { component: d.component, path: d.path }, why: 'The ticket deletes it, and a deploy never deletes', planned: false, actor: 'human', by, at });
+  }
+  t.outside = o;
 }
 
 /** The pull request's body: what deployed, what's left out and what a person makes by hand. */
