@@ -1,4 +1,4 @@
-## D-T-142 A concise Agent panel: the state, its checks in one line, the main actions, and the rest in Details (2026-10-28)
+## D-223 A concise Agent panel: the state, its checks in one line, the main actions, and the rest in Details (2026-10-28)
 
 T-142. The person, on a task page's Agent side panel: "can we make it more concise? We don't need that depth of
 info normally, but it should be available in an expandable section if we want to review it." The panel listed
