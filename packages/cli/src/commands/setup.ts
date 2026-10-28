@@ -2,7 +2,8 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { AccError, buildBaseline, checkMachine, configureRepoAccess, describeTemplate, draftLists, machineLines, makeContext, parseSource, planInit, prepareImports, type Profile, readTemplate, recordProduction, rememberRepo, repoPaths, RULES_DIR, rulesName, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeImport, writeReadme } from '../../../core/src/index.ts';
+import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, makeContext, parseSource, planInit, prepareImports, type Profile, readTemplate, recordProduction, rememberRepo, repoPaths, RULES_DIR, rulesName, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeImport, writeReadme } from '../../../core/src/index.ts';
+import { checkMachine, machineLines } from '../../../core/src/onboarding/machine-check.ts';
 import { checkLabel, table, tone } from '../format.ts';
 import { type CommandArea, now, type Opts, out, personOnly, project, steps, VERSION } from '../shared.ts';
 

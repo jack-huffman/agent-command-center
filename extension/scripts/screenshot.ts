@@ -61,7 +61,7 @@ import { sampleStepRun, STEP_SAMPLE_ID, STEP_SAMPLE_OPEN, type StepSample } from
 import { CLIENTS, ROOT } from './fixtures/shared.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
 import { sampleQueueBoards, sampleQueueConnect } from './fixtures/queues.ts';
-import { sampleFirstSetup, sampleSetup } from './fixtures/setup.ts';
+import { sampleFirstSetup, sampleSetup, sampleStartingSetup } from './fixtures/setup.ts';
 import { sampleSetupWithoutProduction } from './fixtures/no-production.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
@@ -79,6 +79,7 @@ import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
 import { SAMPLE_EDIT, sampleEdited } from './fixtures/updates.ts';
 import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
+import { MACHINE_FIRST_PART } from '../src/model/setup.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
 import { CHECKS, COLLECT_GEOMETRY, examinedIn, type ExpectedButton, FLOORS_PATH, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, ciFloorName, isCiRun, judge, raisedFloors, type Render, runFailures, runFloor } from './geometry.ts';
@@ -249,6 +250,9 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
     return homeModel({ hub: sampleHub(now), section: 'environments', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetupWithoutProduction(), runs: [], theme, now });
   }
   // Setup as it's first shown in a folder that isn't set up, which no project is loaded from (GH-138).
+  if (kind === 'setup-machine-first') {
+    return homeModel({ hub: { ...sampleHub(now), projects: [], agents: [], questions: [] }, section: 'setup', boards: () => [], identity: () => null, setup: sampleStartingSetup(), runs: [], theme, now });
+  }
   if (kind === 'setup-first' || kind === 'setup-first-machine') {
     return homeModel({ hub: { ...sampleHub(now), projects: [], agents: [], questions: [] }, section: 'setup', boards: () => [], identity: () => null, setup: sampleFirstSetup(kind === 'setup-first'), runs: [], theme, now });
   }
@@ -407,7 +411,7 @@ export const TAB_TITLES: Record<string, string> = { home: 'Command Center', tick
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
 export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' || kind === 'settings-queues' ? settingsKey('trackers')
   : kind.startsWith('slack-') ? settingsKey('slack') : kind === 'settings-github' ? settingsKey('github') : kind === 'settings-page' ? settingsKey('page') : kind.startsWith('settings-about') ? settingsKey('about')
-  : kind === 'setup-first' ? SETUP_PARTS.kind : kind === 'setup-first-machine' ? SETUP_PARTS.machine : null);
+  : kind === 'setup-first' ? SETUP_PARTS.kind : kind === 'setup-first-machine' ? SETUP_PARTS.machine : kind === 'setup-machine-first' ? MACHINE_FIRST_PART : null);
 
 /** How tall a shot is unless --height says. */
 export const DEFAULT_HEIGHT = 900;

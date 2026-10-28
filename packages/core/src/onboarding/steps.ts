@@ -21,7 +21,7 @@ import {
 } from './helpers.ts';
 import type { CheckContext, CheckResult, Fix, Step, StepResult } from './types.ts';
 import { chain, quoteArg } from './fix-lines.ts';
-import { BREW_INSTALL, installCommand, type InstallSystem, type InstallTool, installText, needsBrew, restartNote, type Shell, shellOf, SYSTEM } from './install-lines.ts';
+import { APP_INSTALLER_PAGE, BREW_INSTALL, installCommand, type InstallSystem, type InstallTool, installText, needsBrew, restartNote, type Shell, shellOf, SYSTEM, WINGET_REGISTER } from './install-lines.ts';
 import { type MachineNeed, needOf, programOn } from './machine-needs.ts';
 import { installedAt, notOnPath, REAL_FILES } from './path-fix.ts';
 import { shellFor } from '../shell.ts';
@@ -300,10 +300,6 @@ function needStep(id: string, title: string, fix?: Pick<Step, 'fix' | 'fixOn'>):
   };
 }
 
-/** winget's fix (T-133): register App Installer, as Microsoft's winget page gives it for a winget not there yet. */
-export const WINGET_REGISTER = 'Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe';
-/** Where App Installer comes from when it isn't installed at all, as Microsoft's winget page links it. */
-export const APP_INSTALLER_PAGE = 'https://apps.microsoft.com/detail/9nblggh4nns1';
 
 /**
  * What each group of steps sets up, in words. Neighbouring groups with the same name show as one section

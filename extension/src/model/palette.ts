@@ -5,6 +5,7 @@
  * testable.
  */
 
+import { CHECK_MACHINE } from '../logic/processes.ts';
 import { reportAction } from './about.ts';
 import type { HomeModel } from './home.ts';
 import { type SettingsPart, settingsKey } from './settings.ts';
@@ -101,6 +102,8 @@ export function paletteItems(m: Omit<HomeModel, 'palette'>): PaletteItem[] {
   // Report a problem (T-118), as Settings' About offers it: off with its reason while a report posts.
   const report = m.settings.about?.report ?? reportAction({});
   out.push({ id: 'action:report', kind: 'action', title: report.label, hint: report.disabled ?? '', words: words(report.label, 'issue bug GitHub'), icon: report.icon, does: { kind: 'toolbar', command: report.command }, ...(report.disabled ? { disabled: report.disabled } : {}) });
+  // Check this machine (T-133), as Setup's header offers it: VSCode's Command Palette has it too.
+  out.push({ id: 'action:check-machine', kind: 'action', title: CHECK_MACHINE.name, hint: '', words: words(CHECK_MACHINE.name, 'Setup tools PATH install'), icon: 'device-desktop', does: { kind: 'toolbar', command: CHECK_MACHINE.command } });
   out.push(...steps, ...edits);
   // Agents' Stop finished, through the same command as its header's button; off with its reason when there's none.
   const n = m.agents.stopFinished;

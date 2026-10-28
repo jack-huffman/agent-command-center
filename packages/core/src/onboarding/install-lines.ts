@@ -91,6 +91,14 @@ export const INSTALL_LINES: Record<InstallTool, Record<InstallSystem, InstallLin
  */
 export const BREW_INSTALL = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
 
+/**
+ * winget's fix (A1.winget, T-133): register App Installer, as Microsoft's winget page gives it for a winget that
+ * isn't there yet (https://learn.microsoft.com/en-us/windows/package-manager/winget/, read 2026-10-27). Only Windows has it.
+ */
+export const WINGET_REGISTER = 'Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe';
+/** Where App Installer comes from when it isn't installed at all, as Microsoft's winget page links it. */
+export const APP_INSTALLER_PAGE = 'https://apps.microsoft.com/detail/9nblggh4nns1';
+
 /** Whether a tool's line on a system is a Homebrew command, so Homebrew has to be there first. */
 export const needsBrew = (tool: InstallTool, system: InstallSystem): boolean => (installCommand(tool, system) ?? '').startsWith('brew ');
 

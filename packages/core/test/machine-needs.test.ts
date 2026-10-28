@@ -3,11 +3,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeContext } from '../src/onboarding/helpers.ts';
-import { INSTALL_LINES, INSTALL_SYSTEMS, type InstallSystem } from '../src/onboarding/install-lines.ts';
+import { APP_INSTALLER_PAGE, INSTALL_LINES, INSTALL_SYSTEMS, type InstallSystem, WINGET_REGISTER } from '../src/onboarding/install-lines.ts';
 import { checkMachine, machineLines, machineState } from '../src/onboarding/machine-check.ts';
 import { fileOn, MACHINE_NEEDS, needOf, needsFor, programOn } from '../src/onboarding/machine-needs.ts';
 import { addToUserPath, brewShellenv, expandPlace, installedAt, notOnPath, psLiteral, READ_PATHS, REAL_FILES, RESTART, zprofilePath } from '../src/onboarding/path-fix.ts';
-import { APP_INSTALLER_PAGE, runSteps, STEPS, WINGET_REGISTER } from '../src/onboarding/steps.ts';
+import { runSteps, STEPS } from '../src/onboarding/steps.ts';
 import type { CheckContext, MachineFiles } from '../src/onboarding/types.ts';
 import { fakeRunner, NO_FILES, ok, someFiles, tempDir } from './support.ts';
 
