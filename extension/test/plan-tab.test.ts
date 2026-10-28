@@ -13,6 +13,7 @@ let kept: unknown;
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: unknown) => { kept = s; } });
 const { renderAnalysis, questionWaits } = await import('../webview/analysis.ts');
 const { choiceWaits, chooseKey, compareKey, planDecisions } = await import('../webview/plan.ts');
+const { state } = await import('../webview/state.ts');
 
 const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && x.textContent === label);
 const draw = (m: TicketModel): PageElement => renderAnalysis(m, m.analysis!) as unknown as PageElement;
@@ -138,4 +139,53 @@ test('Choices and Questions open by themselves while something in them waits on 
   fire('more', true);
   assert.deepEqual((kept as { opened: string[] }).opened.filter((k) => k.startsWith(key)).sort(), [`${key}choices:shut`, `${key}more`]);
   assert.ok(compareKey(chooseKey(first.project, 'ACME-21', 'd1')).endsWith(':d1:compare'));
+});
+
+test('edge case: The approach with what other tasks build on and no steps counts them, never 0', () => {
+  kept = undefined;
+  const m = sampleTicket(NOW, 'ACME-21', false, null, null, 'shapes');
+  const s = m.analysis!.planState!.shapes!;
+  const n = s.shapes.length + (s.split ? 1 : 0);
+  assert.ok(n > 0, 'the fixture has shapes');
+  const approach = (x: TicketModel) => sections(draw(x)).find((y) => y.id === 'approach');
+  assert.equal(approach(m)!.count, m.analysis!.plan.length + n, 'its steps and its shapes');
+  assert.equal(approach({ ...m, analysis: { ...m.analysis!, plan: [] } })!.count, n, 'shapes alone');
+});
+
+test('opening Risks and files on one card opens it on every card of that choice, and the toggle a draw fires draws nothing', () => {
+  kept = undefined;
+  const m = sampleTicket(NOW, 'ACME-21');
+  const p = m.analysis!.planState!;
+  let draws = 0;
+  state.last = m as never;
+  state.draw = () => { draws++; };
+  const folds = () => (planDecisions(m, 'ACME-21', p) as unknown as PageElement).all('plan-decision')[1]!.all('po-more') as (PageElement & { open: boolean })[];
+  const fire = (d: PageElement) => { for (const f of d.listeners.get('toggle') ?? []) f({}); };
+  const first = folds();
+  assert.equal(first.length, 2, 'the two cards with risks or files');
+  assert.ok(first.every((d) => !d.open), 'closed at first');
+  // Edge case: the toggle a draw fires, with the fold as remembered, draws nothing.
+  fire(first[1]!);
+  assert.equal(draws, 0);
+  first[0]!.open = true;
+  fire(first[0]!);
+  assert.equal(draws, 1, 'opened by the person: drawn again');
+  const again = folds();
+  assert.ok(again.every((d) => d.open), 'open on every card of the choice');
+  fire(again[1]!);
+  assert.equal(draws, 1, 'drawn open, its toggle draws nothing');
+  assert.equal((planDecisions(m, 'ACME-21', p) as unknown as PageElement).all('plan-decision')[0]!.all('po-more').length, 0, 'the made choice\'s line has no cards to open');
+  state.last = null;
+});
+
+test('with a conversation, the row holds Open conversation and no Talk it through; without one, Talk it through', () => {
+  kept = undefined;
+  const labels = (m: TicketModel) => draw(m).all('plan-actions')[0]!.all().filter((x) => x.tagName === 'BUTTON').map((b) => b.textContent);
+  const talked = labels(sampleTalkTicket(NOW, true));
+  assert.equal(talked.filter((l) => l === 'Open conversation').length, 1);
+  assert.equal(talked.includes('Talk it through'), false, talked.join(', '));
+  // Edge case: a plan that can be talked through before any conversation keeps Talk it through.
+  const fresh = sampleTalkTicket(NOW, true);
+  const none = labels({ ...fresh, talk: { ...fresh.talk!, line: null } });
+  assert.deepEqual([none.includes('Talk it through'), none.includes('Open conversation')], [true, false], none.join(', '));
 });

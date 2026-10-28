@@ -139,12 +139,12 @@ export function renderAnalysis(m: TicketModel, a: TicketAnalysis): HTMLElement {
   // What changed in this version, and the person's notes on it (T-97, T-98).
   const changes = p ? planChanges(p) : null;
   if (changes) sec.append(changes);
-  // One row (T-136): Review plan or Build it first, then Talk it through, the conversation's line with Open
-  // conversation (T-111), and Make a new plan, which with a conversation is the conversation panel's alone (T-116).
+  // One row (T-136): Review plan or Build it first, then Talk it through, or once there's a conversation its line
+  // with Open conversation (T-111) instead, and Make a new plan, which with a conversation is the panel's alone (T-116).
   const talked = m.talk ? conversationLine(m.project, m.talk) : null;
   const actions = m.talk?.newPlan ? a.actions.filter((x) => x.command !== m.talk!.newPlan!.command) : a.actions;
   const more = [talked, ...actions.map(actionButton)].filter((x): x is HTMLElement => !!x);
-  if (p) sec.append(...planActions(m, a.task, p, a.review ? reviewButton(m, a.task, a.review) : null, more).filter((x): x is HTMLElement => !!x));
+  if (p) sec.append(...planActions(m, a.task, p, a.review ? reviewButton(m, a.task, a.review) : null, more, !talked).filter((x): x is HTMLElement => !!x));
   else if (more.length) sec.append(el('div', 'actions an-actions', ...more));
   sec.append(...planSections(m, a, key));
   return sec;
@@ -172,7 +172,8 @@ function planSections(m: TicketModel, a: TicketAnalysis, key: string): HTMLEleme
   return [
     planSection(key, 'choices', 'Choices', p?.decisions.length ?? 0, !!p && p.decisions.some((d) => choiceWaits(m, a.task, p, d)), [p ? planDecisions(m, a.task, p) : null]),
     planSection(key, 'questions', 'Questions', a.open.length, questionWaits(a), [questions]),
-    planSection(key, 'approach', 'The approach', a.plan.length, false, [p ? planShapes(m, a.task, p) : null, steps.length ? el('ol', 'an-list', ...steps) : null]),
+    // Its count is its steps, and what other tasks build on and the split suggested with them, so shapes alone never read 0.
+    planSection(key, 'approach', 'The approach', a.plan.length + (p?.shapes?.shapes.length ?? 0) + (p?.shapes?.split ? 1 : 0), false, [p ? planShapes(m, a.task, p) : null, steps.length ? el('ol', 'an-list', ...steps) : null]),
     planSection(key, 'criteria', 'Acceptance criteria', a.criteria.length, false, [a.criteria.length ? el('ul', 'an-list', ...a.criteria.map(md).map((x) => el('li', '', x))) : null]),
     planSection(key, 'risks', 'Risks and tests', a.risks.length + a.tests.length, false, [part('Risks', risks), part('Tests', a.tests.map(md))]),
     planSection(key, 'more', 'More', more, false, [

@@ -336,10 +336,10 @@ export function approveControls(m: TicketModel, task: string, plan: TicketPlan, 
 
 /**
  * The plan's one row of buttons: `lead` first, when given (Review plan, T-109), then Approve this plan where
- * there's no lead to approve it from, Build it, Talk it through, and `more` after them (T-136: the
- * conversation's line and Make a new plan); each off with why, under the row, while it can't be used.
+ * there's no lead to approve it from, Build it, Talk it through unless `talk` is off, and `more` after them
+ * (T-136: the conversation's line and Make a new plan); each off with why, under the row, while it can't be used.
  */
-export function planActions(m: TicketModel, task: string, plan: TicketPlan, lead: HTMLElement | null = null, more: HTMLElement[] = []): Child[] {
+export function planActions(m: TicketModel, task: string, plan: TicketPlan, lead: HTMLElement | null = null, more: HTMLElement[] = [], talk = true): Child[] {
   const buttons: HTMLElement[] = lead ? [lead] : [];
   const whys: Child[] = [];
   const approve = lead ? [] : approveControls(m, task, plan);
@@ -350,8 +350,9 @@ export function planActions(m: TicketModel, task: string, plan: TicketPlan, lead
     if (a.disabled) { b.disabled = true; b.title = a.disabled; b.setAttribute('aria-description', a.disabled); whys.push(el('div', 'plan-why muted small', icon('info'), el('span', '', `Build it is off: ${a.disabled}`))); }
     buttons.push(b);
   }
-  // Talk it through (T-98): opens the conversation beside the plan, and puts the cursor in its box.
-  if (m.talk?.send) buttons.push(button('Talk it through', 'comment-discussion', () => openTalk(m.project, task)));
+  // Talk it through (T-98): opens the conversation beside the plan, and puts the cursor in its box. Off once the
+  // row holds the conversation's own Open conversation (T-136), which opens the same panel.
+  if (m.talk?.send && talk) buttons.push(button('Talk it through', 'comment-discussion', () => openTalk(m.project, task)));
   buttons.push(...more);
   return [
     buttons.length ? el('div', 'actions plan-actions', ...buttons) : null,
