@@ -253,6 +253,8 @@ export const PAGES = [
   'output',
   'setup-first',
   'setup-first-machine',
+  // A project being started, with this machine checked first: one tool missing, one not on PATH (T-133)
+  'setup-machine-first',
 ] as const;
 export type Page = (typeof PAGES)[number];
 

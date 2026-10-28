@@ -437,6 +437,24 @@
         "icon": "$(cloud)"
       },
       {
+        "command": "acc.checkMachine",
+        "title": "Check this machine",
+        "category": "Agent Command Center",
+        "icon": "$(device-desktop)"
+      },
+      {
+        "command": "acc.start.goOn",
+        "title": "Go on and start the project",
+        "category": "Agent Command Center",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "acc.start.notNow",
+        "title": "Don't start the project now",
+        "category": "Agent Command Center",
+        "icon": "$(close)"
+      },
+      {
         "command": "acc.slack.connect",
         "title": "Send notices to Slack…",
         "category": "Agent Command Center",
@@ -749,6 +767,14 @@
           "when": "false"
         },
         {
+          "command": "acc.start.goOn",
+          "when": "false"
+        },
+        {
+          "command": "acc.start.notNow",
+          "when": "false"
+        },
+        {
           "command": "acc.task.show",
           "when": "false"
         },
@@ -1046,7 +1072,7 @@
           {
             "id": "A1.brew",
             "title": "Homebrew (on a Mac)",
-            "description": "On a Mac, git, Node, the GitHub CLI and Claude Code are installed with Homebrew. Windows installs with winget, so this step is only for a Mac.\n\n[Check](command:acc.step.check?%5B%22A1.brew%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.brew%22%5D)",
+            "description": "On a Mac, git, Node, the GitHub CLI, Claude Code, Java and Python are installed with Homebrew.\n\n[Check](command:acc.step.check?%5B%22A1.brew%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.brew%22%5D)",
             "media": {
               "markdown": "media/steps/A1.brew.md"
             },
@@ -1056,14 +1082,36 @@
             "when": "isMac"
           },
           {
+            "id": "A1.winget",
+            "title": "winget (on Windows)",
+            "description": "On Windows, git, Node, the GitHub CLI, Java and Python are installed with winget, which comes in Microsoft's App Installer.\n\n[Check](command:acc.step.check?%5B%22A1.winget%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.winget%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.winget.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.winget"
+            ]
+          },
+          {
             "id": "A1.git",
             "title": "git 2.40 or later",
-            "description": "Worktrees and the shared git directory need a recent git.\n\n[Check](command:acc.step.check?%5B%22A1.git%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.git%22%5D)",
+            "description": "Worktrees and the shared git directory need a recent git. On Windows, Git for Windows also brings the sh the Command Center runs command lines with.\n\n[Check](command:acc.step.check?%5B%22A1.git%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.git%22%5D)",
             "media": {
               "markdown": "media/steps/A1.git.md"
             },
             "completionEvents": [
               "onContext:acc.step.A1.git"
+            ]
+          },
+          {
+            "id": "A1.sh",
+            "title": "Git for Windows' sh (on Windows)",
+            "description": "The Command Center runs a project's check commands, and every other command line, with the sh that Git for Windows ships (D-209). Windows has no sh of its own.\n\n[Check](command:acc.step.check?%5B%22A1.sh%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.sh%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.sh.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.sh"
             ]
           },
           {
@@ -1075,6 +1123,18 @@
             },
             "completionEvents": [
               "onContext:acc.step.A1.node"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "A1.npm",
+            "title": "npm",
+            "description": "npm installs the Salesforce CLI. It comes with Node.\n\n[Check](command:acc.step.check?%5B%22A1.npm%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.npm%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.npm.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.npm"
             ],
             "when": "acc.profile != generic"
           },
@@ -1126,12 +1186,36 @@
           {
             "id": "A1.code-analyzer",
             "title": "Salesforce Code Analyzer",
-            "description": "The `static` check runs `sf code-analyzer`.\n\n[Check](command:acc.step.check?%5B%22A1.code-analyzer%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.code-analyzer%22%5D)",
+            "description": "The `static` check runs `sf code-analyzer`, Code Analyzer 5.\n\n[Check](command:acc.step.check?%5B%22A1.code-analyzer%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.code-analyzer%22%5D)",
             "media": {
               "markdown": "media/steps/A1.code-analyzer.md"
             },
             "completionEvents": [
               "onContext:acc.step.A1.code-analyzer"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "A1.java",
+            "title": "Java 11 or later, for Code Analyzer",
+            "description": "Code Analyzer's PMD and CPD engines run on a Java Development Kit, version 11 or later, as Salesforce's Code Analyzer setup page says.\n\n[Check](command:acc.step.check?%5B%22A1.java%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.java%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.java.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.java"
+            ],
+            "when": "acc.profile != generic"
+          },
+          {
+            "id": "A1.python",
+            "title": "Python 3.10 or later, for Code Analyzer",
+            "description": "Code Analyzer's Flow engine runs on Python 3.10 or later, as Salesforce's Code Analyzer setup page says. Without it, that engine is turned off in code-analyzer.yml.\n\n[Check](command:acc.step.check?%5B%22A1.python%22%5D)\n[Do it](command:acc.step.fix?%5B%22A1.python%22%5D)",
+            "media": {
+              "markdown": "media/steps/A1.python.md"
+            },
+            "completionEvents": [
+              "onContext:acc.step.A1.python"
             ],
             "when": "acc.profile != generic"
           },

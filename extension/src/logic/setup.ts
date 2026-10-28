@@ -167,6 +167,12 @@ export interface DoctorItem {
   fix?: string | null;
   /** A folder to open instead, when the current one is an old copy beside the repo. */
   open?: string | null;
+  /** The question Do it asks before it runs fix, such as before it changes PATH (T-133). */
+  ask?: string | null;
+  /** A fix only the person can do, such as quitting VSCode: Do it isn't offered (T-133). */
+  byHand?: string | null;
+  /** The folder a tool is installed in when it isn't on VSCode's PATH (T-133). */
+  place?: string | null;
 }
 
 /**
@@ -285,6 +291,21 @@ export interface InitChoice {
   /** Without access to Production (D-208): the My Domain whose logged-in sandboxes are the environments. */
   myDomain?: string;
   from?: string;
+  /** This machine was checked first and the person went on (T-133), so acc init doesn't stop for it again. */
+  anyway?: boolean;
+}
+
+/**
+ * What Do it does with a step's latest result (T-133): says a fix only the person can do, such as quitting VSCode;
+ * asks the result's question before its line, such as one that changes PATH; or runs the line, the result's own
+ * or else the step's. Null when there's no line to run.
+ */
+export type FixPlan = { kind: 'say'; text: string } | { kind: 'ask'; question: string; command: string } | { kind: 'run'; command: string };
+export function fixPlan(item: Pick<DoctorItem, 'fix' | 'ask' | 'byHand'> | undefined, stepCommand: string | undefined): FixPlan | null {
+  if (item?.byHand) return { kind: 'say', text: item.byHand };
+  if (item?.fix && item.ask) return { kind: 'ask', question: item.ask, command: item.fix };
+  const command = item?.fix || stepCommand;
+  return command ? { kind: 'run', command } : null;
 }
 
 /** acc init's arguments, each value one argument: a choice, and a tracker picked on the Connect page as JSON (GH-81). */
@@ -292,6 +313,7 @@ export const initArgs = (o: InitChoice & { tracker?: Record<string, unknown> }):
   ...(o.from ? ['--from', o.from] : []), ...(o.profile ? ['--profile', o.profile] : []), ...(o.productionOrg ? ['--production-org', o.productionOrg] : []),
   ...(o.myDomain ? ['--my-domain', o.myDomain] : []),
   ...(o.tracker ? ['--tracker', JSON.stringify(o.tracker)] : []),
+  ...(o.anyway ? ['--anyway'] : []),
 ];
 
 /** acc init as B0.config's Do it runs it in a terminal: each argument quoted as the shell needs. */

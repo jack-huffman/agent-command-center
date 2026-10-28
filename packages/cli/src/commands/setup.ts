@@ -2,7 +2,8 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, makeContext, parseSource, planInit, prepareImports, type Profile, readTemplate, recordProduction, rememberRepo, repoPaths, RULES_DIR, rulesName, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeImport, writeReadme } from '../../../core/src/index.ts';
+import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, loadTemplate, makeContext, parseSource, planInit, prepareImports, type Profile, readTemplate, recordProduction, rememberRepo, repoPaths, RULES_DIR, rulesName, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeImport, writeReadme } from '../../../core/src/index.ts';
+import { checkMachine, machineLines } from '../../../core/src/onboarding/machine-check.ts';
 import { checkLabel, table, tone } from '../format.ts';
 import { type CommandArea, now, type Opts, out, personOnly, project, steps, VERSION } from '../shared.ts';
 
@@ -20,8 +21,9 @@ function renderSteps(results: StepResult[], guided: boolean): string {
     if (result.status !== 'pass' && result.status !== 'skip') lines.push(`      ${result.detail}`);
     else if (!guided) lines.push(tone(`      ${result.detail}`, 'dim'));
     if (result.status === 'fail' || result.status === 'unknown') {
-      const fix = result.fix ?? step.fix?.command ?? step.fix?.text;
+      const fix = result.byHand ?? result.fix ?? step.fix?.command ?? step.fix?.text;
       if (fix) lines.push(`      fix: ${fix}`);
+      if (result.ask) lines.push(`      asks first: ${result.ask}`);
       if (result.open) lines.push(`      open: ${result.open}`);
       if (step.fix?.docs) lines.push(`      docs: ${step.fix.docs}`);
     }
@@ -41,15 +43,43 @@ function cmdDoctor(o: Opts, guided: boolean): number {
   const ctx = makeContext(process.cwd(), run, process.env, VERSION);
   const part = o.part as 'machine' | 'project' | undefined;
   if (part && part !== 'machine' && part !== 'project') throw new AccError('usage', '--part must be machine or project.');
+  // The profile a project is about to start with (T-133): its machine steps, before there's a config to name it.
+  const profile = profileFlag(o.profile);
+  if (profile) ctx.profile = profile;
   const only = (o.step as string[] | undefined) ?? [];
   const unknownIds = only.filter((id) => !STEPS.some((s) => s.id === id));
   if (unknownIds.length) throw new AccError('usage', `No step ${unknownIds.join(', ')}. Run acc doctor to see them all.`);
   const results = runSteps(ctx, part, only);
-  out(o, () => renderSteps(results, guided), results.map(({ step, result }) => ({
-    id: step.id, part: step.part, group: step.group, title: step.title, why: step.why,
-    status: result.status, detail: result.detail, fix: result.fix ?? null, howTo: step.fix ?? null, open: result.open ?? null,
-  })));
+  out(o, () => renderSteps(results, guided), results.map(doctorRow));
   return results.some((r) => r.result.status === 'fail') ? 1 : 0;
+}
+
+/** --profile, checked: generic, salesforce, or none given. */
+function profileFlag(value: unknown): Profile | undefined {
+  if (value !== undefined && value !== 'generic' && value !== 'salesforce') throw new AccError('usage', '--profile must be generic or salesforce.');
+  return value as Profile | undefined;
+}
+
+/** One step's result as --json gives it: Setup and the start of a project read these (T-133 adds ask, byHand and place). */
+const doctorRow = ({ step, result }: StepResult) => ({
+  id: step.id, part: step.part, group: step.group, title: step.title, why: step.why,
+  status: result.status, detail: result.detail, fix: result.fix ?? null, howTo: step.fix ?? null, open: result.open ?? null,
+  ask: result.ask ?? null, byHand: result.byHand ?? null, place: result.place ?? null,
+});
+
+/**
+ * Check this machine for a project about to start with this profile (T-133): 1 with what's still to do listed,
+ * when nothing is to be written, or null when the machine is ready and acc init goes on.
+ */
+function machineStop(o: Opts, config: string, profile: Profile): number | null {
+  const machine = checkMachine(makeContext(process.cwd(), run, process.env, VERSION), profile);
+  if (!machine.todo.length) return null;
+  out(o, () => [
+    `This machine isn't ready for a ${profile} project yet, so nothing was written:`, '',
+    ...machineLines(machine.todo), '',
+    'Fix them and run acc init again, or add --anyway to go on and come back to them with acc doctor --part machine.',
+  ].join('\n'), { written: false, path: config, machine: machine.todo.map(doctorRow) });
+  return 1;
 }
 
 /** --tracker's JSON: one tracker, as the Connect page writes it (GH-81). parseConfig checks the rest. */
@@ -66,14 +96,25 @@ function trackerFlag(json: string): Record<string, unknown> {
 
 function cmdInit(o: Opts): number {
   const paths = repoPaths(process.cwd(), run);
-  const profile = o.profile as Profile | undefined;
-  if (profile !== undefined && profile !== 'generic' && profile !== 'salesforce') throw new AccError('usage', '--profile must be generic or salesforce.');
+  const profile = profileFlag(o.profile);
   if (existsSync(paths.config) && !o.force && !o['dry-run']) throw new AccError('exists', `${paths.config} already exists. Use --force to replace it.`);
   const tracker = o.tracker === undefined ? undefined : trackerFlag(o.tracker as string);
+  // A team template is read first (GH-80), as planInit would read it, so its profile is known before the plan.
+  const from = o.from as string | undefined;
+  const readAs = from ? templateAccount(run, paths.root, o['github-account'] as string | undefined) : null;
+  const template = from ? loadTemplate(run, from, { account: readAs, base: process.cwd(), root: paths.root }) : undefined;
+  // Check this machine first, for the profile chosen (T-133): --profile's, else the template's, else generic, as
+  // planInit picks it. What's still to do is listed and nothing is written. This runs before the plan, which
+  // calls sf for a Salesforce project, so a machine without sf sees that it's missing. A dry run writes
+  // nothing, so it checks nothing; a --profile that disagrees with the template is refused by the plan.
+  const stop = !o['dry-run'] && !o.anyway ? machineStop(o, paths.config, profile ?? template?.template.profile ?? 'generic') : null;
+  if (stop !== null) return stop;
   const plan = planInit(run, {
     root: paths.root,
     profile,
-    from: o.from as string | undefined,
+    from,
+    template,
+    readAs,
     cwd: process.cwd(),
     project: o.project as string | undefined,
     productionOrg: o['production-org'] as string | undefined,
@@ -235,8 +276,9 @@ export const area: CommandArea = {
   help: {
     section: 'Setup',
     order: 10,
-    lines: `  acc doctor [--part machine|project] [--step <id>]...
-                                        Check the onboarding steps and print the fixes
+    lines: `  acc doctor [--part machine|project] [--step <id>]... [--profile generic|salesforce]
+                                        Check the onboarding steps and print the fixes. --profile: the
+                                        machine steps a project of that kind needs, before it has a config
   acc onboard                           The same checks as a guided list, with the next step to do
   acc setup baseline                    B5: one manifest of every component on every environment branch
   acc setup branches [--push]           B6: make each missing environment branch, seeded from its org
@@ -246,7 +288,9 @@ export const area: CommandArea = {
                                         each sandbox's type from Production's sandbox list
   acc init --profile salesforce --production-org <alias> [--project <name>] [--github-repo <o/r>]
            [--github-account <a>] [--commit-name <n> --commit-email <e>] [--configure-git]
-           [--jira-site <site> --jira-project <key>] [--dry-run] [--force]
+           [--jira-site <site> --jira-project <key>] [--dry-run] [--force] [--anyway]
+                                        Checks this machine first: when a tool it needs is missing or not
+                                        on PATH, it lists them and writes nothing. --anyway goes on
   acc init --profile salesforce --my-domain <domain> [...]
                                         Without access to Production: the sandboxes you're logged in to on
                                         that My Domain, and Production with no org on this machine
@@ -277,6 +321,7 @@ export const area: CommandArea = {
     from: { type: 'string' },
     'dry-run': { type: 'boolean', default: false },
     force: { type: 'boolean', default: false },
+    anyway: { type: 'boolean', default: false },
     push: { type: 'boolean', default: false },
   },
   subcommands: { template: ['show'], setup: ['baseline', 'branches', 'lists', 'readme', 'production'] },

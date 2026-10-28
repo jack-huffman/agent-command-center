@@ -12,6 +12,21 @@ export interface CheckResult {
   fix?: string;
   /** A folder the person should open instead, such as the project's repo next to an old copy. */
   open?: string;
+  /** The question Do it asks before it runs fix, such as before it changes PATH (T-133). Without a yes, nothing runs. */
+  ask?: string;
+  /** A fix only the person can do, in words, such as quitting VSCode: Do it isn't offered for this result (T-133). */
+  byHand?: string;
+  /** The folder a tool is installed in when it isn't on VSCode's PATH (T-133): installed, not missing. */
+  place?: string;
+}
+
+/** What the machine steps read of the filesystem: the real one, or a test's (T-133). */
+export interface MachineFiles {
+  exists(path: string): boolean;
+  /** A folder's entries, none when it can't be read. */
+  list(dir: string): string[];
+  /** A file's text, null when it can't be read. */
+  read(file: string): string | null;
 }
 
 export interface Fix {
@@ -47,6 +62,10 @@ export interface CheckContext {
   platform?: NodeJS.Platform;
   /** The system the install lines are for. Absent, it's the one acc runs on (SYSTEM): only tests set it (T-124). */
   system?: InstallSystem;
+  /** The filesystem the machine steps look in for an install place. Absent: this machine's (T-133). */
+  files?: MachineFiles;
+  /** The profile whose machine steps run, for a folder with no config yet, such as a project being started (T-133). */
+  profile?: Profile;
 }
 
 export interface Step {

@@ -13,7 +13,7 @@
  * Like the rest of logic/, no `vscode` import: the page, the models and node:test all read it.
  */
 
-import { BREW_INSTALL, INSTALL_SYSTEMS, type InstallTool, installCommand } from '../../../packages/core/src/onboarding/install-lines.ts';
+import { BREW_INSTALL, INSTALL_SYSTEMS, type InstallTool, installCommand, WINGET_REGISTER } from '../../../packages/core/src/onboarding/install-lines.ts';
 import { escapeRegExp, inConfigWords } from './config-words.ts';
 import { upper } from '../../webview/upper.ts';
 
@@ -148,6 +148,12 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['manifest commit'], name: 'Add the manifest to the ticket\'s branch', named: 'Add the manifest to {arg}\'s branch' },
 ];
 
+/**
+ * Check this machine (T-133): Setup's machine steps, which starting a project runs first. It's a part of acc doctor,
+ * `acc doctor --part machine`, so it isn't a row of PROCESSES, which names each command once; inProcessWords names it.
+ */
+export const CHECK_MACHINE = { name: 'Check this machine', command: 'acc.checkMachine', acc: 'doctor --part machine' } as const;
+
 /** The process for an acc command, as words: "gate run", or "done". */
 export function processOf(acc: string): Process | undefined {
   return PROCESSES.find((p) => p.acc.includes(acc));
@@ -239,7 +245,9 @@ function argsAfter(text: string): { args: string[]; length: number; thing: strin
  */
 export function inProcessWords(input: string): string {
   // A setting is told by what it is, not the key acc reads it under (GH-168); config-words.ts is that table.
-  const text = inConfigWords(input);
+  // The machine's part of the setup check is its own process (T-133): "acc doctor --part machine" is Check this machine.
+  const text = inConfigWords(input).replace(/(\b[Rr]un )?`?\bacc doctor --part machine`?/g, (_m, run: string | undefined) =>
+    (run ? (run.startsWith('R') ? CHECK_MACHINE.name : lower(CHECK_MACHINE.name)) : `"${CHECK_MACHINE.name}"`));
   let out = '';
   let from = 0;
   for (const m of text.matchAll(/(\b[Rr]un )?(`?)\bacc (?=[a-z])/g)) {
@@ -326,9 +334,17 @@ export function processLine(line: string): string | null {
 const THEN = '(?:&&|; if \\(\\$\\?\\) \\{)';
 
 /** What each install line does, built from the one table (INSTALL_LINES) and Homebrew's installer, so a line is never typed twice (T-124). */
-const TOOL_WORDS: Record<InstallTool, string> = { git: 'Install git', node: 'Install Node', gh: 'Install the GitHub command line', claude: 'Install Claude Code' };
+const TOOL_WORDS: Record<InstallTool, string> = {
+  git: 'Install git', node: 'Install Node', gh: 'Install the GitHub command line', claude: 'Install Claude Code',
+  sf: 'Install the Salesforce command line', java: 'Install Java', python: 'Install Python',
+};
 const INSTALL_DOES: { line: RegExp; does: string }[] = [
   { line: new RegExp(`^${escapeRegExp(BREW_INSTALL)}$`), does: 'Install Homebrew' },
+  { line: new RegExp(`^${escapeRegExp(WINGET_REGISTER)}$`), does: 'Turn on winget' },
+  // The PATH lines a step offers for a tool that's installed but not on PATH (T-133): each asks first.
+  { line: /^\[Environment\]::SetEnvironmentVariable\('Path', .*'User'\)$/, does: 'Add the folder to your PATH' },
+  { line: /^echo 'eval "\$\(.*brew shellenv\)"' >> ~\/\.zprofile$/, does: 'Add Homebrew to your PATH' },
+  { line: /^echo 'export PATH=.*' >> ~\/\.zprofile$/, does: 'Add the folder to your PATH' },
   ...(Object.keys(TOOL_WORDS) as InstallTool[]).flatMap((tool) =>
     INSTALL_SYSTEMS.flatMap((system) => { const c = installCommand(tool, system); return c ? [{ line: new RegExp(`^${escapeRegExp(c)}$`), does: TOOL_WORDS[tool] }] : []; })),
 ];
@@ -347,8 +363,7 @@ const TOOL_LINES: readonly { line: RegExp; does: string }[] = [
   { line: /^claude auth login$/, does: 'Sign in to Claude Code with your claude.ai account' },
   { line: /^claude(?:\s+#.*)?$/, does: 'Open Claude Code in this folder, to trust it' },
   ...INSTALL_DOES,
-  { line: /^npm install -g @salesforce\/cli$/, does: 'Install the Salesforce command line' },
-  { line: /^sf plugins install code-analyzer$/, does: 'Install the Salesforce code analyzer' },
+  { line: /^sf plugins install code-analyzer(?:@latest)?$/, does: 'Install the Salesforce code analyzer' },
   { line: /^gh auth login\b/, does: 'Sign in to GitHub as this repo\'s account' },
   { line: /^gh repo edit\b.*--default-branch\b/, does: 'Set the repo\'s default branch on GitHub' },
   { line: new RegExp(`^git config user\\.name\\b.*${THEN} git config user\\.email\\b`), does: 'Set the name and email on this repo\'s commits' },

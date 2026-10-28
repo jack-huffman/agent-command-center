@@ -401,7 +401,7 @@ test('a step command names a step that\'s there, or none: acc.step.check, acc.st
 
 test('a step that installs a tool shows its line for a Mac, Windows and Linux on its page, and Windows is told to restart VSCode (T-124)', () => {
   const installing = STEPS.filter((s) => s.install);
-  assert.equal(installing.length, 4, 'git, Node, gh and Claude Code');
+  assert.equal(installing.length, 9, 'git, its sh, Node, npm, gh, Claude Code, the Salesforce CLI, Java and Python (T-133)');
   // The page for a Mac and for Windows, whichever system the test runs on: each shows every system's line.
   for (const s of installing) for (const on of ['mac', 'windows'] as const) {
     const media = stepMedia(s, on);

@@ -5,13 +5,15 @@ import * as vscode from 'vscode';
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { STEPS } from '../../packages/core/src/onboarding/steps.ts';
 import type { Step } from '../../packages/core/src/onboarding/types.ts';
-import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, hasPlaceholder, importRulesCommand, initArgs, type InitChoice, initCommand, initOutput, isComplete, machineCache, type MachineCache, pendingProject, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, stepIdOf, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
+import { activeGhAccount, afterFullCheck, afterStepCheck, COMMANDS, contextKey, type DoctorItem, type EnvLike, expectedOrgUrl, EXTENSION_ID, fixPlan, hasPlaceholder, importRulesCommand, initArgs, type InitChoice, initCommand, initOutput, isComplete, machineCache, type MachineCache, pendingProject, productionOrgs, type RecentTemplate, rememberTemplate, reusableMachine, rulesDetail, setupOrgChoices, sfOpenCommand, shownRules, shownTemplate, statusText, stepIdOf, summarize, templateDetail, WALKTHROUGHS } from './logic/setup.ts';
 import type { StartProject } from './connect.ts';
-import { KIND_QUESTION } from './logic/first-open.ts';
+import { KIND_QUESTION, SETUP_PARTS } from './logic/first-open.ts';
 import { needsTerminal } from './logic/runs.ts';
 import { quoteFor, runnerLine, terminalShell } from './logic/shells.ts';
 import { SYSTEM, shellOf } from '../../packages/core/src/onboarding/install-lines.ts';
-import { inProcessWords, processLine } from './logic/processes.ts';
+import { CHECK_MACHINE, inProcessWords, processLine } from './logic/processes.ts';
+import { MACHINE_FIRST_PART, type SetupStarting } from './model/setup.ts';
+import { startInOrder } from './logic/start-order.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { asksProduction, domainItem, productionChoices, productionNext } from './logic/no-production.ts';
 import { MY_DOMAIN } from '../../packages/core/src/sf-discovery.ts';
@@ -22,6 +24,17 @@ import { exec } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
 
 const TERMINAL_NAME = 'Command Center setup';
+/** A new project's settings, as acc init's options, and the template's tracker. */
+interface StartChoice {
+  init: InitChoice;
+  templateTracker: Record<string, unknown> | null;
+  /** The profile the project starts with: the template's, where it sets one (T-133). */
+  profile: 'salesforce' | 'generic';
+  /** A template's choice that still needs Production's org, picked after the machine check (T-133). */
+  asksProduction?: boolean;
+}
+/** The answer that lets a fix that asks first run (T-133): closing the question is a no. */
+const ASK_YES = 'Yes, do it';
 
 /** The extension's version, as its package.json says, read now. Unknown, it's '', which no saved result has. */
 export function extensionVersion(file: string): string {
@@ -384,8 +397,12 @@ export class Setup implements vscode.Disposable {
       await this.recheck(id);
       return;
     }
-    const command = item?.fix || step.fix?.command;
-    if (command) return this.runCommand(command, id);
+    // A fix only the person can do, such as quitting VSCode, is said; one that changes PATH asks first, in words
+    // that name the folder, and without a yes nothing runs (T-133).
+    const plan = fixPlan(item, step.fix?.command);
+    if (plan?.kind === 'say') return void vscode.window.showInformationMessage(`${step.title}: ${plan.text}`);
+    if (plan?.kind === 'ask' && (await vscode.window.showWarningMessage(plan.question, { modal: true }, ASK_YES)) !== ASK_YES) return;
+    if (plan) return this.runCommand(plan.command, id);
     const pick = await vscode.window.showWarningMessage(`${step.title}: ${item?.detail ?? 'needs attention'}. There's no single command for this one.`, ...(step.fix?.docs ? ['Read the guide'] : []));
     if (pick) await this.openGuide(id);
   }
@@ -528,19 +545,80 @@ export class Setup implements vscode.Disposable {
     const kind = await vscode.window.showQuickPick([...PROJECT_KINDS, FROM_TEMPLATE, FROM_EPIC], { title: KIND_QUESTION });
     if (!kind) return;
     if (kind.profile === 'epic') return this.epicFlow();
-    const choice = await this.choose(kind.profile);
-    if (choice) this.runCommand(initCommand(choice.init), 'B0.config');
+    // This machine is checked as soon as the profile is known, before Production's org is picked with sf (T-133);
+    // acc init then goes on, since the person has seen what's left.
+    await this.startChecked(kind.profile, (choice) => this.runCommand(initCommand({ ...choice.init, anyway: true }), 'B0.config'));
+  }
+
+  /** A project's choice, its machine checked first (T-133), then start: see startInOrder for the order. */
+  private startChecked(kind: 'salesforce' | 'generic' | 'template', start: (choice: StartChoice) => unknown): Promise<void> {
+    return startInOrder<StartChoice>(kind, {
+      template: () => this.templateChoice(),
+      profileOf: (c) => c.profile,
+      check: (profile, go) => this.machineFirst(profile, go),
+      choose: (profile) => this.choose(profile),
+      complete: (c) => this.templateRest(c),
+      start,
+    });
+  }
+
+  /** A project being started (T-133): its profile, the machine steps checked for it, and what starts it. */
+  private starting: { profile: 'salesforce' | 'generic'; ids: string[]; go: () => unknown } | null = null;
+
+  /** The project being started, as Setup shows it: null when none is. */
+  startingModel(): SetupStarting | null {
+    return this.starting ? { profile: this.starting.profile, ids: this.starting.ids } : null;
+  }
+
+  /**
+   * Check this machine for a project about to start (T-133). With nothing to do, the project starts; otherwise
+   * Setup shows what's left first, each with its Do it, and nothing is written until Go on anyway or Start the
+   * project. A check that returns no steps can't say the machine is ready, so it shows Setup too.
+   */
+  async machineFirst(profile: 'salesforce' | 'generic', go: () => unknown): Promise<void> {
+    const items = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: CHECK_MACHINE.name },
+      (_p, token) => this.doctor(['--part', 'machine', '--profile', profile], token));
+    if (items.length) await this.apply(items);
+    const todo = items.filter((i) => i.status === 'fail');
+    this.log.info(`Checked this machine for a ${profile} project: ${items.length} steps, ${todo.length} to do.`);
+    if (items.length && !todo.length) return void go();
+    this.starting = { profile, ids: items.map((i) => i.id), go };
+    this.changed.fire();
+    await vscode.commands.executeCommand('acc.open.home', 'setup', MACHINE_FIRST_PART);
+  }
+
+  /** Go on anyway, or Start the project once nothing is left (T-133): the project starts, and Setup keeps the steps. */
+  async goOn(): Promise<void> {
+    const s = this.starting;
+    if (!s) return void vscode.window.showInformationMessage('No project is waiting to start.');
+    this.starting = null;
+    this.changed.fire();
+    await s.go();
+  }
+
+  /** Not now (T-133): nothing is written, and B0.config's Do it starts it again later. */
+  notNow(): void {
+    this.starting = null;
+    this.changed.fire();
+  }
+
+  /** Check this machine (T-133): its steps, for this folder's profile, then Setup at This machine. */
+  async checkMachine(): Promise<void> {
+    const profile = this.config()?.profile;
+    const items = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: CHECK_MACHINE.name },
+      (_p, token) => this.doctor(['--part', 'machine', ...(profile ? ['--profile', profile] : [])], token));
+    if (items.length) await this.applyFull(items, null);
+    await vscode.commands.executeCommand('acc.open.home', 'setup', SETUP_PARTS.machine);
   }
 
   /**
    * Where a new project's settings come from, as acc init's options, or undefined when the person backed out:
-   * Other, Salesforce with its Production org, or a team template, read and confirmed (GH-80). Nothing runs.
+   * Other, or Salesforce with its Production org. A team template's is templateChoice (GH-80). Nothing runs.
    */
-  private async choose(kind: 'salesforce' | 'generic' | 'template'): Promise<{ init: InitChoice; templateTracker: Record<string, unknown> | null } | undefined> {
-    if (kind === 'template') return this.templateChoice();
-    if (kind === 'generic') return { init: { profile: 'generic' }, templateTracker: null };
+  private async choose(kind: 'salesforce' | 'generic'): Promise<StartChoice | undefined> {
+    if (kind === 'generic') return { init: { profile: 'generic' }, templateTracker: null, profile: 'generic' };
     const production = await this.pickProduction();
-    return production ? { init: { profile: 'salesforce', ...production }, templateTracker: null } : undefined;
+    return production ? { init: { profile: 'salesforce', ...production }, templateTracker: null, profile: 'salesforce' } : undefined;
   }
 
   /** Starts a project on the Connect page (GH-81): the extension opens it there. */
@@ -559,9 +637,13 @@ export class Setup implements vscode.Disposable {
   private async epicFlow(): Promise<void> {
     const base = await vscode.window.showQuickPick([...PROJECT_KINDS, FROM_TEMPLATE], { title: 'Where do the rest of its settings come from?', placeHolder: 'The tracker comes next, on the Connect page' });
     if (!base) return;
-    const choice = await this.choose(base.profile);
-    if (!choice) return;
-    const args = initArgs(choice.init);
+    // This machine is checked first (T-133), before Production's org and the Connect page; Start the project there goes on anyway.
+    await this.startChecked(base.profile, (choice) => this.epicStart(choice));
+  }
+
+  /** The rest of From a Jira epic… once this machine is checked: acc init's dry run, then the Connect page. */
+  private async epicStart(choice: StartChoice): Promise<void> {
+    const args = initArgs({ ...choice.init, anyway: true });
     const root = this.cwd();
     const [dry, common] = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Reading what setting up this project would write…' }, (_p, token) => Promise.all([
       this.acc(['init', ...args, '--dry-run', '--json'], token),
@@ -622,9 +704,10 @@ export class Setup implements vscode.Disposable {
   /**
    * "From a team template…" (GH-80): a source used before on this machine, or a new one; acc reads it, a bad
    * one's problems are shown and nothing is written, and a good one is confirmed. Then acc init's options, and
-   * the template's tracker, which a project started from an epic fills in on the Connect page (GH-81).
+   * the template's tracker, which a project started from an epic fills in on the Connect page (GH-81). It calls
+   * no sf: a Salesforce template's Production org is picked by templateRest, after this machine is checked (T-133).
    */
-  private async templateChoice(): Promise<{ init: InitChoice; templateTracker: Record<string, unknown> | null } | undefined> {
+  private async templateChoice(): Promise<StartChoice | undefined> {
     const recent = this.ctx.globalState.get<RecentTemplate[]>(RECENT_TEMPLATES) ?? [];
     let source: string | undefined;
     if (recent.length) {
@@ -660,9 +743,14 @@ export class Setup implements vscode.Disposable {
       if (!kind) return undefined;
       picked = kind.profile;
     }
-    const production = asksProduction(shown.profile, picked) ? await this.pickProduction() : {};
-    if (!production) return undefined;
-    return { init: { from: source, profile: picked, ...production }, templateTracker: shown.tracker };
+    return { init: { from: source, profile: picked }, templateTracker: shown.tracker, profile: picked ?? (shown.profile === 'salesforce' ? 'salesforce' : 'generic'), asksProduction: asksProduction(shown.profile, picked) };
+  }
+
+  /** A team template's choice once this machine is checked (T-133): Production's org, picked with sf, where its profile asks for it. */
+  private async templateRest(choice: StartChoice): Promise<StartChoice | undefined> {
+    if (!choice.asksProduction) return choice;
+    const production = await this.pickProduction();
+    return production ? { ...choice, init: { ...choice.init, ...production } } : undefined;
   }
 
   /**
@@ -791,5 +879,9 @@ export const area: ExtensionArea = {
     reg('acc.setup.refresh', () => setup.refresh('refresh clicked'));
     reg('acc.sf.login', () => setup.sfLogin());
     reg('acc.importRules', () => setup.importRules());
+    // Check this machine, and a project waiting on it to start (T-133).
+    reg('acc.checkMachine', () => setup.checkMachine());
+    reg('acc.start.goOn', () => setup.goOn());
+    reg('acc.start.notNow', () => setup.notNow());
   },
 };
