@@ -53,6 +53,7 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * Then ACME-12's Team (T-103): sharing files with two others in flight and two merges behind dev, then up to date and sharing none.
  * Then ACME-21's plan in short, and Review plan over it (T-109): a choice with More about this option open, a question
  * for the ticket's author with own words typed, a question already answered, and the approved plan's summary.
+ * Then ACME-21 with its plan, criteria and Verify under its description (T-132), open, and collapsed to their header lines.
  * Then a plan's conversation in its own panel (T-111): ACME-21's page before its plan with the conversation's one
  * line, the panel as Make a plan opens it, mid-conversation with a reply on its way, and Talk it through once v2 is made.
  * Then the agent's questions one at a time, part-way through (T-113), and a long Talk it through, folded.
@@ -161,6 +162,9 @@ export const PAGES = [
   'ticket-verify-pass',
   'ticket-verify-changes',
   'ticket-verify-choice',
+  // The Command Center's sections under the description (T-132): the plan, criteria and Verify open, then collapsed
+  'ticket-sections',
+  'ticket-sections-collapsed',
   'ticket-github',
   'ticket-azure',
   'ticket-monday',

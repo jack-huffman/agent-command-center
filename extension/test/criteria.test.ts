@@ -224,7 +224,7 @@ test('the page takes the replies by the names the extension sends, and draws the
   assert.match(source('../webview/criteria.ts'), new RegExp(`'${CRITERIA_DONE}': done`), 'the section takes how its buttons went');
   assert.match(source('../webview/task-sheet.ts'), new RegExp(`'${TASK_SHEET_DRAFT}': drafted`), 'the sheet takes its draft');
   const page = source('../webview/task-page.ts');
-  const at = page.indexOf('if (m.criteria) main.append(renderCriteria(m, m.criteria));');
+  const at = page.indexOf('if (m.criteria) add(renderCriteria(m, m.criteria)');
   assert.ok(at > 0 && at > page.indexOf('renderDoc(m.body, \'No description.\')'), 'renderCriteria comes after the description');
 });
 

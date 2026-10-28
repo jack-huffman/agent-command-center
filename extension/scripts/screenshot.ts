@@ -65,6 +65,7 @@ import { sampleFirstSetup, sampleSetup } from './fixtures/setup.ts';
 import { sampleSetupWithoutProduction } from './fixtures/no-production.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
+import { SECTIONS_COLLAPSED, sampleSectionsTicket } from './fixtures/sections.ts';
 import { sampleTalkTicket, TALK_STATE } from './fixtures/talk.ts';
 import { REPORT_TYPED, sampleReport } from './fixtures/report.ts';
 import { LONG_STATE, QUESTIONS_STATE, sampleConversation, sampleConversationLong, sampleConversationQuestions, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
@@ -190,6 +191,8 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'ticket-verify-pass') return sampleTicket(now, 'ACME-21', false, null, 'pass');
   if (kind === 'ticket-verify-changes') return sampleTicket(now, 'ACME-21', false, null, 'changes');
   if (kind === 'ticket-verify-choice') return sampleTicket(now, 'ACME-21', false, null, 'choice');
+  // ACME-21 with its plan, criteria and Verify under its description (T-132): open, and collapsed.
+  if (kind === 'ticket-sections' || kind === 'ticket-sections-collapsed') return sampleSectionsTicket(now);
   // A ticket's Planned changes, then Changes (T-99): ACME-35's plan, ACME-12's work with a change outside its plan, and ACME-20's kept after its merge.
   if (kind === 'ticket-planned' || kind === 'ticket-changes' || kind === 'ticket-kept') return sampleChangesTicket(now, kind.slice('ticket-'.length) as ChangesSample);
   // ACME-20's record changes (T-100): planned and recorded, the form for a change made by hand, and promoted to UAT with a step to run.
@@ -344,6 +347,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : BOARD_SHOTS[kind] ? BOARD_SHOTS[kind]
   // Add a change made by hand (T-100), opened and half-filled, and a step's Skip open, as the tab's memory keeps them.
   : kind === 'ticket-records-form' ? RECORDS_FORM_STATE
+  // ACME-21's plan, criteria and Verify collapsed to their header lines (T-132).
+  : kind === 'ticket-sections-collapsed' ? { folded: SECTIONS_COLLAPSED }
   // ACME-21's plan (T-97): its second choice's own option open, and the later plans with their earlier versions open.
   // Approved, a change to its second choice asks first, as Choose this on Backfill too leaves it.
   // Each with The whole plan open (T-109), where the choices are in full.

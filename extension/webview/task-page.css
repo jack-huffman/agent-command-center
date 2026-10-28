@@ -30,7 +30,7 @@ body[data-view="ticket"] { padding-top: 18px; }
 .btn.status-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
 
 .ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: auto 1fr; gap: 0 28px; align-items: start; }
-/* Why it's stuck and its analysis come first, above the description; the side column runs beside both. */
+/* What needs the person comes first, above the description (T-132); the side column runs beside both. */
 .ticket-top { grid-column: 1; grid-row: 1; min-width: 0; margin-bottom: 20px; }
 .ticket-main { grid-column: 1; grid-row: 2; min-width: 0; }
 /* The main column's sections sit on the page, not in boxes (T-91): space and a hairline between them group
@@ -47,8 +47,9 @@ body[data-view="ticket"] { padding-top: 18px; }
   .ticket-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; gap: 24px; }
   .ticket-top, .ticket-main, .ticket-side { grid-column: 1; grid-row: auto; }
   .ticket-top { margin-bottom: 0; }
-  /* One column, facts first (T-94): the conflict and analysis, the description and what sits under it, then
-     Details and the Agent panel, then Related and Activity. Both columns' sections join the grid as its items. */
+  /* One column, what needs the person first (T-41, T-132): the notices, then the description, the Command
+     Center's sections under it, then Details and the Agent panel, then Related and Activity. Both columns'
+     sections join the grid as its items. */
   .ticket-side, .ticket-main { display: contents; }
   .ticket-main > *, .ticket-side > * { min-width: 0; }
   /* The grid's gap spaces the sections, so a section keeps no margin of its own under it. */

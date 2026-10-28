@@ -230,7 +230,7 @@ test('the page takes the replies by the name the extension sends, draws the sect
   assert.equal(VERIFY_DONE, 'verify-done');
   assert.match(source('../webview/verify.ts'), new RegExp(`'${VERIFY_DONE}': done`));
   const page = source('../webview/task-page.ts');
-  const at = page.indexOf('if (m.verify) main.append(renderVerify(m, m.verify));');
+  const at = page.indexOf('if (m.verify) add(renderVerify(m, m.verify)');
   assert.ok(at > page.indexOf('renderCriteria(m, m.criteria)') && at < page.indexOf('renderActivity(m)'), 'under the criteria, over the Activity');
   assert.match(source('../webview/updates.ts'), /d\.dataset\.update = c\.id;/);
 });

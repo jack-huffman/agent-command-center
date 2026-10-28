@@ -52,8 +52,8 @@ export class PageElement {
     const under = this.children.flatMap((c) => (typeof c === 'string' ? [] : [c, ...c.all()]));
     return cls ? under.filter((e) => e.classList.contains(cls)) : under;
   }
-  /** The first element under it with one class, written as .name: the only selector the page's drawing asks of it. */
-  querySelector(selector: string): PageElement | null { return /^\.[\w-]+$/.test(selector) ? this.all(selector.slice(1))[0] ?? null : null; }
+  /** The first element under it a selector finds: one class, written as .name, or what querySelectorAll finds (T-132). */
+  querySelector(selector: string): PageElement | null { return /^\.[\w-]+$/.test(selector) ? this.all(selector.slice(1))[0] ?? null : this.querySelectorAll(selector)[0] ?? null; }
   /**
    * The elements under it a simple selector finds (T-127): a list of them split by commas, each a tag and classes
    * (article.card, .a.b), one under another (.a .b), or its own children (:scope > .column). No more than the board asks.

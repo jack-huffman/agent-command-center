@@ -35,6 +35,8 @@ export interface TicketCriteria {
   note: string | null;
   /** The draft, as the page draws it. Null before the first. */
   body: Doc | null;
+  /** How many criteria the draft holds, for a collapsed section's line (T-132). Null before the first. */
+  count: number | null;
   at: string | null;
   /** What the drafter read, in words. */
   read: string | null;
@@ -86,7 +88,7 @@ export function ticketCriteria(i: CriteriaIn): TicketCriteria | null {
     : d ? null : 'An agent can draft acceptance criteria, test steps and edge cases from the ticket, its comments and the code, for you to edit.';
   const busy = i.drafting ? 'It\'s drafting now' : null;
   return {
-    task: i.task.id, look, note, body: d ? fromMarkdown(d.markdown) : null, at: d?.at ?? null, read: d ? readWords(d.read) : null,
+    task: i.task.id, look, note, body: d ? fromMarkdown(d.markdown) : null, count: d ? d.criteria.length : null, at: d?.at ?? null, read: d ? readWords(d.read) : null,
     wording: d?.wording.length ? { label: `Wording: ${plural(d.wording.length, 'finding')}`, icon: 'whole-word', tone: 'orange' } : null,
     draft: { label: d ? 'Draft again' : 'Draft acceptance criteria', disabled: busy },
     sheet: d ? { label: 'Add to the description', disabled: busy ?? sheetRefusal(i) } : null,

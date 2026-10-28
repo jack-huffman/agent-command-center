@@ -842,6 +842,34 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task page: a Command Center section collapses and expands by click, Enter and Space, and stays collapsed when the page draws again (T-132)',
+    page: 'ticket-questions',
+    async run(t) {
+      const sec = (): HTMLElement => t.find('.ticket-main [data-section="plan"]');
+      const button = (): HTMLButtonElement => t.find<HTMLButtonElement>('.sec-toggle', sec());
+      const hidden = (): boolean => [...sec().children].filter((c) => !c.classList.contains('sec-head')).every((c) => getComputedStyle(c).display === 'none');
+      const summary = (): HTMLElement => t.find('.sec-sum', sec());
+      t.check('it starts open, its button named and expanded', !hidden() && button().textContent === 'Plan' && button().getAttribute('aria-expanded') === 'true', button().outerHTML);
+      t.check('open, its summary line isn\'t shown', getComputedStyle(summary()).display === 'none');
+      t.check('the description comes before it', t.find('.ticket-main > section.block').compareDocumentPosition(sec()) === Node.DOCUMENT_POSITION_FOLLOWING);
+      await t.click(button());
+      t.check('a click collapses it to its header line', hidden() && button().getAttribute('aria-expanded') === 'false', button().getAttribute('aria-expanded'));
+      t.check('collapsed, its state and summary stay in view', getComputedStyle(summary()).display !== 'none' && t.find('.sec-head .status', sec()).getBoundingClientRect().height > 0);
+      t.check('focus stays on its button', document.activeElement === button(), document.activeElement?.className);
+      const folded = (t.memory().folded ?? []) as string[];
+      t.check('the tab remembers it, by ticket and section', folded.length === 1 && folded[0]!.startsWith('section:plan:') && folded[0]!.endsWith('#ACME-21'), folded);
+      // Edge: the page drawn again from a new model keeps it collapsed.
+      await t.post({ type: 'state', model: t.model });
+      t.check('drawn again, it stays collapsed', hidden() && button().getAttribute('aria-expanded') === 'false', button().getAttribute('aria-expanded'));
+      const enter = await press(t, button(), 'Enter');
+      t.check('Enter expands it, and the button\'s own click doesn\'t follow', !hidden() && button().getAttribute('aria-expanded') === 'true' && enter.defaultPrevented);
+      const space = await press(t, button(), ' ');
+      t.check('Space collapses it again', hidden() && space.defaultPrevented);
+      await t.click(button());
+      t.check('a click expands it, and the tab forgets it', !hidden() && ((t.memory().folded ?? []) as string[]).length === 0, t.memory().folded);
+    },
+  },
+  {
     name: 'plan: on an approved plan, Choose this asks first; Keep the approval and Escape send nothing and focus goes back, and Change it sends the choice with its yes (T-97)',
     page: 'ticket-questions',
     async run(t) {
@@ -2094,6 +2122,8 @@ const caseNamed = (start: string): string => {
 };
 
 export const MUTANTS: Mutant[] = [
+  { name: 'a collapsed section doesn\'t stay collapsed', file: 'collapse.ts', find: 'show(memory().folded.includes(k));', replace: 'show(false);', kills: [caseNamed('task page: a Command Center section collapses')] },
+  { name: 'Enter and Space on a section\'s button do nothing', file: 'collapse.ts', find: "if (e.key !== 'Enter' && e.key !== ' ') return;", replace: 'return;', kills: [caseNamed('task page: a Command Center section collapses')] },
   { name: 'typing in the board list finds nothing', file: 'board-switch.ts', find: "find.addEventListener('input', () => { typed.set(root, find.value); fill(find.value); });", replace: "find.addEventListener('input', () => { typed.set(root, find.value); });", kills: [caseNamed('board switch: ten boards')] },
   { name: 'All boards with one opened fills the page\'s height', file: 'main.ts', find: " && main.querySelectorAll('.tracker').length <= 1) main.classList.add('fill-board');", replace: ") main.classList.add('fill-board');", kills: [caseNamed('board switch: ten boards')] },
   { name: 'Enter in the board list\'s box picks nothing', file: 'board-switch.ts', find: "items.querySelector<HTMLElement>('.board-group .board-item')?.click();", replace: '', kills: [caseNamed('board switch: ten boards')] },

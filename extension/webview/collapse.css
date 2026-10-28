@@ -1,0 +1,22 @@
+/* A Command Center section folds to its header line (T-132): its name is a button with a chevron that turns. */
+.sec-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0; margin: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; border-radius: 3px; }
+.sec-toggle:hover { color: var(--vscode-foreground); }
+.sec-toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.sec-toggle:active { transition: none; transform: scale(0.97); }
+/* Its chevron is the steps' and folds' own (.tool-chev), turned down while it's open. */
+.sec-toggle[aria-expanded="true"] .tool-chev .codicon { transform: rotate(90deg); }
+.sec-head h2 { margin: 0; }
+/* Collapsed, only its header line stays: the name, its state chip, and its summary in one line. */
+.cc-section.collapsed > :not(.sec-head) { display: none; }
+.cc-section.collapsed > .sec-head { margin-bottom: 0; }
+.ticket-main > section.block.cc-section.collapsed { padding-bottom: var(--space-3); }
+.analysis.cc-section.collapsed { padding-bottom: 10px; }
+.sec-sum { display: none; }
+.cc-section.collapsed .sec-sum { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-main > .analysis.cc-section { margin-bottom: 16px; }
+
+/* The ticket's own words above, the Command Center's below: a quiet label on a hairline, not a heading. */
+.ticket-main > section.block:has(+ .cc-divider) { border-bottom: 0; }
+.cc-divider { display: flex; align-items: center; gap: 8px; margin: 0 0 var(--space-4); font-size: var(--text-meta); color: var(--vscode-descriptionForeground); }
+.cc-divider::after { content: ''; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--vscode-foreground) 14%, transparent); }
+.cc-divider-label { flex: none; }
