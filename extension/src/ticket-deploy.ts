@@ -45,7 +45,7 @@ export const area: ExtensionArea = {
       },
     };
     // Deploy a ticket to its next environment: its page's Changes tab opens, and the sheet checks first (D-219).
-    reg(TASK_DEPLOY_COMMAND.id, async (root?: string, id?: string, to?: string) => {
+    reg('acc.task.deploy', async (root?: string, id?: string, to?: string) => {
       const p = root ? hub.project(root) : hub.projects[0];
       const task = id ? hub.ledger(p?.root ?? '')?.tasks.find((t) => t.id === id.toUpperCase()) : undefined;
       if (!p || !task) return void vscode.window.showWarningMessage('Say which task to deploy, from its page\'s Changes tab.');
