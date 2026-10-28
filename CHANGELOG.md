@@ -5,6 +5,28 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.49.0
+
+- A project holds several boards, up to ten across different Jira sites, and
+  the Tasks tab shows one at a time (D-211). With up to three, each board is a
+  button beside My work; with more, one control names the board on show and
+  opens a list grouped by site, each board with its tickets and how many need
+  you, and a find box once there are more than five. A board that couldn't be
+  read, such as one whose site's sign-in expired, says why in orange and stays
+  in the list, and the others keep working. All boards shows every board,
+  each folded to its counts until you open it. The tab remembers the board you
+  were on.
+- Add a board on the Tasks tab adds another tracker to the project, and the
+  Connect page offers Add another board after saving one. Boards can be
+  renamed from Change and removed with a question that names them; a ticket
+  that two boards show is one task. The board on show is read first, and the
+  others behind it, three at a time.
+- A Jira Service Management queue is a board (D-210). Connecting a Jira project
+  that's a service desk offers its queues as cards, and each one you tick is
+  its own board, with its tickets in status columns. Every comment acc posts on
+  a service desk's ticket is internal, so the customer never sees it. Without
+  a service-desk agent's access, the page says so.
+
 ## 0.48.0
 
 - The Command Center works on Windows as it does on a Mac (D-209), with no WSL.
