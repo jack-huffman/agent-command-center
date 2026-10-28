@@ -62,8 +62,12 @@ few needs weren't checked.
   only in an install folder and missing; the PATH lines quoted for PowerShell and for the Mac's shell, and
   asking first; a stand-in; a JDK's version folder; npm's folder; winget, Git's sh and Code Analyzer's
   version), `packages/cli/test/setup.test.ts` (acc init listing what's left and writing nothing, then
-  --anyway; --profile salesforce with sf off PATH listing the Salesforce CLI; doctor --profile),
-  `extension/test/start-order.test.ts` (the Salesforce choice checks the machine before anything calls sf),
+  --anyway; --profile salesforce with sf off PATH listing the Salesforce CLI; --from a Salesforce template with
+  no --profile listing it too; doctor --profile),
+  `extension/test/start-order.test.ts` (the Salesforce choice and each team-template case check the machine
+  before anything calls sf), `extension/test/machine-first-sf.test.ts` and
+  `extension/test/machine-first-sf-template.test.ts` (the built extension, with sf missing, for the Salesforce
+  choice and a Salesforce template),
   `extension/test/machine-first.test.ts` (the list with one tool missing and one
   not on PATH, the ready state, no Do it for a fix by hand, the question first, the process words, and the
   built extension's B0.config Do it checking first, Not now and Go on anyway), `scripts/test/windows-smoke.test.ts`,
