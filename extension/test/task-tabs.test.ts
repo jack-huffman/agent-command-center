@@ -21,6 +21,7 @@ let saved: Record<string, unknown> | undefined;
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: () => {}, getState: () => saved, setState: (s: Record<string, unknown>) => { saved = s; } });
 const { renderTicket } = await import('../webview/task-page.ts');
 const { askedComment, chooseTab, forgetDrawn, renderTabs, afterTabs } = await import('../webview/task-tabs.ts');
+const { renderReview } = await import('../webview/review.ts');
 const { NEEDS_FIRST, NEEDS_YOU, openingTab, partTab, TAB_LOOK, TAB_ORDER, tabName, taskTabs } = await import('../webview/tab-rules.ts');
 
 const NOW = Date.now();
@@ -395,4 +396,18 @@ test('the Review side panel is gone: the review is in its tab, whole, and the si
   fresh();
   const none = (renderTicket({ ...m, review: null }) as unknown as PageElement[]).find((n) => n.classList.contains('ticket-grid'))!;
   assert.ok(!none.all('task-panel').some((p) => p.dataset.tab === 'review'));
+});
+
+test('the Review block the tab holds opens on the verdict line, with no heading of its own, and draws its findings (edge: a review with none)', () => {
+  fresh();
+  const r = sampleTabsTicket(NOW).review!;
+  const block = renderReview(r) as unknown as PageElement;
+  assert.equal(block.all('review-block').length + (block.classList.contains('review-block') ? 1 : 0), 1);
+  assert.equal(block.tagName, 'SECTION');
+  assert.equal((block.children[0] as PageElement).className, 'rv-head', 'the verdict line comes first');
+  assert.ok(!block.children.some((c) => typeof c !== 'string' && c.tagName === 'H2'), 'the tab names it, so the block has no heading');
+  assert.equal(block.all('rv-finding').length, r.findings.length);
+  const none = renderReview({ ...r, findings: [], count: 'No findings' }) as unknown as PageElement;
+  assert.equal(none.all('rv-finding').length, 0);
+  assert.ok(none.textContent.includes('No findings'));
 });
