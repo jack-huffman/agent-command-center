@@ -227,3 +227,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-217](decisions/D-217-review-is-a-tab.md) | Review is a tab on a task page, between Changes and Verify | 2026-10-28 |
 | [D-218](decisions/D-218-a-calmer-plan-tab.md) | A calmer Plan tab: a made choice is one line, each fact once, sections that fold | 2026-10-28 |
 | [D-219](decisions/D-219-deploy-one-ticket-to-its-next-environment.md) | Deploy one ticket to its next environment: a check first, then the person's yes, and its branch kept in step | 2026-10-28 |
+| [D-220](decisions/D-220-a-changes-tab-that-says-what-changed-and-deploys-it.md) | A Changes tab that says what changed and deploys it, with a confirmation | 2026-10-28 |

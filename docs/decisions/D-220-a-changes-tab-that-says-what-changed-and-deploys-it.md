@@ -1,4 +1,4 @@
-## D-T-138 A Changes tab that says what changed and deploys it, with a confirmation (2026-10-28)
+## D-220 A Changes tab that says what changed and deploys it, with a confirmation (2026-10-28)
 
 T-138. The person found the Changes tab, and the manifest most of all, too much: "I want to know the metadata
 changed, but everything else is too involved." They also want to deploy straight from the ticket, with a
