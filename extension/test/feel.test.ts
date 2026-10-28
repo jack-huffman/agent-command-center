@@ -204,7 +204,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'task-sheet.ts', at: /button\('Keep mine'/, why: 'Keep mine: the Save the person asked for, which stopped because the ticket changed meanwhile, and waits on their pick (T-80).' },
   { file: 'dispatch-sheet.ts', at: /'primary ds-go'/, why: 'The sheet\'s Dispatch: what the person chose in it, sent; the sheet opened only to take it (D-168).' },
   { file: 'review-plan.ts', at: /'primary rp-go'/, why: 'Review plan\'s Confirm (T-109): the step\'s pick, sent; Enter does the same, as Claude Code\'s prompts do.' },
-  { file: 'talk-questions.ts', at: /'primary rp-go'/, why: 'The question card\'s Confirm (T-113): the answer picked, and on the last, every answer sent; Enter does the same, as Review plan\'s does.' },
+  { file: 'talk-questions.ts', at: /'primary rp-go'/, why: 'The question card\'s way on (T-113, T-130): Next question, or Review answers on the last, which Enter does too; on the review, Send answers to the planning agent, the only control that sends them.' },
   { file: 'review-plan.ts', at: /button\('Change it'/, why: 'Change it, when a step changes an approved plan\'s choice (T-109), as the whole plan asks (T-97). Keep the approval beside it has focus.' },
   { file: 'review-plan.ts', at: /button\('Review plan'/, why: 'Review plan, the plan section\'s main button while something is left to review or the plan isn\'t approved (T-109).' },
   { file: 'connect.ts', at: /m\.method\.test/, why: 'Test, until the sign-in passes: the dialog can\'t go on without it.' },

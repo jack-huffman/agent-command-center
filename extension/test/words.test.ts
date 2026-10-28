@@ -113,7 +113,8 @@ const MARKS: Record<string, Record<string, number>> = {
   'questions.ts': { transcript: 1 },
   // Talk it through (T-98): the planning agent's reply, in its own words; before a plan (T-111), its doubts and questions too.
   'talk.ts': { 'agent-text': 2 },
-  'talk-questions.ts': { 'agent-text': 1 },
+  // The question card (T-113): the question on show; on its review (T-130), each question and the answer picked.
+  'talk-questions.ts': { 'agent-text': 3 },
   // The planning agent's progress (T-131): the path it reads, or the text it searches for, as it wrote them.
   'plan-progress.ts': { transcript: 1 },
   'record-changes.ts': { output: 1 },

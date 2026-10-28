@@ -39,3 +39,5 @@ person called it information overload, and asked for the agent's questions one a
   "questions: …" in `extension/scripts/behaviour.ts` with three mutants (all questions shown at once, an
   answer sent before the last is done, Back losing a pick), and the screenshot pages `conversation-questions`
   (the card part-way) and `conversation-long` (a long conversation folded, its question put aside).
+
+_Note (2026-10-27):_ T-130 amends this entry (D-212): an answer counts the moment it is picked, Confirm is gone, and the answers go only from a review step with Send answers to the planning agent.

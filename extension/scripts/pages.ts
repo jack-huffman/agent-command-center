@@ -189,8 +189,9 @@ export const PAGES = [
   'conversation-start',
   'conversation',
   'conversation-talk',
-  // The agent's questions one at a time, part-way through, and a long conversation folded (T-113)
+  // The agent's questions one at a time, part-way through, and a long conversation folded (T-113); the review before they go (T-130)
   'conversation-questions',
+  'conversation-questions-review',
   'conversation-long',
   // The planning agent's progress (T-131): the panel mid-plan with its steps, stalled, and the task page's plan section
   'conversation-progress',

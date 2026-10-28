@@ -191,6 +191,7 @@ test('the panel opens with its title, the task\'s, the question, the box with th
   assert.equal(p.all('convo-title')[0]!.textContent, 'ACME-21 · Plan conversation');
   assert.match(p.all('convo-task')[0]!.textContent, /Contact roles/);
   assert.equal(p.all('talk-ask')[0]!.textContent, OPENING_ASK);
+  assert.deepEqual([p.all('convo-title')[0]!.all('codicon').length, p.all('talk-ask')[0]!.all('codicon').length], [1, 0], 'one icon, on the title: the question has none of its own (T-129)');
   assert.equal(p.all('talk-turn').length, 0);
   const box = p.all('talk-box')[0]!;
   await drawn();
