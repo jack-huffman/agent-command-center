@@ -25,8 +25,10 @@ differently sized buttons inline with each other is a poor experience."
   ("No row of side-by-side buttons was compared"), and the count has a floor in the floors file. The floor
   starts at one (`SEED_FLOORS`) until the file holds the check's own entry, which a clean whole run writes and
   which only goes up. The run's first count was 5,312 pairs.
-- **No exceptions.** The first run found 4 rows: the plan actions' Open conversation (small) beside Make a plan, the deploy
+- **No exceptions.** The first run found 4 rows: the plan actions' Open conversation (small) beside Make a plan, the analysis
+  actions' Open conversation (small) beside Make a new plan, the deploy
   row's Other next steps (small) beside Deploy, and an agent's Answer (text) beside its Watch (icon only,
   two pixels lower). All are fixed: in the plan and analysis actions Open conversation takes the row's size, the
   deploy row's fold is full size (`foldButton(..., inRow)`), and the agent line's buttons share a minimum
-  height. `GEOMETRY_EXCEPTIONS` is still empty.
+  height. The buttons in the open Other next steps menu are full size too, on purpose: the menu is part of
+  the deploy's action row. `GEOMETRY_EXCEPTIONS` is still empty.
