@@ -1,0 +1,19 @@
+/* The planning agent's progress (T-131): a card in the conversation's panel and the task page's plan section, its edge in its state's tone. */
+.pp { margin: 6px 0 10px; padding: 8px 12px; border: 1px solid var(--line); border-left: 3px solid var(--blue); border-radius: var(--radius); background: var(--vscode-editor-background); }
+.pp.tone-edge-orange { border-left-color: var(--orange); }
+.pp-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.pp-heading { font-weight: 600; min-width: 0; }
+.pp-elapsed { margin-left: auto; }
+/* The step now, then the few before it, newest first: its words wrap, its time stays on the right. */
+.pp-steps { list-style: none; margin: 6px 0 0; padding: 0; }
+.pp-step { display: flex; align-items: flex-start; gap: 6px; padding: 2px 0; }
+.pp-step > .codicon { flex: none; margin-top: 2px; }
+.pp-now { font-weight: 600; }
+.pp-words { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pp-data { font-weight: normal; }
+.pp-ago { flex: none; white-space: nowrap; }
+.pp-facts { margin: 4px 0 0; }
+/* No move for a while: an orange line, with Watch its session and Stop where they work. */
+.pp-stalled { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+.pp-stalled > .codicon { flex: none; }
+.pp-stalled > span { flex: 1 1 200px; min-width: 0; }

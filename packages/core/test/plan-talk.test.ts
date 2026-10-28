@@ -306,3 +306,14 @@ test('a note is refused on an approved plan without a yes, and empty or long; a 
   addTurn(paths, id, { who: 'you', by: 'human:me', at: '', version: 1, text: 'Hi' });
   assert.equal(talkSection(paths, id, readAnalysis(paths, id))[0], '## What the person and the planning agent said about the plan');
 });
+
+test('while a reply comes, its marker names the session it answers in, so its steps can be read (T-131); an older marker without one still reads', () => {
+  const { paths, config, id } = setup();
+  let seen: ReturnType<typeof talking> = null;
+  const says = claudeSays(reply(SAYS));
+  talkPlan(paths, config, id, 'Why not a custom object?', null, { run: (cmd, args, opts) => { if (cmd === 'claude') seen = talking(paths, id); return says(cmd, args, opts); }, now, env: {} }, 'human:me');
+  assert.deepEqual([seen!.sessionId, seen!.startedAt, seen!.pid], ['sess-plan', now().toISOString(), process.pid], 'the plan\'s own session, resumed');
+  assert.equal(talking(paths, id), null, 'gone once it replied');
+  writeFileSync(join(paths.analyses, `${id}.talking.json`), JSON.stringify({ pid: process.pid, startedAt: now().toISOString() }));
+  assert.equal(talking(paths, id)?.sessionId, undefined, 'an older acc\'s marker has none, and is still a reply under way');
+});

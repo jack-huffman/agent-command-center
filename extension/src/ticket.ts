@@ -42,6 +42,7 @@ import type { RecordActions } from './record-changes.ts';
 import { ticketRecords } from './model/record-changes.ts';
 import type { ManifestActions } from './manifest.ts';
 import { ticketManifest } from './model/manifest.ts';
+import type { PlanProgressActions } from './plan-progress.ts';
 import type { TalkActions } from './talk.ts';
 import { type TicketTalk, ticketTalk } from './model/talk.ts';
 import type { ConversationActions } from './conversation.ts';
@@ -160,6 +161,8 @@ export class TicketPanels implements vscode.Disposable {
   planTicketFile: ((root: string, id: string) => Promise<{ file: string | null; remove: () => void }>) | null = null;
   /** Plans being made from this window (T-111): a page and the conversation show its ticket being read, then the plan. */
   readonly making = new PlansMaking((root) => this.refresh(root));
+  /** The planning agent's progress (T-131), set by its area: a task's now, and Watch its session and Stop. */
+  planProgress: PlanProgressActions | null = null;
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
@@ -319,6 +322,17 @@ export class TicketPanels implements vscode.Disposable {
     this.conversation?.refresh(root);
   }
 
+  /** The tasks whose page or conversation's panel is on show now (T-131): each tab, the modal, and each panel. */
+  shownTasks(): { root: string; id: string }[] {
+    return [...this.pages().filter((o) => o.view.visible).map((o) => ({ root: o.project, id: o.key })), ...(this.conversation?.shown() ?? [])];
+  }
+
+  /** Tells the task's pages on show, and its conversation's panel, a message such as its plan's progress (T-131). */
+  tell(root: string, id: string, msg: Record<string, unknown>): void {
+    for (const o of this.pages()) if (o.project === root && o.key === id.toUpperCase() && o.view.visible) o.view.say(msg);
+    this.conversation?.tell(root, id, msg);
+  }
+
   /** How wide the task's open page last said it was (T-111): its tab's, or the modal's; null when none says. */
   widthOf(root: string, key: string): number | null {
     return this.pages().find((o) => o.project === root && o.key === key.toUpperCase())?.width ?? null;
@@ -332,7 +346,7 @@ export class TicketPanels implements vscode.Disposable {
     const task = this.hub.ledger(root)?.tasks.find((t) => t.id === id.toUpperCase());
     if (!task || !this.talk) return null;
     const row = this.hub.taskRows(root).find((r) => r.id === task.id);
-    return ticketTalk({ task, analysis: this.hub.analysis(root, task.id), analyzing: !!row?.analyzing, ...this.talk.state(root, task.id), ref: { project: root, task: task.id }, making: this.making.of(root, task.id) });
+    return ticketTalk({ task, analysis: this.hub.analysis(root, task.id), analyzing: !!row?.analyzing, ...this.talk.state(root, task.id), ref: { project: root, task: task.id }, making: this.making.of(root, task.id), progress: this.planProgress?.of(root, task.id) ?? null });
   }
 
   private project(o: Open): Project | undefined {
@@ -517,6 +531,10 @@ export class TicketPanels implements vscode.Disposable {
       // Talk it through (T-98): this page's own task only.
       case 'talk-send': case 'talk-use': case 'talk-claude': case 'talk-answers':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.talk?.act(m, (msg) => o.view.say(msg));
+        return;
+      // Watch its session and Stop on the planning agent's progress (T-131): this page's own task only.
+      case 'plan-watch': case 'plan-stop':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.planProgress?.act(m);
         return;
       // Its conversation's own panel (T-111): Open conversation, Discuss and Talk it through open it beside this page, or as a tab when it's narrow.
       case 'conversation-open':

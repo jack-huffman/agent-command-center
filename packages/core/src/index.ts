@@ -63,6 +63,7 @@ export * from './plan-choices.ts';
 export * from './plan-opening.ts';
 export * from './plan-talk.ts';
 export * from './plan-ticket.ts';
+export * from './plan-times.ts';
 export * from './plan.ts';
 export * from './promote.ts';
 export * from './protection.ts';

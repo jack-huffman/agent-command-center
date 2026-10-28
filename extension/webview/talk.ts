@@ -10,6 +10,7 @@
 import type { TicketProposal, TicketTalk, TicketTurn } from '../src/model/talk.ts';
 import { actionButton, button, el, icon, md, peekKey, status, when, work } from './dom.ts';
 import { Pending } from './pending.ts';
+import { planProgressBlock } from './plan-progress.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { answersSent, questionCard } from './talk-questions.ts';
 
@@ -272,7 +273,8 @@ export function renderConversation(project: string, s: TicketTalk): HTMLElement 
   const sec = el('section', `talk tone-edge-${s.look.tone}`);
   sec.id = 'talk';
   sec.setAttribute('aria-label', `${s.stage === 'opening' ? 'Before the plan' : 'Talk it through'}: ${s.look.label}`);
-  if (s.ask) sec.append(el('h2', 'talk-ask', icon('comment-discussion'), el('span', '', s.ask)));
+  // No icon of its own: the panel's title carries the conversation's (T-129).
+  if (s.ask) sec.append(el('h2', 'talk-ask', el('span', '', s.ask)));
   sec.append(el('p', 'muted an-note', s.note));
   // The turns before the latest exchange fold under one line (T-113), until the person opens them.
   const ek = earlierKey(project, s.task);
@@ -293,8 +295,11 @@ export function renderConversation(project: string, s: TicketTalk): HTMLElement 
     },
   });
   if (card) sec.append(card);
-  if (s.running) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.stage === 'opening' ? 'The planning agent is reading the ticket to reply. Its steps show in the output panel.' : 'The planning agent is reading the code to reply. Its steps show in the output panel.'));
-  if (s.making) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.making.words));
+  // What the planning agent is doing (T-131), once the Command Center has read it; before that, one line.
+  const progress = planProgressBlock(project, s.task, s.progress);
+  if (progress) sec.append(progress);
+  else if (s.running) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.stage === 'opening' ? 'The planning agent is reading the ticket to reply. Its steps show in the output panel.' : 'The planning agent is reading the code to reply. Its steps show in the output panel.'));
+  else if (s.making) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.making.words));
   if (s.send) sec.append(composer(project, s));
   const ck = claudeKey(project, s.task);
   const buttons: HTMLElement[] = planButtons(project, s);
