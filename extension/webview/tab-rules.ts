@@ -66,7 +66,7 @@ export function taskTabs(m: TicketModel): TaskTab[] {
   return out;
 }
 
-/** A tab's accessible name: "Ticket, 12 comments", or "Plan: needs you". */
+/** A tab's title on hover: "Ticket, 12 comments", or "Plan: needs you". Its accessible name is its visible words ("Plan needs you"), as label-in-name asks. */
 export const tabName = (t: TaskTab): string => `${t.name}${t.count ? `, ${t.count}` : ''}${t.needs ? `: ${NEEDS_YOU}` : ''}`;
 
 /**
