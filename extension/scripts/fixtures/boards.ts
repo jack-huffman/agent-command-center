@@ -205,6 +205,16 @@ export function sampleSprintBoards(): BoardInput[] {
 /** How many boards a project holds in the Tasks tab's several-board samples (T-127). */
 export type SeveralBoards = 2 | 4 | 10;
 
+/** The most boards any sample project holds: the largest several-board sample. */
+const MOST_BOARDS: SeveralBoards = 10;
+
+/**
+ * A project's boards all kept on Everyone (T-143), as the page remembers them: the agent board and each tracker
+ * board. A board with no kept choice opens on Mine, so a shot or case that looks for every card starts from this.
+ */
+export const everyoneKept = (root: string): Record<string, string> =>
+  Object.fromEntries([`agents:${root}`, ...Array.from({ length: MOST_BOARDS }, (_, i) => `tracker:${root}#${i}`)].map((k) => [k, 'everyone']));
+
 /**
  * A project with several boards (T-127). Two: the Jira epic's board, and a second board of the same project, its
  * Renewals epic, which shares a ticket with the first (one task, on both). Four: those, a GitHub repo's issues and a

@@ -10,6 +10,7 @@ import type { DispatchSheet } from '../src/model/dispatch-sheet.ts';
 import type { TaskSheet } from '../src/model/task-sheet.ts';
 import { afterModel, APP_WARNING, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, NO_BROWSER, noBrowser, OUTPUT_REVIEWS, OUTPUT_RUNS, OUTPUT_STEPS, OVERVIEW_LISTS, pageFor, PAGES, sampleModel, shotState, startState } from '../scripts/screenshot.ts';
 import { ROOT } from '../scripts/fixtures/shared.ts';
+import { everyoneKept } from '../scripts/fixtures/boards.ts';
 import { PIN } from '../scripts/browser.ts';
 import { cssRules, pageStyles, palettes, readsVars, styleFile, styleFiles, vscodeDefaults } from '../scripts/styles.ts';
 
@@ -56,10 +57,13 @@ test('every section of the page, and a ticket, has sample data built by the real
     } else if (kind.startsWith('tasks-person')) {
       // The person filter (T-79): its menu open on the Jira board, the Jira board filtered to one person, and the agent board filtered to Mine.
       const tasks = (m as HomeModel).tasks.projects[0]!;
-      const state = startState(kind) as { openFilter?: string; filters?: Record<string, string>; modes?: Record<string, string> };
+      const state = startState(kind) as { openFilter?: string; filters?: Record<string, string>; modes?: Record<string, string> } | undefined as { openFilter?: string; filters?: Record<string, string>; modes?: Record<string, string> };
       const board = `tracker:${ROOT}#0`;
-      assert.deepEqual([m.kind, (m as HomeModel).section, tasks.boards[0]!.me, tasks.me], ['home', 'tasks', 'jordan', 'human:jordan']);
-      if (kind === 'tasks-person-menu') assert.equal(state.openFilter, board);
+      // T-143: the two boards that open on their own default name another person, or none.
+      const me = kind === 'tasks-person-signed-out' ? null : kind === 'tasks-person-mine-none' ? 'sam' : 'jordan';
+      assert.deepEqual([m.kind, (m as HomeModel).section, tasks.boards[0]!.me, tasks.me], ['home', 'tasks', me, 'human:jordan']);
+      if (kind === 'tasks-person-signed-out' || kind === 'tasks-person-mine-none' || kind === 'tasks-person-mine') assert.equal(state?.filters, undefined, 'no choice kept, so the board opens on its default');
+      else if (kind === 'tasks-person-menu') assert.equal(state.openFilter, board);
       else if (kind === 'tasks-person') assert.deepEqual(state.filters, { [board]: 'person:pat' });
       else if (kind === 'tasks-person-none') assert.ok(!tasks.boards[0]!.columns.some((c) => c.cards.some((card) => card.people.some((p) => p.key === 'nobody'))) && state.filters?.[board] === 'person:nobody', 'nobody has a card on the board');
       else assert.deepEqual([state.filters, state.modes?.[ROOT]], [{ [`agents:${ROOT}`]: 'mine' }, 'agents']);
@@ -181,7 +185,11 @@ test('every section of the page, and a ticket, has sample data built by the real
       assert.deepEqual([m.kind, (m as HomeModel).section, r.look.label, r.steps?.map((s) => s.look.label).at(-1), r.result?.look.label ?? null], ['home', 'tasks', ...({ 'steps-running': ['Running', 'Running', null], 'steps-failed': ['Failed', 'Failed', 'Failed'], 'steps-done': ['Done', 'Done', 'Done'] } as const)[OUTPUT_STEPS[kind]!]]);
     }
     // Someone new (T-96): the Tasks tab with its first steps, which every other shot starts dismissed.
-    else if (kind === 'tasks-first') assert.deepEqual([m.kind, (m as HomeModel).section, shotState(kind), shotState('tasks'), shotState('tasks-agents')], ['home', 'tasks', {}, { firstStepsSeen: true }, { modes: { [ROOT]: 'agents' }, firstStepsSeen: true }]);
+    else if (kind === 'tasks-first') {
+      // T-143: a new person's shot keeps no choice, so its board opens on its default; every other Tasks shot keeps Everyone.
+      const kept = everyoneKept(ROOT);
+      assert.deepEqual([m.kind, (m as HomeModel).section, shotState(kind), shotState('tasks'), shotState('tasks-agents')], ['home', 'tasks', {}, { firstStepsSeen: true, filters: kept }, { modes: { [ROOT]: 'agents' }, firstStepsSeen: true, filters: kept }]);
+    }
     // Environments on a machine not logged in to Production (T-125): its Open org and Deploy… off.
     else if (kind === 'environments-away') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.projects[0]!.envs.find((e) => e.type === 'production')!.actions.filter((a) => a.disabled).length], ['home', 'environments', 2]);
     else if (kind === 'settings-limits') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.limits?.caps.map((c) => c.value)], ['home', 'settings', ['1', '16', 'None']]);
