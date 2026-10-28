@@ -55,4 +55,8 @@ still comes first, above the tabs.
   in the pinned browser; its mutants "a tab that needs you doesn't say so", "the opening tab ignores what needs
   you" and "the arrow keys move between no tabs" must fail it. The screenshot run draws `ticket-tab-ticket`,
   `ticket-tab-plan`, `ticket-tab-changes`, `ticket-tab-verify` and `ticket-plan-needs-you` at every theme and
-  width; the other task page shots open on the tab they were made to show.
+  width; the other task page shots open on the tab they were made to show. Each drawing of a task page is
+  measured once per tab it shows: after the page as drawn, each other tab's panel is shown in turn and measured,
+  and the tab and scroll on show come back before the shot (`MEASURE_TABS`, `mergedVerdict` in
+  `extension/scripts/geometry.ts`). So what a hidden tab draws is still judged, and the run's counts keep their
+  floors. `extension/test/geometry.test.ts` checks both.
