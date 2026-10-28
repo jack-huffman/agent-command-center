@@ -13,7 +13,7 @@ import { importRules, renderHeader, rulesDigest } from '../src/rules.ts';
 import { writeReadme } from '../src/setup.ts';
 import { NO_TRACKING_REASON } from '../src/source-tracking.ts';
 import { templateDigest } from '../src/template.ts';
-import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
+import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, NO_FILES, ok, SF_CONFIG, sf, tempDir } from './support.ts';
 
 const SANDBOX_Q = 'sf data query --use-tooling-api -q SELECT SandboxName, LicenseType FROM SandboxInfo';
 const TRACK_Q = 'sf data query --use-tooling-api -q SELECT COUNT() FROM SourceMember';
@@ -23,6 +23,9 @@ function healthy(): Record<string, RunResult | ((o?: { env?: NodeJS.ProcessEnv }
   return {
     'brew --version': ok('Homebrew 4.5.0'),
     'node --version': ok('v23.11.0'),
+    'npm --version': ok('11.6.2'),
+    'java -version': { code: 0, stdout: '', stderr: 'openjdk version "21.0.4" 2024-07-16 LTS' },
+    'python3 --version': ok('Python 3.12.7'),
     'gh --version': ok('gh version 2.101.0 (2026-09-15)'),
     'claude --version': ok('2.1.287 (Claude Code)'),
     'claude --help': ok('  --bg, --background   Start the session in the background'),
@@ -261,7 +264,7 @@ test('an old CLI without --bg fails A1.claude with the update command', () => {
 test('Claude Code that isn\'t installed is installed with Homebrew, which needs no Node', () => {
   const f = healthy();
   f['claude --version'] = { code: 127, stdout: '', stderr: 'not found' };
-  const ctx = { ...makeContext(tempDir(), fakeRunner(f), testEnv()), system: 'mac' as const };
+  const ctx = { ...makeContext(tempDir(), fakeRunner(f), testEnv()), system: 'mac' as const, files: NO_FILES };
   const res = runSteps(ctx, 'machine', ['A1.claude'])[0]!.result;
   assert.equal(res.status, 'fail');
   assert.equal(res.fix, 'brew install --cask claude-code');
@@ -346,9 +349,12 @@ test('edge case: a step whose line differs by system gives each system its own, 
   assert.deepEqual([stepFix(git, 'mac')!.command, stepFix(git, 'windows')!.command], ['brew install git', 'winget install --id Git.Git -e']);
   assert.match(stepFix(git, 'windows')!.text!, /restart VSCode/, 'Windows is told to restart VSCode');
   assert.equal(stepFix(git, 'mac')!.text, undefined);
+  const analyzer = STEPS.find((s) => s.id === 'A1.code-analyzer')!;
+  assert.equal(analyzer.fixOn, undefined);
+  assert.deepEqual(stepFix(analyzer, 'windows'), analyzer.fix, 'one line for every system');
+  // The Salesforce CLI's line is the same npm line everywhere, and Windows is still told to restart VSCode (T-133).
   const sf = STEPS.find((s) => s.id === 'A1.sf')!;
-  assert.equal(sf.fixOn, undefined);
-  assert.deepEqual(stepFix(sf, 'windows'), sf.fix, 'one line for every system');
+  assert.deepEqual([stepFix(sf, 'mac')!.command, stepFix(sf, 'windows')!.command], ['npm install -g @salesforce/cli', 'npm install -g @salesforce/cli']);
 });
 
 test('Node is a Salesforce project\'s step: acc itself doesn\'t need it (D-077)', () => {

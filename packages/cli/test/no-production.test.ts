@@ -20,7 +20,7 @@ esac
 
 test('init --my-domain sets up a Salesforce project from the logged-in sandboxes, with Production and no org', () => {
   const dir = makeRepo();
-  const r = acc(dir, ['init', '--profile', 'salesforce', '--my-domain', 'acme', '--json'], undefined, SF);
+  const r = acc(dir, ['init', '--anyway', '--profile', 'salesforce', '--my-domain', 'acme', '--json'], undefined, SF);
   assert.equal(r.code, 0, r.err);
   const written = JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')) as { environments: { name: string; type: string; org: string | null; default: boolean }[] };
   assert.deepEqual(written.environments.map((e) => [e.name, e.type, e.org, e.default]), [

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { BREW_INSTALL, INSTALL_LINES, needsBrew, INSTALL_SYSTEMS, type InstallTool, installCommand, installLine, installText, restartNote, RESTART_NOTE, RESTART_PAGE_NOTE, SYSTEM, systemOf } from '../src/onboarding/install-lines.ts';
 import { makeContext } from '../src/onboarding/helpers.ts';
 import { runSteps, STEPS } from '../src/onboarding/steps.ts';
-import { fakeRunner, ok, tempDir } from './support.ts';
+import { fakeRunner, NO_FILES, ok, tempDir } from './support.ts';
 
 const MISSING = { code: 127, stdout: '', stderr: 'not found' };
 
@@ -39,7 +39,7 @@ test('only Windows is told to restart VSCode after an install', () => {
 
 test('every step that offers an install line has a mac and a windows entry, and the test counts them', () => {
   const installing = STEPS.filter((s) => s.install);
-  assert.deepEqual(installing.map((s) => s.id), ['A1.git', 'A1.node', 'A1.gh', 'A1.claude']);
+  assert.deepEqual(installing.map((s) => s.id), ['A1.git', 'A1.sh', 'A1.node', 'A1.npm', 'A1.gh', 'A1.claude', 'A1.sf', 'A1.java', 'A1.python']);
   for (const s of installing) {
     const lines = INSTALL_LINES[s.install!];
     for (const system of ['mac', 'windows'] as const) {
@@ -58,7 +58,7 @@ test('a tool that isn\'t installed gets the line for the system the check runs f
   ];
   for (const [call, tool, ids] of missing) {
     for (const system of INSTALL_SYSTEMS) {
-      const ctx = { ...makeContext(tempDir(), fakeRunner({ [call]: MISSING, 'brew --version': ok('Homebrew 4.5.0') }), {}), system };
+      const ctx = { ...makeContext(tempDir(), fakeRunner({ [call]: MISSING, 'brew --version': ok('Homebrew 4.5.0') }), {}), system, files: NO_FILES };
       const res = runSteps(ctx, 'machine', ids)[0]!.result;
       assert.equal(res.status, 'fail', `${tool} on ${system}`);
       assert.equal(res.fix, installCommand(tool, system) ?? undefined, `${tool} on ${system}`);
@@ -68,14 +68,14 @@ test('a tool that isn\'t installed gets the line for the system the check runs f
 });
 
 test('Node, a Salesforce step, gets its Windows line, and the plugin step names Claude Code\'s own line', () => {
-  const node = runSteps({ ...makeContext(tempDir(), fakeRunner({ 'node --version': MISSING }), {}), system: 'windows' as const }, 'machine', ['A1.node'])[0]!.result;
+  const node = runSteps({ ...makeContext(tempDir(), fakeRunner({ 'node --version': MISSING }), {}), system: 'windows' as const, files: NO_FILES }, 'machine', ['A1.node'])[0]!.result;
   assert.equal(node.fix, 'winget install --id OpenJS.NodeJS.LTS -e');
-  const plugin = runSteps({ ...makeContext(tempDir(), fakeRunner({ 'claude plugin list --json': MISSING }), {}), system: 'windows' as const }, 'machine', ['A4.plugin'])[0]!.result;
+  const plugin = runSteps({ ...makeContext(tempDir(), fakeRunner({ 'claude plugin list --json': MISSING }), {}), system: 'windows' as const, files: NO_FILES }, 'machine', ['A4.plugin'])[0]!.result;
   assert.equal(plugin.fix, 'irm https://claude.ai/install.ps1 | iex');
   assert.match(plugin.detail, /Do A1\.claude first\./);
 });
 
-const onMac = (fixtures: Parameters<typeof fakeRunner>[0], system: 'mac' | 'windows' | 'linux' = 'mac') => ({ ...makeContext(tempDir(), fakeRunner(fixtures), {}), system });
+const onMac = (fixtures: Parameters<typeof fakeRunner>[0], system: 'mac' | 'windows' | 'linux' = 'mac') => ({ ...makeContext(tempDir(), fakeRunner(fixtures), {}), system, files: NO_FILES });
 
 test('A1.brew passes on a Mac that has Homebrew, and fails with Homebrew\'s own installer when it is missing', () => {
   const present = runSteps(onMac({ 'brew --version': ok('Homebrew 4.5.0\nHomebrew/homebrew-core') }), 'machine', ['A1.brew'])[0]!.result;
@@ -114,7 +114,7 @@ test('while Homebrew is missing on a Mac, a step whose line is a brew command sa
 
 test('an installed tool says nothing of installing, on any system', () => {
   for (const system of INSTALL_SYSTEMS) {
-    const ctx = { ...makeContext(tempDir(), fakeRunner({ 'git --version': ok('git version 2.45.0') }), {}), system };
+    const ctx = { ...makeContext(tempDir(), fakeRunner({ 'git --version': ok('git version 2.45.0') }), {}), system, files: NO_FILES };
     const res = runSteps(ctx, 'machine', ['A1.git'])[0]!.result;
     assert.deepEqual([res.status, res.fix], ['pass', undefined], system);
   }

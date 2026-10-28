@@ -113,3 +113,5 @@ export * from './onboarding/types.ts';
 export { makeContext, parseOrgUrl, SECRET_PATTERN, versionAtLeast } from './onboarding/helpers.ts';
 // The setup steps, and how to run them.
 export { STEPS, runSteps, applies } from './onboarding/steps.ts';
+// Check this machine, as starting a project runs it first (T-133).
+export { checkMachine, machineLines, machineState, type MachineCheck } from './onboarding/machine-check.ts';
