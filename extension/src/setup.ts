@@ -30,6 +30,8 @@ interface StartChoice {
   templateTracker: Record<string, unknown> | null;
   /** The profile the project starts with: the template's, where it sets one (T-133). */
   profile: 'salesforce' | 'generic';
+  /** A template's choice that still needs Production's org, picked after the machine check (T-133). */
+  asksProduction?: boolean;
 }
 /** The answer that lets a fix that asks first run (T-133): closing the question is a no. */
 const ASK_YES = 'Yes, do it';
@@ -555,6 +557,7 @@ export class Setup implements vscode.Disposable {
       profileOf: (c) => c.profile,
       check: (profile, go) => this.machineFirst(profile, go),
       choose: (profile) => this.choose(profile),
+      complete: (c) => this.templateRest(c),
       start,
     });
   }
@@ -701,7 +704,8 @@ export class Setup implements vscode.Disposable {
   /**
    * "From a team template…" (GH-80): a source used before on this machine, or a new one; acc reads it, a bad
    * one's problems are shown and nothing is written, and a good one is confirmed. Then acc init's options, and
-   * the template's tracker, which a project started from an epic fills in on the Connect page (GH-81).
+   * the template's tracker, which a project started from an epic fills in on the Connect page (GH-81). It calls
+   * no sf: a Salesforce template's Production org is picked by templateRest, after this machine is checked (T-133).
    */
   private async templateChoice(): Promise<StartChoice | undefined> {
     const recent = this.ctx.globalState.get<RecentTemplate[]>(RECENT_TEMPLATES) ?? [];
@@ -739,9 +743,14 @@ export class Setup implements vscode.Disposable {
       if (!kind) return undefined;
       picked = kind.profile;
     }
-    const production = asksProduction(shown.profile, picked) ? await this.pickProduction() : {};
-    if (!production) return undefined;
-    return { init: { from: source, profile: picked, ...production }, templateTracker: shown.tracker, profile: picked ?? (shown.profile === 'salesforce' ? 'salesforce' : 'generic') };
+    return { init: { from: source, profile: picked }, templateTracker: shown.tracker, profile: picked ?? (shown.profile === 'salesforce' ? 'salesforce' : 'generic'), asksProduction: asksProduction(shown.profile, picked) };
+  }
+
+  /** A team template's choice once this machine is checked (T-133): Production's org, picked with sf, where its profile asks for it. */
+  private async templateRest(choice: StartChoice): Promise<StartChoice | undefined> {
+    if (!choice.asksProduction) return choice;
+    const production = await this.pickProduction();
+    return production ? { ...choice, init: { ...choice.init, ...production } } : undefined;
   }
 
   /**

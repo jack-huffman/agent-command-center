@@ -200,6 +200,20 @@ test('edge case: init --profile salesforce with sf off PATH lists the missing Sa
   assert.equal(existsSync(join(dir, '.acc', 'config.json')), false, 'nothing is written');
 });
 
+test('edge case: init --from a Salesforce template with no --profile reads the template, then lists the missing Salesforce CLI before anything calls sf (T-133)', () => {
+  const dir = makeRepo();
+  const env = onlyGit();
+  const file = join(tempDir('team-'), 'acme-sf.json');
+  writeFileSync(file, JSON.stringify({ schema: 1, name: 'ACME Salesforce', profile: 'salesforce', environments: [{ name: 'Production' }, { name: 'Int', default: true, promotesTo: ['production'] }] }));
+  const refused = acc(dir, ['init', '--from', file, '--production-org', 'acme-prod', '--json'], undefined, env);
+  assert.equal(refused.code, 1, refused.err);
+  assert.doesNotMatch(refused.out + refused.err, /sf failed|isn't logged in/, 'the machine check runs before the plan calls sf');
+  const { written, machine } = refused.json() as { written: boolean; machine: { id: string }[] };
+  assert.equal(written, false);
+  assert.ok(machine.some((m) => m.id === 'A1.sf'), 'the template\'s profile is checked, so the Salesforce CLI is listed');
+  assert.equal(existsSync(join(dir, '.acc', 'config.json')), false, 'nothing is written');
+});
+
 test('doctor --profile runs the machine steps of the profile a project is about to start with (T-133)', () => {
   const dir = makeRepo();
   const env = onlyGit();

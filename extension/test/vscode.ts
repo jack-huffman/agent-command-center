@@ -35,6 +35,10 @@ export function fakeVscode(folder: string) {
     warnPick: undefined as ((items: string[]) => string | undefined) | undefined,
     /** Every file watcher's pattern. */
     watched: [] as unknown[],
+    /** What an input box answers, when a test wants it to (T-133). */
+    input: undefined as string | undefined,
+    /** Which of an information message's buttons is clicked, when a test wants one to be (T-133). */
+    infoPick: undefined as ((items: string[]) => string | undefined) | undefined,
     /** What a quick pick answers, when a test wants it to. */
     pick: undefined as ((items: { value?: string }[]) => unknown) | undefined,
     /** How many prompts at the top of VSCode were shown: input boxes and quick picks. */
@@ -105,7 +109,7 @@ export function fakeVscode(folder: string) {
       onDidChangeWindowState: () => disposable,
       state: { focused: true },
       withProgress: (_o: unknown, task: (p: unknown, t: unknown) => unknown) => task({ report() {} }, { isCancellationRequested: false, onCancellationRequested: () => disposable }),
-      showInformationMessage: async (m: string) => { calls.info.push(m); return undefined; },
+      showInformationMessage: async (m: string, ...rest: unknown[]) => { calls.info.push(m); return calls.infoPick?.(rest.filter((x): x is string => typeof x === 'string')); },
       showWarningMessage: async (m: string, ...rest: unknown[]) => { calls.warn.push(m); return calls.warnPick?.(rest.filter((x): x is string => typeof x === 'string')); },
       showErrorMessage: async (m: string) => { calls.error.push(m); return undefined; },
       showQuickPick: async (items: unknown) => { calls.prompts++; return calls.pick?.(await (items as Promise<{ value?: string }[]>)); },
@@ -123,7 +127,7 @@ export function fakeVscode(folder: string) {
         treeShown.set(id, shown);
         return { visible: false, onDidChangeVisibility: (l: (e: { visible: boolean }) => void) => { shown.push(l); return disposable; }, badge: undefined, dispose() {} };
       },
-      showInputBox: async () => { calls.prompts++; return undefined; },
+      showInputBox: async () => { calls.prompts++; return calls.input; },
       createWebviewPanel: (viewType: string, title: string, column: unknown) => {
         const panel = {
           get visible() { return rec.visible; }, iconPath: undefined, title: '', reveal() { rec.revealed++; }, dispose() {},

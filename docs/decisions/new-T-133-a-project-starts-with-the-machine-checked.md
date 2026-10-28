@@ -41,17 +41,17 @@ few needs weren't checked.
     folder, and Do it asks it in a dialog first (`fixPlan` in `extension/src/logic/setup.ts`).
 - **Checked when a project starts.** B0.config's Do it, and From a Jira epic… before the Connect page, run
   Check this machine for the profile chosen (a team template's own profile, where it sets one). The check runs
-  as soon as the profile is known: for a Salesforce project, before Production's org is picked with the
-  Salesforce CLI (`extension/src/logic/start-order.ts`), so a machine without that CLI sees it listed as
-  missing, not an empty list of orgs. With nothing
+  as soon as the profile is known, and before Production's org is picked with the Salesforce CLI
+  (`extension/src/logic/start-order.ts`). For a team template, the template is read and confirmed first,
+  since it says the profile; a Salesforce template's Production org is picked after the check, as for the
+  Salesforce choice. So a machine without that CLI sees it listed as missing, not an empty list of orgs. With nothing
   to do, the project starts. Otherwise Setup opens at a list at its top, before anything is written: each step
   still to do, with its Do it, then Go on anyway and Not now. Once nothing is left, it says the machine is
   ready, and Start the project is the button to press. Not now writes nothing. In a terminal, `acc init` runs
   the same check first, lists what's left with each fix, writes nothing and exits 1; `acc init --anyway` goes on,
-  and so does the extension once the person has seen the list. A dry run checks nothing. With `--profile`,
-  `acc init` checks before it reads the project's orgs with sf; a profile that comes from a team template is
-  known only once the template is read, so that check runs after the template, but still before anything is
-  written.
+  and so does the extension once the person has seen the list. A dry run checks nothing. `acc init` checks
+  before it reads the project's orgs with sf, for `--profile`'s profile, else the profile of the team template
+  that `--from` names (read first, before the check), else generic.
 - **Check this machine is a process** (D-132): in VSCode's Command Palette (`acc.checkMachine`), in the page's
   palette, and on Setup's header. Its CLI is `acc doctor --part machine`, which now takes `--profile`, and the
   page's words name it "Check this machine".

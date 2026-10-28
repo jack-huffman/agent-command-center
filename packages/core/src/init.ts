@@ -33,6 +33,8 @@ export interface InitOptions {
   from?: string;
   /** A template already read, in place of `from`. */
   template?: LoadedTemplate;
+  /** The GitHub account `template` was read as, so its rules are read as the same one (T-133). */
+  readAs?: string | null;
   /** Where a relative template path starts: the directory acc init ran in. */
   cwd?: string;
   env?: NodeJS.ProcessEnv;
@@ -126,7 +128,7 @@ export function planInit(run: Runner, opts: InitOptions): InitPlan {
 
   // Flags, then the team template, then discovery, then acc's defaults (D-097). The template is read by the
   // rule acc template show uses: a --github-repo with no GitHub origin doesn't pick the account.
-  const readAs = opts.from && !opts.template ? templateAccount(run, root, opts.githubAccount, () => account) : null;
+  const readAs = opts.template ? opts.readAs ?? null : opts.from ? templateAccount(run, root, opts.githubAccount, () => account) : null;
   const loaded = opts.template ?? (opts.from ? loadTemplate(run, opts.from, { account: readAs, env: opts.env, base: opts.cwd ?? root, home: opts.home, root }) : null);
   const t = loaded?.template ?? null;
   if (opts.profile && t?.profile && opts.profile !== t.profile) {

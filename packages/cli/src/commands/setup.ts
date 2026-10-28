@@ -2,7 +2,7 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, makeContext, parseSource, planInit, prepareImports, type Profile, readTemplate, recordProduction, rememberRepo, repoPaths, RULES_DIR, rulesName, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeImport, writeReadme } from '../../../core/src/index.ts';
+import { AccError, buildBaseline, configureRepoAccess, describeTemplate, draftLists, loadTemplate, makeContext, parseSource, planInit, prepareImports, type Profile, readTemplate, recordProduction, rememberRepo, repoPaths, RULES_DIR, rulesName, run, runSteps, seedBranches, type StepResult, STEPS, templateAccount, writeConfig, writeImport, writeReadme } from '../../../core/src/index.ts';
 import { checkMachine, machineLines } from '../../../core/src/onboarding/machine-check.ts';
 import { checkLabel, table, tone } from '../format.ts';
 import { type CommandArea, now, type Opts, out, personOnly, project, steps, VERSION } from '../shared.ts';
@@ -99,16 +99,22 @@ function cmdInit(o: Opts): number {
   const profile = profileFlag(o.profile);
   if (existsSync(paths.config) && !o.force && !o['dry-run']) throw new AccError('exists', `${paths.config} already exists. Use --force to replace it.`);
   const tracker = o.tracker === undefined ? undefined : trackerFlag(o.tracker as string);
-  // Check this machine first, for the profile chosen (T-133): what's still to do is listed and nothing is written.
-  // A dry run writes nothing, so it checks nothing. A profile given with --profile is checked before the plan,
-  // which calls sf for a Salesforce project, so a machine without sf sees that it's missing.
-  const checks = !o['dry-run'] && !o.anyway;
-  const early = checks && profile ? machineStop(o, paths.config, profile) : null;
-  if (early !== null) return early;
+  // A team template is read first (GH-80), as planInit would read it, so its profile is known before the plan.
+  const from = o.from as string | undefined;
+  const readAs = from ? templateAccount(run, paths.root, o['github-account'] as string | undefined) : null;
+  const template = from ? loadTemplate(run, from, { account: readAs, base: process.cwd(), root: paths.root }) : undefined;
+  // Check this machine first, for the profile chosen (T-133): --profile's, else the template's, else generic, as
+  // planInit picks it. What's still to do is listed and nothing is written. This runs before the plan, which
+  // calls sf for a Salesforce project, so a machine without sf sees that it's missing. A dry run writes
+  // nothing, so it checks nothing; a --profile that disagrees with the template is refused by the plan.
+  const stop = !o['dry-run'] && !o.anyway ? machineStop(o, paths.config, profile ?? template?.template.profile ?? 'generic') : null;
+  if (stop !== null) return stop;
   const plan = planInit(run, {
     root: paths.root,
     profile,
-    from: o.from as string | undefined,
+    from,
+    template,
+    readAs,
     cwd: process.cwd(),
     project: o.project as string | undefined,
     productionOrg: o['production-org'] as string | undefined,
@@ -121,10 +127,6 @@ function cmdInit(o: Opts): number {
     jiraProject: o['jira-project'] as string | undefined,
     tracker,
   });
-  // A profile that comes from a template is known only once the template is read, so it's checked here,
-  // after the template is fetched and, for Salesforce, sf has listed its orgs, but before anything is written.
-  const late = checks && !profile ? machineStop(o, paths.config, plan.config.profile) : null;
-  if (late !== null) return late;
   // The template's rules (GH-108): each read before anything is written, so one that can't be read writes
   // nothing, then copied in as acc rules import would. A copy already here is kept; a dry run reads none.
   const rules = plan.rules.map((source) => ({ source, name: rulesName(source) }));
