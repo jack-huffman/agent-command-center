@@ -275,12 +275,13 @@ test('a project started from an epic signs in under the key it has once acc init
   const dir = makeRepo();
   const reposFile = join(tempDir('acc-repos-'), 'repos.json');
   const acc = (args: string[]) => spawnSync(process.execPath, ['--no-warnings', join(root, '..', 'packages', 'cli', 'src', 'main.ts'), ...args], { cwd: dir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', ACC_ROLE: '', ACC_TASK: '', ACC_REPOS_FILE: reposFile } });
-  const args = initArgs({ profile: 'generic' });
+  // As the Connect page builds them (T-133): this machine was checked on the page first, so acc init goes on anyway.
+  const args = initArgs({ profile: 'generic', anyway: true });
   const dry = initOutput(acc(['init', ...args, '--dry-run', '--json']).stdout);
   assert.ok(dry.ok, JSON.stringify(dry));
   const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
   const pending = pendingProject({ root: dir, dry, commonDir: common, args, tracker: null });
-  assert.deepEqual([pending.name, pending.args, pending.tracker], [basename(dir), ['--profile', 'generic'], null]);
+  assert.deepEqual([pending.name, pending.args, pending.tracker], [basename(dir), ['--profile', 'generic', '--anyway'], null]);
 
   const tracker = { kind: 'jira', site: 'acme.atlassian.net', project: 'ACME', epic: 'ACME-3' };
   const done = acc(['init', ...pending.args, ...initArgs({ tracker }), '--json']);
