@@ -49,6 +49,8 @@
 /* While an agent needs you: Answer, Watch and Open in Claude Code on its line. A tab too narrow for their
    words shows their icons, each named on hover and to a screen reader. */
 .agents-grid td.actions .line-btn { padding: 1px 6px; vertical-align: middle; }
+/* Answer shows its words where Watch shows only its icon, and the two are as high as each other (T-144). */
+.agents-grid td.actions .line-btn { min-height: 22px; box-sizing: border-box; justify-content: center; }
 .agents-grid td.actions .line-btn + .menu-caret { margin-left: 4px; }
 @media (max-width: 1279px) { .agents-grid .line-btn.ghost .btn-text { display: none; } }
 @media (max-width: 659px) { .agents-grid .line-btn .btn-text { display: none; } }

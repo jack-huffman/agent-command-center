@@ -18,7 +18,7 @@ import { FLOORS_FILE, type Floors, readFloors, valueOf } from '../../packages/co
 import { PAGES, type Page, STILL, viewOf, WIDTHS } from './pages.ts';
 import { PALETTE_THEMES } from './styles.ts';
 
-export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'raw', 'a11y', 'actions', 'disabled'] as const;
+export const CHECKS = ['overlap', 'clipped', 'tab', 'sideways', 'overview', 'buttons', 'words', 'covered', 'raw', 'a11y', 'actions', 'disabled', 'sizes'] as const;
 export type Check = (typeof CHECKS)[number];
 
 /** A box in the page's coordinates, in CSS pixels. */
@@ -94,6 +94,8 @@ export interface GeoSnapshot {
   actionSets?: GeoActionSet[];
   /** Each disabled button drawn (T-121): the disabled check fails on one drawn as clear as an enabled button. */
   disabled?: GeoDisabled[];
+  /** Each text button drawn, with the container it sits in (T-144): the sizes check fails two side by side that differ in size. */
+  sized?: GeoSized[];
   /** The task page's tab whose panel was on show when it was measured (T-134), or null on a page with none. */
   panel?: string | null;
   /**
@@ -108,6 +110,41 @@ export interface GeoActionSet { what: string; next: Box[]; rest: Box[] }
 
 /** A disabled button as drawn (T-121): its computed opacity and cursor, which an enabled one doesn't have. */
 export interface GeoDisabled { what: string; text: string; opacity: number; cursor: string; why: boolean }
+
+/**
+ * A text button as drawn (T-144): its box, its font size, the element it sits in (parent) and the one around that (up),
+ * each numbered per drawing. Icon-only buttons, menu carets and the status button are not text buttons and are not collected.
+ */
+export interface GeoSized { what: string; text: string; parent: number; up: number; box: Box; font: number }
+
+/** How far apart, across, two buttons may sit and still be one row (T-144), and how much their heights may differ. */
+export const SAME_ROW = { gap: 16, heightDiff: 1, fontDiff: 0.5 } as const;
+
+/**
+ * The findings for text buttons side by side (T-144): two in one wrapper (the same parent, or one's parent the other's grandparent: the conversation line inside the
+ * plan's actions) whose boxes overlap vertically and
+ * sit within SAME_ROW.gap of each other must be as high as each other and have one font size, so a primary
+ * differs from a secondary in colour, never in size. Returns each finding, and how many pairs it compared.
+ */
+export function judgeSizes(drawn: GeoSized[]): { found: { what: string; detail: string }[]; compared: number } {
+  const found: { what: string; detail: string }[] = [];
+  let compared = 0;
+  for (let i = 0; i < drawn.length; i++) {
+    for (let j = i + 1; j < drawn.length; j++) {
+      const a = drawn[i]!;
+      const b = drawn[j]!;
+      if (a.parent !== b.parent && a.parent !== b.up && a.up !== b.parent) continue;
+      const rows = Math.min(a.box.y + a.box.h, b.box.y + b.box.h) - Math.max(a.box.y, b.box.y) > 1;
+      const across = Math.max(a.box.x, b.box.x) - Math.min(a.box.x + a.box.w, b.box.x + b.box.w);
+      if (!rows || across > SAME_ROW.gap) continue;
+      compared++;
+      const high = Math.abs(a.box.h - b.box.h) > SAME_ROW.heightDiff;
+      const font = Math.abs(a.font - b.font) > SAME_ROW.fontDiff;
+      if (high || font) found.push({ what: a.what, detail: `${quote(a.text).trim() || 'it'} (${a.box.h} px high, ${a.font} px type) sits beside ${b.what}${quote(b.text)} (${b.box.h} px high, ${b.font} px type): buttons in one row are one size` });
+    }
+  }
+  return { found, compared };
+}
 
 /** Disabled buttons whose reason is in the text beside them, not in a title (T-121): a button's words, and why each is named. */
 export const REASON_BESIDE: Record<string, string> = {};
@@ -285,6 +322,8 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   const buttons = s.buttons ?? [];
   for (const f of judgeButtons(buttons, expected)) found.push({ check: 'buttons', what: 'the Overview', detail: f });
   const actionSets = s.actionSets ?? [];
+  const sizes = judgeSizes(s.sized ?? []);
+  for (const f of sizes.found) found.push({ check: 'sizes', what: f.what, detail: f.detail });
   const disabled = s.disabled ?? [];
   for (const f of judgeDisabled(disabled)) found.push({ check: 'disabled', what: f.what, detail: f.detail });
   for (const f of judgeActions(actionSets)) found.push({ check: 'actions', what: f.what, detail: f.detail });
@@ -296,7 +335,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
   const a11y = judgeA11y(s.a11y, a11yExceptions);
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: (s.scoped ? 0 : 1) + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, raw: panels.length, a11y: a11y.examined, actions: actionSets.reduce((n, x) => n + x.next.length + x.rest.length, 0), disabled: disabled.length };
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: (s.scoped ? 0 : 1) + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, raw: panels.length, a11y: a11y.examined, actions: actionSets.reduce((n, x) => n + x.next.length + x.rest.length, 0), disabled: disabled.length, sizes: sizes.compared };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -356,6 +395,13 @@ export const isCiRun = (env: NodeJS.ProcessEnv = process.env): boolean => env[CI
 export const FLOORS_PATH = join(import.meta.dirname, '..', '..', FLOORS_FILE);
 
 /**
+ * The floor of a check the floors file has no entry for yet (T-144): a new check starts at one row compared, so
+ * a run that compared none fails, and the first clean run's raisedFloors writes its entry. It is read only
+ * while there is no entry; once the file has one, the file's floor, which only goes up, is the floor.
+ */
+export const SEED_FLOORS: Partial<Record<Check, number>> = { sizes: 1 };
+
+/**
  * The least a run of every page, both themes and all three widths examines, per check. The page checks'
  * floors are pageFloors; each other check's is its floor in the floors file, which only goes up: a run
  * below one has stopped looking. A check with no floor there is an error, never a floor of nothing.
@@ -365,7 +411,7 @@ export function runFloor(floors: Floors = readFloors(FLOORS_PATH), pages: readon
   return Object.fromEntries(CHECKS.map((c) => {
     if (derived[c] !== undefined) return [c, derived[c]];
     // A CI run is held to its own floor where it has one, else to the Mac's (T-108).
-    const v = (ci ? valueOf(floors[ciFloorName(c)], 'floor') : null) ?? valueOf(floors[floorName(c)], 'floor');
+    const v = (ci ? valueOf(floors[ciFloorName(c)], 'floor') : null) ?? valueOf(floors[floorName(c)], 'floor') ?? SEED_FLOORS[c] ?? null;
     if (v === null) throw new Error(`${FLOORS_FILE} has no floor for the screenshot run's ${c} check ("${floorName(c)}").`);
     return [c, v];
   })) as Record<Check, number>;
@@ -393,7 +439,9 @@ export function raisedFloors(floors: Floors, examined: Record<Check, number>, ci
     const name = ci ? ciFloorName(c) : floorName(c);
     const v = valueOf(floors[name], 'floor');
     const next = storedFloor(examined[c]);
-    if (v !== null && next > v) [out[name], raised] = [{ floor: next }, true];
+    // A check with no entry yet starts at its seed, and the clean Mac run that beats it writes the entry; a CI run makes no CI floor of its own (T-144, T-108).
+    const at = v ?? (ci ? null : SEED_FLOORS[c] ?? null);
+    if (at !== null && next > at) [out[name], raised] = [{ floor: next }, true];
   }
   return raised ? out : null;
 }
@@ -645,7 +693,15 @@ function collectGeometry(more, then, within) {
   const actionSets = [...scope.querySelectorAll('[data-action-set]')].filter(visible).map((s) => ({ what: what(s), next: [...s.querySelectorAll(':scope > .ta-btn')].filter(visible).map(boxOf), rest: [...s.querySelectorAll(':scope > .ta-grid > .ta-btn')].filter(visible).map(boxOf) }));
   // Each disabled button, as drawn (T-121): a .btn that is disabled, or kept focusable with .is-disabled.
   const disabled = [...scope.querySelectorAll('.btn:disabled, .btn.is-disabled')].filter(visible).map((b) => ({ what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), opacity: Number(style(b).opacity), cursor: style(b).cursor, why: !!(b.getAttribute('title') || b.getAttribute('aria-description')) }));
-  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, fonts: window.accFontsFirst ?? 0, panel: document.querySelector('.task-tabs > [role="tab"][aria-selected="true"]')?.dataset.tab ?? null, scoped: !!within };
+  // Each text button, and the element it sits in and the one around that (T-144): a row runs across one wrapper, such as the conversation line inside the plan's actions, but not across a dialog laid over the page.
+  const parents = new Map();
+  const sized = [...scope.querySelectorAll('.btn:not(.icon-only):not(.menu-caret):not(.status-btn)')].filter(visible).map((b) => {
+    const r = b.getBoundingClientRect();
+    const up = b.parentElement?.parentElement;
+    for (const x of [b.parentElement, up]) if (!parents.has(x)) parents.set(x, parents.size);
+    return { what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), parent: parents.get(b.parentElement), up: parents.get(up), box: box(r.left, r.top, r.right, r.bottom), font: Math.round(parseFloat(style(b).fontSize) * 10) / 10 };
+  }).filter((b) => b.box.w >= 1 && b.box.h >= 1);
+  const measured = { sized, controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, fonts: window.accFontsFirst ?? 0, panel: document.querySelector('.task-tabs > [role="tab"][aria-selected="true"]')?.dataset.tab ?? null, scoped: !!within };
   // The first measure is acc-geometry; a later one, of another tab's panel (T-134), is numbered after it. then, if given, runs once it's written.
   const write = (parts) => {
     const out = document.createElement('script');
