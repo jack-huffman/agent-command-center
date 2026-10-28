@@ -127,8 +127,8 @@ test('one next step and at most two more are in view; every other action is unde
     const p = panel(m)!;
     const inView = p.all('task-actions').filter((s) => !s.all('agent-more').length && !foldOf(p, 'agent-more')?.all('task-actions').includes(s));
     assert.deepEqual(inView.flatMap((s) => s.all('ta-btn')).map((b) => b.all('ta-label')[0]!.textContent), shown.map((x) => x.label), m.key);
-    // Everything is drawn, in view or in the menu, by label, as the panel drew it before.
-    assert.deepEqual(labelsIn(p).sort(), a.actions.map((x) => x.label).sort(), m.key);
+    // Everything is drawn, in view or in the menu, by label, as the panel drew it before; only Open in Claude Code is drawn as Claude Code, to fit its tile.
+    assert.deepEqual(labelsIn(p).sort(), a.actions.map((x) => (x.label === 'Open in Claude Code' ? 'Claude Code' : x.label)).sort(), m.key);
     checked++;
   }
   assert.equal(checked, models.length);
