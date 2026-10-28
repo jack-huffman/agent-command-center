@@ -38,6 +38,7 @@ export * from './fetch.ts';
 export * from './field-drafts.ts';
 export * from './floors-driver.ts';
 export * from './gates.ts';
+export * from './git-must.ts';
 export * from './github.ts';
 export * from './held.ts';
 // holding.ts's claims are dispatch.ts's and held.ts's own; this is its one public name.
