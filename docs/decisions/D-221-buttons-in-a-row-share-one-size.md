@@ -1,4 +1,4 @@
-## D-T-144 Buttons in one row share one size, and the screenshot run fails a row that mixes sizes (2026-10-28)
+## D-221 Buttons in one row share one size, and the screenshot run fails a row that mixes sizes (2026-10-28)
 
 T-144. The person, with a screenshot of the Plan tab's conversation line, where Open conversation was a small
 button beside the full-size Make a new plan: "we need consistency in our buttons in the UI. The two
