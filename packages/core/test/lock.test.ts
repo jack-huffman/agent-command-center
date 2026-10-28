@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { readLedger } from '../src/ledger.ts';
-import { withLock } from '../src/lock.ts';
+import { lockHeld, withLock } from '../src/lock.ts';
 import { repoPaths } from '../src/paths.ts';
 import { makeRepo, SF_CONFIG, tempDir } from './support.ts';
 
@@ -55,4 +55,26 @@ test('the lock is released even when the work throws', () => {
   const lock = join(tempDir(), 'ledger.lock');
   assert.throws(() => withLock(lock, () => { throw new Error('boom'); }), /boom/);
   assert.equal(withLock(lock, () => 'again', { timeoutMs: 200 }), 'again');
+});
+
+test('a lock is held when mkdir says it exists, and on Windows also when it says EPERM, as for a folder another process is still removing (T-129)', () => {
+  for (const platform of ['darwin', 'linux', 'win32'] as const) assert.equal(lockHeld('EEXIST', platform), true, `EEXIST on ${platform}`);
+  assert.equal(lockHeld('EPERM', 'win32'), true, 'Windows: a lock being let go');
+  assert.equal(lockHeld('EPERM', 'darwin'), false, 'a Mac: a real permission error, thrown');
+  assert.equal(lockHeld('EPERM', 'linux'), false, 'Linux: the same');
+  for (const code of ['EACCES', 'ENOENT', undefined]) assert.equal(lockHeld(code, 'win32'), false, `${code} is never held`);
+});
+
+test('on Windows a mkdir that keeps saying EPERM is waited on, then given up with the lock timeout, never a spin; elsewhere it throws at once (T-129)', () => {
+  const dir = join(tempDir(), 'held.lock');
+  let calls = 0;
+  const eperm = () => { calls++; throw Object.assign(new Error('EPERM: operation not permitted, mkdir'), { code: 'EPERM' }); };
+  const begun = Date.now();
+  assert.throws(() => withLock(dir, () => assert.fail('never runs'), { platform: 'win32', mkdir: eperm, timeoutMs: 300 }), (e: Error & { code?: string }) => e.code === 'lock-timeout');
+  const took = Date.now() - begun;
+  assert.ok(took >= 300 && took < 3_000, `gave up after the timeout (${took} ms)`);
+  assert.ok(calls >= 3 && calls < 50, `waited between tries, ${calls} of them, not a spin`);
+  calls = 0;
+  assert.throws(() => withLock(dir, () => assert.fail('never runs'), { platform: 'darwin', mkdir: eperm }), (e: Error & { code?: string }) => e.code === 'EPERM');
+  assert.equal(calls, 1, 'a Mac throws a real EPERM at once');
 });

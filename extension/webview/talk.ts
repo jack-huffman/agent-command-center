@@ -272,7 +272,8 @@ export function renderConversation(project: string, s: TicketTalk): HTMLElement 
   const sec = el('section', `talk tone-edge-${s.look.tone}`);
   sec.id = 'talk';
   sec.setAttribute('aria-label', `${s.stage === 'opening' ? 'Before the plan' : 'Talk it through'}: ${s.look.label}`);
-  if (s.ask) sec.append(el('h2', 'talk-ask', icon('comment-discussion'), el('span', '', s.ask)));
+  // No icon of its own: the panel's title carries the conversation's (T-129).
+  if (s.ask) sec.append(el('h2', 'talk-ask', el('span', '', s.ask)));
   sec.append(el('p', 'muted an-note', s.note));
   // The turns before the latest exchange fold under one line (T-113), until the person opens them.
   const ek = earlierKey(project, s.task);
