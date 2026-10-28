@@ -4,7 +4,7 @@
 
 import { el, icon } from './dom.ts';
 import type { Who } from '../src/model/boards.ts';
-import { type Choice, choicesFor, effective, headerLine, noMatch } from './person-filter.ts';
+import { type Choice, choicesFor, effective, EVERYONE, everyoneWhy, headerLine, noMatch } from './person-filter.ts';
 import { api, memory, remember, state } from './state.ts';
 
 // The screenshot harness can start with a filter's menu open, to see it laid out.
@@ -13,9 +13,9 @@ let openFilter: string | null = ((api.getState() as { openFilter?: string } | un
 /** What a board gets back: the control for its header, the choice to filter its cards by, and its words. */
 export interface PersonFilter {
   control: HTMLElement;
-  /** The choice that applies now: the one kept, or Everyone. */
+  /** The choice that applies now: the one kept, else Mine when the tracker knows the person, else Everyone. */
   choice: string;
-  /** The line to draw above a board whose choice shows no card, with the way back to Everyone. It makes the empty board reachable by keyboard. */
+  /** The line to draw above a board whose choice shows no card, with the way to Everyone, kept as the person's choice. It makes the empty board reachable by keyboard. */
   none(board: HTMLElement): HTMLElement;
 }
 
@@ -33,7 +33,7 @@ const keep = (key: string, choice: string | null): void => {
  * The filter for one board. `key` names it ("tracker:<root>#<index>", "agents:<root>"); `cards` is every card
  * on it, before filtering; `me` is the key Mine means, or null when the tracker can't say.
  */
-export function personFilter(key: string, cards: readonly { people: readonly Who[] }[], me: string | null): PersonFilter {
+export function personFilter(key: string, cards: readonly { people: readonly Who[] }[], me: string | null, tracker: string | null = null): PersonFilter {
   const kept = memory().filters?.[key];
   const choices = choicesFor(cards, me, kept);
   const { choice: at, text } = headerLine(choices, kept, me, cards.length);
@@ -78,7 +78,9 @@ export function personFilter(key: string, cards: readonly { people: readonly Who
     if (e.key === 'Escape') { e.preventDefault(); show(false); btn.focus(); }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(here + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus(); }
   });
-  const control = el('div', 'person-filter', btn, menu);
+  // A board that can't open on Mine says why, quietly (T-143).
+  const why = tracker ? everyoneWhy(kept, me, tracker) : null;
+  const control = el('div', 'person-filter', btn, menu, why ? el('span', 'muted person-why', why) : null);
   control.addEventListener('click', (e) => e.stopPropagation());
   control.addEventListener('mousedown', (e) => e.stopPropagation());
   const none = (board: HTMLElement): HTMLElement => {
@@ -88,7 +90,7 @@ export function personFilter(key: string, cards: readonly { people: readonly Who
     board.setAttribute('aria-label', `No card shows for ${at.label}`);
     const back = el('button', 'btn ghost', icon('organization'), 'Show everyone') as HTMLButtonElement;
     back.type = 'button';
-    back.addEventListener('click', () => keep(key, null));
+    back.addEventListener('click', () => keep(key, EVERYONE));
     return el('div', 'notice info person-none', icon('info', 'blue'), el('span', '', noMatch(at.label)), back);
   };
   return { control, choice: effective(kept, me), none };

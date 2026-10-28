@@ -8,7 +8,7 @@ import type { Hub } from '../src/hub.ts';
 import { trackerBoard, type TrackerCard, type Who, whoKey } from '../src/model/boards.ts';
 import { dispatcher, dispatcherKey, tasksModel } from '../src/model/tasks.ts';
 import { deriveRows } from '../src/task-rows.ts';
-import { effective, EVERYONE, headerLine, MINE, NO_ME, noMatch, PERSON, choicesFor, shows, UNASSIGNED } from '../webview/person-filter.ts';
+import { effective, everyoneWhy, EVERYONE, headerLine, MINE, NO_ME, noMatch, PERSON, choicesFor, shows, UNASSIGNED } from '../webview/person-filter.ts';
 import { sampleBoards } from '../scripts/fixtures/boards.ts';
 import { sampleHub } from '../scripts/fixtures/hub.ts';
 import { CASES, MUTANTS } from '../scripts/behaviour.ts';
@@ -40,7 +40,8 @@ test('the header says the choice with its count: "Mine · 7 of 42", and Everyone
   const many = Array.from({ length: 42 }, (_, i) => ({ people: i < 7 ? [jordan] : [pat] }));
   const choices = choicesFor(many, 'jordan', undefined);
   assert.equal(headerLine(choices, MINE, 'jordan', 42).text, 'Mine · 7 of 42');
-  assert.equal(headerLine(choices, undefined, 'jordan', 42).text, 'Everyone · 42');
+  assert.equal(headerLine(choices, EVERYONE, 'jordan', 42).text, 'Everyone · 42');
+  assert.equal(headerLine(choices, undefined, 'jordan', 42).text, 'Mine · 7 of 42', 'no choice kept: Mine, since the person is known (T-143)');
   assert.equal(headerLine(choices, PERSON + 'pat', 'jordan', 42).text, 'Pat Lee · 35 of 42');
   assert.equal(headerLine(choices, UNASSIGNED, 'jordan', 42).text, 'Unassigned · 0 of 42');
 });
@@ -59,7 +60,7 @@ test('edge case: Mine with nobody to mean is off with its reason, and a board ke
 test('edge case: a board where no card matches shows a count of none, and says so in words', () => {
   const choices = choicesFor([{ people: [pat] }, { people: [pat] }], 'jordan', MINE);
   assert.equal(headerLine(choices, MINE, 'jordan', 2).text, 'Mine · 0 of 2');
-  assert.equal(noMatch('Mine'), 'No card here is yours.');
+  assert.equal(noMatch('Mine'), 'Nothing assigned to you here.');
   assert.equal(noMatch('Pat Lee'), 'No card here is Pat Lee\'s.');
   assert.equal(noMatch('Unassigned'), 'Every card on this board has someone.');
   // An empty board has nobody on it, and still offers the three fixed choices.
@@ -125,4 +126,15 @@ test('both boards draw the filter and only the cards it shows, and a board with 
 test('edge case: a tracker board with columns but no card says nothing about the choice, on Everyone too (drawn in the behaviour run, with a mutant that removes the guard)', () => {
   assert.ok(CASES.some((c) => c.name.startsWith('person filter: edge case: a tracker board')), 'the behaviour run draws that board');
   assert.ok(MUTANTS.some((m) => m.file === 'tasks.ts' && m.kills.some((k) => k.startsWith('person filter: edge case: a tracker board'))), 'a mutant removes the guard and the case fails on it');
+});
+
+test('T-143: a board with no kept choice opens on Mine when the tracker knows the person, else on Everyone with its line', () => {
+  assert.equal(effective(undefined, 'jordan'), MINE);
+  assert.equal(effective(undefined, null), EVERYONE);
+  assert.equal(effective(EVERYONE, 'jordan'), EVERYONE, 'a kept Everyone wins over the default');
+  assert.equal(effective(PERSON + 'pat', 'jordan'), PERSON + 'pat', 'a kept person wins over the default');
+  assert.equal(everyoneWhy(undefined, null, 'Jira'), 'Showing everyone: sign in to Jira to see just yours');
+  assert.equal(everyoneWhy(undefined, 'jordan', 'Jira'), null, 'a known person needs no line');
+  assert.equal(everyoneWhy(EVERYONE, null, 'Jira'), null, 'edge case: a kept choice needs no line');
+  assert.equal(headerLine(choicesFor(CARDS, 'jordan', undefined), undefined, 'jordan', 5).text, 'Mine · 3 of 5');
 });
