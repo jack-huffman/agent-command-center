@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { agentArgs } from './agents.ts';
+import { recordPlanTime } from './plan-times.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import { sessionName } from './names.ts';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
@@ -675,6 +676,8 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
     at: finished.toISOString(), durationMs: finished.getTime() - startedAt.getTime(), costUsd: parsed.costUsd,
   });
   writeAnalysis(paths, analysis);
+  // How long it took, so the Command Center can say how long plans usually take here (T-131).
+  recordPlanTime(paths, { task: id, ms: analysis.durationMs, at: analysis.at });
   // The ticket it read, beside it, so Open in Claude Code reads the same comments (T-110, D-195).
   writePlanTicket(paths, id, ticket);
   // A version made after a talk about the plan says so in the conversation, with what changed (T-98); one that

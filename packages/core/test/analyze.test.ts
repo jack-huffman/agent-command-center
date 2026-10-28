@@ -11,6 +11,7 @@ import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { guardAnalyst, preToolUseHook } from '../src/hooks.ts';
 import { mutate, readLedger, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
+import { planTimes } from '../src/plan-times.ts';
 import { fakeAwake, fakeRunner, GENERIC_CONFIG, makeRepo, SF_CONFIG } from './support.ts';
 
 const now = () => new Date('2026-10-05T12:00:00Z');
@@ -198,4 +199,16 @@ test('fileId, which analyses and drafted criteria share, keeps a task id and ref
   // Too long for a file name (T-84): refused, its message cut short.
   assert.equal(fileId('X'.repeat(TASK_ID_MAX)), 'X'.repeat(TASK_ID_MAX));
   assert.throws(() => fileId('X'.repeat(102_400)), (e: Error) => /^X{40}… isn't a task id\.$/.test(e.message));
+});
+
+test('each plan\'s duration is recorded as it ends, and a plan that fails records none (T-131)', () => {
+  const { paths, config, id } = setup();
+  let t = Date.parse('2026-10-05T12:00:00Z');
+  const clock = () => new Date((t += 90_000));
+  const runner = (cmd: string, args: string[], opts?: RunOptions) => (cmd === 'claude' ? result(ANSWER) : fakeRunner({})(cmd, args, opts));
+  const a = analyze(paths, config, id, { run: runner, now: clock, env: {} });
+  assert.ok(a.durationMs > 0);
+  assert.deepEqual(planTimes(paths), [{ task: id, ms: a.durationMs, at: a.at }]);
+  assert.throws(() => analyze(paths, config, id, { run: fakeRunner({ claude: { code: 127, stdout: '', stderr: 'spawnSync claude ENOENT' } }), now: clock, env: {} }));
+  assert.equal(planTimes(paths).length, 1, 'a failed plan adds nothing');
 });
