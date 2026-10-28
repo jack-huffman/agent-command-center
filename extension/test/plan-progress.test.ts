@@ -353,7 +353,7 @@ test('each second\'s progress redraws the task\'s block in place, a later draw k
   const other = planProgressBlock(ROOT, 'ACME-25', sampleProgress(NOW)) as unknown as PageElement;
   page.document.body.append(other);
   const later = sampleProgress(NOW + 30 * SEC, true);
-  area.receive!['plan-progress']({ project: ROOT, task: 'acme-24', progress: later } as never);
+  area.receive!['plan-progress']!({ project: ROOT, task: 'acme-24', progress: later } as never);
   assert.match(words(box), /hasn't moved/, 'drawn again where it is');
   assert.ok(box.classList.contains('tone-edge-orange'));
   assert.doesNotMatch(words(other), /hasn't moved/, 'another task\'s block is its own');
@@ -361,5 +361,5 @@ test('each second\'s progress redraws the task\'s block in place, a later draw k
   assert.match(words(redrawn), /hasn't moved/, 'a redraw from an older model shows the newest told');
   assert.equal(planProgressBlock(ROOT, 'ACME-24', null), null, 'ended');
   assert.doesNotMatch(words(planProgressBlock(ROOT, 'ACME-24', sampleProgress(NOW)) as unknown as PageElement), /hasn't moved/, 'a later job starts from its own');
-  area.receive!['plan-progress']({ project: ROOT } as never);
+  area.receive!['plan-progress']!({ project: ROOT } as never);
 });
