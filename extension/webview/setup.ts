@@ -2,7 +2,7 @@
 
 import type { Action } from '../src/model/shared.ts';
 import type { RunCard } from '../src/model/runs.ts';
-import type { SetupModel, SetupRow, SetupStart } from '../src/model/setup.ts';
+import type { MachineFirst, SetupModel, SetupRow, SetupStart } from '../src/model/setup.ts';
 import { redrawDock } from './dock.ts';
 import { actionButton, button, el, header, icon, plural, status, titled, toolbarButton, work } from './dom.ts';
 import { api, memory, type PageArea, remember } from './state.ts';
@@ -67,13 +67,28 @@ function startCard(s: SetupStart): HTMLElement {
   return el('div', 'setup-start', h, el('p', 'detail', s.detail), el('div', 'actions', ...s.actions.map(actionButton)));
 }
 
+/**
+ * Before a project starts (T-133): what this machine still needs for it, each step with its Do it, then Go on
+ * anyway (or Start the project, once nothing is left) and Not now. Its heading is where Setup lands to show it.
+ */
+function machineFirstCard(f: MachineFirst, live: RunCard[]): HTMLElement {
+  const h = el('h2', '', icon(f.rows.length ? 'device-desktop' : 'pass'), f.title);
+  h.dataset.part = f.part;
+  h.tabIndex = -1;
+  const steps = f.rows.length ? el('ul', 'steps', ...f.rows.map((s) => { const li = setupStep(s, live); li.dataset.step = s.id; return li; })) : null;
+  return el('section', 'block machine-first', h, el('p', 'detail', f.detail), steps, el('div', 'actions', ...f.actions.map(actionButton)));
+}
+
 export function renderSetup(m: SetupModel, live: RunCard[] = []): Node[] {
   const todo = m.total - m.done;
   const summary = m.total ? `${m.done} of ${m.total} steps done${todo ? `. ${plural(todo, 'step')} to do.` : m.start ? '.' : '. Everything is set up.'}` : 'Checking…';
   // The walkthroughs open only when asked for, from here or VSCode's Get Started page (GH-138).
   const out: Node[] = [header('Setup', m.start ? `${summary} This folder isn't set up yet.` : summary,
-    toolbarButton('acc.openMachineWalkthrough', 'Machine walkthrough', 'device-desktop'),
+    toolbarButton('acc.checkMachine', 'Check this machine', 'device-desktop'),
+    toolbarButton('acc.openMachineWalkthrough', 'Machine walkthrough', 'book'),
     toolbarButton('acc.openProjectWalkthrough', 'Project walkthrough', 'repo'))];
+  // A project being started shows what this machine still needs first, before anything is written (T-133).
+  if (m.machineFirst) out.push(machineFirstCard(m.machineFirst, live));
   if (m.total) {
     const bar = el('div', 'progress');
     bar.setAttribute('role', 'progressbar');

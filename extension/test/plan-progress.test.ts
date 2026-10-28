@@ -52,6 +52,7 @@ test('edge cases: an unknown tool, an MCP tool and a tool with no input are step
   assert.equal(repoPath('/Users/me/.claude/notes/brief.md', [ROOT]), 'brief.md', 'a home folder\'s path isn\'t shown');
   assert.equal(repoPath(`${ROOT}/a/b.ts`, ['/elsewhere', ROOT]), 'a/b.ts', 'the first root it\'s under');
   assert.equal(repoPath('src/x.ts', [ROOT]), 'src/x.ts', 'already relative');
+  assert.equal(repoPath('src\\x.ts', [ROOT]), 'src/x.ts', 'with forward slashes, as git writes a repo\'s paths, on Windows too');
 });
 
 test('a command is what it does, never its line: each analyst read, acc\'s own as its process, and anything else as running a command', () => {

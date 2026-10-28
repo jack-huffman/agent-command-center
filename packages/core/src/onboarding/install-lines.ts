@@ -3,7 +3,7 @@ export type InstallSystem = 'mac' | 'windows' | 'linux';
 export const INSTALL_SYSTEMS: readonly InstallSystem[] = ['mac', 'windows', 'linux'];
 
 /** The tools Setup tells a person to install. */
-export type InstallTool = 'git' | 'node' | 'gh' | 'claude';
+export type InstallTool = 'git' | 'node' | 'gh' | 'claude' | 'sf' | 'java' | 'python';
 
 /** One way to install a tool: a line to run, or the maker's page when they give no one line. */
 export type InstallLine = { command: string; shell: Shell } | { page: string };
@@ -37,6 +37,15 @@ export const SYSTEM: InstallSystem = systemOf(process.platform);
  *   2026-10-27 had none), so the winget id was read in the maker-independent winget manifest repository instead,
  *   github.com/microsoft/winget-pkgs, manifests/o/OpenJS/NodeJS/LTS (versions 24.21.0 to 24.22.1): `winget install --id OpenJS.NodeJS.LTS -e`.
  *   Node's Homebrew formula is `brew install node`. Linux has no one line, so the page.
+ * - Salesforce CLI (T-133): https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_install_cli.htm
+ *   gives an npm install; this table keeps A1.sf's `npm install -g @salesforce/cli`, the same line on every system.
+ *   npm comes with Node, so A1.node and A1.npm come first.
+ * - Java, for Code Analyzer's PMD and CPD engines (T-133): https://adoptium.net/installation/ gives
+ *   `winget install EclipseAdoptium.Temurin.25.JDK` for the latest LTS (this table adds `--id` and `-e`, as the others
+ *   do). A Mac: Homebrew's cask `temurin`. Linux: `apt-get install openjdk-21-jdk` on Debian and Ubuntu.
+ * - Python, for Code Analyzer's Flow engine (T-133): https://docs.python.org/3/using/windows.html, section 4.1.10,
+ *   gives `winget install 9NQ7512CXL7T -e --accept-package-agreements --disable-interactivity` (the Python install
+ *   manager), then `py install --configure -y`. A Mac: Homebrew's `brew install python`. Linux: `apt-get install python3`.
  */
 export const INSTALL_LINES: Record<InstallTool, Record<InstallSystem, InstallLine>> = {
   git: {
@@ -59,6 +68,21 @@ export const INSTALL_LINES: Record<InstallTool, Record<InstallSystem, InstallLin
     windows: ps('irm https://claude.ai/install.ps1 | iex'),
     linux: sh('curl -fsSL https://claude.ai/install.sh | bash'),
   },
+  sf: {
+    mac: sh('npm install -g @salesforce/cli'),
+    windows: ps('npm install -g @salesforce/cli'),
+    linux: sh('npm install -g @salesforce/cli'),
+  },
+  java: {
+    mac: sh('brew install --cask temurin'),
+    windows: ps('winget install --id EclipseAdoptium.Temurin.25.JDK -e'),
+    linux: sh('sudo apt-get install openjdk-21-jdk'),
+  },
+  python: {
+    mac: sh('brew install python'),
+    windows: ps('winget install 9NQ7512CXL7T -e --accept-package-agreements --disable-interactivity; if ($?) { py install --configure -y }'),
+    linux: sh('sudo apt-get install python3'),
+  },
 };
 
 /**
@@ -66,6 +90,14 @@ export const INSTALL_LINES: Record<InstallTool, Record<InstallSystem, InstallLin
  * whose line is a brew command while Homebrew is missing. Only a Mac has it.
  */
 export const BREW_INSTALL = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+
+/**
+ * winget's fix (A1.winget, T-133): register App Installer, as Microsoft's winget page gives it for a winget that
+ * isn't there yet (https://learn.microsoft.com/en-us/windows/package-manager/winget/, read 2026-10-27). Only Windows has it.
+ */
+export const WINGET_REGISTER = 'Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe';
+/** Where App Installer comes from when it isn't installed at all, as Microsoft's winget page links it. */
+export const APP_INSTALLER_PAGE = 'https://apps.microsoft.com/detail/9nblggh4nns1';
 
 /** Whether a tool's line on a system is a Homebrew command, so Homebrew has to be there first. */
 export const needsBrew = (tool: InstallTool, system: InstallSystem): boolean => (installCommand(tool, system) ?? '').startsWith('brew ');
@@ -87,9 +119,10 @@ export const installText = (tool: InstallTool, system: InstallSystem = SYSTEM): 
 
 /**
  * What a fix that installs a tool adds on Windows (T-124): a tool installed while VSCode is open isn't on its
- * PATH until VSCode restarts. Empty on a Mac and on Linux, where a new terminal is enough.
+ * PATH until VSCode restarts. Empty on a Mac and on Linux, where a new terminal is enough. RESTART_WHY is the one
+ * reason a restart is asked for, here and in path-fix.ts (T-133).
  */
-const RESTART_WHY = 'a tool installed while VSCode is open isn\'t on its PATH until VSCode restarts.';
+export const RESTART_WHY = 'a tool installed while VSCode is open isn\'t on its PATH until VSCode restarts.';
 export const RESTART_NOTE = `After it installs, restart VSCode: ${RESTART_WHY}`;
 /** The same sentence as a step's page says it, which shows every system's lines and so names Windows. */
 export const RESTART_PAGE_NOTE = `On Windows, after it installs, restart VSCode: ${RESTART_WHY}`;

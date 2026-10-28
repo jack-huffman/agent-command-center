@@ -21,7 +21,10 @@ import {
 } from './helpers.ts';
 import type { CheckContext, CheckResult, Fix, Step, StepResult } from './types.ts';
 import { chain, quoteArg } from './fix-lines.ts';
-import { BREW_INSTALL, installCommand, type InstallSystem, type InstallTool, installText, needsBrew, restartNote, type Shell, shellOf, SYSTEM } from './install-lines.ts';
+import { APP_INSTALLER_PAGE, BREW_INSTALL, installCommand, type InstallSystem, type InstallTool, installText, needsBrew, restartNote, type Shell, shellOf, SYSTEM, WINGET_REGISTER } from './install-lines.ts';
+import { type MachineNeed, needOf, programOn } from './machine-needs.ts';
+import { installedAt, notOnPath, REAL_FILES } from './path-fix.ts';
+import { shellFor } from '../shell.ts';
 import { CLOUD_STEPS } from './cloud-steps.ts';
 import { TOOL_STEPS } from './tool-steps.ts';
 import { MERGE_STEPS } from './merge-steps.ts';
@@ -249,21 +252,54 @@ function notInstalled(ctx: CheckContext, detail: string, tool: InstallTool | nul
 /** Whether `brew --version` runs here; asked once for all the steps that need it. */
 const brewInstalled = (ctx: CheckContext): boolean => cached(ctx, 'brew', () => ctx.run('brew', ['--version'], { env: ctx.env }).code === 0);
 
-/** A step for a tool found by its version. fix is a tool's install (from the per-system table) or a command to run as it is. */
-function versionStep(id: string, title: string, why: string, cmd: string, args: string[], min: string | null, fix: { tool: InstallTool } | string, profiles?: Step['profiles']): Step {
-  const tool = typeof fix === 'string' ? null : fix.tool;
+/**
+ * What a program's stand-in prints when the real one isn't installed: a Mac's /usr/bin/java with no Java, and
+ * Windows' python that opens the Microsoft Store. Each is on PATH and exits with an error, so it reads as not installed.
+ */
+const STAND_IN = /Unable to locate a Java Runtime|Python was not found/;
+
+/**
+ * The result for a need whose program didn't run (T-133): installed in a folder its installer uses but not on
+ * VSCode's PATH, with that fix; otherwise not installed, with its install line.
+ */
+function missing(ctx: CheckContext, need: MachineNeed, detail: string): CheckResult {
+  const system = ctx.system ?? SYSTEM;
+  const at = installedAt(ctx, need, system);
+  return at ? notOnPath(ctx, need, at, system) : notInstalled(ctx, detail, need.install);
+}
+
+/** Why a step for one system's need doesn't apply on another, in words. */
+const ONLY_ON: Record<InstallSystem, string> = {
+  mac: 'Only on a Mac: Windows installs with winget, and Linux with its own package manager.',
+  windows: 'Only on Windows: a Mac installs with Homebrew, and Linux with its own package manager.',
+  linux: 'Only on Linux.',
+};
+
+/**
+ * A step for a need found by its version (T-133): its program, least version, install line and install places
+ * are the need's (machine-needs.ts). fix, when given, is the step's own, such as Homebrew's installer.
+ */
+function needStep(id: string, title: string, fix?: Pick<Step, 'fix' | 'fixOn'>): Step {
+  const need = needOf(id);
+  const tool = need.install;
+  const fixes = fix ?? (tool ? bySystem((s) => installFix(tool, s)) : {});
   return {
-    id, part: 'machine', group: 'A1', title, why, profiles, ...(typeof fix === 'string' ? { fix: { command: fix } } : bySystem((s) => installFix(fix.tool, s))), ...(tool ? { install: tool } : {}),
+    id, part: 'machine', group: 'A1', title, why: need.why, ...(need.profiles ? { profiles: [...need.profiles] } : {}), ...fixes, ...(tool ? { install: tool } : {}),
     check(ctx) {
-      const r = ctx.run(cmd, args, { env: ctx.env });
-      if (r.code === 127) return notInstalled(ctx, `${cmd} isn't installed.`, tool);
+      const cmd = programOn(need, ctx.system ?? SYSTEM);
+      if (!cmd) return skip(ONLY_ON[need.systems[0] ?? 'linux']);
+      const r = ctx.run(cmd, [...(need.versionArgs ?? ['--version'])], { env: ctx.env });
+      const said = r.stdout + r.stderr;
+      // A package manager is named as its maker names it: Homebrew, not brew.
+      if (r.code === 127 || (r.code !== 0 && STAND_IN.test(said))) return missing(ctx, need, `${tool ? cmd : need.name} isn't installed.`);
       if (r.code !== 0) return fail(`${cmd} didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
-      const v = firstVersion(r.stdout + r.stderr);
-      if (min && (!v || !versionAtLeast(v, min))) return fail(`${cmd} ${v ?? '(unknown version)'} is older than ${min}.`);
+      const v = firstVersion(said);
+      if (need.min && (!v || !versionAtLeast(v, need.min))) return fail(`${cmd} ${v ?? '(unknown version)'} is older than ${need.min}.`);
       return pass(`${cmd} ${v ?? ''}`.trim());
     },
   };
 }
+
 
 /**
  * What each group of steps sets up, in words. Neighbouring groups with the same name show as one section
@@ -279,29 +315,46 @@ export const GROUP_TITLES: Record<string, string> = {
 
 export const STEPS: Step[] = [
   // ------------------------------------------------------------ Part A: this machine
+  needStep('A1.brew', 'Homebrew (on a Mac)', { fix: { command: BREW_INSTALL } }),
+  needStep('A1.winget', 'winget (on Windows)', { fix: { command: WINGET_REGISTER, text: `If App Installer isn't installed at all, get it from ${APP_INSTALLER_PAGE}.` } }),
+  needStep('A1.git', 'git 2.40 or later'),
   {
-    id: 'A1.brew', part: 'machine', group: 'A1', title: 'Homebrew (on a Mac)',
-    why: 'On a Mac, git, Node, the GitHub CLI and Claude Code are installed with Homebrew. Windows installs with winget, so this step is only for a Mac.',
-    fix: { command: BREW_INSTALL },
+    id: 'A1.sh', part: 'machine', group: 'A1', title: 'Git for Windows\' sh (on Windows)', why: needOf('A1.sh').why,
+    ...bySystem((s) => installFix('git', s)), install: 'git',
     check(ctx) {
-      if ((ctx.system ?? SYSTEM) !== 'mac') return skip('Only on a Mac: Windows installs with winget, and Linux with its own package manager.');
-      const r = ctx.run('brew', ['--version'], { env: ctx.env });
-      if (r.code === 127) return fail('Homebrew isn\'t installed.');
-      if (r.code !== 0) return fail(`brew didn't run: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
-      return pass(`brew ${firstVersion(r.stdout) ?? ''}`.trim());
+      const system = ctx.system ?? SYSTEM;
+      if (system !== 'windows') return skip('Only on Windows: a Mac and Linux have /bin/sh.');
+      const files = ctx.files ?? REAL_FILES;
+      let gitRan = true;
+      try {
+        const sh = shellFor({
+          platform: 'win32', exists: (p) => files.exists(p),
+          gitExecPath: () => {
+            const r = ctx.run('git', ['--exec-path'], { env: ctx.env });
+            gitRan = r.code === 0 && !!r.stdout.trim();
+            return gitRan ? r.stdout.trim() : null;
+          },
+        });
+        return pass(`sh at ${sh}`);
+      } catch {
+        // shellFor's own words name acc's commands; these say what to do in Setup.
+        return gitRan
+          ? notInstalled(ctx, 'git is installed, but Git for Windows\' sh isn\'t beside it. Install Git for Windows again.', 'git')
+          : missing(ctx, needOf('A1.git'), 'git isn\'t installed, and Git for Windows brings the sh.');
+      }
     },
   },
-  versionStep('A1.git', 'git 2.40 or later', 'Worktrees and the shared git directory need a recent git.', 'git', ['--version'], '2.40', { tool: 'git' }),
   // acc itself needs no Node: its launcher falls back to VSCode's runtime (D-077).
-  versionStep('A1.node', 'Node 20 or later', 'The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn\'t need it.', 'node', ['--version'], '20', { tool: 'node' }, ['salesforce']),
-  versionStep('A1.gh', 'GitHub CLI', 'Pull requests, issues and the per-repo account all go through gh.', 'gh', ['--version'], null, { tool: 'gh' }),
+  needStep('A1.node', 'Node 20 or later'),
+  needStep('A1.npm', 'npm'),
+  needStep('A1.gh', 'GitHub CLI'),
   {
     id: 'A1.claude', part: 'machine', group: 'A1', title: 'Claude Code CLI with background sessions',
-    why: 'Builders run as `claude --bg` sessions (D-009). The VSCode extension ships its own copy, so the terminal CLI can fall far behind.',
+    why: needOf('A1.claude').why,
     fix: { command: 'claude update' }, install: 'claude',
     check(ctx) {
       const v = ctx.run('claude', ['--version'], { env: ctx.env });
-      if (v.code === 127) return notInstalled(ctx, 'claude isn\'t installed.', 'claude');
+      if (v.code === 127) return missing(ctx, needOf('A1.claude'), 'claude isn\'t installed.');
       const h = ctx.run('claude', ['--help'], { env: ctx.env });
       if (!/--bg\b/.test(h.stdout)) return fail(`claude ${firstVersion(v.stdout) ?? ''} has no --bg. Update it.`);
       return pass(`claude ${firstVersion(v.stdout) ?? ''}`.trim());
@@ -328,16 +381,23 @@ export const STEPS: Step[] = [
       return pass('Agents use your Claude subscription.');
     },
   },
-  versionStep('A1.sf', 'Salesforce CLI', 'Validation, retrieves and org checks use sf.', 'sf', ['--version'], null, 'npm install -g @salesforce/cli', ['salesforce']),
+  needStep('A1.sf', 'Salesforce CLI'),
   {
     id: 'A1.code-analyzer', part: 'machine', group: 'A1', title: 'Salesforce Code Analyzer', profiles: ['salesforce'],
-    why: 'The `static` check runs `sf code-analyzer`.', fix: { command: 'sf plugins install code-analyzer' },
+    why: needOf('A1.code-analyzer').why, fix: { command: 'sf plugins install code-analyzer' },
     check(ctx) {
       const r = ctx.run('sf', ['plugins'], { env: { ...ctx.env, SF_NO_UPDATE_NOTIFIER: 'true' } });
-      if (r.code === 127) return fail('sf isn\'t installed.');
-      return /code-analyzer/.test(r.stdout) ? pass('code-analyzer plugin installed') : fail('The code-analyzer plugin isn\'t installed.');
+      if (r.code === 127) return fail('sf isn\'t installed: do A1.sf first.');
+      const found = /code-analyzer\s+(\d+(?:\.\d+)*)/.exec(r.stdout);
+      if (!found && !/code-analyzer/.test(r.stdout)) return fail('The code-analyzer plugin isn\'t installed.');
+      const min = needOf('A1.code-analyzer').min;
+      if (found && min && !versionAtLeast(found[1]!, min)) return fail(`The code-analyzer plugin ${found[1]} is older than ${min}.`, 'sf plugins install code-analyzer@latest');
+      return pass(`code-analyzer plugin ${found?.[1] ?? ''}`.trim() + ' installed');
     },
   },
+  // What Code Analyzer's engines run on, as Salesforce's setup page says (T-133): PMD and CPD need Java, the Flow engine Python.
+  needStep('A1.java', 'Java 11 or later, for Code Analyzer'),
+  needStep('A1.python', 'Python 3.10 or later, for Code Analyzer'),
   {
     id: 'A2.gh-login', part: 'machine', group: 'A2', title: 'Logged in to GitHub',
     why: 'Each repo uses its own GitHub account, asked for by name each time. The account gh has active is never switched, because that changes every session.',
@@ -916,10 +976,15 @@ export const STEPS: Step[] = [
   },
 ];
 
+/**
+ * Whether a step runs for this context's profile: the profile a project is being started with (ctx.profile, T-133),
+ * else its config's. With neither, every machine step runs, whatever its profile.
+ */
 export function applies(step: Step, ctx: CheckContext): boolean {
   if (!step.profiles) return true;
-  if (!ctx.config) return step.part === 'machine';
-  return step.profiles.includes(ctx.config.profile);
+  const profile = ctx.profile ?? ctx.config?.profile;
+  if (!profile) return step.part === 'machine';
+  return step.profiles.includes(profile);
 }
 
 export function runSteps(ctx: CheckContext, part?: Step['part'], only?: string[]): StepResult[] {

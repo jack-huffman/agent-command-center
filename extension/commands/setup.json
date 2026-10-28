@@ -65,5 +65,23 @@
     "title": "Log in to an environment's Salesforce org",
     "category": "Agent Command Center",
     "icon": "$(cloud)"
+  },
+  {
+    "command": "acc.checkMachine",
+    "title": "Check this machine",
+    "category": "Agent Command Center",
+    "icon": "$(device-desktop)"
+  },
+  {
+    "command": "acc.start.goOn",
+    "title": "Go on and start the project",
+    "category": "Agent Command Center",
+    "icon": "$(arrow-right)"
+  },
+  {
+    "command": "acc.start.notNow",
+    "title": "Don't start the project now",
+    "category": "Agent Command Center",
+    "icon": "$(close)"
   }
 ]

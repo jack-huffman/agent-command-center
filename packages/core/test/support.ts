@@ -18,6 +18,22 @@ export function npmTestFiles(root: string): string[] {
 }
 
 export const ok = (stdout = ''): RunResult => ({ code: 0, stdout, stderr: '' });
+
+/**
+ * A filesystem with nothing in it, for a machine step's install places (T-133): a tool a fixture says isn't on
+ * PATH is then not installed anywhere, whatever this machine has in /opt/homebrew/bin.
+ */
+export const NO_FILES = { exists: () => false, list: () => [], read: () => null };
+
+/** A filesystem that has these files and their folders, and ~/.zprofile's text when given (T-133). */
+export function someFiles(paths: string[], texts: Record<string, string> = {}) {
+  const has = new Set(paths);
+  return {
+    exists: (p: string) => has.has(p) || p in texts,
+    list: (dir: string) => [...new Set(paths.filter((p) => p.startsWith(dir) && p.length > dir.length).map((p) => p.slice(dir.length).replace(/^[\\/]/, '').split(/[\\/]/)[0]!))],
+    read: (f: string) => texts[f] ?? null,
+  };
+}
 export const bad = (stderr = 'failed', code = 1): RunResult => ({ code, stdout: '', stderr });
 export const sf = (result: unknown, status = 0): RunResult => ({ code: status ? 1 : 0, stdout: JSON.stringify({ status, result, message: status ? 'sf error' : undefined }), stderr: '' });
 

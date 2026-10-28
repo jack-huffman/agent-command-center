@@ -1,7 +1,29 @@
 /** Setup's steps, as acc doctor reports them. */
 import { installCommand } from '../../../packages/core/src/onboarding/install-lines.ts';
 import { STEPS } from '../../../packages/core/src/onboarding/steps.ts';
+import { brewShellenv } from '../../../packages/core/src/onboarding/path-fix.ts';
 import type { DoctorItem } from '../../src/logic/setup.ts';
+import type { SetupStarting } from '../../src/model/setup.ts';
+
+/** A Mac tool in Homebrew's folder but not on VSCode's PATH, as A1's steps say it (T-133). */
+const NOT_ON_PATH = (name: string): Partial<DoctorItem> => ({
+  place: '/opt/homebrew/bin', fix: brewShellenv('/opt/homebrew/bin'),
+  detail: `${name} is installed in /opt/homebrew/bin, but VSCode can't see it: that folder isn't on its PATH. Do it adds Homebrew's shellenv line to ~/.zprofile, then quit VSCode and open it again.`,
+  ask: 'Add Homebrew\'s shellenv line to ~/.zprofile, so /opt/homebrew/bin is on your PATH? Then quit VSCode and open it again.',
+});
+
+/**
+ * A Salesforce project being started (T-133): the machine check found the GitHub CLI missing and Claude Code
+ * installed but not on PATH, so Setup lists them first, before anything is written.
+ */
+export function sampleStartingSetup(): { items: DoctorItem[]; confirmed: Set<string>; setUp: false; starting: SetupStarting } {
+  const todo: Record<string, Partial<DoctorItem>> = {
+    'A1.gh': { status: 'fail', detail: 'gh isn\'t installed.', fix: installCommand('gh', 'mac')! },
+    'A1.claude': { status: 'fail', ...NOT_ON_PATH('Claude Code') },
+  };
+  const items = STEPS.filter((s) => s.part === 'machine').map((s): DoctorItem => ({ id: s.id, part: s.part, title: s.title, status: 'pass', detail: 'Looks right.', ...todo[s.id] }));
+  return { items, confirmed: new Set(), setUp: false, starting: { profile: 'salesforce', ids: items.map((i) => i.id) } };
+}
 
 /** Every real setup step, mostly passing, with one of each other status so every style shows. */
 export function sampleSetup(): { items: DoctorItem[]; confirmed: Set<string> } {
@@ -18,6 +40,8 @@ export function sampleSetup(): { items: DoctorItem[]; confirmed: Set<string> } {
       status: 'unknown', detail: '.acc/rules/acme-salesforce.md has changed at the source since it was copied in. The fix shows the difference and changes nothing; copying one in again is yours to choose.',
       fix: 'acc rules diff acme-salesforce',
     },
+    // Installed, but not on VSCode's PATH (T-133): its own look, and Do it asks before it changes PATH.
+    'A1.python': { status: 'fail', ...NOT_ON_PATH('Python') },
     'B2.identity': { status: 'fail', detail: 'Commits here would go out as someone@else.example.', fix: 'git config user.email you@example.com' },
     'B8.tracking': { status: 'unknown', detail: 'Turn on source tracking in Setup, then check again.' },
     'B10.readme': { status: 'skip', detail: 'Only one environment, so there is no map to show.' },

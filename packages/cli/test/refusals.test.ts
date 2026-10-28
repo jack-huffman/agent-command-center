@@ -39,7 +39,7 @@ test('a folder named as a team template or rules file is refused in one line: ac
   const dir = repoWithConfig();
   const folder = tempDir('acc-folder-');
   assert.match(oneLine(acc(dir, ['template', 'show', folder]), 1), /isn't a file, so it can't be a team template\./);
-  assert.match(oneLine(acc(makeRepo(), ['init', '--from', folder]), 1), /isn't a file/);
+  assert.match(oneLine(acc(makeRepo(), ['init', '--anyway', '--from', folder]), 1), /isn't a file/);
   assert.match(oneLine(acc(dir, ['rules', 'import', folder]), 1), /isn't a file/);
 });
 

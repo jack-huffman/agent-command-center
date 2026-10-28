@@ -59,12 +59,15 @@ export function commandWords(line: string): string {
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
-/** A path as the repo names it: relative to the first root it's under, or its file name when it's under none. */
+/**
+ * A path as the repo names it: relative to the first root it's under, or its file name when it's under none.
+ * Always with forward slashes, as git writes a repo's paths, on Windows too.
+ */
 export function repoPath(p: string, roots: readonly string[]): string {
-  if (!isAbsolute(p)) return p;
+  if (!isAbsolute(p)) return p.replaceAll('\\', '/');
   for (const r of roots) {
     const rel = relative(r, p);
-    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) return rel;
+    if (rel && !rel.startsWith('..') && !isAbsolute(rel)) return rel.replaceAll('\\', '/');
   }
   return basename(p);
 }

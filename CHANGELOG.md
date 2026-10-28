@@ -5,6 +5,33 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.50.0
+
+- On Windows, two acc processes that reach for the same lock at once no longer
+  crash one of them. Windows says "operation not permitted" for a lock folder
+  another process is still letting go, and acc now waits and tries again, up to
+  its usual time limit, rather than stopping. Builders' questions, the task
+  list, analyses and reviews all take that lock.
+- Answering the planning agent's questions (D-212): an answer counts the moment
+  you pick it or type it, and moving by the dots, Back, Skip or Next question
+  never loses it. Each dot says where its question stands. There's no Confirm:
+  the last question's button is Review answers, which lists every answer, or
+  "Not answered: the planning agent decides", each with Change. Only Send
+  answers to the planning agent sends.
+- While a plan is being made (D-213), the conversation panel and the task page
+  show the planning agent at work: how long so far, what it's doing now in
+  plain words (reading a file, searching the code, querying the org, writing
+  the plan), its last few steps, and how long since its last one. After five
+  quiet minutes it says so in orange, with Watch its session. Once a project
+  has a few plans, it says how long they usually take there.
+- A task page puts the ticket's own description first (D-214), then the
+  Command Center's sections under a quiet "From the Command Center" line: the
+  plan, the acceptance criteria, Verify the developer's work and the rest. Each
+  of those, and the side column's Details and Agent panels, collapses from its
+  header to one line that still says where it stands, and the page remembers
+  which you collapsed, per ticket.
+- The plan conversation's question no longer repeats the panel's icon.
+
 ## 0.49.0
 
 - A project holds several boards, up to ten across different Jira sites, and

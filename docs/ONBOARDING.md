@@ -25,18 +25,27 @@ the project's GitHub repo.
 
 ### A1. Install the tools
 
-Each install line is for the system acc runs on: a Mac (Homebrew) or Windows (winget, and Claude Code's own PowerShell installer). Setup gives the one for your system, and each step's page lists all of them (`packages/core/src/onboarding/install-lines.ts`). **Git for Windows is required on Windows**: acc runs its shell commands with the `sh` it ships. On Windows, a tool installed while VSCode is open isn't on its PATH until VSCode restarts, so restart VSCode after each install.
+Each install line is for the system acc runs on: a Mac (Homebrew) or Windows (winget, and Claude Code's own PowerShell installer). Setup gives the one for your system, and each step's page lists all of them (`packages/core/src/onboarding/install-lines.ts`). What each system needs for each kind of project, with its least version, its install line and the folders its installer uses, is one list (`packages/core/src/onboarding/machine-needs.ts`). **Git for Windows is required on Windows**: acc runs its shell commands with the `sh` it ships. On Windows, a tool installed while VSCode is open isn't on its PATH until VSCode restarts, so restart VSCode after each install.
+
+**Installed, but not on PATH.** When a tool doesn't run, its step looks in the folders its installer puts it in, such as `/opt/homebrew/bin` on a Mac or `Program Files` on Windows. Found there, the step says it's installed but VSCode can't see it. On Windows, when the folder is on your PATH already, quit VSCode and open it again; when it isn't, **Do it** adds it to your own PATH (never the machine's). On a Mac, **Do it** adds Homebrew's `shellenv` line to `~/.zprofile`, then you quit VSCode and open it again. Either one asks first, and names the folder.
+
+**Check this machine** runs these steps: in the Command Palette, and `acc doctor --part machine` in a terminal. Starting a project runs it first, for the kind of project chosen. What's still to do is listed, each with its **Do it**, before the project's settings are written. Fix them, or go on anyway and come back to Setup. In a terminal, `acc init` lists them and writes nothing; `acc init --anyway` goes on.
 
 | Step | Check | On a Mac | On Windows |
 |---|---|---|---|
-| **Homebrew (on a Mac)** (`A1.brew`) | `brew --version`. Only on a Mac: Windows skips it | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`. While it's missing, the Mac lines below say to do this step first | Not needed: winget comes with Windows |
+| **Homebrew (on a Mac)** (`A1.brew`) | `brew --version`. Only on a Mac: Windows skips it | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`. While it's missing, the Mac lines below say to do this step first | Not needed |
+| **winget (on Windows)** (`A1.winget`) | `winget --version`. Only on Windows: a Mac skips it | Not needed | `Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe`. winget comes in App Installer; when that isn't installed at all, get it from the Microsoft Store |
 | **git 2.40 or later** (`A1.git`) | `git --version` | `brew install git` | `winget install --id Git.Git -e` |
+| **Git for Windows' sh (on Windows)** (`A1.sh`) | The `sh` beside git, found from `git --exec-path` | Not needed: a Mac has `/bin/sh` | `winget install --id Git.Git -e` |
 | **Node 20 or later** (`A1.node`) | `node --version` | `brew install node`. Salesforce projects only, for the Salesforce CLI. acc itself needs no Node: it runs on VSCode's own runtime | `winget install --id OpenJS.NodeJS.LTS -e` (the same) |
+| **npm** (`A1.npm`) | `npm --version` | Comes with Node. Salesforce projects only | The same |
 | **GitHub CLI** (`A1.gh`) | `gh --version` | `brew install gh` | `winget install --id GitHub.cli -e` |
 | **Claude Code CLI with background sessions** (`A1.claude`) | `claude --help` lists `--bg` | `brew install --cask claude-code`, then `claude update` | `irm https://claude.ai/install.ps1 \| iex` in PowerShell, then `claude update`. The VSCode extension ships its own copy, so the terminal CLI can fall far behind |
 | **Agents bill your Claude subscription** (`A1.claude-billing`) | See below | See below |
 | **Salesforce CLI** (`A1.sf`) | `sf --version` | Salesforce projects only. `npm install -g @salesforce/cli` |
-| **Salesforce Code Analyzer** (`A1.code-analyzer`) | `sf plugins` lists `code-analyzer` | Salesforce projects only. `sf plugins install code-analyzer` |
+| **Salesforce Code Analyzer** (`A1.code-analyzer`) | `sf plugins` lists `code-analyzer` 5.0 or later | Salesforce projects only. `sf plugins install code-analyzer` |
+| **Java 11 or later, for Code Analyzer** (`A1.java`) | `java -version` | Salesforce projects only, for Code Analyzer's PMD and CPD engines. `brew install --cask temurin` | `winget install --id EclipseAdoptium.Temurin.25.JDK -e` |
+| **Python 3.10 or later, for Code Analyzer** (`A1.python`) | `python3 --version` (`python` on Windows) | Salesforce projects only, for Code Analyzer's Flow engine. `brew install python` | The Python install manager: `winget install 9NQ7512CXL7T -e --accept-package-agreements --disable-interactivity`, then `py install --configure -y` |
 
 **Agents and billing.** Builders and reviewers run on whatever Claude Code is
 signed in with. On a Claude subscription, their work counts toward your plan. An

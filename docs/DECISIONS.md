@@ -222,3 +222,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-212](decisions/D-212-an-answer-counts-the-moment-it-is-picked.md) | An answer to the planning agent's question counts the moment it's picked, and moving between questions never sends | 2026-10-27 |
 | [D-213](decisions/D-213-you-see-the-plan-being-made-as-it-happens.md) | You see the plan being made as it happens | 2026-10-27 |
 | [D-214](decisions/D-214-the-ticket-s-own-description-comes-first.md) | The ticket's own description comes first, and each Command Center section collapses | 2026-10-27 |
+| [D-215](decisions/D-215-a-project-starts-with-the-machine-checked.md) | A project starts with this machine checked: every tool it needs, installed and on PATH, on a Mac or Windows | 2026-10-27 |
