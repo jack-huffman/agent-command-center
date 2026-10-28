@@ -198,3 +198,18 @@ test('a disabled button named in the list of reasons beside its text passes with
     assert.equal(judgeDisabled(drawn('Another button')).length, 1, 'a different button is still judged');
   } finally { delete REASON_BESIDE['Made-up button']; }
 });
+
+test('a disabled action on the plan-behind line is drawn off with its reason, and a click sends nothing (T-126; edge case: an enabled one still runs)', async () => {
+  const { planTicketLine } = await import('../webview/plan-behind.ts');
+  const why = 'Claude Code isn\'t installed on this machine';
+  const analysis = (disabled?: string) => ({ ticketRead: { read: null, behind: { look: { tone: 'orange', icon: 'comment', label: '2 new comments since this plan' }, action: { command: 'acc.task.analyze', label: 'Make a new plan', icon: 'sparkle', ...(disabled ? { disabled } : {}) } } } }) as never;
+  page.sent.length = 0;
+  const off = (planTicketLine(analysis(why)) as unknown as PageElement).all().find((x) => x.tagName === 'BUTTON')!;
+  assert.deepEqual([off.disabled, off.title, off.getAttribute('aria-description')], [true, `Make a new plan: ${why}`, why]);
+  off.click();
+  assert.equal(page.sent.length, 0, 'a disabled button sends nothing');
+  const on = (planTicketLine(analysis()) as unknown as PageElement).all().find((x) => x.tagName === 'BUTTON')!;
+  assert.equal(on.disabled, false);
+  on.click();
+  assert.equal(page.sent.length, 1);
+});

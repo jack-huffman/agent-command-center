@@ -12,7 +12,7 @@ import { makeContext } from '../src/onboarding/helpers.ts';
 import { runSteps } from '../src/onboarding/steps.ts';
 import { repoPaths } from '../src/paths.ts';
 import { draftLists, seedBranches } from '../src/setup.ts';
-import { discoverFromMyDomain, finishEnvironments, GUESSED_TYPE, listedOrgs, MY_DOMAIN, PRODUCTION_NOT_HERE, recordProduction, sandboxAliases, sfRun } from '../src/sf-discovery.ts';
+import { discoverFromMyDomain, finishEnvironments, GUESSED_TYPE, listedOrgs, MY_DOMAIN, PRODUCTION_NOT_HERE, productionIsAway, recordProduction, sandboxAliases, sfRun } from '../src/sf-discovery.ts';
 import { previewCommand } from '../src/template.ts';
 import { bad, fakeRunner, gitIn, makeRepo, ok, SF_CONFIG, sf, tempDir } from './support.ts';
 
@@ -144,7 +144,6 @@ test('acc setup branches without Production: production\'s is skipped with a rea
 test('drafting the lists without production\'s branch says who makes it when Production has no org here', () => {
   const dir = makeRepo();
   assert.throws(() => draftLists(repoPaths(dir, run), sfConfig(withProduction(null)), { run, now }), /retrieved from Production, so someone with access to Production makes it first/);
-  assert.throws(() => draftLists(repoPaths(dir, run), sfConfig(SF_CONFIG), { run, now }), /Make the branches first \(B6\)\.$/);
 });
 
 // ---------------------------------------------------------------- acc init --my-domain
@@ -260,4 +259,38 @@ test('a project set up without Production previews a template with --my-domain, 
   const record = { name: 'ACME', source: 't.json', digest: 'x' };
   assert.match(previewCommand(null, record, sfConfig(withProduction(null))), /--my-domain <my-domain> --dry-run$/);
   assert.match(previewCommand(null, record, sfConfig(SF_CONFIG)), /--production-org 'Acme Production' --dry-run$/);
+});
+
+// ---------------------------------------------------------------- T-126: one login check, one away test
+
+test('one Setup run asks sf about Production\'s login once, across every step that reads it (T-126)', () => {
+  for (const production of [NOT_LOGGED_IN, sf({ instanceUrl: 'https://acme.my.salesforce.com' })]) {
+    const fake = fakeRunner(orgs(production));
+    const asked: string[] = [];
+    const counting = ((cmd: string, args: string[], opts?: RunOptions) => {
+      if (cmd === 'sf' && args.join(' ').startsWith('org display -o Acme Production')) asked.push(args.join(' '));
+      return fake(cmd, args, opts);
+    }) as typeof run;
+    const ctx = makeContext(joined(SF_CONFIG, ['uat', 'dev']), counting, { ...process.env, GIT_CONFIG_NOSYSTEM: '1' });
+    const ran = runSteps(ctx, 'project', ['B1.orgs', 'B6.branches', 'B6.org-match', 'B9.lists']);
+    assert.equal(ran.length, 4, 'all four steps ran');
+    assert.equal(asked.length, 1, `asked ${asked.length} times`);
+  }
+});
+
+test('the shared away test: no Production, no org, an org not logged in, and one logged in (edge case: no Production at all)', () => {
+  assert.equal(productionIsAway(undefined, () => 1), false);
+  assert.equal(productionIsAway({ org: null }, () => { throw new Error('asked sf with no org'); }), true);
+  assert.equal(productionIsAway({ org: 'Acme Production' }, () => 1), true);
+  assert.equal(productionIsAway({ org: 'Acme Production' }, () => 0), false);
+});
+
+test('drafting the lists says someone with access makes the branch when Production is not logged in here, and the old words when it is (edge case: an alias not logged in)', () => {
+  const dir = makeRepo();
+  const away = fakeRunner({ ...orgs(NOT_LOGGED_IN) });
+  const wrapped = ((cmd: string, args: string[], opts?: RunOptions) => (cmd === 'sf' ? away(cmd, args, opts) : run(cmd, args, opts))) as typeof run;
+  assert.throws(() => draftLists(repoPaths(dir, run), sfConfig(SF_CONFIG), { run: wrapped, now }), /someone with access to Production makes it first/);
+  const here = fakeRunner(orgs(sf({ instanceUrl: 'https://acme.my.salesforce.com' })));
+  const wrappedHere = ((cmd: string, args: string[], opts?: RunOptions) => (cmd === 'sf' ? here(cmd, args, opts) : run(cmd, args, opts))) as typeof run;
+  assert.throws(() => draftLists(repoPaths(dir, run), sfConfig(SF_CONFIG), { run: wrappedHere, now }), /Make the branches first \(B6\)\.$/);
 });

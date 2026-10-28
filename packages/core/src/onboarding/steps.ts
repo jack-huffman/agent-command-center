@@ -13,7 +13,7 @@ import { readmePlaces } from '../setup.ts';
 import { DATA_EXT } from '../stray-files.ts';
 import { parseSource } from '../source.ts';
 import { NO_TRACKING_REASON, usesSourceTracking } from '../source-tracking.ts';
-import { PRODUCTION_NOT_HERE } from '../sf-discovery.ts';
+import { PRODUCTION_NOT_HERE, productionIsAway } from '../sf-discovery.ts';
 import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
 import {
@@ -104,8 +104,8 @@ const devEnvs = (ctx: CheckContext): Environment[] =>
  */
 const productionAway = (ctx: CheckContext): Environment | null => {
   const prod = ctx.config?.environments.find((e) => e.type === 'production');
-  if (!prod) return null;
-  return !prod.org || sfJson(ctx, ['org', 'display', '-o', prod.org]).status !== 0 ? prod : null;
+  // sfJson keeps the answer for the whole run, so every step asks sf about Production's login once (T-126).
+  return productionIsAway(prod, (org) => sfJson(ctx, ['org', 'display', '-o', org]).status) ? prod! : null;
 };
 
 /** Whether an environment's branch is here, as a local branch or origin's. */
