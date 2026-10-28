@@ -77,7 +77,7 @@ type Fake = { check?: 'pass' | 'fail'; deploy?: 'pass' | 'fail'; prodUrl?: boole
 
 /** Salesforce's CLI and gh, faked; git is real. Each sf and gh call is kept. The merge moves origin's branch as GitHub would. */
 function fake(origin: string, calls: string[], f: Fake = {}) {
-  const sfJson = (o: unknown): RunResult => ok(JSON.stringify(o));
+  const sfSays = (o: unknown): RunResult => ok(JSON.stringify(o));
   let head = '';
   let base = '';
   return (cmd: string, args: string[], opts?: RunOptions): RunResult => {
@@ -86,19 +86,19 @@ function fake(origin: string, calls: string[], f: Fake = {}) {
     const sub = args.slice(0, 3).join(' ');
     const flag = (name: string) => args.flatMap((a, i) => (a === name ? [args[i + 1]!] : []));
     if (cmd === 'sf') {
-      if (sub === 'org display --target-org') return sfJson({ status: 0, result: { username: `${args[3]!.replace(/\s/g, '.')}@acme.test`, id: '00D1', instanceUrl: f.prodUrl ? 'https://acme.my.salesforce.com' : 'https://acme--uat.sandbox.my.salesforce.com' } });
+      if (sub === 'org display --target-org') return sfSays({ status: 0, result: { username: `${args[3]!.replace(/\s/g, '.')}@acme.test`, id: '00D1', instanceUrl: f.prodUrl ? 'https://acme.my.salesforce.com' : 'https://acme--uat.sandbox.my.salesforce.com' } });
       if (sub === 'project generate manifest') {
         const types = new Map<string, string[]>();
         for (const p of flag('--source-dir')) { const c = sfComponent(p)!; types.set(c.type, [...new Set([...(types.get(c.type) ?? []), c.name])]); }
         const file = join(flag('--output-dir')[0]!, 'package.xml');
         mkdirSync(dirname(file), { recursive: true });
         writeFileSync(file, manifestXml([...types].map(([name, members]) => ({ name, members })), '62.0'));
-        return sfJson({ status: 0, result: { path: file } });
+        return sfSays({ status: 0, result: { path: file } });
       }
       const checking = args.includes('--dry-run');
       const outcome = checking ? f.check ?? 'pass' : f.deploy ?? 'pass';
       if (outcome === 'fail') return { code: 1, stderr: '', stdout: JSON.stringify({ status: 1, result: { id: checking ? '0AfCHECK' : '0AfDEPLOY', success: false, details: { componentFailures: { fullName: 'Invoice', problem: 'Invalid type: Foo' } } } }) };
-      return sfJson({ status: 0, result: { id: checking ? '0AfCHECK' : '0AfDEPLOY', success: true, numberComponentsTotal: 1, numberTestsCompleted: 3 } });
+      return sfSays({ status: 0, result: { id: checking ? '0AfCHECK' : '0AfDEPLOY', success: true, numberComponentsTotal: 1, numberTestsCompleted: 3 } });
     }
     if (cmd === 'gh') {
       if (sub.startsWith('auth token')) return ok('gho\n');
