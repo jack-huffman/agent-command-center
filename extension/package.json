@@ -668,6 +668,12 @@
         "icon": "$(trash)"
       },
       {
+        "command": "acc.task.deploy",
+        "title": "Deploy a Ticket to Its Next Environment…",
+        "category": "Agent Command Center",
+        "icon": "$(cloud-upload)"
+      },
+      {
         "command": "acc.tidy.draft",
         "title": "Draft a tidy-up…",
         "category": "Agent Command Center",
@@ -944,6 +950,10 @@
         },
         {
           "command": "acc.env.deploy",
+          "when": "false"
+        },
+        {
+          "command": "acc.task.deploy",
           "when": "false"
         },
         {

@@ -22,9 +22,9 @@ export interface SidebarHelpers {
   run?: (command: string, cwd: string, label: string, onExit?: (code: number | null) => void, ok?: (code: number | null) => boolean, review?: StartOptions['review']) => void;
   /**
    * Runs acc with --json in the page's output panel, where its steps show (T-65), and gives back its answer
-   * once it ends: its exit code and what it printed to stdout.
+   * once it ends: its exit code and what it printed to stdout. `onSteps` hears its steps as they change (T-138).
    */
-  runAccShown?: (args: string[], cwd: string, label: string) => Promise<{ code: number; stdout: string; stderr: string }>;
+  runAccShown?: (args: string[], cwd: string, label: string, onSteps?: StartOptions['onSteps']) => Promise<{ code: number; stdout: string; stderr: string }>;
   /** Opens a session's activity page. A session that has ended needs the hint to find its transcript. */
   watch?: (key: string, ended?: AgentSession, active?: () => boolean) => boolean;
   /** How a shell runs the bundled acc, for commands run in the page. */

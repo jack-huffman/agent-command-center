@@ -74,6 +74,7 @@ import { sampleProgressPanel, sampleProgressTicket } from './fixtures/plan-progr
 import { LONG_STATE, QUESTIONS_STATE, REVIEW_STATE, sampleConversation, sampleConversationLong, sampleConversationQuestions, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
 import { type ChangesSample, sampleChangesTicket } from './fixtures/changes.ts';
 import { RECORDS_FORM_STATE, sampleRecordsTicket } from './fixtures/record-changes.ts';
+import { type DeploySample, sampleDeployTicket } from './fixtures/ticket-deploy.ts';
 import { sampleFieldTicket } from './fixtures/changes-field.ts';
 import { sampleTeamTicket } from './fixtures/team.ts';
 import { sampleManifest } from './fixtures/manifest.ts';
@@ -134,13 +135,24 @@ export const OUTPUT_RUNS: Partial<Record<Page, RunSample>> = { 'output-running':
 /** The output panel's pages of a run of acc as a list of steps (T-65), by the run each shows. */
 export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-running': 'steps-running', 'output-steps-failed': 'steps-failed', 'output-steps-done': 'steps-done' };
 
+/** The Changes tab's deploy shots (T-138), each named for the sample it draws. */
+const DEPLOY_SHOTS = ['ticket-deploy-before', 'ticket-deploy-work', 'ticket-deploy-deployed', 'ticket-deploy-steps', 'ticket-deploy-checking', 'ticket-deploy-passed', 'ticket-deploy-failed', 'ticket-deploy-typed', 'ticket-deploy-done'] as const;
+
+/**
+ * The shots of a part that moved under the Changes tab's More (T-138), with More open, by the ticket each draws.
+ */
+const MORE_OPEN: Partial<Record<Page, string>> = {
+  'ticket-records': 'ACME-20', 'ticket-records-form': 'ACME-20', 'ticket-records-promoted': 'ACME-20', 'ticket-manifest': 'ACME-19',
+  'ticket-changes-field': 'ACME-12', 'ticket-team': 'ACME-12', 'ticket-team-alone': 'ACME-12',
+};
+
 /**
  * Each task page's shot opens on the tab that shows what it was made to show (T-134), as a link naming it would:
  * the rest open by the page's own rules.
  */
 export const SHOT_TAB: Partial<Record<Page, 'ticket' | 'plan' | 'changes' | 'review' | 'verify'>> = {
   ...Object.fromEntries((['ticket-plan-approved', 'ticket-plan-shapes', 'ticket-plan-short', 'ticket-plan-choices', 'ticket-review-choice', 'ticket-review-question', 'ticket-review-answered', 'ticket-review-summary', 'ticket-talk', 'ticket-conversation', 'ticket-progress', 'ticket-note', 'ticket-sections', 'ticket-sections-collapsed', 'ticket-criteria-sheet', 'ticket-tab-plan'] as Page[]).map((k) => [k, 'plan'])),
-  ...Object.fromEntries((['ticket-planned', 'ticket-changes', 'ticket-kept', 'ticket-records', 'ticket-records-form', 'ticket-records-promoted', 'ticket-manifest', 'ticket-changes-field', 'ticket-team', 'ticket-team-alone', 'ticket-tab-changes'] as Page[]).map((k) => [k, 'changes'])),
+  ...Object.fromEntries((['ticket-planned', 'ticket-changes', 'ticket-kept', 'ticket-records', 'ticket-records-form', 'ticket-records-promoted', 'ticket-manifest', 'ticket-changes-field', 'ticket-team', 'ticket-team-alone', 'ticket-tab-changes', ...DEPLOY_SHOTS] as Page[]).map((k) => [k, 'changes'])),
   ...Object.fromEntries((['ticket-verify-pass', 'ticket-verify-changes', 'ticket-verify-choice', 'ticket-tab-verify'] as Page[]).map((k) => [k, 'verify'])),
   ...Object.fromEntries((['ticket-tab-review', 'ticket-tab-review-findings', 'ticket-tab-review-passed'] as Page[]).map((k) => [k, 'review'])),
   'ticket-tab-ticket': 'ticket',
@@ -223,6 +235,8 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // A ticket's Planned changes, then Changes (T-99): ACME-35's plan, ACME-12's work with a change outside its plan, and ACME-20's kept after its merge.
   if (kind === 'ticket-planned' || kind === 'ticket-changes' || kind === 'ticket-kept') return sampleChangesTicket(now, kind.slice('ticket-'.length) as ChangesSample);
   // ACME-20's record changes (T-100): planned and recorded, the form for a change made by hand, and promoted to UAT with a step to run.
+  // ACME-12's Changes tab with its deploy, and the sheet over it (T-138).
+  if ((DEPLOY_SHOTS as readonly Page[]).includes(kind)) return sampleDeployTicket(now, kind.slice('ticket-deploy-'.length) as DeploySample);
   if (kind === 'ticket-records') return sampleRecordsTicket(now, 'kept');
   if (kind === 'ticket-records-form') return sampleRecordsTicket(now, 'form');
   if (kind === 'ticket-records-promoted') return sampleRecordsTicket(now, 'promoted');
@@ -380,7 +394,12 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   // A project's several boards (T-127): switched to another board, the list open, filtered by a site, and All boards with one opened.
   : BOARD_SHOTS[kind] ? BOARD_SHOTS[kind]
   // Add a change made by hand (T-100), opened and half-filled, and a step's Skip open, as the tab's memory keeps them.
-  : kind === 'ticket-records-form' ? RECORDS_FORM_STATE
+  : kind === 'ticket-records-form' ? { ...RECORDS_FORM_STATE, opened: [`chg-more:${ROOT}#ACME-20`] }
+  // ACME-12's Changes tab (T-138): in review, what's apart from the plan opened; deployed once, its other next steps' menu open.
+  : kind === 'ticket-deploy-work' ? { opened: [`chg-apart:${ROOT}#ACME-12`] }
+  : kind === 'ticket-deploy-deployed' ? { opened: [`chg-others:${ROOT}#ACME-12`] }
+  // A part that moved under the Changes tab's More (T-138), with More open.
+  : MORE_OPEN[kind] ? { opened: [`chg-more:${ROOT}#${MORE_OPEN[kind]}`] }
   // ACME-21's plan, criteria and Verify collapsed to their header lines (T-132).
   : kind === 'ticket-sections-collapsed' ? { folded: SECTIONS_COLLAPSED }
   // ACME-21's plan (T-97): its second choice's own option open, with More open for its wording (T-136). Choices and
@@ -708,7 +727,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), passed: sampleModel('ticket-deploy-passed', now, 'dark'), failed: sampleModel('ticket-deploy-failed', now, 'dark'), typed: sampleModel('ticket-deploy-typed', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

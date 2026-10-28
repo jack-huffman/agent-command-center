@@ -1592,6 +1592,15 @@ The extension handles every workspace folder that has `.acc/config.json`.
   bell. The notices that need the person stay above the tabs, and Details and
   the Agent panel beside them. A page opens on a link's tab, else one that
   needs the person, else the tab last on show for that ticket, else Ticket.
+- **Changes leads with where it is and Deploy** (T-138): the ticket's path in
+  one line, and on a Salesforce task, Deploy to its next environment, which opens
+  a sheet that checks first and deploys only on the person's own click (a
+  protected org's name typed first). It's off, with why, while the ticket's own
+  checks fail or it conflicts with its environment. Then what changed: one list
+  by type with a count, deletions marked in words, record changes in a short
+  list after it. The steps left to do
+  by hand follow, with Mark done and Skip. The manifest, the tracker's changes
+  field, record changes by hand and the team wait under one closed More.
 - **A card's click opens its page over the board** (D-129), in a modal drawn by
   the same renderer from the same model, whose controls work as the tab's. Its
   **Open as tab** opens the page in a tab of its own, as a click did before;

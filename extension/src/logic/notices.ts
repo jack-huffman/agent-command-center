@@ -48,6 +48,8 @@ export interface TaskNotice {
   actions?: [label: string, command: string][];
   /** The autopilot step it tells, for an autopilot notice: Slack keys and words it from this (GH-58). */
   step?: AutopilotRecord;
+  /** What sent it back, for a rework notice (T-138): its checks on GitHub, not a review. */
+  cause?: 'checks';
 }
 
 /**
@@ -69,7 +71,7 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     const moved = p.state !== t.state;
     if (moved && p.state === 'running' && t.state === 'review') say('review', `${t.id} is ready for review: ${t.title}`, false);
     // Autopilot sent it back for its failing checks (D-076), or a review asked for changes.
-    else if (moved && t.state === 'rework' && t.checks?.length) say('rework', `Checks failed on GitHub for ${t.id}: ${t.checks.join(', ')}. It went back to its builder.`, true);
+    else if (moved && t.state === 'rework' && t.checks?.length) out.push({ kind: 'rework', task: t.id, text: `Checks failed on GitHub for ${t.id}: ${t.checks.join(', ')}. It went back to its builder.`, urgent: true, cause: 'checks' });
     else if (moved && t.state === 'rework') say('rework', `The review asked for changes on ${t.id}${t.review?.summary ? `: ${t.review.summary}` : '.'}`, true);
     else if (moved && t.state === 'blocked') say('blocked', `${t.id} is blocked: ${t.title}`, true);
     // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
@@ -122,9 +124,12 @@ export function noticeActions(n: TaskNotice): [label: string, command: string][]
   return [...(a ? [a] : []), ['Show', 'acc.task.show']];
 }
 
-/** A plan's notice opens its task's page on Plan (T-134); a notice of a review, ready or sent back, opens it on Review (T-135). */
-export const noticePart = (n: Pick<TaskNotice, 'kind'>): { part?: string } =>
-  n.kind.startsWith('analysis-') ? { part: 'plan' } : n.kind === 'review' || n.kind === 'rework' ? { part: 'review' } : {};
+/**
+ * A plan's notice opens its task's page on Plan (T-134); a notice of a review, ready or sent back, opens it on
+ * Review (T-135). Work sent back for its checks on GitHub is no review's (T-138): it names no part.
+ */
+export const noticePart = (n: Pick<TaskNotice, 'kind' | 'cause'>): { part?: string } =>
+  n.kind.startsWith('analysis-') ? { part: 'plan' } : (n.kind === 'review' || n.kind === 'rework') && n.cause !== 'checks' ? { part: 'review' } : {};
 
 // ---------------------------------------------------------------- a burst said as one (D-162)
 

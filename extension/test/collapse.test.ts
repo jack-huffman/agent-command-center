@@ -26,7 +26,7 @@ const { el } = await import('../webview/dom.ts');
 
 const NOW = Date.now();
 /** The Command Center's sections, by the tab that holds them, in the order each tab draws them. */
-const IN_TAB: Record<string, string[]> = { plan: ['plan', 'criteria', 'notes', 'note'], changes: ['changes', 'field', 'records', 'manifest', 'team'], verify: ['verify'] };
+const IN_TAB: Record<string, string[]> = { plan: ['plan', 'criteria', 'notes', 'note'], changes: ['block dp', 'block chg', 'block chg chg-records', 'block chg dp-left', 'chg-more'], verify: ['verify'] };
 
 const elements = (e: PageElement): PageElement[] => e.children.filter((c): c is PageElement => typeof c !== 'string');
 function drawn(m: TicketModel): { top: PageElement | null; main: PageElement; side: PageElement; all: PageElement[] } {
@@ -182,12 +182,12 @@ test('collapsed, a section keeps its header line: the name, its state chip, and 
   assert.equal(sum.title, sum.textContent);
 });
 
-test('edge case: a section with nothing to sum up keeps its name and state, with no summary', () => {
+test('edge case: the Changes tab has nothing to sum up: its parts fold under one More, with no section toggles or summaries (T-138)', () => {
   saved = undefined;
   const { main } = drawn(sampleTeamTicket(NOW, 'shared'));
-  const team = sectionOf(main, 'team');
-  assert.equal(toggleOf(team).textContent, 'Team');
-  assert.equal(team.all('sec-sum').length, 0);
+  const changes = panelOf(main, 'changes')!;
+  assert.deepEqual(changes.all('chg-more-btn').map((b) => b.textContent), ['More'], 'the team waits under More');
+  assert.equal(changes.all('sec-sum').length + changes.all('sec-toggle').length, 0);
 });
 
 test('the summaries: a count of criteria, the first line of some words, and none for nothing', () => {

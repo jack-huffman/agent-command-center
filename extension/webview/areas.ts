@@ -6,6 +6,7 @@ import { area as boardNav } from './board-nav.ts';
 import { area as connect } from './connect.ts';
 import { area as conversation } from './conversation.ts';
 import { area as criteria } from './criteria.ts';
+import { area as deploySheet } from './deploy-sheet.ts';
 import { area as detail } from './detail.ts';
 import { area as dispatchSheet } from './dispatch-sheet.ts';
 import { area as dock } from './dock.ts';
@@ -33,4 +34,4 @@ import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [agentPage, agents, boardNav, connect, conversation, criteria, detail, dispatchSheet, dock, environments, history, manifest, overview, palette, planProgress, plan, questions, recordChanges, report, reviewPlan, rules, settings, setup, talk, taskModal, taskPage, taskSheet, tasks, theme, updates, verify, worktrees];
+export const AREAS = [agentPage, agents, boardNav, connect, conversation, criteria, deploySheet, detail, dispatchSheet, dock, environments, history, manifest, overview, palette, planProgress, plan, questions, recordChanges, report, reviewPlan, rules, settings, setup, talk, taskModal, taskPage, taskSheet, tasks, theme, updates, verify, worktrees];

@@ -3,10 +3,12 @@
  * (D-003). A change of a kind nobody registered still shows, by its kind, with no script.
  */
 import type { OutsideKind } from './outside-changes.ts';
+import { DELETION_KIND } from './deletion-kind.ts';
 import { RECORD_KIND } from './records.ts';
 
 export const OUTSIDE_KINDS: Readonly<Record<string, OutsideKind<any>>> = {
   record: RECORD_KIND,
+  deletion: DELETION_KIND,
 };
 
 /** The kind a change names, or null for one nobody registered. */

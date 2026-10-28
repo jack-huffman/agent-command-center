@@ -39,6 +39,7 @@ import type { TicketChanges } from './changes.ts';
 import type { TicketRecords } from './record-changes.ts';
 import type { TicketTeam } from './team.ts';
 import type { TicketField } from './changes-field.ts';
+import type { TicketDeploy } from './ticket-deploy.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -212,6 +213,8 @@ export interface TicketModel {
   team?: TicketTeam | null;
   /** Its record changes (T-100), on a Salesforce task: planned, recorded and stepped at promotion. */
   records?: TicketRecords | null;
+  /** Its deploy (T-138): the path line, Deploy to its next environment, and the sheet. Null outside Salesforce. */
+  deploy?: TicketDeploy | null;
   /** What the ticket's changes field says (T-105), and the Command Center's draft where it differs. */
   field?: TicketField | null;
   /** Manifest for this ticket (T-101): a Salesforce task's package.xml and what its org said. Null with no task, or outside Salesforce. */

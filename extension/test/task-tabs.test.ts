@@ -63,16 +63,16 @@ test('edge case: a tab with nothing in it is hidden, never drawn empty; Ticket a
   assert.deepEqual(ids({ ...all, analysis: null }), ['ticket', 'plan', 'changes', 'review', 'verify'], 'the criteria keep Plan');
   assert.deepEqual(ids({ ...all, analysis: null, criteria: null, talk: null, acc: { ...all.acc!, notes: null, note: null, noteMissing: null } }), ['ticket', 'changes', 'review', 'verify']);
   // Each Changes part alone keeps Changes.
-  const bare: TicketModel = { ...all, changes: null, team: null, field: null, records: null, manifest: null };
+  const bare: TicketModel = { ...all, changes: null, team: null, field: null, records: null, manifest: null, deploy: null };
   assert.ok(!ids(bare).includes('changes'));
   assert.ok(!ids({ ...all, review: null }).includes('review'), 'no review, no Review tab');
   let checked = 0;
-  for (const part of ['changes', 'team', 'field', 'records', 'manifest'] as const) {
-    const with1 = { ...bare, [part]: { look: { label: 'x', icon: 'pass', tone: 'blue' }, changed: [], counts: null } } as unknown as TicketModel;
+  for (const part of ['changes', 'team', 'field', 'records', 'manifest', 'deploy'] as const) {
+    const with1 = { ...bare, [part]: { look: { label: 'x', icon: 'pass', tone: 'blue' }, changed: [], counts: null, list: { count: 0 }, promotions: [], needs: null } } as unknown as TicketModel;
     assert.ok(ids(with1).includes('changes'), part);
     checked++;
   }
-  assert.equal(checked, 5);
+  assert.equal(checked, 6);
   // ACME-31, not in the person's work: only Ticket, and the page draws one tab and one panel.
   const lone = sampleTicket(NOW, 'ACME-31');
   assert.deepEqual(ids(lone), ['ticket']);
@@ -85,13 +85,13 @@ test('a tab says how many things it holds where that helps: Ticket its comments,
   const m = sampleTabsTicket(NOW);
   const tab = (id: string, x = m): TaskTab => taskTabs(x).find((t) => t.id === id)!;
   assert.equal(tab('ticket').count, `${m.comments.length} comments`);
-  assert.equal(tab('changes').count, String(m.changes!.counts?.changed));
+  assert.equal(tab('changes').count, String(m.changes!.list.count), 'the one list\'s count (T-138)');
   assert.equal(tab('plan').count, null);
   // Edge: one comment is "1 comment"; none says nothing.
   assert.equal(tab('ticket', { ...m, comments: m.comments.slice(0, 1) }).count, '1 comment');
   assert.equal(tab('ticket', { ...m, comments: [] }).count, null);
   // Before there's work, Changes counts its planned files.
-  const planned = { ...m.changes!, counts: null, changed: [{ id: 'g', title: 'g', sets: [{ head: 'a', items: [{}, {}] }, { head: 'b', items: [{}] }] }] } as unknown as TicketModel['changes'];
+  const planned = { ...m.changes!, counts: null, changed: [], list: { ...m.changes!.list, title: 'Metadata planned', count: 3 } } as unknown as TicketModel['changes'];
   assert.equal(tab('changes', { ...m, changes: planned }).count, '3');
   assert.equal(tabName(tab('ticket')), `Ticket, ${m.comments.length} comments: needs you`);
 });
@@ -321,6 +321,8 @@ test('Needs you, a card and a notification name the plan: each opens the page on
   assert.deepEqual(noticePart({ kind: 'stopped' }), {});
   // A review's notices, ready or sent back, open Review.
   for (const kind of ['review', 'rework'] as const) assert.deepEqual(noticePart({ kind }), { part: 'review' }, kind);
+  // Edge (T-138): work sent back for its checks on GitHub is no review's, so its notice opens no Review tab.
+  assert.deepEqual(noticePart({ kind: 'rework', cause: 'checks' }), {});
   const said = noticeBurst([{ root: ROOT, notice: { kind: 'analysis-questions', task: 'ACME-21', text: 'x', urgent: true } as never }]);
   assert.equal(said[0]!.task?.part, 'plan');
   // The modal's open takes a part only in the form a link names one.

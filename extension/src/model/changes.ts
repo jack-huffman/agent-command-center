@@ -11,6 +11,7 @@ import { type ChangeMark, type ChangeRow, planAgainst } from '../../../packages/
 import { changePlace } from '../../../packages/core/src/changes-field.ts';
 import type { Profile } from '../../../packages/core/src/config.ts';
 import { latestDeploys, type TaskDeploy, testsWords } from '../../../packages/core/src/deploy-gate.ts';
+import { type DeletedComponent, DELETION_KIND } from '../../../packages/core/src/deletion-kind.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import type { Look } from './shared.ts';
@@ -50,6 +51,8 @@ export interface ChangeItem {
   name: string;
   paths: string[];
   look: Look | null;
+  /** Every path it stands for is deleted by the ticket (T-138): the page marks it with an icon and the word. */
+  deleted?: boolean;
 }
 
 /** The items of one type, or one folder. */
@@ -65,8 +68,23 @@ export interface ChangeGroup {
   sets: ChangeSet[];
 }
 
+/**
+ * The Changes tab's one list (T-138): what the ticket changed once there's work, else what its plan names, by
+ * type with a count. Planned but not made, and made but not planned, are kept apart, behind a quiet line.
+ */
+export interface ChangeList {
+  /** "Metadata changed", or "Metadata planned" before there's work; "Files …" outside Salesforce. */
+  title: string;
+  count: number;
+  sets: ChangeSet[];
+  /** "2 planned, not made · 1 made, not planned", and those items with their marks; null when there are none. */
+  apart: { label: string; sets: ChangeSet[] } | null;
+}
+
 export interface TicketChanges {
   task: string;
+  /** The tab's one list (T-138). */
+  list: ChangeList;
   /** Planned changes before there's work, Changes once there is. */
   title: 'Planned changes' | 'Changes';
   /** "Planned: 6 · Changed: 8", as items: only once there's work. Planned is null with no plan. */
@@ -82,19 +100,21 @@ export interface TicketChanges {
 }
 
 export interface ChangesIn {
-  task: Pick<Task, 'id' | 'state' | 'changes' | 'deploys'>;
+  task: Pick<Task, 'id' | 'state' | 'changes' | 'deploys'> & Partial<Pick<Task, 'outside'>>;
   profile: Profile;
   /** The plan's paths (plannedFiles); null with no plan, or one that names none. */
   planned: string[] | null;
   /** What its branch has changed so far (branchFiles), read while it's in flight; null when it wasn't read. */
   live: string[] | null;
+  /** Of what it changed, the paths it deletes (T-138); left out when they weren't read. */
+  deleted?: string[];
 }
 
 /** The order marks win in, when one component stands for paths marked differently: in the plan first. */
 const RANK: ChangeMark[] = ['planned', 'changed', 'unplanned', 'unmade'];
 
 /** Rows grouped by type or folder, each item once with its paths and its best mark; the catch-all set last. */
-export function changeSets(rows: ChangeRow[], profile: Profile): ChangeSet[] {
+export function changeSets(rows: ChangeRow[], profile: Profile, deleted: readonly string[] = []): ChangeSet[] {
   const sets = new Map<string, { other: boolean; items: Map<string, { paths: string[]; mark: ChangeMark }> }>();
   for (const r of rows) {
     const p = changePlace(r.path, profile);
@@ -110,15 +130,46 @@ export function changeSets(rows: ChangeRow[], profile: Profile): ChangeSet[] {
     .sort(([a, x], [b, y]) => Number(x.other) - Number(y.other) || a.localeCompare(b))
     .map(([head, s]) => ({
       head,
-      items: [...s.items.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, i]) => ({ name, paths: i.paths.sort(), look: i.mark === 'unplanned' || i.mark === 'unmade' ? CHANGE_LOOK[i.mark] : null })),
+      items: [...s.items.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, i]) => ({
+        name, paths: i.paths.sort(), look: i.mark === 'unplanned' || i.mark === 'unmade' ? CHANGE_LOOK[i.mark] : null,
+        ...(deleted.length && i.paths.every((p) => deleted.includes(p)) ? { deleted: true } : {}),
+      })),
     }));
 }
 
 /** The files group, named for what a person reads in it. */
-const filesGroup = (rows: ChangeRow[], profile: Profile): ChangeGroup[] =>
-  rows.length ? [{ id: 'files', title: profile === 'salesforce' ? 'Metadata' : 'Files', sets: changeSets(rows, profile) }] : [];
+const filesGroup = (rows: ChangeRow[], profile: Profile, deleted: readonly string[] = []): ChangeGroup[] =>
+  rows.length ? [{ id: 'files', title: profile === 'salesforce' ? 'Metadata' : 'Files', sets: changeSets(rows, profile, deleted) }] : [];
+
+/** Sets of only the items `keep` keeps, each without its mark where `plain`; a set left empty goes. */
+const only = (sets: ChangeSet[], keep: (i: ChangeItem) => boolean, plain: boolean): ChangeSet[] =>
+  sets.map((s) => ({ head: s.head, items: s.items.filter(keep).map((i) => (plain ? { ...i, look: null } : i)) })).filter((s) => s.items.length);
+
+const count = (sets: ChangeSet[]): number => sets.reduce((n, s) => n + s.items.length, 0);
+
+/**
+ * The tab's one list (T-138): with work, each component made, unmarked, by type; before, the plan's. What was
+ * planned and not made, and made and not planned, wait behind one quiet line that says how many.
+ */
+function changeList(profile: Profile, planned: ChangeGroup[], changed: ChangeGroup[] | null): ChangeList {
+  const what = profile === 'salesforce' ? 'Metadata' : 'Files';
+  if (!changed) {
+    const sets = planned.flatMap((g) => g.sets);
+    return { title: `${what} planned`, count: count(sets), sets, apart: null };
+  }
+  const all = changed.flatMap((g) => g.sets);
+  const sets = only(all, (i) => i.look !== CHANGE_LOOK.unmade, true);
+  const unmade = count(only(all, (i) => i.look === CHANGE_LOOK.unmade, false));
+  const unplanned = count(only(all, (i) => i.look === CHANGE_LOOK.unplanned, false));
+  const label = [unmade ? `${unmade} planned, not made` : null, unplanned ? `${unplanned} made, not planned` : null].filter(Boolean).join(' · ');
+  return { title: `${what} changed`, count: count(sets), sets, apart: label ? { label, sets: only(all, (i) => !!i.look, false) } : null };
+}
 
 const items = (groups: ChangeGroup[]): number => groups.reduce((n, g) => n + g.sets.reduce((m, s) => m + s.items.length, 0), 0);
+
+/** The paths a ticket's deploy kept as deletions to make by hand (T-138): how a merged task's list knows what it deleted. */
+const keptDeletions = (t: Partial<Pick<Task, 'outside'>>): string[] =>
+  (t.outside?.changes ?? []).flatMap((c) => (c.kind === DELETION_KIND.kind ? [(c.detail as DeletedComponent).path] : []));
 
 /** What the section lists as changed: once it's done, what acc kept; in flight, its branch's paths, else what acc kept at its land. Null for none. */
 function changedNow(i: ChangesIn): { live: string[] | null; kept: Task['changes'] | null; changed: string[] | null } {
@@ -141,11 +192,11 @@ export function ticketChanges(i: ChangesIn): TicketChanges | null {
   const planned = filesGroup((i.planned ?? []).map((path) => ({ path, mark: 'planned' })), i.profile);
   const base = { task: i.task.id, keptAt: !live && kept ? kept.at : null, planned, deployed: ticketDeploys(i.task.deploys) };
   if (!changed) {
-    if (done) return { ...base, title: 'Changes', counts: null, changed: [], note: `It merged before changes were kept with a task, so there's no record of what it changed.${planned.length ? ' Its plan named these.' : ''}` };
-    return planned.length ? { ...base, title: 'Planned changes', counts: null, changed: [], note: null } : null;
+    if (done) return { ...base, list: changeList(i.profile, planned, []), title: 'Changes', counts: null, changed: [], note: `It merged before changes were kept with a task, so there's no record of what it changed.${planned.length ? ' Its plan named these.' : ''}` };
+    return planned.length ? { ...base, list: changeList(i.profile, planned, null), title: 'Planned changes', counts: null, changed: [], note: null } : null;
   }
   const rows = planAgainst(i.planned, changed);
-  const groups = filesGroup(rows, i.profile);
+  const groups = filesGroup(rows, i.profile, i.deleted ?? keptDeletions(i.task));
   const made = filesGroup(rows.filter((r) => r.mark !== 'unmade'), i.profile);
-  return { ...base, title: 'Changes', counts: { planned: planned.length ? items(planned) : null, changed: items(made) }, changed: groups, note: null };
+  return { ...base, list: changeList(i.profile, planned, groups), title: 'Changes', counts: { planned: planned.length ? items(planned) : null, changed: items(made) }, changed: groups, note: null };
 }

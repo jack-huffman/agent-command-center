@@ -6,7 +6,7 @@ import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { renderAnalysis } from './analysis.ts';
 import { renderCriteria } from './criteria.ts';
 import { renderVerify } from './verify.ts';
-import { renderChanges } from './changes.ts';
+import { renderChangesTab } from './changes.ts';
 import { renderTeam } from './team.ts';
 import { renderRecords } from './record-changes.ts';
 import { renderField } from './changes-field.ts';
@@ -212,16 +212,15 @@ export function renderTicket(m: TicketModel): Node[] {
   // What a person wrote for its builder (T-74), which a tracker's intake never changes.
   if (m.acc?.notes) add(plan, el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)), 'notes');
   add(plan, renderNote(m), 'note');
-  // Its Planned changes, then Changes (T-99), apart from its plan.
-  if (m.changes) add(changes, renderChanges(m, m.changes), 'changes');
-  // What the ticket's changes field says (T-105), beside what the Command Center found.
-  if (m.field) add(changes, renderField(m.field), 'field');
-  // Its record changes (T-100): what it changes in an org that git never sees.
-  if (m.records) add(changes, renderRecords(m, m.records), 'records');
-  // Manifest for this ticket (T-101): a Salesforce ticket's package.xml, in a section of its own.
-  if (m.manifest) add(changes, renderManifest(m, m.manifest), 'manifest');
-  // Its team (T-103): the tasks it shares files with, and whether it took in the latest merges.
-  if (m.team) add(changes, renderTeam(m.team), 'team');
+  // Changes (T-138): what changed, where it is and Deploy, the steps left; the rest under one closed More,
+  // each part as before: the manifest (T-101), the tracker's field (T-105), record changes by hand (T-100) and the team (T-103).
+  const more = [
+    m.manifest ? renderManifest(m, m.manifest) : null,
+    m.field ? renderField(m.field) : null,
+    m.records ? renderRecords(m, m.records, true) : null,
+    m.team ? renderTeam(m.team) : null,
+  ].filter((x): x is HTMLElement => !!x);
+  changes.push(...renderChangesTab(m, more));
   // Its review's findings (T-53), in a tab of their own (T-135).
   if (m.review) review.push(renderReview(m.review));
   // Verify the developer's work (T-84).
