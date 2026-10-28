@@ -217,6 +217,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
   // The Agent panel (T-142): ACME-12 blocked, and blocked while its builder's session still works; with Details, and More actions, open.
   if (kind === 'ticket-agent-blocked' || kind === 'ticket-agent-disagree') return sampleAgentPanelTicket(now, kind === 'ticket-agent-blocked' ? 'blocked' : 'disagree');
+  if (kind === 'ticket-agent-failed') return sampleAgentPanelTicket(now, 'failed');
   if (kind === 'ticket-agent-details' || kind === 'ticket-agent-more') return sampleTicket(now);
   if (kind === 'ticket-waits') return sampleTicket(now, 'ACME-35');
   if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
@@ -455,7 +456,7 @@ export const shotState = (kind: Page): Record<string, unknown> => {
 };
 
 /** The task pages whose shots leave the Agent panel's Details and More actions closed, as the page opens them (T-142). */
-const AGENT_FOLDS_CLOSED: readonly Page[] = ['ticket', 'ticket-checks', 'ticket-note', 'ticket-track', 'ticket-stopped', 'ticket-agent-blocked', 'ticket-agent-disagree'];
+const AGENT_FOLDS_CLOSED: readonly Page[] = ['ticket', 'ticket-checks', 'ticket-note', 'ticket-track', 'ticket-stopped', 'ticket-agent-blocked', 'ticket-agent-disagree', 'ticket-agent-failed'];
 
 /**
  * Every other task page's shot has the Agent panel's Details and More actions open (T-142), so what they hold is
@@ -752,7 +753,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), passed: sampleModel('ticket-deploy-passed', now, 'dark'), failed: sampleModel('ticket-deploy-failed', now, 'dark'), typed: sampleModel('ticket-deploy-typed', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), passed: sampleModel('ticket-deploy-passed', now, 'dark'), failed: sampleModel('ticket-deploy-failed', now, 'dark'), typed: sampleModel('ticket-deploy-typed', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark'), agentFailed: sampleModel('ticket-agent-failed', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;
