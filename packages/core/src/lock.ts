@@ -5,6 +5,9 @@ import { AccError } from './exec.ts';
 export interface LockOptions {
   timeoutMs?: number;
   staleMs?: number;
+  /** Tests put their own in, to be a Windows machine and see mkdir fail as it does there (T-129). */
+  platform?: NodeJS.Platform;
+  mkdir?: (dir: string) => void;
 }
 
 export const sleep = (ms: number): void => {
@@ -35,14 +38,22 @@ export const lockHeld = (code: string | undefined, platform: NodeJS.Platform = p
 export function withLock<T>(lockDir: string, fn: () => T, opts: LockOptions = {}): T {
   const timeoutMs = opts.timeoutMs ?? 15_000;
   const staleMs = opts.staleMs ?? 60_000;
+  const mkdir = opts.mkdir ?? ((dir: string) => { mkdirSync(dir); });
   const started = Date.now();
+  // Every way round the loop again waits a moment and stays inside the timeout, so nothing spins (T-129).
+  const waitOrGiveUp = (): void => {
+    if (Date.now() - started > timeoutMs) {
+      throw new AccError('lock-timeout', `Another acc process is holding ${lockDir}. Try again in a moment.`);
+    }
+    sleep(20 + Math.floor(Math.random() * 40));
+  };
   for (;;) {
     try {
-      mkdirSync(lockDir);
+      mkdir(lockDir);
       writeFileSync(join(lockDir, 'owner'), JSON.stringify({ pid: process.pid, at: Date.now() }));
       break;
     } catch (e) {
-      if (!lockHeld((e as NodeJS.ErrnoException).code)) throw e;
+      if (!lockHeld((e as NodeJS.ErrnoException).code, opts.platform)) throw e;
       let owner: { pid: number; at: number } | null = null;
       try {
         owner = JSON.parse(readFileSync(join(lockDir, 'owner'), 'utf8'));
@@ -53,16 +64,15 @@ export function withLock<T>(lockDir: string, fn: () => T, opts: LockOptions = {}
       try {
         age = Date.now() - (owner?.at ?? statSync(lockDir).mtimeMs);
       } catch {
-        continue; // released between our mkdir and stat
+        // Released between our mkdir and stat, or on Windows still being removed: try again shortly.
+        waitOrGiveUp();
+        continue;
       }
       if ((owner && !alive(owner.pid)) || age > staleMs) {
         rmSync(lockDir, { recursive: true, force: true });
         continue;
       }
-      if (Date.now() - started > timeoutMs) {
-        throw new AccError('lock-timeout', `Another acc process is holding ${lockDir}. Try again in a moment.`);
-      }
-      sleep(20 + Math.floor(Math.random() * 40));
+      waitOrGiveUp();
     }
   }
   try {

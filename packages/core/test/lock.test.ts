@@ -64,3 +64,17 @@ test('a lock is held when mkdir says it exists, and on Windows also when it says
   assert.equal(lockHeld('EPERM', 'linux'), false, 'Linux: the same');
   for (const code of ['EACCES', 'ENOENT', undefined]) assert.equal(lockHeld(code, 'win32'), false, `${code} is never held`);
 });
+
+test('on Windows a mkdir that keeps saying EPERM is waited on, then given up with the lock timeout, never a spin; elsewhere it throws at once (T-129)', () => {
+  const dir = join(tempDir(), 'held.lock');
+  let calls = 0;
+  const eperm = () => { calls++; throw Object.assign(new Error('EPERM: operation not permitted, mkdir'), { code: 'EPERM' }); };
+  const begun = Date.now();
+  assert.throws(() => withLock(dir, () => assert.fail('never runs'), { platform: 'win32', mkdir: eperm, timeoutMs: 300 }), (e: Error & { code?: string }) => e.code === 'lock-timeout');
+  const took = Date.now() - begun;
+  assert.ok(took >= 300 && took < 3_000, `gave up after the timeout (${took} ms)`);
+  assert.ok(calls >= 3 && calls < 50, `waited between tries, ${calls} of them, not a spin`);
+  calls = 0;
+  assert.throws(() => withLock(dir, () => assert.fail('never runs'), { platform: 'darwin', mkdir: eperm }), (e: Error & { code?: string }) => e.code === 'EPERM');
+  assert.equal(calls, 1, 'a Mac throws a real EPERM at once');
+});
