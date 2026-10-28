@@ -1,5 +1,5 @@
 /* Record changes (T-100) wear the analysis's card, as Verify does, with its rows and its gap. */
-.ticket-main > .records { margin-bottom: 16px; padding-bottom: 12px; }
+.task-panel > .records { margin-bottom: 16px; padding-bottom: 12px; }
 .rc-refused { display: flex; align-items: flex-start; gap: 4px; overflow-wrap: anywhere; }
 /* Each environment the work was promoted to: its heading with the pull request and what's left, then its steps. */
 .rc-promotion { margin-top: 8px; }

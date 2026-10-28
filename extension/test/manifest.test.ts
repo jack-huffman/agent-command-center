@@ -269,8 +269,8 @@ test('the page takes the replies by the name the extension sends, and draws the 
   assert.equal(MANIFEST_DONE, 'manifest-done');
   assert.match(source('../webview/manifest.ts'), new RegExp(`'${MANIFEST_DONE}': done`));
   const page = source('../webview/task-page.ts');
-  const at = page.indexOf('if (m.manifest) add(renderManifest(m, m.manifest)');
-  assert.ok(at > page.indexOf('renderVerify(m, m.verify)') && at < page.indexOf('renderActivity(m)'));
+  const at = page.indexOf('if (m.manifest) add(changes, renderManifest(m, m.manifest)');
+  assert.ok(at > page.indexOf('add(changes, renderRecords(') && at < page.indexOf('add(changes, renderTeam('), 'in the Changes tab, after the record changes (T-134)');
   assert.ok(existsSync(new URL('../webview/manifest.css', import.meta.url)));
 });
 

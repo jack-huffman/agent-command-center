@@ -216,7 +216,7 @@ export class TaskCommands extends Sidebar {
 
   private async showTask(n: TaskNode): Promise<void> {
     if (n?.kind !== 'task') return;
-    if (this.openTicket) return this.openTicket(n.project.root, n.task.id);
+    if (this.openTicket) return this.openTicket(n.project.root, n.task.id, n.part);
     const ledger = this.hub.ledger(n.project.root);
     const t = ledger?.tasks.find((x) => x.id === n.task.id);
     if (!t) return;

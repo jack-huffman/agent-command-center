@@ -122,6 +122,9 @@ export function noticeActions(n: TaskNotice): [label: string, command: string][]
   return [...(a ? [a] : []), ['Show', 'acc.task.show']];
 }
 
+/** A plan's notice opens its task's page on Plan (T-134): its questions, its split or the plan itself. */
+export const noticePart = (n: Pick<TaskNotice, 'kind'>): { part?: string } => (n.kind.startsWith('analysis-') ? { part: 'plan' } : {});
+
 // ---------------------------------------------------------------- a burst said as one (D-162)
 
 /** More notices than this in one reload show as one summary. */
@@ -138,8 +141,8 @@ export interface Said {
   text: string;
   urgent: boolean;
   actions: [label: string, command: string][];
-  /** The task its buttons act on, or null for the Overview. */
-  task: { root: string; task: string } | null;
+  /** The task its buttons act on, or null for the Overview; part, the part of its page Show opens on (T-134). */
+  task: { root: string; task: string; part?: string } | null;
   /** The heading the Overview opens at, for one with no task, such as Since you last looked (D-164). */
   part?: string;
 }
@@ -162,12 +165,12 @@ export function noticeCounts(all: ProjectNotice[]): string {
  * (those of its newest notice); any other opens the Overview.
  */
 export function noticeBurst(all: ProjectNotice[]): Said[] {
-  const one = ({ root, notice: n }: ProjectNotice): Said => ({ text: n.text, urgent: n.urgent, actions: noticeActions(n), task: { root, task: n.task } });
+  const one = ({ root, notice: n }: ProjectNotice): Said => ({ text: n.text, urgent: n.urgent, actions: noticeActions(n), task: { root, task: n.task, ...noticePart(n) } });
   if (all.length <= BURST_AT) return all.map(one);
   const parts = noticeCounts(all);
   const urgent = all.some(({ notice: n }) => n.urgent);
   const first = all[0]!;
   const sameTask = all.every((p) => p.root === first.root && p.notice.task === first.notice.task);
-  if (sameTask) return [{ text: `Since you last looked, ${first.notice.task}: ${parts}.`, urgent, actions: noticeActions(all.at(-1)!.notice), task: { root: first.root, task: first.notice.task } }];
+  if (sameTask) return [{ text: `Since you last looked, ${first.notice.task}: ${parts}.`, urgent, actions: noticeActions(all.at(-1)!.notice), task: { root: first.root, task: first.notice.task, ...noticePart(all.at(-1)!.notice) } }];
   return [{ text: `Since you last looked: ${parts}.`, urgent, actions: [['Show', OVERVIEW_COMMAND]], task: null }];
 }

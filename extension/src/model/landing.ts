@@ -30,7 +30,8 @@ export type RowDo =
   /** Moves to a section of the page. */
   | { kind: 'go'; section: HomeSection }
   /** Opens a task in the modal over the page (GH-158, D-129). */
-  | { kind: 'task'; project: string; key: string }
+  // part: the part of its page it opens on (T-134), such as its plan for one whose analysis needs you.
+  | { kind: 'task'; project: string; key: string; part?: string }
   /** Opens a detail in the modal: a question, the suggested rules, the update drafts, a list in full, or History. */
   | { kind: 'detail'; detail: Detail }
   /** Opens a web link, such as a pull request. */
@@ -177,7 +178,7 @@ function attentionRow(a: AttentionItem, many: boolean): LandingRow {
   const rest = a.actions.filter((x) => x.command !== 'acc.task.show');
   const first = rest.find((x) => x.primary) ?? rest[0];
   let action: RowButton | null = null;
-  if (a.analysis && modal) action = { label: 'Answer', icon: 'question', tip: 'Open the task, with its analysis\'s questions to answer', do: modal };
+  if (a.analysis && modal) action = { label: 'Answer', icon: 'question', tip: 'Open the task, with its analysis\'s questions to answer', do: { ...modal, part: 'plan' } };
   else if (first) action = { label: first.label, icon: first.icon, tip: first.label, do: { kind: 'run', command: first.command, ref: first.ref } };
   else if (a.extra) action = { label: a.extra.label, icon: a.extra.icon, tip: a.extra.label, do: { kind: 'toolbar', command: a.extra.command, arg: a.extra.arg } };
   else if (a.go) action = { label: a.go.label, icon: 'arrow-right', tip: a.go.label, do: { kind: 'go', section: a.go.section } };

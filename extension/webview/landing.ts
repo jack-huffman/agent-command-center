@@ -19,7 +19,7 @@ export function runDo(d: RowDo): void {
       return go(d.section);
     case 'task':
       closeDetail();
-      return api.postMessage({ type: 'task-modal-open', project: d.project, key: d.key });
+      return api.postMessage({ type: 'task-modal-open', project: d.project, key: d.key, ...(d.part ? { part: d.part } : {}) });
   }
 }
 

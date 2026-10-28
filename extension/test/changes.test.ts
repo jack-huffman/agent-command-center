@@ -126,8 +126,8 @@ test('the page draws the kept changes after a merge with when they were kept, an
   const none = renderChanges(m, ticketChanges(input({ task: task({ id: 'T-2', state: 'done' }) }))!) as unknown as PageElement;
   assert.match(none.textContent, /^ChangesIt merged before changes were kept with a task, so there's no record of what it changed\. Its plan named these\.Files/);
   const page = readFileSync(new URL('../webview/task-page.ts', import.meta.url), 'utf8');
-  const at = page.indexOf('if (m.changes) add(renderChanges(m, m.changes)');
-  assert.ok(at > page.indexOf('renderVerify(m, m.verify)') && at < page.indexOf('renderActivity(m)'), 'in the main column, under Verify, over the Activity');
+  const at = page.indexOf('if (m.changes) add(changes, renderChanges(m, m.changes)');
+  assert.ok(at > 0 && at < page.indexOf('if (m.field) add(changes,'), 'first in the Changes tab (T-134), apart from the plan');
   assert.doesNotMatch(readFileSync(new URL('../webview/analysis.ts', import.meta.url), 'utf8'), /'Files'/, 'the plan\'s own Files list is gone: this section says it');
 });
 

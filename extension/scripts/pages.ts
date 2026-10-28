@@ -167,6 +167,12 @@ export const PAGES = [
   // The Command Center's sections under the description (T-132): the plan, criteria and Verify open, then collapsed
   'ticket-sections',
   'ticket-sections-collapsed',
+  // A task page's tabs (T-134): ACME-21 on each of its four tabs, and a plan needing approval, which opens on Plan
+  'ticket-tab-ticket',
+  'ticket-tab-plan',
+  'ticket-tab-changes',
+  'ticket-tab-verify',
+  'ticket-plan-needs-you',
   'ticket-github',
   'ticket-azure',
   'ticket-monday',

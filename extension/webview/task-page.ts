@@ -15,6 +15,8 @@ import { conversationLine } from './talk.ts';
 import { renderReview } from './review.ts';
 import { collapsible, criteriaSummary, oneLine } from './collapse.ts';
 import { taskActions } from './task-actions.ts';
+import { afterTabs, askedComment, chooseTab, renderTabs } from './task-tabs.ts';
+import { taskTabs } from './tab-rules.ts';
 import { dayName } from './days.ts';
 import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, labelChips, linkTo, md, openable, person, renderDoc, stateChip, status, typeMark, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
@@ -159,9 +161,8 @@ export function renderTicket(m: TicketModel): Node[] {
   // Outside the repo's place (D-072): said plainly, and only a person's call when acc keeps a task for it.
   if (m.outside) out.push(el('div', `notice${m.acc ? ' attention' : ''}`, icon(m.acc ? 'warning' : 'filter', m.acc ? 'orange' : undefined), el('span', '', m.outside)));
 
-  // What needs the person first: why it's stuck, in one line (D-052), above everything else. Then the ticket's
-  // own description, then the Command Center's sections, each collapsible, then the ticket's related tickets
-  // and activity (T-132). On a narrow page the notices still come first (T-41).
+  // What needs the person first: why it's stuck, in one line (D-052), above everything else. Then the page's
+  // content in tabs (T-134): Ticket, Plan, Changes and Verify. On a narrow page the notices still come first (T-41).
   const top = el('div', 'ticket-top');
   if (m.acc?.blocker) top.append(foldable(`blocker:${m.project}#${m.key}`, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', el('strong', '', 'Why it\'s blocked: '), m.acc.blocker)), 'why-text', 2));
   if (m.acc?.conflicts) {
@@ -184,40 +185,45 @@ export function renderTicket(m: TicketModel): Node[] {
     const tone = f.tone === 'orange' ? ' attention' : f.tone === 'blue' ? ' waits' : '';
     top.append(foldable(`files:${m.project}#${m.key}`, el('div', `notice${tone} why`, icon(f.icon, f.tone), el('div', 'why-text', el('strong', '', rest.length ? `${head}: ` : head), work(el('span', '', rest.join(': ')), 'files'))), 'why-text', 2));
   }
-  const main = el('div', 'ticket-main');
-  // Where the tracker allows edits, Edit opens the task sheet, which writes the ticket's title and description (T-80).
+  // The tab to show is chosen before its parts are drawn, so Ticket's activity knows a comment a link asked for.
+  const tabs = taskTabs(m);
+  const chosen = chooseTab(m, tabs);
+  // Ticket: everything the ticket itself holds, together, as a tracker shows it. Where the tracker allows
+  // edits, Edit opens the task sheet, which writes the ticket's title and description (T-80).
+  const ticket: HTMLElement[] = [];
   const descHead = m.editText ? el('div', 'desc-head', el('h2', '', 'Description'), descEdit(m.editText)) : el('h2', '', 'Description');
-  main.append(el('section', 'block', descHead, m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
-  // The Command Center's own sections, in this order, each folding to its header line (T-132).
-  const ours: HTMLElement[] = [];
-  const add = (sec: HTMLElement | null, id: string, summary: string | null = null): void => { if (sec) ours.push(collapsible(sec, id, m, summary)); };
-  if (m.analysis) add(renderAnalysis(m, m.analysis), 'plan', oneLine(m.analysis.note) ?? oneLine(m.analysis.summary));
+  ticket.push(el('section', 'block', descHead, m.loading && !m.body.blocks.length ? el('p', 'muted', 'Loading…') : foldable(`desc:${m.project}#${m.key}`, renderDoc(m.body, 'No description.'), null, 6)));
+  if (m.related.length) ticket.push(renderRelated(m));
+  const activity = renderActivity(m);
+  if (activity) ticket.push(activity);
+  // The Command Center's sections, each folding to its header line (T-132), in the tab that holds them.
+  const plan: HTMLElement[] = [];
+  const changes: HTMLElement[] = [];
+  const verify: HTMLElement[] = [];
+  const add = (into: HTMLElement[], sec: HTMLElement | null, id: string, summary: string | null = null): void => { if (sec) into.push(collapsible(sec, id, m, summary)); };
+  if (m.analysis) add(plan, renderAnalysis(m, m.analysis), 'plan', oneLine(m.analysis.note) ?? oneLine(m.analysis.summary));
   // A conversation before its plan is made (T-111): its one line, in a plan section of its own until the plan
   // comes. The conversation itself is in its panel, never here.
   const line = !m.analysis && m.talk ? conversationLine(m.project, m.talk) : null;
-  if (line) add(el('section', 'analysis', el('div', 'an-head', el('h2', '', 'Plan'), status(m.talk!.look)), line), 'plan', oneLine(line.textContent));
+  if (line) add(plan, el('section', 'analysis', el('div', 'an-head', el('h2', '', 'Plan'), status(m.talk!.look)), line), 'plan', oneLine(line.textContent));
   // Its drafted acceptance criteria (T-81).
-  if (m.criteria) add(renderCriteria(m, m.criteria), 'criteria', criteriaSummary(m.criteria.count) ?? oneLine(m.criteria.note));
-  // Verify the developer's work (T-84): under the criteria it reviews against.
-  if (m.verify) add(renderVerify(m, m.verify), 'verify', oneLine(m.verify.summary) ?? oneLine(m.verify.note));
-  // Its Planned changes, then Changes (T-99), in a section of their own, apart from its plan.
-  if (m.changes) add(renderChanges(m, m.changes), 'changes');
-  // Its team (T-103), under what it changes: the tasks it shares files with, and whether it took in the latest merges.
-  if (m.team) add(renderTeam(m.team), 'team');
-  // What the ticket's changes field says (T-105), beside what the Command Center found.
-  if (m.field) add(renderField(m.field), 'field');
-  // Its record changes (T-100): what it changes in an org that git never sees.
-  if (m.records) add(renderRecords(m, m.records), 'records');
-  // Manifest for this ticket (T-101): a Salesforce ticket's package.xml, in a section of its own.
-  if (m.manifest) add(renderManifest(m, m.manifest), 'manifest');
+  if (m.criteria) add(plan, renderCriteria(m, m.criteria), 'criteria', criteriaSummary(m.criteria.count) ?? oneLine(m.criteria.note));
   // What a person wrote for its builder (T-74), which a tracker's intake never changes.
-  if (m.acc?.notes) add(el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)), 'notes');
-  add(renderNote(m), 'note');
-  // A quiet label between the ticket's own words and the Command Center's, so it's clear which is which.
-  if (ours.length) main.append(el('div', 'cc-divider', el('span', 'cc-divider-label', 'From the Command Center')), ...ours);
-  if (m.related.length) main.append(renderRelated(m));
-  const activity = renderActivity(m);
-  if (activity) main.append(activity);
+  if (m.acc?.notes) add(plan, el('section', 'block', el('h2', '', 'Notes for the builder'), foldable(`notes:${m.project}#${m.key}`, renderDoc(m.acc.notes, ''), null, 6)), 'notes');
+  add(plan, renderNote(m), 'note');
+  // Its Planned changes, then Changes (T-99), apart from its plan.
+  if (m.changes) add(changes, renderChanges(m, m.changes), 'changes');
+  // What the ticket's changes field says (T-105), beside what the Command Center found.
+  if (m.field) add(changes, renderField(m.field), 'field');
+  // Its record changes (T-100): what it changes in an org that git never sees.
+  if (m.records) add(changes, renderRecords(m, m.records), 'records');
+  // Manifest for this ticket (T-101): a Salesforce ticket's package.xml, in a section of its own.
+  if (m.manifest) add(changes, renderManifest(m, m.manifest), 'manifest');
+  // Its team (T-103): the tasks it shares files with, and whether it took in the latest merges.
+  if (m.team) add(changes, renderTeam(m.team), 'team');
+  // Verify the developer's work (T-84).
+  if (m.verify) add(verify, renderVerify(m, m.verify), 'verify', oneLine(m.verify.summary) ?? oneLine(m.verify.note));
+  const main = el('div', 'ticket-main', renderTabs(m, tabs, chosen, { ticket, plan, changes, verify }));
 
   // The side column: the ticket's fields, then acc's side of it. Details lists only the rows its tracker has
   // something for (T-91); a row with nothing in it stays only to hold its Change or Add.
@@ -348,8 +354,11 @@ function renderActivity(m: TicketModel): HTMLElement | null {
     const name = Object.assign(el('strong', 'act-name', c.author.name), c.author.email ? { title: c.author.email } : {});
     const head = el('div', 'act-line act-card-head', name, el('span', 'muted', 'commented'), when(c.created),
       c.url ? el('span', 'act-card-link', linkTo(c.url, icon('link-external'))) : null);
-    items.push({ at: c.created, node: el('li', 'act-item is-comment', el('span', 'act-icon act-avatar', avatar(c.author)),
-      el('article', 'act-body act-card', head, el('div', 'act-comment', renderDoc(c.body, '')))) });
+    const card = el('article', 'act-body act-card', head, el('div', 'act-comment', renderDoc(c.body, '')));
+    // A link that names this comment scrolls to it and focuses it (T-134).
+    card.dataset.comment = c.id;
+    card.tabIndex = -1;
+    items.push({ at: c.created, node: el('li', 'act-item is-comment', el('span', 'act-icon act-avatar', avatar(c.author)), card) });
   }
   for (const h of m.acc?.history ?? []) {
     const f = moveFeed(h);
@@ -371,7 +380,9 @@ function renderActivity(m: TicketModel): HTMLElement | null {
   if (!items.length) { section.append(el('p', 'muted', 'Nothing yet.')); return section; }
   items.sort((a, b) => b.at.localeCompare(a.at));
   const key = `history:${m.project}#${m.key}`;
-  const all = memory().opened.includes(key);
+  // A comment a link asked for shows, wherever it is in the feed (T-134).
+  const asked = askedComment();
+  const all = memory().opened.includes(key) || (!!asked && m.comments.some((c) => c.id === asked));
   const list = el('ol', 'act-feed');
   let day = '';
   const now = Date.now();
@@ -417,5 +428,8 @@ function tellWidth(): void {
 
 export const area: PageArea = {
   views: { ticket: renderTicket },
-  after: tellWidth,
+  after: () => {
+    tellWidth();
+    if (state.last?.kind === 'ticket') afterTabs();
+  },
 };

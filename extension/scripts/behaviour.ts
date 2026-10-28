@@ -276,17 +276,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'report';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
 /** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; report: Model }
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'report' ? models.report : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -851,7 +851,7 @@ export const CASES: Case[] = [
       const summary = (): HTMLElement => t.find('.sec-sum', sec());
       t.check('it starts open, its button named and expanded', !hidden() && button().textContent === 'Plan' && button().getAttribute('aria-expanded') === 'true', button().outerHTML);
       t.check('open, its summary line isn\'t shown', getComputedStyle(summary()).display === 'none');
-      t.check('the description comes before it', t.find('.ticket-main > section.block').compareDocumentPosition(sec()) === Node.DOCUMENT_POSITION_FOLLOWING);
+      t.check('it sits in the Plan tab\'s panel', sec().closest('[role="tabpanel"]')?.getAttribute('data-tab') === 'plan', sec().closest('[role="tabpanel"]')?.outerHTML.slice(0, 120));
       await t.click(button());
       t.check('a click collapses it to its header line', hidden() && button().getAttribute('aria-expanded') === 'false', button().getAttribute('aria-expanded'));
       t.check('collapsed, its state and summary stay in view', getComputedStyle(summary()).display !== 'none' && t.find('.sec-head .status', sec()).getBoundingClientRect().height > 0);
@@ -872,6 +872,45 @@ export const CASES: Case[] = [
       await press(t, t.find<HTMLButtonElement>('.sec-toggle', details()), 'Enter');
       await t.post({ type: 'state', model: t.model });
       t.check('Enter collapses Details, and it stays collapsed', getComputedStyle(t.find('.details-list', details())).display === 'none' && t.find('.sec-toggle', details()).getAttribute('aria-expanded') === 'false');
+    },
+  },
+  {
+    name: 'task page: its tabs open on the plan that needs you, say so in words, move by arrow keys, Home and End, and follow a link (T-134)',
+    page: 'ticket-plan-needs-you',
+    async run(t) {
+      const tabs = (): HTMLButtonElement[] => t.all<HTMLButtonElement>('[role="tab"]');
+      const tab = (id: string): HTMLButtonElement => t.find<HTMLButtonElement>(`[role="tab"][data-tab="${id}"]`);
+      const on = (): string | null => tabs().find((b) => b.getAttribute('aria-selected') === 'true')?.dataset.tab ?? null;
+      const visible = (): string[] => t.all('[role="tabpanel"]').filter((p) => getComputedStyle(p).display !== 'none').map((p) => p.dataset.tab!);
+      t.check('the tab row is a tablist of the shown tabs', t.find('[role="tablist"]').children.length === tabs().length && tabs().length >= 2, tabs().map((b) => b.dataset.tab));
+      t.check('it opens on Plan, which needs the person', on() === 'plan' && visible().join() === 'plan', { on: on(), visible: visible() });
+      const needs = t.find('.task-tab-needs', tab('plan'));
+      t.check('Plan says it needs you in words, with an icon, in view', needs.textContent === 'needs you' && needs.querySelector('.codicon-bell') !== null && needs.getBoundingClientRect().width > 0, needs.outerHTML);
+      t.check('its name says so to a screen reader', tab('plan').getAttribute('aria-label') === 'Plan: needs you', tab('plan').getAttribute('aria-label'));
+      t.check('each panel is named by its tab', t.all('[role="tabpanel"]').every((p) => document.getElementById(p.getAttribute('aria-labelledby') ?? '')?.getAttribute('aria-controls') === p.id));
+      tab('plan').focus();
+      await press(t, tab('plan'), 'ArrowRight');
+      t.check('ArrowRight moves to the next tab, focus with it', on() !== 'plan' && document.activeElement === tab(on()!) && visible().join() === on(), { on: on(), visible: visible() });
+      await press(t, tab(on()!), 'Home');
+      t.check('Home goes to the first tab', on() === tabs()[0]!.dataset.tab, on());
+      await press(t, tab(on()!), 'ArrowLeft');
+      t.check('ArrowLeft from the first wraps to the last', on() === tabs().at(-1)!.dataset.tab, on());
+      await press(t, tab(on()!), 'End');
+      t.check('End stays on the last', on() === tabs().at(-1)!.dataset.tab);
+      await t.click(tab('ticket'));
+      t.check('a click shows Ticket, with its description and activity', on() === 'ticket' && visible().join() === 'ticket' && t.find('[role="tabpanel"][data-tab="ticket"] .activity').getBoundingClientRect().height > 0);
+      const tabsMem = (t.memory().tabs ?? {}) as Record<string, string>;
+      t.check('the tab remembers it for this ticket', Object.entries(tabsMem).some(([k, v]) => k.endsWith('#ACME-21') && v === 'ticket'), tabsMem);
+      // Edge: the page drawn again from a new model keeps the tab on show, though Plan still needs the person.
+      await t.post({ type: 'state', model: t.model });
+      t.check('drawn again, it stays on Ticket', on() === 'ticket', on());
+      // A link that names the plan, as Needs you sends it: Plan opens.
+      await t.post({ type: 'state', model: { ...t.model, open: { part: 'plan', at: Date.now() } } });
+      t.check('a link to the plan opens Plan', on() === 'plan' && visible().join() === 'plan', on());
+      // A section still collapses inside its tab.
+      const plan = t.find('[role="tabpanel"][data-tab="plan"] [data-section="plan"]');
+      await t.click(t.find<HTMLButtonElement>('.sec-toggle', plan));
+      t.check('the plan section collapses inside its tab', plan.classList.contains('collapsed'));
     },
   },
   {
@@ -2141,6 +2180,9 @@ const caseNamed = (start: string): string => {
 
 export const MUTANTS: Mutant[] = [
   { name: 'a collapsed section doesn\'t stay collapsed', file: 'collapse.ts', find: 'show(memory().folded.includes(k));', replace: 'show(false);', kills: [caseNamed('task page: a Command Center section collapses')] },
+  { name: 'a tab that needs you doesn\'t say so', file: 'task-tabs.ts', find: "t.needs ? el('span', 'task-tab-needs', icon('bell', 'orange'), NEEDS_YOU) : null", replace: 'null', kills: [caseNamed('task page: its tabs open on the plan')] },
+  { name: 'the opening tab ignores what needs you', file: 'tab-rules.ts', find: '  if (needs) return needs;\n', replace: '', kills: [caseNamed('task page: its tabs open on the plan')] },
+  { name: 'the arrow keys move between no tabs', file: 'task-tabs.ts', find: "      if (to < 0) return;\n", replace: '      return;\n', kills: [caseNamed('task page: its tabs open on the plan')] },
   { name: 'Enter and Space on a section\'s button do nothing', file: 'collapse.ts', find: "if (e.key !== 'Enter' && e.key !== ' ') return;", replace: 'return;', kills: [caseNamed('task page: a Command Center section collapses')] },
   { name: 'typing in the board list finds nothing', file: 'board-switch.ts', find: "find.addEventListener('input', () => { typed.set(root, find.value); fill(find.value); });", replace: "find.addEventListener('input', () => { typed.set(root, find.value); });", kills: [caseNamed('board switch: ten boards')] },
   { name: 'All boards with one opened fills the page\'s height', file: 'main.ts', find: " && main.querySelectorAll('.tracker').length <= 1) main.classList.add('fill-board');", replace: ") main.classList.add('fill-board');", kills: [caseNamed('board switch: ten boards')] },

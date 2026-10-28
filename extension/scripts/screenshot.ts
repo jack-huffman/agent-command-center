@@ -66,6 +66,7 @@ import { sampleSetupWithoutProduction } from './fixtures/no-production.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { SECTIONS_COLLAPSED, sampleSectionsTicket } from './fixtures/sections.ts';
+import { samplePlanNeedsYouTicket, sampleTabsTicket } from './fixtures/task-tabs.ts';
 import { sampleTalkTicket, TALK_STATE } from './fixtures/talk.ts';
 import { REPORT_TYPED, sampleReport } from './fixtures/report.ts';
 import { sampleProgressPanel, sampleProgressTicket } from './fixtures/plan-progress.ts';
@@ -132,7 +133,25 @@ export const OUTPUT_RUNS: Partial<Record<Page, RunSample>> = { 'output-running':
 export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-running': 'steps-running', 'output-steps-failed': 'steps-failed', 'output-steps-done': 'steps-done' };
 
 /** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
+/**
+ * Each task page's shot opens on the tab that shows what it was made to show (T-134), as a link naming it would:
+ * the rest open by the page's own rules.
+ */
+export const SHOT_TAB: Partial<Record<Page, 'ticket' | 'plan' | 'changes' | 'verify'>> = {
+  ...Object.fromEntries((['ticket-plan-approved', 'ticket-plan-shapes', 'ticket-plan-short', 'ticket-review-choice', 'ticket-review-question', 'ticket-review-answered', 'ticket-review-summary', 'ticket-talk', 'ticket-conversation', 'ticket-progress', 'ticket-note', 'ticket-sections', 'ticket-sections-collapsed', 'ticket-criteria-sheet', 'ticket-tab-plan'] as Page[]).map((k) => [k, 'plan'])),
+  ...Object.fromEntries((['ticket-planned', 'ticket-changes', 'ticket-kept', 'ticket-records', 'ticket-records-form', 'ticket-records-promoted', 'ticket-manifest', 'ticket-changes-field', 'ticket-team', 'ticket-team-alone', 'ticket-tab-changes'] as Page[]).map((k) => [k, 'changes'])),
+  ...Object.fromEntries((['ticket-verify-pass', 'ticket-verify-changes', 'ticket-verify-choice', 'ticket-tab-verify'] as Page[]).map((k) => [k, 'verify'])),
+  'ticket-tab-ticket': 'ticket',
+};
+
+/** A page's model as its shot draws it: a task page with the tab SHOT_TAB names asked for. */
 export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = 'vscode'): Model {
+  const m = baseModel(kind, now, theme);
+  const tab = SHOT_TAB[kind];
+  return tab && m.kind === 'ticket' ? { ...m, open: { part: tab, at: 1 } } : m;
+}
+
+function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // The loading screen is drawn with the Overview's model held back (STILL): it never arrives.
   if (kind === 'loading') return sampleModel('overview', now, theme);
   // The busy Overview with nothing that needs you (T-36): its one calm line, then the cards.
@@ -194,6 +213,9 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'ticket-verify-choice') return sampleTicket(now, 'ACME-21', false, null, 'choice');
   // ACME-21 with its plan, criteria and Verify under its description (T-132): open, and collapsed.
   if (kind === 'ticket-sections' || kind === 'ticket-sections-collapsed') return sampleSectionsTicket(now);
+  // ACME-21 with every tab (T-134), on each in turn; and its plan needing approval again, which opens on Plan.
+  if (kind === 'ticket-tab-ticket' || kind === 'ticket-tab-plan' || kind === 'ticket-tab-changes' || kind === 'ticket-tab-verify') return sampleTabsTicket(now);
+  if (kind === 'ticket-plan-needs-you') return samplePlanNeedsYouTicket(now);
   // A ticket's Planned changes, then Changes (T-99): ACME-35's plan, ACME-12's work with a change outside its plan, and ACME-20's kept after its merge.
   if (kind === 'ticket-planned' || kind === 'ticket-changes' || kind === 'ticket-kept') return sampleChangesTicket(now, kind.slice('ticket-'.length) as ChangesSample);
   // ACME-20's record changes (T-100): planned and recorded, the form for a change made by hand, and promoted to UAT with a step to run.
@@ -674,7 +696,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), report: sampleModel('report', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

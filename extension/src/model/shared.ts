@@ -36,6 +36,8 @@ export interface Ref {
   worktree?: string;
   env?: string;
   step?: string;
+  /** The part of a task's page a link names (T-134): plan, verify, changes, ticket, or comment:<id>. */
+  part?: string;
 }
 
 export interface Action {

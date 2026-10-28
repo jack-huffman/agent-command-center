@@ -75,9 +75,9 @@ test('each line opens its detail with the actions it had before (GH-160)', () =>
   // A question: the question on the line, Answer, which opens it with its answers.
   const q = needs.find((r) => r.key === 'q:m1-aaaa0002')!;
   assert.deepEqual([q.id, q.title, q.look.label, q.look.tone, q.action?.label, q.action?.do], ['ACME-12', 'Premium cases escalate after how long without a reply?', 'Asks a question', 'orange', 'Answer', { kind: 'detail', detail: { kind: 'question', id: 'm1-aaaa0002' } }]);
-  // An analysis's questions: Answer opens the task over the page, where its analysis asks them.
+  // An analysis's questions: Answer opens the task over the page on its Plan tab (T-134), where its analysis asks them.
   const an = needs.find((r) => r.id === 'ACME-21')!;
-  assert.deepEqual([an.action?.label, an.action?.do, an.open], ['Answer', { kind: 'task', project: m.overview.projects[0]!.root, key: 'ACME-21' }, { kind: 'task', project: m.overview.projects[0]!.root, key: 'ACME-21' }]);
+  assert.deepEqual([an.action?.label, an.action?.do, an.open], ['Answer', { kind: 'task', project: m.overview.projects[0]!.root, key: 'ACME-21', part: 'plan' }, { kind: 'task', project: m.overview.projects[0]!.root, key: 'ACME-21' }]);
   // A task waiting on you: its next step on the line, the rest in ⋯, the task on a click.
   const stopped = busy({ ...sampleLandingHub(NOW), questions: [], taskRows: () => [{ ...sampleLandingHub(NOW).taskRows('').find((r) => r.id === 'ACME-13')!, display: 'needs-you', stopped: { said: 'API Error' } }] });
   const s = every(group(stopped, 'needs-you')).find((r) => r.id === 'ACME-13')!;
