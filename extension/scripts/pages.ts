@@ -191,6 +191,7 @@ export const PAGES = [
   'ticket-plan-approved',
   'ticket-plan-changed',
   'ticket-plan-short',
+  'ticket-plan-choices',
   'ticket-review-choice',
   'ticket-review-question',
   'ticket-review-answered',

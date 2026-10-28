@@ -139,7 +139,7 @@ export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-r
  * the rest open by the page's own rules.
  */
 export const SHOT_TAB: Partial<Record<Page, 'ticket' | 'plan' | 'changes' | 'review' | 'verify'>> = {
-  ...Object.fromEntries((['ticket-plan-approved', 'ticket-plan-shapes', 'ticket-plan-short', 'ticket-review-choice', 'ticket-review-question', 'ticket-review-answered', 'ticket-review-summary', 'ticket-talk', 'ticket-conversation', 'ticket-progress', 'ticket-note', 'ticket-sections', 'ticket-sections-collapsed', 'ticket-criteria-sheet', 'ticket-tab-plan'] as Page[]).map((k) => [k, 'plan'])),
+  ...Object.fromEntries((['ticket-plan-approved', 'ticket-plan-shapes', 'ticket-plan-short', 'ticket-plan-choices', 'ticket-review-choice', 'ticket-review-question', 'ticket-review-answered', 'ticket-review-summary', 'ticket-talk', 'ticket-conversation', 'ticket-progress', 'ticket-note', 'ticket-sections', 'ticket-sections-collapsed', 'ticket-criteria-sheet', 'ticket-tab-plan'] as Page[]).map((k) => [k, 'plan'])),
   ...Object.fromEntries((['ticket-planned', 'ticket-changes', 'ticket-kept', 'ticket-records', 'ticket-records-form', 'ticket-records-promoted', 'ticket-manifest', 'ticket-changes-field', 'ticket-team', 'ticket-team-alone', 'ticket-tab-changes'] as Page[]).map((k) => [k, 'changes'])),
   ...Object.fromEntries((['ticket-verify-pass', 'ticket-verify-changes', 'ticket-verify-choice', 'ticket-tab-verify'] as Page[]).map((k) => [k, 'verify'])),
   ...Object.fromEntries((['ticket-tab-review', 'ticket-tab-review-findings', 'ticket-tab-review-passed'] as Page[]).map((k) => [k, 'review'])),
@@ -191,7 +191,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-plan-changed') return sampleTicket(now, 'ACME-21', false, null, null, 'changed');
   // ACME-21's plan in short, and Review plan open over it at a choice, a question and the summary (T-109).
   if (kind === 'ticket-review-summary') return sampleTicket(now, 'ACME-21', false, null, null, 'approved');
-  if (kind === 'ticket-plan-short' || kind.startsWith('ticket-review-')) return sampleTicket(now, 'ACME-21');
+  if (kind === 'ticket-plan-short' || kind === 'ticket-plan-choices' || kind.startsWith('ticket-review-')) return sampleTicket(now, 'ACME-21');
   if (kind === 'ticket-split') return sampleTicket(now, 'ACME-23');
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
   // A builder in the cloud, quiet for too long (GH-69).
@@ -335,8 +335,9 @@ const BOARD_SHOTS: Partial<Record<Page, unknown>> = {
   'tasks-boards-ten-signin': { modes: { [ROOT]: 'board:b-initech-erp' } },
 };
 
-/** ACME-21's The whole plan, open (T-109), and the start of the keys its Review plan remembers. */
-const WHOLE_PLAN = 'an:/Users/me/code/acme-service#ACME-21:whole';
+/** The key that opens one of ACME-21's plan sections (T-136), such as more or approach; its first choice's key; and the start of the keys its Review plan remembers. */
+const PLAN_PART = (id: string): string => `an:/Users/me/code/acme-service#ACME-21:sec:${id}`;
+const D1 = 'plan:/Users/me/code/acme-service#ACME-21:d1';
 const REVIEW = 'review:/Users/me/code/acme-service#ACME-21';
 
 /**
@@ -382,15 +383,19 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'ticket-records-form' ? RECORDS_FORM_STATE
   // ACME-21's plan, criteria and Verify collapsed to their header lines (T-132).
   : kind === 'ticket-sections-collapsed' ? { folded: SECTIONS_COLLAPSED }
-  // ACME-21's plan (T-97): its second choice's own option open, and the later plans with their earlier versions open.
-  // Approved, a change to its second choice asks first, as Choose this on Backfill too leaves it.
-  // Each with The whole plan open (T-109), where the choices are in full.
-  : kind === 'ticket-questions' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:d2:own', WHOLE_PLAN], drafts: { 'plan:/Users/me/code/acme-service#ACME-21:d2': 'Backfill only the opportunities still open' } }
-  : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', 'plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b', WHOLE_PLAN] }
-  : kind === 'ticket-plan-shapes' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', WHOLE_PLAN] }
-  // What it found open, so the finding that names the comment it rests on shows (T-110).
-  : kind === 'ticket-plan-behind' ? { opened: ['an:/Users/me/code/acme-service#ACME-21:findings', WHOLE_PLAN] }
-  : kind === 'ticket-plan-changed' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:earlier', WHOLE_PLAN] }
+  // ACME-21's plan (T-97): its second choice's own option open, with More open for its wording (T-136). Choices and
+  // Questions open by themselves while they wait on the person.
+  // Approved, a change to its second choice asks first, as Choose this on Backfill too leaves it; the later plans
+  // with More open, where their earlier versions are.
+  : kind === 'ticket-questions' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:d2:own', PLAN_PART('more')], drafts: { 'plan:/Users/me/code/acme-service#ACME-21:d2': 'Backfill only the opportunities still open' } }
+  : kind === 'ticket-plan-approved' ? { opened: ['plan:/Users/me/code/acme-service#ACME-21:d2:confirm:b', PLAN_PART('more')] }
+  // What other tasks build on is in The approach (T-136).
+  : kind === 'ticket-plan-shapes' ? { opened: [PLAN_PART('approach')] }
+  // More open, so the finding that names the comment it rests on shows (T-110).
+  : kind === 'ticket-plan-behind' ? { opened: [PLAN_PART('more')] }
+  : kind === 'ticket-plan-changed' ? { opened: [PLAN_PART('more')] }
+  // A made choice compared beside one still open (T-136): d1's cards with their risks and files open, d2's as they come.
+  : kind === 'ticket-plan-choices' ? { opened: [`${D1}:compare`, `${D1}:more`, PLAN_PART('risks')] }
   // Review plan over ACME-21 (T-109): at its first choice, its current choice picked and marked so, with More
   // about the other option open; at the question for the ticket's author with an answer typed in its own words;
   // at a question already answered; and, on the approved plan, at the summary with the author's question skipped.
@@ -398,8 +403,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'ticket-review-question' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q2', [`${REVIEW}:pick:q2`]: 'mine', 'analysis:/Users/me/code/acme-service#ACME-21:q2': 'Decision Maker, as the pipeline report does today' } }
   : kind === 'ticket-review-answered' ? { opened: [`${REVIEW}:open`], drafts: { [`${REVIEW}:at`]: 'q3' } }
   : kind === 'ticket-review-summary' ? { opened: [`${REVIEW}:open`, `${REVIEW}:skip:q2`], drafts: { [`${REVIEW}:at`]: 'summary' } }
-  // ACME-21's page with The whole plan open, where Discuss is on each step and risk (T-98).
-  : kind === 'ticket-talk' ? { opened: [...['plan', 'risks'].map((f) => `an:/Users/me/code/acme-service#ACME-21:${f}`), WHOLE_PLAN] }
+  // ACME-21's page with The approach and Risks and tests open, where Discuss is on each step and risk (T-98).
+  : kind === 'ticket-talk' ? { opened: [PLAN_PART('approach'), PLAN_PART('risks')] }
   // The next message to ACME-21's planning agent (T-98), in its panel (T-111), about an option, quoted, half-written.
   // Its earlier turns open (T-113), so every turn, proposal and what changed is drawn; conversation-long draws the fold.
   : kind === 'conversation-talk' ? { ...TALK_STATE, opened: [`talk:${ROOT}#ACME-21:earlier`] }
@@ -469,7 +474,7 @@ export const DEFAULT_HEIGHT = 900;
  * The Connect page with two Jira epics ticked, and GitHub's Project cards, are shot tall enough to show the
  * ticked cards and the access card at 500 px (T-107).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-pages': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, 'overview-since': 1500, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'settings-queues': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, 'environments-away': 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200, 'output-review-open': 2000, 'ticket-verify-pass': 2200, 'ticket-verify-changes': 2400, 'ticket-verify-choice': 1300, 'ticket-planned': 2100, 'ticket-changes': 3000, 'ticket-kept': 2000, 'ticket-records': 2400, 'ticket-records-form': 2800, 'ticket-records-promoted': 2800, 'ticket-manifest': 2600, 'ticket-questions': 3300, 'ticket-plan-approved': 3000, 'ticket-plan-changed': 3300, 'ticket-plan-shapes': 3300, 'ticket-plan-behind': 3300, 'connect-jira-epics': 2000, 'connect-github-board': 1900, 'connect-github-access': 1700, 'ticket-talk': 3600, 'conversation-talk': 3400, 'conversation': 1400, 'ticket-changes-field': 3600, 'connect-existing': 2600, 'ticket-team': 2700, 'ticket-team-alone': 2500, report: 2800, 'report-filled': 2800, 'report-no-access': 3000, 'report-posted': 3000 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-pages': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, 'overview-since': 1500, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'settings-queues': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, 'environments-away': 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200, 'output-review-open': 2000, 'ticket-verify-pass': 2200, 'ticket-verify-changes': 2400, 'ticket-verify-choice': 1300, 'ticket-planned': 2100, 'ticket-changes': 3000, 'ticket-kept': 2000, 'ticket-records': 2400, 'ticket-records-form': 2800, 'ticket-records-promoted': 2800, 'ticket-manifest': 2600, 'ticket-questions': 3300, 'ticket-plan-approved': 3000, 'ticket-plan-choices': 2600, 'ticket-plan-changed': 3300, 'ticket-plan-shapes': 3300, 'ticket-plan-behind': 3300, 'connect-jira-epics': 2000, 'connect-github-board': 1900, 'connect-github-access': 1700, 'ticket-talk': 3600, 'conversation-talk': 3400, 'conversation': 1400, 'ticket-changes-field': 3600, 'connect-existing': 2600, 'ticket-team': 2700, 'ticket-team-alone': 2500, report: 2800, 'report-filled': 2800, 'report-no-access': 3000, 'report-posted': 3000 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [

@@ -220,9 +220,16 @@ export interface BehaviourData {
   criteria: { model: Model; project: string; error: string };
   /**
    * ACME-21's approved plan (T-97): its page's model, what a change asks first, the Choose this whose change
-   * is kept and the one whose change is made, by their names as read out, and the message Change it sends.
+   * is kept and the one whose change is made, by their names as read out, the message Change it sends, and the
+   * remembered keys that open its Choices and the made choice's options to compare (T-136).
    */
-  plan: { model: Model; ask: string; keep: string; change: string; sent: Record<string, unknown> };
+  plan: { model: Model; ask: string; keep: string; change: string; sent: Record<string, unknown>; opened: string[] };
+  /**
+   * ACME-21's first plan (T-136): its made choice and the option chosen, its choice still to make, how many
+   * options each has, the remembered keys of the made choice's Compare and of a plan section, less its name, the
+   * open choice's recommended option and the message acc sends once it's recorded, and the plan with it made.
+   */
+  choices: { made: string; chosen: string; open: string; madeOptions: number; openOptions: number; compare: string; section: string; pick: string; done: Record<string, unknown>; allMade: Model };
   /**
    * Talk it through on ACME-21's approved plan (T-98): its page's model, what Use this asks first, the name
    * Use this is read out by, the message Change it sends, and the message Ctrl+Enter sends with the words typed.
@@ -246,10 +253,9 @@ export interface BehaviourData {
   report: { title: string; happened: string; expected: string; cut: string; sent: Record<string, unknown>; text: string; noAccess: Model };
   /**
    * Review plan on ACME-21 (T-109): its title, what Enter on the first step's suggestion sends, what the fourth
-   * step's third option sends, the page's model with nothing left for the person, what Approve then sends, and
-   * the remembered key that opens The whole plan.
+   * step's third option sends, the page's model with nothing left for the person, and what Approve then sends.
    */
-  planReview: { title: string; answer: Record<string, unknown>; choose: Record<string, unknown>; ready: Model; approve: Record<string, unknown>; whole: string };
+  planReview: { title: string; answer: Record<string, unknown>; choose: Record<string, unknown>; ready: Model; approve: Record<string, unknown> };
   /**
    * A run in the output panel as rows (T-64), over the Tasks board: the runs message that opens the panel on it;
    * its state, name and time; each row's words in order; its command; how many of its paths are outside its
@@ -833,7 +839,7 @@ export const CASES: Case[] = [
     page: 'ticket-questions',
     async run(t) {
       const box = t.find('.an-wording');
-      t.check('the list has its heading', t.find('.strong', box).textContent === 'How the requirements read', t.find('.strong', box).textContent);
+      t.check('the list has its heading, with its count', t.find('.an-part-name', box).textContent === `How the requirements read${t.data.wording.length}`, t.find('.an-part-name', box).textContent);
       const items = t.all('li', box);
       t.check('a line for each finding', items.length === t.data.wording.length && items.length > 0, { shown: items.length, expected: t.data.wording.length });
       for (const [i, f] of t.data.wording.entries()) {
@@ -850,7 +856,8 @@ export const CASES: Case[] = [
       const button = (): HTMLButtonElement => t.find<HTMLButtonElement>('.sec-toggle', sec());
       const hidden = (): boolean => [...sec().children].filter((c) => !c.classList.contains('sec-head')).every((c) => getComputedStyle(c).display === 'none');
       const summary = (): HTMLElement => t.find('.sec-sum', sec());
-      t.check('it starts open, its button named and expanded', !hidden() && button().textContent === 'Plan' && button().getAttribute('aria-expanded') === 'true', button().outerHTML);
+      // Its heading is the plan's state (T-136): the tab already says Plan.
+      t.check('it starts open, its button named for the plan\'s state and expanded', !hidden() && button().textContent === 'Plan v1: not approved yet' && button().getAttribute('aria-expanded') === 'true', button().outerHTML);
       t.check('open, its summary line isn\'t shown', getComputedStyle(summary()).display === 'none');
       t.check('it sits in the Plan tab\'s panel', sec().closest('[role="tabpanel"]')?.getAttribute('data-tab') === 'plan', sec().closest('[role="tabpanel"]')?.outerHTML.slice(0, 120));
       await t.click(button());
@@ -919,8 +926,8 @@ export const CASES: Case[] = [
     page: 'ticket-questions',
     async run(t) {
       const d = t.data.plan;
-      // The choices in full are under The whole plan (T-109), opened as the tab remembers it.
-      t.remember({ opened: [t.data.planReview.whole] });
+      // Choices open, and the made choice's options open to compare (T-136), as the tab remembers them.
+      t.remember({ opened: d.opened });
       await t.post({ type: 'state', model: d.model });
       const named = (label: string): HTMLButtonElement => {
         const b = t.all<HTMLButtonElement>('button').find((x) => x.getAttribute('aria-label') === label);
@@ -949,6 +956,49 @@ export const CASES: Case[] = [
       const sent = t.sent('plan-choose');
       t.check('Change it sends the choice once, with its yes', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent), sent);
       t.check('and the dialog has gone', t.all('[role="alertdialog"]').length === 0);
+    },
+  },
+  {
+    name: 'plan tab: a made choice is one line with Compare the options, and Choices and Questions open by themselves while they wait on the person; the other sections start closed, and a section closed stays so (T-136)',
+    page: 'ticket-questions',
+    async run(t) {
+      const d = t.data.choices;
+      t.remember({ opened: [] });
+      await t.post({ type: 'state', model: t.model });
+      const part = (id: string): HTMLDetailsElement => t.find<HTMLDetailsElement>(`.plan-tab .an-sec[data-part="${id}"]`);
+      const group = (id: string): HTMLElement => t.find(`.plan-decision[aria-label^="Choice ${id}:"]`);
+      const cards = (id: string): number => t.all('.plan-option', group(id)).filter((c) => c.getBoundingClientRect().height > 0).length;
+      const chosen = (id: string): number => (group(id).textContent?.match(/Chosen/g) ?? []).length;
+      t.check('Choices opens by itself, as a choice in it waits on the person', part('choices').open);
+      t.check('so do Questions', part('questions').open);
+      t.check('the other sections start closed', ['approach', 'criteria', 'risks', 'more'].every((id) => !part(id).open), ['approach', 'criteria', 'risks', 'more'].map((id) => [id, part(id).open]));
+      t.check('the choice still to make shows its cards side by side', cards(d.open) === d.openOptions, cards(d.open));
+      t.check('the made choice is one line, with no cards', cards(d.made) === 0 && !!group(d.made).querySelector('.pd-line'), cards(d.made));
+      t.check('its line names the option chosen, and says Chosen once', group(d.made).textContent?.includes(d.chosen) === true && chosen(d.made) === 1, group(d.made).textContent);
+      const compare = (): HTMLButtonElement => t.find<HTMLButtonElement>('.pd-compare', group(d.made));
+      t.check('its button offers to compare the options', compare().textContent?.trim() === `Compare the ${d.madeOptions} options` && compare().getAttribute('aria-expanded') === 'false', compare().textContent);
+      await t.click(compare());
+      t.check('Compare draws its cards side by side', cards(d.made) === d.madeOptions, cards(d.made));
+      t.check('still saying Chosen once, on the card chosen', chosen(d.made) === 1 && t.all('.plan-option.chosen .po-chosen', group(d.made)).length === 1, group(d.made).textContent);
+      t.check('the tab remembers it', ((t.memory().opened ?? []) as string[]).includes(d.compare), t.memory().opened);
+      await t.post({ type: 'state', model: t.model });
+      t.check('drawn again, it stays compared', cards(d.made) === d.madeOptions, cards(d.made));
+      await t.click(compare());
+      t.check('Hide the options folds it back to its line', cards(d.made) === 0 && compare().getAttribute('aria-expanded') === 'false', cards(d.made));
+      // Edge: the last choice made in a Choices that opened by itself; acc records it and the page draws again.
+      await t.click(t.find(`[aria-label="${d.pick}"]`, group(d.open)));
+      await t.post(d.done);
+      await t.post({ type: 'state', model: d.allMade });
+      t.check('the last choice made, it is a line too', !!group(d.open).querySelector('.pd-line'), group(d.open).textContent);
+      t.check('and Choices stays open under the person, though nothing in it waits now', part('choices').open, t.memory().opened);
+      await t.post({ type: 'state', model: t.model });
+      // Edge: a section that waits on the person, closed by them, stays closed when the page draws again.
+      await t.click(t.find('summary', part('choices')));
+      await t.post({ type: 'state', model: t.model });
+      t.check('Choices closed by the person stays closed, though a choice in it waits', !part('choices').open, ((t.memory().opened ?? []) as string[]).filter((k) => k.startsWith(d.section)));
+      await t.click(t.find('summary', part('approach')));
+      await t.post({ type: 'state', model: t.model });
+      t.check('The approach opened stays open', part('approach').open && ((t.memory().opened ?? []) as string[]).includes(`${d.section}approach`), t.memory().opened);
     },
   },
   {
@@ -2326,6 +2376,11 @@ export const MUTANTS: Mutant[] = [
   { name: 'the draft is sent as it is typed', file: 'report.ts', find: 'keep(s.id, b.value); update(); });', replace: "keep(s.id, b.value); update(); api.postMessage({ type: 'report-post', title: t.title, body: issueBody(t.fields) }); });", kills: [caseNamed('report:')] },
   { name: 'the plan section keeps Make a new plan beside a conversation', file: 'analysis.ts', find: 'const actions = m.talk?.newPlan ? a.actions.filter((x) => x.command !== m.talk!.newPlan!.command) : a.actions;', replace: 'const actions = a.actions;', kills: [caseNamed('ticket talk: beside a conversation the plan section')] },
   { name: 'Enter alone sends the message', file: 'talk.ts', find: "if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))", replace: "if (e.key === 'Enter')", kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'a made choice still draws every card', file: 'plan.ts', find: 'const full = !d.choice || compared', replace: 'const full = true || compared', kills: [caseNamed('plan tab: a made choice is one line')] },
+  { name: 'a choice waiting on the person is folded away', file: 'analysis.ts', find: '!!p && p.decisions.some((d) => choiceWaits(m, a.task, p, d))', replace: 'false', kills: [caseNamed('plan tab: a made choice is one line')] },
+  { name: 'a section the person closed opens again on the next draw', file: 'analysis.ts', find: '(waits && !opened.includes(shut))', replace: 'waits', kills: [caseNamed('plan tab: a made choice is one line')] },
+  { name: 'a section open by itself isn\'t remembered open, so the last choice folds Choices away', file: 'analysis.ts', find: 'x.opened = d.open ? [...rest, k]', replace: 'x.opened = d.open && !waits ? [...rest, k]', kills: [caseNamed('plan tab: a made choice is one line')] },
+  { name: 'Compare the options isn\'t remembered', file: 'plan.ts', find: 'const compared = opened.includes(compareKey(key));', replace: 'const compared = false;', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];
 
@@ -2405,6 +2460,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     report: reportData(),
     questions: questionsData(now),
     planReview: planReviewData(models.ticket),
+    choices: choicesData(models.ticket),
   };
 }
 
@@ -2429,7 +2485,7 @@ function planReviewData(model: Model): BehaviourData['planReview'] {
   if (model.kind !== 'ticket' || !a?.planState || !r || ids !== 'q1 q3 d1 d2 q2' || q1?.kind !== 'question' || d2?.kind !== 'choice') throw new Error(`The Review plan case needs ACME-21's plan with its steps q1 q3 d1 d2 q2, not ${ids}.`);
   const ready: Model = { ...model, analysis: { ...a, planState: { ...a.planState, approve: { disabled: null } } } };
   return {
-    title: r.title, ready, whole: `an:${model.project}#${model.key}:whole`,
+    title: r.title, ready,
     answer: { type: 'analysis-answer', project: model.project, task: a.task, question: q1.id, text: q1.suggested },
     choose: { type: 'plan-choose', project: model.project, task: a.task, decision: d2.id, option: d2.options[2]!.id },
     approve: { type: 'plan-approve', project: model.project, task: a.task },
@@ -2491,7 +2547,24 @@ function planData(now: number): BehaviourData['plan'] {
   const [keep, change] = d ? d.options.filter((o) => o.id !== d.choice?.option) : [];
   if (!p?.changeAsk || !d || !keep || !change) throw new Error('The plan case needs ACME-21\'s approved plan, with a choice made and two other options.');
   const label = (name: string) => `Choose this: ${name}, for ${d.title}`;
-  return { model, ask: p.changeAsk, keep: label(keep.name), change: label(change.name), sent: { type: 'plan-choose', project: model.project, task: model.key, decision: d.id, option: change.id, yes: true } };
+  return { model, ask: p.changeAsk, keep: label(keep.name), change: label(change.name), sent: { type: 'plan-choose', project: model.project, task: model.key, decision: d.id, option: change.id, yes: true }, opened: [`an:${model.project}#${model.key}:sec:choices`, `plan:${model.project}#${model.key}:${d.id}:compare`] };
+}
+
+/** What the Plan tab's choices case expects (T-136), from ACME-21's first plan: a choice made and one still to make. */
+function choicesData(model: Model): BehaviourData['choices'] {
+  const p = model.kind === 'ticket' ? model.analysis?.planState : null;
+  const made = p?.decisions.find((d) => d.choice?.option);
+  const open = p?.decisions.find((d) => !d.choice);
+  const chosen = made?.options.find((o) => o.id === made.choice?.option);
+  if (model.kind !== 'ticket' || !p || !made || !open || !chosen || made.options.length < 2) throw new Error('The choices case needs ACME-21\'s first plan, with a choice made from two options or more and one still to make.');
+  const pick = open.options.find((o) => o.id === open.recommended) ?? open.options[0]!;
+  // The plan once acc has recorded the last choice: nothing in Choices waits on the person any more.
+  const decisions = p.decisions.map((d) => (d.id === open.id ? { ...d, choice: { option: pick.id, name: pick.name, by: 'jordan', at: made.choice!.at } } : d));
+  const allMade = { ...model, analysis: { ...model.analysis!, planState: { ...p, decisions } } };
+  return {
+    made: made.id, chosen: chosen.name, open: open.id, madeOptions: made.options.length, openOptions: open.options.length, compare: `plan:${model.project}#${model.key}:${made.id}:compare`, section: `an:${model.project}#${model.key}:sec:`,
+    pick: `Choose this: ${pick.name}, for ${open.title}`, done: { type: 'plan-done', action: 'plan-choose', project: model.project, task: model.key, decision: open.id, ok: true }, allMade,
+  };
 }
 
 /**

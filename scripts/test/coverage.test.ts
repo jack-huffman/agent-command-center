@@ -46,7 +46,7 @@ export const OLDER: Record<string, string[]> = {
   'extension/src/model/updates.ts': ['hasTicket', 'withClient'],
   'extension/src/panels.ts': ['isWebLink', 'TabTheme', 'Panels'],
   'extension/src/progress.ts': ['STEP_DOING', 'readRepoJobs', 'readSteps'],
-  'extension/src/questions.ts': ['accShellCommand', 'sessionSettings', 'Questions'],
+  'extension/src/questions.ts': ['accShellCommand', 'sessionSettings'],
   'extension/src/run.ts': ['accRunner'],
   'extension/src/setup.ts': ['extensionVersion'],
   'extension/src/sidebar.ts': ['Sidebar'],

@@ -19,6 +19,15 @@ export const approveKey = (project: string, task: string): string => `plan:${pro
 export const splitKey = (project: string, task: string): string => `plan:${project}#${task}:split`;
 /** The remembered key of a choice whose "Something else…" box is open. */
 const ownKey = (key: string): string => `${key}:own`;
+/** The remembered key of a made choice whose options are open to compare (T-136). */
+export const compareKey = (key: string): string => `${key}:compare`;
+/** The remembered key of a choice whose cards show their risks and files (T-136): one for all its cards, so they line up. */
+const moreKey = (key: string): string => `${key}:more`;
+/** Opens or closes what `k` names, as the tab remembers it, and draws the page again. */
+function flip(k: string): void {
+  remember((x) => { x.opened = x.opened.includes(k) ? x.opened.filter((y) => y !== k) : [...new Set([...x.opened, k])]; });
+  if (state.last) state.draw(state.last);
+}
 /** The remembered key of a change that waits for the person's yes, on an approved plan: its pick, an option's id or "own". */
 const confirmKey = (key: string, pick: string): string => `${key}:confirm:${pick}`;
 /** The pick a choice's change waits on, or null. */
@@ -95,7 +104,24 @@ export function optionPart(label: string, iconName: string, items: string[], fil
     el('ul', 'po-list', ...items.map((x) => el('li', '', files ? work(el('span', 'mono', x), 'files') : md(x)))));
 }
 
-/** One option as a card: its name, effort, whether it's recommended or chosen, what it means, its pros, cons, risks and files, and Choose this. */
+/**
+ * An option's risks and the files it touches, folded under their names (T-136), so its pros and cons read first.
+ * One key opens them on every card of the choice, so the cards stay level. Nothing when it has neither.
+ */
+function optionMore(key: string, o: PlanOption): HTMLElement | null {
+  const parts = [optionPart('Risks', 'warning', o.risks), optionPart('Touches', 'file', o.touches, true)].filter((x): x is HTMLElement => !!x);
+  if (!parts.length) return null;
+  const k = moreKey(key);
+  const d = el('details', 'po-more') as HTMLDetailsElement;
+  d.open = memory().opened.includes(k);
+  // Drawn again only when it changed, so the toggle a draw itself fires draws nothing.
+  d.addEventListener('toggle', () => { if (d.open !== memory().opened.includes(k)) flip(k); });
+  const name = o.risks.length && o.touches.length ? 'Risks and files' : o.risks.length ? 'Risks' : 'Files it touches';
+  d.append(el('summary', 'muted small', el('span', 'tool-chev', icon('chevron-right')), el('span', '', name), el('span', 'count', String(o.risks.length + o.touches.length))), ...parts);
+  return d;
+}
+
+/** One option as a card: its name, effort, whether it's recommended or chosen, what it means, its pros and cons, its risks and files folded, and Choose this. */
 function optionCard(m: TicketModel, task: string, plan: TicketPlan, d: TicketDecision, o: PlanOption): HTMLElement {
   const chosen = d.choice?.option === o.id;
   const recommended = d.recommended === o.id;
@@ -104,11 +130,11 @@ function optionCard(m: TicketModel, task: string, plan: TicketPlan, d: TicketDec
     el('div', 'po-head', el('span', 'po-letter', o.id), el('strong', 'po-name', o.name)),
     el('div', 'po-tags',
       el('span', 'chip po-effort', `Effort ${o.effort}`),
-      // Recommended and chosen each carry an icon and words, never colour alone.
+      // Recommended and chosen each carry an icon and words, never colour alone. Chosen is said here once, with who and when (T-136).
       recommended ? el('span', 'po-tag po-rec', icon('star-full'), 'Recommended') : null,
-      chosen ? el('span', 'po-tag po-chosen', icon('pass-filled'), 'Chosen') : null),
+      chosen && d.choice ? el('span', 'po-tag po-chosen', icon('pass-filled'), `Chosen by ${d.choice.by}`, when(d.choice.at)) : null),
     o.means ? el('div', 'po-means', md(o.means)) : null,
-    optionPart('Pros', 'add', o.pros), optionPart('Cons', 'remove', o.cons), optionPart('Risks', 'warning', o.risks), optionPart('Touches', 'file', o.touches, true));
+    optionPart('Pros', 'add', o.pros), optionPart('Cons', 'remove', o.cons), optionMore(key, o));
   card.setAttribute('role', 'group');
   card.setAttribute('aria-label', `${d.title}: ${o.name}${recommended ? ', recommended' : ''}${chosen ? ', chosen' : ''}`);
   // Discuss (T-98): talk this option through with the planning agent, quoted.
@@ -150,31 +176,70 @@ function ownOption(m: TicketModel, task: string, plan: TicketPlan, d: TicketDeci
   return el('div', 'plan-own open', input, go, cancel);
 }
 
-/** One design choice: what it decides, its options side by side, the recommendation and why, and what was chosen. */
+/** "Compare the 3 options" on a made choice, or "Hide the options" while they show (T-136); remembered per choice, as folds are. */
+function compareButton(key: string, d: TicketDecision, shown: boolean): HTMLElement | null {
+  const n = d.options.length;
+  if (!n) return null;
+  const b = button(shown ? 'Hide the options' : n === 1 ? 'See the option' : `Compare the ${n} options`, shown ? 'chevron-up' : 'chevron-down', () => flip(compareKey(key)), 'ghost small pd-compare');
+  b.setAttribute('aria-expanded', String(shown));
+  b.setAttribute('aria-label', `${b.textContent} for ${d.title}`);
+  return b;
+}
+
+/**
+ * A made choice in one line (T-136): its id and title, then the option chosen, who chose it and when, and
+ * Compare the options. The one place it says Chosen.
+ */
+function madeLine(m: TicketModel, task: string, key: string, d: TicketDecision, choice: NonNullable<TicketDecision['choice']>): HTMLElement {
+  const option = d.options.find((o) => o.id === choice.option);
+  const picked = el('span', 'pd-picked', icon('arrow-right'), option ? el('span', 'po-letter', option.id) : null,
+    option ? el('strong', '', option.name) : el('span', '', el('span', 'muted', 'Something else: '), el('strong', '', md(choice.name))));
+  const by = el('span', 'muted small pd-by', icon('pass-filled', 'blue'), `Chosen by ${choice.by}`, when(choice.at));
+  return el('div', 'pd-line', el('span', 'aq-id', d.id), el('span', 'pd-title', d.title), picked, by, el('span', 'spacer'),
+    compareButton(key, d, false), m.talk?.send ? discussButton(m.project, task, d.id, d.title, `the choice ${d.title}`) : null);
+}
+
+/**
+ * One design choice. A made one is a line (T-136), its cards drawn only while compared, while its own words
+ * are being typed, or while a change to it waits for a yes. Else: what it decides, its options side by side,
+ * the recommendation and why, and Something else….
+ */
 function decisionGroup(m: TicketModel, task: string, plan: TicketPlan, d: TicketDecision): HTMLElement {
   const key = chooseKey(m.project, task, d.id);
-  const rec = d.options.find((o) => o.id === d.recommended);
-  const own = d.choice && d.choice.option === null;
-  const g = el('div', `plan-decision${d.choice ? ' made' : ''}`,
-    el('div', 'pd-head', el('span', 'aq-id', d.id), el('strong', 'pd-title', d.title),
-      d.choice ? status({ label: 'Chosen', icon: 'pass-filled', tone: 'blue' }) : plan.canChoose ? status({ label: 'Choose one', icon: 'list-selection', tone: 'orange' }) : status({ label: 'Not chosen', icon: 'circle-large-outline', tone: 'neutral' }),
-      m.talk?.send ? discussButton(m.project, task, d.id, d.title, `the choice ${d.title}`) : null),
-    d.why ? el('div', 'muted small pd-why', md(d.why)) : null,
-    el('div', `plan-options n${d.options.length}`, ...d.options.map((o) => optionCard(m, task, plan, d, o))),
-    rec && d.because ? el('div', 'pd-because small', icon('star-full'), el('span', '', el('strong', '', `Why ${rec.name}: `), md(d.because))) : null);
-  g.setAttribute('role', 'group');
-  g.setAttribute('aria-label', `Choice ${d.id}: ${d.title}`);
-  if (own) g.append(el('div', 'pd-own', icon('pass-filled'), el('span', '', el('strong', '', 'Something else: '), md(d.choice!.name))));
-  if (d.choice) g.append(el('div', 'pd-by muted small', `Chosen by ${d.choice.by} `, when(d.choice.at)));
+  const opened = memory().opened;
   // A change on an approved plan waits here for the person's yes, under what's chosen now.
   const asked = asking(key);
   const confirm = asked && !planPending.what(key) ? confirmChange(m, task, plan, d, asked) : null;
-  if (confirm) g.append(confirm);
+  const compared = opened.includes(compareKey(key));
+  const full = !d.choice || compared || opened.includes(ownKey(key)) || !!confirm;
+  const g = el('div', `plan-decision${d.choice ? ' made' : ''}${full ? '' : ' line'}`);
+  g.setAttribute('role', 'group');
+  g.setAttribute('aria-label', `Choice ${d.id}: ${d.title}`);
+  if (d.choice && !full) g.append(madeLine(m, task, key, d, d.choice));
+  else {
+    const rec = d.options.find((o) => o.id === d.recommended);
+    const own = d.choice && d.choice.option === null;
+    g.append(...[
+      el('div', 'pd-head', el('span', 'aq-id', d.id), el('strong', 'pd-title', d.title),
+        d.choice ? null : plan.canChoose ? status({ label: 'Choose one', icon: 'list-selection', tone: 'orange' }) : status({ label: 'Not chosen', icon: 'circle-large-outline', tone: 'neutral' }),
+        el('span', 'spacer'), d.choice && compared ? compareButton(key, d, true) : null,
+        m.talk?.send ? discussButton(m.project, task, d.id, d.title, `the choice ${d.title}`) : null),
+      d.why ? el('div', 'muted small pd-why', md(d.why)) : null,
+      el('div', `plan-options n${d.options.length}`, ...d.options.map((o) => optionCard(m, task, plan, d, o))),
+      rec && d.because ? el('div', 'pd-because small', icon('star-full'), el('span', '', el('strong', '', `Why ${rec.name}: `), md(d.because))) : null].filter((x): x is HTMLElement => !!x));
+    if (own) g.append(el('div', 'pd-own', icon('pass-filled'), el('span', '', el('strong', '', 'Something else: '), md(d.choice!.name), el('span', 'muted small', ` Chosen by ${d.choice!.by} `), when(d.choice!.at))));
+    if (confirm) g.append(confirm);
+  }
   const error = planPending.error(key);
   if (error) g.append(el('div', 'aq-error', icon('warning'), el('span', '', `Your choice wasn't recorded: ${error}`)));
   if (planPending.what(key)) g.append(el('div', 'q-sending muted', icon('sync~spin'), 'Recording your choice…'));
-  else if (plan.canChoose) g.append(ownOption(m, task, plan, d));
+  else if (plan.canChoose && full) g.append(ownOption(m, task, plan, d));
   return g;
+}
+
+/** Whether a choice waits on the person (T-136): one still to make, or a change to one that waits for a yes. */
+export function choiceWaits(m: TicketModel, task: string, plan: TicketPlan, d: TicketDecision): boolean {
+  return (plan.canChoose && !d.choice) || !!asking(chooseKey(m.project, task, d.id));
 }
 
 /** An earlier version, folded: when it was made, its approval, what changed in it and its choices. */
@@ -186,21 +251,19 @@ function earlierVersion(v: TicketVersion): HTMLElement {
     v.choices.length ? el('ul', 'an-list', ...v.choices.map((c) => el('li', '', el('strong', '', `${c.title}: `), c.chosen ?? el('span', 'muted', 'not chosen')))) : null);
 }
 
-/** The earlier versions, a click away, under their count. Opened or closed, it stays so as the page redraws. */
-function earlierFold(key: string, earlier: TicketVersion[]): HTMLElement | null {
+/** The earlier versions under their name and count, a part of the plan's More (T-136). */
+function earlierPart(earlier: TicketVersion[]): HTMLElement | null {
   if (!earlier.length) return null;
-  const d = el('details', 'an-fold plan-earlier') as HTMLDetailsElement;
-  d.open = memory().opened.includes(key);
-  d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])] : x.opened.filter((y) => y !== key); }));
-  d.append(el('summary', '', el('span', 'tool-chev', icon('chevron-right')), el('span', '', 'Earlier versions'), el('span', 'count', String(earlier.length))),
+  return el('div', 'an-part plan-earlier', el('div', 'an-part-name', 'Earlier versions', el('span', 'count', String(earlier.length))),
     el('ol', 'an-list plan-versions', ...earlier.map(earlierVersion)));
-  return d;
 }
 
-/** The head of the plan: its version and approval, why an approval lapsed, and what changed in this version. */
-export function planHead(plan: TicketPlan): HTMLElement {
-  const head = el('div', 'plan-head',
-    el('div', 'ph-line', status(plan.look), plan.approval ? el('span', 'muted small', `by ${plan.approval.by} `, when(plan.approval.at)) : null));
+/**
+ * What changed in this version, and the person's notes on the plan. Its version and approval are the plan's top
+ * line (T-136), said there once. Null when there's neither.
+ */
+export function planChanges(plan: TicketPlan): HTMLElement | null {
+  const head = el('div', 'plan-head');
   if (plan.changes.length && plan.version > 1) {
     head.append(el('div', 'plan-changes', el('div', 'strong', icon('history'), ` What changed in v${plan.version}`), el('ul', 'an-list', ...plan.changes.map((c) => el('li', '', md(c))))));
   }
@@ -209,7 +272,7 @@ export function planHead(plan: TicketPlan): HTMLElement {
     head.append(el('div', 'plan-notes', el('div', 'strong', icon('note'), ' Your notes on this plan'),
       el('ul', 'an-list', ...plan.notes.map((n) => el('li', '', md(n.text), el('span', 'muted small', ` ${n.by} `), when(n.at))))));
   }
-  return head;
+  return head.childElementCount ? head : null;
 }
 
 /**
@@ -272,10 +335,11 @@ export function approveControls(m: TicketModel, task: string, plan: TicketPlan, 
 }
 
 /**
- * The plan's buttons: `lead` first, when given (Review plan, T-109), then Approve this plan where there's no
- * lead to approve it from, Build it, and Talk it through; each off with why while it can't be used.
+ * The plan's one row of buttons: `lead` first, when given (Review plan, T-109), then Approve this plan where
+ * there's no lead to approve it from, Build it, Talk it through unless `talk` is off, and `more` after them
+ * (T-136: the conversation's line and Make a new plan); each off with why, under the row, while it can't be used.
  */
-export function planActions(m: TicketModel, task: string, plan: TicketPlan, lead: HTMLElement | null = null): Child[] {
+export function planActions(m: TicketModel, task: string, plan: TicketPlan, lead: HTMLElement | null = null, more: HTMLElement[] = [], talk = true): Child[] {
   const buttons: HTMLElement[] = lead ? [lead] : [];
   const whys: Child[] = [];
   const approve = lead ? [] : approveControls(m, task, plan);
@@ -286,8 +350,10 @@ export function planActions(m: TicketModel, task: string, plan: TicketPlan, lead
     if (a.disabled) { b.disabled = true; b.title = a.disabled; b.setAttribute('aria-description', a.disabled); whys.push(el('div', 'plan-why muted small', icon('info'), el('span', '', `Build it is off: ${a.disabled}`))); }
     buttons.push(b);
   }
-  // Talk it through (T-98): opens the conversation beside the plan, and puts the cursor in its box.
-  if (m.talk?.send) buttons.push(button('Talk it through', 'comment-discussion', () => openTalk(m.project, task)));
+  // Talk it through (T-98): opens the conversation beside the plan, and puts the cursor in its box. Off once the
+  // row holds the conversation's own Open conversation (T-136), which opens the same panel.
+  if (m.talk?.send && talk) buttons.push(button('Talk it through', 'comment-discussion', () => openTalk(m.project, task)));
+  buttons.push(...more);
   return [
     buttons.length ? el('div', 'actions plan-actions', ...buttons) : null,
     ...whys,
@@ -295,8 +361,8 @@ export function planActions(m: TicketModel, task: string, plan: TicketPlan, lead
   ];
 }
 
-/** The earlier versions of the plan, folded, a click away. */
-export const planEarlier = (m: TicketModel, task: string, plan: TicketPlan): HTMLElement | null => earlierFold(`plan:${m.project}#${task}:earlier`, plan.earlier);
+/** The earlier versions of the plan, under their name and count, in the plan's More (T-136). */
+export const planEarlier = (plan: TicketPlan): HTMLElement | null => earlierPart(plan.earlier);
 
 /** acc recorded a choice or an approval, or refused it: the page redraws with what acc did, or says why not. */
 function done(msg: { action?: string; project?: string; task?: string; decision?: string; ok?: boolean; error?: string }): void {

@@ -95,7 +95,8 @@ test('the conversation\'s line before a plan sits in the Plan tab\'s Plan sectio
   const { top, main } = drawn(m);
   assert.equal(top?.all('analysis').length ?? 0, 0);
   const plan = sectionOf(main, 'plan');
-  assert.equal(toggleOf(plan).textContent, 'Plan');
+  // Headed by the conversation's state (T-136): the tab says Plan.
+  assert.equal(toggleOf(plan).textContent, m.talk!.look.label);
   assert.equal(names(panelOf(main, 'plan')!)[0], 'plan');
 });
 
@@ -110,8 +111,11 @@ test('edge case: a ticket with no Command Center section has only its Ticket tab
 
 test('each section\'s heading is a button with its name, a chevron and aria-expanded, and every one starts open', () => {
   saved = undefined;
-  const { main } = drawn(sampleSectionsTicket(NOW));
-  const want: Record<string, string> = { plan: 'Plan', criteria: 'Acceptance criteria draft', verify: 'Verify the developer\'s work' };
+  const m = sampleSectionsTicket(NOW);
+  const { main } = drawn(m);
+  // The plan's section is headed by its state (T-136), the plan's or, with none yet, the analysis's.
+  const plan = m.analysis!.planState?.look.label ?? m.analysis!.look.label;
+  const want: Record<string, string> = { plan, criteria: 'Acceptance criteria draft', verify: 'Verify the developer\'s work' };
   for (const [id, name] of Object.entries(want)) {
     const sec = sectionOf(main, id);
     const b = toggleOf(sec);

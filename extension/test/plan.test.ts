@@ -125,22 +125,24 @@ const page = pageDom();
 // The page's memory (an open box, its words) kept between draws, as VSCode keeps a webview's state.
 let kept: unknown;
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: unknown) => { kept = s; } });
-const { planActions, planDecisions, planEarlier, planHead, planPending, chooseKey, approveKey, area } = await import('../webview/plan.ts');
+const { planActions, planDecisions, planEarlier, planChanges, planPending, chooseKey, approveKey, area } = await import('../webview/plan.ts');
 const { analysisQuestion } = await import('../webview/analysis.ts');
 
 const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && x.textContent === label);
 const box = (children: unknown[]): PageElement => { const d = page.document.createElement('div'); d.append(...(children.filter(Boolean) as PageElement[])); return d; };
 
-test('each choice draws as option cards: recommended and chosen carry an icon and words, and Choose this sends the choice', () => {
+test('each choice draws as option cards, a made one once compared: recommended and chosen carry an icon and words, and Choose this sends the choice', () => {
   const m = sampleTicket(NOW, 'ACME-21');
   const p = m.analysis!.planState!;
+  // The made choice is a line until compared (T-136).
+  buttons((planDecisions(m, 'ACME-21', p) as unknown as PageElement).all('plan-decision')[0]!, 'Compare the 2 options')[0]!.click();
   const d = planDecisions(m, 'ACME-21', p) as unknown as PageElement;
   const groups = d.all('plan-decision');
   assert.equal(groups.length, 2);
   const cards = groups[0]!.all('plan-option');
   assert.deepEqual(cards.map((c) => c.className), ['plan-option chosen recommended', 'plan-option']);
   assert.match(cards[0]!.all('po-rec')[0]!.textContent, /Recommended/);
-  assert.match(cards[0]!.all('po-chosen')[0]!.textContent, /Chosen/);
+  assert.match(cards[0]!.all('po-chosen')[0]!.textContent, /^Chosen by jordan/);
   assert.equal(buttons(cards[0]!, 'Choose this').length, 0, 'the chosen one has no Choose this');
   assert.deepEqual(cards[1]!.all('po-label').map((x) => x.textContent), ['Pros', 'Cons', 'Risks', 'Touches']);
   page.sent.length = 0;
@@ -157,6 +159,8 @@ test('each choice draws as option cards: recommended and chosen carry an icon an
   const built = planDecisions(m, 'ACME-21', { ...p, canChoose: false }) as unknown as PageElement;
   assert.equal(buttons(built, 'Choose this').length + buttons(built, 'Something else…').length, 0);
   assert.equal(planDecisions(m, 'ACME-21', { ...p, decisions: [] }), null, 'a plan with no choices draws none');
+  // Folded back to its line, for the tests after.
+  buttons((planDecisions(m, 'ACME-21', p) as unknown as PageElement).all('plan-decision')[0]!, 'Hide the options')[0]!.click();
 });
 
 test('Something else… opens a box for the person\'s own option, and Choose sends their words', () => {
@@ -223,23 +227,27 @@ test('Approve this plan is off with why until it can be approved, then sends the
   assert.equal(on.all('plan-why').length, 0, 'no reason when it\'s on');
 });
 
-test('the head says the version, its approval or why it lapsed, and what changed; earlier versions are a click away', () => {
+test('what changed in this version shows, its version and approval left to the top line; earlier versions are listed under their count', () => {
   const changed = sampleTicket(NOW, 'ACME-21', false, null, null, 'changed');
   const p = changed.analysis!.planState!;
-  const head = planHead(p) as unknown as PageElement;
-  assert.match(head.textContent, /Approve again: v3 is new since v2 was approved/);
+  const head = planChanges(p) as unknown as PageElement;
+  assert.doesNotMatch(head.textContent, /Approve again/, 'the top line says it, once (T-136)');
   assert.match(head.all('plan-changes')[0]!.textContent, /What changed in v3New choice: Where a role's contact comes from/);
-  const fold = planEarlier(changed, 'ACME-21', p) as unknown as PageElement;
-  assert.match(fold.textContent, /Earlier versions2/);
-  assert.deepEqual(fold.all('plan-version').map((v) => v.textContent.slice(0, 2)), ['v2', 'v1']);
-  assert.match(fold.all('plan-version')[0]!.textContent, /Approved by jordan/);
-  // The first version has nothing that changed, and nothing before it.
+  const earlier = planEarlier(p) as unknown as PageElement;
+  assert.match(earlier.textContent, /^Earlier versions2/);
+  assert.deepEqual(earlier.all('plan-version').map((v) => v.textContent.slice(0, 2)), ['v2', 'v1']);
+  assert.match(earlier.all('plan-version')[0]!.textContent, /Approved by jordan/);
+  // Edge case: the first version has nothing that changed and no notes, and nothing before it.
   const first = sampleTicket(NOW, 'ACME-21').analysis!.planState!;
-  assert.equal((planHead(first) as unknown as PageElement).all('plan-changes').length, 0);
-  assert.equal(planEarlier(sampleTicket(NOW, 'ACME-21'), 'ACME-21', first), null);
+  assert.equal(planChanges(first), null);
+  assert.equal(planEarlier(first), null);
+  assert.ok(planChanges({ ...first, notes: [{ text: 'Keep it small', by: 'jordan', at: '' }] }), 'notes alone still show');
 });
 
-/** ACME-21's approved plan, its second choice drawn again as a person sees it after a click: the group, and its dialog if one is open. */
+/**
+ * ACME-21's approved plan, its second choice drawn again as a person sees it after a click: the group, and its
+ * dialog if one is open. Its options are open to compare, as a made choice's are once Compare is clicked (T-136).
+ */
 function approvedChoice(): { m: TicketModel; p: TicketPlan; draw: () => { group: PageElement; dialog: PageElement | undefined } } {
   const m = sampleTicket(NOW, 'ACME-21', false, null, null, 'approved');
   const p = m.analysis!.planState!;
@@ -247,6 +255,7 @@ function approvedChoice(): { m: TicketModel; p: TicketPlan; draw: () => { group:
     const group = (planDecisions(m, 'ACME-21', p) as unknown as PageElement).all('plan-decision')[1]!;
     return { group, dialog: group.all('plan-confirm')[0] };
   };
+  buttons(draw().group, 'Compare the 3 options')[0]?.click();
   return { m, p, draw };
 }
 
