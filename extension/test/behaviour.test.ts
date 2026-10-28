@@ -152,7 +152,7 @@ test('the review case opens ACME-19\'s page and expects its findings, must-fix f
   const c = CASES.find((x) => x.page === 'ticket-review');
   assert.ok(c, 'a case opens the review');
   assert.equal((caseModel(c, models()) as { key: string }).key, 'ACME-19');
-  assert.deepEqual(MUTANTS.filter((x) => x.kills.includes(c.name)).map((x) => x.name), ['the review lists its findings in the reviewer\'s order', 'a finding\'s file and line sends nothing']);
+  assert.deepEqual(MUTANTS.filter((x) => x.kills.includes(c.name)).map((x) => x.name), ['a review that needs you doesn\'t say so on its tab', 'the review lists its findings in the reviewer\'s order', 'a finding\'s file and line sends nothing']);
   const m = models();
   const review = m.review as TicketModel;
   const closed = { ...review, review: { ...review.review!, findings: review.review!.findings.map((f) => ({ ...f, opens: null })) } };

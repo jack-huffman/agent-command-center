@@ -15,7 +15,7 @@
 /* A press shows at once, as every button's does. */
 .rv-place:active:not(:disabled) { transform: scale(0.97); transition: none; }
 .rv-note { margin: 4px 0; }
-/* The lines around a finding: a number, a mark, and the text, wrapped in the narrow side column. */
+/* The lines around a finding: a number, a mark, and the text, wrapped to the width of the Review tab's page. */
 .rv-excerpt { margin-top: 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--well); font-family: var(--vscode-editor-font-family, monospace); font-size: 0.85em; line-height: 1.45; overflow: hidden; }
 .rv-l { display: grid; grid-template-columns: 2.6em 1.2em minmax(0, 1fr); }
 .rv-n { padding-right: 6px; text-align: right; color: var(--vscode-descriptionForeground); user-select: none; }
@@ -27,7 +27,7 @@
 .rv-del { background: color-mix(in srgb, var(--orange) 16%, transparent); }
 .rv-del .rv-sign { color: var(--orange); }
 .rv-at .rv-n { color: var(--vscode-foreground); font-weight: 600; box-shadow: inset 2px 0 0 var(--vscode-foreground); }
-@media (max-width: 760px) {
-  /* On one column it follows the Agent panel, as both are what a person acts on. */
-  .side-review { order: -2; }
-}
+/* In a tab it reads as page content (T-135): a finding takes the whole width, its message and note in a readable line, and its lines of code the rest. */
+.review-block .rv-summary { max-width: 80ch; }
+.review-block .rv-message { max-width: 80ch; }
+.review-block .rv-excerpt { font-size: 0.9em; }

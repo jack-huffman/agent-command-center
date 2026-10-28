@@ -118,7 +118,8 @@ test('every review state has an icon and words, orange against blue', () => {
   assert.deepEqual(Object.entries(REVIEW_LOOK).map(([k, l]) => [k, l.tone]), [['pass', 'blue'], ['changes', 'orange'], ['must', 'orange'], ['worth', 'blue']]);
 });
 
-test('the task page draws the Review block from its model, after the Agent panel', () => {
+test('the task page draws the Review block from its model, in the Review tab and not beside the Agent panel', () => {
   const page = pageSource('task-page.ts');
-  assert.ok(page.indexOf('if (m.review) side.append(renderReview(m.review));') > page.indexOf('side-panel side-agent'), 'renderReview comes after the Agent panel');
+  assert.ok(page.includes('if (m.review) review.push(renderReview(m.review));'), 'renderReview fills the Review tab');
+  assert.ok(!page.includes('side.append(renderReview'), 'the side column no longer holds it');
 });
