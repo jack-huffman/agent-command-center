@@ -43,4 +43,5 @@
 .an-discussable > .talk-discuss { margin-left: 6px; vertical-align: middle; }
 .aq-q > .talk-discuss { margin-left: auto; }
 .pd-head > .talk-discuss { margin-left: auto; }
-.plan-notes { margin: 8px 0 2px; padding: 6px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--vscode-editor-background); }
+/* No box: the Plan tab keeps one level of borders (T-136). */
+.plan-notes { margin: 0; }

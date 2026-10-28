@@ -93,28 +93,26 @@ function open(m: TicketModel = sampleTalkTicket(NOW)): TicketModel {
   return m;
 }
 
-test('the plan section is short: its version, what\'s left in words and Review plan first; the rest under The whole plan, closed', () => {
+test('the plan\'s top line says its version and what\'s left in words, and its one row has Review plan first; the rest is in its sections (T-136)', () => {
   kept = undefined;
   const m = sampleTicket(NOW, 'ACME-21');
   const sec = renderAnalysis(m, m.analysis!) as unknown as PageElement;
-  const short = sec.all('plan-short')[0]!;
-  assert.match(short.textContent, /Plan v1: not approved yet/);
-  assert.equal(short.all('plan-left')[0]!.textContent, '1 choice and 2 questions to review');
-  const actions = sec.all('plan-actions')[0]!;
-  assert.deepEqual(actions.all().filter((x) => x.tagName === 'BUTTON').map((b) => b.textContent), ['Review plan', 'Build it']);
-  assert.ok(buttons(actions, 'Review plan')[0]!.classList.contains('primary'), 'Review plan is the main button');
+  const top = sec.all('an-top')[0]!;
+  assert.equal(top.all().find((x) => x.tagName === 'H2')!.textContent, 'Plan v1: not approved yet', 'its heading is its state: the tab says Plan');
+  assert.equal(top.all('plan-left')[0]!.textContent, '1 choice and 2 questions to review');
+  const actions = sec.all('plan-actions');
+  assert.equal(actions.length, 1, 'one row');
+  assert.deepEqual(actions[0]!.all().filter((x) => x.tagName === 'BUTTON').map((b) => b.textContent), ['Review plan', 'Build it', 'Make a new plan']);
+  assert.ok(buttons(actions[0]!, 'Review plan')[0]!.classList.contains('primary'), 'Review plan is the main button');
   assert.equal(buttons(sec, 'Approve this plan').length, 0, 'Approve is in the review\'s summary');
-  const whole = sec.all('an-whole')[0]! as PageElement & { open: boolean };
-  assert.equal(whole.open, false, 'closed by default');
-  assert.match(whole.textContent, /^The whole plan/);
-  for (const part of ['plan-decision', 'an-questions', 'an-folds']) assert.ok(whole.all(part).length, `${part} is under The whole plan`);
-  assert.equal(sec.all('plan-decision').length, whole.all('plan-decision').length, 'and nowhere else');
-  // Approved with nothing left, Build it leads and Review plan is a plain button.
+  assert.equal(sec.all('an-actions').length, 0, 'no second row');
+  // Approved with nothing left, Build it leads, Review plan is a plain button, and the top line says the approval once.
   const approved = sampleTicket(NOW, 'ACME-21', false, null, null, 'approved');
   const a = approved.analysis!;
   const allDone = { ...a, review: { ...a.review!, left: 'Approved v2', steps: a.review!.steps.map((s) => ({ ...s, done: true })) } };
   const b = renderAnalysis(approved, allDone) as unknown as PageElement;
-  assert.equal(b.all('plan-left')[0]!.textContent, 'Approved v2');
+  assert.equal(b.all('plan-left').length, 0, 'edge case: nothing left, so "Approved v2" isn\'t said beside "Plan v2 approved"');
+  assert.match(b.all('an-top')[0]!.textContent, /Ready to build/, 'the analysis\'s state shows instead');
   assert.equal(buttons(b, 'Review plan')[0]!.classList.contains('primary'), false);
   assert.ok(buttons(b, 'Build it')[0]!.classList.contains('primary'));
 });

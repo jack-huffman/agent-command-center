@@ -17,18 +17,10 @@
 .an-list { margin: 4px 0 2px; padding-left: 22px; }
 .an-list li { margin: 3px 0; overflow-wrap: anywhere; }
 .an-questions { margin-top: 4px; }
-.an-actions { margin: 8px 0 6px; }
-.an-folds { margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--line); }
-.an-fold > summary { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 4px; cursor: pointer; list-style: none; }
-.an-fold > summary::-webkit-details-marker { display: none; }
-.an-fold > summary:hover { background: var(--vscode-list-hoverBackground); }
-.an-fold[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
-.an-fold > .an-list { margin: 2px 0 8px 12px; }
 .an-source { font-size: 0.85em; overflow-wrap: anywhere; }
 
 /* One of its questions: the suggestion in one click, or your own words. */
-.aq { border-top: 1px solid var(--line); padding: 10px 0 8px; }
-.an-questions > .aq:first-child { border-top: 0; padding-top: 4px; }
+.aq + .aq { margin-top: var(--space-4); }
 .aq-q { display: flex; align-items: baseline; gap: 8px; }
 .aq-q .strong { min-width: 0; overflow-wrap: anywhere; }
 .aq-id { flex: none; padding: 0 5px; border-radius: 4px; font-size: 0.8em; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
@@ -53,29 +45,33 @@
 .task-panel > .criteria { margin-bottom: 16px; padding-bottom: 12px; }
 
 /* A task's plan (T-97): its version and approval, what changed, each choice as option cards, and its buttons. */
-.plan-head { margin: 8px 0 4px; }
-.ph-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
-.ph-line .status { white-space: normal; }
-.plan-changes { margin: 8px 0 2px; padding: 6px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--vscode-editor-background); }
+.plan-changes + .plan-notes { margin-top: var(--space-3); }
 /* What other tasks build on, and the split suggested for it (T-104). */
-.plan-shapes { margin: 8px 0 2px; padding: 6px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--vscode-editor-background); }
+.plan-shapes { margin-bottom: var(--space-3); }
 .ps-list li, .ps-tasks li { overflow-wrap: anywhere; }
 .ps-kind, .ps-first, .ps-rest { margin-left: 6px; }
 .ps-files code { overflow-wrap: anywhere; }
-.ps-split { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 6px; }
+.ps-split { margin-top: var(--space-3); }
 .ps-why { margin: 2px 0 4px; overflow-wrap: anywhere; }
 .ps-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; }
-.plan-decisions { margin-top: 6px; }
-.plan-decision { border-top: 1px solid var(--line); padding: 10px 0 8px; }
-.pd-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+/* Choices sit apart by space, not lines (T-136): a made one is a line, closer to the next. */
+.plan-decision + .plan-decision { margin-top: var(--space-4); }
+.plan-decision.line + .plan-decision.line { margin-top: var(--space-2); }
+.pd-head, .pd-line { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-1) var(--space-2); }
+.pd-head > .spacer, .pd-line > .spacer { flex: 1 1 0; }
+.pd-line .pd-title { font-weight: 600; }
+.pd-picked { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.pd-picked > .codicon { flex: none; align-self: center; color: var(--vscode-descriptionForeground); }
+.pd-by { display: inline-flex; align-items: center; gap: 4px; }
 .pd-title { min-width: 0; overflow-wrap: anywhere; }
 .pd-head .status { white-space: normal; }
 .pd-why { margin-top: 2px; overflow-wrap: anywhere; }
 /* Side by side where the page is wide; stacked below, as the page's own columns stack. */
-.plan-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 8px 0 6px; }
+.plan-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); margin: var(--space-2) 0; }
 .plan-options.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 760px) { .plan-options, .plan-options.n3 { grid-template-columns: minmax(0, 1fr); } }
-.plan-option { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--vscode-editor-background); }
+/* The one level of boxes in the Plan tab (T-136): an open choice's cards. */
+.plan-option { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--vscode-editor-background); }
 .plan-option.chosen { border-color: var(--blue); box-shadow: inset 3px 0 0 var(--blue); }
 .po-head { display: flex; align-items: baseline; gap: 6px; }
 .po-letter { flex: none; padding: 0 5px; border-radius: 4px; font-size: 0.8em; font-weight: 600; background: var(--accent-soft); color: var(--accent); }
@@ -87,16 +83,15 @@
 .po-chosen { color: var(--blue); }
 .po-means { overflow-wrap: anywhere; }
 .po-label { display: flex; align-items: center; gap: 4px; font-size: 0.85em; }
-.po-list { margin: 1px 0 2px; padding-left: 20px; font-size: 0.92em; }
+.po-list { margin: 0 0 2px; padding-left: 18px; font-size: 0.92em; line-height: 1.4; }
 .po-list li { margin: 1px 0; overflow-wrap: anywhere; }
 .po-actions { margin-top: auto; padding-top: 4px; }
 .pd-because { display: flex; align-items: flex-start; gap: 6px; margin: 2px 0 4px; }
 .pd-because .codicon { flex: none; margin-top: 2px; color: var(--accent); }
 .pd-because > span { min-width: 0; overflow-wrap: anywhere; }
-.pd-own { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0; padding: 6px 10px; border: 1px solid var(--blue); border-radius: 6px; }
+.pd-own { display: flex; align-items: flex-start; gap: 6px; margin: var(--space-1) 0; }
 .pd-own .codicon { flex: none; margin-top: 2px; color: var(--blue); }
 .pd-own > span { min-width: 0; overflow-wrap: anywhere; }
-.pd-by { margin-top: 2px; }
 /* A change to a choice on an approved plan, asked first (T-97). */
 .plan-confirm { align-items: flex-start; margin: 6px 0 4px; }
 .plan-confirm > .codicon { margin-top: 2px; }
@@ -107,23 +102,52 @@
 .plan-own { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
 .plan-own.open .text-input { flex: 1 1 200px; min-width: 0; }
 .plan-own .btn { flex: none; }
-.plan-actions { margin: 10px 0 4px; }
+.plan-actions, .an-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+/* The conversation's line sits in the row (T-136), its words quiet beside Open conversation. */
+.plan-actions > .convo-line, .an-actions > .convo-line { margin: 0; padding: 0; border: 0; font-size: 0.92em; color: var(--vscode-descriptionForeground); }
+.plan-actions > .convo-line > .btn, .an-actions > .convo-line > .btn { margin-left: 0; }
 .plan-why { display: flex; align-items: flex-start; gap: 6px; margin: 0 0 6px; }
 .plan-why .codicon { flex: none; margin-top: 2px; }
 .plan-why > span { min-width: 0; overflow-wrap: anywhere; }
-.plan-earlier { margin-top: 4px; }
 .plan-version { margin: 4px 0 8px; }
 .pv-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; }
 .pv-approved { display: inline-flex; align-items: center; gap: 4px; }
 /* A question only the ticket's author can answer (T-97). */
 .aq-who { display: flex; align-items: center; gap: 4px; margin-top: 2px; color: var(--accent); }
 
-/* The short plan section (T-109): its version and approval, and what's left to review; the rest under The whole plan. */
-.plan-short { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 8px 0; }
+
+/*
+ * The Plan tab (T-136): no box round the plan, as the tab holds it; one quiet top line that heads it; the same
+ * space between its parts; and its sections, each folded on its own, divided by a line and nothing else.
+ */
+.analysis.plan-tab { border: 0; border-radius: 0; box-shadow: none; background: none; padding: 0; }
+.analysis.plan-tab.cc-section.collapsed { padding-bottom: 0; }
+.plan-tab > * { margin-top: 0; margin-bottom: 0; }
+.plan-tab > * + * { margin-top: var(--space-3); }
+.plan-tab > .an-sec + .an-sec { margin-top: 0; }
+.plan-tab > .plan-actions + .plan-why, .plan-tab > .plan-why + .plan-why { margin-top: var(--space-2); }
+.an-top { gap: var(--space-1) var(--space-3); }
+.analysis.plan-tab .an-top h2 { font-size: 1em; text-transform: none; letter-spacing: normal; color: var(--vscode-foreground); }
+.an-top .an-by, .an-top time { white-space: nowrap; }
+.an-top .chip { margin: 0; }
 .plan-left { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
-.an-whole { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 4px; }
-.an-whole > summary { display: flex; align-items: center; gap: 6px; padding: 4px; border-radius: 4px; cursor: pointer; list-style: none; font-weight: 600; }
-.an-whole > summary::-webkit-details-marker { display: none; }
-.an-whole > summary:hover { background: var(--vscode-list-hoverBackground); }
-.an-whole[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
-.an-whole-body { padding: 4px 0 0; }
+.an-sec { border-top: 1px solid var(--line); }
+.plan-tab > .an-sec:last-child { border-bottom: 1px solid var(--line); }
+.an-sec > summary { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-1); border-radius: 4px; cursor: pointer; list-style: none; font-weight: 600; }
+.an-sec > summary::-webkit-details-marker { display: none; }
+.an-sec > summary:hover { background: var(--vscode-list-hoverBackground); }
+.an-sec > summary .count { margin-left: 0; }
+.an-sec > summary .status { margin-left: auto; font-weight: normal; white-space: normal; }
+.an-sec[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
+.an-sec-body { padding: var(--space-1) var(--space-1) var(--space-4); }
+.an-sec-body > .an-list:first-child { margin-top: 0; }
+/* A part of a section, under its name: More's assumptions, scope, findings and the rest. */
+.an-part + .an-part { margin-top: var(--space-3); }
+.an-part-name { display: flex; align-items: center; gap: var(--space-2); font-size: 0.92em; font-weight: 600; color: var(--vscode-descriptionForeground); }
+.an-part-name .count { margin-left: 0; }
+/* An option's risks and files, folded under its pros and cons. */
+.po-more > summary { display: flex; align-items: center; gap: 4px; cursor: pointer; list-style: none; font-size: 0.85em; }
+.po-more > summary::-webkit-details-marker { display: none; }
+.po-more > summary .count { margin-left: 2px; }
+.po-more[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
+.po-more > .po-part { margin-top: 2px; }

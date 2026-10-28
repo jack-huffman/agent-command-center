@@ -203,9 +203,9 @@ export function renderTicket(m: TicketModel): Node[] {
   const add = (into: HTMLElement[], sec: HTMLElement | null, id: string, summary: string | null = null): void => { if (sec) into.push(collapsible(sec, id, m, summary)); };
   if (m.analysis) add(plan, renderAnalysis(m, m.analysis), 'plan', oneLine(m.analysis.note) ?? oneLine(m.analysis.summary));
   // A conversation before its plan is made (T-111): its one line, in a plan section of its own until the plan
-  // comes. The conversation itself is in its panel, never here.
+  // comes. The conversation itself is in its panel, never here. Its state heads it, as the plan's does (T-136): the tab says Plan.
   const line = !m.analysis && m.talk ? conversationLine(m.project, m.talk) : null;
-  if (line) add(plan, el('section', 'analysis', el('div', 'an-head', el('h2', '', 'Plan'), status(m.talk!.look)), line), 'plan', oneLine(line.textContent));
+  if (line) add(plan, el('section', 'analysis plan-tab', el('div', 'an-head an-top', el('h2', '', status(m.talk!.look))), line), 'plan', oneLine(line.textContent));
   // Its drafted acceptance criteria (T-81).
   if (m.criteria) add(plan, renderCriteria(m, m.criteria), 'criteria', criteriaSummary(m.criteria.count) ?? oneLine(m.criteria.note));
   // What a person wrote for its builder (T-74), which a tracker's intake never changes.

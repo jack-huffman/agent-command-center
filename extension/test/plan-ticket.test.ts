@@ -187,11 +187,11 @@ test('the page draws the line and Make a new plan where ACME-21 is behind, and n
   const behind = sampleTicket(NOW, 'ACME-21', false, null, null, 'behind');
   assert.equal(behind.analysis!.ticketRead!.behind!.look.label, '2 new comments since this plan');
   const drawn = renderAnalysis(behind, behind.analysis!) as unknown as PageElement;
-  // In the short section (T-109): after the plan's version and approval, before Review plan and The whole plan.
+  // Right under the plan's top line (T-136), before its row of actions and its sections.
   const order = drawn.children.filter((c): c is PageElement => typeof c !== 'string').map((c) => c.className.split(' ')[0]);
-  assert.ok(order.indexOf('plan-short') >= 0 && order.indexOf('plan-ticket') === order.indexOf('plan-short') + 1, order.join(','));
-  assert.ok(order.indexOf('plan-ticket') < order.indexOf('an-whole'), order.join(','));
-  assert.equal(drawn.all('an-whole')[0]!.all('plan-ticket').length, 0, 'not folded under The whole plan');
+  assert.ok(order.indexOf('an-head') === 0 && order.indexOf('plan-ticket') === 1, order.join(','));
+  assert.ok(order.indexOf('plan-ticket') < order.indexOf('actions') && order.indexOf('plan-ticket') < order.indexOf('an-sec'), order.join(','));
+  assert.ok(drawn.all('an-sec').every((s) => !s.all('plan-ticket').length), 'not folded in a section');
   const line = drawn.all('plan-behind');
   assert.equal(line.length, 1, 'in the plan section');
   assert.match(line[0]!.textContent, /2 new comments since this plan/);
