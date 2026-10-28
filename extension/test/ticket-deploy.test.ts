@@ -187,3 +187,11 @@ test('stepOn names the step acc is on, and none before the first; deletedPaths r
   assert.deepEqual(deletedPaths((() => ({ code: 128, stdout: '', stderr: 'bad' })) as never, '/r', 'task/x', null, ['src/a.ts']), [], 'a branch it can\'t read deletes nothing');
   assert.deepEqual(deletedPaths(runner as never, '/r', 'task/x', null, []), []);
 });
+
+test('edge case: a dependency already deployed to the destination, or merged there, holds nothing up; one that isn\'t does (T-138)', async () => {
+  const { missingDeps } = await import('../../packages/core/src/task-deploy.ts');
+  const t = { ...inQa(), deps: ['ACME-3', 'ACME-4', 'ACME-404'] };
+  const there = task({ id: 'ACME-3', deploys: [{ env: 'uat', org: 'acme-uat', sha: 's', at: AT, jobId: '0Af', paths: [], components: [], verified: 0, tests: null, checkId: '0Af' }] } as Partial<Task>);
+  const not = task({ id: 'ACME-4' });
+  assert.deepEqual(missingDeps([there, not], t, ENVS[2]!), ['ACME-4'], 'a task it can\'t find holds nothing up');
+});

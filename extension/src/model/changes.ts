@@ -150,7 +150,7 @@ const count = (sets: ChangeSet[]): number => sets.reduce((n, s) => n + s.items.l
  * The tab's one list (T-138): with work, each component made, unmarked, by type; before, the plan's. What was
  * planned and not made, and made and not planned, wait behind one quiet line that says how many.
  */
-export function changeList(profile: Profile, planned: ChangeGroup[], changed: ChangeGroup[] | null): ChangeList {
+function changeList(profile: Profile, planned: ChangeGroup[], changed: ChangeGroup[] | null): ChangeList {
   const what = profile === 'salesforce' ? 'Metadata' : 'Files';
   if (!changed) {
     const sets = planned.flatMap((g) => g.sets);

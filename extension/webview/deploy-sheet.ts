@@ -123,7 +123,7 @@ function make(): NonNullable<typeof parts> {
 }
 
 /** After each draw of a task's page: the sheet shows what the model says, opening or closing with it. */
-export function syncSheet(m: TicketModel): void {
+function syncSheet(m: TicketModel): void {
   const s = m.deploy?.sheet ?? null;
   if (!s || sheetKey(s) === dismissed) {
     if (!s) dismissed = null;

@@ -118,6 +118,7 @@ const MARKS: Record<string, Record<string, number>> = {
   // The planning agent's progress (T-131): the path it reads, or the text it searches for, as it wrote them.
   'plan-progress.ts': { transcript: 1 },
   'record-changes.ts': { output: 1 },
+  'deploy-sheet.ts': { files: 2, output: 3 },
   // The ticket's changes field (T-105): its text lists changed components and files.
   'changes-field.ts': { files: 1 },
   // A task's team (T-103): each merge's commit, and the files another task shares.

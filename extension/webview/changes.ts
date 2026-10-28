@@ -83,7 +83,7 @@ function deployButton(m: TicketModel, d: TicketDeploy, b: DeployButton, primary:
 }
 
 /** Where it is: its path in one line, each environment with an icon and words, and when it got there. */
-export function renderPath(d: TicketDeploy): HTMLElement {
+function renderPath(d: TicketDeploy): HTMLElement {
   const line = el('p', 'dp-path');
   line.setAttribute('aria-label', 'Its path');
   d.path.forEach((s, i) => {

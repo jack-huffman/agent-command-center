@@ -114,3 +114,12 @@ test('the sheet\'s Deploy is on only after a passed check, and for a protected o
   assert.equal(goOff(sheet({ confirm: 'Production' }), 'acme-uat'), null, 'or its org\'s alias');
   assert.equal(goOff(sheet({ phase: 'deployed' }), ''), 'Wait for the check to pass', 'once deployed, no second yes');
 });
+
+test('edge case: the steps left draw only the steps given, each still to do with its two buttons, and none when given none (T-138)', async () => {
+  setup();
+  const { renderSteps } = await import('../webview/record-changes.ts');
+  const r = records(1);
+  const one = renderSteps(model(), r, r.promotions[0]!.steps.filter((s) => s.done)) as unknown as PageElement;
+  assert.deepEqual(buttons([one]).map((b) => b.textContent), ['Mark done', 'Skip']);
+  assert.equal((renderSteps(model(), r, []) as unknown as PageElement).all().length, 0);
+});
