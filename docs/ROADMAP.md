@@ -1,6 +1,6 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-27**. Version 0.49.0 is
+Where each piece of the build stands, as of **2026-10-28**. Version 0.49.0 is
 the latest release (2026-10-27). 0.41.0 (2026-10-16) was the first with a
 `.sha256` beside its `.vsix`. Version 0.50.0 is prepared and waits on a person
 to release it.
@@ -165,8 +165,12 @@ where each one's done-when is written out.
   mistake**: done. Checked 2026-10-27. Evidence: D-212, release 0.50.0.
 - **Seeing the plan being made**: done. Checked 2026-10-27. Evidence: D-213,
   release 0.50.0.
-- **A task page with the ticket first, and sections that collapse**: done.
-  Checked 2026-10-27. Evidence: D-214, release 0.50.0.
+- **A task page in tabs, the ticket with its comments first, and sections
+  that collapse**: done. Checked 2026-10-28. Evidence: D-214, D-216, release
+  0.50.0.
+- **A project starts with this machine checked, on a Mac or Windows**: done.
+  Checked 2026-10-28. Evidence: D-215, release 0.50.0. CI's Windows job runs
+  the machine check; not yet run by a person on a Windows machine.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).

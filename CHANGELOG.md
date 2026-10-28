@@ -24,12 +24,26 @@ as the notes.
   the plan), its last few steps, and how long since its last one. After five
   quiet minutes it says so in orange, with Watch its session. Once a project
   has a few plans, it says how long they usually take there.
-- A task page puts the ticket's own description first (D-214), then the
-  Command Center's sections under a quiet "From the Command Center" line: the
-  plan, the acceptance criteria, Verify the developer's work and the rest. Each
-  of those, and the side column's Details and Agent panels, collapses from its
-  header to one line that still says where it stands, and the page remembers
-  which you collapsed, per ticket.
+- A task page's content is in tabs (D-214, D-216). Ticket holds the ticket
+  itself, together as a ticketing system shows it: its description, related
+  tickets, and its comments and history with the comment box. Plan holds the
+  plan, the acceptance criteria and the notes for and from the builder.
+  Changes holds what it changes, its record changes, its manifest and the files
+  it shares. Verify shows when there's a verification. A tab with nothing in it
+  is hidden, and tabs show counts. The page opens on a tab that needs you,
+  which says so with an orange bell and words, else on the tab you last had
+  open for that ticket. Notices that need you stay above the tabs.
+- Within a tab, each Command Center section, and the side column's Details and
+  Agent panels, collapses from its header to one line that still says where it
+  stands, and the page remembers which you collapsed, per ticket.
+- Starting a project checks this machine first (D-215): every tool the project
+  needs, on a Mac or Windows, listed before anything is written, each with its
+  Do it, and Go on anyway. A tool that's installed but not on VSCode's PATH is
+  told apart from a missing one, with its fix: restarting VSCode, or adding the
+  folder to your own PATH, which it asks before doing. Windows checks winget
+  and the shell Git for Windows ships; a Salesforce project checks Node and
+  npm, the Salesforce CLI, Code Analyzer and what its engines need. Check this
+  machine is in the Command Palette, and acc init does the same.
 - The plan conversation's question no longer repeats the panel's icon.
 
 ## 0.49.0
