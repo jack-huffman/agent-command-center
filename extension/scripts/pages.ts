@@ -56,6 +56,8 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * Then a plan's conversation in its own panel (T-111): ACME-21's page before its plan with the conversation's one
  * line, the panel as Make a plan opens it, mid-conversation with a reply on its way, and Talk it through once v2 is made.
  * Then the agent's questions one at a time, part-way through (T-113), and a long Talk it through, folded.
+ * Then the planning agent's progress (T-131): the panel after Draft the plan with its steps, the same once it hasn't moved
+ * for six minutes, and ACME-21's page with the progress in its plan section.
  * Then Environments on a machine that isn't logged in to Production, its Open org and Deploy… off (T-125).
  * Then a project's several boards on the Tasks tab (T-127): two, on the first and switched to the second; four, with
  * the list of boards open and switched to the third; and ten across three Jira sites, the list open and filtered by
@@ -191,6 +193,10 @@ export const PAGES = [
   'conversation-questions',
   'conversation-questions-review',
   'conversation-long',
+  // The planning agent's progress (T-131): the panel mid-plan with its steps, stalled, and the task page's plan section
+  'conversation-progress',
+  'conversation-stalled',
+  'ticket-progress',
   // Report a problem (T-118): the draft as it opens, filled in, where GitHub's account can't reach the repo, and posted
   'report',
   'report-filled',

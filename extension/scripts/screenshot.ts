@@ -67,6 +67,7 @@ import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleTalkTicket, TALK_STATE } from './fixtures/talk.ts';
 import { REPORT_TYPED, sampleReport } from './fixtures/report.ts';
+import { sampleProgressPanel, sampleProgressTicket } from './fixtures/plan-progress.ts';
 import { LONG_STATE, QUESTIONS_STATE, REVIEW_STATE, sampleConversation, sampleConversationLong, sampleConversationQuestions, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
 import { type ChangesSample, sampleChangesTicket } from './fixtures/changes.ts';
 import { RECORDS_FORM_STATE, sampleRecordsTicket } from './fixtures/record-changes.ts';
@@ -216,6 +217,9 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   // The agent's questions one at a time, part-way through and at the review (T-130), and a long Talk it through folded (T-113).
   if (kind === 'conversation-questions' || kind === 'conversation-questions-review') return sampleConversationQuestions(now);
   if (kind === 'conversation-long') return sampleConversationLong(now);
+  // The planning agent's progress (T-131): mid-plan, stalled, and on ACME-21's page.
+  if (kind === 'conversation-progress' || kind === 'conversation-stalled') return sampleProgressPanel(now, kind === 'conversation-stalled');
+  if (kind === 'ticket-progress') return sampleProgressTicket(now);
   // Report a problem (T-118): as it opens, filled in, not posted for want of access, and posted.
   if (kind === 'report' || kind === 'report-filled' || kind === 'report-no-access' || kind === 'report-posted') return sampleReport(kind);
   // A ticket's page from each tracker past Jira and Slack (T-91): a GitHub issue, an Azure DevOps backlog item and a monday.com item.

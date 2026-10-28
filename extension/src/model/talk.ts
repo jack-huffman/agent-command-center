@@ -13,6 +13,7 @@ import { ANSWER_APPROVED, NOTE_APPROVED, type PlanTalk, proposalStale, proposalW
 import { planVersion } from '../../../packages/core/src/plan.ts';
 import { ANSWER_MAX, OPTIONS_MAX, QUESTIONS_MAX, turnQuestions } from '../../../packages/core/src/talk-questions.ts';
 import { byName } from './plan.ts';
+import type { PlanProgress } from './plan-progress.ts';
 import { type Action, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
 
 /** What tells a page how Send, Use this or Open in Claude Code went. */
@@ -124,6 +125,8 @@ export interface TicketTalk {
   skip: { disabled: string | null } | null;
   /** A plan being made from it (T-111): its ticket being read, then the plan. */
   making: { phase: Making; words: string } | null;
+  /** What the planning agent is doing while a plan is made or a reply comes (T-131); null when neither is, or before its first read. */
+  progress: PlanProgress | null;
   /**
    * The agent's questions waiting for the person (T-113): its last reply's, while nothing was said after it and
    * the plan is the version it asked about; `optionsMax` is the most answers a question lists before own words, and `answerMax` the longest own-words answer the box takes (D-205). Null with none, or past the build.
@@ -147,6 +150,8 @@ export interface TalkIn {
   ref: Ref;
   /** A plan being made from this window (T-111): its ticket being read, or the plan. */
   making?: Making | null;
+  /** The planning agent's progress (T-131), as the page last read it. */
+  progress?: PlanProgress | null;
 }
 
 /** The task page's words for a conversation (T-111): "Conversation · 1 message", "Conversation · 12 messages". */
@@ -243,6 +248,7 @@ export function ticketTalk(i: TalkIn): TicketTalk | null {
     draft: opening && todo ? { disabled: busy ?? (before ? null : 'Say what you\'re thinking first, or skip to the plan.') } : null,
     skip: opening && todo ? { disabled: busy } : null,
     making: making ? { phase: making, words: MAKING_WORDS[making] } : null,
+    progress: making || i.running ? i.progress ?? null : null,
     questions: openQuestions(i, todo),
     earlier: earlierTurns(i.talk),
   };
