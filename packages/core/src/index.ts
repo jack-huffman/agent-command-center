@@ -99,6 +99,7 @@ export * from './stray-files.ts';
 export * from './sync.ts';
 export * from './take-in.ts';
 export * from './talk-questions.ts';
+export * from './task-deploy.ts';
 export * from './team.ts';
 export * from './template.ts';
 export * from './test-counts.ts';

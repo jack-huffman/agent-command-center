@@ -1,6 +1,7 @@
 // acc's Environments commands: promote and deploy.
 
-import { AccError, deploy, lastDeploy, planDeploy, planPromotion, promote, run, skipWarning } from '../../../core/src/index.ts';
+import { createInterface } from 'node:readline/promises';
+import { AccError, deploy, deployTask, lastDeploy, planDeploy, planPromotion, planTaskDeploy, promote, run, skipWarning, type TaskDeployPlan } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
 import { type CommandArea, now, type Opts, out, personOnly, project, steps } from '../shared.ts';
 
@@ -58,6 +59,94 @@ function cmdDeploy(o: Opts, envName: string): number {
   return code;
 }
 
+/** A ticket's deploy plan as a person reads it: where, what, what's left out, what's by hand, and the check. */
+export function taskPlanLines(p: TaskDeployPlan): string[] {
+  const count = p.types.reduce((n, t) => n + t.members.length, 0);
+  const c = p.check;
+  return [
+    `${p.task}: ${p.from.name} → ${p.to.name} (${p.org})${p.confirm ? tone(`  protected: type ${p.confirmName} to deploy`, 'orange') : ''}`,
+    `  ${count} component${count === 1 ? '' : 's'} from ${p.commits.length} commit${p.commits.length === 1 ? '' : 's'} of its own. Tests: ${p.tests}.`,
+    ...p.types.flatMap((t) => [`    ${t.name}`, ...t.members.map((m) => `      ${m}`)]),
+    ...(p.gitOnly.length ? [tone(`  In its pull request, not deployed: ${p.gitOnly.join(', ')}`, 'dim')] : []),
+    ...(p.leftOut.length ? [`  Left out, environment-specific: ${p.leftOut.join(', ')}`] : []),
+    ...p.deletions.map((d) => tone(`  ! Delete by hand in ${p.to.name}: ${d.component}`, 'orange')),
+    ...p.records.map((r) => tone(`  ! Make by hand in ${p.to.name}: ${r}`, 'orange')),
+    '',
+    !c ? 'Nothing of it deploys, so nothing was checked.'
+      : c.passed ? tone(`✓ The check passed: ${c.summary}`, 'blue')
+        : tone(`! The check failed: ${c.summary}`, 'orange'),
+    ...(c && !c.passed ? c.problems.map((x) => `    ${x}`) : []),
+  ];
+}
+
+/** Asks the person on the terminal, when there is one: a yes, or the org's name for a protected org. */
+async function askYes(p: TaskDeployPlan): Promise<string | null> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return null;
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const said = (await rl.question(p.confirm ? `${p.to.name} is protected. Type ${p.confirmName} to deploy ${p.task} to it: ` : `Deploy ${p.task} to ${p.to.name} (${p.org})? Type yes: `)).trim();
+    return p.confirm ? (said === p.confirmName ? said : null) : (said.toLowerCase() === 'yes' ? 'yes' : null);
+  } finally {
+    rl.close();
+  }
+}
+
+/** acc deploy [<env>] --task <id>: one ticket to its next environment, a check first, then the person's yes (T-137). */
+async function cmdDeployTask(o: Opts, envName: string | undefined): Promise<number> {
+  const by = personOnly(o, 'deploy a ticket');
+  const { paths, config } = project(process.cwd());
+  const id = String(o.task).trim().toUpperCase();
+  if (!id) throw new AccError('usage', 'Say which task: --task <id>.');
+  const deps = { run, now, env: process.env, steps: steps(), onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another deploy to this org to finish…\n', 'dim')); } };
+  const noTests = o['no-tests'] === true;
+  let checkId = o['deploy-check'] as string | undefined;
+  let typed = o['confirm-name'] as string | undefined;
+  if (o.plan || !checkId) {
+    const p = planTaskDeploy(paths, config, id, envName, deps, { noTests, by });
+    if (o.plan || o.json || !p.check?.passed) {
+      out(o, () => [...taskPlanLines(p), p.check?.passed ? tone(`Nothing has changed. To deploy it: acc deploy ${p.to.branch} --task ${id} --yes ${p.check.id}${p.confirm ? ` --confirm-production ${p.confirmName}` : ''}`, 'dim') : ''].filter(Boolean).join('\n'), p);
+      steps().result(!p.check || p.check.passed, p.check?.summary ?? 'Nothing of it deploys.');
+      return !p.check || p.check.passed ? 0 : 1;
+    }
+    process.stdout.write(taskPlanLines(p).join('\n') + '\n');
+    const yes = await askYes(p);
+    if (!yes) {
+      process.stdout.write(`Nothing was deployed. To deploy it: acc deploy ${p.to.branch} --task ${id} --yes ${p.check.id}${p.confirm ? ` --confirm-production ${p.confirmName}` : ''}\n`);
+      return 0;
+    }
+    checkId = p.check.id!;
+    if (p.confirm) typed = yes;
+    envName = p.to.branch;
+  }
+  const r = deployTask(paths, config, id, envName, deps, { noTests, by, checkId, confirm: typed });
+  out(o, () => [
+    r.deployed ? tone(`✓ ${r.summary}`, 'blue') : r.summary,
+    r.warning ? tone(`! ${r.warning}`, 'orange') : '',
+    ...r.plan.deletions.map((d) => tone(`! Delete by hand in ${r.plan.to.name}: ${d.component}`, 'orange')),
+    ...r.plan.records.map((x) => tone(`! Make by hand in ${r.plan.to.name}: ${x}`, 'orange')),
+    r.update ? `  Drafted an update for ${r.update.key} (${r.update.id}). Nothing is posted until a person posts it.` : '',
+  ].filter(Boolean).join('\n'), r);
+  steps().result(r.deployed, r.summary);
+  return r.deployed || !r.plan.files.length ? 0 : 1;
+}
+
+/**
+ * For a ticket's deploy, its two flags that take a value here are given another name before they're parsed:
+ * --yes and --confirm-production are on/off flags elsewhere.
+ */
+export function taskDeployArgv(argv: string[]): string[] {
+  if (!argv.some((x) => x === '--task' || x.startsWith('--task='))) return argv;
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const x = argv[i]!;
+    const next = argv[i + 1];
+    const named = x === '--yes' ? 'deploy-check' : x === '--confirm-production' ? 'confirm-name' : null;
+    if (named && next !== undefined && !next.startsWith('-')) { out.push(`--${named}=${next}`); i++; }
+    else out.push(x);
+  }
+  return out;
+}
+
 export const area: CommandArea = {
   help: {
     section: 'Environments',
@@ -65,7 +154,10 @@ export const area: CommandArea = {
     lines: `  acc promote <env> [--to <env>] [--plan] [--allow-deletions] [--skip-validate]
                                         A pull request taking <env>'s merged changes to the next environment
   acc deploy <env> [--plan] [--since <commit>] [--confirm-production] [--no-tests]
-                                        Deploy what changed on <env>'s branch since its last deploy to its org`,
+                                        Deploy what changed on <env>'s branch since its last deploy to its org
+  acc deploy [<env>] --task <id> [--plan] [--yes <check-id>] [--confirm-production <name>] [--no-tests]
+                                        Deploy one ticket to its next environment: a check first, then your
+                                        yes; its commits reach <env>'s branch by a pull request acc merges`,
   },
   options: {
     to: { type: 'string' },
@@ -75,13 +167,18 @@ export const area: CommandArea = {
     since: { type: 'string' },
     'confirm-production': { type: 'boolean', default: false },
     'no-tests': { type: 'boolean', default: false },
+    task: { type: 'string' },
+    'deploy-check': { type: 'string' },
+    'confirm-name': { type: 'string' },
   },
+  argv: { deploy: taskDeployArgv },
   commands: {
     promote: (o, rest) => {
       if (!rest[0]) throw new AccError('usage', 'acc promote <env> [--to <env>]');
       return cmdPromote(o, rest[0]);
     },
     deploy: (o, rest) => {
+      if (o.task !== undefined) return cmdDeployTask(o, rest[0]);
       if (!rest[0]) throw new AccError('usage', 'acc deploy <env> [--since <commit>] [--confirm-production]');
       return cmdDeploy(o, rest[0]);
     },

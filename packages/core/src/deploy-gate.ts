@@ -48,6 +48,10 @@ export interface TaskDeploy {
   verified: number;
   /** The Apex tests run in the org, or null when no Apex changed and none ran. */
   tests: DeployTests | null;
+  /** A person's deploy of the ticket to a next environment (T-137): who said yes, to which check, and its pull request. */
+  by?: string;
+  checkId?: string;
+  pr?: { number: number; url: string };
 }
 
 export interface DeployTests {
