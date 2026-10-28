@@ -22,6 +22,13 @@ export function alive(pid: number): boolean {
 }
 
 /**
+ * Whether mkdir's error means another process holds the lock. On Windows, mkdir of a lock folder another
+ * process is still removing fails with EPERM, not EEXIST (T-129): it's held, so wait. Elsewhere EPERM is real.
+ */
+export const lockHeld = (code: string | undefined, platform: NodeJS.Platform = process.platform): boolean =>
+  code === 'EEXIST' || (platform === 'win32' && code === 'EPERM');
+
+/**
  * Runs `fn` while holding a lock directory. `mkdir` is atomic, so only one process wins.
  * A lock whose owner process is gone, or that is older than `staleMs`, is broken.
  */
@@ -35,7 +42,7 @@ export function withLock<T>(lockDir: string, fn: () => T, opts: LockOptions = {}
       writeFileSync(join(lockDir, 'owner'), JSON.stringify({ pid: process.pid, at: Date.now() }));
       break;
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      if (!lockHeld((e as NodeJS.ErrnoException).code)) throw e;
       let owner: { pid: number; at: number } | null = null;
       try {
         owner = JSON.parse(readFileSync(join(lockDir, 'owner'), 'utf8'));

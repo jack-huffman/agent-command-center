@@ -8,7 +8,6 @@ body[data-view="conversation"] #app { max-width: 820px; margin: 0 auto; }
 body[data-view="conversation"] .talk { margin-top: 0; }
 /* Before there is a plan: the question it asks first, large enough to read as the start. */
 .talk-ask { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0 2px; font-size: 1.1em; overflow-wrap: anywhere; }
-.talk-ask > .codicon { flex: none; margin-top: 3px; color: var(--accent); }
 /* The turns before the latest exchange, folded under one line (T-113). */
 .talk-earlier { margin: 2px 0 0 -6px; }
 /* The agent's questions, one at a time under its reply (T-113): Review plan's dots, radios and foot, in a card. */

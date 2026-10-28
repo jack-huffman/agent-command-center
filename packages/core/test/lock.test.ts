@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { readLedger } from '../src/ledger.ts';
-import { withLock } from '../src/lock.ts';
+import { lockHeld, withLock } from '../src/lock.ts';
 import { repoPaths } from '../src/paths.ts';
 import { makeRepo, SF_CONFIG, tempDir } from './support.ts';
 
@@ -55,4 +55,12 @@ test('the lock is released even when the work throws', () => {
   const lock = join(tempDir(), 'ledger.lock');
   assert.throws(() => withLock(lock, () => { throw new Error('boom'); }), /boom/);
   assert.equal(withLock(lock, () => 'again', { timeoutMs: 200 }), 'again');
+});
+
+test('a lock is held when mkdir says it exists, and on Windows also when it says EPERM, as for a folder another process is still removing (T-129)', () => {
+  for (const platform of ['darwin', 'linux', 'win32'] as const) assert.equal(lockHeld('EEXIST', platform), true, `EEXIST on ${platform}`);
+  assert.equal(lockHeld('EPERM', 'win32'), true, 'Windows: a lock being let go');
+  assert.equal(lockHeld('EPERM', 'darwin'), false, 'a Mac: a real permission error, thrown');
+  assert.equal(lockHeld('EPERM', 'linux'), false, 'Linux: the same');
+  for (const code of ['EACCES', 'ENOENT', undefined]) assert.equal(lockHeld(code, 'win32'), false, `${code} is never held`);
 });
