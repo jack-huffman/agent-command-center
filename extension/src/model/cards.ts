@@ -148,11 +148,11 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   const dispatchable = canDispatch(t);
   const wait = analysisWait(t);
   if (todo && t.analyzing) a.push({ command: 'acc.task.watchAnalysis', label: 'Watch the plan being made', icon: 'pulse', ref, primary: true });
-  // Its questions are answered on its page, where it shows them.
-  else if (wait === 'questions') a.push({ command: 'acc.task.show', label: 'Answer', icon: 'question', ref, primary: true });
-  else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref, primary: true });
+  // Its questions are answered on its page, where it shows them: each opens on its Plan tab (T-134).
+  else if (wait === 'questions') a.push({ command: 'acc.task.show', label: 'Answer', icon: 'question', ref: { ...ref, part: 'plan' }, primary: true });
+  else if (wait === 'split') a.push({ command: 'acc.task.show', label: 'See the split', icon: 'split-horizontal', ref: { ...ref, part: 'plan' }, primary: true });
   // Its choices are made, and its plan approved, on its page (T-97).
-  else if (wait === 'choices' || wait === 'approve') a.push({ command: 'acc.task.show', label: 'See the plan', icon: 'checklist', ref, primary: true });
+  else if (wait === 'choices' || wait === 'approve') a.push({ command: 'acc.task.show', label: 'See the plan', icon: 'checklist', ref: { ...ref, part: 'plan' }, primary: true });
   // Its builder didn't start, or acc can't see it (T-92): Dispatch again leads where it didn't start or has gone
   // quiet; where Claude Code only doesn't answer, the builder may still be at work, so it's behind ⋯.
   const notStarted = !!t.notStarted && (todo || t.state === 'rework');

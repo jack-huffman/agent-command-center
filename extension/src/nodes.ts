@@ -9,7 +9,8 @@ import type { AgentSession, TaskGroup, TaskRow } from './logic/shared.ts';
 export type TaskNode =
   | { kind: 'project'; project: Project }
   | { kind: 'group'; project: Project; group: TaskGroup; tasks: TaskRow[] }
-  | { kind: 'task'; project: Project; task: TaskRow };
+  // part: the part of its page a link names (T-134), such as its plan, which its page opens on.
+  | { kind: 'task'; project: Project; task: TaskRow; part?: string };
 
 export type AgentNode =
   | { kind: 'place'; label: string; root: string | null; sessions: AgentSession[] }

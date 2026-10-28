@@ -30,36 +30,27 @@ body[data-view="ticket"] { padding-top: 18px; }
 .btn.status-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
 
 .ticket-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: auto 1fr; gap: 0 28px; align-items: start; }
-/* What needs the person comes first, above the description (T-132); the side column runs beside both. */
+/* What needs the person comes first, above the tabs (T-134); the side column runs beside both. The tabs'
+   panels hold the sections, each on the page, not in a box (task-tabs.css). */
 .ticket-top { grid-column: 1; grid-row: 1; min-width: 0; margin-bottom: 20px; }
 .ticket-main { grid-column: 1; grid-row: 2; min-width: 0; }
-/* The main column's sections sit on the page, not in boxes (T-91): space and a hairline between them group
-   them, and the side column's Agent panel is the one raised surface beside them. */
-.ticket-main > section.block { padding: 0 0 var(--space-5); margin-bottom: var(--space-5); border-bottom: 1px solid color-mix(in srgb, var(--vscode-foreground) 8%, transparent); }
-.ticket-main > section.block:last-child { border-bottom: 0; }
-.ticket-main > section.block > h2:first-child { margin-top: 0; margin-bottom: var(--space-3); }
 /* The description's heading, with its Edit at the right where the tracker allows edits (T-80). */
 .desc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .desc-head > h2 { margin: 0; }
-.ticket-main > section.block > :last-child, .ticket-main > section.block > :last-child > :last-child, .ticket-main > section.block > .foldable:last-child > :first-child > :last-child { margin-bottom: 0; }
 .ticket-side { grid-column: 2; grid-row: 1 / span 2; }
 @media (max-width: 760px) {
   .ticket-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; gap: 24px; }
   .ticket-top, .ticket-main, .ticket-side { grid-column: 1; grid-row: auto; }
   .ticket-top { margin-bottom: 0; }
-  /* One column, what needs the person first (T-41, T-132): the notices, then the description, the Command
-     Center's sections under it, then Details and the Agent panel, then Related and Activity. Both columns'
-     sections join the grid as its items. */
-  .ticket-side, .ticket-main { display: contents; }
-  .ticket-main > *, .ticket-side > * { min-width: 0; }
-  /* The grid's gap spaces the sections, so a section keeps no margin of its own under it. */
-  .ticket-main > section.block { margin-bottom: 0; }
+  /* One column, what needs the person first (T-41, T-134): the notices, then the tabs and the one on show,
+     then Details and the Agent panel. The side column's panels join the grid as its items. */
+  .ticket-side { display: contents; }
+  .ticket-side > * { min-width: 0; }
   /* The base rule for a panel after a panel comes later in this file, so this names the grid to win: without it, the Agent panel, second in the DOM, kept 14px above it (T-47). */
   .ticket-grid .side-panel + .side-panel { margin-top: 0; }
   .ticket-grid .side-details + .side-panel { margin-top: 0; }
   .ticket-top { order: -1; }
   .side-details, .side-panel { order: 1; }
-  .related-block, .activity { order: 2; }
 }
 .ticket-main h2, .side-panel h2, .side-details h2, .analysis h2 { font-size: 0.95em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
 .ticket-main h3 { font-size: 0.95em; margin: 18px 0 8px; color: var(--vscode-foreground); }

@@ -13,15 +13,16 @@ const orderOf = (sel: string): number => {
   return 0;
 };
 
-test('at 760 px and below what needs the person comes first: the notices, the description and the Command Center\'s sections, then Details and the Agent panel, then Related and Activity (T-94)', () => {
-  assert.ok(narrow.includes('.ticket-side, .ticket-main { display: contents; }'), 'both columns\' sections order with the rest');
-  const [top, details, agent, related, activity] = ['.ticket-top', '.side-details', '.side-panel', '.related-block', '.activity'].map(orderOf);
-  assert.ok(top! < 0, `top ${top}, before the description's 0`);
-  assert.ok(details! > 0 && agent === details, `Details ${details} and the Agent panel ${agent} after the description`);
-  assert.ok(related! > details! && activity! > details!, `Related ${related} and Activity ${activity} after Details`);
+test('at 760 px and below what needs the person comes first: the notices, then the tabs and the one on show, then Details and the Agent panel (T-94, T-134)', () => {
+  assert.ok(narrow.includes('.ticket-side { display: contents; }'), 'the side column\'s panels order with the rest');
+  // The tabs stay one block, so a tab's panel never splits around the side column.
+  assert.ok(!/\.ticket-main[^{]*\{ display: contents; \}/.test(narrow), 'the main column keeps its tabs together');
+  const [top, main, details, agent] = ['.ticket-top', '.ticket-main', '.side-details', '.side-panel'].map(orderOf);
+  assert.ok(top! < main!, `top ${top}, before the tabs' ${main}`);
+  assert.ok(details! > main! && agent === details, `Details ${details} and the Agent panel ${agent} after the tabs`);
   // The page draws the classes the order names, so a renamed class can't drop a section back to 0.
   const src = pageSource('task-page.ts');
-  for (const c of ['block related-block', 'block activity', 'side-details', 'side-panel side-agent']) assert.ok(src.includes(`'${c}`) || src.includes(`\`${c}`), c);
+  for (const c of ['ticket-main', 'side-details', 'side-panel side-agent']) assert.ok(src.includes(`'${c}`) || src.includes(`\`${c}`), c);
 });
 
 test('Details\' names sit on the first line of their value, a rule the list of fields\' centring can\'t outrank (T-94)', () => {
@@ -35,7 +36,7 @@ test('Details\' names sit on the first line of their value, a rule the list of f
 
 test('edge case: the order check reads a rule naming one selector, or several, and gives 0 to one never named', () => {
   assert.equal(orderOf('.ticket-top'), -1);
-  assert.equal(orderOf('.activity'), orderOf('.related-block'));
+  assert.equal(orderOf('.side-panel'), orderOf('.side-details'));
   assert.equal(orderOf('.description-nobody-orders'), 0);
 });
 

@@ -10,7 +10,7 @@ export const area: ExtensionArea = {
       ready: () => tickets.modalReady(),
       close: () => tickets.closeModal(),
     });
-    receive('task-modal-open', (m) => { if (hub.project(m.project)) tickets.peek(panels, m.project, m.tracker, m.key); });
+    receive('task-modal-open', (m) => { if (hub.project(m.project)) tickets.peek(panels, m.project, m.tracker, m.key, m.part); });
     receive('task-modal-close', (m) => tickets.closeModal(m.project, m.key));
   },
 };

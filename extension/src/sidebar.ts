@@ -47,10 +47,10 @@ export class Sidebar {
   readonly log: vscode.LogOutputChannel;
   readonly terminals: Map<string, vscode.Terminal>;
   /** Opens a task's page (D-026). Without it, Details falls back to a plain document. */
-  readonly openTicket: ((root: string, key: string) => void) | null;
+  readonly openTicket: ((root: string, key: string, part?: string) => void) | null;
   readonly helpers: SidebarHelpers;
 
-  constructor(hub: Hub, acc: Acc, log: vscode.LogOutputChannel, openTicket: ((root: string, key: string) => void) | null = null, helpers: SidebarHelpers = {}, terminals = new Map<string, vscode.Terminal>()) {
+  constructor(hub: Hub, acc: Acc, log: vscode.LogOutputChannel, openTicket: ((root: string, key: string, part?: string) => void) | null = null, helpers: SidebarHelpers = {}, terminals = new Map<string, vscode.Terminal>()) {
     this.hub = hub;
     this.acc = acc;
     this.log = log;

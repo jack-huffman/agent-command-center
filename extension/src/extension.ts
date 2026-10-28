@@ -151,7 +151,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (ref.step) return ref.step;
     if (ref.task) {
       const task = project && hub.taskRows(project.root).find((t) => t.id === ref.task);
-      return task ? { kind: 'task', project, task } : undefined;
+      return task ? { kind: 'task', project, task, ...(ref.part ? { part: ref.part } : {}) } : undefined;
     }
     if (ref.session) {
       const session = hub.agents.find((a) => sessionKey(a) === ref.session);
@@ -333,7 +333,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   const pages = new AgentPages(context, hub, resolve, answer, reply);
   context.subscriptions.push(pages);
-  const sidebar = new Sidebar(hub, accRunner(accScript), setup.log, (root, key) => tickets.show(root, undefined, key), {
+  const sidebar = new Sidebar(hub, accRunner(accScript), setup.log, (root, key, part) => tickets.show(root, undefined, key, part), {
     run: (command, cwd, label, onExit, ok, review) => void runs.start(command, { cwd, label, onExit, ok, review }),
     // A dispatch or a land in the output panel, with its steps (T-65); its answer is what --json printed.
     runAccShown: (args, cwd, label) => new Promise((resolve) => {

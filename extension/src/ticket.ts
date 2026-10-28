@@ -99,6 +99,8 @@ interface Open {
   excerpts: { key: string; value: (Excerpt | null)[] } | null;
   /** How wide the page last said it was (T-111), so its conversation opens beside it or as a tab; null before it says. */
   width: number | null;
+  /** The part a link asked this page to open (T-134), stamped with when it asked: the page goes there once. */
+  part: { part: string; at: number } | null;
 }
 
 /** Commands a ticket page may run: the ones its task's card offers, and Dispatch with… and Dispatch to the cloud, kept for one release to open the sheet (D-168). */
@@ -202,13 +204,14 @@ export class TicketPanels implements vscode.Disposable {
   }
 
   /** Opens a ticket's page, or brings it forward. With no tracker given, the key decides which. */
-  show(root: string, tracker: number | null | undefined, key: string): void {
+  show(root: string, tracker: number | null | undefined, key: string, part?: string): void {
     const project = this.hub.project(root);
     if (!project) return;
     const index = tracker === undefined ? this.trackers.trackerFor(project, key) : tracker;
     const id = ticketKey(root, key);
     const existing = this.open.get(id);
     if (existing) {
+      if (part) existing.part = { part, at: Date.now() };
       existing.tab.panel.reveal();
       void this.load(existing);
       return;
@@ -225,6 +228,7 @@ export class TicketPanels implements vscode.Disposable {
       name: (text) => { panel.title = text; },
     };
     const o = { ...this.fresh(view, root, index, key), tab: { panel, theme } };
+    if (part) o.part = { part, at: Date.now() };
     this.open.set(id, o);
     // Closing the page drops its edits (D-066), and the Overview goes back to acc's text.
     panel.onDidDispose(() => {
@@ -242,7 +246,7 @@ export class TicketPanels implements vscode.Disposable {
    * as the tab's are. Open as tab there sends what the card sent before: acc.task.show from the agent
    * board, which gives no tracker, or the ticket from a tracker's. With no tracker given, the key decides.
    */
-  peek(host: ModalHost, root: string, tracker: number | null | undefined, key: string): void {
+  peek(host: ModalHost, root: string, tracker: number | null | undefined, key: string, part?: string): void {
     const project = this.hub.project(root);
     if (!project) return;
     const index = tracker === undefined ? this.trackers.trackerFor(project, key) : tracker;
@@ -256,6 +260,7 @@ export class TicketPanels implements vscode.Disposable {
       name: () => {},
     };
     const o = this.fresh(view, root, index, key);
+    if (part) o.part = { part, at: Date.now() };
     this.modal = o;
     void this.load(o);
   }
@@ -299,7 +304,7 @@ export class TicketPanels implements vscode.Disposable {
 
   /** A page that hasn't loaded yet. */
   private fresh(view: TicketView, root: string, tracker: number | null, key: string): Open {
-    return { view, tab: null, project: root, tracker, key: key.toUpperCase(), ticket: null, loading: tracker !== null, error: null, outside: null, connect: null, edits: new Map(), excerpts: null, width: null };
+    return { view, tab: null, project: root, tracker, key: key.toUpperCase(), ticket: null, loading: tracker !== null, error: null, outside: null, connect: null, edits: new Map(), excerpts: null, width: null, part: null };
   }
 
   /** Every page shown: each tab, and the modal (GH-158). */
@@ -432,13 +437,14 @@ export class TicketPanels implements vscode.Disposable {
     // its own: the field once read, with its draft update keeping each line a person wrote there.
     const analysis = task ? this.hub.analysis(p.root, task.id) : null;
     const talk = task ? this.talkModel(p.root, task.id) : null;
+    // The part a link asked for rides on each draw, stamped, so the page goes there once (T-134).
     o.view.draw(task ? {
-      ...model,
+      ...model, open: o.part,
       records: ticketRecords({ task, analysis, profile: p.config.profile, environments: p.config.environments }),
       talk,
       field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, ticketPaths(changes), updates, manifest?.manifest ?? null) ?? null : null,
       updates: this.fields ? withFieldKept(model.updates, this.fields.read(p, task.id), writtenFor(updates, task.id)) : model.updates,
-    } : model);
+    } : { ...model, open: o.part });
   }
 
   /**

@@ -138,7 +138,7 @@ export class Notices implements vscode.Disposable {
     const chosen = s.actions.find(([label]) => label === pick);
     if (!chosen) return;
     // A burst across tasks has no task: its Show opens the Overview, at its part where it names one.
-    if (s.task) void this.resolve(chosen[1], { project: s.task.root, task: s.task.task });
+    if (s.task) void this.resolve(chosen[1], { project: s.task.root, task: s.task.task, ...(chosen[1] === 'acc.task.show' && s.task.part ? { part: s.task.part } : {}) });
     else void vscode.commands.executeCommand(chosen[1], 'overview', ...(s.part ? [s.part] : []));
   }
 }

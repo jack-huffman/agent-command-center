@@ -94,6 +94,13 @@ export interface GeoSnapshot {
   actionSets?: GeoActionSet[];
   /** Each disabled button drawn (T-121): the disabled check fails on one drawn as clear as an enabled button. */
   disabled?: GeoDisabled[];
+  /** The task page's tab whose panel was on show when it was measured (T-134), or null on a page with none. */
+  panel?: string | null;
+  /**
+   * A later measure of a task page, of another tab's panel (T-134): it holds only what is inside that panel, and
+   * the page itself isn't counted again for sideways, so what's outside the tabs counts once per drawing.
+   */
+  scoped?: boolean;
 }
 
 /** A task's actions as drawn: the next step, full width, and the rest in the grid under it. */
@@ -289,7 +296,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
   const a11y = judgeA11y(s.a11y, a11yExceptions);
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: 1 + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, raw: panels.length, a11y: a11y.examined, actions: actionSets.reduce((n, x) => n + x.next.length + x.rest.length, 0), disabled: disabled.length };
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: (s.scoped ? 0 : 1) + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, raw: panels.length, a11y: a11y.examined, actions: actionSets.reduce((n, x) => n + x.next.length + x.rest.length, 0), disabled: disabled.length };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -299,7 +306,8 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   // A page with no controls by design, such as the loading screen (T-16), is judged without them.
   if (controls && !examined.overlap) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
   if (!examined.clipped) violations.push({ check: 'clipped', what: 'the page', detail: 'examined no text' });
-  if (home && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
+  // A later measure of a task modal's tab panel (T-134) holds only the panel, not the rail the first measure checked.
+  if (home && !s.scoped && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
   if (s.overview && !examined.overview) violations.push({ check: 'overview', what: 'the page', detail: 'is the Overview, and examined no lines or cards on it' });
   if (!examined.words) violations.push({ check: 'words', what: 'the page', detail: 'gathered no words' });
   // What axe found that no exception excuses, and a page where it examined nothing (T-55).
@@ -437,6 +445,68 @@ export function dumpedGeometry(dom: string): GeoSnapshot | null {
 }
 
 /**
+ * Every measure a --dump-dom holds, in the order taken (T-134): the page as drawn, then each other tab's panel
+ * of a task page that MEASURE_TABS showed in turn. Empty when the page never measured.
+ */
+export function dumpedGeometries(dom: string): GeoSnapshot[] {
+  return [...dom.matchAll(/<script[^>]*\bid="acc-geometry(?:-\d+)?"[^>]*>([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]!) as GeoSnapshot);
+}
+
+/**
+ * The classes a drawing's shot holds, for the screenshots gate (T-5): the first measure's only, as it is the page
+ * the PNG shows (T-134). A tab MEASURE_TABS showed for a moment, then hid, isn't in the shot.
+ */
+export const drawnIn = (shots: readonly GeoSnapshot[]): string[] => [...new Set(shots[0]?.drawn ?? [])].sort();
+
+/**
+ * One drawing's verdict from each measure of it (T-134): what each examined, added up, and every finding, each
+ * after the first naming the tab its panel was measured in. The first measure is the page as drawn, so its
+ * board's top stands. Each later one holds only its tab's panel (scoped), so nothing is counted twice.
+ */
+export function mergedVerdict(measures: { panel?: string | null; verdict: Verdict }[]): Verdict {
+  const [first, ...rest] = measures;
+  if (!first) throw new Error('A drawing has no measure to judge.');
+  const add = (a: Record<string, number>, b: Record<string, number>): Record<string, number> => {
+    const out = { ...a };
+    for (const [k, v] of Object.entries(b)) out[k] = (out[k] ?? 0) + v;
+    return out;
+  };
+  return rest.reduce<Verdict>((v, m) => ({
+    examined: add(v.examined, m.verdict.examined) as Record<Check, number>,
+    violations: [...v.violations, ...m.verdict.violations.map((x) => ({ ...x, what: `the ${m.panel ?? 'other'} tab: ${x.what}` }))],
+    excused: add(v.excused, m.verdict.excused),
+    held: add(v.held, m.verdict.held),
+    boardTop: v.boardTop,
+    incomplete: add(v.incomplete, m.verdict.incomplete),
+  }), first.verdict);
+}
+
+/**
+ * The page's side, after it's measured as drawn (T-134): a task page shows only one tab's panel, so each other
+ * tab is shown in turn and measured, two frames after it's drawn, and then the tab and scroll that were on show
+ * come back, as the shot draws the page as it opened. measure(panel, then) measures inside the tab's panel once and
+ * calls then.
+ */
+export const MEASURE_TABS = `
+function measureTabs(measure) {
+  const tabs = [...document.querySelectorAll('.task-tabs > [role="tab"]')];
+  const was = tabs.find((t) => t.getAttribute('aria-selected') === 'true');
+  const rest = tabs.filter((t) => t !== was);
+  const kept = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => e && (e.scrollTop || e.scrollLeft)).map((e) => [e, e.scrollTop, e.scrollLeft]);
+  const step = () => {
+    const t = rest.shift();
+    if (!t) {
+      was?.click();
+      for (const [e, top, left] of kept) { e.scrollTop = top; e.scrollLeft = left; }
+      return;
+    }
+    t.click();
+    requestAnimationFrame(() => requestAnimationFrame(() => measure(document.getElementById(t.getAttribute('aria-controls')), step)));
+  };
+  step();
+}`;
+
+/**
  * The page's side: measures itself when called, which pageFor does once its fonts have loaded, two frames
  * have drawn and the selected tab has settled, and writes
  * what it found into a JSON script element, which Chrome's --dump-dom prints. The screenshot run puts it
@@ -445,7 +515,7 @@ export function dumpedGeometry(dom: string): GeoSnapshot | null {
  * the a11y part (T-55): the element is written once it has.
  */
 export const COLLECT_GEOMETRY = `
-function collectGeometry(more) {
+function collectGeometry(more, then, within) {
   const SIDEWAYS = ${JSON.stringify(SIDEWAYS)};
   const style = (e) => getComputedStyle(e);
   const name = (e) => e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className.trim() ? '.' + e.className.trim().split(/\\s+/).slice(0, 3).join('.') : '');
@@ -472,8 +542,13 @@ function collectGeometry(more) {
   const layers = new Map();
   const layerOf = (e) => { for (let p = e; p; p = p.parentElement) { const s = style(p).position; if (s === 'sticky' || s === 'fixed' || p.getAttribute('role') === 'menu' || p.classList.contains('more-menu')) { if (!layers.has(p)) layers.set(p, layers.size); return layers.get(p); } } return null; };
   const visible = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+  // A later measure, of another tab's panel (T-134), looks only inside that panel: what's outside it (the
+  // notices, the side column, the header, the rail) was measured as drawn, so it's counted once per drawing.
+  const scope = within || document;
+  const root = within || document.body;
+  const all = within ? [within, ...within.querySelectorAll('*')] : [...document.querySelectorAll('body *')];
 
-  const found = [...document.querySelectorAll('button, a[href], a.ext, input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab], [role=link]')].filter(visible);
+  const found = [...scope.querySelectorAll('button, a[href], a.ext, input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab], [role=link]')].filter(visible);
   const index = new Map();
   const controls = [];
   for (const e of found) {
@@ -487,7 +562,7 @@ function collectGeometry(more) {
   for (const c of controls) for (let p = c.e.parentElement; p; p = p.parentElement) if (index.has(p)) c.inside.push(index.get(p));
 
   const texts = [];
-  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const range = document.createRange();
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const e = n.parentElement;
@@ -509,7 +584,7 @@ function collectGeometry(more) {
 
   const vw = document.documentElement.clientWidth;
   const vh = window.innerHeight;
-  const sel = document.querySelector('${SELECTED_TAB}');
+  const sel = within ? null : document.querySelector('${SELECTED_TAB}');
   let tab = null;
   if (sel) {
     const t = sel.getBoundingClientRect();
@@ -517,14 +592,14 @@ function collectGeometry(more) {
     tab = { what: what(sel), box: box(t.left, t.top, t.right, t.bottom), rail: box(Math.max(rr.left, 0), Math.max(rr.top, 0), Math.min(rr.right, vw), Math.min(rr.bottom, vh)) };
   }
   const scrollers = [];
-  for (const e of document.querySelectorAll('body *')) {
+  for (const e of all) {
     if (!scrolls(style(e).overflowX)) continue;
     scrollers.push({ what: what(e), scroll: e.scrollWidth, client: e.clientWidth, allowed: SIDEWAYS.some((s) => e.matches(s)) });
   }
   const doc = { scroll: document.documentElement.scrollWidth, view: vw };
   // The Overview's lists, and each line's box, as the page marks them (GH-160), with the list a detail open
   // over it shows (T-36), and each list's card.
-  const home = document.querySelector('.home-main[data-section="overview"]');
+  const home = within ? null : document.querySelector('.home-main[data-section="overview"]');
   const opened = document.querySelector('dialog.detail-modal[open]');
   const scopes = home ? [home, ...(opened ? [opened] : [])] : [];
   const overview = home ? { groups: scopes.flatMap((s) => [...s.querySelectorAll('[data-overview-group]')]).filter(visible).map((g) => ({
@@ -536,7 +611,7 @@ function collectGeometry(more) {
   const buttons = home ? scopes.flatMap((s) => [...s.querySelectorAll('.lp-btn')]).filter(visible).map((b) => ({ row: words(b.closest('[data-overview-row]')?.querySelector('.lp-title')?.textContent), label: b.getAttribute('aria-label') })) : null;
   // The classes drawn inside the window, which the shot holds, for the screenshots gate (T-5).
   const drawn = new Set();
-  for (const e of document.querySelectorAll('body *')) {
+  for (const e of all) {
     if (!e.classList.length || !visible(e)) continue;
     const r = e.getBoundingClientRect();
     if (r.width < 1 || r.height < 1 || r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) continue;
@@ -544,7 +619,7 @@ function collectGeometry(more) {
   }
   // The text of each cell in a row with a sticky cell, at the first scroll position (T-46).
   const cells = [];
-  [...document.querySelectorAll('tr')].forEach((tr, row) => {
+  [...scope.querySelectorAll('tr')].forEach((tr, row) => {
     const tds = [...tr.children].filter((c) => (c.tagName === 'TD' || c.tagName === 'TH') && visible(c));
     if (!tds.some((c) => style(c).position === 'sticky')) return;
     for (const c of tds) {
@@ -561,22 +636,25 @@ function collectGeometry(more) {
     }
   });
   // Where a tracker's first column starts (T-42).
-  const firstCol = document.querySelector('.tracker .board:not(.agent-board) .column');
+  const firstCol = within ? null : document.querySelector('.tracker .board:not(.agent-board) .column');
   const boardTop = firstCol && visible(firstCol) ? Math.round(firstCol.getBoundingClientRect().top + window.scrollY) : null;
   // Each output panel, and any block of raw output in it (T-64).
-  const panels = [...document.querySelectorAll('.dock')].map((d) => ({ what: what(d), raw: [...d.querySelectorAll(${JSON.stringify(RAW_OUTPUT)})].map(what) }));
+  const panels = [...scope.querySelectorAll('.dock')].map((d) => ({ what: what(d), raw: [...d.querySelectorAll(${JSON.stringify(RAW_OUTPUT)})].map(what) }));
   // Each set of a task's actions (D-168): the next step's box, and each of the rest's.
   const boxOf = (e) => { const r = e.getBoundingClientRect(); return box(r.left, r.top, r.right, r.bottom); };
-  const actionSets = [...document.querySelectorAll('[data-action-set]')].filter(visible).map((s) => ({ what: what(s), next: [...s.querySelectorAll(':scope > .ta-btn')].filter(visible).map(boxOf), rest: [...s.querySelectorAll(':scope > .ta-grid > .ta-btn')].filter(visible).map(boxOf) }));
+  const actionSets = [...scope.querySelectorAll('[data-action-set]')].filter(visible).map((s) => ({ what: what(s), next: [...s.querySelectorAll(':scope > .ta-btn')].filter(visible).map(boxOf), rest: [...s.querySelectorAll(':scope > .ta-grid > .ta-btn')].filter(visible).map(boxOf) }));
   // Each disabled button, as drawn (T-121): a .btn that is disabled, or kept focusable with .is-disabled.
-  const disabled = [...document.querySelectorAll('.btn:disabled, .btn.is-disabled')].filter(visible).map((b) => ({ what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), opacity: Number(style(b).opacity), cursor: style(b).cursor, why: !!(b.getAttribute('title') || b.getAttribute('aria-description')) }));
-  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, fonts: window.accFontsFirst ?? 0 };
+  const disabled = [...scope.querySelectorAll('.btn:disabled, .btn.is-disabled')].filter(visible).map((b) => ({ what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), opacity: Number(style(b).opacity), cursor: style(b).cursor, why: !!(b.getAttribute('title') || b.getAttribute('aria-description')) }));
+  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, fonts: window.accFontsFirst ?? 0, panel: document.querySelector('.task-tabs > [role="tab"][aria-selected="true"]')?.dataset.tab ?? null, scoped: !!within };
+  // The first measure is acc-geometry; a later one, of another tab's panel (T-134), is numbered after it. then, if given, runs once it's written.
   const write = (parts) => {
     const out = document.createElement('script');
     out.type = 'application/json';
-    out.id = 'acc-geometry';
+    const n = document.querySelectorAll('script[id^="acc-geometry"]').length;
+    out.id = n ? 'acc-geometry-' + n : 'acc-geometry';
     out.textContent = JSON.stringify({ ...measured, ...parts }).replace(/</g, '\\\\u003c');
     document.body.append(out);
+    if (then) then();
   };
   // The dump is written either way: a part that fails to come (or to serialise) is recorded, not waited for (T-55 review).
   Promise.resolve().then(() => more ? more() : {}).then(write, (e) => write({ a11y: { violations: [], examined: 0, incomplete: [], error: String(e) } }));

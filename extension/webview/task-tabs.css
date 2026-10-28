@@ -1,0 +1,24 @@
+/* A task page's tabs (T-134): one row under the notices, the tab on show underlined in the accent, its
+   panel under it. On a narrow page the row wraps, so every tab, the one on show too, stays in view. */
+.task-tabs { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 var(--space-5); border-bottom: 1px solid var(--line); }
+.task-tab { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; margin: 0 0 -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--vscode-descriptionForeground); font: inherit; cursor: pointer; white-space: nowrap; border-radius: var(--radius) var(--radius) 0 0; }
+.task-tab:hover { color: var(--vscode-foreground); background: var(--accent-soft); }
+.task-tab:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.task-tab:active { transition: none; transform: scale(0.97); }
+.task-tab[aria-selected="true"] { color: var(--vscode-foreground); border-bottom-color: var(--accent); font-weight: 600; }
+.task-tab .codicon { color: inherit; }
+/* Its count, quiet beside its name: "12 comments", "4". */
+.task-tab-count { font-size: var(--text-meta); font-weight: 400; color: var(--vscode-descriptionForeground); }
+/* Something in it needs the person: an orange bell and the words, never the colour alone. */
+.task-tab-needs { display: inline-flex; align-items: center; gap: 3px; font-size: var(--text-meta); font-weight: 600; color: var(--orange); }
+.task-tab-needs .codicon { color: var(--orange); }
+.task-panel[hidden] { display: none; }
+/* A panel's sections sit on the page, not in boxes (T-91): space and a hairline between them group them. */
+.task-panel > section.block { padding: 0 0 var(--space-5); margin-bottom: var(--space-5); border-bottom: 1px solid color-mix(in srgb, var(--vscode-foreground) 8%, transparent); }
+.task-panel > section.block:last-child { border-bottom: 0; }
+.task-panel > section.block > h2:first-child { margin-top: 0; margin-bottom: var(--space-3); }
+.task-panel > section.block > :last-child, .task-panel > section.block > :last-child > :last-child, .task-panel > section.block > .foldable:last-child > :first-child > :last-child { margin-bottom: 0; }
+@media (max-width: 760px) {
+  .task-tabs { margin-bottom: var(--space-4); }
+  .task-tab { padding: 8px 10px; }
+}

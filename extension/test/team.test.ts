@@ -55,8 +55,8 @@ test('the page draws the team under the changes: its line with icon and label, t
   assert.match(alone.textContent, /^TeamUp to date with devNo other task is in flight\.$/);
   assert.equal(alone.all('status')[0]!.className, 'status tone-blue');
   const page = readFileSync(new URL('../webview/task-page.ts', import.meta.url), 'utf8');
-  const at = page.indexOf('if (m.team) add(renderTeam(m.team)');
-  assert.ok(at > page.indexOf('renderChanges(m, m.changes)'), 'under the changes');
+  const at = page.indexOf('if (m.team) add(changes, renderTeam(m.team)');
+  assert.ok(at > page.indexOf('add(changes, renderChanges('), 'in the Changes tab, under the changes (T-134)');
 });
 
 test('the screenshot run draws ACME-12 sharing files with two others and behind dev, and up to date sharing none (T-103)', async () => {

@@ -1,7 +1,7 @@
-// A task page's order and its collapsible sections (T-132): the ticket's description first, what needs the
-// person above it, the Command Center's sections under a quiet label, each folding to its header line and
-// remembered per ticket, then the ticket's related tickets and activity. Drawn in page-dom.ts's small document;
-// the keys and the narrow page in a browser are the behaviour run's and the screenshot run's.
+// A task page's collapsible sections (T-132), in its tabs (T-134): what needs the person above the tabs, the
+// ticket's description, related tickets and activity in Ticket, and the Command Center's sections each in its
+// tab, each folding to its header line and remembered per ticket. Drawn in page-dom.ts's small document; the
+// keys and the narrow page in a browser are the behaviour run's and the screenshot run's.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -25,8 +25,8 @@ const { collapsible, criteriaSummary, oneLine, sectionKey } = await import('../w
 const { el } = await import('../webview/dom.ts');
 
 const NOW = Date.now();
-/** The Command Center's sections, in the order the page draws them. */
-const ORDER = ['plan', 'criteria', 'verify', 'changes', 'team', 'field', 'records', 'manifest', 'notes', 'note'];
+/** The Command Center's sections, by the tab that holds them, in the order each tab draws them. */
+const IN_TAB: Record<string, string[]> = { plan: ['plan', 'criteria', 'notes', 'note'], changes: ['changes', 'field', 'records', 'manifest', 'team'], verify: ['verify'] };
 
 const elements = (e: PageElement): PageElement[] => e.children.filter((c): c is PageElement => typeof c !== 'string');
 function drawn(m: TicketModel): { top: PageElement | null; main: PageElement; side: PageElement; all: PageElement[] } {
@@ -34,39 +34,48 @@ function drawn(m: TicketModel): { top: PageElement | null; main: PageElement; si
   const part = (cls: string): PageElement | undefined => elements(grid).find((e) => e.classList.contains(cls));
   return { top: part('ticket-top') ?? null, main: part('ticket-main')!, side: part('ticket-side')!, all: grid.all() };
 }
-/** The main column as names: desc, label, each section's id, related and activity. */
-const names = (main: PageElement): string[] => elements(main).map((e) => (e.classList.contains('cc-divider') ? 'label' : e.dataset.section ?? (e.classList.contains('activity') ? 'activity' : e.classList.contains('related-block') ? 'related' : e.textContent.startsWith('Description') ? 'desc' : e.className)));
+/** A tab's panel, drawn whether or not it's on show. */
+const panelOf = (main: PageElement, tab: string): PageElement | undefined => main.all('task-panel').find((p) => p.dataset.tab === tab);
+/** A panel's parts as names: desc, each section's id, related and activity. */
+const names = (panel: PageElement): string[] => elements(panel).map((e) => e.dataset.section ?? (e.classList.contains('activity') ? 'activity' : e.classList.contains('related-block') ? 'related' : e.textContent.startsWith('Description') ? 'desc' : e.className));
 const toggleOf = (sec: PageElement): PageElement => sec.all('sec-toggle')[0]!;
-const sectionOf = (main: PageElement, id: string): PageElement => elements(main).find((e) => e.dataset.section === id)!;
+const sectionOf = (main: PageElement, id: string): PageElement => main.all('cc-section').find((e) => e.dataset.section === id)!;
 
-test('the description comes first, then the label, the plan, the criteria and Verify, then the activity', () => {
+test('Ticket holds the description, then the activity; Plan the plan and the criteria; Verify its own section; no label between them', () => {
   saved = undefined;
   const { top, main } = drawn(sampleSectionsTicket(NOW));
-  assert.deepEqual(names(main), ['desc', 'label', 'plan', 'criteria', 'verify', 'activity']);
-  assert.equal(elements(main)[1]!.textContent, 'From the Command Center');
-  // Edge: no notice needs the person on this ticket, so nothing sits above the description.
+  assert.deepEqual(names(panelOf(main, 'ticket')!), ['desc', 'activity']);
+  assert.deepEqual(names(panelOf(main, 'plan')!), ['plan', 'criteria']);
+  assert.deepEqual(names(panelOf(main, 'verify')!), ['verify']);
+  // The "From the Command Center" label is gone: the tabs say which is which.
+  assert.ok(!main.textContent.includes('From the Command Center'));
+  // Edge: no notice needs the person on this ticket, so nothing sits above the tabs.
   assert.equal(top, null);
 });
 
-test('every fixture with Command Center sections draws them in the one order, under the description and the label', () => {
+test('every fixture with Command Center sections draws each in its own tab, in that tab\'s order', () => {
   saved = undefined;
   const models = [sampleSectionsTicket(NOW), sampleTeamTicket(NOW, 'shared'), sampleRecordsTicket(NOW, 'kept'), sampleChangesTicket(NOW, 'changes'), sampleFieldTicket(NOW), sampleTicket(NOW, 'ACME-19'), sampleTicket(NOW, 'ACME-20'), sampleTicket(NOW, 'ACME-23')];
   let checked = 0;
   for (const m of models) {
-    const list = names(drawn(m).main);
-    const ids = list.filter((n) => ORDER.includes(n));
-    assert.ok(ids.length, `${m.key} has a section`);
-    assert.deepEqual(list.slice(0, 2), ['desc', 'label'], m.key);
-    assert.deepEqual(ids, [...ids].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)), m.key);
-    // The ticket's related tickets and activity come after every one of them.
-    const last = list.lastIndexOf(ids.at(-1)!);
-    assert.ok(list.slice(last + 1).every((n) => n === 'related' || n === 'activity'), `${m.key}: ${list.join(', ')}`);
-    checked += ids.length;
+    const { main } = drawn(m);
+    assert.equal(names(panelOf(main, 'ticket')!)[0], 'desc', m.key);
+    for (const [tab, order] of Object.entries(IN_TAB)) {
+      const p = panelOf(main, tab);
+      if (!p) continue;
+      const ids = names(p);
+      assert.ok(ids.length, `${m.key}'s ${tab} tab isn't empty`);
+      assert.ok(ids.every((i) => order.includes(i)), `${m.key} ${tab}: ${ids.join(', ')}`);
+      assert.deepEqual(ids, [...ids].sort((a, b) => order.indexOf(a) - order.indexOf(b)), m.key);
+      checked += ids.length;
+    }
+    // Ticket's related tickets and activity come after its description, in Ticket alone.
+    assert.ok(names(panelOf(main, 'ticket')!).slice(1).every((n) => n === 'related' || n === 'activity'), m.key);
   }
   assert.ok(checked >= 10, `sections checked: ${checked}`);
 });
 
-test('a notice that needs the person stays on top, above the description; the plan is no longer there', () => {
+test('a notice that needs the person stays on top, above the tabs; no section is there', () => {
   saved = undefined;
   // ACME-21, with a plan, stopped with why.
   const base = sampleSectionsTicket(NOW);
@@ -74,12 +83,11 @@ test('a notice that needs the person stays on top, above the description; the pl
   assert.ok(m.acc?.blocker && m.analysis, 'the fixture has a notice and a plan');
   const { top, main } = drawn(m);
   assert.ok(top && top.all('notice').length >= 1, 'the notice is in the top band');
-  assert.equal(top.all('cc-section').length + top.all('analysis').length, 0, 'no plan in the top band');
-  assert.equal(names(main)[0], 'desc');
-  assert.ok(names(main).includes('plan'));
+  assert.equal(top.all('cc-section').length + top.all('analysis').length + top.all('task-tabs').length, 0, 'no plan and no tabs in the top band');
+  assert.ok(names(panelOf(main, 'plan')!).includes('plan'));
 });
 
-test('the conversation\'s line before a plan sits in the Plan section under the description, collapsible too', () => {
+test('the conversation\'s line before a plan sits in the Plan tab\'s Plan section, collapsible too', () => {
   saved = undefined;
   // The line takes the plan's place only before there is a plan at all.
   const m: TicketModel = { ...sampleConversationTicket(NOW), analysis: null };
@@ -88,16 +96,16 @@ test('the conversation\'s line before a plan sits in the Plan section under the 
   assert.equal(top?.all('analysis').length ?? 0, 0);
   const plan = sectionOf(main, 'plan');
   assert.equal(toggleOf(plan).textContent, 'Plan');
-  assert.equal(names(main).indexOf('plan'), 2);
+  assert.equal(names(panelOf(main, 'plan')!)[0], 'plan');
 });
 
-test('edge case: a ticket with no Command Center section draws no label', () => {
+test('edge case: a ticket with no Command Center section has only its Ticket tab', () => {
   saved = undefined;
   // ACME-31 isn't in the person's work yet: no plan, no criteria, no Verify.
   const { main } = drawn(sampleTicket(NOW, 'ACME-31'));
-  assert.equal(main.all('cc-divider').length, 0);
   assert.equal(main.all('cc-section').length, 0);
-  assert.equal(names(main)[0], 'desc');
+  assert.deepEqual(main.all('task-panel').map((p) => p.dataset.tab), ['ticket']);
+  assert.equal(names(panelOf(main, 'ticket')!)[0], 'desc');
 });
 
 test('each section\'s heading is a button with its name, a chevron and aria-expanded, and every one starts open', () => {
@@ -197,13 +205,14 @@ test('edge case: a section with no heading is left as it is', () => {
   assert.equal(sec.all('sec-toggle').length, 0);
 });
 
-test('on a narrow page the notices come first, and the description and the Command Center\'s sections keep their place', () => {
+test('on a narrow page the notices come first, and the sections keep their place in their tab', () => {
   const css = readFileSync(join(import.meta.dirname, '../webview/task-page.css'), 'utf8');
-  const narrow = css.slice(css.indexOf('@media (max-width: 760px)'));
+  const narrow = css.slice(css.indexOf('@media (max-width: 760px)'), css.indexOf('.ticket-main h2'));
   assert.match(narrow, /\.ticket-top \{ order: -1; \}/);
   assert.match(narrow, /\.side-details, \.side-panel \{ order: 1; \}/);
-  assert.match(narrow, /\.related-block, \.activity \{ order: 2; \}/);
-  // Nothing moves the description, the label or a section out of the main column's order.
+  // Edge: related tickets and activity stay in Ticket's panel; nothing moves them out of it any more (T-134).
+  assert.doesNotMatch(narrow, /\.related-block|\.activity/);
+  // Nothing moves a section out of its tab's order.
   const ours = readFileSync(join(import.meta.dirname, '../webview/collapse.css'), 'utf8');
   assert.doesNotMatch(ours, /(^|[\s;{])order:/);
   assert.doesNotMatch(narrow, /cc-section|cc-divider/);

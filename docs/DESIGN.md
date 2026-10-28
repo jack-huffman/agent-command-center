@@ -1586,6 +1586,12 @@ The extension handles every workspace folder that has `.acc/config.json`.
   ([section 8](#8-the-packet)). A ticket acc doesn't keep yet can be tracked
   from there. Tasks with no tracker get the same page
   from their brief and history.
+- **Its content is in tabs** (T-134): Ticket (the description, related tickets
+  and activity, together), Plan, Changes and Verify, each shown only with
+  something in it. A tab that needs the person says "needs you" with an orange
+  bell. The notices that need the person stay above the tabs, and Details and
+  the Agent panel beside them. A page opens on a link's tab, else one that
+  needs the person, else the tab last on show for that ticket, else Ticket.
 - **A card's click opens its page over the board** (D-129), in a modal drawn by
   the same renderer from the same model, whose controls work as the tab's. Its
   **Open as tab** opens the page in a tab of its own, as a click did before;

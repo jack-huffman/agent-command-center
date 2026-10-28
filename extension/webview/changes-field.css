@@ -1,2 +1,2 @@
 /* A ticket's changes field (T-105) wears the analysis's card, as Record changes does, with its gap below. */
-.ticket-main > .changes-field { margin-bottom: 16px; padding-bottom: 12px; }
+.task-panel > .changes-field { margin-bottom: 16px; padding-bottom: 12px; }

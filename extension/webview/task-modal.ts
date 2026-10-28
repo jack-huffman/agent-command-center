@@ -9,6 +9,7 @@ import { button, keepFocus, peekKey } from './dom.ts';
 import { makeModal } from './modal.ts';
 import { api, type PageArea, state } from './state.ts';
 import { renderTicket } from './task-page.ts';
+import { afterTabs } from './task-tabs.ts';
 import { forgetAnswered, tellAfresh, tellEdits } from './updates.ts';
 
 /** The modal, made the first time it opens, and the part of it that scrolls. */
@@ -108,6 +109,8 @@ function show(msg: { model?: TicketModel; tab?: Record<string, unknown> }): void
   }
   // A task just opened starts at its top: the browser would bring back where the last one was left.
   if (opening && body) body.scrollTop = 0;
+  // A comment a link named, scrolled to and focused once the page is drawn (T-134).
+  afterTabs();
 }
 
 export const area: PageArea = {

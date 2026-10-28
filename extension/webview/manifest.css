@@ -1,5 +1,5 @@
 /* Manifest for this ticket (T-101) wears the analysis's card, with the gap the blocks around it keep, as Verify's does. */
-.ticket-main > .manifest { margin-bottom: 16px; padding-bottom: 12px; }
+.task-panel > .manifest { margin-bottom: 16px; padding-bottom: 12px; }
 .mf-built { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin: 0 0 6px; }
 .mf-built > span { min-width: 0; overflow-wrap: anywhere; }
 .mf-list { list-style: none; margin: 2px 0 4px; padding: 0; }

@@ -224,6 +224,11 @@ export interface TicketModel {
   tracking: boolean;
   /** Who a comment or change is made as. */
   signedInAs: string | null;
+  /**
+   * The part a link or Needs you asked this page to open (T-134): plan, verify, changes, ticket, or
+   * `comment:<id>`, stamped with when it asked, so the page goes there once. Left out when nothing asked.
+   */
+  open?: { part: string; at: number } | null;
 }
 
 /** A task's analysis as its page shows it (D-052): the verdict and summary, its questions, then the rest folded. */
