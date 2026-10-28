@@ -40,4 +40,4 @@ person called it information overload, and asked for the agent's questions one a
   answer sent before the last is done, Back losing a pick), and the screenshot pages `conversation-questions`
   (the card part-way) and `conversation-long` (a long conversation folded, its question put aside).
 
-_Note (2026-10-27):_ T-130 amends this entry (D-T-130): an answer counts the moment it is picked, Confirm is gone, and the answers go only from a review step with Send answers to the planning agent.
+_Note (2026-10-27):_ T-130 amends this entry (D-212): an answer counts the moment it is picked, Confirm is gone, and the answers go only from a review step with Send answers to the planning agent.

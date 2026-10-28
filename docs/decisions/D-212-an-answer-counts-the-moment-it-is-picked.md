@@ -1,4 +1,4 @@
-## D-T-130 An answer to the planning agent's question counts the moment it's picked, and moving between questions never sends (2026-10-27)
+## D-212 An answer to the planning agent's question counts the moment it's picked, and moving between questions never sends (2026-10-27)
 
 T-130. Amends D-204. The person answered the planning agent's questions and moved between them by the dots, and
 their answers were lost: a question counted as answered only when Confirm was pressed, a dot moved without
