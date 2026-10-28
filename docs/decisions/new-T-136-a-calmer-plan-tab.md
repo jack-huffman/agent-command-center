@@ -26,12 +26,14 @@ D-216's tabs; D-214's collapsible section (T-132) and T-131's progress block sta
   analysis's own state ("Ready to build") instead of "Approved v2" again; its size; and when it was made. With
   no plan yet, the analysis's state heads it, and before a plan the conversation's state does. What changed in
   this version and the person's notes on it show under the summary, without the version and approval again.
-- **One row of actions.** Review plan or Build it first, as before, then Talk it through, the conversation's line
-  with Open conversation, and Make a new plan, in one row, where they were three places. Make a new plan stays
+- **One row of actions.** Review plan or Build it first, as before, then Talk it through, or once there's a
+  conversation its line with Open conversation instead (both open the same panel, so the row holds one), and Make
+  a new plan, in one row, where they were three places. Make a new plan stays
   the conversation panel's alone when there's a conversation (T-116), and on the "comments since this plan"
   line when the plan is behind (T-110). Why Build it or Approve is off stays under the row.
 - **Named sections instead of The whole plan** (`extension/webview/analysis.ts`), each folding on its own with a
-  count: Choices, Questions, The approach (what other tasks build on and the split it suggests, then the steps),
+  count: Choices, Questions, The approach (what other tasks build on and the split it suggests, then the steps;
+  its count is the steps, the shapes and the split, so shapes alone never read 0),
   Acceptance criteria, Risks and tests, and More (assumptions, out of scope, what's there now, how the
   requirements read with the wording's state beside More's count, earlier versions, refactors first, and
   decided). A section with nothing in it isn't drawn. Choices opens by itself while a choice waits on the
@@ -43,12 +45,16 @@ D-216's tabs; D-214's collapsible section (T-132) and T-131's progress block sta
   `--space-*` tokens), its sections are divided by a line and nothing else, and the boxes inside it are gone:
   what changed, what other tasks build on and the split, and the person's own option. The open choice's cards
   are the one level of boxes left, beside the dialog a change asks. Questions and choices sit apart by space,
-  not lines.
+  not lines. The acceptance criteria draft below the plan follows the same rule: no box, a line above it as
+  between the plan's sections, a quiet heading, and the plan's space between its parts.
 - **Nothing is lost.** Every part the plan showed is in a section, and every control still works: Choose this,
   Something else…, Discuss, Ask on the ticket, and answering a question.
 - **Checked by** `extension/test/plan-tab.test.ts` (a made choice is one line and draws its cards only once
   compared; Chosen once a choice and the approval once, counted; the sections, their counts and which open by
-  themselves), and the behaviour case "plan tab: a made choice is one line…" (`extension/scripts/behaviour.ts`),
-  with four mutants: a made choice still draws every card, a choice waiting on the person is folded away, a
-  section the person closed opens again, and Compare isn't remembered. The screenshot run adds
+  themselves; The approach's count with shapes and no steps; one card's Risks and files opening them on every
+  card of its choice, and a toggle fired by drawing drawing nothing; Talk it through only without a
+  conversation), and the behaviour case "plan tab: a made choice is one line…" (`extension/scripts/behaviour.ts`),
+  which also makes the last choice in a Choices that opened by itself and checks it stays open, with five
+  mutants: a made choice still draws every card, a choice waiting on the person is folded away, a section the
+  person closed opens again, a section open by itself isn't remembered open, and Compare isn't remembered. The screenshot run adds
   `ticket-plan-choices`: a made choice compared beside one still to make.
