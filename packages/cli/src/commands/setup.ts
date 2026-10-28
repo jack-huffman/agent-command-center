@@ -67,6 +67,21 @@ const doctorRow = ({ step, result }: StepResult) => ({
   ask: result.ask ?? null, byHand: result.byHand ?? null, place: result.place ?? null,
 });
 
+/**
+ * Check this machine for a project about to start with this profile (T-133): 1 with what's still to do listed,
+ * when nothing is to be written, or null when the machine is ready and acc init goes on.
+ */
+function machineStop(o: Opts, config: string, profile: Profile): number | null {
+  const machine = checkMachine(makeContext(process.cwd(), run, process.env, VERSION), profile);
+  if (!machine.todo.length) return null;
+  out(o, () => [
+    `This machine isn't ready for a ${profile} project yet, so nothing was written:`, '',
+    ...machineLines(machine.todo), '',
+    'Fix them and run acc init again, or add --anyway to go on and come back to them with acc doctor --part machine.',
+  ].join('\n'), { written: false, path: config, machine: machine.todo.map(doctorRow) });
+  return 1;
+}
+
 /** --tracker's JSON: one tracker, as the Connect page writes it (GH-81). parseConfig checks the rest. */
 function trackerFlag(json: string): Record<string, unknown> {
   let t: unknown;
@@ -84,6 +99,12 @@ function cmdInit(o: Opts): number {
   const profile = profileFlag(o.profile);
   if (existsSync(paths.config) && !o.force && !o['dry-run']) throw new AccError('exists', `${paths.config} already exists. Use --force to replace it.`);
   const tracker = o.tracker === undefined ? undefined : trackerFlag(o.tracker as string);
+  // Check this machine first, for the profile chosen (T-133): what's still to do is listed and nothing is written.
+  // A dry run writes nothing, so it checks nothing. A profile given with --profile is checked before the plan,
+  // which calls sf for a Salesforce project, so a machine without sf sees that it's missing.
+  const checks = !o['dry-run'] && !o.anyway;
+  const early = checks && profile ? machineStop(o, paths.config, profile) : null;
+  if (early !== null) return early;
   const plan = planInit(run, {
     root: paths.root,
     profile,
@@ -100,19 +121,10 @@ function cmdInit(o: Opts): number {
     jiraProject: o['jira-project'] as string | undefined,
     tracker,
   });
-  // Check this machine first, for the profile chosen (T-133): what's still to do is listed and nothing is written
-  // or fetched, unless the person goes on anyway. A dry run writes nothing, so it checks nothing.
-  if (!o['dry-run'] && !o.anyway) {
-    const machine = checkMachine(makeContext(process.cwd(), run, process.env, VERSION), plan.config.profile);
-    if (machine.todo.length) {
-      out(o, () => [
-        `This machine isn't ready for a ${plan.config.profile} project yet, so nothing was written:`, '',
-        ...machineLines(machine.todo), '',
-        'Fix them and run acc init again, or add --anyway to go on and come back to them with acc doctor --part machine.',
-      ].join('\n'), { written: false, path: paths.config, machine: machine.todo.map(doctorRow) });
-      return 1;
-    }
-  }
+  // A profile that comes from a template is known only once the template is read, so it's checked here,
+  // after the template is fetched and, for Salesforce, sf has listed its orgs, but before anything is written.
+  const late = checks && !profile ? machineStop(o, paths.config, plan.config.profile) : null;
+  if (late !== null) return late;
   // The template's rules (GH-108): each read before anything is written, so one that can't be read writes
   // nothing, then copied in as acc rules import would. A copy already here is kept; a dry run reads none.
   const rules = plan.rules.map((source) => ({ source, name: rulesName(source) }));
