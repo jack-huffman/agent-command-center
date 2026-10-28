@@ -14,7 +14,7 @@ import { Talks } from '../src/logic/talk.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { longText, REPLY_LINES, TALK_DONE, type TalkAnswerIn, ticketTalk } from '../src/model/talk.ts';
 import { samplePlan } from '../scripts/fixtures/analysis.ts';
-import { OPENING_QUESTIONS, QUESTIONS_STATE, sampleConversationLong, sampleConversationQuestions, sampleOpening } from '../scripts/fixtures/conversation.ts';
+import { OPENING_QUESTIONS, QUESTIONS_STATE, REVIEW_STATE, sampleConversationLong, sampleConversationQuestions, sampleOpening } from '../scripts/fixtures/conversation.ts';
 import { type PageElement, pageDom } from './page-dom.ts';
 
 const NOW = Date.parse('2026-10-22T12:00:00Z');
@@ -167,57 +167,117 @@ test('the card asks one question at a time: "Question 1 of 3", the question, its
   assert.deepEqual(picksOf({ question: 'q', why: '', options: [] }, 3), ['own'], 'edge case: a question with no answers takes own words');
 });
 
-test('a number picks, Enter confirms and goes on, sending nothing; Back keeps the pick; Skip marks the dot orange; the last sends every answer once', () => {
+test('an answer counts the moment it\'s picked: a number picks and records it, a dot moves without losing it, and Back keeps it (T-130)', () => {
   fresh();
+  const b = questionsKey(ROOT, 'ACME-21', 't2');
   press(card(), '2', radio(card()));
   assert.equal(picked(card()), 'o1');
-  assert.equal(kept.drafts[`${questionsKey(ROOT, 'ACME-21', 't2')}:pick:0`], 'o1');
-  press(card(), 'Enter', radio(card()));
-  assert.equal(place(card()), 'Question 2 of 3');
-  assert.deepEqual(page.sent, [], 'nothing goes before the last');
+  assert.deepEqual(answersOf(b, questions.talk!.questions!), [{ option: 1 }, null, null], 'counted at once, before any move');
+  assert.equal(card().all('rp-dot')[0]!.getAttribute('aria-label'), 'Question 1: on show, answered');
+  card().all('rp-dot')[2]!.click();
+  assert.equal(place(card()), 'Question 3 of 3', 'a dot moves');
+  assert.deepEqual(answersOf(b, questions.talk!.questions!), [{ option: 1 }, null, null], 'and keeps the answer');
   assert.ok(card().all('rp-dot')[0]!.classList.contains('done'));
+  assert.equal(card().all('rp-dot')[1]!.getAttribute('aria-label'), 'Question 2: not answered yet', 'edge case: passed by its dot without a touch, it is not answered');
+  buttons(card(), 'Back')[0]!.click();
   buttons(card(), 'Back')[0]!.click();
   assert.deepEqual([place(card()), picked(card())], ['Question 1 of 3', 'o1'], 'Back keeps the pick');
   assert.equal(buttons(card(), 'Back')[0]!.disabled, true, 'edge case: no Back on the first');
-  buttons(card(), 'Confirm')[0]!.click();
+  assert.deepEqual(page.sent, [], 'nothing is sent by a pick or a move');
+});
+
+test('the suggestion is shown picked but counts only once picked or passed with Next question; Skip leaves one to the agent, and is off once answered (T-130)', () => {
+  fresh();
+  const b = questionsKey(ROOT, 'ACME-21', 't2');
+  assert.equal(picked(card()), 'o0', 'the suggestion shows picked');
+  assert.deepEqual(answersOf(b, questions.talk!.questions!), [null, null, null], 'edge case: shown, but not counted');
+  assert.deepEqual([buttons(card(), 'Confirm').length, buttons(card(), 'Next question').length], [0, 1], 'no Confirm, only Next question');
+  assert.equal(buttons(card(), 'Next question')[0]!.all('codicon-arrow-right').length, 1, 'an arrow, never a send or check');
+  buttons(card(), 'Next question')[0]!.click();
+  assert.deepEqual(answersOf(b, questions.talk!.questions!), [{ option: 0 }, null, null], 'Next question counts the suggestion');
   buttons(card(), 'Skip')[0]!.click();
   assert.equal(place(card()), 'Question 3 of 3');
   const dot = card().all('rp-dot')[1]!;
-  assert.ok(dot.classList.contains('skipped') && dot.getAttribute('aria-label')!.endsWith(': skipped'));
-  assert.deepEqual([buttons(card(), 'Skip and send').length, buttons(card(), 'Confirm and send').length], [1, 1], 'the last says it sends');
-  buttons(card(), 'Confirm and send')[0]!.click();
-  assert.deepEqual(page.sent, [{ type: 'talk-answers', project: ROOT, task: 'ACME-21', turn: 't2', answers: [{ option: 1 }, null, { option: 0 }] }]);
+  assert.ok(dot.classList.contains('skipped'));
+  assert.deepEqual([dot.getAttribute('aria-label'), dot.title], ['Question 2: skipped', OPENING_QUESTIONS[1]!.question], 'named, its tooltip the question');
+  assert.equal(buttons(card(), 'Skip')[0]!.disabled, false, 'edge case: the suggestion only shown, Skip is on');
+  press(card(), '2', radio(card()));
+  assert.equal(buttons(card(), 'Skip')[0]!.disabled, true, 'answered, Skip is off, so it can\'t lose the answer');
+  assert.match(buttons(card(), 'Skip')[0]!.title, /Next question keeps your answer/);
+  assert.deepEqual([buttons(card(), 'Next question').length, buttons(card(), 'Review answers').length], [0, 1], 'the last goes on to Review answers');
+  press(card(), 'Enter', radio(card()));
+  assert.equal(place(card()), 'Review your answers', 'Enter goes on, as Next does');
+  assert.deepEqual(page.sent, [], 'nothing is sent by Next, Skip or Enter');
+  card().all('rp-dot')[1]!.click();
+  press(card(), '1', radio(card()));
+  assert.equal(card().all('rp-dot')[1]!.getAttribute('aria-label'), 'Question 2: on show, answered', 'edge case: a skipped one picked later is answered');
+});
+
+test('the review lists every question with its answer or Not answered in orange, each with Change; Enter there sends nothing, and only Send answers to the planning agent sends (T-130)', () => {
+  fresh();
+  kept = { opened: [...REVIEW_STATE.opened], drafts: { ...REVIEW_STATE.drafts } };
+  const c = card();
+  assert.equal(place(c), 'Review your answers');
+  const rows = c.all('talk-review-row');
+  assert.deepEqual(rows.map((r) => r.all('talk-review-q')[0]!.textContent), OPENING_QUESTIONS.map((q) => q.question), 'every question');
+  assert.deepEqual(rows.map((r) => r.all('talk-review-a')[0]!.textContent), ['Yes, them too', 'Not answered: the planning agent decides', 'The lead\'s own contact, unless it has none']);
+  assert.ok(rows[1]!.classList.contains('none') && rows[1]!.all('talk-review-a')[0]!.classList.contains('tone-orange'), 'not answered, in orange');
+  assert.ok(rows[1]!.all('codicon-circle-large-outline')[0]!.classList.contains('tone-orange') && rows[0]!.all('codicon-pass-filled')[0]!.classList.contains('tone-blue'), 'with an icon, orange and blue');
+  assert.deepEqual(c.all('rp-dot').map((d) => d.getAttribute('aria-label')), ['Question 1: answered', 'Question 2: skipped', 'Question 3: answered']);
+  assert.equal(rows.every((r) => buttons(r, 'Change').length === 1), true, 'each with Change');
+  const send = buttons(c, 'Send answers to the planning agent');
+  assert.equal(send.length, 1, 'one Send');
+  assert.equal(send[0]!.all('codicon-send').length, 1);
+  assert.match(c.all('talk-card-note')[0]!.textContent, /sends all your answers to the planning agent as one message/);
+  press(c, 'Enter', c);
+  press(c, 'Enter', rows[0]!);
+  assert.deepEqual(page.sent, [], 'edge case: Enter on the review, away from Send, sends nothing');
+  buttons(rows[1]!, 'Change')[0]!.click();
+  assert.equal(place(card()), 'Question 2 of 3', 'Change goes back to it');
+  buttons(card(), 'Back')[0]!.click();
+  card().all('rp-dot')[2]!.click();
+  buttons(card(), 'Review answers')[0]!.click();
+  assert.equal(place(card()), 'Review your answers');
+  assert.deepEqual(page.sent, [], 'no move sent anything');
+  buttons(card(), 'Send answers to the planning agent')[0]!.click();
+  assert.deepEqual(page.sent, [{ type: 'talk-answers', project: ROOT, task: 'ACME-21', turn: 't2', answers: [{ option: 0 }, null, { text: 'The lead\'s own contact, unless it has none' }] }]);
   assert.ok(isFromWebview(page.sent[0]));
   assert.equal(buttons(card(), 'Sending…').length, 1, 'it shows they\'re on their way');
   done({ action: 'talk-answers', project: ROOT, task: 'ACME-21', ok: true });
   assert.equal(Object.keys(kept.drafts).some((k) => k.startsWith('askq:')), false, 'what was picked for them is forgotten once they went');
 });
 
-test('own words: the box shows once picked, Confirm is off until there are words, and Enter in the box confirms', async () => {
+test('own words: the box shows once picked, words count as they are typed, Skip goes off, and Enter in the box goes on to the review, sending nothing', async () => {
   fresh();
   kept = { opened: [...QUESTIONS_STATE.opened], drafts: { ...QUESTIONS_STATE.drafts } };
+  const b = questionsKey(ROOT, 'ACME-21', 't2');
   assert.deepEqual([place(card()), picked(card())], ['Question 2 of 3', 'o1'], 'part-way, as the screenshot draws it');
-  buttons(card(), 'Skip')[0]!.click();
+  assert.deepEqual(card().all('rp-dot').map((d) => d.getAttribute('aria-label')), ['Question 1: answered', 'Question 2: on show, answered', 'Question 3: not answered yet']);
+  buttons(card(), 'Next question')[0]!.click();
   press(card(), '3', radio(card()));
   const c = card();
   await drawn();
   const box = c.all().find((x) => x.tagName === 'INPUT')!;
   assert.ok(box, 'its box');
   assert.match(box.getAttribute('aria-label')!, /^Your answer to: Which contact is primary/);
-  assert.equal(buttons(c, 'Confirm and send')[0]!.disabled, true);
-  assert.equal(buttons(c, 'Confirm and send')[0]!.title, 'Type your answer first');
+  assert.equal(answersOf(b, questions.talk!.questions!)[2], null, 'edge case: own words picked, with none typed, is not an answer');
+  assert.equal(buttons(c, 'Skip')[0]!.disabled, false);
   (box as unknown as { value: string }).value = 'Ask the rep';
   for (const f of box.listeners.get('input') ?? []) f({});
-  assert.equal(buttons(c, 'Confirm and send')[0]!.disabled, false, 'on once there are words, with no redraw');
+  assert.deepEqual(answersOf(b, questions.talk!.questions!)[2], { text: 'Ask the rep' }, 'counted as typed');
+  assert.equal(buttons(c, 'Skip')[0]!.disabled, true, 'Skip off once there are words, with no redraw');
   for (const f of box.listeners.get('keydown') ?? []) f({ key: 'Enter', preventDefault() {}, stopPropagation() {} });
-  assert.deepEqual(page.sent, [{ type: 'talk-answers', project: ROOT, task: 'ACME-21', turn: 't2', answers: [{ option: 0 }, null, { text: 'Ask the rep' }] }]);
+  assert.equal(place(card()), 'Review your answers');
+  assert.deepEqual(page.sent, []);
+  buttons(card(), 'Send answers to the planning agent')[0]!.click();
+  assert.deepEqual(page.sent, [{ type: 'talk-answers', project: ROOT, task: 'ACME-21', turn: 't2', answers: [{ option: 0 }, { option: 1 }, { text: 'Ask the rep' }] }]);
   done({ action: 'talk-answers', project: ROOT, task: 'ACME-21', ok: false, error: 'The planning agent is still answering.' });
   assert.match(card().textContent, /Your answers didn't go: The planning agent is still answering\./, 'edge case: a refusal says why');
-  assert.equal(place(card()), 'Question 3 of 3', 'and keeps the picks, to send again');
+  assert.equal(place(card()), 'Review your answers', 'and keeps the answers, to send again');
   talkPending.settle(sendKey(ROOT, 'ACME-21'), null);
 });
 
-test('edge cases: Escape puts the questions aside, keeping the picks, and Answer the questions brings them back; while a reply is on its way nothing can be confirmed', async () => {
+test('edge cases: Escape puts the questions aside, keeping the answers, and Answer the questions brings them back; while a reply is on its way Send is off, and moving still works', async () => {
   fresh();
   press(card(), '2', radio(card()));
   press(card(), 'Escape', radio(card()));
@@ -231,15 +291,15 @@ test('edge cases: Escape puts the questions aside, keeping the picks, and Answer
   assert.deepEqual([place(card()), picked(card())], ['Question 1 of 3', 'o1'], 'back where it was');
   assert.deepEqual(page.sent, []);
   const busy = { ...questions, talk: { ...questions.talk!, send: { disabled: 'Wait for the planning agent\'s reply.' } } };
-  const c = card(draw(busy));
-  assert.equal(buttons(c, 'Confirm')[0]!.disabled, true);
-  assert.equal(buttons(c, 'Skip')[0]!.disabled, true);
-  press(c, 'Enter', radio(c));
-  assert.deepEqual(page.sent, [], 'Enter does nothing either');
+  assert.equal(buttons(card(draw(busy)), 'Next question')[0]!.disabled, false, 'moving is never sending, so it stays on');
+  card(draw(busy)).all('rp-dot')[2]!.click();
+  buttons(card(draw(busy)), 'Review answers')[0]!.click();
+  const send = buttons(card(draw(busy)), 'Send answers to the planning agent')[0]!;
+  assert.deepEqual([send.disabled, send.title], [true, 'Wait for the planning agent\'s reply.']);
   assert.equal(draw({ ...questions, talk: { ...questions.talk!, send: null } }).all('talk-card').length, 0, 'past the build there is no card');
 });
 
-test('edge case: Up and Down move round the answers, another key does nothing, and an answer not reached is skipped', () => {
+test('edge case: Up and Down move round the answers and count, another key does nothing, and a question not reached is not answered', () => {
   fresh();
   press(card(), 'ArrowUp', radio(card()));
   assert.equal(picked(card()), 'own', 'Up from the first goes round to the last');
@@ -249,8 +309,9 @@ test('edge case: Up and Down move round the answers, another key does nothing, a
   press(card(), '9', radio(card()));
   assert.equal(picked(card()), 'o0');
   const b = questionsKey(ROOT, 'ACME-21', 't2');
-  assert.deepEqual(answersOf(b, questions.talk!.questions!), [null, null, null], 'nothing confirmed, nothing answered');
+  assert.deepEqual(answersOf(b, questions.talk!.questions!), [{ option: 0 }, null, null], 'a key pick counts; the others not reached are null');
   answersSent(ROOT, 'ACME-21');
+  assert.deepEqual(answersOf(b, questions.talk!.questions!), [null, null, null], 'edge case: cleared once sent');
   assert.equal(questionCard(ROOT, { ...questions.talk!, questions: null }, { busy: false, error: null, go: () => {} }), null, 'none waiting, no card');
 });
 
@@ -259,6 +320,8 @@ test('the stepper shared with Review plan: its dots and words, a radio with its 
   assert.equal(p.all('rp-place')[0]!.textContent, '2 of 3');
   assert.deepEqual(p.all('rp-dot').map((d) => d.getAttribute('aria-label')), ['1. A: done', '2. B: you are here', '3. C: skipped']);
   assert.equal(p.all('rp-dot')[1]!.getAttribute('aria-current'), 'step');
+  const named = stepProgress('2 of 3', [{ title: 'A', state: 'done' }], () => {}, (k) => `Question ${k + 1}: answered`) as unknown as PageElement;
+  assert.deepEqual([named.all('rp-dot')[0]!.getAttribute('aria-label'), named.all('rp-dot')[0]!.title], ['Question 1: answered', 'A'], 'named by the card, its tooltip the title alone');
   const r = stepRadio({ n: 2, name: 'Two', line: 'Its line', on: true, pick: 'b', click: () => {}, tags: [stepTag('rp-rec', 'star-full', 'Suggested'), null] }) as unknown as PageElement;
   assert.deepEqual([r.getAttribute('role'), r.getAttribute('aria-checked'), r.tabIndex, r.dataset.pick], ['radio', 'true', 0, 'b']);
   assert.match(r.textContent, /^2.*TwoSuggestedIts line$/);

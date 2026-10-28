@@ -14,13 +14,14 @@ const DOT_COLOUR = { current: undefined, done: 'blue', skipped: 'orange', todo: 
 /**
  * Where it is, in words ("2 of 5"), and a dot for each step, each a click away. Only a skipped step is orange,
  * as orange asks for attention elsewhere in the app; a done one is blue with a check; one not yet seen is plain.
+ * With `name`, a dot is named by it ("Question 2: answered") and its tooltip is the step's title alone.
  */
-export function stepProgress(words: string, dots: { title: string; state: StepState }[], go: (k: number) => void): HTMLElement {
+export function stepProgress(words: string, dots: { title: string; state: StepState }[], go: (k: number) => void, name?: (k: number) => string): HTMLElement {
   const list = el('ol', 'rp-dots', ...dots.map((s, k) => {
     const d = el('button', `rp-dot ${s.state}`, icon(DOT_ICON[s.state], DOT_COLOUR[s.state])) as HTMLButtonElement;
     d.type = 'button';
-    d.title = `${k + 1}. ${s.title}: ${DOT_WORD[s.state]}`;
-    d.setAttribute('aria-label', d.title);
+    d.title = name ? s.title : `${k + 1}. ${s.title}: ${DOT_WORD[s.state]}`;
+    d.setAttribute('aria-label', name ? name(k) : d.title);
     if (s.state === 'current') d.setAttribute('aria-current', 'step');
     d.addEventListener('click', () => go(k));
     return el('li', '', d);

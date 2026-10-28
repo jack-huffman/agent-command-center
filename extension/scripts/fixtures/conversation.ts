@@ -61,10 +61,22 @@ export const sampleConversation = (now: number): ConversationModel => openingPan
 /** The panel with the agent's three questions waiting (T-113): the card asks them one at a time. */
 export const sampleConversationQuestions = (now: number): ConversationModel => openingPanel(now, sampleOpening(now, false, 0, true), false);
 
-/** The card's memory part-way (T-113): the first question answered with its suggestion, the second at its second answer. */
+/**
+ * The card's memory part-way (T-113, T-130): the first question answered with its suggestion, the second on show
+ * at its second answer, picked, and the third not answered yet.
+ */
 export const QUESTIONS_STATE = {
-  opened: [`askq:${ROOT}#ACME-21:t2:done:0`],
-  drafts: { [`askq:${ROOT}#ACME-21:t2:at`]: '1', [`askq:${ROOT}#ACME-21:t2:pick:1`]: 'o1' },
+  opened: [] as string[],
+  drafts: { [`askq:${ROOT}#ACME-21:t2:at`]: '1', [`askq:${ROOT}#ACME-21:t2:pick:0`]: 'o0', [`askq:${ROOT}#ACME-21:t2:pick:1`]: 'o1' },
+};
+
+/** The card's memory at the review (T-130): the first answered with its suggestion, the second skipped, the third in the person's own words. */
+export const REVIEW_STATE = {
+  opened: [`askq:${ROOT}#ACME-21:t2:skip:1`],
+  drafts: {
+    [`askq:${ROOT}#ACME-21:t2:at`]: 'review', [`askq:${ROOT}#ACME-21:t2:pick:0`]: 'o0',
+    [`askq:${ROOT}#ACME-21:t2:pick:2`]: 'own', [`askq:${ROOT}#ACME-21:t2:own:2`]: 'The lead\'s own contact, unless it has none',
+  },
 };
 
 /** The panel once the agent has no more questions (the behaviour case): Draft the plan is on. */

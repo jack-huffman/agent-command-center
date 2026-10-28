@@ -67,7 +67,7 @@ import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
 import { sampleTalkTicket, TALK_STATE } from './fixtures/talk.ts';
 import { REPORT_TYPED, sampleReport } from './fixtures/report.ts';
-import { LONG_STATE, QUESTIONS_STATE, sampleConversation, sampleConversationLong, sampleConversationQuestions, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
+import { LONG_STATE, QUESTIONS_STATE, REVIEW_STATE, sampleConversation, sampleConversationLong, sampleConversationQuestions, sampleConversationStart, sampleConversationTalk, sampleConversationTicket } from './fixtures/conversation.ts';
 import { type ChangesSample, sampleChangesTicket } from './fixtures/changes.ts';
 import { RECORDS_FORM_STATE, sampleRecordsTicket } from './fixtures/record-changes.ts';
 import { sampleFieldTicket } from './fixtures/changes-field.ts';
@@ -214,8 +214,8 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   if (kind === 'conversation-start') return sampleConversationStart(now);
   if (kind === 'conversation') return sampleConversation(now);
   if (kind === 'conversation-talk') return sampleConversationTalk(now);
-  // The agent's questions one at a time, part-way through, and a long Talk it through folded (T-113).
-  if (kind === 'conversation-questions') return sampleConversationQuestions(now);
+  // The agent's questions one at a time, part-way through and at the review (T-130), and a long Talk it through folded (T-113).
+  if (kind === 'conversation-questions' || kind === 'conversation-questions-review') return sampleConversationQuestions(now);
   if (kind === 'conversation-long') return sampleConversationLong(now);
   // Report a problem (T-118): as it opens, filled in, not posted for want of access, and posted.
   if (kind === 'report' || kind === 'report-filled' || kind === 'report-no-access' || kind === 'report-posted') return sampleReport(kind);
@@ -371,6 +371,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'conversation-talk' ? { ...TALK_STATE, opened: [`talk:${ROOT}#ACME-21:earlier`] }
   // The card part-way through the agent's three questions (T-113): the first answered, the second picked.
   : kind === 'conversation-questions' ? QUESTIONS_STATE
+  // The review before the answers go (T-130): one answered, one skipped and not answered, one in the person's own words.
+  : kind === 'conversation-questions-review' ? REVIEW_STATE
   // The long conversation's question put aside, as one line with Answer the questions (T-113).
   : kind === 'conversation-long' ? LONG_STATE(sampleConversationLong(Date.now()).talk!.questions!.turn)
   // What's typed in Report a problem's draft (T-118), the same after Post.
