@@ -21,11 +21,12 @@ let saved: Record<string, unknown> | undefined;
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: () => {}, getState: () => saved, setState: (s: Record<string, unknown>) => { saved = s; } });
 const { renderTicket } = await import('../webview/task-page.ts');
 const { askedComment, chooseTab, forgetDrawn, renderTabs, afterTabs } = await import('../webview/task-tabs.ts');
+const { renderReview } = await import('../webview/review.ts');
 const { NEEDS_FIRST, NEEDS_YOU, openingTab, partTab, TAB_LOOK, TAB_ORDER, tabName, taskTabs } = await import('../webview/tab-rules.ts');
 
 const NOW = Date.now();
 const ids = (m: TicketModel): string[] => taskTabs(m).map((t) => t.id);
-const quiet = (m: TicketModel): TicketModel => ({ ...m, updates: [], analysis: m.analysis ? { ...m.analysis, look: { ...m.analysis.look, tone: 'blue' }, planState: m.analysis.planState ? { ...m.analysis.planState, look: { ...m.analysis.planState.look, tone: 'blue' } } : null } : null });
+const quiet = (m: TicketModel): TicketModel => ({ ...m, updates: [], analysis: m.analysis ? { ...m.analysis, look: { ...m.analysis.look, tone: 'blue' }, planState: m.analysis.planState ? { ...m.analysis.planState, look: { ...m.analysis.planState.look, tone: 'blue' } } : null } : null, review: m.review ? { ...m.review, look: { ...m.review.look, tone: 'blue' } } : null });
 
 /** The page's tab row and panels, as drawn. */
 function drawn(m: TicketModel): { tabs: PageElement[]; panels: PageElement[]; list: PageElement } {
@@ -47,23 +48,24 @@ function fresh(memory?: Record<string, unknown>): void {
 
 // ---------------------------------------------------------------- which tabs show
 
-test('a ticket with every part shows Ticket, Plan, Changes and Verify, in that order, each with its icon and name', () => {
+test('a ticket with every part shows Ticket, Plan, Changes, Review and Verify, in that order, each with its icon and name', () => {
   const tabs = taskTabs(sampleTabsTicket(NOW));
   assert.deepEqual(tabs.map((t) => t.id), [...TAB_ORDER]);
   for (const t of tabs) assert.deepEqual([t.name, t.icon], [TAB_LOOK[t.id].name, TAB_LOOK[t.id].icon]);
-  assert.deepEqual(tabs.map((t) => t.name), ['Ticket', 'Plan', 'Changes', 'Verify']);
+  assert.deepEqual(tabs.map((t) => t.name), ['Ticket', 'Plan', 'Changes', 'Review', 'Verify']);
 });
 
 test('edge case: a tab with nothing in it is hidden, never drawn empty; Ticket always shows', () => {
   const all = sampleTabsTicket(NOW);
   // Without each part, its tab goes; Plan stays while anything of it stays.
-  assert.deepEqual(ids({ ...all, verify: null }), ['ticket', 'plan', 'changes']);
-  assert.deepEqual(ids({ ...all, changes: null }), ['ticket', 'plan', 'verify']);
-  assert.deepEqual(ids({ ...all, analysis: null }), ['ticket', 'plan', 'changes', 'verify'], 'the criteria keep Plan');
-  assert.deepEqual(ids({ ...all, analysis: null, criteria: null, talk: null, acc: { ...all.acc!, notes: null, note: null, noteMissing: null } }), ['ticket', 'changes', 'verify']);
+  assert.deepEqual(ids({ ...all, verify: null }), ['ticket', 'plan', 'changes', 'review']);
+  assert.deepEqual(ids({ ...all, changes: null }), ['ticket', 'plan', 'review', 'verify']);
+  assert.deepEqual(ids({ ...all, analysis: null }), ['ticket', 'plan', 'changes', 'review', 'verify'], 'the criteria keep Plan');
+  assert.deepEqual(ids({ ...all, analysis: null, criteria: null, talk: null, acc: { ...all.acc!, notes: null, note: null, noteMissing: null } }), ['ticket', 'changes', 'review', 'verify']);
   // Each Changes part alone keeps Changes.
   const bare: TicketModel = { ...all, changes: null, team: null, field: null, records: null, manifest: null };
   assert.ok(!ids(bare).includes('changes'));
+  assert.ok(!ids({ ...all, review: null }).includes('review'), 'no review, no Review tab');
   let checked = 0;
   for (const part of ['changes', 'team', 'field', 'records', 'manifest'] as const) {
     const with1 = { ...bare, [part]: { look: { label: 'x', icon: 'pass', tone: 'blue' }, changed: [], counts: null } } as unknown as TicketModel;
@@ -189,7 +191,7 @@ test('the tab row is an ARIA tablist: each tab aria-selected, controlling its pa
   const d = drawn(m);
   assert.equal(d.list.getAttribute('role'), 'tablist');
   assert.equal(d.list.getAttribute('aria-label'), `${m.key}'s page`);
-  assert.equal(d.tabs.length, 4);
+  assert.equal(d.tabs.length, 5);
   for (const [i, t] of d.tabs.entries()) {
     const p = d.panels[i]!;
     assert.equal(t.tagName, 'BUTTON');
@@ -282,6 +284,7 @@ test('a link to a comment opens Ticket, shows the whole feed, and scrolls to tha
   // A link to a part no tab holds opens as if there were none.
   assert.equal(partTab('comment:c1'), 'ticket');
   assert.equal(partTab('plan'), 'plan');
+  assert.equal(partTab('review'), 'review', 'a link naming the review opens its tab (T-135)');
   assert.equal(partTab('somewhere'), null);
   assert.equal(partTab(null), null);
 });
@@ -297,7 +300,7 @@ test('renderTabs draws what it\'s given into each tab\'s panel', () => {
   fresh();
   const m = quiet(sampleTicket(NOW, 'ACME-31'));
   const tabs = taskTabs(m);
-  const out = renderTabs(m, tabs, 'ticket', { ticket: [], plan: [], changes: [], verify: [] }) as unknown as PageElement;
+  const out = renderTabs(m, tabs, 'ticket', { ticket: [], plan: [], changes: [], review: [], verify: [] }) as unknown as PageElement;
   assert.deepEqual(out.all('task-panel').map((p) => p.dataset.tab), ['ticket']);
 });
 
@@ -316,6 +319,8 @@ test('Needs you, a card and a notification name the plan: each opens the page on
   // A plan's notice opens on Plan; another kind names no part.
   assert.deepEqual(noticePart({ kind: 'analysis-questions' }), { part: 'plan' });
   assert.deepEqual(noticePart({ kind: 'stopped' }), {});
+  // A review's notices, ready or sent back, open Review.
+  for (const kind of ['review', 'rework'] as const) assert.deepEqual(noticePart({ kind }), { part: 'review' }, kind);
   const said = noticeBurst([{ root: ROOT, notice: { kind: 'analysis-questions', task: 'ACME-21', text: 'x', urgent: true } as never }]);
   assert.equal(said[0]!.task?.part, 'plan');
   // The modal's open takes a part only in the form a link names one.
@@ -335,4 +340,74 @@ test('edge case: a ticket with no description still has Ticket, its description 
   const ticket = d.panels.find((p) => p.dataset.tab === 'ticket')!;
   assert.ok(ticket.textContent.includes('No description.'), ticket.textContent.slice(0, 80));
   assert.equal(d.tabs[0]!.dataset.tab, 'ticket');
+});
+
+// ---------------------------------------------------------------- the Review tab (T-135)
+
+test('the Review tab shows only with a review, between Changes and Verify, and counts its findings', () => {
+  const m = sampleTabsTicket(NOW);
+  const tab = (x: TicketModel): TaskTab | undefined => taskTabs(x).find((t) => t.id === 'review');
+  assert.deepEqual(ids(m).slice(2, 5), ['changes', 'review', 'verify']);
+  assert.equal(tab(m)!.count, String(m.review!.findings.length));
+  assert.equal(tabName(tab(m)!), `Review, ${m.review!.findings.length}: ${NEEDS_YOU}`);
+  // Edge: a review that passed with no findings counts nothing; a task with no review has no tab.
+  assert.equal(tab({ ...m, review: { ...m.review!, findings: [] } })!.count, null);
+  assert.equal(tab({ ...m, review: null }), undefined);
+  assert.equal(tab(sampleTicket(NOW, 'ACME-31')), undefined);
+});
+
+test('the Review tab says it needs you where the review waits on the person, and not where it doesn\'t', () => {
+  const m = sampleTabsTicket(NOW);
+  assert.equal(m.review!.look.tone, 'orange', 'the fixture\'s review sent work back');
+  assert.equal(taskTabs(m).find((t) => t.id === 'review')!.needs, m.review!.look.label);
+  fresh();
+  const review = drawn(m).tabs.find((t) => t.dataset.tab === 'review')!;
+  const needs = review.all('task-tab-needs')[0]!;
+  assert.equal(needs.textContent, NEEDS_YOU);
+  assert.equal(needs.all('codicon-bell').length, 1);
+  // Edge: a passed review (blue) says nothing.
+  const pass = { ...m, review: { ...m.review!, look: { ...m.review!.look, tone: 'blue' as const } } };
+  assert.equal(taskTabs(pass).find((t) => t.id === 'review')!.needs, null);
+  fresh();
+  assert.equal(drawn(pass).tabs.find((t) => t.dataset.tab === 'review')!.all('task-tab-needs').length, 0);
+});
+
+test('a review that needs you opens the page on Review, after a plan that needs you and before a verification', () => {
+  assert.deepEqual([...NEEDS_FIRST], ['plan', 'review', 'verify', 'changes', 'ticket']);
+  const tabs = taskTabs(sampleTabsTicket(NOW)).map((t) => ({ ...t, needs: t.id === 'review' || t.id === 'verify' ? 'x' : null }));
+  assert.equal(openingTab(tabs, null, null), 'review');
+  fresh();
+  assert.equal(selected(drawn(sampleTabsTicket(NOW))), 'review');
+});
+
+test('the Review side panel is gone: the review is in its tab, whole, and the side column holds Details and Agent only', () => {
+  fresh();
+  const m = sampleTabsTicket(NOW);
+  const grid = (renderTicket(m) as unknown as PageElement[]).find((n) => n.classList.contains('ticket-grid'))!;
+  const side = grid.all('ticket-side')[0]!;
+  assert.equal(side.all('side-review').length, 0);
+  assert.equal(side.all('review-block').length, 0);
+  assert.equal(side.all('side-details').length + side.all('side-agent').length, 2);
+  const panel = grid.all('task-panel').find((p) => p.dataset.tab === 'review')!;
+  assert.equal(panel.all('review-block').length, 1);
+  assert.equal(panel.all('rv-finding').length, m.review!.findings.length);
+  assert.ok(panel.textContent.includes(m.review!.summary) && panel.textContent.includes(m.review!.count));
+  // Edge: with no review there is no Review panel at all.
+  fresh();
+  const none = (renderTicket({ ...m, review: null }) as unknown as PageElement[]).find((n) => n.classList.contains('ticket-grid'))!;
+  assert.ok(!none.all('task-panel').some((p) => p.dataset.tab === 'review'));
+});
+
+test('the Review block the tab holds opens on the verdict line, with no heading of its own, and draws its findings (edge: a review with none)', () => {
+  fresh();
+  const r = sampleTabsTicket(NOW).review!;
+  const block = renderReview(r) as unknown as PageElement;
+  assert.equal(block.all('review-block').length + (block.classList.contains('review-block') ? 1 : 0), 1);
+  assert.equal(block.tagName, 'SECTION');
+  assert.equal((block.children[0] as PageElement).className, 'rv-head', 'the verdict line comes first');
+  assert.ok(!block.children.some((c) => typeof c !== 'string' && c.tagName === 'H2'), 'the tab names it, so the block has no heading');
+  assert.equal(block.all('rv-finding').length, r.findings.length);
+  const none = renderReview({ ...r, findings: [], count: 'No findings' }) as unknown as PageElement;
+  assert.equal(none.all('rv-finding').length, 0);
+  assert.ok(none.textContent.includes('No findings'));
 });
