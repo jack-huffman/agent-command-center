@@ -268,6 +268,8 @@ test('edge case: a later measure of a tab\'s panel holds only what is inside it,
   assert.equal(v.examined.disabled, 4);
   assert.equal(judge(tab, false).examined.sideways, 0, 'the page itself is not counted again for sideways');
   assert.equal(judge(page, false).examined.sideways, 1);
+  assert.deepEqual(judge(tab, true).violations.filter((x) => x.check === 'tab'), [], 'edge case: a task modal\'s panel over a home page needs no rail tab of its own');
+  assert.equal(judge(page, true).violations.filter((x) => x.check === 'tab').length, 1, 'but the page as drawn still does');
 });
 
 test('the screenshots gate\'s drawn classes come from the first measure only, the one the PNG shows (T-134)', () => {

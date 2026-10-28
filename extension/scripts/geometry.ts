@@ -306,7 +306,8 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   // A page with no controls by design, such as the loading screen (T-16), is judged without them.
   if (controls && !examined.overlap) violations.push({ check: 'overlap', what: 'the page', detail: 'examined no controls' });
   if (!examined.clipped) violations.push({ check: 'clipped', what: 'the page', detail: 'examined no text' });
-  if (home && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
+  // A later measure of a task modal's tab panel (T-134) holds only the panel, not the rail the first measure checked.
+  if (home && !s.scoped && !examined.tab) violations.push({ check: 'tab', what: 'the page', detail: 'has no selected tab in the rail' });
   if (s.overview && !examined.overview) violations.push({ check: 'overview', what: 'the page', detail: 'is the Overview, and examined no lines or cards on it' });
   if (!examined.words) violations.push({ check: 'words', what: 'the page', detail: 'gathered no words' });
   // What axe found that no exception excuses, and a page where it examined nothing (T-55).
