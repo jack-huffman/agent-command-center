@@ -10,6 +10,7 @@
 import type { TicketProposal, TicketTalk, TicketTurn } from '../src/model/talk.ts';
 import { actionButton, button, el, icon, md, peekKey, status, when, work } from './dom.ts';
 import { Pending } from './pending.ts';
+import { planProgressBlock } from './plan-progress.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { answersSent, questionCard } from './talk-questions.ts';
 
@@ -293,8 +294,11 @@ export function renderConversation(project: string, s: TicketTalk): HTMLElement 
     },
   });
   if (card) sec.append(card);
-  if (s.running) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.stage === 'opening' ? 'The planning agent is reading the ticket to reply. Its steps show in the output panel.' : 'The planning agent is reading the code to reply. Its steps show in the output panel.'));
-  if (s.making) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.making.words));
+  // What the planning agent is doing (T-131), once the Command Center has read it; before that, one line.
+  const progress = planProgressBlock(project, s.task, s.progress);
+  if (progress) sec.append(progress);
+  else if (s.running) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.stage === 'opening' ? 'The planning agent is reading the ticket to reply. Its steps show in the output panel.' : 'The planning agent is reading the code to reply. Its steps show in the output panel.'));
+  else if (s.making) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.making.words));
   if (s.send) sec.append(composer(project, s));
   const ck = claudeKey(project, s.task);
   const buttons: HTMLElement[] = planButtons(project, s);

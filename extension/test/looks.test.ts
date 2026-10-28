@@ -37,6 +37,7 @@ import { RECORD_LOOK } from '../src/model/record-changes.ts';
 import { FIELD_LOOK } from '../src/model/changes-field.ts';
 import { MANIFEST_LOOK, MANIFEST_ROW_LOOK } from '../src/model/manifest.ts';
 import { TALK_LOOK } from '../src/model/talk.ts';
+import { PROGRESS_LOOK } from '../src/model/plan-progress.ts';
 import { RESULT_LOOK, ROW_LOOK } from '../src/model/run-view.ts';
 import { STEP_LOOK } from '../src/model/run-steps.ts';
 import { worktreeLook } from '../src/model/worktrees.ts';
@@ -189,6 +190,8 @@ export const TABLES: Table[] = [
   { name: 'a ticket\'s changes field, beside what the Command Center found', sources: ['extension/src/model/changes-field.ts#FIELD_LOOK'], states: () => Object.entries(FIELD_LOOK) },
   // Manifest for this ticket (T-101): the section's state, and each row's: new, not in the org, an unknown type, unchecked, an org copy that differs, an org change, a deletion.
   { name: 'a ticket\'s conversation with its planning agent', sources: ['extension/src/model/talk.ts#TALK_LOOK'], states: () => Object.entries(TALK_LOOK) },
+  // The planning agent's progress (T-131): working, and not moving for five minutes.
+  { name: 'the planning agent\'s progress while a plan is made or a reply comes', sources: ['extension/src/model/plan-progress.ts#PROGRESS_LOOK'], states: () => Object.entries(PROGRESS_LOOK) },
   { name: 'a ticket\'s manifest and its rows', sources: ['extension/src/model/manifest.ts#MANIFEST_LOOK', 'extension/src/model/manifest.ts#MANIFEST_ROW_LOOK'], states: () => [...Object.entries(MANIFEST_LOOK), ...Object.entries(MANIFEST_ROW_LOOK)] },
   // A run in the output panel as rows (T-64): each kind of row, and how an ended run shows in its header line and result card.
   { name: 'a run of acc\'s steps in the output panel (T-65)', sources: ['extension/src/model/run-steps.ts#STEP_LOOK'], states: () => Object.entries(STEP_LOOK) },

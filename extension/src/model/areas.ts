@@ -16,6 +16,7 @@ import { area as limits } from './limits.ts';
 import { area as manifest } from './manifest.ts';
 import { area as overview } from './overview.ts';
 import { area as page } from './page.ts';
+import { area as planProgress } from './plan-progress.ts';
 import { area as plan } from './plan.ts';
 import { area as questions } from './questions.ts';
 import { area as recordChanges } from './record-changes.ts';
@@ -35,7 +36,7 @@ import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agentPage, agents, boards, branches, changesField, connect, conversation, criteria, dispatchSheet, environments, historyPages, limits, manifest, overview, page, plan, questions, recordChanges, report, rules, runs, settings, setup, slack, talk, taskModal, taskPage, taskSheet, tasks, tidy, updates, verify, worktrees];
+export const AREAS = [about, agentPage, agents, boards, branches, changesField, connect, conversation, criteria, dispatchSheet, environments, historyPages, limits, manifest, overview, page, planProgress, plan, questions, recordChanges, report, rules, runs, settings, setup, slack, talk, taskModal, taskPage, taskSheet, tasks, tidy, updates, verify, worktrees];
 export type Message =
   | import('./agent-page.ts').Message
   | import('./agents.ts').Message
@@ -47,6 +48,7 @@ export type Message =
   | import('./history-pages.ts').Message
   | import('./manifest.ts').Message
   | import('./page.ts').Message
+  | import('./plan-progress.ts').Message
   | import('./plan.ts').Message
   | import('./questions.ts').Message
   | import('./record-changes.ts').Message
