@@ -282,17 +282,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-deployed' | 'ticket-deploy-passed' | 'ticket-deploy-failed' | 'ticket-deploy-typed';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab deployed once, and its deploy sheet passed, failed and asking Production's name (T-138). */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; passed: Model; failed: Model; typed: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-passed' ? models.passed : c.page === 'ticket-deploy-failed' ? models.failed : c.page === 'ticket-deploy-typed' ? models.typed : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -2222,6 +2222,85 @@ export const CASES: Case[] = [
       sized.remove();
     },
   },
+  {
+    name: 'changes tab: Deploy to UAT asks for the check and never deploys; More opens what moved under it (T-138)',
+    page: 'ticket-deploy-deployed',
+    async run(t) {
+      const go = t.find<HTMLButtonElement>('.dp-go');
+      t.check('the tab\'s one primary button is Deploy to UAT, and it\'s on', go.textContent === 'Deploy to UAT' && !go.disabled && t.all('[role="tabpanel"][data-tab="changes"] .btn.primary').length === 1, go.textContent);
+      t.check('the path says where it is, in words', /Dev, merged.*QA, deployed.*UAT, next/.test(t.find('.dp-path').textContent ?? ''), t.find('.dp-path').textContent);
+      await t.click(go);
+      t.check('it asks the extension for the check, once', t.sent('deploy-check').length === 1 && t.sent('deploy-check')[0]?.to === 'uat', t.sent('deploy-check'));
+      t.check('nothing deploys from the tab', t.sent('deploy-go').length === 0, t.sent('deploy-go'));
+      const more = t.find<HTMLButtonElement>('.chg-more-btn');
+      t.check('More is closed to start', more.getAttribute('aria-expanded') === 'false' && t.all('.chg-more-body').length === 0);
+      await t.click(more);
+      t.check('More opens, and holds the builder\'s deploys and what moved', t.find<HTMLButtonElement>('.chg-more-btn').getAttribute('aria-expanded') === 'true' && t.all('.chg-more-body').length === 1);
+    },
+  },
+  {
+    name: 'deploy sheet: a passed check deploys only on the sheet\'s own Deploy, with its id; Cancel sends nothing to deploy (T-138)',
+    page: 'ticket-deploy-passed',
+    async run(t) {
+      const dialog = t.find<HTMLDialogElement>('dialog.deploy-sheet');
+      t.check('the sheet is open over the tab', dialog.open);
+      t.check('opening it deploys nothing', t.sent('deploy-go').length === 0, t.sent('deploy-go'));
+      t.check('it says the destination, the components, the tests and what\'s by hand', /Destination.*UAT.*acme-uat.*Components.*5 components.*Tests.*By hand.*Deletions: 1.*Record changes: 1/.test(dialog.textContent ?? ''), dialog.textContent);
+      const go = t.find<HTMLButtonElement>('.dsh-go', dialog);
+      t.check('its Deploy is on, and says where', !go.hidden && !go.disabled && go.textContent === 'Deploy to UAT', [go.hidden, go.disabled, go.textContent]);
+      await t.click(go);
+      const yes = t.sent('deploy-go');
+      t.check('Deploy sends the yes once, with the check\'s id', yes.length === 1 && yes[0]?.checkId === '0AfKj000003Ck9pKAC' && yes[0]?.to === 'uat' && !('typed' in yes[0]!), yes);
+      // Edge: drawn again from the same model, the sheet stays as it was and sends nothing more.
+      await t.post({ type: 'state', model: t.model });
+      t.check('a redraw sends no second yes', t.sent('deploy-go').length === 1);
+      await t.click(t.find<HTMLButtonElement>('.ds-cancel', dialog));
+      t.check('Cancel closes it and tells the extension', !dialog.open && t.sent('deploy-close').length === 1, t.sent('deploy-close'));
+      await t.post({ type: 'state', model: t.model });
+      t.check('a draw before the extension lets go doesn\'t open it again', !dialog.open);
+    },
+  },
+  {
+    name: 'deploy sheet: a failed check says why per component and offers nothing to deploy; Escape closes it (T-138)',
+    page: 'ticket-deploy-failed',
+    async run(t) {
+      const dialog = t.find<HTMLDialogElement>('dialog.deploy-sheet');
+      t.check('the sheet is open, saying the check failed', dialog.open && /The check failed/.test(dialog.textContent ?? ''), dialog.textContent);
+      const problems = t.all('.dsh-failed li', dialog);
+      t.check('each component\'s problem is listed', problems.length === 2 && /CaseRouting/.test(problems[0]!.textContent ?? ''), problems.map((p) => p.textContent));
+      const go = t.find<HTMLButtonElement>('.dsh-go', dialog);
+      t.check('there\'s no Deploy to press', go.hidden && go.disabled && getComputedStyle(go).display === 'none', [go.hidden, go.disabled]);
+      await t.click(go);
+      t.check('nothing deploys', t.sent('deploy-go').length === 0);
+      t.check('its other button says Close', t.find('.ds-cancel', dialog).textContent === 'Close');
+      await t.escape(dialog);
+      t.check('Escape closes it and tells the extension', !dialog.open && t.sent('deploy-close').length === 1);
+    },
+  },
+  {
+    name: 'deploy sheet: Production asks for its name typed before Deploy is on, and sends what was typed (T-138)',
+    page: 'ticket-deploy-typed',
+    async run(t) {
+      const dialog = t.find<HTMLDialogElement>('dialog.deploy-sheet');
+      const go = (): HTMLButtonElement => t.find<HTMLButtonElement>('.dsh-go', dialog);
+      t.check('Deploy is off until the name is typed', !go().hidden && go().disabled && go().title === 'Type Production to deploy to it', go().title);
+      const box = t.find<HTMLInputElement>('.dsh-name', dialog);
+      t.check('the box is named by its label', !!box.labels?.[0] && /Type Production/.test(box.labels[0]!.textContent ?? ''));
+      await t.type(box, 'production');
+      t.check('the name in another case keeps it off', go().disabled);
+      await t.click(go());
+      t.check('a click on it while off sends nothing', t.sent('deploy-go').length === 0);
+      box.value = '';
+      await t.type(box, 'Production');
+      t.check('the exact name turns it on', !go().disabled);
+      // Edge: a redraw keeps what was typed, and Deploy stays on.
+      await t.post({ type: 'state', model: t.model });
+      t.check('a redraw keeps the name typed', t.find<HTMLInputElement>('.dsh-name', dialog).value === 'Production' && !go().disabled);
+      await t.click(go());
+      const yes = t.sent('deploy-go');
+      t.check('it sends the yes with the name typed', yes.length === 1 && yes[0]?.typed === 'Production' && yes[0]?.to === 'production', yes);
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -2381,6 +2460,9 @@ export const MUTANTS: Mutant[] = [
   { name: 'a section the person closed opens again on the next draw', file: 'analysis.ts', find: '(waits && !opened.includes(shut))', replace: 'waits', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'a section open by itself isn\'t remembered open, so the last choice folds Choices away', file: 'analysis.ts', find: 'x.opened = d.open ? [...rest, k]', replace: 'x.opened = d.open && !waits ? [...rest, k]', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'Compare the options isn\'t remembered', file: 'plan.ts', find: 'const compared = opened.includes(compareKey(key));', replace: 'const compared = false;', kills: [caseNamed('plan tab: a made choice is one line')] },
+  { name: 'Deploy runs without the sheet\'s confirmation', file: 'deploy-sheet.ts', find: '    parts.cancel.focus();\n', replace: '    parts.cancel.focus();\n    go();\n', kills: [caseNamed('deploy sheet: a passed check deploys only')] },
+  { name: 'a failed check still offers Deploy', file: 'deploy-sheet.ts', find: "parts.go.hidden = s.phase !== 'passed';", replace: "parts.go.hidden = s.phase !== 'passed' && s.phase !== 'failed';", kills: [caseNamed('deploy sheet: a failed check')] },
+  { name: 'Deploy on the tab deploys at once', file: 'changes.ts', find: "api.postMessage({ type: 'deploy-check', project: m.project, task: d.task, to: b.to });", replace: "api.postMessage({ type: 'deploy-go', project: m.project, task: d.task, to: b.to, checkId: 'none' });", kills: [caseNamed('changes tab: Deploy to UAT')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];
 
