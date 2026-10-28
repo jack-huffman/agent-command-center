@@ -28,5 +28,8 @@
   },
   "screenshots.disabled": {
     "floor": 1253
+  },
+  "screenshots.sizes": {
+    "floor": 5258
   }
 }
