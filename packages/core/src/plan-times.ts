@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeAtomic } from './atomic.ts';
+import { median } from './limits.ts';
 import type { RepoPaths } from './paths.ts';
 
 /**
@@ -42,8 +43,5 @@ export function recordPlanTime(paths: Pick<RepoPaths, 'analyses'>, t: PlanTime):
 
 /** How long plans usually take, as the middle of the recorded durations; null with fewer than PLAN_TIMES_MIN. */
 export function typicalPlanMs(times: readonly Pick<PlanTime, 'ms'>[]): number | null {
-  if (times.length < PLAN_TIMES_MIN) return null;
-  const xs = times.map((t) => t.ms).sort((a, b) => a - b);
-  const mid = Math.floor(xs.length / 2);
-  return xs.length % 2 ? xs[mid]! : Math.round((xs[mid - 1]! + xs[mid]!) / 2);
+  return times.length < PLAN_TIMES_MIN ? null : Math.round(median(times.map((t) => t.ms))!);
 }
