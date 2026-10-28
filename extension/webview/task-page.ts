@@ -2,7 +2,8 @@
 
 import type { Action, Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
-import type { TicketModel, TicketRatchet } from '../src/model/task-page.ts';
+import type { TicketModel } from '../src/model/task-page.ts';
+import { field, renderAgentPanel } from './agent-panel.ts';
 import { renderAnalysis } from './analysis.ts';
 import { renderCriteria } from './criteria.ts';
 import { renderVerify } from './verify.ts';
@@ -14,11 +15,10 @@ import { renderManifest } from './manifest.ts';
 import { conversationLine } from './talk.ts';
 import { renderReview } from './review.ts';
 import { collapsible, criteriaSummary, oneLine } from './collapse.ts';
-import { taskActions } from './task-actions.ts';
 import { afterTabs, askedComment, chooseTab, renderTabs } from './task-tabs.ts';
 import { taskTabs } from './tab-rules.ts';
 import { dayName } from './days.ts';
-import { argButton, avatar, button, type Child, clippedSpan, el, foldable, icon, labelChips, linkTo, md, openable, person, renderDoc, stateChip, status, typeMark, when, work } from './dom.ts';
+import { argButton, avatar, button, type Child, el, foldable, icon, labelChips, linkTo, md, openable, person, renderDoc, stateChip, status, typeMark, when, work } from './dom.ts';
 import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { COMMENT_EMPTY, updateDraft } from './updates.ts';
@@ -29,17 +29,6 @@ import { addToWorkTitle, WORDS } from './plain-words.ts';
 
 function ticketAction(action: string, text?: string): void {
   api.postMessage({ type: 'ticket-action', action, ...(text !== undefined ? { text } : {}) });
-}
-
-/**
- * A ratchet's numbers (GH-99), "669 → 674 (+5)" beside its name, with an arrow for the way it went: blue
- * when it got better or held, orange when it got worse. The numbers say it; the arrow and its colour only
- * add to them. Hovered, it says them with its label, then what the check said.
- */
-function ratchetNumbers(r: TicketRatchet, summary: string): HTMLElement {
-  const diff = r.diff ?? 0;
-  const better = r.limit === 'floor' ? diff >= 0 : diff <= 0;
-  return Object.assign(el('span', 'small check-sum check-ratchet', icon(diff > 0 ? 'arrow-up' : diff < 0 ? 'arrow-down' : 'arrow-right', better ? 'blue' : 'orange'), r.numbers ?? ''), { title: `${r.line}. ${summary}` });
 }
 
 function editButton(label: string, action: string): HTMLElement {
@@ -61,11 +50,6 @@ function descEdit(a: Action): HTMLElement {
   }
   b.addEventListener('click', () => api.postMessage({ type: 'run', command: a.command, ref: a.ref }));
   return b;
-}
-
-/** A row of a list of fields: its name, with an icon before it where one is given, as Details has (T-91), then its value. */
-function field(name: string | { icon: string; name: string }, ...value: Child[]): HTMLElement[] {
-  return [typeof name === 'string' ? el('dt', '', name) : el('dt', '', icon(name.icon), name.name), el('dd', '', ...value)];
 }
 
 function composer(m: TicketModel): HTMLElement {
@@ -241,37 +225,7 @@ export function renderTicket(m: TicketModel): Node[] {
   const side = el('aside', 'ticket-side', details.length ? collapsible(el('section', 'side-details', el('h2', '', 'Details'), el('dl', 'fields details-list', ...details)), 'details', m, null) : null);
   if (m.acc) {
     const a = m.acc;
-    side.append(collapsible(el('section', `side-panel side-agent${a.look.tone === 'orange' ? ' attention' : ''}`, el('h2', '', icon('hubot'), 'Agent'),
-      el('dl', 'fields',
-        // Its state as the one state chip, its icon and its label, as every board and ticket draws one (T-94).
-        ...field('State', stateChip(a.look)),
-        ...field('Environment', el('span', 'mono', a.environment)),
-        ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
-
-        ...(a.agent && a.agent.label !== a.look.label ? field('Session', stateChip(a.agent)) : []),
-        // Its effort beside it, when it isn't the model's default (D-128).
-        ...(a.agent && a.model ? field('Model', el('span', '', el('span', 'mono', a.model), a.effort ? el('span', 'muted', ` · ${a.effort} effort`) : null)) : []),
-        // What its builder is called, in Claude Code and the Command Center alike (D-087).
-        ...(a.agentName ? field('Builder', el('span', 'agent-name', a.agentName)) : []),
-        // Where it runs (GH-69): This Mac or Cloud, and a cloud builder's page on claude.ai.
-        ...(a.place ? field('Runs on', a.cloudUrl ? el('span', '', status(a.place), ' ', linkTo(a.cloudUrl, 'its session on claude.ai')) : status(a.place)) : []),
-        ...(a.branch ? field('Branch', work(clippedSpan(a.branch), 'branch')) : []),
-        ...(a.worktree ? field('Worktree', work(clippedSpan(a.worktree.split('/').slice(-2).join('/')), 'branch')) : []),
-      ),
-      a.checks.length ? el('div', 'checks', el('h3', '', 'Checks'), ...a.checks.map((c) => el('div', 'check',
-        // Its state and name on a line of their own, so a long state such as "needs a person" leaves room (GH-100).
-        el('span', 'check-head', status(c.look),
-          // A builder's lighter check, or the full one the merge queue runs once (GH-73).
-          el('span', 'check-gate', el('span', 'mono', c.gate),
-            c.scope ? Object.assign(el('span', 'chip', c.scope === 'builder' ? 'builder' : 'merge queue'), { title: c.scope === 'builder' ? 'One of the lighter checks a builder runs before it finishes the task' : 'The full check, run once in the merge queue before the merge' }) : null)),
-        // Its summary under them, beside Accept anyway…, then what its tests ran. A ratchet shows its numbers (GH-99).
-        work(c.ratchet?.numbers ? ratchetNumbers(c.ratchet, c.summary) : Object.assign(el('span', 'muted small check-sum', c.summary), { title: c.summary }), 'output'),
-        // A person can set a failing check, or one that needs them, aside, with a reason (D-031). Not a ratchet:
-        // a person relaxes its floor instead (GH-99).
-        c.waivable ? Object.assign(button(`${WORDS.acceptAnyway}…`, 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Accept ${c.gate} anyway on this commit, with a reason` }) : null,
-        c.counts ? Object.assign(el('span', 'muted small check-tests', icon('beaker'), `Tests: ${c.counts}`), { title: c.countsNote ?? `Tests: ${c.counts}` }) : null))) : null,
-      // Its actions in one size and place (D-168): the next step full width, the rest in two equal columns.
-      taskActions(a.actions)), 'agent', m, a.look.label));
+    side.append(collapsible(renderAgentPanel(m, a, (gate) => ticketAction('waive', gate)), 'agent', m, a.look.label));
   } else if (m.trackable) {
     // Adding… while it's on its way, from here or its card, so a second click starts nothing (D-074).
     const show = (on: boolean) => {

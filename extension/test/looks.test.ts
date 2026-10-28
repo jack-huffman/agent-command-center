@@ -323,6 +323,7 @@ export const NOT_TABLES: Record<string, string> = {
   'extension/src/model/shared.ts#LOOK': 'builds a look from its three parts; the tables that call it are walked',
   'extension/src/progress.ts#doneLine': 'a finished job\'s line, Done with its kind\'s icon: each icon is a literal the icon scan checks',
   'extension/src/logic/shared.ts#TONE_COLOR': 'a tone\'s colour in the sidebar, which draws with VSCode\'s own theme colours, not a state',
+  'extension/webview/agent-glance.ts#checkSummary': 'sums up the checks, each of which is walked through CHECK_LOOK: an orange icon and words for a failed or waiting one, a neutral one for a check that never ran, its words checked in agent-panel.test.ts (T-142)',
   'extension/webview/task-page.ts#moveFeed': 'a move\'s icon in the feed, each a literal the icon scan checks; the state it reached is the model\'s DISPLAY look',
   'extension/src/model/connect.ts#whyOff': 'the reason a Connect button is off, always the lock icon and neutral tone, its words checked in connect-why.test.ts (T-43)',
   'extension/webview/connect.ts#errorLook': 'an error\'s own words, with the warning icon',
@@ -579,9 +580,10 @@ test('the page draws each state with the one state chip: a ticket\'s page, its r
   assert.ok(tasks.includes("el('h2', 'column-head', stateChip(c)"), 'the agent board\'s columns');
   assert.ok(tasks.includes('stateChip(c.acc.look)'), 'acc\'s state on a tracker\'s card');
   // T-94: the Agent panel's State and Session, and the agent board's cards' agent and analysis.
-  assert.ok(page.includes("field('State', stateChip(a.look))") && page.includes("field('Session', stateChip(a.agent))"), 'the Agent panel\'s states');
+  const panel = readFileSync(join(repo, 'extension', 'webview', 'agent-panel.ts'), 'utf8');
+  assert.ok(panel.includes('stateChip(a.look)') && panel.includes('stateChip(g.session)'), 'the Agent panel\'s states');
   assert.ok(tasks.includes('stateChip(card.agent)') && tasks.includes('stateChip(card.analysis)'), 'an agent board card\'s states');
-  assert.ok(!/status\((?:a\.look|a\.agent|card\.agent|card\.analysis)\)/.test(page + tasks), 'no plain status for those states');
+  assert.ok(!/status\((?:a\.look|a\.agent|card\.agent|card\.analysis)\)/.test(page + tasks + panel), 'no plain status for those states');
   assert.ok(!page.includes("'pill tone-"), 'no other chip for a state');
   // Doing's icon isn't sync: nothing is syncing.
   assert.notEqual(CATEGORY_LOOK.doing.icon, 'sync');

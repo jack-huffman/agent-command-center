@@ -65,6 +65,8 @@ import { sampleFirstSetup, sampleSetup, sampleStartingSetup } from './fixtures/s
 import { sampleSetupWithoutProduction } from './fixtures/no-production.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
+import { sampleAgentPanelTicket } from './fixtures/agent-panel.ts';
+import { detailsKey } from '../webview/agent-glance.ts';
 import { SECTIONS_COLLAPSED, sampleSectionsTicket } from './fixtures/sections.ts';
 import { sampleReviewTabTicket } from './fixtures/review-tab.ts';
 import { samplePlanNeedsYouTicket, sampleTabsTicket } from './fixtures/task-tabs.ts';
@@ -213,7 +215,11 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-missing') return sampleTicket(now, 'ACME-48');
   if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
-  if (kind === 'ticket-waits') return sampleTicket(now, 'ACME-35');
+  // The Agent panel (T-142): ACME-12 blocked, and blocked while its builder's session still works; with Details, and More actions, open.
+  if (kind === 'ticket-agent-blocked' || kind === 'ticket-agent-disagree') return sampleAgentPanelTicket(now, kind === 'ticket-agent-blocked' ? 'blocked' : 'disagree');
+  if (kind === 'ticket-agent-failed' || kind === 'ticket-agent-open') return sampleAgentPanelTicket(now, 'failed');
+  if (kind === 'ticket-agent-details' || kind === 'ticket-agent-more') return sampleTicket(now);
+  if (kind === 'ticket-waits') return sampleAgentPanelTicket(now, 'queued');
   if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
   // ACME-19 in rework, in its own tab, with Dispatch's sheet over it (D-168), or the task sheet (T-74).
   if (kind === 'ticket-review' || kind === 'ticket-dispatch' || kind === 'ticket-edit') return sampleTicket(now, 'ACME-19');
@@ -405,6 +411,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : MORE_OPEN[kind] ? { opened: [`chg-more:${ROOT}#${MORE_OPEN[kind]}`] }
   // ACME-21's plan, criteria and Verify collapsed to their header lines (T-132).
   : kind === 'ticket-sections-collapsed' ? { folded: SECTIONS_COLLAPSED }
+  : kind === 'ticket-agent-details' ? { opened: [detailsKey(ROOT, 'ACME-12')] }
+  : kind === 'ticket-agent-more' ? { opened: [`agent-more:${ROOT}#ACME-12`] }
   // ACME-21's plan (T-97): its second choice's own option open, with More open for its wording (T-136). Choices and
   // Questions open by themselves while they wait on the person.
   // Approved, a change to its second choice asks first, as Choose this on Backfill too leaves it; the later plans
@@ -448,9 +456,24 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
 const OWN_DEFAULT = new Set<Page>(['tasks-first', 'tasks-person-menu', 'tasks-person-mine', 'tasks-person-signed-out', 'tasks-person-mine-none']);
 /** Every other shot keeps its boards on Everyone, so a board shows all its cards, as it did before Mine became the default. */
 export const shotState = (kind: Page): Record<string, unknown> => {
-  const start = startState(kind) as { filters?: Record<string, string> } | undefined;
-  return { ...start, ...(OWN_DEFAULT.has(kind) ? {} : { filters: { ...everyoneKept(ROOT), ...start?.filters } }), ...(kind === 'tasks-first' ? {} : { firstStepsSeen: true }) };
+  const start = (startState(kind) as { filters?: Record<string, string>; opened?: string[] } | undefined) ?? {};
+  const opened = [...(start.opened ?? []), ...agentFoldsOpen(kind)];
+  return { ...start, ...(opened.length ? { opened } : {}), ...(OWN_DEFAULT.has(kind) ? {} : { filters: { ...everyoneKept(ROOT), ...start.filters } }), ...(kind === 'tasks-first' ? {} : { firstStepsSeen: true }) };
 };
+
+/** The task pages whose shots leave the Agent panel's Details and More actions closed, as the page opens them (T-142). */
+const AGENT_FOLDS_CLOSED: readonly Page[] = ['ticket', 'ticket-checks', 'ticket-note', 'ticket-track', 'ticket-stopped', 'ticket-agent-blocked', 'ticket-agent-disagree', 'ticket-agent-failed', 'ticket-agent-details', 'ticket-agent-more'];
+
+/**
+ * Every other task page's shot has the Agent panel's Details and More actions open (T-142), so what they hold is
+ * measured on each page, besides the shots that draw them closed: the screenshot run's floors count what it
+ * measures, and what stays closed is measured on none. The ticket is the one the page's own model draws.
+ */
+function agentFoldsOpen(kind: Page): string[] {
+  if (!kind.startsWith('ticket') || (AGENT_FOLDS_CLOSED as readonly string[]).includes(kind)) return [];
+  const m = baseModel(kind, Date.now(), 'dark');
+  return m.kind === 'ticket' ? [detailsKey(m.project, m.key), `agent-more:${m.project}#${m.key}`] : [];
+}
 
 /**
  * What the extension sends after the page's model: the task a card's click opened in the modal over the
@@ -736,7 +759,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), passed: sampleModel('ticket-deploy-passed', now, 'dark'), failed: sampleModel('ticket-deploy-failed', now, 'dark'), typed: sampleModel('ticket-deploy-typed', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), passed: sampleModel('ticket-deploy-passed', now, 'dark'), failed: sampleModel('ticket-deploy-failed', now, 'dark'), typed: sampleModel('ticket-deploy-typed', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark'), agentFailed: sampleModel('ticket-agent-failed', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

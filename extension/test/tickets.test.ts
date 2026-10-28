@@ -578,7 +578,7 @@ test('a ratchet\'s check carries its numbers, from the environment\'s floor to t
   assert.deepEqual(ticketCheck('tests', { status: 'error', summary: 'tests couldn\'t be measured.' }, '', {}, spec).ratchet?.to, null);
   assert.deepEqual(ticketCheck('lint', { status: 'pass', summary: 'Passed.' }, '', {}), { gate: 'lint', status: 'pass', summary: 'Passed.', waived: false }, 'any other check is as it was');
   // The page shows the line, with an arrow, and never offers Waive… on a ratchet, failing or not.
-  const page = pageSource('task-page.ts');
+  const page = pageSource('agent-panel.ts');
   assert.match(page, /c\.ratchet\?\.numbers \? ratchetNumbers\(c\.ratchet, c\.summary\)/);
   assert.match(page, /c\.waivable \? Object\.assign\(button\(`\$\{WORDS\.acceptAnyway\}…`/);
   const failing = ticketCheck('tests', { ...receipt, status: 'fail', summary: 'tests 660 is below its floor 669, by 9.' }, '', {}, spec);

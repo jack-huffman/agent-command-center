@@ -286,17 +286,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-passed' | 'ticket-deploy-failed' | 'ticket-deploy-typed';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-passed' | 'ticket-deploy-failed' | 'ticket-deploy-typed' | 'ticket-agent-failed';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
 /** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab deployed once, and its deploy sheet passed, failed and asking Production's name (T-138). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; passed: Model; failed: Model; typed: Model; work: Model }
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; passed: Model; failed: Model; typed: Model; work: Model; agentFailed: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-passed' ? models.passed : c.page === 'ticket-deploy-failed' ? models.failed : c.page === 'ticket-deploy-typed' ? models.typed : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-passed' ? models.passed : c.page === 'ticket-deploy-failed' ? models.failed : c.page === 'ticket-deploy-typed' ? models.typed : c.page === 'ticket-agent-failed' ? models.agentFailed : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -884,6 +884,27 @@ export const CASES: Case[] = [
       await press(t, t.find<HTMLButtonElement>('.sec-toggle', details()), 'Enter');
       await t.post({ type: 'state', model: t.model });
       t.check('Enter collapses Details, and it stays collapsed', getComputedStyle(t.find('.details-list', details())).display === 'none' && t.find('.sec-toggle', details()).getAttribute('aria-expanded') === 'false');
+    },
+  },
+  {
+    name: 'task page: the Agent panel says its checks in one line naming what failed, and its Details folds shut and open by click and stays as left (T-142)',
+    page: 'ticket-agent-failed',
+    async run(t) {
+      const panel = (): HTMLElement => t.find('.side-agent');
+      const details = (): HTMLDetailsElement => t.find<HTMLDetailsElement>('.agent-details', panel());
+      const check = (): HTMLElement => t.find('.agent-details .check', panel());
+      const key = (): boolean => ((t.memory().opened ?? []) as string[]).some((k) => k.startsWith('agent-details:') && k.endsWith('#ACME-19'));
+      t.check('its checks are one line that names the failed one', t.find('.agent-checks', panel()).textContent?.includes('1 failed: static') === true, t.find('.agent-checks', panel()).textContent);
+      t.check('Details starts closed, its checks out of view and nothing remembered', !details().open && !check().checkVisibility() && !key(), details().open);
+      await t.click(t.find('summary', details()));
+      t.check('a click opens Details, its checks show, and the tab remembers it', details().open && check().checkVisibility() && key(), t.memory().opened);
+      // Edge: drawn again from a new model, it stays open.
+      await t.post({ type: 'state', model: t.model });
+      t.check('drawn again, Details stays open', details().open);
+      await t.click(t.find('summary', details()));
+      t.check('a click shuts it again, and the tab forgets it', !details().open && !key(), t.memory().opened);
+      const more = t.find<HTMLDetailsElement>('.agent-more', panel());
+      t.check('More actions starts closed, holding the actions the panel doesn\'t show first', !more.open && more.querySelectorAll('.ta-btn').length > 0);
     },
   },
   {
@@ -2411,6 +2432,8 @@ const caseNamed = (start: string): string => {
 };
 
 export const MUTANTS: Mutant[] = [
+  { name: 'a failed check isn\'t named in the summary', file: 'agent-glance.ts', find: 'failed.length ? `${failed.length} failed: ${names(failed)}` : null,', replace: 'failed.length ? `${failed.length} failed` : null,', kills: [caseNamed('task page: the Agent panel says its checks')] },
+  { name: 'Details doesn\'t stay open once opened', file: 'agent-panel.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'a collapsed section doesn\'t stay collapsed', file: 'collapse.ts', find: 'show(memory().folded.includes(k));', replace: 'show(false);', kills: [caseNamed('task page: a Command Center section collapses')] },
   { name: 'a tab that needs you doesn\'t say so', file: 'task-tabs.ts', find: "t.needs ? el('span', 'task-tab-needs', icon('bell', 'orange'), NEEDS_YOU) : null", replace: 'null', kills: [caseNamed('task page: its tabs open on the plan')] },
   { name: 'a review that needs you doesn\'t say so on its tab', file: 'tab-rules.ts', find: 'orange(m.review.look)', replace: 'null', kills: [caseNamed('task page: a review lists its findings')] },

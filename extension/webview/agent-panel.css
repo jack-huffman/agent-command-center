@@ -1,0 +1,24 @@
+/* The Agent panel (T-142): what it says at a glance, then folds for More actions and Details. */
+.agent-glance { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.agent-glance p { margin: 0; }
+.agent-state { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); min-width: 0; }
+.agent-state .state-chip { white-space: normal; align-items: flex-start; overflow-wrap: anywhere; border-radius: var(--radius-m); padding: 0.125rem var(--space-2); }
+.agent-state .state-chip .codicon { margin-top: 0.15rem; flex: none; }
+/* The state and its session disagree: one plain line, its icon and words saying so, not the colour. */
+.agent-disagree { display: flex; align-items: flex-start; gap: 6px; font-weight: 600; overflow-wrap: anywhere; }
+.agent-disagree .codicon { margin-top: 2px; flex: none; }
+.agent-checks .status { white-space: normal; align-items: flex-start; overflow-wrap: anywhere; }
+.agent-checks .status .codicon { margin-top: 2px; flex: none; }
+/* What holds it up: one line, cut with an ellipsis, whole in its title. */
+.agent-hold { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.agent-hold .codicon { flex: none; }
+.agent-hold-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-fold { margin-top: var(--space-3); }
+.agent-fold > summary { display: inline-flex; align-items: center; gap: 2px; padding: 1px 4px 1px 0; border-radius: 4px; cursor: pointer; list-style: none; color: var(--vscode-descriptionForeground); }
+.agent-fold > summary::-webkit-details-marker { display: none; }
+.agent-fold > summary:hover { color: var(--vscode-foreground); }
+.agent-fold > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.agent-fold[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
+.agent-fold > .task-actions, .agent-fold > .fields, .agent-fold > .checks { margin-top: var(--space-2); }
+/* One action beside the next step takes the grid's whole width, so the two rows are as wide as one another. */
+.side-agent .ta-grid:has(> .ta-btn:only-child) { grid-template-columns: minmax(0, 1fr); }
