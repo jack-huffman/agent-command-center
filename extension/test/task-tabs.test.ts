@@ -312,3 +312,12 @@ test('Needs you, a card and a notification name the plan: each opens the page on
   assert.equal(ok({ project: ROOT, key: 'ACME-21', part: 3 }), false);
   assert.ok(TASK_PART.test('verify') && !TASK_PART.test('comment:'));
 });
+
+test('edge case: a ticket with no description still has Ticket, its description drawn by renderDoc as "No description."', () => {
+  fresh();
+  const m = quiet(sampleTabsTicket(NOW));
+  const d = drawn({ ...m, body: { ...m.body, blocks: [] } });
+  const ticket = d.panels.find((p) => p.dataset.tab === 'ticket')!;
+  assert.ok(ticket.textContent.includes('No description.'), ticket.textContent.slice(0, 80));
+  assert.equal(d.tabs[0]!.dataset.tab, 'ticket');
+});
