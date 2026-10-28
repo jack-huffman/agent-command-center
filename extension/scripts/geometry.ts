@@ -94,6 +94,8 @@ export interface GeoSnapshot {
   actionSets?: GeoActionSet[];
   /** Each disabled button drawn (T-121): the disabled check fails on one drawn as clear as an enabled button. */
   disabled?: GeoDisabled[];
+  /** The task page's tab whose panel was on show when it was measured (T-134), or null on a page with none. */
+  panel?: string | null;
 }
 
 /** A task's actions as drawn: the next step, full width, and the rest in the grid under it. */
@@ -437,6 +439,61 @@ export function dumpedGeometry(dom: string): GeoSnapshot | null {
 }
 
 /**
+ * Every measure a --dump-dom holds, in the order taken (T-134): the page as drawn, then each other tab's panel
+ * of a task page that MEASURE_TABS showed in turn. Empty when the page never measured.
+ */
+export function dumpedGeometries(dom: string): GeoSnapshot[] {
+  return [...dom.matchAll(/<script[^>]*\bid="acc-geometry(?:-\d+)?"[^>]*>([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]!) as GeoSnapshot);
+}
+
+/**
+ * One drawing's verdict from each measure of it (T-134): what each examined, added up, and every finding, each
+ * after the first naming the tab its panel was measured in. The first measure is the page as drawn, so its
+ * board's top stands.
+ */
+export function mergedVerdict(measures: { panel?: string | null; verdict: Verdict }[]): Verdict {
+  const [first, ...rest] = measures;
+  if (!first) throw new Error('A drawing has no measure to judge.');
+  const add = (a: Record<string, number>, b: Record<string, number>): Record<string, number> => {
+    const out = { ...a };
+    for (const [k, v] of Object.entries(b)) out[k] = (out[k] ?? 0) + v;
+    return out;
+  };
+  return rest.reduce<Verdict>((v, m) => ({
+    examined: add(v.examined, m.verdict.examined) as Record<Check, number>,
+    violations: [...v.violations, ...m.verdict.violations.map((x) => ({ ...x, what: `the ${m.panel ?? 'other'} tab: ${x.what}` }))],
+    excused: add(v.excused, m.verdict.excused),
+    held: add(v.held, m.verdict.held),
+    boardTop: v.boardTop,
+    incomplete: add(v.incomplete, m.verdict.incomplete),
+  }), first.verdict);
+}
+
+/**
+ * The page's side, after it's measured as drawn (T-134): a task page shows only one tab's panel, so each other
+ * tab is shown in turn and measured, two frames after it's drawn, and then the tab and scroll that were on show
+ * come back, as the shot draws the page as it opened. measure(then) measures once and calls then.
+ */
+export const MEASURE_TABS = `
+function measureTabs(measure) {
+  const tabs = [...document.querySelectorAll('.task-tabs > [role="tab"]')];
+  const was = tabs.find((t) => t.getAttribute('aria-selected') === 'true');
+  const rest = tabs.filter((t) => t !== was);
+  const kept = [document.scrollingElement, ...document.querySelectorAll('*')].filter((e) => e && (e.scrollTop || e.scrollLeft)).map((e) => [e, e.scrollTop, e.scrollLeft]);
+  const step = () => {
+    const t = rest.shift();
+    if (!t) {
+      was?.click();
+      for (const [e, top, left] of kept) { e.scrollTop = top; e.scrollLeft = left; }
+      return;
+    }
+    t.click();
+    requestAnimationFrame(() => requestAnimationFrame(() => measure(step)));
+  };
+  step();
+}`;
+
+/**
  * The page's side: measures itself when called, which pageFor does once its fonts have loaded, two frames
  * have drawn and the selected tab has settled, and writes
  * what it found into a JSON script element, which Chrome's --dump-dom prints. The screenshot run puts it
@@ -445,7 +502,7 @@ export function dumpedGeometry(dom: string): GeoSnapshot | null {
  * the a11y part (T-55): the element is written once it has.
  */
 export const COLLECT_GEOMETRY = `
-function collectGeometry(more) {
+function collectGeometry(more, then) {
   const SIDEWAYS = ${JSON.stringify(SIDEWAYS)};
   const style = (e) => getComputedStyle(e);
   const name = (e) => e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className.trim() ? '.' + e.className.trim().split(/\\s+/).slice(0, 3).join('.') : '');
@@ -570,13 +627,16 @@ function collectGeometry(more) {
   const actionSets = [...document.querySelectorAll('[data-action-set]')].filter(visible).map((s) => ({ what: what(s), next: [...s.querySelectorAll(':scope > .ta-btn')].filter(visible).map(boxOf), rest: [...s.querySelectorAll(':scope > .ta-grid > .ta-btn')].filter(visible).map(boxOf) }));
   // Each disabled button, as drawn (T-121): a .btn that is disabled, or kept focusable with .is-disabled.
   const disabled = [...document.querySelectorAll('.btn:disabled, .btn.is-disabled')].filter(visible).map((b) => ({ what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), opacity: Number(style(b).opacity), cursor: style(b).cursor, why: !!(b.getAttribute('title') || b.getAttribute('aria-description')) }));
-  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, fonts: window.accFontsFirst ?? 0 };
+  const measured = { controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, fonts: window.accFontsFirst ?? 0, panel: document.querySelector('.task-tabs > [role="tab"][aria-selected="true"]')?.dataset.tab ?? null };
+  // The first measure is acc-geometry; a later one, of another tab's panel (T-134), is numbered after it. then, if given, runs once it's written.
   const write = (parts) => {
     const out = document.createElement('script');
     out.type = 'application/json';
-    out.id = 'acc-geometry';
+    const n = document.querySelectorAll('script[id^="acc-geometry"]').length;
+    out.id = n ? 'acc-geometry-' + n : 'acc-geometry';
     out.textContent = JSON.stringify({ ...measured, ...parts }).replace(/</g, '\\\\u003c');
     document.body.append(out);
+    if (then) then();
   };
   // The dump is written either way: a part that fails to come (or to serialise) is recorded, not waited for (T-55 review).
   Promise.resolve().then(() => more ? more() : {}).then(write, (e) => write({ a11y: { violations: [], examined: 0, incomplete: [], error: String(e) } }));

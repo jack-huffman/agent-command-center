@@ -109,7 +109,7 @@ function show(msg: { model?: TicketModel; tab?: Record<string, unknown> }): void
   }
   // A task just opened starts at its top: the browser would bring back where the last one was left.
   if (opening && body) body.scrollTop = 0;
-  // The tab on show in its row's view, and a comment a link named scrolled to (T-134).
+  // A comment a link named, scrolled to and focused once the page is drawn (T-134).
   afterTabs();
 }
 

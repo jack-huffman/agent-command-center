@@ -270,14 +270,27 @@ test('a link to a comment opens Ticket, shows the whole feed, and scrolls to tha
   assert.equal(askedComment(), last.id);
   // Edge: afterTabs looks for it in the document; with none there, it lets the ask go.
   (globalThis as Record<string, unknown>).CSS ??= { escape: (s: string) => s };
-  (page.document as unknown as { querySelector: (s: string) => null }).querySelector = () => null;
-  afterTabs();
+  const doc = page.document as unknown as { querySelector: (s: string) => unknown };
+  const querySelector = doc.querySelector;
+  doc.querySelector = () => null;
+  try {
+    afterTabs();
+  } finally {
+    doc.querySelector = querySelector;
+  }
   assert.equal(askedComment(), null);
   // A link to a part no tab holds opens as if there were none.
   assert.equal(partTab('comment:c1'), 'ticket');
   assert.equal(partTab('plan'), 'plan');
   assert.equal(partTab('somewhere'), null);
   assert.equal(partTab(null), null);
+});
+
+test('edge case: a link may name exactly the tabs the page draws, each by its id, and a comment; nothing else', () => {
+  const named = TASK_PART.source.match(/^\^\(([a-z|]+)\|comment:/)![1]!.split('|');
+  assert.deepEqual(named, [...TAB_ORDER], 'TASK_PART and TAB_ORDER list the same tabs, in order');
+  for (const t of TAB_ORDER) assert.ok(TASK_PART.test(t), t);
+  assert.ok(!TASK_PART.test('details') && !TASK_PART.test('Plan'));
 });
 
 test('renderTabs draws what it\'s given into each tab\'s panel', () => {

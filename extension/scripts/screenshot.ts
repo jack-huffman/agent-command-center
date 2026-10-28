@@ -84,7 +84,7 @@ import { settingsKey, type ThemeChoice } from '../src/model/settings.ts';
 import { SETUP_PARTS } from '../src/logic/first-open.ts';
 import { PALETTE_THEMES, type PaletteTheme, palettes, vscodeDefaults } from './styles.ts';
 import { loadingScreen } from '../src/logic/loading.ts';
-import { CHECKS, COLLECT_GEOMETRY, examinedIn, type ExpectedButton, FLOORS_PATH, GEOMETRY_EXCEPTIONS, dumpedGeometry, geometrySummary, ciFloorName, isCiRun, judge, raisedFloors, type Render, runFailures, runFloor } from './geometry.ts';
+import { CHECKS, COLLECT_GEOMETRY, examinedIn, type ExpectedButton, FLOORS_PATH, GEOMETRY_EXCEPTIONS, dumpedGeometries, geometrySummary, MEASURE_TABS, mergedVerdict, ciFloorName, isCiRun, judge, raisedFloors, type Render, runFailures, runFloor } from './geometry.ts';
 import { FLOORS_FILE, readFloors, writeFloors } from '../../packages/core/src/ratchets.ts';
 import { drawRetried, FONTS_FIRST, fontsUnwaited, retriedSummary, SETTLE, shotTimeout } from './steady.ts';
 import { behaviourCheck } from './behaviour.ts';
@@ -132,7 +132,6 @@ export const OUTPUT_RUNS: Partial<Record<Page, RunSample>> = { 'output-running':
 /** The output panel's pages of a run of acc as a list of steps (T-65), by the run each shows. */
 export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-running': 'steps-running', 'output-steps-failed': 'steps-failed', 'output-steps-done': 'steps-done' };
 
-/** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
 /**
  * Each task page's shot opens on the tab that shows what it was made to show (T-134), as a link naming it would:
  * the rest open by the page's own rules.
@@ -151,6 +150,7 @@ export function sampleModel(kind: Page, now = Date.now(), theme: ThemeChoice = '
   return tab && m.kind === 'ticket' ? { ...m, open: { part: tab, at: 1 } } : m;
 }
 
+/** A page's sample data. theme is what Settings shows chosen, as the shot forces it (GH-109). */
 function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // The loading screen is drawn with the Overview's model held back (STILL): it never arrives.
   if (kind === 'loading') return sampleModel('overview', now, theme);
@@ -546,9 +546,9 @@ function forceHover() {
     for (const r of rules) if (r.selectorText && r.selectorText.includes(':hover')) sheet.insertRule(r.cssText.replaceAll(':hover', '.acc-hover'), sheet.cssRules.length);
   }
   (document.querySelector('tbody tr:not(.group):not(.none)') ?? document.querySelector('.card'))?.classList.add('acc-hover');
-}${FONTS_FIRST}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + COLLECT_A11Y + SETTLE : ''}
+}${FONTS_FIRST}${collect || measure ? COLLECT : ''}${collect ? COLLECT_COLOURS : ''}${measure ? COLLECT_GEOMETRY + MEASURE_TABS + COLLECT_A11Y + SETTLE : ''}
 window.acquireVsCodeApi = () => ({
-  postMessage(m) { if (m.type === 'ready') fontsFirst(document.fonts, () => setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y))))); }, 300);` : ''} })); },
+  postMessage(m) { if (m.type === 'ready') fontsFirst(document.fonts, () => setTimeout(() => { ${send}setTimeout(forceHover, 50);${collect ? ' setTimeout(collectColours, 500);' : ''}${measure ? ` setTimeout(() => { ${faded}document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y, () => measureTabs((then) => collectGeometry(collectA11y, then))))))); }, 300);` : ''} })); },
   getState() { return ${JSON.stringify(shotState(kind))}; }, setState() {},
 });
 </script>
@@ -862,15 +862,17 @@ export async function drawPages(views: Page[], d: DrawPagesDeps): Promise<DrawnP
         }
         wrote = true;
         renameSync(drawnAt, png);
-        const shot = dumpedGeometry(r.stdout);
+        // A task page is measured once per tab it shows (T-134): the drawing's verdict adds them up.
+        const shots = dumpedGeometries(r.stdout);
+        const shot = shots[0];
         if (!shot) { one.failure = `${what} measured no geometry (exit ${r.status ?? r.signal}).`; continue; }
         // A late font moves the rail's tab, so a page that loaded none first was measured by chance (T-21).
         const unwaited = fontsUnwaited(what, shot.fonts);
         if (unwaited) { one.failure = unwaited; continue; }
-        const verdict = judge(shot, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view), expectedButtons(model));
+        const verdict = mergedVerdict(shots.map((s) => ({ panel: s.panel, verdict: judge(s, viewOf(view) === 'home' && !still(view), GEOMETRY_EXCEPTIONS, !still(view), expectedButtons(model)) })));
         one.render = { page: view, theme, width, verdict };
-        if (d.print !== null) one.note = [name, { fingerprint: d.print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shot.drawn ?? [])].sort(), browser: d.browser }];
-        one.lines.push(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
+        if (d.print !== null) one.note = [name, { fingerprint: d.print, sha256: sha256Of(png), takenAt: new Date().toISOString(), findings: verdict.violations.length, drawn: [...new Set(shots.flatMap((s) => s.drawn ?? []))].sort(), browser: d.browser }];
+        one.lines.push(`${png}  ${CHECKS.map((c) => `${c} ${verdict.examined[c]}`).join(', ')}${shots.length > 1 ? `, ${shots.length} tabs measured` : ''}${verdict.violations.length ? `, ${verdict.violations.length} found` : ''}`);
       }
     }
     return drawings;

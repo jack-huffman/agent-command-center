@@ -98,7 +98,7 @@ test('the page the run writes holds axe\'s script before the harness\'s own, and
   const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
   assert.ok(scripts.length >= 2, `${scripts.length} inline scripts`);
   assert.equal(scripts[0], axeScript(), 'axe first, whole');
-  assert.ok(scripts[1]!.includes('const MODEL') && scripts[1]!.includes(COLLECT_A11Y) && scripts[1]!.includes('collectGeometry(collectA11y)'), 'then the harness, which runs axe once it has measured');
+  assert.ok(scripts[1]!.includes('const MODEL') && scripts[1]!.includes(COLLECT_A11Y) && scripts[1]!.includes('collectGeometry(collectA11y, '), 'then the harness, which runs axe once it has measured');
   assert.ok(axeScript().length > 100_000 && axeScript().includes('axe'), 'axe-core\'s whole script, from node_modules');
   assert.ok(!/<\/script/i.test(axeScript()), 'nothing in it can close its element');
   assert.ok(!pageFor('tasks', 'dark', model).includes(axeScript()), 'a page drawn for the colour check doesn\'t load axe');

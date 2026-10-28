@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometry, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, dumpedGeometries, dumpedGeometry, MEASURE_TABS, mergedVerdict, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
 import { root } from './support.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
@@ -194,13 +194,45 @@ test('a page measures its geometry only when the run asks, and the run reads it 
   const model = sampleModel('agents');
   assert.ok(!pageFor('agents', 'dark', model).includes('collectGeometry'), 'a page drawn for the colour check doesn\'t measure');
   const page = pageFor('agents', 'dark', model, 'light', false, true);
-  assert.ok(page.includes(COLLECT_GEOMETRY) && page.includes('document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y)))))'), 'measured once its fonts have loaded, two frames have drawn and the selected tab has settled (GH-167), then checked by axe (T-55)');
+  assert.ok(page.includes(COLLECT_GEOMETRY) && page.includes('document.fonts.ready.then(() => requestAnimationFrame(() => requestAnimationFrame(() => settle(selectedTab, requestAnimationFrame, () => collectGeometry(collectA11y, () => measureTabs((then) => collectGeometry(collectA11y, then)))))))') && page.includes(MEASURE_TABS), 'measured once its fonts have loaded, two frames have drawn and the selected tab has settled (GH-167), then checked by axe (T-55), then each other tab of a task page (T-134)');
   assert.ok(page.includes('window.requestAnimationFrame = '), 'with frame callbacks run on a timer, as the colour check does');
   assert.doesNotThrow(() => new Function(COLLECT_GEOMETRY), 'the collector is valid script');
   assert.equal(dumpedGeometry('<html><body><main></main></body></html>'), null);
   const s = fine({ texts: [text('span', { text: '</script><b>' })] });
   const json = JSON.stringify(s).replace(/</g, '\\u003c');
   assert.deepEqual(dumpedGeometry(`<body><script type="application/json" id="acc-geometry">${json}</script></body>`), s, 'text from the page can\'t close the element');
+});
+
+test('a task page is measured once per tab it shows, and its drawing\'s verdict adds the measures up (T-134)', () => {
+  const plain = fine({ texts: [text('span', { text: 'one' })] });
+  const plan = { ...fine({ texts: [text('span', { text: 'two' }), text('span', { text: 'three', over: 4 })] }), panel: 'plan' };
+  const dump = [plain, plan].map((x, i) => `<script type="application/json" id="acc-geometry${i ? `-${i}` : ''}">${JSON.stringify(x).replace(/</g, '\\u003c')}</script>`).join('');
+  const shots = dumpedGeometries(`<body>${dump}</body>`);
+  assert.deepEqual(shots, [plain, plan], 'every measure, in the order taken');
+  assert.deepEqual(dumpedGeometries('<body></body>'), [], 'edge case: a page that never measured has none');
+  const v = mergedVerdict(shots.map((x) => ({ panel: x.panel, verdict: judge(x, false) })));
+  assert.equal(v.examined.clipped, 3, 'the texts of both panels are examined');
+  assert.deepEqual(v.violations.map((x) => [x.check, x.what]), [['clipped', 'the plan tab: span']], 'a finding in another tab names it');
+  const alone = judge(plain, false);
+  assert.deepEqual(mergedVerdict([{ verdict: alone }]), alone, 'one measure is its own verdict');
+  assert.throws(() => mergedVerdict([]), /no measure/, 'edge case: a drawing with no measure is never judged as passing');
+});
+
+test('edge case: MEASURE_TABS shows each other tab in turn, measures it, and brings back the tab and scroll on show', () => {
+  const shown: string[] = [];
+  const tab = (id: string, on: boolean) => ({ id, on, getAttribute: () => String(on), click() { for (const t of tabs) t.on = t === this; shown.push(id); } });
+  const tabs = [tab('ticket', false), tab('plan', true), tab('changes', false)];
+  const root = { scrollTop: 120, scrollLeft: 0 };
+  const document = { querySelectorAll: (q: string) => (q === '*' ? [] : tabs), scrollingElement: root };
+  const measured: string[] = [];
+  const measure = (then: () => void) => { measured.push(tabs.find((t) => t.on)!.id); root.scrollTop = 0; then(); };
+  new Function('document', 'requestAnimationFrame', 'measure', `${MEASURE_TABS}\nmeasureTabs(measure);`)(document, (f: () => void) => f(), measure);
+  assert.deepEqual(measured, ['ticket', 'changes'], 'each tab not on show, measured once');
+  assert.deepEqual(shown, ['ticket', 'changes', 'plan'], 'and the tab on show comes back last');
+  assert.equal(root.scrollTop, 120, 'with its scroll');
+  const none: string[] = [];
+  new Function('document', 'requestAnimationFrame', 'measure', `${MEASURE_TABS}\nmeasureTabs(measure);`)({ querySelectorAll: () => [], scrollingElement: null }, (f: () => void) => f(), () => none.push('x'));
+  assert.deepEqual(none, [], 'a page with no tabs is measured once, as drawn');
 });
 
 test('each Overview row button is named by its label as drawn: a missing or wrong aria-label fails (T-25)', () => {

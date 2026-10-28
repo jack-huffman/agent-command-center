@@ -1,7 +1,7 @@
 // A task page's content in tabs (T-134): Ticket, Plan, Changes and Verify, as an ARIA tablist. Each tab has
 // its icon and name, a count where it helps, and an orange icon with "needs you" where something in it needs
 // the person. The arrow keys move between tabs, Home and End go to the ends, and a tab switches in place, so
-// focus stays on it. The tab on show is remembered per ticket; which one a page opens on is task-tabs' model.
+// focus stays on it. The tab on show is remembered per ticket; which one a page opens on is openingTab's, in tab-rules.ts.
 
 import type { TicketModel } from '../src/model/task-page.ts';
 import { NEEDS_YOU, openingTab, partTab, type TabId, type TaskTab, tabName } from './tab-rules.ts';
