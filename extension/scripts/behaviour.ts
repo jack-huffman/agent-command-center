@@ -842,7 +842,7 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'task page: a Command Center section collapses and expands by click, Enter and Space, and stays collapsed when the page draws again (T-132)',
+    name: 'task page: a Command Center section collapses and expands by click, Enter and Space, and stays collapsed when the page draws again, as Details does (T-132)',
     page: 'ticket-questions',
     async run(t) {
       const sec = (): HTMLElement => t.find('.ticket-main [data-section="plan"]');
@@ -867,6 +867,11 @@ export const CASES: Case[] = [
       t.check('Space collapses it again', hidden() && space.defaultPrevented);
       await t.click(button());
       t.check('a click expands it, and the tab forgets it', !hidden() && ((t.memory().folded ?? []) as string[]).length === 0, t.memory().folded);
+      // The side column's Details folds the same way, and stays folded on the next draw.
+      const details = (): HTMLElement => t.find('.ticket-side [data-section="details"]');
+      await press(t, t.find<HTMLButtonElement>('.sec-toggle', details()), 'Enter');
+      await t.post({ type: 'state', model: t.model });
+      t.check('Enter collapses Details, and it stays collapsed', getComputedStyle(t.find('.details-list', details())).display === 'none' && t.find('.sec-toggle', details()).getAttribute('aria-expanded') === 'false');
     },
   },
   {

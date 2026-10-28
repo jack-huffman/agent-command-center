@@ -229,10 +229,11 @@ export function renderTicket(m: TicketModel): Node[] {
     ...(m.created ? field({ icon: 'calendar', name: 'Created' }, when(m.created)) : []),
     ...(m.updated ? field({ icon: 'history', name: 'Updated' }, when(m.updated)) : []),
   ];
-  const side = el('aside', 'ticket-side', details.length ? el('section', 'side-details', el('h2', '', 'Details'), el('dl', 'fields details-list', ...details)) : null);
+  // Details and the Agent panel fold to their header line as the Command Center's sections do (T-132).
+  const side = el('aside', 'ticket-side', details.length ? collapsible(el('section', 'side-details', el('h2', '', 'Details'), el('dl', 'fields details-list', ...details)), 'details', m, null) : null);
   if (m.acc) {
     const a = m.acc;
-    side.append(el('section', `side-panel side-agent${a.look.tone === 'orange' ? ' attention' : ''}`, el('h2', '', icon('hubot'), 'Agent'),
+    side.append(collapsible(el('section', `side-panel side-agent${a.look.tone === 'orange' ? ' attention' : ''}`, el('h2', '', icon('hubot'), 'Agent'),
       el('dl', 'fields',
         // Its state as the one state chip, its icon and its label, as every board and ticket draws one (T-94).
         ...field('State', stateChip(a.look)),
@@ -262,7 +263,7 @@ export function renderTicket(m: TicketModel): Node[] {
         c.waivable ? Object.assign(button(`${WORDS.acceptAnyway}…`, 'debug-step-over', () => ticketAction('waive', c.gate), 'ghost small check-waive'), { title: `Accept ${c.gate} anyway on this commit, with a reason` }) : null,
         c.counts ? Object.assign(el('span', 'muted small check-tests', icon('beaker'), `Tests: ${c.counts}`), { title: c.countsNote ?? `Tests: ${c.counts}` }) : null))) : null,
       // Its actions in one size and place (D-168): the next step full width, the rest in two equal columns.
-      taskActions(a.actions)));
+      taskActions(a.actions)), 'agent', m, a.look.label));
   } else if (m.trackable) {
     // Adding… while it's on its way, from here or its card, so a second click starts nothing (D-074).
     const show = (on: boolean) => {
@@ -278,7 +279,7 @@ export function renderTicket(m: TicketModel): Node[] {
       show(true);
       ticketAction('track');
     });
-    side.append(el('section', 'side-panel side-agent', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'This ticket isn\'t in your work yet. Add it, and an agent can plan it and build it. The ticket itself isn\'t changed.'), el('div', 'actions', track)));
+    side.append(collapsible(el('section', 'side-panel side-agent', el('h2', '', icon('hubot'), 'Agent'), el('p', 'muted', 'This ticket isn\'t in your work yet. Add it, and an agent can plan it and build it. The ticket itself isn\'t changed.'), el('div', 'actions', track)), 'agent', m, 'Not in your work yet'));
   }
   // Its review's findings, under the Agent panel (T-53).
   if (m.review) side.append(renderReview(m.review));

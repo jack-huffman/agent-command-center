@@ -1,4 +1,4 @@
-// A Command Center section on a task page folds to its header line (T-132): its name in a button with a
+// A Command Center section on a task page, and the side column's Details and Agent panels, fold to their header line (T-132): its name in a button with a
 // chevron, its state chip and a one-line summary stay; the rest hides. Each starts open, and the tab remembers
 // each one a person collapsed, per ticket and per section, as foldable remembers what it opened.
 
@@ -38,7 +38,10 @@ export function collapsible(sec: HTMLElement, id: string, ticket: { project: str
   head.classList.add('sec-head');
   const name = h2.textContent ?? '';
   const k = sectionKey(id, ticket.project, ticket.key);
-  const toggle = el('button', 'sec-toggle', el('span', 'tool-chev', icon('chevron-right')), name) as HTMLButtonElement;
+  // The heading's own words and icon (the Agent panel's robot) move into the button, after its chevron.
+  const own = Array.from(((h2 as unknown as { childNodes?: ArrayLike<Node> }).childNodes ?? h2.children) as ArrayLike<Node>);
+  const toggle = el('button', 'sec-toggle', el('span', 'tool-chev', icon('chevron-right'))) as HTMLButtonElement;
+  toggle.append(...own);
   toggle.type = 'button';
   h2.replaceChildren(toggle);
   if (summary) {

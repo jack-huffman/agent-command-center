@@ -12,5 +12,5 @@ export function sampleSectionsTicket(now: number): TicketModel {
   return { ...m, criteria: drafted ? { ...drafted, task: 'ACME-21' } : null };
 }
 
-/** The tab's memory with ACME-21's plan, criteria and Verify collapsed. */
-export const SECTIONS_COLLAPSED = ['plan', 'criteria', 'verify'].map((id) => `section:${id}:${ROOT}#ACME-21`);
+/** The tab's memory with ACME-21's plan, criteria and Verify collapsed, and the side column's Details and Agent panels. */
+export const SECTIONS_COLLAPSED = ['plan', 'criteria', 'verify', 'details', 'agent'].map((id) => `section:${id}:${ROOT}#ACME-21`);

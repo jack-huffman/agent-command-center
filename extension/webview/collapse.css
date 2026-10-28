@@ -1,5 +1,5 @@
 /* A Command Center section folds to its header line (T-132): its name is a button with a chevron that turns. */
-.sec-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0; margin: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; border-radius: 3px; }
+.sec-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0; margin: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; border-radius: 3px; }
 .sec-toggle:hover { color: var(--vscode-foreground); }
 .sec-toggle:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 .sec-toggle:active { transition: none; transform: scale(0.97); }
@@ -12,11 +12,18 @@
 .ticket-main > section.block.cc-section.collapsed { padding-bottom: var(--space-3); }
 .analysis.cc-section.collapsed { padding-bottom: 10px; }
 .sec-sum { display: none; }
-.cc-section.collapsed .sec-sum { display: block; flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cc-section.collapsed .sec-sum { display: block; flex: 1 1 12em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticket-main > .analysis.cc-section { margin-bottom: 16px; }
 
 /* The ticket's own words above, the Command Center's below: a quiet label on a hairline, not a heading. */
-.ticket-main > section.block:has(+ .cc-divider) { border-bottom: 0; }
+.ticket-main > section.block:has(+ .cc-divider) { border-bottom: 0; padding-bottom: var(--space-2); }
 .cc-divider { display: flex; align-items: center; gap: 8px; margin: 0 0 var(--space-4); font-size: var(--text-meta); color: var(--vscode-descriptionForeground); }
 .cc-divider::after { content: ''; flex: 1; border-top: 1px dashed color-mix(in srgb, var(--vscode-foreground) 14%, transparent); }
 .cc-divider-label { flex: none; }
+/* The side column's Details and Agent panels fold the same way; open, their heading keeps its space under it. */
+.side-details > .sec-head, .side-panel > .sec-head { margin-bottom: var(--space-3); }
+.side-panel.cc-section.collapsed { padding-bottom: 12px; }
+/* One column: the grid's gap spaces the sections, so none keeps a margin of its own under it (T-41's rule). */
+@media (max-width: 760px) {
+  .ticket-grid .ticket-main > .cc-section, .ticket-grid .ticket-main > .cc-divider { margin-bottom: 0; }
+}

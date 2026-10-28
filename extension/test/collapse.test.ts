@@ -29,9 +29,10 @@ const NOW = Date.now();
 const ORDER = ['plan', 'criteria', 'verify', 'changes', 'team', 'field', 'records', 'manifest', 'notes', 'note'];
 
 const elements = (e: PageElement): PageElement[] => e.children.filter((c): c is PageElement => typeof c !== 'string');
-function drawn(m: TicketModel): { top: PageElement | null; main: PageElement; all: PageElement[] } {
+function drawn(m: TicketModel): { top: PageElement | null; main: PageElement; side: PageElement; all: PageElement[] } {
   const grid = (renderTicket(m) as unknown as PageElement[]).find((n) => n.classList.contains('ticket-grid'))!;
-  return { top: elements(grid).find((e) => e.classList.contains('ticket-top')) ?? null, main: elements(grid).find((e) => e.classList.contains('ticket-main'))!, all: grid.all() };
+  const part = (cls: string): PageElement | undefined => elements(grid).find((e) => e.classList.contains(cls));
+  return { top: part('ticket-top') ?? null, main: part('ticket-main')!, side: part('ticket-side')!, all: grid.all() };
 }
 /** The main column as names: desc, label, each section's id, related and activity. */
 const names = (main: PageElement): string[] => elements(main).map((e) => (e.classList.contains('cc-divider') ? 'label' : e.dataset.section ?? (e.classList.contains('activity') ? 'activity' : e.classList.contains('related-block') ? 'related' : e.textContent.startsWith('Description') ? 'desc' : e.className)));
@@ -206,4 +207,37 @@ test('on a narrow page the notices come first, and the description and the Comma
   const ours = readFileSync(join(import.meta.dirname, '../webview/collapse.css'), 'utf8');
   assert.doesNotMatch(ours, /(^|[\s;{])order:/);
   assert.doesNotMatch(narrow, /cc-section|cc-divider/);
+});
+
+test('the side column\'s Details and Agent panels collapse and expand like the sections, remembered per ticket, starting open', () => {
+  saved = undefined;
+  const { side } = drawn(sampleSectionsTicket(NOW));
+  const details = sectionOf(side, 'details');
+  const agent = sectionOf(side, 'agent');
+  assert.ok(details.classList.contains('side-details') && agent.classList.contains('side-agent'));
+  assert.equal(toggleOf(details).textContent, 'Details');
+  // The Agent heading keeps its robot icon, inside the button after the chevron.
+  assert.equal(toggleOf(agent).textContent, 'Agent');
+  assert.equal(toggleOf(agent).all('codicon-hubot').length, 1);
+  for (const p of [details, agent]) assert.equal(toggleOf(p).getAttribute('aria-expanded'), 'true');
+  toggleOf(details).click();
+  assert.equal(details.classList.contains('collapsed'), true);
+  const again = drawn(sampleSectionsTicket(NOW)).side;
+  assert.equal(sectionOf(again, 'details').classList.contains('collapsed'), true);
+  assert.equal(sectionOf(again, 'agent').classList.contains('collapsed'), false);
+  // Edge: another ticket's Details stay open.
+  assert.equal(sectionOf(drawn(sampleTicket(NOW, 'ACME-19')).side, 'details').classList.contains('collapsed'), false);
+});
+
+test('collapsed, the Agent panel keeps its state as its summary; a ticket not in the work says so', () => {
+  saved = { folded: SECTIONS_COLLAPSED };
+  const m = sampleSectionsTicket(NOW);
+  const agent = sectionOf(drawn(m).side, 'agent');
+  assert.equal(agent.classList.contains('collapsed'), true);
+  assert.equal(agent.all('sec-sum')[0]?.textContent, m.acc!.look.label);
+  // Edge: ACME-31 isn't in the person's work, so its Agent panel holds Add to my work, and sums itself up so.
+  saved = { folded: [sectionKey('agent', sampleTicket(NOW, 'ACME-31').project, 'ACME-31')] };
+  const track = sectionOf(drawn(sampleTicket(NOW, 'ACME-31')).side, 'agent');
+  assert.equal(track.classList.contains('collapsed'), true);
+  assert.equal(track.all('sec-sum')[0]?.textContent, 'Not in your work yet');
 });

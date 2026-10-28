@@ -29,6 +29,11 @@ order, and D-054's plan above the description, on the task page. D-039's one lin
   (`memory().folded`), by `section:<id>:<project>#<key>`, as `foldable` keeps the folds it opened; the newest 200
   are kept. Every section starts open. The description, the related tickets and the activity keep their own Show
   all folds and don't collapse.
+- **The side column folds too.** The person added, the same day: the ticket's metadata must collapse as well.
+  The side column's Details panel and the Agent panel take the same header button, chevron, `aria-expanded`,
+  click, Enter and Space, and are remembered per ticket the same way (`details` and `agent`), starting open. The
+  Agent heading keeps its icon inside the button. Collapsed, the Agent panel's summary is its state's label, or
+  "Not in your work yet" for a ticket not in the person's work; Details has none and keeps its name.
 - **On a narrow page** (760 px and under, one column), T-41's rule that what needs the person comes first holds,
   in D-187's order: the notices first, then the description, then the label and the Command Center's sections in
   the order above, then Details and the Agent panel, then the related tickets and the activity. The plan's
@@ -38,7 +43,8 @@ order, and D-054's plan above the description, on the task page. D-039's one lin
   on eight fixtures with different sections, with a notice, with the conversation's line and with no section at
   all; the button, its name and `aria-expanded`; a click and a second click, remembered for that ticket and section
   only; Enter, Space and another key; the collapsed header line and its summaries; and the narrow page's order
-  rules. The behaviour run's case collapses and expands the plan by click, Enter and Space in the pinned browser,
-  and draws the page again; its mutants "a collapsed section doesn't stay collapsed" and "Enter and Space on a
+  rules; Details and the Agent panel, their summaries, and an Agent panel for a ticket not in the work. The
+  behaviour run's case collapses and expands the plan by click, Enter and Space in the pinned browser, draws the
+  page again, and collapses Details by Enter; its mutants "a collapsed section doesn't stay collapsed" and "Enter and Space on a
   section's button do nothing" must fail it. The screenshot run draws `ticket-sections` (the plan, criteria and
-  Verify open) and `ticket-sections-collapsed` (the same, collapsed), at every theme and width.
+  Verify open) and `ticket-sections-collapsed` (the same, with Details and the Agent panel, collapsed), at every theme and width.
