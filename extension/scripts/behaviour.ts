@@ -226,9 +226,10 @@ export interface BehaviourData {
   plan: { model: Model; ask: string; keep: string; change: string; sent: Record<string, unknown>; opened: string[] };
   /**
    * ACME-21's first plan (T-136): its made choice and the option chosen, its choice still to make, how many
-   * options each has, and the remembered keys of the made choice's Compare and of a plan section, less its name.
+   * options each has, the remembered keys of the made choice's Compare and of a plan section, less its name, the
+   * open choice's recommended option and the message acc sends once it's recorded, and the plan with it made.
    */
-  choices: { made: string; chosen: string; open: string; madeOptions: number; openOptions: number; compare: string; section: string };
+  choices: { made: string; chosen: string; open: string; madeOptions: number; openOptions: number; compare: string; section: string; pick: string; done: Record<string, unknown>; allMade: Model };
   /**
    * Talk it through on ACME-21's approved plan (T-98): its page's model, what Use this asks first, the name
    * Use this is read out by, the message Change it sends, and the message Ctrl+Enter sends with the words typed.
@@ -984,6 +985,13 @@ export const CASES: Case[] = [
       t.check('drawn again, it stays compared', cards(d.made) === d.madeOptions, cards(d.made));
       await t.click(compare());
       t.check('Hide the options folds it back to its line', cards(d.made) === 0 && compare().getAttribute('aria-expanded') === 'false', cards(d.made));
+      // Edge: the last choice made in a Choices that opened by itself; acc records it and the page draws again.
+      await t.click(t.find(`[aria-label="${d.pick}"]`, group(d.open)));
+      await t.post(d.done);
+      await t.post({ type: 'state', model: d.allMade });
+      t.check('the last choice made, it is a line too', !!group(d.open).querySelector('.pd-line'), group(d.open).textContent);
+      t.check('and Choices stays open under the person, though nothing in it waits now', part('choices').open, t.memory().opened);
+      await t.post({ type: 'state', model: t.model });
       // Edge: a section that waits on the person, closed by them, stays closed when the page draws again.
       await t.click(t.find('summary', part('choices')));
       await t.post({ type: 'state', model: t.model });
@@ -2371,6 +2379,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'a made choice still draws every card', file: 'plan.ts', find: 'const full = !d.choice || compared', replace: 'const full = true || compared', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'a choice waiting on the person is folded away', file: 'analysis.ts', find: '!!p && p.decisions.some((d) => choiceWaits(m, a.task, p, d))', replace: 'false', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'a section the person closed opens again on the next draw', file: 'analysis.ts', find: '(waits && !opened.includes(shut))', replace: 'waits', kills: [caseNamed('plan tab: a made choice is one line')] },
+  { name: 'a section open by itself isn\'t remembered open, so the last choice folds Choices away', file: 'analysis.ts', find: 'x.opened = d.open ? [...rest, k]', replace: 'x.opened = d.open && !waits ? [...rest, k]', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'Compare the options isn\'t remembered', file: 'plan.ts', find: 'const compared = opened.includes(compareKey(key));', replace: 'const compared = false;', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];
@@ -2547,8 +2556,15 @@ function choicesData(model: Model): BehaviourData['choices'] {
   const made = p?.decisions.find((d) => d.choice?.option);
   const open = p?.decisions.find((d) => !d.choice);
   const chosen = made?.options.find((o) => o.id === made.choice?.option);
-  if (model.kind !== 'ticket' || !made || !open || !chosen || made.options.length < 2) throw new Error('The choices case needs ACME-21\'s first plan, with a choice made from two options or more and one still to make.');
-  return { made: made.id, chosen: chosen.name, open: open.id, madeOptions: made.options.length, openOptions: open.options.length, compare: `plan:${model.project}#${model.key}:${made.id}:compare`, section: `an:${model.project}#${model.key}:sec:` };
+  if (model.kind !== 'ticket' || !p || !made || !open || !chosen || made.options.length < 2) throw new Error('The choices case needs ACME-21\'s first plan, with a choice made from two options or more and one still to make.');
+  const pick = open.options.find((o) => o.id === open.recommended) ?? open.options[0]!;
+  // The plan once acc has recorded the last choice: nothing in Choices waits on the person any more.
+  const decisions = p.decisions.map((d) => (d.id === open.id ? { ...d, choice: { option: pick.id, name: pick.name, by: 'jordan', at: made.choice!.at } } : d));
+  const allMade = { ...model, analysis: { ...model.analysis!, planState: { ...p, decisions } } };
+  return {
+    made: made.id, chosen: chosen.name, open: open.id, madeOptions: made.options.length, openOptions: open.options.length, compare: `plan:${model.project}#${model.key}:${made.id}:compare`, section: `an:${model.project}#${model.key}:sec:`,
+    pick: `Choose this: ${pick.name}, for ${open.title}`, done: { type: 'plan-done', action: 'plan-choose', project: model.project, task: model.key, decision: open.id, ok: true }, allMade,
+  };
 }
 
 /**
