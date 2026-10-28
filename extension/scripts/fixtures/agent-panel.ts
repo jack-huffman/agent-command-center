@@ -12,9 +12,14 @@ import { sampleHub } from './hub.ts';
 import { ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
-export type AgentPanelSample = 'blocked' | 'disagree' | 'waits' | 'failed';
+export type AgentPanelSample = 'blocked' | 'disagree' | 'waits' | 'failed' | 'queued';
 
 export function sampleAgentPanelTicket(now: number, which: AgentPanelSample): TicketModel {
+  // ACME-35, waiting on two tasks and blocked by none: the glance says what it waits on.
+  if (which === 'queued') {
+    const q = sampleTicket(now, 'ACME-35');
+    return { ...q, acc: { ...q.acc!, waitingOn: ['ACME-12', 'ACME-19'] } };
+  }
   // ACME-19 in review with one more check, failed, so the behaviour run's summary case has a failure of its own to name.
   if (which === 'failed') {
     const r = sampleTicket(now, 'ACME-19');

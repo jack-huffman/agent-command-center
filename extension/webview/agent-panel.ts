@@ -53,7 +53,7 @@ function facts(a: TicketAcc): HTMLElement {
   return el('dl', 'fields',
     ...field('Environment', el('span', 'mono', a.environment)),
     // The session's own words, where the glance merges them into the state or says they disagree.
-    ...(a.agent ? field('Session', status(a.agent)) : []),
+    ...(a.agent ? field('Session', stateChip(a.agent)) : []),
     // The tasks it waits on: at a glance only where no blocker is the reason (holdLine), here whenever it waits.
     ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
     // Its effort beside it, when it isn't the model's default (D-128).

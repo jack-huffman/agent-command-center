@@ -219,7 +219,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-agent-blocked' || kind === 'ticket-agent-disagree') return sampleAgentPanelTicket(now, kind === 'ticket-agent-blocked' ? 'blocked' : 'disagree');
   if (kind === 'ticket-agent-failed') return sampleAgentPanelTicket(now, 'failed');
   if (kind === 'ticket-agent-details' || kind === 'ticket-agent-more') return sampleTicket(now);
-  if (kind === 'ticket-waits') return sampleTicket(now, 'ACME-35');
+  if (kind === 'ticket-waits') return sampleAgentPanelTicket(now, 'queued');
   if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
   // ACME-19 in rework, in its own tab, with Dispatch's sheet over it (D-168), or the task sheet (T-74).
   if (kind === 'ticket-review' || kind === 'ticket-dispatch' || kind === 'ticket-edit') return sampleTicket(now, 'ACME-19');
