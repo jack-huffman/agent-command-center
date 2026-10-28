@@ -3014,7 +3014,7 @@ function harness(c: Case, data: BehaviourData, model: Model): string {
   const key = model.kind === 'home' ? (model.connect ? 'home:connect' : `home:${model.section}`) : model.kind;
   // A board with no kept choice opens on Mine (T-143), which hides the cards most cases look for: every case but the person filter's own starts with each board kept on Everyone.
   const everyone: Record<string, string> = {};
-  if (model.kind === 'home' && !c.name.startsWith('person filter:')) for (const pr of model.tasks.projects) { everyone[`agents:${pr.root}`] = 'everyone'; for (let i = 0; i < 12; i++) everyone[`tracker:${pr.root}#${i}`] = 'everyone'; }
+  if (model.kind === 'home' && !c.name.startsWith('person filter:')) for (const pr of model.tasks?.projects ?? []) { everyone[`agents:${pr.root}`] = 'everyone'; for (let i = 0; i < 12; i++) everyone[`tracker:${pr.root}#${i}`] = 'everyone'; }
   const seeded0 = c.opening ? { opened: [], drafts: {}, section: model.kind === 'home' ? model.section : undefined, scroll: { [key]: { y: c.opening.scroll, boards: [] } } } : undefined;
   const seeded = Object.keys(everyone).length ? { ...seeded0, filters: everyone } : seeded0;
   const fns = [...HELPERS.map((f) => `const ${f.name} = ${f.toString().replace(/^async function \w+/, 'async function').replace(/^function \w+/, 'function')};`), `const RUN = ${c.run.toString().replace(/^async run/, 'async function')};`].join('\n');
