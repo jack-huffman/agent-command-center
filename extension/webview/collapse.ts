@@ -2,14 +2,14 @@
 // chevron, its state chip and a one-line summary stay; the rest hides. Each starts open, and the tab remembers
 // each one a person collapsed, per ticket and per section, as foldable remembers what it opened.
 
-import { el, icon } from './dom.ts';
+import { el, icon, plural } from './dom.ts';
 import { memory, remember } from './state.ts';
 
 /** The key the tab remembers a collapsed section by: one per section of one ticket. */
 export const sectionKey = (id: string, project: string, key: string): string => `section:${id}:${project}#${key}`;
 
 /** "3 criteria", "1 criterion", or null with none, so a collapsed section shows only its state then. */
-export const criteriaSummary = (n: number | null): string | null => (n ? `${n} ${n === 1 ? 'criterion' : 'criteria'}` : null);
+export const criteriaSummary = (n: number | null): string | null => (n ? plural(n, 'criterion', 'criteria') : null);
 
 /** The first line of some words, its Markdown marks taken out: a summary has one line. Null for none. */
 export function oneLine(text: string | null | undefined): string | null {

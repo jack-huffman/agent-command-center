@@ -12,7 +12,7 @@ order, and D-054's plan above the description, on the task page. D-039's one lin
   plan (or the conversation's line before there is a plan), the acceptance criteria draft, Verify the developer's
   work, Planned changes and Changes, Team, the changes field, Record changes, the manifest, Notes for the builder,
   and the builder's note. Then the ticket's related tickets and its activity. The side column (Details and the
-  Agent panel) is unchanged. A ticket with none of the Command Center's sections draws them, and their label, not
+  Agent panel) keeps its place; it folds too, below. A ticket with none of the Command Center's sections draws them, and their label, not
   at all.
 - **A quiet label between the two.** "From the Command Center" sits on a dashed hairline between the description
   and the first of the Command Center's sections, in the muted meta size, not in a heading's capitals. It isn't a
