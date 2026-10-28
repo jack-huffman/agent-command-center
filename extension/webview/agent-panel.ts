@@ -4,7 +4,6 @@
 
 import type { TicketAcc, TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { button, type Child, clippedSpan, el, icon, linkTo, stateChip, status, work } from './dom.ts';
-import { oneLine } from './collapse.ts';
 import { checkSummary, detailsKey, splitActions, stateGlance } from './agent-glance.ts';
 import { WORDS } from './plain-words.ts';
 import { memory, remember } from './state.ts';
@@ -53,6 +52,10 @@ function checkRows(a: TicketAcc, onWaive: (gate: string) => void): HTMLElement |
 function facts(a: TicketAcc): HTMLElement {
   return el('dl', 'fields',
     ...field('Environment', el('span', 'mono', a.environment)),
+    // The session's own words, where the glance merges them into the state or says they disagree.
+    ...(a.agent ? field('Session', status(a.agent)) : []),
+    // The tasks it waits on: at a glance only where no blocker is the reason (holdLine), here whenever it waits.
+    ...(a.waitingOn.length ? field('Waiting on', a.waitingOn.join(', ')) : []),
     // Its effort beside it, when it isn't the model's default (D-128).
     ...(a.agent && a.model ? field('Model and effort', el('span', '', el('span', 'mono', a.model), a.effort ? el('span', 'muted', ` · ${a.effort} effort`) : null)) : []),
     // What its builder is called, in Claude Code and the Command Center alike (D-087).
@@ -64,11 +67,14 @@ function facts(a: TicketAcc): HTMLElement {
   );
 }
 
-/** What holds the task up, in one short line: a blocker's reason, else the tasks it waits on. Null when nothing does. */
+/**
+ * The tasks it waits on, in one short line at a glance. A blocker's reason isn't drawn here: the page's "Why it's
+ * blocked" notice above its tabs says it, each fact once. With a blocker, the tasks it waits on are a row of Details.
+ */
 function holdLine(a: TicketAcc): HTMLElement | null {
-  const why = a.blocker ? oneLine(a.blocker) : null;
-  const text = why ? `Why: ${why}` : a.waitingOn.length ? `Waiting on ${a.waitingOn.join(', ')}` : null;
-  return text ? el('p', 'agent-hold muted small', icon(why ? 'circle-slash' : 'clock'), Object.assign(el('span', 'agent-hold-text', text), { title: why ? `Why: ${a.blocker}` : text })) : null;
+  if (a.blocker || !a.waitingOn.length) return null;
+  const text = `Waiting on ${a.waitingOn.join(', ')}`;
+  return el('p', 'agent-hold muted small', icon('clock'), Object.assign(el('span', 'agent-hold-text', text), { title: text }));
 }
 
 /** The panel's body: the glance, the actions, More actions and Details. The caller makes it fold to its header line. */

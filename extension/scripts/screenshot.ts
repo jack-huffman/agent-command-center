@@ -456,17 +456,16 @@ export const shotState = (kind: Page): Record<string, unknown> => {
 
 /** The task pages whose shots leave the Agent panel's Details and More actions closed, as the page opens them (T-142). */
 const AGENT_FOLDS_CLOSED: readonly Page[] = ['ticket', 'ticket-checks', 'ticket-note', 'ticket-track', 'ticket-stopped', 'ticket-agent-blocked', 'ticket-agent-disagree'];
-/** The tickets the shots draw. */
-const SHOT_TICKETS = ['ACME-12', 'ACME-19', 'ACME-20', 'ACME-21', 'ACME-23', 'ACME-29', 'ACME-33', 'ACME-35', 'ACME-44', 'ACME-48'];
 
 /**
  * Every other task page's shot has the Agent panel's Details and More actions open (T-142), so what they hold is
  * measured on each page, besides the shots that draw them closed: the screenshot run's floors count what it
- * measures, and what stays closed is measured on none.
+ * measures, and what stays closed is measured on none. The ticket is the one the page's own model draws.
  */
 function agentFoldsOpen(kind: Page): string[] {
   if (!kind.startsWith('ticket') || (AGENT_FOLDS_CLOSED as readonly string[]).includes(kind)) return [];
-  return SHOT_TICKETS.flatMap((k) => [detailsKey(ROOT, k), `agent-more:${ROOT}#${k}`]);
+  const m = baseModel(kind, Date.now(), 'dark');
+  return m.kind === 'ticket' ? [detailsKey(m.project, m.key), `agent-more:${m.project}#${m.key}`] : [];
 }
 
 /**

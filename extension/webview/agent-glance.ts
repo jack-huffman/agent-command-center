@@ -6,29 +6,24 @@ import type { CheckRow, TicketAcc } from '../src/model/task-page.ts';
 
 const count = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
 
-/** "a", "a and b", "a, b and c". */
-const nameList = (names: string[]): string => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
-
 /**
- * Its checks in one line (T-142): "4 passed, 1 failed: validate". The ones that failed, wait for a person
- * or didn't run are named, in orange; a line of checks none of which ran says so in one phrase. The icon and
- * the words carry it; the colour only adds. Null with no checks.
+ * Its checks in one line (T-142): "3 failed: validate, violations, stray-files · 1 needs you: flow-tests · 3 more".
+ * Only the checks that failed or need a person are named, in orange; the rest are counted ("3 more", their rows
+ * are in Details). Where none failed or waits, the line counts each kind: "4 passed, 1 not run". A line of
+ * checks none of which ran says so in one phrase. The icon and the words carry it; the colour only adds.
+ * Null with no checks.
  */
 export function checkSummary(checks: CheckRow[]): Look | null {
   if (!checks.length) return null;
   const of = (...labels: string[]): CheckRow[] => checks.filter((c) => labels.includes(c.look.label));
   const [passed, failed, waiting, skipped, unrun, waived] = [of('pass'), of('fail', 'error'), of('needs a person'), of('skip'), of('not run'), of('waived')];
   if (unrun.length === checks.length) return { label: `${count(checks.length, 'check')}, not run on this commit`, icon: 'circle-slash', tone: 'neutral' };
-  const named = (rows: CheckRow[]): string => `: ${nameList(rows.map((c) => c.gate))}`;
-  const parts = [
-    passed.length ? `${passed.length} passed` : null,
-    failed.length ? `${failed.length} failed${named(failed)}` : null,
-    waiting.length ? `${waiting.length} ${waiting.length === 1 ? 'needs' : 'need'} a person${named(waiting)}` : null,
-    unrun.length ? `${unrun.length} not run${named(unrun)}` : null,
-    skipped.length ? `${skipped.length} skipped` : null,
-    waived.length ? `${waived.length} waived` : null,
-  ].filter((p): p is string => !!p);
-  const label = passed.length === checks.length ? `${count(checks.length, 'check')} passed` : parts.join(', ');
+  const names = (rows: CheckRow[]): string => rows.map((c) => c.gate).join(', ');
+  const rest = checks.length - failed.length - waiting.length;
+  const named = [failed.length ? `${failed.length} failed: ${names(failed)}` : null, waiting.length ? `${waiting.length} ${waiting.length === 1 ? 'needs' : 'need'} you: ${names(waiting)}` : null, rest ? `${rest} more` : null];
+  const counted = [passed.length ? `${passed.length} passed` : null, unrun.length ? `${unrun.length} not run` : null, skipped.length ? `${skipped.length} skipped` : null, waived.length ? `${waived.length} waived` : null];
+  const label = passed.length === checks.length ? `${count(checks.length, 'check')} passed`
+    : failed.length || waiting.length ? named.filter(Boolean).join(' · ') : counted.filter(Boolean).join(', ');
   if (failed.length) return { label, icon: 'error', tone: 'orange' };
   if (waiting.length) return { label, icon: 'person', tone: 'orange' };
   if (unrun.length) return { label, icon: 'circle-slash', tone: 'neutral' };

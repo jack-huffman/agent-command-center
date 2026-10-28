@@ -46,6 +46,7 @@ import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../sr
 import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
+import { sampleAgentPanelTicket } from './fixtures/agent-panel.ts';
 import { sampleTalkApproved } from './fixtures/talk.ts';
 import { sampleConversationQuestions, sampleConversationReady, sampleConversationStart, sampleConversationTicket } from './fixtures/conversation.ts';
 import { conversationModel } from '../src/model/conversation.ts';
@@ -890,6 +891,8 @@ export const CASES: Case[] = [
     name: 'task page: the Agent panel says its checks in one line naming what failed, and its Details folds shut and open by click and stays as left (T-142)',
     page: 'ticket-review',
     async run(t) {
+      // A review with a failed check of its own, so the summary has one to name.
+      await t.post({ type: 'state', model: sampleAgentPanelTicket(Date.now(), 'failed') });
       const panel = (): HTMLElement => t.find('.side-agent');
       const details = (): HTMLDetailsElement => t.find<HTMLDetailsElement>('.agent-details', panel());
       const check = (): HTMLElement => t.find('.agent-details .check', panel());

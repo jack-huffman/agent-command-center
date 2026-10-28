@@ -33,15 +33,24 @@ const check = (gate: string, status: CheckRow['status'], summary = '', extra: Pa
 const labelsIn = (p: PageElement): string[] => p.all('ta-btn').map((b) => b.all('ta-label')[0]!.textContent);
 const foldOf = (p: PageElement, cls: string): PageElement => p.all(cls)[0]!;
 const text = (e: PageElement | undefined): string => e?.textContent ?? '';
+/** The rows of the panel's Details list, by name. */
+function detailRows(p: PageElement): Map<string, string> {
+  const nodes = foldOf(p, 'agent-details').all('fields')[0]!.all();
+  const rows = new Map<string, string>();
+  nodes.forEach((e, i) => { if (e.tagName === 'DT') rows.set(e.textContent, nodes[i + 1]!.textContent.trim()); });
+  return rows;
+}
 
 test('the check summary is one line that names each check that failed, waits for a person or didn\'t run', () => {
   const sum = (checks: CheckRow[]): Look | null => checkSummary(checks);
-  assert.equal(sum([check('format', 'pass'), check('validate', 'fail'), check('static', 'pass'), check('a', 'pass'), check('b', 'pass')])!.label, '4 passed, 1 failed: validate');
-  assert.deepEqual(sum([check('format', 'pass'), check('validate', 'fail')]), { label: '1 passed, 1 failed: validate', icon: 'error', tone: 'orange' });
-  assert.equal(sum([check('validate', 'fail'), check('static', 'error')])!.label, '2 failed: validate and static');
-  assert.deepEqual(sum([check('format', 'pass'), check('flow-tests', 'hold')]), { label: '1 passed, 1 needs a person: flow-tests', icon: 'person', tone: 'orange' });
-  assert.equal(sum([check('a', 'fail'), check('b', 'fail'), check('c', 'fail'), check('d', 'hold'), check('e', 'hold')])!.label, '3 failed: a, b and c, 2 need a person: d and e');
-  assert.equal(sum([check('format', 'pass'), check('lwc', 'skip', 'Not run on this commit')])!.label, '1 passed, 1 not run: lwc');
+  // Only what failed or needs a person is named; the rest is a count.
+  assert.equal(sum([check('format', 'pass'), check('validate', 'fail'), check('static', 'pass'), check('a', 'pass'), check('b', 'pass')])!.label, '1 failed: validate · 4 more');
+  assert.deepEqual(sum([check('format', 'pass'), check('validate', 'fail')]), { label: '1 failed: validate · 1 more', icon: 'error', tone: 'orange' });
+  assert.equal(sum([check('validate', 'fail'), check('static', 'error')])!.label, '2 failed: validate, static');
+  assert.deepEqual(sum([check('format', 'pass'), check('flow-tests', 'hold')]), { label: '1 needs you: flow-tests · 1 more', icon: 'person', tone: 'orange' });
+  assert.equal(sum([check('a', 'fail'), check('b', 'fail'), check('c', 'fail'), check('d', 'hold'), check('e', 'hold')])!.label, '3 failed: a, b, c · 2 need you: d, e');
+  // Where nothing failed or waits, each kind is counted, none named.
+  assert.equal(sum([check('format', 'pass'), check('lwc', 'skip', 'Not run on this commit')])!.label, '1 passed, 1 not run');
   assert.equal(sum([check('format', 'pass'), check('static', 'skip', 'Waived', { waived: true })])!.label, '1 passed, 1 waived');
   // Every check passed: one phrase, in blue, with its icon.
   assert.deepEqual(sum([check('format', 'pass'), check('validate', 'pass')]), { label: '2 checks passed', icon: 'pass', tone: 'blue' });
@@ -60,9 +69,7 @@ test('a task being built shows its state, one line for its checks naming what fa
   assert.equal(text(foldOf(glance, 'agent-state')).startsWith(m.acc!.look.label), true, text(glance));
   const line = text(foldOf(glance, 'agent-checks'));
   // ACME-12's checks: 1 passed, 2 more failed or hit a ratchet, one needs a person, one waived, one not run.
-  assert.match(line, /3 failed: validate, violations and stray-files/);
-  assert.match(line, /1 needs a person: flow-tests/);
-  assert.match(line, /1 not run: lwc-tests/);
+  assert.equal(line.trim(), '3 failed: validate, violations, stray-files · 1 needs you: flow-tests · 4 more');
   // The depth is in Details: not in the glance.
   for (const word of ['Environment', 'Branch', 'Worktree', 'Builder session']) assert.ok(!text(glance).includes(word), `${word} isn't at a glance`);
 });
@@ -71,7 +78,9 @@ test('the glance for each state: blocked says why, in review and sent back say t
   saved = undefined;
   const blocked = panel(sampleAgentPanelTicket(NOW, 'blocked'))!;
   assert.match(text(foldOf(blocked, 'agent-state')), /^Blocked/);
-  assert.match(text(foldOf(blocked, 'agent-hold')), /^Why: The checks error on validate/);
+  // The reason is the page's "Why it's blocked" notice above its tabs: the panel doesn't say it again.
+  assert.equal(blocked.all('agent-hold').length, 0);
+  assert.ok(!text(blocked.all('agent-glance')[0]).includes('The checks error on validate'));
   // Blocked with its builder gone: nothing contradicts it.
   assert.equal(blocked.all('agent-disagree').length, 0);
   assert.equal(blocked.all('state-chip').length, 1, 'one chip: the state');
@@ -178,9 +187,23 @@ test('the glance never has more than the state, its checks and its reason: no fa
     assert.ok(glance.childElementCount <= 3, `${m.key}: ${glance.childElementCount} lines`);
     assert.equal(glance.all('check').length, 0, 'no check of its own at a glance');
   }
-  // A task waiting on another says so in its reason line, where it was a row of Details before.
+  // A task waiting on another says so in its reason line, and has the row in Details too.
   const waits = sampleTicket(NOW, 'ACME-35');
-  assert.match(text(foldOf(panel({ ...waits, acc: { ...waits.acc!, waitingOn: ['ACME-12', 'ACME-19'] } })!, 'agent-hold')), /^Waiting on ACME-12, ACME-19$/);
+  const waiting = panel({ ...waits, acc: { ...waits.acc!, waitingOn: ['ACME-12', 'ACME-19'] } })!;
+  assert.match(text(foldOf(waiting, 'agent-hold')), /^Waiting on ACME-12, ACME-19$/);
+  assert.ok(detailRows(waiting).get('Waiting on') === 'ACME-12, ACME-19');
+});
+
+test('a blocked task that also waits on other tasks keeps its Waiting on row in Details, and the blocker isn\'t said twice (edge case)', () => {
+  saved = undefined;
+  const m = sampleAgentPanelTicket(NOW, 'waits');
+  assert.ok(m.acc!.blocker && m.acc!.waitingOn.length === 2, 'both are set');
+  const p = panel(m)!;
+  assert.equal(p.all('agent-hold').length, 0, 'the blocker is the page\'s notice, not the panel\'s');
+  assert.equal(detailRows(p).get('Waiting on'), 'ACME-19, ACME-35', 'nothing lost: the tasks it waits on are in Details');
+  // The session's own words are a row of Details too, where the glance leaves its chip out or merges it.
+  const working = panel(sampleAgentPanelTicket(NOW, 'disagree'))!;
+  assert.equal(detailRows(working).get('Session'), 'Working');
 });
 
 test('renderAgentPanel hands Accept anyway\'s gate to the page, and a task with no checks draws no Details checks (edge case)', async () => {

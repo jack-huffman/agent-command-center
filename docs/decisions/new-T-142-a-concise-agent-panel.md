@@ -7,12 +7,14 @@ seven buttons. This amends D-214's collapsible Agent panel (T-132), in the calm 
 The panel still folds to its header line; what is inside it changed.
 
 - **At a glance** (`extension/webview/agent-panel.ts`, its words in `extension/webview/agent-glance.ts`): the
-  state as its chip, one line for the checks, and one short line for what holds the task up, either "Why: " and
-  the blocker's first line or "Waiting on" the tasks it waits for (whole in its title). The session's chip shows
-  beside the state only where it adds something: not where it says the same, and not where the two disagree.
-- **The checks in one line**, with an icon and words, orange where a person must look: "4 passed, 1 failed:
-  validate", "1 needs a person: flow-tests", "2 checks passed", "5 checks, not run on this commit". A check that
-  failed, needs a person or didn't run is named; a waived or skipped one is only counted.
+  state as its chip, one line for the checks, and "Waiting on" the tasks it waits for where nothing blocks it. A
+  blocker's reason is not drawn here: the page's "Why it's blocked" notice above the tabs says it, each fact once.
+  The session's chip shows beside the state only where it adds something: not where it says the same, and not
+  where the two disagree.
+- **The checks in one line**, with an icon and words, orange where a person must look: "3 failed: validate,
+  violations, stray-files · 1 needs you: flow-tests · 4 more", "2 checks passed", "5 checks, not run on this
+  commit". Only a check that failed or needs a person is named; the rest are counted ("4 more"), and their rows
+  are in Details. Where none failed or waits, each kind is counted: "4 passed, 1 not run".
 - **A state and its session that disagree** are said once, plainly, instead of two chips. This case is real in the
   model: a blocked or in-review task keeps the session it was tied to (`rowSession` in
   `extension/src/logic/agents.ts`), and that session can still read Working. The line is "Blocked: its builder is
@@ -25,10 +27,10 @@ The panel still folds to its header line; what is inside it changed.
   `aria-description`, as before. `splitActions` returns two lists that hold the same commands as the one it was
   given, and a test compares them by command.
 - **Details**: a fold under the actions, closed at first, remembered per ticket in the tab's `opened` list
-  (`agent-details:<project>#<key>`, as the page's other folds are). It holds Environment, Model and effort,
-  Builder session, Runs on, Branch and Worktree, and every check on its own lines with Accept anyway… where it
-  applies. Nothing the panel showed is gone: each is one fold or one menu away. "Waiting on" moved to the reason
-  line at a glance.
+  (`agent-details:<project>#<key>`, as the page's other folds are). It holds Environment, the Session in its own
+  words, Waiting on (whenever the task waits on others, a blocked one too), Model and effort, Builder session,
+  Runs on, Branch and Worktree, and every check on its own lines with Accept anyway… where it applies. Nothing
+  the panel showed is gone: each is one fold or one menu away.
 - **Checks**: `extension/test/agent-panel.test.ts` draws the panel for a task being built, blocked, blocked with
   its builder working, in review, sent back and not in the work; it pins the check words, the fold's default and
   memory, every action by command and the off action's reason. The behaviour run has a case for the panel in a
