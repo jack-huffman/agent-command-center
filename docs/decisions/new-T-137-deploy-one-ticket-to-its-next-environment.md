@@ -32,7 +32,8 @@ stand where they speak.
   sandbox (D-056), and Salesforce is asked which org it is first. It says the destination and its org, the
   components by type, what's left out and why, the deletions and record steps, the tests, and the check's
   result with its id, or the org's errors per component. The check is kept beside the ledger with the ticket's
-  commits and each file's content.
+  commits and each file's content. A ticket with nothing for the org (only files outside the source folders,
+  or only deletions) isn't checked there: its plan's id starts `none-` and stands for its commits alone.
 - **The yes.** On a terminal the CLI asks: "yes", or for a protected or production org (by the settings or by
   what Salesforce says), its name typed. `--yes <check-id>` says it for the extension, with
   `--confirm-production <name>`, the environment's name or its org's alias. The yes is refused when the id isn't
@@ -41,19 +42,25 @@ stand where they speak.
   is the checked job; a sandbox check without tests deploys the same manifest at the same commit.
 - **Git stays in step.** The branch (`deploy/<task>-to-<env>-<time>`) is pushed and its pull request opened before
   anything deploys. Once the deploy passes, acc merges it: the person's yes covers it, though a Salesforce
-  project otherwise never auto-merges. A failed deploy closes the pull request and deletes its branch. A merge
+  project otherwise never auto-merges. Any failure once the branch is pushed, a failed deploy or one that stops
+  part way, closes the pull request and deletes its branch; a pull request that won't open deletes the branch.
+  A ticket with nothing for the org still opens its pull request, with the person's yes, and acc merges it, so
+  it moves on. A merge
   GitHub refuses leaves the deploy recorded, with the pull request open for acc sync to follow, and says so. A
   cherry-pick that conflicts stops before anything is checked, pushed or deployed, names each file and the
   other tickets that changed it, and leaves no worktree or branch. A ticket that depends on another not yet in
   the destination is refused with that ticket's name.
-- **Records.** The task keeps the deploy in `deploys` (destination, org, its username, commit, paths,
-  components, job, check id, pull request, by whom, when), so a later `acc deploy <env>` of the whole branch
-  doesn't send its files again (D-206), and in `promotions`, so where it arrived counts as a promotion's does
+- **Records.** After the deploy, the org is asked for each component by type, as the builder's deploy is
+  (`askOrgFor`, shared with the deploy check); one it doesn't list is said. The task keeps the deploy in
+  `deploys` (destination, org, its username, commit, paths, components, how many the org listed, job, check
+  id, pull request, by whom, when), so a later `acc deploy <env>` of the whole branch doesn't send its files
+  again (D-206), and in `promotions` (alone, when nothing went to the org), so where it arrived counts as a promotion's does
   (D-075). A ticket update is drafted, never posted (D-066).
 - **One at a time.** The check and the deploy each hold the org's turn, a one-slot lock by the org's username
   beside the builders' (D-206), and a heavy-check slot. The deploy, not the plan, shows as a deploy job while it runs (D-092).
   Everything runs through acc's runner, so it works on Mac and Windows.
 - **Checked by** `packages/core/test/task-deploy.test.ts` (the path rule, components from the ticket only,
   left out and by hand, a plan that changes nothing, a failed check, no yes, the typed name, commits changed, a
-  conflict, a dependency, the record a branch deploy reads, and two mutants: one that deploys without the yes
+  conflict, a dependency, the record a branch deploy reads, the org asked for each component, a ticket with
+  nothing for the org, the pull request and branch taken back on a failure after the push, and two mutants: one that deploys without the yes
   and one that deploys another ticket's component, each caught) and `packages/cli/test/deploy-task.test.ts`.

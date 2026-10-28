@@ -5,7 +5,9 @@ import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { parseConfig, type Config } from '../src/config.ts';
 import { planDeploy } from '../src/deploy.ts';
+import { askOrgFor } from '../src/deploy-gate.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
+import { APEX } from '../src/gates.ts';
 import { mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { manifestXml } from '../src/manifest.ts';
 import { emptyOutside } from '../src/outside-changes.ts';
@@ -13,7 +15,7 @@ import { repoPaths } from '../src/paths.ts';
 import type { RecordChange } from '../src/records.ts';
 import { sfComponent } from '../src/sf-metadata.ts';
 import * as real from '../src/task-deploy.ts';
-import { confirmsOrg, deployTask, keptCheckPath, planTaskDeploy, readKeptCheck, TASK_DEPLOY_COMMAND, taskCheckArgs, taskDeployArgs, taskDeployBody, taskDeployEnabled, taskDeployRoute, ticketCommits, ticketPlace, yesProblem } from '../src/task-deploy.ts';
+import { confirmsOrg, deployTask, keptCheckPath, NOTHING_TO_CHECK, planTaskDeploy, readKeptCheck, TASK_DEPLOY_COMMAND, taskCheckArgs, taskDeployArgs, taskDeployBody, taskDeployEnabled, taskDeployRoute, ticketCommits, ticketPlace, yesProblem } from '../src/task-deploy.ts';
 import { listUpdates } from '../src/updates.ts';
 import { gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
@@ -73,7 +75,7 @@ function repo() {
   return { dir, origin, paths, c, one, two };
 }
 
-type Fake = { check?: 'pass' | 'fail'; deploy?: 'pass' | 'fail'; prodUrl?: boolean; merge?: boolean };
+type Fake = { check?: 'pass' | 'fail'; deploy?: 'pass' | 'fail' | 'crash'; prodUrl?: boolean; merge?: boolean; listed?: string[]; prCreate?: boolean };
 
 /** Salesforce's CLI and gh, faked; git is real. Each sf and gh call is kept. The merge moves origin's branch as GitHub would. */
 function fake(origin: string, calls: string[], f: Fake = {}) {
@@ -95,14 +97,17 @@ function fake(origin: string, calls: string[], f: Fake = {}) {
         writeFileSync(file, manifestXml([...types].map(([name, members]) => ({ name, members })), '62.0'));
         return sfSays({ status: 0, result: { path: file } });
       }
+      if (sub === 'org list metadata') return sfSays({ status: 0, result: (f.listed ?? ['Invoice']).map((fullName) => ({ fullName })) });
       const checking = args.includes('--dry-run');
       const outcome = checking ? f.check ?? 'pass' : f.deploy ?? 'pass';
+      if (outcome === 'crash') throw new Error('sf stopped');
       if (outcome === 'fail') return { code: 1, stderr: '', stdout: JSON.stringify({ status: 1, result: { id: checking ? '0AfCHECK' : '0AfDEPLOY', success: false, details: { componentFailures: { fullName: 'Invoice', problem: 'Invalid type: Foo' } } } }) };
       return sfSays({ status: 0, result: { id: checking ? '0AfCHECK' : '0AfDEPLOY', success: true, numberComponentsTotal: 1, numberTestsCompleted: 3 } });
     }
     if (cmd === 'gh') {
       if (sub.startsWith('auth token')) return ok('gho\n');
       if (sub.startsWith('repo view')) return ok(JSON.stringify({ mergeCommitAllowed: false, squashMergeAllowed: true, rebaseMergeAllowed: false }));
+      if (sub.startsWith('pr create') && f.prCreate === false) return { code: 1, stdout: '', stderr: 'a pull request for this branch already exists' };
       if (sub.startsWith('pr create')) { head = flag('--head')[0]!; base = flag('--base')[0]!; return ok('https://github.com/acme-co/acme-salesforce/pull/40\n'); }
       if (sub.startsWith('pr merge')) {
         if (f.merge === false) return { code: 1, stdout: '', stderr: 'base branch policy prohibits the merge' };
@@ -335,6 +340,8 @@ test('the deploy quick-deploys the checked job, merges its pull request, records
   const t = taskIn(paths, 'ACME-1');
   const rec = t.deploys!.at(-1)!;
   assert.deepEqual([rec.env, rec.org, rec.checkId, rec.by, rec.pr?.number, rec.jobId, rec.components, rec.paths], ['uat', 'Acme UAT', '0AfCHECK', by, 40, '0AfDEPLOY', ['Apex Class: Invoice'], [`${D}/classes/Invoice.cls`]]);
+  assert.equal(rec.verified, 1, 'the org was asked for Invoice, and lists it');
+  assert.ok(calls.findIndex((x) => x.startsWith('sf org list metadata --metadata-type ApexClass --target-org Acme UAT')) > calls.findIndex((x) => x.startsWith('sf project deploy quick')), 'asked after the deploy');
   assert.equal(t.promotions!.at(-1)!.state, 'merged');
   assert.equal(ticketPlace(c, t)!.at.branch, 'uat', 'where it is now, for the page');
   assert.deepEqual(ticketPlace(c, t)!.next.map((e) => e.branch), ['production'], 'its next step');
@@ -371,10 +378,69 @@ test('a failed deploy closes its pull request and records nothing; a merge that 
   assert.equal(taskIn(second.paths, 'ACME-1').promotions!.at(-1)!.state, 'open', 'acc sync follows the open pull request');
 });
 
+test('edge case: a component the org doesn\'t list after the deploy is said, and isn\'t counted as verified', () => {
+  const { origin, paths, c } = repo();
+  const d = deps(origin, [], { listed: ['Other'] });
+  planTaskDeploy(paths, c, 'ACME-1', 'uat', d, { by });
+  const r = deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK' });
+  assert.equal(r.deployed, true);
+  assert.match(r.warning!, /It's in Acme UAT\. Acme UAT doesn't list Apex Class: Invoice: check the org/);
+  assert.equal(taskIn(paths, 'ACME-1').deploys!.at(-1)!.verified, 0);
+  const asked = askOrgFor(() => ok(JSON.stringify({ status: 0, result: [{ fullName: 'Invoice' }] })), 'Acme UAT', [`${D}/classes/Invoice.cls`, 'README.md']);
+  assert.deepEqual([asked.verified, asked.missing, asked.components], [1, [], ['Apex Class: Invoice', 'README.md']]);
+});
+
+test('edge case: a ticket with nothing for the org still opens its pull request with the person\'s yes, merges it, and moves on', () => {
+  const { dir, origin, paths, c } = repo();
+  write(dir, 'docs/guide.md', 'how ACME-3 works\n');
+  const sha = commit(dir, 'ACME-3 (#3)');
+  gitIn(dir, 'push', '-q', 'origin', 'dev');
+  mutate(paths, now, (l, emit) => {
+    upsertTasks(l, c, [{ source: { kind: 'jira' as const, key: 'ACME-3', url: 'https://acme.atlassian.net/browse/ACME-3' }, title: 'Task 3', environment: 'dev' }], 'human', 'human:test', emit, now);
+    Object.assign(l.tasks.find((t) => t.id === 'ACME-3')!, { state: 'done', pr: { number: 3, url: 'https://github.com/acme-co/acme-salesforce/pull/3', state: 'merged', mergeSha: sha } });
+  });
+  const calls: string[] = [];
+  const d = deps(origin, calls);
+  const p = planTaskDeploy(paths, c, 'ACME-3', 'uat', d, { by });
+  assert.deepEqual([p.files, p.gitOnly, p.check?.passed], [[], ['docs/guide.md'], true]);
+  assert.ok(p.check!.id!.startsWith(NOTHING_TO_CHECK), 'its yes is for its commits, not an org check');
+  assert.ok(!calls.some((x) => x.startsWith('sf project deploy')), 'the org isn\'t asked');
+  assert.throws(() => deployTask(paths, c, 'ACME-3', 'uat', d, { by }), /needs the person's yes/, 'still not without the person\'s yes');
+  const r = deployTask(paths, c, 'ACME-3', 'uat', d, { by, checkId: p.check!.id! });
+  assert.deepEqual([r.deployed, r.merged, r.pr?.number], [false, true, 40]);
+  assert.match(r.summary, /Nothing of ACME-3 deploys to Acme UAT, so nothing was sent there\. Pull request #40 merged into uat\./);
+  assert.equal(realDeploys(calls).length, 0);
+  assert.equal(run('git', ['show', 'refs/heads/uat:docs/guide.md'], { cwd: origin }).code, 0, 'uat\'s branch has it');
+  const t = taskIn(paths, 'ACME-3');
+  assert.equal(t.deploys, undefined, 'no deploy to an org is recorded');
+  assert.equal(t.promotions!.at(-1)!.state, 'merged');
+  assert.equal(ticketPlace(c, t)!.at.branch, 'uat', 'it moved on');
+});
+
+test('a failure once the branch is pushed takes back its pull request and the branch: a crash in the deploy, and a pull request that won\'t open', () => {
+  const { origin, paths, c } = repo();
+  const calls: string[] = [];
+  const d = deps(origin, calls, { deploy: 'crash' });
+  planTaskDeploy(paths, c, 'ACME-1', 'uat', d, { by });
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK' }), /sf stopped/);
+  assert.ok(calls.some((x) => x.startsWith('gh pr close 40 -R acme-co/acme-salesforce --delete-branch')), 'its pull request is closed, with its branch');
+  assert.equal(taskIn(paths, 'ACME-1').deploys, undefined);
+
+  const second = repo();
+  const calls2: string[] = [];
+  const d2 = deps(second.origin, calls2, { prCreate: false });
+  planTaskDeploy(second.paths, c, 'ACME-1', 'uat', d2, { by });
+  assert.throws(() => deployTask(second.paths, c, 'ACME-1', 'uat', d2, { by, checkId: '0AfCHECK' }), /gh couldn't open the pull request: a pull request for this branch already exists\. Nothing was deployed/);
+  assert.equal(run('git', ['branch', '--list', 'deploy/*'], { cwd: second.origin }).stdout.trim(), '', 'the pushed branch is gone');
+  assert.equal(realDeploys(calls2).length, 0);
+});
+
 test('a sandbox check without Apex runs no tests and deploys the same manifest rather than a quick deploy', () => {
   const args = taskDeployArgs('Acme UAT', '/x/package.xml', { id: '0Af1', testLevel: 'NoTestRun' });
   assert.deepEqual(args, ['project', 'deploy', 'start', '--manifest', '/x/package.xml', '--target-org', 'Acme UAT', '--wait', '90', '--json', '--test-level', 'NoTestRun']);
   assert.ok(taskCheckArgs('Acme UAT', '/x/package.xml', 'NoTestRun').includes('--dry-run'));
+  // Which files are Apex, and so run the org's tests: the one shared test, promote's and validate's too.
+  assert.deepEqual([`${D}/classes/A.cls`, `${D}/triggers/T.trigger-meta.xml`, `${D}/flows/F.flow-meta.xml`].map((f) => APEX.test(f)), [true, true, false]);
 });
 
 test('a ticket that isn\'t merged yet goes by its branch\'s own commits, never the merges that took others\' work in', () => {

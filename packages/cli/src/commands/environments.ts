@@ -73,6 +73,7 @@ export function taskPlanLines(p: TaskDeployPlan): string[] {
     ...p.records.map((r) => tone(`  ! Make by hand in ${p.to.name}: ${r}`, 'orange')),
     '',
     !c ? 'Nothing of it deploys, so nothing was checked.'
+      : !p.files.length ? `Nothing of it goes to the org, so the org wasn't asked. Its pull request moves it on to ${p.to.name}.`
       : c.passed ? tone(`✓ The check passed: ${c.summary}`, 'blue')
         : tone(`! The check failed: ${c.summary}`, 'orange'),
     ...(c && !c.passed ? c.problems.map((x) => `    ${x}`) : []),

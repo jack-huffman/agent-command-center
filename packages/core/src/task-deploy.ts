@@ -18,9 +18,11 @@ import { arrivedAt } from './carried.ts';
 import { addPromotionSteps, stepsOf } from './change-steps.ts';
 import { mergeCommitPaths } from './changes.ts';
 import type { Config, Environment } from './config.ts';
-import { deployedComponents, orgDisplayArgs, orgLockDir, readOrgDisplay, type TaskDeploy } from './deploy-gate.ts';
+import { askOrgFor, orgDisplayArgs, orgLockDir, readOrgDisplay, type TaskDeploy } from './deploy-gate.ts';
+import { environmentNamed } from './drift.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
-import { assertCheckOnly, deployProblems, lastLine, listed, listLines, packageDirs, parseDeployJson, readList, under } from './gates.ts';
+import { APEX, assertCheckOnly, deployProblems, lastLine, listed, listLines, packageDirs, parseDeployJson, readList, under } from './gates.ts';
+import { git, must } from './git-must.ts';
 import { withJob } from './jobs.ts';
 import { mutate, type Promotion, readLedger, type Task } from './ledger.ts';
 import { generateManifest, type ManifestType, manifestTypes, sourceApiVersion } from './manifest.ts';
@@ -32,9 +34,6 @@ import { sfComponent } from './sf-metadata.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { plural } from './text.ts';
 import { draftUpdate } from './updates.ts';
-
-/** Apex source: a class or trigger, or its -meta.xml. The same test as promote's and validate's. */
-const APEX = /\.(cls|trigger)(-meta\.xml)?$/;
 
 /** A command, as every action is one: its id, what it takes, and whether it can run now, with why not. */
 export interface TaskCommand<S> {
@@ -78,8 +77,7 @@ export function taskDeployRoute(config: Pick<Config, 'environments'>, t: Pick<Ta
     if (!place.next.length) throw new AccError('refused', `${t.id} is in ${place.at.name}, the end of its path: there's nowhere further to deploy it.`);
     return { from: place.at, to: place.next[0]! };
   }
-  const want = config.environments.find((x) => x.branch === to.toLowerCase() || x.name.toLowerCase() === to.toLowerCase());
-  if (!want) throw new AccError('usage', `No environment "${to}". The settings have: ${config.environments.map((x) => x.branch).join(', ')}.`);
+  const want = environmentNamed(config, to);
   if (want.branch === place.at.branch) throw new AccError('refused', `${t.id} is in ${want.name} already.${next ? ` Its next step is ${next}.` : ''}`);
   if (!place.at.promotesTo.includes(want.branch)) {
     throw new AccError('refused', `${want.name} isn't a next step for ${t.id}: its change is in ${place.at.name}, which goes on to ${next || 'nowhere'}. A ticket goes one step at a time along its path.`);
@@ -114,12 +112,6 @@ export interface TicketCommit {
   sha: string;
   mainline?: 1;
 }
-
-const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
-const must = (r: RunResult, what: string): string => {
-  if (r.code !== 0) throw new AccError('git', `${what}: ${lastLine(r.stderr || r.stdout)}`);
-  return r.stdout;
-};
 
 /**
  * The ticket's own commits, oldest first: once it has merged, the one its merge left on its environment's
@@ -205,7 +197,10 @@ export interface KeptCheck {
   by: string;
 }
 
-export const keptCheckPath = (paths: Pick<RepoPaths, 'stateDir'>, task: string): string => join(paths.stateDir, 'task-deploys', `${fileId(task)}.json`);
+/** The start of a plan's id when nothing of the ticket deploys and the org isn't asked: its yes is for its commits alone. */
+export const NOTHING_TO_CHECK = 'none-';
+
+export const keptCheckPath =(paths: Pick<RepoPaths, 'stateDir'>, task: string): string => join(paths.stateDir, 'task-deploys', `${fileId(task)}.json`);
 
 export function readKeptCheck(paths: Pick<RepoPaths, 'stateDir'>, task: string): KeptCheck | null {
   try {
@@ -423,11 +418,16 @@ function checkOnly(deps: TaskDeployDeps, config: Config, b: Built): TaskDeployCh
 export function planTaskDeploy(paths: RepoPaths, config: Config, id: string, to: string | undefined, deps: TaskDeployDeps, opts: TaskDeployOpts): TaskDeployPlan {
   const steps = deps.steps ?? NO_STEPS;
   return withBuilt(paths, config, id, to, deps, opts, (b) => {
-    if (!b.plan.files.length) return b.plan;
-    steps.start('check', `Check in ${b.plan.org}`, 'A check-only deploy: nothing is saved to the org');
-    b.plan.check = checkOnly(deps, config, b);
-    if (b.plan.check.passed) steps.done('check', b.plan.check.summary);
-    else steps.fail('check', b.plan.check.summary);
+    if (!b.plan.files.length) {
+      // Nothing goes to the org, but its pull request still moves it on: the yes is for these commits.
+      const head = git(deps.run, b.wt, 'rev-parse', 'HEAD').stdout.trim();
+      b.plan.check = { passed: true, id: `${NOTHING_TO_CHECK}${head.slice(0, 12)}`, summary: `Nothing of it deploys to ${b.plan.org}, so the org wasn't asked. Its pull request moves it on to ${b.plan.to.name}.`, problems: [] };
+    } else {
+      steps.start('check', `Check in ${b.plan.org}`, 'A check-only deploy: nothing is saved to the org');
+      b.plan.check = checkOnly(deps, config, b);
+      if (b.plan.check.passed) steps.done('check', b.plan.check.summary);
+      else steps.fail('check', b.plan.check.summary);
+    }
     if (b.plan.check.id) {
       const kept: KeptCheck = { v: 1, task: id, env: b.plan.to.branch, org: b.plan.org, id: b.plan.check.id, passed: b.plan.check.passed, commits: b.plan.commits, blobs: b.blobs, testLevel: b.plan.testLevel, at: deps.now().toISOString(), by: opts.by };
       mkdirSync(join(paths.stateDir, 'task-deploys'), { recursive: true });
@@ -468,7 +468,12 @@ type DeployTaskOpts = TaskDeployOpts & { checkId?: string; confirm?: string };
 
 /** A ticket's deploy, with a marker saying it's under way while it runs, so every window shows it (D-092). */
 export function deployTask(paths: RepoPaths, config: Config, id: string, to: string | undefined, deps: TaskDeployDeps, opts: DeployTaskOpts): TaskDeployResult {
-  const env = to ? config.environments.find((x) => x.branch === to.toLowerCase() || x.name.toLowerCase() === to.toLowerCase())?.branch ?? to : undefined;
+  let env = to;
+  try {
+    env = to ? environmentNamed(config, to).branch : undefined;
+  } catch {
+    // An unknown name: the deploy's route refuses it, with the settings' names.
+  }
   return withJob(paths, { kind: 'deploy', task: id, ...(env ? { env } : {}), by: opts.by }, () => deployTaskNow(paths, config, id, to, deps, opts), deps.now);
 }
 
@@ -478,44 +483,61 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
   return withBuilt(paths, config, id, to, deps, opts, (b) => {
     const { plan } = b;
     const none = { jobId: null, pr: null, merged: false, warning: null, update: null };
-    if (!plan.files.length) return { plan, deployed: false, ...none, summary: `Nothing of ${id}'s deploys: ${plan.to.name} already has it, or it changes no Salesforce source.${plan.deletions.length ? ' Its deletions are made by hand.' : ''}` };
     const kept = readKeptCheck(paths, id);
     steps.step('yes', 'Check the person said yes', () => {
       const why = yesProblem(kept, plan, b.blobs, opts.checkId);
       if (why) throw new AccError('refused', why);
       if (!confirmsOrg(plan, opts.confirm)) throw new AccError('refused', `${plan.to.name} is ${plan.to.type === 'production' ? 'production' : 'protected'}. Type its name, ${plan.confirmName}, to deploy to it.`);
     });
-    plan.check = { passed: true, id: kept!.id, summary: `Checked in ${plan.org} (job ${kept!.id}).`, problems: [] };
+    // A ticket with nothing for the org still moves on: its pull request merges, and nothing is sent to the org.
+    const nothing = !plan.files.length;
+    plan.check = { passed: true, id: kept!.id, summary: nothing ? `Nothing of it deploys to ${plan.org}.` : `Checked in ${plan.org} (job ${kept!.id}).`, problems: [] };
     const gh = config.github!;
     const token = run('gh', ['auth', 'token', '-u', gh.account]);
     if (token.code !== 0) throw new AccError('no-github', `gh isn't logged in as ${gh.account}, so the pull request can't open. Nothing was deployed.`);
     const ghEnv = { ...deps.env, GH_TOKEN: token.stdout.trim() };
     const head = git(run, b.wt, 'rev-parse', 'HEAD').stdout.trim();
-    // The pull request opens before anything deploys: a branch that can't keep in step stops it.
-    steps.step('push', 'Push the deploy\'s branch', () => must(run('git', ['push', '--quiet', '--set-upstream', 'origin', `${b.branch}:${b.branch}`], { cwd: b.wt, env: deps.env, timeoutMs: 5 * 60_000 }), `git push refused ${b.branch}. Nothing was deployed`));
-    const pr = steps.step('open', `Open the pull request into ${plan.to.branch}`, () => {
-      const bodyFile = join(b.wt, '..', 'body.md');
-      writeFileSync(bodyFile, taskDeployBody(plan));
-      const create = run('gh', ['pr', 'create', '-R', gh.repo, '--base', plan.to.branch, '--head', b.branch, '--title', `${plan.key}: deploy to ${plan.to.name}`, '--body-file', bodyFile], { cwd: paths.root, env: ghEnv, timeoutMs: 2 * 60_000 });
-      const url = create.stdout.trim().split('\n').find((l) => /\/pull\/\d+/.test(l))?.trim();
-      if (create.code !== 0 || !url) {
-        run('git', ['push', '--quiet', 'origin', '--delete', b.branch], { cwd: b.wt, env: deps.env, timeoutMs: 5 * 60_000 });
-        throw new AccError('land', `gh couldn't open the pull request: ${lastLine(create.stderr || create.stdout)}. Nothing was deployed.`);
+    let pushed = false;
+    let opened: { number: number; url: string } | null = null;
+    // Any failure once the branch is pushed takes it back, and its pull request: nothing is left half done.
+    const undo = (): void => {
+      if (opened && run('gh', ['pr', 'close', String(opened.number), '-R', gh.repo, '--delete-branch'], { env: ghEnv, timeoutMs: 2 * 60_000 }).code === 0) return;
+      if (pushed) run('git', ['push', '--quiet', 'origin', '--delete', b.branch], { cwd: b.wt, env: deps.env, timeoutMs: 5 * 60_000 });
+    };
+    let result: TaskDeployCheck | null = null;
+    try {
+      // The pull request opens before anything deploys: a branch that can't keep in step stops it.
+      steps.step('push', 'Push the deploy\'s branch', () => must(run('git', ['push', '--quiet', '--set-upstream', 'origin', `${b.branch}:${b.branch}`], { cwd: b.wt, env: deps.env, timeoutMs: 5 * 60_000 }), `git push refused ${b.branch}. Nothing was deployed`));
+      pushed = true;
+      opened = steps.step('open', `Open the pull request into ${plan.to.branch}`, () => {
+        const bodyFile = join(b.wt, '..', 'body.md');
+        writeFileSync(bodyFile, taskDeployBody(plan));
+        const create = run('gh', ['pr', 'create', '-R', gh.repo, '--base', plan.to.branch, '--head', b.branch, '--title', `${plan.key}: deploy to ${plan.to.name}`, '--body-file', bodyFile], { cwd: paths.root, env: ghEnv, timeoutMs: 2 * 60_000 });
+        const url = create.stdout.trim().split('\n').find((l) => /\/pull\/\d+/.test(l))?.trim();
+        if (create.code !== 0 || !url) throw new AccError('land', `gh couldn't open the pull request: ${lastLine(create.stderr || create.stdout)}. Nothing was deployed.`);
+        return { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url };
+      });
+      if (!nothing) {
+        steps.start('deploy', `Deploy to ${plan.to.name}`, plan.testLevel === 'RunLocalTests' ? 'The checked job, quick-deployed' : 'The checked manifest, at the checked commit');
+        const args = taskDeployArgs(plan.org, b.manifest, kept!);
+        const r = orgTurn(deps, config, b, `Deploy ${id} to ${plan.to.name}`, () => withSlot(() => run('sf', args, { cwd: b.wt, env: sfEnv(), timeoutMs: 120 * 60_000, nice: true }), { ...deps.slots, owner: { what: `Deploy ${id}`, env: plan.to.branch, project: config.project } }));
+        result = readResult(r, 'Deployed', plan.org, plan.files.length);
+        if (!result.passed) {
+          steps.fail('deploy', result.summary);
+          undo();
+          return { plan, deployed: false, ...none, jobId: result.id, summary: `The deploy of ${id} to ${plan.to.name} failed: ${result.summary} Its pull request was closed.` };
+        }
+        steps.done('deploy', result.summary);
       }
-      return { number: Number(/\/pull\/(\d+)/.exec(url)![1]), url };
-    });
-    steps.start('deploy', `Deploy to ${plan.to.name}`, plan.testLevel === 'RunLocalTests' ? 'The checked job, quick-deployed' : 'The checked manifest, at the checked commit');
-    const args = taskDeployArgs(plan.org, b.manifest, kept!);
-    const r = orgTurn(deps, config, b, `Deploy ${id} to ${plan.to.name}`, () => withSlot(() => run('sf', args, { cwd: b.wt, env: sfEnv(), timeoutMs: 120 * 60_000, nice: true }), { ...deps.slots, owner: { what: `Deploy ${id}`, env: plan.to.branch, project: config.project } }));
-    const result = readResult(r, 'Deployed', plan.org, plan.files.length);
-    if (!result.passed) {
-      steps.fail('deploy', result.summary);
-      // Nothing deployed, so the branch's pull request goes too: nothing is left half done.
-      run('gh', ['pr', 'close', String(pr.number), '-R', gh.repo, '--delete-branch'], { env: ghEnv, timeoutMs: 2 * 60_000 });
-      return { plan, deployed: false, ...none, jobId: result.id, summary: `The deploy of ${id} to ${plan.to.name} failed: ${result.summary} Its pull request was closed.` };
+    } catch (e) {
+      undo();
+      throw e;
     }
-    steps.done('deploy', result.summary);
+    const pr = opened;
     const problems: string[] = [];
+    // It's in the org: each component is asked for there, as the builder's deploy is (D-206).
+    const asked = nothing ? null : steps.step('verify', `Ask ${plan.org} for each component`, () => askOrgFor((cmd, args) => run(cmd, args, { cwd: b.wt, env: sfEnv(), timeoutMs: 5 * 60_000 }), plan.org, plan.files));
+    if (asked?.missing.length) problems.push(`${plan.org} doesn't list ${asked.missing.join(', ')}: check the org, and the component's name in its source.`);
     // The person's yes covers the merge: the environment's branch now holds what its org does.
     const mergeSha = steps.step('merge', `Merge the pull request into ${plan.to.branch}`, () => {
       try {
@@ -531,26 +553,33 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
       return null;
     });
     const at = now().toISOString();
-    const words = deployedComponents(plan.files);
-    const record: TaskDeploy = { env: plan.to.branch, org: plan.org, username: b.username, sha: head, at, jobId: result.id, paths: plan.files, components: [...words.known.map((c) => `${c.label}: ${c.name}`), ...words.unknown], verified: 0, tests: null, by: opts.by, checkId: kept!.id, pr };
+    const record: TaskDeploy | null = result && asked ? { env: plan.to.branch, org: plan.org, username: b.username, sha: head, at, jobId: result.id, paths: plan.files, components: asked.components, verified: asked.verified, tests: null, by: opts.by, checkId: kept!.id, pr } : null;
     steps.step('record', 'Record the deploy', () => {
       try {
         mutate(paths, now, (l, emit) => {
           const t = l.tasks.find((x) => x.id === id);
           if (!t) return;
           const promotion: Promotion = { from: plan.from.branch, to: plan.to.branch, pr, state: mergeSha ? 'merged' : 'open', at, ...(mergeSha ? { mergeSha, mergedAt: at } : {}) };
-          t.deploys = [...(t.deploys ?? []), record];
+          if (record) t.deploys = [...(t.deploys ?? []), record];
           t.promotions = [...(t.promotions ?? []), promotion];
           // Its record changes become steps to make by hand in the destination, as at a promotion (T-100).
           addPromotionSteps(t, plan.to, at);
           t.updatedAt = at;
-          emit({ type: 'task.updated', task: t.id, actor: 'human', by: opts.by, data: { deploy: record, promotion } });
+          emit({ type: 'task.updated', task: t.id, actor: 'human', by: opts.by, data: { ...(record ? { deploy: record } : {}), promotion } });
         });
         rmSync(keptCheckPath(paths, id), { force: true });
       } catch (e) {
         problems.push(`The deploy wasn't recorded on ${id}: ${(e as Error).message}`);
       }
     });
+    const merged = mergeSha ? ` Pull request #${pr.number} merged into ${plan.to.branch}.` : '';
+    if (!result) {
+      return {
+        plan, deployed: false, jobId: null, pr, merged: !!mergeSha, update: null,
+        summary: `Nothing of ${id} deploys to ${plan.org}, so nothing was sent there.${merged}`,
+        warning: problems.length ? problems.join(' ') : null,
+      };
+    }
     let update: TaskDeployResult['update'] = null;
     try {
       const u = draftUpdate(paths, b.task, { event: 'deployed', env: plan.to.name }, opts.by, now);
@@ -560,7 +589,7 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
     }
     return {
       plan, deployed: true, jobId: result.id, pr, merged: !!mergeSha, update,
-      summary: `Deployed ${id} to ${plan.to.name}: ${result.summary}${mergeSha ? ` Pull request #${pr.number} merged into ${plan.to.branch}.` : ''}`,
+      summary: `Deployed ${id} to ${plan.to.name}: ${result.summary}${merged}`,
       warning: problems.length ? `It's in ${plan.org}. ${problems.join(' ')}` : null,
     };
   });
