@@ -269,7 +269,7 @@ test('the page takes the replies by the name the extension sends, and draws the 
   assert.equal(MANIFEST_DONE, 'manifest-done');
   assert.match(source('../webview/manifest.ts'), new RegExp(`'${MANIFEST_DONE}': done`));
   const page = source('../webview/task-page.ts');
-  const at = page.indexOf('if (m.manifest) main.append(renderManifest(m, m.manifest));');
+  const at = page.indexOf('if (m.manifest) add(renderManifest(m, m.manifest)');
   assert.ok(at > page.indexOf('renderVerify(m, m.verify)') && at < page.indexOf('renderActivity(m)'));
   assert.ok(existsSync(new URL('../webview/manifest.css', import.meta.url)));
 });

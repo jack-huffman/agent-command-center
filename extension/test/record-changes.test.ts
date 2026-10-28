@@ -153,7 +153,7 @@ test('the section draws on the page: Add opens the form, Save sends the change, 
 test('the page draws Record changes under Verify, takes acc\'s reply by name, and the process words name each change command', () => {
   const source = (path: string): string => readFileSync(new URL(path, import.meta.url), 'utf8');
   const page = source('../webview/task-page.ts');
-  const at = page.indexOf('if (m.records) main.append(renderRecords(m, m.records));');
+  const at = page.indexOf('if (m.records) add(renderRecords(m, m.records)');
   assert.ok(at > page.indexOf('renderVerify(m, m.verify)') && at < page.indexOf('renderActivity(m)'), 'under Verify, over the Activity');
   assert.match(source('../webview/record-changes.ts'), new RegExp(`'${RECORDS_DONE}': done`));
   assert.match(source('../src/ticket.ts'), /case 'record-add': case 'record-step':/);

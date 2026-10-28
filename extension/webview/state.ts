@@ -30,6 +30,8 @@ interface Memory {
   answers: Record<string, Draft>;
   dock: { open: boolean; run: string | null };
   opened: string[];
+  /** The task page's Command Center sections a person collapsed (T-132), by collapse.ts's sectionKey. */
+  folded: string[];
   /** Which kind of history the Overview shows. */
   history?: 'all' | 'answer' | 'move' | 'run';
   /** Setup sections opened or closed by hand; the rest open while they have something to do. */
@@ -51,7 +53,7 @@ interface Memory {
 interface SavedScroll { y: number; boards: { x: number; lanes: number[] }[] }
 export function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [], filters: s.filters ?? {}, firstStepsSeen: s.firstStepsSeen };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], folded: s.folded ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [], filters: s.filters ?? {}, firstStepsSeen: s.firstStepsSeen };
 }
 export function remember(change: (m: Memory) => void): void {
   const m = memory();

@@ -13,7 +13,7 @@ const orderOf = (sel: string): number => {
   return 0;
 };
 
-test('at 760 px and below the facts come first: the conflict and analysis, the description, then Details and the Agent panel, then Related and Activity (T-94)', () => {
+test('at 760 px and below what needs the person comes first: the notices, the description and the Command Center\'s sections, then Details and the Agent panel, then Related and Activity (T-94)', () => {
   assert.ok(narrow.includes('.ticket-side, .ticket-main { display: contents; }'), 'both columns\' sections order with the rest');
   const [top, details, agent, related, activity] = ['.ticket-top', '.side-details', '.side-panel', '.related-block', '.activity'].map(orderOf);
   assert.ok(top! < 0, `top ${top}, before the description's 0`);
