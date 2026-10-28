@@ -5,6 +5,37 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.51.0
+
+- Deploy a ticket from its page (D-219, D-220). The Changes tab shows where
+  the ticket is on the project's path (for example Dev, merged · QA, deployed
+  3 h ago · UAT, next) and one button, Deploy to UAT. It opens a sheet that
+  checks against UAT's org first and changes nothing: the components, the
+  tests that will run, and what's left to do by hand (deletions, record
+  changes, environment-specific files). Deploy is enabled only after the check
+  passes, and Production or a protected org asks you to type the org's name.
+  Only this ticket's components go, exactly as checked. Its commits go to that
+  environment's branch through a pull request that acc merges once the deploy
+  succeeds, so git stays in step with the org. Deploy is off, with why, while
+  the ticket's own checks fail or it conflicts with its environment. From a
+  terminal: `acc deploy <env> --task <id>`.
+- The Changes tab says what metadata changed (D-220): one list grouped by type
+  with counts, deletions marked in words, then record changes. The
+  package.xml, Check against the org, the tracker's changes field and the
+  files shared with other tasks are under one closed More.
+- A task's review is a tab (D-217), between Changes and Verify, at the page's
+  width, with its findings counted. It says "needs you" with the orange bell
+  when the review sent work back, and those alerts open it.
+- A calmer Plan tab (D-218). A choice you've made is one line, with Compare
+  the options to see the cards again; side-by-side cards are only for choices
+  still open. The approval and Chosen are each said once, the buttons sit in
+  one row, and the plan is in named sections that fold, each with a count:
+  Choices, Questions, The approach, Acceptance criteria, Risks and tests, and
+  More. Choices and Questions open while something in them waits on you.
+- Setup on a Salesforce project asks about Production's login once per run, not
+  up to five times, and someone joining without access to Production is told
+  that a person with access makes the branch.
+
 ## 0.50.0
 
 - On Windows, two acc processes that reach for the same lock at once no longer

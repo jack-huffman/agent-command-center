@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-28**. Version 0.49.0 is
-the latest release (2026-10-27). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.50.0 is prepared and waits on a person
+Where each piece of the build stands, as of **2026-10-28**. Version 0.50.0 is
+the latest release (2026-10-28). 0.41.0 (2026-10-16) was the first with a
+`.sha256` beside its `.vsix`. Version 0.51.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -171,6 +171,11 @@ where each one's done-when is written out.
 - **A project starts with this machine checked, on a Mac or Windows**: done.
   Checked 2026-10-28. Evidence: D-215, release 0.50.0. CI's Windows job runs
   the machine check; not yet run by a person on a Windows machine.
+- **A task's review in a tab, and a calmer Plan tab**: done. Checked
+  2026-10-28. Evidence: D-217, D-218, release 0.51.0.
+- **Deploy one ticket from its page, checked first, its branch kept in step**:
+  done. Checked 2026-10-28. Evidence: D-219, D-220, release 0.51.0. Tried
+  against stand-in Salesforce and GitHub answers; not yet on a real org.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
