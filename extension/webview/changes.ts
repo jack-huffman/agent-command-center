@@ -1,8 +1,8 @@
-// A task's Changes tab (T-138): what changed first and mostly alone, one list by type with a count; planned
-// before there's work, made once there is, with what was planned and not made, or made and not planned,
-// behind one quiet line. Deletions carry an icon and the word. Record changes are a short list after it.
-// Then where it is, one line of its path, and Deploy to <next environment>, which opens the sheet
-// (deploy-sheet.ts) and never deploys at once; then the steps left to do by hand. Everything else (the
+// A task's Changes tab (T-138): first where it is, one line of its path, and Deploy to <next environment>,
+// which opens the sheet (deploy-sheet.ts) and never deploys at once, so a long list never pushes it out of view.
+// Then what changed, one list by type with a count; planned before there's work, made once there is, with what
+// was planned and not made, or made and not planned, behind one quiet line. Deletions carry an icon and the
+// word. Record changes are a short list after it, then the steps left to do by hand. Everything else (the
 // manifest, the tracker's field, record changes by hand, the team) waits under one closed More.
 
 import type { ChangeItem, ChangeList, ChangeSet, TicketChanges } from '../src/model/changes.ts';
@@ -127,15 +127,16 @@ function renderLeft(m: TicketModel): HTMLElement | null {
 }
 
 /**
- * The tab: the list, record changes, where it is and Deploy, the steps left, then More, closed, holding
+ * The tab: where it is and Deploy, the list, record changes, the steps left, then More, closed, holding
  * `more`: the parts that moved there, each drawn as before.
  */
 export function renderChangesTab(m: TicketModel, more: HTMLElement[]): HTMLElement[] {
   const out: HTMLElement[] = [];
+  // Where it is and Deploy come first, so a long list never pushes Deploy out of view.
+  if (m.deploy) out.push(renderDeploy(m, m.deploy));
   if (m.changes) out.push(renderList(m, m.changes));
   const rec = renderRecordList(m);
   if (rec) out.push(rec);
-  if (m.deploy) out.push(renderDeploy(m, m.deploy));
   const left = renderLeft(m);
   if (left) out.push(left);
   // Its builder's own deploys (D-206), with what the tests found there, go in More beside the rest.

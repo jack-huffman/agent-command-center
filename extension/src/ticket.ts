@@ -43,7 +43,7 @@ import { ticketRecords } from './model/record-changes.ts';
 import type { ManifestActions } from './manifest.ts';
 import { ticketManifest } from './model/manifest.ts';
 import type { DeployActions } from './ticket-deploy.ts';
-import { ticketDeploy } from './model/ticket-deploy.ts';
+import { deployBlockers, ticketDeploy } from './model/ticket-deploy.ts';
 import { deletedPaths } from './logic/ticket-deploy.ts';
 import type { PlanProgressActions } from './plan-progress.ts';
 import type { TalkActions } from './talk.ts';
@@ -446,7 +446,11 @@ export class TicketPanels implements vscode.Disposable {
     o.view.draw(task ? {
       ...model, open: o.part,
       records: ticketRecords({ task, analysis, profile: p.config.profile, environments: p.config.environments }),
-      deploy: this.deploys ? ticketDeploy({ config: p.config, task, tasks: this.hub.ledger(p.root)?.tasks ?? [], running: this.deploys.running(p.root, task.id), run: this.deploys.run(p.root, task.id) }) : null,
+      // Its deploy (T-138) waits while its own checks fail, unaccepted, or it conflicts with its environment.
+      deploy: this.deploys ? ticketDeploy({
+        config: p.config, task, tasks: this.hub.ledger(p.root)?.tasks ?? [], running: this.deploys.running(p.root, task.id), run: this.deploys.run(p.root, task.id),
+        failing: deployBlockers(model.acc?.checks ?? []), conflicts: model.acc?.conflicts ? task.environment : null,
+      }) : null,
       talk,
       field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, ticketPaths(changes), updates, manifest?.manifest ?? null) ?? null : null,
       updates: this.fields ? withFieldKept(model.updates, this.fields.read(p, task.id), writtenFor(updates, task.id)) : model.updates,

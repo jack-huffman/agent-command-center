@@ -114,6 +114,10 @@ export interface DeployIn {
   /** A deploy of this task under way, in this window or another. */
   running: boolean;
   run: DeployRun | null;
+  /** Its own checks that failed and no one accepted, by name; a deploy waits for them. */
+  failing?: string[];
+  /** The environment its pull request conflicts with, as the page's notice says; null when it doesn't. */
+  conflicts?: string | null;
 }
 
 /** The environments from the task's own, each one's usual next step, to the end. */
@@ -152,10 +156,20 @@ export function ticketPath(config: Pick<Config, 'environments'>, t: Pick<Task, '
   });
 }
 
-/** Why a deploy to `to` can't go now, or null: the command's own reason, a dependency not there yet, or one under way. */
-export function deployOff(i: Pick<DeployIn, 'config' | 'task' | 'tasks' | 'running' | 'run'>, to: Environment): string | null {
+/** Its checks that hold a deploy up: each that failed or errored and no one accepted anyway (D-031), by name. */
+export const deployBlockers = (checks: readonly { gate: string; status: string; waived?: boolean }[]): string[] =>
+  checks.filter((c) => (c.status === 'fail' || c.status === 'error') && !c.waived).map((c) => c.gate);
+
+/**
+ * Why a deploy to `to` can't go now, or null: the command's own reason, its own checks failing, a conflict with
+ * its environment, one under way, no org, or a dependency not there yet.
+ */
+export function deployOff(i: Pick<DeployIn, 'config' | 'task' | 'tasks' | 'running' | 'run' | 'failing' | 'conflicts'>, to: Environment): string | null {
   const can = taskDeployEnabled(i.config, i.task);
   if (!can.ok) return can.why;
+  const failing = i.failing ?? [];
+  if (failing.length) return `The ${failing.join(', ')} check${failing.length === 1 ? '' : 's'} failed: fix ${failing.length === 1 ? 'it' : 'them'}, or accept ${failing.length === 1 ? 'it' : 'them'} anyway, first.`;
+  if (i.conflicts) return `It conflicts with ${i.conflicts}: take in ${i.conflicts} first.`;
   if (i.run?.phase === 'checking') return 'Its check is under way. Wait for it to finish.';
   if (i.running || i.run?.phase === 'deploying') return 'A deploy of this ticket is under way. Wait for it to finish.';
   if (!to.org) return `${to.name} has no org in the project's settings.`;

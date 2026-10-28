@@ -282,17 +282,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-deployed' | 'ticket-deploy-passed' | 'ticket-deploy-failed' | 'ticket-deploy-typed';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-passed' | 'ticket-deploy-failed' | 'ticket-deploy-typed';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
 /** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab deployed once, and its deploy sheet passed, failed and asking Production's name (T-138). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; passed: Model; failed: Model; typed: Model }
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; passed: Model; failed: Model; typed: Model; work: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-passed' ? models.passed : c.page === 'ticket-deploy-failed' ? models.failed : c.page === 'ticket-deploy-typed' ? models.typed : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-passed' ? models.passed : c.page === 'ticket-deploy-failed' ? models.failed : c.page === 'ticket-deploy-typed' ? models.typed : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -2239,6 +2239,24 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'changes tab: Deploy sits above the list, and is off with why while its checks fail or it conflicts with dev; off, it sends nothing (T-138)',
+    page: 'ticket-deploy-work',
+    async run(t) {
+      const panel = t.find('[role="tabpanel"][data-tab="changes"]');
+      const parts = Array.from(panel.children).map((c) => c.className);
+      t.check('the path and Deploy come before the list', parts.indexOf('block dp') === 0 && parts.indexOf('block chg') > 0, parts);
+      const go = t.find<HTMLButtonElement>('.dp-go');
+      const why = t.find('.dp-why').textContent ?? '';
+      t.check('Deploy to QA is off, saying the validate check failed and how to clear it', go.disabled && /The validate check failed: fix it, or accept it anyway, first\./.test(why) && go.title.endsWith(why), [go.disabled, why, go.title]);
+      await t.click(go);
+      t.check('off, a click sends nothing', t.sent('deploy-check').length === 0 && t.sent('deploy-go').length === 0);
+      // With its checks cleared, the conflict with dev holds it up, in its own words.
+      const m = t.model as unknown as { deploy: { deploy: { disabled: string | null } } };
+      await t.post({ type: 'state', model: { ...m, deploy: { ...m.deploy, deploy: { ...m.deploy.deploy, disabled: 'It conflicts with dev: take in dev first.' } } } });
+      t.check('a conflict says to take in dev first', t.find('.dp-why').textContent === 'It conflicts with dev: take in dev first.' && t.find<HTMLButtonElement>('.dp-go').disabled);
+    },
+  },
+  {
     name: 'deploy sheet: a passed check deploys only on the sheet\'s own Deploy, with its id; Cancel sends nothing to deploy (T-138)',
     page: 'ticket-deploy-passed',
     async run(t) {
@@ -2463,6 +2481,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'Deploy runs without the sheet\'s confirmation', file: 'deploy-sheet.ts', find: '    parts.cancel.focus();\n', replace: '    parts.cancel.focus();\n    go();\n', kills: [caseNamed('deploy sheet: a passed check deploys only')] },
   { name: 'a failed check still offers Deploy', file: 'deploy-sheet.ts', find: "parts.go.hidden = s.phase !== 'passed';", replace: "parts.go.hidden = s.phase !== 'passed' && s.phase !== 'failed';", kills: [caseNamed('deploy sheet: a failed check')] },
   { name: 'Production deploys without its name typed', file: 'deploy-sheet.ts', find: '  if (s.confirm && name.trim() !== s.confirm && name.trim() !== s.org) return `Type ${s.confirm} to deploy to it`;\n', replace: '', kills: [caseNamed('deploy sheet: Production asks')] },
+  { name: 'Deploy off doesn\'t say why beside it', file: 'changes.ts', find: "    if (d.deploy.disabled) sec.append(el('p', 'muted small dp-why', icon('info'), el('span', '', d.deploy.disabled)));\n", replace: '', kills: [caseNamed('changes tab: Deploy sits above the list')] },
   { name: 'Deploy on the tab deploys at once', file: 'changes.ts', find: "api.postMessage({ type: 'deploy-check', project: m.project, task: d.task, to: b.to });", replace: "api.postMessage({ type: 'deploy-go', project: m.project, task: d.task, to: b.to, checkId: 'none' });", kills: [caseNamed('changes tab: Deploy to UAT')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];

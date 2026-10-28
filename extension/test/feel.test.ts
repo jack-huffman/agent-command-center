@@ -202,6 +202,8 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'task-actions.ts', at: /\$\{primary \? ' primary'/, why: 'A task\'s next step, on its page and its card, such as a card\'s Answer: primary only where the model\'s action is (D-168).' },
   { file: 'task-sheet.ts', at: /'primary ts-go'/, why: 'The task sheet\'s Add task or Save: what the person wrote in it, sent; the sheet opened only to take it (T-74).' },
   { file: 'task-sheet.ts', at: /button\('Keep mine'/, why: 'Keep mine: the Save the person asked for, which stopped because the ticket changed meanwhile, and waits on their pick (T-80).' },
+  { file: 'changes.ts', at: /'primary dp-go'/, why: 'Deploy to the next environment: the Changes tab\'s one next step; it opens the sheet, which checks first and deploys nothing by itself (T-138).' },
+  { file: 'deploy-sheet.ts', at: /'primary ds-go dsh-go'/, why: 'The deploy sheet\'s Deploy: the person\'s yes to the check that passed, shown only then; the sheet opened only to take it (T-138).' },
   { file: 'dispatch-sheet.ts', at: /'primary ds-go'/, why: 'The sheet\'s Dispatch: what the person chose in it, sent; the sheet opened only to take it (D-168).' },
   { file: 'review-plan.ts', at: /'primary rp-go'/, why: 'Review plan\'s Confirm (T-109): the step\'s pick, sent; Enter does the same, as Claude Code\'s prompts do.' },
   { file: 'talk-questions.ts', at: /'primary rp-go'/, why: 'The question card\'s way on (T-113, T-130): Next question, or Review answers on the last, which Enter does too; on the review, Send answers to the planning agent, the only control that sends them.' },

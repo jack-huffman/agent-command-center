@@ -74,8 +74,8 @@ test('the tab: the list, record changes in words, the deploy, the steps left wit
   const { renderChangesTab } = await import('../webview/changes.ts');
   const moved = Object.assign(document.createElement('section'), { className: 'moved-part' }) as unknown as HTMLElement;
   const out = renderChangesTab(model({ records: records(2) }), [moved]) as unknown as PageElement[];
-  assert.deepEqual(out.map((e) => e.className), ['block chg chg-records', 'block dp', 'block chg dp-left', 'chg-more']);
-  assert.match(out[0]!.textContent, /^Record changesMade, plannedUpdate Account Acme$/);
+  assert.deepEqual(out.map((e) => e.className), ['block dp', 'block chg chg-records', 'block chg dp-left', 'chg-more']);
+  assert.match(out[1]!.textContent, /^Record changesMade, plannedUpdate Account Acme$/);
   const left = out[2]!;
   assert.match(left.textContent, /^Left to do by hand: 2 steps/);
   assert.deepEqual(buttons([left]).map((b) => b.textContent), ['Mark done', 'Skip', 'Mark done', 'Skip'], 'each step still to do, and none already made');

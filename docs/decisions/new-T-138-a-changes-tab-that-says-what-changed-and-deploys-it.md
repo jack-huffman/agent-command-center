@@ -9,7 +9,9 @@ It amends D-189 (Planned changes, then Changes, with a Planned/Changed toggle), 
 section of their own) and D-191 and D-196 where they place their sections on the page. What those sections do
 stands: they move, they aren't taken away.
 
-- **What changed first, and mostly alone.** The tab leads with one list, by type with a count ("Apex Class 3",
+- **Where it is and Deploy come first.** The path line and Deploy sit at the top of the tab, under the tabs and
+  above the list, so a long list never pushes Deploy out of view (the person asked for this while it was built).
+- **Then what changed, mostly alone.** One list, by type with a count ("Apex Class 3",
   "Flow 1"), each component by name with its paths in its title. Before there's work it is the plan's ("Metadata
   planned"); once there is, what was made ("Metadata changed"). There is no Planned/Changed toggle. What was
   planned and not made, and made and not planned, wait behind one quiet line that says how many and opens them,
@@ -28,8 +30,10 @@ stands: they move, they aren't taken away.
   where the change is, orange for the next step, quiet for later (`ticketPath`).
 - **Deploy to <next environment> is the tab's one primary button.** Another next step on the path is in a
   small menu beside it, three at most (D-205). It is off, with its reason beside it and in its title, when D-219's
-  command says so (not built yet, a builder at work, the end of the path, not Salesforce, not on GitHub), when a
-  task it depends on isn't in that environment yet, when its org isn't in the settings, and while a check or a
+  command says so (not built yet, a builder at work, the end of the path, not Salesforce, not on GitHub), while
+  its own checks fail and no one accepted them ("The validate check failed: fix it, or accept it anyway, first.",
+  `deployBlockers`), while its pull request conflicts with its environment ("It conflicts with dev: take in dev
+  first."), when a task it depends on isn't in that environment yet, when its org isn't in the settings, and while a check or a
   deploy of the ticket is under way, in this window or another (acc's deploy job, D-092).
 - **It opens a sheet, and never deploys at once.** The click asks the extension for D-219's plan, in the output
   panel, where its steps show; the sheet says "Checking against UAT…" and, under it, the step acc is on. Then it
@@ -62,6 +66,6 @@ stands: they move, they aren't taken away.
 Checked by `extension/test/ticket-deploy.test.ts` (the path line, Deploy off with a reason in each case, the
 sheet's facts, the yes only for a passed check with the typed name), `extension/test/changes-tab.test.ts` (the
 tab as drawn, More closed holding what moved, needs-you), `extension/test/changes.test.ts` (the list's groups,
-counts, quiet line and deletions), `packages/core/test/deletion-kind.test.ts`, and four behaviour cases with
-four mutants: Deploy runs without the sheet's confirmation, a failed check still offers Deploy, Production
-deploys without its name typed, and Deploy on the tab deploys at once.
+counts, quiet line and deletions), `packages/core/test/deletion-kind.test.ts`, and five behaviour cases with
+five mutants: Deploy runs without the sheet's confirmation, a failed check still offers Deploy, Production
+deploys without its name typed, Deploy on the tab deploys at once, and Deploy off doesn't say why beside it.

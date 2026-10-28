@@ -196,3 +196,18 @@ test('edge case: a dependency already deployed to the destination, or merged the
   const not = task({ id: 'ACME-4' });
   assert.deepEqual(missingDeps([there, not], t, ENVS[2]!), ['ACME-4'], 'a task it can\'t find holds nothing up');
 });
+
+test('edge case: Deploy is off while its own checks fail, unaccepted, or it conflicts with its environment, each saying how to clear it (T-138)', async () => {
+  const { deployBlockers } = await import('../src/model/ticket-deploy.ts');
+  const uat = ENVS[2]!;
+  const base = { config, tasks: [] as Task[], running: false, run: null, task: inQa() };
+  assert.equal(deployOff({ ...base, failing: ['validate'] }, uat), 'The validate check failed: fix it, or accept it anyway, first.');
+  assert.equal(deployOff({ ...base, failing: ['validate', 'tests'] }, uat), 'The validate, tests checks failed: fix them, or accept them anyway, first.');
+  assert.equal(deployOff({ ...base, conflicts: 'dev' }, uat), 'It conflicts with dev: take in dev first.');
+  assert.equal(deployOff({ ...base, failing: [], conflicts: null }, uat), null);
+  // A check accepted anyway, one that passed or one that waits on a person holds nothing up; a failed or errored one does.
+  assert.deepEqual(deployBlockers([{ gate: 'validate', status: 'fail' }, { gate: 'static', status: 'fail', waived: true }, { gate: 'format', status: 'pass' }, { gate: 'flow-tests', status: 'hold' }, { gate: 'lint', status: 'error' }]), ['validate', 'lint']);
+  assert.deepEqual(deployBlockers([]), []);
+  const d = ticketDeploy({ ...base, failing: ['validate'] })!;
+  assert.match(d.deploy!.disabled!, /validate check failed/);
+});
