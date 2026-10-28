@@ -1,6 +1,6 @@
 /* A task page's tabs (T-134): one row under the notices, the tab on show underlined in the accent, its
-   panel under it. The row scrolls sideways within itself on a narrow page, never the page. */
-.task-tabs { display: flex; gap: 2px; margin: 0 0 var(--space-5); border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+   panel under it. On a narrow page the row wraps, so every tab, the one on show too, stays in view. */
+.task-tabs { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 var(--space-5); border-bottom: 1px solid var(--line); }
 .task-tab { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; margin: 0 0 -1px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--vscode-descriptionForeground); font: inherit; cursor: pointer; white-space: nowrap; border-radius: var(--radius) var(--radius) 0 0; }
 .task-tab:hover { color: var(--vscode-foreground); background: var(--accent-soft); }
 .task-tab:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }

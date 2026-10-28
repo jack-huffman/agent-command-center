@@ -116,7 +116,9 @@ test('drawn, a tab that needs the person shows an orange icon and the words, nev
   assert.equal(needs.textContent, NEEDS_YOU);
   assert.equal(needs.all('codicon-bell').length, 1);
   assert.ok(needs.all('tone-orange').length + needs.all('codicon-bell').filter((i) => i.className.includes('orange')).length >= 1, needs.all('codicon-bell')[0]!.className);
-  assert.equal(plan.getAttribute('aria-label'), 'Plan: needs you');
+  // Its name is its visible words, so a screen reader says what's shown: Plan, then needs you.
+  assert.equal(plan.getAttribute('aria-label'), null);
+  assert.ok(plan.textContent.startsWith('Plan') && plan.textContent.endsWith(NEEDS_YOU), plan.textContent);
   assert.ok(plan.title.startsWith('Plan: needs you. '));
   // A quiet tab has no marker.
   fresh();

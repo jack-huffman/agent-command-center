@@ -56,10 +56,10 @@ function tabButton(t: TaskTab, on: boolean): HTMLButtonElement {
   b.setAttribute('role', 'tab');
   b.setAttribute('id', `task-tab-${t.id}`);
   b.setAttribute('aria-controls', `task-panel-${t.id}`);
-  b.setAttribute('aria-label', tabName(t));
   b.setAttribute('aria-selected', String(on));
   b.tabIndex = on ? 0 : -1;
   b.dataset.tab = t.id;
+  // Its name is its visible words (WCAG's label in name); its title says them whole, with what needs the person.
   b.title = t.needs ? `${tabName(t)}. ${t.needs}` : tabName(t);
   return b;
 }
@@ -94,8 +94,6 @@ export function renderTabs(m: TicketModel, tabs: readonly TaskTab[], chosen: Tab
     showing = tab;
     remember((x) => { x.tabs = { ...x.tabs, [id]: tab }; });
     if (focus) buttons[i]!.focus();
-    // The tab row scrolls within itself on a narrow page: the tab chosen stays in view.
-    buttons[i]!.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   };
   buttons.forEach((b, i) => {
     b.addEventListener('click', () => select(i, false));
@@ -111,9 +109,8 @@ export function renderTabs(m: TicketModel, tabs: readonly TaskTab[], chosen: Tab
   return el('div', 'task-tabbed', list, ...panels);
 }
 
-/** After the draw: the tab on show scrolled into its row's view, and a comment a link named scrolled to and focused. */
+/** After the draw: a comment a link named, scrolled to and focused. The tab row wraps, so every tab is in view. */
 export function afterTabs(): void {
-  document.querySelector<HTMLElement>('.task-tab[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   if (!toComment) return;
   const c = document.querySelector<HTMLElement>(`[data-comment="${CSS.escape(toComment)}"]`);
   toComment = null;

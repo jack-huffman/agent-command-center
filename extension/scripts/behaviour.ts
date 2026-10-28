@@ -886,7 +886,7 @@ export const CASES: Case[] = [
       t.check('it opens on Plan, which needs the person', on() === 'plan' && visible().join() === 'plan', { on: on(), visible: visible() });
       const needs = t.find('.task-tab-needs', tab('plan'));
       t.check('Plan says it needs you in words, with an icon, in view', needs.textContent === 'needs you' && needs.querySelector('.codicon-bell') !== null && needs.getBoundingClientRect().width > 0, needs.outerHTML);
-      t.check('its name says so to a screen reader', tab('plan').getAttribute('aria-label') === 'Plan: needs you', tab('plan').getAttribute('aria-label'));
+      t.check('its name, its visible words, says so to a screen reader', !tab('plan').hasAttribute('aria-label') && /^Plan\s*needs you$/.test(tab('plan').innerText.trim()), tab('plan').innerText);
       t.check('each panel is named by its tab', t.all('[role="tabpanel"]').every((p) => document.getElementById(p.getAttribute('aria-labelledby') ?? '')?.getAttribute('aria-controls') === p.id));
       tab('plan').focus();
       await press(t, tab('plan'), 'ArrowRight');

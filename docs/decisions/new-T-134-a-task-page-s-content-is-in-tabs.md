@@ -16,7 +16,9 @@ still comes first, above the tabs.
 - **Counts where they help**: Ticket its comments ("2 comments"), Changes its files (its changed count once there
   is work, else its planned files). Plan and Verify have none.
 - **A tab that needs the person says so**: an orange bell and the words "needs you" after its name, never colour
-  alone. Its accessible name is "Plan: needs you", and its title adds what: the state that needs the person. A tab
+  alone. Its accessible name is its visible words, "Plan needs you", as WCAG's label in name asks: a separate
+  label of "Plan: needs you" failed the accessibility check. Its title says "Plan: needs you." and adds the state
+  that needs the person. A tab
   needs the person when a section in it shows an orange state: Plan its analysis's or its plan's (questions,
   choices, a split, approval), or the conversation's; Verify its own (a pull request to choose, changes asked);
   Changes its changes field's, record changes' or manifest's. Ticket needs the person while an update acc
@@ -40,8 +42,9 @@ still comes first, above the tabs.
   stamp of the last link followed (`jumps`).
 - **Tabs done properly.** An ARIA tablist; each tab a button with `role="tab"`, `aria-selected`, `aria-controls`
   and a roving tab index; each panel a `tabpanel` named by its tab. The arrow keys move between tabs and wrap,
-  Home and End go to the ends, and the panel switches in place, so focus stays on the tab. The tab row scrolls
-  sideways within itself at 620 and 500 px, never the page, and the chosen tab is scrolled into its view.
+  Home and End go to the ends, and the panel switches in place, so focus stays on the tab. The tab row wraps
+  where it's too narrow for one line, so every tab, the chosen one too, stays in view and nothing scrolls
+  sideways: a row that scrolled within itself was a sideways scroll the geometry check fails, at 500 px.
 - **On a narrow page** (760 px and under): the notices, then the tab row and its panel, then Details and the
   Agent panel. Related tickets and activity stay in Ticket's panel, so T-41's rule for them goes.
 - **Checked by** `extension/test/task-tabs.test.ts`: which tabs show with and without each part, the counts, a tab
