@@ -17,7 +17,7 @@ import { writeAtomic } from './atomic.ts';
 import { arrivedAt } from './carried.ts';
 import { addPromotionSteps, stepsOf } from './change-steps.ts';
 import { mergeCommitPaths } from './changes.ts';
-import type { Config, Environment } from './config.ts';
+import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { askOrgFor, orgDisplayArgs, orgLockDir, readOrgDisplay, type TaskDeploy } from './deploy-gate.ts';
 import { environmentNamed } from './drift.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
@@ -48,8 +48,6 @@ export interface TicketPlace {
   next: Environment[];
 }
 
-const envOf = (config: Pick<Config, 'environments'>, branch: string): Environment | undefined => config.environments.find((e) => e.branch === branch);
-
 /**
  * Where a ticket's change is now: the last place it reached, by time. Its own environment, then each
  * environment a person deployed it to, or a promotion took it to and merged. Null when its environment isn't
@@ -59,10 +57,10 @@ export function ticketPlace(config: Pick<Config, 'environments'>, t: Pick<Task, 
   const reached: { env: string; at: string }[] = [{ env: t.environment, at: '' }];
   for (const p of t.promotions ?? []) if (p.state === 'merged') reached.push({ env: p.to, at: p.mergedAt ?? p.at });
   for (const d of t.deploys ?? []) if (d.checkId) reached.push({ env: d.env, at: d.at });
-  const last = reached.reduce((a, b) => (b.at >= a.at && envOf(config, b.env) ? b : a));
-  const at = envOf(config, last.env);
+  const last = reached.reduce((a, b) => (b.at >= a.at && environmentByBranch(config, b.env) ? b : a));
+  const at = environmentByBranch(config, last.env);
   if (!at) return null;
-  return { at, next: at.promotesTo.map((b) => envOf(config, b)).filter((e): e is Environment => !!e) };
+  return { at, next: at.promotesTo.map((b) => environmentByBranch(config, b)).filter((e): e is Environment => !!e) };
 }
 
 /**
