@@ -1,4 +1,4 @@
-## D-T-137 Deploy one ticket to its next environment: a check first, then the person's yes, and its branch kept in step (2026-10-28)
+## D-219 Deploy one ticket to its next environment: a check first, then the person's yes, and its branch kept in step (2026-10-28)
 
 T-137. The person found the deploy too many steps: merge, promote the whole branch, merge that pull request,
 deploy with a starting commit, then deletions and record steps by hand. They want to deploy a ticket's changes
