@@ -345,7 +345,9 @@ test('the deploy quick-deploys the checked job, merges its pull request, records
   assert.equal(t.promotions!.at(-1)!.state, 'merged');
   assert.equal(ticketPlace(c, t)!.at.branch, 'uat', 'where it is now, for the page');
   assert.deepEqual(ticketPlace(c, t)!.next.map((e) => e.branch), ['production'], 'its next step');
-  assert.deepEqual(t.outside!.steps.map((s) => [s.env, s.state]), [['uat', 'todo']], 'its record change is a step in UAT');
+  // Its record change, and since T-138 the class it deletes, are each a step in UAT.
+  assert.deepEqual(t.outside!.steps.map((s) => [s.env, s.state]), [['uat', 'todo'], ['uat', 'todo']], 'its record change and its deletion are steps in UAT');
+  assert.deepEqual(t.outside!.changes.filter((x) => x.kind === 'deletion').map((x) => (x.detail as { component: string }).component), ['Apex Class: Old'], 'the deletion is kept as the person\'s, to mark in each org');
   assert.deepEqual(listUpdates(paths).map((u) => [u.task, u.event, u.env, u.state]), [['ACME-1', 'deployed', 'UAT', 'draft']], 'a ticket update is drafted, not posted');
   assert.equal(readKeptCheck(paths, 'ACME-1'), null, 'the check is used up');
   assert.ok(!existsSync(keptCheckPath(paths, 'ACME-1')));
