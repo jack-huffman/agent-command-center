@@ -41,11 +41,7 @@ const orange = (look: Look | null | undefined): string | null => (look?.tone ===
  * What on the Changes tab waits on the person (T-138): a check that passed and isn't confirmed yet, else the
  * steps left to do by hand. Never the manifest's or the field's state: those wait under More.
  */
-export function changesNeeds(m: TicketModel): string | null {
-  if (m.deploy?.needs) return m.deploy.needs;
-  const left = (m.records?.promotions ?? []).reduce((n, p) => n + p.steps.filter((s) => s.done).length, 0);
-  return left ? `${plural(left, 'step')} to do by hand` : null;
-}
+export const changesNeeds = (m: TicketModel): string | null => m.deploy?.needs ?? null;
 
 /**
  * The tabs a ticket's page shows, in order. Ticket always: it holds the description. Plan, Changes, Review and

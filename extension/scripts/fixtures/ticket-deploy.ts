@@ -4,6 +4,7 @@
  * (a record change and a deletion). Then the sheet over it: checking against UAT, a check that passed, one that
  * failed, and Production's, which asks for its name typed.
  */
+import { openSteps } from '../../../packages/core/src/change-steps.ts';
 import type { Environment } from '../../../packages/core/src/config.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import type { OutsideState } from '../../../packages/core/src/outside-changes.ts';
@@ -20,8 +21,8 @@ export type DeploySample = 'before' | 'work' | 'deployed' | 'steps' | 'checking'
 
 const D = 'force-app/main/default';
 const env = (name: string, promotesTo: string[], more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo, ...more });
-const ENVS = [env('Dev', ['qa'], { default: true }), env('QA', ['uat', 'hotfix']), env('UAT', ['production']), env('Hotfix', []), env('Production', [], { type: 'production' as Environment['type'], protected: true, org: 'acme-prod' })];
-const CONFIG = { profile: 'salesforce' as const, environments: ENVS, github: { repo: 'acme/service', account: 'jordan-kim' } };
+export const ENVS = [env('Dev', ['qa'], { default: true }), env('QA', ['uat', 'hotfix']), env('UAT', ['production']), env('Hotfix', []), env('Production', [], { type: 'production' as Environment['type'], protected: true, org: 'acme-prod' })];
+export const CONFIG = { profile: 'salesforce' as const, environments: ENVS, github: { repo: 'acme/service', account: 'jordan-kim' } };
 
 const PLAN = [`${D}/classes/CaseRouting.cls`, `${D}/classes/CaseRoutingTest.cls`, `${D}/flows/Case_Escalation.flow-meta.xml`, `${D}/objects/Case/fields/Tier__c.field-meta.xml`];
 const MADE = [`${D}/classes/CaseRouting.cls`, `${D}/classes/CaseRouting.cls-meta.xml`, `${D}/classes/CaseRoutingTest.cls`, `${D}/flows/Case_Escalation.flow-meta.xml`,
@@ -89,6 +90,6 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   const acc = m.acc && deployedOnce ? { ...m.acc, conflicts: null, checks: m.acc.checks.filter((c) => !deployBlockers([c]).length) } : m.acc;
   return {
     ...m, acc, project: ROOT, changes, records,
-    deploy: ticketDeploy({ config: CONFIG, task, tasks: [task], running: false, run, failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null }),
+    deploy: ticketDeploy({ config: CONFIG, task, tasks: [task], running: false, run, failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null, stepsLeft: openSteps(task).length }),
   };
 }

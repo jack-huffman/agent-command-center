@@ -65,6 +65,8 @@ import { runCard } from '../src/model/runs.ts';
 import { palettes, vscodeDefaults } from './styles.ts';
 import { pool, type Ran } from './jobs.ts';
 import { FIRST_STEPS } from '../webview/plain-words.ts';
+import { deployOff } from '../src/model/ticket-deploy.ts';
+import { CONFIG as DEPLOY_CONFIG, ENVS as DEPLOY_ENVS } from './fixtures/ticket-deploy.ts';
 
 /** What the page hands each case: ways to find, act and check, and what Node worked out it should see. */
 export interface Probe {
@@ -104,6 +106,8 @@ export interface Probe {
 export interface BehaviourData {
   /** The Tasks tab's first steps, in order, as someone new reads them (T-96). */
   firstSteps: string[];
+  /** Why ACME-12's Deploy is off once only its conflict with dev holds it up, as the model says it (T-138). */
+  deployConflict: string;
   /** The task the board's card opens, as the extension would send it in the modal. */
   task: { project: string; key: string; peek: string; message: Record<string, unknown> };
   /** The suggested rules, in the Overview's order, and the message each one's Accept and Confirm sends. */
@@ -2247,13 +2251,13 @@ export const CASES: Case[] = [
       t.check('the path and Deploy come before the list', parts.indexOf('block dp') === 0 && parts.indexOf('block chg') > 0, parts);
       const go = t.find<HTMLButtonElement>('.dp-go');
       const why = t.find('.dp-why').textContent ?? '';
-      t.check('Deploy to QA is off, naming the checks that failed (validate among them) and how to clear them', go.disabled && /^The validate, .+ checks failed: fix them, or accept them anyway, first\.$/.test(why) && go.title.endsWith(why), [go.disabled, why, go.title]);
+      t.check('Deploy to QA is off, naming the checks that failed (validate among them) and how to clear them', go.disabled && /^The validate, .+ and .+ checks failed: fix them, or accept them anyway, first\.$/.test(why) && go.title.endsWith(why), [go.disabled, why, go.title]);
       await t.click(go);
       t.check('off, a click sends nothing', t.sent('deploy-check').length === 0 && t.sent('deploy-go').length === 0);
       // With its checks cleared, the conflict with dev holds it up, in its own words.
       const m = t.model as unknown as { deploy: { deploy: { disabled: string | null } } };
-      await t.post({ type: 'state', model: { ...m, deploy: { ...m.deploy, deploy: { ...m.deploy.deploy, disabled: 'It conflicts with dev: take in dev first.' } } } });
-      t.check('a conflict says to take in dev first', t.find('.dp-why').textContent === 'It conflicts with dev: take in dev first.' && t.find<HTMLButtonElement>('.dp-go').disabled);
+      await t.post({ type: 'state', model: { ...m, deploy: { ...m.deploy, deploy: { ...m.deploy.deploy, disabled: t.data.deployConflict } } } });
+      t.check('a conflict says to take in dev first, in the model\'s own words', /^It conflicts with dev: take in dev first\.$/.test(t.data.deployConflict) && t.find('.dp-why').textContent === t.data.deployConflict && t.find<HTMLButtonElement>('.dp-go').disabled, t.data.deployConflict);
     },
   },
   {
@@ -2287,7 +2291,7 @@ export const CASES: Case[] = [
       const problems = t.all('.dsh-failed li', dialog);
       t.check('each component\'s problem is listed', problems.length === 2 && /CaseRouting/.test(problems[0]!.textContent ?? ''), problems.map((p) => p.textContent));
       const go = t.find<HTMLButtonElement>('.dsh-go', dialog);
-      t.check('there\'s no Deploy to press', go.hidden && go.disabled && getComputedStyle(go).display === 'none', [go.hidden, go.disabled]);
+      t.check('there\'s no Deploy to press, and it says why', go.hidden && go.disabled && getComputedStyle(go).display === 'none' && go.title === 'The check failed: there\'s nothing to deploy', [go.hidden, go.disabled, go.title]);
       await t.click(go);
       t.check('nothing deploys', t.sent('deploy-go').length === 0);
       t.check('its other button says Close', t.find('.ds-cancel', dialog).textContent === 'Close');
@@ -2479,7 +2483,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'a section open by itself isn\'t remembered open, so the last choice folds Choices away', file: 'analysis.ts', find: 'x.opened = d.open ? [...rest, k]', replace: 'x.opened = d.open && !waits ? [...rest, k]', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'Compare the options isn\'t remembered', file: 'plan.ts', find: 'const compared = opened.includes(compareKey(key));', replace: 'const compared = false;', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'Deploy runs without the sheet\'s confirmation', file: 'deploy-sheet.ts', find: '    parts.cancel.focus();\n', replace: '    parts.cancel.focus();\n    go();\n', kills: [caseNamed('deploy sheet: a passed check deploys only')] },
-  { name: 'a failed check still offers Deploy', file: 'deploy-sheet.ts', find: "parts.go.hidden = s.phase !== 'passed';", replace: "parts.go.hidden = s.phase !== 'passed' && s.phase !== 'failed';", kills: [caseNamed('deploy sheet: a failed check')] },
+  { name: 'a failed check still offers Deploy', file: 'deploy-sheet.ts', find: "  if (s.phase === 'failed') return 'The check failed: there\\'s nothing to deploy';\n", replace: '', kills: [caseNamed('deploy sheet: a failed check')] },
+  { name: 'a failed check shows its Deploy', file: 'deploy-sheet.ts', find: "parts.go.hidden = s.phase !== 'passed';", replace: "parts.go.hidden = s.phase !== 'passed' && s.phase !== 'failed';", kills: [caseNamed('deploy sheet: a failed check')] },
   { name: 'Production deploys without its name typed', file: 'deploy-sheet.ts', find: '  if (s.confirm && name.trim() !== s.confirm && name.trim() !== s.org) return `Type ${s.confirm} to deploy to it`;\n', replace: '', kills: [caseNamed('deploy sheet: Production asks')] },
   { name: 'Deploy off doesn\'t say why beside it', file: 'changes.ts', find: "    if (d.deploy.disabled) sec.append(el('p', 'muted small dp-why', icon('info'), el('span', '', d.deploy.disabled)));\n", replace: '', kills: [caseNamed('changes tab: Deploy sits above the list')] },
   { name: 'Deploy on the tab deploys at once', file: 'changes.ts', find: "api.postMessage({ type: 'deploy-check', project: m.project, task: d.task, to: b.to });", replace: "api.postMessage({ type: 'deploy-go', project: m.project, task: d.task, to: b.to, checkId: 'none' });", kills: [caseNamed('changes tab: Deploy to UAT')] },
@@ -2528,6 +2533,8 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
   if (!list) throw new Error('The Overview fixture has no list with more than its page shows.');
   return {
     firstSteps: FIRST_STEPS.map((s) => s.step),
+    // ACME-12's Deploy to QA once its checks pass and only its conflict with dev holds it up, in the model's own words (T-138).
+    deployConflict: deployOff({ config: DEPLOY_CONFIG, task: { id: 'ACME-12', state: 'review', environment: 'dev', run: { branch: 'task/ACME-12' }, pr: { number: 58, url: 'u', state: 'open' }, deps: [] } as never, tasks: [], running: false, run: null, conflicts: 'dev' }, DEPLOY_ENVS[1]!) ?? '',
     task: { project: ROOT, key: ticket.key, peek: `${ROOT}#${ticket.key.toUpperCase()}`, message: { type: 'task-modal', model: ticket, tab: { type: 'ticket', project: ROOT, tracker: 0, key: ticket.key } } },
     rules: rules.map((r) => ({ id: r.id, line: r.line, sources: r.sources.length, accept: accept(r) })),
     rulesOpens: JSON.stringify({ kind: 'rules' }),

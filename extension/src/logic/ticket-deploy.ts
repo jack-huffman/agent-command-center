@@ -34,6 +34,8 @@ export function deletedPaths(run: Runner, root: string, branch: string, worktree
 export interface DeployHost {
   /** An environment's name, by its branch, in the project's settings; undefined for a project that closed. */
   envName(root: string, branch: string): string | undefined;
+  /** Why a deploy to `to` can't go now, as the tab's Deploy says it (its checks, a conflict, a dependency, one under way); null when it can. */
+  off(root: string, id: string, to: string): Promise<string | null>;
   /** Runs acc with --json in the output panel, telling `onSteps` its steps as they change. */
   acc(args: string[], cwd: string, label: string, onSteps: (s: RunSteps) => void): Promise<Result>;
 }
@@ -102,6 +104,9 @@ export class TicketDeploys {
     if (!toName) return { ok: false, error: `${to} isn't an environment in the project's settings.` };
     const now = this.run(root, id);
     if (now?.phase === 'checking' || now?.phase === 'deploying') return { ok: false, error: 'It\'s under way now. Wait for it to finish.' };
+    // The tab's Deploy is off for these, and so is this: a command, or a page drawn before the state changed, can't get round it.
+    const off = await this.host.off(root, id, to);
+    if (off) return { ok: false, error: off };
     const started: DeployRun = { to, toName, phase: 'checking', progress: null, plan: null, result: null, error: null };
     this.set(root, id, started);
     // A check the person cancelled while it ran: its answer, when it comes, is let go.
@@ -129,6 +134,12 @@ export class TicketDeploys {
     const run = this.run(root, id);
     const why = yesRefusal(run, to, checkId, typed);
     if (why) return { ok: false, error: why };
+    // A check that passed before a check of its own failed, or a conflict came, still waits for them.
+    const off = await this.host.off(root, id, to);
+    if (off) {
+      this.set(root, id, { ...run!, error: off });
+      return { ok: false, error: off };
+    }
     const plan = run!.plan!;
     this.set(root, id, { ...run!, phase: 'deploying', progress: null });
     let r: Result;
@@ -137,7 +148,9 @@ export class TicketDeploys {
     } catch (e) {
       r = { code: 1, stdout: '', stderr: (e as Error).message };
     }
-    const result = parse<TaskDeployResult>(r.stdout, 'deployed');
+    const said = parse<TaskDeployResult>(r.stdout, 'deployed');
+    // What acc said goes to a person in process words (D-132): its summary and its warning, as its error does.
+    const result = said ? { ...said, summary: inProcessWords(said.summary), warning: said.warning ? inProcessWords(said.warning) : null } : null;
     const went = !!result && (result.deployed || (!result.plan.files.length && !!result.pr));
     const error = went ? null : result ? inProcessWords(result.summary) : accRefusal(r) ?? 'The deploy gave no result.';
     this.set(root, id, { ...(this.run(root, id) ?? run!), phase: went ? 'deployed' : 'error', progress: null, result, error });

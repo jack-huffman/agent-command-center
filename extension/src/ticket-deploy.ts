@@ -24,6 +24,8 @@ export const area: ExtensionArea = {
     const acc = accRunner(accScript);
     const d = new TicketDeploys({
       envName: (root, branch) => hub.project(root)?.config.environments.find((e) => e.branch === branch)?.name,
+      // The same reasons the tab's Deploy is off for, from what the page is drawn from.
+      off: (root, id, to) => tickets.deployOff(root, id, to),
       // In the output panel, where its steps show (T-65), and the sheet says the step it's on.
       acc: (args, cwd, label, onSteps) => (sidebar.helpers.runAccShown ? sidebar.helpers.runAccShown(args, cwd, label, onSteps) : acc(args, cwd)),
     }, (root) => tickets.refresh(root));

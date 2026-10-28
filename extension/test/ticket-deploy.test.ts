@@ -98,11 +98,15 @@ test('the page\'s three deploy messages are checked, and anything else about the
   assert.equal(m['deploy-close']!({ project: '/r', task: 'not a key' }), false);
 });
 
+/** What holds the deploy up, as the page would say it; null when nothing does. Each test that sets it sets it back. */
+let offNow: string | null = null;
+
 /** A host whose acc answers with what each test gives it, and remembers what it was asked. */
 function host(answers: Record<string, unknown>[]) {
   const asked: string[][] = [];
   const h = {
     envName: (_: string, b: string) => ENVS.find((e) => e.branch === b)?.name,
+    off: async () => offNow,
     acc: async (args: string[], _cwd: string, _label: string, onSteps: (s: never) => void) => {
       asked.push(args);
       onSteps({ seen: 1, steps: [{ id: 'check', label: 'Check in acme-uat', state: 'started', note: null, from: 0, to: null }], result: null } as never);
@@ -163,16 +167,19 @@ test('edge case: Cancel always works: a check cancelled while it runs is let go 
   let release!: () => void;
   const h = {
     envName: () => 'UAT',
+    off: async () => null,
     acc: (_a: string[]) => new Promise<{ code: number; stdout: string; stderr: string }>((res) => { release = () => res({ code: 0, stdout: JSON.stringify(plan()), stderr: '' }); }),
   };
   const d = new TicketDeploys(h);
   const p = d.check('/r', 'ACME-7', 'uat');
+  // Once it has asked what holds it up and started the check, the person cancels.
+  await new Promise((r) => setImmediate(r));
   d.close('/r', 'ACME-7');
   release();
   await p;
   assert.equal(d.run('/r', 'ACME-7'), null, 'its plan never shows');
   // A refusal from acc before any plan: the sheet says it, and closes on Cancel.
-  const refused = new TicketDeploys({ envName: () => 'UAT', acc: async () => ({ code: 1, stdout: JSON.stringify({ errors: ['ACME-7 has no work yet: build it first.'] }), stderr: '' }) });
+  const refused = new TicketDeploys({ envName: () => 'UAT', off: async () => null, acc: async () => ({ code: 1, stdout: JSON.stringify({ errors: ['ACME-7 has no work yet: build it first.'] }), stderr: '' }) });
   assert.deepEqual(await refused.check('/r', 'ACME-7', 'uat'), { ok: false, error: 'ACME-7 has no work yet: build it first.' });
   refused.close('/r', 'ACME-7');
   assert.equal(refused.run('/r', 'ACME-7'), null);
@@ -202,7 +209,7 @@ test('edge case: Deploy is off while its own checks fail, unaccepted, or it conf
   const uat = ENVS[2]!;
   const base = { config, tasks: [] as Task[], running: false, run: null, task: inQa() };
   assert.equal(deployOff({ ...base, failing: ['validate'] }, uat), 'The validate check failed: fix it, or accept it anyway, first.');
-  assert.equal(deployOff({ ...base, failing: ['validate', 'tests'] }, uat), 'The validate, tests checks failed: fix them, or accept them anyway, first.');
+  assert.equal(deployOff({ ...base, failing: ['validate', 'tests'] }, uat), 'The validate and tests checks failed: fix them, or accept them anyway, first.');
   assert.equal(deployOff({ ...base, conflicts: 'dev' }, uat), 'It conflicts with dev: take in dev first.');
   assert.equal(deployOff({ ...base, failing: [], conflicts: null }, uat), null);
   // A check accepted anyway, one that passed or one that waits on a person holds nothing up; a failed or errored one does.
@@ -210,4 +217,38 @@ test('edge case: Deploy is off while its own checks fail, unaccepted, or it conf
   assert.deepEqual(deployBlockers([]), []);
   const d = ticketDeploy({ ...base, failing: ['validate'] })!;
   assert.match(d.deploy!.disabled!, /validate check failed/);
+});
+
+test('edge case: what holds the tab\'s Deploy up refuses the check and the deploy too, in the same words, though a check passed before it came (T-138)', async () => {
+  const why = 'The validate check failed: fix it, or accept it anyway, first.';
+  offNow = why;
+  try {
+    const { h, asked } = host([{ out: plan() }]);
+    const d = new TicketDeploys(h);
+    assert.deepEqual(await d.check('/r', 'ACME-7', 'uat'), { ok: false, error: why }, 'the command and a stale page alike');
+    assert.deepEqual([asked.length, d.run('/r', 'ACME-7')], [0, null], 'nothing asked of acc, and no sheet');
+    // A check that passed, then a check of its own failed: the sheet's Deploy is refused, and says why.
+    offNow = null;
+    await d.check('/r', 'ACME-7', 'uat');
+    offNow = why;
+    assert.deepEqual(await d.deploy('/r', 'ACME-7', 'uat', '0Af1'), { ok: false, error: why });
+    assert.deepEqual([asked.length, d.run('/r', 'ACME-7')?.phase, d.run('/r', 'ACME-7')?.error], [1, 'passed', why], 'nothing deployed');
+  } finally {
+    offNow = null;
+  }
+  // The model's sheet carries the same reason, so its Deploy waits, and the tab doesn't ask the person to confirm.
+  const d = ticketDeploy({ config, task: inQa(), tasks: [], running: false, run: run(), failing: ['validate'] })!;
+  assert.deepEqual([d.sheet?.off, d.needs], [why, null]);
+  assert.equal(ticketDeploy({ config, task: inQa(), tasks: [], running: false, run: run() })!.sheet?.off, null);
+  assert.equal(ticketDeploy({ config, task: inQa(), tasks: [], running: false, run: null, stepsLeft: 2 })!.needs, '2 steps to do by hand', 'steps left need the person too');
+});
+
+test('edge case: a deploy\'s summary and warning reach the person in process words, never as acc\'s commands (D-132, T-138)', async () => {
+  const result = { deployed: true, summary: 'Deployed ACME-7 to UAT.', pr: { number: 9, url: 'u' }, warning: 'Pull request #9 didn\'t merge: merge it, and acc sync follows it.', plan: plan() };
+  const { h } = host([{ out: plan() }, { out: result }]);
+  const d = new TicketDeploys(h);
+  await d.check('/r', 'ACME-7', 'uat');
+  await d.deploy('/r', 'ACME-7', 'uat', '0Af1');
+  const warning = d.run('/r', 'ACME-7')?.result?.warning ?? '';
+  assert.ok(warning.length > 0 && !/\bacc sync\b/.test(warning), warning);
 });

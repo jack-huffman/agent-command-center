@@ -46,6 +46,13 @@ stands: they move, they aren't taken away.
 - **The yes is checked twice.** Only the sheet's Deploy sends `deploy-go`, with the check's id and the typed
   name. The extension refuses it unless its own kept run is a passed check for that environment with that id,
   and the name typed where it's asked (`yesRefusal`); acc refuses any yes it didn't check (D-219).
+- **What holds Deploy up holds every way in.** The extension's check and its deploy each ask the same reasons
+  the tab's Deploy is off for (its checks, a conflict, a dependency, a deploy under way, from what the page is
+  drawn from) and refuse in the same words, so `acc.task.deploy` and a page drawn before the state changed
+  can't get round them. A check that passed before a check of its own failed shows that reason on its sheet,
+  whose Deploy stays off.
+- **In process words (D-132).** The deploy's summary and warning reach the person through `inProcessWords`, as
+  its error does.
 - **After the deploy**, the sheet shows the result: deployed, the pull request, and any warning. The steps left
   are listed on the tab under "Left to do by hand", each environment's, with Mark done and Skip: record steps and
   deletions alike.
@@ -67,5 +74,6 @@ Checked by `extension/test/ticket-deploy.test.ts` (the path line, Deploy off wit
 sheet's facts, the yes only for a passed check with the typed name), `extension/test/changes-tab.test.ts` (the
 tab as drawn, More closed holding what moved, needs-you), `extension/test/changes.test.ts` (the list's groups,
 counts, quiet line and deletions), `packages/core/test/deletion-kind.test.ts`, and five behaviour cases with
-five mutants: Deploy runs without the sheet's confirmation, a failed check still offers Deploy, Production
-deploys without its name typed, Deploy on the tab deploys at once, and Deploy off doesn't say why beside it.
+six mutants: Deploy runs without the sheet's confirmation, a failed check still offers Deploy, a failed check
+shows its Deploy, Production deploys without its name typed, Deploy on the tab deploys at once, and Deploy off
+doesn't say why beside it.

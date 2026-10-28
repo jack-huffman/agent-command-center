@@ -23,7 +23,10 @@ const sheetKey = (s: DeploySheet): string => `${s.task}>${s.to}:${s.phase}`;
 
 /** Why the sheet's Deploy is off, or null when it's on: a passed check, and the org's name typed where it's asked. */
 export function goOff(s: DeploySheet, name: string): string | null {
-  if (s.phase !== 'passed' || !s.checkId) return s.phase === 'failed' ? 'The check failed: there\'s nothing to deploy' : 'Wait for the check to pass';
+  if (s.phase === 'failed') return 'The check failed: there\'s nothing to deploy';
+  if (s.phase !== 'passed' || !s.checkId) return 'Wait for the check to pass';
+  // What holds the tab's Deploy up holds this one too: a check of its own that failed since, a conflict.
+  if (s.off) return s.off;
   if (s.confirm && name.trim() !== s.confirm && name.trim() !== s.org) return `Type ${s.confirm} to deploy to it`;
   return null;
 }
@@ -84,6 +87,7 @@ function body(s: DeploySheet): HTMLElement[] {
       s.result.warning ? el('div', 'notice attention', icon('warning', 'orange'), el('span', '', s.result.warning)) : null,
       s.byHand.length ? el('p', 'muted small', 'The steps left to do by hand are on the Changes tab, each with Mark done and Skip.') : null));
   }
+  if (s.phase === 'passed' && s.off) out.push(el('p', 'muted small dp-why', icon('info'), el('span', '', s.off)));
   if (s.error) out.push(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', s.error)));
   return out;
 }

@@ -92,7 +92,8 @@ test('the tab needs the person for a passed check or steps left, never for the m
   const { changesNeeds, taskTabs } = await import('../webview/tab-rules.ts');
   assert.equal(changesNeeds(model()), null);
   assert.equal(changesNeeds(model({ deploy: deploy({ needs: 'Check passed: deploy to UAT' }) })), 'Check passed: deploy to UAT');
-  assert.equal(changesNeeds(model({ records: records(2) })), '2 steps to do by hand');
+  assert.equal(changesNeeds(model({ records: records(2), deploy: deploy({ needs: '2 steps to do by hand' }) })), '2 steps to do by hand', 'the steps left, as the model counts them');
+  assert.equal(changesNeeds(model({ records: records(2), deploy: null })), null, 'outside Salesforce there\'s no deploy to wait on');
   const orange = { label: 'The org differs', icon: 'diff', tone: 'orange' as const };
   const tabs = taskTabs({ ...model(), comments: [], updates: [], analysis: null, criteria: null, acc: null, review: null, verify: null, manifest: { look: orange }, field: { look: orange } } as unknown as TicketModel);
   assert.deepEqual(tabs.find((t) => t.id === 'changes')?.needs, null, 'the manifest\'s state waits under More');
@@ -103,7 +104,7 @@ test('the sheet\'s Deploy is on only after a passed check, and for a protected o
   const { goOff } = await import('../webview/deploy-sheet.ts');
   const sheet = (more: Partial<DeploySheet> = {}): DeploySheet => ({
     task: 'ACME-7', to: 'uat', toName: 'UAT', org: 'acme-uat', phase: 'passed', look: SHEET_LOOK.passed, progress: null, components: { count: 3, types: [] }, tests: null,
-    step: null, byHand: [], problems: [], summary: null, checkId: '0Af1', confirm: null, result: null, error: null, ...more,
+    step: null, off: null, byHand: [], problems: [], summary: null, checkId: '0Af1', confirm: null, result: null, error: null, ...more,
   });
   assert.equal(goOff(sheet(), ''), null);
   assert.equal(goOff(sheet({ phase: 'checking', checkId: null }), ''), 'Wait for the check to pass');

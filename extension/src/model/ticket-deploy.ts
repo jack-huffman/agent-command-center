@@ -8,6 +8,7 @@
 import type { Config, Environment } from '../../../packages/core/src/config.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { missingDeps, type TaskDeployPlan, type TaskDeployResult, taskDeployEnabled, ticketPlace } from '../../../packages/core/src/task-deploy.ts';
+import { taskList } from '../../../packages/core/src/overlap.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import { KEY, type Look, type ModelArea, short } from './shared.ts';
 
@@ -86,6 +87,8 @@ export interface DeploySheet {
   summary: string | null;
   /** The check's id, the person's yes; only after a check that passed. */
   checkId: string | null;
+  /** Why it can't deploy now though its check passed (a check of its own failed since, a conflict came): the tab's own reason; null when it can. */
+  off: string | null;
   /** The name to type before Deploy is on, for production or a protected org; null when none is asked. */
   confirm: string | null;
   result: { summary: string; pr: { number: number; url: string } | null; warning: string | null } | null;
@@ -103,7 +106,7 @@ export interface TicketDeploy {
   sheet: DeploySheet | null;
   /** What the deploy is doing, or how it went, on the tab as on the sheet: its icon and words, and its pull request. */
   status: { look: Look; words: string; pr: { number: number; url: string } | null } | null;
-  /** What waits on the person here: a passed check not confirmed; else null. Steps left are the records'. */
+  /** What waits on the person here: a passed check not confirmed, else the steps left to do by hand; null when nothing does. */
   needs: string | null;
 }
 
@@ -118,6 +121,8 @@ export interface DeployIn {
   failing?: string[];
   /** The environment its pull request conflicts with, as the page's notice says; null when it doesn't. */
   conflicts?: string | null;
+  /** How many steps it has left to do by hand, in every environment (record changes and deletions). */
+  stepsLeft?: number;
 }
 
 /** The environments from the task's own, each one's usual next step, to the end. */
@@ -168,7 +173,7 @@ export function deployOff(i: Pick<DeployIn, 'config' | 'task' | 'tasks' | 'runni
   const can = taskDeployEnabled(i.config, i.task);
   if (!can.ok) return can.why;
   const failing = i.failing ?? [];
-  if (failing.length) return `The ${failing.join(', ')} check${failing.length === 1 ? '' : 's'} failed: fix ${failing.length === 1 ? 'it' : 'them'}, or accept ${failing.length === 1 ? 'it' : 'them'} anyway, first.`;
+  if (failing.length) return `The ${taskList(failing)} check${failing.length === 1 ? '' : 's'} failed: fix ${failing.length === 1 ? 'it' : 'them'}, or accept ${failing.length === 1 ? 'it' : 'them'} anyway, first.`;
   if (i.conflicts) return `It conflicts with ${i.conflicts}: take in ${i.conflicts} first.`;
   if (i.run?.phase === 'checking') return 'Its check is under way. Wait for it to finish.';
   if (i.running || i.run?.phase === 'deploying') return 'A deploy of this ticket is under way. Wait for it to finish.';
@@ -200,6 +205,7 @@ export function deploySheet(task: string, run: DeployRun): DeploySheet {
     problems: run.phase === 'failed' ? p?.check?.problems ?? [] : [],
     summary: p?.check?.summary ?? null,
     checkId: passed ? p!.check!.id : null,
+    off: null,
     confirm: p?.confirm ? p.confirmName : null,
     result: r ? { summary: r.summary, pr: r.pr, warning: r.warning } : null,
     error: run.error,
@@ -213,14 +219,17 @@ export function ticketDeploy(i: DeployIn): TicketDeploy | null {
   if (!path.length) return null;
   const place = ticketPlace(i.config, i.task);
   const buttons = (place?.next ?? []).map((e): DeployButton => ({ label: `Deploy to ${e.name}`, to: e.branch, disabled: deployOff(i, e) }));
-  const all = i.run ? deploySheet(i.task.id, i.run) : null;
+  const made = i.run ? deploySheet(i.task.id, i.run) : null;
+  // A check that passed still waits for what holds the tab's Deploy up, in the same words.
+  const env = made?.phase === 'passed' ? i.config.environments.find((e) => e.branch === made.to) : undefined;
+  const all = made && env ? { ...made, off: deployOff({ ...i, run: null }, env) } : made;
   const sheet = all && !i.run?.hidden ? all : null;
   // The tab says what's under way, and how a deploy went, whether its sheet is open or not; a check's result is the sheet's.
   const status = all && all.phase !== 'passed' && all.phase !== 'failed'
     ? { look: all.look, words: (all.progress && all.step ? `${all.progress} ${all.step}` : all.progress) ?? all.result?.summary ?? all.error ?? all.look.label, pr: all.result?.pr ?? null } : null;
   return {
     task: i.task.id, path, deploy: buttons[0] ?? null, others: buttons.slice(1, 4), sheet, status,
-    needs: sheet?.phase === 'passed' && sheet.checkId ? `Check passed: deploy to ${sheet.toName}` : null,
+    needs: (sheet?.phase === 'passed' && sheet.checkId && !sheet.off ? `Check passed: deploy to ${sheet.toName}` : null) ?? stepsLeftWords(i.stepsLeft ?? 0),
   };
 }
 
