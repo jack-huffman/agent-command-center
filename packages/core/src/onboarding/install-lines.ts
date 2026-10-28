@@ -119,9 +119,10 @@ export const installText = (tool: InstallTool, system: InstallSystem = SYSTEM): 
 
 /**
  * What a fix that installs a tool adds on Windows (T-124): a tool installed while VSCode is open isn't on its
- * PATH until VSCode restarts. Empty on a Mac and on Linux, where a new terminal is enough.
+ * PATH until VSCode restarts. Empty on a Mac and on Linux, where a new terminal is enough. RESTART_WHY is the one
+ * reason a restart is asked for, here and in path-fix.ts (T-133).
  */
-const RESTART_WHY = 'a tool installed while VSCode is open isn\'t on its PATH until VSCode restarts.';
+export const RESTART_WHY = 'a tool installed while VSCode is open isn\'t on its PATH until VSCode restarts.';
 export const RESTART_NOTE = `After it installs, restart VSCode: ${RESTART_WHY}`;
 /** The same sentence as a step's page says it, which shows every system's lines and so names Windows. */
 export const RESTART_PAGE_NOTE = `On Windows, after it installs, restart VSCode: ${RESTART_WHY}`;

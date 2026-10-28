@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { makeContext } from '../src/onboarding/helpers.ts';
-import { APP_INSTALLER_PAGE, INSTALL_LINES, INSTALL_SYSTEMS, type InstallSystem, WINGET_REGISTER } from '../src/onboarding/install-lines.ts';
+import { APP_INSTALLER_PAGE, INSTALL_LINES, INSTALL_SYSTEMS, type InstallSystem, RESTART_WHY, WINGET_REGISTER } from '../src/onboarding/install-lines.ts';
 import { checkMachine, machineLines, machineState } from '../src/onboarding/machine-check.ts';
 import { fileOn, MACHINE_NEEDS, needOf, needsFor, programOn } from '../src/onboarding/machine-needs.ts';
 import { addToUserPath, brewShellenv, expandPlace, installedAt, notOnPath, psLiteral, READ_PATHS, REAL_FILES, RESTART, zprofilePath } from '../src/onboarding/path-fix.ts';
@@ -90,6 +90,7 @@ test('edge case: when ~/.zprofile has the shellenv line already, a Mac is told t
   const files = someFiles(['/opt/homebrew/bin/gh', '/opt/homebrew/bin/brew'], { '/Users/jordan/.zprofile': 'eval "$(/opt/homebrew/bin/brew shellenv)"\n' });
   const r = result(on('mac', { 'gh --version': MISSING }, files), 'A1.gh');
   assert.equal(r.byHand, RESTART);
+  assert.ok(RESTART.endsWith(RESTART_WHY), 'the restart gives the same reason an install line does');
   assert.equal(r.fix, undefined, 'no line to run');
   assert.equal(r.ask, undefined);
   assert.equal(machineState({ step: STEPS[0]!, result: r }), 'not-on-path');

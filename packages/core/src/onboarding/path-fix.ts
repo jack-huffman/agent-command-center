@@ -15,7 +15,7 @@ import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { posix, win32 } from 'node:path';
 import { shellQuote } from './fix-lines.ts';
-import type { InstallSystem } from './install-lines.ts';
+import { type InstallSystem, RESTART_WHY } from './install-lines.ts';
 import { fileOn, type MachineNeed } from './machine-needs.ts';
 import { cached } from './helpers.ts';
 import type { CheckContext, CheckResult, MachineFiles } from './types.ts';
@@ -44,7 +44,7 @@ const pathsOn = (system: InstallSystem) => (system === 'windows' ? win32 : posix
 const homeOf = (ctx: CheckContext): string => ctx.env.HOME || ctx.env.USERPROFILE || homedir();
 
 /** VSCode restarts to read PATH again: a window reload keeps the PATH it started with. */
-export const RESTART = 'Quit VSCode and open it again: it reads PATH only when it starts.';
+export const RESTART = `Quit VSCode and open it again: ${RESTART_WHY}`;
 
 /** npm's global folder for programs, or null when npm doesn't run here. */
 function npmBin(ctx: CheckContext, system: InstallSystem): string | null {
