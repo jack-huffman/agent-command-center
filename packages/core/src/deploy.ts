@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { arrivedAt } from './carried.ts';
 import type { Config, Environment } from './config.ts';
 import { AccError, parseJsonOutput, type RunResult, type Runner, sfEnv } from './exec.ts';
-import { listed, listLines, packageDirs, under } from './gates.ts';
+import { APEX, listed, listLines, packageDirs, under } from './gates.ts';
 import { withJob } from './jobs.ts';
 import { readLedger, type Task } from './ledger.ts';
 import { taskList } from './overlap.ts';
@@ -125,7 +125,7 @@ function deployChanges(paths: RepoPaths, config: Config, run: Runner, env: Envir
     else if (already.has(f)) deployedBy.push({ path: f, task: already.get(f)! });
     else files.push(f);
   }
-  const apex = files.some((f) => /\.(cls|trigger)(-meta\.xml)?$/.test(f));
+  const apex = files.some((f) => APEX.test(f));
   return { env, org: env.org!, base, head, files, deleted, leftOut, deployedBy, testLevel: apex && !opts.noTests ? 'RunLocalTests' : 'NoTestRun', confirm: env.protected };
 }
 

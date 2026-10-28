@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import type { Environment } from './config.ts';
 import { DEPLOY_GATE } from './deploy-commands.ts';
 import type { RunResult } from './exec.ts';
-import { type ApexTest, deployProblems, type Exec, type Gate, type GateInput, type GateRunInfo, lastLine, listed, listLines, type Outcome, outcome, packageDirs, parseDeployJson, under } from './gates.ts';
+import { APEX, type ApexTest, deployProblems, type Exec, type Gate, type GateInput, type GateRunInfo, lastLine, listed, listLines, type Outcome, outcome, packageDirs, parseDeployJson, under } from './gates.ts';
 import { mutate, readLedger } from './ledger.ts';
 import { parseOrgUrl } from './onboarding/helpers.ts';
 import { inFlightFilesStrict, overlaps, sharedFiles, sharesWords, taskList, waitWords } from './overlap.ts';
@@ -26,9 +26,6 @@ import { sfComponent } from './sf-metadata.ts';
 import { trustedSettings } from './trusted-settings.ts';
 import type { TestCounts } from './test-counts.ts';
 import { plural } from './text.ts';
-
-/** Apex source: a class or trigger, or its -meta.xml. The same test as validate's. */
-const APEX = /\.(cls|trigger)(-meta\.xml)?$/;
 
 /** A deploy a task made to its environment's org (D-206), kept on the task, so its ticket says "Deployed to <org>". */
 export interface TaskDeploy {
@@ -48,6 +45,10 @@ export interface TaskDeploy {
   verified: number;
   /** The Apex tests run in the org, or null when no Apex changed and none ran. */
   tests: DeployTests | null;
+  /** A person's deploy of the ticket to a next environment (T-137): who said yes, to which check, and its pull request. */
+  by?: string;
+  checkId?: string;
+  pr?: { number: number; url: string };
 }
 
 export interface DeployTests {
@@ -252,20 +253,7 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Enviro
       return fail(problems.length ? `The deploy to ${org} failed (job ${res.id}), ${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (read.message?.trim() || `The deploy to ${org} ${res.status ?? 'failed'} (job ${res.id}).`), { ...details, problems });
     }
     // It's in the org: each component the profile can name is asked for by type; one the org doesn't list is a failure.
-    const { known, unknown } = deployedComponents(source);
-    const missing: string[] = [];
-    const unchecked: string[] = [...unknown];
-    const listedNames = new Map<string, string[] | null>();
-    for (const c of known) {
-      const args = listMetadataArgs(org, c);
-      const key = args.join(' ');
-      if (!listedNames.has(key)) listedNames.set(key, readListed(exec('sf', args)));
-      const names = listedNames.get(key)!;
-      if (names === null) unchecked.push(`${c.label}: ${c.name}`);
-      else if (!names.includes(c.name)) missing.push(`${c.label}: ${c.name}`);
-    }
-    const components = [...known.map((c) => `${c.label}: ${c.name}`), ...unknown];
-    const verified = known.length - missing.length - (unchecked.length - unknown.length);
+    const { known, components, verified, unchecked, missing } = askOrgFor(exec, org, source);
     Object.assign(details, { components, verified, unchecked, missing });
     const at = run.now().toISOString();
     const record = (t: DeployTests | null) => recordDeploy(run.paths, run.now, run.task, { env: env.branch, org, username: shown.username, sha: run.sha, at, jobId: res.id!, paths: source, components, verified, tests: t });
@@ -288,6 +276,24 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Enviro
     const checked = unchecked.length ? `, ${plural(unchecked.length, 'component')} acc couldn't ask the org for` : '';
     return withCounts(pass(`Deployed ${plural(n, 'component')} to ${org} (job ${res.id}): ${verified} listed in the org${checked}; ${testsWords(ran?.tests ?? null)}.`, details));
   }, lock);
+}
+
+/** What the org lists of a deploy's components, by asking it for each one's type: those it lists, those it doesn't, and those acc can't ask for. */
+export function askOrgFor(exec: (cmd: string, args: string[]) => RunResult, org: string, source: string[]): { known: DeployedComponent[]; components: string[]; verified: number; unchecked: string[]; missing: string[] } {
+  const { known, unknown } = deployedComponents(source);
+  const missing: string[] = [];
+  const unchecked: string[] = [...unknown];
+  const listedNames = new Map<string, string[] | null>();
+  for (const c of known) {
+    const args = listMetadataArgs(org, c);
+    const key = args.join(' ');
+    if (!listedNames.has(key)) listedNames.set(key, readListed(exec('sf', args)));
+    const names = listedNames.get(key)!;
+    if (names === null) unchecked.push(`${c.label}: ${c.name}`);
+    else if (!names.includes(c.name)) missing.push(`${c.label}: ${c.name}`);
+  }
+  const components = [...known.map((c) => `${c.label}: ${c.name}`), ...unknown];
+  return { known, components, verified: known.length - missing.length - (unchecked.length - unknown.length), unchecked, missing };
 }
 
 /**

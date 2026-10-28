@@ -43,7 +43,7 @@ export interface DriftDeps {
   onRetrieve?: (env: Environment) => void;
 }
 
-export function environmentNamed(config: Config, name: string): Environment {
+export function environmentNamed(config: Pick<Config, 'environments'>, name: string): Environment {
   const env = config.environments.find((e) => e.branch === name.toLowerCase() || e.name.toLowerCase() === name.toLowerCase());
   if (!env) throw new AccError('usage', `No environment "${name}". The config has: ${config.environments.map((e) => e.branch).join(', ')}.`);
   return env;

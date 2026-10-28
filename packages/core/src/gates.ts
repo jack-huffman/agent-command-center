@@ -301,7 +301,8 @@ export const under = (files: string[], dirs: string[]): string[] => files.filter
 const FORMATTED = /(\.(cls|trigger)$)|((^|\/)lwc\/.+\.(js|html|css)$)/;
 const COMPONENT_JS = /(^|\/)(lwc|aura)\/.+\.js$/;
 const LWC = /(^|\/)lwc\//;
-const APEX = /\.(cls|trigger)(-meta\.xml)?$/;
+/** Apex source: a class or trigger, or its -meta.xml. */
+export const APEX = /\.(cls|trigger)(-meta\.xml)?$/;
 
 const format: Gate = {
   name: 'format', heavy: false, about: 'prettier --check on changed Apex and LWC code',

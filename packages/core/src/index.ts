@@ -38,6 +38,7 @@ export * from './fetch.ts';
 export * from './field-drafts.ts';
 export * from './floors-driver.ts';
 export * from './gates.ts';
+export * from './git-must.ts';
 export * from './github.ts';
 export * from './held.ts';
 // holding.ts's claims are dispatch.ts's and held.ts's own; this is its one public name.
@@ -99,6 +100,7 @@ export * from './stray-files.ts';
 export * from './sync.ts';
 export * from './take-in.ts';
 export * from './talk-questions.ts';
+export * from './task-deploy.ts';
 export * from './team.ts';
 export * from './template.ts';
 export * from './test-counts.ts';

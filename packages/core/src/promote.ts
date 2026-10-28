@@ -5,7 +5,8 @@ import { addPromotionSteps, stepsSection } from './change-steps.ts';
 import { carriedTasks } from './carried.ts';
 import { type Config, type Environment } from './config.ts';
 import { AccError, type RunResult, type Runner, sfEnv } from './exec.ts';
-import { assertCheckOnly, listed, listLines, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
+import { APEX, assertCheckOnly, listed, listLines, type Outcome, packageDirs, readDeploy, under } from './gates.ts';
+import { git, must } from './git-must.ts';
 import { withJob } from './jobs.ts';
 import { mutate, type Promotion, type Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -44,12 +45,6 @@ export interface PromoteDeps {
   /** Where its steps are reported (T-65). */
   steps?: Steps;
 }
-
-const git = (run: Runner, cwd: string, ...args: string[]): RunResult => run('git', args, { cwd });
-const must = (r: RunResult, what: string): string => {
-  if (r.code !== 0) throw new AccError('git', `${what}: ${(r.stderr || r.stdout).trim().split('\n').pop() ?? ''}`);
-  return r.stdout;
-};
 
 /** Every promotion path from each environment that nothing promotes into, following every listed option. */
 export function promotionPaths(envs: Pick<Environment, 'branch' | 'promotesTo'>[]): string[][] {
@@ -189,7 +184,7 @@ export function promotionBody(plan: PromotionPlan, validation: Outcome | null, s
  * runs the org's local tests when Apex changes. Nothing is saved to the org.
  */
 export function promotionCheckArgs(org: string, source: string[]): string[] {
-  const apex = source.some((f) => /\.(cls|trigger)(-meta\.xml)?$/.test(f));
+  const apex = source.some((f) => APEX.test(f));
   return ['project', 'deploy', 'start', '--dry-run', '--target-org', org, '--wait', '90', '--json', '--ignore-conflicts', ...source.flatMap((f) => ['--source-dir', f]), '--test-level', apex ? 'RunLocalTests' : 'NoTestRun'];
 }
 
