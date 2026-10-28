@@ -102,7 +102,7 @@ test('a task blocked while its builder still shows Working says so in one line, 
   assert.equal(m.acc!.agent!.label, 'Working', 'the case is real: a blocked task keeps the session it was tied to');
   const p = panel(m)!;
   assert.equal(text(foldOf(p, 'agent-disagree')), 'Blocked: its builder is still working');
-  assert.equal(p.all('state-chip').length, 0, 'no chip beside the line');
+  assert.equal(foldOf(p, 'agent-glance').all('state-chip').length, 0, 'no chip beside the line (the Session row in Details has one)');
   // The words stand on their own and carry an icon: orange alone never says it.
   assert.ok(foldOf(p, 'agent-disagree').all('codicon-warning').length === 1);
   // Edge: each state that isn't running says it the same way; a running task and its Working session are one chip.
