@@ -1055,7 +1055,7 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'questions: the agent\'s three questions show one at a time; a number key picks, Enter goes on, Back keeps the pick, Skip marks one, Escape keeps the picks, and the last sends every answer in one message (T-113)',
+    name: 'questions: the agent\'s three questions show one at a time; a number key picks and it counts, a dot or Back moves keeping it, Enter goes on, Skip marks one, Escape keeps the picks, and only Send on the review sends every answer in one message (T-113, T-130)',
     page: 'conversation-start',
     async run(t) {
       const d = t.data.questions;
@@ -1073,19 +1073,26 @@ export const CASES: Case[] = [
       t.check('one question shows, the first, of three', t.all('.talk-card .rp-step').length === 1 && t.all('[role="radiogroup"]').length === 1 && place() === 'Question 1 of 3' && asked() === d.asked[0], [t.all('.talk-card .rp-step').length, place(), asked()]);
       t.check('the others aren\'t on the page', !d.asked.slice(1).some((q) => document.body.textContent?.includes(q)), d.asked.slice(1));
       t.check('the suggestion is first, marked Suggested, and picked', picked() === 'o0' && t.find('.rp-option.on .rp-rec', card()).textContent?.trim() === 'Suggested', picked());
+      const dots = () => t.all<HTMLButtonElement>('.rp-dot', card());
+      t.check('no Confirm: Back, Skip and Next question, with an arrow', t.all('.talk-card-foot button', card()).every((b) => !/Confirm/.test(b.textContent ?? '')) && foot('Next question').querySelector('.codicon-arrow-right') !== null, t.all('.talk-card-foot button', card()).map((b) => b.textContent?.trim()));
       await press(t, t.find('[role="radio"][aria-checked="true"]', card()), '2');
       t.check('a number key picks its answer, and focus goes with it', picked() === 'o1' && (document.activeElement as HTMLElement).dataset.pick === 'o1', picked());
-      await press(t, document.activeElement as HTMLElement, 'Enter');
+      // A dot moves without losing the answer (T-130): to the last and back, the first's pick is still there and counts.
+      await t.click(dots()[2]!);
+      t.check('a dot moves, sending nothing', place() === 'Question 3 of 3' && answers().length === 0, [place(), answers()]);
+      t.check('the first dot says answered, its tooltip the question', dots()[0]?.getAttribute('aria-label') === 'Question 1: answered' && dots()[0]?.title === d.asked[0] && dots()[0]?.classList.contains('done') === true, [dots()[0]?.getAttribute('aria-label'), dots()[0]?.title]);
+      t.check('edge: the second, passed by without a touch, is not answered yet', dots()[1]?.getAttribute('aria-label') === 'Question 2: not answered yet', dots()[1]?.getAttribute('aria-label'));
+      await t.click(dots()[0]!);
+      t.check('back by its dot, the first\'s pick is kept', place() === 'Question 1 of 3' && picked() === 'o1', [place(), picked()]);
+      await press(t, t.find('[role="radio"][aria-checked="true"]', card()), 'Enter');
       t.check('Enter goes on to the second question', place() === 'Question 2 of 3' && asked() === d.asked[1], [place(), asked()]);
-      t.check('and nothing is sent before the last', answers().length === 0 && t.sent('talk-send').length === 0, answers());
-      t.check('the first dot is done, in blue with a check', t.all('.rp-dot', card())[0]?.classList.contains('done') === true, t.all('.rp-dot', card())[0]?.className);
+      t.check('and nothing is sent', answers().length === 0 && t.sent('talk-send').length === 0, answers());
       await t.click(foot('Back'));
       t.check('Back goes to the first question, its pick kept', place() === 'Question 1 of 3' && picked() === 'o1', [place(), picked()]);
-      await press(t, t.find('[role="radio"][aria-checked="true"]', card()), 'Enter');
+      await t.click(foot('Next question'));
       await t.click(foot('Skip'));
       t.check('Skip goes on to the last, sending nothing', place() === 'Question 3 of 3' && answers().length === 0, [place(), answers()]);
-      const dots = t.all('.rp-dot', card());
-      t.check('the skipped one\'s dot says so', dots[1]?.classList.contains('skipped') === true && dots[1]?.getAttribute('aria-label')?.endsWith(': skipped') === true, dots[1]?.getAttribute('aria-label'));
+      t.check('the skipped one\'s dot says so', dots()[1]?.classList.contains('skipped') === true && dots()[1]?.getAttribute('aria-label') === 'Question 2: skipped', dots()[1]?.getAttribute('aria-label'));
       await press(t, t.find('[role="radio"][aria-checked="true"]', card()), '3');
       t.check('the last number is Answer in my own words, with its box', picked() === 'own' && t.all('.rp-own input', card()).length === 1, picked());
       // Edge: Escape puts the questions aside and keeps the picks; Answer the questions brings them back where they were.
@@ -1095,12 +1102,18 @@ export const CASES: Case[] = [
       if (!back) throw new Error('not found: Answer the questions');
       await t.click(back);
       t.check('Answer the questions comes back at the last, its pick kept', place() === 'Question 3 of 3' && picked() === 'own', [place(), picked()]);
-      t.check('Confirm and send is off until there are words', foot('Confirm and send').disabled, foot('Confirm and send').title);
+      t.check('on the last, Next question is Review answers', !foot('Review answers').disabled, foot('Review answers').title);
       const box = t.find<HTMLInputElement>('.rp-own input', card());
       await t.type(box, d.own);
       await press(t, box, 'Enter');
+      t.check('Enter in the box goes on to the review, sending nothing', place() === 'Review your answers' && answers().length === 0, [place(), answers()]);
+      const rows = t.all('.talk-review-row', card());
+      t.check('the review lists every question, the skipped one Not answered, each with Change', rows.length === 3 && rows[1]!.textContent?.includes('Not answered: the planning agent decides') === true && rows.every((r) => r.querySelector('button')?.textContent?.trim() === 'Change'), rows.map((r) => r.textContent));
+      await press(t, t.find('.talk-review', card()), 'Enter');
+      t.check('edge: Enter on the review, away from Send, sends nothing', answers().length === 0, answers());
+      await t.click(foot('Send answers to the planning agent'));
       const sent = answers();
-      t.check('Enter in the box sends every answer once, in one message', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent) && t.sent('talk-send').length === 0, sent);
+      t.check('Send answers to the planning agent sends every answer once, in one message', sent.length === 1 && JSON.stringify(sent[0]) === JSON.stringify(d.sent) && t.sent('talk-send').length === 0, sent);
     },
   },
   {
@@ -2239,9 +2252,10 @@ export const MUTANTS: Mutant[] = [
   { name: 'a card never measures its labels', file: 'fit-labels.ts', find: '  setTimeout(fit, 0);\n  observer.observe(row);\n', replace: '', kills: [caseNamed('narrow card:')] },
   // A change to an approved plan's choice asks first (T-97).
   { name: 'Enter confirms but stays on its step', file: 'review-plan.ts', find: '  goTo(next(review, s.id));\n}', replace: '  redraw();\n}', kills: [caseNamed('review plan:')] },
-  { name: 'the agent\'s questions all show at once', file: 'talk-questions.ts', find: "    step,\n    el('div', 'rp-foot-row talk-card-foot'", replace: "    ...q.items.map((x, k) => (k === at ? step : el('div', 'rp-step', el('h3', 'rp-q', md(x.question))))),\n    el('div', 'rp-foot-row talk-card-foot'", kills: [caseNamed('questions:')] },
-  { name: 'an answer goes before the last question is done', file: 'talk-questions.ts', find: '  if (k + 1 < c.q.items.length) return goTo(c, k + 1);', replace: '  if (k + 1 < c.q.items.length) { c.send.go(c.q.turn, answersOf(c.b, c.q)); return goTo(c, k + 1); }', kills: [caseNamed('questions:')] },
-  { name: 'Back on a question forgets what was picked', file: 'talk-questions.ts', find: '  if (k > 0) goTo(c, k - 1);', replace: "  if (k > 0) { remember((x) => { for (const key of Object.keys(x.drafts)) if (key.includes(':pick:')) delete x.drafts[key]; }); goTo(c, k - 1); }", kills: [caseNamed('questions:')] },
+  { name: 'the agent\'s questions all show at once', file: 'talk-questions.ts', find: '    at === REVIEW ? reviewStep(c) : questionStep(c, at),\n', replace: "    at === REVIEW ? reviewStep(c) : questionStep(c, at),\n    ...q.items.map((x, k) => (k === at ? null : el('div', 'rp-step', el('h3', 'rp-q', md(x.question))))),\n", kills: [caseNamed('questions:')] },
+  { name: 'Next question sends the answers', file: 'talk-questions.ts', find: '  if (!memory().drafts[pickKey(c.b, at)] && shown !== OWN) pick(c, at, shown);\n', replace: '  if (!memory().drafts[pickKey(c.b, at)] && shown !== OWN) pick(c, at, shown);\n  c.send.go(c.q.turn, answersOf(c.b, c.q));\n', kills: [caseNamed('questions:')] },
+  { name: 'Back on a question forgets what was picked', file: 'talk-questions.ts', find: '  else if (at > 0) goTo(c, at - 1);', replace: "  else if (at > 0) { remember((x) => { for (const key of Object.keys(x.drafts)) if (key.includes(':pick:')) delete x.drafts[key]; }); goTo(c, at - 1); }", kills: [caseNamed('questions:')] },
+  { name: 'a dot move drops the answer', file: 'talk-questions.ts', find: ', dots, (k) => goTo(c, k), name)', replace: ', dots, (k) => { remember((x) => { delete x.drafts[pickKey(c.b, Number(at))]; }); goTo(c, k); }, name)', kills: [caseNamed('questions:')] },
   { name: 'Back forgets what was picked', file: 'review-plan.ts', find: 'if (i > 0) goTo(review.steps[i - 1]!.id);', replace: "if (i > 0) { remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; }); goTo(review.steps[i - 1]!.id); }", kills: [caseNamed('review plan:')] },
   { name: 'Escape forgets what was picked', file: 'review-plan.ts', find: '  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n', replace: "  if (shown) toggle(openKey(shown.m.project, shown.task), false);\n  remember((x) => { for (const k of Object.keys(x.drafts)) if (k.includes(':pick:')) delete x.drafts[k]; });\n", kills: [caseNamed('review plan:')] },
   { name: 'Approve is on with an item left', file: 'plan.ts', find: '  b.disabled = !!why;\n  if (why) { b.title = why;', replace: '  b.disabled = false;\n  if (why) { b.title = why;', kills: [caseNamed('review plan:')] },
