@@ -13,6 +13,7 @@ import { quoteFor, runnerLine, terminalShell } from './logic/shells.ts';
 import { SYSTEM, shellOf } from '../../packages/core/src/onboarding/install-lines.ts';
 import { CHECK_MACHINE, inProcessWords, processLine } from './logic/processes.ts';
 import { MACHINE_FIRST_PART, type SetupStarting } from './model/setup.ts';
+import { startInOrder } from './logic/start-order.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { asksProduction, domainItem, productionChoices, productionNext } from './logic/no-production.ts';
 import { MY_DOMAIN } from '../../packages/core/src/sf-discovery.ts';
@@ -23,6 +24,13 @@ import { exec } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
 
 const TERMINAL_NAME = 'Command Center setup';
+/** A new project's settings, as acc init's options, and the template's tracker. */
+interface StartChoice {
+  init: InitChoice;
+  templateTracker: Record<string, unknown> | null;
+  /** The profile the project starts with: the template's, where it sets one (T-133). */
+  profile: 'salesforce' | 'generic';
+}
 /** The answer that lets a fix that asks first run (T-133): closing the question is a no. */
 const ASK_YES = 'Yes, do it';
 
@@ -535,9 +543,20 @@ export class Setup implements vscode.Disposable {
     const kind = await vscode.window.showQuickPick([...PROJECT_KINDS, FROM_TEMPLATE, FROM_EPIC], { title: KIND_QUESTION });
     if (!kind) return;
     if (kind.profile === 'epic') return this.epicFlow();
-    const choice = await this.choose(kind.profile);
-    // This machine is checked first (T-133); acc init then goes on, since the person has seen what's left.
-    if (choice) await this.machineFirst(choice.profile, () => this.runCommand(initCommand({ ...choice.init, anyway: true }), 'B0.config'));
+    // This machine is checked as soon as the profile is known, before Production's org is picked with sf (T-133);
+    // acc init then goes on, since the person has seen what's left.
+    await this.startChecked(kind.profile, (choice) => this.runCommand(initCommand({ ...choice.init, anyway: true }), 'B0.config'));
+  }
+
+  /** A project's choice, its machine checked first (T-133), then start: see startInOrder for the order. */
+  private startChecked(kind: 'salesforce' | 'generic' | 'template', start: (choice: StartChoice) => unknown): Promise<void> {
+    return startInOrder<StartChoice>(kind, {
+      template: () => this.templateChoice(),
+      profileOf: (c) => c.profile,
+      check: (profile, go) => this.machineFirst(profile, go),
+      choose: (profile) => this.choose(profile),
+      start,
+    });
   }
 
   /** A project being started (T-133): its profile, the machine steps checked for it, and what starts it. */
@@ -591,10 +610,9 @@ export class Setup implements vscode.Disposable {
 
   /**
    * Where a new project's settings come from, as acc init's options, or undefined when the person backed out:
-   * Other, Salesforce with its Production org, or a team template, read and confirmed (GH-80). Nothing runs.
+   * Other, or Salesforce with its Production org. A team template's is templateChoice (GH-80). Nothing runs.
    */
-  private async choose(kind: 'salesforce' | 'generic' | 'template'): Promise<{ init: InitChoice; templateTracker: Record<string, unknown> | null; /** The profile the project starts with: the template's, where it sets one (T-133). */ profile: 'salesforce' | 'generic' } | undefined> {
-    if (kind === 'template') return this.templateChoice();
+  private async choose(kind: 'salesforce' | 'generic'): Promise<StartChoice | undefined> {
     if (kind === 'generic') return { init: { profile: 'generic' }, templateTracker: null, profile: 'generic' };
     const production = await this.pickProduction();
     return production ? { init: { profile: 'salesforce', ...production }, templateTracker: null, profile: 'salesforce' } : undefined;
@@ -616,14 +634,12 @@ export class Setup implements vscode.Disposable {
   private async epicFlow(): Promise<void> {
     const base = await vscode.window.showQuickPick([...PROJECT_KINDS, FROM_TEMPLATE], { title: 'Where do the rest of its settings come from?', placeHolder: 'The tracker comes next, on the Connect page' });
     if (!base) return;
-    const choice = await this.choose(base.profile);
-    if (!choice) return;
-    // This machine is checked first (T-133), before the Connect page; Start the project there goes on anyway.
-    await this.machineFirst(choice.profile, () => this.epicStart(choice));
+    // This machine is checked first (T-133), before Production's org and the Connect page; Start the project there goes on anyway.
+    await this.startChecked(base.profile, (choice) => this.epicStart(choice));
   }
 
   /** The rest of From a Jira epic… once this machine is checked: acc init's dry run, then the Connect page. */
-  private async epicStart(choice: { init: InitChoice; templateTracker: Record<string, unknown> | null; /** The profile the project starts with: the template's, where it sets one (T-133). */ profile: 'salesforce' | 'generic' }): Promise<void> {
+  private async epicStart(choice: StartChoice): Promise<void> {
     const args = initArgs({ ...choice.init, anyway: true });
     const root = this.cwd();
     const [dry, common] = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: 'Reading what setting up this project would write…' }, (_p, token) => Promise.all([
@@ -687,7 +703,7 @@ export class Setup implements vscode.Disposable {
    * one's problems are shown and nothing is written, and a good one is confirmed. Then acc init's options, and
    * the template's tracker, which a project started from an epic fills in on the Connect page (GH-81).
    */
-  private async templateChoice(): Promise<{ init: InitChoice; templateTracker: Record<string, unknown> | null; /** The profile the project starts with: the template's, where it sets one (T-133). */ profile: 'salesforce' | 'generic' } | undefined> {
+  private async templateChoice(): Promise<StartChoice | undefined> {
     const recent = this.ctx.globalState.get<RecentTemplate[]>(RECENT_TEMPLATES) ?? [];
     let source: string | undefined;
     if (recent.length) {
