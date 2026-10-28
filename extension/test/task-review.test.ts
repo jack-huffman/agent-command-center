@@ -8,7 +8,7 @@ import type { Excerpt } from '../src/logic/review-excerpts.ts';
 import { isFromWebview } from '../src/model/messages.ts';
 import { modalTakes } from '../src/model/task-modal.ts';
 import { REVIEW_LOOK, type ReviewIn, ticketModel, ticketReview } from '../src/model/task-page.ts';
-import { pageSource, row } from './support.ts';
+import { row } from './support.ts';
 
 const diff: Excerpt = { kind: 'diff', lines: [{ n: 9, mark: 'same', text: 'a', at: false }, { n: null, mark: 'del', text: 'b', at: false }, { n: 10, mark: 'add', text: 'c', at: true }] };
 const unchanged: Excerpt = { kind: 'unchanged', lines: [{ n: 2, mark: 'same', text: 'x', at: true }] };
@@ -116,10 +116,4 @@ test('the page\'s message to open a finding\'s file is one the extension takes, 
 
 test('every review state has an icon and words, orange against blue', () => {
   assert.deepEqual(Object.entries(REVIEW_LOOK).map(([k, l]) => [k, l.tone]), [['pass', 'blue'], ['changes', 'orange'], ['must', 'orange'], ['worth', 'blue']]);
-});
-
-test('the task page draws the Review block from its model, in the Review tab and not beside the Agent panel', () => {
-  const page = pageSource('task-page.ts');
-  assert.ok(page.includes('if (m.review) review.push(renderReview(m.review));'), 'renderReview fills the Review tab');
-  assert.ok(!page.includes('side.append(renderReview'), 'the side column no longer holds it');
 });

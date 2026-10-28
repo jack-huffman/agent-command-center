@@ -318,6 +318,8 @@ test('Needs you, a card and a notification name the plan: each opens the page on
   // A plan's notice opens on Plan; another kind names no part.
   assert.deepEqual(noticePart({ kind: 'analysis-questions' }), { part: 'plan' });
   assert.deepEqual(noticePart({ kind: 'stopped' }), {});
+  // A review's notices, ready or sent back, open Review.
+  for (const kind of ['review', 'rework'] as const) assert.deepEqual(noticePart({ kind }), { part: 'review' }, kind);
   const said = noticeBurst([{ root: ROOT, notice: { kind: 'analysis-questions', task: 'ACME-21', text: 'x', urgent: true } as never }]);
   assert.equal(said[0]!.task?.part, 'plan');
   // The modal's open takes a part only in the form a link names one.

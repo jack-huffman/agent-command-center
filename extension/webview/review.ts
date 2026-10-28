@@ -52,7 +52,7 @@ function finding(f: ReviewFinding): HTMLElement {
 /** The Review tab's content (T-135): the verdict and its count, the summary, who and when, then each finding. */
 export function renderReview(r: TicketReview): HTMLElement {
   const open = r.open;
-  return el('section', 'block review-block', el('h2', '', icon('eye'), 'Review'),
+  return el('section', 'block review-block',
     el('div', 'rv-head', status(r.look), el('span', 'muted small', r.count)),
     work(el('p', 'rv-summary', r.summary), 'transcript'),
     el('p', 'muted small', `By ${r.by}, `, when(r.at)),

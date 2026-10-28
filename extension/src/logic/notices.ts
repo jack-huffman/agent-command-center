@@ -122,8 +122,9 @@ export function noticeActions(n: TaskNotice): [label: string, command: string][]
   return [...(a ? [a] : []), ['Show', 'acc.task.show']];
 }
 
-/** A plan's notice opens its task's page on Plan (T-134): its questions, its split or the plan itself. */
-export const noticePart = (n: Pick<TaskNotice, 'kind'>): { part?: string } => (n.kind.startsWith('analysis-') ? { part: 'plan' } : {});
+/** A plan's notice opens its task's page on Plan (T-134); a notice of a review, ready or sent back, opens it on Review (T-135). */
+export const noticePart = (n: Pick<TaskNotice, 'kind'>): { part?: string } =>
+  n.kind.startsWith('analysis-') ? { part: 'plan' } : n.kind === 'review' || n.kind === 'rework' ? { part: 'review' } : {};
 
 // ---------------------------------------------------------------- a burst said as one (D-162)
 
