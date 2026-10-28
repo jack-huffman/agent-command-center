@@ -18,6 +18,15 @@ body[data-view="conversation"] .talk { margin-top: 0; }
 .talk-card-foot { margin-top: 4px; }
 .talk-card-note { margin: 6px 0 0; }
 .talk-card .aq-error { margin-top: 6px; }
+/* The review (T-130): each question and its answer, or Not answered in orange, with Change on its right. */
+.talk-review { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 8px; padding: 0; list-style: none; }
+.talk-review-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; }
+.talk-review-row > .codicon { flex: none; margin-top: 2px; }
+.talk-review-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.talk-review-q { font-weight: 600; overflow-wrap: anywhere; }
+.talk-review-a { font-size: 0.93em; overflow-wrap: anywhere; }
+.talk-review-row.none .talk-review-a { font-style: italic; }
+.talk-review-change { flex: none; }
 .talk-card-aside { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 4px 0 10px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--radius); }
 .talk-card-aside > .codicon { flex: none; color: var(--blue); }
 .talk-card-aside > .btn { margin-left: auto; }
