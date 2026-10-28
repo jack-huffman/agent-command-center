@@ -2700,9 +2700,9 @@ function parseConfig(raw) {
         return;
       }
       if (t.kind === "slack") {
-        const missing = ["workspace", "channel"].filter((k2) => !isStr(t[k2]));
-        if (missing.length) {
-          errors.push(`trackers[${i}]: a Slack tracker needs ${missing.map((k2) => `"${k2}"`).join(" and ")}: "workspace" as in acme.slack.com, and "channel", a channel's id such as C0123ABCD.`);
+        const missing2 = ["workspace", "channel"].filter((k2) => !isStr(t[k2]));
+        if (missing2.length) {
+          errors.push(`trackers[${i}]: a Slack tracker needs ${missing2.map((k2) => `"${k2}"`).join(" and ")}: "workspace" as in acme.slack.com, and "channel", a channel's id such as C0123ABCD.`);
           return;
         }
         if (!SLACK_WORKSPACE.test(String(t.workspace).trim())) {
@@ -3448,9 +3448,9 @@ function noteProblems(n, required) {
     if (long) p.push(`${long === 1 ? "A line" : `${long} lines`} in the note's --${k2} ${long === 1 ? "is" : "are"} over ${NOTE_LIMITS.chars} characters. Say it shorter.`);
   }
   if (required) {
-    const missing = NOTE_PARTS.filter((k2) => n?.[k2] === void 0 || k2 === "landed" && !n[k2].length);
-    if (missing.length) {
-      p.push(`A builder finishes with a note for whoever comes next: what landed, which numbers moved, and what's still open (it says nothing about ${missing.map((k2) => `--${k2}`).join(", ")}). Run: ${DONE_COMMAND}. Give a flag again for each further line. --moved none and --open none say there was nothing.`);
+    const missing2 = NOTE_PARTS.filter((k2) => n?.[k2] === void 0 || k2 === "landed" && !n[k2].length);
+    if (missing2.length) {
+      p.push(`A builder finishes with a note for whoever comes next: what landed, which numbers moved, and what's still open (it says nothing about ${missing2.map((k2) => `--${k2}`).join(", ")}). Run: ${DONE_COMMAND}. Give a flag again for each further line. --moved none and --open none say there was nothing.`);
     }
   }
   return p;
@@ -3529,8 +3529,8 @@ function checkMove(ledger, config, task, req, hooks) {
       else if (env.protected) problems.push(`"${env.name}" is protected. Agents never work on it directly.`);
     }
     if (r === "gatesPassed") {
-      const missing = hooks.missingGates(task, "builder", { own: req.actor === "builder" });
-      if (missing.length) problems.push(`These required checks haven't passed on the current commit: ${missing.join(", ")}. Commit everything, then run: acc gate run`);
+      const missing2 = hooks.missingGates(task, "builder", { own: req.actor === "builder" });
+      if (missing2.length) problems.push(`These required checks haven't passed on the current commit: ${missing2.join(", ")}. Commit everything, then run: acc gate run`);
     }
     if (r === "note" && req.actor === "builder") problems.push(...noteProblems(req.note, true));
   }
@@ -9097,10 +9097,10 @@ function receiptHooks(paths, config, run2) {
         const r = readReceipt(paths, head, g);
         return countsForDone(r) || !opts.own && satisfies(r) && ownRunBefore(paths, run2, task, head, g);
       };
-      const missing = required.filter((g) => !passed(g));
+      const missing2 = required.filter((g) => !passed(g));
       const full = fullGates(config);
-      if (missing.length && full.length && full.every(passed)) return [];
-      return missing;
+      if (missing2.length && full.length && full.every(passed)) return [];
+      return missing2;
     }
   };
 }
@@ -9449,7 +9449,7 @@ function deploySteps(input, run2, exec, env, source, tests) {
       return fail3(problems.length ? `The deploy to ${org} failed (job ${res.id}), ${plural(problems.length, "problem")}: ${listOf3(problems, 2)}` : read2.message?.trim() || `The deploy to ${org} ${res.status ?? "failed"} (job ${res.id}).`, { ...details, problems });
     }
     const { known, unknown: unknown2 } = deployedComponents(source);
-    const missing = [];
+    const missing2 = [];
     const unchecked = [...unknown2];
     const listedNames = /* @__PURE__ */ new Map();
     for (const c of known) {
@@ -9458,11 +9458,11 @@ function deploySteps(input, run2, exec, env, source, tests) {
       if (!listedNames.has(key)) listedNames.set(key, readListed(exec("sf", args)));
       const names3 = listedNames.get(key);
       if (names3 === null) unchecked.push(`${c.label}: ${c.name}`);
-      else if (!names3.includes(c.name)) missing.push(`${c.label}: ${c.name}`);
+      else if (!names3.includes(c.name)) missing2.push(`${c.label}: ${c.name}`);
     }
     const components = [...known.map((c) => `${c.label}: ${c.name}`), ...unknown2];
-    const verified = known.length - missing.length - (unchecked.length - unknown2.length);
-    Object.assign(details, { components, verified, unchecked, missing });
+    const verified = known.length - missing2.length - (unchecked.length - unknown2.length);
+    Object.assign(details, { components, verified, unchecked, missing: missing2 });
     const at2 = run2.now().toISOString();
     const record2 = (t) => recordDeploy(run2.paths, run2.now, run2.task, { env: env.branch, org, username: shown.username, sha: run2.sha, at: at2, jobId: res.id, paths: source, components, verified, tests: t });
     let ran = null;
@@ -9478,7 +9478,7 @@ function deploySteps(input, run2, exec, env, source, tests) {
     record2(ran?.tests ?? null);
     const withCounts = (o) => ran ? { ...o, counts: ran.counts } : o;
     const n = res.numberComponentsTotal ?? known.length;
-    if (missing.length) return withCounts(fail3(`Deployed ${plural(n, "component")} to ${org} (job ${res.id}), but the org doesn't list ${listOf3(missing)}. Check the org, and the component's name in its source.`, details));
+    if (missing2.length) return withCounts(fail3(`Deployed ${plural(n, "component")} to ${org} (job ${res.id}), but the org doesn't list ${listOf3(missing2)}. Check the org, and the component's name in its source.`, details));
     if (ran && ran.tests.outcome !== "pass") return withCounts(fail3(`Deployed ${plural(n, "component")} to ${org} (job ${res.id}), but ${plural(ran.tests.failed, "test")} failed in the org: ${listOf3(ran.failures, 2)}`, details));
     const checked = unchecked.length ? `, ${plural(unchecked.length, "component")} acc couldn't ask the org for` : "";
     return withCounts(pass3(`Deployed ${plural(n, "component")} to ${org} (job ${res.id}): ${verified} listed in the org${checked}; ${testsWords(ran?.tests ?? null)}.`, details));
@@ -10748,16 +10748,16 @@ ${r.stderr}` : ""}`);
     const { lacking, other } = failures(r.stdout);
     const tracked = under(git14(["ls-files"], dir).stdout.split("\n").filter(Boolean), source);
     const lackingFiles = [...new Set(lacking.flatMap((c) => filesFor(c.type, c.fullName, tracked)))].sort();
-    const missing = lackingFiles.filter(keep2);
+    const missing2 = lackingFiles.filter(keep2);
     const result = {
       env: env.branch,
       org: env.org,
       base,
       changed,
       added,
-      missing,
+      missing: missing2,
       unretrievable: other,
-      ignored: found2.changed.length + found2.added.length + lackingFiles.length - changed.length - added.length - missing.length,
+      ignored: found2.changed.length + found2.added.length + lackingFiles.length - changed.length - added.length - missing2.length,
       checkedAt: deps.now().toISOString(),
       kept: opts.keep ? dir : null
     };
@@ -11300,13 +11300,13 @@ function recordProduction(run2, paths, config, org) {
   if (q2.status !== 0) throw new AccError("refused", `Couldn't read Production's sandbox list: ${q2.message ?? "sf failed"}`);
   const records = q2.result?.records ?? [];
   const corrected = [];
-  const missing = [];
+  const missing2 = [];
   const types = /* @__PURE__ */ new Map();
   for (const r of records) {
     const e = config.environments.find((x2) => x2.branch === branchFor(r.SandboxName));
     const type = LICENSE_TO_TYPE[r.LicenseType] ?? GUESSED_TYPE;
     if (!e) {
-      missing.push(`${r.SandboxName} (${type})`);
+      missing2.push(`${r.SandboxName} (${type})`);
       continue;
     }
     if (e.type !== type) {
@@ -11316,7 +11316,7 @@ function recordProduction(run2, paths, config, org) {
   }
   const raw = JSON.parse(readFileSync28(paths.config, "utf8")).environments ?? [];
   writeJsonKey(paths.config, ["environments"], raw.map((e) => e.name === prod.name ? { ...e, org } : typeof e.name === "string" && types.has(e.name) ? { ...e, type: types.get(e.name) } : e));
-  return { org, domain: url.domain, corrected, missing };
+  return { org, domain: url.domain, corrected, missing: missing2 };
 }
 
 // packages/core/src/setup.ts
@@ -12710,11 +12710,11 @@ function readChecks(run2, repo, pr, env, named = []) {
     if (!every) throw new AccError("checks", `gh couldn't read pull request #${pr}'s checks: ${firstSaid(all)}`);
     list2 = [...list2, ...every.filter((c) => named.includes(name(c)) && !list2.some((l3) => name(l3) === name(c)))];
   }
-  const missing = named.filter((n) => !list2.some((c) => name(c) === n));
+  const missing2 = named.filter((n) => !list2.some((c) => name(c) === n));
   const failed = list2.filter((c) => c.bucket === "fail").map((c) => ({ name: name(c), workflow: c.workflow ?? "", link: c.link ?? "", job: actionsJob(c.link ?? "") }));
   const pending = list2.filter((c) => c.bucket === "pending").map(name);
   const cancelled = list2.filter((c) => c.bucket === "cancel").map(name);
-  return { sha, required, failed, pending, cancelled, count: list2.length, missing };
+  return { sha, required, failed, pending, cancelled, count: list2.length, missing: missing2 };
 }
 var CSI = /\x1b\[[0-?]*[ -/]*[@-~]/g;
 var PREFIX = /^[^\t\n]*\t[^\t\n]*\t/;
@@ -13389,8 +13389,8 @@ function prepareReview(paths, config, id, run2) {
   if (!worktree || !existsSync20(worktree)) throw new AccError("review", `${id}'s worktree isn't on disk any more, so there's nothing for the reviewer to read.`);
   const sha = git10(run2, paths.root, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).stdout.trim();
   if (!sha) throw new AccError("review", `The branch ${branch} isn't in this clone.`);
-  const missing = receiptHooks(paths, config, run2).missingGates(task);
-  if (missing.length) throw new AccError("refused", `${id}'s checks aren't settled on ${sha.slice(0, 7)}: ${missing.join(", ")}. Run acc gate run in its worktree, or waive them, then review.`);
+  const missing2 = receiptHooks(paths, config, run2).missingGates(task);
+  if (missing2.length) throw new AccError("refused", `${id}'s checks aren't settled on ${sha.slice(0, 7)}: ${missing2.join(", ")}. Run acc gate run in its worktree, or waive them, then review.`);
   const base = baseRef(run2, paths.root, env.branch);
   const receipts = receiptsAt(paths, sha);
   const checks = Object.values(receipts).map(checkLine);
@@ -14183,8 +14183,8 @@ function landNow(paths, config, id, deps, opts) {
     if (!branch2) throw new AccError("land", `${id} has no branch to land.`);
     const sha2 = run2("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${branch2}`], { cwd: paths.root }).stdout.trim();
     if (!sha2) throw new AccError("land", `The branch ${branch2} isn't in this clone.`);
-    const missing = receiptHooks(paths, config, run2).missingGates(task2, opts.gates);
-    if (missing.length) throw new AccError("refused", `${id}'s checks aren't settled on ${sha2.slice(0, 7)}: ${missing.join(", ")}.`);
+    const missing2 = receiptHooks(paths, config, run2).missingGates(task2, opts.gates);
+    if (missing2.length) throw new AccError("refused", `${id}'s checks aren't settled on ${sha2.slice(0, 7)}: ${missing2.join(", ")}.`);
     const own2 = readVerdict(paths, id, sha2);
     const verdict2 = own2 ?? carriedVerdict(paths, task2, sha2);
     if (!verdict2) throw new AccError("refused", `${id} hasn't been reviewed on ${sha2.slice(0, 7)}. Run acc review ${id} first.`);
@@ -15564,8 +15564,8 @@ function mergePr(paths, config, id, deps, opts) {
   if (task.autopilot?.merged?.sha === head) throw wait(`Autopilot already merged pull request #${pr.number}: acc sync moves ${id} to done.`);
   if (pr.sha !== head) throw wait(`Pull request #${pr.number} was landed at ${short3(pr.sha ?? "")}, not ${short3(head)}: a land comes first.`);
   if (!reviewedAt(paths, task, head)) throw wait(`${id}'s review hasn't passed on ${short3(head)}.`);
-  const missing = receiptHooks(paths, config, run2).missingGates(task, "merge");
-  if (missing.length) throw new AccError("merge", `Its checks aren't settled on ${short3(head)}: ${missing.join(", ")}.`);
+  const missing2 = receiptHooks(paths, config, run2).missingGates(task, "merge");
+  if (missing2.length) throw new AccError("merge", `Its checks aren't settled on ${short3(head)}: ${missing2.join(", ")}.`);
   const wt2 = task.run?.worktree;
   if (wt2 && askingUnder(pendingQuestions(questionsDir(deps.env)), wt2)) throw wait(`An agent in ${id}'s worktree is waiting for your answer.`);
   if (!fetchBranches(run2, paths.root, [env.branch, branch], { ...deps.env, GIT_TERMINAL_PROMPT: "0" })) throw wait(`Couldn't fetch ${env.branch} and ${branch} from origin.`);
@@ -15953,12 +15953,12 @@ function queueTurn(paths, config, id, deps, who) {
     }
   }
   const sha = made?.sha ?? head;
-  const missing = requiredGates(config, env.branch, "merge").filter((g) => !satisfies(readReceipt(paths, sha, g)));
-  if (missing.length) {
+  const missing2 = requiredGates(config, env.branch, "merge").filter((g) => !satisfies(readReceipt(paths, sha, g)));
+  if (missing2.length) {
     const p = placed();
     phase("checking");
     try {
-      checkCommit(paths, config, p, sha, missing, { run: run2, now: now2, slots: { ...deps.slots, onTake: () => phase("checking") }, onWait: () => phase("slot") });
+      checkCommit(paths, config, p, sha, missing2, { run: run2, now: now2, slots: { ...deps.slots, onTake: () => phase("checking") }, onWait: () => phase("slot") });
     } catch (e) {
       if (e instanceof CheckFailure) return found2({ kind: "check", failed: e.failed, merge: made?.sha ?? null });
       throw e;
@@ -17100,7 +17100,7 @@ function planInit(run2, opts) {
   const repo = opts.githubRepo ?? originRepo(run2, root);
   const account = opts.githubAccount ?? (repo ? pushingAccount(run2, root) : void 0);
   if (repo && !account) notes.push("Couldn't tell which GitHub account this repo pushes as. Pass --github-account.");
-  const readAs = opts.from && !opts.template ? templateAccount(run2, root, opts.githubAccount, () => account) : null;
+  const readAs = opts.template ? opts.readAs ?? null : opts.from ? templateAccount(run2, root, opts.githubAccount, () => account) : null;
   const loaded = opts.template ?? (opts.from ? loadTemplate(run2, opts.from, { account: readAs, env: opts.env, base: opts.cwd ?? root, home: opts.home, root }) : null);
   const t = loaded?.template ?? null;
   if (opts.profile && t?.profile && opts.profile !== t.profile) {
@@ -18272,8 +18272,8 @@ function pruneVerifications(paths, config, run2) {
 }
 
 // packages/core/src/onboarding/steps.ts
-import { existsSync as existsSync32, opendirSync, readFileSync as readFileSync48 } from "node:fs";
-import { homedir as homedir8, tmpdir as tmpdir7 } from "node:os";
+import { existsSync as existsSync33, opendirSync, readFileSync as readFileSync49 } from "node:fs";
+import { homedir as homedir9, tmpdir as tmpdir7 } from "node:os";
 import { dirname as dirname16, join as join50, sep as sep4 } from "node:path";
 
 // packages/core/src/onboarding/fix-lines.ts
@@ -18316,9 +18316,26 @@ var INSTALL_LINES = {
     mac: sh("brew install --cask claude-code"),
     windows: ps("irm https://claude.ai/install.ps1 | iex"),
     linux: sh("curl -fsSL https://claude.ai/install.sh | bash")
+  },
+  sf: {
+    mac: sh("npm install -g @salesforce/cli"),
+    windows: ps("npm install -g @salesforce/cli"),
+    linux: sh("npm install -g @salesforce/cli")
+  },
+  java: {
+    mac: sh("brew install --cask temurin"),
+    windows: ps("winget install --id EclipseAdoptium.Temurin.25.JDK -e"),
+    linux: sh("sudo apt-get install openjdk-21-jdk")
+  },
+  python: {
+    mac: sh("brew install python"),
+    windows: ps("winget install 9NQ7512CXL7T -e --accept-package-agreements --disable-interactivity; if ($?) { py install --configure -y }"),
+    linux: sh("sudo apt-get install python3")
   }
 };
 var BREW_INSTALL = '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"';
+var WINGET_REGISTER = "Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe";
+var APP_INSTALLER_PAGE = "https://apps.microsoft.com/detail/9nblggh4nns1";
 var needsBrew = (tool, system) => (installCommand(tool, system) ?? "").startsWith("brew ");
 var installLine = (tool, system = SYSTEM) => INSTALL_LINES[tool][system];
 var installCommand = (tool, system = SYSTEM) => {
@@ -18333,6 +18350,292 @@ var RESTART_WHY = "a tool installed while VSCode is open isn't on its PATH until
 var RESTART_NOTE = `After it installs, restart VSCode: ${RESTART_WHY}`;
 var RESTART_PAGE_NOTE = `On Windows, after it installs, restart VSCode: ${RESTART_WHY}`;
 var restartNote = (system = SYSTEM) => system === "windows" ? RESTART_NOTE : "";
+
+// packages/core/src/onboarding/machine-needs.ts
+var BREW_BIN = ["/opt/homebrew/bin", "/usr/local/bin"];
+var READ = "2026-10-27";
+var EVERY = ["mac", "windows", "linux"];
+var MACHINE_NEEDS = [
+  {
+    step: "A1.brew",
+    name: "Homebrew",
+    program: { mac: "brew" },
+    min: null,
+    why: "On a Mac, git, Node, the GitHub CLI, Claude Code, Java and Python are installed with Homebrew.",
+    systems: ["mac"],
+    install: null,
+    // Apple silicon, then Intel: the two prefixes Homebrew's installer uses.
+    places: { mac: BREW_BIN },
+    source: { page: "https://docs.brew.sh/Installation", read: READ }
+  },
+  {
+    step: "A1.winget",
+    name: "winget (App Installer)",
+    program: { windows: "winget" },
+    min: null,
+    why: "On Windows, git, Node, the GitHub CLI, Java and Python are installed with winget, which comes in Microsoft's App Installer.",
+    systems: ["windows"],
+    install: null,
+    places: { windows: ["{LOCALAPPDATA}\\Microsoft\\WindowsApps"] },
+    source: { page: "https://learn.microsoft.com/en-us/windows/package-manager/winget/", read: READ }
+  },
+  {
+    step: "A1.git",
+    name: "git",
+    program: { mac: "git", windows: "git", linux: "git" },
+    min: "2.40",
+    why: "Worktrees and the shared git directory need a recent git. On Windows, Git for Windows also brings the sh acc runs command lines with.",
+    systems: EVERY,
+    install: "git",
+    places: { mac: BREW_BIN, windows: ["{ProgramFiles}\\Git\\cmd", "{LOCALAPPDATA}\\Programs\\Git\\cmd"], linux: ["/usr/bin", "/usr/local/bin"] },
+    source: { page: "https://git-scm.com/install/windows", read: READ }
+  },
+  {
+    // Not a program on PATH: the sh beside Git for Windows' git (T-123), found from git --exec-path.
+    step: "A1.sh",
+    name: "Git for Windows' sh",
+    program: {},
+    min: null,
+    why: "acc runs a project's check commands, and every other command line, with the sh that Git for Windows ships (D-209). Windows has no sh of its own.",
+    systems: ["windows"],
+    install: "git",
+    places: { windows: ["{ProgramFiles}\\Git\\usr\\bin", "{ProgramFiles}\\Git\\bin"] },
+    source: { page: "https://gitforwindows.org", read: READ }
+  },
+  {
+    step: "A1.node",
+    name: "Node",
+    program: { mac: "node", windows: "node", linux: "node" },
+    min: "20",
+    why: "The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn't need it.",
+    systems: EVERY,
+    profiles: ["salesforce"],
+    install: "node",
+    places: { mac: BREW_BIN, windows: ["{ProgramFiles}\\nodejs"], linux: ["/usr/bin", "/usr/local/bin"] },
+    source: { page: "https://nodejs.org/en/download", read: READ }
+  },
+  {
+    step: "A1.npm",
+    name: "npm",
+    program: { mac: "npm", windows: "npm", linux: "npm" },
+    file: { windows: "npm.cmd" },
+    min: null,
+    why: "npm installs the Salesforce CLI. It comes with Node.",
+    systems: EVERY,
+    profiles: ["salesforce"],
+    install: "node",
+    places: { mac: BREW_BIN, windows: ["{ProgramFiles}\\nodejs"], linux: ["/usr/bin", "/usr/local/bin"] },
+    source: { page: "https://nodejs.org/en/download", read: READ }
+  },
+  {
+    step: "A1.gh",
+    name: "the GitHub CLI",
+    program: { mac: "gh", windows: "gh", linux: "gh" },
+    min: null,
+    why: "Pull requests, issues and the per-repo account all go through gh.",
+    systems: EVERY,
+    install: "gh",
+    places: { mac: BREW_BIN, windows: ["{ProgramFiles}\\GitHub CLI", "{LOCALAPPDATA}\\Microsoft\\WinGet\\Links"], linux: ["/usr/bin", "/usr/local/bin"] },
+    source: { page: "https://github.com/cli/cli#installation", read: READ }
+  },
+  {
+    step: "A1.claude",
+    name: "Claude Code",
+    program: { mac: "claude", windows: "claude", linux: "claude" },
+    min: null,
+    why: "Builders run as `claude --bg` sessions (D-009). The VSCode extension ships its own copy, so the terminal CLI can fall far behind.",
+    systems: EVERY,
+    install: "claude",
+    // Homebrew's cask, then the native installer's folder, on each system.
+    places: { mac: [...BREW_BIN, "{HOME}/.local/bin"], windows: ["{USERPROFILE}\\.local\\bin"], linux: ["{HOME}/.local/bin"] },
+    source: { page: "https://code.claude.com/docs/en/setup", read: READ }
+  },
+  {
+    step: "A1.sf",
+    name: "the Salesforce CLI",
+    program: { mac: "sf", windows: "sf", linux: "sf" },
+    file: { windows: "sf.cmd" },
+    min: null,
+    why: "Validation, retrieves and org checks use sf.",
+    systems: EVERY,
+    profiles: ["salesforce"],
+    install: "sf",
+    // npm's global folder, where `npm install -g` puts it; Salesforce's own Windows installer's folder.
+    places: { mac: ["{npm}", ...BREW_BIN], windows: ["{npm}", "{APPDATA}\\npm", "{ProgramFiles}\\sf\\bin"], linux: ["{npm}", "/usr/local/bin"] },
+    source: { page: "https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_install_cli.htm", read: READ }
+  },
+  {
+    // A plugin of sf's, not a program: it's found in `sf plugins`.
+    step: "A1.code-analyzer",
+    name: "Salesforce Code Analyzer",
+    program: {},
+    min: "5.0",
+    why: "The `static` check runs `sf code-analyzer`, Code Analyzer 5.",
+    systems: EVERY,
+    profiles: ["salesforce"],
+    install: null,
+    places: {},
+    source: { page: "https://developer.salesforce.com/docs/platform/salesforce-code-analyzer/guide/setup.html", read: READ }
+  },
+  {
+    step: "A1.java",
+    name: "Java",
+    program: { mac: "java", windows: "java", linux: "java" },
+    versionArgs: ["-version"],
+    min: "11",
+    why: "Code Analyzer's PMD and CPD engines run on a Java Development Kit, version 11 or later, as Salesforce's Code Analyzer setup page says.",
+    systems: EVERY,
+    profiles: ["salesforce"],
+    install: "java",
+    places: {
+      mac: ["/Library/Java/JavaVirtualMachines/*/Contents/Home/bin", "/opt/homebrew/opt/openjdk/bin"],
+      windows: ["{ProgramFiles}\\Eclipse Adoptium\\*\\bin", "{ProgramFiles}\\Java\\*\\bin", "{ProgramFiles}\\Microsoft\\*\\bin"],
+      linux: ["/usr/lib/jvm/*/bin", "/usr/bin"]
+    },
+    source: { page: "https://developer.salesforce.com/docs/platform/salesforce-code-analyzer/guide/setup.html", read: READ }
+  },
+  {
+    step: "A1.python",
+    name: "Python",
+    program: { mac: "python3", windows: "python", linux: "python3" },
+    min: "3.10",
+    why: "Code Analyzer's Flow engine runs on Python 3.10 or later, as Salesforce's Code Analyzer setup page says. Without it, that engine is turned off in code-analyzer.yml.",
+    systems: EVERY,
+    profiles: ["salesforce"],
+    install: "python",
+    places: {
+      mac: [...BREW_BIN, "/Library/Frameworks/Python.framework/Versions/*/bin"],
+      windows: ["{LOCALAPPDATA}\\Python\\bin", "{LOCALAPPDATA}\\Microsoft\\WindowsApps", "{LOCALAPPDATA}\\Programs\\Python\\*"],
+      linux: ["/usr/bin", "/usr/local/bin"]
+    },
+    source: { page: "https://docs.python.org/3/using/windows.html", read: READ }
+  }
+];
+function needOf(step) {
+  const n = MACHINE_NEEDS.find((x2) => x2.step === step);
+  if (!n) throw new Error(`No machine need for ${step}`);
+  return n;
+}
+var programOn = (need, system) => need.program[system] ?? null;
+function fileOn(need, system) {
+  const program = programOn(need, system);
+  if (!program) return null;
+  return need.file?.[system] ?? (system === "windows" ? `${program}.exe` : program);
+}
+
+// packages/core/src/onboarding/path-fix.ts
+import { readdirSync as readdirSync14, readFileSync as readFileSync48, existsSync as existsSync32 } from "node:fs";
+import { homedir as homedir8 } from "node:os";
+import { posix as posix3, win32 as win323 } from "node:path";
+var REAL_FILES = {
+  exists: existsSync32,
+  list: (dir) => {
+    try {
+      return readdirSync14(dir);
+    } catch {
+      return [];
+    }
+  },
+  read: (file) => {
+    try {
+      return readFileSync48(file, "utf8");
+    } catch {
+      return null;
+    }
+  }
+};
+var filesOf2 = (ctx) => ctx.files ?? REAL_FILES;
+var pathsOn = (system) => system === "windows" ? win323 : posix3;
+var homeOf = (ctx) => ctx.env.HOME || ctx.env.USERPROFILE || homedir8();
+var RESTART = `Quit VSCode and open it again: ${RESTART_WHY}`;
+function npmBin(ctx, system) {
+  return cached(ctx, "npm-prefix", () => {
+    const r = ctx.run("npm", ["prefix", "-g"], { env: ctx.env });
+    const prefix = r.code === 0 ? r.stdout.trim() : "";
+    if (!prefix) return null;
+    return system === "windows" ? prefix : posix3.join(prefix, "bin");
+  });
+}
+function expandPlace(ctx, place2, system) {
+  const names3 = {
+    HOME: homeOf(ctx),
+    USERPROFILE: ctx.env.USERPROFILE || homeOf(ctx),
+    ProgramFiles: ctx.env.ProgramFiles,
+    LOCALAPPDATA: ctx.env.LOCALAPPDATA,
+    APPDATA: ctx.env.APPDATA
+  };
+  let missing2 = false;
+  const filled = place2.replace(/\{(\w+)\}/g, (_m, name) => {
+    const v = name === "npm" ? npmBin(ctx, system) : names3[name];
+    if (!v) missing2 = true;
+    return v ?? "";
+  });
+  if (missing2) return [];
+  const sep5 = system === "windows" ? /[\\/]/ : /\//;
+  const at2 = pathsOn(system);
+  const [head = "", ...parts] = filled.split(sep5);
+  let dirs = [head === "" ? at2.sep : /^[A-Za-z]:$/.test(head) ? head + at2.sep : head];
+  for (const part of parts.filter(Boolean)) {
+    dirs = part === "*" ? dirs.flatMap((d) => filesOf2(ctx).list(d).sort().reverse().map((e) => at2.join(d, e))) : dirs.map((d) => at2.join(d, part));
+  }
+  return dirs;
+}
+function installedAt(ctx, need, system) {
+  const file = fileOn(need, system);
+  if (!file) return null;
+  const at2 = pathsOn(system);
+  for (const place2 of need.places[system] ?? []) {
+    for (const dir of expandPlace(ctx, place2, system)) if (filesOf2(ctx).exists(at2.join(dir, file))) return dir;
+  }
+  return null;
+}
+var psLiteral = (s) => `'${s.replace(/'/g, "''")}'`;
+var addToUserPath = (dir) => `[Environment]::SetEnvironmentVariable('Path', (([Environment]::GetEnvironmentVariable('Path', 'User'), ${psLiteral(dir)}) | Where-Object { $_ }) -join ';', 'User')`;
+var READ_PATHS = "[Environment]::GetEnvironmentVariable('Path', 'User'); [Environment]::GetEnvironmentVariable('Path', 'Machine')";
+function savedWindowsPath(ctx) {
+  return cached(ctx, "saved-path", () => {
+    const r = ctx.run("powershell", ["-NoProfile", "-NonInteractive", "-Command", READ_PATHS], { env: ctx.env });
+    if (r.code !== 0) return null;
+    return r.stdout.split(/[\r\n;]+/).map((d) => d.replace(/%(\w+)%/g, (m, n) => ctx.env[n] ?? m).trim()).filter(Boolean);
+  });
+}
+var sameDir = (a2, b, system) => {
+  const norm = (d) => d.replace(/[\\/]+$/, "");
+  return system === "windows" ? norm(a2).toLowerCase() === norm(b).toLowerCase() : norm(a2) === norm(b);
+};
+var brewShellenv = (dir) => `echo ${shellQuote(`eval "$(${posix3.join(dir, "brew")} shellenv)"`)} >> ~/.zprofile`;
+var zprofilePath = (dir) => `echo ${shellQuote(`export PATH="${dir}:$PATH"`)} >> ~/.zprofile`;
+function notOnPath(ctx, need, dir, system) {
+  const seen = `${need.name} is installed in ${dir}, but VSCode can't see it: that folder isn't on its PATH.`;
+  const base = { status: "fail", place: dir };
+  if (system === "windows") {
+    const saved = savedWindowsPath(ctx);
+    if (saved?.some((d) => sameDir(d, dir, system))) {
+      return { ...base, detail: `${need.name} is installed in ${dir}, and that folder is on your PATH, but VSCode started before it was added. ${RESTART}`, byHand: RESTART };
+    }
+    return {
+      ...base,
+      detail: `${seen} Do it adds it to your own PATH (not the machine's), then quit VSCode and open it again.`,
+      fix: addToUserPath(dir),
+      ask: `Add ${dir} to your PATH? It's added to your own PATH, not the machine's, so ${need.name} is found. Then quit VSCode and open it again.`
+    };
+  }
+  if (system === "mac") {
+    const brew = filesOf2(ctx).exists(posix3.join(dir, "brew"));
+    const profile = filesOf2(ctx).read(posix3.join(homeOf(ctx), ".zprofile")) ?? "";
+    const there = brew ? /brew shellenv/.test(profile) : profile.includes(dir);
+    if (there) return { ...base, detail: `${seen} ~/.zprofile adds it already, so VSCode started before that. ${RESTART}`, byHand: RESTART };
+    const what = brew ? "Homebrew's shellenv line" : `a line that adds ${dir} to PATH`;
+    return {
+      ...base,
+      detail: `${seen} Do it adds ${what} to ~/.zprofile, then quit VSCode and open it again.`,
+      fix: brew ? brewShellenv(dir) : zprofilePath(dir),
+      ask: `Add ${what} to ~/.zprofile, so ${dir} is on your PATH? Then quit VSCode and open it again.`
+    };
+  }
+  const by = `Add ${dir} to PATH in your shell's profile, such as ~/.profile, then quit VSCode and open it again.`;
+  return { ...base, detail: `${seen} ${by}`, byHand: by };
+}
 
 // packages/core/src/onboarding/cloud-steps.ts
 var ROUTINE_PROMPT = [
@@ -18480,8 +18783,8 @@ var MERGE_STEPS = [
       if (state.configured && state.attributed) return pass("git keeps the better of each floor when two branches raised them.");
       const set = floorsDriverSet(ctx.run, ctx.paths.root);
       if (set && !state.configured) return fail(`The floors file's merge driver in this clone's git config is "${set}", which doesn't run acc's floors merge. This step replaces it with acc's.`, floorsDriverFix(state));
-      const missing = [...state.configured ? [] : ["this clone's git config"], ...state.attributed ? [] : [".gitattributes"]];
-      return fail(`The floors file's merge driver isn't in ${missing.join(" or ")}, so two raised floors conflict.`, floorsDriverFix(state));
+      const missing2 = [...state.configured ? [] : ["this clone's git config"], ...state.attributed ? [] : [".gitattributes"]];
+      return fail(`The floors file's merge driver isn't in ${missing2.join(" or ")}, so two raised floors conflict.`, floorsDriverFix(state));
     }
   }
 ];
@@ -18514,11 +18817,11 @@ var CI_STEPS = [
       const found2 = cached(ctx, `required-checks ${gh.repo} ${branch}`, () => requiredChecks(ctx.run, gh.repo, branch, env));
       if (found2.state === "unavailable") return skip(`${found2.why} Autopilot still waits for ${quotedChecks(gh.checks)} itself before it merges.`);
       if (found2.state === "unknown") return unknown(found2.why);
-      const missing = gh.checks.filter((c) => !found2.checks.includes(c));
-      if (!missing.length) return pass(`GitHub requires ${quotedChecks(gh.checks)} before a pull request merges into ${branch}.`);
-      const fix = requireChecksFix(gh.repo, gh.account, branch, missing, found2);
-      const what = `GitHub doesn't require ${quotedChecks(missing)} before a pull request merges into ${branch}.`;
-      return fix ? fail(`${what} Autopilot waits for ${missing.length === 1 ? "it" : "them"} all the same; a person merging doesn't have to.`, fix) : fail(`${what} ${branch}'s protection requires no checks yet: on GitHub, in the repo's Settings, Branches, edit ${branch}'s rule, tick Require status checks to pass, and add ${missing.join(", ")}.`);
+      const missing2 = gh.checks.filter((c) => !found2.checks.includes(c));
+      if (!missing2.length) return pass(`GitHub requires ${quotedChecks(gh.checks)} before a pull request merges into ${branch}.`);
+      const fix = requireChecksFix(gh.repo, gh.account, branch, missing2, found2);
+      const what = `GitHub doesn't require ${quotedChecks(missing2)} before a pull request merges into ${branch}.`;
+      return fix ? fail(`${what} Autopilot waits for ${missing2.length === 1 ? "it" : "them"} all the same; a person merging doesn't have to.`, fix) : fail(`${what} ${branch}'s protection requires no checks yet: on GitHub, in the repo's Settings, Branches, edit ${branch}'s rule, tick Require status checks to pass, and add ${missing2.join(", ")}.`);
     }
   }
 ];
@@ -18534,11 +18837,11 @@ function needsProject(ctx) {
 }
 var NEARBY_LIMIT = 200;
 function nearbyRepo(cwd) {
-  const isRepo = (d) => existsSync32(join50(d, ".git"));
+  const isRepo = (d) => existsSync33(join50(d, ".git"));
   const parent = dirname16(cwd);
   if (samePath(parent, tmpdir7())) return null;
   const candidates = [...nearbyFolders(parent).filter((d) => d !== cwd), parent].filter(isRepo);
-  return candidates.find((d) => existsSync32(join50(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync32(join50(d, "sfdx-project.json"))) ?? null;
+  return candidates.find((d) => existsSync33(join50(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync33(join50(d, "sfdx-project.json"))) ?? null;
 }
 function nearbyFolders(parent) {
   const folders = [];
@@ -18586,7 +18889,7 @@ function billingVars(vars) {
   return [...API_KEY_VARS.filter((v) => String(vars[v] ?? "") !== ""), ...CLOUD_VARS.filter((v) => isTrue(vars[v]))];
 }
 function claudeSettingsFiles(ctx) {
-  const home = ctx.env.HOME || homedir8();
+  const home = ctx.env.HOME || homedir9();
   const tilde = (f) => f.startsWith(home + sep4) ? `~${f.slice(home.length)}` : f;
   const user = ctx.env.CLAUDE_CONFIG_DIR ? join50(ctx.env.CLAUDE_CONFIG_DIR, "settings.json") : join50(home, ".claude", "settings.json");
   const files = [{ file: user, label: tilde(user) }];
@@ -18606,7 +18909,7 @@ function claudeSettingsFiles(ctx) {
 function billingSettings(file) {
   let text3;
   try {
-    text3 = readFileSync48(file, "utf8");
+    text3 = readFileSync49(file, "utf8");
   } catch {
     return [];
   }
@@ -18658,59 +18961,92 @@ function notInstalled(ctx, detail, tool) {
   return fail(note ? `${detail} ${note}` : detail, installCommand(tool, system) ?? void 0);
 }
 var brewInstalled = (ctx) => cached(ctx, "brew", () => ctx.run("brew", ["--version"], { env: ctx.env }).code === 0);
-function versionStep(id, title, why, cmd, args, min, fix, profiles) {
-  const tool = typeof fix === "string" ? null : fix.tool;
+var STAND_IN = /Unable to locate a Java Runtime|Python was not found/;
+function missing(ctx, need, detail) {
+  const system = ctx.system ?? SYSTEM;
+  const at2 = installedAt(ctx, need, system);
+  return at2 ? notOnPath(ctx, need, at2, system) : notInstalled(ctx, detail, need.install);
+}
+var ONLY_ON = {
+  mac: "Only on a Mac: Windows installs with winget, and Linux with its own package manager.",
+  windows: "Only on Windows: a Mac installs with Homebrew, and Linux with its own package manager.",
+  linux: "Only on Linux."
+};
+function needStep(id, title, fix) {
+  const need = needOf(id);
+  const tool = need.install;
+  const fixes = fix ?? (tool ? bySystem((s) => installFix(tool, s)) : {});
   return {
     id,
     part: "machine",
     group: "A1",
     title,
-    why,
-    profiles,
-    ...typeof fix === "string" ? { fix: { command: fix } } : bySystem((s) => installFix(fix.tool, s)),
+    why: need.why,
+    ...need.profiles ? { profiles: [...need.profiles] } : {},
+    ...fixes,
     ...tool ? { install: tool } : {},
     check(ctx) {
-      const r = ctx.run(cmd, args, { env: ctx.env });
-      if (r.code === 127) return notInstalled(ctx, `${cmd} isn't installed.`, tool);
+      const cmd = programOn(need, ctx.system ?? SYSTEM);
+      if (!cmd) return skip(ONLY_ON[need.systems[0] ?? "linux"]);
+      const r = ctx.run(cmd, [...need.versionArgs ?? ["--version"]], { env: ctx.env });
+      const said2 = r.stdout + r.stderr;
+      if (r.code === 127 || r.code !== 0 && STAND_IN.test(said2)) return missing(ctx, need, `${tool ? cmd : need.name} isn't installed.`);
       if (r.code !== 0) return fail(`${cmd} didn't run: ${(r.stderr || r.stdout).trim().split("\n")[0]}`);
-      const v = firstVersion(r.stdout + r.stderr);
-      if (min && (!v || !versionAtLeast(v, min))) return fail(`${cmd} ${v ?? "(unknown version)"} is older than ${min}.`);
+      const v = firstVersion(said2);
+      if (need.min && (!v || !versionAtLeast(v, need.min))) return fail(`${cmd} ${v ?? "(unknown version)"} is older than ${need.min}.`);
       return pass(`${cmd} ${v ?? ""}`.trim());
     }
   };
 }
 var STEPS = [
   // ------------------------------------------------------------ Part A: this machine
+  needStep("A1.brew", "Homebrew (on a Mac)", { fix: { command: BREW_INSTALL } }),
+  needStep("A1.winget", "winget (on Windows)", { fix: { command: WINGET_REGISTER, text: `If App Installer isn't installed at all, get it from ${APP_INSTALLER_PAGE}.` } }),
+  needStep("A1.git", "git 2.40 or later"),
   {
-    id: "A1.brew",
+    id: "A1.sh",
     part: "machine",
     group: "A1",
-    title: "Homebrew (on a Mac)",
-    why: "On a Mac, git, Node, the GitHub CLI and Claude Code are installed with Homebrew. Windows installs with winget, so this step is only for a Mac.",
-    fix: { command: BREW_INSTALL },
+    title: "Git for Windows' sh (on Windows)",
+    why: needOf("A1.sh").why,
+    ...bySystem((s) => installFix("git", s)),
+    install: "git",
     check(ctx) {
-      if ((ctx.system ?? SYSTEM) !== "mac") return skip("Only on a Mac: Windows installs with winget, and Linux with its own package manager.");
-      const r = ctx.run("brew", ["--version"], { env: ctx.env });
-      if (r.code === 127) return fail("Homebrew isn't installed.");
-      if (r.code !== 0) return fail(`brew didn't run: ${(r.stderr || r.stdout).trim().split("\n")[0]}`);
-      return pass(`brew ${firstVersion(r.stdout) ?? ""}`.trim());
+      const system = ctx.system ?? SYSTEM;
+      if (system !== "windows") return skip("Only on Windows: a Mac and Linux have /bin/sh.");
+      const files = ctx.files ?? REAL_FILES;
+      let gitRan = true;
+      try {
+        const sh2 = shellFor({
+          platform: "win32",
+          exists: (p) => files.exists(p),
+          gitExecPath: () => {
+            const r = ctx.run("git", ["--exec-path"], { env: ctx.env });
+            gitRan = r.code === 0 && !!r.stdout.trim();
+            return gitRan ? r.stdout.trim() : null;
+          }
+        });
+        return pass(`sh at ${sh2}`);
+      } catch {
+        return gitRan ? notInstalled(ctx, "git is installed, but Git for Windows' sh isn't beside it. Install Git for Windows again.", "git") : missing(ctx, needOf("A1.git"), "git isn't installed, and Git for Windows brings the sh.");
+      }
     }
   },
-  versionStep("A1.git", "git 2.40 or later", "Worktrees and the shared git directory need a recent git.", "git", ["--version"], "2.40", { tool: "git" }),
   // acc itself needs no Node: its launcher falls back to VSCode's runtime (D-077).
-  versionStep("A1.node", "Node 20 or later", "The Salesforce CLI and its plugins run on Node, and npm installs them. The Command Center itself doesn't need it.", "node", ["--version"], "20", { tool: "node" }, ["salesforce"]),
-  versionStep("A1.gh", "GitHub CLI", "Pull requests, issues and the per-repo account all go through gh.", "gh", ["--version"], null, { tool: "gh" }),
+  needStep("A1.node", "Node 20 or later"),
+  needStep("A1.npm", "npm"),
+  needStep("A1.gh", "GitHub CLI"),
   {
     id: "A1.claude",
     part: "machine",
     group: "A1",
     title: "Claude Code CLI with background sessions",
-    why: "Builders run as `claude --bg` sessions (D-009). The VSCode extension ships its own copy, so the terminal CLI can fall far behind.",
+    why: needOf("A1.claude").why,
     fix: { command: "claude update" },
     install: "claude",
     check(ctx) {
       const v = ctx.run("claude", ["--version"], { env: ctx.env });
-      if (v.code === 127) return notInstalled(ctx, "claude isn't installed.", "claude");
+      if (v.code === 127) return missing(ctx, needOf("A1.claude"), "claude isn't installed.");
       const h2 = ctx.run("claude", ["--help"], { env: ctx.env });
       if (!/--bg\b/.test(h2.stdout)) return fail(`claude ${firstVersion(v.stdout) ?? ""} has no --bg. Update it.`);
       return pass(`claude ${firstVersion(v.stdout) ?? ""}`.trim());
@@ -18739,21 +19075,28 @@ var STEPS = [
       return pass("Agents use your Claude subscription.");
     }
   },
-  versionStep("A1.sf", "Salesforce CLI", "Validation, retrieves and org checks use sf.", "sf", ["--version"], null, "npm install -g @salesforce/cli", ["salesforce"]),
+  needStep("A1.sf", "Salesforce CLI"),
   {
     id: "A1.code-analyzer",
     part: "machine",
     group: "A1",
     title: "Salesforce Code Analyzer",
     profiles: ["salesforce"],
-    why: "The `static` check runs `sf code-analyzer`.",
+    why: needOf("A1.code-analyzer").why,
     fix: { command: "sf plugins install code-analyzer" },
     check(ctx) {
       const r = ctx.run("sf", ["plugins"], { env: { ...ctx.env, SF_NO_UPDATE_NOTIFIER: "true" } });
-      if (r.code === 127) return fail("sf isn't installed.");
-      return /code-analyzer/.test(r.stdout) ? pass("code-analyzer plugin installed") : fail("The code-analyzer plugin isn't installed.");
+      if (r.code === 127) return fail("sf isn't installed: do A1.sf first.");
+      const found2 = /code-analyzer\s+(\d+(?:\.\d+)*)/.exec(r.stdout);
+      if (!found2 && !/code-analyzer/.test(r.stdout)) return fail("The code-analyzer plugin isn't installed.");
+      const min = needOf("A1.code-analyzer").min;
+      if (found2 && min && !versionAtLeast(found2[1], min)) return fail(`The code-analyzer plugin ${found2[1]} is older than ${min}.`, "sf plugins install code-analyzer@latest");
+      return pass(`code-analyzer plugin ${found2?.[1] ?? ""}`.trim() + " installed");
     }
   },
+  // What Code Analyzer's engines run on, as Salesforce's setup page says (T-133): PMD and CPD need Java, the Flow engine Python.
+  needStep("A1.java", "Java 11 or later, for Code Analyzer"),
+  needStep("A1.python", "Python 3.10 or later, for Code Analyzer"),
   {
     id: "A2.gh-login",
     part: "machine",
@@ -18815,7 +19158,7 @@ var STEPS = [
       if (ctx.paths) return pass(`Repo at ${ctx.paths.root}`);
       const near = nearbyRepo(ctx.cwd);
       if (near) return { status: "fail", detail: `This folder isn't a git repo. The project's repo looks like ${near}. Open that folder instead.`, open: near };
-      const sfdx = existsSync32(join50(ctx.cwd, "sfdx-project.json"));
+      const sfdx = existsSync33(join50(ctx.cwd, "sfdx-project.json"));
       return fail(sfdx ? "This Salesforce folder isn't a git repo yet. Onboarding starts with the client's repo (guide steps B1 and B2)." : "This folder isn't a git repo. Open the project's repo folder.");
     }
   },
@@ -18832,7 +19175,7 @@ var STEPS = [
         const n = ctx.config.environments.length;
         return pass(`${ctx.config.project}: ${ctx.config.profile}, ${n} environment${n === 1 ? "" : "s"}`);
       }
-      if (!existsSync32(ctx.paths.config)) return fail("There's no .acc/config.json yet.");
+      if (!existsSync33(ctx.paths.config)) return fail("There's no .acc/config.json yet.");
       return fail(`.acc/config.json has problems: ${ctx.configErrors.join(" ")}`);
     }
   },
@@ -18850,7 +19193,7 @@ var STEPS = [
       const rec = config.template;
       if (!rec) return skip("Not started from a team template.");
       const root = ctx.paths.root;
-      const home = ctx.env.HOME || homedir8();
+      const home = ctx.env.HOME || homedir9();
       let local = null;
       try {
         const src = parseSource(rec.source, root, home);
@@ -18858,7 +19201,7 @@ var STEPS = [
       } catch (e) {
         return unknown(`The template's recorded source, ${rec.source}, can't be read: ${e.message}`);
       }
-      if (local && !existsSync32(local)) return skip(`${rec.name} is a file, ${rec.source}, that isn't on this machine.`);
+      if (local && !existsSync33(local)) return skip(`${rec.name} is a file, ${rec.source}, that isn't on this machine.`);
       let read2;
       try {
         read2 = readTemplate(ctx.run, rec.source, { account: config.github?.account ?? null, env: ctx.env, base: root, home, timeoutMs: 2e4 });
@@ -18885,7 +19228,7 @@ var STEPS = [
       const need = needsProject(ctx);
       if (need) return need;
       const root = ctx.paths.root;
-      const copies = rulesStatus(ctx.run, root, { account: ctx.config.github?.account ?? null, env: ctx.env, home: ctx.env.HOME || homedir8(), timeoutMs: 2e4 });
+      const copies = rulesStatus(ctx.run, root, { account: ctx.config.github?.account ?? null, env: ctx.env, home: ctx.env.HOME || homedir9(), timeoutMs: 2e4 });
       const sourced = copies.filter((c) => c.state !== "local");
       const names3 = (cs) => cs.length < 2 ? cs.map((c) => c.file).join("") : `${cs.slice(0, -1).map((c) => c.file).join(", ")} and ${cs.at(-1).file}`;
       if (!sourced.length) return skip(copies.length ? `${names3(copies)} ${copies.length === 1 ? "has" : "have"} no source to compare with.` : "No rules are copied in. Import rules\u2026 copies a team's rules file into .acc/rules/.");
@@ -19018,8 +19361,8 @@ var STEPS = [
       const need = needsProject(ctx);
       if (need) return need;
       const lines = new Set((readText2(ctx.paths.root, ".gitignore") ?? "").split("\n").map((l3) => l3.trim()));
-      const missing = BACKSTOP.filter((p) => !lines.has(p));
-      return missing.length ? fail(`.gitignore is missing ${missing.join(", ")}.`, `printf '${missing.join("\\n")}\\n' >> .gitignore`) : pass("CSV, XLS, XLSX and EML are blocked at the root.");
+      const missing2 = BACKSTOP.filter((p) => !lines.has(p));
+      return missing2.length ? fail(`.gitignore is missing ${missing2.join(", ")}.`, `printf '${missing2.join("\\n")}\\n' >> .gitignore`) : pass("CSV, XLS, XLSX and EML are blocked at the root.");
     }
   },
   {
@@ -19103,9 +19446,9 @@ var STEPS = [
     check(ctx) {
       const need = needsProject(ctx);
       if (need) return need;
-      const missing = ctx.config.environments.filter((e) => !hasBranch(ctx, e.branch));
-      const away = ctx.config.profile === "salesforce" ? missing.find((e) => e.type === "production" && productionAway(ctx)) : void 0;
-      const rest = missing.filter((e) => e !== away);
+      const missing2 = ctx.config.environments.filter((e) => !hasBranch(ctx, e.branch));
+      const away = ctx.config.profile === "salesforce" ? missing2.find((e) => e.type === "production" && productionAway(ctx)) : void 0;
+      const rest = missing2.filter((e) => e !== away);
       if (rest.length) return fail(`No branch for ${rest.map((e) => e.branch).join(", ")}.`);
       const made = ctx.config.environments.filter((e) => e !== away).map((e) => e.branch).join(", ");
       return pass(away ? `${made}. No branch for ${away.branch} yet: it's retrieved from Production. ${PRODUCTION_NOT_HERE}` : made);
@@ -19220,7 +19563,7 @@ var STEPS = [
         const lines = text3.replace(/\n$/, "").split("\n");
         if (lines.some((l3) => l3.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
         const paths = lines.filter((l3) => l3.trim() && !l3.startsWith("#"));
-        const here = paths.filter((p) => !existsSync32(join50(ctx.paths.root, p)));
+        const here = paths.filter((p) => !existsSync33(join50(ctx.paths.root, p)));
         const elsewhere = here.length ? filesOnEnvironmentBranches(ctx) : /* @__PURE__ */ new Set();
         const gone = here.filter((p) => !elsewhere.has(p));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(", ")}${gone.length > 3 ? " \u2026" : ""}.`);
@@ -19309,8 +19652,8 @@ var STEPS = [
       if (!map && !places.length) return skip("Only one environment, so there's no map to document.");
       const text3 = readText2(ctx.paths.root, "README.md");
       if (!text3) return fail("There's no README.md.");
-      const missing = map ? ctx.config.environments.filter((e) => !text3.includes(`\`${e.branch}\``)).map((e) => e.branch) : [];
-      if (missing.length) return fail(`README.md doesn't mention ${missing.join(", ")}.`);
+      const missing2 = map ? ctx.config.environments.filter((e) => !text3.includes(`\`${e.branch}\``)).map((e) => e.branch) : [];
+      if (missing2.length) return fail(`README.md doesn't mention ${missing2.join(", ")}.`);
       const unnamed = places.filter((p) => !p.needs.every((n) => text3.includes(n)));
       if (unnamed.length) return fail(`README.md doesn't link ${orList(unnamed.map((p) => p.words))}, where this repo's tickets come from.`);
       return pass(map ? `Every environment is in the README${places.length ? ", and where its tickets come from" : ""}.` : "The README says where this repo's tickets come from.");
@@ -19358,7 +19701,7 @@ var STEPS = [
       } catch {
       }
       const TOOLS = { format: "prettier", lint: "eslint", "lwc-tests": "sfdx-lwc-jest" };
-      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync32(join50(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
+      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync33(join50(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
       if (absent.length) return fail(`Not installed in ${main2}: ${absent.join(", ")}.`, chain(fixShell(ctx), `cd ${quoteArg(fixShell(ctx))(main2)}`, "npm install"));
       return pass(`Ready: ${required.join(", ")}.`);
     }
@@ -19404,7 +19747,7 @@ var STEPS = [
       const cmd = `acc drift ${env.branch}`;
       let report = null;
       try {
-        report = JSON.parse(readFileSync48(driftReportPath(ctx.paths, env.branch), "utf8"));
+        report = JSON.parse(readFileSync49(driftReportPath(ctx.paths, env.branch), "utf8"));
       } catch {
         report = null;
       }
@@ -19420,8 +19763,9 @@ var STEPS = [
 ];
 function applies(step, ctx) {
   if (!step.profiles) return true;
-  if (!ctx.config) return step.part === "machine";
-  return step.profiles.includes(ctx.config.profile);
+  const profile = ctx.profile ?? ctx.config?.profile;
+  if (!profile) return step.part === "machine";
+  return step.profiles.includes(profile);
 }
 function runSteps(ctx, part, only) {
   return STEPS.filter((s) => (!part || s.part === part) && (!only?.length || only.includes(s.id)) && applies(s, ctx)).map((step) => {
@@ -19475,7 +19819,7 @@ function gateLabel(s) {
 }
 
 // packages/cli/src/shared.ts
-import { readFileSync as readFileSync49, realpathSync as realpathSync6 } from "node:fs";
+import { readFileSync as readFileSync50, realpathSync as realpathSync6 } from "node:fs";
 import { dirname as dirname17 } from "node:path";
 
 // package.json
@@ -19500,7 +19844,7 @@ var READ_ERRORS = {
 };
 function readFileArg(file) {
   try {
-    return readFileSync49(file, "utf8");
+    return readFileSync50(file, "utf8");
   } catch (e) {
     const code2 = e.code ?? "";
     const why = READ_ERRORS[code2] ?? e.message;
@@ -19803,8 +20147,8 @@ function fileLines(paths, config, ledger, t) {
   return { lines, data: { known: !!planned, planned: planned ?? [], ...look2 } };
 }
 function noteShown(t) {
-  const { note, fromLast, missing } = shownNote(t);
-  if (!note) return missing ? [tone(fromLast ? "Its last run left no note." : "Its builder left no note.", "orange"), ""] : [];
+  const { note, fromLast, missing: missing2 } = shownNote(t);
+  if (!note) return missing2 ? [tone(fromLast ? "Its last run left no note." : "Its builder left no note.", "orange"), ""] : [];
   const parts = ["landed", "moved", "open"].flatMap((k2) => [`  ${NOTE_LABELS[k2]}:`, ...note[k2].length ? note[k2].map((l3) => `    - ${l3}`) : ["    none"]]);
   return [`Builder's note${fromLast ? ", from its last run" : ""} (${note.by}, ${note.ended === "blocked" ? "blocked" : "to review"} ${note.at}):`, ...parts, ""];
 }
@@ -20354,7 +20698,7 @@ var area3 = {
 };
 
 // packages/cli/src/commands/checks.ts
-import { existsSync as existsSync33, realpathSync as realpathSync7 } from "node:fs";
+import { existsSync as existsSync34, realpathSync as realpathSync7 } from "node:fs";
 import { join as join51 } from "node:path";
 function currentBranch(root) {
   const r = run("git", ["branch", "--show-current"], { cwd: root });
@@ -20440,7 +20784,7 @@ function cmdGateWaive(o, names3) {
   return 0;
 }
 function pruneRelaxes(paths) {
-  if (existsSync33(paths.relaxed)) mutate(paths, now, (l3) => pruneRelaxed(paths.relaxed, l3));
+  if (existsSync34(paths.relaxed)) mutate(paths, now, (l3) => pruneRelaxed(paths.relaxed, l3));
 }
 function cmdGateRelax(o, names3) {
   if (process.env.ACC_ROLE === "builder") throw new AccError("refused", `A builder can't relax a floor. If this change has to make a number worse, say why with acc block "<why>", and a person decides.`);
@@ -20454,7 +20798,7 @@ function cmdGateRelax(o, names3) {
   if (!task) throw new AccError("usage", `A relax is for one task, and this checkout isn't a task's. Name it: acc gate relax ${name} --to <n> --reason "<why>" --task <id>.`);
   if (task.state === "done") throw new AccError("refused", `${task.id} is done, and a relax counts only while its task is open.`);
   const where = task.run?.worktree;
-  if (!where || !existsSync33(where)) throw new AccError("usage", `${task.id} has no worktree on disk, so there's no floors file to relax.`);
+  if (!where || !existsSync34(where)) throw new AccError("usage", `${task.id} has no worktree on disk, so there's no floors file to relax.`);
   const record2 = mutate(paths, now, (l3, emit) => {
     pruneRelaxed(paths.relaxed, l3);
     const r = relaxFloor(paths.relaxed, join51(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: o.reason ?? "", by, now, task: task.id });
@@ -21114,7 +21458,7 @@ var area10 = {
 };
 
 // packages/cli/src/commands/merging.ts
-import { existsSync as existsSync34, readFileSync as readFileSync50 } from "node:fs";
+import { existsSync as existsSync35, readFileSync as readFileSync51 } from "node:fs";
 import { join as join52 } from "node:path";
 function cmdFloorsMerge(files) {
   if (files.length !== 3) throw new AccError("usage", "acc floors merge <common> <ours> <theirs>: git runs it, with %O %A %B.");
@@ -21138,7 +21482,7 @@ function cmdIndex(o, check2) {
   const want = decisionsIndexFor(root);
   if (want === null) throw new AccError("refused", "This repo keeps no docs/decisions/ folder, so there is no index to make.");
   const file = join52(root, DECISIONS_INDEX);
-  const stale = !existsSync34(file) || readFileSync50(file, "utf8") !== want;
+  const stale = !existsSync35(file) || readFileSync51(file, "utf8") !== want;
   if (check2) {
     out(o, () => stale ? tone(`${DECISIONS_INDEX} is stale: acc decisions index writes it again.`, "orange") : `${DECISIONS_INDEX} is as docs/decisions/ makes it.`, { file: DECISIONS_INDEX, stale });
     return stale ? 1 : 0;
@@ -22045,8 +22389,28 @@ var area15 = {
 };
 
 // packages/cli/src/commands/setup.ts
-import { existsSync as existsSync35 } from "node:fs";
+import { existsSync as existsSync36 } from "node:fs";
 import { join as join54 } from "node:path";
+
+// packages/core/src/onboarding/machine-check.ts
+function checkMachine(ctx, profile) {
+  const results = runSteps({ ...ctx, profile }, "machine");
+  return { results, todo: results.filter((r) => r.result.status === "fail") };
+}
+var machineState = (r) => r.result.place ? "not-on-path" : "to-do";
+function machineLines(todo) {
+  return todo.flatMap(({ step, result }) => {
+    const fix = result.byHand ?? result.fix ?? step.fix?.command ?? step.fix?.text;
+    return [
+      `  ${machineState({ step, result }) === "not-on-path" ? "not on PATH" : "to do"}  ${step.id.padEnd(18)} ${step.title}`,
+      `      ${result.detail}`,
+      ...fix ? [`      fix: ${fix}`] : [],
+      ...result.ask ? [`      asks first: ${result.ask}`] : []
+    ];
+  });
+}
+
+// packages/cli/src/commands/setup.ts
 function renderSteps(results, guided) {
   const lines = [];
   let part = "";
@@ -22059,8 +22423,9 @@ function renderSteps(results, guided) {
     if (result.status !== "pass" && result.status !== "skip") lines.push(`      ${result.detail}`);
     else if (!guided) lines.push(tone(`      ${result.detail}`, "dim"));
     if (result.status === "fail" || result.status === "unknown") {
-      const fix = result.fix ?? step.fix?.command ?? step.fix?.text;
+      const fix = result.byHand ?? result.fix ?? step.fix?.command ?? step.fix?.text;
       if (fix) lines.push(`      fix: ${fix}`);
+      if (result.ask) lines.push(`      asks first: ${result.ask}`);
       if (result.open) lines.push(`      open: ${result.open}`);
       if (step.fix?.docs) lines.push(`      docs: ${step.fix.docs}`);
     }
@@ -22079,23 +22444,45 @@ function cmdDoctor(o, guided) {
   const ctx = makeContext(process.cwd(), run, process.env, VERSION);
   const part = o.part;
   if (part && part !== "machine" && part !== "project") throw new AccError("usage", "--part must be machine or project.");
+  const profile = profileFlag(o.profile);
+  if (profile) ctx.profile = profile;
   const only = o.step ?? [];
   const unknownIds = only.filter((id) => !STEPS.some((s) => s.id === id));
   if (unknownIds.length) throw new AccError("usage", `No step ${unknownIds.join(", ")}. Run acc doctor to see them all.`);
   const results = runSteps(ctx, part, only);
-  out(o, () => renderSteps(results, guided), results.map(({ step, result }) => ({
-    id: step.id,
-    part: step.part,
-    group: step.group,
-    title: step.title,
-    why: step.why,
-    status: result.status,
-    detail: result.detail,
-    fix: result.fix ?? null,
-    howTo: step.fix ?? null,
-    open: result.open ?? null
-  })));
+  out(o, () => renderSteps(results, guided), results.map(doctorRow));
   return results.some((r) => r.result.status === "fail") ? 1 : 0;
+}
+function profileFlag(value) {
+  if (value !== void 0 && value !== "generic" && value !== "salesforce") throw new AccError("usage", "--profile must be generic or salesforce.");
+  return value;
+}
+var doctorRow = ({ step, result }) => ({
+  id: step.id,
+  part: step.part,
+  group: step.group,
+  title: step.title,
+  why: step.why,
+  status: result.status,
+  detail: result.detail,
+  fix: result.fix ?? null,
+  howTo: step.fix ?? null,
+  open: result.open ?? null,
+  ask: result.ask ?? null,
+  byHand: result.byHand ?? null,
+  place: result.place ?? null
+});
+function machineStop(o, config, profile) {
+  const machine = checkMachine(makeContext(process.cwd(), run, process.env, VERSION), profile);
+  if (!machine.todo.length) return null;
+  out(o, () => [
+    `This machine isn't ready for a ${profile} project yet, so nothing was written:`,
+    "",
+    ...machineLines(machine.todo),
+    "",
+    "Fix them and run acc init again, or add --anyway to go on and come back to them with acc doctor --part machine."
+  ].join("\n"), { written: false, path: config, machine: machine.todo.map(doctorRow) });
+  return 1;
 }
 function trackerFlag(json) {
   let t;
@@ -22109,14 +22496,20 @@ function trackerFlag(json) {
 }
 function cmdInit(o) {
   const paths = repoPaths(process.cwd(), run);
-  const profile = o.profile;
-  if (profile !== void 0 && profile !== "generic" && profile !== "salesforce") throw new AccError("usage", "--profile must be generic or salesforce.");
-  if (existsSync35(paths.config) && !o.force && !o["dry-run"]) throw new AccError("exists", `${paths.config} already exists. Use --force to replace it.`);
+  const profile = profileFlag(o.profile);
+  if (existsSync36(paths.config) && !o.force && !o["dry-run"]) throw new AccError("exists", `${paths.config} already exists. Use --force to replace it.`);
   const tracker = o.tracker === void 0 ? void 0 : trackerFlag(o.tracker);
+  const from = o.from;
+  const readAs = from ? templateAccount(run, paths.root, o["github-account"]) : null;
+  const template = from ? loadTemplate(run, from, { account: readAs, base: process.cwd(), root: paths.root }) : void 0;
+  const stop2 = !o["dry-run"] && !o.anyway ? machineStop(o, paths.config, profile ?? template?.template.profile ?? "generic") : null;
+  if (stop2 !== null) return stop2;
   const plan = planInit(run, {
     root: paths.root,
     profile,
-    from: o.from,
+    from,
+    template,
+    readAs,
     cwd: process.cwd(),
     project: o.project,
     productionOrg: o["production-org"],
@@ -22130,7 +22523,7 @@ function cmdInit(o) {
     tracker
   });
   const rules = plan.rules.map((source) => ({ source, name: rulesName(source) }));
-  const here = rules.filter((r) => existsSync35(join54(paths.root, RULES_DIR, `${r.name}.md`)));
+  const here = rules.filter((r) => existsSync36(join54(paths.root, RULES_DIR, `${r.name}.md`)));
   const fresh = rules.filter((r) => !here.includes(r)).map((r) => r.source);
   const copies = o["dry-run"] ? [] : prepareImports(run, paths.root, fresh, { account: plan.readAs, base: process.cwd(), now });
   const kept = o["dry-run"] ? [] : here.map((r) => ({ name: r.name, file: `${RULES_DIR}/${r.name}.md` }));
@@ -22279,8 +22672,9 @@ var area16 = {
   help: {
     section: "Setup",
     order: 10,
-    lines: `  acc doctor [--part machine|project] [--step <id>]...
-                                        Check the onboarding steps and print the fixes
+    lines: `  acc doctor [--part machine|project] [--step <id>]... [--profile generic|salesforce]
+                                        Check the onboarding steps and print the fixes. --profile: the
+                                        machine steps a project of that kind needs, before it has a config
   acc onboard                           The same checks as a guided list, with the next step to do
   acc setup baseline                    B5: one manifest of every component on every environment branch
   acc setup branches [--push]           B6: make each missing environment branch, seeded from its org
@@ -22290,7 +22684,9 @@ var area16 = {
                                         each sandbox's type from Production's sandbox list
   acc init --profile salesforce --production-org <alias> [--project <name>] [--github-repo <o/r>]
            [--github-account <a>] [--commit-name <n> --commit-email <e>] [--configure-git]
-           [--jira-site <site> --jira-project <key>] [--dry-run] [--force]
+           [--jira-site <site> --jira-project <key>] [--dry-run] [--force] [--anyway]
+                                        Checks this machine first: when a tool it needs is missing or not
+                                        on PATH, it lists them and writes nothing. --anyway goes on
   acc init --profile salesforce --my-domain <domain> [...]
                                         Without access to Production: the sandboxes you're logged in to on
                                         that My Domain, and Production with no org on this machine
@@ -22321,6 +22717,7 @@ var area16 = {
     from: { type: "string" },
     "dry-run": { type: "boolean", default: false },
     force: { type: "boolean", default: false },
+    anyway: { type: "boolean", default: false },
     push: { type: "boolean", default: false }
   },
   subcommands: { template: ["show"], setup: ["baseline", "branches", "lists", "readme", "production"] },
@@ -22475,7 +22872,7 @@ var area19 = {
 };
 
 // packages/cli/src/commands/trackers.ts
-import { readFileSync as readFileSync51 } from "node:fs";
+import { readFileSync as readFileSync52 } from "node:fs";
 function cmdSet2(o) {
   const file = o.file;
   if (!file) throw new AccError("usage", "acc trackers set --file <tracker.json> [--index <n>]");
@@ -22484,7 +22881,7 @@ function cmdSet2(o) {
   if (index !== null && !(Number.isInteger(index) && index >= 0 && /^\d+$/.test(String(o.index)))) throw new AccError("usage", "--index is the tracker's place in the list, from 0.");
   let record2;
   try {
-    record2 = JSON.parse(readFileSync51(file, "utf8"));
+    record2 = JSON.parse(readFileSync52(file, "utf8"));
   } catch (e) {
     throw new AccError("usage", `Couldn't read the tracker from ${file}: ${e.message}`);
   }
