@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, drawnIn, dumpedGeometries, dumpedGeometry, MEASURE_TABS, mergedVerdict, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, drawnIn, dumpedGeometries, dumpedGeometry, MEASURE_TABS, mergedVerdict, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, judgeSizes, SAME_ROW, SEED_FLOORS, type GeoSized, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
 import { root } from './support.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
@@ -20,7 +20,7 @@ const found = (s: GeoSnapshot, home = true) => judge(s, home, []).violations.map
 test('a drawing that breaks no rule passes, and says how much each check examined (GH-105)', () => {
   const v = judge(fine(), true, []);
   assert.deepEqual(v.violations, []);
-  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1, covered: 0, raw: 0, a11y: 3, actions: 0, disabled: 0 });
+  assert.deepEqual(v.examined, { overlap: 2, clipped: 1, tab: 1, sideways: 1, overview: 0, buttons: 0, words: 1, covered: 0, raw: 0, a11y: 3, actions: 0, disabled: 0, sizes: 0 });
 });
 
 test('the raw check (T-64): an output panel that draws a block of raw output, pre.dock-out as it did or any pre, fails; one drawn as rows passes; edge case: a page with no panel examines none', () => {
@@ -124,7 +124,7 @@ test('an exception excuses only its own check on what it names, and counts what 
 test('a whole run fails below its floors, and on an exception that excused nothing; a run of a few pages doesn\'t (GH-105)', () => {
   const verdict = judge(fine(), true, []);
   const renders: Render[] = [{ page: 'tasks', theme: 'dark', width: 500, verdict: { ...verdict, violations: [{ check: 'overlap', what: 'button.a', detail: 'overlaps button.b' }] } }];
-  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0, raw: 0, a11y: 0, actions: 0, disabled: 0 };
+  const floor = { overlap: 10, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0, raw: 0, a11y: 0, actions: 0, disabled: 0, sizes: 0 };
   const unused = [{ name: 'the strip', check: 'sideways' as const, what: /strip/, reason: 'made up' }];
   assert.deepEqual(runFailures(renders, false, unused, floor, [], []), ['tasks dark 500px: overlap: button.a: overlaps button.b']);
   assert.deepEqual(runFailures(renders, true, unused, floor, [], []), [
@@ -148,11 +148,11 @@ test('the floors that follow the pages are worked out from them: a new page rais
 });
 
 test('every other check\'s floor is in the floors file, raised only by a clean whole run, and only up (T-102)', () => {
-  const floors: Record<string, { floor: number }> = { tests: { floor: 5 }, ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions', 'disabled'].map((c) => [floorName(c as never), { floor: 10 }])) };
-  assert.deepEqual(runFloor(floors, ['tasks']), { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 10, actions: 10, disabled: 10 });
+  const floors: Record<string, { floor: number }> = { tests: { floor: 5 }, ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions', 'disabled', 'sizes'].map((c) => [floorName(c as never), { floor: 10 }])) };
+  assert.deepEqual(runFloor(floors, ['tasks']), { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 10, actions: 10, disabled: 10, sizes: 10 });
   const { 'screenshots.a11y': _gone, ...without } = floors;
   assert.throws(() => runFloor(without, ['tasks']), /\.acc\/floors\.json has no floor for the screenshot run's a11y check \("screenshots\.a11y"\)/, 'a missing floor is an error, never a floor of nothing');
-  const examined = { overlap: 999, clipped: 12, tab: 6, sideways: 10, overview: 9, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10, disabled: 10 };
+  const examined = { overlap: 999, clipped: 12, tab: 6, sideways: 10, overview: 9, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10, disabled: 10, sizes: 10 };
   assert.deepEqual(raisedFloors(floors, examined), { ...floors, 'screenshots.clipped': { floor: 11 }, 'screenshots.a11y': { floor: 39 } }, 'the beaten ones rise, stored 1% below; a lower count leaves its floor; the page checks are never stored');
   assert.equal(raisedFloors(floors, { ...examined, clipped: 11, a11y: 10 }), null, 'an edge case: a count whose margin doesn\'t beat the floor writes nothing');
   // A person relaxed a11y to 8 (acc gate relax screenshots.a11y): the run reads that floor and passes at 9.
@@ -161,14 +161,14 @@ test('every other check\'s floor is in the floors file, raised only by a clean w
   assert.deepEqual(runFailures(renders, true, [], runFloor(floors, ['tasks']), [], []), ['The run examined 9 for a11y, below its floor of 10.']);
   assert.deepEqual(runFailures(renders, true, [], runFloor(relaxed, ['tasks']), [], []), [], 'relaxed, the lower count passes');
   const stored = JSON.parse(readFileSync(FLOORS_PATH, 'utf8')) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(stored).filter((k) => k.startsWith('screenshots.') && !k.startsWith('screenshots.ci.')).sort(), ['a11y', 'actions', 'buttons', 'clipped', 'covered', 'disabled', 'overview', 'raw', 'sideways'].map((c) => `screenshots.${c}`), 'the repo keeps each, and none for a page check');
+  assert.deepEqual(Object.keys(stored).filter((k) => k.startsWith('screenshots.') && !k.startsWith('screenshots.ci.')).sort(), ['a11y', 'actions', 'buttons', 'clipped', 'covered', 'disabled', 'overview', 'raw', 'sideways', 'sizes'].map((c) => `screenshots.${c}`), 'the repo keeps each, and none for a page check');
 });
 
 test('a raised floor is stored about 1% below the clean run\'s count, so a later run 0.2% under that count passes and one 2% under fails; edge case: a count of 0 stores 0 (T-108)', () => {
   assert.equal(FLOOR_MARGIN_PERCENT, 1);
   assert.deepEqual([storedFloor(100000), storedFloor(445830), storedFloor(99), storedFloor(0)], [99000, 441371, 98, 0], 'rounded down');
-  const floors: Record<string, { floor: number }> = Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions', 'disabled'].map((c) => [floorName(c as never), { floor: 10 }]));
-  const examined = { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 100000, actions: 10, disabled: 10 };
+  const floors: Record<string, { floor: number }> = Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions', 'disabled', 'sizes'].map((c) => [floorName(c as never), { floor: 10 }]));
+  const examined = { overlap: 180, clipped: 10, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 600, covered: 10, raw: 10, a11y: 100000, actions: 10, disabled: 10, sizes: 10 };
   const raised = raisedFloors(floors, examined);
   assert.deepEqual(raised?.[floorName('a11y')], { floor: 99000 });
   const floor = runFloor(raised!, ['tasks']);
@@ -179,11 +179,11 @@ test('a raised floor is stored about 1% below the clean run\'s count, so a later
 });
 
 test('a CI run is held to its own floor where it has one, else the Mac\'s, and raises only its own; edge case: a Mac run never reads or raises a CI floor (T-108)', () => {
-  const floors: Record<string, { floor: number }> = { ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions', 'disabled'].map((c) => [floorName(c as never), { floor: 10 }])), [ciFloorName('clipped')]: { floor: 7 } };
+  const floors: Record<string, { floor: number }> = { ...Object.fromEntries(['clipped', 'sideways', 'overview', 'buttons', 'covered', 'raw', 'a11y', 'actions', 'disabled', 'sizes'].map((c) => [floorName(c as never), { floor: 10 }])), [ciFloorName('clipped')]: { floor: 7 } };
   assert.equal(ciFloorName('a11y'), 'screenshots.ci.a11y');
   assert.deepEqual([runFloor(floors, ['tasks'], true).clipped, runFloor(floors, ['tasks'], true).a11y], [7, 10], 'its own floor for clipped; the Mac\'s for a check with none');
   assert.equal(runFloor(floors, ['tasks'], false).clipped, 10, 'the Mac\'s run reads the Mac\'s floor');
-  const examined = { overlap: 999, clipped: 9, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10, disabled: 10 };
+  const examined = { overlap: 999, clipped: 9, tab: 6, sideways: 10, overview: 10, buttons: 10, words: 999, covered: 10, raw: 10, a11y: 40, actions: 10, disabled: 10, sizes: 10 };
   assert.deepEqual(raisedFloors(floors, examined, true), { ...floors, [ciFloorName('clipped')]: { floor: 8 } }, 'its own clipped floor rises; the Mac\'s a11y floor stays, and no CI floor is made for it');
   assert.deepEqual(raisedFloors(floors, { ...examined, clipped: 12 }, false), { ...floors, [floorName('clipped')]: { floor: 11 }, [floorName('a11y')]: { floor: 39 } }, 'a Mac run leaves the CI floor as it is');
   assert.equal(raisedFloors(floors, { ...examined, clipped: 7 }, true), null, 'nothing beaten, nothing written');
@@ -380,4 +380,41 @@ test('the shared disabled rule is in styles.css, and no other stylesheet gives .
   for (const f of readdirSync(dir).filter((n) => n.endsWith('.css') && n !== 'styles.css')) {
     assert.doesNotMatch(readFileSync(join(dir, f), 'utf8'), /\.btn[\w.-]*:disabled|\.btn\.is-disabled/, `${f} has its own disabled button rule`);
   }
+});
+
+const sized = (what: string, text: string, x: number, h: number, o: Partial<GeoSized> = {}): GeoSized => ({ what, text, parent: 1, up: 0, box: { x, y: 10, w: 100, h }, font: 13, ...o });
+
+test('the sizes check (T-144): two buttons side by side of one height pass, and a primary beside a small one fails, naming both; edge cases: none beside each other compares none, and a far or stacked pair is no row', () => {
+  const same = judgeSizes([sized('button.btn.primary', 'Make a plan', 0, 29), sized('button.btn', 'Open conversation', 108, 29)]);
+  assert.deepEqual(same, { found: [], compared: 1 });
+  const mixed = judgeSizes([sized('button.btn.primary', 'Make a plan', 0, 29), sized('button.btn.small', 'Open conversation', 108, 19, { font: 10.5 })]);
+  assert.equal(mixed.compared, 1);
+  assert.equal(mixed.found.length, 1);
+  assert.match(mixed.found[0]!.detail, /"Make a plan".*"Open conversation"/, 'it names both');
+  assert.equal(judgeSizes([sized('a', 'A', 0, 29), sized('b', 'B', 108, 29 + SAME_ROW.heightDiff)]).found.length, 0, 'within 1 px passes');
+  assert.equal(judgeSizes([sized('a', 'A', 0, 29), sized('b', 'B', 108, 29, { font: 11 })]).found.length, 1, 'one height with another type size fails');
+  assert.deepEqual(judgeSizes([sized('a', 'A', 0, 29), sized('b', 'B', 100 + SAME_ROW.gap + 40, 19)]), { found: [], compared: 0 }, 'too far apart to be a row');
+  assert.deepEqual(judgeSizes([sized('a', 'A', 0, 29), { ...sized('b', 'B', 108, 19), box: { x: 108, y: 60, w: 100, h: 19 } }]), { found: [], compared: 0 }, 'one under the other is not a row');
+  assert.deepEqual(judgeSizes([sized('a', 'A', 0, 29), sized('b', 'B', 108, 19, { parent: 7, up: 8 })]), { found: [], compared: 0 }, 'another container, such as a dialog over the page');
+  assert.equal(judgeSizes([sized('a', 'A', 0, 29, { parent: 1, up: 2 }), sized('b', 'B', 108, 19, { parent: 3, up: 1 })]).found.length, 1, 'across one wrapper, as the conversation line in the plan actions');
+  assert.deepEqual(judgeSizes([]), { found: [], compared: 0 }, 'none drawn, none compared');
+});
+
+test('a row of mixed button sizes fails the run, and a whole run that compared no row fails on its floor (T-144)', () => {
+  const drawn = (sized_: GeoSized[]) => judge(fine({ sized: sized_ }), true, []);
+  const bad = drawn([sized('button.btn.primary', 'Deploy', 0, 29), sized('button.btn.ghost.small', 'Other', 108, 20, { font: 11.4 })]);
+  assert.equal(bad.violations.filter((v) => v.check === 'sizes').length, 1);
+  assert.equal(bad.examined.sizes, 1);
+  assert.deepEqual(runFailures([{ page: 'ticket', theme: 'dark', width: 1000, verdict: bad }], false).filter((f) => f.includes('sizes')).length, 1, 'the run names its page, theme and width');
+  assert.match(runFailures([{ page: 'ticket', theme: 'dark', width: 1000, verdict: drawn([]) }], true, [], { overlap: 0, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0, raw: 0, a11y: 0, actions: 0, disabled: 0, sizes: SEED_FLOORS.sizes! }, [], []).join('\n'), /The run examined 0 for sizes, below its floor of 1/);
+  assert.deepEqual(runFailures([{ page: 'ticket', theme: 'dark', width: 1000, verdict: drawn([sized('a', 'A', 0, 29), sized('b', 'B', 108, 29)]) }], true, [], { overlap: 0, clipped: 0, tab: 0, sideways: 0, overview: 0, buttons: 0, words: 0, covered: 0, raw: 0, a11y: 0, actions: 0, disabled: 0, sizes: SEED_FLOORS.sizes! }, [], []).filter((f) => f.includes('sizes')), []);
+  assert.equal(SEED_FLOORS.sizes, 1, 'a floor of one row until the floors file holds its own');
+  assert.ok(COLLECT_GEOMETRY.includes('parent: parents.get(b.parentElement), up: parents.get(up)'), 'the page measures each text button with its container');
+});
+
+test('the rows the sizes check found are fixed in the styles (T-144): the plan actions\' Open conversation, the deploy row\'s fold and the agent line\'s buttons', () => {
+  const css = (f: string) => readFileSync(join(root, 'webview', f), 'utf8');
+  assert.match(css('analysis.css'), /\.plan-actions > \.convo-line > \.btn, \.an-actions > \.convo-line > \.btn \{ padding: 3px 9px; font-size: calc\(1em \/ var\(--convo-scale\)\)/);
+  assert.match(readFileSync(join(root, 'webview', 'changes.ts'), 'utf8'), /foldButton\('Other next steps', key, 'dp-more', true\)/);
+  assert.match(css('agents.css'), /\.line-btn \{ min-height: 22px/);
 });

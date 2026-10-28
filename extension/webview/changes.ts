@@ -35,10 +35,13 @@ const sets = (list: ChangeSet[]): HTMLElement[] => list.map((s) => el('div', 'ch
   el('div', 'chg-head', work(el('strong', '', s.head), 'files'), el('span', 'count', String(s.items.length))),
   el('ul', 'chg-list', ...s.items.map(item))));
 
-/** A fold's button: it says whether it's open, and flips it in the tab's memory. */
-function foldButton(label: string, key: string, cls: string): HTMLButtonElement {
+/**
+ * A fold's button: it says whether it's open, and flips it in the tab's memory. It is small, as it sits in a line
+ * of text; in a row of buttons (inRow) it is the row's size (T-144).
+ */
+function foldButton(label: string, key: string, cls: string, inRow = false): HTMLButtonElement {
   const on = isOpen(key);
-  const b = button(label, on ? 'chevron-down' : 'chevron-right', () => flip(key), `ghost small ${cls}`);
+  const b = button(label, on ? 'chevron-down' : 'chevron-right', () => flip(key), `ghost${inRow ? '' : ' small'} ${cls}`);
   b.setAttribute('aria-expanded', String(on));
   return b;
 }
@@ -73,7 +76,7 @@ function renderRecordList(m: TicketModel): HTMLElement | null {
 function deployButton(m: TicketModel, d: TicketDeploy, b: DeployButton, primary: boolean): HTMLButtonElement {
   const x = button(b.label, 'cloud-upload', () => {
     if (!x.disabled) api.postMessage({ type: 'deploy-check', project: m.project, task: d.task, to: b.to });
-  }, primary ? 'primary dp-go' : 'ghost small dp-other');
+  }, primary ? 'primary dp-go' : 'ghost dp-other');
   if (b.disabled) {
     x.disabled = true;
     x.title = `${b.label}: ${b.disabled}`;
@@ -104,7 +107,7 @@ export function renderDeploy(m: TicketModel, d: TicketDeploy): HTMLElement {
     const row = el('div', 'actions dp-actions', deployButton(m, d, d.deploy, true));
     if (d.others.length) {
       const key = openKey('others', m);
-      row.append(foldButton('Other next steps', key, 'dp-more'));
+      row.append(foldButton('Other next steps', key, 'dp-more', true));
       if (isOpen(key)) row.append(el('div', 'dp-menu', ...d.others.map((o) => deployButton(m, d, o, false))));
     }
     sec.append(row);
