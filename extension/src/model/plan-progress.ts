@@ -10,7 +10,7 @@ import { tookWords } from './run-view.ts';
 import { KEY, type Look, LOOK, type ModelArea, short } from './shared.ts';
 
 /**
- * How long with no move before the progress says the agent hasn't moved (D-T-131). Claude Code writes a turn to
+ * How long with no move before the progress says the agent hasn't moved (D-213). Claude Code writes a turn to
  * its transcript once the turn is whole, so the longest quiet spells that are fine are the plan written in one
  * turn, which on a large ticket takes a few minutes, and a Salesforce retrieve; five minutes clears both.
  */

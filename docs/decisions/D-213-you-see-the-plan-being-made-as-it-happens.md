@@ -1,4 +1,4 @@
-## D-T-131 You see the plan being made as it happens (2026-10-27)
+## D-213 You see the plan being made as it happens (2026-10-27)
 
 T-131. The person said that making a plan takes a while, and while it's made they're in the dark about what's
 happening. The conversation panel and the task page said only that a plan was being made; Watch the plan being made

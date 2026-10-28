@@ -220,3 +220,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-210](decisions/D-210-a-jira-service-management-queue-is-a-board.md) | A Jira Service Management queue is a board a project holds, and acc's comments on its tickets stay internal | 2026-10-27 |
 | [D-211](decisions/D-211-switch-between-a-project-s-boards.md) | A project's boards, one at a time, with a switch between them | 2026-10-27 |
 | [D-212](decisions/D-212-an-answer-counts-the-moment-it-is-picked.md) | An answer to the planning agent's question counts the moment it's picked, and moving between questions never sends | 2026-10-27 |
+| [D-213](decisions/D-213-you-see-the-plan-being-made-as-it-happens.md) | You see the plan being made as it happens | 2026-10-27 |
