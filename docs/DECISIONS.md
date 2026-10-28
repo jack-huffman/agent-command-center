@@ -218,3 +218,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-208](decisions/D-208-setup-without-production-access.md) | A person with no access to Production still sets up a Salesforce project and uses the Command Center | 2026-10-27 |
 | [D-209](decisions/D-209-acc-runs-natively-on-mac-and-windows.md) | acc runs natively on a Mac and on Windows, with no WSL | 2026-10-27 |
 | [D-210](decisions/D-210-a-jira-service-management-queue-is-a-board.md) | A Jira Service Management queue is a board a project holds, and acc's comments on its tickets stay internal | 2026-10-27 |
+| [D-211](decisions/D-211-switch-between-a-project-s-boards.md) | A project's boards, one at a time, with a switch between them | 2026-10-27 |
