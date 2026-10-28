@@ -370,9 +370,9 @@ test('a task\'s page shows its analysis\'s wording findings as an orange state w
   const { wording: _older, ...older } = a;
   assert.equal(page(older as Analysis).wording, null);
   assert.equal(ticketWording(undefined), null);
-  // The page draws the state beside the verdict, and each finding with its line.
+  // The page draws the state beside the count of the plan's More, where the findings are (T-136), and each finding with its line.
   const src = readFileSync(new URL('../webview/analysis.ts', import.meta.url), 'utf8');
-  assert.match(src, /status\(a\.look\), a\.wording \? status\(a\.wording\.look\) : null/);
+  assert.match(src, /planSection\(key, 'more', 'More', [^\n]*\n(?:[^\n]*\n)*?\s*\], a\.wording \? status\(a\.wording\.look\) : null\)/);
   assert.match(src, /el\('div', 'muted an-line', md\(f\.text\)\)/);
 });
 

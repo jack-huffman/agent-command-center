@@ -173,7 +173,7 @@ function planSections(m: TicketModel, a: TicketAnalysis, key: string): HTMLEleme
     planSection(key, 'choices', 'Choices', p?.decisions.length ?? 0, !!p && p.decisions.some((d) => choiceWaits(m, a.task, p, d)), [p ? planDecisions(m, a.task, p) : null]),
     planSection(key, 'questions', 'Questions', a.open.length, questionWaits(a), [questions]),
     planSection(key, 'approach', 'The approach', a.plan.length, false, [p ? planShapes(m, a.task, p) : null, steps.length ? el('ol', 'an-list', ...steps) : null]),
-    planSection(key, 'criteria', 'Acceptance criteria', a.criteria.length, false, [a.criteria.length ? el('ul', 'an-list', ...a.criteria.map((x) => el('li', '', md(x)))) : null]),
+    planSection(key, 'criteria', 'Acceptance criteria', a.criteria.length, false, [a.criteria.length ? el('ul', 'an-list', ...a.criteria.map(md).map((x) => el('li', '', x))) : null]),
     planSection(key, 'risks', 'Risks and tests', a.risks.length + a.tests.length, false, [part('Risks', risks), part('Tests', a.tests.map(md))]),
     planSection(key, 'more', 'More', more, false, [
       part('Assumptions', a.assumptions.map(md)),
