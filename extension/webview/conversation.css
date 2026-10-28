@@ -19,6 +19,7 @@ body[data-view="conversation"] .talk { margin-top: 0; }
 .talk-card-note { margin: 6px 0 0; }
 .talk-card .aq-error { margin-top: 6px; }
 /* The review (T-130): each question and its answer, or Not answered in orange, with Change on its right. */
+.talk-review-step { margin-bottom: 4px; }
 .talk-review { display: flex; flex-direction: column; gap: 2px; margin: 4px 0 8px; padding: 0; list-style: none; }
 .talk-review-row { display: flex; align-items: flex-start; gap: 8px; padding: 4px 0; }
 .talk-review-row > .codicon { flex: none; margin-top: 2px; }

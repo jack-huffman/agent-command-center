@@ -263,7 +263,8 @@ function reviewStep(c: Card): HTMLElement {
   });
   const list = el('ol', 'talk-review', ...rows);
   list.setAttribute('aria-labelledby', heading.id);
-  const step = el('div', 'rp-step', heading, list);
+  // Not an rp-step: the review shows at once, without the questions' fade, so the screenshot run measures its Change buttons.
+  const step = el('div', 'talk-review-step', heading, list);
   step.dataset.step = REVIEW;
   return step;
 }
