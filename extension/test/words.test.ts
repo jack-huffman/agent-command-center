@@ -128,7 +128,9 @@ const MARKS: Record<string, Record<string, number>> = {
   'run-steps.ts': { output: 1 },
   'run-view.ts': { output: 1 },
   'setup.ts': { output: 1 },
-  'task-page.ts': { files: 2, branch: 2, output: 1, transcript: 1 },
+  'task-page.ts': { files: 2, transcript: 1 },
+  // The Agent panel's Details (T-142): the branch and the worktree, and each check's own words.
+  'agent-panel.ts': { branch: 2, output: 1 },
   // Verify the developer's work (T-84): the pull request's branches and commit, each check's own words, what the verifier wrote, and a finding's file.
   'verify.ts': { 'agent-text': 4, branch: 3, files: 1, output: 2 },
   'worktrees.ts': { branch: 1 },

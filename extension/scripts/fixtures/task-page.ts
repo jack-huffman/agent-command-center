@@ -406,6 +406,7 @@ function sampleReviewTicket(now: number, edits: boolean, criteria: 'drafted' | '
     checks: [
       { gate: 'format', status: 'pass', summary: '2 changed files formatted.' },
       { gate: 'validate', status: 'pass', summary: 'Validated in Acme Dev: WelcomeEmailServiceTest, 6 of 6 passing.', counts: '6 run, 0 skipped' },
+      { gate: 'static', status: 'fail', summary: 'Static analysis found 1 severity-2 violation in WelcomeEmailService.cls.' },
     ],
     review: {
       verdict: {

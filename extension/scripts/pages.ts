@@ -151,6 +151,11 @@ export const PAGES = [
   'ticket-stopped',
   'ticket-track',
   'ticket-checks',
+  // The Agent panel (T-142): blocked, blocked while its builder still works, Details open, and More actions open
+  'ticket-agent-blocked',
+  'ticket-agent-disagree',
+  'ticket-agent-details',
+  'ticket-agent-more',
   'ticket-waits',
   'ticket-note',
   'ticket-review',

@@ -310,7 +310,7 @@ test('a running card, its task page and its Agents row name the model its agent 
   assert.match(main, /\['Model', 'model'\]/, 'a Model column');
   assert.match(main, /el\('td', 'mono muted model', el\('span', 'unbroken', a\.model \? shortModel\(a\.model\) : '—'\), a\.model && a\.effort \? ' ' : null, a\.model && a\.effort \? el\('span', 'unbroken', `· \$\{a\.effort\}`\) : null\), \{ title: a\.model \?/, 'a dash until it\'s known, in neutral mono text, its full name on hover, and an effort beside it (D-128)');
   assert.match(main, /card\.agent && card\.model \? el\('div', 'card-where card-model'/);
-  assert.match(main, /field\('Model', el\('span', '', el\('span', 'mono', a\.model\), a\.effort \? el\('span', 'muted', ` · \$\{a\.effort\} effort`\) : null\)\)/);
+  assert.match(pageSource('agent-panel.ts'), /field\('Model and effort', el\('span', '', el\('span', 'mono', a\.model\), a\.effort \? el\('span', 'muted', ` · \$\{a\.effort\} effort`\) : null\)\)/);
 });
 
 test('a task page and its Agents row show a builder\'s effort beside its model only when it isn\'t the model\'s default (D-128)', () => {
@@ -369,7 +369,7 @@ test('deriveRows gives a card its agent\'s question id; edge cases: no question,
 });
 
 test('the task page draws its actions with taskActions: the next step full width, the rest in the grid, a disabled one in place with its reason (D-168)', () => {
-  assert.match(pageSource('task-page.ts'), /taskActions\(a\.actions\)/, 'the task page\'s Agent panel');
+  assert.match(pageSource('agent-panel.ts'), /taskActions\(shown\)/, 'the task page\'s Agent panel');
   const tiles = pageSource('task-actions.ts');
   assert.match(tiles, /const next = actions\[0\]!\.primary \? actions\[0\]! : null;/, 'the next step only when the first is one');
   assert.match(tiles, /el\('div', 'ta-grid', \.\.\.rest\.map\(\(a\) => actionTile\(a, false\)\)\)/, 'the rest in the grid, none of them primary');

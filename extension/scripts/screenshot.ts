@@ -65,6 +65,8 @@ import { sampleFirstSetup, sampleSetup, sampleStartingSetup } from './fixtures/s
 import { sampleSetupWithoutProduction } from './fixtures/no-production.ts';
 import { sampleSlack, type SlackSample } from './fixtures/slack.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
+import { sampleAgentPanelTicket } from './fixtures/agent-panel.ts';
+import { detailsKey } from '../webview/agent-glance.ts';
 import { SECTIONS_COLLAPSED, sampleSectionsTicket } from './fixtures/sections.ts';
 import { sampleReviewTabTicket } from './fixtures/review-tab.ts';
 import { samplePlanNeedsYouTicket, sampleTabsTicket } from './fixtures/task-tabs.ts';
@@ -213,6 +215,9 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-missing') return sampleTicket(now, 'ACME-48');
   if (kind === 'ticket-track') return sampleTicket(now, 'ACME-31');
   if (kind === 'ticket-checks') return sampleTicket(now, 'ACME-33');
+  // The Agent panel (T-142): ACME-12 blocked, and blocked while its builder's session still works; with Details, and More actions, open.
+  if (kind === 'ticket-agent-blocked' || kind === 'ticket-agent-disagree') return sampleAgentPanelTicket(now, kind === 'ticket-agent-blocked' ? 'blocked' : 'disagree');
+  if (kind === 'ticket-agent-details' || kind === 'ticket-agent-more') return sampleTicket(now);
   if (kind === 'ticket-waits') return sampleTicket(now, 'ACME-35');
   if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
   // ACME-19 in rework, in its own tab, with Dispatch's sheet over it (D-168), or the task sheet (T-74).
@@ -402,6 +407,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : MORE_OPEN[kind] ? { opened: [`chg-more:${ROOT}#${MORE_OPEN[kind]}`] }
   // ACME-21's plan, criteria and Verify collapsed to their header lines (T-132).
   : kind === 'ticket-sections-collapsed' ? { folded: SECTIONS_COLLAPSED }
+  : kind === 'ticket-agent-details' ? { opened: [detailsKey(ROOT, 'ACME-12')] }
+  : kind === 'ticket-agent-more' ? { opened: [`agent-more:${ROOT}#ACME-12`] }
   // ACME-21's plan (T-97): its second choice's own option open, with More open for its wording (T-136). Choices and
   // Questions open by themselves while they wait on the person.
   // Approved, a change to its second choice asks first, as Choose this on Backfill too leaves it; the later plans
@@ -441,7 +448,26 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
  * The page's memory as a shot starts (T-96): startState's, with the Tasks tab's first steps already dismissed,
  * as a person who has used it before sees it, but on tasks-first, which shows them as someone new does.
  */
-export const shotState = (kind: Page): Record<string, unknown> => ({ ...(startState(kind) as Record<string, unknown> | undefined), ...(kind === 'tasks-first' ? {} : { firstStepsSeen: true }) });
+export const shotState = (kind: Page): Record<string, unknown> => {
+  const start = (startState(kind) as Record<string, unknown> | undefined) ?? {};
+  const opened = [...((start.opened as string[] | undefined) ?? []), ...agentFoldsOpen(kind)];
+  return { ...start, ...(opened.length ? { opened } : {}), ...(kind === 'tasks-first' ? {} : { firstStepsSeen: true }) };
+};
+
+/** The task pages whose shots leave the Agent panel's Details and More actions closed, as the page opens them (T-142). */
+const AGENT_FOLDS_CLOSED: readonly Page[] = ['ticket', 'ticket-checks', 'ticket-note', 'ticket-track', 'ticket-stopped', 'ticket-agent-blocked', 'ticket-agent-disagree'];
+/** The tickets the shots draw. */
+const SHOT_TICKETS = ['ACME-12', 'ACME-19', 'ACME-20', 'ACME-21', 'ACME-23', 'ACME-29', 'ACME-33', 'ACME-35', 'ACME-44', 'ACME-48'];
+
+/**
+ * Every other task page's shot has the Agent panel's Details and More actions open (T-142), so what they hold is
+ * measured on each page, besides the shots that draw them closed: the screenshot run's floors count what it
+ * measures, and what stays closed is measured on none.
+ */
+function agentFoldsOpen(kind: Page): string[] {
+  if (!kind.startsWith('ticket') || (AGENT_FOLDS_CLOSED as readonly string[]).includes(kind)) return [];
+  return SHOT_TICKETS.flatMap((k) => [detailsKey(ROOT, k), `agent-more:${ROOT}#${k}`]);
+}
 
 /**
  * What the extension sends after the page's model: the task a card's click opened in the modal over the

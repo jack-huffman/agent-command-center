@@ -887,6 +887,27 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task page: the Agent panel says its checks in one line naming what failed, and its Details folds shut and open by click and stays as left (T-142)',
+    page: 'ticket-review',
+    async run(t) {
+      const panel = (): HTMLElement => t.find('.side-agent');
+      const details = (): HTMLDetailsElement => t.find<HTMLDetailsElement>('.agent-details', panel());
+      const check = (): HTMLElement => t.find('.agent-details .check', panel());
+      const key = (): boolean => ((t.memory().opened ?? []) as string[]).some((k) => k.startsWith('agent-details:') && k.endsWith('#ACME-19'));
+      t.check('its checks are one line that names the failed one', t.find('.agent-checks', panel()).textContent?.includes('1 failed: static') === true, t.find('.agent-checks', panel()).textContent);
+      t.check('Details starts closed, its checks out of view and nothing remembered', !details().open && !check().checkVisibility() && !key(), details().open);
+      await t.click(t.find('summary', details()));
+      t.check('a click opens Details, its checks show, and the tab remembers it', details().open && check().checkVisibility() && key(), t.memory().opened);
+      // Edge: drawn again from a new model, it stays open.
+      await t.post({ type: 'state', model: t.model });
+      t.check('drawn again, Details stays open', details().open);
+      await t.click(t.find('summary', details()));
+      t.check('a click shuts it again, and the tab forgets it', !details().open && !key(), t.memory().opened);
+      const more = t.find<HTMLDetailsElement>('.agent-more', panel());
+      t.check('More actions starts closed, holding the actions the panel doesn\'t show first', !more.open && more.querySelectorAll('.ta-btn').length > 0);
+    },
+  },
+  {
     name: 'task page: its tabs open on the plan that needs you, say so in words, move by arrow keys, Home and End, and follow a link (T-134)',
     page: 'ticket-plan-needs-you',
     async run(t) {
@@ -2337,6 +2358,8 @@ const caseNamed = (start: string): string => {
 };
 
 export const MUTANTS: Mutant[] = [
+  { name: 'a failed check isn\'t named in the summary', file: 'agent-glance.ts', find: 'failed.length ? `${failed.length} failed${named(failed)}` : null,', replace: 'failed.length ? `${failed.length} failed` : null,', kills: [caseNamed('task page: the Agent panel says its checks')] },
+  { name: 'Details doesn\'t stay open once opened', file: 'agent-panel.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'a collapsed section doesn\'t stay collapsed', file: 'collapse.ts', find: 'show(memory().folded.includes(k));', replace: 'show(false);', kills: [caseNamed('task page: a Command Center section collapses')] },
   { name: 'a tab that needs you doesn\'t say so', file: 'task-tabs.ts', find: "t.needs ? el('span', 'task-tab-needs', icon('bell', 'orange'), NEEDS_YOU) : null", replace: 'null', kills: [caseNamed('task page: its tabs open on the plan')] },
   { name: 'a review that needs you doesn\'t say so on its tab', file: 'tab-rules.ts', find: 'orange(m.review.look)', replace: 'null', kills: [caseNamed('task page: a review lists its findings')] },

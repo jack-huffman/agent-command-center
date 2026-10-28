@@ -105,6 +105,8 @@ export const checkRows = (checks: CheckIn[], branch: string | null): CheckRow[] 
 
 export interface TicketAcc {
   look: Look;
+  /** The task's own state (T-142), which its builder's session can disagree with: blocked while the session still works. */
+  state: string;
   environment: string;
   /** What a person wrote for its builder (T-74), in Markdown; null when there are none. */
   notes: Doc | null;
@@ -514,7 +516,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const has = (f: TrackerField) => !lacks.some((l) => l.field === f);
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row, true), environment: i.task.environment, notes: i.task.notes?.trim() ? fromMarkdown(i.task.notes) : null, waitingOn: i.row.deps, blocker: reasonInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
+    look: accLook(i.row, true), state: i.row.state, environment: i.task.environment, notes: i.task.notes?.trim() ? fromMarkdown(i.task.notes) : null, waitingOn: i.row.deps, blocker: reasonInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
     agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, effort: i.row.effort ?? null, agentName: i.task.run?.name ?? null, place: placeLook(i.row), cloudUrl: i.row.cloud?.url ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
     // Why it blocked or moved, whoever wrote it, in process words (GH-163).
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: reasonInWords(h.reason), look: displayLook(h.to) })).reverse(),
