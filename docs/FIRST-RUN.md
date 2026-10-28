@@ -158,11 +158,33 @@ Windows the step is skipped with a reason: note whether it says so.
 - **Result:**
 - **Fixed in / filed as:**
 
+### A1.winget: winget (on Windows)
+
+Look for: on Windows, whether Setup found winget, and what it said if App
+Installer wasn't there. On a Mac the step is skipped with a reason.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
 ### A1.git: git 2.40 or later
 
 Look for: the git that comes with Apple's command-line tools may be older than
 2.40. Note `git --version` before and after **Do it**, and whether the new git
 was the one on PATH in a new terminal.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A1.sh: Git for Windows' sh (on Windows)
+
+Look for: on Windows, whether it passed once Git for Windows was installed. On
+a Mac the step is skipped with a reason.
 
 - **Showed:**
 - **Unclear:**
@@ -181,7 +203,20 @@ need it.
 - **Result:**
 - **Fixed in / filed as:**
 
+### A1.npm: npm
+
+Look for: it comes with Node, so it passes once Node does.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
 ### A1.gh: GitHub CLI
+
+Look for: if gh was installed but Setup said "Not on PATH", what it offered,
+and whether it asked before changing PATH.
 
 - **Showed:**
 - **Unclear:**
@@ -223,6 +258,27 @@ did them in.
 - **Fixed in / filed as:**
 
 ### A1.code-analyzer: Salesforce Code Analyzer
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A1.java: Java 11 or later, for Code Analyzer
+
+Look for: Salesforce projects only. Whether a Java you already had was found.
+
+- **Showed:**
+- **Unclear:**
+- **Failed:**
+- **Result:**
+- **Fixed in / filed as:**
+
+### A1.python: Python 3.10 or later, for Code Analyzer
+
+Look for: Salesforce projects only. On Windows, whether `python` opened the
+Microsoft Store instead, and what Setup said then.
 
 - **Showed:**
 - **Unclear:**

@@ -165,6 +165,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     // Settings' About behind, and with a look that failed (GH-114): the newer release's state, orange or neutral.
     else if (kind.startsWith('settings-about')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.about?.release.look.tone], ['home', 'settings', kind === 'settings-about' ? 'orange' : 'neutral']);
     // Setup as first shown in a folder that isn't set up (GH-138): the question, and the machine's steps left.
+    // A project being started (T-133): this machine's list first, one tool missing and one not on PATH.
+    else if (kind === 'setup-machine-first') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).setup.machineFirst?.rows.map((r) => r.look.label)], ['home', 'setup', ['To do', 'Not on PATH']]);
     else if (kind.startsWith('setup-first')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).setup.start, (m as HomeModel).setup.parts.map((p) => [p.part, p.todo])], ['home', 'setup', true, [['machine', kind === 'setup-first' ? 0 : 2], ['project', 0]]]);
     // The output panel over the Tasks board on a review (T-63): passed, changes asked, still running, and with no verdict to show.
     else if (OUTPUT_REVIEWS[kind]) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).runs[0]?.review?.phase, (m as HomeModel).runs[0]?.look.label], ['home', 'tasks', kind === 'output-reviewing' ? 'running' : kind === 'output-unread' ? 'unread' : 'done', kind === 'output-passed' ? 'Passed' : kind === 'output-reviewing' ? 'Running' : kind === 'output-unread' ? 'Failed' : 'Changes asked']);
