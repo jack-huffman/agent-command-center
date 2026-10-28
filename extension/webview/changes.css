@@ -1,16 +1,31 @@
-/* A task's Planned changes, then Changes (T-99): its counts beside the heading, then each group's sets. */
-.chg-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+/* A task's Changes tab (T-138): one list first, then the path and Deploy, the steps left, and More. One level
+   of borders: none of these draws a box of its own; the space between them says where one part ends. */
+.chg-top { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
 .chg-top > h2 { margin-bottom: 4px; }
-.chg-counts { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 4px; }
-.chg-count.on { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .chg-note { margin: 2px 0 6px; }
-/* The builder's own deploy (D-206): its state, when, and what the tests found, wrapping on a narrow page. */
-.chg-deploy { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
-.chg-title { margin: 8px 0 2px; font-size: 0.95em; }
-.chg-set { margin: 4px 0 6px; }
+.chg-sub { margin: 0 0 6px; font-size: 0.95em; }
+.chg-set { margin: 4px 0 8px; }
 .chg-head { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
 .chg-list { list-style: none; margin: 2px 0 0; padding: 0 0 0 12px; }
 /* Each item: its name, then its mark, wrapping under it on a narrow page. */
 .chg-item { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; padding: 2px 0; }
 .chg-name { min-width: 0; overflow-wrap: anywhere; }
 .chg-item > .status { flex: none; }
+.chg-rec { padding-left: 0; }
+.chg-apart { margin-top: 2px; }
+.chg-apart-list { margin-top: 4px; }
+/* The builder's own deploy (D-206), under More: its state, when, and what the tests found, wrapping on a narrow page. */
+.chg-deploy { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
+/* Where it is: one line of its path, wrapping at a stop, never inside one. */
+.dp-path { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 0 0 10px; }
+.dp-stop { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dp-status { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 10px; }
+.dp-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.dp-menu { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+.dp-why { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; }
+.dp-why .codicon { margin-top: 2px; }
+.dp-left-env + .dp-left-env { margin-top: 8px; }
+.dp-left-env > p { margin: 0 0 4px; }
+/* More: closed by default; the parts that moved there keep their own look. */
+.chg-more { margin-top: 4px; }
+.chg-more-body { margin-top: 8px; }

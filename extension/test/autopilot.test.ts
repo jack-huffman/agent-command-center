@@ -110,6 +110,9 @@ test('autopilot\'s send-back for failing checks is its own notice and History it
   const row = (state: string, more: Partial<Row> = {}): Row => ({ id: 'GH-57', title: 'Task GH-57', state, display: state as Row['display'], environment: 'main', deps: [], source: { kind: 'github', url: null }, ...more });
   const news = taskNotices([row('review')], [row('rework', { checks: ['build'], review: { verdict: 'pass', summary: 'Good.', current: true } })]);
   assert.deepEqual(news.map((n) => [n.kind, n.text, n.urgent]), [['rework', 'Checks failed on GitHub for GH-57: build. It went back to its builder.', true]]);
+  // T-138: its cause rides on it, so its notice opens the page without the Review tab; a review's rework names no cause.
+  assert.equal(news[0]!.cause, 'checks');
+  assert.equal(taskNotices([row('review')], [row('rework', { review: { verdict: 'changes', summary: 'No test.', current: true } })])[0]!.cause, undefined);
   assert.deepEqual(withoutAutopilotEcho(news, [sent]), [], 'autopilot\'s notice told it');
   assert.equal(withoutAutopilotEcho(news, [{ seq: 1, at, task: 'GH-57', step: 'land', outcome: 'done', pr: { number: 9, url: 'u', opened: true } }]).length, 1);
 });

@@ -32,10 +32,11 @@ import { area as slack } from './slack.ts';
 import { area as talk } from './talk.ts';
 import { area as taskModal } from './task-modal.ts';
 import { area as tasks } from './tasks.ts';
+import { area as ticketDeploy } from './ticket-deploy.ts';
 import { area as ticket } from './ticket.ts';
 import { area as tidy } from './tidy.ts';
 import { area as trackers } from './trackers.ts';
 import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agents, autopilot, branches, changesField, cloud, connect, conversation, criteria, dockReview, environments, history, identity, limits, manifest, notices, palette, planProgress, plan, progress, questions, recordChanges, reportPanel, rules, runs, selfUpdate, settings, setup, slack, talk, taskModal, tasks, ticket, tidy, trackers, verify, worktrees];
+export const AREAS = [about, agents, autopilot, branches, changesField, cloud, connect, conversation, criteria, dockReview, environments, history, identity, limits, manifest, notices, palette, planProgress, plan, progress, questions, recordChanges, reportPanel, rules, runs, selfUpdate, settings, setup, slack, talk, taskModal, tasks, ticketDeploy, ticket, tidy, trackers, verify, worktrees];

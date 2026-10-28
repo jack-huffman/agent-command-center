@@ -42,6 +42,9 @@ import type { RecordActions } from './record-changes.ts';
 import { ticketRecords } from './model/record-changes.ts';
 import type { ManifestActions } from './manifest.ts';
 import { ticketManifest } from './model/manifest.ts';
+import type { DeployActions } from './ticket-deploy.ts';
+import { ticketDeploy } from './model/ticket-deploy.ts';
+import { deletedPaths } from './logic/ticket-deploy.ts';
 import type { PlanProgressActions } from './plan-progress.ts';
 import type { TalkActions } from './talk.ts';
 import { type TicketTalk, ticketTalk } from './model/talk.ts';
@@ -153,6 +156,8 @@ export class TicketPanels implements vscode.Disposable {
   fields: FieldActions | null = null;
   /** Manifest for this ticket (T-101), set by its area: the section's state, and its buttons. */
   manifest: ManifestActions | null = null;
+  /** A ticket's deploy (T-138), set by its area: what's under way, and the sheet's buttons. */
+  deploys: DeployActions | null = null;
   /** Talk it through (T-98), set by its area: the conversation's state, and its buttons. */
   talk: TalkActions | null = null;
   /** The conversation's own panel (T-111), set by its area: opened beside a page, and redrawn with it. */
@@ -441,6 +446,7 @@ export class TicketPanels implements vscode.Disposable {
     o.view.draw(task ? {
       ...model, open: o.part,
       records: ticketRecords({ task, analysis, profile: p.config.profile, environments: p.config.environments }),
+      deploy: this.deploys ? ticketDeploy({ config: p.config, task, tasks: this.hub.ledger(p.root)?.tasks ?? [], running: this.deploys.running(p.root, task.id), run: this.deploys.run(p.root, task.id) }) : null,
       talk,
       field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, ticketPaths(changes), updates, manifest?.manifest ?? null) ?? null : null,
       updates: this.fields ? withFieldKept(model.updates, this.fields.read(p, task.id), writtenFor(updates, task.id)) : model.updates,
@@ -454,7 +460,7 @@ export class TicketPanels implements vscode.Disposable {
   private changes(p: Project, task: Task): ChangesIn {
     const branch = task.run?.branch;
     const live = branch && IN_FLIGHT_STATES.includes(task.state) ? branchFiles(runSync, p.root, task.environment, branch, task.run?.worktree) : null;
-    return { task, profile: p.config.profile, planned: plannedFiles(this.hub.analysis(p.root, task.id), p.root), live };
+    return { task, profile: p.config.profile, planned: plannedFiles(this.hub.analysis(p.root, task.id), p.root), live, ...(live ? { deleted: deletedPaths(runSync, p.root, branch!, task.run?.worktree, live) } : {}) };
   }
 
   /**
@@ -558,6 +564,10 @@ export class TicketPanels implements vscode.Disposable {
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.records?.act(m, (msg) => o.view.say(msg));
         return;
       // Manifest for this ticket (T-101): this page's own task only.
+      // Deploy to its next environment (T-138): this page's own task only.
+      case 'deploy-check': case 'deploy-go': case 'deploy-close':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.deploys?.act(m);
+        return;
       case 'manifest-build': case 'manifest-retrieve': case 'manifest-commit': case 'manifest-file': case 'manifest-diff':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.manifest?.act(m, (msg) => o.view.say(msg));
         return;

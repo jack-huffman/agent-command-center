@@ -1,0 +1,17 @@
+/* ---------------------------------------------------------------- The deploy sheet (T-138) */
+/* Dispatch's sheet's size and place (dispatch-sheet.css): its title in the bar, the check's state, the facts as
+   a list of names and values, and Cancel and Deploy along its foot. */
+.task-modal.deploy-sheet { width: min(520px, calc(100vw - 32px)); height: fit-content; max-height: calc(100vh - 64px); margin: 32px auto auto; --origin: 50% 0; }
+.deploy-sheet .task-modal-bar { justify-content: flex-start; padding: 10px 18px; }
+.deploy-sheet .task-modal-body { padding: 8px 18px 10px; }
+.dsh-state { margin: 0 0 8px; }
+.dsh-facts { margin: 0 0 8px; }
+.dsh-facts dd { min-width: 0; overflow-wrap: anywhere; }
+.dsh-fold { margin-left: 6px; }
+.dsh-list { margin: 4px 0 0; padding-left: 18px; }
+.dsh-list li { overflow-wrap: anywhere; }
+.dsh-failed { margin: 4px 0 8px; }
+.dsh-confirm { margin: 8px 0 4px; }
+.dsh-result { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin: 4px 0 8px; }
+.dsh-result > p { margin: 0; }
+.dsh-go[hidden] { display: none; }

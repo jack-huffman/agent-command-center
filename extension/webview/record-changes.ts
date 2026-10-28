@@ -144,13 +144,19 @@ function step(m: TicketModel, r: TicketRecords, s: StepRow): HTMLElement {
   return li;
 }
 
-/** The section: its state, each record change, the form, and each promotion's steps. */
-export function renderRecords(m: TicketModel, r: TicketRecords): HTMLElement {
+/** Steps, each with its state, the change, its commands, and while it's to do, Mark done and Skip (T-138: the Changes tab's steps left). */
+export const renderSteps = (m: TicketModel, r: TicketRecords, steps: StepRow[]): HTMLElement => el('ul', 'vf-list', ...steps.map((s) => step(m, r, s)));
+
+/**
+ * The section: its state, each record change, the form, and each promotion's steps. Under the Changes tab's
+ * More (T-138), `moved` leaves out what the tab shows above it: the changes in words, and the steps still to do.
+ */
+export function renderRecords(m: TicketModel, r: TicketRecords, moved = false): HTMLElement {
   const key = peekKey(m.project, r.task);
-  const sec = el('section', `analysis records tone-edge-${r.look.tone}`, el('div', 'an-head', el('h2', '', 'Record changes'), status(r.look)));
-  sec.setAttribute('aria-label', `Record changes: ${r.look.label}`);
+  const sec = el('section', `analysis records${moved ? '' : ` tone-edge-${r.look.tone}`}`, el('div', 'an-head', el('h2', '', 'Record changes'), moved ? null : status(r.look)));
+  sec.setAttribute('aria-label', moved ? 'Record changes' : `Record changes: ${r.look.label}`);
   if (r.note) sec.append(el('p', 'muted an-note', r.note));
-  if (r.rows.length) {
+  if (r.rows.length && !moved) {
     sec.append(el('ul', 'vf-list', ...r.rows.map((x) => el('li', 'vf-row', status(x.look), el('div', 'vf-text',
       el('span', '', x.words),
       x.why ? el('span', 'muted vf-sub', `Why: ${x.why}`) : null,
@@ -158,10 +164,12 @@ export function renderRecords(m: TicketModel, r: TicketRecords): HTMLElement {
       x.by && x.at ? el('span', 'muted vf-sub', `By ${whoWords(x.by)} `, when(x.at)) : null)))));
   }
   for (const p of r.promotions) {
+    const steps = moved ? p.steps.filter((s) => !s.done) : p.steps;
+    if (!steps.length) continue;
     sec.append(el('div', 'rc-promotion',
-      el('h3', 'vf-h rc-env', `Promoted to ${p.name}`, p.pr ? linkTo(p.pr.url, `#${p.pr.number}`) : null, p.left ? status(p.left) : null),
+      el('h3', 'vf-h rc-env', `Promoted to ${p.name}`, p.pr ? linkTo(p.pr.url, `#${p.pr.number}`) : null, p.left && !moved ? status(p.left) : null),
       el('p', 'muted vf-sub', 'Git doesn\'t carry these. Make each one in the org, then mark it. Nothing makes them by itself.'),
-      el('ul', 'vf-list', ...p.steps.map((s) => step(m, r, s)))));
+      renderSteps(m, r, steps)));
   }
   const error = asks.error(key);
   if (error) sec.append(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', error)));

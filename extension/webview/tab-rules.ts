@@ -37,12 +37,14 @@ export interface TaskTab {
 /** A state shown in orange is one that waits on the person: its label says what. */
 const orange = (look: Look | null | undefined): string | null => (look?.tone === 'orange' ? look.label : null);
 
-/** The files a Changes section lists: its counted changes once there's work, else every planned item. */
-function changeCount(m: TicketModel): number {
-  const c = m.changes;
-  if (!c) return 0;
-  if (c.counts) return c.counts.changed;
-  return c.changed.reduce((n, g) => n + g.sets.reduce((k, s) => k + s.items.length, 0), 0);
+/**
+ * What on the Changes tab waits on the person (T-138): a check that passed and isn't confirmed yet, else the
+ * steps left to do by hand. Never the manifest's or the field's state: those wait under More.
+ */
+export function changesNeeds(m: TicketModel): string | null {
+  if (m.deploy?.needs) return m.deploy.needs;
+  const left = (m.records?.promotions ?? []).reduce((n, p) => n + p.steps.filter((s) => s.done).length, 0);
+  return left ? `${plural(left, 'step')} to do by hand` : null;
 }
 
 /**
@@ -59,9 +61,10 @@ export function taskTabs(m: TicketModel): TaskTab[] {
   if (m.analysis || talk || m.criteria || m.acc?.notes || builderNote) {
     out.push(tab('plan', null, orange(m.analysis?.look) ?? orange(m.analysis?.planState?.look) ?? orange(talk?.look)));
   }
-  if (m.changes || m.team || m.field || m.records || m.manifest) {
-    const n = changeCount(m);
-    out.push(tab('changes', n ? String(n) : null, orange(m.field?.look) ?? orange(m.records?.look) ?? orange(m.manifest?.look)));
+  if (m.changes || m.team || m.field || m.records || m.manifest || m.deploy) {
+    // Its count is the one list's (T-138): what changed once there's work, else what's planned.
+    const n = m.changes?.list.count ?? 0;
+    out.push(tab('changes', n ? String(n) : null, changesNeeds(m)));
   }
   // Its review (T-135): the findings counted where there are any, and orange where the review's state waits on the person.
   if (m.review) out.push(tab('review', m.review.findings.length ? String(m.review.findings.length) : null, orange(m.review.look)));

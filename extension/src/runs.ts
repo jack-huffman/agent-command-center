@@ -10,7 +10,7 @@ import { startChild } from '../../packages/core/src/start.ts';
 import { readStepEvents, STEPS_VAR } from '../../packages/core/src/steps.ts';
 import { fileInCheckout } from './logic/review-excerpts.ts';
 import { appendOutput, promptOf, type RunPrompt } from './logic/runs.ts';
-import { applySteps, NO_RUN_STEPS, runsAcc } from './logic/run-steps.ts';
+import { applySteps, NO_RUN_STEPS, type RunSteps, runsAcc } from './logic/run-steps.ts';
 import type { RunControl, RunInput } from './model/runs.ts';
 import { keptReview, type ReviewRun, type VerdictRead } from './model/dock-review.ts';
 import type { ExtensionArea } from './area.ts';
@@ -64,6 +64,8 @@ export interface StartOptions {
    * is its answer, kept apart from the lines the panel shows, and handed here once it ends, before onExit.
    */
   answer?: (stdout: string, code: number | null) => void;
+  /** A run of acc's steps as they change (T-138), for a page that says the step it's on. */
+  onSteps?: (steps: RunSteps) => void;
 }
 
 /** A command that has gone this long without output may be waiting for an answer. */
@@ -298,6 +300,7 @@ export class Runs implements vscode.Disposable {
     const next = applySteps(r.steps, readStepEvents(text), (r.base ?? 0) + r.lines.length - 1);
     if (next === r.steps) return false;
     r.steps = next;
+    r.again.onSteps?.(next);
     return true;
   }
 

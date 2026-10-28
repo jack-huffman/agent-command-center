@@ -1,6 +1,7 @@
-// A task's changes on its page (T-99): Planned changes before there's work, Changes once its branch has
-// changed something, with the plan a click away, each change outside the plan and each planned one not made
-// marked, the changes kept with a task after it merges, and a task that merged before they were kept.
+// A task's changes on its page (T-99, T-138): planned before there's work, changed once its branch has changed
+// something, in one list by type with a count; what was planned and not made, or made and not planned, behind a
+// quiet line; deletions marked in words; the changes kept with a task after it merges, and a task that merged
+// before they were kept.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -92,45 +93,6 @@ test('the ticket\'s model carries the section for a task, and none without one (
 const all = (e: PageElement): PageElement[] => [e, ...e.all()];
 const buttons = (e: PageElement): PageElement[] => all(e).filter((x) => x.tagName === 'BUTTON');
 
-test('the page draws Planned changes, then Changes with its counts as buttons; Planned shows the plan and Changed shows the work (T-99)', async () => {
-  const page = pageDom();
-  // The page's memory, kept as VSCode keeps a webview's state, so a choice stays as the page redraws.
-  let kept: unknown;
-  (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (x: unknown) => page.sent.push(x), getState: () => kept, setState: (s: unknown) => { kept = s; } });
-  const { renderChanges } = await import('../webview/changes.ts');
-  const m = { project: '/r', key: 'T-1' } as never;
-  const planned = renderChanges(m, ticketChanges(input())!) as unknown as PageElement;
-  assert.match(planned.textContent, /^Planned changesFilesdocs1x\.mdsrc2a\.tsb\.ts$/);
-  assert.deepEqual(buttons(planned), [], 'no counts before there\'s work');
-  const c = ticketChanges(input({ task: task({ state: 'running' }), live: ['src/a.ts', 'src/c.ts'] }))!;
-  const work = renderChanges(m, c) as unknown as PageElement;
-  assert.deepEqual(buttons(work).map((b) => [b.textContent, b.getAttribute('aria-pressed')]), [['Planned: 3', 'false'], ['Changed: 2', 'true']]);
-  assert.match(work.textContent, /Not in the plan/);
-  assert.match(work.textContent, /Planned, not changed/);
-  const name = work.all('chg-name').find((x) => x.textContent === 'c.ts')!;
-  assert.deepEqual([name.title, name.dataset.work], ['src/c.ts', 'files'], 'its path in its title, as work data');
-  buttons(work)[0]!.click();
-  const plan = renderChanges(m, c) as unknown as PageElement;
-  assert.deepEqual(buttons(plan).map((b) => b.getAttribute('aria-pressed')), ['true', 'false'], 'the plan shows, and stays shown as the page redraws');
-  assert.doesNotMatch(plan.textContent, /Not in the plan/);
-  buttons(plan)[1]!.click();
-  assert.match((renderChanges(m, c) as unknown as PageElement).textContent, /Not in the plan/, 'back to the work');
-});
-
-test('the page draws the kept changes after a merge with when they were kept, and the no-record line, and sits apart from the plan (T-99)', async () => {
-  pageDom();
-  const { renderChanges } = await import('../webview/changes.ts');
-  const m = { project: '/r', key: 'T-2' } as never;
-  const kept = renderChanges(m, ticketChanges(input({ task: task({ id: 'T-2', state: 'done', changes: { at: '2026-10-22T12:00:00.000Z', paths: ['src/a.ts'] } }) }))!) as unknown as PageElement;
-  assert.match(kept.textContent, /Kept with the task .*, so they stay after its branch is gone\./);
-  const none = renderChanges(m, ticketChanges(input({ task: task({ id: 'T-2', state: 'done' }) }))!) as unknown as PageElement;
-  assert.match(none.textContent, /^ChangesIt merged before changes were kept with a task, so there's no record of what it changed\. Its plan named these\.Files/);
-  const page = readFileSync(new URL('../webview/task-page.ts', import.meta.url), 'utf8');
-  const at = page.indexOf('if (m.changes) add(changes, renderChanges(m, m.changes)');
-  assert.ok(at > 0 && at < page.indexOf('if (m.field) add(changes,'), 'first in the Changes tab (T-134), apart from the plan');
-  assert.doesNotMatch(readFileSync(new URL('../webview/analysis.ts', import.meta.url), 'utf8'), /'Files'/, 'the plan\'s own Files list is gone: this section says it');
-});
-
 test('the screenshot run draws Planned changes, Changes with one outside the plan, and a merged task\'s kept changes (T-99)', async () => {
   const { sampleModel } = await import('../scripts/screenshot.ts');
   const marks = (c: TicketChanges | null) => c?.changed.flatMap((g) => g.sets.flatMap((s) => s.items.flatMap((i) => (i.look ? [i.look.label] : [])))) ?? [];
@@ -155,16 +117,54 @@ test('a task\'s deploys show under Changes as the latest to each org with what t
   assert.deepEqual(DEPLOY_LOOK.deployed, { label: 'Deployed to', icon: 'cloud-upload', tone: 'blue' });
 });
 
-test('the page draws "Deployed to <org>" under Changes, with when and what the tests found, and nothing when the task hasn\'t deployed (D-206)', async () => {
-  pageDom();
-  const { renderChanges } = await import('../webview/changes.ts');
+// ---------------------------------------------------------------- the Changes tab's one list (T-138)
+
+/** The list as "head n: item, item [deleted]". */
+const listed = (sets: { head: string; items: { name: string; deleted?: boolean; look: { label: string } | null }[] }[]): string[] =>
+  sets.map((s) => `${s.head} ${s.items.length}: ${s.items.map((i) => `${i.name}${i.deleted ? ' [deleted]' : ''}${i.look ? ` [${i.look.label}]` : ''}`).join(', ')}`);
+
+test('the tab\'s list groups by type with a count: planned before there\'s work, made once there is, with nothing marked in it (T-138)', () => {
+  const D = 'force-app/main/default';
+  const planned = [`${D}/classes/A.cls`, `${D}/classes/B.cls`, `${D}/flows/F.flow-meta.xml`];
+  const before = ticketChanges(input({ profile: 'salesforce', planned }))!.list;
+  assert.deepEqual([before.title, before.count, before.apart, listed(before.sets)], ['Metadata planned', 3, null, ['Apex Class 2: A, B', 'Flow 1: F']]);
+  const work = ticketChanges(input({ profile: 'salesforce', planned, task: task({ state: 'running' }), live: [`${D}/classes/A.cls`, `${D}/classes/A.cls-meta.xml`, `${D}/classes/C.cls`, `${D}/flows/F.flow-meta.xml`] }))!.list;
+  assert.deepEqual([work.title, work.count, listed(work.sets)], ['Metadata changed', 3, ['Apex Class 2: A, C', 'Flow 1: F']], 'what was made, a class and its -meta.xml one component, unmarked');
+  assert.equal(work.apart?.label, '1 planned, not made · 1 made, not planned');
+  assert.deepEqual(listed(work.apart!.sets), ['Apex Class 2: B [Planned, not changed], C [Not in the plan]'], 'behind the quiet line, each with its mark');
+});
+
+test('edge case: a deleted component is in the list marked deleted; only planned-not-made, or nothing apart, says only what there is (T-138)', () => {
+  const c = ticketChanges(input({ task: task({ state: 'running' }), planned: ['src/a.ts', 'src/b.ts'], live: ['src/a.ts', 'src/old.ts'], deleted: ['src/old.ts'] }))!;
+  assert.deepEqual(listed(c.list.sets), ['src 2: a.ts, old.ts [deleted]']);
+  assert.equal(c.list.apart?.label, '1 planned, not made · 1 made, not planned');
+  const same = ticketChanges(input({ task: task({ state: 'running' }), planned: ['src/a.ts'], live: ['src/a.ts'] }))!;
+  assert.equal(same.list.apart, null, 'all made as planned: no quiet line');
+  const short = ticketChanges(input({ task: task({ state: 'running' }), planned: ['src/a.ts', 'src/b.ts'], live: ['src/a.ts'] }))!;
+  assert.equal(short.list.apart?.label, '1 planned, not made');
+  assert.equal(ticketChanges(input({ task: task({ state: 'done' }) }))!.list.count, 0, 'merged with no record: an empty list, and the note says why');
+});
+
+test('the page draws the list first, its counts, a deletion in words with an icon, and the quiet line that opens what\'s apart (T-138)', async () => {
+  const page = pageDom();
+  let kept: unknown;
+  (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (x: unknown) => page.sent.push(x), getState: () => kept, setState: (s: unknown) => { kept = s; } });
+  const { renderList } = await import('../webview/changes.ts');
   const m = { project: '/r', key: 'T-1' } as never;
-  const deploys: TaskDeploy[] = [{ env: 'dev', org: 'Acme Dev', sha: 'a', at: '2026-10-23T11:00:00.000Z', jobId: '0Af', paths: ['src/a.ts'], components: ['Apex Class: A'], verified: 1, tests: { names: ['ATest'], outcome: 'pass', ran: 2, failed: 0, coverage: '91%' } }];
-  const drawn = renderChanges(m, ticketChanges(input({ task: task({ state: 'running', deploys }), live: ['src/a.ts'] }))!) as unknown as PageElement;
-  const line = drawn.querySelector('.chg-deploy') as PageElement | null;
-  assert.ok(line, 'a deploy line');
-  assert.match(line!.textContent, /^Deployed to Acme Dev.*1 component, 1 listed in the org · 2 tests passed in the org, 91% coverage$/);
-  assert.ok(line!.querySelector('.codicon-cloud-upload'), 'with its icon');
-  const none = renderChanges(m, ticketChanges(input({ task: task({ state: 'running' }), live: ['src/a.ts'] }))!) as unknown as PageElement;
-  assert.equal(none.querySelector('.chg-deploy'), null);
+  const c = ticketChanges(input({ task: task({ state: 'running' }), live: ['src/a.ts', 'src/old.ts'], deleted: ['src/old.ts'] }))!;
+  const drawn = renderList(m, c) as unknown as PageElement;
+  assert.match(drawn.textContent, /^Files changed2src2a\.tsold\.tsdeleted/);
+  const del = drawn.querySelector('.chg-deleted') as PageElement | null;
+  assert.ok(del?.querySelector('.codicon-trash') && del.textContent === 'deleted', 'the word and an icon, never colour alone');
+  const quiet = buttons(drawn);
+  assert.deepEqual(quiet.map((b) => [b.textContent, b.getAttribute('aria-expanded')]), [['2 planned, not made · 1 made, not planned', 'false']]);
+  assert.doesNotMatch(drawn.textContent, /Not in the plan/, 'closed, its marks wait');
+  quiet[0]!.click();
+  const open = renderList(m, c) as unknown as PageElement;
+  assert.match(open.textContent, /Planned, not changed.*Not in the plan/, 'opened, it lists them with their marks, and stays open as the page redraws');
+  // Edge: kept changes after a merge say when they were kept; none kept says so.
+  const keptC = renderList(m, ticketChanges(input({ task: task({ id: 'T-2', state: 'done', changes: { at: '2026-10-22T12:00:00.000Z', paths: ['src/a.ts'] } }) }))!) as unknown as PageElement;
+  assert.match(keptC.textContent, /Kept with the task .*, so they stay after its branch is gone\./);
+  const none = renderList(m, ticketChanges(input({ task: task({ id: 'T-2', state: 'done' }) }))!) as unknown as PageElement;
+  assert.match(none.textContent, /^Files changedIt merged before changes were kept with a task, so there's no record of what it changed\. Its plan named these\.$/);
 });
