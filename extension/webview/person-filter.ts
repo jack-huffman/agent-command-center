@@ -23,8 +23,11 @@ export const NO_ME = 'The tracker did not say who is signed in, so Mine cannot t
  */
 export const effective = (choice: string | undefined, me: string | null): string => (!choice ? (me ? MINE : EVERYONE) : choice === MINE && !me ? EVERYONE : choice);
 
-/** The quiet line for a board that opens on Everyone because it can't say who the person is: no choice made, nobody known. */
-export const everyoneWhy = (choice: string | undefined, me: string | null, tracker: string): string | null => (!choice && !me ? `Showing everyone: sign in to ${tracker} to see just yours` : null);
+/**
+ * The quiet line for a board showing Everyone because it can't say who the person is: nobody known and no choice
+ * but Everyone, or a kept Mine that can't be honoured now (signed out). A kept Everyone or person needs none.
+ */
+export const everyoneWhy = (choice: string | undefined, me: string | null, tracker: string): string | null => (!me && (!choice || choice === MINE) ? `Showing everyone: sign in to ${tracker} to see just yours` : null);
 
 /** Whether a card with these people shows under a choice. */
 export function shows(choice: string, people: readonly Who[], me: string | null): boolean {

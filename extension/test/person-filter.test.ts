@@ -135,6 +135,9 @@ test('T-143: a board with no kept choice opens on Mine when the tracker knows th
   assert.equal(effective(PERSON + 'pat', 'jordan'), PERSON + 'pat', 'a kept person wins over the default');
   assert.equal(everyoneWhy(undefined, null, 'Jira'), 'Showing everyone: sign in to Jira to see just yours');
   assert.equal(everyoneWhy(undefined, 'jordan', 'Jira'), null, 'a known person needs no line');
-  assert.equal(everyoneWhy(EVERYONE, null, 'Jira'), null, 'edge case: a kept choice needs no line');
+  assert.equal(everyoneWhy(EVERYONE, null, 'Jira'), null, 'edge case: a kept Everyone needs no line');
+  assert.equal(everyoneWhy(MINE, null, 'Jira'), 'Showing everyone: sign in to Jira to see just yours', 'edge case: a kept Mine with nobody known now falls back to Everyone and says why');
+  assert.equal(everyoneWhy(MINE, 'jordan', 'Jira'), null);
+  assert.equal(everyoneWhy(PERSON + 'pat', null, 'Jira'), null, 'a kept person is honoured, so no line');
   assert.equal(headerLine(choicesFor(CARDS, 'jordan', undefined), undefined, 'jordan', 5).text, 'Mine · 3 of 5');
 });

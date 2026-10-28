@@ -39,7 +39,7 @@ import { isFromWebview, type FromWebview } from '../src/model/messages.ts';
 import { type HistoryItem, historyItems } from '../src/model/history.ts';
 import { LOOK } from '../src/model/shared.ts';
 import { type TrackerCard, trackerBoard } from '../src/model/boards.ts';
-import { sampleSeveralBoards } from './fixtures/boards.ts';
+import { everyoneKept, sampleSeveralBoards } from './fixtures/boards.ts';
 import { PERSON } from '../webview/person-filter.ts';
 import { HISTORY_PAGE, historyReply } from '../src/model/history-pages.ts';
 import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
@@ -2220,6 +2220,23 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'person filter: the agent board in My work opens on Mine when it knows the person, and Everyone when it does not (T-143)',
+    page: 'tasks',
+    async run(t) {
+      const model = structuredClone(t.model) as typeof t.model;
+      if (model.kind !== 'home') throw new Error('The person filter cases need a home model.');
+      const project = model.tasks.projects[0]!;
+      project.me = 'dispatcher';
+      t.remember({ modes: { [project.root]: 'agents' }, filters: {} });
+      await t.post({ type: 'state', model });
+      const header = () => t.find('.agent-board').closest<HTMLElement>('.project')!.querySelector('.person-btn')?.textContent?.trim() ?? '';
+      t.check('the agent board, with no kept choice and a known person, opens on Mine', header().startsWith('Mine'), header());
+      project.me = null;
+      await t.post({ type: 'state', model });
+      t.check('edge case: the agent board with nobody known opens on Everyone', header().startsWith('Everyone'), header());
+    },
+  },
+  {
     name: 'person filter: edge case: Mine with nothing in it says so, with Show everyone (T-143)',
     page: 'tasks',
     async run(t) {
@@ -2485,7 +2502,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'a board draws every card, whatever the filter shows', file: 'tasks.ts', find: "const cards = c.cards.filter(showing);\n    const col = el('section', `column tone-edge-${c.tone}${c.done ?", replace: "const cards = c.cards;\n    const col = el('section', `column tone-edge-${c.tone}${c.done ?", kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right'), caseNamed('person filter: a board where no card')] },
   { name: 'a board forgets its choice on a redraw', file: 'person-menu.ts', find: 'const kept = memory().filters?.[key];', replace: 'const kept: string | undefined = undefined;', kills: [caseNamed('person filter: the menu'), caseNamed('person filter: Down and Right')] },
   { name: 'a board with no card says a choice hides them', file: 'tasks.ts', find: 'if (b.columns.some((c) => c.cards.length) && !b.columns.some((c) => c.cards.some(showing))) out.append', replace: 'if (!b.columns.some((c) => c.cards.some(showing))) out.append', kills: [caseNamed('person filter: edge case: a tracker board')] },
-  { name: 'a board with a known person opens on Everyone', file: 'person-filter.ts', find: '(!choice ? (me ? MINE : EVERYONE)', replace: '(!choice ? EVERYONE', kills: [caseNamed('person filter: a board opens on Mine'), caseNamed('person filter: board switching'), caseNamed('person filter: edge case: Mine with nothing')] },
+  { name: 'a board with a known person opens on Everyone', file: 'person-filter.ts', find: '(!choice ? (me ? MINE : EVERYONE)', replace: '(!choice ? EVERYONE', kills: [caseNamed('person filter: a board opens on Mine'), caseNamed('person filter: board switching'), caseNamed('person filter: the agent board'), caseNamed('person filter: edge case: Mine with nothing')] },
   { name: 'Show everyone does nothing', file: 'person-menu.ts', find: "back.addEventListener('click', () => keep(key, EVERYONE));", replace: "back.addEventListener('click', () => {});", kills: [caseNamed('person filter: a board where no card')] },
   { name: 'the board\'s live line stays silent', file: 'board-nav.ts', find: "live.replaceChildren(icon(look.icon, look.tone), el('span', '', text));", replace: 'void look;', kills: [caseNamed('board keys: Space, Right and Enter'), caseNamed('board keys: Escape'), caseNamed('board keys: Space on a card')] },
   { name: 'Dispatch goes without the sheet', file: 'dispatch-sheet.ts', find: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) openSheet(msg.sheet); } },", replace: "receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) api.postMessage({ type: 'dispatch-sheet-go', project: msg.sheet.project, task: msg.sheet.task, model: msg.sheet.models[0]!.value, where: msg.sheet.place }); } },", kills: [caseNamed('dispatch sheet: a card'), caseNamed('dispatch sheet: the task page')] },
@@ -3014,7 +3031,7 @@ function harness(c: Case, data: BehaviourData, model: Model): string {
   const key = model.kind === 'home' ? (model.connect ? 'home:connect' : `home:${model.section}`) : model.kind;
   // A board with no kept choice opens on Mine (T-143), which hides the cards most cases look for: every case but the person filter's own starts with each board kept on Everyone.
   const everyone: Record<string, string> = {};
-  if (model.kind === 'home' && !c.name.startsWith('person filter:')) for (const pr of model.tasks?.projects ?? []) { everyone[`agents:${pr.root}`] = 'everyone'; for (let i = 0; i < 12; i++) everyone[`tracker:${pr.root}#${i}`] = 'everyone'; }
+  if (model.kind === 'home' && !c.name.startsWith('person filter:')) for (const pr of model.tasks?.projects ?? []) Object.assign(everyone, everyoneKept(pr.root));
   const seeded0 = c.opening ? { opened: [], drafts: {}, section: model.kind === 'home' ? model.section : undefined, scroll: { [key]: { y: c.opening.scroll, boards: [] } } } : undefined;
   const seeded = Object.keys(everyone).length ? { ...seeded0, filters: everyone } : seeded0;
   const fns = [...HELPERS.map((f) => `const ${f.name} = ${f.toString().replace(/^async function \w+/, 'async function').replace(/^function \w+/, 'function')};`), `const RUN = ${c.run.toString().replace(/^async run/, 'async function')};`].join('\n');

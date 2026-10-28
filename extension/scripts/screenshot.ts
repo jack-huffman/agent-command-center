@@ -43,7 +43,7 @@ import { type GroupKey, landing, overviewCards } from '../src/model/landing.ts';
 import { REPORT_TITLE } from '../src/model/report.ts';
 import { FinishedJobs } from '../src/progress.ts';
 import { sampleAgent } from './fixtures/agent-page.ts';
-import { sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSeveralBoards, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
+import { everyoneKept, sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSeveralBoards, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
 import { sampleAzureBoards, sampleAzureLoading, sampleAzureRefreshing, sampleTrackerTicket, type TrackerTicketSample } from './fixtures/tracker-tickets.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
 import { sampleIdentities, sampleIdentity } from './fixtures/environments.ts';
@@ -447,10 +447,9 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
 /** The shots that show a board on its own default (T-143): Mine, or Everyone with its line, as a board with no kept choice opens. */
 const OWN_DEFAULT = new Set<Page>(['tasks-first', 'tasks-person-menu', 'tasks-person-mine', 'tasks-person-signed-out', 'tasks-person-mine-none']);
 /** Every other shot keeps its boards on Everyone, so a board shows all its cards, as it did before Mine became the default. */
-const EVERYONE_KEPT = Object.fromEntries([`agents:${ROOT}`, ...Array.from({ length: 12 }, (_, i) => `tracker:${ROOT}#${i}`)].map((k) => [k, 'everyone']));
 export const shotState = (kind: Page): Record<string, unknown> => {
   const start = startState(kind) as { filters?: Record<string, string> } | undefined;
-  return { ...start, ...(OWN_DEFAULT.has(kind) ? {} : { filters: { ...EVERYONE_KEPT, ...start?.filters } }), ...(kind === 'tasks-first' ? {} : { firstStepsSeen: true }) };
+  return { ...start, ...(OWN_DEFAULT.has(kind) ? {} : { filters: { ...everyoneKept(ROOT), ...start?.filters } }), ...(kind === 'tasks-first' ? {} : { firstStepsSeen: true }) };
 };
 
 /**
