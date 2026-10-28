@@ -27,7 +27,8 @@ const kids = (e: HTMLElement): HTMLElement[] => Array.from(e.children as unknown
  */
 export function collapsible(sec: HTMLElement, id: string, ticket: { project: string; key: string }, summary: string | null): HTMLElement {
   let head = kids(sec)[0];
-  const h2 = head?.tagName === 'H2' ? head : head?.querySelector('h2');
+  // Its heading: the header itself, or one of the header line's own children.
+  const h2 = head?.tagName === 'H2' ? head : head && kids(head).find((c) => c.tagName === 'H2');
   if (!head || !h2) return sec;
   // A section headed by its h2 alone gets a header line to hold the summary beside it.
   if (head === h2) {
