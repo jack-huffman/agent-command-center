@@ -1,4 +1,4 @@
-## D-T-132 The ticket's own description comes first, and each Command Center section collapses (2026-10-27)
+## D-214 The ticket's own description comes first, and each Command Center section collapses (2026-10-27)
 
 T-132. The person asked for a task page's description above its plan: the description is part of the ticket
 itself, while the plan, the acceptance criteria and Verify the developer's work are the Command Center's own. Each
