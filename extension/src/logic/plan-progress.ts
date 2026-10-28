@@ -11,7 +11,6 @@ import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { basename, isAbsolute, relative } from 'node:path';
 import { type PlanProgress, planProgress } from '../model/plan-progress.ts';
 import { processLine } from './processes.ts';
-import { splitLines } from '../transcript.ts';
 
 /** Making a plan (Make a plan, Draft the plan, Skip to the plan), or a reply in the conversation. */
 export type PlanJobKind = 'plan' | 'reply';
@@ -94,8 +93,8 @@ export function stepOf(name: string, input: Record<string, unknown>, roots: read
 export interface PlanFeed {
   /** The byte the next read starts at. */
   offset: number;
-  /** The end of the last read when it cut a line in two: kept for the next. */
-  rest: string;
+  /** Inside a line longer than a read, such as a large tool result: it's passed over to its end, unread. */
+  skipping: boolean;
   steps: PlanStep[];
   /** When the transcript last moved since the job began: a step, its result, or the agent's words. */
   movedAt: number | null;
@@ -108,7 +107,7 @@ export interface PlanFeed {
 /** A clock's difference allowed between the job's start and its first record: Claude Code's clock is the same machine's. */
 const SINCE_SLACK_MS = 5_000;
 
-export const newFeed = (since: number, roots: readonly string[], job: PlanJobKind): PlanFeed => ({ offset: 0, rest: '', steps: [], movedAt: null, since, roots, job });
+export const newFeed = (since: number, roots: readonly string[], job: PlanJobKind): PlanFeed => ({ offset: 0, skipping: false, steps: [], movedAt: null, since, roots, job });
 
 /**
  * Adds a transcript's whole lines to a feed. A line that isn't JSON, a record from before the job began, and a
@@ -141,9 +140,10 @@ export function feedLines(feed: PlanFeed, lines: readonly string[]): PlanFeed {
 export const READ_BYTES = 512 * 1024;
 
 /**
- * Reads what the transcript gained since the last read, at most `max` bytes, and adds it to the feed. A file that
- * shrank was started again, so it's read from its start. Returns the bytes read; 0 when there was nothing new, or
- * the file can't be read.
+ * Reads what the transcript gained since the last read, at most `max` bytes, and adds its whole lines to the feed.
+ * A line cut by the read's end (or by a write still under way) waits for the next read, from its start. A line longer
+ * than `max` is passed over. A file that shrank was started again, so it's read from its start. Returns the bytes
+ * the read moved past; 0 when there was nothing new, nothing whole, or the file can't be read.
  */
 export function readFeed(feed: PlanFeed, file: string, max = READ_BYTES): number {
   let fd: number;
@@ -154,20 +154,27 @@ export function readFeed(feed: PlanFeed, file: string, max = READ_BYTES): number
   }
   try {
     const size = fstatSync(fd).size;
-    if (size < feed.offset) Object.assign(feed, { offset: 0, rest: '', steps: [], movedAt: null });
+    if (size < feed.offset) Object.assign(feed, { offset: 0, skipping: false, steps: [], movedAt: null });
     const n = Math.min(max, size - feed.offset);
     if (n <= 0) return 0;
     const buf = Buffer.alloc(n);
     readSync(fd, buf, 0, n, feed.offset);
-    feed.offset += n;
-    // A read may end inside a character as well as inside a line: the bytes after the last newline wait for the next.
+    // The end of a line too long to read is passed over first.
+    const from = feed.skipping ? buf.indexOf(0x0a) + 1 : 0;
+    if (feed.skipping && from === 0) { feed.offset += n; return n; }
+    feed.skipping = false;
     const nl = buf.lastIndexOf(0x0a);
-    const whole = nl < 0 ? '' : buf.subarray(0, nl + 1).toString('utf8');
-    if (nl < n - 1) feed.offset -= n - 1 - nl;
-    const { lines, rest } = splitLines(feed.rest, whole);
-    feed.rest = rest;
-    feedLines(feed, lines);
-    return n;
+    if (nl < from) {
+      // No whole line: a full read from a line's start is inside a line longer than a read; else the line waits for its end.
+      if (n < max || from > 0) { feed.offset += from; return from; }
+      feed.skipping = true;
+      feed.offset += n;
+      return n;
+    }
+    // Only whole lines are read: one cut by the read's end, even inside a character, waits for the next.
+    feedLines(feed, buf.subarray(from, nl + 1).toString('utf8').split('\n'));
+    feed.offset += nl + 1;
+    return nl + 1;
   } catch {
     return 0;
   } finally {

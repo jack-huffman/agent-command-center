@@ -109,6 +109,18 @@ test('edge case: a half-written last line waits for the rest of it, and is a ste
   assert.deepEqual(feed.steps.map((s) => s.data), ['*.ts', 'a.ts']);
 });
 
+test('edge case: a line longer than a read, such as a large tool result, is passed over, and the lines after it are read', () => {
+  const file = join(tempDir(), 's.jsonl');
+  const big = JSON.stringify({ type: 'user', timestamp: iso(NOW + SEC), message: { content: [{ type: 'tool_result', content: 'x'.repeat(3000) }] } });
+  writeFileSync(file, `${use(NOW, 'Glob', { pattern: 'a' })}\n${big}\n${use(NOW + 2 * SEC, 'Grep', { pattern: 'b' })}\n`);
+  const feed = newFeed(NOW, [ROOT], 'plan');
+  let reads = 0;
+  while (readFeed(feed, file, 1000) > 0 && reads < 50) reads++;
+  assert.ok(reads < 50, 'it never sticks inside the long line');
+  assert.deepEqual(feed.steps.map((s) => s.data), ['a', 'b']);
+  assert.equal(feed.skipping, false);
+});
+
 test('each read starts where the last ended and takes at most its share; a file that shrank is read from its start', () => {
   const file = join(tempDir(), 's.jsonl');
   const lines = Array.from({ length: 6 }, (_, i) => use(NOW + i * SEC, 'Read', { file_path: `${ROOT}/f${i}.ts` }));
