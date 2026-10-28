@@ -1849,6 +1849,7 @@ function placeText(p) {
     return `GitHub \xB7 ${p.repo ?? "?"}${labels.length ? ` \xB7 label${labels.length > 1 ? "s" : ""} ${orList(labels)}` : ""}`;
   }
   if (p.kind === "jira") {
+    if (p.queue) return `Jira \xB7 ${p.project ?? "?"}${p.deskName ? ` \xB7 service desk ${p.deskName}` : ""} \xB7 queue ${p.queueName ?? p.queue}`;
     const epics = (p.epics ?? []).map((e, i) => p.epicNames?.[i] ? `${e} ${p.epicNames[i]}` : e);
     return `Jira \xB7 ${p.project ?? "?"}${epics.length ? ` \xB7 ${epicWords(epics)}` : ""}${p.sprint ? ` \xB7 ${sprintPlace(p.sprint, p.sprints ?? null)}` : ""}`;
   }
@@ -2515,6 +2516,7 @@ var CONFIG_KEYS = [
   "environmentSpecific",
   "knownDrift",
   "trackers[].kind",
+  "trackers[].name",
   "trackers[].site",
   "trackers[].project",
   "trackers[].repo",
@@ -2531,6 +2533,7 @@ var CONFIG_KEYS = [
   "trackers[].skipLabels",
   "trackers[].epics",
   "trackers[].sprint",
+  "trackers[].queue",
   "trackers[].labels",
   "trackers[].areaPath",
   "trackers[].group",
@@ -2628,6 +2631,13 @@ var isStr = (v) => typeof v === "string" && v.trim() !== "";
 var strList = (v) => Array.isArray(v) && v.every(isStr);
 var inRepo = (v) => strList(v) && !v.some((f) => f.startsWith("/") || f.split("/").includes(".."));
 var JIRA_ISSUE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
+function queueProblem(t) {
+  if (t.kind !== "jira") return `"queue" applies only to a Jira tracker: it's a Jira Service Management queue.`;
+  if (!Number.isSafeInteger(t.queue) || t.queue < 1) return `"queue" must be a Jira Service Management queue's id, such as 12.`;
+  const epics = t.epic !== void 0 && t.epic !== null || Array.isArray(t.epics) && t.epics.length;
+  if (epics || t.sprint !== void 0 && t.sprint !== null) return `a queue's tickets are the ones its own JQL picks out, so it takes no "epic", "epics" or "sprint". Take them out, or make the queue a tracker of its own.`;
+  return null;
+}
 function sprintProblem(kind, sprint) {
   if (kind !== "jira") return '"sprint" applies only to a Jira tracker: other trackers have no sprints here.';
   if (sprint === "active" || Number.isSafeInteger(sprint) && sprint > 0) return null;
@@ -2747,6 +2757,13 @@ function parseConfig(raw) {
         const empty = Array.isArray(t[p.key]) && !t[p.key].length;
         if (t.kind !== p.kind && !empty) warnings.push(`trackers[${i}]: "${p.key}" applies only to ${p.on} tracker, so it's ignored.`);
       }
+      if (t.queue !== void 0 && t.queue !== null) {
+        const why = queueProblem(t);
+        if (why) {
+          errors.push(`trackers[${i}]: ${why}`);
+          return;
+        }
+      }
       if (t.sprint !== void 0 && t.sprint !== null) {
         const why = sprintProblem(t.kind, t.sprint);
         if (why) {
@@ -2779,8 +2796,13 @@ function parseConfig(raw) {
         errors.push(`trackers[${i}]: "board" must be ${t.kind === "azure" ? "an Azure board's name, such as Stories" : t.kind === "github" ? `a GitHub Project number, or "${GITHUB_NO_PROJECT}" for no Project` : "a Jira board id or a GitHub Project number"}.`);
         return;
       }
+      if (t.name !== void 0 && t.name !== null && (typeof t.name !== "string" || t.name.trim().length > TRACKER_NAME_MAX)) {
+        errors.push(`trackers[${i}]: "name" must be the board's name, in up to ${TRACKER_NAME_MAX} characters.`);
+        return;
+      }
       trackers.push({
         kind: t.kind,
+        name: isStr(t.name) && t.name.trim() ? t.name.trim() : null,
         site: isStr(t.site) ? t.site : null,
         project: isStr(t.project) ? t.project : null,
         repo: isStr(t.repo) ? t.repo : null,
@@ -2797,6 +2819,7 @@ function parseConfig(raw) {
         skipLabels: t.kind === "github" && strList(t.skipLabels) ? t.skipLabels : [],
         epics: t.kind === "jira" ? [...new Set([t.epic, ...strList(t.epics) ? t.epics : []].filter(isStr).map((e) => e.trim().toUpperCase()))] : [],
         sprint: t.kind === "jira" && (t.sprint === "active" || Number.isSafeInteger(t.sprint)) ? t.sprint : null,
+        queue: t.kind === "jira" && Number.isSafeInteger(t.queue) ? t.queue : null,
         labels: t.kind === "github" && strList(t.labels) ? t.labels.map((l3) => l3.trim()) : [],
         areaPath: t.kind === "azure" && isStr(t.areaPath) ? t.areaPath.trim() : null,
         group: t.kind === "monday" && isStr(t.group) ? t.group.trim() : null,
@@ -2810,8 +2833,16 @@ function parseConfig(raw) {
       const p = keyPrefix(t);
       if (!p) return;
       const first = seen.get(p);
+      if (first !== void 0 && sameDesk(trackers[first], t)) return;
       if (first === void 0) seen.set(p, i);
-      else warnings.push(`trackers[${first}] and trackers[${i}] both give tickets keys like ${p}-12, so those keys go to trackers[${first}]. Give one of them its own "prefix".`);
+      else if (!sameSource(trackers[first], t)) warnings.push(`trackers[${first}] and trackers[${i}] both give tickets keys like ${p}-12, so those keys go to trackers[${first}]. Give one of them its own "prefix".`);
+    });
+    const places = /* @__PURE__ */ new Map();
+    trackers.forEach((t, i) => {
+      const k2 = boardKeys(t);
+      const first = places.get(k2);
+      if (first === void 0) places.set(k2, i);
+      else warnings.push(`trackers[${first}] and trackers[${i}] are the same board: the same place, differing only by name. Give one other epics, labels or another place, or take it out.`);
     });
   }
   const a2 = isObj(raw.agents) ? raw.agents : {};
@@ -3160,6 +3191,14 @@ function keyPrefix(t) {
   if (t.kind === "slack") return (t.prefix ?? SLACK_PREFIX).toUpperCase();
   return t.project ? t.project.toUpperCase() : null;
 }
+var TRACKER_NAME_MAX = 80;
+function sameSource(a2, b) {
+  if (a2.kind !== b.kind) return false;
+  const where = (t) => t.site ?? t.organization ?? t.account ?? t.workspace ?? null;
+  const what = (t) => t.kind === "monday" ? String(t.board ?? "") : t.kind === "slack" ? t.channel : t.kind === "github" ? t.repo : t.project;
+  return where(a2) === where(b) && what(a2) === what(b);
+}
+var sameDesk = (a2, b) => a2.kind === "jira" && b.kind === "jira" && a2.queue !== null && b.queue !== null && a2.site === b.site && a2.project?.toUpperCase() === b.project?.toUpperCase();
 function trackerForKey(trackers, key) {
   const k2 = key.toUpperCase();
   const i = trackers.findIndex((t) => {
@@ -3171,7 +3210,7 @@ function trackerForKey(trackers, key) {
 }
 function withTracker(trackers, tracker) {
   const where = (t) => t.site ?? t.organization ?? t.account ?? t.workspace ?? t.repo ?? null;
-  const board = (t) => t.kind === "monday" && t.board !== void 0 && t.board !== null ? String(t.board) : t.kind === "slack" && isStr(t.channel) ? t.channel.trim().toUpperCase() : null;
+  const board = (t) => t.kind === "monday" && t.board !== void 0 && t.board !== null ? String(t.board) : t.kind === "slack" && isStr(t.channel) ? t.channel.trim().toUpperCase() : t.kind === "jira" && t.queue !== void 0 && t.queue !== null ? `queue ${String(t.queue)}` : null;
   const i = trackers.findIndex((t) => t.kind === tracker.kind && (t.project ?? null) === (tracker.project ?? null) && where(t) === where(tracker) && board(t) === board(tracker));
   if (i < 0) return [...trackers, setKeys(ownPrefix(trackers, tracker))];
   return trackers.map((t, k2) => k2 === i ? setKeys({ ...t, ...tracker }) : t);
@@ -3190,11 +3229,26 @@ var setKeys = (t) => Object.fromEntries(Object.entries(t).filter(([, v]) => v !=
 function replaceTracker(trackers, index, tracker) {
   const was = trackers[index];
   if (!was || was.kind !== tracker.kind) throw new AccError("config-changed", "The trackers in .acc/config.json changed since this page opened. Open it again from the board.");
-  return trackers.map((t, k2) => k2 === index ? setKeys({ ...t, ...tracker }) : t);
+  const next = trackers.map((t, k2) => k2 === index ? setKeys({ ...t, ...tracker }) : t);
+  const other = next.findIndex((t, k2) => k2 !== index && boardKeys(t) === boardKeys(next[index]));
+  if (other >= 0) throw new AccError("usage", `That's the same place as ${boardLabel(next[other], other)}: choose other epics, labels or another place, or change that board instead.`);
+  return next;
 }
-function saveTracker(file, index, record2) {
+var boardLabel = (t, index) => isStr(t.name) && t.name.trim() ? `the board \u201C${t.name.trim()}\u201D` : `board ${index + 1} in the project's list`;
+function saveTracker(file, index, record2, add2 = false) {
   if (!isObj(record2) || !isTrackerKind(record2.kind)) throw new AccError("usage", `A tracker needs a "kind": ${orList([...TRACKER_KINDS])}.`);
   if (index !== null && (!Number.isInteger(index) || index < 0)) throw new AccError("usage", "The tracker to change is its place in the list, from 0.");
+  const raw = readRaw(file);
+  const was = Array.isArray(raw.trackers) ? raw.trackers : [];
+  const trackers = index !== null ? replaceTracker(was, index, record2) : add2 ? addBoard(was, record2) : withTracker(was, record2);
+  const wanted = { ...raw, trackers };
+  const checked = parseConfig(wanted);
+  if (!checked.config) throw new AccError("bad-config", `That tracker would leave ${file} with problems, so nothing was written:
+- ${checked.errors.join("\n- ")}`);
+  writeAtomic(file, JSON.stringify(wanted, null, 2) + "\n");
+  return { index: index ?? trackers.findIndex((t, k2) => was[k2] !== t), warnings: checked.warnings };
+}
+function readRaw(file) {
   let raw;
   try {
     raw = JSON.parse(readFileSync4(file, "utf8"));
@@ -3202,14 +3256,28 @@ function saveTracker(file, index, record2) {
     throw new AccError(existsSync3(file) ? "bad-config" : "no-config", existsSync3(file) ? `${file} isn't valid JSON: ${e.message}` : `No ${file}. Run "acc init" first.`);
   }
   if (!isObj(raw)) throw new AccError("bad-config", `${file} must be a JSON object.`);
+  return raw;
+}
+var boardKeys = (t) => JSON.stringify(canonical(setKeys({ ...t, name: null })));
+var canonical = (x2) => Array.isArray(x2) ? x2.map(canonical) : isObj(x2) ? Object.fromEntries(Object.keys(x2).sort().map((k2) => [k2, canonical(x2[k2])])) : x2;
+function addBoard(trackers, tracker) {
+  const next = setKeys(ownPrefix(trackers, tracker));
+  if (trackers.some((t) => boardKeys(t) === boardKeys(next))) throw new AccError("usage", "That board is in the project already: choose other epics, labels or another place, or change the one there.");
+  return [...trackers, next];
+}
+function removeTracker(file, index, kind) {
+  if (!Number.isInteger(index) || index < 0) throw new AccError("usage", "The tracker to remove is its place in the list, from 0.");
+  const raw = readRaw(file);
   const was = Array.isArray(raw.trackers) ? raw.trackers : [];
-  const trackers = index === null ? withTracker(was, record2) : replaceTracker(was, index, record2);
+  const removed = was[index];
+  if (!removed || removed.kind !== kind) throw new AccError("config-changed", "The trackers in .acc/config.json changed since this page opened. Open it again from the board.");
+  const trackers = was.filter((_2, k2) => k2 !== index);
   const wanted = { ...raw, trackers };
   const checked = parseConfig(wanted);
-  if (!checked.config) throw new AccError("bad-config", `That tracker would leave ${file} with problems, so nothing was written:
+  if (!checked.config) throw new AccError("bad-config", `Removing it would leave ${file} with problems, so nothing was written:
 - ${checked.errors.join("\n- ")}`);
   writeAtomic(file, JSON.stringify(wanted, null, 2) + "\n");
-  return { index: index ?? trackers.findIndex((t, k2) => was[k2] !== t), warnings: checked.warnings };
+  return { removed, warnings: checked.warnings };
 }
 
 // packages/core/src/ledger.ts
@@ -12891,6 +12959,7 @@ function builderSettings(task, config, accBinDir2, basePath, accCommand2) {
     "Bash(acc rules accept*)",
     "Bash(acc rules dismiss*)",
     "Bash(acc trackers set*)",
+    "Bash(acc trackers remove*)",
     "Bash(acc github use*)",
     "Bash(acc tidy add*)",
     "Bash(acc tidy skip*)",
@@ -16794,8 +16863,8 @@ function parseTemplate(raw) {
     errors: []
   };
 }
-var canonical = (v) => Array.isArray(v) ? v.map(canonical) : isObj(v) ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canonical(v[k2])])) : v;
-var templateDigest = (raw) => `sha256:${createHash3("sha256").update(JSON.stringify(canonical(raw))).digest("hex")}`;
+var canonical2 = (v) => Array.isArray(v) ? v.map(canonical2) : isObj(v) ? Object.fromEntries(Object.keys(v).sort().map((k2) => [k2, canonical2(v[k2])])) : v;
+var templateDigest = (raw) => `sha256:${createHash3("sha256").update(JSON.stringify(canonical2(raw))).digest("hex")}`;
 function fetchTemplateText(run2, source, opts = {}) {
   return fetchSource(run2, source, "template", opts).text;
 }
@@ -19379,7 +19448,7 @@ import { readFileSync as readFileSync48, realpathSync as realpathSync6 } from "n
 import { dirname as dirname17 } from "node:path";
 
 // package.json
-var package_default = { version: "0.48.0" };
+var package_default = { version: "0.49.0" };
 
 // packages/cli/src/shared.ts
 var VERSION = package_default.version;
@@ -22380,6 +22449,7 @@ function cmdSet2(o) {
   const file = o.file;
   if (!file) throw new AccError("usage", "acc trackers set --file <tracker.json> [--index <n>]");
   const index = o.index === void 0 ? null : Number(o.index);
+  if (index !== null && o["new"]) throw new AccError("usage", "--new adds a board, so it takes no --index.");
   if (index !== null && !(Number.isInteger(index) && index >= 0 && /^\d+$/.test(String(o.index)))) throw new AccError("usage", "--index is the tracker's place in the list, from 0.");
   let record2;
   try {
@@ -22389,7 +22459,7 @@ function cmdSet2(o) {
   }
   personOnly(o, "connect or change a tracker");
   const paths = repoPaths(process.cwd(), run);
-  const saved = saveTracker(paths.config, index, record2);
+  const saved = saveTracker(paths.config, index, record2, !!o["new"]);
   for (const w of saved.warnings) process.stderr.write(`warning: ${w}
 `);
   const { config } = loadConfig(paths.config);
@@ -22402,23 +22472,41 @@ function cmdSet2(o) {
   );
   return 0;
 }
+function cmdRemove(o) {
+  const usage = "acc trackers remove --index <n> --kind <kind>";
+  const index = Number(o.index);
+  if (o.index === void 0 || !/^\d+$/.test(String(o.index)) || typeof o.kind !== "string") throw new AccError("usage", usage);
+  personOnly(o, "remove a tracker");
+  const paths = repoPaths(process.cwd(), run);
+  const { removed, warnings } = removeTracker(paths.config, index, o.kind);
+  for (const w of warnings) process.stderr.write(`warning: ${w}
+`);
+  out(o, () => `Removed ${trackerName(removed.kind)} from .acc/config.json. Its tasks stay on My work. Commit it to share it.`, { index, removed, warnings });
+  return 0;
+}
 var area20 = {
   help: {
     section: "Setup",
     order: 16,
-    lines: `  acc trackers set --file <tracker.json> [--index <n>]
+    lines: `  acc trackers set --file <tracker.json> [--index <n> | --new]
                                         Connect a tracker, or change the one at that place in the list, in
-                                        .acc/config.json, as the Command Center's Connect page does. You commit it`
+                                        .acc/config.json, as the Command Center's Connect page does. --new adds
+                                        another board, even of a project a board has already. You commit it
+  acc trackers remove --index <n> --kind <kind>
+                                        Take the tracker at that place out of .acc/config.json. Its tasks stay`
   },
   options: {
     file: { type: "string" },
-    index: { type: "string" }
+    index: { type: "string" },
+    new: { type: "boolean", default: false },
+    kind: { type: "string" }
   },
-  subcommands: { trackers: ["set"] },
+  subcommands: { trackers: ["set", "remove"] },
   commands: {
     trackers: (o, rest) => {
       if (rest[0] === "set") return cmdSet2(o);
-      throw new AccError("usage", "acc trackers set --file <tracker.json> [--index <n>]");
+      if (rest[0] === "remove") return cmdRemove(o);
+      throw new AccError("usage", "acc trackers set --file <tracker.json> [--index <n> | --new], or acc trackers remove --index <n> --kind <kind>");
     }
   }
 };
