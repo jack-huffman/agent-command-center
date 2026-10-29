@@ -3,10 +3,10 @@
     "floor": 3112
   },
   "screenshots.clipped": {
-    "floor": 156681
+    "floor": 160999
   },
   "screenshots.sideways": {
-    "floor": 7773
+    "floor": 7866
   },
   "screenshots.overview": {
     "floor": 1199
@@ -21,7 +21,7 @@
     "floor": 617
   },
   "screenshots.a11y": {
-    "floor": 587669
+    "floor": 600494
   },
   "screenshots.actions": {
     "floor": 1906
@@ -30,13 +30,7 @@
     "floor": 1389
   },
   "screenshots.sizes": {
-    "floor": 5958,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "Settings shows one section at a time; measured at e9d6dc64 after merging T-140, with no findings. Approved by the person 2026-10-28.",
-      "at": "2026-10-29T03:32:42.634Z",
-      "was": 6490
-    }
+    "floor": 6011
   },
   "screenshots.ci.a11y": {
     "floor": 569464,
