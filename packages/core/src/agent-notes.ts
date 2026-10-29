@@ -34,7 +34,9 @@ export const NOTE_SHAPE_WORDS = `Write a short headline, one sentence, then a bu
 /** A note given as a headline and its items, as markdown: the headline, then a "- " line for each. */
 export function composeNote(headline: string, items: readonly string[] = []): string {
   const one = (s: string) => s.replace(/\s+/g, ' ').trim();
-  return [one(headline), ...items.map(one).filter(Boolean).map((i) => `- ${i}`)].filter(Boolean).join('\n');
+  // A headline given with its own bullets keeps its lines, each with its spaces run together but its indent.
+  const head = headline.split(/\r?\n/).map((l) => l.replace(/(\S)[ \t]+/g, '$1 ').trimEnd()).join('\n').trim();
+  return [head, ...items.map(one).filter(Boolean).map((i) => `- ${i}`)].filter(Boolean).join('\n');
 }
 
 // ---------------------------------------------------------------- API names as code

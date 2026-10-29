@@ -74,6 +74,7 @@ test('a note written as markdown bullets reads as written: option lines under an
 test('composeNote writes a headline and a bullet per item, and drops a blank item', () => {
   assert.equal(composeNote('  Stuck on   two things. ', ['first', ' ', 'second  thing']), 'Stuck on two things.\n- first\n- second thing');
   assert.equal(composeNote('Only a headline.'), 'Only a headline.');
+  assert.equal(composeNote('Two things.\n- one   here\n  a)  x', ['three']), 'Two things.\n- one here\n  a) x\n- three', 'a headline with its own bullets keeps its lines and their indent');
 });
 
 test('noteHeadline is a shape\'s headline, or a paragraph\'s first sentence, and empty for no note', () => {
