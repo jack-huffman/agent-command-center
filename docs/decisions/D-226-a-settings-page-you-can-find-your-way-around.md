@@ -1,4 +1,4 @@
-## D-T-139 A settings page you can find your way around: sections, a jump list, and less text (2026-10-28)
+## D-226 A settings page you can find your way around: sections, a jump list, and less text (2026-10-28)
 
 T-139. The person, on Settings: "the settings page is also too text-heavy and cluttered. It needs to be easier to
 work with and navigate." The page was eight boxed parts in one long column (GH-109 to GH-114), each with a

@@ -233,3 +233,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-223](decisions/D-223-a-concise-agent-panel.md) | A concise Agent panel: the state, its checks in one line, the main actions, and the rest in Details | 2026-10-28 |
 | [D-224](decisions/D-224-pick-a-tracker-in-a-modal-with-its-board-live-below.md) | Pick or change a tracker in a stepped modal, with its board live below the dropdowns | 2026-10-28 |
 | [D-225](decisions/D-225-a-session-reads-tickets-the-command-center-saved.md) | A session reads the tickets the Command Center saved | 2026-10-28 |
+| [D-226](decisions/D-226-a-settings-page-you-can-find-your-way-around.md) | A settings page you can find your way around: sections, a jump list, and less text | 2026-10-28 |
