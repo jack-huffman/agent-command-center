@@ -11,6 +11,7 @@ import type { ExtensionArea } from './area.ts';
 import type { Project } from './hub.ts';
 import type { TaskNode } from './nodes.ts';
 import { displayName } from './logic/agents.ts';
+import { asking } from './logic/ran.ts';
 import { runFile } from './run.ts';
 import { Sidebar } from './sidebar.ts';
 
@@ -45,7 +46,7 @@ class CloudCommands extends Sidebar {
     const { project, task } = n;
     const session = task.run?.cloud?.sessionId;
     if (!session) return void vscode.window.showInformationMessage(`${task.id} has no cloud session to message.`);
-    const text = await vscode.window.showInputBox({ title: `Message ${displayName(undefined, task)}`, prompt: 'Queued into its cloud session, as if typed on claude.ai. It carries on from there.', validateInput: (v) => (v.trim() ? undefined : 'Say something.') });
+    const text = await asking(n.say, () => vscode.window.showInputBox({ title: `Message ${displayName(undefined, task)}`, prompt: 'Queued into its cloud session, as if typed on claude.ai. It carries on from there.', validateInput: (v) => (v.trim() ? undefined : 'Say something.') }));
     if (!text) return;
     const r = await runFile('claude', ['-p', text.trim(), '--cloud', session, '--output-format', 'json'], task.run?.worktree ?? project.root, process.env, undefined, 60_000);
     let ok = r.code === 0;

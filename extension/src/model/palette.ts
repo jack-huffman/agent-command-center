@@ -76,7 +76,8 @@ export function paletteItems(m: Omit<HomeModel, 'palette'>): PaletteItem[] {
   const edits: PaletteItem[] = [];
   for (const p of m.tasks.projects) {
     for (const c of p.columns) {
-      for (const card of c.cards) {
+      // Done's cleaned-up tasks too, under its fold (T-147): still found by name.
+      for (const card of [...c.cards, ...(c.cleaned ?? [])]) {
         out.push({ id: `task:${p.root}#${card.id}`, kind: 'task', title: card.title, hint: card.id, words: words(card.title, card.id, p.name), icon: 'tasklist', does: { kind: 'task', project: p.root, key: card.id } });
         // Edit (T-74), for a task that can be edited now: one whose builder runs, or that's done, says why on its page.
         const edit = card.actions.find((a) => a.command === 'acc.task.edit' && !a.disabled);

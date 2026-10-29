@@ -335,7 +335,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // Set up cloud builders (T-145), over Settings, where its Set up… is.
   const cloudSetup = sampleCloudSetup(kind);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') || kind.startsWith('tasks-boards') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') || cloudSetup ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') || kind.startsWith('tasks-boards') || kind.startsWith('tasks-done') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') || cloudSetup ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : kind === 'tasks-azure' ? sampleAzureBoards : kind === 'tasks-azure-loading' ? sampleAzureLoading : kind === 'tasks-azure-refreshing' ? sampleAzureRefreshing : kind === 'tasks-sprint' ? sampleSprintBoards
     // Two Jira Service Management queue boards on one project (T-128), on the Tasks tab and in Settings.
@@ -365,6 +365,19 @@ function stepsState(k: StepSample): unknown {
   return { dock: { open: true, run: id }, ...(step ? { opened: [`run-step:${id}:${step}`] } : {}) };
 }
 
+/**
+ * My work's Done lane (T-147), scrolled to the board's end so it's in view: ACME-10's Clean up while the
+ * extension answers, with the Cleaned up fold closed under it; Clean up refused, with why on the card; and
+ * the fold opened. The key is the page's runKey for ACME-10's Clean up.
+ */
+const CLEAN_UP = JSON.stringify(['acc.task.cleanup', ROOT, 'ACME-10', '', '', '', '', '']);
+const AT_DONE = { modes: { [ROOT]: 'agents' }, scroll: { 'home:tasks': { y: 0, boards: [{ x: 100_000, lanes: [] }] } } };
+const DONE_SHOTS: Partial<Record<Page, unknown>> = {
+  'tasks-done-working': { ...AT_DONE, working: [CLEAN_UP] },
+  'tasks-done-refused': { ...AT_DONE, refused: { [CLEAN_UP]: 'Kept the worktree: The worktree has 2 uncommitted change(s).' } },
+  'tasks-done-fold': { ...AT_DONE, opened: [`done-fold:${ROOT}`] },
+};
+
 /** What each several-boards shot starts with (T-127): the board on show, the list open and what's typed in it, and All boards' opened board. */
 const BOARD_SHOTS: Partial<Record<Page, unknown>> = {
   'tasks-boards-two-switched': { modes: { [ROOT]: 'board:b-acme-renewals' } },
@@ -373,6 +386,7 @@ const BOARD_SHOTS: Partial<Record<Page, unknown>> = {
   'tasks-boards-ten': { openBoards: ROOT, boardQuery: 'globex' },
   'tasks-boards-ten-all': { modes: { [ROOT]: 'all' }, opened: [`board-open:${ROOT}#b-acme-renewals`] },
   'tasks-boards-ten-signin': { modes: { [ROOT]: 'board:b-initech-erp' } },
+  ...DONE_SHOTS,
 };
 
 /** The key that opens one of ACME-21's plan sections (T-136), such as more or approach; its first choice's key; and the start of the keys its Review plan remembers. */

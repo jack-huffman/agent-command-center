@@ -51,6 +51,7 @@ import type { TalkActions } from './talk.ts';
 import { type TicketTalk, ticketTalk } from './model/talk.ts';
 import type { ConversationActions } from './conversation.ts';
 import { PlansMaking } from './logic/conversation.ts';
+import { answerRun, type SayRan } from './logic/ran.ts';
 
 type AccRun = (args: string[], cwd: string) => Promise<{ code: number; stdout: string; stderr: string }>;
 type Reply = { ok: boolean; error?: string };
@@ -126,7 +127,7 @@ export class TicketPanels implements vscode.Disposable {
   }
   private readonly hub: Hub;
   private readonly trackers: Trackers;
-  private readonly resolve: (command: string, ref: Ref) => unknown;
+  private readonly resolve: (command: string, ref: Ref, say?: SayRan) => unknown;
   private readonly acc: AccRun;
   private readonly answerAnalysis: AnswerAnalysis | null;
   private readonly updates: UpdateActions | null;
@@ -174,7 +175,7 @@ export class TicketPanels implements vscode.Disposable {
   /** A page's unsent edit of an update began, changed or ended, so the Overview shows it. */
   readonly onDidEdit = this.editsChanged.event;
 
-  constructor(ctx: vscode.ExtensionContext, hub: Hub, trackers: Trackers, resolve: (command: string, ref: Ref) => unknown, acc: AccRun, answerAnalysis: AnswerAnalysis | null = null, updates: UpdateActions | null = null) {
+  constructor(ctx: vscode.ExtensionContext, hub: Hub, trackers: Trackers, resolve: (command: string, ref: Ref, say?: SayRan) => unknown, acc: AccRun, answerAnalysis: AnswerAnalysis | null = null, updates: UpdateActions | null = null) {
     this.ctx = ctx;
     this.hub = hub;
     this.trackers = trackers;
@@ -550,7 +551,11 @@ export class TicketPanels implements vscode.Disposable {
       case 'ticket': return this.show(m.project, m.tracker, m.key);
       case 'run':
         // Dispatch (D-168) and Edit (T-74) open their sheets over this page, the tab or the modal, not over the Command Center.
-        if (ALLOWED.has(m.command) && !this.dispatch?.open(m.command, m.ref, (msg) => o.view.say(msg))) await this.resolve(m.command, m.ref);
+        // Every one is answered (T-147), so the button that sent it stops working: a sheet opened is an answer too.
+        await answerRun(m.command, m.ref, (say) => {
+          if (!ALLOWED.has(m.command)) return { ok: false, error: 'This page can\'t do that.' };
+          return this.dispatch?.open(m.command, m.ref, (msg) => o.view.say(msg)) ? undefined : this.resolve(m.command, m.ref, say);
+        }, (msg) => o.view.say({ ...msg }));
         return;
       case 'dispatch-sheet-go': this.dispatch?.go(m); return;
       case 'task-sheet-go': this.dispatch?.save(m, (msg) => o.view.say(msg)); return;

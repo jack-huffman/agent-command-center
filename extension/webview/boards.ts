@@ -6,6 +6,7 @@ import { actionTile } from './task-actions.ts';
 import { answerHere } from './detail.ts';
 import { api, go } from './state.ts';
 import { explains } from './plain-words.ts';
+import { dress, dressMenu, press } from './working.ts';
 
 /**
  * A mouse wheel scrolls the board sideways wherever a lane wouldn't scroll itself: over a heading, the
@@ -98,17 +99,20 @@ let openMenu: string | null = ((api.getState() as { openMenu?: string } | undefi
  * page redraws, and closes on a pick, a click elsewhere, or Escape. Null when there's nothing to put in it.
  * A pick runs its command on its ref, or does what `send` says, as the Overview's header's does (T-36).
  */
-export function moreMenu(key: string, name: string, actions: Action[], send: (a: Action) => void = (a) => api.postMessage({ type: 'run', command: a.command, ref: a.ref })): HTMLElement | null {
+export function moreMenu(key: string, name: string, actions: Action[], send?: (a: Action) => void): HTMLElement | null {
   if (!actions.length) return null;
   const btn = el('button', 'more-btn', icon('ellipsis')) as HTMLButtonElement;
   btn.type = 'button';
   btn.title = `More for ${name}`;
   btn.setAttribute('aria-label', `More actions for ${name}`);
   btn.setAttribute('aria-haspopup', 'menu');
+  // A pick the extension is still answering (T-147): ⋯ spins and says what's under way, and stays open to the rest.
+  if (!send) dressMenu(btn, actions, name);
   const safe = actions.filter((a) => !a.danger);
   const danger = actions.filter((a) => a.danger);
   const item = (a: Action) => {
-    const b = el('button', `more-item${a.danger ? ' danger' : ''}`, icon(a.icon), a.label) as HTMLButtonElement;
+    const label = el('span', '', a.label);
+    const b = el('button', `more-item${a.danger ? ' danger' : ''}`, icon(a.icon), label) as HTMLButtonElement;
     b.type = 'button';
     b.setAttribute('role', 'menuitem');
     // One that can't be used now is disabled, with its reason, never left to do nothing (GH-69).
@@ -117,8 +121,8 @@ export function moreMenu(key: string, name: string, actions: Action[], send: (a:
       b.title = a.disabled;
       b.setAttribute('aria-description', a.disabled);
     } else b.title = explains(a.command, a.label);
-    b.addEventListener('click', (e) => { e.stopPropagation(); openMenu = null; menu.hidden = true; send(a); });
-    return b;
+    b.addEventListener('click', (e) => { e.stopPropagation(); openMenu = null; menu.hidden = true; if (send) send(a); else if (!b.disabled) press(a); });
+    return send ? b : dress(b, a, label);
   };
   const menu = el('div', 'more-menu', ...safe.map(item), danger.length && safe.length ? el('div', 'more-sep') : null, ...danger.map(item));
   menu.setAttribute('role', 'menu');

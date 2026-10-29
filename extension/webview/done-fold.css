@@ -1,0 +1,8 @@
+/* Done's Cleaned up fold on My work (T-147): a quiet line at the lane's foot, closed until opened, its cards under it. */
+.done-fold { margin-top: var(--space-2); border-top: 1px solid var(--edge); padding-top: var(--space-2); }
+.done-fold > summary { display: flex; align-items: center; gap: 2px; min-height: 24px; padding: 1px 4px 1px 0; border-radius: 4px; cursor: pointer; list-style: none; }
+.done-fold > summary::-webkit-details-marker { display: none; }
+.done-fold > summary:hover { color: var(--vscode-foreground); }
+.done-fold > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.done-fold[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
+.done-fold-cards { margin-top: var(--space-2); }

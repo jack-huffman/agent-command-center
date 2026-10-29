@@ -32,7 +32,8 @@ test('paletteItems finds every section, part of Settings, task, agent and action
   const of = (kind: PaletteItem['kind']) => items.filter((i) => i.kind === kind);
   assert.deepEqual(of('section').map((i) => [i.title, i.does]), m.nav.map((n) => [n.label, { kind: 'go', section: n.section }]), 'each section, in the rail\'s order');
   assert.deepEqual(of('setting').map((i) => [i.title, i.hint, i.does]), m.settings.parts.map((p) => [p.title, 'Settings', { kind: 'go', section: 'settings', part: settingsKey(p.id) }]), 'each part of Settings goes to its heading');
-  const cards = m.tasks.projects.flatMap((p) => p.columns.flatMap((c) => c.cards.map((card) => ({ root: p.root, card }))));
+  // Done's cleaned-up tasks too, under its fold (T-147).
+  const cards = m.tasks.projects.flatMap((p) => p.columns.flatMap((c) => [...c.cards, ...(c.cleaned ?? [])].map((card) => ({ root: p.root, card }))));
   assert.deepEqual(of('task').map((i) => [i.title, i.hint, i.does]), cards.map(({ root, card }) => [card.title, card.id, { kind: 'task', project: root, key: card.id }]), 'each task row opens over the page, as its card\'s click does');
   for (const t of of('task')) assert.ok(t.words.includes(t.hint), `${t.hint}'s words hold its key`);
   const agents = m.agents.repos.flatMap((r) => [...r.tasks.flatMap((t) => t.agents), ...r.finished]);

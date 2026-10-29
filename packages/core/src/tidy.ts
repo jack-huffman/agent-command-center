@@ -78,13 +78,19 @@ export type InEnvironment = (t: Task) => boolean;
  * reviews read in `reviews`, newest first: a reviewed commit is in the environment only once it merged.
  */
 export function branchInEnvironment(run: Runner, root: string, reviews?: string): InEnvironment {
-  return (t) => {
-    const branch = t.run?.branch;
-    const reviewed = reviews ? readVerdicts({ reviews }, t.id).map((v) => v.sha).reverse() : [];
-    const tips = [...(branch ? [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`] : []), ...reviewed];
-    const inRef = (tip: string, ref: string) => run('git', ['merge-base', '--is-ancestor', tip, ref], { cwd: root }).code === 0;
-    return tips.some((tip) => inRef(tip, `refs/remotes/origin/${t.environment}`) || inRef(tip, `refs/heads/${t.environment}`));
-  };
+  return (t) => inEnvironmentAsks(t, reviews).some(([tip, ref]) => run('git', ['merge-base', '--is-ancestor', tip, ref], { cwd: root }).code === 0);
+}
+
+/**
+ * What branchInEnvironment asks git, in its order: each of the task's tips, in origin's copy of its
+ * environment, then in the local one. Any yes is a yes. The Command Center asks the same in the background
+ * (T-147), so drawing the page never waits on git.
+ */
+export function inEnvironmentAsks(t: Pick<Task, 'id' | 'environment' | 'run'>, reviews?: string): [tip: string, ref: string][] {
+  const branch = t.run?.branch;
+  const reviewed = reviews ? readVerdicts({ reviews }, t.id).map((v) => v.sha).reverse() : [];
+  const tips = [...(branch ? [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`] : []), ...reviewed];
+  return tips.flatMap((tip): [string, string][] => [[tip, `refs/remotes/origin/${t.environment}`], [tip, `refs/heads/${t.environment}`]]);
 }
 
 /** An InEnvironment that asks git once for each branch and environment, and keeps the answers in `known` (the caller drops them when the ledger is read again). */

@@ -16,7 +16,8 @@ import { rememberRepo } from '../../packages/core/src/repos.ts';
 import { reviewing } from '../../packages/core/src/review.ts';
 import { type Suggestion, suggestRules, WRITTEN_RULE_FILES } from '../../packages/core/src/rule-suggestions.ts';
 import { RULES_DIR } from '../../packages/core/src/rules.ts';
-import { branchInEnvironment, readTidy, rememberInEnvironment, tidyDue, tidyFile, type TidyRecord, type TidyStatus } from '../../packages/core/src/tidy.ts';
+import { readTidy, tidyDue, tidyFile, type TidyRecord, type TidyStatus } from '../../packages/core/src/tidy.ts';
+import { type AskGit, InEnvironmentAsks } from './logic/in-environment.ts';
 import { type BranchMove, branchMoves as readBranchMoves, branchesPath } from '../../packages/core/src/branches.ts';
 import type { Protection } from '../../packages/core/src/protection.ts';
 import { type HeavyState, heavyState } from '../../packages/core/src/semaphore.ts';
@@ -137,7 +138,9 @@ export class Hub implements vscode.Disposable {
   otherWindows: string[] = [];
   /** The repo each session's folder is in, as of the last `claude agents`, so a repo made since shows next time (GH-83). */
   private readonly repos = new Map<string, string | null>();
-  private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[]; inEnvironment: Map<string, boolean> }>();
+  private readonly tasks = new Map<string, { stamp: string; ledger: Ledger; rows: TaskRow[] }>();
+  /** Whether each finished task's work is in its environment, by project root, as git answers in the background (T-147). */
+  private readonly merged = new Map<string, InEnvironmentAsks>();
   /** The steps autopilot took in each repo, by ledger: projects of one repo share them (D-064). */
   private readonly steps = new Map<string, AutopilotLog>();
   /** Each analysis read, by file, kept until the file changes: the rows are re-derived every few seconds. */
@@ -305,8 +308,9 @@ export class Hub implements vscode.Disposable {
         this.repoBranches.set(p.ledgerPath, readBranchMoves(stateOf(p)));
       }
       const rows = deriveRows(this, ledger, p);
-      // The git answers of tidy() last as long as this read of the ledger, so a render starts no git process twice.
-      this.tasks.set(p.root, { stamp, ledger, rows, inEnvironment: new Map() });
+      // tidy()'s noes are asked again after a new read of the ledger; its yeses stay (T-147).
+      this.merged.get(p.root)?.forgetNos();
+      this.tasks.set(p.root, { stamp, ledger, rows });
       changed = true;
     }
     if (changed || force) this.emitter.fire('tasks');
@@ -348,8 +352,18 @@ export class Hub implements vscode.Disposable {
     const ledger = this.ledger(root);
     if (!p || !ledger) return null;
     // A branch merged in git counts, with or without a pull request (as `acc tidy` counts it), asked once a branch.
-    const inEnvironment = rememberInEnvironment(branchInEnvironment(runSync, p.root, join(dirname(p.ledgerPath), 'reviews')), this.tasks.get(p.root)?.inEnvironment ?? new Map());
-    return { ...tidyDue(ledger, p.config, this.repoTidy.get(p.ledgerPath) ?? null, inEnvironment), ledger: p.ledgerPath };
+    // Git's answers so far: the rest are asked in the background, and the page draws again once they're in (T-147).
+    return { ...tidyDue(ledger, p.config, this.repoTidy.get(p.ledgerPath) ?? null, this.inEnvironment(p).read()), ledger: p.ledgerPath };
+  }
+
+  /** Runs git for the tidy-up count's asks without holding up the extension (T-147). A test puts a stand-in here. */
+  askGit: AskGit = (args, cwd) => runFile('git', args, cwd);
+
+  /** A project's background asks of git (T-147), made the first time its tidy-up count is read. */
+  private inEnvironment(p: Project): InEnvironmentAsks {
+    let asks = this.merged.get(p.root);
+    if (!asks) this.merged.set(p.root, (asks = new InEnvironmentAsks(p.root, join(dirname(p.ledgerPath), 'reviews'), (args, cwd) => this.askGit(args, cwd), () => this.emitter.fire('tasks'))));
+    return asks;
   }
 
   /** The environment branches of a project's repo that moved by anything but acc's own merge, until a person has seen them (GH-69). */

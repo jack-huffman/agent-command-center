@@ -5,12 +5,14 @@
 import type { Environment } from '../../packages/core/src/config.ts';
 import type { Project, WorktreeInfo } from './hub.ts';
 import type { AgentSession, TaskGroup, TaskRow } from './logic/shared.ts';
+import type { SayRan } from './logic/ran.ts';
 
 export type TaskNode =
   | { kind: 'project'; project: Project }
   | { kind: 'group'; project: Project; group: TaskGroup; tasks: TaskRow[] }
   // part: the part of its page a link names (T-134), such as its plan, which its page opens on.
-  | { kind: 'task'; project: Project; task: TaskRow; part?: string };
+  // say: from a page's button, how far the action has got, for the button's working state (T-147).
+  | { kind: 'task'; project: Project; task: TaskRow; part?: string; say?: SayRan };
 
 export type AgentNode =
   | { kind: 'place'; label: string; root: string | null; sessions: AgentSession[] }

@@ -69,6 +69,13 @@ test('every section of the page, and a ticket, has sample data built by the real
       else if (kind === 'tasks-person') assert.deepEqual(state.filters, { [board]: 'person:pat' });
       else if (kind === 'tasks-person-none') assert.ok(!tasks.boards[0]!.columns.some((c) => c.cards.some((card) => card.people.some((p) => p.key === 'nobody'))) && state.filters?.[board] === 'person:nobody', 'nobody has a card on the board');
       else assert.deepEqual([state.filters, state.modes?.[ROOT]], [{ [`agents:${ROOT}`]: 'mine' }, 'agents']);
+    } else if (kind.startsWith('tasks-done-')) {
+      // My work's Done lane (T-147), scrolled into view: ACME-10 still to clean up in the lane, two under the fold.
+      const done = (m as HomeModel).tasks.projects[0]!.columns.find((c) => c.group === 'done')!;
+      const state = startState(kind) as { modes: Record<string, string>; working?: string[]; refused?: Record<string, string>; opened?: string[] };
+      assert.deepEqual([m.kind, (m as HomeModel).section, state.modes[ROOT], done.cards.map((c) => c.id), done.cleaned?.map((c) => c.id)], ['home', 'tasks', 'agents', ['ACME-10'], ['ACME-7', 'ACME-6']]);
+      const cleanUp = JSON.stringify(['acc.task.cleanup', ROOT, 'ACME-10', '', '', '', '', '']);
+      assert.deepEqual([state.working, Object.keys(state.refused ?? {}), state.opened], kind === 'tasks-done-working' ? [[cleanUp], [], undefined] : kind === 'tasks-done-refused' ? [undefined, [cleanUp], undefined] : [undefined, [], [`done-fold:${ROOT}`]]);
     } else if (kind.startsWith('tasks-boards-')) {
       // A project's several boards (T-127): two, four or ten, the ten across three Jira sites with one not signed in.
       const boards = (m as HomeModel).tasks.projects[0]!.boards;

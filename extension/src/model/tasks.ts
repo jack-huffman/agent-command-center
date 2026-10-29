@@ -13,6 +13,7 @@ import { hasTicket, withClient } from './updates.ts';
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import { analysisLook, autopilotLook, canDispatch, cardActions, closedPrLook, filesLook, placeLook, stoppedLook } from './cards.ts';
+import { splitDone } from './done-fold.ts';
 
 // ---------------------------------------------------------------- tasks: the board
 
@@ -74,6 +75,8 @@ export const laneMove = (lane: string): State | 'dispatch' | null => LANE_STATE[
 export interface Column extends Look {
   group: string;
   cards: Card[];
+  /** Done only (T-147): the finished tasks with no worktree left, under the lane's closed Cleaned up fold. */
+  cleaned?: Card[];
 }
 
 export interface TasksModel {
@@ -99,16 +102,15 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
       const byGroup = new Map(groupTasks(rows).map((g) => [g.group, g.tasks]));
       const columns: Column[] = BOARD_LANES.map((group) => {
         const d = DISPLAY[group];
-        return {
-          group, label: d.label, icon: d.icon, tone: d.tone,
-          cards: (byGroup.get(group) ?? []).map((t) => ({
+        const cards: Card[] = (byGroup.get(group) ?? []).map((t) => ({
             id: t.id, title: t.title, environment: t.environment, waitingOn: t.deps, url: t.source.url,
             // A stopped builder's line says it all: its old session's own state would only repeat it.
             agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, agentName: t.run?.name ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
             stopped: t.autopilot ? null : stoppedLook(t), files: filesLook(t), place: placeLook(t),
             actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t), people: dispatcher(t.dispatchedBy),
-          })),
-        };
+          }));
+        // Done keeps what's still to clean up; the cleaned-up ones go under its fold (T-147).
+        return { group, label: d.label, icon: d.icon, tone: d.tone, ...(group === 'done' ? splitDone(cards) : { cards }) };
       });
       return { name: p.name, root: p.root, github: !!p.config.github, columns, total: rows.length, boards: boards(p.root).map((b) => trackerBoard(b, rows, p.root)), me: dispatcherKey(user) };
     }),

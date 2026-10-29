@@ -1,7 +1,9 @@
 // The Tasks section: My work, the tasks added to the Command Center, and each tracker's own board.
 
 import type { TrackerBoard, TrackerCard, Who } from '../src/model/boards.ts';
-import type { TasksModel } from '../src/model/tasks.ts';
+import type { Card, TasksModel } from '../src/model/tasks.ts';
+import { cleanedFold, withCleaned } from './done-fold.ts';
+import { cleaned, refusal } from './working.ts';
 import { boardKeys, liveLine } from './board-nav.ts';
 import { addAnother, boardChoice, boardCounts, boardOpen, boardSwitch, tellShown, toggleBoard } from './board-switch.ts';
 import { cardFoot, cardMenu, moreMenu, nextStep } from './boards.ts';
@@ -54,19 +56,21 @@ export function renderTasks(m: TasksModel): Node[] {
     }
     const board = el('div', 'board agent-board');
     // Its person filter (T-79), by who dispatched each task: Mine is this person's own dispatches.
-    const filter = p.total ? personFilter(`agents:${p.root}`, p.columns.flatMap((c) => c.cards), p.me) : null;
+    const filter = p.total ? personFilter(`agents:${p.root}`, p.columns.flatMap((c) => [...c.cards, ...(c.cleaned ?? [])]), p.me) : null;
     if (filter) tools.push(filter.control);
     const showing = (card: { people: Who[] }): boolean => !filter || shows(filter.choice, card.people, p.me);
     // A drop and Enter on a held card (T-54) send the same move.
     const moveTask = (task: string, to: string): void => api.postMessage({ type: 'move-task', project: p.root, task, to });
     for (const c of p.columns) {
-      const cards = c.cards.filter(showing);
+      // Done keeps what's still to clean up; a cleaned-up task, by the model or by the extension's answer just now, sits in its fold (T-147).
+      const lane = c.group === 'done' ? withCleaned(c, p.root, cleaned) : { cards: c.cards, cleaned: [] };
+      const cards = lane.cards.filter(showing);
       // Its heading is its state chip (T-91), as a tracker board's columns are.
       const col = el('section', `column tone-edge-${c.tone}`, el('h2', 'column-head', stateChip(c), el('span', 'count', String(cards.length))));
       col.setAttribute('aria-label', `${c.label}: ${plural(cards.length, 'task')}`);
       col.dataset.group = c.group;
       if (!cards.length) col.append(el('p', 'muted drop-hint', 'Nothing here'));
-      for (const card of cards) {
+      const drawCard = (card: Card): HTMLElement => {
         // Drag a card to another lane to move it (D-041), so the cards need no Move button.
         const art = el('article', `card${c.group === 'done' ? ' done' : ''}`,
           el('div', 'card-id', card.id, el('span', 'chip', card.environment)),
@@ -94,6 +98,8 @@ export function renderTasks(m: TasksModel): Node[] {
           card.agent && card.model ? el('div', 'card-where card-model', icon('sparkle'), el('span', 'mono muted', card.model)) : null,
           // Its analysis (D-052), in its own words: under way, waiting on you, or ready to build from.
           card.analysis ? el('div', 'card-agent', stateChip(card.analysis)) : null,
+          // Why the extension refused its last action, such as a Clean up that would lose work (T-147), in orange.
+          refusal(card.actions),
           cardFoot(card),
         );
         // Everything but the next step sits behind ⋯, in the card's corner (D-062).
@@ -115,8 +121,11 @@ export function renderTasks(m: TasksModel): Node[] {
           board.classList.remove('dragging-task');
           for (const lane of board.querySelectorAll<HTMLElement>('.column')) lane.classList.remove('can-drop', 'drop-target');
         });
-        col.append(art);
-      }
+        return art;
+      };
+      for (const card of cards) col.append(drawCard(card));
+      const fold = cleanedFold(p.root, lane.cleaned.filter(showing).map(drawCard));
+      if (fold) col.append(fold);
       // Only a lane the card may go to takes it; the rest stay dimmed while you drag.
       col.addEventListener('dragover', (e) => {
         if (!e.dataTransfer?.types.includes('text/x-acc-task') || !col.classList.contains('can-drop')) return;
@@ -143,7 +152,7 @@ export function renderTasks(m: TasksModel): Node[] {
       key: `agents:${p.root}`, column: (col) => col.dataset.group ?? '', card: (art) => art.dataset.task ?? '',
       lanes: (art) => (art.dataset.drops ?? '').split(' ').filter(Boolean), move: moveTask,
     });
-    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), once(), ...(p.total ? [...(filter && !p.columns.some((c) => c.cards.some(showing)) ? [filter.none(board)] : []), live, board] : [empty('Tasks are tickets for agents to work on.', ...tools)]));
+    return el('div', 'project', header(m.projects.length > 1 ? `Tasks · ${p.name}` : 'Tasks', summary, ...tools), once(), ...(p.total ? [...(filter && !p.columns.some((c) => [...c.cards, ...(c.cleaned ?? [])].some(showing)) ? [filter.none(board)] : []), live, board] : [empty('Tasks are tickets for agents to work on.', ...tools)]));
   });
 }
 

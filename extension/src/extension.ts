@@ -49,6 +49,7 @@ import { Slack, slackCard, SLACK_STATE } from './slack.ts';
 import { trackerName } from '../../packages/core/src/trackers/types.ts';
 import { AREAS } from './areas.ts';
 import type { Parts } from './area.ts';
+import { GONE, type SayRan } from './logic/ran.ts';
 
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -179,9 +180,11 @@ export function activate(context: vscode.ExtensionContext): void {
     if (project) return { kind: 'project', project };
     return undefined;
   };
-  const resolve = (command: string, ref: Ref): unknown => {
+  // A page's action carries `say` on its node (T-147): the command tells the page it asked, or started, before its result.
+  const resolve = (command: string, ref: Ref, say?: SayRan): unknown => {
     const arg = nodeFor(ref);
-    return arg === undefined ? undefined : vscode.commands.executeCommand(command, arg);
+    if (arg === undefined) return say ? { ok: false, error: GONE } : undefined;
+    return vscode.commands.executeCommand(command, say && typeof arg === 'object' ? { ...arg, say } : arg);
   };
   // Commands run from a tab's native context menu get the row's data-vscode-context; turn it into the node.
   const regNode = (id: string, fn: (...args: any[]) => unknown) => reg(id, (a: unknown, ...rest: unknown[]) => fn(isWebviewMenuContext(a) ? nodeFor(a.accRef as Ref) : nodeArg(a), ...rest));

@@ -19,6 +19,7 @@ import { type Pace, paceChoice } from './logic/polls.ts';
 import { FIRST_OPEN_STATE, FIRST_OPEN_WAIT_MS, firstOpen, type FirstOpenInput, machineDone, waitsForMachine } from './logic/first-open.ts';
 import type { Setup } from './setup.ts';
 import { loadingScreen, type TabKind } from './logic/loading.ts';
+import { answerRun, type SayRan } from './logic/ran.ts';
 
 /** Commands the page may ask for, from every area that draws them (D-099). Anything else from a webview is ignored. */
 const ALLOWED = new Set(PAGE_COMMANDS);
@@ -173,7 +174,7 @@ export class Panels implements vscode.Disposable {
   private readonly ctx: vscode.ExtensionContext;
   private readonly hub: Hub;
   private readonly setup: Setup;
-  private readonly resolve: (command: string, ref: Ref) => unknown;
+  private readonly resolve: (command: string, ref: Ref, say?: SayRan) => unknown;
   private readonly onVisible: (visible: boolean) => void;
   private readonly deps: BoardDeps;
   /** Jobs In progress saw end, kept a minute, by the extension's clock (D-092). */
@@ -185,7 +186,7 @@ export class Panels implements vscode.Disposable {
   /** Messages for a page still opening, such as the palette asked for with the tab closed (T-52): sent once it's ready. */
   private waiting: Record<string, unknown>[] = [];
 
-  constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref) => unknown, onVisible: (visible: boolean) => void, deps: BoardDeps) {
+  constructor(ctx: vscode.ExtensionContext, hub: Hub, setup: Setup, resolve: (command: string, ref: Ref, say?: SayRan) => unknown, onVisible: (visible: boolean) => void, deps: BoardDeps) {
     this.ctx = ctx;
     this.hub = hub;
     this.setup = setup;
@@ -425,12 +426,17 @@ export class Panels implements vscode.Disposable {
     const take = this.takers.get(m.type);
     if (take) return take(m as never);
     if (m.type !== 'run' && m.type !== 'toolbar') return;
-    if (!ALLOWED.has(m.command)) return;
+    // A button the page shows as working hears back, even when it asked for something this page doesn't run (T-147).
+    if (!ALLOWED.has(m.command)) {
+      if (m.type === 'run') this.reply({ type: 'ran', command: m.command, ref: m.ref, phase: 'done', ok: false, error: 'This page can\'t do that.' });
+      return;
+    }
     if (m.type === 'toolbar') {
       if (m.arg !== undefined) { void vscode.commands.executeCommand(m.command, m.arg); return; }
       void vscode.commands.executeCommand(m.command, m.project ? { project: this.hub.project(m.project), kind: 'place', root: m.project, label: '', sessions: [] } : undefined);
       return;
     }
-    void this.resolve(m.command, m.ref);
+    // The button stays working until the action asks, starts or ends (T-147).
+    void answerRun(m.command, m.ref, (say) => this.resolve(m.command, m.ref, say), (msg) => this.reply({ ...msg }));
   }
 }

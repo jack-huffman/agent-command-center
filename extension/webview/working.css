@@ -1,0 +1,2 @@
+/* An action the extension is still answering (T-147): its spinning icon and words say so; it keeps its look and focus, and the pointer says it's busy. */
+.run-btn.working, .run-menu[aria-busy="true"] { cursor: progress; }

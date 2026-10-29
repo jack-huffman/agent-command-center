@@ -123,6 +123,10 @@ export const PAGES = [
   'tasks-azure-loading',
   'tasks-azure-refreshing',
   'tasks-first',
+  // My work's Done lane (T-147): a card cleaning up, a refused cleanup, and the Cleaned up fold opened
+  'tasks-done-working',
+  'tasks-done-refused',
+  'tasks-done-fold',
   // A project's several boards (T-127): two, four and ten across three Jira sites, each switched, the list open and filtered, and All boards folded
   'tasks-boards-two',
   'tasks-boards-two-switched',
