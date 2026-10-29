@@ -133,7 +133,7 @@ test('a long thing folds on its own, not the whole note; a short one doesn\'t', 
 
 test('noteItems has none for a note with no shape or no bullets; noteHeadline holds backticks out of its hover; rememberedFold starts closed', () => {
   assert.equal(noteItems(noteInWords('acc gate run errors on validate')!, 'k'), null, 'no shape');
-  assert.equal(noteItems(noteInWords('Pick one. a) this b) that')!, 'k')!.all('note-item').length, 1, 'options and no numbered things: one bullet');
+  assert.equal((noteItems(noteInWords('Pick one. a) this b) that')!, 'k') as unknown as PageElement).all('note-item').length, 1, 'options and no numbered things: one bullet');
   assert.equal((noteHeadline(noteInWords('Set Region__c first.')!) as unknown as PageElement).title, 'Set Region__c first.');
   const fold = rememberedFold('note-fold', 'never-opened', ['2 points']) as unknown as PageElement & { open: boolean };
   assert.equal(fold.open, false, 'nothing remembered: closed');

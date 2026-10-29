@@ -162,13 +162,13 @@ test('acc sync takes a cloud review\'s verdict from its branch: a pass is kept a
   const later = () => new Date('2026-10-09T12:20:00Z');
   const taken = followCloudReviews(paths, config, { ...deps, now: later });
   assert.deepEqual(taken.map((c) => [c.task, c.outcome, c.moved]), [['T-1', 'taken', null]]);
-  assert.match(taken[0]!.note, /its cloud review passed on [0-9a-f]{7}: Does the thing in a\.txt\./);
+  assert.match(taken[0]!.note, /its cloud review passed on [0-9a-f]{7}: Does the thing in `a\.txt`\./);
   const t = task(paths);
   assert.equal(t.state, 'review');
   assert.equal(t.cloudReview, null, 'the cloud review is over');
   const v = readVerdict(paths, 'T-1', start.sha)!;
   assert.ok(v, 'the verdict is kept beside the receipts, for the commit it reviewed');
-  assert.deepEqual([v.verdict, v.summary, v.client, v.sessionId, v.env, v.costUsd, v.at, v.durationMs], ['pass', 'Does the thing in a.txt.', 'The thing is done.', 'session_01TEST', 'main', null, later().toISOString(), 20 * 60_000]);
+  assert.deepEqual([v.verdict, v.summary, v.client, v.sessionId, v.env, v.costUsd, v.at, v.durationMs], ['pass', 'Does the thing in `a.txt`.', 'The thing is done.', 'session_01TEST', 'main', null, later().toISOString(), 20 * 60_000]);
   assert.deepEqual(v.criteria, [{ text: 'Do it.', met: true, evidence: 'a.txt:1' }]);
   assert.equal(v.name, 'Tool · T-1 A thing · review', 'named as a review on this Mac is (D-087)');
   assert.equal(run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${start.branch}`], { cwd: origin }).code, 1, 'the verdict branch is gone from origin');
@@ -199,7 +199,7 @@ test('acc sync takes a cloud review\'s verdict from its branch: a pass is kept a
   assert.equal(task(paths).state, 'rework');
   assert.match(task(paths).history.at(-1)!.reason!, /Review asked for changes: Needs a test\./);
   assert.equal(task(paths).history.at(-1)!.by, 'reviewer:T-1 (cloud)');
-  assert.deepEqual(readVerdict(paths, 'T-1', third.sha)!.findings, [{ message: 'Add a test for a.txt', must: true, file: 'a.txt', line: 1, kind: 'untested change' }]);
+  assert.deepEqual(readVerdict(paths, 'T-1', third.sha)!.findings, [{ message: 'Add a test for `a.txt`', must: true, file: 'a.txt', line: 1, kind: 'untested change' }]);
 });
 
 test('a verdict for a commit that is no longer the branch\'s head is kept but moves nothing, as a stale local review is treated; a verdict acc can\'t read fails the review, which then needs a person, and the branch goes either way', () => {
