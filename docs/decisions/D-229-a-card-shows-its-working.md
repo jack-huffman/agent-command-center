@@ -1,4 +1,4 @@
-## D-T-147 A card shows it's working the moment you click, and a cleaned-up task leaves Done (2026-10-29)
+## D-229 A card shows it's working the moment you click, and a cleaned-up task leaves Done (2026-10-29)
 
 T-147. The person: "clicking "Clean Up" on a finished task in "My Work" sat idle for a few seconds, presumably as
 stuff loaded, and then eventually I got a modal confirming my decision. There needs to be an indication on the
