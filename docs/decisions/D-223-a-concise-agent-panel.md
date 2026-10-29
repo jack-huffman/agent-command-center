@@ -40,4 +40,4 @@ The panel still folds to its header line; what is inside it changed.
   shot opens both folds by default, so what they hold is measured on each page. The Open in Claude Code action's tile in More actions
   says Claude Code, so no label is cut off; Details' Session row shows only where its words differ from the state's.
 
-Note (2026-10-29, D-T-146): the glance now says a blocked note's headline alone, on one line with the blocked icon; its bullets stay in the page's "Why it's blocked" notice.
+Note (2026-10-29, D-227): the glance now says a blocked note's headline alone, on one line with the blocked icon; its bullets stay in the page's "Why it's blocked" notice.

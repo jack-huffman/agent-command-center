@@ -1,4 +1,4 @@
-## D-T-146 An agent's note is a short headline and a bullet per thing, with API names as code (2026-10-29)
+## D-227 An agent's note is a short headline and a bullet per thing, with API names as code (2026-10-29)
 
 T-146. The person, with a screenshot of a task's History where "Its agent blocked it" was a 1,300-character
 paragraph: "comments or notes like this from our agent on statuses for tickets, things that happen, etc come

@@ -1,5 +1,5 @@
 /**
- * An agent's note to a person (T-146, D-T-146): a short headline, then one bullet per thing, a question's
+ * An agent's note to a person (T-146, D-227): a short headline, then one bullet per thing, a question's
  * options as a, b, c with the one it recommends marked, and API names in backticks. acc block refuses a note
  * that is one long paragraph (shapeProblems), wraps the API names it can recognise as it records one
  * (codeNames), and the Command Center draws any note, old or new, as a headline and its bullets where its
