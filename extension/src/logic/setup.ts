@@ -86,6 +86,20 @@ function installPage(lines: Record<InstallSystem, InstallLine>, doesIt: boolean)
   return out;
 }
 
+/** Whose docs a step's guide links to, by the site it opens (T-145): never another maker's name on a link. */
+const DOCS_SITES: [RegExp, string][] = [[/(^|\.)salesforce\.com$/, 'Salesforce docs'], [/^code\.claude\.com$/, 'Claude Code docs'], [/(^|\.)github\.com$/, 'GitHub docs']];
+
+/** The words a step's guide gives its docs link: the site's docs by name, else the site itself. */
+export function docsLabel(url: string): string {
+  let host = '';
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return 'The docs';
+  }
+  return DOCS_SITES.find(([re]) => re.test(host))?.[1] ?? `Docs at ${host}`;
+}
+
 /**
  * The page shown beside the step: what it is, why it matters, and exactly what fixing it involves. A line that
  * isn't a tool's install is shown in the code block of the shell it is for: bash on a Mac, powershell on Windows
@@ -115,7 +129,7 @@ export function stepMedia(step: Step, system: InstallSystem = SYSTEM): string {
     else out.push(inProcessWords(f.text), '');
   }
   if (f?.setupPath) out.push('**Open in Salesforce** opens Setup in the right org.', '');
-  if (f?.docs) out.push(`More detail: ${f.docs.startsWith('http') ? `[Salesforce docs](${f.docs})` : 'the onboarding guide (**Read the guide**).'}`, '');
+  if (f?.docs) out.push(`More detail: ${f.docs.startsWith('http') ? `[${docsLabel(f.docs)}](${f.docs})` : 'the onboarding guide (**Read the guide**).'}`, '');
   out.push('---', '', `The step ticks itself when its check passes. **Check** re-runs it at any time, and so does **${processName('doctor')}**, from the command palette.`);
   return out.join('\n') + '\n';
 }

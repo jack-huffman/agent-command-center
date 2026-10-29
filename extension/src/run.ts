@@ -42,8 +42,14 @@ export const accTimeoutMs = (args: string[]): number => (args[0] === 'land' ? LA
     : args[0] === 'verify' && args[1] !== 'show' && args[1] !== 'clear' ? 90 * 60_000 + 2 * VERIFY_TIMEOUT_MS
       : args[0] === 'manifest' && args[1] !== 'show' ? MANIFEST_TIMEOUT_MS : RUN_TIMEOUT_MS);
 
-/** The bundled acc, run by VSCode's own runtime so it works even before Node is on PATH. */
-export function accRunner(script: string) {
+/** What acc's environment gets for a folder beyond VSCode's own: the scheduled task's token on Windows (T-145), else nothing. */
+export type AccEnv = (cwd: string) => Record<string, string>;
+
+/**
+ * The bundled acc, run by VSCode's own runtime so it works even before Node is on PATH. extra: what its
+ * environment gets for the folder it runs in, such as the token the Command Center keeps on Windows.
+ */
+export function accRunner(script: string, extra: AccEnv = () => ({})) {
   return (args: string[], cwd: string, token?: vscode.CancellationToken): Promise<RunResult> =>
-    runFile(process.execPath, [script, ...args], cwd, { ...process.env, ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1' }, token, accTimeoutMs(args));
+    runFile(process.execPath, [script, ...args], cwd, { ...process.env, ...extra(cwd), ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1' }, token, accTimeoutMs(args));
 }

@@ -14,6 +14,7 @@ import type { SlackCard } from '../slack.ts';
 import type { AgentModel } from './agent-page.ts';
 import { agentsModel, type AgentsModel, billingLook, sessionFolders, type WhereView } from './agents.ts';
 import { type BoardInput, boardName } from './boards.ts';
+import type { CloudSetupModel } from './cloud-setup.ts';
 import type { ConnectModel } from './connect.ts';
 import type { ConversationModel } from './conversation.ts';
 import type { ReportModel } from './report.ts';
@@ -67,6 +68,8 @@ export interface HomeModel {
   runs: RunCard[];
   /** The Connect page, while it's open: it shows in place of the section, with Back to it (GH-51). */
   connect: ConnectModel | null;
+  /** Set up cloud builders (T-145), while it's open: a modal over the section. */
+  cloudSetup: CloudSetupModel | null;
   /** What the command palette searches (T-52): every section, part of Settings, task, agent and action. */
   palette: PaletteItem[];
 }
@@ -82,6 +85,7 @@ export interface HomeInput {
   /** The edit a task's page holds for an update, unsent, following the drafts it replaced. */
   edited?: (root: string, id: string, replaces: string[]) => string | null;
   connect?: ConnectModel | null;
+  cloudSetup?: CloudSetupModel | null;
   /** The Slack card, for this machine (GH-58). */
   slack?: SlackCard | null;
   /** What the Agents tab's Where column shows (GH-83). Folder unless said. */
@@ -184,7 +188,7 @@ export function homeModel(i: HomeInput): HomeModel {
   const overview = { projects, questions, attention, ready, queue, history, inProgress: progress };
   // The page itself is a landing page: Needs you, then a card for each other list, the detail a click away (GH-160, T-36).
   const lists = landing(overview, i.now);
-  const page = { kind: 'home' as const, section: i.section, nav, overview: { ...overview, landing: lists, cards: overviewCards(lists), since: sinceGroup(i.since ?? [], projects) }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null };
+  const page = { kind: 'home' as const, section: i.section, nav, overview: { ...overview, landing: lists, cards: overviewCards(lists), since: sinceGroup(i.since ?? [], projects) }, tasks, agents, worktrees, environments, setup, settings, runs, connect: i.connect ?? null, cloudSetup: i.cloudSetup ?? null };
   return { ...page, palette: paletteItems(page) };
 }
 

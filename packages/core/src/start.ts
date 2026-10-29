@@ -90,6 +90,28 @@ export const startFor = (cmd: string, args: string[], env: NodeJS.ProcessEnv = p
 // problem, never thrown.
 
 /**
+ * What acc keeps from every program it starts (T-145): the scheduled task's token, which the Command Center
+ * hands acc in its environment on Windows. acc reads it itself, and fires the task with it in a header file
+ * (fireRoutine), so no builder, reviewer or tool it starts ever sees it.
+ */
+export const KEPT_FROM_CHILDREN = ['ACC_CLOUD_TOKEN', 'ACC_CLOUD_TOKEN_NEW'] as const;
+
+/**
+ * Whether this process hands the token on: only the Command Center does, which starts acc with it and starts
+ * nothing else with it (handsTokenToAcc). In acc, and anywhere else, it's false, so the token stays in acc.
+ */
+let handsToken = false;
+/** Called once by the Command Center as it starts (T-145): the token it puts in acc's environment reaches acc. */
+export const handsTokenToAcc = (): void => { handsToken = true; };
+
+/** The environment a started program gets: the one given (this process's when none is), with the token taken out. */
+export function childEnv(env: NodeJS.ProcessEnv | undefined = process.env): NodeJS.ProcessEnv {
+  const out = { ...(env ?? process.env) };
+  if (!handsToken) for (const k of KEPT_FROM_CHILDREN) delete out[k];
+  return out;
+}
+
+/**
  * Starts a program and waits for it (spawnSync). A program that exits without reading all of the input it was
  * given leaves spawnSync an error beside its exit (UNREAD): the program ran and answered, so its answer is
  * what comes back, as it is for a program that read everything.
@@ -97,7 +119,7 @@ export const startFor = (cmd: string, args: string[], env: NodeJS.ProcessEnv = p
 export function startSync(cmd: string, args: string[], opts: SpawnSyncOptions): SpawnSyncReturns<string | Buffer> | { problem: string } {
   const s = startFor(cmd, args, opts.env);
   if ('problem' in s) return s;
-  const r = spawnSync(s.file, s.args, { ...opts, windowsVerbatimArguments: s.verbatim });
+  const r = spawnSync(s.file, s.args, { ...opts, env: childEnv(opts.env), windowsVerbatimArguments: s.verbatim });
   return unpiped(r);
 }
 
@@ -119,7 +141,7 @@ export function unpiped<T extends SpawnSyncReturns<string | Buffer>>(r: T): T {
 /** Starts a program and gives its process (spawn). */
 export function startChild(cmd: string, args: string[], opts: SpawnOptions): ChildProcess | { problem: string } {
   const s = startFor(cmd, args, opts.env);
-  return 'problem' in s ? s : spawn(s.file, s.args, { ...opts, windowsVerbatimArguments: s.verbatim });
+  return 'problem' in s ? s : spawn(s.file, s.args, { ...opts, env: childEnv(opts.env), windowsVerbatimArguments: s.verbatim });
 }
 
 /** Starts a program and gathers what it prints (execFile). One that can't start calls back with the problem as its error. */
@@ -129,7 +151,7 @@ export function startFile(cmd: string, args: string[], opts: ExecFileOptions, do
     done(Object.assign(new Error(s.problem), { code: 1, cmd }), '', s.problem);
     return null;
   }
-  return execFile(s.file, s.args, { ...opts, encoding: 'utf8', windowsVerbatimArguments: s.verbatim }, (err, stdout, stderr) => done(err, String(stdout ?? ''), String(stderr ?? '')));
+  return execFile(s.file, s.args, { ...opts, env: childEnv(opts.env), encoding: 'utf8', windowsVerbatimArguments: s.verbatim }, (err, stdout, stderr) => done(err, String(stdout ?? ''), String(stderr ?? '')));
 }
 
 /**

@@ -25,7 +25,7 @@ export interface WindowsSkip {
 }
 
 const STAND_INS = 'It stands in programs with #!/bin/sh scripts that the extension or the launcher starts by path, not through standIn\'s .cmd (packages/core/test/stand-in.ts).';
-const KEYCHAIN = 'It reads the routine\'s token from a stand-in macOS keychain, and acc keeps no token on Windows yet (cloudTokenUnavailable).';
+const KEYCHAIN = 'It reads the scheduled task\'s token from a stand-in macOS keychain, which Windows doesn\'t have: there acc reads it only from its environment, as the Command Center hands it over (cloudTokenHome).';
 const SIGNALS = 'It sends the run a POSIX signal and checks what its handler did. Windows has no signals: a process sent one is ended outright, with no handler run.';
 
 /** The test files, and single tests, that can't run on Windows yet. An entry comes off as it's made to run there. */

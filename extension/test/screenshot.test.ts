@@ -24,6 +24,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind.startsWith('report')) assert.deepEqual([m.kind, (m as { draft: number }).draft], ['report', 1]);
     // The Connect page opens over the section it came from (GH-51): a project started from an epic, over Setup (GH-81).
     else if (kind.startsWith('connect-')) assert.deepEqual([m.kind, (m as HomeModel).section, !!(m as HomeModel).connect, (m as HomeModel).connect?.back.label], ['home', kind.startsWith('connect-epic') ? 'setup' : 'tasks', true, kind.startsWith('connect-epic') ? 'Back to Setup' : 'Back to Tasks']);
+    // Set up cloud builders (T-145) over Settings, on the step its name says, on the system it says.
+    else if (kind.startsWith('cloud-setup-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).cloudSetup?.step, (m as HomeModel).cloudSetup?.view.fold.lines.some((l) => /PowerShell|VS Code/.test(l))], ['home', 'settings', kind.split('-')[2], /-win-/.test(kind) && /-(token|signin)-/.test(kind)]);
     // The Slack card at each of its states, in Settings (GH-58, GH-113).
     else if (kind.startsWith('slack-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.slack?.state], ['home', 'settings', kind.slice('slack-'.length)]);
     // Settings at GitHub accounts and at the Command Center's own preferences (GH-113).

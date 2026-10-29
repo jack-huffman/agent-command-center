@@ -7,7 +7,8 @@
 
 import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
 import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
-import { BUILDER_PLACE_LOOK, type CloudNeed, cloudOffered, cloudReason, cloudTokenUnavailable } from '../../../packages/core/src/cloud.ts';
+import { BUILDER_PLACE_LOOK, type CloudNeed, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
+import { CLOUD_SETUP } from '../../../packages/core/src/onboarding/cloud-steps.ts';
 import type { Protection } from '../../../packages/core/src/protection.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { TextField, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
@@ -201,7 +202,7 @@ export function autoMergeSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): 
 }
 
 /** Cloud builders (GH-69): off unless the project opted in, with what it still needs and the buttons to change it. */
-export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, protection: Protection[] | null = null, platform: NodeJS.Platform = process.platform): CloudSetting | null {
+export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, protection: Protection[] | null = null): CloudSetting | null {
   if (!keyShown('agents.cloud.routine', unread)) return null;
   const cloud = p.config.agents?.cloud ?? null;
   const needs: CloudNeed[] = cloudOffered({ github: p.config.github, agents: { cloud } });
@@ -210,16 +211,19 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
   const on = !!cloud;
   const look: Look = !on ? { label: 'off', icon: 'circle-slash', tone: 'neutral' } : reason ? { label: 'on, not ready', icon: 'warning', tone: 'orange' } : { label: 'on', icon: 'cloud', tone: 'blue' };
   const meaning = !on
-    ? github ? 'A local builder is the default everywhere. Turn this on to offer the cloud in each task\'s Build it sheet: a Claude Code cloud session the project\'s routine starts, followed through its branch on GitHub.' : 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back.'
-    : `Each task can go to the cloud, picked in its Build it sheet, or stay on this Mac. ${reason ? `${reason}.` : 'Setup checks the routine\'s token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on this Mac when the Command Center collects the branch; where GitHub enforces no protection on a branch, a push past the guard would be caught then, after the fact.`;
+    ? github ? 'A local builder is the default everywhere. Set it up to offer the cloud in each task\'s Build it sheet: a Claude Code cloud session the project\'s scheduled task starts, followed through its branch on GitHub.' : 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back.'
+    : `Each task can go to the cloud, picked in its Build it sheet, or stay on this machine. ${reason ? `${reason}.` : 'Set up… checks the token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on this Mac when the Command Center collects the branch; where GitHub enforces no protection on a branch, a push past the guard would be caught then, after the fact.`;
   const action = (command: string, label: string, icon: string, name: string, primary = false, disabled: string | null = null): SettingsAction => ({ command, label, icon, arg: p.root, name, primary, disabled });
+  // Set up… (T-145) opens the stepped modal, on its first step not done: the way in, on or off.
+  const setUp = action(CLOUD_SETUP.command, 'Set up…', 'cloud', `Set up cloud builders for ${p.name}`, !on || !!reason, github ? null : 'Cloud builders need the repo on GitHub');
   const actions: SettingsAction[] = !on
-    ? [action('acc.cloud.enable', 'Turn on…', 'cloud', `Turn on cloud builders for ${p.name}`, false, github ? null : 'Cloud builders need the repo on GitHub')]
+    ? [setUp]
     : [
-      action('acc.cloud.routine', 'Routine prompt', 'clippy', `Copy the routine prompt for ${p.name}`),
-      action('acc.cloud.enable', cloud?.routine ? 'Change routine…' : 'Add the routine…', 'edit', `${cloud?.routine ? 'Change routine' : 'Add the routine'}: give the Command Center ${p.name}'s routine`, !cloud?.routine),
-      // Off with why where there's no keychain to keep it in (D-209).
-      action('acc.cloud.token', 'Token…', 'key', `Token: keep the routine's token for ${p.name}`, false, cloudTokenUnavailable(platform)),
+      setUp,
+      action('acc.cloud.routine', 'Copy the prompt', 'clippy', `Copy the prompt: the scheduled task's, for ${p.name}`),
+      action('acc.cloud.enable', 'Trigger id…', 'edit', `Trigger id: give the Command Center ${p.name}'s scheduled task`),
+      // On every system (T-145): a Mac keeps the token in its keychain, Windows in VS Code.
+      action('acc.cloud.token', 'Token…', 'key', `Token: keep the scheduled task's token for ${p.name}`),
       action('acc.cloud.default', 'Default…', 'arrow-swap', `Default: choose where ${p.name}'s builders go`),
       action('acc.cloud.review', 'Reviews…', 'checklist', `Reviews: choose where ${p.name}'s reviews run`),
       action('acc.cloud.disable', 'Turn off', 'circle-slash', `Turn off cloud builders for ${p.name}`),

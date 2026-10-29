@@ -6,6 +6,7 @@ import { area as agents } from './agents.ts';
 import { area as boards } from './boards.ts';
 import { area as branches } from './branches.ts';
 import { area as changesField } from './changes-field.ts';
+import { area as cloudSetup } from './cloud-setup.ts';
 import { area as connect } from './connect.ts';
 import { area as conversation } from './conversation.ts';
 import { area as criteria } from './criteria.ts';
@@ -37,11 +38,12 @@ import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agentPage, agents, boards, branches, changesField, connect, conversation, criteria, dispatchSheet, environments, historyPages, limits, manifest, overview, page, planProgress, plan, questions, recordChanges, report, rules, runs, settings, setup, slack, talk, taskModal, taskPage, taskSheet, tasks, ticketDeploy, tidy, updates, verify, worktrees];
+export const AREAS = [about, agentPage, agents, boards, branches, changesField, cloudSetup, connect, conversation, criteria, dispatchSheet, environments, historyPages, limits, manifest, overview, page, planProgress, plan, questions, recordChanges, report, rules, runs, settings, setup, slack, talk, taskModal, taskPage, taskSheet, tasks, ticketDeploy, tidy, updates, verify, worktrees];
 export type Message =
   | import('./agent-page.ts').Message
   | import('./agents.ts').Message
   | import('./boards.ts').Message
+  | import('./cloud-setup.ts').Message
   | import('./connect.ts').Message
   | import('./conversation.ts').Message
   | import('./criteria.ts').Message

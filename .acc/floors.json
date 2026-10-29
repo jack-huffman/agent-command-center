@@ -1,12 +1,12 @@
 {
   "tests": {
-    "floor": 3112
+    "floor": 3125
   },
   "screenshots.clipped": {
-    "floor": 156616
+    "floor": 163862
   },
   "screenshots.sideways": {
-    "floor": 7670
+    "floor": 8171
   },
   "screenshots.overview": {
     "floor": 1199
@@ -18,25 +18,19 @@
     "floor": 1736
   },
   "screenshots.raw": {
-    "floor": 599
+    "floor": 778
   },
   "screenshots.a11y": {
-    "floor": 576655
+    "floor": 610234
   },
   "screenshots.actions": {
     "floor": 1906
   },
   "screenshots.disabled": {
-    "floor": 1389
+    "floor": 1508
   },
   "screenshots.sizes": {
-    "floor": 5958,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "Settings shows one section at a time; measured at e9d6dc64 after merging T-140, with no findings. Approved by the person 2026-10-28.",
-      "at": "2026-10-29T03:32:42.634Z",
-      "was": 6490
-    }
+    "floor": 6872
   },
   "screenshots.ci.a11y": {
     "floor": 569464,

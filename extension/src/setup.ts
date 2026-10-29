@@ -18,7 +18,7 @@ import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { asksProduction, domainItem, productionChoices, productionNext } from './logic/no-production.ts';
 import { MY_DOMAIN } from '../../packages/core/src/sf-discovery.ts';
 import { sourceProblem } from '../../packages/core/src/source.ts';
-import { type RunResult, runFile } from './run.ts';
+import { type AccEnv, type RunResult, runFile } from './run.ts';
 import type { Runs } from './runs.ts';
 import { exec } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
@@ -173,9 +173,12 @@ export class Setup implements vscode.Disposable {
 
   // ------------------------------------------------------------ running acc
 
+  /** What acc's environment gets for the folder it checks (T-145): on Windows the scheduled task's token, so its step can see it. */
+  accEnv: AccEnv = () => ({});
+
   /** The bundled CLI, run by VSCode's own Node runtime, so it works even before Node is on PATH. */
   private acc(args: string[], token?: vscode.CancellationToken): Promise<RunResult> {
-    return runFile(process.execPath, [this.accScript, ...args], this.cwd(), { ...process.env, ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1' }, token);
+    return runFile(process.execPath, [this.accScript, ...args], this.cwd(), { ...process.env, ...this.accEnv(this.cwd()), ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1' }, token);
   }
 
   private async doctor(args: string[], token?: vscode.CancellationToken): Promise<DoctorItem[]> {
