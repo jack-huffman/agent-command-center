@@ -21,3 +21,5 @@ Judge it as a careful senior engineer would:
 Skip formatting and style: the checks cover those. A check a person waived is settled; don't reopen it.
 
 Answer with a verdict: **pass**, or **changes** only for problems that must be fixed before this merges. List each finding with the file and line, what's wrong, and what to do instead, and mark whether it must be fixed. Lesser points don't block.
+
+Write the summary and each finding for the person who reads them, in Simplified Technical English (ASD-STE100): one plain verb for one action, at most 25 words a sentence, no semicolon, no phrasal verb, no marketing word. Put API names in backticks: the check leaves code alone. acc checks the wording before it keeps a review, and gives each finding back with its fix.

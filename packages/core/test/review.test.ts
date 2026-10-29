@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { NOTE_STE_RULE } from '../src/agent-notes.ts';
 import { parseConfig, type Config } from '../src/config.ts';
+import { NOTE_FIX_TRIES } from '../src/note-wording.ts';
 import { renderPacket } from '../src/packet.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { runGates, waiveGates } from '../src/gates.ts';
@@ -235,4 +237,50 @@ test('the Mac stays awake while the reviewer runs, for acc\'s own process, and n
   } });
   assert.throws(() => review(paths, config, 'T-1', { run: timedOut, now, env: {}, awake: awake.deps }), /didn't finish within 45 minutes/);
   assert.equal(awake.killed.length, 1, 'released');
+});
+
+test('a review whose words fail the wording check is asked again in its session with each fix, and the fixed one is kept (T-149)', () => {
+  const { paths, config, sha } = setup();
+  const calls: { args: string; input: string }[] = [];
+  const answers = [
+    result({ verdict: 'changes', summary: 'sum has no test; add one.', criteria: [], findings: [{ message: 'Kick off a test for sum.', must: true }] }, { total_cost_usd: 0.4 }),
+    result({ verdict: 'changes', summary: 'sum has no test. Add one.', criteria: [], findings: [{ message: 'Add a test for sum.', must: true }] }, { total_cost_usd: 0.1 }),
+  ];
+  const fake = fakeRunner({ claude: () => answers[calls.length - 1]! });
+  const runner = (cmd: string, args: string[], opts?: RunOptions): RunResult => {
+    if (cmd === 'claude') calls.push({ args: args.join(' '), input: String(opts?.input) });
+    return fake(cmd, args, opts);
+  };
+  const r = review(paths, config, 'T-1', { run: runner, now, env: {}, uuid: () => 'fixed-uuid' });
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1]!.args.startsWith('-p --resume sess-review --permission-mode dontAsk'), calls[1]!.args.slice(0, 80));
+  assert.ok(calls[1]!.input.includes('- Summary: STE bans the semicolon (Rule 8.1). Split into separate sentences. [;]'), calls[1]!.input);
+  assert.ok(calls[1]!.input.includes('- Finding 1: Soft phrasal verb.'), calls[1]!.input);
+  assert.equal(r.verdict.summary, 'sum has no test. Add one.');
+  assert.equal(readVerdict(paths, 'T-1', sha)?.findings[0]?.message, 'Add a test for sum.');
+  assert.equal(readVerdict(paths, 'T-1', sha)?.costUsd, 0.5, 'both answers are paid for');
+  assert.equal(r.moved, 'rework');
+});
+
+test('edge case: a review that still fails the wording check after its fixes is refused, and nothing is kept or moved (T-149)', () => {
+  const { paths, config, sha } = setup();
+  let asked = 0;
+  const runner = fakeRunner({ claude: () => {
+    asked++;
+    return result({ verdict: 'changes', summary: 'sum has no test; add one.', criteria: [], findings: [] });
+  } });
+  assert.throws(() => review(paths, config, 'T-1', { run: runner, now, env: {} }), (e: Error) => /still fails the Simplified Technical English check after 2 fixes, so acc kept no verdict/.test(e.message) && e.message.includes('- Summary: STE bans the semicolon'));
+  assert.equal(asked, 1 + NOTE_FIX_TRIES, 'the first answer and each fix');
+  assert.equal(readVerdict(paths, 'T-1', sha), null, 'no verdict kept');
+  assert.equal(readLedger(paths.ledger).tasks[0]!.state, 'review', 'the task stays in review');
+  assert.equal(reviewing(paths, 'T-1'), null, 'the running marker is gone');
+});
+
+test('the reviewer is told to write its summary and findings in Simplified Technical English, here and in the plugin (T-149)', () => {
+  const { paths, config } = setup();
+  const t = readLedger(paths.ledger).tasks[0]!;
+  const { system } = reviewPrompt({ task: t, config, envName: 'dev', envBranch: 'main', sha: 'abcdef1234', packet: '# packet', diff: '', stat: '', checks: [], rules: null });
+  assert.ok(system.includes(NOTE_STE_RULE), 'the headless reviewer');
+  const md = readFileSync(join(import.meta.dirname, '..', '..', '..', 'plugin', 'agents', 'reviewer.md'), 'utf8');
+  assert.match(md, /Write the summary and each finding for the person who reads them, in Simplified Technical English \(ASD-STE100\)/);
 });

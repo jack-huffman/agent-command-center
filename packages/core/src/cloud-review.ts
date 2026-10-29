@@ -16,6 +16,7 @@ import type { Analysis } from './analyze.ts';
 import { AccError, type Runner } from './exec.ts';
 import { type Actor, type CloudReview, cloudReviews, mutate, readLedger, type Task } from './ledger.ts';
 import { sessionName } from './names.ts';
+import { noteWording, verdictLines } from './note-wording.ts';
 import type { RepoPaths } from './paths.ts';
 import { checkVerdict, prepareReview, recordVerdict, reviewPath, reviewPrompt, type Verdict, VERDICT_SCHEMA } from './review.ts';
 import { FETCH_TIMEOUT_MS, fetchBranches } from './fetch.ts';
@@ -283,6 +284,12 @@ export function followCloudReviews(paths: RepoPaths, config: Config, deps: { run
       answered = checkVerdict(JSON.parse(shown.stdout));
     } catch (e) {
       fail(`its cloud reviewer's ${VERDICT_FILE} isn't a verdict acc can read (${e instanceof SyntaxError ? 'not JSON' : (e as Error).message.replace(/\.$/, '')}): review it on this Mac`);
+      continue;
+    }
+    // Its words to a person fail the wording check (T-149): a cloud reviewer can't be asked again, so nothing is kept.
+    const wording = noteWording(verdictLines(answered));
+    if (wording.length) {
+      fail(`its cloud reviewer's words fail the Simplified Technical English check (${[...new Set(wording.map((f) => f.where))].join(', ')}): review it on this Mac`);
       continue;
     }
     const verdict: Verdict = {
