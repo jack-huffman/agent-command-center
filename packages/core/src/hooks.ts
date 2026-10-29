@@ -11,6 +11,7 @@ import { builderGatesFor, fullGates, loadConfig, requiredGates } from './config.
 import { deploysByHand, isSalesforceCli } from './deploy-commands.ts';
 import type { Runner } from './exec.ts';
 import { readList } from './gates.ts';
+import { NOTE_RULE } from './agent-notes.ts';
 import { DONE_COMMAND, mutate, readLedger, type Task } from './ledger.ts';
 import { repoPaths } from './paths.ts';
 import { ANALYST_COMMANDS } from './analyze.ts';
@@ -287,6 +288,8 @@ export function shortPacket(task: Task, gates: string[], full: string[] = []): s
     `Finish line: commit everything, run exactly \`acc gate run\`${gates.length ? ` (${gates.join(', ')})` : ''}, then finish with your note, all on one line: \`${DONE_COMMAND}\`. Give a flag again for each further line; use double quotes, with no backticks or $ inside. If you're stuck, run \`acc block "<what you need>"\` and stop.`,
     ...(full.length ? [`The full check (${full.join(', ')}) runs once, in the merge queue, before the merge.`] : []),
     'Never push, merge a pull request, or open one. Never deploy except through `acc gate run deploy` (a Salesforce task\'s own deploy to its build org), and never to a protected org.',
+    // How a note to a person reads (T-146): a headline, a bullet per thing, API names as code.
+    NOTE_RULE,
     // Every project's rules (GH-104), which keep parallel work mergeable, in one line.
     'Rules: put new behaviour in its own file, registered with one line where a list names every area; if another task\'s change breaks your build, `acc block` with the reason and don\'t edit its files; write a manifest or config file whole, to a temp file then a rename.',
     // Its team (T-103): what the other builders change now, and taking in a teammate's merge early.

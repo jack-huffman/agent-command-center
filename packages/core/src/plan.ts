@@ -4,6 +4,7 @@
  * is given the choices and stops to ask before it makes another. Pure: plan-choices.ts reads and writes.
  */
 
+import { NOTE_RULE } from './agent-notes.ts';
 import type { Analysis, AnalysisQuestion, AskOf, PlanApproval, PlanDecision } from './analyze.ts';
 
 /** A plan's version: older analyses, written before versions, are the first. */
@@ -142,6 +143,8 @@ export function approvedPlanLines(a: Analysis): string[] {
     a.approval ? `Version ${v}, approved by ${a.approval.by} at ${a.approval.at}.` : `Version ${v}. A person hasn't approved it.`,
     '',
     'The design choices are the person\'s, not yours. If the work needs a different choice from one made here, or meets a design decision this plan doesn\'t cover, stop: run acc block with the question, and never decide it yourself.',
+    '',
+    NOTE_RULE,
     '',
     ...(decisions.length ? ['**The choices**', '', ...decisions.map(choiceLine), ''] : []),
     // A person's notes on the plan (T-98), such as a changed step, are theirs as the choices are.

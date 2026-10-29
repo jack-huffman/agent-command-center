@@ -31,6 +31,12 @@ export const BLOCK_SHAPE = 'acc block "<headline: one short sentence>" --item "<
 /** What acc block says, and the packet tells, about a note's shape. */
 export const NOTE_SHAPE_WORDS = `Write a short headline, one sentence, then a bullet for each thing: ${BLOCK_SHAPE}. Give a question's options in its item as a) … b) … c) …, at most three, and mark the one you recommend with (recommended).`;
 
+/**
+ * The rule for every note an agent writes to a person, word for word wherever a builder is told it: the packet,
+ * its short version the hooks give again, the plan's rules. The plugin's skills say it too.
+ */
+export const NOTE_RULE = `A note to a person (acc block, its --client question, acc done's lines) is a short headline, then one bullet per thing, never a paragraph: ${BLOCK_SHAPE}. A question's options go in its item as a) b) c), at most three, with (recommended) on the one you would pick. Name each API name exactly (a custom field or object, a developer name, a path, a branch, a command): acc puts it in backticks as it records the note, so inside double quotes write it without backticks, which the shell would run.`;
+
 /** A note given as a headline and its items, as markdown: the headline, then a "- " line for each. */
 export function composeNote(headline: string, items: readonly string[] = []): string {
   const one = (s: string) => s.replace(/\s+/g, ' ').trim();
