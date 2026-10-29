@@ -1,5 +1,5 @@
 /**
- * Saves each card's whole ticket where a session can read it (T-141, D-T-141), and keeps it up to date. After a
+ * Saves each card's whole ticket where a session can read it (T-141, D-225), and keeps it up to date. After a
  * board load has drawn, the tickets whose last-changed time moved since their saved copy, and any card with no saved
  * copy, wait in a queue per project; they are read one at a time, spaced, in the background. A ticket that hasn't
  * changed is never read again. Anything the person does goes first: while a ticket is read for them, or a board loads,

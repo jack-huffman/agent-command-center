@@ -1,4 +1,4 @@
-## D-T-141 A session reads the tickets the Command Center saved (2026-10-28)
+## D-225 A session reads the tickets the Command Center saved (2026-10-28)
 
 An agent in a terminal session could not see a project's live board: the Command Center holds each tracker's sign-in in VS Code's secret storage, one per repo (D-027), and a session can't reach it. A second sign-in for the session (an Azure CLI or MCP token) was turned down: a user-wide token reaches every client's tracker, which D-027 rules out. The person chose this route instead: the Command Center writes what it already reads where a session can read it.
 

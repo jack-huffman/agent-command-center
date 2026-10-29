@@ -1,5 +1,5 @@
 /**
- * Which trackers drop their saved tickets after a sign-out (T-141, D-T-141): each one of the signed-out site that has
+ * Which trackers drop their saved tickets after a sign-out (T-141, D-225): each one of the signed-out site that has
  * no sign-in now. One that still has one, its own or its site's (GH-79), keeps them. Like the rest of logic/, no
  * `vscode` import, so it can be tested with node:test.
  */

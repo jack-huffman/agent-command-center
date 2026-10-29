@@ -1,5 +1,5 @@
 /**
- * The tickets the Command Center saved for a session to read (T-141, D-T-141). The Command Center holds each
+ * The tickets the Command Center saved for a session to read (T-141, D-225). The Command Center holds each
  * tracker's sign-in (D-027) and a session can't reach it, so the Command Center writes what it already reads where a
  * session can read it: each card's whole ticket, one file a ticket in `<git dir>/acc/tickets/<key>.json`, beside the
  * boards it drew last (`boards.json`). Neither is committed, and neither holds a sign-in or a token.
