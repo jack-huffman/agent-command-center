@@ -151,6 +151,8 @@ export const PAGES = [
   // Sheets over the Tasks board: Build it, and the task sheet
   'dispatch-sheet',
   'dispatch-sheet-anyway',
+  // Build it on Windows (T-150): this machine is This PC
+  'dispatch-sheet-windows',
   'task-sheet-new',
   'task-sheet-manual',
   // A ticket's page, in each of its states
