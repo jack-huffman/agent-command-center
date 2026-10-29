@@ -3,6 +3,7 @@
 import type { Action, Look } from '../src/model/shared.ts';
 import type { PersonChip } from '../src/model/boards.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
+import type { AgentNote } from '../src/logic/relayed.ts';
 import { field, renderAgentPanel } from './agent-panel.ts';
 import { renderAnalysis } from './analysis.ts';
 import { renderCriteria } from './criteria.ts';
@@ -13,6 +14,7 @@ import { renderRecords } from './record-changes.ts';
 import { renderField } from './changes-field.ts';
 import { renderManifest } from './manifest.ts';
 import { conversationLine } from './talk.ts';
+import { drawNote } from './note.ts';
 import { renderReview } from './review.ts';
 import { collapsible, criteriaSummary, oneLine } from './collapse.ts';
 import { afterTabs, askedComment, chooseTab, renderTabs } from './task-tabs.ts';
@@ -148,7 +150,7 @@ export function renderTicket(m: TicketModel): Node[] {
   // What needs the person first: why it's stuck, in one line (D-052), above everything else. Then the page's
   // content in tabs (T-134): Ticket, Plan, Changes and Verify. On a narrow page the notices still come first (T-41).
   const top = el('div', 'ticket-top');
-  if (m.acc?.blocker) top.append(foldable(`blocker:${m.project}#${m.key}`, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', el('strong', '', 'Why it\'s blocked: '), m.acc.blocker)), 'why-text', 2));
+  if (m.acc?.blocker) top.append(blockedNotice(`blocker:${m.project}#${m.key}`, m.acc.blocker));
   if (m.acc?.conflicts) {
     const [head, ...files] = m.acc.conflicts.split(': ');
     top.append(foldable(`conflicts:${m.project}#${m.key}`, el('div', 'notice attention why', icon('warning', 'orange'), el('div', 'why-text conflict', el('strong', '', `${head}: `), work(el('span', '', files.join(': ')), 'files'))), 'why-text', 2));
@@ -288,6 +290,25 @@ function moveFeed(h: { from: string | null; to: string; by: string; look: Look }
   return { icon: h.look.icon, tone: h.look.tone, verb: 'moved it to', pill: true };
 }
 
+/**
+ * Why it's blocked, above the tabs (T-146): its headline, then a bullet per thing, each long one folding on its
+ * own. A note with no shape is its paragraph, its first two lines and Show all, as before.
+ */
+function blockedNotice(key: string, n: AgentNote): HTMLElement {
+  const lead = el('strong', '', 'Why it\'s blocked: ');
+  if (!n.shape) return foldable(key, el('div', 'notice attention why', icon('circle-slash', 'orange'), el('div', 'why-text', lead, md(n.text))), 'why-text', 2);
+  return el('div', 'notice attention why why-note', icon('circle-slash', 'orange'), drawNote(n, key, { lead }));
+}
+
+/**
+ * A move's reason under it in the feed: a note with a shape as its headline and bullets (T-146); one without,
+ * its first two lines, fading, with Show all under it, and a short one whole.
+ */
+function moveReason(key: string, n: AgentNote): HTMLElement {
+  if (n.shape) return el('div', 'act-reason', drawNote(n, key));
+  return foldable(key, el('div', 'act-reason', el('div', 'act-reason-text', md(n.text))), 'act-reason-text', 2);
+}
+
 /** One entry in the feed: its icon on the rail, a line saying who did what, and what came with it. */
 function feedItem(bubble: HTMLElement, line: Child[], extra: HTMLElement | null = null): HTMLElement {
   return el('li', 'act-item', bubble, el('div', 'act-body', el('div', 'act-line', ...line), extra));
@@ -316,8 +337,7 @@ function renderActivity(m: TicketModel): HTMLElement | null {
   }
   for (const h of m.acc?.history ?? []) {
     const f = moveFeed(h);
-    // A long reason shows its first two lines, fading, with Show all under it; a short one shows whole.
-    const reason = h.reason ? foldable(`reason:${m.project}#${m.key}@${h.at}`, el('div', 'act-reason', el('div', 'act-reason-text', h.reason)), 'act-reason-text', 2) : null;
+    const reason = h.reason ? moveReason(`reason:${m.project}#${m.key}@${h.at}`, h.reason) : null;
     items.push({ at: h.at, node: feedItem(el('span', `act-icon tone-${f.tone}`, icon(f.icon, f.tone)),
       [el('strong', '', whoMoved(h.by)), el('span', '', f.verb), f.pill ? status(h.look) : null, el('span', 'muted', '·'), when(h.at)], reason) });
   }

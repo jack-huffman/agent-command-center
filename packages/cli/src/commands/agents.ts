@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, BLOCK_SHAPE, composeNote, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { refuseUnrecorded } from './changes.ts';
@@ -333,9 +333,11 @@ export const area: CommandArea = {
                                         ratchets), and what's still open. A builder must give all three. A
                                         flag again adds a line; --moved none or --open none says there was
                                         nothing
-  acc block [<id>] "<reason>" [--landed …] [--moved …] [--open …]
-                                        A builder's way out when stuck, with a note if it has one
-  acc block [<id>] --client "<question>"
+  acc block [<id>] "<headline>" [--item "<thing>"]... [--landed …] [--moved …] [--open …]
+                                        A builder's way out when stuck, with a note if it has one: a short
+                                        headline, then a bullet for each thing (--item, or markdown bullets),
+                                        a question's options as a) b) c). An agent's wall of text is refused
+  acc block [<id>] --client "<question>" [--item "<thing>"]...
                                         Stuck on something only the client can answer: blocks, and drafts an
                                         update for the ticket that a person reviews before posting
   acc resume <id> [--message "<text>"]  Carry on a running task whose builder stopped before acc done or acc
@@ -377,6 +379,8 @@ export const area: CommandArea = {
     reason: { type: 'string' },
     message: { type: 'string' },
     none: { type: 'boolean', default: false },
+    // A blocked note's things (T-146), a bullet each time the flag is given.
+    item: { type: 'string', multiple: true },
     // A builder's handoff note (D-106), a line each time a flag is given.
     landed: { type: 'string', multiple: true },
     moved: { type: 'string', multiple: true },
@@ -400,11 +404,20 @@ export const area: CommandArea = {
       // An id with words after it, or with --client, whose question is the reason: acc block ACME-7 --client "…".
       const looksLikeId = !!first && /^[A-Z][A-Z0-9_]*-\d+$/i.test(first) && (more.length > 0 || typeof o.client === 'string');
       const id = taskIdFrom(looksLikeId ? first : undefined);
-      const client = typeof o.client === 'string' ? o.client.trim() : '';
+      const items = (o.item as string[] | undefined) ?? [];
+      const said = (o.reason as string | undefined) ?? (looksLikeId ? more : rest).join(' ').trim();
+      // Its items are a bullet each under the headline (T-146): the reason's, or the client's question's.
+      const asked = typeof o.client === 'string' && o.client.trim() ? composeNote(o.client, said ? [] : items) : '';
       // A question for the client is the reason too, so the board says what it waits on.
-      const reason = (o.reason as string | undefined) ?? ((looksLikeId ? more : rest).join(' ').trim() || (client ? `Waiting on the client: ${client}` : ''));
-      if (!reason) throw new AccError('usage', 'acc block "<what you need>", or acc block --client "<question>" when only the client can answer');
-      return cmdSet({ ...o, reason }, id, 'blocked', noteFrom(o));
+      const reason = said ? composeNote(said, items) : asked ? `Waiting on the client: ${asked}` : '';
+      if (!reason) throw new AccError('usage', items.length ? `--item adds a bullet under a headline: ${BLOCK_SHAPE}` : 'acc block "<what you need>", or acc block --client "<question>" when only the client can answer');
+      // An agent's note is a headline and a bullet per thing, not a wall of text; a person's isn't checked.
+      if (actorFrom(o).actor !== 'human') {
+        // The agent's own words are checked: a client's question without the prefix acc adds to the reason.
+        const problems = shapeProblems(said ? reason : asked);
+        if (problems.length) throw new AccError('refused', problems.join(' '));
+      }
+      return cmdSet({ ...o, reason, ...(asked ? { client: asked } : {}) }, id, 'blocked', noteFrom(o));
     },
     resume: (o, rest) => {
       if (!rest[0]) throw new AccError('usage', 'acc resume <id> [--message "<text>"]');

@@ -58,7 +58,8 @@ import { sampleRuns } from './fixtures/runs.ts';
 import { REVIEW_RUN, type ReviewSample, sampleReviewRun } from './fixtures/dock-review.ts';
 import { RUN_SAMPLE_ID, type RunSample, sampleRunView } from './fixtures/run-view.ts';
 import { sampleStepRun, STEP_SAMPLE_ID, STEP_SAMPLE_OPEN, type StepSample } from './fixtures/run-steps.ts';
-import { CLIENTS, ROOT } from './fixtures/shared.ts';
+import { BLOCKED_WALL, CLIENTS, ROOT } from './fixtures/shared.ts';
+import { noteInWords } from '../src/logic/relayed.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
 import { sampleQueueBoards, sampleQueueConnect } from './fixtures/queues.ts';
 import { sampleFirstSetup, sampleSetup, sampleStartingSetup } from './fixtures/setup.ts';
@@ -126,7 +127,7 @@ export function expectedButtons(model: Model): ExpectedButton[] | null {
 }
 
 /** The busy Overview with a list open over it in full (T-36): Needs you's Show all, or a card's list. */
-export const OVERVIEW_LISTS: Partial<Record<Page, GroupKey>> = { 'overview-needs': 'needs-you', 'overview-progress': 'progress', 'overview-ready': 'ready', 'overview-moment': 'moment' };
+export const OVERVIEW_LISTS: Partial<Record<Page, GroupKey>> = { 'overview-needs': 'needs-you', 'overview-needs-wall': 'needs-you', 'overview-progress': 'progress', 'overview-ready': 'ready', 'overview-moment': 'moment' };
 
 /** The output panel's review pages (T-63), by the review each shows. */
 export const OUTPUT_REVIEWS: Partial<Record<Page, ReviewSample>> = { 'output-passed': 'passed', 'output-changes': 'changes', 'output-reviewing': 'reviewing', 'output-review-open': 'changes', 'output-unread': 'unread' };
@@ -178,6 +179,14 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
     const lists = landing(o, now);
     return { ...m, nav: m.nav.map((n) => (n.section === 'overview' ? { ...n, count: 0 } : n)), overview: { ...o, landing: lists, cards: overviewCards(lists) } };
   }
+  // The Overview with a blocked task first in Needs you (T-146): its note's headline under the line, its points folded.
+  if (kind === 'overview-blocked') {
+    const m = sampleModel('overview-landing', now, theme) as HomeModel;
+    const blocked = m.overview.attention.filter((a) => a.note);
+    const o = { ...m.overview, questions: [], attention: [...blocked, ...m.overview.attention.filter((a) => !a.note)] };
+    const lists = landing(o, now);
+    return { ...m, overview: { ...o, landing: lists, cards: overviewCards(lists) } };
+  }
   // History with more than two pages (D-170): 100 entries over six or seven days, a page of them drawn.
   if (kind === 'overview-pages') {
     const long = sampleLongHub(now);
@@ -220,6 +229,8 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-agent-failed' || kind === 'ticket-agent-open') return sampleAgentPanelTicket(now, 'failed');
   if (kind === 'ticket-agent-details' || kind === 'ticket-agent-more') return sampleTicket(now);
   if (kind === 'ticket-waits') return sampleAgentPanelTicket(now, 'queued');
+  // A blocked note (T-146): in shape, and a paragraph recorded before it.
+  if (kind === 'ticket-blocked-note' || kind === 'ticket-blocked-wall') return sampleAgentPanelTicket(now, kind === 'ticket-blocked-note' ? 'note' : 'wall');
   if (kind === 'ticket-note') return sampleTicket(now, 'ACME-20');
   // ACME-19 in rework, in its own tab, with Dispatch's sheet over it (D-168), or the task sheet (T-74).
   if (kind === 'ticket-review' || kind === 'ticket-dispatch' || kind === 'ticket-edit') return sampleTicket(now, 'ACME-19');
@@ -295,7 +306,10 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // The Overview when everything is busy at once, and with a detail opened over it (GH-160).
   // With what changed while the person was away above the cards (D-164).
   if (kind === 'overview-landing' || kind === 'overview-answer' || kind === 'overview-drafts' || kind === 'overview-history' || kind === 'overview-since' || OVERVIEW_LISTS[kind]) {
-    return homeModel({ hub: sampleLandingHub(now), section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleLandingRuns(), edited: sampleEdited, slack: sampleSlack('on', now), autopilot: () => 'on', now, ...(kind === 'overview-since' ? { since: sampleSince() } : {}) });
+    // Needs you with ACME-18's note a paragraph recorded before T-146, split as it's drawn.
+    const landingHub = sampleLandingHub(now);
+    const hub = kind === 'overview-needs-wall' ? { ...landingHub, taskRows: (root: string) => landingHub.taskRows(root).map((r) => (r.id === 'ACME-18' ? { ...r, blocker: noteInWords(BLOCKED_WALL) } : r)) } : landingHub;
+    return homeModel({ hub, section: 'overview', boards: () => sampleBoards(), identity: () => sampleIdentity(), setup: sampleSetup(), runs: sampleLandingRuns(), edited: sampleEdited, slack: sampleSlack('on', now), autopilot: () => 'on', now, ...(kind === 'overview-since' ? { since: sampleSince() } : {}) });
   }
   // Environments where the last Setup check found this machine isn't logged in to Production (D-208).
   if (kind === 'environments-away') {
@@ -428,6 +442,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   // ACME-21's plan, criteria and Verify collapsed to their header lines (T-132).
   : kind === 'ticket-sections-collapsed' ? { folded: SECTIONS_COLLAPSED }
   : kind === 'ticket-agent-details' ? { opened: [detailsKey(ROOT, 'ACME-12')] }
+  // The blocked note's points opened under its line (T-146).
+  : kind === 'overview-blocked' ? { opened: [`note-fold:needs:t:${ROOT}:ACME-18`] }
   : kind === 'ticket-agent-more' ? { opened: [`agent-more:${ROOT}#ACME-12`] }
   // ACME-21's plan (T-97): its second choice's own option open, with More open for its wording (T-136). Choices and
   // Questions open by themselves while they wait on the person.
@@ -541,7 +557,7 @@ export const DEFAULT_HEIGHT = 900;
  * The Connect page with two Jira epics ticked, and GitHub's Project cards, are shot tall enough to show the
  * ticked cards and the access card at 500 px (T-107).
  */
-export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-pages': 1300, 'overview-needs': 1100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, 'overview-since': 1500, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'settings-queues': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, 'environments-away': 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200, 'output-review-open': 2000, 'ticket-verify-pass': 2200, 'ticket-verify-changes': 2400, 'ticket-verify-choice': 1300, 'ticket-planned': 2100, 'ticket-changes': 3000, 'ticket-kept': 2000, 'ticket-records': 2400, 'ticket-records-form': 2800, 'ticket-records-promoted': 2800, 'ticket-manifest': 2600, 'ticket-questions': 3300, 'ticket-plan-approved': 3000, 'ticket-plan-choices': 2600, 'ticket-plan-changed': 3300, 'ticket-plan-shapes': 3300, 'ticket-plan-behind': 3300, 'ticket-talk': 3600, 'conversation-talk': 3400, 'conversation': 1400, 'ticket-changes-field': 3600, 'ticket-team': 2700, 'ticket-team-alone': 2500, report: 2800, 'report-filled': 2800, 'report-no-access': 3000, 'report-posted': 3000 };
+export const PAGE_HEIGHT: Partial<Record<Page, number>> = { 'overview-busy': 1900, 'overview-idle': 1700, 'overview-landing': 1900, 'overview-answer': 1100, 'overview-drafts': 1100, 'overview-history': 1300, 'overview-pages': 1300, 'overview-needs': 1100, 'overview-needs-wall': 1100, 'overview-blocked': 1100, 'ticket-blocked-note': 2900, 'ticket-blocked-wall': 3100, 'overview-progress': 1100, 'overview-ready': 1100, 'overview-moment': 1100, 'overview-clear': 1100, 'overview-since': 1500, queue: 1500, 'queue-off': 1500, 'queue-held': 1500, settings: 3800, 'settings-agents': 3800, 'settings-limits': 3800, 'ticket-note': 1600, 'ticket-review': 1950, agents: 2000, 'agents-path': 2300, 'agents-finished': 2300, 'settings-trackers': 5000, 'settings-queues': 5000, 'slack-none': 5000, 'slack-off': 5000, 'slack-paused': 5000, 'settings-github': 5800, 'settings-page': 5000, environments: 1400, 'environments-away': 1400, rules: 1300, 'rules-accept': 1500, 'settings-about': 7200, 'settings-about-failed': 7200, 'output-review-open': 2000, 'ticket-verify-pass': 2200, 'ticket-verify-changes': 2400, 'ticket-verify-choice': 1300, 'ticket-planned': 2100, 'ticket-changes': 3000, 'ticket-kept': 2000, 'ticket-records': 2400, 'ticket-records-form': 2800, 'ticket-records-promoted': 2800, 'ticket-manifest': 2600, 'ticket-questions': 3300, 'ticket-plan-approved': 3000, 'ticket-plan-choices': 2600, 'ticket-plan-changed': 3300, 'ticket-plan-shapes': 3300, 'ticket-plan-behind': 3300, 'ticket-talk': 3600, 'conversation-talk': 3400, 'conversation': 1400, 'ticket-changes-field': 3600, 'ticket-team': 2700, 'ticket-team-alone': 2500, report: 2800, 'report-filled': 2800, 'report-no-access': 3000, 'report-posted': 3000 };
 
 /** The colour properties the colour check compares, on every element and its ::before and ::after. */
 export const COLOUR_PROPERTIES = [
@@ -775,7 +791,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), passed: sampleModel('ticket-deploy-passed', now, 'dark'), failed: sampleModel('ticket-deploy-failed', now, 'dark'), typed: sampleModel('ticket-deploy-typed', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark'), agentFailed: sampleModel('ticket-agent-failed', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), passed: sampleModel('ticket-deploy-passed', now, 'dark'), failed: sampleModel('ticket-deploy-failed', now, 'dark'), typed: sampleModel('ticket-deploy-typed', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark'), agentFailed: sampleModel('ticket-agent-failed', now, 'dark'), wall: sampleModel('ticket-blocked-wall', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

@@ -80,6 +80,8 @@ export const PAGES = [
   'overview-history',
   'overview-pages',
   'overview-needs',
+  'overview-needs-wall',
+  'overview-blocked',
   'overview-progress',
   'overview-ready',
   'overview-moment',
@@ -165,6 +167,9 @@ export const PAGES = [
   'ticket-agent-details',
   'ticket-agent-more',
   'ticket-agent-open',
+  // An agent's blocked note (T-146): in shape, and a paragraph recorded before it, split as it's drawn
+  'ticket-blocked-note',
+  'ticket-blocked-wall',
   'ticket-waits',
   'ticket-note',
   'ticket-review',

@@ -23,6 +23,13 @@ export const excerptLine = (n: number | null, mark: 'add' | 'del' | 'same', text
 export const SLEPT = 'API Error: Your computer went to sleep mid-response. The response above may be incomplete.';
 /** Why autopilot couldn't review ACME-25, as acc's review refuses it: in acc's words, with its command (GH-163). */
 export const ACME_25_REFUSED = 'ACME-25\'s checks aren\'t settled on e7f8a9b: validate. Run acc gate run in its worktree, or waive them, then review.';
+/**
+ * A blocked note as acc block takes it now (T-146): a headline, a bullet per thing, options as a) b), the one the
+ * builder recommends marked, its API names in backticks as acc recorded them. Made up: no client's fields.
+ */
+export const BLOCKED_NOTE = 'The plan and the ticket disagree, so nothing can land without your choice.\n- Which field holds the territory? a) `Territory__c` on Account (recommended) b) a new `Deal_Territory__c` on Opportunity\n- The record page `Territory_Record_Page` is named twice in the plan, with two layouts; which wins? a) the sales layout b) the service layout\n- The report type `Deals_With_Territories` needs the permission set `Territory_Admin`, which the plan leaves out.';
+/** The same kind of note as a builder wrote it before T-146: one paragraph, its things numbered inline, no backticks. */
+export const BLOCKED_WALL = 'Plan v2 contradicts itself, so nothing can land without a person\'s choice. (1) The plan keeps the territory on Account, but the criteria name Deal_Territory__c on Opportunity: which is right? a) keep Account.Territory__c (recommended) b) add Deal_Territory__c. (2) The record page Territory_Record_Page.flexipage-meta.xml is named twice with two layouts; which wins? a) the sales layout b) the service layout. (3) The report type Deals_With_Territories needs the permission set Territory_Admin, which the plan leaves out; I recommend b: a) drop the report b) add the permission set under force-app/main/default/permissionsets.';
 /** A builder that ended its turn with a question in its own words, instead of acc block. */
 export const ASKED = 'I\'ve added the reassignment flow and its test. Before I finish: when the leaving owner\'s manager is also inactive, should the cases go to the queue named on the account, or to the support team\'s default queue? I\'ve left both paths in until someone decides.';
 

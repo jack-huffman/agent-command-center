@@ -4,6 +4,7 @@
  */
 
 import { phaseWords } from '../../../packages/core/src/queue.ts';
+import type { AgentNote } from '../logic/relayed.ts';
 import type { AnalysisAsk, TaskRow } from '../logic/shared.ts';
 import type { ProgressModel } from '../progress.ts';
 import type { HistoryPage } from './history-pages.ts';
@@ -23,6 +24,8 @@ export interface AttentionItem {
   detail: string;
   /** More than the detail has room for, on hover: a conflict's files in full. */
   tip?: string;
+  /** A blocked task's note (T-146): its headline and bullets, drawn under the line. */
+  note?: AgentNote;
   project: string;
   actions: Action[];
   /** A command that takes one argument, such as a tracker's sign-in. */

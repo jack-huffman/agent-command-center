@@ -1,8 +1,9 @@
 /** The sample project's tasks, as the hub reads their rows: every state, and each kind of trouble. */
 import { rowAnalysis } from '../../src/logic/tasks.ts';
+import { noteInWords } from '../../src/logic/relayed.ts';
 import type { TaskRow } from '../../src/logic/shared.ts';
 import { sampleAnalyses } from './analysis.ts';
-import { ACME_25_REFUSED, ASKED, MIN, N10, N12, N13, N14, N28, N29, N43, N44, N47, SLEPT, wt } from './shared.ts';
+import { ACME_25_REFUSED, ASKED, BLOCKED_NOTE, MIN, N10, N12, N13, N14, N28, N29, N43, N44, N47, SLEPT, wt } from './shared.ts';
 import { UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
 
 export function sampleTasks(now = Date.now()): TaskRow[] {
@@ -60,7 +61,8 @@ export function sampleTasks(now = Date.now()): TaskRow[] {
     task('ACME-19', 'Fix the flow that double-sends welcome emails', 'rework', 'rework', { run: { worktree: wt('ACME-19') } }),
     // Its pull request's checks failed on GitHub, so autopilot sent it back to its builder (D-076).
     task('ACME-33', 'Score new leads by the size of their company', 'rework', 'rework', { run: { worktree: wt('ACME-33'), branch: 'task/ACME-33-score-leads-by-size' }, review: { verdict: 'pass', summary: 'Adds the size factor to the lead score.', current: true }, pr: { number: 48, url: 'https://github.com/acme/service/pull/48', state: 'open', ci: 'failing', changesRequested: false, conflicts: [] }, checks: ['validate', 'Apex tests'] }),
-    task('ACME-18', 'Migrate the legacy territory triggers', 'blocked', 'blocked'),
+    // Its builder blocked with a note in shape (T-146): a headline and a bullet per thing.
+    task('ACME-18', 'Migrate the legacy territory triggers', 'blocked', 'blocked', { blocker: noteInWords(BLOCKED_NOTE) }),
     task('ACME-17', 'Dashboards for the escalation rules', 'todo', 'todo', { deps: ['ACME-12'] }),
     task('ACME-10', 'Add a CHANGELOG', 'done', 'done', { run: { bgId: 'bg10', sessionId: 's-acme-10', worktree: wt('ACME-10'), name: N10 } }),
     // Finished and cleaned up (T-147): no worktree left, so they sit under Done's Cleaned up fold.

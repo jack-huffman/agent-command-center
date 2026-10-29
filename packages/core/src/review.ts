@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { codeNames } from './agent-notes.ts';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, noteMarkdown, readLedger, type Task } from './ledger.ts';
@@ -292,6 +293,7 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     'Skip formatting and style: the checks cover those. A check that a person waived is settled; don\'t reopen it.',
     'Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don\'t block.',
     'Be specific: the file, the line, what is wrong, and what to do instead.',
+    'Keep it short for the person who reads it: the summary opens with one sentence that says the verdict, and each finding is one thing, never a paragraph of several. Put API names in backticks: a custom field or object, a developer name, a path, a branch, a command.',
     'Give each finding a kind: a few words naming the kind of problem. Reuse one of the kinds you are given when it fits, so a finding that keeps coming back is seen.',
   ].join('\n');
   const prompt = [
@@ -372,7 +374,8 @@ export function checkVerdict(s: unknown): Answered {
   const criteria = (Array.isArray(a.criteria) ? a.criteria : []).filter((c: any) => typeof c?.text === 'string').slice(0, L.criteria)
     .map((c: any) => ({ text: clip(c.text, L.text), met: c.met === true, evidence: clip(String(c.evidence ?? ''), L.evidence) }));
   const findings = (Array.isArray(a.findings) ? a.findings : []).filter((f: any) => typeof f?.message === 'string').slice(0, L.findings).map((f: any): Finding => ({
-    message: clip(f.message, L.message), must: f.must === true,
+    // An agent's words reach a person with their API names as code (T-146).
+    message: codeNames(clip(f.message, L.message)), must: f.must === true,
     ...(typeof f.file === 'string' && f.file ? { file: clip(f.file, L.file) } : {}),
     ...(Number.isInteger(f.line) ? { line: f.line } : {}),
     ...(typeof f.rule === 'string' && f.rule ? { rule: clip(f.rule, L.rule) } : {}),
@@ -380,7 +383,7 @@ export function checkVerdict(s: unknown): Answered {
   }));
   const verdict = a.verdict === 'pass' && findings.some((f: Finding) => f.must) ? 'changes' : a.verdict;
   const client = typeof a.client === 'string' && a.client.trim() ? { client: clip(a.client.trim(), L.client) } : {};
-  return { verdict, summary: clip(a.summary, L.summary), ...client, criteria, findings };
+  return { verdict, summary: codeNames(clip(a.summary, L.summary)), ...client, criteria, findings };
 }
 
 /** The verdict from Claude Code's JSON result. Anything else is an error that says what came back. */

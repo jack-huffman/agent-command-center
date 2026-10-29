@@ -104,8 +104,8 @@ test('a task page says why it\'s blocked, and why it moved, in process words, wh
     ],
   } as unknown as Task;
   const page = ticketModel({ project: '/r', tracker: null, trackerTitle: null, trackerKind: null, key: 'AV-3', ticket: null, loading: false, error: null, connect: null, checks: [], row: row('AV-3', 'blocked', 'blocked'), task });
-  assert.equal(page.acc!.blocker, '"Run the checks" errors on validate: the Dev login has expired. Log in again, then I can run the checks.');
-  assert.deepEqual(page.acc!.history.map((h) => h.reason), ['Edits the project\'s settings without a decision.', page.acc!.blocker]);
+  assert.equal(page.acc!.blocker!.text, '"Run the checks" errors on validate: the Dev login has expired. Log in again, then I can run the checks.');
+  assert.deepEqual(page.acc!.history.map((h) => h.reason!.text), ['Edits the project\'s settings without a decision.', page.acc!.blocker!.text]);
 });
 
 test('edge cases: no reason, an empty one, text with no command, a step read twice, and the files and branch a row names stay as they were', () => {

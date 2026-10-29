@@ -16,7 +16,7 @@ acc's loop is code: it dispatches, checks, reviews and lands by rules. You're fo
 
 ## Triage a blocked task
 
-1. `acc show <id>`: the block reason is in its history, in the builder's own words.
+1. `acc show <id>`: the block reason is in its history, in the builder's own words: a headline, then a bullet per thing, with each question's options as a) b) c) and the one it recommends marked. When you write guidance back, keep that shape, and put API names (`Region__c`, paths, branches) in backticks.
 2. Sort it:
    - A missing decision: put the question to the person plainly.
    - A check failing for reasons the task didn't cause: the person can waive it (`acc gate waive`), or open a task to fix the cause.

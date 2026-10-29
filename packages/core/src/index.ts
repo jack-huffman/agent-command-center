@@ -2,6 +2,7 @@
 // Don't edit it: npm run build writes it again, and scripts/test/areas.test.ts fails when it's stale.
 export * from './acc-changes.ts';
 export * from './again.ts';
+export * from './agent-notes.ts';
 export * from './agents.ts';
 export * from './analyze.ts';
 export * from './atomic.ts';

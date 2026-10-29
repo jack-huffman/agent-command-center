@@ -1,6 +1,6 @@
 {
   "tests": {
-    "floor": 3102
+    "floor": 3112
   },
   "screenshots.clipped": {
     "floor": 156681
@@ -9,10 +9,10 @@
     "floor": 7773
   },
   "screenshots.overview": {
-    "floor": 996
+    "floor": 1199
   },
   "screenshots.buttons": {
-    "floor": 540
+    "floor": 700
   },
   "screenshots.covered": {
     "floor": 1736
@@ -24,7 +24,7 @@
     "floor": 587669
   },
   "screenshots.actions": {
-    "floor": 1823
+    "floor": 1906
   },
   "screenshots.disabled": {
     "floor": 1389
