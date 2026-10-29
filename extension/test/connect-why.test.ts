@@ -46,14 +46,14 @@ test('a Connect page with no project, and a test in flight, give the right reaso
 });
 
 test('the page draws the reason in the button\'s title and in a status line: a browser case reads the drawn page, and mutants that drop either fail it', () => {
-  const c = CASES.find((x) => x.name.startsWith('connect: a button that is off'));
-  assert.ok(c, 'a behaviour case opens the Connect page');
-  assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 2, 'one mutant draws no status line, another no title');
-  const n = CASES.find((x) => x.name.startsWith('connect: with no project chosen'));
-  assert.ok(n, 'a behaviour case reads Test connection\'s drawn reason with no project (edge case)');
+  const c = CASES.find((x) => x.name.startsWith('connect: Next that is off'));
+  assert.ok(c, 'a behaviour case opens the Connect modal');
+  assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 3, 'one mutant draws no status line, another no title, another turns Next on (T-140)');
+  const n = CASES.find((x) => x.name.startsWith('connect: while it signs in'));
+  assert.ok(n, 'a behaviour case reads Test connection\'s drawn reason while it signs in (edge case)');
   assert.equal(MUTANTS.filter((x) => x.kills.includes(n.name)).length, 2, 'one mutant draws no status line beside Test connection, another no title');
   const d = behaviourData({ tasks: sampleModel('tasks', 0, 'dark'), overview: sampleModel('overview-landing', 0, 'dark'), since: sampleModel('overview-since', 0, 'dark'), ticket: sampleModel('ticket-questions', 0, 'dark'), review: sampleModel('ticket-review', 0, 'dark'), settings: sampleModel('settings-agents', 0, 'dark'), connect: sampleModel('connect-start', 0, 'dark'), agent: sampleModel('agent', 0, 'dark'), dock: sampleModel('output-changes', 0, 'dark'), run: sampleModel('output-failed', 0, 'dark'), pages: sampleModel('overview-pages', 0, 'dark'), conversation: sampleModel('conversation-start', 0, 'dark'), beforePlan: sampleModel('ticket-conversation', 0, 'dark'), talked: sampleModel('ticket-talk', 0, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', 0, 'dark'), report: sampleModel('report', 0, 'dark'), deployed: sampleModel('ticket-deploy-deployed', 0, 'dark'), passed: sampleModel('ticket-deploy-passed', 0, 'dark'), failed: sampleModel('ticket-deploy-failed', 0, 'dark'), typed: sampleModel('ticket-deploy-typed', 0, 'dark'), work: sampleModel('ticket-deploy-work', 0, 'dark'), agentFailed: sampleModel('ticket-agent-failed', 0, 'dark') }, 0);
-  assert.deepEqual([d.connect.save, d.connect.why, d.connect.none.testWhy], ['Use this board', 'Sign in and choose a project first.', 'Choose a project first.']);
+  assert.deepEqual([d.connect.site.step, d.connect.why, d.connect.testing.why], ['site', 'Sign in first.', 'Testing the connection now.']);
 });
 
 test('Save names a required list that is hidden with no choice, and says to wait only while a list loads (T-45)', () => {
@@ -93,6 +93,8 @@ test('step 3 is named from the description: Slack says its channel, the others k
   assert.equal(connectModel(blankConnect(SLACK, { id: 'c6', ...base })).listsTitle, 'Its channel');
   for (const d of DESCRIPTIONS.filter((x) => x.kind !== 'slack')) assert.equal(connectModel(blankConnect(d, { id: `c-${d.kind}`, ...base })).listsTitle, LISTS_TITLE, d.kind);
   assert.equal(LISTS_TITLE, 'Choose a board');
+  // The modal's board step takes its title from the description too (T-140).
+  assert.equal(connectModel(blankConnect(SLACK, { id: 'c7', ...base })).steps[2]!.title, 'Its channel');
   const page = readFileSync(join(root, 'webview', 'connect.ts'), 'utf8');
-  assert.match(page, /step\(3, m\.listsTitle,/, 'the heading comes from the model, not from the page');
+  assert.match(page, /current\.title/, 'the heading comes from the model, not from the page');
 });

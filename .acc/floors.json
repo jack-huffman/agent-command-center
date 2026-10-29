@@ -1,18 +1,12 @@
 {
   "tests": {
-    "floor": 3037
+    "floor": 3044
   },
   "screenshots.clipped": {
-    "floor": 136012,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "Settings shows one section at a time, so each settings shot measures one section; every section is still shot at every width and theme with no findings. Approved by the person 2026-10-28.",
-      "at": "2026-10-29T02:25:27.005Z",
-      "was": 148676
-    }
+    "floor": 166321
   },
   "screenshots.sideways": {
-    "floor": 6151
+    "floor": 7577
   },
   "screenshots.overview": {
     "floor": 996
@@ -24,14 +18,14 @@
     "floor": 1736
   },
   "screenshots.raw": {
-    "floor": 570
+    "floor": 599
   },
   "screenshots.a11y": {
-    "floor": 579982,
+    "floor": 615704,
     "relaxed": {
       "by": "human:jackhuffman",
-      "reason": "Settings shows one section at a time, so each settings shot measures one section; every section is still shot at every width and theme with no findings. Approved by the person 2026-10-28.",
-      "at": "2026-10-29T02:25:27.258Z",
+      "reason": "Connect is now a true modal, so the page under it is inert and axe skips it on the 27 Connect shots; nothing failed. Approved by the person 2026-10-28.",
+      "at": "2026-10-29T02:25:26.781Z",
       "was": 619898
     }
   },
@@ -39,21 +33,9 @@
     "floor": 1823
   },
   "screenshots.disabled": {
-    "floor": 1254,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "Settings shows one section at a time, so each settings shot measures one section; every section is still shot at every width and theme with no findings. Approved by the person 2026-10-28.",
-      "at": "2026-10-29T02:25:27.765Z",
-      "was": 1259
-    }
+    "floor": 1389
   },
   "screenshots.sizes": {
-    "floor": 4814,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "Settings shows one section at a time, so each settings shot measures one section; every section is still shot at every width and theme with no findings. Approved by the person 2026-10-28.",
-      "at": "2026-10-29T02:25:27.510Z",
-      "was": 5357
-    }
+    "floor": 6490
   }
 }

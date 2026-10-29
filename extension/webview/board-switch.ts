@@ -23,7 +23,7 @@ export const addAnother = (root: string): string => JSON.stringify({ root, add: 
 /** What a project's Tasks tab shows: a board by its id, every board, or My work, as the tab's memory keeps it. */
 export type BoardChoice = `board:${string}` | 'all' | 'agents';
 
-type Board = Pick<TrackerBoard, 'id' | 'name' | 'group' | 'kind' | 'title' | 'tickets' | 'needs' | 'error' | 'loading' | 'columns'>;
+type Board = Pick<TrackerBoard, 'id' | 'index' | 'name' | 'group' | 'kind' | 'title' | 'tickets' | 'needs' | 'error' | 'loading' | 'columns'>;
 
 /**
  * The choice that applies now (T-127): the one kept while its board is still there, else the first board. All
@@ -129,6 +129,7 @@ export function boardSwitch(root: string, boards: readonly Board[], choice: Boar
         return box;
       }),
       ...(groups.length ? [] : [el('p', 'muted board-none', `No board's name has “${query.trim()}” in it.`)]),
+      ...(query.trim() ? [] : [el('div', 'more-sep'), ...boardEdits(root, on)]),
     );
   };
   const find = boards.length > FILTER_FROM ? document.createElement('input') : null;
@@ -156,7 +157,7 @@ export function boardSwitch(root: string, boards: readonly Board[], choice: Boar
     if (opening) (find ?? items.querySelector<HTMLElement>('.board-item.on') ?? items.querySelector<HTMLElement>('.board-item'))?.focus();
   });
   menu.addEventListener('keydown', (e) => {
-    const all = [...menu.querySelectorAll<HTMLElement>('.board-find, .board-item')];
+    const all = [...menu.querySelectorAll<HTMLElement>('.board-find, .board-item, .board-edit')];
     const here = all.indexOf(document.activeElement as HTMLElement);
     if (e.key === 'Escape') { e.preventDefault(); show(false); btn.focus(); }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); all[(here + (e.key === 'ArrowDown' ? 1 : all.length - 1)) % all.length]?.focus(); }
@@ -167,6 +168,22 @@ export function boardSwitch(root: string, boards: readonly Board[], choice: Boar
   control.addEventListener('click', (e) => e.stopPropagation());
   control.addEventListener('mousedown', (e) => e.stopPropagation());
   return control;
+}
+
+/**
+ * The list's last items (T-140): Change the board on show, and Add a board, each opening the modal that steps
+ * through the tracker, its sign-in and its board. Nothing changes until its Save.
+ */
+export function boardEdits(root: string, on: Pick<Board, 'index' | 'name'> | undefined): HTMLElement[] {
+  const item = (label: string, iconName: string, arg: string): HTMLElement => {
+    const b = el('button', 'more-item board-edit', icon(iconName), el('span', 'board-item-name', label)) as HTMLButtonElement;
+    b.type = 'button';
+    b.title = label;
+    b.setAttribute('role', 'menuitem');
+    b.addEventListener('click', (e) => { e.stopPropagation(); openList = null; api.postMessage({ type: 'toolbar', command: 'acc.trackers.add', arg }); });
+    return b;
+  };
+  return [...(on ? [item(`Change ${on.name}…`, 'settings', JSON.stringify({ root, index: on.index }))] : []), item('Add a board…', 'add', addAnother(root))];
 }
 
 /** The board each project's tab last told the extension it shows, so a redraw doesn't tell it again. */

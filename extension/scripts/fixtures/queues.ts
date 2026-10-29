@@ -80,6 +80,7 @@ export function sampleQueueConnect(refused = false): ConnectModel {
     s.pickers.queues = ready(SAMPLE_QUEUES.map((q) => ({ value: String(q.id), label: q.name, detail: `${q.count} tickets` })), ['12', '14']);
   }
   const [unassigned] = sampleQueueBoards();
+  s.step = 'board';
   s.boards[placeKey(connectValues(s, JIRA))] = { state: 'ready', board: refused ? { ...unassigned!.board!, source: 'jira-board', title: 'ACME Service board', place: 'Jira · ACME' } as Board : unassigned!.board as Board, none: null, error: null };
   return connectModel(s);
 }

@@ -1701,10 +1701,11 @@ each of its trackers with its kind, where its tickets come from and its board
 for every project on its site or this project only (D-091), kept in VSCode on
 this machine, or through gh for GitHub. Each state has an icon and words, blue
 or orange. Each tracker has **Sign in again** and **Change tracker…**, which open
-the Connect page at it, and **Sign out**, which asks every project or this one
+the Connect modal at it, and **Sign out**, which asks every project or this one
 for a site's sign-in; GitHub has only Change tracker…. **Connect a tracker…**
-starts a new one. Opened from Settings, the Connect page's Back and Save come
-back to this part. Save asks `acc trackers set` to write the tracker, so the
+starts a new one. The Connect modal (D-224) opens over this part and steps
+through the tracker, its sign-in, its board (its lists as dropdowns across the
+top, the board they make below) and Save; Save comes back to this part. Save asks `acc trackers set` to write the tracker, so the
 Command Center writes no config itself (D-064).
 
 **Notices in Slack** (GH-113): the card D-078 put on Environments, moved here

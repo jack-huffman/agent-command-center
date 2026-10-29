@@ -96,7 +96,7 @@ test('the preview\'s line counts its tickets and columns, with one of each said 
   assert.equal(previewLine(1, 1), '1 ticket would be on your board, in 1 column.');
   // Edge: an empty place.
   assert.equal(previewLine(0, 4), '0 tickets would be on your board, in 4 columns.');
-  assert.deepEqual([PREVIEW_CARDS, CARD_TITLES], [3, 2]);
+  assert.deepEqual([PREVIEW_CARDS, CARD_TITLES], [6, 2]);
 });
 
 test('a Jira board\'s card says its kind in words: Scrum, Kanban, or Jira\'s own word for one it doesn\'t know', () => {

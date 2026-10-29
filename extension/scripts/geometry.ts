@@ -31,7 +31,7 @@ export interface GeoControl {
   box: Box;
   /** The indexes of the controls it sits inside: a button in a card that opens is part of the card. */
   inside: number[];
-  /** Its sticky or fixed layer, or the open menu it is in, such as a card's ⋯ (D-168) or the board switch's list with its box to find a board (T-127, a .more-menu), which floats over the page by design; null in the page's flow. */
+  /** Its sticky or fixed layer, or the open menu it is in, such as a card's ⋯ (D-168) or the board switch's list with its box to find a board (T-127, a .more-menu), or a Connect modal dropdown's list (T-140, a .cdrop-pop), which floats over the page by design; null in the page's flow. */
   layer: number | null;
 }
 
@@ -240,8 +240,8 @@ export function judgeCards(cards: { what: string; box: Box }[]): string[] {
   return out;
 }
 
-/** The elements that scroll sideways by design: a board's lanes, a wide table, the rail's strip, code. */
-export const SIDEWAYS = ['.board', '.table-wrap', '.rail', '.doc pre', '.table-scroll'];
+/** The elements that scroll sideways by design: a board's lanes, a wide table, the rail's strip, code, and the Connect modal's board (T-140). */
+export const SIDEWAYS = ['.board', '.table-wrap', '.rail', '.doc pre', '.table-scroll', '.cpreview-cols'];
 
 /** A geometry check's finding: what it found and where. */
 export interface Violation { check: Check; what: string; detail: string }
@@ -588,7 +588,7 @@ function collectGeometry(more, then, within) {
     return { c, ellipsis, folded };
   }
   const layers = new Map();
-  const layerOf = (e) => { for (let p = e; p; p = p.parentElement) { const s = style(p).position; if (s === 'sticky' || s === 'fixed' || p.getAttribute('role') === 'menu' || p.classList.contains('more-menu')) { if (!layers.has(p)) layers.set(p, layers.size); return layers.get(p); } } return null; };
+  const layerOf = (e) => { for (let p = e; p; p = p.parentElement) { const s = style(p).position; if (s === 'sticky' || s === 'fixed' || p.getAttribute('role') === 'menu' || p.classList.contains('more-menu') || p.classList.contains('cdrop-pop')) { if (!layers.has(p)) layers.set(p, layers.size); return layers.get(p); } } return null; };
   const visible = (e) => e.checkVisibility({ opacityProperty: true, visibilityProperty: true });
   // A later measure, of another tab's panel (T-134), looks only inside that panel: what's outside it (the
   // notices, the side column, the header, the rail) was measured as drawn, so it's counted once per drawing.
