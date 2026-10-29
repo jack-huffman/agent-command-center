@@ -58,6 +58,8 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['intake', 'intake github', 'intake jira', 'intake azure', 'intake monday', 'intake slack'], name: 'Bring in tickets', command: 'acc.task.intake' },
   { acc: ['status'], name: 'Count the tasks' },
   { acc: ['list'], name: 'List the tasks' },
+  { acc: ['board'], name: 'Read the saved board' },
+  { acc: ['ticket'], name: 'Read a saved ticket' },
   { acc: ['ready'], name: 'List the ready tasks' },
   { acc: ['show'], name: 'Show the task', named: 'Show {arg}', command: 'acc.task.show' },
   { acc: ['set'], name: 'Move the task', named: 'Move {arg}', command: 'acc.task.move' },
