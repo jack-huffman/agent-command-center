@@ -14,7 +14,7 @@ import { countValues, dependentKeys, placeKey, readPlace } from '../../packages/
 import { type Exec, type TrackerClient, TrackerError } from '../../packages/core/src/trackers/types.ts';
 import { TRACKER_NAME_MAX } from '../../packages/core/src/config.ts';
 import { READS_AT_ONCE } from './logic/board-reads.ts';
-import { area as page, BOARD_NAME_FIELD, blankConnect, COUNT_MOST, type ConnectMessage, connectModel, type ConnectModel, type ConnectOption, type ConnectState, connectValues } from './model/connect.ts';
+import { area as page, BOARD_NAME_FIELD, blankConnect, COUNT_MOST, CONNECT_STEPS, type ConnectMessage, type ConnectStep, connectModel, type ConnectModel, type ConnectOption, type ConnectState, connectValues } from './model/connect.ts';
 import { connectChangesField } from './model/changes-field.ts';
 import type { HomeSection } from './model/shared.ts';
 import type { ExtensionArea } from './area.ts';
@@ -90,7 +90,15 @@ export interface ConnectDeps {
   list?: TrackerDescription[];
   /** The board a place would make (T-106): the description's own preview by default; tests give a stand-in. Only its board() is read. */
   preview?: (d: TrackerDescription, ctx: Ctx) => Pick<TrackerClient, 'board'> | string | null;
+  /** How long the preview waits after a choice before it reads the board (T-140): PREVIEW_WAIT by default; tests give their own. */
+  wait?: number;
 }
+
+/**
+ * How long the preview waits after a choice before it reads the board (T-140), in milliseconds: a choice made
+ * within it starts the wait again, so changing several lists quickly reads only the last choices' board.
+ */
+export const PREVIEW_WAIT = 350;
 
 
 export interface OpenOptions {
@@ -121,8 +129,13 @@ export class ConnectSession {
   private readonly deps: ConnectDeps;
   private readonly list: TrackerDescription[];
   /** Board reads waiting their turn (T-106): the preview's goes first, then the cards' counts. */
-  private reads: (() => Promise<void>)[] = [];
+  private reads: { key: string; run: () => Promise<void> }[] = [];
   private reading = 0;
+  /** The preview's wait after a choice (T-140), and the place its read is for, so a newer choice cancels it. */
+  private previewTimer: ReturnType<typeof setTimeout> | null = null;
+  private previewKey: string | null = null;
+  /** Each board read under way, by place (T-140): one cancelled is dropped from here, and its answer with it. */
+  private readonly inflight = new Map<string, object>();
 
   constructor(deps: ConnectDeps) {
     this.deps = deps;
@@ -160,7 +173,8 @@ export class ConnectSession {
       existing: t ? { index: o.index!, title: this.deps.title(t), name: t.name, given: this.deps.given?.(p!.root, o.index!) ?? undefined, ...d.fromConfig(t, p?.config.github?.repo ?? null) } : null,
       add: !!o.add,
     });
-    if (t && o.signIn) this.s.signIn.again = true;
+    // Opened from Sign in (T-140): on its sign-in step, ready to type.
+    if (t && o.signIn) Object.assign(this.s, { step: 'site' }).signIn.again = true;
     // Where a team template says the tracker is (GH-81): its site, and its project, filled in.
     const from = start?.tracker?.kind === d.kind ? start.tracker : null;
     if (from?.host && !this.s.host) this.s.host = d.host.parse(from.host) ?? '';
@@ -179,6 +193,8 @@ export class ConnectSession {
     const was = !!this.s;
     this.epoch++;
     this.reads = [];
+    this.stopWait();
+    this.inflight.clear();
     this.s = null;
     this.signIn = null;
     this.project = null;
@@ -231,6 +247,7 @@ export class ConnectSession {
       case 'connect-pick': return this.pick(m.key, m.value);
       case 'connect-count': return this.count(m.key, m.values);
       case 'connect-preview': return this.readAgain();
+      case 'connect-step': return this.goStep(m.step);
       case 'connect-save': return void this.save();
     }
   }
@@ -324,6 +341,8 @@ export class ConnectSession {
     // Another host's boards are another tracker's (T-106).
     s.boards = {};
     this.reads = [];
+    this.stopWait();
+    this.inflight.clear();
   }
 
   /**
@@ -497,11 +516,55 @@ export class ConnectSession {
     this.bump();
   }
 
-  /** The preview's board (T-106), once the choices make a place the model is waiting to draw: first in line. */
-  private readPreview(): void {
+  /**
+   * Back, Next or a step's dot (T-140): goes to a step only when the model says it can be gone to, so Next
+   * can't pass a sign-in or a board not read yet. Nothing is written: the choices stay as they are.
+   */
+  private goStep(step: ConnectStep): void {
+    const s = this.s!;
+    const m = this.model();
+    if (!m || !CONNECT_STEPS.includes(step) || !m.steps.find((x) => x.id === step)?.can) return;
+    s.step = step;
+    this.bump();
+  }
+
+  private stopWait(): void {
+    if (this.previewTimer) clearTimeout(this.previewTimer);
+    this.previewTimer = null;
+  }
+
+  /**
+   * The preview's board (T-106), once the choices make a place the model is waiting to draw: first in line,
+   * after PREVIEW_WAIT (T-140). A choice within the wait starts it again, and one made while the board of the
+   * choices before it is read cancels that read: its answer is dropped, so the last choices' board is the one shown.
+   */
+  private readPreview(wait = this.deps.wait ?? PREVIEW_WAIT): void {
     const s = this.s;
-    if (!s || this.model()?.preview.state !== 'loading') return;
-    this.readBoard(connectValues(s, this.d), true);
+    if (!s) return;
+    const values = connectValues(s, this.d);
+    const key = placeKey(values);
+    if (this.previewKey && this.previewKey !== key) this.cancel(this.previewKey);
+    this.previewKey = key;
+    this.stopWait();
+    if (this.model()?.preview.state !== 'loading' || s.boards[key]) return;
+    // No wait (Read it again, or a test's): read now, as part of this change.
+    if (!wait) return this.readBoard(values, true);
+    const d = this.d;
+    this.previewTimer = setTimeout(() => {
+      this.previewTimer = null;
+      if (this.s !== s || this.d !== d || placeKey(connectValues(s, d)) !== key) return;
+      this.readBoard(values, true);
+      this.bump();
+    }, wait);
+  }
+
+  /** Cancels a board read (T-140): taken out of the line if it hasn't started, its answer dropped if it has. */
+  private cancel(key: string): void {
+    const s = this.s;
+    if (!s || s.boards[key]?.state !== 'loading') return;
+    this.reads = this.reads.filter((r) => r.key !== key);
+    this.inflight.delete(key);
+    delete s.boards[key];
   }
 
   /** Read it again (T-106): the preview's board failed, and the person asked. */
@@ -510,7 +573,8 @@ export class ConnectSession {
     const key = placeKey(connectValues(s, this.d));
     if (s.boards[key]?.state !== 'failed') return;
     delete s.boards[key];
-    this.readPreview();
+    // Asked for, so read now: there's no choice still being made to wait for.
+    this.readPreview(0);
     this.bump();
   }
 
@@ -553,20 +617,26 @@ export class ConnectSession {
     }
     s.boards[key] = { state: 'loading', board: null, none: null, error: null };
     const epoch = this.epoch;
+    const mine = {};
+    this.inflight.set(key, mine);
+    // Cancelled (T-140): another read of the place, or none, holds its key now, and this answer is dropped.
+    const dropped = () => epoch !== this.epoch || this.s !== s || this.inflight.get(key) !== mine;
     const read = async () => {
       try {
         const r = await readPlace(source);
-        if (epoch !== this.epoch || this.s !== s) return;
+        if (dropped()) return;
+        this.inflight.delete(key);
         s.boards[key] = { state: 'ready', ...r, error: null };
       } catch (e) {
-        if (epoch !== this.epoch || this.s !== s) return;
+        if (dropped()) return;
+        this.inflight.delete(key);
         s.boards[key] = { state: 'failed', board: null, none: null, error: (e as Error).message };
         this.deps.log(`[connect] ${d.name}: couldn't read the board: ${(e as Error).message}`);
       }
       this.bump();
     };
-    if (first) this.reads.unshift(read);
-    else this.reads.push(read);
+    if (first) this.reads.unshift({ key, run: read });
+    else this.reads.push({ key, run: read });
     this.pump();
   }
 
@@ -574,7 +644,7 @@ export class ConnectSession {
     while (this.reading < READS_AT_ONCE && this.reads.length) {
       const read = this.reads.shift()!;
       this.reading++;
-      void read().finally(() => {
+      void read.run().finally(() => {
         this.reading--;
         this.pump();
       });
@@ -668,6 +738,7 @@ export class ConnectSession {
   private choose(key: string, next: string[]): void {
     const s = this.s!;
     s.pickers[key]!.selected = next;
+    s.lastPicked = key;
     for (const k of dependentKeys(this.d.pickers, key)) {
       this.gens[k] = (this.gens[k] ?? 0) + 1;
       s.pickers[k] = { options: [], selected: [], state: 'waiting', error: null };

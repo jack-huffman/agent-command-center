@@ -19,7 +19,8 @@ const SPRINTS = jiraSprintOptions([
 ]);
 
 /** Which Connect page to draw (GH-51). */
-export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'sprint' | 'monday' | 'slack' | 'slack-refused' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github' | 'jira-board' | 'azure-board' | 'github-board' | 'github-access' | 'jira-epics';
+export type ConnectSample = 'start' | 'shared' | 'jira' | 'azure' | 'github' | 'existing' | 'sprint' | 'monday' | 'slack' | 'slack-refused' | 'slack-channel' | 'epic' | 'epic-used' | 'epic-azure' | 'epic-github' | 'jira-board' | 'azure-board' | 'github-board' | 'github-access' | 'jira-epics'
+  | 'azure-tracker' | 'jira-save' | 'azure-save' | 'loading' | 'dropdown';
 
 /** The tickets the sample boards hold (T-106), by title: a board takes as many as each column asks for, in turn. */
 const TITLES = [
@@ -76,18 +77,25 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
   const ok = (who: string): ConnectState['signIn'] => ({ state: 'ok', who, error: null, again: false });
   if (which === 'start') return connectModel(blankConnect(JIRA, { id: 'c-start', ...base }));
+  // The modal's other steps (T-140): Azure DevOps chosen on the first; Save for a new Jira and Azure DevOps board.
+  if (which === 'azure-tracker') return connectModel(blankConnect(AZURE, { id: 'c-azure-tracker', ...base }));
+  if (which === 'jira-save') return connectModel(at(jiraBoards(), 'save'));
+  if (which === 'azure-save') return connectModel(at(azureBoards(), 'save'));
+  // The board read after a choice (T-140): its quiet skeleton; and the epics' list open, searched.
+  if (which === 'loading') return sampleChoosing('reading');
+  if (which === 'dropdown') return connectModel(jiraBoards());
   if (which.startsWith('epic')) return sampleStart(which);
   if (which === 'jira-board' || which === 'azure-board') return sampleBoards(which);
   if (which === 'github-board' || which === 'github-access') return sampleGithub(which);
   // Two epics ticked (T-107), and the board of both.
   if (which === 'jira-epics') return sampleChoosing('epic');
   if (which === 'shared') {
-    const s = blankConnect(JIRA, { id: 'c-shared', ...base });
+    const s = at(blankConnect(JIRA, { id: 'c-shared', ...base }), 'site');
     s.host = 'acme.atlassian.net';
     return connectModel(s);
   }
   if (which === 'jira') {
-    const s = blankConnect(JIRA, { id: 'c-jira', ...base });
+    const s = at(blankConnect(JIRA, { id: 'c-jira', ...base }), 'board');
     s.host = 'acme.atlassian.net';
     s.signIn = { ...ok('Jordan Kim'), shared: true };
     s.pickers.project = ready(PROJECTS, ['ACME']);
@@ -96,7 +104,7 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     return connectModel(s);
   }
   if (which === 'azure') {
-    const s = blankConnect(AZURE, { id: 'c-azure', ...base });
+    const s = at(blankConnect(AZURE, { id: 'c-azure', ...base }), 'site');
     s.host = 'acme';
     s.method = 'pat';
     s.fieldErrors = { token: 'Azure DevOps (acme) didn\'t accept this sign-in. Check the token has Work Items: Read & write, and hasn\'t expired.' };
@@ -104,7 +112,7 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     return connectModel(s);
   }
   if (which === 'github') {
-    const s = blankConnect(GITHUB, { id: 'c-github', ...base });
+    const s = at(blankConnect(GITHUB, { id: 'c-github', ...base }), 'board');
     s.signIn = ok('jordan-kim');
     s.pickers.board = ready(githubProjectOptions('jordan-kim', []), [GITHUB_NO_PROJECT]);
     s.pickers.labels = ready(['billing', 'bug', 'documentation', 'enhancement', 'good first issue', 'invoices', 'milestone', 'question'].map((l) => ({ value: l, label: l })), ['billing', 'invoices']);
@@ -114,13 +122,13 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     return connectModel(s);
   }
   if (which === 'slack') {
-    const s = blankConnect(SLACK, { id: 'c-slack', ...base });
+    const s = at(blankConnect(SLACK, { id: 'c-slack', ...base }), 'site');
     s.host = 'acme';
     return connectModel(s);
   }
   // A user token (xoxp-) typed, and Test connection clicked: the field warns and the sign-in is not signed in (T-45).
   if (which === 'slack-refused') {
-    const s = blankConnect(SLACK, { id: 'c-slack-refused', ...base });
+    const s = at(blankConnect(SLACK, { id: 'c-slack-refused', ...base }), 'site');
     s.host = 'acme';
     s.fields = { token: 'xoxp-1234-5678-notabottoken' };
     s.fieldErrors = { token: SLACK.methods[0]!.fields![0]!.check!(s.fields.token!) ?? '' };
@@ -128,7 +136,7 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     return connectModel(s);
   }
   if (which === 'slack-channel') {
-    const s = blankConnect(SLACK, { id: 'c-slack-channel', ...base });
+    const s = at(blankConnect(SLACK, { id: 'c-slack-channel', ...base }), 'board');
     s.host = 'acme';
     s.signIn = { ...ok('Acme Command Center'), shared: true };
     s.pickers.channel = ready([
@@ -142,7 +150,7 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
     return connectModel(s);
   }
   if (which === 'monday') {
-    const s = blankConnect(MONDAY, { id: 'c-monday', ...base });
+    const s = at(blankConnect(MONDAY, { id: 'c-monday', ...base }), 'site');
     s.host = 'acme';
     s.signIn = { ...ok('Jordan Kim'), again: true, shared: false };
     s.share = false;
@@ -168,6 +176,11 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
   s.pickers.epics = ready([{ value: 'ACME-31', label: 'ACME-31', detail: 'Renewals' }, { value: 'ACME-30', label: 'ACME-30', detail: 'Partner portal' }], ['ACME-3']);
   s.pickers.board = ready(BOARDS, ['7']);
   s.pickers.sprint = ready(SPRINTS);
+  // On Save (T-140): ACME-31 in place of ACME-3, with the board before and after it, each counted.
+  s.boards[placeKey(connectValues(s, JIRA))] = read(sampleBoard('jira', 'ACME Service board', [['To Do', 'todo', 2], ['In Progress', 'doing', 1], ['Done', 'done', 4]]));
+  s.pickers.epics.selected = ['ACME-31'];
+  s.boards[placeKey(connectValues(s, JIRA))] = read(sampleBoard('jira', 'ACME Service board', [['To Do', 'todo', 3], ['In Progress', 'doing', 2], ['In Review', 'doing', 1], ['Done', 'done', 5]]));
+  s.step = 'save';
   // Its changes field (T-105): one row after its place, the field its settings name.
   return { ...connectModel(s), changesField: connectChangesField(s, [{ kind: 'jira', changesField: { id: 'customfield_10042', name: 'Deployment Notes', format: 'adf' } }], true) };
 }
@@ -181,8 +194,15 @@ export function sampleConnect(which: ConnectSample): ConnectModel {
  */
 function sampleBoards(which: 'jira-board' | 'azure-board'): ConnectModel {
   const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
-  if (which === 'azure-board') {
-    const s = blankConnect(AZURE, { id: 'c-azure-board', ...base });
+  if (which === 'azure-board') return connectModel(azureBoards());
+  return connectModel(jiraBoards());
+}
+
+/** Azure DevOps on its board step (T-106, T-140): CRM's team, board and area path chosen, each list counted, and the board. */
+function azureBoards(): ConnectState {
+  const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
+  {
+    const s = at(blankConnect(AZURE, { id: 'c-azure-board', ...base }), 'board');
     s.host = 'acme';
     s.signIn = { state: 'ok', who: 'Jordan Kim', error: null, again: false, shared: true };
     s.pickers.project = ready([{ value: 'CRM', label: 'CRM' }], ['CRM']);
@@ -194,9 +214,14 @@ function sampleBoards(which: 'jira-board' | 'azure-board'): ConnectModel {
     counted(s, AZURE, 'board', { Epics: read(azure([2, 1, 0, 1])) });
     counted(s, AZURE, 'areaPath', { '': read(azure([9, 6, 3, 14])), 'CRM\\Billing': read(azure([5, 3, 2, 8])), 'CRM\\Billing\\Renewals': read(azure([2, 1, 1, 3])), 'CRM\\Sales': read(azure([4, 3, 1, 6])) });
     s.boards[placeKey(connectValues(s, AZURE))] = read(azure([5, 3, 2, 8]));
-    return connectModel(s);
+    return s;
   }
-  return connectModel(jiraBoards());
+}
+
+/** A page on a step of the modal (T-140), as Next or Back leaves it. */
+function at(s: ConnectState, step: ConnectState['step']): ConnectState {
+  s.step = step;
+  return s;
 }
 
 /**
@@ -215,7 +240,7 @@ export function sampleChoosing(step: 'reading' | 'shown' | 'epic'): ConnectModel
 
 function jiraBoards(): ConnectState {
   const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
-  const s = blankConnect(JIRA, { id: 'c-jira-board', ...base });
+  const s = at(blankConnect(JIRA, { id: 'c-jira-board', ...base }), 'board');
   s.host = 'acme.atlassian.net';
   s.signIn = { state: 'ok', who: 'Jordan Kim', error: null, again: false, shared: true };
   s.pickers.project = ready(PROJECTS, ['ACME']);
@@ -248,7 +273,7 @@ export const GITHUB_PROJECTS: GithubProject[] = [
  */
 function sampleGithub(which: 'github-board' | 'github-access'): ConnectModel {
   const base = { root: ROOT, projectName: 'Acme Service', ownRepo: 'acme/service', ghAccount: 'jordan-kim', from: 'tasks' as const, gitEmail: 'jordan.kim@example.com' };
-  const s = blankConnect(GITHUB, { id: `c-${which}`, ...base });
+  const s = at(blankConnect(GITHUB, { id: `c-${which}`, ...base }), 'board');
   s.host = 'acme/service';
   s.signIn = { state: 'ok', who: 'jordan-kim', error: null, again: false };
   const access = which === 'github-access';
@@ -266,7 +291,7 @@ function sampleGithub(which: 'github-board' | 'github-access'): ConnectModel {
 function sampleStart(which: ConnectSample): ConnectModel {
   const base = { root: '/Users/me/code/acme-renewals', projectName: 'acme-renewals', ownRepo: 'acme/renewals', ghAccount: 'jordan-kim', from: 'setup' as const, gitEmail: 'jordan.kim@example.com', start: true };
   if (which === 'epic-azure') {
-    const s = blankConnect(AZURE, { id: 'c-epic-azure', ...base });
+    const s = at(blankConnect(AZURE, { id: 'c-epic-azure', ...base }), 'board');
     s.host = 'acme';
     s.signIn = { state: 'ok', who: 'Jordan Kim', error: null, again: false, shared: true };
     s.pickers.project = ready([{ value: 'CRM', label: 'CRM' }], ['CRM']);
@@ -280,13 +305,13 @@ function sampleStart(which: ConnectSample): ConnectModel {
     return connectModel(s);
   }
   if (which === 'epic-github') {
-    const s = blankConnect(GITHUB, { id: 'c-epic-github', ...base });
+    const s = at(blankConnect(GITHUB, { id: 'c-epic-github', ...base }), 'board');
     s.signIn = { state: 'ok', who: 'jordan-kim', error: null, again: false };
     s.pickers.board = ready(githubProjectOptions('jordan-kim', []), [GITHUB_NO_PROJECT]);
     s.pickers.labels = ready(['billing', 'bug', 'documentation', 'enhancement', 'invoices', 'renewals'].map((l) => ({ value: l, label: l, ...(l === 'billing' ? { usedBy: 'used by acme-billing' } : {}) })), ['billing', 'renewals']);
     return connectModel(s);
   }
-  const s = blankConnect(JIRA, { id: `c-${which}`, ...base });
+  const s = at(blankConnect(JIRA, { id: `c-${which}`, ...base }), 'board');
   s.host = 'acme.atlassian.net';
   s.signIn = { state: 'ok', who: 'Jordan Kim', error: null, again: false, shared: true };
   s.pickers.project = ready(PROJECTS, ['ACME']);

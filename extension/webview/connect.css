@@ -1,15 +1,29 @@
-/* ---------------------------------------------------------------- the Connect page (GH-51) */
+/* ---------------------------------------------------------------- adding or changing a board (GH-51, T-140) */
 
-/* One tracker's site, sign-in, place and board. A label beside each field, and what's wrong with it right
+/* The modal: the task modal's surface, its title and Cancel in the bar, the step on show scrolling under them,
+   and the foot always in view at its bottom. */
+.connect-modal { width: min(1180px, calc(100vw - 48px)); }
+.connect-modal .task-modal-bar { justify-content: space-between; }
+.connect-title { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 0; font-size: 1.15em; overflow-wrap: anywhere; }
+.connect-title .codicon { flex: none; font-size: 18px; }
+.connect-modal-foot { flex: none; padding: 10px 24px; border-top: 1px solid var(--edge); }
+
+/* The step bar: each step's number and title, with an icon for where it stands. */
+.cstep-bar { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 0 0 14px; padding: 0; list-style: none; }
+.cstep { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--radius-full); background: transparent; color: var(--vscode-foreground); font: inherit; cursor: pointer; }
+.cstep:hover:not(:disabled) { background: var(--vscode-toolbar-hoverBackground); }
+.cstep:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.cstep.current { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; cursor: default; }
+.cstep:disabled { color: var(--vscode-descriptionForeground); cursor: default; }
+.cstep:active:not(:disabled) { background-image: linear-gradient(var(--pressed), var(--pressed)); transition: none; }
+
+/* One tracker's site, sign-in, lists and Save. A label beside each field, and what's wrong with it right
    under it: orange with a warning icon and words, never colour alone. Labels go above below 620 px. */
-.connect { max-width: 1180px; }
-.connect h1 { display: flex; align-items: center; gap: 8px; }
-.connect h1 .codicon { font-size: 20px; }
+.connect h2 { display: flex; align-items: center; gap: 8px; outline: none; }
 .connect-choose { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
 .connect-choose .segmented { flex-wrap: wrap; max-width: 100%; }
-.connect-step { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 12px 14px 4px; margin: 0 0 14px; }
-.connect-step h2 { margin-bottom: 10px; }
-.step-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; font-size: 0.85em; background: var(--accent-soft); color: var(--accent); }
+.connect-step { margin: 0; }
+.connect-step h2 { margin-bottom: 12px; }
 .connect-hint { margin: 0 0 10px; }
 .cfield { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 14px; align-items: start; margin: 0 0 12px; }
 .cfield-label { padding-top: 4px; font-weight: 600; }
@@ -34,15 +48,30 @@
 .connect-test .cfield-status { flex: 1 1 200px; padding-top: 3px; }
 .connect-test .status { white-space: normal; padding-top: 3px; }
 
-/* A choice another repo on this machine uses (GH-81): an icon and words in the tick, wrapping under its
-   label at 500 px rather than widening it. */
-.tick .used-by { display: inline-flex; align-items: center; gap: 3px; font-size: 0.9em; flex-wrap: wrap; }
-.tick .used-by .codicon { font-size: 13px; }
-.connect-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
-.connect-foot .status { white-space: normal; }
+/* The board step: the lists as dropdowns across the top, each with its label over it and its words under it. */
+.cpick-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px 12px; align-items: start; }
+.cpick { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cdrop-label { font-weight: 600; }
+
+/* The Save step: before and after, then what's kept, a row a choice, each change marked with an icon and a word. */
+.csave-change { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 14px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius); }
+.csave-count { display: inline-flex; align-items: center; gap: 6px; }
+.csave-list { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 6px 14px; margin: 0 0 16px; }
+.csave-list dt { font-weight: 600; }
+.csave-list dd { display: flex; align-items: flex-start; gap: 4px 10px; flex-wrap: wrap; margin: 0; overflow-wrap: anywhere; }
+.csave-mark { display: inline-flex; align-items: center; gap: 4px; font-size: 0.92em; }
+
+/* The foot: Back and Remove on the left, why Next or Save is off, then Cancel and Next or Save on the right. */
+.connect-foot { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
+.connect-foot-why { flex: 1 1 180px; min-width: 0; }
+.connect-foot-why .status { white-space: normal; }
+@media (max-width: 760px) {
+  .connect-modal { width: calc(100vw - 24px); }
+  .connect-modal-foot { padding: 8px 14px; }
+}
 @media (max-width: 620px) {
-  .cfield { grid-template-columns: minmax(0, 1fr); }
+  .cfield, .csave-list { grid-template-columns: minmax(0, 1fr); }
   .cfield-label { padding-top: 0; }
   .connect-share { margin-left: 0; }
-  .connect-step { padding: 10px 10px 2px; }
+  .cpick-row { grid-template-columns: minmax(0, 1fr); }
 }

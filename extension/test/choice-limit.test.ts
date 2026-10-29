@@ -25,13 +25,15 @@ const RADIO_MODULES: Record<string, string> = {
   'talk-questions.ts': 'the planning agent\'s questions: the model slices to OPTIONS_MAX, the card slices again by optionsMax, and own words are always last',
   'stepper.ts': 'the radios Review plan and the question card share: the cap is theirs, and each caller\'s test below draws it',
   'review-plan.ts': 'Review plan\'s steps: reviewSteps cuts a choice\'s options to OPTIONS_MAX, then Something else…; a question has its suggestion and own words',
-  'choose-board.ts': 'exempt: the Connect page\'s boards, teams and epics are things to pick from, not questions',
+  'palette.ts': 'navigation, not a question: the command palette\'s listbox is what typing found, to go to or run',
+  'dropdown.ts': 'exempt: the Connect modal\'s lists (T-140) are things to pick from (projects, boards, teams, epics), not questions; each is one dropdown, a listbox, with a box to find a choice in a long list',
   'dispatch-sheet.ts': 'exempt: the dispatch sheet\'s model, effort and place are settings, each a short fixed list',
   'person-menu.ts': 'exempt: the person filter is a menu of the people on the project, not a question',
   'board-switch.ts': 'navigation, not a question (T-127): up to SEGMENTED_MOST boards are a row of buttons beside My work, with no radio group; past it, one menu of the boards to find and pick from, as the person filter is a menu of people. board-switch.test.ts pins both',
 };
 
-const RADIO = /radiogroup|'radio'|"radio"|menuitemradio/;
+// A dropdown's list (T-140) is a single choice too, so a listbox of options counts as a radio group here.
+const RADIO = /radiogroup|'radio'|"radio"|menuitemradio|'listbox'/;
 
 test('every webview module that draws a radio group says how it keeps to three options and your own words', () => {
   const drawing = readdirSync(WEBVIEW).filter((f) => f.endsWith('.ts') && RADIO.test(readFileSync(join(WEBVIEW, f), 'utf8'))).sort();

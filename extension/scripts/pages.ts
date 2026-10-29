@@ -270,6 +270,12 @@ export const PAGES = [
   'connect-jira-epics',
   'connect-jira-queues',
   'connect-jira-queues-refused',
+  // The Connect modal's steps (T-140): Azure DevOps chosen, Save for a new Jira and Azure DevOps board, the board read, and a list open
+  'connect-azure-tracker',
+  'connect-jira-save',
+  'connect-azure-save',
+  'connect-loading',
+  'connect-dropdown',
   // Settings, with Notices in Slack at each state
   'slack-none',
   'slack-off',

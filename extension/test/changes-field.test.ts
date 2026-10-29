@@ -316,7 +316,9 @@ test('drawn: the read-back, and the draft update\'s box with the kept lines, who
   assert.match((changesFieldConnect(changesFieldRow('jira', NOTES, arg, 'Jira')) as unknown as PageElement).textContent, /Where to keep a ticket's changes.*Deployment Notes/);
 });
 
-test('the Connect shot of a saved tracker is tall enough to draw its changes row below the epics list (T-107)', async () => {
-  const { PAGE_HEIGHT } = await import('../scripts/screenshot.ts');
-  assert.ok((PAGE_HEIGHT['connect-existing'] ?? 0) >= 2600);
+test('edge case: the Connect shot of a saved tracker draws its changes row on the Save step, where the modal holds no board above it (T-107, T-140)', async () => {
+  const { sampleConnect } = await import('../scripts/fixtures/connect.ts');
+  const m = sampleConnect('existing');
+  assert.equal(m.step, 'save');
+  assert.ok(m.changesField, 'its changes row is drawn there');
 });

@@ -64,6 +64,8 @@ function harness(o: { boards?: (values: Ctx['values']) => Board; held?: boolean 
     }),
   });
   const deps: ConnectDeps = {
+    // No wait after a choice (T-140): the debounce has its own tests in connect-modal.test.ts.
+    wait: 0,
     projects: () => [{ name: 'Acme Service', root: ROOT, config: { github: { repo: 'acme/service', account: 'jordan-kim' } }, ledgerPath: `${ROOT}/.git/acc/ledger.json` }],
     trackers: () => [],
     title: (t) => `${t.kind} · ${t.project}`,
@@ -169,7 +171,7 @@ test('the preview\'s model draws the board the choices make: its columns, their 
   assert.equal(p.look.label, '11 tickets would be on your board, in 4 columns.');
   assert.deepEqual(p.board?.columns.map((c) => c.name), ['To Do', 'In Progress', 'In Review', 'Done']);
   assert.deepEqual(p.totals, [3, 2, 1, 5]);
-  assert.deepEqual(p.board?.columns.map((c) => c.cards.length), [3, 2, 1, 3], 'each column shows its first three cards');
+  assert.deepEqual(p.board?.columns.map((c) => c.cards.length), [3, 2, 1, 5], 'each column shows its first PREVIEW_CARDS (6) cards: Done\'s five all show');
   assert.deepEqual(p.board?.columns[0]!.cards.map((c) => c.key), ['ACME-40', 'ACME-41', 'ACME-42']);
   assert.ok(p.board?.columns.every((c) => c.cards.every((x) => x.track === null && x.acc === null)), 'nothing to add to your work in a preview');
   assert.equal(p.board?.moves, false, 'nothing moves in a preview');
@@ -194,14 +196,14 @@ test('GitHub\'s Project cards (T-107): Issues, open and closed, then each Projec
   assert.doesNotMatch(card[0]!.detail ?? '', /gh auth/, 'no command line on the page (D-132)');
   assert.deepEqual([picker(access, 'board').look, access.preview.board?.columns.map((c) => c.name), access.save.can], [null, ['Open', 'Closed'], true]);
   assert.deepEqual(GITHUB_PROJECTS.map((p) => p.number), [5, 3, 2, 1]);
-  // Edge: at 900 px the second ticked epic and the Project cards fall below the fold: their shots are taller.
-  assert.ok(['connect-jira-epics', 'connect-github-board', 'connect-github-access'].every((p) => (PAGE_HEIGHT[p as keyof typeof PAGE_HEIGHT] ?? 0) > 1600));
+  // Edge: in the modal (T-140) its body scrolls, so the board's shots need no taller page.
+  assert.ok(['connect-jira-epics', 'connect-github-board', 'connect-github-access'].every((p) => PAGE_HEIGHT[p as keyof typeof PAGE_HEIGHT] === undefined));
 });
 
 test('an empty place says so, with what to change; a Slack channel with no reaction has no board, and can still be used', () => {
   const m = sampleConnect('github');
   assert.equal(m.preview.look.label, '0 tickets would be on your board, in 2 columns.');
-  assert.equal(m.preview.empty, 'No tickets would be on your board. Choose another project or labels, or every issue in acme/service.');
+  assert.equal(m.preview.empty, 'No tickets would be on your board. Widen the labels: choose every issue in acme/service, or tick more.', 'it names the choice to widen (T-140)');
   assert.equal(m.save.can, true, 'an empty place can be kept: a new epic has no tickets yet');
   const s = signedIn(SLACK, 'acme');
   s.pickers.channel = ready([{ value: 'C0SUPPORT1', label: '#premium-support' }], ['C0SUPPORT1']);
@@ -215,8 +217,8 @@ test('an empty place says so, with what to change; a Slack channel with no react
 test('before the choices make a place the preview waits and says what\'s left; reading, and failed, Use this board is off with why', () => {
   const start = sampleConnect('start');
   assert.deepEqual([start.preview.state, start.preview.look.label, start.save.can], ['waiting', 'Sign in and choose a project, and the board shows here.', false]);
-  const existing = sampleConnect('existing');
-  assert.deepEqual([existing.preview.state, existing.save.can, existing.save.why?.label], ['loading', false, 'Wait for the board to show first.'], 'the state before the first result arrives');
+  const loading = sampleConnect('loading');
+  assert.deepEqual([loading.preview.state, loading.save.can, loading.save.why?.label], ['loading', false, 'Wait for the board to show first.'], 'the state before the first result arrives');
   const sprint = sampleConnect('sprint');
   assert.deepEqual([sprint.preview.state, sprint.preview.retry, sprint.save.can], ['failed', true, false]);
   assert.match(sprint.preview.look.label, /^Couldn't read the board: Jira answered HTTP 503/);
@@ -336,15 +338,13 @@ test('a new site forgets the boards read for the last one, and a page closed whi
   assert.equal(h.session.model(), null);
 });
 
-test('the page draws every list that isn\'t fixed with pickerCards, and Use this board only inside previewPanel; a fixed one stays a locked line', () => {
+test('the modal draws every list that isn\'t fixed with pickerDropdown, and the board under them with previewPanel; a fixed one stays a locked line (T-140)', () => {
   const page = readFileSync(join(import.meta.dirname, '..', 'webview', 'connect.ts'), 'utf8');
-  const cards = readFileSync(join(import.meta.dirname, '..', 'webview', 'choose-board.ts'), 'utf8');
-  assert.equal(page.match(/pickerCards\(m, p\)/g)?.length, 1, 'one way to draw a list');
-  assert.ok(!page.includes("document.createElement('select')"), 'no list is a select any more');
-  assert.match(page, /previewPanel\(m, foot\)/, 'the foot with Use this board is drawn inside the preview');
-  assert.match(cards, /export function previewPanel\(m: ConnectModel, foot: HTMLElement\)/);
-  // Edge: an existing tracker's project is fixed, drawn as a locked line before any card.
-  assert.ok(page.indexOf('if (p.fixed)') < page.indexOf('pickerCards(m, p)'));
+  assert.equal(page.match(/pickerDropdown\(m, p, id\)/g)?.length, 1, 'one way to draw a list');
+  assert.ok(!page.includes("document.createElement('select')"), 'no list is a select');
+  assert.equal(page.match(/previewPanel\(m\)/g)?.length, 1, 'the board is drawn once, on the board step');
+  // Edge: an existing tracker's project is fixed, drawn as a locked line, not a dropdown.
+  assert.match(page, /p\.fixed \? el\('span', 'cfield-fixed', icon\('lock'\)/);
 });
 
 test('every tracker gets the preview from its own description, and the same cards: no tracker is drawn apart', () => {

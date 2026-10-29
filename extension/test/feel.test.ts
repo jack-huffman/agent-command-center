@@ -142,7 +142,8 @@ test('no font-size in the page\'s styles is in px, but the icons PX_FONTS names,
   const stray = all.filter(({ s }) => !PX_FONTS.some((x) => x.selector.test(s))).map(({ f, s }) => `${f}: ${s}`);
   assert.deepEqual(stray, [], 'each of these sets a font-size in px: use em, at the same size for VSCode\'s 13 px');
   // How far each exception reaches: an icon's rules, and the one agent kind.
-  assert.deepEqual(PX_FONTS.map((x) => all.filter(({ s }) => x.selector.test(s)).length), [15, 1]);
+  // 14 icons since the Connect page's cards and their 13 px warning icon went (T-140).
+  assert.deepEqual(PX_FONTS.map((x) => all.filter(({ s }) => x.selector.test(s)).length), [14, 1]);
   for (const x of PX_FONTS) assert.ok(x.why.length > 20, `${x.selector} says why`);
 });
 
@@ -211,6 +212,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'review-plan.ts', at: /button\('Review plan'/, why: 'Review plan, the plan section\'s main button while something is left to review or the plan isn\'t approved (T-109).' },
   { file: 'connect.ts', at: /m\.method\.test/, why: 'Test, until the sign-in passes: the dialog can\'t go on without it.' },
   { file: 'connect.ts', at: /m\.save\.label/, why: 'Save: the dialog\'s last step, which the person opened it to take.' },
+  { file: 'connect.ts', at: /button\('Next', 'arrow-right'/, why: 'Next, on every step of the Connect modal but Save (T-140): how the person goes on, so it is the step\'s one strong button.' },
   { file: 'detail.ts', at: /a\.extra\.arg, true\)/, why: 'A Needs you step: the fix for a tracker that is not signed in.' },
   { file: 'dock-review.ts', at: /'btn primary dr-next'/, why: 'A finished review\'s next step: Land a pass, or send changes back to the builder, the one thing the person does next (T-63).' },
   { file: 'run-view.ts', at: /'btn primary dock-next'/, why: 'An ended run\'s next step on its result card: Run again, or Open the step, the one thing the person does next (T-64).' },
