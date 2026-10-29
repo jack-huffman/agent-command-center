@@ -221,3 +221,18 @@ test('Connect: queues ticked make one tracker each with no board, epics or sprin
   assert.deepEqual([queuesPicker.multi, queuesPicker.hideEmpty, queuesPicker.dependsOn], [true, true, ['project']]);
   assert.deepEqual(JIRA.pickers.filter((p) => p.unless === 'queues').map((p) => p.key), ['epics', 'board', 'sprint']);
 });
+
+test('edge case: a queue\'s cards say when each last changed, from the one search read, and one without leaves it out (T-141)', async () => {
+  const open = st('1', 'Open', 'new');
+  const { fetch: f, calls } = fakeJira({
+    'GET /rest/api/3/project/SUP': DESK,
+    [`GET ${QUEUES}`]: queueAnswer([UNASSIGNED]),
+    'GET /rest/servicedeskapi/servicedesk/projectKey:SUP': { projectName: 'Acme Support' },
+    'GET /rest/api/3/search/jql': { issues: [{ ...issue('SUP-9', open), fields: { ...issue('SUP-9', open).fields, updated: '2026-10-28T08:00:00.000+0000' } }, issue('SUP-8', open)], isLast: true },
+  });
+  const b = await client(f).board();
+  assert.deepEqual(b.cards.map((c) => [c.key, c.updated]), [['SUP-9', '2026-10-28T08:00:00.000+0000'], ['SUP-8', undefined]]);
+  const search = calls.filter((c) => c.path.startsWith('/rest/api/3/search/jql'));
+  assert.equal(search.length, 1);
+  assert.match(new URL(`https://x${search[0]!.path}`).searchParams.get('fields') ?? '', /\bupdated\b/);
+});

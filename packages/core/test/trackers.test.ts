@@ -5,6 +5,7 @@ import { type AdfNode, fromAdf, fromMarkdown, plainText, safeHref, toAdf } from 
 import { categoryOf, GithubClient } from '../src/trackers/github.ts';
 import { jiraSprintOptions } from '../src/trackers/connect.ts';
 import { JiraClient, jiraSprints, NO_ACTIVE_SPRINT } from '../src/trackers/jira.ts';
+import { changedOf } from '../src/trackers/normal.ts';
 import { FIELD_LACKS, movesInto, TRACKER_FIELDS, TrackerError, trackerHasField } from '../src/trackers/types.ts';
 
 test('trackerHasField: a tracker without fields has all three; one with a list has only those (T-28)', () => {
@@ -898,4 +899,67 @@ test('Jira lists a board\'s open and future sprints for Connect, and a kanban bo
   const kanban = fakeJira({ 'GET /rest/agile/1.0/board?projectKeyOrId=MSP': { values: [{ id: 9, name: 'Kanban', type: 'kanban' }] } }, { 'GET /rest/agile/1.0/board/9/sprint': 400 });
   assert.equal(await jiraSprints('acme.atlassian.net', 'MSP', null, 'e', 't', kanban.fetch), null, 'no board picked: the project\'s first, which refuses sprints');
   assert.deepEqual(jiraSprintOptions(null), [], 'so only the whole board is offered');
+});
+
+// ---------------------------------------------------------------- when each card last changed (T-141)
+
+test('edge case: each tracker\'s card list gives when a card last changed, in the one list read, and a card with none leaves it out', async () => {
+  // Jira's board.
+  const jira = fakeJira({
+    'GET /rest/agile/1.0/board?projectKeyOrId=MSP': { values: [{ id: 42, name: 'MSP board', type: 'kanban' }] },
+    'GET /rest/agile/1.0/board/42/configuration': { name: 'MSP board', columnConfig: { columns: [{ name: 'To Do', statuses: [{ id: '1' }] }] } },
+    'GET /rest/api/3/project/MSP/statuses': [{ statuses: [jiraStatus('1', 'To Do', 'new')] }],
+    'GET /rest/agile/1.0/board/42/issue?jql=': { total: 2, issues: [
+      { key: 'MSP-1', fields: { summary: 'A', status: jiraStatus('1', 'To Do', 'new'), assignee: null, project: { key: 'MSP' }, updated: '2026-10-28T09:00:00.000+0000' } },
+      { key: 'MSP-2', fields: { summary: 'B', status: jiraStatus('1', 'To Do', 'new'), assignee: null, project: { key: 'MSP' }, updated: '' } },
+    ] },
+  });
+  const jb = await new JiraClient({ site: 'acme.atlassian.net', project: 'MSP', email: 'e', token: 't', fetch: jira.fetch }).board();
+  assert.deepEqual(jb.cards.map((c) => c.updated), ['2026-10-28T09:00:00.000+0000', undefined], 'an empty time is left out, never saved as an empty string');
+  assert.ok('updated' in jb.cards[0]! && !('updated' in jb.cards[1]!));
+  const cardsRead = jira.calls.filter((c) => c.path.includes('/issue?'));
+  assert.equal(cardsRead.length, 1, 'one list read');
+  assert.match(new URL(`https://x${cardsRead[0]!.path}`).searchParams.get('fields') ?? '', /\bupdated\b/, 'the list read asks for it');
+  assert.equal(jira.calls.filter((c) => /\/rest\/api\/3\/issue\//.test(c.path)).length, 0, 'no ticket is read in full');
+
+  // GitHub, without a Project and with one.
+  const plain = fakeGh([
+    ['api graphql -f query=query($owner', projectsAnswer([])],
+    ['issue list -R o/r --state open', JSON.stringify([issue(1, 'OPEN', { updatedAt: '2026-10-27T10:00:00Z' }), issue(2, 'OPEN')])],
+    ['issue list -R o/r --state closed', '[]'],
+  ], 'prefix');
+  const gb = await new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec: plain.exec }).board();
+  assert.deepEqual(gb.cards.map((c) => c.updated), ['2026-10-27T10:00:00Z', undefined]);
+  assert.ok(plain.calls.filter((c) => c.args.startsWith('issue list')).every((c) => c.args.includes('updatedAt')), 'the list asks for it');
+  assert.ok(!plain.calls.some((c) => c.args.startsWith('issue view')), 'no issue is read in full');
+  const project = { id: 'PVT_1', number: 3, title: 'Roadmap', url: 'https://github.com/users/o/projects/3', closed: false, field: { id: 'F_1', options: [{ id: 'o1', name: 'Todo' }] } };
+  const items = { data: { node: { items: { pageInfo: { hasNextPage: false, endCursor: 'x' }, nodes: [
+    { id: 'I_1', fieldValueByName: { optionId: 'o1', name: 'Todo' }, content: { __typename: 'Issue', repository: { nameWithOwner: 'o/r' }, ...issue(5, 'OPEN', { updatedAt: '2026-10-26T08:00:00Z' }), assignees: { nodes: [] }, labels: { nodes: [] } } },
+  ] } } } };
+  const projectGh = fakeGh([
+    ['api graphql -f query=query($owner: String!, $name: String!) {\n  repository(owner: $owner, name: $name) {\n    projectsV2', projectsAnswer([project])],
+    ['api graphql -f query=query($id', JSON.stringify(items)],
+  ], 'prefix');
+  const pb = await new GithubClient({ repo: 'o/r', token: 't', account: 'me', exec: projectGh.exec }).board();
+  assert.deepEqual(pb.cards.map((c) => c.updated), ['2026-10-26T08:00:00Z']);
+  assert.match(projectGh.calls.find((c) => c.args.includes('query($id'))!.args, /updatedAt/);
+
+  // Azure DevOps.
+  const { AzureClient } = await import('../src/trackers/azure.ts');
+  const az = fakeAzure(boardRoutes([
+    { id: 101, fields: { 'System.Title': 'A', 'System.State': 'New', 'System.WorkItemType': 'Bug', 'System.ChangedDate': '2026-10-25T07:00:00.000Z' } },
+    { id: 102, fields: { 'System.Title': 'B', 'System.State': 'New', 'System.WorkItemType': 'Bug' } },
+  ]));
+  const ab = await new AzureClient({ organization: 'acme', project: 'CRM', auth: async () => 'Bearer tok', fetch: az.fetch }).board();
+  assert.deepEqual(ab.cards.map((c) => c.updated), ['2026-10-25T07:00:00.000Z', undefined]);
+  assert.ok((az.calls.find((c) => c.path.includes('workitemsbatch'))!.body as { fields: string[] }).fields.includes('System.ChangedDate'), 'the batch read asks for it');
+
+  // monday.com.
+  const { MondayClient } = await import('../src/trackers/monday.ts');
+  const mon = fakeMonday(monBoardRoutes([{ cursor: null, items: [{ ...card('101', 'A', 0), updated_at: '2026-10-24T06:00:00Z' }, card('102', 'B', 0)] }]));
+  const mb = await new MondayClient({ account: 'acme', board: 111, token: 'tok', fetch: mon.fetch }).board();
+  assert.deepEqual(mb.cards.map((c) => c.updated), ['2026-10-24T06:00:00Z', undefined]);
+  assert.match(mon.calls.find((c) => /items_page\(limit/.test(c.query))!.query, /updated_at/);
+
+  assert.deepEqual([changedOf(' 2026-10-28 '), changedOf(''), changedOf(null), changedOf(5)], [{ updated: '2026-10-28' }, {}, {}, {}], 'only a time that says something is kept');
 });

@@ -5,7 +5,7 @@
 import { type AdfNode, adfUnkept, fromAdf, fromMarkdown, toAdf, toMarkdown, unkeptRefusal } from './doc.ts';
 import { fieldMarkdown, fieldValue } from './fields.ts';
 import { isServiceDesk, type JiraQueue, jiraQueues, type JiraReq, queuesJql, queueWords, serviceDeskName, splitJql, statusColumns } from './jira-queue.ts';
-import { isEmail, typeKindOf } from './normal.ts';
+import { changedOf, isEmail, typeKindOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, epicWords, inBatches, type Label, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Sprint,
   type Status, type StatusCategory, type TextField, type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
@@ -42,7 +42,7 @@ interface JiraStatus { id: string; name: string; statusCategory?: { key?: string
 interface JiraUser { accountId: string; displayName?: string; emailAddress?: string }
 /** What says where an issue sits: its project, its parent, and whether it's a sub-task. */
 interface Placed { key: string; fields: { project?: { key: string }; parent?: { key: string }; issuetype?: { subtask?: boolean } } }
-type BoardIssue = { key: string; fields: Placed['fields'] & { summary: string; status: JiraStatus; assignee: JiraUser | null; issuetype?: { name: string; subtask?: boolean }; priority?: { name: string } | null; labels?: string[] } };
+type BoardIssue = { key: string; fields: Placed['fields'] & { summary: string; status: JiraStatus; assignee: JiraUser | null; issuetype?: { name: string; subtask?: boolean }; priority?: { name: string } | null; labels?: string[]; updated?: string } };
 
 const ISSUE_KEY = /^[A-Z][A-Z0-9_]*-\d+$/;
 /** The most cards a board shows. */
@@ -329,7 +329,7 @@ export class JiraClient implements TrackerClient {
     const out: BoardIssue[] = [];
     let token: string | null = null;
     while (out.length < max) {
-      const page: { issues: BoardIssue[]; nextPageToken?: string; isLast?: boolean } = await this.req('GET', `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=${Math.min(100, max - out.length)}&fields=summary,status,assignee,issuetype,priority,labels,project,parent${token ? `&nextPageToken=${encodeURIComponent(token)}` : ''}`);
+      const page: { issues: BoardIssue[]; nextPageToken?: string; isLast?: boolean } = await this.req('GET', `/rest/api/3/search/jql?jql=${encodeURIComponent(jql)}&maxResults=${Math.min(100, max - out.length)}&fields=summary,status,assignee,issuetype,priority,labels,project,parent,updated${token ? `&nextPageToken=${encodeURIComponent(token)}` : ''}`);
       out.push(...page.issues);
       if (page.isLast !== false || !page.nextPageToken || !page.issues.length) break;
       token = page.nextPageToken;
@@ -342,7 +342,7 @@ export class JiraClient implements TrackerClient {
     return {
       key: i.key, title: i.fields.summary, url: `${this.base}/browse/${i.key}`, status: status(i.fields.status),
       type: i.fields.issuetype?.name ?? null, typeKind: typeKindOf(i.fields.issuetype?.name, !!i.fields.issuetype?.subtask), typeColor: null, assignees: i.fields.assignee ? [person(i.fields.assignee)] : [],
-      labels: (i.fields.labels ?? []).map((name): Label => ({ name, color: null })), ...priorityOf(i.fields.priority),
+      labels: (i.fields.labels ?? []).map((name): Label => ({ name, color: null })), ...priorityOf(i.fields.priority), ...changedOf(i.fields.updated),
     };
   }
 
@@ -350,7 +350,7 @@ export class JiraClient implements TrackerClient {
   private async boardIssues(id: number, jql: string, max: number): Promise<BoardIssue[]> {
     const out: BoardIssue[] = [];
     for (let startAt = 0; startAt < max; startAt += 100) {
-      const page = await this.req<{ issues: BoardIssue[]; total: number }>('GET', `/rest/agile/1.0/board/${id}/issue?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${Math.min(100, max - startAt)}&fields=summary,status,assignee,issuetype,priority,labels,project,parent`);
+      const page = await this.req<{ issues: BoardIssue[]; total: number }>('GET', `/rest/agile/1.0/board/${id}/issue?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${Math.min(100, max - startAt)}&fields=summary,status,assignee,issuetype,priority,labels,project,parent,updated`);
       out.push(...page.issues);
       if (startAt + page.issues.length >= page.total || !page.issues.length) break;
     }

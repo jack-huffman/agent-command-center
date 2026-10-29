@@ -6,7 +6,7 @@
  */
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
 import { fieldMarkdown, fieldValue } from './fields.ts';
-import { hexOf, isEmail, personName, typeKindOf } from './normal.ts';
+import { changedOf, hexOf, isEmail, personName, typeKindOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Label, type Outside, outsideError, type Person, placeText, type PriorityLevel, type Related, type Status,
   type StatusCategory, type TextField, textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
@@ -233,7 +233,7 @@ export class AzureClient implements TrackerClient {
       'ORDER BY [Microsoft.VSTS.Common.StackRank] ASC, [System.ChangedDate] DESC',
     ].filter(Boolean).join(' ');
     const ids = (await this.req<{ workItems: { id: number }[] }>('POST', `/${this.proj}/${t}/_apis/wit/wiql?${API}&$top=300`, { query })).workItems.map((w) => w.id);
-    const fields = ['System.Id', 'System.Title', 'System.State', 'System.WorkItemType', 'System.AssignedTo', 'System.Tags', 'Microsoft.VSTS.Common.Priority', b.columnField];
+    const fields = ['System.Id', 'System.Title', 'System.State', 'System.WorkItemType', 'System.AssignedTo', 'System.Tags', 'Microsoft.VSTS.Common.Priority', 'System.ChangedDate', b.columnField];
     const items: { id: number; fields: Record<string, unknown> }[] = [];
     for (let i = 0; i < ids.length; i += 200) {
       items.push(...(await this.req<{ value: typeof items }>('POST', `/${this.proj}/_apis/wit/workitemsbatch?${API}`, { ids: ids.slice(i, i + 200), fields })).value);
@@ -258,7 +258,7 @@ export class AzureClient implements TrackerClient {
         // The column is where the card sits; its state's category, where known, is how far along it is.
         status: { id: col.name, name: state, category: known?.category ?? COLUMN_CATEGORY[col.columnType] ?? 'doing', ...(known?.reason ? { reason: known.reason } : {}) },
         type, typeKind: typeKindOf(type), typeColor: colourOf(own.types, type), assignees: assignee ? [assignee] : [], labels: tags(f['System.Tags'], own.tags),
-        ...priorityOf(f['Microsoft.VSTS.Common.Priority']),
+        ...priorityOf(f['Microsoft.VSTS.Common.Priority']), ...changedOf(f['System.ChangedDate']),
       });
     }
     return {
