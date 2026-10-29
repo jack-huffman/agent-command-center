@@ -345,7 +345,7 @@ test('each preference\'s command takes a choice, or asks; one it doesn\'t know i
   assert.ok(page.includes("select.addEventListener('change', () => api.postMessage({ type: 'toolbar', command: p.command, arg: select.value }));"));
   assert.ok(page.includes("select.setAttribute('aria-label', p.name);"), 'the list is named');
   assert.ok(page.includes("pick = el('div', 'settings-pick', mark ? el('span', 'settings-chosen', mark) : null, select);"), 'the one chosen shows its icon before the list');
-  assert.ok(page.includes("if (p.id === 'page') part.append(...pagePart(m));"));
+  assert.ok(page.includes("if (p.id === 'page') return pagePart(m);"));
 });
 
 // ---------------------------------------------------------------- Notices in Slack and GitHub accounts (GH-113)
@@ -369,7 +369,7 @@ test('Notices in Slack is Settings\' part now: its card, its badge and its toast
   assert.doesNotMatch(slack + source('src', 'extension.ts'), /panels\.show\('environments'\)/);
   // The page draws the card in its part, and Environments a line saying it moved, with a way there.
   const page = pageSource('settings.ts');
-  assert.ok(page.includes('return m.slack ? [slackCardView(m.slack)] : [];') && page.includes("if (p.id === 'slack') part.append(...slackPart(m));"));
+  assert.ok(page.includes('return m.slack ? [slackCardView(m.slack)] : [];') && page.includes("if (p.id === 'slack') return slackPart(m);"));
   const env = pageSource('environments.ts');
   assert.ok(env.includes("el('span', 'status tone-neutral', icon('info'), 'Notices in Slack moved to Settings.'), button(to.label, to.icon, () => go(to.section, to.part))"));
   assert.doesNotMatch(env, /slackCardView/);
@@ -429,14 +429,14 @@ test('GitHub accounts lists every open project from what Environments read, is b
   assert.ok(id.includes("const r = await this.acc(login ? ['github', 'use', login, '--json'] : ['github', 'use', '--default', '--json'], p.root);"));
   assert.ok(id.includes("const p = (typeof arg === 'string' ? this.hub.project(arg) : undefined) ?? this.active();"), 'the project it was asked for');
   const page = pageSource('settings.ts');
-  assert.ok(page.includes("if (p.id === 'github') part.append(...githubPart(m));"));
+  assert.ok(page.includes("if (p.id === 'github') return githubPart(m);"));
   assert.ok(page.includes("el('div', 'actions settings-tracker-actions', ...g.actions.map(settingsButton))"), 'each named and disabled as a tracker\'s are');
-  assert.ok(page.includes("g.from ? from(g.from) : null"), 'where it\'s chosen, beside it');
+  assert.ok(page.includes('kept(status(g.look), g.from)'), 'where it\'s chosen, its hint on hover (T-139)');
 });
 
-test('the page draws each part under a heading another page can open Settings at', () => {
+test('the page draws each part as a group another page can open Settings at, in its section (T-139)', () => {
   const page = pageSource('settings.ts');
-  assert.ok(page.includes('h.id = `settings-${p.id}`') && page.includes('h.dataset.part = `settings:${p.id}`') && page.includes('h.tabIndex = -1'));
+  assert.ok(page.includes('box.id = `settings-${p.id}`') && page.includes('box.dataset.part = `settings:${p.id}`') && page.includes('box.tabIndex = -1'));
   assert.ok(pageSource('state.ts').includes('[data-part="${CSS.escape(part)}"]'), 'a jump that names a part goes to its heading');
   // The theme's buttons ask for the command the page may ask for, with the choice.
   assert.ok(page.includes("{ type: 'toolbar', command: 'acc.settings.theme', arg: key }"));
@@ -504,21 +504,21 @@ test('each tracker\'s buttons are commands the page may ask for, with its tracke
   assert.deepEqual(t.actions.map((a) => [a.command, a.label, a.icon, a.primary, a.disabled]), [
     ['acc.trackers.signIn', 'Sign in again', 'sign-in', false, null],
     ['acc.trackers.signOut', 'Sign out', 'sign-out', false, null],
-    ['acc.trackers.add', 'Change place…', 'edit', false, null],
+    ['acc.trackers.add', 'Change tracker…', 'edit', false, null],
     ['acc.trackers.remove', 'Remove…', 'trash', false, null],
   ]);
   // Each takes its tracker as the commands parse it: the project's root and its place in the list.
   for (const a of t.actions) assert.deepEqual(JSON.parse(a.arg!), { root: '/r', index: 1 });
-  assert.deepEqual(t.actions.map((a) => a.name), ['Sign in again to Jira · ACME, in Acme', 'Sign out of Jira · ACME, in Acme', 'Change place: where Jira · ACME, in Acme gets its tickets, its board and its name', 'Remove Jira · ACME, in Acme']);
+  assert.deepEqual(t.actions.map((a) => a.name), ['Sign in again to Jira · ACME, in Acme', 'Sign out of Jira · ACME, in Acme', 'Change tracker: where Jira · ACME, in Acme gets its tickets, its board and its name', 'Remove Jira · ACME, in Acme']);
   // Not signed in: Sign in leads, and Sign out can't be used, and says why.
   const none = trackerSetting(tracked(0, 'jira', 'Jira · ACME', { error: 'Sign in to Jira (acme.atlassian.net) for this repo to see its board and tickets.', connect: wantsSignIn }), ACME);
-  assert.deepEqual(none.actions.map((a) => [a.label, a.primary, a.disabled]), [['Sign in', true, null], ['Sign out', false, 'It isn\'t signed in, so there\'s nothing to sign out of.'], ['Change place…', false, null], ['Remove…', false, null]]);
+  assert.deepEqual(none.actions.map((a) => [a.label, a.primary, a.disabled]), [['Sign in', true, null], ['Sign out', false, 'It isn\'t signed in, so there\'s nothing to sign out of.'], ['Change tracker…', false, null], ['Remove…', false, null]]);
   const refused = trackerSetting(tracked(0, 'jira', 'Jira · ACME', { signedInAs: 'j', signInScope: { shared: false, host: 'a' }, error: 'Jira refused it.', connect: wantsSignIn }), ACME);
-  assert.deepEqual(refused.actions.map((a) => [a.label, a.primary, a.disabled]), [['Sign in again', true, null], ['Sign out', false, null], ['Change place…', false, null], ['Remove…', false, null]]);
+  assert.deepEqual(refused.actions.map((a) => [a.label, a.primary, a.disabled]), [['Sign in again', true, null], ['Sign out', false, null], ['Change tracker…', false, null], ['Remove…', false, null]]);
   // GitHub signs in through gh, so it has its place to change and nothing else.
   assert.deepEqual(trackerSetting(tracked(0, 'github', 'GitHub · o/r', { signedInAs: 'me' }), ACME).actions.map((a) => a.command), ['acc.trackers.add', 'acc.trackers.remove'], 'its place to change, and Remove (T-127)');
 
-  // The page may ask for each: Sign out is drawn only here, Sign in and Change place on the boards too.
+  // The page may ask for each: Sign out is drawn only here, Sign in and Change tracker… on the boards too.
   for (const c of ['acc.trackers.signIn', 'acc.trackers.signOut', 'acc.trackers.add', 'acc.trackers.remove']) assert.ok(PAGE_COMMANDS.includes(c), c);
   assert.ok(boardsArea.commands!.includes('acc.trackers.signIn') && boardsArea.commands!.includes('acc.trackers.add') && !boardsArea.commands!.includes('acc.trackers.signOut'));
   // Each is registered and contributed, and takes its tracker as the page sends it.
@@ -529,7 +529,7 @@ test('each tracker\'s buttons are commands the page may ask for, with its tracke
   }
   assert.ok(trackers.includes("reg('acc.trackers.signOut', async (arg?: unknown) => { await trackers.signOut(arg); await setup.recheck('B14.tickets'); });"));
   assert.ok(trackers.includes('const { root, index } = JSON.parse(arg) as { root: string; index: number };'), 'Sign in and Sign out find the tracker it names');
-  assert.ok(trackers.includes("index: Number.isInteger(a?.index) ? a!.index as number : undefined"), 'Change place opens that tracker on the Connect page');
+  assert.ok(trackers.includes("index: Number.isInteger(a?.index) ? a!.index as number : undefined"), 'Change tracker… opens that tracker on the Connect page');
   // Sign out asks about a site's sign-in, this project or every project (D-091), and nothing writes a file.
   assert.ok(trackers.includes('signOutPlan(was, p, t.kind, host,'));
   assert.doesNotMatch(trackers, /writeFileSync\(join\(root, '\.acc'|config\.json'\)/);
@@ -548,7 +548,7 @@ test('Trackers and sign-ins lists every open project under its name, says when o
   const part = (projects: ProjectLike[]) => settingsModel({ theme: 'vscode', projects, setup: [], boards }).parts.find((x) => x.id === 'trackers')!;
   const some = part([p('Acme', '/a')]);
   assert.deepEqual([some.built, some.today, some.links, some.title, some.icon], [true, null, [], 'Trackers and sign-ins', 'issues']);
-  assert.match(some.details[0]!, /Change place… and Connect a tracker ask the Command Center to write them, for you to commit\. A Jira, Azure DevOps or monday\.com sign-in stays in VSCode on this machine, never in a file; GitHub's is gh's\.$/);
+  assert.match(some.details[0]!, /Change tracker… and Connect a tracker ask the Command Center to write them, for you to commit\. A Jira, Azure DevOps or monday\.com sign-in stays in VSCode on this machine, never in a file; GitHub's is gh's\.$/);
   const none = part([]);
   assert.deepEqual(none.links, [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }]);
   assert.match(none.details[0]!, /^No project in this workspace is onboarded yet\./);
@@ -557,8 +557,8 @@ test('Trackers and sign-ins lists every open project under its name, says when o
 
 test('the page draws each tracker under its project, its buttons named for whose they are, and one it can\'t use says why (GH-112)', () => {
   const page = pageSource('settings.ts');
-  assert.ok(page.includes("if (p.id === 'trackers') part.append(...trackersPart(m));"));
-  assert.ok(page.includes("box.append(el('h3', 'settings-project-name', icon('repo'), el('span', '', p.project)));"), 'each project under its name');
+  assert.ok(page.includes("if (p.id === 'trackers') return trackersPart(m);"));
+  assert.ok(page.includes("box.append(el('h3', 'settings-project-name', icon('repo'), el('span', '', p.project), p.trackers.length ? el('span', 'muted settings-count', plural(p.trackers.length, 'tracker')) : null));"), 'each project under its name, with its count (T-139)');
   // Each button is named and disabled by settingsButton, which the test of it below runs in a document.
   assert.ok(page.includes('...t.actions.map(settingsButton)'));
   for (const name of ['Place', 'Board', 'Sign-in']) assert.ok(page.includes(`line('${name}', `), name);

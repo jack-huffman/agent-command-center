@@ -376,7 +376,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(calls.info.at(-1), 'Tool is signed out of Jira · ACME. Other projects on acme.atlassian.net still use the sign-in for every project there (team@acme.example).');
     await until(() => jiraShown()?.signIn.label === 'Not signed in');
 
-    // Sign in again and Change place open the Connect page at that tracker, and its Back comes back here.
+    // Sign in again and Change tracker… open the Connect page at that tracker, and its Back comes back here.
     type ConnectBack = { model?: { connect: { id: string; title: string; back: { section: string; label: string; part: string | null }; fields: { key: string }[] } | null } };
     const connectOpen = () => (tab.posted.filter((x) => (x as ConnectBack).model).at(-1) as ConnectBack).model!.connect;
     for (const [command, fields] of [['acc.trackers.signIn', ['email', 'token']], ['acc.trackers.add', ['email', 'token']]] as const) {

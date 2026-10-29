@@ -1,45 +1,52 @@
-// Settings' guide and its folded explanations (T-40): a link for each part, under the title in place of the
-// old 30-word subtitle, and which explanations go into a closed "What this means". The drawn page is read in
+// Settings' sections (T-139), which took the place of T-40's guide, and its folded explanations (T-40): which
+// part each section holds, the jump list, and which explanations go into a closed "What this means". The drawn page is read in
 // a browser by the screenshot run's Settings case (scripts/behaviour.ts); these read the page model.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { homeModel, type HomeModel } from '../src/model/home.ts';
 import { openAt, PAGES, sampleModel } from '../scripts/screenshot.ts';
-import { BILLING_MEANING, foldsMeaning, meaningKey, SETTINGS_PARTS, settingsGuide, settingsKey, settingsMeanings, SHORT_MEANING } from '../src/model/settings.ts';
+import { BILLING_MEANING, foldsMeaning, meaningKey, SETTINGS_PARTS, SETTINGS_SECTIONS, sectionOfPart, settingsKey, settingsMeanings, settingsSections, SHORT_MEANING } from '../src/model/settings.ts';
 import { hub, pageSource } from './support.ts';
 
 const settings = (kind: 'settings' | 'settings-agents' | 'settings-about' = 'settings-agents') => (sampleModel(kind, Date.now(), 'dark') as HomeModel).settings;
 
-test('the guide has a link for each part of Settings, in its order, each opening the heading another page opens', () => {
+test('the sections hold every part of Settings once, in the parts\' order, and the model carries them (T-139)', () => {
   const m = settings('settings');
-  const links = settingsGuide(m.parts);
-  assert.deepEqual(m.guide, links, 'the model carries the guide');
-  assert.equal(links.length, SETTINGS_PARTS.length);
-  assert.deepEqual(links.map((l) => l.id), [...SETTINGS_PARTS]);
-  for (const [i, l] of links.entries()) {
-    const p = m.parts[i]!;
-    assert.deepEqual([l.label, l.icon, l.part], [p.title, p.icon, settingsKey(p.id)], `${p.id}'s link is its title and icon, and opens its heading`);
+  assert.deepEqual(m.sections, settingsSections(), 'the model carries the sections');
+  assert.deepEqual(m.sections.map((s) => s.id), [...SETTINGS_SECTIONS]);
+  const held = m.sections.flatMap((s) => s.parts);
+  assert.equal(held.length, SETTINGS_PARTS.length, 'no part is in two sections');
+  assert.deepEqual([...held].sort(), [...SETTINGS_PARTS].sort(), 'and none is left out');
+  for (const part of SETTINGS_PARTS) assert.ok(m.sections.find((s) => s.id === sectionOfPart(part))!.parts.includes(part), `${part} is in the section sectionOfPart names`);
+  for (const s of m.sections) {
+    assert.ok(s.line.length <= 90 && !/[.!?]\s+\S/.test(s.line), `${s.id}'s line is one short sentence: ${s.line}`);
+    assert.notEqual(s.title, '', `${s.id} has a title`);
   }
+  assert.equal(new Set(m.sections.map((s) => s.title)).size, m.sections.length, 'no section title repeats');
 });
 
-test('edge case: the guide of no parts is empty, not a row of nothing', () => {
-  assert.deepEqual(settingsGuide([]), []);
+test('edge case: a section that holds one part draws no heading for it, so no heading repeats; one that holds two names each (T-139)', () => {
+  for (const s of settingsSections()) assert.equal(s.headed, s.id === 'accounts', s.id);
 });
 
-test('the page draws the guide in place of the subtitle, and a link jumps as a deep link does', () => {
+test('the page draws a jump list and a picker, and a jump shows its section without a redraw (T-139)', () => {
   const page = pageSource('settings.ts');
-  assert.ok(page.includes("head.querySelector('.summary')!.replaceWith(guide(m));"));
-  assert.ok(page.includes("a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });"));
+  assert.ok(page.includes("nav.setAttribute('aria-label', 'Sections of Settings');"));
+  assert.ok(page.includes("a.addEventListener('click', (e) => { (e as Event).preventDefault(); jump(s.id); });"));
+  assert.ok(page.includes("picker.addEventListener('change', () => jump(picker.value));"));
   assert.ok(!page.includes('How the Command Center looks and behaves on this machine'), 'the old subtitle is gone');
-  // The heading each link opens is the one a deep link opens.
-  assert.ok(page.includes('h.dataset.part = `settings:${p.id}`'));
+  // The element each deep link opens is still the part, by the key another page names.
+  assert.ok(page.includes('box.dataset.part = `settings:${p.id}`'));
+  assert.ok(pageSource('state.ts').includes("heading.closest<HTMLElement>('[hidden]')?.dispatchEvent(new Event('reveal'));"), 'a deep link asks a hidden section to show');
 });
 
-test('deep links into Settings still open at their part, and their pages are still shot (settings-limits is a tall shot, not a deep link: its link is checked in the behaviour run)', () => {
-  for (const [page, part] of [['settings-agents', 'agents'], ['settings-trackers', 'trackers'], ['settings-limits', 'limits']] as const) {
+test('deep links into Settings still open at their part, and every section is shot, opened at one of its parts (T-139)', () => {
+  for (const [page, part] of [['settings-agents', 'agents'], ['settings-trackers', 'trackers'], ['settings-limits', 'limits'], ['settings-github', 'github'], ['settings-page', 'page'], ['settings-about', 'about']] as const) {
     assert.ok((PAGES as readonly string[]).includes(page), `${page} is shot`);
-    if (page !== 'settings-limits') assert.equal(openAt(page), settingsKey(part));
+    assert.equal(openAt(page), settingsKey(part));
   }
+  const shot = new Set(SETTINGS_PARTS.flatMap((part) => (PAGES as readonly string[]).some((page) => openAt(page as never) === settingsKey(part)) ? [sectionOfPart(part)] : []));
+  assert.deepEqual([...shot].sort(), [...SETTINGS_SECTIONS].sort(), 'each section is shot');
 });
 
 test('one short sentence stays in view; two sentences, or one past the limit, folds', () => {

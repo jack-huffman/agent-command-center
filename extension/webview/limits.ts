@@ -3,7 +3,7 @@
 // project's checks. Every button asks the extension, which runs acc: the page writes nothing itself.
 
 import type { CapCard, LimitRow, LimitsModel, Step } from '../src/model/limits.ts';
-import { el, icon, status } from './dom.ts';
+import { el, icon, more, status } from './dom.ts';
 import { api } from './state.ts';
 
 /** Asks the extension to run one of the part's commands, with the value or project it's for. */
@@ -42,25 +42,29 @@ function capCard(c: CapCard): HTMLElement {
   stepper.setAttribute('role', 'group');
   stepper.setAttribute('aria-label', c.project ? `${c.title}, ${c.project}` : c.title);
   const change = control('Change…', `Change ${c.project && !c.title.startsWith(c.project) ? `${c.project}'s cap` : c.title.toLowerCase()}`, 'edit', null, () => ask(c.command, c.arg));
+  // Where it's set is its title's hint on hover (T-139), not a paragraph on the card.
+  const head = el('div', 'cap-head', el('span', 'strong', c.title), c.project && !c.title.startsWith(c.project) ? el('span', 'chip', c.project) : null);
+  head.title = c.from;
   const card = el('div', 'cap-card',
-    el('div', 'cap-head', el('span', 'strong', c.title), c.project && !c.title.startsWith(c.project) ? el('span', 'chip', c.project) : null),
+    head,
     el('div', 'cap-row', stepper, el('span', 'muted cap-unit', c.unit)),
     el('div', 'cap-state', status(c.look)),
-    el('p', 'muted small cap-from', c.from),
     el('div', 'actions', change));
   card.dataset.cap = c.key;
   return card;
 }
 
-/** A setting: its name, its value and state, where it's set, and Change…, or why it can't change here. */
+/**
+ * A setting: its name, its value and state, and Change…. Where it's set is the value's hint on hover, and why it
+ * can't change here is Change…'s, on hover and to a screen reader (T-139).
+ */
 function row(r: LimitRow): HTMLElement {
   const change = control('Change…', `Change ${r.name.toLowerCase()}`, 'edit', r.why, () => ask(r.command, r.arg));
+  const value = el('div', 'limit-value', el('span', 'mono', r.value), r.look ? status(r.look) : null);
+  value.title = r.from;
   return el('div', 'settings-row limit-row',
     el('span', 'settings-name', icon(r.icon), el('span', 'strong', r.name)),
-    el('div', 'settings-value',
-      el('div', 'limit-value', el('span', 'mono', r.value), r.look ? status(r.look) : null),
-      el('p', 'muted small settings-meaning', r.from),
-      r.why ? el('p', 'muted small limit-why', icon('info'), r.why) : null),
+    el('div', 'settings-value', value),
     el('div', 'limit-change', change));
 }
 
@@ -72,11 +76,12 @@ export function renderLimits(m: LimitsModel | null): Node[] {
     li.dataset.meaning = x.key;
     return li;
   }));
+  // What a change means is explanation: a fold under the caps, closed until opened (T-139).
+  const means = more('limit-meaning', [el('span', '', 'What a change means')], meaning);
   const out: Node[] = [
     el('h3', 'limit-heading', 'How many builders run at once'),
     caps,
-    el('h3', 'limit-heading', 'What a change means'),
-    meaning,
+    means,
     m.billing ? el('div', 'limit-billing', status(m.billing)) : null,
     el('h3', 'limit-heading', 'This machine'),
     row(m.slots),

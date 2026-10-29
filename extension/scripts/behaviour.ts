@@ -42,7 +42,7 @@ import { type TrackerCard, trackerBoard } from '../src/model/boards.ts';
 import { everyoneKept, sampleSeveralBoards } from './fixtures/boards.ts';
 import { PERSON } from '../webview/person-filter.ts';
 import { HISTORY_PAGE, historyReply } from '../src/model/history-pages.ts';
-import { foldsMeaning, meaningKey, settingsGuide, settingsMeanings } from '../src/model/settings.ts';
+import { foldsMeaning, meaningKey, sectionOfPart, settingsKey, settingsMeanings } from '../src/model/settings.ts';
 import { NOTHING_FINISHED, paletteItems } from '../src/model/palette.ts';
 import { paletteResults } from '../webview/fuzzy.ts';
 import { sampleTicket } from './fixtures/task-page.ts';
@@ -147,10 +147,10 @@ export interface BehaviourData {
   /** The project the header's Start an agent and Add a tracker act on. */
   project: string;
   /**
-   * Settings (T-40): the heading each guide link opens, in order; each explanation that folds, by its id and
-   * the key the tab remembers it by; and how many stay in view.
+   * Settings (T-40, T-139): its sections in order, a part to open at and the section that shows; each explanation that
+   * folds, by its id, the key the tab remembers it by and the section it's in; and how many stay in view.
    */
-  settings: { parts: string[]; folds: { id: string; key: string }[]; kept: number };
+  settings: { sections: string[]; open: string; opened: string; deep: { part: string; section: string }; folds: { id: string; key: string; section: string }[]; kept: number };
   /**
  * The Connect page before it's signed in (T-45): Save's label, and the reason its model gives for it being off.
  * `none` is the same page with no project chosen, where Test connection is off too: its model, and the reason it gives.
@@ -1452,22 +1452,43 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'settings: a link for each part opens its heading, and each long explanation is a closed What this means that stays open once opened',
+    name: 'settings: the jump list shows one section and remembers it, a deep link shows its part\'s section, and each long explanation is a closed What this means that stays open once opened',
     page: 'settings-agents',
     async run(t) {
       const want = t.data.settings;
-      const links = t.all('.settings-guide a[data-guide]');
-      t.check('a link for each part, in order', links.length === want.parts.length && links.every((a, i) => a.dataset.guide === want.parts[i]), links.map((a) => a.dataset.guide));
-      t.check('the guide is named for screen readers', t.find('nav.settings-guide').getAttribute('aria-label') === 'Parts of Settings');
-      const limits = links.find((a) => a.dataset.guide === 'settings:limits');
-      if (!limits) throw new Error('not found: the link to Limits and checks');
-      await t.click(limits);
-      t.check('the link focuses its part\'s heading', document.activeElement === t.find('[data-part="settings:limits"]'), document.activeElement?.outerHTML.slice(0, 80));
+      const links = (): HTMLElement[] => t.all('nav.settings-jump a[data-section]');
+      const shown = (): string[] => t.all('section.settings-section').filter((s) => !s.hidden).map((s) => s.dataset.section ?? '');
+      t.check('a link for each section, in order', links().length === want.sections.length && links().every((a, i) => a.dataset.section === want.sections[i]), links().map((a) => a.dataset.section));
+      t.check('the jump list is named for screen readers', t.find('nav.settings-jump').getAttribute('aria-label') === 'Sections of Settings');
+      t.check('the first section shows until one is picked', JSON.stringify(shown()) === JSON.stringify([want.sections[0]]), shown());
+      await t.post({ type: 'state', model: t.model, open: want.open });
+      t.check('opened at a part, its section alone shows', JSON.stringify(shown()) === JSON.stringify([want.opened]), shown());
+      const to = links().find((a) => a.dataset.section === 'limits');
+      if (!to) throw new Error('not found: the link to Checks and limits');
+      // Edge: the side list is sticky, so a jump can be made scrolled deep into a long section.
+      // Above 820 px the page's main column is what scrolls, under the rail.
+      const scroller = t.find('.home-main');
+      scroller.scrollTop = scroller.scrollHeight;
+      t.check('scrolled down before the jump', scroller.scrollTop > 0, scroller.scrollTop);
+      await t.click(to);
+      t.check('a jump shows its section alone', JSON.stringify(shown()) === JSON.stringify(['limits']), shown());
+      const top = t.find('#settings-section-limits').getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      t.check('a jump made scrolled down brings its section\'s heading into view', top >= 0 && top < scroller.clientHeight, { top, scrollTop: scroller.scrollTop, height: scroller.clientHeight });
+      t.check('its link is the current one', links().filter((a) => a.getAttribute('aria-current') === 'true').map((a) => a.dataset.section).join() === 'limits');
+      t.check('the jump focuses its section\'s heading', document.activeElement === t.find('#settings-section-limits'), document.activeElement?.outerHTML.slice(0, 80));
+      t.check('the picker says the same', t.find<HTMLSelectElement>('select.settings-picker').value === 'limits');
+      t.check('the tab remembers it', t.memory().settings === 'limits', t.memory().settings);
+      await t.post({ type: 'state', model: t.model });
+      t.check('a redraw keeps it', JSON.stringify(shown()) === JSON.stringify(['limits']), shown());
+      await t.post({ type: 'state', model: t.model, open: want.deep.part });
+      t.check('a deep link to a part in another section shows that section', JSON.stringify(shown()) === JSON.stringify([want.deep.section]), shown());
+      t.check('and focuses the part', document.activeElement === t.find(`[data-part="${CSS.escape(want.deep.part)}"]`), document.activeElement?.outerHTML.slice(0, 80));
       const folds = t.all<HTMLDetailsElement>('details.settings-fold');
       t.check('a fold for each long explanation', folds.length === want.folds.length && want.folds.length > 0, { drawn: folds.map((d) => d.dataset.fold), expected: want.folds.map((f) => f.id) });
       for (const f of want.folds) t.check(`${f.id} is closed at first`, !t.find<HTMLDetailsElement>(`details.settings-fold[data-fold="${CSS.escape(f.id)}"]`).open);
       t.check('each short explanation stays in view, outside a fold', t.all('.settings-meaning').filter((p) => !p.closest('details')).length >= want.kept, t.all('.settings-meaning').length);
       const first = want.folds[0]!;
+      await t.click(links().find((a) => a.dataset.section === first.section)!);
       await t.click(t.find(`details.settings-fold[data-fold="${CSS.escape(first.id)}"] > summary`));
       t.check('a click opens it, and the tab remembers it', ((t.memory().opened as string[] | undefined) ?? []).includes(first.key), t.memory().opened);
       await t.post({ type: 'state', model: t.model });
@@ -2547,9 +2568,12 @@ export const MUTANTS: Mutant[] = [
   { name: 'a path chip opens nothing', file: 'run-view.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'run-file', run, file: opens, ...(p.line ? { line: p.line } : {}) }));", replace: "b.addEventListener('click', () => void opens);", kills: [caseNamed('output panel: a run shows as rows')] },
   { name: 'the result card\'s button sends nothing', file: 'run-view.ts', find: "if (n.kind === 'rerun') { api.postMessage({ type: 'run-control', run: run.id, action: 'rerun' }); return; }", replace: "if (n.kind === 'rerun') return;", kills: [caseNamed('output panel: a run shows as rows')] },
   { name: 'Show output does nothing', file: 'dock.ts', find: 'x.opened = lines ? x.opened.filter((y) => y !== k) : [...x.opened, k];', replace: '', kills: [caseNamed('output panel: a review')] },
-  { name: 'a guide link goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });", replace: "a.addEventListener('click', (e) => { e.preventDefault(); });", kills: [caseNamed('settings: a link for each part')] },
-  { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
-  { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
+  { name: 'a section\'s jump goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { (e as Event).preventDefault(); jump(s.id); });", replace: "a.addEventListener('click', (e) => { (e as Event).preventDefault(); });", kills: [caseNamed('settings: the jump list')] },
+  { name: 'a jump never scrolls to its section', file: 'settings.ts', find: 'if (heading) scrollToHeading(heading);', replace: 'heading?.focus({ preventScroll: true });', kills: [caseNamed('settings: the jump list')] },
+  { name: 'the section shown is forgotten on a redraw', file: 'settings.ts', find: 'sections.find((s) => s.id === memory().settings) ?? sections[0]', replace: 'sections[0]', kills: [caseNamed('settings: the jump list')] },
+  { name: 'a deep link leaves its part\'s section hidden', file: 'state.ts', find: "heading.closest<HTMLElement>('[hidden]')?.dispatchEvent(new Event('reveal'));", replace: '', kills: [caseNamed('settings: the jump list')] },
+  { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: the jump list')] },
+  { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.dataset.fold = id;\n  return d;', replace: 'd.dataset.fold = id;\n  d.open = false;\n  return d;', kills: [caseNamed('settings: the jump list')] },
   { name: 'the Connect modal draws no status line beside Next', file: 'connect.ts', find: "el('div', 'connect-foot-why', why ? status(why) : null)", replace: "el('div', 'connect-foot-why', null)", kills: [caseNamed('connect: Next that is off')] },
   { name: 'the Connect modal leaves Next\'s title empty', file: 'connect.ts', find: 'if (go.disabled && why) go.title = why.label;', replace: '', kills: [caseNamed('connect: Next that is off'), caseNamed('connect: the board under the dropdowns')] },
   { name: 'Next goes on before the board is read', file: 'connect.ts', find: 'go.disabled = m.next ? !m.next.can : !m.save.can;', replace: 'go.disabled = m.next ? false : !m.save.can;', kills: [caseNamed('connect: Next that is off'), caseNamed('connect: the board under the dropdowns')] },
@@ -2674,13 +2698,24 @@ function chooseData(): BehaviourData['choose'] {
   return { reading, shown, epic, save, line: shown.preview.look.label, epicLine: epic.preview.look.label, use: save.save.label, wait: reading.next.why.label };
 }
 
-/** What Settings' case expects (T-40): from the model, each part's heading and each explanation, folded or kept. */
+/** Where each explanation is drawn: the part whose rows hold it, by its id's first word. */
+const MEANING_PART = { theme: 'appearance', autonomy: 'agents', 'auto-merge': 'agents', cloud: 'agents', billing: 'agents', page: 'page', about: 'about' } as const;
+
+/** What Settings' case expects (T-40, T-139): from the model, its sections, a deep link's, and each explanation, folded or kept. */
 function settingsData(model: Model): BehaviourData['settings'] {
   if (model.kind !== 'home') throw new Error('The Settings case needs a home model.');
   const meanings = settingsMeanings(model.settings);
+  const sectionOf = (id: string): string => {
+    const part = MEANING_PART[id.split(':')[0] as keyof typeof MEANING_PART];
+    if (!part) throw new Error(`MEANING_PART has no part for the explanation ${id}: add its first word.`);
+    return sectionOfPart(part);
+  };
   return {
-    parts: settingsGuide(model.settings.parts).map((g) => g.part),
-    folds: meanings.filter((x) => foldsMeaning(x.text)).map((x) => ({ id: x.id, key: meaningKey(x.id) })),
+    sections: model.settings.sections.map((s) => s.id),
+    open: settingsKey('agents'),
+    opened: sectionOfPart('agents'),
+    deep: { part: settingsKey('github'), section: sectionOfPart('github') },
+    folds: meanings.filter((x) => foldsMeaning(x.text)).map((x) => ({ id: x.id, key: meaningKey(x.id), section: sectionOf(x.id) })),
     kept: meanings.filter((x) => !foldsMeaning(x.text)).length,
   };
 }
