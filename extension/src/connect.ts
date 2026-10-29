@@ -134,8 +134,11 @@ export class ConnectSession {
   /** The preview's wait after a choice (T-140), and the place its read is for, so a newer choice cancels it. */
   private previewTimer: ReturnType<typeof setTimeout> | null = null;
   private previewKey: string | null = null;
-  /** Each board read under way, by place (T-140): one cancelled is dropped from here, and its answer with it. */
-  private readonly inflight = new Map<string, object>();
+  /**
+   * Each board read under way, by place (T-140): one cancelled is dropped from here, and its answer with it, and
+   * gives back its place among READS_AT_ONCE, so a slow site's stale reads never hold up the latest board.
+   */
+  private readonly inflight = new Map<string, { release: () => void }>();
 
   constructor(deps: ConnectDeps) {
     this.deps = deps;
@@ -194,7 +197,7 @@ export class ConnectSession {
     this.epoch++;
     this.reads = [];
     this.stopWait();
-    this.inflight.clear();
+    this.releaseAll();
     this.s = null;
     this.signIn = null;
     this.project = null;
@@ -233,7 +236,8 @@ export class ConnectSession {
     const s = this.s;
     if (!s || m.session !== s.id) return;
     switch (m.type) {
-      case 'connect-cancel': return this.close();
+      // A save under way finishes (T-140): the board is being written, so Cancel can't keep nothing then.
+      case 'connect-cancel': if (!s.saving) this.close(); return;
       case 'connect-project': if (!this.start) void this.reopen({ root: m.root, kind: s.kind }); return;
       case 'connect-kind': if (!s.existing) void this.reopen({ root: s.root ?? undefined, kind: m.kind }); return;
       case 'connect-method': return this.setMethod(m.method);
@@ -342,7 +346,7 @@ export class ConnectSession {
     s.boards = {};
     this.reads = [];
     this.stopWait();
-    this.inflight.clear();
+    this.releaseAll();
   }
 
   /**
@@ -563,6 +567,7 @@ export class ConnectSession {
     const s = this.s;
     if (!s || s.boards[key]?.state !== 'loading') return;
     this.reads = this.reads.filter((r) => r.key !== key);
+    this.inflight.get(key)?.release();
     this.inflight.delete(key);
     delete s.boards[key];
   }
@@ -617,11 +622,12 @@ export class ConnectSession {
     }
     s.boards[key] = { state: 'loading', board: null, none: null, error: null };
     const epoch = this.epoch;
-    const mine = {};
+    let release = () => {};
+    const mine = { release: () => release() };
     this.inflight.set(key, mine);
     // Cancelled (T-140): another read of the place, or none, holds its key now, and this answer is dropped.
     const dropped = () => epoch !== this.epoch || this.s !== s || this.inflight.get(key) !== mine;
-    const read = async () => {
+    const answer = async () => {
       try {
         const r = await readPlace(source);
         if (dropped()) return;
@@ -635,9 +641,17 @@ export class ConnectSession {
       }
       this.bump();
     };
+    // Its place in the line is given back when it answers or is cancelled, whichever is first.
+    const read = () => Promise.race([answer(), new Promise<void>((r) => { release = r; })]);
     if (first) this.reads.unshift({ key, run: read });
     else this.reads.push({ key, run: read });
     this.pump();
+  }
+
+  /** Cancels every read under way: the page closed or another site was chosen. */
+  private releaseAll(): void {
+    for (const r of this.inflight.values()) r.release();
+    this.inflight.clear();
   }
 
   private pump(): void {

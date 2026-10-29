@@ -197,6 +197,8 @@ export interface ConnectModel {
   countMost: number;
   /** why: the reason the button is off, in words, beside it; null when it's on (T-43). */
   save: { can: boolean; label: string; look: Look | null; why: Look | null };
+  /** Cancel (T-140): off while Save runs, as the board is being written and finishes; why then, in words. */
+  cancel: { can: boolean; why: string | null };
   /** Where a ticket's changes are kept (T-105), once the place is chosen; left out before. */
   changesField?: ChangesFieldRow | null;
   /** The board's name (T-127): as typed, the tracker's own name for it when it's left empty, and what it's for. */
@@ -452,6 +454,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
       why: saveWhy,
       look: s.saving ? LOOK(s.start ? 'Starting the project' : 'Saving', 'sync~spin', 'blue') : s.saveError ? LOOK(s.saveError, 'warning', 'orange') : null,
     },
+    cancel: { can: !s.saving, why: s.saving ? 'Saving now: the board is being written, and the page closes when it\'s done.' : null },
     step: at, steps, next: after ? { can: after.can, why: nextWhy } : null, kept,
     // Before and after (T-140): the board as it was opened, and as these choices make it, each counted.
     change: s.was ? { before: cardCount(s.boards[placeKey(s.was)]).label, after: cardCount(seen ? s.boards[placeKey(values)] : undefined).label } : null,

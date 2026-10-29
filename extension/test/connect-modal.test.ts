@@ -33,9 +33,10 @@ const jira = jiraFor({ email: EMAIL, token: TOKEN }, {
 
 /**
  * The modal's session with stand-ins. `boards` gives a place's board by its values, or throws to fail it;
- * `held` keeps each read waiting until released; `wait` is the preview's wait after a choice.
+ * `held` keeps each read waiting until released; `wait` is the preview's wait after a choice; `writing`, when
+ * given, holds Save's write until it settles.
  */
-function harness(o: { boards?: (values: Ctx['values']) => Board; held?: boolean; wait?: number; trackers?: Tracker[] } = {}) {
+function harness(o: { boards?: (values: Ctx['values']) => Board; held?: boolean; wait?: number; trackers?: Tracker[]; writing?: Promise<void> } = {}) {
   const h = {
     asked: [] as string[], writes: [] as Record<string, unknown>[], saved: 0, release: [] as (() => void)[],
     session: null as unknown as ConnectSession,
@@ -62,7 +63,7 @@ function harness(o: { boards?: (values: Ctx['values']) => Board; held?: boolean;
     gitEmail: async () => EMAIL,
     ghToken: async () => 'gh-token',
     microsoft: async () => ({ header: '', cred: {} }),
-    write: async (_root, _index, record) => { h.writes.push(record); },
+    write: async (_root, _index, record) => { await o.writing; h.writes.push(record); },
     signedIn: async () => {},
     saved: async () => { h.saved++; },
     start: async () => {},
@@ -212,6 +213,46 @@ test('the last choice wins: a read under way when a choice changes is cancelled,
   await settle();
   assert.equal(h.model().preview.look.label, '7 tickets would be on your board, in 3 columns.');
   assert.equal(h.session.state()!.boards[nine], undefined, 'the cancelled answer isn\'t kept');
+});
+
+test('edge case: a cancelled read gives back its place, so a slow site\'s stale reads never hold up the latest board', async () => {
+  const h = harness({ held: true });
+  await signedIn(h);
+  // Four choices in turn, each cancelling the read before it: more than READS_AT_ONCE (3) reads were started.
+  h.send({ type: 'connect-pick', key: 'board', value: '9' });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'board', value: '11' });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'epics', value: ['ACME-31'] });
+  await settle();
+  h.send({ type: 'connect-pick', key: 'epics', value: ['ACME-30'] });
+  await settle();
+  assert.equal(h.release.length, 4, 'the last choice\'s board is read at once, though the three cancelled reads haven\'t answered');
+  h.release[3]!();
+  await settle();
+  assert.equal(h.model().preview.state, 'ready');
+});
+
+test('edge case: Cancel is off while Save runs, says why, and a Cancel sent then is ignored: the save finishes', async () => {
+  let done = () => {};
+  const h = harness({ writing: new Promise<void>((r) => { done = r; }) });
+  await signedIn(h);
+  h.send({ type: 'connect-step', step: 'board' });
+  h.send({ type: 'connect-pick', key: 'board', value: '9' });
+  await settle();
+  assert.deepEqual(h.model().cancel, { can: true, why: null }, 'Cancel works while picking');
+  h.send({ type: 'connect-step', step: 'save' });
+  h.send({ type: 'connect-save' });
+  await settle();
+  const m = h.model();
+  assert.equal(m.cancel.can, false);
+  assert.match(m.cancel.why ?? '', /^Saving now/);
+  h.send({ type: 'connect-cancel' });
+  await settle();
+  assert.ok(h.session.model(), 'the modal stays open while the board is written');
+  done();
+  await settle();
+  assert.deepEqual([h.writes.length, h.saved, h.session.model()], [1, 1, null], 'the save finished, then the modal closed');
 });
 
 test('edge case: a board that can\'t be read says why beside the dropdown changed last, and only there', async () => {

@@ -165,6 +165,8 @@ function foot(m: ConnectModel): HTMLElement {
   const i = m.steps.findIndex((x) => x.id === m.step);
   const back = i > 0 ? button('Back', 'arrow-left', () => connectSend(m, { type: 'connect-step', step: m.steps[i - 1]!.id }), 'ghost') : null;
   const cancel = button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost');
+  cancel.disabled = !m.cancel.can;
+  if (m.cancel.why) cancel.title = m.cancel.why;
   const go = m.next ? button('Next', 'arrow-right', () => connectSend(m, { type: 'connect-step', step: m.steps[i + 1]!.id }), 'primary')
     : button(m.save.label, 'check', () => connectSend(m, { type: 'connect-save' }), 'primary');
   go.disabled = m.next ? !m.next.can : !m.save.can;

@@ -9,8 +9,9 @@ queues) and D-211 (up to ten boards, switched on the Tasks tab).
   it. It is now a `<dialog>` over that section, made with `makeModal` as the task modal is: its title and Close in
   the bar, the step on show under a step bar, and a foot that stays in view with Back, why Next or Save is off,
   Cancel, and Next or Save. Every way in opens it: Settings' Connect a tracker… and Change place…, the Tasks tab's
-  Add a board and a board's Change, and two new items at the end of the board switch's list (Change the board on
-  show…, Add a board…; `boardEdits` in `board-switch.ts`).
+  Add a board and a board's Change, and two new items at the end of the board switch's list, which it draws past
+  `SEGMENTED_MOST` boards: Change with the board's name (such as "Change Renewals…") and Add a board…
+  (`boardEdits` in `board-switch.ts`).
 - **Four steps** (`CONNECT_STEPS`): Tracker (the project, when there are several, and the tracker), Sign in (its
   site or account, and signing in), the board (Choose a board, or Slack's Its channel), and Save. A new board
   opens on Tracker; an existing one on its board, its tracker and site shown fixed a step back; Sign in again opens
@@ -27,7 +28,8 @@ queues) and D-211 (up to ten boards, switched on the Tasks tab).
   choice picks it and closes the list; a list that ticks several (epics, labels, queues) stays open while ticked,
   and its whole project unticks them. Arrow keys move through the list, Enter in the box picks the first found,
   Escape closes it. Under each dropdown: loading, why its list couldn't be read, or why the board couldn't be
-  read with the choice made there.
+  read with the choice made there. No tracker's board has a person in its settings, so there is no person
+  dropdown: Mine or Everyone stays the Tasks tab's filter (D-222), on purpose.
 - **The board below** (`previewPanel` in `choose-board.ts`). Its columns side by side as the Tasks tab draws them,
   with the Tasks tab's cards (read-only: nothing moves or opens), each column's first `PREVIEW_CARDS` (now 6)
   and how many more, a line with the count of tickets, a quiet skeleton and `aria-busy` while it reads, and Read
@@ -37,9 +39,11 @@ queues) and D-211 (up to ten boards, switched on the Tasks tab).
   (350 ms) after the last choice; a choice within it starts the wait again, so quick changes read one board. A
   read under way when the choices change is cancelled: taken out of the line if it hasn't started, its answer
   dropped if it has, so a slow answer for an earlier choice never replaces the board of the last. Read it again
-  reads at once. A board that can't be read says why beside the dropdown changed last (`ConnectPicker.error`).
+  reads at once. A cancelled read gives back its place among `READS_AT_ONCE` at once, though its request may still
+  be answered late, so a slow site's stale reads never hold up the latest board. A board that can't be read says why beside the dropdown changed last (`ConnectPicker.error`).
 - **Nothing written before Save.** Picking, moving between steps and naming the board only change what the
-  extension holds while the modal is open; Cancel, Escape and the backdrop forget it. Save, on its own step,
+  extension holds while the modal is open; Cancel, Escape and the backdrop forget it. While Save writes, Cancel is
+  off with why, and a cancel sent then is ignored: the save under way finishes, then the modal closes. Save, on its own step,
   shows what it keeps: the site and each list's choice, each change marked with an icon and the word "changes";
   for an existing board, its tickets before (the board it opened with, `ConnectState.was`) and after.
 - **D-205's three options.** The dropdowns are lists of things to pick from (projects, boards, teams, epics), not
@@ -48,7 +52,8 @@ queues) and D-211 (up to ten boards, switched on the Tasks tab).
   command palette's listbox; `choose-board.ts` draws no radio group any more and leaves the list.
 - **Checked by** `extension/test/connect-modal.test.ts` (the steps and where each opens, a step moved back,
   Next refused until it can go on, Back and Next keeping picks, Cancel keeping nothing, Save writing once, the
-  board redrawn with the tracker's answer, the debounce, the last choice winning over a late answer, an error
+  board redrawn with the tracker's answer, the debounce, the last choice winning over a late answer, a cancelled read giving back its place, Cancel off
+  while Save writes, an error
   beside its dropdown, before and after), `extension/test/dropdown.test.ts` (the button's words, the search, a
   choice and ticks sent), `board-switch.test.ts` (Change and Add a board in the list), and four behaviour cases,
   "connect: Next that is off", "connect: while it signs in", "connect: the board under the dropdowns follows each
