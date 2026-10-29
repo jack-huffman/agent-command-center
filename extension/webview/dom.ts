@@ -353,7 +353,8 @@ export function foldable(key: string, content: HTMLElement, inner: string | null
 export function whatThisMeans(id: string, text: string, folded: readonly string[]): HTMLElement | null {
   if (!text) return null;
   if (!folded.includes(id)) return el('p', 'muted small settings-meaning', text);
-  const d = rememberedFold('settings-fold', `settings-meaning:${id}`, [el('span', '', 'What this means')], el('p', 'muted small settings-meaning', text));
+  const key = `settings-meaning:${id}`;
+  const d = rememberedFold('settings-fold', key, [el('span', '', 'What this means')], el('p', 'muted small settings-meaning', text));
   d.dataset.fold = id;
   return d;
 }
