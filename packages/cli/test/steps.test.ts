@@ -20,6 +20,10 @@ import { GENERIC_CONFIG, gitIn, makeRepo, SF_CONFIG, tempDir } from '../../core/
 import { openSteps, steps } from '../src/shared.ts';
 import { cli } from './support.ts';
 import { standIn } from '../../core/test/stand-in.ts';
+import { thisMachineLabel } from '../../core/src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE_LABEL = thisMachineLabel();
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -133,7 +137,7 @@ const CASES: { name: string; make: () => { dir: string; args: string[]; env?: No
   {
     name: 'dispatch',
     make: () => { const dir = generic(); return { dir, args: ['dispatch', 'T-1'], env: { PATH: `${fakeClaude().bin}${delimiter}${process.env.PATH}`, HOME: trustingHome(dir) } }; },
-    code: 0, out: `T-1 → ↻ Running\n  worktree: ${inRepo('.claude', 'worktrees', 'T-1')}\n  branch:   task/T-1-write-the-changelog\n  name:     Tool · T-1 Write the changelog · builder\n  model:    claude-opus-5-5\n  effort:   the model's default\n  where:    This Mac\n  agent:    background session bg1. Watch it with: claude attach bg1\n  packet:   ${inRepo('.git', 'acc', 'packets', 'T-1.md')}\n`, err: '', first: 'task', ok: true,
+    code: 0, out: `T-1 → ↻ Running\n  worktree: ${inRepo('.claude', 'worktrees', 'T-1')}\n  branch:   task/T-1-write-the-changelog\n  name:     Tool · T-1 Write the changelog · builder\n  model:    claude-opus-5-5\n  effort:   the model's default\n  where:    ${HERE_LABEL}\n  agent:    background session bg1. Watch it with: claude attach bg1\n  packet:   ${inRepo('.git', 'acc', 'packets', 'T-1.md')}\n`, err: '', first: 'task', ok: true,
   },
   {
     name: 'land',

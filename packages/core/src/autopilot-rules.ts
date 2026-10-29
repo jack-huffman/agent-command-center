@@ -13,6 +13,7 @@ import type { RepoPaths } from './paths.ts';
 import { resuming } from './resume.ts';
 import { carriedVerdict, readVerdict, reviewing } from './review.ts';
 import { byAutopilot } from './autopilot-log.ts';
+import { thisMachine } from './this-machine.ts';
 
 // ---------------------------------------------------------------- the rules
 
@@ -139,7 +140,7 @@ export function nextStep(ledger: Ledger, config: StepConfig, task: Task, facts: 
 
   if (task.state === 'review') {
     // Its cloud review gave no verdict acc could read (T-86): a person reviews it on this Mac.
-    if (task.cloudReview?.failed) return none('waiting', `Its cloud review gave no verdict acc could take: ${sentence(task.cloudReview.failed.reason)} A person reviews it on this Mac.`);
+    if (task.cloudReview?.failed) return none('waiting', `Its cloud review gave no verdict acc could take: ${sentence(task.cloudReview.failed.reason)} A person reviews it on ${thisMachine()}.`);
     if (facts.reviewing) return none('waiting', `A review is running (session ${facts.reviewing}).`);
     if (!facts.verdict) return step('review', `Nothing has reviewed ${short(facts.head)} yet.`);
     if (facts.verdict === 'changes') return none('waiting', `Its review on ${short(facts.head)} asked for changes, and it's still in review: a person decides.`);

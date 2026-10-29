@@ -14,6 +14,10 @@ import { ordinal } from '../../packages/core/src/queue.ts';
 import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, type ProgressGroup, type RepoJobs } from '../src/progress.ts';
 import { lastStepIn } from '../src/transcript.ts';
 import { manifest, root } from './support.ts';
+import { thisMachine } from '../../packages/core/src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE = thisMachine();
 
 const MIN = 60_000;
 const NOW = Date.UTC(2026, 9, 6, 12, 0);
@@ -115,18 +119,18 @@ test('a task\'s group lists each job under way for it: builder, analysis, review
 });
 
 test('a cloud review quiet for too long, or one whose verdict acc couldn\'t read, waits on you on In progress, with why and Review on this Mac; one that failed with its reason gone, or a task with none, has no row (T-86 edge cases)', () => {
-  const quiet = row('T-9', 'review', 'needs-you', { reviewing: { sessionId: 'session_01Q', where: 'cloud', url: 'https://claude.ai/code/session_01Q' }, cloudReview: { url: 'https://claude.ai/code/session_01Q', firedAt: at(150), wait: 'no verdict from its cloud reviewer for 150 minutes: review it on this Mac', failed: false } });
-  const failed = row('T-10', 'review', 'needs-you', { cloudReview: { url: 'https://claude.ai/code/session_01F', firedAt: at(20), wait: 'its cloud reviewer pushed acc/review/T-10-abc without review.json: review it on this Mac', failed: true } });
+  const quiet = row('T-9', 'review', 'needs-you', { reviewing: { sessionId: 'session_01Q', where: 'cloud', url: 'https://claude.ai/code/session_01Q' }, cloudReview: { url: 'https://claude.ai/code/session_01Q', firedAt: at(150), wait: `no verdict from its cloud reviewer for 150 minutes: review it on ${HERE}`, failed: false } });
+  const failed = row('T-10', 'review', 'needs-you', { cloudReview: { url: 'https://claude.ai/code/session_01F', firedAt: at(20), wait: `its cloud reviewer pushed acc/review/T-10-abc without review.json: review it on ${HERE}`, failed: true } });
   const gone = row('T-11', 'review', 'review', { cloudReview: { url: 'https://claude.ai/code/session_01G', firedAt: at(20), wait: null, failed: true } });
   const m = inProgress({ hub: hub({ rows: [quiet, failed, gone, row('T-12', 'review', 'review')] }), runs: [], autopilot: () => null, now: NOW });
   const t9 = group(m, 'T-9')!;
   assert.deepEqual(brief(t9.jobs), [['review', 'Waiting on you', 'Review']]);
   assert.deepEqual([t9.jobs[0]!.look.icon, t9.jobs[0]!.look.tone, t9.jobs[0]!.since], ['bell', 'orange', '2 h 30 min']);
-  assert.equal(t9.jobs[0]!.detail, 'no verdict from its cloud reviewer for 150 minutes: review it on this Mac');
-  assert.deepEqual(t9.jobs[0]!.actions.map((a) => [a.label, a.command]), [['Watch', 'acc.task.watchReview'], ['Review on this Mac', 'acc.task.reviewLocal']]);
+  assert.equal(t9.jobs[0]!.detail, `no verdict from its cloud reviewer for 150 minutes: review it on ${HERE}`);
+  assert.deepEqual(t9.jobs[0]!.actions.map((a) => [a.label, a.command]), [['Watch', 'acc.task.watchReview'], [`Review on ${HERE}`, 'acc.task.reviewLocal']]);
   const t10 = group(m, 'T-10')!;
   assert.deepEqual(brief(t10.jobs), [['review', 'Waiting on you', 'Review']]);
-  assert.deepEqual(t10.jobs[0]!.actions.map((a) => a.label), ['Review on this Mac'], 'nothing to watch: it gave what it gave');
+  assert.deepEqual(t10.jobs[0]!.actions.map((a) => a.label), [`Review on ${HERE}`], 'nothing to watch: it gave what it gave');
   assert.equal(group(m, 'T-11'), undefined, 'a failed review with no reason to show isn\'t a job');
   assert.equal(group(m, 'T-12'), undefined);
 });

@@ -1,7 +1,7 @@
 // acc's Agents commands that take a task on from its build: analyze, analysis, review, land, autopilot
 // and sync.
 
-import { AccError, alive, type Analysis, analyze, answerAnalysis, analysisRequired, planProblems, questionsForYou, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, type BuilderPlace, clearBranchMoves, closesIssues, closeWords, cloudNeeds, cloudReason, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, parsePlanTicket, pruneVerifications, readWords, readAnalysis, review, reviewInCloud, reviewPlace, run, settleCloses, sleep, sync, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, alive, type Analysis, analyze, answerAnalysis, analysisRequired, planProblems, questionsForYou, autoMergeFor, autoMergeOn, AUTOPILOT_MIN_EVERY_S, autopilotDoes, autopilotMode, autopilotPass, type AutopilotResult, type AutopilotStepName, type BuilderPlace, clearBranchMoves, closesIssues, closeWords, cloudNeeds, cloudReason, ghToken, holdAutopilot, land, mergesWords, moveUrl, moveWords, openQuestions, parsePlanTicket, pruneVerifications, readWords, readAnalysis, review, reviewInCloud, reviewPlace, run, settleCloses, sleep, sync, thisMachine, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, now, type Opts, out, personOnly, project, readFileArg, steps, stepWords } from '../shared.ts';
 import { personOnlyUpdate } from './updates.ts';
@@ -29,7 +29,7 @@ function cmdReviewInCloud(o: Opts, id: string): number {
   const r = followingCards(paths, config, () => reviewInCloud(paths, config, id, { run, now, env: process.env }, { actor, by }));
   out(o, () => [
     tone(`${id} is being reviewed in the cloud, at ${r.sha.slice(0, 7)}. Session ${r.sessionId}: ${r.url}`, 'blue'),
-    `  The reviewer reads the branch on GitHub and sends its verdict back on ${r.branch}. acc sync takes it from there, as a review on this Mac would, and deletes the branch.`,
+    `  The reviewer reads the branch on GitHub and sends its verdict back on ${r.branch}. acc sync takes it from there, as a review on ${thisMachine()} would, and deletes the branch.`,
     `  No verdict after ${config.agents.cloud?.quietMinutes ?? 120} minutes shows the task as needing you: acc review ${id} --local reviews it here.`,
   ].join('\n'), { task: r.task.id, sha: r.sha, where: 'cloud', sessionId: r.sessionId, url: r.url, branch: r.branch, reason: r.reason });
   return 0;
@@ -41,7 +41,7 @@ function cmdReview(o: Opts, id: string): number {
   const say = (line: string) => { if (!o.json) process.stderr.write(line + '\n'); };
   const place = reviewWhere(o, config);
   if (place.where === 'cloud') return cmdReviewInCloud(o, id.toUpperCase());
-  if (place.fellBack) say(tone(`Reviews are set to the cloud, but ${place.fellBack}: reviewing ${id.toUpperCase()} on this Mac.`, 'orange'));
+  if (place.fellBack) say(tone(`Reviews are set to the cloud, but ${place.fellBack}: reviewing ${id.toUpperCase()} on ${thisMachine()}.`, 'orange'));
   const r = followingCards(paths, config, () => review(paths, config, id.toUpperCase(), {
     run, now, env: process.env,
     onStart: (session, sha, name) => say(tone(`Reviewing ${id.toUpperCase()} at ${sha.slice(0, 7)}. The reviewer reads and changes nothing. Session ${session}, named ${name}.`, 'dim')),

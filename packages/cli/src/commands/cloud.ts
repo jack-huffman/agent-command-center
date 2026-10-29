@@ -1,7 +1,7 @@
 // acc's Cloud commands (GH-69): opting a project in to cloud builders, the routine's token, what the cloud
 // still needs, and collecting a cloud builder's work. A person's, never an agent's.
 
-import { AccError, BUILDER_PLACE_LOOK, type BuilderPlace, cloudNeeds, cloudReason, cloudReviewWait, cloudWait, collect, commitGuard, type Config, deleteCloudToken, disableCloud, enableCloud, environmentProtection, guardCommitted, guardPlace, installGuard, loadConfig, pushGuard, readLedger, run, ROUTINES_URL, writeCloudToken } from '../../../core/src/index.ts';
+import { AccError, builderPlaceLook, type BuilderPlace, cloudNeeds, cloudReason, cloudReviewWait, cloudWait, collect, commitGuard, type Config, deleteCloudToken, disableCloud, enableCloud, environmentProtection, guardCommitted, guardPlace, installGuard, loadConfig, pushGuard, readLedger, run, ROUTINES_URL, thisMachine, writeCloudToken } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, project, readFileArg } from '../shared.ts';
 
@@ -30,7 +30,7 @@ function cmdStatus(o: Opts): number {
   const protection = cloud && config.github ? environmentProtection(run, config.github.repo, config.github.account, config.environments.map((e) => e.branch), process.env) : [];
   out(o, () => [
     cloud
-      ? `Cloud builders: on for this project. Default ${BUILDER_PLACE_LOOK[cloud.default].label}${cloud.default === 'cloud' ? ' (acc dispatch --local keeps a task on this Mac)' : ' (acc dispatch --cloud sends a task to the cloud)'}; up to ${cloud.max} at once, reviews among them; a task needs you after ${cloud.quietMinutes} minutes with no push. Reviews: ${BUILDER_PLACE_LOOK[cloud.review].label}${cloud.review === 'cloud' ? ' (acc review --local keeps one on this Mac)' : ' (acc review --cloud sends one to the cloud)'}.`
+      ? `Cloud builders: on for this project. Default ${builderPlaceLook()[cloud.default].label}${cloud.default === 'cloud' ? ` (acc dispatch --local keeps a task on ${thisMachine()})` : ' (acc dispatch --cloud sends a task to the cloud)'}; up to ${cloud.max} at once, reviews among them; a task needs you after ${cloud.quietMinutes} minutes with no push. Reviews: ${builderPlaceLook()[cloud.review].label}${cloud.review === 'cloud' ? ` (acc review --local keeps one on ${thisMachine()})` : ' (acc review --cloud sends one to the cloud)'}.`
       : 'Cloud builders: off for this project. A local builder is the default everywhere: acc cloud enable opts in.',
     reason ? tone(`  ${reason}.`, 'orange') : tone('  Everything the cloud needs is there.', 'blue'),
     guard.ok ? tone('  The push guard is committed on HEAD, in .claude/hooks/ and .claude/settings.json.', 'dim') : cloud ? tone(`  ! ${guard.why}`, 'orange') : '',
@@ -59,7 +59,7 @@ function cmdEnable(o: Opts): number {
   const after = loadConfig(paths.config).config;
   const needs = cloudNeeds(after, run, process.env);
   out(o, () => [
-    `Cloud builders are on for ${config.project}: acc dispatch <id> --cloud sends a task to the cloud${after.agents.cloud?.default === 'cloud' ? ', and so does a plain dispatch now' : ', and a plain dispatch stays on this Mac'}.`,
+    `Cloud builders are on for ${config.project}: acc dispatch <id> --cloud sends a task to the cloud${after.agents.cloud?.default === 'cloud' ? ', and so does a plain dispatch now' : `, and a plain dispatch stays on ${thisMachine()}`}.`,
     guard.written.length ? `  Wrote ${guard.written.join(' and ')}: the push guard a cloud session runs. Commit them with .acc/config.json.` : '  The push guard is already committed.',
     ...needLines(needs),
   ].join('\n'), { cloud: after.agents.cloud, guard: guard.written, needs });
@@ -70,7 +70,7 @@ function cmdDisable(o: Opts): number {
   noAgent(o, 'turn cloud builders off');
   const { paths, config } = project(process.cwd());
   disableCloud(paths.config);
-  out(o, () => `Cloud builders are off for ${config.project}. Every dispatch goes to this Mac. The routine's token stays in the keychain: acc cloud token --forget takes it out.`, { cloud: null });
+  out(o, () => `Cloud builders are off for ${config.project}. Every dispatch goes to ${thisMachine()}. The routine's token stays in the keychain: acc cloud token --forget takes it out.`, { cloud: null });
   return 0;
 }
 
@@ -148,7 +148,7 @@ export const area: CommandArea = {
                                         in .claude/settings.json, both to commit. Needs the repo on GitHub, a
                                         scheduled task for it (claude.ai/code/routines), its token (acc cloud token), and
                                         claude auth login. Local stays the default unless --default-place cloud;
-                                        reviews stay on this Mac unless --review cloud
+                                        reviews stay on ${thisMachine()} unless --review cloud
   acc cloud disable                     Turn cloud builders off for the project
   acc cloud token [--forget]            Keep the scheduled task's API token in this Mac's keychain, read from stdin,
                                         never from the command line; --forget takes it out. On Windows the Command

@@ -5,10 +5,11 @@
  * it's testable.
  */
 
-import { BUILDER_PLACE_LOOK } from '../../../packages/core/src/cloud.ts';
+import { builderPlaceLook } from '../../../packages/core/src/cloud.ts';
 import { BUILDER_PLACES, type BuilderPlace, type CloudAgents, EFFORTS, type Effort } from '../../../packages/core/src/config.ts';
 import { effortDroppedWords } from '../../../packages/core/src/efforts.ts';
 import { builderPlace } from '../../../packages/core/src/dispatch.ts';
+import { thisMachine } from '../../../packages/core/src/this-machine.ts';
 import { dispatchModelArgs, dispatchModelItems } from '../logic/agents.ts';
 import { type BuilderEffort, dispatchEffortArgs, dispatchEffortItems, type EffortItem, noEffortArgs } from '../logic/efforts.ts';
 import type { TaskRow } from '../logic/shared.ts';
@@ -88,6 +89,8 @@ export interface SheetInput {
   anyway?: boolean;
   /** The place asked for, as Dispatch to the cloud asks for the cloud; else the project's default. */
   where?: BuilderPlace;
+  /** The system the Command Center runs on, which names this machine (T-150); process.platform when left out. */
+  platform?: string;
 }
 
 /** What a person chose in the sheet, as the page sends it. */
@@ -130,7 +133,8 @@ export function dispatchSheet(i: SheetInput): DispatchSheet {
     return { value: m.value, label: m.label, about: m.description, efforts, effort: chosen, none };
   });
   const off = cloudDisabled(i.config);
-  const places = BUILDER_PLACES.map((p): SheetPlace => ({ value: p, ...BUILDER_PLACE_LOOK[p], ...(p === 'cloud' && off ? { disabled: off } : {}) }));
+  const look = builderPlaceLook(i.platform);
+  const places = BUILDER_PLACES.map((p): SheetPlace => ({ value: p, ...look[p], ...(p === 'cloud' && off ? { disabled: off } : {}) }));
   const wanted = i.where ?? defaultPlace(i.config);
   const shares = i.anyway && row.files?.shares.length ? row.files.shares : null;
   return {
@@ -143,7 +147,7 @@ export function dispatchSheet(i: SheetInput): DispatchSheet {
     models,
     places,
     place: wanted === 'cloud' && off ? 'local' : wanted,
-    cloudNote: 'Its branch goes to GitHub, and the project\'s routine builds it in a cloud session with the routine\'s own model and effort. The model and effort here are kept for a later build on this Mac.',
+    cloudNote: `Its branch goes to GitHub, and the project's routine builds it in a cloud session with the routine's own model and effort. The model and effort here are kept for a later build on ${thisMachine(i.platform)}.`,
     size: row.analysis ? sizeLine(row) : null,
   };
 }

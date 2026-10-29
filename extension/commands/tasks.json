@@ -137,7 +137,7 @@
   },
   {
     "command": "acc.task.reviewLocal",
-    "title": "Review on this Mac",
+    "title": "Review on this machine",
     "category": "Agent Command Center",
     "icon": "$(checklist)"
   },

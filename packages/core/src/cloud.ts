@@ -21,14 +21,15 @@ import type { RepoPaths } from './paths.ts';
 import { receiptHooks, satisfies } from './receipts.ts';
 import type { SlotOptions } from './semaphore.ts';
 import { FETCH_TIMEOUT_MS, fetchBranches } from './fetch.ts';
+import { machineNoun, thisMachine, thisMachineLabel } from './this-machine.ts';
 
 // ---------------------------------------------------------------- where a builder runs
 
-/** How each place shows (GH-69): an icon and a label, as every state has (CLAUDE.md). */
-export const BUILDER_PLACE_LOOK: Record<BuilderPlace, { label: string; icon: string }> = {
-  local: { label: 'This Mac', icon: 'device-desktop' },
+/** How each place shows (GH-69): an icon and a label, as every state has (CLAUDE.md). Local is this machine by its platform's name (T-150). */
+export const builderPlaceLook = (platform: string = process.platform): Record<BuilderPlace, { label: string; icon: string }> => ({
+  local: { label: thisMachineLabel(platform), icon: 'device-desktop' },
   cloud: { label: 'Cloud', icon: 'cloud' },
-};
+});
 
 // ---------------------------------------------------------------- what the cloud needs
 
@@ -286,7 +287,7 @@ export function cloudChecks(config: Config, env: Environment): { inCloud: string
 export function cloudText(p: { task: Task; config: Config; env: Environment; branch: string; packet: string; checks: { inCloud: string[]; macOnly: string[] } }): string {
   const { task, config, env, branch, checks } = p;
   const commandOf = (g: string): string | null => config.gates.commands[g] ?? config.gates.ratchets?.[g]?.command ?? null;
-  const commands = checks.inCloud.map((g) => `- \`${g}\`: ${commandOf(g) ? `\`${commandOf(g)}\`` : `acc's built-in ${g} check, which acc runs on the Mac when it collects your work`}`);
+  const commands = checks.inCloud.map((g) => `- \`${g}\`: ${commandOf(g) ? `\`${commandOf(g)}\`` : `acc's built-in ${g} check, which acc runs on the ${machineNoun()} when it collects your work`}`);
   return [
     // The guard's record (GH-69): the repo's push guard reads these lines from the session's first message,
     // and allows a push of this branch alone, by a builder (T-86). They come first, a line each, exactly like this.
@@ -300,7 +301,7 @@ export function cloudText(p: { task: Task; config: Config; env: Environment; bra
     `- **Your branch is \`${branch}\`**, already on GitHub, started from \`${env.branch}\`. Start with \`git fetch origin ${branch} && git checkout ${branch}\`. Work on it only. The \`${RECORD_LINE}\` and \`${ROLE_LINE}\` lines at the top are the repo's push guard's record of it: the guard allows \`git push origin ${branch}\` and nothing else that pushes, written plainly, as its own command.`,
     '- **acc isn\'t installed here.** Where the instructions say `acc gate run`, run these checks yourself and fix what fails:',
     ...(commands.length ? commands : ['  - this project names no checks a cloud session can run']),
-    ...(checks.macOnly.length ? [`- **These checks can't run in the cloud**, since they need an org login, and acc runs them on the Mac when it collects your branch: ${checks.macOnly.map((g) => `\`${g}\``).join(', ')}. Don't try them here.`] : []),
+    ...(checks.macOnly.length ? [`- **These checks can't run in the cloud**, since they need an org login, and acc runs them on the ${machineNoun()} when it collects your branch: ${checks.macOnly.map((g) => `\`${g}\``).join(', ')}. Don't try them here.`] : []),
     '- **Where the instructions say `acc done`**, finish like this instead, all in your last commit\'s message, a trailer on its own line each:',
     '  ```',
     `  ${DONE_TRAILER}: ${task.id}`,
@@ -447,7 +448,7 @@ export function collect(paths: RepoPaths, config: Config, id: string, deps: Foll
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('no-task', `No task ${id}.`);
   if (task.state !== 'running') throw new AccError('refused', `${id} is ${task.state}. acc collects a running cloud builder's work.`);
-  if (task.run?.where !== 'cloud' || !task.run.cloud) throw new AccError('refused', `${id}'s builder runs on this Mac, and finishes with acc done itself.`);
+  if (task.run?.where !== 'cloud' || !task.run.cloud) throw new AccError('refused', `${id}'s builder runs on ${thisMachine()}, and finishes with acc done itself.`);
   const branch = task.run.branch;
   const wt = task.run.worktree;
   if (!branch || !wt) throw new AccError('refused', `${id} has no branch or worktree to collect into.`);
@@ -503,7 +504,7 @@ export function collect(paths: RepoPaths, config: Config, id: string, deps: Foll
     applyMove(x, req, emit, now, { cloud: { sha, checks: results.map((r) => ({ gate: r.gate, status: r.status })) } });
     return x;
   });
-  return { task: moved, sha, checks: results, reason: `Collected ${sha.slice(0, 7)} from the cloud${gates.length ? `, and ${gates.join(', ')} passed on this Mac` : ''}: ${id} is in review.` };
+  return { task: moved, sha, checks: results, reason: `Collected ${sha.slice(0, 7)} from the cloud${gates.length ? `, and ${gates.join(', ')} passed on ${thisMachine()}` : ''}: ${id} is in review.` };
 }
 
 /** Where a cloud run's own page is, for Watch (GH-69): its claude.ai session. */

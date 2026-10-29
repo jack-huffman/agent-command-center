@@ -20,6 +20,10 @@ import { checkVerdict, prepareReview, readVerdict, recordVerdict, reviewPath, VE
 import { sync } from '../src/sync.ts';
 import { bad, fakeRunner, gitIn, ok, tempDir } from './support.ts';
 import { cfg, CLOUD, CLOUD_FIXTURES, cloudClone, commitAndPush, fired, now, RAW, repoWithOrigin, reviewed, task } from './cloud-support.ts';
+import { thisMachine } from '../src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE = thisMachine();
 
 /** The reviewer's clone pushes its verdict as the cloud reviewer does: review.json alone, on its own branch. */
 function pushVerdict(clone: string, branch: string, verdict: unknown, to: string): string {
@@ -181,7 +185,7 @@ test('acc sync takes a cloud review\'s verdict from its branch: a pass is kept a
   // The pass kept here for the commit stands: the new verdict would overwrite a verdict already on this Mac, so it doesn't.
   const synced = sync(paths, config, deps);
   assert.deepEqual(synced.reviews.map((c) => [c.outcome, c.moved]), [['taken', null]]);
-  assert.match(synced.reviews[0]!.note, /a verdict for [0-9a-f]{7} was already on this Mac, and it stands/);
+  assert.match(synced.reviews[0]!.note, new RegExp(String.raw`a verdict for [0-9a-f]{7} was already on ${HERE}, and it stands`));
   assert.equal(readVerdict(paths, 'T-1', start.sha)!.verdict, 'pass');
   assert.equal(task(paths).state, 'review');
   // Changes, on a fresh commit: the task goes to rework, with the findings for its next builder.
@@ -223,12 +227,12 @@ test('a verdict for a commit that is no longer the branch\'s head is kept but mo
   assert.equal(run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${start.branch}`], { cwd: origin }).code, 1, 'the branch is deleted on origin');
   // A bad verdict: not JSON, off the schema, and no review.json at all. Each fails the review with why, and the person reviews here.
   for (const [what, body, why] of [
-    ['not JSON', '{ not json', /isn't a verdict acc can read \(not JSON\): review it on this Mac/],
+    ['not JSON', '{ not json', new RegExp(String.raw`isn't a verdict acc can read \(not JSON\): review it on ${HERE}`)],
     ['no verdict field', { summary: 'x' }, /"verdict" is missing, not "pass" or "changes"/],
     ['a list', [1, 2], /isn't an object/],
     ['no summary', { verdict: 'pass' }, /has no "summary"/],
     // Its words to a person fail the wording check (T-149): the cloud reviewer can't be asked again.
-    ['words that fail the wording check', { verdict: 'changes', summary: 'It passes; ship it.', findings: [{ message: 'Kick off the import.', must: true }] }, /words fail the Simplified Technical English check \(Summary, Finding 1\): review it on this Mac/],
+    ['words that fail the wording check', { verdict: 'changes', summary: 'It passes; ship it.', findings: [{ message: 'Kick off the import.', must: true }] }, new RegExp(String.raw`words fail the Simplified Technical English check \(Summary, Finding 1\): review it on ${HERE}`)],
   ] as const) {
     const again = reviewInCloud(paths, config, 'T-1', deps, {});
     pushVerdict(cloudClone(origin, branch), branch, body, again.branch);
@@ -253,7 +257,7 @@ test('a verdict for a commit that is no longer the branch\'s head is kept but mo
   gitIn(c, 'add', '-A');
   gitIn(c, 'commit', '-q', '-m', 'not a verdict');
   gitIn(c, 'push', '-q', 'origin', `HEAD:${bare.branch}`);
-  assert.match(followCloudReviews(paths, config, deps)[0]!.note, /pushed acc\/review\/T-1-[0-9a-f]+ without review\.json: review it on this Mac/);
+  assert.match(followCloudReviews(paths, config, deps)[0]!.note, new RegExp(String.raw`pushed acc\/review\/T-1-[0-9a-f]+ without review\.json: review it on ${HERE}`));
   // A review on this Mac after a failed cloud review is the way on: its verdict clears the failure.
   const kept = { v: 1 as const, task: 'T-1', sha: newer, env: 'main', ...checkVerdict(PASS), sessionId: 'local', at: now().toISOString(), durationMs: 1, costUsd: null };
   assert.equal(recordVerdict(paths, config, kept, now, { actor: 'reviewer', by: 'reviewer:T-1' }), null);
@@ -280,7 +284,7 @@ test('a cloud review with no verdict after agents.cloud.quietMinutes needs you, 
   assert.equal(cloudReviewWait(t, config, new Date('2026-10-09T13:00:00Z')), null);
   const late = new Date('2026-10-09T14:30:00Z');
   assert.equal(cloudReviewQuiet(t, config, late), true);
-  assert.equal(cloudReviewWait(t, config, late), 'no verdict from its cloud reviewer for 150 minutes: review it on this Mac');
+  assert.equal(cloudReviewWait(t, config, late), `no verdict from its cloud reviewer for 150 minutes: review it on ${HERE}`);
   assert.equal(cloudReviewQuiet(t, { agents: { ...config.agents, cloud: { ...config.agents.cloud!, quietMinutes: 10 } } }, new Date('2026-10-09T12:15:00Z')), true, 'the project\'s own quiet time');
   assert.equal(cloudReviewQuiet({ ...t, state: 'rework' }, config, late), false, 'moved on: waits on nobody');
   assert.equal(cloudReviewWait({ ...t, cloudReview: null }, config, late), null, 'edge case: no cloud review at all');
@@ -335,7 +339,7 @@ test('edge case: a verdict\'s parts are capped (T-86): a 1 MB summary is cut to 
   pushVerdict(cloudClone(second.origin, second.branch), second.branch, JSON.stringify({ ...PASS, summary: 'x'.repeat(VERDICT_MAX_BYTES + 1024) }), huge.branch);
   const refused = followCloudReviews(second.paths, second.config, deps2);
   assert.deepEqual(refused.map((c) => [c.outcome, c.moved]), [['bad', null]]);
-  assert.match(refused[0]!.note, /its cloud reviewer's review\.json is 4\.0 MB, more than a verdict can be \(4 MB at most\): review it on this Mac/);
+  assert.match(refused[0]!.note, new RegExp(String.raw`its cloud reviewer's review\.json is 4\.0 MB, more than a verdict can be \(4 MB at most\): review it on ${HERE}`));
   assert.ok(!/without review\.json/.test(refused[0]!.note), 'not said to be missing');
   assert.match(task(second.paths).cloudReview?.failed?.reason ?? '', /more than a verdict can be/);
   assert.equal(run('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${huge.branch}`], { cwd: second.origin }).code, 1, 'the branch is deleted on origin');
@@ -346,7 +350,7 @@ test('edge case: a verdict\'s parts are capped (T-86): a 1 MB summary is cut to 
   pushVerdict(cloudClone(third.origin, third.branch), third.branch, PASS, fired3.branch);
   const overflow = followCloudReviews(third.paths, third.config, { ...deps3, run: fakeRunner({ ...CLOUD_FIXTURES, 'git show': bad('spawnSync git ENOBUFS') }) });
   assert.deepEqual(overflow.map((c) => [c.outcome, c.moved]), [['bad', null]]);
-  assert.match(overflow[0]!.note, /review\.json couldn't be read from acc\/review\/T-1-[0-9a-f]+ \(too large to read\): review it on this Mac/);
+  assert.match(overflow[0]!.note, new RegExp(String.raw`review\.json couldn't be read from acc\/review\/T-1-[0-9a-f]+ \(too large to read\): review it on ${HERE}`));
 });
 
 test('edge case: a cloud review is cleared by a move out of review, and by a verdict kept here for the head (T-86): moved to rework and back with a new commit, a new cloud review is accepted; with the head moved on, a review on this Mac ends the old one, so the task isn\'t stuck at Needs you', () => {

@@ -16,7 +16,7 @@ import { type AboutAction, type AboutFacts, aboutModel } from '../src/model/abou
 import { billingLook } from '../src/model/agents.ts';
 import { accLook, CATEGORY_LOOK, columnLook, PRIORITY_ICON, priorityIcon, statusLook, trackerBoard, TYPE_ICON } from '../src/model/boards.ts';
 import { analysisLook, autopilotLook, closedPrLook, cloudReviewLook, filesLook, placeLook, stoppedLook, unseenLook } from '../src/model/cards.ts';
-import { BUILDER_PLACE_LOOK } from '../../packages/core/src/cloud.ts';
+import { builderPlaceLook } from '../../packages/core/src/cloud.ts';
 import { cloudSetting, protectionLook } from '../src/model/settings.ts';
 import { moveLook as branchMoveLook } from '../src/model/branches.ts';
 import { autopilotStepLook, OUTCOME_LOOK, outcomeLook } from '../src/model/history.ts';
@@ -248,7 +248,7 @@ export const TABLES: Table[] = [
   },
   { name: 'a stopped builder', sources: ['extension/src/model/cards.ts#stoppedLook'], states: () => [['said nothing', stoppedLook({ stopped: { said: null } })!], ['said something', stoppedLook({ stopped: { said: 'API Error' } })!]] },
   // Where a builder runs (GH-69): on the card, the page and acc show alike.
-  { name: 'where a builder runs', sources: ['packages/core/src/cloud.ts#BUILDER_PLACE_LOOK'], states: () => Object.entries(BUILDER_PLACE_LOOK).map(([k, v]) => [k, { ...v, tone: 'neutral' }]) },
+  { name: 'where a builder runs, on each system (T-150)', sources: ['packages/core/src/cloud.ts#builderPlaceLook'], states: () => ['darwin', 'win32', 'linux'].flatMap((os) => Object.entries(builderPlaceLook(os)).map(([k, v]): [string, Shown] => [`${k} on ${os}`, { ...v, tone: 'neutral' }])) },
   { name: 'where a task\'s builder runs, on its card', sources: ['extension/src/model/cards.ts#placeLook'], states: () => [['local', placeLook({ state: 'running', run: { where: 'local' } })!], ['cloud', placeLook({ state: 'running', run: { where: 'cloud' } })!], ['older run', placeLook({ state: 'review', run: {} })!]] },
   {
     name: 'a task\'s review in the cloud, on its card and on In progress (T-86)', sources: ['extension/src/model/cards.ts#cloudReviewLook'],

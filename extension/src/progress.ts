@@ -24,6 +24,7 @@ import { ordinal } from '../../packages/core/src/queue.ts';
 import { arrivedAt } from '../../packages/core/src/carried.ts';
 import { reviewing } from '../../packages/core/src/review.ts';
 import { analyzing } from '../../packages/core/src/analyze.ts';
+import { thisMachine } from '../../packages/core/src/this-machine.ts';
 import { claudeProjectsDir, type LastStep, lastStepIn, transcriptFile } from './transcript.ts';
 import { WORDS } from '../webview/plain-words.ts';
 
@@ -374,7 +375,7 @@ export function inProgress(i: ProgressInput): ProgressModel {
         key: 'review', kind: 'review', look: wait ? LOOK('Waiting on you', 'bell', 'orange') : LOOK('Cloud review', 'cloud', 'blue'), label: 'Review', detail: c.wait ?? 'reading the branch on GitHub; its verdict comes back by a push, which the next sync takes', since: ago(time(c.firedAt)),
         actions: [
           ...(r.reviewing ? [{ label: 'Watch', icon: 'pulse', tip: 'Follow the reviewer on its page on claude.ai', command: 'acc.task.watchReview', ref: ref(r.id) }] : []),
-          ...(wait ? [{ label: 'Review on this Mac', icon: 'checklist', tip: 'Review it here, now: a reviewer on this Mac gives the verdict', command: 'acc.task.reviewLocal', ref: ref(r.id) }] : []),
+          ...(wait ? [{ label: `Review on ${thisMachine()}`, icon: 'checklist', tip: `Review it here, now: a reviewer on ${thisMachine()} gives the verdict`, command: 'acc.task.reviewLocal', ref: ref(r.id) }] : []),
         ],
       }, time(c.firedAt));
     }

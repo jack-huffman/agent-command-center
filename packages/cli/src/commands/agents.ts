@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, BLOCK_SHAPE, composeNote, doneLines, noteLines, noteWording, noteWordingWords, refuseNoteWording, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, BLOCK_SHAPE, composeNote, doneLines, noteLines, noteWording, noteWordingWords, refuseNoteWording, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builderPlaceLook, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, thisMachine, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { refuseUnrecorded } from './changes.ts';
@@ -245,9 +245,9 @@ function dispatched(o: Opts, r: DispatchOutcome, dropped: string): number {
     `  branch:   ${r.branch}`,
     `  name:     ${r.name}`,
     `  model:    ${r.task.run?.model ?? ''}${r.task.run?.modelPicked ? ' (picked for this task)' : ''}`,
-    `  effort:   ${r.task.run?.effort ?? 'the model\'s default'}${r.task.run?.effortPicked ? ' (picked for this task)' : ''}${r.where === 'cloud' ? ' (the routine\'s own model and effort apply in the cloud: a pick here is kept for a re-dispatch on this Mac)' : ''}`,
+    `  effort:   ${r.task.run?.effort ?? 'the model\'s default'}${r.task.run?.effortPicked ? ' (picked for this task)' : ''}${r.where === 'cloud' ? ` (the routine's own model and effort apply in the cloud: a pick here is kept for a re-dispatch on ${thisMachine()})` : ''}`,
     dropped,
-    `  where:    ${BUILDER_PLACE_LOOK[r.where].label}${r.cloud ? `, session ${r.cloud.sessionId}. Watch it at ${r.cloud.url}` : ''}`,
+    `  where:    ${builderPlaceLook()[r.where].label}${r.cloud ? `, session ${r.cloud.sessionId}. Watch it at ${r.cloud.url}` : ''}`,
     `  agent:    ${r.cloud ? 'a cloud session, started by the routine; acc sync follows its branch on GitHub and collects it once its last commit says Acc-Done' : r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? 'ran in this terminal' : 'started; it will appear in claude agents shortly'}`,
     `  packet:   ${r.packetPath}`,
     r.shares.length ? tone(`  ${sharesWords(r.shares)}. The second pull request to merge may conflict there.`, 'dim') : '',
@@ -311,8 +311,8 @@ export const area: CommandArea = {
                 [--effort <low|medium|high|xhigh|max|default>]
                                         Worktree, setup, instructions, and a background builder session. --cloud
                                         starts it as a cloud session instead, where the project opted in (acc
-                                        cloud), pushing its branch first; --local keeps it on this Mac. Neither:
-                                        the project's agents.cloud.default, else this Mac. A task
+                                        cloud), pushing its branch first; --local keeps it on ${thisMachine()}.
+                                        Neither: the project's agents.cloud.default, else ${thisMachine()}. A task
                                         whose analysis shares files with work in flight waits while another
                                         Ready task shares none; --anyway starts it now. --model and --effort
                                         pick the builder's model and effort for this task: a re-dispatch and a

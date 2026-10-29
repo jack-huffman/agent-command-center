@@ -110,6 +110,7 @@ export * from './team.ts';
 export * from './template.ts';
 export * from './test-counts.ts';
 export * from './text.ts';
+export * from './this-machine.ts';
 export * from './tidy.ts';
 export * from './transcript.ts';
 export * from './trusted-settings.ts';

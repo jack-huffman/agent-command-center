@@ -12,6 +12,10 @@ import type { TaskRow } from '../src/logic/shared.ts';
 import { cardActions, dispatchAgainOff } from '../src/model/cards.ts';
 import { row } from './support.ts';
 import { standIn } from '../../packages/core/test/stand-in.ts';
+import { thisMachine } from '../../packages/core/src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE = thisMachine();
 
 /** tasks.ts and hub.ts import vscode, which only VSCode has: this stand-in holds what they call, and records what's shown. */
 const said = { warn: [] as string[], info: [] as string[] };
@@ -118,7 +122,7 @@ test('a missing claude stays out of the silence clock and reads as its own state
     assert.equal(hub.claudeMissing, true);
     assert.match(hub.agentsError!, /isn't on PATH/);
     assert.equal(hub.agentsSilentSince, null, 'it never starts the clock, so nothing reads as "not answering"');
-    assert.match(UNSEEN_WORDS.missing.line, /isn't on this Mac's path/);
+    assert.match(UNSEEN_WORDS.missing.line, new RegExp(String.raw`isn't on ${HERE}'s path`));
     const bin = claudeOnPath();
     process.env.PATH = `${bin.dir}${delimiter}${saved}`;
     await hub.loadAgents();

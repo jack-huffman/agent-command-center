@@ -10,6 +10,11 @@ import { cloudReason, installGuard, mutate, parseConfig, readLedger, repoPaths, 
 import { GENERIC_CONFIG, gitIn, tempDir } from '../../core/test/support.ts';
 import { cli, repoWithConfig, UNCHECKED } from './support.ts';
 import { standIn } from '../../core/test/stand-in.ts';
+import { thisMachine, thisMachineLabel } from '../../core/src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE = thisMachine();
+const HERE_LABEL = thisMachineLabel();
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -329,7 +334,7 @@ test('acc review --cloud is refused where the project hasn\'t opted in, naming e
   assert.equal(local.code, 0, local.err);
   // Windows names the Command Center, which keeps its token (T-145); a Mac or Linux names Setup.
   const why = cloudReason([{ id: 'token', label: '', ok: false, fix: '' }]);
-  assert.ok(local.err.includes(`Reviews are set to the cloud, but ${why}: reviewing T-1 on this Mac.`), local.err);
+  assert.ok(local.err.includes(`Reviews are set to the cloud, but ${why}: reviewing T-1 on ${HERE}.`), local.err);
   assert.match(local.out, /Review passed: Fine\./);
   assert.equal(JSON.parse(readFileSync(set.ledger, 'utf8')).tasks[0].cloudReview, undefined);
   // Set to the cloud and ready: a plain review goes there; --local keeps it here.
@@ -343,9 +348,9 @@ test('acc cloud enable --review writes agents.cloud.review alone, refuses a bad 
   assert.equal(acc(dir, ['cloud', 'enable', '--review', 'cloud']).code, 0);
   const cfg = JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8'));
   assert.deepEqual(cfg.agents.cloud, { default: 'local', quietMinutes: 120, max: 3, review: 'cloud' });
-  assert.match(acc(dir, ['cloud']).out, /Reviews: Cloud \(acc review --local keeps one on this Mac\)/);
+  assert.match(acc(dir, ['cloud']).out, new RegExp(String.raw`Reviews: Cloud \(acc review --local keeps one on ${HERE}\)`));
   assert.equal(acc(dir, ['cloud', 'enable', '--review', 'local']).code, 0);
   assert.equal(JSON.parse(readFileSync(join(dir, '.acc', 'config.json'), 'utf8')).agents.cloud.review, 'local');
-  assert.match(acc(dir, ['cloud']).out, /Reviews: This Mac \(acc review --cloud sends one to the cloud\)/);
+  assert.match(acc(dir, ['cloud']).out, new RegExp(String.raw`Reviews: ${HERE_LABEL} \(acc review --cloud sends one to the cloud\)`));
   assert.match(acc(dir, ['cloud', 'enable', '--review', 'mars']).err, /Reviews run in one of local, cloud\./);
 });

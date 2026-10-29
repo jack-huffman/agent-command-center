@@ -17,6 +17,10 @@ import { transcriptDir } from '../src/transcript.ts';
 import { runWrittenAt, unseenFrom, unseenNow, unseenOf } from '../src/unseen.ts';
 import { acc, fakeClaude, IGNORE, trustingHome } from './dispatch-support.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, launchedSessions, makeRepo, ok, tempDir } from './support.ts';
+import { thisMachine } from '../src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE = thisMachine();
 
 /** A repo with T-1 to do, a stand-in claude whose `claude agents` answers as `agents` says, and a projects folder. */
 function setup(agents: (calls: string[]) => () => RunResult, o: { onLaunch?: (wt: string) => void } = {}) {
@@ -358,7 +362,7 @@ test('Dispatch again with no claude is refused in the Command Center\'s words, f
   const s = setup(launchedSessions);
   s.go();
   const before = s.task();
-  assert.match(MISSING_WORDS, /^Claude Code isn't on this Mac's path, so the Command Center can't see this builder, and Build it again needs it to start another\. Install Claude Code/);
+  assert.match(MISSING_WORDS, new RegExp(String.raw`^Claude Code isn't on ${HERE}'s path, so the Command Center can't see this builder, and Build it again needs it to start another\. Install Claude Code`));
   assert.throws(() => dispatchAgain(s.paths, s.config, 'T-1', s.deps, { actor: 'human', by: 'human:test', unseen: 'missing' }), (e: Error) => e.message === MISSING_WORDS);
   assert.ok(!s.calls.some((c) => c.startsWith('claude stop')), 'nothing is stopped');
   assert.equal(s.task().history.length, before.history.length, 'and nothing is recorded');
