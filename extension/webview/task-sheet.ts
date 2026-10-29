@@ -9,10 +9,13 @@
 // waits for the extension: a ticket changed since the sheet opened shows both versions to pick from, and a
 // failed write says why. Either way the sheet stays open with what the person wrote. There, its description
 // can take drafted acceptance criteria (T-81): Draft acceptance criteria puts the draft below its text.
+// A new task's description, and acc's own task's, shows each wording finding beside its acceptance criterion
+// as the person writes (T-148): the page asks the extension, which runs the check acc add and acc edit run.
 
+import type { SheetWording } from '../src/model/sheet-wording.ts';
 import type { TaskSheet, TaskSheetFields } from '../src/model/task-sheet.ts';
 import type { SheetRow, TicketTextBase } from '../src/model/ticket-text.ts';
-import { button, el, focusedElement, icon } from './dom.ts';
+import { button, el, focusedElement, icon, plural } from './dom.ts';
 import { makeModal } from './modal.ts';
 import { api, type PageArea } from './state.ts';
 
@@ -33,7 +36,14 @@ let open: {
   /** Drafting acceptance criteria for its description (T-81): on its way, and whether a draft is in the box. */
   drafting: boolean;
   added: boolean;
+  /** The wording findings on its acceptance criteria (T-148), for the description they were found on. Null: not checked. */
+  wording: SheetWording | null;
+  /** Where the findings are drawn, updated in place so the box keeps its focus and caret. */
+  wordingAt: HTMLElement | null;
 } | null = null;
+/** The wait after a key before the sheet asks for the wording check again. */
+const WORDING_WAIT_MS = 250;
+let wordingTimer: ReturnType<typeof setTimeout> | undefined;
 let parts: { dialog: HTMLDialogElement; heading: HTMLElement; body: HTMLElement; go: HTMLButtonElement } | null = null;
 /** What had focus when it opened, which gets it back when it closes. */
 let opener: HTMLElement | null = null;
@@ -50,8 +60,14 @@ function written(): TaskSheetFields {
 /**
  * Why the primary button is off, or null when it's on: the same check as the extension's taskSheetOff,
  * and, where Save writes the ticket's text (T-80), not while a Save is on its way or a version is to pick.
+ * A hard wording finding on its acceptance criteria keeps it off until the next check finds none (T-148), as
+ * the extension's wordingOff says, once the description is changed: acc edit doesn't check one left as it was.
  */
-const goOff = (): string | null => (open?.saving ? 'Saving to its ticket' : open?.theirs ? 'Pick a version first' : written().title.trim() ? null : 'A task needs a title');
+const goOff = (): string | null => (open?.saving ? 'Saving to its ticket' : open?.theirs ? 'Pick a version first' : !written().title.trim() ? 'A task needs a title'
+  : open?.wording?.hard && briefChanged() ? `Fix the wording of the acceptance criteria first: ${plural(open.wording.hard, 'finding')}` : null);
+
+/** Whether the description differs from the one the sheet opened with: a new task's always does once written. */
+const briefChanged = (): boolean => !!open && written().brief !== open.sheet.fields.brief;
 
 /** A field: its label, the box, and a line under it in muted type. */
 function field(label: string, box: HTMLElement, hint: string | null): HTMLElement {
@@ -72,6 +88,7 @@ function box(key: keyof TaskSheetFields, value: string, placeholder: string, lin
   b.placeholder = placeholder;
   b.spellcheck = key === 'brief' || key === 'notes' || key === 'title';
   b.addEventListener('input', foot);
+  if (key === 'brief' && open!.wording) b.addEventListener('input', askWording);
   open!.boxes[key] = b;
   return b;
 }
@@ -180,11 +197,64 @@ function criteriaRow(): HTMLElement | null {
   return el('div', 'ts-field', el('div', 'ts-row', el('p', 'ts-hint muted', said), add, draft));
 }
 
+/** A moment after the description changes, the extension checks its acceptance criteria again. */
+function askWording(): void {
+  clearTimeout(wordingTimer);
+  wordingTimer = setTimeout(() => {
+    if (open?.wording) api.postMessage({ type: 'task-sheet-wording', project: open.sheet.project, brief: written().brief });
+  }, WORDING_WAIT_MS);
+}
+
+/**
+ * The findings beside each acceptance criterion (T-148): a line that says how many, then each criterion with
+ * its line and text, and each finding's rule and fix under it. A hard finding is orange, with its warning
+ * icon; advice is blue, with its info icon. A description with no criteria shows nothing.
+ */
+function wordingParts(w: SheetWording): HTMLElement[] {
+  if (!w.checked) return [];
+  if (!w.criteria.length) return [el('p', 'ts-hint muted', icon('check'), ` ${plural(w.checked, 'acceptance criterion', 'acceptance criteria')} ${w.checked === 1 ? 'passes' : 'pass'} the wording check.`)];
+  const advice = w.criteria.reduce((n, c) => n + c.findings.length, 0) - w.hard;
+  const head = w.hard
+    ? el('p', 'ts-wording-head', icon('warning', 'orange'), ` Wording: ${plural(w.hard, 'finding')} to fix${briefChanged() ? ' before you save' : ', once you change the description'}${advice ? `, and ${plural(advice, 'piece')} of advice` : ''}.`)
+    : el('p', 'ts-wording-head', icon('info', 'blue'), ` Wording: ${plural(advice, 'piece')} of advice. It doesn't stop Save.`);
+  return [head, ...w.criteria.map((c) => el('div', 'ts-wording-item',
+    el('p', 'ts-wording-place', `Criterion ${c.criterion}, line ${c.line}`),
+    el('p', 'ts-wording-text', c.text),
+    ...c.findings.map((f) => el('p', 'ts-wording-finding', icon(f.hard ? 'warning' : 'info', f.hard ? 'orange' : 'blue'),
+      el('span', '', el('strong', '', f.hard ? f.rule : `Advice: ${f.rule}`), ` ${f.message}`, f.match ? el('span', 'muted', ` [${f.match}]`) : null)))))];
+}
+
+/** Draws the findings where they go, without drawing the boxes again, and Save's state with them. */
+function drawWording(): void {
+  if (!open?.wordingAt || !open.wording) return;
+  open.wordingAt.replaceChildren(...wordingParts(open.wording));
+  foot();
+}
+
+/** The extension's check of the description (T-148): only for this sheet's project, and the text in the box now. */
+function worded(msg: { project?: string; wording?: SheetWording }): void {
+  if (!open?.wording || msg.project !== open.sheet.project || !msg.wording || msg.wording.brief !== written().brief) return;
+  open.wording = msg.wording;
+  drawWording();
+}
+
 /** Draws again with what's written kept: a draw starts from the sheet's own fields. */
 function redraw(): void {
   if (!open) return;
   open.sheet = { ...open.sheet, fields: written() };
   draw();
+}
+
+/** The place for the wording findings, under the description, which a screen reader reads as they change. */
+function wordingBox(): HTMLElement | null {
+  if (!open) return null;
+  open.wordingAt = null;
+  if (!open.wording) return null;
+  const at = el('div', 'ts-wording');
+  at.setAttribute('aria-live', 'polite');
+  open.wordingAt = at;
+  at.replaceChildren(...wordingParts(open.wording));
+  return at;
 }
 
 /** Draws the sheet from what it shows. */
@@ -216,8 +286,9 @@ function draw(): void {
     open.error ? trouble(open.error) : null,
     text ? field('Title', box('title', s.fields.title, 'What needs doing'), null) : kept('Title', s.fields.title),
     text && s.ticketEdits?.unkept ? trouble(s.ticketEdits.unkept) : null,
-    text && s.ticketEdits?.unkept ? kept('Description', s.fields.brief) : text ? field('Description', box('brief', s.fields.brief, 'The goal, what to build, and how a person will know it is done', 8), open.base ? `Markdown works here. Save writes it to the ticket in ${trackerWord()}.` : 'Markdown works here: headings, lists and code.') : kept('Description', s.fields.brief),
+    text && s.ticketEdits?.unkept ? kept('Description', s.fields.brief) : text ? field('Description', box('brief', s.fields.brief, 'The goal, what to build, and how a person will know it is done', 8), open.base ? `Markdown works here. Save writes it to the ticket in ${trackerWord()}.` : open.wording ? 'Markdown works here. Each item under an Acceptance criteria heading gets a wording check.' : 'Markdown works here: headings, lists and code.') : kept('Description', s.fields.brief),
     text && !s.ticketEdits?.unkept ? criteriaRow() : null,
+    wordingBox(),
     s.locked ? kept('Dependencies', s.fields.deps) : field('Dependencies', box('deps', s.fields.deps, 'Such as T-3, ACME-12'), 'The tasks to finish first, with commas between them.'),
     field('Environment', env, 'The branch it builds from and lands on.'),
     ...(s.ticketEdits ? rows(s.ticketEdits.rows) : [s.locked ? kept('Labels', s.fields.labels) : field('Labels', box('labels', s.fields.labels, 'Such as ui, docs'), 'With commas between them.')]),
@@ -314,7 +385,7 @@ function make(): NonNullable<typeof parts> {
 function openSheet(sheet: TaskSheet): void {
   parts ??= make();
   if (!parts.dialog.open) opener = focusedElement();
-  open = { sheet, boxes: {}, base: sheet.ticketEdits?.base ?? null, saving: false, error: null, theirs: null, changing: null, drafting: !!sheet.criteria?.drafting, added: !!sheet.drafted };
+  open = { sheet, boxes: {}, base: sheet.ticketEdits?.base ?? null, saving: false, error: null, theirs: null, changing: null, drafting: !!sheet.criteria?.drafting, added: !!sheet.drafted, wording: sheet.wording ?? null, wordingAt: null };
   draw();
   if (!parts.dialog.open) parts.dialog.showModal();
   (open.boxes.title ?? open.boxes.environment)?.focus();
@@ -329,6 +400,7 @@ function shut(): void {
 
 /** It closed: focus goes back to what opened it, when that's still on the page. */
 function closed(): void {
+  clearTimeout(wordingTimer);
   open = null;
   parts?.body.replaceChildren();
   const o = opener;
@@ -342,5 +414,6 @@ export const area: PageArea = {
     'task-sheet-done': saved,
     'task-sheet-rows': changed,
     'task-sheet-draft': drafted,
+    'task-sheet-wording': worded,
   },
 };

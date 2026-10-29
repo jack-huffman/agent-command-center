@@ -26,6 +26,7 @@ import { openSheet, type SheetAsk, sheetInput } from './dispatch-sheet.ts';
 import { editRefusal } from '../../packages/core/src/edit.ts';
 import { dispatchAgainOff } from './model/cards.ts';
 import { type Message as TaskSheetMessage, openTaskSheet, TASK_SHEET_DONE, TASK_SHEET_ROWS, taskSheetArgs, taskSheetInput } from './model/task-sheet.ts';
+import { wordingReply } from './model/sheet-wording.ts';
 import type { TicketEdits } from './ticket-edits.ts';
 import type { TicketPanels } from './ticket.ts';
 import { verdictFrom } from './model/dock-review.ts';
@@ -669,6 +670,8 @@ export const area: ExtensionArea = {
     receive('task-sheet-go', (m) => void tasks.saveSheet(m, (msg) => panels.reply(msg)));
     // Change on the sheet's status, assignee or labels (T-80), over the Command Center or its modal.
     receive('task-sheet-field', (m) => void tasks.sheetField(m, (msg) => panels.reply(msg)));
+    // The sheet's description, to check its acceptance criteria as acc add and acc edit will (T-148).
+    receive('task-sheet-wording', (m) => panels.reply(wordingReply(m)));
     tickets.dispatch = {
       open: (command, ref, say) => (command === 'acc.task.edit' && !!ref.project && !!ref.task ? openTaskSheet(hub, (m) => void panels.tell(m), ref.project, ref.task, say, read, sheetDress(ref.project, ref.task))
         : SHEET_COMMANDS.includes(command) && !!ref.project && !!ref.task

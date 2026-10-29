@@ -55,7 +55,8 @@ import { sampleChoosing, sampleConnect } from './fixtures/connect.ts';
 import { sampleCloudSetup } from './fixtures/cloud-setup.ts';
 import type { CloudSetupModel } from '../src/model/cloud-setup.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
-import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
+import { SAMPLE_THEIRS, SAMPLE_WORDING_FIXED, sampleTaskSheet } from './fixtures/task-sheet.ts';
+import { wordingOff, wordingReply } from '../src/model/sheet-wording.ts';
 import { taskSheetOff } from '../src/model/task-sheet.ts';
 import { withSheetCriteria } from '../src/model/criteria.ts';
 import { sampleCriteria } from './fixtures/criteria.ts';
@@ -226,6 +227,11 @@ export interface BehaviourData {
      * as it opened, the stored draft's section, a failed draft's reason, and a second draft's section.
      */
     criteria: { message: Record<string, unknown>; project: string; brief: string; section: string; error: string; again: string };
+    /**
+     * The wording check (T-148): T-4's sheet with a fix and a piece of advice beside its criteria, Save's reason
+     * for being off, the description with the fixes, the extension's answer for it, and an answer for older text.
+     */
+    wording: { message: Record<string, unknown>; project: string; items: number; off: string; fixed: string; reply: Record<string, unknown>; stale: Record<string, unknown> };
   };
   /** A task page's drafted acceptance criteria (T-81): ACME-19's page with a draft, and a refused update's reason. */
   criteria: { model: Model; project: string; error: string };
@@ -2188,6 +2194,38 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'task sheet: each wording finding shows beside its criterion, Save is off until the fixes, and the check comes again as the description changes',
+    page: 'tasks',
+    async run(t) {
+      const d = t.data.taskSheet.wording;
+      await t.post(d.message);
+      const dialog = t.find<HTMLDialogElement>('dialog.task-sheet');
+      const brief = t.all<HTMLTextAreaElement>('textarea.ts-box', dialog)[0]!;
+      const go = () => t.find<HTMLButtonElement>('.ts-go', dialog);
+      const items = t.all('.ts-wording-item', dialog);
+      t.check('each criterion with a finding shows it beside its text', items.length === d.items && items.every((i) => i.querySelector('.ts-wording-text')?.textContent && i.querySelector('.ts-wording-finding')), items.map((i) => i.textContent));
+      t.check('a fix is orange with its warning icon, and advice is blue with its info icon', t.all('.ts-wording-finding .codicon-warning.tone-orange', dialog).length === 2 && t.all('.ts-wording-finding .codicon-info.tone-blue', dialog).length === 1);
+      // Edge: acc edit doesn't check a description left as it was, so an edit of the notes alone can still save.
+      t.check('with the description as it opened, Save is on, and the findings say they stop it once it changes', !go().disabled && t.find('.ts-wording-head', dialog).textContent!.includes('once you change the description'), go().title);
+      t.check('the findings are read out as they change', t.find('.ts-wording', dialog).getAttribute('aria-live') === 'polite');
+      await t.type(brief, d.fixed);
+      t.check('once the description changes, Save is off until the check comes back clean, saying why', go().disabled && go().title === d.off, go().title);
+      await t.settle();
+      await t.settle();
+      const asked = t.sent('task-sheet-wording');
+      t.check('a moment after the description changes, the sheet asks for the check once, with the text in the box', asked.length === 1 && asked[0]!.brief === d.fixed && asked[0]!.project === d.project, asked);
+      // Edge: an answer for older text is not this text's: Save stays off.
+      await t.post(d.stale);
+      t.check('an answer for older text changes nothing', go().disabled && t.all('.ts-wording-item', dialog).length === d.items);
+      await t.post(d.reply);
+      t.check('the answer for this text shows only the advice, and Save is on', !go().disabled && t.all('.ts-wording-finding .codicon-warning', dialog).length === 0 && t.all('.ts-wording-item', dialog).length === 1, go().title);
+      t.check('the description keeps its focus and its text', document.activeElement === brief && brief.value === d.fixed);
+      await t.click(go());
+      const sent = t.sent('task-sheet-go');
+      t.check('Save sends the description with the fixes', sent.length === 1 && sent[0]!.brief === d.fixed, sent);
+    },
+  },
+  {
     name: 'task sheet: drafted acceptance criteria go below the description, a failed draft says why, and nothing is saved until Save',
     page: 'tasks',
     async run(t) {
@@ -2778,7 +2816,12 @@ export const MUTANTS: Mutant[] = [
   { name: 'Escape on the task sheet saves', file: 'task-sheet.ts', find: "const m = makeModal('task-sheet', [heading], shut);", replace: "const m = makeModal('task-sheet', [heading], save);", kills: [caseNamed('task sheet: a Jira task')] },
   { name: 'Enter in the description saves', file: 'task-sheet.ts', find: '    if (e.target instanceof HTMLTextAreaElement && !e.metaKey && !e.ctrlKey) return;\n', replace: '', kills: [caseNamed('task sheet: a new task')] },
   { name: 'the task sheet\'s Save drops the notes typed', file: 'task-sheet.ts', find: "labels: v('labels'), notes: v('notes') };", replace: "labels: v('labels'), notes: s.fields.notes };", kills: [caseNamed('task sheet: a manual task')] },
-  { name: 'the task sheet saves with no title', file: 'task-sheet.ts', find: "written().title.trim() ? null : 'A task needs a title');", replace: 'null);', kills: [caseNamed('task sheet: a new task')] },
+  { name: 'the task sheet saves with no title', file: 'task-sheet.ts', find: ": !written().title.trim() ? 'A task needs a title'\n", replace: '\n', kills: [caseNamed('task sheet: a new task')] },
+  { name: 'the task sheet saves with a wording finding to fix', file: 'task-sheet.ts', find: "  : open?.wording?.hard && briefChanged() ? `Fix the wording of the acceptance criteria first: ${plural(open.wording.hard, 'finding')}` : null);", replace: '  : null);', kills: [caseNamed('task sheet: each wording finding')] },
+  { name: 'the task sheet holds Save for a description left as it was', file: 'task-sheet.ts', find: '  : open?.wording?.hard && briefChanged() ?', replace: '  : open?.wording?.hard ?', kills: [caseNamed('task sheet: each wording finding')] },
+  { name: 'the task sheet never asks for the wording check again', file: 'task-sheet.ts', find: "  if (key === 'brief' && open!.wording) b.addEventListener('input', askWording);\n", replace: '', kills: [caseNamed('task sheet: each wording finding')] },
+  { name: 'the task sheet takes an answer for older text', file: 'task-sheet.ts', find: ' || msg.wording.brief !== written().brief) return;', replace: ') return;', kills: [caseNamed('task sheet: each wording finding')] },
+  { name: 'the task sheet shows no wording findings', file: 'task-sheet.ts', find: '  at.replaceChildren(...wordingParts(open.wording));\n', replace: '', kills: [caseNamed('task sheet: each wording finding')] },
   { name: 'the task sheet closes before its ticket answers', file: 'task-sheet.ts', find: '  if (!open.base) return shut();\n', replace: '  return shut();\n', kills: [caseNamed('task sheet: with edits on')] },
   { name: 'Add the draft leaves the description as it was', file: 'task-sheet.ts', find: '  open.sheet = { ...open.sheet, fields: { ...written(), brief: below(written().brief, section) } };', replace: '  open.sheet = { ...open.sheet, fields: written() };', kills: [caseNamed('task sheet: drafted acceptance criteria')] },
   { name: 'a failed draft says nothing', file: 'task-sheet.ts', find: "  open.error = msg.error || 'The draft didn\\'t come back.';", replace: '  open.error = null;', kills: [caseNamed('task sheet: drafted acceptance criteria')] },
@@ -3118,6 +3161,9 @@ function taskSheetData(now: number): BehaviourData['taskSheet'] {
   const drafted = withSheetCriteria(edits, sampleCriteria(now), false);
   if (!drafted.criteria?.section) throw new Error('The criteria case needs a sheet with a stored draft.');
   if (!tracker.ticket || !tracker.locked) throw new Error('The task sheet case needs a Jira task with its ticket\'s link.');
+  const worded = sampleTaskSheet(now, 'wording');
+  if (!worded.wording?.hard || worded.wording.criteria.length !== 2) throw new Error('The wording case needs a sheet with a fix and a piece of advice on two criteria.');
+  if (wordingReply({ type: 'task-sheet-wording', project: ROOT, brief: SAMPLE_WORDING_FIXED }).wording.hard) throw new Error('The wording case\'s fixed text needs no fix.');
   const title = 'Write the release notes';
   const brief = 'One page for the sales team.';
   const notes = 'Ask the sales lead before it goes out.';
@@ -3133,6 +3179,12 @@ function taskSheetData(now: number): BehaviourData['taskSheet'] {
     criteria: {
       message: { type: 'task-sheet', sheet: drafted }, project: ROOT, brief: drafted.fields.brief, section: drafted.criteria!.section!,
       error: 'The draft held no acceptance criteria.', again: '## Drafted acceptance criteria\n\n### Acceptance criteria\n\n1. A new contact gets one welcome email.',
+    },
+    wording: {
+      message: { type: 'task-sheet', sheet: worded }, project: ROOT, items: worded.wording!.criteria.length, off: wordingOff(worded.wording)!, fixed: SAMPLE_WORDING_FIXED,
+      reply: wordingReply({ type: 'task-sheet-wording', project: ROOT, brief: SAMPLE_WORDING_FIXED }),
+      // An answer for text the box held a moment before, which passes: taken, it would turn Save on.
+      stale: wordingReply({ type: 'task-sheet-wording', project: ROOT, brief: '## Acceptance criteria\n\n- [ ] The page lists each field.' }),
     },
   };
 }

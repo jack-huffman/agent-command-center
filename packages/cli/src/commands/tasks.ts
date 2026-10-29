@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, codeNames, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftChangesField, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, recordChanges, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, briefAdviceLines, codeNames, type CriterionFinding, refuseBriefWording, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftChangesField, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, recordChanges, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -23,13 +23,13 @@ const upsertLines = (res: UpsertResult): string[] => [
   ...res.errors.map((e) => tone(`✗ ${e}`, 'orange')),
 ];
 
-function upsert(o: Opts, inputs: TaskInput[], own = false): number {
+function upsert(o: Opts, inputs: TaskInput[], own = false, advice: CriterionFinding[] = []): number {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const held = own ? ownTickets(config, inputs) : { inputs, refused: [] };
   const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, held.inputs, actor, by, emit, now));
   res.errors.push(...held.refused);
-  out(o, () => upsertLines(res).filter(Boolean).join('\n') || 'Nothing to do.', res);
+  out(o, () => [...upsertLines(res), ...adviceLines(advice)].filter(Boolean).join('\n') || 'Nothing to do.', advice.length ? { ...res, advice } : res);
   return res.errors.length ? 1 : 0;
 }
 
@@ -237,14 +237,17 @@ function editFrom(o: Opts): TaskEdit {
   };
 }
 
+/** The advice on a brief's acceptance criteria (T-148), dimmed: it never stops the command. */
+const adviceLines = (advice: CriterionFinding[]): string[] => briefAdviceLines(advice).map((l) => tone(l, 'dim'));
+
 /** Edits a task's fields (T-74), with acc add's checks; refused while a builder runs, once it's done, and for a field its tracker owns. */
 function cmdEdit(o: Opts, id: string): number {
   const edit = editFrom(o);
   if (!Object.keys(edit).length) throw new AccError('usage', 'acc edit <id> needs a field to change: --title, --brief, --dep, --env, --label or --notes.');
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
-  const { task, changed } = mutate(paths, now, (ledger, emit) => editTask(ledger, config, id.toUpperCase(), edit, actor, by, emit, now));
-  out(o, () => (changed.length ? `${task.id}: changed its ${editedWords(changed)}.` : `${task.id}: nothing to change, every field was already so.`), { task, changed });
+  const { task, changed, advice } = mutate(paths, now, (ledger, emit) => editTask(ledger, config, id.toUpperCase(), edit, actor, by, emit, now));
+  out(o, () => [changed.length ? `${task.id}: changed its ${editedWords(changed)}.` : `${task.id}: nothing to change, every field was already so.`, ...adviceLines(advice)].join('\n'), { task, changed, advice });
   return 0;
 }
 
@@ -283,11 +286,15 @@ export const area: CommandArea = {
     section: 'Tasks',
     order: 20,
     lines: `  acc add "<title>"|--title <text> [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--key <T-n>]
+                                        Add a task. Each item under its brief's Acceptance criteria heading passes
+                                        the Simplified Technical English check, or acc adds nothing: each finding
+                                        shows with its line, its rule and its fix. Passive voice is advice only
   acc edit <id> [--title <text>] [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--notes <text>]
                                         Change a task's fields, with add's checks. A field left out stays; --dep ""
                                         or --label "" clears the list. Refused while a builder runs or once it's
                                         done. A tracker's ticket owns its title, brief, deps and labels; acc keeps
-                                        its environment and its notes for the builder, which intake never changes
+                                        its environment and its notes for the builder, which intake never changes.
+                                        A new brief's acceptance criteria pass the check that acc add runs
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira, Azure DevOps or
                                         monday.com key that no tracker in .acc/config.json owns is refused
   acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
@@ -325,7 +332,9 @@ export const area: CommandArea = {
       const title = ((o.title as string | undefined) ?? rest.join(' ')).trim();
       if (!title) throw new AccError('usage', 'acc add "<title>"');
       const labels = ((o.label as string[] | undefined) ?? []).map((l) => l.trim()).filter(Boolean);
-      return upsert(o, [{ source: { kind: 'manual', key: (o.key as string | undefined) ?? null }, title, brief: o.brief as string | undefined, deps: (o.dep as string[] | undefined) ?? [], environment: o.env as string | undefined, labels }]);
+      // Its acceptance criteria pass the wording check before acc writes anything (T-148); advice goes on with it.
+      const advice = refuseBriefWording(((o.brief as string | undefined) ?? '').trim());
+      return upsert(o, [{ source: { kind: 'manual', key: (o.key as string | undefined) ?? null }, title, brief: o.brief as string | undefined, deps: (o.dep as string[] | undefined) ?? [], environment: o.env as string | undefined, labels }], false, advice);
     },
     edit: (o, rest) => {
       if (!rest[0]) throw new AccError('usage', 'acc edit <id> [--title <text>] [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--notes <text>]');

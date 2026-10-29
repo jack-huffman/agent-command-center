@@ -119,3 +119,37 @@ test('a task whose builder runs has Edit off with the reason, and Edit on it say
   assert.equal(sheetIn(since(s.tab, sheetFrom)), undefined, 'no sheet');
   assert.equal(tasks()[0]!.title, 'Write the report');
 });
+
+// ---------------------------------------------------------------- the wording check in the sheet (T-148)
+
+const CRITERIA = (c: string) => `## Acceptance criteria\n\n- [ ] ${c}`;
+const wordingIn = (msgs: Msg[]) => msgs.findLast((m) => m.type === 'task-sheet-wording')?.wording as { brief: string; hard: number; criteria: { criterion: number }[] } | undefined;
+
+test('the sheet\'s description is checked as the person writes, over the Command Center and over a task\'s own tab (T-148)', async () => {
+  const from = s.tab.posted.length;
+  s.tab.receive!({ type: 'task-sheet-wording', project: s.root, brief: CRITERIA('Kick off the import; then stop.') });
+  await until(() => !!wordingIn(since(s.tab, from)), 20_000, 'the findings');
+  assert.deepEqual([wordingIn(since(s.tab, from))!.hard, wordingIn(since(s.tab, from))!.criteria.map((c) => c.criterion)], [2, [1]]);
+  // A task's own tab answers on its own page.
+  const { panels } = s.fake;
+  const n = panels.length;
+  await runFrom(s.tab, 'acc.task.show');
+  const page = panels.length > n ? panels.at(-1)! : panels.find((x) => x.html.includes('data-view="ticket"'))!;
+  page.receive!({ type: 'ready' });
+  await until(() => (page.posted as Msg[]).some((m) => m.type === 'state' && m.model?.key === 'T-1' && !m.model.loading));
+  const pageFrom = page.posted.length;
+  page.receive!({ type: 'task-sheet-wording', project: s.root, brief: CRITERIA('The region is shown on the page.') });
+  await until(() => !!wordingIn(since(page, pageFrom)), 20_000, 'the findings on the tab');
+  assert.equal(wordingIn(since(page, pageFrom))!.hard, 0, 'advice only');
+  page.close!();
+});
+
+test('Add task with a hard finding in its criteria is refused by acc add: it says why and adds nothing (T-148)', async () => {
+  const { calls } = s.fake;
+  const before = tasks().length;
+  const warn = calls.warn.length;
+  s.tab.receive!({ type: 'task-sheet-go', project: s.root, title: 'Regions on deals', brief: CRITERIA('Kick off the import.'), deps: '', environment: 'main', labels: '', notes: '' });
+  await until(() => calls.warn.length > warn, 60_000, 'acc add\'s refusal');
+  assert.match(calls.warn.at(-1)!, /acceptance criteria don't pass the Simplified Technical English check \(1 finding\)[\s\S]*Line 3 \(criterion 1\), phrasal-verb/);
+  assert.equal(tasks().length, before);
+});

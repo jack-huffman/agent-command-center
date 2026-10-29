@@ -1,6 +1,7 @@
 // Editing a task (T-74): a person changes its title, brief, dependencies, environment, labels or notes for
 // the builder after it was added, with acc add's checks. A tracker's task keeps its own text in the tracker.
 
+import { type CriterionFinding, refuseBriefWording } from './brief-wording.ts';
 import type { Config } from './config.ts';
 import { AccError } from './exec.ts';
 import { type Actor, type Emit, environmentProblem, type Ledger, type State, type Task, taskDeps } from './ledger.ts';
@@ -79,10 +80,13 @@ export interface EditResult {
   task: Task;
   /** The fields it changed, in EDIT_FIELDS' order; none when every value was as it was. */
   changed: EditField[];
+  /** The advisory wording findings on its new brief's acceptance criteria (T-148): advice, which didn't stop it. */
+  advice: CriterionFinding[];
 }
 
 /**
- * Edits a task (T-74): refused while a builder runs or once it's done, and for a field its tracker owns.
+ * Edits a task (T-74): refused while a builder runs or once it's done, for a field its tracker owns, and for
+ * a brief whose acceptance criteria fail the wording check (T-148).
  * Records who changed which fields in its `edits`, and emits task.updated with the new values. A field
  * left out, or given as it is, stays as it is, and an edit that changes nothing records nothing.
  */
@@ -95,12 +99,15 @@ export function editTask(ledger: Ledger, config: Config, id: string, edit: TaskE
   const next = editChanges(task, config, edit);
   const owned = trackerFields(task).filter((f) => f in next);
   if (owned.length) throw new AccError('refused', `${id}'s ${owned.map((f) => EDIT_FIELD_WORDS[f]).join(', ')} can't be edited here. ${trackerOwns(task)}`);
+  // A new brief's acceptance criteria pass the wording check before anything is written (T-148). Only acc's own
+  // task gets this far with one: a tracker's ticket owns its brief, so its client's words are never refused.
+  const advice = typeof next.brief === 'string' ? refuseBriefWording(next.brief, id) : [];
   const changed = EDIT_FIELDS.filter((f) => f in next);
-  if (!changed.length) return { task, changed };
+  if (!changed.length) return { task, changed, advice };
   Object.assign(task, next);
   const at = now().toISOString();
   task.updatedAt = at;
   (task.edits ??= []).push({ at, actor, by, fields: changed });
   emit({ type: 'task.updated', task: id, actor, by, data: next });
-  return { task, changed };
+  return { task, changed, advice };
 }

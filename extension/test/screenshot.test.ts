@@ -99,12 +99,14 @@ test('every section of the page, and a ticket, has sample data built by the real
       // with edits on (T-80), its ticket's text to write, its status, assignee and labels, the ticket's text changed meanwhile, and a description it can't write back.
       const [after] = afterModel(kind);
       const sheet = after?.sheet as TaskSheet | undefined;
-      const wants: Record<string, unknown[]> = { 'task-sheet-new': [null, 'Add task', false, false], 'task-sheet-manual': ['T-4', 'Save', false, true], 'ticket-edit': ['ACME-19', 'Save', true, true], 'ticket-edit-on': ['ACME-19', 'Save', true, true], 'ticket-edit-changed': ['ACME-19', 'Save', true, true], 'ticket-edit-unkept': ['ACME-19', 'Save', true, true] };
+      const wants: Record<string, unknown[]> = { 'task-sheet-new': [null, 'Add task', false, false], 'task-sheet-manual': ['T-4', 'Save', false, true], 'task-sheet-wording': ['T-4', 'Save', false, true], 'ticket-edit': ['ACME-19', 'Save', true, true], 'ticket-edit-on': ['ACME-19', 'Save', true, true], 'ticket-edit-changed': ['ACME-19', 'Save', true, true], 'ticket-edit-unkept': ['ACME-19', 'Save', true, true] };
       const want = wants[kind];
       assert.deepEqual([after?.type, sheet?.task, sheet?.go, !!sheet?.locked, sheet?.notes], ['task-sheet', ...want!], kind);
       assert.equal(m.kind === 'home' ? (m as HomeModel).section : m.kind, kind.startsWith('ticket-edit') ? 'ticket' : 'tasks');
       const on = kind === 'ticket-edit-on' || kind === 'ticket-edit-changed' || kind === 'ticket-edit-unkept';
       assert.deepEqual([!!sheet?.ticketEdits?.base, sheet?.ticketEdits?.rows.map((r) => r.field) ?? [], afterModel(kind)[1]?.type ?? null], [on, on ? ['status', 'assign', 'labels'] : [], kind === 'ticket-edit-changed' ? 'task-sheet-done' : null], kind);
+      // The wording check (T-148): T-4's sheet with a fix and a piece of advice beside its criteria.
+      assert.equal(sheet?.wording?.hard ?? 0, kind === 'task-sheet-wording' ? 2 : 0, `${kind}: the wording findings to fix`);
       assert.equal(!!sheet?.ticketEdits?.unkept, kind === 'ticket-edit-unkept', `${kind}: the warning on a description that holds what can't be written back`);
     } else if (kind.startsWith('ticket-criteria')) {
       // Drafted acceptance criteria (T-81): ACME-19's tab with the draft, and the sheet over it with the draft below its description; or the draft opened as an update.

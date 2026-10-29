@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { agentArgs } from './agents.ts';
 import { fileId, STE_STRICT } from './analyze.ts';
 import { writeAtomic } from './atomic.ts';
+import { CRITERIA_TITLE } from './brief-wording.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import type { Config } from './config.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
@@ -79,7 +80,7 @@ export const CRITERIA_SCHEMA = {
 export const CRITERIA_HEADING = 'Drafted acceptance criteria';
 
 /** The sub-headings of the draft, in order. */
-export const CRITERIA_PARTS = { criteria: 'Acceptance criteria', steps: 'Test steps', edgeCases: 'Edge cases', questions: 'Open questions for the author' } as const;
+export const CRITERIA_PARTS = { criteria: CRITERIA_TITLE, steps: 'Test steps', edgeCases: 'Edge cases', questions: 'Open questions for the author' } as const;
 
 /** The most of a ticket the drafter is given: the description, and each of the newest comments. */
 export const CRITERIA_TEXT_MAX = 30_000;
