@@ -5,6 +5,24 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.52.0
+
+- A concise Agent panel on a task's page (D-223). At a glance it shows the
+  state, one line for the checks that names only the ones that failed or need
+  you ("1 failed: validate · 4 more"), the next step and at most two other
+  actions. The rest of the actions are under More actions. Environment,
+  session, model, branch, worktree and every check's own line are under
+  Details, a fold that is closed at first and remembered per ticket. Where a
+  task's state and its session disagree, it says so once: "Blocked: its builder
+  is still working".
+- A board opens on your own tasks (D-222). When the tracker knows who you are,
+  a board you haven't chosen a filter for shows Mine. If it can't, it shows
+  everyone and says why ("sign in to Jira to see just yours"). A filter you
+  pick is remembered per board. An empty Mine says so and offers Show everyone.
+- Buttons side by side are one size (D-221). Open conversation beside Make a
+  plan, Other next steps beside Deploy, and an agent's Answer beside Watch now
+  match. The screenshot run fails any row that mixes button sizes.
+
 ## 0.51.0
 
 - Deploy a ticket from its page (D-219, D-220). The Changes tab shows where

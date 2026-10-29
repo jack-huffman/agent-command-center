@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-28**. Version 0.50.0 is
+Where each piece of the build stands, as of **2026-10-28**. Version 0.51.0 is
 the latest release (2026-10-28). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.51.0 is prepared and waits on a person
+`.sha256` beside its `.vsix`. Version 0.52.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -176,6 +176,9 @@ where each one's done-when is written out.
 - **Deploy one ticket from its page, checked first, its branch kept in step**:
   done. Checked 2026-10-28. Evidence: D-219, D-220, release 0.51.0. Tried
   against stand-in Salesforce and GitHub answers; not yet on a real org.
+- **A concise Agent panel, a board that opens on my tasks, and buttons in a
+  row that share one size**: done. Checked 2026-10-28. Evidence: D-221,
+  D-222, D-223, release 0.52.0.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).

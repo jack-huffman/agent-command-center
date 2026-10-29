@@ -20255,7 +20255,7 @@ import { readFileSync as readFileSync51, realpathSync as realpathSync6 } from "n
 import { dirname as dirname17 } from "node:path";
 
 // package.json
-var package_default = { version: "0.51.0" };
+var package_default = { version: "0.52.0" };
 
 // packages/cli/src/shared.ts
 var VERSION = package_default.version;
