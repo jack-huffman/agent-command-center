@@ -203,7 +203,8 @@ export const area: ModelArea = {
           }
           attention.push({ key: `t:${p.root}:${r.id}`, look: r.agent ?? LOOK('Needs you', 'bell-dot', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · its agent is waiting on you in its terminal`, project: p.name, actions: [...(attach ? [{ ...attach, primary: true }] : []), ...(watch ? [{ ...watch, primary: false }] : []), details] });
         } else if (r.display === 'blocked') {
-          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Blocked', 'circle-slash', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · blocked`, project: p.name, actions: [details] });
+          // Its note goes with it (T-146): Needs you draws its headline and bullets under the line.
+          attention.push({ key: `t:${p.root}:${r.id}`, look: LOOK('Blocked', 'circle-slash', 'orange'), title: `${r.id} ${r.title}`, detail: `${p.name} · blocked`, ...(r.blocker ? { note: r.blocker } : {}), project: p.name, actions: [details] });
         } else if (r.display === 'review' && r.queue && autoMergeOn(p.config)) {
           // In the merge queue, nothing waits on you: the Merge queue panel shows it, with what it waits on (GH-73).
           continue;

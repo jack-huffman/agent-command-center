@@ -165,7 +165,8 @@ function inlineOptions(s: string): { text: string; options: NoteOption[] } {
   return { text: tidy(s.slice(0, marks[0]!.at)), options };
 }
 
-const option = (label: string, text: string): NoteOption => ({ label, text: tidy(text), recommended: /\brecommend(?:ed)?\b|\(recommended\)/i.test(text) });
+/** An option, its own full stop off: in a paragraph it closed the option before the next thing. */
+const option = (label: string, text: string): NoteOption => ({ label, text: tidy(text).replace(/(?<!\.)\.$/, ''), recommended: /\brecommend(?:ed)?\b|\(recommended\)/i.test(text) });
 
 /** An item's options, with the one its words recommend marked: "I recommend b", "Recommended: (a)". */
 function marked(item: NoteItem): NoteItem {

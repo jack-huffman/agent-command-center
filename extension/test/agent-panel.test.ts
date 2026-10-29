@@ -78,9 +78,9 @@ test('the glance for each state: blocked says why, in review and sent back say t
   saved = undefined;
   const blocked = panel(sampleAgentPanelTicket(NOW, 'blocked'))!;
   assert.match(text(foldOf(blocked, 'agent-state')), /^Blocked/);
-  // The reason is the page's "Why it's blocked" notice above its tabs: the panel doesn't say it again.
-  assert.equal(blocked.all('agent-hold').length, 0);
-  assert.ok(!text(blocked.all('agent-glance')[0]).includes('The checks error on validate'));
+  // The reason's headline alone (T-146): the rest of it is the page's "Why it's blocked" notice above its tabs.
+  assert.deepEqual(blocked.all('agent-hold').map((h) => h.textContent), ['The checks error on validate: the Acme Dev login has expired.']);
+  assert.ok(!text(blocked.all('agent-glance')[0]).includes('Log in to Acme Dev again'), 'only its headline');
   // Blocked with its builder gone: nothing contradicts it.
   assert.equal(blocked.all('agent-disagree').length, 0);
   assert.equal(blocked.all('state-chip').length, 1, 'one chip: the state');
@@ -199,7 +199,7 @@ test('a blocked task that also waits on other tasks keeps its Waiting on row in 
   const m = sampleAgentPanelTicket(NOW, 'waits');
   assert.ok(m.acc!.blocker && m.acc!.waitingOn.length === 2, 'both are set');
   const p = panel(m)!;
-  assert.equal(p.all('agent-hold').length, 0, 'the blocker is the page\'s notice, not the panel\'s');
+  assert.deepEqual(p.all('agent-hold').map((h) => h.classList.contains('agent-why')), [true], 'the blocker\'s headline at a glance, not the tasks it waits on (T-146)');
   assert.equal(detailRows(p).get('Waiting on'), 'ACME-19, ACME-35', 'nothing lost: the tasks it waits on are in Details');
   // The session's own words are a row of Details too, where the glance leaves its chip out or merges it.
   const working = panel(sampleAgentPanelTicket(NOW, 'disagree'))!;

@@ -18,7 +18,7 @@ import { analysisWait, rowAnalysis } from './logic/tasks.ts';
 import { cloudWait } from '../../packages/core/src/cloud.ts';
 import { cloudReviewWait } from '../../packages/core/src/cloud-review.ts';
 import { sessionName } from '../../packages/core/src/names.ts';
-import { rowInWords } from './logic/relayed.ts';
+import { noteInWords, rowInWords } from './logic/relayed.ts';
 import { UNSEEN_WORDS } from '../../packages/core/src/started.ts';
 import { unseenFrom } from '../../packages/core/src/unseen.ts';
 // The Tasks area's rows as the hub reads them (D-099): each task's agent, analysis, review, pull request, place
@@ -118,6 +118,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
       autopilot: failed ? { step: failed.step, reason: failed.reason } : null,
       checks: failedChecks(t),
       stopped: stopped ? { said } : null,
+      blocker: t.state === 'blocked' ? noteInWords(t.blocker) : null,
       unseen,
       notStarted: t.notStarted && (t.state === 'todo' || t.state === 'rework') ? { reason: t.notStarted.reason, at: t.notStarted.at } : null,
       resuming: !!resumed,

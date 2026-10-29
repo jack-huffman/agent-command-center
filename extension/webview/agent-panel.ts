@@ -6,6 +6,7 @@ import type { Action } from '../src/model/shared.ts';
 import type { TicketAcc, TicketModel, TicketRatchet } from '../src/model/task-page.ts';
 import { button, type Child, clippedSpan, el, icon, linkTo, stateChip, status, work } from './dom.ts';
 import { checkSummary, detailsKey, splitActions, stateGlance } from './agent-glance.ts';
+import { noteHeadline } from './note.ts';
 import { WORDS } from './plain-words.ts';
 import { memory, remember } from './state.ts';
 import { taskActions } from './task-actions.ts';
@@ -69,11 +70,13 @@ function facts(a: TicketAcc): HTMLElement {
 }
 
 /**
- * The tasks it waits on, in one short line at a glance. A blocker's reason isn't drawn here: the page's "Why it's
- * blocked" notice above its tabs says it, each fact once. With a blocker, the tasks it waits on are a row of Details.
+ * What holds it up, in one short line at a glance: a blocked note's headline alone (T-146), whose bullets are the
+ * page's "Why it's blocked" notice beside the panel, each fact once; else the tasks it waits on, which with a
+ * blocker are a row of Details.
  */
 function holdLine(a: TicketAcc): HTMLElement | null {
-  if (a.blocker || !a.waitingOn.length) return null;
+  if (a.blocker) return el('p', 'agent-hold agent-why small', icon('circle-slash', 'orange'), noteHeadline(a.blocker));
+  if (!a.waitingOn.length) return null;
   const text = `Waiting on ${a.waitingOn.join(', ')}`;
   return el('p', 'agent-hold muted small', icon('clock'), Object.assign(el('span', 'agent-hold-text', text), { title: text }));
 }

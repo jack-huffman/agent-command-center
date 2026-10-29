@@ -4,15 +4,16 @@
  * ACME-12's with its task state, look, blocker and actions as a blocked task's, the actions from the card's
  * own list for that state.
  */
+import { noteInWords } from '../../src/logic/relayed.ts';
 import { displayLook } from '../../src/model/shared.ts';
 import { checkRows } from '../../src/model/task-page.ts';
 import { cardActions } from '../../src/model/cards.ts';
 import type { TicketModel } from '../../src/model/task-page.ts';
 import { sampleHub } from './hub.ts';
-import { ROOT } from './shared.ts';
+import { BLOCKED_NOTE, BLOCKED_WALL, ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
-export type AgentPanelSample = 'blocked' | 'disagree' | 'waits' | 'failed' | 'queued';
+export type AgentPanelSample = 'blocked' | 'disagree' | 'waits' | 'failed' | 'queued' | 'note' | 'wall';
 
 export function sampleAgentPanelTicket(now: number, which: AgentPanelSample): TicketModel {
   // ACME-35, waiting on two tasks and blocked by none: the glance says what it waits on.
@@ -30,10 +31,17 @@ export function sampleAgentPanelTicket(now: number, which: AgentPanelSample): Ti
   const acc = m.acc!;
   const blocked = {
     ...acc, state: 'blocked', look: displayLook('blocked'),
-    blocker: 'The checks error on validate: the Acme Dev login has expired. Log in to Acme Dev again, then run the checks.',
+    blocker: noteInWords('The checks error on validate: the Acme Dev login has expired. Log in to Acme Dev again, then run the checks.'),
     agent: which === 'disagree' ? { label: 'Working', icon: 'sync~spin', tone: 'blue' as const } : null,
     actions: cardActions(row, { project: ROOT, task: 'ACME-12' }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command)),
   };
+  // Blocked by its builder with a note (T-146): in shape, or a paragraph as builders wrote one before. The page's
+  // notice, History's move, the glance and Details each draw it.
+  if (which === 'note' || which === 'wall') {
+    const note = noteInWords(which === 'note' ? BLOCKED_NOTE : BLOCKED_WALL)!;
+    const move = { at: new Date(now - 20 * 60_000).toISOString(), from: 'running', to: 'blocked', by: 'builder:ACME-12', reason: note, look: displayLook('blocked') };
+    return { ...m, acc: { ...blocked, blocker: note, history: [move, ...acc.history] } };
+  }
   // Blocked and also waiting on two tasks: the blocker is the page's notice, the tasks it waits on are a row of Details.
   return { ...m, acc: which === 'waits' ? { ...blocked, waitingOn: ['ACME-19', 'ACME-35'] } : blocked };
 }

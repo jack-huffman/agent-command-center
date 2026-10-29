@@ -286,17 +286,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-passed' | 'ticket-deploy-failed' | 'ticket-deploy-typed' | 'ticket-agent-failed';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-passed' | 'ticket-deploy-failed' | 'ticket-deploy-typed' | 'ticket-agent-failed' | 'ticket-blocked-wall';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab deployed once, and its deploy sheet passed, failed and asking Production's name (T-138). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; passed: Model; failed: Model; typed: Model; work: Model; agentFailed: Model }
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab deployed once, and its deploy sheet passed, failed and asking Production's name (T-138); and ACME-12 blocked with a note recorded as one paragraph (T-146). */
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; passed: Model; failed: Model; typed: Model; work: Model; agentFailed: Model; wall: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-passed' ? models.passed : c.page === 'ticket-deploy-failed' ? models.failed : c.page === 'ticket-deploy-typed' ? models.typed : c.page === 'ticket-agent-failed' ? models.agentFailed : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-passed' ? models.passed : c.page === 'ticket-deploy-failed' ? models.failed : c.page === 'ticket-deploy-typed' ? models.typed : c.page === 'ticket-agent-failed' ? models.agentFailed : c.page === 'ticket-blocked-wall' ? models.wall : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -905,6 +905,24 @@ export const CASES: Case[] = [
       t.check('a click shuts it again, and the tab forgets it', !details().open && !key(), t.memory().opened);
       const more = t.find<HTMLDetailsElement>('.agent-more', panel());
       t.check('More actions starts closed, holding the actions the panel doesn\'t show first', !more.open && more.querySelectorAll('.ta-btn').length > 0);
+    },
+  },
+  {
+    name: 'task page: a blocked note recorded as one paragraph is drawn as a headline, a bullet per thing, each option on its own line, and code (T-146)',
+    page: 'ticket-blocked-wall',
+    async run(t) {
+      const notice = (): HTMLElement => t.find('.ticket-top .notice.why');
+      const items = (): HTMLElement[] => t.all('.note-item', notice());
+      t.check('its headline comes first, alone', t.find('.note-head', notice()).textContent === 'Why it\'s blocked: Plan v2 contradicts itself, so nothing can land without a person\'s choice.', notice().querySelector('.note-head')?.textContent);
+      t.check('a bullet per thing: its three', items().length === 3 && items().every((i) => i.getBoundingClientRect().height > 0), items().length);
+      const tops = t.all('.note-option', items()[0]).map((o) => Math.round(o.getBoundingClientRect().top));
+      t.check('each option on its own line', tops.length === 2 && tops[1]! > tops[0]!, tops);
+      t.check('the one recommended says so, in words with its icon', t.all('.note-rec', notice()).length === 2 && t.find('.note-rec', notice()).textContent === 'Recommended' && t.find('.note-rec .codicon-star-full', notice()) !== null);
+      const code = t.all('code', notice()).map((c) => c.textContent);
+      t.check('API names recorded bare are drawn as code', code.includes('Deal_Territory__c') && code.includes('Territory_Record_Page.flexipage-meta.xml'), code);
+      // Edge: drawn again from a new model, it is still a list.
+      await t.post({ type: 'state', model: t.model });
+      t.check('drawn again, still a list', items().length === 3);
     },
   },
   {
@@ -2508,6 +2526,7 @@ const caseNamed = (start: string): string => {
 };
 
 export const MUTANTS: Mutant[] = [
+  { name: 'a note is drawn as one paragraph again', file: 'task-page.ts', find: "if (!n.shape) return foldable(key, el('div', 'notice attention why',", replace: "if (n) return foldable(key, el('div', 'notice attention why',", kills: [caseNamed('task page: a blocked note recorded as one paragraph')] },
   { name: 'a failed check isn\'t named in the summary', file: 'agent-glance.ts', find: 'failed.length ? `${failed.length} failed: ${names(failed)}` : null,', replace: 'failed.length ? `${failed.length} failed` : null,', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'Details doesn\'t stay open once opened', file: 'agent-panel.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'a collapsed section doesn\'t stay collapsed', file: 'collapse.ts', find: 'show(memory().folded.includes(k));', replace: 'show(false);', kills: [caseNamed('task page: a Command Center section collapses')] },

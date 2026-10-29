@@ -15,9 +15,9 @@ const OLD: { name: string; note: string; headline: string; items: { text: string
     note: WALL,
     headline: 'Plan v2 contradicts itself, so nothing can land without a person\'s choice.',
     items: [
-      { text: 'The plan keeps the region on Account, but the criteria name Territory_Region__c on Opportunity: which is right?', options: ['keep Account.Region__c (recommended)', 'add Territory_Region__c.'], recommended: 'a' },
-      { text: 'The record page Deal_Record_Page.flexipage-meta.xml is named twice; which layout wins?', options: ['the sales layout', 'the service layout.'] },
-      { text: 'The report type Deals_With_Regions needs the permission set Sales_Ops_Access, which the plan leaves out. I recommend b:', options: ['drop the report', 'add the permission set under force-app/main/default/permissionsets.'], recommended: 'b' },
+      { text: 'The plan keeps the region on Account, but the criteria name Territory_Region__c on Opportunity: which is right?', options: ['keep Account.Region__c (recommended)', 'add Territory_Region__c'], recommended: 'a' },
+      { text: 'The record page Deal_Record_Page.flexipage-meta.xml is named twice; which layout wins?', options: ['the sales layout', 'the service layout'] },
+      { text: 'The report type Deals_With_Regions needs the permission set Sales_Ops_Access, which the plan leaves out. I recommend b:', options: ['drop the report', 'add the permission set under force-app/main/default/permissionsets'], recommended: 'b' },
     ],
   },
   {

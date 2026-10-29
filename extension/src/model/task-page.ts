@@ -20,7 +20,7 @@ import type { Verdict } from '../../../packages/core/src/review.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import type { Excerpt } from '../logic/review-excerpts.ts';
 import { type AnalysisAsk, questionsWord, type TaskRow, type Tone } from '../logic/shared.ts';
-import { reasonInWords } from '../logic/relayed.ts';
+import { type AgentNote, noteInWords, reasonInWords } from '../logic/relayed.ts';
 import { conflictLine, failedChecksLine } from '../logic/tasks.ts';
 import { accLook, type BoardInput, chip, type PersonChip, priorityIcon, statusLook, typeIcon } from './boards.ts';
 import { type Action, displayLook, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
@@ -111,7 +111,8 @@ export interface TicketAcc {
   /** What a person wrote for its builder (T-74), in Markdown; null when there are none. */
   notes: Doc | null;
   waitingOn: string[];
-  blocker: string | null;
+  /** Why it's blocked, as its agent or a person said it (T-146): a headline and its bullets where it has them. */
+  blocker: AgentNote | null;
   /** Every file its open pull request conflicts in with its base, in one line, or null (D-049). */
   conflicts: string | null;
   /** "Checks failed on GitHub: …", or null (D-076). Not `checks`: those are acc's own, on its commit. */
@@ -135,7 +136,7 @@ export interface TicketAcc {
   /** acc's checks on its commit, each with how its result shows (GH-105) and whether a person can waive it. */
   checks: CheckRow[];
   /** Each move, with the state it reached as core's DISPLAY shows it (GH-105). */
-  history: { at: string; from: string | null; to: string; by: string; reason: string | null; look: Look }[];
+  history: { at: string; from: string | null; to: string; by: string; reason: AgentNote | null; look: Look }[];
   /** Each edit a person made to its fields (T-74), newest first, with the fields in words. Apart from its moves. */
   edits: { at: string; by: string; fields: string }[];
   actions: Action[];
@@ -516,10 +517,10 @@ export function ticketModel(i: TicketInput): TicketModel {
   const has = (f: TrackerField) => !lacks.some((l) => l.field === f);
   const live = i.tracker !== null;
   const acc: TicketAcc | null = i.row && i.task ? {
-    look: accLook(i.row, true), state: i.row.state, environment: i.task.environment, notes: i.task.notes?.trim() ? fromMarkdown(i.task.notes) : null, waitingOn: i.row.deps, blocker: reasonInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
+    look: accLook(i.row, true), state: i.row.state, environment: i.task.environment, notes: i.task.notes?.trim() ? fromMarkdown(i.task.notes) : null, waitingOn: i.row.deps, blocker: noteInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
     agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, effort: i.row.effort ?? null, agentName: i.task.run?.name ?? null, place: placeLook(i.row), cloudUrl: i.row.cloud?.url ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
     // Why it blocked or moved, whoever wrote it, in process words (GH-163).
-    history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: reasonInWords(h.reason), look: displayLook(h.to) })).reverse(),
+    history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: noteInWords(h.reason), look: displayLook(h.to) })).reverse(),
     edits: (i.task.edits ?? []).map((e) => ({ at: e.at, by: e.by, fields: editedWords(e.fields) })).reverse(),
     // Its analysis has its own section, with its own buttons: with a plan to build from, Build it there is Dispatch (T-97).
     actions: cardActions(i.row, { project: i.project, task: i.row.id }).filter((a) => !['acc.task.show', 'acc.task.openTicket', 'acc.task.analyze', 'acc.task.watchAnalysis'].includes(a.command) && !(a.command === 'acc.task.dispatch' && i.row!.state === 'todo' && i.analysis)),

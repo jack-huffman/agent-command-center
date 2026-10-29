@@ -1,0 +1,29 @@
+/* An agent's note (T-146): a headline, a bullet per thing, each option on its own line. */
+.note { min-width: 0; overflow-wrap: anywhere; }
+.note-head { margin: 0; font-weight: 600; }
+.note-items { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 4px; }
+.note-item { padding-left: 2px; }
+.note-item-text { overflow-wrap: anywhere; }
+.note-options { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+.note-option { display: grid; grid-template-columns: 1.8em minmax(0, 1fr); align-items: baseline; }
+.note-letter { color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+.note-option-text { min-width: 0; overflow-wrap: anywhere; }
+.note-rec { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; font-size: 0.9em; font-weight: 600; white-space: nowrap; }
+.note-rec > .codicon { font-size: 12px; }
+.note-headline { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-fold { margin-top: 2px; }
+.note-fold > summary { display: inline-flex; align-items: center; gap: 2px; padding: 1px 4px 1px 0; border-radius: 4px; cursor: pointer; list-style: none; }
+.note-fold > summary::-webkit-details-marker { display: none; }
+.note-fold > summary:hover { color: var(--vscode-foreground); }
+.note-fold > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+.note-fold[open] > summary .tool-chev { transform: rotate(90deg); }
+/* In the page's notice, the note fills the line beside its icon. */
+.notice.why > .note, .notice.why > .foldable { flex: 1; min-width: 0; }
+.notice.why-note { align-items: flex-start; }
+.notice.why-note > .codicon { margin-top: 2px; }
+/* Under a line on Needs you, its note: the line stays one line high, the note is indented under it. */
+.lp-item { display: grid; gap: 2px; min-width: 0; }
+.lp-note { min-width: 0; margin-left: 13px; padding: 4px 10px 6px; border-left: 2px solid var(--line); color: var(--vscode-descriptionForeground); }
+.lp-note .note-head { font-weight: 400; color: var(--vscode-foreground); }
+/* At a glance on the Agent panel, the headline takes the line beside its icon. */
+.agent-why > .note-headline { flex: 1; }
