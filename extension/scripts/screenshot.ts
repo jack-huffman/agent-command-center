@@ -526,6 +526,7 @@ export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown
   : kind === 'dispatch-sheet-anyway' ? [{ type: 'dispatch-sheet', sheet: sampleSheet(now, 'anyway') }]
   // The task sheet (T-74): a new task and a manual task's edit over the Tasks board, and ACME-19's edit, a Jira task in rework, over its tab.
   : kind === 'task-sheet-new' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'new') }] : kind === 'task-sheet-manual' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'manual') }]
+  : kind === 'task-sheet-wording' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'wording') }]
   : kind === 'ticket-edit' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'tracker') }]
   // With edits on (T-80): ACME-19's sheet with its ticket's text to edit, and the choice when a colleague changed the ticket after it opened.
   : kind === 'ticket-edit-on' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'edits') }]

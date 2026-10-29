@@ -42,6 +42,7 @@ import type { RecordActions } from './record-changes.ts';
 import { ticketRecords } from './model/record-changes.ts';
 import type { ManifestActions } from './manifest.ts';
 import { ticketManifest } from './model/manifest.ts';
+import { wordingReply } from './model/sheet-wording.ts';
 import type { DeployActions } from './ticket-deploy.ts';
 import { openSteps } from '../../packages/core/src/change-steps.ts';
 import { deployBlockers, deployOff, ticketDeploy } from './model/ticket-deploy.ts';
@@ -560,6 +561,8 @@ export class TicketPanels implements vscode.Disposable {
       case 'dispatch-sheet-go': this.dispatch?.go(m); return;
       case 'task-sheet-go': this.dispatch?.save(m, (msg) => o.view.say(msg)); return;
       case 'task-sheet-field': this.dispatch?.field(m, (msg) => o.view.say(msg)); return;
+      // The sheet's description, to check its acceptance criteria (T-148).
+      case 'task-sheet-wording': o.view.say(wordingReply(m)); return;
       // Drafted acceptance criteria (T-81): this page's own task only.
       case 'criteria-draft': case 'criteria-update': case 'criteria-sheet':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.criteria?.act(m, (msg) => o.view.say(msg));

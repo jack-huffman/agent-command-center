@@ -11,6 +11,7 @@ import type { Task } from '../../../packages/core/src/ledger.ts';
 import { unkeptRefusal } from '../../../packages/core/src/trackers/doc.ts';
 import { textRefusal, type Ticket, type TrackerField, type TrackerKind, trackerName } from '../../../packages/core/src/trackers/types.ts';
 import type { SheetCriteria } from './criteria.ts';
+import { type SheetWording, sheetWording, wordingChecked } from './sheet-wording.ts';
 import { KEY, type ModelArea, short } from './shared.ts';
 import { SHEET_TICKET_FIELDS, type SheetRow, sheetRows, type TicketTextBase } from './ticket-text.ts';
 
@@ -60,6 +61,8 @@ export interface TaskSheet {
   criteria?: SheetCriteria;
   /** It opened with drafted acceptance criteria below the description's text (T-81). */
   drafted?: boolean;
+  /** The wording findings on its description's acceptance criteria (T-148). Not set: a tracker's ticket, never checked. */
+  wording?: SheetWording;
 }
 
 /** A tracker task's ticket as the sheet sees it (T-80): whether the project allows edits, and the ticket as read when the sheet opened, or why it couldn't be. */
@@ -132,6 +135,7 @@ export function taskSheet(i: TaskSheetInput): TaskSheet | null {
     ticket,
     notes: !!t,
     ticketEdits: st ? { base, rows: st.ticket ? sheetRows(st.ticket, st.fields) : [], unkept: unkeptWarning(base ? st.ticket?.unkept : undefined) } : null,
+    ...(wordingChecked(t) ? { wording: sheetWording(t?.brief ?? '') } : {}),
   };
 }
 

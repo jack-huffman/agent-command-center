@@ -153,6 +153,8 @@ export const PAGES = [
   'dispatch-sheet-anyway',
   'task-sheet-new',
   'task-sheet-manual',
+  // The task sheet's wording check (T-148): a fix and a piece of advice beside the acceptance criteria
+  'task-sheet-wording',
   // A ticket's page, in each of its states
   'ticket',
   'ticket-questions',
