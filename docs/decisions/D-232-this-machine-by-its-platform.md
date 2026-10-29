@@ -1,4 +1,4 @@
-## D-T-150 The Command Center names this machine by its platform: This Mac, This PC or This computer (2026-10-29)
+## D-232 The Command Center names this machine by its platform: This Mac, This PC or This computer (2026-10-29)
 
 T-150. A coworker set the Command Center up on Windows, and it still said "This Mac" there: the place of a
 local builder or review, and the messages that send a person back to this machine. D-209 says acc works
