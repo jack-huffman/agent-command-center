@@ -1,4 +1,4 @@
-## D-T-149 An agent's note to a person passes the wording check before acc records it (2026-10-29)
+## D-230 An agent's note to a person passes the wording check before acc records it (2026-10-29)
 
 T-149. The person asked for an agent's notes to a person to pass the Simplified Technical English check (T-12,
 `packages/core/src/ste.ts`), after a blocked note reached them as a 1,300-character paragraph. D-227 (T-146) gave

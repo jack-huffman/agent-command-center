@@ -237,3 +237,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-227](decisions/D-227-an-agent-s-note-is-a-headline-and-a-bullet-per-thing.md) | An agent's note is a short headline and a bullet per thing, with API names as code | 2026-10-29 |
 | [D-228](decisions/D-228-set-up-cloud-builders-in-one-guided-modal.md) | Set up cloud builders in one guided modal, on a Mac or on Windows | 2026-10-29 |
 | [D-229](decisions/D-229-a-card-shows-its-working.md) | A card shows it's working the moment you click, and a cleaned-up task leaves Done | 2026-10-29 |
+| [D-230](decisions/D-230-an-agent-s-note-passes-the-wording-check.md) | An agent's note to a person passes the wording check before acc records it | 2026-10-29 |
