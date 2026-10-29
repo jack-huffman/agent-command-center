@@ -413,7 +413,8 @@ export const area: CommandArea = {
       if (!reason) throw new AccError('usage', items.length ? `--item adds a bullet under a headline: ${BLOCK_SHAPE}` : 'acc block "<what you need>", or acc block --client "<question>" when only the client can answer');
       // An agent's note is a headline and a bullet per thing, not a wall of text; a person's isn't checked.
       if (actorFrom(o).actor !== 'human') {
-        const problems = [...new Set([...shapeProblems(reason), ...(asked ? shapeProblems(asked) : [])])];
+        // The agent's own words are checked: a client's question without the prefix acc adds to the reason.
+        const problems = shapeProblems(said ? reason : asked);
         if (problems.length) throw new AccError('refused', problems.join(' '));
       }
       return cmdSet({ ...o, reason, ...(asked ? { client: asked } : {}) }, id, 'blocked', noteFrom(o));

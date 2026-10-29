@@ -71,3 +71,15 @@ test('--item with no headline is refused with the shape to use, and --client tak
   assert.equal(c.code, 0, c.err);
   assert.equal(c.json().task.blocker, 'Waiting on the client: Which queue should Gold cases go to?\n- Today they go to `Support_Tier_2`.');
 });
+
+test('a client\'s question is held to the headline limit by its own length, not with the prefix acc adds', () => {
+  const { dir, builder } = running();
+  const question = `Which queue should Gold cases go to ${'when they arrive '.repeat(20)}`.slice(0, NOTE_HEADLINE_MAX - 5).trim() + '?';
+  assert.ok(question.length + 'Waiting on the client: '.length > NOTE_HEADLINE_MAX, 'with the prefix it would be past the limit');
+  const fits = acc(dir, ['block', '--client', question, '--json'], undefined, builder);
+  assert.equal(fits.code, 0, fits.err);
+  const { dir: d2, builder: b2 } = running();
+  const long = acc(d2, ['block', '--client', `${question} ${question}`], undefined, b2);
+  assert.equal(long.code, 1, long.out);
+  assert.equal(long.err.match(/one long paragraph/g)?.length, 1, 'one refusal, counted on the question alone');
+});
