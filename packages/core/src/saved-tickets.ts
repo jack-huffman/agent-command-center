@@ -144,15 +144,26 @@ export function removeSavedTicket(paths: { stateDir: string }, key: string): voi
 
 /**
  * The saved tickets that follow the boards (D-072): a ticket of a tracker the project no longer names, as its settings
- * are now, is removed, and so is one that left a board that loaded. A board that didn't load (`keys` null) keeps its
- * tickets. Gives back the keys removed.
+ * are now, is removed, and so is one that left every board that loaded. A board that didn't load (`keys` null) keeps
+ * its tracker's tickets. A ticket two trackers' boards show is saved under one of them: when it leaves that board but
+ * another loaded board still shows it, it is kept, and moves to that board's tracker, so a sign-out removes it with
+ * the board that shows it. `saved` is every saved ticket, read once by the caller. Gives back the keys removed.
  */
-export function pruneSavedTickets(paths: { stateDir: string }, boards: readonly { tracker: string; keys: readonly string[] | null }[]): string[] {
+export function pruneSavedTickets(
+  paths: { stateDir: string }, boards: readonly { tracker: string; keys: readonly string[] | null }[], saved: readonly SavedTicket[] = readSavedTickets(paths),
+): string[] {
   const removed: string[] = [];
-  for (const t of readSavedTickets(paths)) {
+  const shows = (b: { keys: readonly string[] | null }, key: string): boolean => !!b.keys?.some((k) => k.toUpperCase() === key);
+  for (const t of saved) {
+    const key = t.key.toUpperCase();
     const mine = boards.filter((b) => b.tracker === t.tracker);
-    const kept = mine.length > 0 && mine.some((b) => !b.keys || b.keys.some((k) => k.toUpperCase() === t.key.toUpperCase()));
-    if (kept) continue;
+    if (mine.some((b) => !b.keys || shows(b, key))) continue;
+    // Its tracker is still named, and another tracker's board shows it: kept, under that tracker.
+    const other = mine.length ? boards.find((b) => b.tracker !== t.tracker && shows(b, key)) : undefined;
+    if (other) {
+      writeSavedTicket(paths, { ...t, tracker: other.tracker });
+      continue;
+    }
     removeSavedTicket(paths, t.key);
     removed.push(t.key);
   }

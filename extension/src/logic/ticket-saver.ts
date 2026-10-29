@@ -8,7 +8,7 @@
  * Like the rest of logic/, no `vscode` import, so it can be tested with node:test.
  */
 import {
-  markSavedFailed, needsRead, pruneSavedTickets, readSavedTicket, removeSavedTicket, removeTrackerTickets, type TicketRead, savedTicketOf, writeSavedTicket,
+  markSavedFailed, needsRead, pruneSavedTickets, readSavedTicket, readSavedTickets, removeSavedTicket, removeTrackerTickets, type TicketRead, savedTicketOf, writeSavedTicket,
 } from '../../../packages/core/src/saved-tickets.ts';
 import type { BoardCard } from '../../../packages/core/src/trackers/types.ts';
 import { unreadWhy } from './plan-ticket.ts';
@@ -66,7 +66,11 @@ export class TicketSaver {
    * changed, or has no saved copy, are queued, the board on show (`first`) first. Nothing is read before this returns.
    */
   follow(root: string, paths: { stateDir: string }, boards: readonly FollowedBoard[], first: number | null = null): { queued: string[]; removed: string[] } {
-    const removed = pruneSavedTickets(paths, boards.map((b) => ({ tracker: b.tracker, keys: b.cards?.map((c) => c.key) ?? null })));
+    // Every saved ticket is read once a load: the prune and each card's check both use this read.
+    const all = readSavedTickets(paths);
+    const removed = pruneSavedTickets(paths, boards.map((b) => ({ tracker: b.tracker, keys: b.cards?.map((c) => c.key) ?? null })), all);
+    const gone = new Set(removed.map((k) => k.toUpperCase()));
+    const saved = new Map(all.filter((t) => !gone.has(t.key.toUpperCase())).map((t) => [t.key.toUpperCase(), t]));
     const now = this.host.now();
     const seen = new Set<string>();
     const jobs: Job[] = [];
@@ -78,7 +82,7 @@ export class TicketSaver {
         const key = c.key.toUpperCase();
         if (seen.has(key)) continue;
         seen.add(key);
-        if (needsRead(c, readSavedTicket(paths, key), now)) jobs.push({ root, paths, index: b.index, tracker: b.tracker, key, updated: c.updated });
+        if (needsRead(c, saved.get(key) ?? null, now)) jobs.push({ root, paths, index: b.index, tracker: b.tracker, key, updated: c.updated });
       }
     }
     this.shown.set(root, shown);

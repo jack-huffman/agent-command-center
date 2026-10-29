@@ -2,9 +2,10 @@
 // saved copy, are read, one at a time and spaced, in the background; the person goes first; a stopped queue goes on
 // from where it was; a failed read keeps the last good copy; and the saved tickets follow the boards and the sign-in.
 import assert from 'node:assert/strict';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import fs, { readdirSync, readFileSync, statSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import type { Tracker } from '../../packages/core/src/config.ts';
 import { readSavedTicket, readSavedTickets, savedTicketOf, trackerKey, type TicketRead, writeSavedTicket } from '../../packages/core/src/saved-tickets.ts';
 import { TrackerError } from '../../packages/core/src/trackers/types.ts';
@@ -274,4 +275,61 @@ test('no saved file holds a sign-in: the host\'s stand-in token appears in no wr
     assert.equal(bytes.indexOf(TOKEN), -1, `${f} holds no token`);
     assert.equal(bytes.indexOf(Buffer.from(TOKEN).toString('base64')), -1, `${f} holds no encoded token`);
   }
+});
+
+test('edge case: a load reads each saved file once, for the prune and every card\'s check together', async () => {
+  const p = paths();
+  const times = { 'ACME-1': T1, 'ACME-2': T1, 'ACME-3': T1 };
+  const { host } = fakeHost(times);
+  const saver = new TicketSaver(host);
+  saver.follow(ROOT, p, [board(times)]);
+  await saver.idle(ROOT);
+  const spy = mock.method(fs, 'readFileSync');
+  syncBuiltinESMExports();
+  try {
+    assert.deepEqual(saver.follow(ROOT, p, [board(times)]).queued, []);
+  } finally {
+    spy.mock.restore();
+    syncBuiltinESMExports();
+  }
+  const ticketReads = spy.mock.calls.filter((c) => String(c.arguments[0]).includes(`${join('acc', 'tickets')}`));
+  assert.equal(ticketReads.length, 3, 'one read a saved ticket');
+});
+
+test('edge case: a ticket two boards show stays saved and unread when it leaves the board it was saved under', async () => {
+  const p = paths();
+  const epic = { ...JIRA, epic: 'ACME-100' } as unknown as Tracker;
+  const times = { 'ACME-1': T1 };
+  const { host, reads } = fakeHost(times);
+  const saver = new TicketSaver(host);
+  saver.follow(ROOT, p, [board(times), board(times, epic, 1)]);
+  await saver.idle(ROOT);
+  assert.equal(readSavedTicket(p, 'ACME-1')!.tracker, trackerKey(JIRA), 'saved under the first board');
+  assert.deepEqual(saver.follow(ROOT, p, [board({}), board(times, epic, 1)]), { queued: [], removed: [] }, 'kept, and not read again');
+  await saver.idle(ROOT);
+  assert.deepEqual(reads, ['ACME-1']);
+  assert.equal(readSavedTicket(p, 'ACME-1')!.tracker, trackerKey(epic));
+});
+
+// Trackers needs VS Code, so where it holds the queue is checked in its source: the real loadBoards, not a copy of it.
+const source = (file: string) => readFileSync(join(import.meta.dirname, '..', 'src', file), 'utf8');
+
+test('edge case: loadBoards follows the tickets inside its held block, after the board has drawn and been kept', () => {
+  const src = source('trackers.ts');
+  const body = src.slice(src.indexOf('async loadBoards('), src.indexOf('private followTickets('));
+  assert.ok(body.length > 0, 'loadBoards is found');
+  const held = body.indexOf('this.saver.person(async () => {');
+  const kept = body.indexOf('writeBoardCache(');
+  const drawn = body.lastIndexOf('this.emitter.fire(p.root);');
+  const follow = body.indexOf('this.followTickets(p, list, states);');
+  const close = body.lastIndexOf('})));');
+  assert.ok(held >= 0 && kept >= 0 && drawn >= 0 && follow >= 0 && close >= 0, 'each step is found');
+  assert.ok(held < kept && kept < drawn && drawn < follow && follow < close, 'held, kept, drawn, then followed, inside the held block');
+  assert.equal(src.split('this.followTickets(').length - 1, 1, 'and followed nowhere else');
+});
+
+test('edge case: the task sheet reads a ticket through the saver, so the queue waits and a stale copy is saved', () => {
+  const src = source('ticket-edits.ts');
+  assert.equal(src.match(/client\.ticket\(/g)?.length ?? 0, 0, 'no read goes round the saver');
+  assert.equal(src.match(/this\.trackers\.ticket\(/g)?.length, 5, 'the sheet, Save\'s read and refresh, and Change\'s two reads');
 });

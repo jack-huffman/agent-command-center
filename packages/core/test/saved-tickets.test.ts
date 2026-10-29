@@ -115,6 +115,18 @@ test('edge case: the saved tickets follow the boards: one that left a board, and
   assert.deepEqual(readSavedTickets(p), []);
 });
 
+test('edge case: a ticket two trackers\' boards show is kept while either shows it, and moves to the one that still does', () => {
+  const p = paths();
+  const epic = { ...JIRA, epic: 'ACME-100' } as unknown as Tracker;
+  writeSavedTicket(p, savedTicketOf(read('ACME-1'), null, trackerKey(JIRA), NOW));
+  const saved = readSavedTickets(p);
+  assert.deepEqual(pruneSavedTickets(p, [{ tracker: trackerKey(JIRA), keys: [] }, { tracker: trackerKey(epic), keys: ['ACME-1'] }], saved), [], 'the other board still shows it');
+  assert.equal(readSavedTicket(p, 'ACME-1')!.tracker, trackerKey(epic), 'saved under the board that shows it now');
+  assert.deepEqual(removeTrackerTickets(p, trackerKey(JIRA)), [], 'so signing out of the first tracker leaves it');
+  assert.deepEqual(pruneSavedTickets(p, [{ tracker: trackerKey(JIRA), keys: ['ACME-1'] }, { tracker: trackerKey(epic), keys: [] }]), [], 'back on the first board only: kept');
+  assert.deepEqual(pruneSavedTickets(p, [{ tracker: trackerKey(JIRA), keys: [] }, { tracker: trackerKey(epic), keys: [] }]), ['ACME-1'], 'on neither: removed');
+});
+
 test('a session\'s view of the saved board: columns and cards, each with when its ticket was saved and whether a newer change waits', () => {
   const p = paths();
   const board: Board = {
