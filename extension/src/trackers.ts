@@ -24,6 +24,7 @@ import { credWho, signedInWho } from './logic/sign-in-name.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
 import { readBoardCache, trackerKey, writeBoardCache } from './logic/board-cache.ts';
+import { signedOutTrackers } from './logic/signed-out.ts';
 import { TicketSaver } from './logic/ticket-saver.ts';
 import { boardIds, outsideEvery, readInTurn, sourceGroups } from './logic/board-reads.ts';
 import { stateOf, ticketKey } from './logic/shared.ts';
@@ -670,8 +671,7 @@ export class Trackers implements vscode.Disposable {
    */
   private async forgetSignedOut(kind: string, host: string): Promise<void> {
     for (const p of this.hub.projects) {
-      for (const t of this.trackers(p)) {
-        if (t.kind !== kind || hostOf(t) !== host || (await this.credFor(p, t))) continue;
+      for (const t of await signedOutTrackers(this.trackers(p), kind, host, (x) => this.stored(p, x.kind, hostOf(x)))) {
         try {
           this.saver.forget(p.root, stateOf(p), trackerKey(t));
         } catch (e) {
