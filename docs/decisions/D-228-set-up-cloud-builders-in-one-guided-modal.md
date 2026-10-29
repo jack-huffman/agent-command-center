@@ -1,4 +1,4 @@
-## D-T-145 Set up cloud builders in one guided modal, on a Mac or on Windows (2026-10-29)
+## D-228 Set up cloud builders in one guided modal, on a Mac or on Windows (2026-10-29)
 
 T-145. The person asked for setting up cloud builders (GH-69, D-140) to be "beautiful, minimalistic, and simple to
 follow", a complete guided walkthrough for both a Mac and Windows. It worked, but wasn't guided: Settings had Turn

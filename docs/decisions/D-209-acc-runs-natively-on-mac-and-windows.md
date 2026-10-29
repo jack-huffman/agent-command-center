@@ -92,4 +92,4 @@ nothing else works. A Mac behaves as before; where its behaviour differs at all,
   (`fixFor`), so the walkthrough files, which the build writes for a Mac, show a Mac's lines whichever system
   builds them.
 
-Note (D-T-145, 2026-10-29): the cloud token is no longer Mac-only. On Windows the Command Center keeps it in VS Code's secret storage and hands it to acc in ACC_CLOUD_TOKEN; `cloudTokenUnavailable` is gone, and Token… is on everywhere.
+Note (D-228, 2026-10-29): the cloud token is no longer Mac-only. On Windows the Command Center keeps it in VS Code's secret storage and hands it to acc in ACC_CLOUD_TOKEN; `cloudTokenUnavailable` is gone, and Token… is on everywhere.

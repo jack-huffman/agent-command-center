@@ -235,3 +235,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-225](decisions/D-225-a-session-reads-tickets-the-command-center-saved.md) | A session reads the tickets the Command Center saved | 2026-10-28 |
 | [D-226](decisions/D-226-a-settings-page-you-can-find-your-way-around.md) | A settings page you can find your way around: sections, a jump list, and less text | 2026-10-28 |
 | [D-227](decisions/D-227-an-agent-s-note-is-a-headline-and-a-bullet-per-thing.md) | An agent's note is a short headline and a bullet per thing, with API names as code | 2026-10-29 |
+| [D-228](decisions/D-228-set-up-cloud-builders-in-one-guided-modal.md) | Set up cloud builders in one guided modal, on a Mac or on Windows | 2026-10-29 |
