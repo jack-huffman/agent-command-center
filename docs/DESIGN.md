@@ -272,7 +272,7 @@ A task is one unit of work, usually one ticket.
 labels and notes for the builder, with `acc add`'s checks: a title that isn't
 empty, an environment in the config that isn't protected, dependencies
 given as ids, and a new brief whose acceptance criteria pass the wording check
-(T-148, D-T-148). A field left out stays as it is; `--dep ""` or `--label ""`
+(T-148, D-231). A field left out stays as it is; `--dep ""` or `--label ""`
 clears a list. Each edit that changes something adds an entry to `edits`, with
 who made it and which fields, and emits `task.updated` with the new values. An
 edit is no move, so it is in `edits`, not `history`; `acc show` lists both in

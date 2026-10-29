@@ -1,4 +1,4 @@
-## D-T-148 A task's acceptance criteria pass the wording check before acc adds or edits it (2026-10-29)
+## D-231 A task's acceptance criteria pass the wording check before acc adds or edits it (2026-10-29)
 
 T-148. The person confirmed that every requirement is written in Simplified Technical English (T-12,
 `packages/core/src/ste.ts`), and asked for a check on the briefs a person or an agent writes. Before this, the

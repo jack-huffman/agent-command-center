@@ -238,3 +238,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-228](decisions/D-228-set-up-cloud-builders-in-one-guided-modal.md) | Set up cloud builders in one guided modal, on a Mac or on Windows | 2026-10-29 |
 | [D-229](decisions/D-229-a-card-shows-its-working.md) | A card shows it's working the moment you click, and a cleaned-up task leaves Done | 2026-10-29 |
 | [D-230](decisions/D-230-an-agent-s-note-passes-the-wording-check.md) | An agent's note to a person passes the wording check before acc records it | 2026-10-29 |
+| [D-231](decisions/D-231-a-task-s-criteria-pass-the-wording-check.md) | A task's acceptance criteria pass the wording check before acc adds or edits it | 2026-10-29 |
