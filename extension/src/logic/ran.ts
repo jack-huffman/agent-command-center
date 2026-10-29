@@ -53,5 +53,17 @@ export async function answerRun(command: string, ref: Ref, run: (say: SayRan) =>
   }
 }
 
+/**
+ * Asks an action's question (T-147): the page hears it asked as the question opens, so its button goes back
+ * while the person answers, and hears it running after an answer, so the button works again until the
+ * result. A cancel (no answer) says nothing more: the handler returns, and is answered done.
+ */
+export async function asking<T>(say: SayRan | undefined, question: () => PromiseLike<T>): Promise<T> {
+  say?.({ phase: 'asked' });
+  const answer = await question();
+  if (answer) say?.({ phase: 'running' });
+  return answer;
+}
+
 /** Why an action did nothing because the task or thing it was for isn't there any more. */
 export const GONE = 'It isn\'t here any more: the page shows it as it was a moment ago.';

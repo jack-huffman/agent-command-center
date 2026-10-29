@@ -33,6 +33,10 @@ took 10,898 ms, the first Tasks draw 5,829 ms, and a click that arrived meanwhil
   got through `say` on its node; one that says nothing is answered done when it returns, and one that throws is
   answered with why. A command the page can't run, and a task gone from the hub, are answered too, so no button
   is left working. `asked` puts the button back, as the question is now on screen; a cancel ends done and ok.
+  Every task action that asks a question asks it through `asking` (`logic/ran.ts`), which says `asked` as it
+  opens and `running` after an answer: Clean up, Block and Unblock's reason, Move's pick and its reason,
+  Abandon's reason, Send to merge, Send a message, and Dispatch's two questions about others' files. Dispatch
+  from its sheet carries no `say`, so those two say nothing there; the sheet's own opening answered the press.
 - **Clean up asks first, then answers acc's result before the reload.** A removed worktree is answered with
   `cleaned`, and the card leaves Done at once, from that answer: the page moves it into the fold before any new
   model, and forgets the move once a model holds it there. A refusal ("Kept the worktree: …") stays on the card,
@@ -44,7 +48,7 @@ took 10,898 ms, the first Tasks draw 5,829 ms, and a click that arrived meanwhil
   ledger whatever its stamp says. The card stayed in Done because Done showed every finished task. A test now
   runs acc's own cleanup, as a terminal would, and checks Refresh takes the card into the fold.
 
-Checked by `extension/test/working.test.ts` (9 tests) and `extension/test/working-page.test.ts` (5 tests), and
+Checked by `extension/test/working.test.ts` (11 tests) and `extension/test/working-page.test.ts` (5 tests), and
 two behaviour cases in `extension/scripts/behaviour.ts`, with two mutants each caught: "the button shows
 nothing while it waits" and "a cleaned-up task stays in Done". The screenshot run adds three pages: a card
 cleaning up with the fold closed (`tasks-done-working`), a refused cleanup (`tasks-done-refused`), and the fold

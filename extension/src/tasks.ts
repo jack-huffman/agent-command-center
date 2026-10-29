@@ -17,7 +17,7 @@ import { newestVerdictText, readReviewRun } from './logic/dock-review.ts';
 import { type PlanTicketHost, planTicketFolder } from './logic/plan-ticket.ts';
 import { projectTracker, readProjectTicket } from './logic/project-ticket.ts';
 import { inProcessWords } from './logic/processes.ts';
-import type { RanAnswer } from './logic/ran.ts';
+import { asking, type RanAnswer } from './logic/ran.ts';
 import { shq } from './logic/shared.ts';
 import { reasonInWords } from './logic/relayed.ts';
 import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
@@ -264,11 +264,11 @@ export class TaskCommands extends Sidebar {
     const paths = repoPaths(n.project.root, runSync);
     const moves = allowedMoves(ledger, n.project.config, task, 'human', receiptHooks(paths, n.project.config, runSync));
     if (!moves.length) return void vscode.window.showInformationMessage(`${task.id} has no moves a person can make from ${task.state}.`);
-    const pick = await vscode.window.showQuickPick(moves.map((m) => ({
+    const pick = await asking(n.say, () => vscode.window.showQuickPick(moves.map((m) => ({
       label: `${DISPLAY[m.to].glyph} ${DISPLAY[m.to].label}`,
       description: m.problems.length ? `not now: ${m.problems[0]}` : m.needsReason ? 'needs a reason' : '',
       move: m,
-    })), { title: `Move ${task.id} from ${DISPLAY[task.state].label}` });
+    })), { title: `Move ${task.id} from ${DISPLAY[task.state].label}` }));
     if (!pick) return;
     if (pick.move.problems.length) return void vscode.window.showWarningMessage(`Can't move ${task.id} to ${pick.move.to}: ${pick.move.problems.join(' ')}`);
     await this.setState(n, pick.move.to, pick.move.needsReason);
@@ -278,7 +278,7 @@ export class TaskCommands extends Sidebar {
     if (n?.kind !== 'task') return;
     let reason: string | undefined;
     if (askReason) {
-      reason = await vscode.window.showInputBox({ title: `${n.task.id} → ${DISPLAY[to].label}`, prompt: 'Why? This is recorded in the task\'s history.', validateInput: (v) => (v.trim() ? undefined : 'A reason is required.') });
+      reason = await asking(n.say, () => vscode.window.showInputBox({ title: `${n.task.id} → ${DISPLAY[to].label}`, prompt: 'Why? This is recorded in the task\'s history.', validateInput: (v) => (v.trim() ? undefined : 'A reason is required.') }));
       if (!reason) return;
     }
     await this.runAcc(n.project, ['set', n.task.id, to, ...(reason ? ['--reason', reason] : [])], () => `${n.task.id} → ${DISPLAY[to].label}.`);
@@ -316,7 +316,7 @@ export class TaskCommands extends Sidebar {
     const { project, task } = n;
     if (!anyway && task.state === 'todo' && waitsForFiles(task) && task.files) {
       const q = waitQuestion({ id: task.id, files: task.files });
-      const pick = await vscode.window.showInformationMessage(q.message, { modal: true, detail: q.detail }, q.wait, ANYWAY);
+      const pick = await asking(n.say, () => vscode.window.showInformationMessage(q.message, { modal: true, detail: q.detail }, q.wait, ANYWAY));
       if (!pick) return;
       anyway = pick === ANYWAY;
     }
@@ -376,7 +376,7 @@ export class TaskCommands extends Sidebar {
     if (n?.kind !== 'task') return;
     const row = this.hub.taskRows(n.project.root).find((t) => t.id === n.task.id) ?? n.task;
     const q = anywayQuestion(shares?.length ? { id: row.id, files: { shares } } : row);
-    const ok = await vscode.window.showWarningMessage(q.message, { modal: true, detail: q.detail }, ANYWAY);
+    const ok = await asking(n.say, () => vscode.window.showWarningMessage(q.message, { modal: true, detail: q.detail }, ANYWAY));
     if (ok) await this.dispatchTask({ ...n, task: row }, extra, true);
   }
 
@@ -409,7 +409,7 @@ export class TaskCommands extends Sidebar {
     if (n?.kind !== 'task') return;
     // A cloud builder can't be stopped from here (GH-69): the task is set aside, and its page offered, to archive it there.
     const cloud = n.task.run?.where === 'cloud' ? n.task.run.cloud?.url ?? null : null;
-    const reason = await vscode.window.showInputBox({ title: `Abandon ${n.task.id}?`, prompt: cloud ? 'Why? The task goes back to To do, and the worktree and commits are kept. Its cloud session isn\'t stopped: archive it on claude.ai.' : 'Why? Its agent stops, the task goes back to To do, and the worktree and commits are kept.', validateInput: (v) => (v.trim() ? undefined : 'A reason is required.') });
+    const reason = await asking(n.say, () => vscode.window.showInputBox({ title: `Abandon ${n.task.id}?`, prompt: cloud ? 'Why? The task goes back to To do, and the worktree and commits are kept. Its cloud session isn\'t stopped: archive it on claude.ai.' : 'Why? Its agent stops, the task goes back to To do, and the worktree and commits are kept.', validateInput: (v) => (v.trim() ? undefined : 'A reason is required.') }));
     if (!reason) return;
     if (cloud) {
       const done = await this.runAcc(n.project, ['set', n.task.id, 'todo', '--reason', reason], () => undefined);
@@ -456,10 +456,8 @@ export class TaskCommands extends Sidebar {
    */
   private async cleanupTask(n: TaskNode): Promise<RanAnswer | undefined> {
     if (n?.kind !== 'task' || !n.task.run?.worktree) return;
-    n.say?.({ phase: 'asked' });
-    const ok = await vscode.window.showWarningMessage(`Clean up ${n.task.id}'s worktree?`, { modal: true, detail: `${n.task.run.worktree}\n\nacc removes it only if nothing would be lost: no uncommitted changes, and every commit already merged.` }, 'Clean up');
+    const ok = await asking(n.say, () => vscode.window.showWarningMessage(`Clean up ${n.task.id}'s worktree?`, { modal: true, detail: `${n.task.run!.worktree}\n\nacc removes it only if nothing would be lost: no uncommitted changes, and every commit already merged.` }, 'Clean up'));
     if (ok !== 'Clean up') return;
-    n.say?.({ phase: 'running' });
     const r = await this.acc(['cleanup', n.task.id, '--json'], n.project.root);
     let out: { removed?: boolean; reasons?: string[] } = {};
     try {
@@ -598,10 +596,10 @@ export class TaskCommands extends Sidebar {
     const gh = project.config.github;
     if (!gh) return void vscode.window.showWarningMessage(`${project.name} names no GitHub repo in its settings, so there's nowhere to open a pull request.`);
     const again = task.pr?.state === 'open';
-    const ok = await vscode.window.showWarningMessage(again ? `Update pull request #${task.pr!.number} for ${task.id}?` : `Send ${task.id} to merge?`, {
+    const ok = await asking(n.say, () => vscode.window.showWarningMessage(again ? `Update pull request #${task.pr!.number} for ${task.id}?` : `Send ${task.id} to merge?`, {
       modal: true,
       detail: `${again ? 'Pushes the reviewed commits to' : 'Pushes'} ${task.run?.branch ?? 'its branch'} to ${gh.repo} as ${gh.account}${again ? '.' : `, and opens a pull request into ${task.environment}.`} ${autoMergeFor(project.config, task.environment) ? 'Auto-merge is on: with autopilot running, it merges once its checks pass on GitHub and nothing waits on you. You can merge it first, or ask for changes to hold it.' : 'The Command Center never merges it: a person does, on GitHub.'}`,
-    }, again ? 'Update' : 'Push and open');
+    }, again ? 'Update' : 'Push and open'));
     if (!ok) return;
     type Landed = { pr?: { number: number; url: string }; opened?: boolean; update?: { id: string; key: string } | null; updateError?: string };
     const box: { r: Landed | null } = { r: null };

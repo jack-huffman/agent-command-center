@@ -13,7 +13,7 @@ import { mutate, type Task, upsertTasks } from '../../packages/core/src/ledger.t
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { inEnvironmentAsks } from '../../packages/core/src/tidy.ts';
 import { GENERIC_CONFIG, gitIn, makeRepo } from '../../packages/core/test/support.ts';
-import { answerRun, GONE, type RanMessage, ranResult } from '../src/logic/ran.ts';
+import { answerRun, asking, GONE, type RanMessage, ranResult } from '../src/logic/ran.ts';
 import { type AskGit, InEnvironmentAsks } from '../src/logic/in-environment.ts';
 import { splitDone, stillToTidy } from '../src/model/done-fold.ts';
 import { tasksModel } from '../src/model/tasks.ts';
@@ -21,7 +21,7 @@ import type { TaskRow } from '../src/logic/shared.ts';
 import { row } from './support.ts';
 
 /** tasks.ts and hub.ts import vscode: this stand-in holds what they call, and when the confirmation opened. */
-const shown = { asked: [] as number[], answer: undefined as string | undefined, info: [] as string[], warn: [] as string[] };
+const shown = { asked: [] as number[], answer: undefined as string | undefined, info: [] as string[], warn: [] as string[], typed: undefined as ((v: string | undefined) => void) | undefined };
 (globalThis as { accWorkingVscode?: unknown }).accWorkingVscode = {
   EventEmitter: class { event = () => ({ dispose() {} }); fire() {} dispose() {} },
   window: {
@@ -31,6 +31,8 @@ const shown = { asked: [] as number[], answer: undefined as string | undefined, 
       return undefined;
     },
     showInformationMessage: async (m: string) => { shown.info.push(m); },
+    // A reason's box answers when the test says so, so what the page heard while it was open can be seen.
+    showInputBox: () => new Promise<string | undefined>((resolve) => { shown.typed = resolve; }),
   },
   workspace: { workspaceFolders: [] as { uri: { fsPath: string } }[], getConfiguration: () => ({ get: <T>(_k: string, d: T) => d }) },
   commands: { executeCommand: async () => undefined },
@@ -107,6 +109,48 @@ test('edge cases: a cancelled Clean up runs nothing and ends ok, so the button g
   await answerRun('acc.task.cleanup', ref, (say) => refuse.clean(node(say)), (m) => heard.push(m));
   assert.deepEqual(heard.at(-1), { type: 'ran', command: 'acc.task.cleanup', ref, phase: 'done', ok: false, error: 'Kept the worktree: The worktree has 2 uncommitted change(s).' });
   assert.ok(!heard.some((m) => m.cleaned), 'a refused one stays in Done');
+});
+
+// ---------------------------------------------------------------- every question says it asked (tasks.ts)
+
+test('Block and Abandon say they asked as the reason box opens, before it is answered, and running once a reason is typed', async () => {
+  const hub = { taskRows: () => [row('T-1', 'running', 'running')], loadTasks: async () => {}, loadAgents: async () => {}, agents: [] };
+  const cases: [string, string[]][] = [
+    ['acc.task.block', ['set', 'T-1', 'blocked', '--reason', 'Waits on the client', '--json']],
+    ['acc.task.abandon', ['set', 'T-1', 'todo', '--reason', 'Waits on the client', '--json']],
+  ];
+  for (const [command, args] of cases) {
+    const c = cleanupWith(hub, {});
+    const heard: RanMessage[] = [];
+    Object.assign(shown, { typed: undefined });
+    const ran = answerRun(command, ref, (say) => c.reg.get(command)!({ kind: 'task', project: { root: '/r', name: 'Acme' }, task: row('T-1', 'running', 'running'), say }), (m) => heard.push(m));
+    await wait(0);
+    const type = shown.typed;
+    assert.ok(type, `${command}: the reason box is open`);
+    assert.deepEqual(heard.map((m) => m.phase), ['asked'], `${command}: the page heard it asked while the box is still open, so its button is back`);
+    assert.equal(c.calls.length, 0, `${command}: nothing runs before the reason`);
+    type('Waits on the client');
+    await ran;
+    assert.deepEqual(heard.map((m) => [m.phase, m.ok]), [['asked', undefined], ['running', undefined], ['done', true]], `${command}: working again after the reason, then its result`);
+    assert.deepEqual(c.calls.map((x) => x.args), [args]);
+  }
+});
+
+test('edge cases: a reason box closed with nothing typed ends the action done with nothing run, and a question asked off any page says nothing', async () => {
+  const hub = { taskRows: () => [row('T-1', 'todo', 'todo')], loadTasks: async () => {} };
+  const c = cleanupWith(hub, {});
+  const heard: RanMessage[] = [];
+  const ran = answerRun('acc.task.block', ref, (say) => c.reg.get('acc.task.block')!({ kind: 'task', project: { root: '/r', name: 'Acme' }, task: row('T-1', 'todo', 'todo'), say }), (m) => heard.push(m));
+  await wait(0);
+  shown.typed!(undefined);
+  await ran;
+  assert.deepEqual(heard.map((m) => [m.phase, m.ok]), [['asked', undefined], ['done', true]], 'a cancel puts the button back, with no running between');
+  assert.deepEqual(c.calls, []);
+  // From the command palette there is no page: no say, and the answer still comes back.
+  assert.equal(await asking(undefined, async () => 'yes'), 'yes');
+  const said: string[] = [];
+  assert.equal(await asking((a) => said.push(a.phase), async () => ''), '', 'an empty answer is no answer');
+  assert.deepEqual(said, ['asked']);
 });
 
 // ---------------------------------------------------------------- the tidy-up count asks git in the background (logic/in-environment.ts)
