@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'n
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { installGuard, mutate, parseConfig, readLedger, repoPaths, run, upsertTasks } from '../../core/src/index.ts';
+import { cloudReason, installGuard, mutate, parseConfig, readLedger, repoPaths, run, upsertTasks } from '../../core/src/index.ts';
 import { GENERIC_CONFIG, gitIn, tempDir } from '../../core/test/support.ts';
 import { cli, repoWithConfig, UNCHECKED } from './support.ts';
 import { standIn } from '../../core/test/stand-in.ts';
@@ -327,7 +327,9 @@ test('acc review --cloud is refused where the project hasn\'t opted in, naming e
   const set = cloudRepo({ ...CLOUD_RAW, agents: { max: 2, cloud: { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', review: 'cloud' } } });
   const local = acc(set.dir, ['review', 'T-1'], undefined, { PATH: set.env.PATH, ACC_CLOUD_TOKEN: '' });
   assert.equal(local.code, 0, local.err);
-  assert.match(local.err, /Reviews are set to the cloud, but Cloud builders need the scheduled task's token: Setup says how: reviewing T-1 on this Mac\./);
+  // Windows names the Command Center, which keeps its token (T-145); a Mac or Linux names Setup.
+  const why = cloudReason([{ id: 'token', label: '', ok: false, fix: '' }]);
+  assert.ok(local.err.includes(`Reviews are set to the cloud, but ${why}: reviewing T-1 on this Mac.`), local.err);
   assert.match(local.out, /Review passed: Fine\./);
   assert.equal(JSON.parse(readFileSync(set.ledger, 'utf8')).tasks[0].cloudReview, undefined);
   // Set to the cloud and ready: a plain review goes there; --local keeps it here.

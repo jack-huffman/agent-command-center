@@ -33,21 +33,9 @@
     "floor": 6931
   },
   "screenshots.ci.a11y": {
-    "floor": 569464,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "GitHub's Linux runner draws with other fonts (T-108): CI at c89d9090 examined 569464 against the Mac's floor of 569526, with no findings. Approved by the person 2026-10-29.",
-      "at": "2026-10-29T17:00:00.000Z",
-      "was": 569526
-    }
+    "floor": 622973
   },
   "screenshots.ci.sizes": {
-    "floor": 5922,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "GitHub's Linux runner draws with other fonts (T-108): CI at c89d9090 compared 5922 against the Mac's floor of 5958, with no findings. Approved by the person 2026-10-29.",
-      "at": "2026-10-29T17:00:00.000Z",
-      "was": 5958
-    }
+    "floor": 6836
   }
 }
