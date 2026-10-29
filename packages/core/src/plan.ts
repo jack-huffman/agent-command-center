@@ -6,6 +6,7 @@
 
 import { NOTE_RULE } from './agent-notes.ts';
 import type { Analysis, AnalysisQuestion, AskOf, PlanApproval, PlanDecision } from './analyze.ts';
+import { approveWording } from './plan-wording.ts';
 
 /** A plan's version: older analyses, written before versions, are the first. */
 export const planVersion = (a: Pick<Analysis, 'version'>): number => a.version ?? 1;
@@ -112,12 +113,15 @@ export function planProblems(a: Analysis, id: string): string[] {
   return out;
 }
 
-/** Why a person can't approve the plan yet, or null: questions for them, or choices, still open. A split isn't a plan to build. */
+/**
+ * Why a person can't approve the plan yet, or null: questions for them, or choices, still open, or a hard wording
+ * finding in its requirements (T-151). A split isn't a plan to build.
+ */
 export function approveRefusal(a: Analysis, id: string): string | null {
   if (a.verdict === 'split') return `${id}'s analysis says it's too big for one task. Split it rather than approve it.`;
   const open = questionsForYou(a);
   const choose = unchosen(a);
-  if (!open.length && !choose.length) return null;
+  if (!open.length && !choose.length) return approveWording(a, id);
   const parts = [open.length ? `answer ${open.map((q) => q.id).join(', ')}` : '', choose.length ? `choose ${choose.map((d) => d.id).join(', ')}` : ''].filter(Boolean);
   return `${id}'s plan isn't ready to approve: ${parts.join(', and ')} first.`;
 }

@@ -12,8 +12,11 @@ import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { parsePlannedRecords, type PlannedRecordChange, RECORD_CHANGES_SCHEMA, RECORD_PLAN_PROMPT } from './records.ts';
 import { rulesText } from './rules.ts';
+import { NOTE_FIX_TRIES } from './note-wording.ts';
+import { planFixPrompt, planWording, planWordingWords } from './plan-wording.ts';
 import { requirementWording, type WordingFinding } from './ste.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
+import { plural } from './text.ts';
 import { approvedPlanLines, choiceName, lapse, nextVersion, planProblems } from './plan.ts';
 import { openingSection, planningSession } from './plan-opening.ts';
 import { readTalk, talkSection, versionTurn } from './plan-talk.ts';
@@ -139,8 +142,8 @@ export interface Analysis {
   /** The records the work must create, change or delete (T-100), on Salesforce. Older analyses have none. */
   recordChanges?: PlannedRecordChange[];
   /**
-   * The hard findings of the wording check on each requirement line (T-12), as advice for a person: they
-   * never hold a dispatch. Analyses written before the check have none.
+   * The hard findings of the wording check on each requirement line (T-12). acc records no plan with one
+   * since T-151, and a plan recorded before with one can't be approved. Analyses written before T-12 have none.
    */
   wording?: WordingFinding[];
   /** The shapes this work changes that other tasks would build on (T-104). Older plans have none. */
@@ -365,10 +368,11 @@ const SALESFORCE_FOCUS = [
 /**
  * How the analyst writes the requirements (T-12): ASD-STE100 Simplified Technical English, Strict mode, so a
  * builder can read each one in one way only. The rules are here in full, so the analyst needs no skill
- * installed. acc checks the structural ones on each line it reads back (requirementWording, ste.ts).
+ * installed. acc checks the structural ones on each line it reads back (planWording, plan-wording.ts), and
+ * sends a plan that fails back to the analyst with each finding (T-151).
  */
 export const STE_STRICT = [
-  'Write the goal, each acceptance criterion, each assumption and each out-of-scope item in Simplified Technical English (ASD-STE100), Strict mode. A builder agent reads them, and each must have one meaning only:',
+  'Write the goal, each acceptance criterion, each assumption, each out-of-scope item and each question in Simplified Technical English (ASD-STE100), Strict mode. A builder agent reads them, a client may read a question, and each must have one meaning only. acc checks the wording of each line before it records the plan, and sends you each finding and its fix:',
   '- Use the active voice. Name who or what does the action: "acc writes the file", not "the file is written".',
   '- Use one instruction or one statement in each sentence. Use no more than 20 words in an instruction and no more than 25 in a description.',
   '- Do not use a semicolon. Write two sentences.',
@@ -497,7 +501,7 @@ export function parseAnalysis(stdout: string): { analysis: Omit<Analysis, 'v' | 
     recordChanges: parsePlannedRecords(s.recordChanges),
     ...shapes(s),
   };
-  // The wording check on each requirement line as acc reads it (T-12): advice, recorded with its line.
+  // The wording check on each requirement line as acc reads it (T-12), recorded with its line.
   return { analysis: { ...analysis, wording: requirementWording(analysis.requirements) }, sessionId: typeof r.session_id === 'string' ? r.session_id : null, costUsd: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : null };
 }
 
@@ -648,21 +652,36 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   steps.start('analyze', `Analyze ${id}`, 'The analyst reads, and changes nothing');
   // The analyst is a child of this acc, so the Mac stays awake while acc lives (D-067).
   const awake = holdAwake(process.pid, deps.awake);
-  let out: RunResult;
-  try {
-    out = run('claude', [
-      '-p', ...(resume ? ['--resume', resume] : ['--session-id', sessionId, '--name', name]), '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+  const ask = (args: string[], input: string): RunResult => {
+    const out = run('claude', [
+      '-p', ...args, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
       '--output-format', 'json', '--json-schema', JSON.stringify(ANALYSIS_SCHEMA), '--append-system-prompt', system,
       ...analystFlags(paths, config, cwd, deps.accCommand),
-    ], { cwd, input: prompt, env: analystEnv(config, deps.env, id), timeoutMs: 45 * 60_000 });
+    ], { cwd, input, env: analystEnv(config, deps.env, id), timeoutMs: 45 * 60_000 });
+    if (out.timedOut) throw new AccError('analyze', `The analysis didn't finish within 45 minutes, so acc stopped it.`);
+    if (out.code === 127 && !out.stdout) throw new AccError('analyze', `Claude Code didn't start: ${out.stderr.trim().split('\n')[0] ?? 'claude not found'}`);
+    return out;
+  };
+  let parsed: ReturnType<typeof parseAnalysis>;
+  try {
+    const out = ask(resume ? ['--resume', resume] : ['--session-id', sessionId, '--name', name], prompt);
+    steps.done('analyze');
+    parsed = steps.step('read', 'Read the analysis', () => parseAnalysis(out.stdout));
+    // Its requirements and questions pass the wording check (T-151): the planning agent writes them again, in the
+    // same session, with each finding's fix. A plan that still fails after NOTE_FIX_TRIES is refused, and none is kept.
+    for (let tries = 0, wording = planWording(parsed.analysis); wording.length; tries++, wording = planWording(parsed.analysis)) {
+      if (tries === NOTE_FIX_TRIES) throw new AccError('analyze', planWordingWords(wording, tries));
+      steps.start('wording', 'Fix the wording', plural(wording.length, 'finding'));
+      const fixed = parseAnalysis(ask(['--resume', parsed.sessionId ?? resume ?? sessionId], planFixPrompt(wording)).stdout);
+      const cost = parsed.costUsd === null && fixed.costUsd === null ? null : (parsed.costUsd ?? 0) + (fixed.costUsd ?? 0);
+      parsed = { analysis: fixed.analysis, sessionId: fixed.sessionId ?? parsed.sessionId, costUsd: cost };
+      const left = planWording(parsed.analysis).length;
+      steps.done('wording', left ? `${plural(left, 'finding')} left` : 'It passes');
+    }
   } finally {
     awake?.release();
     rmSync(marker, { force: true });
   }
-  if (out.timedOut) throw new AccError('analyze', `The analysis didn't finish within 45 minutes, so acc stopped it.`);
-  if (out.code === 127 && !out.stdout) throw new AccError('analyze', `Claude Code didn't start: ${out.stderr.trim().split('\n')[0] ?? 'claude not found'}`);
-  steps.done('analyze');
-  const parsed = steps.step('read', 'Read the analysis', () => parseAnalysis(out.stdout));
   steps.start('save', 'Save the analysis');
   const finished = now();
   // Answers to questions it asks again carry over, so nobody answers twice.
