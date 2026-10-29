@@ -3,7 +3,13 @@
     "floor": 3054
   },
   "screenshots.clipped": {
-    "floor": 166321
+    "floor": 153836,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "Settings shows one section at a time; measured at e9d6dc64 after merging T-140, with no findings. Approved by the person 2026-10-28.",
+      "at": "2026-10-29T03:32:41.960Z",
+      "was": 166321
+    }
   },
   "screenshots.sideways": {
     "floor": 7577
@@ -21,12 +27,12 @@
     "floor": 599
   },
   "screenshots.a11y": {
-    "floor": 615704,
+    "floor": 569526,
     "relaxed": {
       "by": "human:jackhuffman",
-      "reason": "Connect is now a true modal, so the page under it is inert and axe skips it on the 27 Connect shots; nothing failed. Approved by the person 2026-10-28.",
-      "at": "2026-10-29T02:25:26.781Z",
-      "was": 619898
+      "reason": "Settings shows one section at a time; measured at e9d6dc64 after merging T-140, with no findings. Approved by the person 2026-10-28.",
+      "at": "2026-10-29T03:32:42.258Z",
+      "was": 615704
     }
   },
   "screenshots.actions": {
@@ -36,6 +42,12 @@
     "floor": 1389
   },
   "screenshots.sizes": {
-    "floor": 6490
+    "floor": 5958,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "Settings shows one section at a time; measured at e9d6dc64 after merging T-140, with no findings. Approved by the person 2026-10-28.",
+      "at": "2026-10-29T03:32:42.634Z",
+      "was": 6490
+    }
   }
 }
