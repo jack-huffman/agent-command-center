@@ -5,6 +5,39 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.53.0
+
+- Set up cloud builders in one guided walkthrough, on a Mac or on Windows
+  (D-228). Seven steps, one thing each: turn on, GitHub access, the scheduled
+  task (what claude.ai now calls a routine) with its prompt to copy, its
+  token, sign in, the push guard, and ready. Each step checks itself live,
+  and Next says why it's off until the step passes. It opens on the first
+  step not done, so you can stop and come back. On Windows the Command Center
+  keeps the token, so Windows can finish setup too. Settings, Setup's Do it
+  and the command palette all open it.
+- An agent's note is a short headline and a bullet per thing (D-227). A
+  blocked note, a question or a finish note is no longer one long paragraph:
+  acc refuses a wall of text from an agent and says how to split it. A
+  question's options are a) b) c), at most three, with the one it recommends
+  marked. API names and paths show as code.
+- A card shows it's working the moment you click (D-229). Clean up, Block,
+  Move and the other task actions show a working state on the card at once,
+  and wait quietly while a question is open. Clean up's question opens with
+  no idle wait, and a cleaned-up task leaves Done for a closed "Cleaned up"
+  fold.
+- An agent's notes pass the plain technical English check (D-230). Each line
+  of a blocked note, a question for the client, a finish note and a review's
+  findings is checked before acc records it, and the agent writes it again
+  with each fix. Your own words are never checked.
+- A task's acceptance criteria pass the same check when it's added or edited
+  (D-231). The task sheet shows each finding beside its criterion, and Save
+  waits for the fixes once you change the description. A tracker's ticket is
+  never refused.
+- On Windows the Command Center says This PC, not This Mac (D-232), from one
+  place, and a test fails on a new message that says "this Mac".
+- GitHub's check holds to floors 1% below what it measures, as the Mac's do,
+  so a run that counts a few items differently no longer fails.
+
 ## 0.52.0
 
 - A concise Agent panel on a task's page (D-223). At a glance it shows the

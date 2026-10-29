@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-28**. Version 0.51.0 is
-the latest release (2026-10-28). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.52.0 is prepared and waits on a person
+Where each piece of the build stands, as of **2026-10-29**. Version 0.52.0 is
+the latest release (2026-10-29). 0.41.0 (2026-10-16) was the first with a
+`.sha256` beside its `.vsix`. Version 0.53.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -182,6 +182,13 @@ where each one's done-when is written out.
 - **Settings in sections, a stepped modal for a tracker, and saved tickets a
   session reads**: done. Checked 2026-10-28. Evidence: D-224, D-225, D-226,
   release 0.52.0.
+- **Cloud builders set up in one guided walkthrough, on a Mac or on Windows**:
+  done. Checked 2026-10-29. Evidence: D-228, release 0.53.0. Tried against
+  stand-in claude.ai and GitHub answers; the real cloud run (GH-69) still
+  waits on a person.
+- **Short notes in plain technical English, a card that shows it's working,
+  and This PC on Windows**: done. Checked 2026-10-29. Evidence: D-227, D-229,
+  D-230, D-231, D-232, release 0.53.0.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).

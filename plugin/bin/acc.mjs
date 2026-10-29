@@ -60,10 +60,17 @@ function npmShimScript(cmdFile, text3) {
   return m ? win32.join(win32.dirname(cmdFile), m[1]) : null;
 }
 var startFor = (cmd, args, env = process.env) => startOf(cmd, args, realDeps(env));
+var KEPT_FROM_CHILDREN = ["ACC_CLOUD_TOKEN", "ACC_CLOUD_TOKEN_NEW"];
+var handsToken = false;
+function childEnv(env = process.env) {
+  const out3 = { ...env ?? process.env };
+  if (!handsToken) for (const k2 of KEPT_FROM_CHILDREN) delete out3[k2];
+  return out3;
+}
 function startSync(cmd, args, opts) {
   const s = startFor(cmd, args, opts.env);
   if ("problem" in s) return s;
-  const r = spawnSync(s.file, s.args, { ...opts, windowsVerbatimArguments: s.verbatim });
+  const r = spawnSync(s.file, s.args, { ...opts, env: childEnv(opts.env), windowsVerbatimArguments: s.verbatim });
   return unpiped(r);
 }
 var UNREAD = /* @__PURE__ */ new Set(["EPIPE", "EOF", "ECANCELED"]);
@@ -75,7 +82,7 @@ function unpiped(r) {
 }
 function startChild(cmd, args, opts) {
   const s = startFor(cmd, args, opts.env);
-  return "problem" in s ? s : spawn(s.file, s.args, { ...opts, windowsVerbatimArguments: s.verbatim });
+  return "problem" in s ? s : spawn(s.file, s.args, { ...opts, env: childEnv(opts.env), windowsVerbatimArguments: s.verbatim });
 }
 function startOf(cmd, args, deps = realDeps()) {
   if (deps.platform !== "win32") return { file: cmd, args, verbatim: false };
@@ -283,7 +290,7 @@ function withLock(lockDir, fn2, opts = {}) {
 
 // packages/core/src/awake.ts
 var detached = (cmd, args) => {
-  const child = spawn2(cmd, args, { detached: true, stdio: "ignore" });
+  const child = spawn2(cmd, args, { detached: true, stdio: "ignore", env: childEnv() });
   child.on("error", () => void 0);
   return child;
 };
@@ -3002,14 +3009,14 @@ function parseConfig(raw) {
       errors.push('"tools" must be a list of tools, each with "title", "why", "check" (a command that exits 0 when the tool is there) and "fix" (a command that sets it up).');
     } else tools = list2.map((t) => ({ title: t.title, why: t.why, check: t.check, fix: t.fix }));
   }
-  let tidy;
+  let tidy2;
   if (raw.tidy !== void 0) {
     const t = raw.tidy;
     if (!isObj(t)) errors.push('"tidy" must be an object, such as { "every": 8 }.');
     else if (t.every !== void 0) {
       if (typeof t.every !== "number" || !Number.isInteger(t.every) || t.every < 0 || t.every > 100) {
         errors.push('"tidy.every" must be a whole number from 0 to 100: how many tasks merge before a tidy-up is offered, or 0 for never.');
-      } else tidy = { every: t.every };
+      } else tidy2 = { every: t.every };
     }
   }
   let template;
@@ -3057,7 +3064,7 @@ function parseConfig(raw) {
       ...typeof tracking === "boolean" ? { sourceTracking: tracking } : {},
       ...autopilot ? { autopilot } : {},
       ...dispatch2 ? { dispatch: dispatch2 } : {},
-      ...tidy ? { tidy } : {},
+      ...tidy2 ? { tidy: tidy2 } : {},
       ...template ? { template } : {},
       ...tools ? { tools } : {}
     },
@@ -6625,6 +6632,166 @@ function stepsTo(file, now2 = () => /* @__PURE__ */ new Date()) {
 var stepsFrom = (env, now2) => stepsTo(env[STEPS_VAR]?.trim() || null, now2);
 var NO_STEPS = stepsTo(null);
 
+// packages/core/src/agent-notes.ts
+var NOTE_HEADLINE_MAX = 200;
+var NOTE_OPTIONS_MAX = 3;
+var BLOCK_SHAPE = 'acc block "<headline: one short sentence>" --item "<first thing>" --item "<next thing>"';
+var NOTE_SHAPE_WORDS = `Write a short headline, one sentence, then a bullet for each thing: ${BLOCK_SHAPE}. Give a question's options in its item as a) \u2026 b) \u2026 c) \u2026, at most three, and mark the one you recommend with (recommended).`;
+var NOTE_STE_RULE = "Write each line of a note to a person in Simplified Technical English (ASD-STE100): one plain verb for one action, at most 25 words a sentence, no semicolon, no phrasal verb such as kick off, no marketing word such as seamless. acc checks the wording before it records the note, and refuses a note that fails, with each finding and its fix. Text in backticks is code, which the check leaves alone.";
+var NOTE_RULE = `A note to a person (acc block, its --client question, acc done's lines) is a short headline, then one bullet per thing, never a paragraph: ${BLOCK_SHAPE}. A question's options go in its item as a) b) c), at most three, with (recommended) on the one you would pick. Name each API name exactly (a custom field or object, a developer name, a path, a branch, a command): acc puts it in backticks as it records the note, so inside double quotes write it without backticks, which the shell would run. ${NOTE_STE_RULE}`;
+function composeNote(headline, items = []) {
+  const one = (s) => s.replace(/\s+/g, " ").trim();
+  const head = headline.split(/\r?\n/).map((l3) => l3.replace(/(\S)[ \t]+/g, "$1 ").trimEnd()).join("\n").trim();
+  return [head, ...items.map(one).filter(Boolean).map((i) => `- ${i}`)].filter(Boolean).join("\n");
+}
+var EXTENSIONS = "ts|tsx|js|mjs|cjs|jsx|json|jsonc|md|mdx|xml|cls|trigger|page|component|cmp|html|css|scss|yml|yaml|toml|sh|ps1|py|txt|csv|sql|soql|apex|object|flexipage|permissionset|permissionsetgroup|profile|layout|field|report|reportType|dashboard|flow|app|tab|labels|lock";
+var BRANCH = /^(?:task|feature|feat|fix|bugfix|hotfix|release|chore|origin|upstream)\/[\w./-]+$/;
+function isApiName(w) {
+  if (!w || /:\/\//.test(w) || /^www\./i.test(w) || w.includes("@") || w.includes("`")) return false;
+  if (/^[A-Za-z][\w.]*__[A-Za-z]\w*$/.test(w)) return true;
+  if (/^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+(?:\.[A-Za-z]\w*)*$/.test(w)) return true;
+  if (/^[A-Z][A-Za-z0-9]*\.[A-Z][A-Za-z0-9]+$/.test(w)) return true;
+  if (/^(?:~|\.{1,2})?\/?[\w.+-]+(?:\/[\w.+-]*)+$/.test(w) && /[A-Za-z]/.test(w)) {
+    const slashes = (w.match(/\//g) ?? []).length;
+    if (slashes >= 2 || /^(?:~|\.{1,2})\//.test(w) || BRANCH.test(w) || new RegExp(`\\.(?:${EXTENSIONS})$`).test(w)) return true;
+  }
+  if (new RegExp(`^[\\w.-]*\\w\\.(?:${EXTENSIONS})(?:-meta\\.xml)?$`).test(w) && !/^[A-Z][a-z]+\.js$/.test(w)) return true;
+  return false;
+}
+var COMMAND = /(?<![\w`/-])(?:git (?:push|pull|fetch|merge|rebase|checkout|switch|status|log|diff|commit|add|reset|stash|cherry-pick|branch|worktree|revert)|npm (?:run [\w:.-]+|test|install|ci)|npx [\w@/.:-]+|sf (?:project|org|apex|data|package|sobject|config|alias|plugins|agent|flow)(?: [a-z][\w-]*){1,2})(?![\w`-])/g;
+var CODE_SPAN = /(`+)(?!`)[\s\S]*?[^`]\1(?!`)/g;
+var WORD = /^([("'\[“‘]*)([\s\S]*?)([)"'\]”’.,;:!?]*)$/;
+function wrapWords(s) {
+  return s.split(/(\s+)/).map((tok) => {
+    if (!tok.trim()) return tok;
+    const [, lead = "", core = "", tail = ""] = WORD.exec(tok) ?? [];
+    return isApiName(core) ? `${lead}\`${core}\`${tail}` : tok;
+  }).join("");
+}
+function wrapPlain(s) {
+  let out3 = "";
+  let last = 0;
+  for (const m of s.matchAll(COMMAND)) {
+    out3 += wrapWords(s.slice(last, m.index)) + `\`${m[0]}\``;
+    last = m.index + m[0].length;
+  }
+  return out3 + wrapWords(s.slice(last));
+}
+function codeNames(text3) {
+  if (!text3) return text3;
+  let out3 = "";
+  let last = 0;
+  for (const m of text3.matchAll(CODE_SPAN)) {
+    out3 += wrapPlain(text3.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  return out3 + wrapPlain(text3.slice(last));
+}
+var BULLET = /^\s{0,3}(?:[-*•]|\d{1,2}[.)])\s+/;
+var OPTION_LINE = /^\s*(?:[-*•]\s+)?\(?([a-z])[.)]\s+/;
+var sentences = (s) => s.split(/(?<=[.!?])\s+(?=[A-Z(`"“])/).map((x2) => x2.trim()).filter(Boolean);
+var tidy = (s) => s.replace(/\s+/g, " ").trim().replace(/[\s,;]*(?:\b(?:or|and))?[\s,;]*$/i, "").trim();
+function numbered(s) {
+  const run2 = (re2) => {
+    const out3 = [];
+    for (const m of s.matchAll(re2)) {
+      if (Number(m[2]) !== out3.length + 1) continue;
+      const at2 = m.index + m[1].length;
+      out3.push({ at: at2, end: m.index + m[0].length });
+    }
+    return out3.length >= 2 ? out3 : [];
+  };
+  const paren = run2(/(^|[\s:;,.—–-])\((\d{1,2})\)\s*/g);
+  const plain2 = run2(/(^|[\s:;,—–])(\d{1,2})[.)]\s+/g);
+  return paren.length >= plain2.length ? paren : plain2;
+}
+function inlineOptions(s) {
+  const marks = [];
+  for (const m of s.matchAll(/(^|[\s:;,—–-])\(?([a-z])\)\s*/g)) {
+    const label = m[2];
+    if (label.charCodeAt(0) - 97 !== marks.length) continue;
+    marks.push({ at: m.index + m[1].length, end: m.index + m[0].length, label });
+  }
+  if (marks.length < 2) return { text: s.trim(), options: [] };
+  const options = marks.map((x2, i) => option(x2.label, s.slice(x2.end, marks[i + 1]?.at ?? s.length)));
+  return { text: tidy(s.slice(0, marks[0].at)), options };
+}
+var option = (label, text3) => ({ label, text: tidy(text3).replace(/(?<!\.)\.$/, ""), recommended: /\brecommend(?:ed)?\b|\(recommended\)/i.test(text3) });
+function marked(item) {
+  if (item.options.some((o) => o.recommended)) return item;
+  const said2 = /\brecommend(?:ed|s|ation)?:?\s*(?:option\s+)?\(?([a-z])\)?(?![\w])/i.exec([item.text, ...item.options.map((o) => o.text)].join(" "));
+  if (!said2) return item;
+  const pick = said2[1].toLowerCase();
+  return { ...item, options: item.options.map((o) => o.label === pick ? { ...o, recommended: true } : o) };
+}
+var itemOf = (text3, options = []) => marked(options.length ? { text: tidy(text3), options } : inlineOptions(text3));
+function bulleted(lines) {
+  const head = [];
+  const items = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const cur = items.at(-1);
+    const opt = OPTION_LINE.exec(line);
+    if (cur && opt && opt[1].charCodeAt(0) - 97 === cur.options.length) {
+      cur.options.push(option(opt[1], line.slice(opt[0].length)));
+    } else if (BULLET.test(line) && (!/^\s/.test(line) || !cur)) {
+      items.push({ text: [line.replace(BULLET, "")], options: [] });
+    } else if (cur?.options.length) {
+      const last = cur.options.at(-1);
+      cur.options[cur.options.length - 1] = option(last.label, `${last.text} ${line.trim()}`);
+    } else if (cur) cur.text.push(line.trim());
+    else head.push(line.trim());
+  }
+  const all = items.map((i) => itemOf(i.text.join(" "), i.options));
+  if (head.length) return { headline: head.join(" "), items: all };
+  const [first, ...rest] = all;
+  return { headline: first.text, items: [...first.options.length ? [{ text: "", options: first.options }] : [], ...rest] };
+}
+function headOf(pre) {
+  const [first = "", ...more] = sentences(pre);
+  const rest = more.join(" ").trim();
+  if (!rest) return { headline: first, rest: null };
+  if (rest.length <= 40 && /:$/.test(rest)) return { headline: `${first} ${rest}`, rest: null };
+  return { headline: first, rest };
+}
+function noteShape(text3) {
+  const t = (text3 ?? "").trim();
+  if (!t) return null;
+  const lines = t.split(/\r?\n/);
+  if (lines.some((l3) => BULLET.test(l3) && !/^\s/.test(l3))) return bulleted(lines);
+  const para = lines.map((l3) => l3.trim()).filter(Boolean).join(" ");
+  const marks = numbered(para);
+  if (marks.length) {
+    const { headline, rest } = headOf(para.slice(0, marks[0].at).trim());
+    const items = marks.map((m, i) => itemOf(para.slice(m.end, marks[i + 1]?.at ?? para.length)));
+    if (!headline) return { headline: items[0].text, items: items.slice(1) };
+    return { headline, items: [...rest ? [itemOf(rest)] : [], ...items] };
+  }
+  const opts = inlineOptions(para);
+  if (opts.options.length) {
+    const { headline, rest } = headOf(opts.text);
+    return { headline: headline || opts.text, items: [marked({ text: headline ? rest ?? "" : "", options: opts.options })] };
+  }
+  return null;
+}
+function shapeProblems(text3) {
+  const lines = text3.trim().split(/\r?\n/);
+  const first = lines.findIndex((l3) => BULLET.test(l3) && !/^\s/.test(l3));
+  const head = (first < 0 ? lines : lines.slice(0, first)).map((l3) => l3.trim()).filter(Boolean).join(" ");
+  const p = [];
+  if (head.length > NOTE_HEADLINE_MAX) {
+    p.push(`The note is one long paragraph (${head.length} characters; a headline takes at most ${NOTE_HEADLINE_MAX}). Nobody reads a wall of text. ${NOTE_SHAPE_WORDS}`);
+  }
+  const shape = first < 0 ? null : noteShape(text3);
+  for (const [i, item] of (shape?.items ?? []).entries()) {
+    const n = i + 1;
+    const long = [item.text, ...item.options.map((o) => o.text)].join(" ").length;
+    if (long > NOTE_LIMITS.chars) p.push(`Thing ${n} is ${long} characters; one takes at most ${NOTE_LIMITS.chars}. Split it into more --item lines, or say it shorter.`);
+    if (item.options.length > NOTE_OPTIONS_MAX) p.push(`Thing ${n} gives ${item.options.length} options; a person picks from at most ${NOTE_OPTIONS_MAX}. Keep the ${NOTE_OPTIONS_MAX} that matter, and mark the one you recommend.`);
+  }
+  return p;
+}
+
 // packages/core/src/plan.ts
 var planVersion = (a2) => a2.version ?? 1;
 var askOf = (q2) => q2.askOf ?? "you";
@@ -6647,8 +6814,8 @@ function nextVersion(previous, fresh) {
     const was = (previous.decisions ?? []).find((p) => same(p.title, d.title));
     if (!was?.choice) return d;
     if (was.choice.option === null) return { ...d, choice: was.choice };
-    const option = d.options.find((o) => same(o.name, choiceName(was)));
-    return option ? { ...d, choice: { ...was.choice, option: option.id } } : d;
+    const option2 = d.options.find((o) => same(o.name, choiceName(was)));
+    return option2 ? { ...d, choice: { ...was.choice, option: option2.id } } : d;
   });
   const { earlier = [], ...kept } = previous;
   const next = { ...fresh, version: planVersion(previous) + 1, decisions, earlier: [...earlier, kept] };
@@ -6707,9 +6874,9 @@ function approveRefusal(a2, id) {
   return `${id}'s plan isn't ready to approve: ${parts.join(", and ")} first.`;
 }
 function choiceLine(d) {
-  const option = d.choice?.option ? d.options.find((o) => o.id === d.choice.option) : null;
+  const option2 = d.choice?.option ? d.options.find((o) => o.id === d.choice.option) : null;
   if (!d.choice) return `- ${d.title}: nobody chose. The plan recommends **${recommendedName(d)}**: ${d.because}`;
-  const what = option ? `**${option.name}**${option.means ? `: ${option.means}` : ""}` : `**Something else**: ${d.choice.text}`;
+  const what = option2 ? `**${option2.name}**${option2.means ? `: ${option2.means}` : ""}` : `**Something else**: ${d.choice.text}`;
   return `- ${d.title}: ${what} (chosen by ${d.choice.by})`;
 }
 function approvedPlanLines(a2) {
@@ -6721,6 +6888,8 @@ function approvedPlanLines(a2) {
     a2.approval ? `Version ${v}, approved by ${a2.approval.by} at ${a2.approval.at}.` : `Version ${v}. A person hasn't approved it.`,
     "",
     "The design choices are the person's, not yours. If the work needs a different choice from one made here, or meets a design decision this plan doesn't cover, stop: run acc block with the question, and never decide it yourself.",
+    "",
+    NOTE_RULE,
     "",
     ...decisions.length ? ["**The choices**", "", ...decisions.map(choiceLine), ""] : [],
     // A person's notes on the plan (T-98), such as a changed step, are theirs as the choices are.
@@ -6780,9 +6949,9 @@ function choosePlan(paths, id, decision, pick, by, now2, yes = false) {
     picked = { option: null, text: text3 };
   } else {
     const named = (pick.option ?? "").trim().toLowerCase();
-    const option = d.options.find((o) => o.id === named || o.name.toLowerCase() === named);
-    if (!option) throw new AccError("usage", `${d.id} has no option ${pick.option ?? "(none given)"}. It has: ${d.options.map((o) => `${o.id} (${o.name})`).join(", ")}.`);
-    picked = { option: option.id };
+    const option2 = d.options.find((o) => o.id === named || o.name.toLowerCase() === named);
+    if (!option2) throw new AccError("usage", `${d.id} has no option ${pick.option ?? "(none given)"}. It has: ${d.options.map((o) => `${o.id} (${o.name})`).join(", ")}.`);
+    picked = { option: option2.id };
   }
   if (sameChoice(d.choice, picked)) return { plan: a2, decision: d, changed: false };
   if (a2.approval && !yes) throw new AccError("refused", `${CHANGE_APPROVED} To change it anyway, run it again with --yes.`);
@@ -6816,6 +6985,64 @@ import { join as join14 } from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdirSync as mkdirSync12, readFileSync as readFileSync17, rmSync as rmSync7, writeFileSync as writeFileSync10 } from "node:fs";
 import { join as join13 } from "node:path";
+
+// packages/core/src/brief-wording.ts
+var CRITERIA_TITLE = "Acceptance criteria";
+var HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/u;
+var FENCE = /^ {0,3}(```|~~~)/u;
+var ITEM = /^\s*(?:[-*+]|\d{1,3}[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/u;
+function briefCriteria(brief) {
+  const found2 = [];
+  let level = 0;
+  let fence2 = false;
+  let last = null;
+  splitLines(brief).forEach((raw, i) => {
+    if (FENCE.test(raw)) {
+      fence2 = !fence2;
+      last = null;
+      return;
+    }
+    if (fence2) return;
+    const h2 = HEADING.exec(raw);
+    if (h2) {
+      const at2 = h2[1].length;
+      if (h2[2].trim().toLowerCase() === CRITERIA_TITLE.toLowerCase()) level = at2;
+      else if (level && at2 <= level) level = 0;
+      last = null;
+      return;
+    }
+    if (!level) return;
+    const item = ITEM.exec(raw);
+    if (item) {
+      last = { line: i + 1, text: item[1].trim() };
+      if (last.text) found2.push(last);
+      return;
+    }
+    if (!raw.trim() || !/^\s/.test(raw)) last = null;
+    else if (last) last.text = `${last.text} ${raw.trim()}`;
+  });
+  return found2;
+}
+function briefWording(brief) {
+  return briefCriteria(brief).flatMap(({ line, text: text3 }, n) => steLint(`- ${codeNames(text3)}`).findings.map((f) => ({ criterion: n + 1, line, text: text3, rule: f.rule, level: f.level, match: f.match, message: f.message })));
+}
+var criterionLine = (f) => {
+  const m = wordingMatch(f);
+  return `- Line ${f.line} (criterion ${f.criterion}), ${f.rule}: ${f.message}${m ? ` [${m}]` : ""}`;
+};
+function briefWordingWords(hard, id) {
+  return [
+    `${id ? `${id}'s` : "The"} acceptance criteria don't pass the Simplified Technical English check (${plural(hard.length, "finding")}), so acc wrote nothing. Write each criterion again with its fix, then run the command again:`,
+    ...hard.map(criterionLine)
+  ].join("\n");
+}
+var briefAdviceLines = (advice) => advice.length ? ["Advice on the wording of the acceptance criteria. It doesn't stop the command:", ...advice.map(criterionLine)] : [];
+function refuseBriefWording(brief, id = null) {
+  const found2 = briefWording(brief);
+  const hard = found2.filter((f) => f.level === "hard");
+  if (hard.length) throw new AccError("refused", briefWordingWords(hard, id));
+  return found2;
+}
 
 // packages/core/src/updates.ts
 import { mkdirSync as mkdirSync11, readdirSync as readdirSync3, readFileSync as readFileSync16, rmSync as rmSync6 } from "node:fs";
@@ -7010,7 +7237,7 @@ var CRITERIA_SCHEMA = {
   }
 };
 var CRITERIA_HEADING = "Drafted acceptance criteria";
-var CRITERIA_PARTS = { criteria: "Acceptance criteria", steps: "Test steps", edgeCases: "Edge cases", questions: "Open questions for the author" };
+var CRITERIA_PARTS = { criteria: CRITERIA_TITLE, steps: "Test steps", edgeCases: "Edge cases", questions: "Open questions for the author" };
 var CRITERIA_TEXT_MAX = 3e4;
 var CRITERIA_COMMENTS_MAX = 40;
 var COMMENT_MAX = 4e3;
@@ -7115,7 +7342,7 @@ function parseCriteria(stdout) {
   return { draft, sessionId: typeof r.session_id === "string" ? r.session_id : null, costUsd: typeof r.total_cost_usd === "number" ? r.total_cost_usd : null };
 }
 function criteriaMarkdown(d) {
-  const part = (key, numbered) => d[key].length ? [`### ${CRITERIA_PARTS[key]}`, "", ...d[key].map((x2, n) => `${numbered ? `${n + 1}.` : "-"} ${x2}`), ""] : [];
+  const part = (key, numbered2) => d[key].length ? [`### ${CRITERIA_PARTS[key]}`, "", ...d[key].map((x2, n) => `${numbered2 ? `${n + 1}.` : "-"} ${x2}`), ""] : [];
   return [...part("criteria", true), ...part("steps", true), ...part("edgeCases", false), ...part("questions", false)].join("\n").trim();
 }
 var criteriaSection = (markdown) => `## ${CRITERIA_HEADING}
@@ -7436,10 +7663,10 @@ function talking(paths, task) {
 }
 function quoteOf(a2, ref) {
   const r = ref.trim().toLowerCase();
-  const option = /^(d\d+)\.([a-z])$/.exec(r);
-  if (option) {
-    const d2 = a2.decisions?.find((x2) => x2.id === option[1]);
-    const o = d2?.options.find((x2) => x2.id === option[2]);
+  const option2 = /^(d\d+)\.([a-z])$/.exec(r);
+  if (option2) {
+    const d2 = a2.decisions?.find((x2) => x2.id === option2[1]);
+    const o = d2?.options.find((x2) => x2.id === option2[2]);
     return d2 && o ? { ref: r, kind: "option", text: `${d2.title}: ${o.name}${o.means ? `. ${o.means}` : ""}` } : null;
   }
   const d = /^d\d+$/.test(r) ? a2.decisions?.find((x2) => x2.id === r) : void 0;
@@ -7936,7 +8163,7 @@ var DECISIONS_DIR = "docs/decisions";
 var DECISIONS_INDEX = "docs/DECISIONS.md";
 var NUMBERED = /^D-(\d{3,})-([a-z0-9][a-z0-9-]*)\.md$/;
 var NEW = /^new-([A-Z][A-Z0-9_]*-\d+)-([a-z0-9][a-z0-9-]*)\.md$/;
-var HEADING = /^## (D-(?:\d{3,}|[A-Z][A-Z0-9_]*-\d+)) (.+?)(?: \((\d{4}-\d{2}-\d{2})\))?$/;
+var HEADING2 = /^## (D-(?:\d{3,}|[A-Z][A-Z0-9_]*-\d+)) (.+?)(?: \((\d{4}-\d{2}-\d{2})\))?$/;
 function parseDecisionName(file) {
   const n = NUMBERED.exec(file);
   if (n) return { file, number: Number(n[1]), task: null, slug: n[2] };
@@ -7945,7 +8172,7 @@ function parseDecisionName(file) {
 }
 var decisionId = (n) => `D-${String(n).padStart(3, "0")}`;
 function decisionHeading(text3) {
-  const m = HEADING.exec(text3.split("\n", 1)[0] ?? "");
+  const m = HEADING2.exec(text3.split("\n", 1)[0] ?? "");
   return m ? { id: m[1], title: m[2], date: m[3] ?? null } : null;
 }
 function readDecisions(root) {
@@ -8037,12 +8264,12 @@ function addedLines(run2, root, from) {
 }
 var idPattern = (ids) => new RegExp(`(?<![\\w-])(${ids.map((i) => i.replace(/[-]/g, "\\-")).join("|")})(?![\\w]|-\\d)`, "g");
 function numberDecisions(run2, root, base, commit) {
-  const numbered = decisionsToNumber(run2, root, base);
-  if (!numbered.length) return null;
+  const numbered2 = decisionsToNumber(run2, root, base);
+  if (!numbered2.length) return null;
   if (git(run2, root, "status", "--porcelain", "--untracked-files=no").stdout.trim()) throw new AccError("decisions", `${root} has changes nobody committed: commit them before numbering its decisions.`);
   const from = git(run2, root, "rev-parse", "HEAD").stdout.trim();
   const mb = git(run2, root, "merge-base", base, "HEAD").stdout.trim();
-  const ids = new Map(numbered.map((n) => [n.was, n.id]));
+  const ids = new Map(numbered2.map((n) => [n.was, n.id]));
   const pattern = idPattern([...ids.keys()]);
   try {
     for (const [path, lines] of addedLines(run2, root, mb)) {
@@ -8060,18 +8287,18 @@ function numberDecisions(run2, root, base, commit) {
       }
       if (changed) writeFileSync13(file, split.join("\n"));
     }
-    for (const n of numbered) ok(git(run2, root, "mv", `${DECISIONS_DIR}/${n.from}`, `${DECISIONS_DIR}/${n.to}`), `git couldn't rename ${n.from}`);
+    for (const n of numbered2) ok(git(run2, root, "mv", `${DECISIONS_DIR}/${n.from}`, `${DECISIONS_DIR}/${n.to}`), `git couldn't rename ${n.from}`);
     if (writeDecisionsIndex(root)) ok(git(run2, root, "add", "--", DECISIONS_INDEX), "git couldn't stage the index");
     ok(git(run2, root, "add", "-u"), "git couldn't stage the numbering");
-    ok(commit("commit", "-q", "-m", numberedMessage(numbered)), "The numbering commit was refused");
+    ok(commit("commit", "-q", "-m", numberedMessage(numbered2)), "The numbering commit was refused");
   } catch (e) {
     git(run2, root, "reset", "-q", "--hard", from);
     throw e;
   }
-  return { sha: git(run2, root, "rev-parse", "HEAD").stdout.trim(), numbered };
+  return { sha: git(run2, root, "rev-parse", "HEAD").stdout.trim(), numbered: numbered2 };
 }
-var numberedWords = (numbered) => numbered.map((n) => `${n.was} is ${n.id}`).join(", ");
-var numberedMessage = (numbered) => `Number the decisions this branch adds: ${numberedWords(numbered)}`;
+var numberedWords = (numbered2) => numbered2.map((n) => `${n.was} is ${n.id}`).join(", ");
+var numberedMessage = (numbered2) => `Number the decisions this branch adds: ${numberedWords(numbered2)}`;
 
 // packages/core/src/shape-first.ts
 var SHAPE_KINDS = ["schema", "type", "module", "setting", "file format"];
@@ -10286,34 +10513,43 @@ function fetchBranches(run2, root, branches, env) {
   return run2("git", ["fetch", "--quiet", "--no-tags", "origin", ...refs], { cwd: root, env, timeoutMs: FETCH_TIMEOUT_MS2 }).code === 0;
 }
 
+// packages/core/src/this-machine.ts
+function machineNoun(platform = process.platform) {
+  if (platform === "darwin") return "Mac";
+  if (platform === "win32") return "PC";
+  return "computer";
+}
+var thisMachine = (platform = process.platform) => `this ${machineNoun(platform)}`;
+var thisMachineLabel = (platform = process.platform) => `This ${machineNoun(platform)}`;
+
 // packages/core/src/cloud.ts
-var BUILDER_PLACE_LOOK = {
-  local: { label: "This Mac", icon: "device-desktop" },
+var builderPlaceLook = (platform = process.platform) => ({
+  local: { label: thisMachineLabel(platform), icon: "device-desktop" },
   cloud: { label: "Cloud", icon: "cloud" }
-};
+});
 var ROUTINES_URL = "https://claude.ai/code/routines";
 function cloudOffered(config) {
   const cloud = config.agents.cloud;
   return [
     { id: "github", label: "The repo is on GitHub", ok: !!config.github, fix: 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back. Add the "github" section to .acc/config.json.' },
-    { id: "opted-in", label: "The project has opted in", ok: !!cloud, fix: "Cloud builders are off until a person opts the project in: acc cloud enable, or Settings' Cloud builders switch." },
-    { id: "routine", label: "A routine for the repo", ok: !!cloud?.routine, fix: `Make a routine for the repo at ${ROUTINES_URL}, with an API trigger, and give acc its trigger id: acc cloud enable --routine trig_\u2026.` }
+    { id: "opted-in", label: "The project has opted in", ok: !!cloud, fix: "Cloud builders are off until a person opts the project in: acc cloud enable, or Set up cloud builders in Settings." },
+    { id: "routine", label: "A scheduled task for the repo", ok: !!cloud?.routine, fix: `Make a scheduled task (formerly a routine) for the repo at ${ROUTINES_URL}, with an API trigger, and give acc its trigger id: acc cloud enable --routine trig_\u2026.` }
   ];
 }
-function cloudReason(needs) {
+function cloudReason(needs, platform = process.platform) {
   const first = needs.find((n) => !n.ok);
   if (!first) return null;
   if (first.id === "github") return "Cloud builders need the repo on GitHub";
   if (first.id === "opted-in") return "Cloud builders are off for this project: opt in under Settings";
-  if (first.id === "routine") return "Cloud builders need a routine for the repo: Setup says how";
-  if (first.id === "token") return "Cloud builders need the routine's token: Setup says how";
+  if (first.id === "routine") return "Cloud builders need a scheduled task for the repo: Setup says how";
+  if (first.id === "token") return cloudTokenHome(platform) === "vscode" ? "Cloud builders need the scheduled task's token, which the Command Center keeps on Windows: start it from the Command Center" : "Cloud builders need the scheduled task's token: Setup says how";
   return "Cloud builders need a claude.ai sign-in: claude auth login";
 }
-function cloudNeeds(config, run2, env) {
+function cloudNeeds(config, run2, env, platform = process.platform) {
   const needs = cloudOffered(config);
   const repo = config.github?.repo ?? "";
-  const token = repo ? readCloudToken(run2, repo, env) : null;
-  needs.push({ id: "token", label: "The routine's token is in this Mac's keychain", ok: !!token, fix: "Generate the API trigger's token on the routine's page, then keep it in the keychain: acc cloud token. It's never written to .acc/config.json or git." });
+  const token = repo ? readCloudToken(run2, repo, env, platform) : null;
+  needs.push(cloudTokenHome(platform) === "vscode" ? { id: "token", label: "The Command Center handed over the scheduled task's token", ok: !!token, fix: WINDOWS_TOKEN_FIX } : { id: "token", label: "The scheduled task's token is in this Mac's keychain", ok: !!token, fix: "Generate the API trigger's token on the scheduled task's page, then keep it in the keychain: acc cloud token, or Set up cloud builders in the Command Center. It's never written to .acc/config.json or git." });
   const login = claudeLogin(run2, env);
   needs.push({ id: "login", label: "Claude Code is signed in to claude.ai", ok: login.ok, fix: login.ok ? "" : `${login.why} Run: claude auth login` });
   return needs;
@@ -10333,26 +10569,26 @@ function claudeLogin(run2, env) {
 var CLOUD_TOKEN_SERVICE = "acc-cloud-routine";
 var CLOUD_TOKEN_ENV = "ACC_CLOUD_TOKEN";
 var CLOUD_TOKEN = /^[A-Za-z0-9_-]{20,}$/;
-var cloudTokenUnavailable = (platform = process.platform) => platform === "win32" ? "Not available on Windows yet: the routine's token is kept in the macOS keychain" : null;
+var cloudTokenHome = (platform = process.platform) => platform === "win32" ? "vscode" : "keychain";
+var WINDOWS_TOKEN_FIX = "On Windows the Command Center keeps the scheduled task's token, in VS Code, and hands it to acc whenever it builds or reviews. Start this from the Command Center: Build it, then Cloud.";
 function readCloudToken(run2, repo, env, platform = process.platform) {
   const given2 = env[CLOUD_TOKEN_ENV]?.trim();
   if (given2) return given2;
-  if (cloudTokenUnavailable(platform)) return null;
+  if (cloudTokenHome(platform) === "vscode") return null;
   const r = run2("security", ["find-generic-password", "-s", CLOUD_TOKEN_SERVICE, "-a", repo, "-w"], { env, timeoutMs: 2e4 });
   const token = r.code === 0 ? r.stdout.trim() : "";
   return token && CLOUD_TOKEN.test(token) ? token : null;
 }
 function writeCloudToken(run2, repo, token, env, platform = process.platform) {
-  const unavailable = cloudTokenUnavailable(platform);
-  if (unavailable) throw new AccError("refused", `${unavailable}. Set ${CLOUD_TOKEN_ENV} to the token instead.`);
-  if (!CLOUD_TOKEN.test(token)) throw new AccError("usage", "That doesn't look like a routine's API token: letters, digits, dashes and underscores, 20 or more.");
+  if (cloudTokenHome(platform) === "vscode") throw new AccError("refused", "On Windows the Command Center keeps the scheduled task's token, in VS Code: paste it in Set up cloud builders there, at The token.");
+  if (!CLOUD_TOKEN.test(token)) throw new AccError("usage", "That doesn't look like a scheduled task's API token: letters, digits, dashes and underscores, 20 or more.");
   const quote = (s) => `"${s.replace(/(["\\])/g, "\\$1")}"`;
   const r = run2("security", ["-i"], { env, input: `add-generic-password -U -s ${quote(CLOUD_TOKEN_SERVICE)} -a ${quote(repo)} -w ${quote(token)}
 `, timeoutMs: 2e4 });
   if (r.code !== 0) throw new AccError("cloud", `The keychain wouldn't keep the token: ${(r.stderr || r.stdout).trim().split("\n")[0] || `security exited ${r.code}`}`);
 }
 function deleteCloudToken(run2, repo, env, platform = process.platform) {
-  if (cloudTokenUnavailable(platform)) return false;
+  if (cloudTokenHome(platform) === "vscode") return false;
   return run2("security", ["delete-generic-password", "-s", CLOUD_TOKEN_SERVICE, "-a", repo], { env, timeoutMs: 2e4 }).code === 0;
 }
 var ROUTINE_FIRE_URL = (routine) => `https://api.anthropic.com/v1/claude_code/routines/${routine}/fire`;
@@ -10428,7 +10664,7 @@ function cloudChecks(config, env) {
 function cloudText(p) {
   const { task, config, env, branch, checks } = p;
   const commandOf = (g) => config.gates.commands[g] ?? config.gates.ratchets?.[g]?.command ?? null;
-  const commands = checks.inCloud.map((g) => `- \`${g}\`: ${commandOf(g) ? `\`${commandOf(g)}\`` : `acc's built-in ${g} check, which acc runs on the Mac when it collects your work`}`);
+  const commands = checks.inCloud.map((g) => `- \`${g}\`: ${commandOf(g) ? `\`${commandOf(g)}\`` : `acc's built-in ${g} check, which acc runs on the ${machineNoun()} when it collects your work`}`);
   return [
     // The guard's record (GH-69): the repo's push guard reads these lines from the session's first message,
     // and allows a push of this branch alone, by a builder (T-86). They come first, a line each, exactly like this.
@@ -10442,7 +10678,7 @@ function cloudText(p) {
     `- **Your branch is \`${branch}\`**, already on GitHub, started from \`${env.branch}\`. Start with \`git fetch origin ${branch} && git checkout ${branch}\`. Work on it only. The \`${RECORD_LINE}\` and \`${ROLE_LINE}\` lines at the top are the repo's push guard's record of it: the guard allows \`git push origin ${branch}\` and nothing else that pushes, written plainly, as its own command.`,
     "- **acc isn't installed here.** Where the instructions say `acc gate run`, run these checks yourself and fix what fails:",
     ...commands.length ? commands : ["  - this project names no checks a cloud session can run"],
-    ...checks.macOnly.length ? [`- **These checks can't run in the cloud**, since they need an org login, and acc runs them on the Mac when it collects your branch: ${checks.macOnly.map((g) => `\`${g}\``).join(", ")}. Don't try them here.`] : [],
+    ...checks.macOnly.length ? [`- **These checks can't run in the cloud**, since they need an org login, and acc runs them on the ${machineNoun()} when it collects your branch: ${checks.macOnly.map((g) => `\`${g}\``).join(", ")}. Don't try them here.`] : [],
     "- **Where the instructions say `acc done`**, finish like this instead, all in your last commit's message, a trailer on its own line each:",
     "  ```",
     `  ${DONE_TRAILER}: ${task.id}`,
@@ -10539,7 +10775,7 @@ function collect(paths, config, id, deps, opts) {
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError("no-task", `No task ${id}.`);
   if (task.state !== "running") throw new AccError("refused", `${id} is ${task.state}. acc collects a running cloud builder's work.`);
-  if (task.run?.where !== "cloud" || !task.run.cloud) throw new AccError("refused", `${id}'s builder runs on this Mac, and finishes with acc done itself.`);
+  if (task.run?.where !== "cloud" || !task.run.cloud) throw new AccError("refused", `${id}'s builder runs on ${thisMachine()}, and finishes with acc done itself.`);
   const branch = task.run.branch;
   const wt2 = task.run.worktree;
   if (!branch || !wt2) throw new AccError("refused", `${id} has no branch or worktree to collect into.`);
@@ -10592,7 +10828,7 @@ function collect(paths, config, id, deps, opts) {
     applyMove(x2, req, emit, now2, { cloud: { sha, checks: results.map((r) => ({ gate: r.gate, status: r.status })) } });
     return x2;
   });
-  return { task: moved, sha, checks: results, reason: `Collected ${sha.slice(0, 7)} from the cloud${gates.length ? `, and ${gates.join(", ")} passed on this Mac` : ""}: ${id} is in review.` };
+  return { task: moved, sha, checks: results, reason: `Collected ${sha.slice(0, 7)} from the cloud${gates.length ? `, and ${gates.join(", ")} passed on ${thisMachine()}` : ""}: ${id} is in review.` };
 }
 function enableCloud(configFile, change3, current3) {
   if (change3.routine !== void 0 && change3.routine !== null && !ROUTINE_ID.test(change3.routine)) throw new AccError("usage", "A routine's API trigger id looks like trig_01ABC\u2026: copy it from the routine's page at claude.ai/code/routines.");
@@ -10966,7 +11202,7 @@ import { mkdirSync as mkdirSync22, readdirSync as readdirSync7, readFileSync as 
 import { join as join26 } from "node:path";
 var JOB_KINDS = ["land", "refresh", "promote", "deploy", "autopilot"];
 var jobsDir = (paths) => join26(paths.stateDir, "jobs");
-var marked = 0;
+var marked2 = 0;
 function readJobs(paths) {
   const dir = jobsDir(paths);
   let names3 = [];
@@ -10991,7 +11227,7 @@ function startJob(paths, job, now2 = () => /* @__PURE__ */ new Date()) {
   const dir = jobsDir(paths);
   mkdirSync22(dir, { recursive: true });
   for (const old of readJobs(paths)) if (!alive(old.pid)) rmSync14(join26(dir, `${old.key}.json`), { force: true });
-  const key = `${job.kind}-${job.task ?? job.env ?? "repo"}-${process.pid}-${++marked}`.replace(/[^\w.-]/g, "_");
+  const key = `${job.kind}-${job.task ?? job.env ?? "repo"}-${process.pid}-${++marked2}`.replace(/[^\w.-]/g, "_");
   const file = join26(dir, `${key}.json`);
   writeFileSync20(`${file}.tmp`, JSON.stringify({ ...job, key, pid: process.pid, startedAt: now2().toISOString() }) + "\n");
   renameSync10(`${file}.tmp`, file);
@@ -12173,18 +12409,18 @@ function close(run2, env, repo, n, text3) {
 }
 function settleCloses(paths, config, deps, opts = {}) {
   const { run: run2, now: now2, env } = deps;
-  const tidy = !!opts.tidy;
-  const tasks = readLedger(paths.ledger).tasks.filter((t) => t.state === "done" && (tidy ? t.pr?.state === "merged" && !t.pr.issue : t.pr?.issue?.state === "pending"));
+  const tidy2 = !!opts.tidy;
+  const tasks = readLedger(paths.ledger).tasks.filter((t) => t.state === "done" && (tidy2 ? t.pr?.state === "merged" && !t.pr.issue : t.pr?.issue?.state === "pending"));
   const results = [];
   for (const t of tasks) {
     const pr = t.pr;
     const key = t.id.replace(/^GH-/, "#");
     const target = issueToClose(config, t);
     if (!target) {
-      if (!tidy) results.push({ task: t.id, key, pr: pr.number, outcome: "left", reason: `its tracker doesn't say "edits": true now` });
+      if (!tidy2) results.push({ task: t.id, key, pr: pr.number, outcome: "left", reason: `its tracker doesn't say "edits": true now` });
       continue;
     }
-    const seen = look(run2, env, target.repo, target.number, tidy || !!pr.issue?.reason);
+    const seen = look(run2, env, target.repo, target.number, tidy2 || !!pr.issue?.reason);
     if (!seen.close) results.push({ task: t.id, key, pr: pr.number, outcome: seen.outcome, reason: seen.reason });
     else if (opts.plan) results.push({ task: t.id, key, pr: pr.number, outcome: "to close" });
     else results.push({ task: t.id, key, pr: pr.number, ...close(run2, env, target.repo, target.number, closeText(config, { environment: t.environment, pr }, target.repo)) });
@@ -12351,6 +12587,51 @@ var moveUrl = (repo, m) => `https://github.com/${repo}/compare/${m.from}...${m.t
 
 // packages/core/src/cloud-review.ts
 import { existsSync as existsSync21, mkdirSync as mkdirSync30, renameSync as renameSync13, writeFileSync as writeFileSync27 } from "node:fs";
+
+// packages/core/src/note-wording.ts
+var NOTE_FIX_TRIES = 2;
+function noteLines(text3, of) {
+  const at2 = (where) => of ? `${of}, ${where.toLowerCase()}` : where;
+  let n = 0;
+  return text3.split(/\r?\n/).filter((l3) => l3.trim()).map((l3) => {
+    if (BULLET.test(l3) && !/^\s/.test(l3)) n++;
+    return { where: n ? at2(`Thing ${n}`) : at2("Headline"), text: l3.trim() };
+  });
+}
+var doneLines = (note) => ["landed", "moved", "open"].flatMap((k2) => (note?.[k2] ?? []).map((text3, i) => ({ where: `${NOTE_LABELS[k2]} ${i + 1}`, text: text3 })));
+var verdictLines = (v) => [
+  { where: "Summary", text: v.summary },
+  ...v.client ? [{ where: "For the client", text: v.client }] : [],
+  ...v.findings.map((f, i) => ({ where: `Finding ${i + 1}`, text: f.message }))
+];
+function noteWording(lines) {
+  return lines.flatMap(({ where, text: text3 }) => {
+    const coded = codeNames(text3);
+    const item = BULLET.test(coded.trim()) ? coded.trim() : `- ${coded.trim()}`;
+    return steLint(item).findings.filter((f) => f.level === "hard").map((f) => ({ where, text: text3, rule: f.rule, match: f.match, message: f.message }));
+  });
+}
+var findingLine = (f) => {
+  const m = wordingMatch(f);
+  return `- ${f.where}: ${f.message}${m ? ` [${m}]` : ""}`;
+};
+function noteWordingWords(findings) {
+  return [
+    `The note's wording doesn't pass the Simplified Technical English check (${findings.length} finding${findings.length === 1 ? "" : "s"}), so acc recorded nothing. Write the note again with each fix, then run the command again:`,
+    ...findings.map(findingLine)
+  ].join("\n");
+}
+function refuseNoteWording(lines) {
+  const found2 = noteWording(lines);
+  if (found2.length) throw new AccError("refused", noteWordingWords(found2));
+}
+function noteFixPrompt(findings) {
+  return [
+    "acc checked the wording of your review, and it fails the Simplified Technical English check. Fix each finding, keep your verdict and what each line says, and answer again with the whole review.",
+    "",
+    ...findings.map(findingLine)
+  ].join("\n");
+}
 
 // packages/core/src/review.ts
 import { randomUUID as randomUUID5 } from "node:crypto";
@@ -12684,7 +12965,7 @@ function actionsJob(link) {
   if (!m) return null;
   return { repo: m[1] === "github.com" ? m[2] : `${m[1]}/${m[2]}`, id: m[3] };
 }
-function headOf(run2, repo, pr, env) {
+function headOf2(run2, repo, pr, env) {
   const r = run2("gh", ["pr", "view", String(pr), "-R", repo, "--json", "headRefOid"], { env, timeoutMs: GH_TIMEOUT_MS });
   let sha = "";
   try {
@@ -12705,7 +12986,7 @@ function listOf2(r) {
 }
 var quotedChecks = (names3) => `the ${names3.map((n) => `"${n}"`).join(", ").replace(/, ([^,]*)$/, " and $1")} check${names3.length === 1 ? "" : "s"}`;
 function readChecks(run2, repo, pr, env, named = []) {
-  const sha = headOf(run2, repo, pr, env);
+  const sha = headOf2(run2, repo, pr, env);
   const checks = (...more) => run2("gh", ["pr", "checks", String(pr), "-R", repo, ...more, "--json", "name,bucket,link,workflow,state"], { env, timeoutMs: GH_TIMEOUT_MS });
   let required = true;
   let r = checks("--required");
@@ -12863,7 +13144,7 @@ function sendBack(paths, config, id, deps, opts) {
     const got = fetchLog(run2, c.job, env);
     return "log" in got ? { ...base, log: got.log, noLog: null } : { ...base, log: null, noLog: got.error };
   });
-  const still = headOf(run2, gh.repo, pr.number, env);
+  const still = headOf2(run2, gh.repo, pr.number, env);
   if (still !== head) throw away(still);
   const names3 = checks.map((c) => c.name);
   const at2 = now2().toISOString();
@@ -13014,7 +13295,7 @@ function renderPacket(p) {
     ...queueSection(p.queue),
     "## Where you are",
     "",
-    ...p.cloud ? ["- **Workspace:** this cloud session's clone of the repo. acc collects your branch into the task's worktree on the Mac."] : [`- **Worktree:** \`${p.worktree}\`. This is your only workspace.`],
+    ...p.cloud ? [`- **Workspace:** this cloud session's clone of the repo. acc collects your branch into the task's worktree on the ${machineNoun()}.`] : [`- **Worktree:** \`${p.worktree}\`. This is your only workspace.`],
     `- **Branch:** \`${p.branch}\`, started from \`${env.branch}\`, the ${env.name} environment's branch.${p.cloud ? " It's on GitHub already: check it out, and push only it." : ""}`
   );
   if (sf2 && env.org) lines.push(`- **Org:** \`${env.org}\` (${env.name}). It's already this worktree's default org.`);
@@ -13056,6 +13337,7 @@ function renderPacket(p) {
     `3. **Finish** with a note, by running \`acc done\` as its own command, all on one line: \`${DONE_COMMAND}\`. It is already on your PATH and pre-approved. Don't run it through npm scripts, \`npx\`, or other wrappers, and don't chain it with other commands, or it will stop for permission.`,
     `   The note is for whoever comes next: the reviewer, the next builder and the pull request read it, and it's posted on the pull request on GitHub, so keep secrets and client data out of it. \`--landed\` says what the change does now; \`--moved\` which numbers moved (tests added, checks passed, ratchets raised); \`--open\` what's left undone or worth a follow-up, each line something a person could make a task of. Give a flag again for each further line, up to ${NOTE_LIMITS.lines} a part and ${NOTE_LIMITS.chars} characters a line. \`--moved none\` and \`--open none\` say there was nothing. Use double quotes, with no backticks or \`$\` inside them. \`acc done\` refuses without a note.`,
     '   If you\'re stuck, run exactly `acc block "<what you need>"` instead, and stop. If part of the work landed, add the same `--landed`, `--moved` and `--open` to it.',
+    `   ${NOTE_RULE}`,
     "   If only the client can answer what you need (a business rule, access you don't have, or a choice that's theirs to make), run exactly `acc block --client \"<your question>\"` instead, and stop. Write the question for the client, in plain words with no code, file or tool names: a person reads it before it goes on the ticket.",
     ...p.accPath ? [`   If \`acc\` really isn't found, its full path is \`${p.accPath}\`.`] : [],
     "4. **Summarize** your note in your final message, with anything a reviewer should look at.",
@@ -13306,6 +13588,9 @@ function reviewPrompt(i) {
     "Skip formatting and style: the checks cover those. A check that a person waived is settled; don't reopen it.",
     `Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don't block.`,
     "Be specific: the file, the line, what is wrong, and what to do instead.",
+    "Keep it short for the person who reads it: the summary opens with one sentence that says the verdict, and each finding is one thing, never a paragraph of several. Put API names in backticks: a custom field or object, a developer name, a path, a branch, a command.",
+    // How each line reads (T-149): acc checks the summary, the client's sentence and each finding before it keeps them.
+    NOTE_STE_RULE,
     "Give each finding a kind: a few words naming the kind of problem. Reuse one of the kinds you are given when it fits, so a finding that keeps coming back is seen."
   ].join("\n");
   const prompt = [
@@ -13365,7 +13650,8 @@ function checkVerdict(s) {
   const L2 = VERDICT_LIMITS;
   const criteria = (Array.isArray(a2.criteria) ? a2.criteria : []).filter((c) => typeof c?.text === "string").slice(0, L2.criteria).map((c) => ({ text: clip(c.text, L2.text), met: c.met === true, evidence: clip(String(c.evidence ?? ""), L2.evidence) }));
   const findings = (Array.isArray(a2.findings) ? a2.findings : []).filter((f) => typeof f?.message === "string").slice(0, L2.findings).map((f) => ({
-    message: clip(f.message, L2.message),
+    // An agent's words reach a person with their API names as code (T-146).
+    message: codeNames(clip(f.message, L2.message)),
     must: f.must === true,
     ...typeof f.file === "string" && f.file ? { file: clip(f.file, L2.file) } : {},
     ...Number.isInteger(f.line) ? { line: f.line } : {},
@@ -13374,7 +13660,7 @@ function checkVerdict(s) {
   }));
   const verdict = a2.verdict === "pass" && findings.some((f) => f.must) ? "changes" : a2.verdict;
   const client = typeof a2.client === "string" && a2.client.trim() ? { client: clip(a2.client.trim(), L2.client) } : {};
-  return { verdict, summary: clip(a2.summary, L2.summary), ...client, criteria, findings };
+  return { verdict, summary: codeNames(clip(a2.summary, L2.summary)), ...client, criteria, findings };
 }
 function parseReview(stdout) {
   let r;
@@ -13461,14 +13747,10 @@ function review(paths, config, id, deps, opts = {}) {
   writeFileSync26(marker, JSON.stringify({ sessionId, name, sha, startedAt: startedAt.toISOString(), pid: process.pid }));
   deps.onStart?.(sessionId, sha, name);
   const awake = holdAwake(process.pid, deps.awake);
-  let out3;
-  try {
-    out3 = run2("claude", [
+  const ask2 = (args, input) => {
+    const out3 = run2("claude", [
       "-p",
-      "--session-id",
-      sessionId,
-      "--name",
-      name,
+      ...args,
       "--permission-mode",
       "dontAsk",
       ...agentArgs(config.agents.reviewer),
@@ -13489,14 +13771,26 @@ function review(paths, config, id, deps, opts = {}) {
       "NotebookEdit",
       "WebFetch",
       "WebSearch"
-    ], { cwd: worktree, input: prompt, env: { ...deps.env, ACC_ROLE: "reviewer", ACC_TASK: id }, timeoutMs: 45 * 6e4 });
+    ], { cwd: worktree, input, env: { ...deps.env, ACC_ROLE: "reviewer", ACC_TASK: id }, timeoutMs: 45 * 6e4 });
+    if (out3.timedOut) throw new AccError("review", `The review didn't finish within 45 minutes, so acc stopped it.`);
+    if (out3.code === 127 && !out3.stdout) throw new AccError("review", `Claude Code didn't start: ${out3.stderr.trim().split("\n")[0] ?? "claude not found"}`);
+    return parseReview(out3.stdout);
+  };
+  let parsed;
+  try {
+    parsed = ask2(["--session-id", sessionId, "--name", name], prompt);
+    for (let tries = 0, wording = noteWording(verdictLines(parsed.verdict)); wording.length; tries++, wording = noteWording(verdictLines(parsed.verdict))) {
+      if (tries === NOTE_FIX_TRIES) {
+        throw new AccError("review", [`The review's wording still fails the Simplified Technical English check after ${NOTE_FIX_TRIES} fixes, so acc kept no verdict. Review it again:`, ...wording.map(findingLine)].join("\n"));
+      }
+      const fixed = ask2(["--resume", parsed.sessionId ?? sessionId], noteFixPrompt(wording));
+      const cost = parsed.costUsd === null && fixed.costUsd === null ? null : (parsed.costUsd ?? 0) + (fixed.costUsd ?? 0);
+      parsed = { verdict: fixed.verdict, sessionId: fixed.sessionId ?? parsed.sessionId, costUsd: cost };
+    }
   } finally {
     awake?.release();
     rmSync19(marker, { force: true });
   }
-  if (out3.timedOut) throw new AccError("review", `The review didn't finish within 45 minutes, so acc stopped it.`);
-  if (out3.code === 127 && !out3.stdout) throw new AccError("review", `Claude Code didn't start: ${out3.stderr.trim().split("\n")[0] ?? "claude not found"}`);
-  const parsed = parseReview(out3.stdout);
   const finished = now2();
   const verdict = {
     v: 1,
@@ -13535,7 +13829,7 @@ function cloudReviewWait(task, config, now2) {
   const c = task.cloudReview;
   if (task.state !== "review" || !c) return null;
   if (c.failed) return c.failed.reason;
-  if (cloudReviewQuiet(task, config, now2)) return `no verdict from its cloud reviewer for ${Math.round((now2.getTime() - Date.parse(c.firedAt)) / 6e4)} minutes: review it on this Mac`;
+  if (cloudReviewQuiet(task, config, now2)) return `no verdict from its cloud reviewer for ${Math.round((now2.getTime() - Date.parse(c.firedAt)) / 6e4)} minutes: review it on ${thisMachine()}`;
   return null;
 }
 function cloudReviewText(p) {
@@ -13685,25 +13979,30 @@ function followCloudReviews(paths, config, deps, opts = {}) {
     };
     const size = run2("git", ["cat-file", "-s", `${head}:${VERDICT_FILE}`], { cwd: paths.root });
     if (size.code !== 0) {
-      fail3(`its cloud reviewer pushed ${c.branch} without ${VERDICT_FILE}: review it on this Mac`);
+      fail3(`its cloud reviewer pushed ${c.branch} without ${VERDICT_FILE}: review it on ${thisMachine()}`);
       continue;
     }
     const bytes = Number(size.stdout.trim());
     if (!Number.isFinite(bytes) || bytes > VERDICT_MAX_BYTES) {
-      fail3(`its cloud reviewer's ${VERDICT_FILE} is ${Number.isFinite(bytes) ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : "of a size git couldn't say"}, more than a verdict can be (${VERDICT_MAX_BYTES / 1024 / 1024} MB at most): review it on this Mac`);
+      fail3(`its cloud reviewer's ${VERDICT_FILE} is ${Number.isFinite(bytes) ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : "of a size git couldn't say"}, more than a verdict can be (${VERDICT_MAX_BYTES / 1024 / 1024} MB at most): review it on ${thisMachine()}`);
       continue;
     }
     const shown = run2("git", ["show", `${head}:${VERDICT_FILE}`], { cwd: paths.root });
     if (shown.code !== 0) {
       const why = /ENOBUFS/.test(shown.stderr) ? "too large to read" : (shown.stderr || shown.stdout).trim().split("\n")[0] || `git exited ${shown.code}`;
-      fail3(`its cloud reviewer's ${VERDICT_FILE} couldn't be read from ${c.branch} (${why}): review it on this Mac`);
+      fail3(`its cloud reviewer's ${VERDICT_FILE} couldn't be read from ${c.branch} (${why}): review it on ${thisMachine()}`);
       continue;
     }
     let answered;
     try {
       answered = checkVerdict(JSON.parse(shown.stdout));
     } catch (e) {
-      fail3(`its cloud reviewer's ${VERDICT_FILE} isn't a verdict acc can read (${e instanceof SyntaxError ? "not JSON" : e.message.replace(/\.$/, "")}): review it on this Mac`);
+      fail3(`its cloud reviewer's ${VERDICT_FILE} isn't a verdict acc can read (${e instanceof SyntaxError ? "not JSON" : e.message.replace(/\.$/, "")}): review it on ${thisMachine()}`);
+      continue;
+    }
+    const wording = noteWording(verdictLines(answered));
+    if (wording.length) {
+      fail3(`its cloud reviewer's words fail the Simplified Technical English check (${[...new Set(wording.map((f) => f.where))].join(", ")}): review it on ${thisMachine()}`);
       continue;
     }
     const verdict = {
@@ -13726,7 +14025,7 @@ function followCloudReviews(paths, config, deps, opts = {}) {
     });
     if (existsSync21(reviewPath(paths, t.id, c.sha))) {
       end({});
-      out3.push({ task: t.id, branch: c.branch, outcome: "taken", moved: null, note: `a verdict for ${c.sha.slice(0, 7)} was already on this Mac, and it stands${deleted()}` });
+      out3.push({ task: t.id, branch: c.branch, outcome: "taken", moved: null, note: `a verdict for ${c.sha.slice(0, 7)} was already on ${thisMachine()}, and it stands${deleted()}` });
     } else if (current3 !== c.sha) {
       keepVerdict(paths, verdict);
       end({ reviewed: { sha: c.sha, verdict: verdict.verdict, stale: true } });
@@ -14219,17 +14518,17 @@ function landNow(paths, config, id, deps, opts) {
     }
     return existing2;
   });
-  const numbered = autoMergeFor(config, env.branch) ? null : numberForLand(paths, config, task, env.branch, reviewed, deps, steps2);
-  if (numbered) {
+  const numbered2 = autoMergeFor(config, env.branch) ? null : numberForLand(paths, config, task, env.branch, reviewed, deps, steps2);
+  if (numbered2) {
     mutate(paths, now2, (l3, emit) => {
       const t = l3.tasks.find((x2) => x2.id === id);
       if (!t) return;
       const from = own ? reviewed : task.autopilot?.carried?.from ?? reviewed;
-      t.autopilot = { failed: null, ...t.autopilot, carried: { from, to: numbered, base: env.branch, resolved: [], at: now2().toISOString() } };
-      emit({ type: "task.updated", task: id, actor: opts.actor ?? "human", by: opts.by ?? "acc land", data: { numbered: { from: reviewed, to: numbered } } });
+      t.autopilot = { failed: null, ...t.autopilot, carried: { from, to: numbered2, base: env.branch, resolved: [], at: now2().toISOString() } };
+      emit({ type: "task.updated", task: id, actor: opts.actor ?? "human", by: opts.by ?? "acc land", data: { numbered: { from: reviewed, to: numbered2 } } });
     });
   }
-  const sha = numbered ?? reviewed;
+  const sha = numbered2 ?? reviewed;
   steps2.step("push", `Push ${branch}`, () => {
     const push = run2("git", ["push", "--set-upstream", "origin", `${branch}:${branch}`], { cwd: paths.root, env: deps.env, timeoutMs: PUSH_TIMEOUT_MS2 });
     if (push.code !== 0) throw new AccError("land", `git push refused ${branch}: ${(push.stderr || push.stdout).trim().split("\n").slice(-2).join(" ")}`);
@@ -14595,7 +14894,7 @@ var UNSEEN_WORDS = {
   },
   missing: {
     label: "Needs you: Claude Code isn't found",
-    line: "Claude Code isn't on this Mac's path, so the Command Center can't see this builder",
+    line: `Claude Code isn't on ${thisMachine()}'s path, so the Command Center can't see this builder`,
     wayOn: "Install Claude Code, or start VS Code from a terminal where Claude Code runs, then reload the window."
   }
 };
@@ -15186,6 +15485,8 @@ function shortPacket(task, gates, full = []) {
     `Finish line: commit everything, run exactly \`acc gate run\`${gates.length ? ` (${gates.join(", ")})` : ""}, then finish with your note, all on one line: \`${DONE_COMMAND}\`. Give a flag again for each further line; use double quotes, with no backticks or $ inside. If you're stuck, run \`acc block "<what you need>"\` and stop.`,
     ...full.length ? [`The full check (${full.join(", ")}) runs once, in the merge queue, before the merge.`] : [],
     "Never push, merge a pull request, or open one. Never deploy except through `acc gate run deploy` (a Salesforce task's own deploy to its build org), and never to a protected org.",
+    // How a note to a person reads (T-146): a headline, a bullet per thing, API names as code.
+    NOTE_RULE,
     // Every project's rules (GH-104), which keep parallel work mergeable, in one line.
     "Rules: put new behaviour in its own file, registered with one line where a list names every area; if another task's change breaks your build, `acc block` with the reason and don't edit its files; write a manifest or config file whole, to a temp file then a rename.",
     // Its team (T-103): what the other builders change now, and taking in a teammate's merge early.
@@ -15444,7 +15745,7 @@ function dispatchAgain(paths, config, id, deps, opts) {
     return dispatch(paths, config, id, deps, { ...base, where: n.where, ...n.model ? { model: n.model } : {}, ...n.effort ? { effort: n.effort } : {} });
   }
   if (task.state !== "running") throw new AccError("refused", `${id} is ${task.state}, and its builder didn't fail to start: dispatch it as usual.`);
-  if (task.run?.where === "cloud") throw new AccError("refused", `${id}'s builder runs in the cloud: its branch says whether it's quiet, and ${DISPATCH_AGAIN} is for a builder on this Mac.`);
+  if (task.run?.where === "cloud") throw new AccError("refused", `${id}'s builder runs in the cloud: its branch says whether it's quiet, and ${DISPATCH_AGAIN} is for a builder on ${thisMachine()}.`);
   if (!opts.unseen) throw new AccError("refused", againRefusal(id));
   if (task.run?.bgId) deps.run("claude", ["stop", task.run.bgId], { cwd: task.run.worktree ?? paths.root, timeoutMs: 2e4 });
   endResume(paths, id);
@@ -15685,7 +15986,7 @@ function nextStep(ledger, config, task, facts) {
   };
   const none = (outcome2, reason) => ({ step: null, outcome: outcome2, reason });
   if (task.state === "review") {
-    if (task.cloudReview?.failed) return none("waiting", `Its cloud review gave no verdict acc could take: ${sentence2(task.cloudReview.failed.reason)} A person reviews it on this Mac.`);
+    if (task.cloudReview?.failed) return none("waiting", `Its cloud review gave no verdict acc could take: ${sentence2(task.cloudReview.failed.reason)} A person reviews it on ${thisMachine()}.`);
     if (facts.reviewing) return none("waiting", `A review is running (session ${facts.reviewing}).`);
     if (!facts.verdict) return step("review", `Nothing has reviewed ${short4(facts.head)} yet.`);
     if (facts.verdict === "changes") return none("waiting", `Its review on ${short4(facts.head)} asked for changes, and it's still in review: a person decides.`);
@@ -15984,8 +16285,8 @@ function queueTurn(paths, config, id, deps, who) {
   if (made) {
     const p = place2;
     const kept = made.resolved.length ? `, ${resolvedWords(made.resolved, "keeping")}` : "";
-    const numbered = made.numbered?.length ? `${behind ? ", numbering" : "Numbered"} its decisions (${numberedWords(made.numbered)})` : "";
-    const did = behind ? `Merged ${env.branch} into ${short5(head)} as ${short5(made.sha)}${kept}${numbered}` : `${numbered} on ${short5(head)} as ${short5(made.sha)}`;
+    const numbered2 = made.numbered?.length ? `${behind ? ", numbering" : "Numbered"} its decisions (${numberedWords(made.numbered)})` : "";
+    const did = behind ? `Merged ${env.branch} into ${short5(head)} as ${short5(made.sha)}${kept}${numbered2}` : `${numbered2} on ${short5(head)} as ${short5(made.sha)}`;
     mutate(paths, now2, (l3, emit) => {
       const t = l3.tasks.find((x2) => x2.id === id);
       if (!t) return;
@@ -16420,6 +16721,44 @@ function followCards(paths, config, ids, deps) {
 var cardFailure = (task) => task.card?.failed !== void 0 && task.card.state === task.state ? task.card.failed : null;
 var cardWords = (r) => `Couldn't move ${r.task}'s card${r.column ? ` to ${r.column}` : ""} on its GitHub Project: ${(r.reason ?? "").replace(/[.\s]+$/, "")}. ${r.task} is ${r.state} all the same.`;
 
+// packages/core/src/cloud-guard-place.ts
+var GUARD_FILES = [GUARD_PATH, PRE_PUSH_PATH, SETTINGS_PATH];
+function cloneBranch(run2, root, mainBranch) {
+  const head = run2("git", ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], { cwd: root }).stdout.trim();
+  return head.startsWith("origin/") ? head.slice("origin/".length) : mainBranch;
+}
+function guardPlace(run2, root, mainBranch) {
+  const base = cloneBranch(run2, root, mainBranch);
+  const branch = run2("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], { cwd: root });
+  const checkedOut = branch.code === 0 ? branch.stdout.trim() || null : null;
+  const has = (ref) => run2("git", ["rev-parse", "--verify", "--quiet", ref], { cwd: root }).code === 0;
+  const local = has(`refs/heads/${base}`) ? guardCommitted(run2, root, `refs/heads/${base}`) : { ok: false, why: `There's no ${base} branch here.` };
+  const remote = `refs/remotes/origin/${base}`;
+  const pushed = has(remote) ? guardCommitted(run2, root, remote) : { ok: false, why: `GitHub has no ${base} branch that this folder knows of.` };
+  const count = has(remote) && has(`refs/heads/${base}`) ? run2("git", ["rev-list", "--count", `${remote}..refs/heads/${base}`], { cwd: root }) : null;
+  const ahead = count?.code === 0 ? Number(count.stdout.trim()) || 0 : 0;
+  return { base, checkedOut, local: local.ok ? { ok: true, why: null } : { ok: false, why: local.why }, pushed: pushed.ok ? { ok: true, why: null } : { ok: false, why: pushed.why }, ahead };
+}
+function commitGuard(run2, root, mainBranch) {
+  const place2 = guardPlace(run2, root, mainBranch);
+  if (place2.local.ok) return { base: place2.base, committed: false };
+  if (place2.checkedOut !== place2.base) throw new AccError("refused", `The cloud clones ${place2.base}, and this folder has ${place2.checkedOut ?? "no branch"} checked out: switch it to ${place2.base}, then commit the push guard.`);
+  installGuard(root);
+  const add2 = run2("git", ["add", "--", ...GUARD_FILES], { cwd: root });
+  if (add2.code !== 0) throw new AccError("git", `git couldn't add the push guard: ${(add2.stderr || add2.stdout).trim().split("\n")[0]}`);
+  const commit = run2("git", ["commit", "-m", "Commit the push guard cloud builders run", "--", ...GUARD_FILES], { cwd: root });
+  if (commit.code !== 0) throw new AccError("git", `git couldn't commit the push guard: ${(commit.stderr || commit.stdout).trim().split("\n")[0]}`);
+  return { base: place2.base, committed: true };
+}
+function pushGuard(run2, root, mainBranch, env) {
+  const place2 = guardPlace(run2, root, mainBranch);
+  if (!place2.local.ok) throw new AccError("refused", `The push guard isn't committed on ${place2.base} yet: commit it first.`);
+  if (place2.pushed.ok && !place2.ahead) return { base: place2.base, pushed: 0 };
+  const r = run2("git", ["push", "origin", `refs/heads/${place2.base}:refs/heads/${place2.base}`], { cwd: root, env: { ...env, GIT_TERMINAL_PROMPT: "0" }, timeoutMs: PUSH_TIMEOUT_MS2 });
+  if (r.code !== 0) throw new AccError("git", `git couldn't push ${place2.base}: ${(r.stderr || r.stdout).trim().split("\n").pop()}`);
+  return { base: place2.base, pushed: place2.ahead };
+}
+
 // packages/core/src/deploy.ts
 import { existsSync as existsSync27, mkdirSync as mkdirSync37, mkdtempSync as mkdtempSync6, readFileSync as readFileSync41, renameSync as renameSync14, rmSync as rmSync22, writeFileSync as writeFileSync33 } from "node:fs";
 import { tmpdir as tmpdir6 } from "node:os";
@@ -16652,14 +16991,15 @@ function editTask(ledger, config, id, edit, actor, by, emit, now2) {
   const next = editChanges(task, config, edit);
   const owned = trackerFields(task).filter((f) => f in next);
   if (owned.length) throw new AccError("refused", `${id}'s ${owned.map((f) => EDIT_FIELD_WORDS[f]).join(", ")} can't be edited here. ${trackerOwns(task)}`);
+  const advice = typeof next.brief === "string" ? refuseBriefWording(next.brief, id) : [];
   const changed = EDIT_FIELDS.filter((f) => f in next);
-  if (!changed.length) return { task, changed };
+  if (!changed.length) return { task, changed, advice };
   Object.assign(task, next);
   const at2 = now2().toISOString();
   task.updatedAt = at2;
   (task.edits ??= []).push({ at: at2, actor, by, fields: changed });
   emit({ type: "task.updated", task: id, actor, by, data: next });
-  return { task, changed };
+  return { task, changed, advice };
 }
 
 // packages/core/src/floors-driver.ts
@@ -18260,13 +18600,13 @@ function readTidy(paths) {
   }
 }
 function branchInEnvironment(run2, root, reviews) {
-  return (t) => {
-    const branch = t.run?.branch;
-    const reviewed = reviews ? readVerdicts({ reviews }, t.id).map((v) => v.sha).reverse() : [];
-    const tips = [...branch ? [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`] : [], ...reviewed];
-    const inRef = (tip, ref) => run2("git", ["merge-base", "--is-ancestor", tip, ref], { cwd: root }).code === 0;
-    return tips.some((tip) => inRef(tip, `refs/remotes/origin/${t.environment}`) || inRef(tip, `refs/heads/${t.environment}`));
-  };
+  return (t) => inEnvironmentAsks(t, reviews).some(([tip, ref]) => run2("git", ["merge-base", "--is-ancestor", tip, ref], { cwd: root }).code === 0);
+}
+function inEnvironmentAsks(t, reviews) {
+  const branch = t.run?.branch;
+  const reviewed = reviews ? readVerdicts({ reviews }, t.id).map((v) => v.sha).reverse() : [];
+  const tips = [...branch ? [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`] : [], ...reviewed];
+  return tips.flatMap((tip) => [[tip, `refs/remotes/origin/${t.environment}`], [tip, `refs/heads/${t.environment}`]]);
 }
 function mergedTask(t, inEnvironment) {
   if (t.state !== "done" || t.labels.includes(TIDY_LABEL)) return null;
@@ -19172,8 +19512,22 @@ var ROUTINE_PROMPT = [
   "Do exactly what the payload says, as the builder it names, on the branch it names, and nothing else. Push only that branch. Never push any other branch, force-push, merge or open a pull request, or deploy.",
   "If there is no payload, do nothing and stop."
 ].join(" ");
-var ROUTINE_GUIDE = `At ${ROUTINES_URL}, make a routine for this repo: paste acc's routine prompt as its instructions (acc cloud shows it), pick the repo and the model, keep the Default environment (Trusted network access reaches npm and GitHub; no org), and add an API trigger. Save it and copy its trigger id (trig_\u2026): acc cloud enable --routine <id> records it. Then click Generate token and copy the token once: acc cloud token keeps it in the keychain, pasted when it asks.`;
-var GITHUB_APP = "https://github.com/apps/claude";
+var CLOUD_SETUP = { title: "Set up cloud builders", command: "acc.cloud.setup" };
+var CLOUD_SETUP_STEPS = { on: "Turn on", github: "GitHub access", task: "The scheduled task", token: "The token", signin: "Sign in", guard: "The push guard", ready: "Ready" };
+var CLOUD_BUTTONS = {
+  turnOn: "Turn on",
+  install: "Install the app",
+  copy: "Copy the prompt",
+  open: "Open claude.ai",
+  triggerId: "Trigger id",
+  keepId: "Keep the id",
+  token: "Token",
+  keepToken: "Keep the token",
+  doIt: "Do it",
+  push: "Push\u2026",
+  check: "Check again"
+};
+var inModal = (step, what) => `Do it opens ${CLOUD_SETUP.title}; in ${CLOUD_SETUP_STEPS[step]}: ${what}`;
 function optedIn(ctx) {
   if (!ctx.paths) return skip("Not inside a repo.");
   if (!ctx.config) return skip("Needs a valid .acc/config.json first (step B0).");
@@ -19181,6 +19535,7 @@ function optedIn(ctx) {
   if (!ctx.config.agents.cloud) return skip("Cloud builders are off for this project: acc cloud enable opts in.");
   return null;
 }
+var B3 = CLOUD_BUTTONS;
 var CLOUD_STEPS = [
   {
     id: "B15.cloud-github-app",
@@ -19188,7 +19543,7 @@ var CLOUD_STEPS = [
     group: "B15",
     title: "Claude can clone the repo from the cloud",
     why: "A cloud session clones the repo from GitHub and pushes its branch back, through the GitHub access connected to your claude.ai account: the Claude GitHub App on the repo, or /web-setup in a terminal (GH-69).",
-    fix: { text: `Install the Claude GitHub App on the repo at ${GITHUB_APP}, or run /web-setup in a claude session, which sends gh's token to your claude.ai account. acc can see only the app.`, confirm: true, docs: "https://code.claude.com/docs/en/claude-code-on-the-web#github-authentication-options" },
+    fix: { vscode: CLOUD_SETUP.command, text: inModal("github", `${B3.install} opens the Claude GitHub App, to add this repo. Or run /web-setup in a claude session, which the Command Center can't see: then tick I've done this.`), confirm: true, docs: "https://code.claude.com/docs/en/claude-code-on-the-web#github-authentication-options" },
     check(ctx) {
       const need = optedIn(ctx);
       if (need) return need;
@@ -19196,42 +19551,42 @@ var CLOUD_STEPS = [
       const list2 = ctx.run("gh", ["api", "user/installations", "--jq", '.installations[] | select(.app_slug == "claude") | [.id, .repository_selection] | @tsv'], { env: ctx.env, timeoutMs: 3e4 });
       if (list2.code !== 0) return unknown(`gh couldn't list the apps installed for you: ${(list2.stderr || list2.stdout).trim().split("\n")[0]}. If you connected with /web-setup, that's fine: tick this yourself.`);
       const installs = list2.stdout.trim().split("\n").filter(Boolean).map((l3) => l3.split("	"));
-      if (!installs.length) return unknown(`The Claude GitHub App isn't installed on any account you can see. Install it at ${GITHUB_APP}, or if you connected with /web-setup, tick this yourself.`);
+      if (!installs.length) return unknown(`The Claude GitHub App isn't installed on any account you can see. Install it, or if you connected with /web-setup, tick this yourself.`);
       for (const [id, selection] of installs) {
         if (selection === "all") return pass("The Claude GitHub App is installed, on every repo of its account.");
         const repos = ctx.run("gh", ["api", `user/installations/${id}/repositories?per_page=100`, "--jq", ".repositories[].full_name"], { env: ctx.env, timeoutMs: 3e4 });
         if (repos.code === 0 && repos.stdout.split("\n").map((l3) => l3.trim().toLowerCase()).includes(repo.toLowerCase())) return pass(`The Claude GitHub App is installed on ${repo}.`);
       }
-      return unknown(`The Claude GitHub App is installed, but not on ${repo} as far as gh can see. Add the repo to it at ${GITHUB_APP}, or if you connected with /web-setup, tick this yourself.`);
+      return unknown(`The Claude GitHub App is installed, but not on ${repo} as far as gh can see. Add the repo to it, or if you connected with /web-setup, tick this yourself.`);
     }
   },
   {
     id: "B15.cloud-routine",
     part: "project",
     group: "B15",
-    title: "A routine for the repo",
-    why: "A script starts a cloud session only by firing a routine's API trigger (GH-69). The routine holds the repo, the model and the environment; the Command Center sends each task in the fire's text.",
-    fix: { text: ROUTINE_GUIDE, docs: "https://code.claude.com/docs/en/routines" },
+    title: "A scheduled task for the repo",
+    why: "A script starts a cloud session only by firing a scheduled task's API trigger (formerly a routine, GH-69). The scheduled task holds the repo, the model and the environment; the Command Center sends each task in the fire's text.",
+    fix: { vscode: CLOUD_SETUP.command, text: inModal("task", `${B3.copy}, then ${B3.open}. There, paste it as a new scheduled task's instructions, pick this repo and a model, and add an API trigger. Paste its trigger id (trig_\u2026) and click ${B3.keepId}.`), docs: "https://code.claude.com/docs/en/routines" },
     check(ctx) {
       const need = optedIn(ctx);
       if (need) return need;
       const routine = ctx.config.agents.cloud.routine;
-      return routine ? pass(`Routine ${routine}.`) : fail("No routine id in .acc/config.json (agents.cloud.routine).");
+      return routine ? pass(`Scheduled task ${routine}.`) : fail("No trigger id in .acc/config.json (agents.cloud.routine).");
     }
   },
   {
     id: "B15.cloud-token",
     part: "project",
     group: "B15",
-    title: "The routine's token is in the keychain",
-    why: "The Command Center fires the routine with its bearer token, kept in this Mac's keychain and never in .acc/config.json or git (GH-69). The token is shown once, on the routine's page.",
-    fix: { text: "On the routine's page, under its API trigger, click Generate token and copy it. Then, in a terminal, acc cloud token keeps it in the keychain under acc-cloud-routine, for this repo: paste the token when it asks.", docs: "https://code.claude.com/docs/en/routines#add-an-api-trigger" },
+    title: "The scheduled task's token is kept",
+    why: "The Command Center fires the scheduled task with its bearer token, never kept in .acc/config.json or git (GH-69): a Mac keeps it in its keychain, and Windows in VS Code, which hands it to acc when the Command Center builds or reviews (T-145). The token is shown once, on the scheduled task's page.",
+    fix: { vscode: CLOUD_SETUP.command, text: inModal("token", `on the scheduled task's page, click Generate token (it's shown once), paste it in ${B3.token}, and click ${B3.keepToken}.`), docs: "https://code.claude.com/docs/en/routines#add-an-api-trigger" },
     check(ctx) {
       const need = optedIn(ctx);
       if (need) return need;
-      if (readCloudToken(ctx.run, ctx.config.github.repo, ctx.env, ctx.platform)) return pass("The routine's token is in the keychain.");
-      const unavailable = cloudTokenUnavailable(ctx.platform);
-      return unavailable ? skip(`${unavailable}.`) : fail(`No token for ${ctx.config.github.repo} in the keychain.`);
+      const repo = ctx.config.github.repo;
+      if (readCloudToken(ctx.run, repo, ctx.env, ctx.platform)) return pass(cloudTokenHome(ctx.platform) === "vscode" ? "The Command Center keeps the token, and handed it over." : "The token is in the keychain.");
+      return fail(cloudTokenHome(ctx.platform) === "vscode" ? `No token for ${repo} was handed over. ${WINDOWS_TOKEN_FIX}` : `No token for ${repo} in the keychain.`);
     }
   },
   {
@@ -19239,13 +19594,13 @@ var CLOUD_STEPS = [
     part: "project",
     group: "B15",
     title: "Claude Code is signed in to claude.ai",
-    why: "Sending a cloud builder a message (claude -p --cloud) needs the CLI signed in to the claude.ai account the routine belongs to (GH-69).",
-    fix: { command: "claude auth login", text: "Sign in with the claude.ai account that owns the routine. An API key isn't enough for cloud sessions." },
+    why: "Sending a cloud builder a message (claude -p --cloud) needs the CLI signed in to the claude.ai account the scheduled task belongs to (GH-69).",
+    fix: { vscode: CLOUD_SETUP.command, text: inModal("signin", `${B3.doIt} runs Claude Code's sign-in in a terminal. Sign in with the claude.ai account that owns the scheduled task: an API key isn't enough for cloud sessions.`) },
     check(ctx) {
       const need = optedIn(ctx);
       if (need) return need;
       const login = claudeLogin(ctx.run, ctx.env);
-      return login.ok ? pass(`Signed in to claude.ai${login.email ? ` as ${login.email}` : ""}.`) : fail(login.why, "claude auth login");
+      return login.ok ? pass(`Signed in to claude.ai${login.email ? ` as ${login.email}` : ""}.`) : fail(login.why);
     }
   },
   {
@@ -19254,12 +19609,12 @@ var CLOUD_STEPS = [
     group: "B15",
     title: "The push guard is committed",
     why: "A cloud session runs the repo's own .claude/settings.json hooks and not the Command Center's plugin, so the guard that refuses a push to any branch but the task's, and the git pre-push hook it installs in the clone to check the push itself, are scripts the repo carries, and only what's committed reaches the cloud (GH-69).",
-    fix: { command: "acc cloud enable", text: "acc cloud enable writes .claude/hooks/acc-push-guard.mjs, .claude/hooks/acc-pre-push beside it, and their hooks into .claude/settings.json. Commit all three, and merge them into every branch a cloud session starts from." },
+    fix: { vscode: CLOUD_SETUP.command, text: inModal("guard", `${B3.doIt} commits the guard's three files on the branch the cloud clones, and ${B3.push} pushes that branch once you say so.`) },
     check(ctx) {
       const need = optedIn(ctx);
       if (need) return need;
       const committed = guardCommitted(ctx.run, ctx.paths.root, "HEAD");
-      return committed.ok ? pass("The push guard, its pre-push hook and their settings are committed on HEAD.") : fail(committed.why ?? "The push guard isn't committed.", "acc cloud enable");
+      return committed.ok ? pass("The push guard, its pre-push hook and their settings are committed on HEAD.") : fail(committed.why ?? "The push guard isn't committed.");
     }
   }
 ];
@@ -20351,7 +20706,7 @@ import { readFileSync as readFileSync52, realpathSync as realpathSync6 } from "n
 import { dirname as dirname17 } from "node:path";
 
 // package.json
-var package_default = { version: "0.52.0" };
+var package_default = { version: "0.53.0" };
 
 // packages/cli/src/shared.ts
 var VERSION = package_default.version;
@@ -20574,13 +20929,13 @@ var upsertLines = (res) => [
   res.unchanged.length ? `Unchanged ${res.unchanged.join(", ")}` : "",
   ...res.errors.map((e) => tone(`\u2717 ${e}`, "orange"))
 ];
-function upsert(o, inputs, own = false) {
+function upsert(o, inputs, own = false, advice = []) {
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
   const held = own ? ownTickets(config, inputs) : { inputs, refused: [] };
   const res = mutate(paths, now, (ledger, emit) => upsertTasks(ledger, config, held.inputs, actor, by, emit, now));
   res.errors.push(...held.refused);
-  out(o, () => upsertLines(res).filter(Boolean).join("\n") || "Nothing to do.", res);
+  out(o, () => [...upsertLines(res), ...adviceLines(advice)].filter(Boolean).join("\n") || "Nothing to do.", advice.length ? { ...res, advice } : res);
   return res.errors.length ? 1 : 0;
 }
 function ownTickets(config, inputs) {
@@ -20705,7 +21060,7 @@ function cmdShow(o, id) {
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t, { stopped, quiet: !!waiting, unseen: !!unseen }, config))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ""}`,
-    t.run?.name ? `Agent: ${t.run.name}${t.run.where ? ` \xB7 runs on ${BUILDER_PLACE_LOOK[t.run.where].label}` : ""}` : "",
+    t.run?.name ? `Agent: ${t.run.name}${t.run.where ? ` \xB7 runs on ${builderPlaceLook()[t.run.where].label}` : ""}` : "",
     cloud ? `Cloud session: ${cloud.url}${t.state === "running" ? ` (branch last moved ${cloud.lastPushAt}${cloud.finished ? ", finished" : ""})` : ""}` : "",
     waiting ? tone(`! ${waiting.charAt(0).toUpperCase()}${waiting.slice(1)}. Open the session, or: acc collect ${t.id}`, "orange") : "",
     t.deps.length ? `Depends on: ${t.deps.join(", ")}` : "",
@@ -20748,28 +21103,32 @@ function editFrom(o) {
     ...o.notes !== void 0 ? { notes: o.notes } : {}
   };
 }
+var adviceLines = (advice) => briefAdviceLines(advice).map((l3) => tone(l3, "dim"));
 function cmdEdit(o, id) {
   const edit = editFrom(o);
   if (!Object.keys(edit).length) throw new AccError("usage", "acc edit <id> needs a field to change: --title, --brief, --dep, --env, --label or --notes.");
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
-  const { task, changed } = mutate(paths, now, (ledger, emit) => editTask(ledger, config, id.toUpperCase(), edit, actor, by, emit, now));
-  out(o, () => changed.length ? `${task.id}: changed its ${editedWords(changed)}.` : `${task.id}: nothing to change, every field was already so.`, { task, changed });
+  const { task, changed, advice } = mutate(paths, now, (ledger, emit) => editTask(ledger, config, id.toUpperCase(), edit, actor, by, emit, now));
+  out(o, () => [changed.length ? `${task.id}: changed its ${editedWords(changed)}.` : `${task.id}: nothing to change, every field was already so.`, ...adviceLines(advice)].join("\n"), { task, changed, advice });
   return 0;
 }
+var codedNote = (n) => Object.fromEntries(Object.entries(n).map(([k2, lines]) => [k2, lines.map((l3) => codeNames(l3))]));
 function cmdSet(o, id, to, note = null) {
   const client = typeof o.client === "string" ? o.client.trim() : void 0;
   if (o.client !== void 0 && to !== "blocked") throw new AccError("usage", '--client goes with blocking: acc block --client "<question>".');
   if (o.client !== void 0 && !client) throw new AccError("usage", 'acc block --client "<the question, for the client>"');
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
+  const coded = (s) => actor === "human" ? s : codeNames(s);
+  const said2 = o.reason ?? (client ? `Waiting on the client: ${client}` : null);
   const { task, entry } = followingCards(paths, config, () => moveTask(paths, config, id.toUpperCase(), {
     to,
     actor,
     by,
-    reason: o.reason ?? (client ? `Waiting on the client: ${client}` : null),
+    reason: said2 === null ? null : coded(said2),
     force: o.force === true,
-    note
+    note: note && actor !== "human" ? codedNote(note) : note
   }, receiptHooks(paths, config, run), now));
   if (entry.to === "done") recordChanges(paths, run, now, task.id, { actor, by });
   if (entry.to === "done" || entry.to === "review") draftChangesField(paths, run, config, task.id, by, now);
@@ -20787,11 +21146,15 @@ var area2 = {
     section: "Tasks",
     order: 20,
     lines: `  acc add "<title>"|--title <text> [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--key <T-n>]
+                                        Add a task. Each item under its brief's Acceptance criteria heading passes
+                                        the Simplified Technical English check, or acc adds nothing: each finding
+                                        shows with its line, its rule and its fix. Passive voice is advice only
   acc edit <id> [--title <text>] [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--notes <text>]
                                         Change a task's fields, with add's checks. A field left out stays; --dep ""
                                         or --label "" clears the list. Refused while a builder runs or once it's
                                         done. A tracker's ticket owns its title, brief, deps and labels; acc keeps
-                                        its environment and its notes for the builder, which intake never changes
+                                        its environment and its notes for the builder, which intake never changes.
+                                        A new brief's acceptance criteria pass the check that acc add runs
   acc import [--file <tasks.json>]      Add or refresh tasks from JSON (stdin by default). A Jira, Azure DevOps or
                                         monday.com key that no tracker in .acc/config.json owns is refused
   acc intake github [--label <l>]       Add or refresh tasks from the open GitHub issues in the repo's place: its
@@ -20828,7 +21191,8 @@ var area2 = {
       const title = (o.title ?? rest.join(" ")).trim();
       if (!title) throw new AccError("usage", 'acc add "<title>"');
       const labels = (o.label ?? []).map((l3) => l3.trim()).filter(Boolean);
-      return upsert(o, [{ source: { kind: "manual", key: o.key ?? null }, title, brief: o.brief, deps: o.dep ?? [], environment: o.env, labels }]);
+      const advice = refuseBriefWording((o.brief ?? "").trim());
+      return upsert(o, [{ source: { kind: "manual", key: o.key ?? null }, title, brief: o.brief, deps: o.dep ?? [], environment: o.env, labels }], false, advice);
     },
     edit: (o, rest) => {
       if (!rest[0]) throw new AccError("usage", "acc edit <id> [--title <text>] [--brief <text>] [--dep <id>]... [--env <branch>] [--label <l>]... [--notes <text>]");
@@ -21064,9 +21428,9 @@ function dispatched(o, r, dropped) {
     `  branch:   ${r.branch}`,
     `  name:     ${r.name}`,
     `  model:    ${r.task.run?.model ?? ""}${r.task.run?.modelPicked ? " (picked for this task)" : ""}`,
-    `  effort:   ${r.task.run?.effort ?? "the model's default"}${r.task.run?.effortPicked ? " (picked for this task)" : ""}${r.where === "cloud" ? " (the routine's own model and effort apply in the cloud: a pick here is kept for a re-dispatch on this Mac)" : ""}`,
+    `  effort:   ${r.task.run?.effort ?? "the model's default"}${r.task.run?.effortPicked ? " (picked for this task)" : ""}${r.where === "cloud" ? ` (the routine's own model and effort apply in the cloud: a pick here is kept for a re-dispatch on ${thisMachine()})` : ""}`,
     dropped,
-    `  where:    ${BUILDER_PLACE_LOOK[r.where].label}${r.cloud ? `, session ${r.cloud.sessionId}. Watch it at ${r.cloud.url}` : ""}`,
+    `  where:    ${builderPlaceLook()[r.where].label}${r.cloud ? `, session ${r.cloud.sessionId}. Watch it at ${r.cloud.url}` : ""}`,
     `  agent:    ${r.cloud ? "a cloud session, started by the routine; acc sync follows its branch on GitHub and collects it once its last commit says Acc-Done" : r.bgId ? `background session ${r.bgId}. Watch it with: claude attach ${r.bgId}` : o.foreground ? "ran in this terminal" : "started; it will appear in claude agents shortly"}`,
     `  packet:   ${r.packetPath}`,
     r.shares.length ? tone(`  ${sharesWords(r.shares)}. The second pull request to merge may conflict there.`, "dim") : "",
@@ -21122,8 +21486,8 @@ var area3 = {
                 [--effort <low|medium|high|xhigh|max|default>]
                                         Worktree, setup, instructions, and a background builder session. --cloud
                                         starts it as a cloud session instead, where the project opted in (acc
-                                        cloud), pushing its branch first; --local keeps it on this Mac. Neither:
-                                        the project's agents.cloud.default, else this Mac. A task
+                                        cloud), pushing its branch first; --local keeps it on ${thisMachine()}.
+                                        Neither: the project's agents.cloud.default, else ${thisMachine()}. A task
                                         whose analysis shares files with work in flight waits while another
                                         Ready task shares none; --anyway starts it now. --model and --effort
                                         pick the builder's model and effort for this task: a re-dispatch and a
@@ -21144,9 +21508,11 @@ var area3 = {
                                         ratchets), and what's still open. A builder must give all three. A
                                         flag again adds a line; --moved none or --open none says there was
                                         nothing
-  acc block [<id>] "<reason>" [--landed \u2026] [--moved \u2026] [--open \u2026]
-                                        A builder's way out when stuck, with a note if it has one
-  acc block [<id>] --client "<question>"
+  acc block [<id>] "<headline>" [--item "<thing>"]... [--landed \u2026] [--moved \u2026] [--open \u2026]
+                                        A builder's way out when stuck, with a note if it has one: a short
+                                        headline, then a bullet for each thing (--item, or markdown bullets),
+                                        a question's options as a) b) c). An agent's wall of text is refused
+  acc block [<id>] --client "<question>" [--item "<thing>"]...
                                         Stuck on something only the client can answer: blocks, and drafts an
                                         update for the ticket that a person reviews before posting
   acc resume <id> [--message "<text>"]  Carry on a running task whose builder stopped before acc done or acc
@@ -21188,6 +21554,8 @@ var area3 = {
     reason: { type: "string" },
     message: { type: "string" },
     none: { type: "boolean", default: false },
+    // A blocked note's things (T-146), a bullet each time the flag is given.
+    item: { type: "string", multiple: true },
     // A builder's handoff note (D-106), a line each time a flag is given.
     landed: { type: "string", multiple: true },
     moved: { type: "string", multiple: true },
@@ -21203,16 +21571,25 @@ var area3 = {
     dispatch: (o, rest) => cmdDispatch(o, rest[0]),
     done: (o, rest) => {
       refuseUnrecorded(taskIdFrom(rest[0]));
-      return cmdSet(o, taskIdFrom(rest[0]), "review", noteFrom(o));
+      const note = noteFrom(o);
+      if (actorFrom(o).actor !== "human") refuseNoteWording(doneLines(note));
+      return cmdSet(o, taskIdFrom(rest[0]), "review", note);
     },
     block: (o, rest) => {
       const [first, ...more] = rest;
       const looksLikeId2 = !!first && /^[A-Z][A-Z0-9_]*-\d+$/i.test(first) && (more.length > 0 || typeof o.client === "string");
       const id = taskIdFrom(looksLikeId2 ? first : void 0);
-      const client = typeof o.client === "string" ? o.client.trim() : "";
-      const reason = o.reason ?? ((looksLikeId2 ? more : rest).join(" ").trim() || (client ? `Waiting on the client: ${client}` : ""));
-      if (!reason) throw new AccError("usage", 'acc block "<what you need>", or acc block --client "<question>" when only the client can answer');
-      return cmdSet({ ...o, reason }, id, "blocked", noteFrom(o));
+      const items = o.item ?? [];
+      const said2 = o.reason ?? (looksLikeId2 ? more : rest).join(" ").trim();
+      const asked = typeof o.client === "string" && o.client.trim() ? composeNote(o.client, said2 ? [] : items) : "";
+      const reason = said2 ? composeNote(said2, items) : asked ? `Waiting on the client: ${asked}` : "";
+      if (!reason) throw new AccError("usage", items.length ? `--item adds a bullet under a headline: ${BLOCK_SHAPE}` : 'acc block "<what you need>", or acc block --client "<question>" when only the client can answer');
+      if (actorFrom(o).actor !== "human") {
+        const problems = shapeProblems(said2 ? reason : asked);
+        const wording = noteWording([...said2 ? noteLines(reason) : [], ...asked ? noteLines(asked, "The question for the client") : [], ...doneLines(noteFrom(o))]);
+        if (problems.length || wording.length) throw new AccError("refused", [...problems.length ? [problems.join(" ")] : [], ...wording.length ? [noteWordingWords(wording)] : []].join("\n\n"));
+      }
+      return cmdSet({ ...o, reason, ...asked ? { client: asked } : {} }, id, "blocked", noteFrom(o));
     },
     resume: (o, rest) => {
       if (!rest[0]) throw new AccError("usage", 'acc resume <id> [--message "<text>"]');
@@ -21501,6 +21878,7 @@ var area4 = {
 function needLines(needs) {
   return needs.map((n) => n.ok ? tone(`\u2713 ${n.label}`, "blue") : [tone(`! ${n.label}`, "orange"), tone(`    ${n.fix}`, "dim")].join("\n"));
 }
+var firstBranch = (config) => config.environments[0]?.branch ?? "main";
 function cmdStatus2(o) {
   const { paths, config } = project(process.cwd());
   const needs = cloudNeeds(config, run, process.env);
@@ -21510,16 +21888,17 @@ function cmdStatus2(o) {
   const reviewing2 = ledger.tasks.filter((t) => t.state === "review" && t.cloudReview && !t.cloudReview.failed);
   const reason = cloudReason(needs);
   const guard = guardCommitted(run, paths.root, "HEAD");
+  const place2 = guardPlace(run, paths.root, firstBranch(config));
   const protection = cloud && config.github ? environmentProtection(run, config.github.repo, config.github.account, config.environments.map((e) => e.branch), process.env) : [];
   out(o, () => [
-    cloud ? `Cloud builders: on for this project. Default ${BUILDER_PLACE_LOOK[cloud.default].label}${cloud.default === "cloud" ? " (acc dispatch --local keeps a task on this Mac)" : " (acc dispatch --cloud sends a task to the cloud)"}; up to ${cloud.max} at once, reviews among them; a task needs you after ${cloud.quietMinutes} minutes with no push. Reviews: ${BUILDER_PLACE_LOOK[cloud.review].label}${cloud.review === "cloud" ? " (acc review --local keeps one on this Mac)" : " (acc review --cloud sends one to the cloud)"}.` : "Cloud builders: off for this project. A local builder is the default everywhere: acc cloud enable opts in.",
+    cloud ? `Cloud builders: on for this project. Default ${builderPlaceLook()[cloud.default].label}${cloud.default === "cloud" ? ` (acc dispatch --local keeps a task on ${thisMachine()})` : " (acc dispatch --cloud sends a task to the cloud)"}; up to ${cloud.max} at once, reviews among them; a task needs you after ${cloud.quietMinutes} minutes with no push. Reviews: ${builderPlaceLook()[cloud.review].label}${cloud.review === "cloud" ? ` (acc review --local keeps one on ${thisMachine()})` : " (acc review --cloud sends one to the cloud)"}.` : "Cloud builders: off for this project. A local builder is the default everywhere: acc cloud enable opts in.",
     reason ? tone(`  ${reason}.`, "orange") : tone("  Everything the cloud needs is there.", "blue"),
     guard.ok ? tone("  The push guard is committed on HEAD, in .claude/hooks/ and .claude/settings.json.", "dim") : cloud ? tone(`  ! ${guard.why}`, "orange") : "",
     ...needLines(needs),
     ...protection.map((p) => p.state === "enforced" ? tone(`  \u2713 ${p.why}`, "blue") : tone(`  ! ${p.why}${p.state === "unknown" ? " Whether a push the guard didn't catch would be prevented isn't known." : ""}`, "orange")),
     ...running.map((t) => tone(`  ${t.id} runs in the cloud: ${t.run?.cloud?.url ?? ""}${cloudWait(t, config, now()) ? ` (${cloudWait(t, config, now())})` : ""}`, "blue")),
     ...reviewing2.map((t) => tone(`  ${t.id} is reviewed in the cloud: ${t.cloudReview?.url ?? ""}${cloudReviewWait(t, config, now()) ? ` (${cloudReviewWait(t, config, now())})` : ""}`, "blue"))
-  ].filter(Boolean).join("\n"), { cloud, needs, reason, guard: guard.ok, guardWhy: guard.why, protection, running: running.map((t) => ({ id: t.id, url: t.run?.cloud?.url ?? null, wait: cloudWait(t, config, now()) })), reviewing: reviewing2.map((t) => ({ id: t.id, url: t.cloudReview?.url ?? null, wait: cloudReviewWait(t, config, now()) })) });
+  ].filter(Boolean).join("\n"), { cloud, needs, reason, guard: guard.ok, guardWhy: guard.why, guardPlace: place2, protection, running: running.map((t) => ({ id: t.id, url: t.run?.cloud?.url ?? null, wait: cloudWait(t, config, now()) })), reviewing: reviewing2.map((t) => ({ id: t.id, url: t.cloudReview?.url ?? null, wait: cloudReviewWait(t, config, now()) })) });
   return 0;
 }
 function cmdEnable(o) {
@@ -21538,7 +21917,7 @@ function cmdEnable(o) {
   const after = loadConfig(paths.config).config;
   const needs = cloudNeeds(after, run, process.env);
   out(o, () => [
-    `Cloud builders are on for ${config.project}: acc dispatch <id> --cloud sends a task to the cloud${after.agents.cloud?.default === "cloud" ? ", and so does a plain dispatch now" : ", and a plain dispatch stays on this Mac"}.`,
+    `Cloud builders are on for ${config.project}: acc dispatch <id> --cloud sends a task to the cloud${after.agents.cloud?.default === "cloud" ? ", and so does a plain dispatch now" : `, and a plain dispatch stays on ${thisMachine()}`}.`,
     guard.written.length ? `  Wrote ${guard.written.join(" and ")}: the push guard a cloud session runs. Commit them with .acc/config.json.` : "  The push guard is already committed.",
     ...needLines(needs)
   ].join("\n"), { cloud: after.agents.cloud, guard: guard.written, needs });
@@ -21548,7 +21927,7 @@ function cmdDisable(o) {
   noAgent(o, "turn cloud builders off");
   const { paths, config } = project(process.cwd());
   disableCloud(paths.config);
-  out(o, () => `Cloud builders are off for ${config.project}. Every dispatch goes to this Mac. The routine's token stays in the keychain: acc cloud token --forget takes it out.`, { cloud: null });
+  out(o, () => `Cloud builders are off for ${config.project}. Every dispatch goes to ${thisMachine()}. The routine's token stays in the keychain: acc cloud token --forget takes it out.`, { cloud: null });
   return 0;
 }
 function cmdToken(o) {
@@ -21564,7 +21943,31 @@ function cmdToken(o) {
   const token = (o["from-env"] === true ? process.env.ACC_CLOUD_TOKEN_NEW ?? "" : readFileArg(0)).trim();
   if (!token) throw new AccError("usage", 'Paste the token on stdin: acc cloud token < token.txt, or echo "$TOKEN" | acc cloud token. It never goes on the command line.');
   writeCloudToken(run, repo, token, process.env);
-  out(o, () => `Kept the routine's token for ${repo} in this Mac's keychain (${repo}, service acc-cloud-routine). It's never written to .acc/config.json or git.`, { kept: true });
+  out(o, () => `Kept the scheduled task's token for ${repo} in this Mac's keychain (${repo}, service acc-cloud-routine). It's never written to .acc/config.json or git.`, { kept: true });
+  return 0;
+}
+function cmdGuard(o) {
+  const { paths, config } = project(process.cwd());
+  const main2 = firstBranch(config);
+  if (o.commit === true && o.push === true) throw new AccError("usage", "acc cloud guard --commit, then acc cloud guard --push: one at a time.");
+  if (o.commit === true) {
+    noAgent(o, "commit the push guard");
+    const r = commitGuard(run, paths.root, main2);
+    out(o, () => r.committed ? `Committed the push guard on ${r.base}. Push ${r.base} so the cloud clones it.` : `The push guard is already committed on ${r.base}.`, r);
+    return 0;
+  }
+  if (o.push === true) {
+    noAgent(o, "push the branch the cloud clones");
+    const r = pushGuard(run, paths.root, main2, process.env);
+    out(o, () => r.pushed ? `Pushed ${r.base} to GitHub, with the push guard.` : `GitHub's ${r.base} has the push guard already.`, r);
+    return 0;
+  }
+  const place2 = guardPlace(run, paths.root, main2);
+  out(o, () => [
+    `The cloud clones ${place2.base}.`,
+    place2.local.ok ? tone(`  \u2713 The push guard is committed on ${place2.base} here.`, "blue") : tone(`  ! ${place2.local.why}`, "orange"),
+    place2.pushed.ok ? tone(`  \u2713 GitHub's ${place2.base} has it.`, "blue") : tone(`  ! ${place2.pushed.why}`, "orange")
+  ].join("\n"), place2);
   return 0;
 }
 function cmdCollect(o, id) {
@@ -21589,12 +21992,15 @@ var area5 = {
   acc cloud enable [--routine <trig_id>] [--default-place local|cloud] [--max <n>] [--quiet-minutes <n>] [--review local|cloud]
                                         Opt the project in: "agents.cloud" in .acc/config.json, and the push guard
                                         in .claude/settings.json, both to commit. Needs the repo on GitHub, a
-                                        routine for it (claude.ai/code/routines), its token (acc cloud token), and
+                                        scheduled task for it (claude.ai/code/routines), its token (acc cloud token), and
                                         claude auth login. Local stays the default unless --default-place cloud;
-                                        reviews stay on this Mac unless --review cloud
+                                        reviews stay on ${thisMachine()} unless --review cloud
   acc cloud disable                     Turn cloud builders off for the project
-  acc cloud token [--forget]            Keep the routine's API token in this Mac's keychain, read from stdin, never
-                                        from the command line; --forget takes it out
+  acc cloud token [--forget]            Keep the scheduled task's API token in this Mac's keychain, read from stdin,
+                                        never from the command line; --forget takes it out. On Windows the Command
+                                        Center keeps it, and hands it to acc when it builds or reviews
+  acc cloud guard [--commit|--push]     Whether the push guard is committed on the branch the cloud clones, and on
+                                        GitHub; --commit commits its three files there; --push pushes that branch
   acc collect <id>                      Bring a cloud builder's branch into its worktree, run the required checks
                                         here, and move the task to review: what acc sync does on its own once the
                                         builder's last commit carries Acc-Done: <id>`
@@ -21606,9 +22012,10 @@ var area5 = {
     "quiet-minutes": { type: "string" },
     review: { type: "string" },
     forget: { type: "boolean", default: false },
+    commit: { type: "boolean", default: false },
     "from-env": { type: "boolean", default: false }
   },
-  subcommands: { cloud: ["status", "enable", "disable", "token"] },
+  subcommands: { cloud: ["status", "enable", "disable", "token", "guard"] },
   commands: {
     cloud: (o, rest) => {
       const sub = rest[0] ?? "status";
@@ -21616,7 +22023,8 @@ var area5 = {
       if (sub === "enable") return cmdEnable(o);
       if (sub === "disable") return cmdDisable(o);
       if (sub === "token") return cmdToken(o);
-      throw new AccError("usage", "acc cloud [status|enable|disable|token]");
+      if (sub === "guard") return cmdGuard(o);
+      throw new AccError("usage", "acc cloud [status|enable|disable|token|guard]");
     },
     collect: (o, rest) => cmdCollect(o, rest[0])
   }
@@ -22416,12 +22824,12 @@ function planLines(a2) {
   ];
 }
 var askedOf = (q2) => askOf(q2) === "author" ? "for the ticket's author" : "for you";
-function cmdChoose(o, id, decision, option) {
+function cmdChoose(o, id, decision, option2) {
   const by = noAgent(o, "make a plan's choices");
   const text3 = typeof o.text === "string" ? o.text : void 0;
-  if (option === void 0 && text3 === void 0) throw new AccError("usage", 'acc plan choose <id> <choice> <option|--text "\u2026">');
+  if (option2 === void 0 && text3 === void 0) throw new AccError("usage", 'acc plan choose <id> <choice> <option|--text "\u2026">');
   const { paths } = project(process.cwd());
-  const { plan: a2, decision: d, changed } = choosePlan(paths, id.toUpperCase(), decision, text3 !== void 0 ? { text: text3, ...option !== void 0 ? { option } : {} } : { option }, by, now, o.yes === true);
+  const { plan: a2, decision: d, changed } = choosePlan(paths, id.toUpperCase(), decision, text3 !== void 0 ? { text: text3, ...option2 !== void 0 ? { option: option2 } : {} } : { option: option2 }, by, now, o.yes === true);
   const left = planProblems(a2, a2.task);
   if (changed) recordedHere(process.cwd(), a2.task, `Chose ${choiceName(d)} for ${d.title}`);
   out(o, () => [
@@ -22502,7 +22910,7 @@ function cmdReviewInCloud(o, id) {
   const r = followingCards(paths, config, () => reviewInCloud(paths, config, id, { run, now, env: process.env }, { actor, by }));
   out(o, () => [
     tone(`${id} is being reviewed in the cloud, at ${r.sha.slice(0, 7)}. Session ${r.sessionId}: ${r.url}`, "blue"),
-    `  The reviewer reads the branch on GitHub and sends its verdict back on ${r.branch}. acc sync takes it from there, as a review on this Mac would, and deletes the branch.`,
+    `  The reviewer reads the branch on GitHub and sends its verdict back on ${r.branch}. acc sync takes it from there, as a review on ${thisMachine()} would, and deletes the branch.`,
     `  No verdict after ${config.agents.cloud?.quietMinutes ?? 120} minutes shows the task as needing you: acc review ${id} --local reviews it here.`
   ].join("\n"), { task: r.task.id, sha: r.sha, where: "cloud", sessionId: r.sessionId, url: r.url, branch: r.branch, reason: r.reason });
   return 0;
@@ -22515,7 +22923,7 @@ function cmdReview(o, id) {
   };
   const place2 = reviewWhere(o, config);
   if (place2.where === "cloud") return cmdReviewInCloud(o, id.toUpperCase());
-  if (place2.fellBack) say(tone(`Reviews are set to the cloud, but ${place2.fellBack}: reviewing ${id.toUpperCase()} on this Mac.`, "orange"));
+  if (place2.fellBack) say(tone(`Reviews are set to the cloud, but ${place2.fellBack}: reviewing ${id.toUpperCase()} on ${thisMachine()}.`, "orange"));
   const r = followingCards(paths, config, () => review(paths, config, id.toUpperCase(), {
     run,
     now,
