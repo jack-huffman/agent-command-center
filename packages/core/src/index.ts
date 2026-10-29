@@ -12,6 +12,7 @@ export { type AutopilotOutcome, type Decision, type FactsGitHub, failedChecks, i
 export * from './autopilot.ts';
 export * from './awake.ts';
 export * from './branches.ts';
+export * from './brief-wording.ts';
 export * from './cards.ts';
 export * from './carried.ts';
 export * from './change-steps.ts';
