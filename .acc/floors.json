@@ -3,7 +3,13 @@
     "floor": 3037
   },
   "screenshots.clipped": {
-    "floor": 148676
+    "floor": 136012,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "Settings shows one section at a time, so each settings shot measures one section; every section is still shot at every width and theme with no findings. Approved by the person 2026-10-28.",
+      "at": "2026-10-29T02:25:27.005Z",
+      "was": 148676
+    }
   },
   "screenshots.sideways": {
     "floor": 6151
@@ -21,15 +27,33 @@
     "floor": 570
   },
   "screenshots.a11y": {
-    "floor": 619898
+    "floor": 579982,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "Settings shows one section at a time, so each settings shot measures one section; every section is still shot at every width and theme with no findings. Approved by the person 2026-10-28.",
+      "at": "2026-10-29T02:25:27.258Z",
+      "was": 619898
+    }
   },
   "screenshots.actions": {
     "floor": 1823
   },
   "screenshots.disabled": {
-    "floor": 1259
+    "floor": 1254,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "Settings shows one section at a time, so each settings shot measures one section; every section is still shot at every width and theme with no findings. Approved by the person 2026-10-28.",
+      "at": "2026-10-29T02:25:27.765Z",
+      "was": 1259
+    }
   },
   "screenshots.sizes": {
-    "floor": 5357
+    "floor": 4814,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "Settings shows one section at a time, so each settings shot measures one section; every section is still shot at every width and theme with no findings. Approved by the person 2026-10-28.",
+      "at": "2026-10-29T02:25:27.510Z",
+      "was": 5357
+    }
   }
 }
