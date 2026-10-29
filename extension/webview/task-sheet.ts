@@ -61,10 +61,13 @@ function written(): TaskSheetFields {
  * Why the primary button is off, or null when it's on: the same check as the extension's taskSheetOff,
  * and, where Save writes the ticket's text (T-80), not while a Save is on its way or a version is to pick.
  * A hard wording finding on its acceptance criteria keeps it off until the next check finds none (T-148), as
- * the extension's wordingOff says.
+ * the extension's wordingOff says, once the description is changed: acc edit doesn't check one left as it was.
  */
 const goOff = (): string | null => (open?.saving ? 'Saving to its ticket' : open?.theirs ? 'Pick a version first' : !written().title.trim() ? 'A task needs a title'
-  : open?.wording?.hard ? `Fix the wording of the acceptance criteria first: ${plural(open.wording.hard, 'finding')}` : null);
+  : open?.wording?.hard && briefChanged() ? `Fix the wording of the acceptance criteria first: ${plural(open.wording.hard, 'finding')}` : null);
+
+/** Whether the description differs from the one the sheet opened with: a new task's always does once written. */
+const briefChanged = (): boolean => !!open && written().brief !== open.sheet.fields.brief;
 
 /** A field: its label, the box, and a line under it in muted type. */
 function field(label: string, box: HTMLElement, hint: string | null): HTMLElement {
@@ -212,7 +215,7 @@ function wordingParts(w: SheetWording): HTMLElement[] {
   if (!w.criteria.length) return [el('p', 'ts-hint muted', icon('check'), ` ${plural(w.checked, 'acceptance criterion', 'acceptance criteria')} ${w.checked === 1 ? 'passes' : 'pass'} the wording check.`)];
   const advice = w.criteria.reduce((n, c) => n + c.findings.length, 0) - w.hard;
   const head = w.hard
-    ? el('p', 'ts-wording-head', icon('warning', 'orange'), ` Wording: ${plural(w.hard, 'finding')} to fix before you save${advice ? `, and ${plural(advice, 'piece')} of advice` : ''}.`)
+    ? el('p', 'ts-wording-head', icon('warning', 'orange'), ` Wording: ${plural(w.hard, 'finding')} to fix${briefChanged() ? ' before you save' : ', once you change the description'}${advice ? `, and ${plural(advice, 'piece')} of advice` : ''}.`)
     : el('p', 'ts-wording-head', icon('info', 'blue'), ` Wording: ${plural(advice, 'piece')} of advice. It doesn't stop Save.`);
   return [head, ...w.criteria.map((c) => el('div', 'ts-wording-item',
     el('p', 'ts-wording-place', `Criterion ${c.criterion}, line ${c.line}`),

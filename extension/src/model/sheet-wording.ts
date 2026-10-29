@@ -9,6 +9,7 @@
 import { briefCriteria, briefWording, STE_RULE_WORDS } from '../../../packages/core/src/brief-wording.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { wordingMatch } from '../../../packages/core/src/ste.ts';
+import { plural } from '../../../packages/core/src/text.ts';
 import { type ModelArea, short } from './shared.ts';
 
 /** The message the page asks with, and the extension answers with. */
@@ -44,7 +45,9 @@ export const wordingChecked = (t: Pick<Task, 'source'> | null): boolean => !t ||
 
 /** The findings on a description's acceptance criteria, each beside its criterion, as the sheet shows them. */
 export function sheetWording(brief: string): SheetWording {
-  const found = briefWording(brief.trim());
+  // Lines are counted on the text as the box holds it: blank lines before it are lines too.
+  const lead = (/^\s*/.exec(brief)![0].match(/\n/g) ?? []).length;
+  const found = briefWording(brief.trim()).map((f) => ({ ...f, line: f.line + lead }));
   const criteria: SheetCriterion[] = [];
   for (const f of found) {
     let c = criteria.at(-1);
@@ -56,7 +59,7 @@ export function sheetWording(brief: string): SheetWording {
 
 /** Why Save is off for the wording, or null when it may go: a hard finding on the last check. */
 export const wordingOff = (w: Pick<SheetWording, 'hard'> | null | undefined): string | null =>
-  (w?.hard ? `Fix the wording of the acceptance criteria first: ${w.hard} finding${w.hard === 1 ? '' : 's'}` : null);
+  (w?.hard ? `Fix the wording of the acceptance criteria first: ${plural(w.hard, 'finding')}` : null);
 
 export type Message =
   /** The sheet's description as it is now, to check its acceptance criteria. */

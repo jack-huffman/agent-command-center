@@ -30,6 +30,12 @@ test('each finding sits beside its criterion, with its line, its rule in words, 
   } satisfies SheetWording);
 });
 
+test('edge case: a description that starts with blank lines counts them, so each line is the box\'s own', () => {
+  const w = sheetWording(`\n\n${brief('Kick off the import.')}`);
+  assert.equal(w.criteria[0]!.line, 9, 'two blank lines above the line the trimmed text puts at 7');
+  assert.equal(`\n\n${brief('Kick off the import.')}`.split('\n')[8], '- [ ] Kick off the import.');
+});
+
 test('Save is off with why on a hard finding, and on with advice only', () => {
   assert.equal(wordingOff(sheetWording(brief('Kick off the import.'))), 'Fix the wording of the acceptance criteria first: 1 finding');
   assert.equal(wordingOff({ hard: 2 }), 'Fix the wording of the acceptance criteria first: 2 findings');

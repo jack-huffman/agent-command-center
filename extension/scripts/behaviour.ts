@@ -2205,9 +2205,11 @@ export const CASES: Case[] = [
       const items = t.all('.ts-wording-item', dialog);
       t.check('each criterion with a finding shows it beside its text', items.length === d.items && items.every((i) => i.querySelector('.ts-wording-text')?.textContent && i.querySelector('.ts-wording-finding')), items.map((i) => i.textContent));
       t.check('a fix is orange with its warning icon, and advice is blue with its info icon', t.all('.ts-wording-finding .codicon-warning.tone-orange', dialog).length === 2 && t.all('.ts-wording-finding .codicon-info.tone-blue', dialog).length === 1);
-      t.check('Save is off, saying why', go().disabled && go().title === d.off, go().title);
+      // Edge: acc edit doesn't check a description left as it was, so an edit of the notes alone can still save.
+      t.check('with the description as it opened, Save is on, and the findings say they stop it once it changes', !go().disabled && t.find('.ts-wording-head', dialog).textContent!.includes('once you change the description'), go().title);
       t.check('the findings are read out as they change', t.find('.ts-wording', dialog).getAttribute('aria-live') === 'polite');
       await t.type(brief, d.fixed);
+      t.check('once the description changes, Save is off until the check comes back clean, saying why', go().disabled && go().title === d.off, go().title);
       await t.settle();
       await t.settle();
       const asked = t.sent('task-sheet-wording');
@@ -2815,7 +2817,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'Enter in the description saves', file: 'task-sheet.ts', find: '    if (e.target instanceof HTMLTextAreaElement && !e.metaKey && !e.ctrlKey) return;\n', replace: '', kills: [caseNamed('task sheet: a new task')] },
   { name: 'the task sheet\'s Save drops the notes typed', file: 'task-sheet.ts', find: "labels: v('labels'), notes: v('notes') };", replace: "labels: v('labels'), notes: s.fields.notes };", kills: [caseNamed('task sheet: a manual task')] },
   { name: 'the task sheet saves with no title', file: 'task-sheet.ts', find: ": !written().title.trim() ? 'A task needs a title'\n", replace: '\n', kills: [caseNamed('task sheet: a new task')] },
-  { name: 'the task sheet saves with a wording finding to fix', file: 'task-sheet.ts', find: "  : open?.wording?.hard ? `Fix the wording of the acceptance criteria first: ${plural(open.wording.hard, 'finding')}` : null);", replace: '  : null);', kills: [caseNamed('task sheet: each wording finding')] },
+  { name: 'the task sheet saves with a wording finding to fix', file: 'task-sheet.ts', find: "  : open?.wording?.hard && briefChanged() ? `Fix the wording of the acceptance criteria first: ${plural(open.wording.hard, 'finding')}` : null);", replace: '  : null);', kills: [caseNamed('task sheet: each wording finding')] },
+  { name: 'the task sheet holds Save for a description left as it was', file: 'task-sheet.ts', find: '  : open?.wording?.hard && briefChanged() ?', replace: '  : open?.wording?.hard ?', kills: [caseNamed('task sheet: each wording finding')] },
   { name: 'the task sheet never asks for the wording check again', file: 'task-sheet.ts', find: "  if (key === 'brief' && open!.wording) b.addEventListener('input', askWording);\n", replace: '', kills: [caseNamed('task sheet: each wording finding')] },
   { name: 'the task sheet takes an answer for older text', file: 'task-sheet.ts', find: ' || msg.wording.brief !== written().brief) return;', replace: ') return;', kills: [caseNamed('task sheet: each wording finding')] },
   { name: 'the task sheet shows no wording findings', file: 'task-sheet.ts', find: '  at.replaceChildren(...wordingParts(open.wording));\n', replace: '', kills: [caseNamed('task sheet: each wording finding')] },

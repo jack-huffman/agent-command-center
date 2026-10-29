@@ -34,7 +34,10 @@ between them.
   orange with its warning icon, and advice is blue with its info icon. The list is read out as it changes
   (`aria-live`). While the last answer has a hard finding, Save is off with "Fix the wording of the acceptance
   criteria first: N findings" (`wordingOff`). Before an answer comes back for new text, Save goes by the last
-  one, and `acc add` or `acc edit` still refuses a brief that fails.
+  one, and `acc add` or `acc edit` still refuses a brief that fails. Save is held only once the description
+  changes: `acc edit` doesn't check a brief left as it was, so an older task whose criteria fail can still have
+  its notes or labels saved, and the findings say they stop Save "once you change the description" (review).
+  A finding's line counts blank lines above the text, so it is the box's own line.
 - **Not covered:** a manual task added through `acc import`. It is a person's or an agent's text, but import
   reports each task's errors on its own and isn't named here.
 - **Checked by** `packages/core/test/brief-wording.test.ts` (13: the criteria and their lines, briefs with none,

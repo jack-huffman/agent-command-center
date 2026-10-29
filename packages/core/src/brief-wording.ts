@@ -12,6 +12,7 @@
 import { codeNames } from './agent-notes.ts';
 import { AccError } from './exec.ts';
 import { type SteLevel, type SteRule, steLint, splitLines, wordingMatch } from './ste.ts';
+import { plural } from './text.ts';
 
 /** The heading the criteria sit under, at any level: the same words a drafted criteria section uses (T-81). */
 export const CRITERIA_TITLE = 'Acceptance criteria';
@@ -97,9 +98,8 @@ export const criterionLine = (f: CriterionFinding): string => {
 
 /** What acc says when the criteria's wording fails: that it wrote nothing, then each hard finding with its fix. */
 export function briefWordingWords(hard: readonly CriterionFinding[], id: string | null): string {
-  const n = `${hard.length} finding${hard.length === 1 ? '' : 's'}`;
   return [
-    `${id ? `${id}'s` : 'The'} acceptance criteria don't pass the Simplified Technical English check (${n}), so acc wrote nothing. Write each criterion again with its fix, then run the command again:`,
+    `${id ? `${id}'s` : 'The'} acceptance criteria don't pass the Simplified Technical English check (${plural(hard.length, 'finding')}), so acc wrote nothing. Write each criterion again with its fix, then run the command again:`,
     ...hard.map(criterionLine),
   ].join('\n');
 }
