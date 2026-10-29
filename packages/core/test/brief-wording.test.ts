@@ -147,7 +147,7 @@ test('edge case: a tracker\'s ticket is never refused for its wording: its intak
   assert.deepEqual([again.updated, again.errors], [['ACME-7'], []]);
   // Its plan still shows the findings on the criteria it reads back, as advice (T-12).
   const read = briefCriteria(l.tasks[1]!.brief).map((c) => c.text);
-  assert.deepEqual(requirementWording({ goal: '', criteria: read, assumptions: [], outOfScope: [] }).map((f) => f.rule), ['semicolon', 'phrasal-verb']);
+  assert.deepEqual(requirementWording({ goal: '', criteria: read, assumptions: [], outOfScope: [] }).map((f) => f.rule), ['phrasal-verb', 'semicolon']);
 });
 
 /** A source module with one change, imported from a folder of its own; its imports still reach acc's modules. */
