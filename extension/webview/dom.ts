@@ -353,12 +353,8 @@ export function foldable(key: string, content: HTMLElement, inner: string | null
 export function whatThisMeans(id: string, text: string, folded: readonly string[]): HTMLElement | null {
   if (!text) return null;
   if (!folded.includes(id)) return el('p', 'muted small settings-meaning', text);
-  const key = `settings-meaning:${id}`;
-  const d = el('details', 'settings-fold', el('summary', 'muted small', el('span', 'tool-chev', icon('chevron-right')), el('span', '', 'What this means')),
-    el('p', 'muted small settings-meaning', text)) as HTMLDetailsElement;
+  const d = rememberedFold('settings-fold', `settings-meaning:${id}`, [el('span', '', 'What this means')], el('p', 'muted small settings-meaning', text));
   d.dataset.fold = id;
-  d.open = memory().opened.includes(key);
-  d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])].slice(-200) : x.opened.filter((y) => y !== key); }));
   return d;
 }
 
@@ -367,9 +363,14 @@ export const moreKey = (id: string): string => `settings-more:${id}`;
 
 /** A fold closed until opened, its summary a few words with a count, remembered by the tab as an explanation's is (T-139). */
 export function more(id: string, summary: Child[], ...content: Child[]): HTMLElement {
-  const key = moreKey(id);
-  const d = el('details', 'settings-more', el('summary', 'muted small', el('span', 'tool-chev', icon('chevron-right')), ...summary), ...content) as HTMLDetailsElement;
+  const d = rememberedFold('settings-more', moreKey(id), summary, ...content);
   d.dataset.more = id;
+  return d;
+}
+
+/** A fold with the chevron before its summary, kept open across redraws by `key` in the tab's opened list: What this means's and more()'s. */
+function rememberedFold(cls: string, key: string, summary: Child[], ...content: Child[]): HTMLDetailsElement {
+  const d = el('details', cls, el('summary', 'muted small', el('span', 'tool-chev', icon('chevron-right')), ...summary), ...content) as HTMLDetailsElement;
   d.open = memory().opened.includes(key);
   d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])].slice(-200) : x.opened.filter((y) => y !== key); }));
   return d;

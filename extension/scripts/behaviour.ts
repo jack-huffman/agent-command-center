@@ -2573,7 +2573,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'the section shown is forgotten on a redraw', file: 'settings.ts', find: 'sections.find((s) => s.id === memory().settings) ?? sections[0]', replace: 'sections[0]', kills: [caseNamed('settings: the jump list')] },
   { name: 'a deep link leaves its part\'s section hidden', file: 'state.ts', find: "heading.closest<HTMLElement>('[hidden]')?.dispatchEvent(new Event('reveal'));", replace: '', kills: [caseNamed('settings: the jump list')] },
   { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: the jump list')] },
-  { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.dataset.fold = id;\n  d.open = memory().opened.includes(key);', replace: 'd.dataset.fold = id;\n  d.open = false;', kills: [caseNamed('settings: the jump list')] },
+  { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.dataset.fold = id;\n  return d;', replace: 'd.dataset.fold = id;\n  d.open = false;\n  return d;', kills: [caseNamed('settings: the jump list')] },
   { name: 'the Connect modal draws no status line beside Next', file: 'connect.ts', find: "el('div', 'connect-foot-why', why ? status(why) : null)", replace: "el('div', 'connect-foot-why', null)", kills: [caseNamed('connect: Next that is off')] },
   { name: 'the Connect modal leaves Next\'s title empty', file: 'connect.ts', find: 'if (go.disabled && why) go.title = why.label;', replace: '', kills: [caseNamed('connect: Next that is off'), caseNamed('connect: the board under the dropdowns')] },
   { name: 'Next goes on before the board is read', file: 'connect.ts', find: 'go.disabled = m.next ? !m.next.can : !m.save.can;', replace: 'go.disabled = m.next ? false : !m.save.can;', kills: [caseNamed('connect: Next that is off'), caseNamed('connect: the board under the dropdowns')] },
@@ -2705,7 +2705,11 @@ const MEANING_PART = { theme: 'appearance', autonomy: 'agents', 'auto-merge': 'a
 function settingsData(model: Model): BehaviourData['settings'] {
   if (model.kind !== 'home') throw new Error('The Settings case needs a home model.');
   const meanings = settingsMeanings(model.settings);
-  const sectionOf = (id: string): string => sectionOfPart(MEANING_PART[id.split(':')[0] as keyof typeof MEANING_PART]);
+  const sectionOf = (id: string): string => {
+    const part = MEANING_PART[id.split(':')[0] as keyof typeof MEANING_PART];
+    if (!part) throw new Error(`MEANING_PART has no part for the explanation ${id}: add its first word.`);
+    return sectionOfPart(part);
+  };
   return {
     sections: model.settings.sections.map((s) => s.id),
     open: settingsKey('agents'),
