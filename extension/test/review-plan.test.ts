@@ -35,11 +35,13 @@ test('the steps go questions for you first, then the choices, then the questions
   assert.equal(stepDone({ kind: 'choice', id: 'd9', title: '', why: '', options: [], because: '', chosen: null }), false);
 });
 
-test('what\'s left reads in words: choices and questions to review, ready to approve, or approved', () => {
+test('what\'s left reads in words: choices and questions to review, wording to fix, ready to approve, or approved', () => {
   const approved = samplePlan(NOW, 'approved');
   const done = { ...approved, questions: approved.questions.map((q) => ({ ...q, answer: q.answer ?? { text: 'Decision Maker', by: 'jordan', at: '' } })) };
   assert.equal(review(done)!.left, 'Approved v2');
-  assert.equal(review({ ...done, approval: undefined })!.left, 'Ready to approve');
+  // A plan whose requirements fail the wording check isn't ready to approve (T-151); clean ones are.
+  assert.equal(review({ ...done, approval: undefined })!.left, '2 wording findings to fix');
+  assert.equal(review({ ...done, approval: undefined, requirements: { goal: '', criteria: ['The primary contact has a role.'], assumptions: [], outOfScope: [] } })!.left, 'Ready to approve');
   assert.equal(review(approved)!.left, '1 question to review', 'the author\'s question is still to review');
   assert.equal(review(samplePlan(NOW, 'changed'))!.left, '1 choice and 1 question to review');
 });

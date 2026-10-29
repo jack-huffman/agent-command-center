@@ -7,7 +7,9 @@
 
 import type { Analysis, PlanDecision, PlanOption } from '../../../packages/core/src/analyze.ts';
 import { askOf, choiceName } from '../../../packages/core/src/plan.ts';
+import { requirementWording } from '../../../packages/core/src/ste.ts';
 import { OPTIONS_MAX } from '../../../packages/core/src/talk-questions.ts';
+import { plural } from '../../../packages/core/src/text.ts';
 import { questionsWord, type TaskRow } from '../logic/shared.ts';
 import { choicesWord } from '../logic/plan.ts';
 import type { TicketAnalysis } from './task-page.ts';
@@ -51,7 +53,7 @@ export interface PlanReview {
   /** The sheet's title, "Review plan v2". */
   title: string;
   steps: ReviewStep[];
-  /** What's left, in words: "1 choice and 2 questions to review", "Approved v2", or "Ready to approve". */
+  /** What's left, in words: "1 choice and 2 questions to review", "Approved v2", "2 wording findings to fix", or "Ready to approve". */
   left: string;
   /** Whether "Ask on the ticket" can draft a question for the author: its task has a ticket to post on (D-066). */
   canAsk: boolean;
@@ -90,6 +92,9 @@ export function reviewSteps(a: Analysis, open: TicketAnalysis['open']): ReviewSt
   return [...questions.filter((q) => !q.author), ...choices, ...questions.filter((q) => q.author)].map((s) => ({ ...s, done: stepDone(s) }));
 }
 
+/** "2 wording findings": what holds a plan whose questions and choices are done (T-151). */
+const wordingFindings = (n: number): string => plural(n, 'wording finding');
+
 /** "a", "a and b": what's left, as the short plan section says it. */
 function leftWords(steps: ReviewStep[]): string | null {
   const todo = steps.filter((s) => !s.done);
@@ -107,6 +112,8 @@ export function planReview(row: Pick<TaskRow, 'state'>, a: Analysis | null, open
   if (!a || a.verdict === 'split' || row.state !== 'todo') return null;
   const steps = reviewSteps(a, open);
   if (!steps.length) return null;
-  const left = leftWords(steps) ?? (a.approval ? `Approved v${version}` : 'Ready to approve');
+  // A plan whose requirements fail the wording check isn't ready to approve (T-151): it says what holds it.
+  const wording = requirementWording(a.requirements).length;
+  const left = leftWords(steps) ?? (a.approval ? `Approved v${version}` : wording ? `${wordingFindings(wording)} to fix` : 'Ready to approve');
   return { title: `Review plan v${version}`, steps, left, canAsk };
 }

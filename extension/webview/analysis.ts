@@ -99,6 +99,10 @@ function part(name: string, items: Child[], cls = ''): HTMLElement | null {
 /** "Area: detail", with where it came from muted after it. */
 const pair = (head: string, rest: string, source = ''): HTMLElement => el('span', '', head ? el('strong', '', `${head}: `) : null, md(rest), source ? el('span', 'muted mono an-source', ` ${source}`) : null);
 
+/** A wording finding under its line (T-151): an orange warning, its fix, and the words it caught. */
+const wordingFix = (f: NonNullable<TicketAnalysis['wording']>['findings'][number]): HTMLElement =>
+  el('div', 'an-fix', icon('warning'), el('span', '', f.message, f.match ? ' ' : null, f.match ? el('span', 'chip an-match', f.match) : null));
+
 /** Whether a question waits on the person (T-136): one for them, or one for the ticket's author not yet sent to the client. */
 export const questionWaits = (a: Pick<TicketAnalysis, 'open' | 'canAsk'>): boolean => a.open.some((q) => q.askOf !== 'author' || (a.canAsk && !q.client));
 
@@ -112,7 +116,7 @@ function topLine(a: TicketAnalysis): HTMLElement {
   const left = a.review && (a.review.steps.some((s) => !s.done) || !p?.approval) ? a.review : null;
   return el('div', 'an-head an-top', el('h2', '', status(p ? p.look : a.look)),
     p?.approval ? el('span', 'muted small an-by', `by ${p.approval.by} `, when(p.approval.at)) : null,
-    left ? el('span', 'plan-left', icon(left.left.endsWith('to review') ? 'list-selection' : 'pass'), left.left) : p && a.look.label !== p.look.label ? status(a.look) : null,
+    left ? el('span', 'plan-left', icon(left.left.endsWith('to review') ? 'list-selection' : left.left.endsWith('to fix') ? 'warning' : 'pass'), left.left) : p && a.look.label !== p.look.label ? status(a.look) : null,
     a.size ? el('span', 'chip an-size', `Size ${a.size}`) : null, el('span', 'spacer'), a.at ? when(a.at) : null);
 }
 
@@ -163,24 +167,26 @@ function planSections(m: TicketModel, a: TicketAnalysis, key: string): HTMLEleme
   })) : null;
   const steps = a.plan.map(md).map((x, i) => el('li', '', el('span', 'an-discussable', x, discuss(`s${i + 1}`, a.plan[i]!, `step ${i + 1}: ${a.plan[i]!}`))));
   const risks = a.risks.map(md).map((x, i) => el('span', 'an-discussable', x, discuss(`r${i + 1}`, a.risks[i]!, `the risk ${a.risks[i]!}`)));
-  // The wording check's findings (T-12): advice on how the requirements read. They never hold a dispatch.
-  const wording: Child[] = [];
-  if (a.wording) {
-    wording.push(...a.wording.findings.map((f) => el('span', '', el('strong', '', `${f.place}: `), f.message, f.match ? ' ' : null, f.match ? el('span', 'chip an-match', f.match) : null, el('div', 'muted an-line', md(f.text)))));
-  }
-  const more = a.assumptions.length + a.outOfScope.length + a.findings.length + wording.length + (p?.earlier.length ?? 0) + a.refactors.length + a.decided.length;
+  // The wording check's findings (T-12), each beside the line it is on (T-151): they hold the plan's approval, so
+  // a section with one opens. The goal isn't drawn as a line of its own, so its findings list it with them.
+  const found = a.wording?.findings ?? [];
+  const fixes = (part: string, i: number): HTMLElement[] => found.filter((f) => f.part === part && f.index === i).map(wordingFix);
+  const lined = (part: string) => (x: string, i: number): Child => el('span', '', md(x), ...fixes(part, i));
+  const goal = found.filter((f) => f.part === 'goal').map((f) => el('span', '', md(f.text), wordingFix(f)));
+  const held = (...parts: string[]) => found.some((f) => parts.includes(f.part));
+  const more = a.assumptions.length + a.outOfScope.length + a.findings.length + goal.length + (p?.earlier.length ?? 0) + a.refactors.length + a.decided.length;
   return [
     planSection(key, 'choices', 'Choices', p?.decisions.length ?? 0, !!p && p.decisions.some((d) => choiceWaits(m, a.task, p, d)), [p ? planDecisions(m, a.task, p) : null]),
     planSection(key, 'questions', 'Questions', a.open.length, questionWaits(a), [questions]),
     // Its count is its steps, and what other tasks build on and the split suggested with them, so shapes alone never read 0.
     planSection(key, 'approach', 'The approach', a.plan.length + (p?.shapes?.shapes.length ?? 0) + (p?.shapes?.split ? 1 : 0), false, [p ? planShapes(m, a.task, p) : null, steps.length ? el('ol', 'an-list', ...steps) : null]),
-    planSection(key, 'criteria', 'Acceptance criteria', a.criteria.length, false, [a.criteria.length ? el('ul', 'an-list', ...a.criteria.map(md).map((x) => el('li', '', x))) : null]),
+    planSection(key, 'criteria', 'Acceptance criteria', a.criteria.length, held('criteria'), [a.criteria.length ? el('ul', 'an-list', ...a.criteria.map(lined('criteria')).map((x) => el('li', '', x))) : null]),
     planSection(key, 'risks', 'Risks and tests', a.risks.length + a.tests.length, false, [part('Risks', risks), part('Tests', a.tests.map(md))]),
-    planSection(key, 'more', 'More', more, false, [
-      part('Assumptions', a.assumptions.map(md)),
-      part('Out of scope', a.outOfScope.map(md)),
+    planSection(key, 'more', 'More', more, held('goal', 'assumptions', 'outOfScope'), [
+      part('Assumptions', a.assumptions.map(lined('assumptions'))),
+      part('Out of scope', a.outOfScope.map(lined('outOfScope'))),
       part('What\'s there now', a.findings.map((f) => pair(f.area, f.detail, f.source))),
-      part('How the requirements read', wording, 'an-wording'),
+      part('How the goal reads', goal, 'an-wording'),
       p ? planEarlier(p) : null,
       part('Refactors first', a.refactors.map((r) => pair(r.what, r.why))),
       part('Decided', a.decided.map((d) => el('span', '', md(d.question), ' ', el('strong', '', md(d.answer)), d.assumed ? el('span', 'muted', ' (assumed: nobody answered)') : null))),

@@ -9,7 +9,7 @@ import { type RunNote, shownNote, type Task } from '../../../packages/core/src/l
 import type { RatchetLimit, RatchetSpec } from '../../../packages/core/src/config.ts';
 import { cardFailure } from '../../../packages/core/src/cards.ts';
 import { editedWords, editRefusal } from '../../../packages/core/src/edit.ts';
-import { type WordingFinding, wordingMatch, wordingPlace, wordingWords } from '../../../packages/core/src/ste.ts';
+import { type RequirementPart, requirementWording, type WordingFinding, wordingMatch, wordingPlace, wordingWords } from '../../../packages/core/src/ste.ts';
 import { num, ratchetLine, signed } from '../../../packages/core/src/ratchets.ts';
 import { type GateStatus, ratchetOf, type Receipt } from '../../../packages/core/src/receipts.ts';
 import { testsText } from '../../../packages/core/src/test-counts.ts';
@@ -266,10 +266,12 @@ export interface TicketAnalysis {
   tests: string[];
   files: { path: string; change: string; why: string }[];
   /**
-   * The wording check's findings on its requirements (T-12), as advice: an orange state and each finding
-   * with the line it came from, and the words it caught unless they are the whole line (a dangling "and"). Null when it has none, or an analysis older than the check.
+   * The wording check's findings on its requirements (T-12): an orange state and each finding with the line it
+   * came from, its part and place there, which the page draws it beside (T-151), and the words it caught unless
+   * they are the whole line (a dangling "and"). They hold the plan's approval. Null when it has none, or an
+   * analysis older than the check.
    */
-  wording: { look: Look; findings: { place: string; text: string; message: string; match: string | null }[] } | null;
+  wording: { look: Look; findings: { place: string; part: RequirementPart; index: number; text: string; message: string; match: string | null }[] } | null;
   actions: Action[];
   /** Its plan (T-97): the choices to make, its versions, its approval and Build it. Null with no analysis. */
   planState: TicketPlan | null;
@@ -436,7 +438,7 @@ export function wordingLook(n: number): Look | null {
 /** The wording findings as the page lists them, each with where it came from. Null when there are none. */
 export function ticketWording(findings: WordingFinding[] | undefined): TicketAnalysis['wording'] {
   const look = wordingLook(findings?.length ?? 0);
-  return look ? { look, findings: findings!.map((f) => ({ place: wordingPlace(f), text: f.text, message: f.message, match: wordingMatch(f) })) } : null;
+  return look ? { look, findings: findings!.map((f) => ({ place: wordingPlace(f), part: f.part, index: f.index, text: f.text, message: f.message, match: wordingMatch(f) })) } : null;
 }
 
 /**
@@ -473,7 +475,8 @@ export function ticketAnalysis(row: TaskRow, a: Analysis | null, ref: Ref, updat
     task: row.id, look, note, summary: a?.summary ?? null, size: a?.approach.size ?? null, at: a?.at ?? null, open, canAsk: hasTicket(row.source.kind), decided, split: a?.verdict === 'split' ? a.split : [],
     goal: a?.requirements.goal || null, criteria: a?.requirements.criteria ?? [], assumptions: a?.requirements.assumptions ?? [], outOfScope: a?.requirements.outOfScope ?? [],
     findings: a?.findings ?? [], plan: a?.approach.plan ?? [], refactors: a?.approach.refactors ?? [], risks: a?.approach.risks ?? [], tests: a?.approach.tests ?? [], files: a?.approach.files ?? [],
-    wording: ticketWording(a?.wording), actions, planState, review: planReview(row, a ?? null, open, planState?.version ?? 1, hasTicket(row.source.kind)),
+    // Read again from its requirements, as its approval is (T-151): a plan from before the check has its findings too.
+    wording: ticketWording(a ? requirementWording(a.requirements) : undefined), actions, planState, review: planReview(row, a ?? null, open, planState?.version ?? 1, hasTicket(row.source.kind)),
   };
 }
 

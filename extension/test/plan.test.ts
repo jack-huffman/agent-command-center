@@ -85,7 +85,11 @@ test('the plan\'s model: its choices, its approval or why it lapsed, Approve\'s 
   // No analysis, no plan; a split can't be approved.
   assert.equal(ticketPlan(todo(), null, { project: '/r', task: 'ACME-21' }), null);
   assert.equal(approveOff({ ...v1, verdict: 'split' } as Analysis), 'Its plan says it\'s too big for one task: split it rather than approve it.');
-  assert.equal(approveOff({ ...v1, questions: [], decisions: [] } as Analysis), null);
+  // With its questions and choices done, a hard wording finding in its requirements holds it (T-151); clean ones don't.
+  assert.equal(approveOff({ ...v1, questions: [], decisions: [] } as Analysis), 'Its requirements fail the wording check (2 findings, shown beside each line): make a new plan.');
+  const clean = { goal: 'Each role is kept.', criteria: ['The primary contact has a role.'], assumptions: [], outOfScope: [] };
+  assert.equal(approveOff({ ...v1, questions: [], decisions: [], requirements: clean } as Analysis), null);
+  assert.equal(approveOff({ ...v1, decisions: [], requirements: clean } as Analysis), 'First answer the question for you.', 'questions come before the wording');
 });
 
 test('the page sends a choice as an option or its own words, never both or neither, and an approval; the modal takes its own task\'s', () => {
