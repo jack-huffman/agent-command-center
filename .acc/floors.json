@@ -3,22 +3,16 @@
     "floor": 3062
   },
   "screenshots.clipped": {
-    "floor": 153836,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "Settings shows one section at a time; measured at e9d6dc64 after merging T-140, with no findings. Approved by the person 2026-10-28.",
-      "at": "2026-10-29T03:32:41.960Z",
-      "was": 166321
-    }
+    "floor": 156616
   },
   "screenshots.sideways": {
-    "floor": 7577
+    "floor": 7670
   },
   "screenshots.overview": {
-    "floor": 996
+    "floor": 1199
   },
   "screenshots.buttons": {
-    "floor": 540
+    "floor": 700
   },
   "screenshots.covered": {
     "floor": 1736
@@ -27,16 +21,10 @@
     "floor": 599
   },
   "screenshots.a11y": {
-    "floor": 569526,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "Settings shows one section at a time; measured at e9d6dc64 after merging T-140, with no findings. Approved by the person 2026-10-28.",
-      "at": "2026-10-29T03:32:42.258Z",
-      "was": 615704
-    }
+    "floor": 576655
   },
   "screenshots.actions": {
-    "floor": 1823
+    "floor": 1906
   },
   "screenshots.disabled": {
     "floor": 1389
