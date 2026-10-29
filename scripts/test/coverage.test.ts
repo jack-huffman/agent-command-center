@@ -64,7 +64,6 @@ export const OLDER: Record<string, string[]> = {
   'extension/webview/limits.ts': ['renderLimits'],
   'extension/webview/modal.ts': ['makeModal'],
   'extension/webview/overview.ts': ['renderOverview'],
-  'extension/webview/settings.ts': ['renderSettings'],
   'extension/webview/setup.ts': ['renderSetup'],
   'extension/webview/state.ts': ['setSection'],
   'extension/webview/tasks.ts': ['KIND_ICON', 'KIND_NAME'],
