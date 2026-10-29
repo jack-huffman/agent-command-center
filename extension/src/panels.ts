@@ -4,6 +4,7 @@ import type { Hub } from './hub.ts';
 import { FinishedJobs } from './progress.ts';
 import type { AboutFacts } from './model/about.ts';
 import type { BoardInput } from './model/boards.ts';
+import type { CloudSetupModel } from './model/cloud-setup.ts';
 import type { ConnectModel } from './model/connect.ts';
 import { type FromWebview, isFromWebview, PAGE_COMMANDS } from './model/messages.ts';
 import { HOME_SECTIONS, type HomeSection, type Ref, type ViewKind } from './model/shared.ts';
@@ -31,6 +32,8 @@ export interface BoardDeps {
   runs(): RunInput[];
   /** The Connect page (GH-51): what it shows, and closing it with the tab. */
   connect: { model(): ConnectModel | null; close(): void };
+  /** Set up cloud builders (T-145): what its modal shows, and closing it with the tab. */
+  cloudSetup?: { model(): CloudSetupModel | null; close(): void };
   /** The Slack card (GH-58): what it shows, never the webhook. */
   slack?: { card(): SlackCard | null };
   /** Whether autopilot runs for a project's repo in this window, somewhere else, or not at all (D-064), so its merge queue moves (GH-73). */
@@ -294,6 +297,7 @@ export class Panels implements vscode.Disposable {
       this.onVisible(false);
       // A Connect page closes with its tab: reopened, the Command Center shows its section. So does a task's modal (GH-158).
       this.deps.connect.close();
+      this.deps.cloudSetup?.close();
       this.cover?.close();
     });
     this.panel = panel;
@@ -369,7 +373,7 @@ export class Panels implements vscode.Disposable {
     return homeModel({
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
       setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed(), setUp: this.setup.setUp(), root: this.setup.root(), starting: this.setup.startingModel() }, runs: this.deps.runs(),
-      edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), slack: this.deps.slack?.card() ?? null,
+      edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), cloudSetup: this.deps.cloudSetup?.model() ?? null, slack: this.deps.slack?.card() ?? null,
       whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(), pace: currentPace(), opensOn: this.opens,
       finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(), about: this.deps.about?.facts() ?? null, since: this.deps.since?.() ?? [],
     });

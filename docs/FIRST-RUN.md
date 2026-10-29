@@ -508,11 +508,11 @@ tick it yourself after `/web-setup`.
 - **Result:**
 - **Fixed in / filed as:**
 
-### B15.cloud-routine: A routine for the repo
+### B15.cloud-routine: A scheduled task for the repo
 
-Look for: whether the guide got you through making the routine at
-claude.ai/code/routines, pasting the prompt `acc cloud` shows, and giving acc
-the trigger id.
+Look for: whether Set up cloud builders' The scheduled task step got you
+through making the scheduled task at claude.ai/code/routines: Copy the prompt,
+Open claude.ai, and the trigger id checked as you typed it, then Keep the id.
 
 - **Showed:**
 - **Unclear:**
@@ -520,10 +520,11 @@ the trigger id.
 - **Result:**
 - **Fixed in / filed as:**
 
-### B15.cloud-token: The routine's token is in the keychain
+### B15.cloud-token: The scheduled task's token is kept
 
-Look for: `acc cloud token` taking the token on stdin, and the check passing
-once it's in the keychain, with nothing written to `.acc/config.json`.
+Look for: The token step taking the token hidden, and the check passing once
+it's kept: in the keychain on a Mac (`acc cloud token` takes it on stdin too),
+in VS Code on Windows, with nothing written to `.acc/config.json` or a file.
 
 - **Showed:**
 - **Unclear:**

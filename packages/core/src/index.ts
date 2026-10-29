@@ -19,6 +19,7 @@ export * from './changes-field.ts';
 export * from './changes.ts';
 export * from './checks.ts';
 export * from './closing.ts';
+export * from './cloud-guard-place.ts';
 export * from './cloud-guard.ts';
 export * from './cloud-review.ts';
 export * from './cloud.ts';

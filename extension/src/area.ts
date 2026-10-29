@@ -9,11 +9,13 @@ import type { Answer } from '../../packages/core/src/questions.ts';
 import type { About } from './about.ts';
 import type { AgentPages } from './activity.ts';
 import type { AutopilotHost } from './autopilot.ts';
+import type { CloudSetupSession, CloudTokens } from './cloud-setup.ts';
 import type { ConnectSession } from './connect.ts';
 import type { Hub } from './hub.ts';
 import type { RepoIdentity } from './identity.ts';
 import type { FromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
+import type { AccEnv } from './run.ts';
 import type { Panels } from './panels.ts';
 import type { Runs } from './runs.ts';
 import type { SelfUpdate } from './self-update.ts';
@@ -43,6 +45,11 @@ export interface Parts {
   trackers: Trackers;
   identity: RepoIdentity;
   connect: ConnectSession;
+  /** Set up cloud builders (T-145), and where this system keeps the scheduled task's token. */
+  cloudSetup: CloudSetupSession;
+  cloudTokens: CloudTokens;
+  /** What acc's environment gets for a folder: the scheduled task's token on Windows (T-145). */
+  accEnv: AccEnv;
   slack: Slack;
   autopilot: AutopilotHost;
   /** What the sidebar's commands share: the hub, acc, terminals and the helpers. */

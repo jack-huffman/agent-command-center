@@ -703,7 +703,10 @@ A project may let a task's builder run as a Claude Code cloud session instead
 of on this Mac (GH-69). It's never the default: `acc cloud enable` opts the
 project in, and each task then chooses with `acc dispatch <id> --cloud` or
 `--local`. These steps apply only once a project has opted in; before that,
-Setup skips them.
+Setup skips them. In the Command Center, **Set up cloud builders** walks through
+them all in one modal, one step at a time, on a Mac or on Windows: Settings'
+Cloud builders part has **Set up…**, each step's **Do it** in Setup opens it,
+and so does the command palette. It opens on the first step not done.
 
 - [ ] **Claude can clone the repo from the cloud** (`B15.cloud-github-app`). A
   cloud session clones the repo from GitHub and pushes its branch back through
@@ -711,20 +714,25 @@ Setup skips them.
   installed on the repo (https://github.com/apps/claude), or `/web-setup` in a
   `claude` session, which sends gh's token to your account. The Command Center can see only
   the app, so after `/web-setup`, tick this yourself.
-- [ ] **A routine for the repo** (`B15.cloud-routine`). A script can start a
-  cloud session only by firing a routine's API trigger. At
-  https://claude.ai/code/routines, make a routine for this repo: paste the Command Center's
-  routine prompt as its instructions (`acc cloud` shows it), pick the repo and
-  the model, keep the Default environment, and add an API trigger. Copy its
-  trigger id into `acc cloud enable --routine trig_…`.
-- [ ] **The routine's token is in the keychain** (`B15.cloud-token`). On the
-  routine's page, click Generate token, copy it once, and paste it on stdin to
-  `acc cloud token`. It goes to this Mac's keychain, under `acc-cloud-routine`
-  for this repo, and never into `.acc/config.json` or git.
+- [ ] **A scheduled task for the repo** (`B15.cloud-routine`). A script can
+  start a cloud session only by firing a scheduled task's API trigger (claude.ai
+  called it a routine before). In the modal's **The scheduled task** step,
+  **Copy the prompt**, then **Open claude.ai**: make a scheduled task for this
+  repo with the prompt as its instructions, pick the repo and a model, keep the
+  Default environment, and add an API trigger. Paste its trigger id and click
+  **Keep the id**, or in a terminal: `acc cloud enable --routine trig_…`.
+- [ ] **The scheduled task's token is kept** (`B15.cloud-token`). On the
+  scheduled task's page, click Generate token and copy it once; paste it in the
+  modal's **The token** step and click **Keep the token**. A Mac keeps it in its
+  keychain, under `acc-cloud-routine` for this repo (`acc cloud token` reads it
+  on stdin too). Windows keeps it in VS Code's secret storage, and the Command
+  Center hands it to acc in its environment whenever it builds or reviews, so
+  on Windows a cloud dispatch starts from the Command Center. It never goes
+  into `.acc/config.json`, a file or git.
 - [ ] **Claude Code is signed in to claude.ai** (`B15.cloud-login`). Sending a
   cloud builder a message (`claude -p … --cloud <session>`) needs the CLI
-  signed in with the claude.ai account that owns the routine:
-  `claude auth login`.
+  signed in with the claude.ai account that owns the scheduled task:
+  `claude auth login`, which the modal's **Sign in** step runs in a terminal.
 - [ ] **The push guard is committed** (`B15.cloud-guard`). A cloud session runs
   the repo's own `.claude/settings.json` hooks and not the Command Center's Claude Code plugin, so
   `acc cloud enable` writes `.claude/hooks/acc-push-guard.mjs` and a
@@ -733,7 +741,9 @@ Setup skips them.
   under `.claude/`, and a deploy, in cloud sessions only, failing closed.
   Commit both: the check reads HEAD's tree, not the files on disk, since only
   what's committed reaches the cloud, and a dispatch refuses `--cloud` until
-  the branch the cloud clones and the task branch both carry it. Where GitHub
+  the branch the cloud clones and the task branch both carry it. The modal's
+  **The push guard** step commits the guard's files alone with **Do it** (`acc
+  cloud guard --commit`), and **Push…** asks before it pushes that branch. Where GitHub
   enforces no protection on an environment branch, `acc cloud` and the
   dispatch warn, without refusing: a private repo on the free plan has none.
 

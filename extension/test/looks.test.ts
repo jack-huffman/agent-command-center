@@ -51,6 +51,8 @@ import { sampleAbout } from '../scripts/fixtures/about.ts';
 import { sampleBoards, sampleGithubBoards, sampleMondayBoards, sampleSlackBoards, sampleSprintBoards } from '../scripts/fixtures/boards.ts';
 import { sampleHub } from '../scripts/fixtures/hub.ts';
 import { ROOT } from '../scripts/fixtures/shared.ts';
+import { sampleCloudSetup } from '../scripts/fixtures/cloud-setup.ts';
+import { CLOUD_SETUP_ORDER } from '../src/model/cloud-setup.ts';
 import { sampleTicket } from '../scripts/fixtures/task-page.ts';
 import { sampleAzureBoards, sampleTrackerTicket } from '../scripts/fixtures/tracker-tickets.ts';
 import { cssRules, PALETTE_THEMES, type PaletteTheme, pageStyles, palettes } from '../scripts/styles.ts';
@@ -106,6 +108,12 @@ function chipStates(): [string, Shown][] {
 export const TABLES: Table[] = [
   { name: 'a tracker column, by its name', sources: ['extension/src/model/boards.ts#columnLook'], states: () => ([['Blocked', 'doing'], ['On hold', 'doing'], ['Stuck', 'doing'], ['In Progress', 'doing'], ['Todo', 'todo'], ['Done', 'done']] as const).map(([n, c]): [string, Shown] => [n, { label: n, ...columnLook(n, c) }]) },
   { name: 'a cap on builders, a project\'s or this machine\'s', sources: ['extension/src/model/limits.ts#capLook'], states: () => [['no total, some running', capLook(2, null, 'here')], ['no total, none running', capLook(0, null, 'here')], ['full', capLook(3, 3, 'here')], ['none running', capLook(0, 3, 'here')], ['room for more', capLook(1, 3, 'here')]] },
+  {
+    // Set up cloud builders (T-145): each step's check in the step bar, on a Mac and on Windows, done and not done, and while it's read.
+    name: 'a step of Set up cloud builders', sources: ['extension/src/model/cloud-setup.ts#stepLook', 'extension/src/model/cloud-setup.ts#checkLook'],
+    states: () => CLOUD_SETUP_ORDER.flatMap((step) => ['mac', 'win'].flatMap((sys) => ['todo', 'done'].map((how): [string, Shown] => [`${step}, ${sys}, ${how}`, sampleCloudSetup(`cloud-setup-${step}-${sys}-${how}`)!.steps.find((s) => s.id === step)!.look])))
+      .concat([['checking', { label: 'Checking…', icon: 'loading~spin', tone: 'neutral' }]]),
+  },
   { name: 'a suggested rule or check', sources: ['extension/src/model/rules.ts#RULE_LOOK'], states: () => Object.entries(RULE_LOOK) },
   { name: 'a notice on Since you last looked', sources: ['extension/src/model/since.ts#SINCE_LOOK'], states: () => Object.entries(SINCE_LOOK) },
   {

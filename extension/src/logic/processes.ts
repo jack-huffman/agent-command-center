@@ -122,7 +122,9 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['cloud', 'cloud status'], name: 'See the cloud builders\' setup' },
   { acc: ['cloud enable'], name: 'Turn cloud builders on', command: 'acc.cloud.enable' },
   { acc: ['cloud disable'], name: 'Turn cloud builders off', command: 'acc.cloud.disable' },
-  { acc: ['cloud token'], name: 'Keep the routine\'s token', command: 'acc.cloud.token' },
+  { acc: ['cloud token'], name: 'Keep the scheduled task\'s token', command: 'acc.cloud.token' },
+  // Set up cloud builders' last step (T-145): the guard on the branch the cloud clones.
+  { acc: ['cloud guard'], name: 'Commit and push the push guard' },
   // Ticket updates
   { acc: ['updates', 'update'], name: 'See the update drafts' },
   { acc: ['update post', 'update posting', 'update posted', 'update release'], name: 'Post the update' },
