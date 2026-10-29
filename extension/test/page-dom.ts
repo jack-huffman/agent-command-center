@@ -45,6 +45,8 @@ export class PageElement {
   click(): void { if (!this.disabled) for (const f of this.listeners.get('click') ?? []) f({ type: 'click', stopPropagation: () => undefined }); }
   focus(): void { this.doc.activeElement = this; }
   get textContent(): string { return this.children.map((c) => (typeof c === 'string' ? c : c.textContent)).join(''); }
+  /** Setting it replaces its children with the words, as a browser's does: a select's option is named so (T-139). */
+  set textContent(text: string) { this.children.splice(0, this.children.length, text); }
   get childElementCount(): number { return this.children.filter((c) => typeof c !== 'string').length; }
   private classes(): string[] { return this.className.split(/\s+/).filter(Boolean); }
   /** Every element under it, depth first, as a selector of one class would find them. */
@@ -53,7 +55,11 @@ export class PageElement {
     return cls ? under.filter((e) => e.classList.contains(cls)) : under;
   }
   /** The first element under it with one class, written as .name: the only selector the page's drawing asks of it. */
-  querySelector(selector: string): PageElement | null { return /^\.[\w-]+$/.test(selector) ? this.all(selector.slice(1))[0] ?? null : null; }
+  querySelector(selector: string): PageElement | null {
+    if (/^\.[\w-]+$/.test(selector)) return this.all(selector.slice(1))[0] ?? null;
+    // Or a tag (T-139), as Slack's card asks for its label.
+    return /^[a-z]+$/.test(selector) ? this.all().find((e) => e.tagName === selector.toUpperCase()) ?? null : null;
+  }
   /**
    * The elements under it a simple selector finds (T-127): a list of them split by commas, each a tag and classes
    * (article.card, .a.b), one under another (.a .b), or its own children (:scope > .column). No more than the board asks.
@@ -84,6 +90,8 @@ export class PageDocument {
   createTextNode(text: string): string { return text; }
   /** The elements a simple selector finds under the body (T-127), as an element's querySelectorAll does. */
   querySelectorAll(selector: string): PageElement[] { return this.body.querySelectorAll(selector); }
+  /** The first of them (T-139), as going to a section asks for the page's main column. */
+  querySelector(selector: string): PageElement | null { return this.body.querySelector(selector); }
   /** Listeners the page sets on the document as it loads, such as the ⋯ menus' close on a click elsewhere. */
   readonly listeners = new Map<string, ((e: unknown) => void)[]>();
   addEventListener(type: string, f: (e: unknown) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), f]); }

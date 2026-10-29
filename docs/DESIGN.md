@@ -1644,7 +1644,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment. Open org and Switch account are outlined (T-39). Under **This machine**, a line saying Notices in Slack moved to Settings, with a button to it (GH-113) |
 | **Setup** | The checklist, with Do it on each step |
-| **Settings** | Last in the rail, with a gear (GH-109). **Appearance** first, then **How agents run** (GH-110), **Limits and checks** (GH-111), **Trackers and sign-ins** (GH-112), **Notices in Slack**, **GitHub accounts** and **The Command Center** (GH-113), then **About** (GH-114). Each part has a heading another page can open Settings at. Orange in the rail while Slack is paused |
+| **Settings** | Last in the rail, with a gear (GH-109). Its parts, **Appearance**, **How agents run** (GH-110), **Limits and checks** (GH-111), **Trackers and sign-ins** (GH-112), **Notices in Slack**, **GitHub accounts** and **The Command Center** (GH-113), and **About** (GH-114), are grouped into six sections (T-139): **Trackers and boards**, **Agents**, **Checks and limits**, **Accounts and notices**, **Look and behaviour** and **About**. One section shows at a time, each opening with one line; a jump list at the side picks it, a picker above it under 760 px, and the tab remembers the one picked. Each part is a group another page can open Settings at, which shows its section. Orange in the rail while Slack is paused |
 
 **The command palette (T-52).** Under the rail's brand, **Search or run a
 command** opens a search over every section, part of Settings, task, agent and
@@ -1687,8 +1687,8 @@ the packet outside those regions.
 
 **How agents run** (GH-110): each onboarded project under its name, with its
 builders' and reviewers' model, effort and fallback (D-036, D-086), its autonomy
-(D-064) and its auto-merge (D-083). Each value says where it's set, in words
-with an icon: this clone, the project, or a default. Each **Change…** runs the
+(D-064) and its auto-merge (D-083). Where each value is set (this clone, the
+project, or a default) is its hint on hover (T-139). Each **Change…** runs the
 same command as before, which asks acc: this clone's choice goes in its git
 config, a project's in its `.acc/config.json`. The page writes neither. Then
 what this machine's agents bill, once, with **Open Setup** while it's per token
@@ -1700,9 +1700,9 @@ each of its trackers with its kind, where its tickets come from and its board
 (D-072), both set in the project's `.acc/config.json`, and who it signs in as:
 for every project on its site or this project only (D-091), kept in VSCode on
 this machine, or through gh for GitHub. Each state has an icon and words, blue
-or orange. Each tracker has **Sign in again** and **Change place…**, which open
+or orange. Each tracker has **Sign in again** and **Change tracker…**, which open
 the Connect page at it, and **Sign out**, which asks every project or this one
-for a site's sign-in; GitHub has only Change place…. **Connect a tracker…**
+for a site's sign-in; GitHub has only Change tracker…. **Connect a tracker…**
 starts a new one. Opened from Settings, the Connect page's Back and Save come
 back to this part. Save asks `acc trackers set` to write the tracker, so the
 Command Center writes no config itself (D-064).
@@ -1765,8 +1765,8 @@ and the run fails unless the cases it names fail on it.
 
 **Limits and checks** (GH-111): each project's builder cap and this machine's
 total across every repo side by side, each with −, its number, + and Change…,
-how many run now and where it's set; what a change means, in this machine's
-own numbers; the heavy-check slots; and each project's required and builders'
+how many run now, and where it's set as its title's hint; what a change means, in
+this machine's own numbers, folded under its name (T-139); the heavy-check slots; and each project's required and builders'
 checks, and in a Salesforce project whether it uses source tracking (D-174).
 Every change runs acc (`acc agents max`, `acc machine agents`, `acc
 machine heavy-slots`, `acc gate required`, `acc gate builder`, `acc
@@ -1776,13 +1776,14 @@ seconds, since the total counts every repo's ledger acc noted under
 `~/.acc/ledgers/`. That read writes nothing (D-012): a note whose ledger has
 gone is left for acc's own commands to drop. It runs its commands there too;
 `model/limits.ts` words them, and `webview/limits.ts` draws them. A project's
-cap and required checks each say whether its `.acc/config.json` sets them or
-they're acc's default.
+cap and required checks each say, on hover, whether its `.acc/config.json` sets
+them or they're acc's default; why one can't change here is its Change…'s, on hover
+and to a screen reader.
 
 **About** (GH-114): the versions of acc (`acc --version`, from the bundle the
 extension runs), the extension (its own `package.json`) and the plugin
 (`claude plugin list --json`, read as A4 reads it), each with where it's read
-from, read again each time Settings is arrived at and at its Refresh. A
+from as its hint, read again each time Settings is arrived at and at its Refresh. A
 plugin older than the extension is orange, and its **Update the plugin** is
 Setup's own A4 fix (`acc.step.fix A4.plugin`): one comparison,
 `pluginBehind` in core, decides both, and a test holds About to A4 over the

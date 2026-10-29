@@ -104,7 +104,7 @@ test('every action a page draws has a name that holds its label: every sample pa
   ];
   const labels = new Set(all.map((a) => a.label));
   // The ones that once failed are among them: none can drop out unseen.
-  for (const l of ['Change place…', 'Update the plugin', 'Turn on', 'Turn on…', 'Turn off', 'Token…', 'Default…', 'Change routine…', 'Add the routine…', 'Add Projects access']) assert.ok(labels.has(l), l);
+  for (const l of ['Change tracker…', 'Update the plugin', 'Turn on', 'Turn on…', 'Turn off', 'Token…', 'Default…', 'Change routine…', 'Add the routine…', 'Add Projects access']) assert.ok(labels.has(l), l);
   assert.deepEqual(all.filter((a) => !holds(a.label, a.name)).map((a) => `${a.label} | ${a.name}`), []);
   assert.ok(all.length > 50, `${all.length} actions`);
 });

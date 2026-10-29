@@ -501,7 +501,7 @@ export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown
  */
 export const TAB_TITLES: Record<string, string> = { home: 'Command Center', ticket: 'Ticket', agent: 'Agent', conversation: conversationTitle('ACME-21'), report: REPORT_TITLE };
 /** A part the extension asks the page to go to as it opens, as the status bar's Auto-merge does (GH-110). */
-export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-trackers' || kind === 'settings-queues' ? settingsKey('trackers')
+export const openAt = (kind: Page): string | null => (kind === 'settings-agents' ? settingsKey('agents') : kind === 'settings-limits' ? settingsKey('limits') : kind === 'settings-trackers' || kind === 'settings-queues' ? settingsKey('trackers')
   : kind.startsWith('slack-') ? settingsKey('slack') : kind === 'settings-github' ? settingsKey('github') : kind === 'settings-page' ? settingsKey('page') : kind.startsWith('settings-about') ? settingsKey('about')
   : kind === 'setup-first' ? SETUP_PARTS.kind : kind === 'setup-first-machine' ? SETUP_PARTS.machine : kind === 'setup-machine-first' ? MACHINE_FIRST_PART : null);
 

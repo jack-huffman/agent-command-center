@@ -364,7 +364,8 @@ export function trackerSetting(b: BoardInput, p: { root: string; name: string },
       { command: 'acc.trackers.signIn' as const, label: b.signedInAs ? 'Sign in again' : 'Sign in', icon: 'sign-in', arg, name: `${b.signedInAs ? 'Sign in again to' : 'Sign in to'} ${whose}`, primary: fix, disabled: null },
       { command: 'acc.trackers.signOut' as const, label: 'Sign out', icon: 'sign-out', arg, name: `Sign out of ${whose}`, primary: false, disabled: b.signedInAs ? null : 'It isn\'t signed in, so there\'s nothing to sign out of.' },
     ]),
-    { command: 'acc.trackers.add', label: 'Change place…', icon: 'edit', arg, name: `Change place: where ${whose} gets its tickets, its board and its name`, primary: false, disabled: null },
+    // Where changing a tracker starts (T-139): the Connect page at this tracker, until T-140's stepped modal takes it.
+    { command: 'acc.trackers.add', label: 'Change tracker…', icon: 'edit', arg, name: `Change tracker: where ${whose} gets its tickets, its board and its name`, primary: false, disabled: null },
     // Asked first, naming it (T-127); its tasks stay on My work.
     { command: 'acc.trackers.remove', label: 'Remove…', icon: 'trash', arg, name: `Remove ${whose}`, primary: false, disabled: null },
   ];
@@ -580,13 +581,13 @@ export interface SettingsModel {
   page: PagePreferences;
   /** About (GH-114): the versions of acc, the extension and the plugin, and the latest release. Null until the extension reads them. */
   about: AboutModel | null;
-  /** The guide under the page's title (T-40): a link to each part. */
-  guide: GuideLink[];
+  /** Its sections (T-139): each a few parts, one on show at a time, picked from the jump list. */
+  sections: SettingsSectionModel[];
   /** The ids of the rows' explanations that fold under "What this means" (T-40), as settingsMeanings names them. */
   folded: string[];
 }
 
-// ---------------------------------------------------------------- the guide and What this means (T-40)
+// ---------------------------------------------------------------- sections (T-139) and What this means (T-40)
 
 /** The longest explanation a row keeps in view, in characters, when it is one sentence. */
 export const SHORT_MEANING = 90;
@@ -597,11 +598,38 @@ export const foldsMeaning = (text: string): boolean => text.length > SHORT_MEANI
 /** Where the page's tab remembers an explanation as opened (the page builds the same key). */
 export const meaningKey = (id: string): string => `settings-meaning:${id}`;
 
-/** A link of the guide: the part's title and icon, and the heading it opens, by its settingsKey. */
-export interface GuideLink { id: SettingsPart; label: string; icon: string; part: string }
+/**
+ * Settings' sections (T-139): a few named groups of its parts, each opening with one line that says what it's
+ * for. The page shows one at a time, picked from its jump list, and the tab remembers the one on show.
+ */
+export const SETTINGS_SECTIONS = ['trackers', 'agents', 'limits', 'accounts', 'look', 'about'] as const;
+export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number];
 
-/** A link for each part of Settings, in the page's order. */
-export const settingsGuide = (parts: SettingsPartModel[]): GuideLink[] => parts.map((p) => ({ id: p.id, label: p.title, icon: p.icon, part: settingsKey(p.id) }));
+/** A section of Settings: its title and icon, its one line, and the parts it holds, in the page's order. */
+export interface SettingsSectionModel {
+  id: SettingsSectionId;
+  title: string;
+  icon: string;
+  line: string;
+  parts: SettingsPart[];
+  /** Each part has a small heading of its own: true where the parts aren't rows of one list. */
+  headed: boolean;
+}
+
+const SETTINGS_SECTION_WORDS: Record<SettingsSectionId, Omit<SettingsSectionModel, 'id'>> = {
+  trackers: { title: 'Trackers and boards', icon: 'issues', line: 'Where each project\'s tickets come from, and how it signs in.', parts: ['trackers'], headed: false },
+  agents: { title: 'Agents', icon: 'hubot', line: 'What builders and reviewers run with, in each project.', parts: ['agents'], headed: false },
+  limits: { title: 'Checks and limits', icon: 'dashboard', line: 'How many builders run at once, and the checks a task must pass.', parts: ['limits'], headed: false },
+  accounts: { title: 'Accounts and notices', icon: 'account', line: 'The GitHub account each repo pushes as, and notices in Slack.', parts: ['github', 'slack'], headed: true },
+  look: { title: 'Look and behaviour', icon: 'window', line: 'How the Command Center looks, where it opens and how often it refreshes.', parts: ['appearance', 'page'], headed: false },
+  about: { title: 'About', icon: 'info', line: 'The versions installed, and whether a newer release is out.', parts: ['about'], headed: false },
+};
+
+/** Every section, in the page's order. Each part is in exactly one. */
+export const settingsSections = (): SettingsSectionModel[] => SETTINGS_SECTIONS.map((id) => ({ id, ...SETTINGS_SECTION_WORDS[id], parts: [...SETTINGS_SECTION_WORDS[id].parts] }));
+
+/** The section a part is in: the one that shows when another page opens Settings at that part. */
+export const sectionOfPart = (part: SettingsPart): SettingsSectionId => SETTINGS_SECTIONS.find((id) => SETTINGS_SECTION_WORDS[id].parts.includes(part))!;
 
 /**
  * Every row's explanation the page draws, in its order, under the id it remembers it by: the theme's, each
@@ -670,7 +698,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       summary: 'Each project\'s trackers: where their tickets come from, the board, and the account each signs in as, for that project only or for every project on its site.',
       built: true, today: null,
       details: trackers.projects.length
-        ? ['A tracker\'s place and board are kept in its project\'s settings: Change place… and Connect a tracker ask the Command Center to write them, for you to commit. A Jira, Azure DevOps or monday.com sign-in stays in VSCode on this machine, never in a file; GitHub\'s is gh\'s.']
+        ? ['A tracker\'s place and board are kept in its project\'s settings: Change tracker… and Connect a tracker ask the Command Center to write them, for you to commit. A Jira, Azure DevOps or monday.com sign-in stays in VSCode on this machine, never in a file; GitHub\'s is gh\'s.']
         : ['No project in this workspace is onboarded yet. Once Setup onboards one, its trackers show here.'],
       links: trackers.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },
@@ -700,12 +728,12 @@ export function settingsModel(i: SettingsInput): SettingsModel {
   ];
   const drawn = { theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, page, about: i.about ?? null };
   const folded = settingsMeanings(drawn).filter((x) => foldsMeaning(x.text)).map((x) => x.id);
-  return { kind: 'settings', ...drawn, trackers, parts, limits: i.limits ?? null, slack: i.slack ?? null, github, guide: settingsGuide(parts), folded };
+  return { kind: 'settings', ...drawn, trackers, parts, limits: i.limits ?? null, slack: i.slack ?? null, github, sections: settingsSections(), folded };
 }
 
 export const area: ModelArea = {
   // How agents run's Change… buttons run the Agents area's commands, which this section draws now (GH-110).
-  // A tracker's Sign out is drawn only here (GH-112); its Sign in and Change place are the boards' too.
+  // A tracker's Sign out is drawn only here (GH-112); its Sign in and Change tracker… are the boards' too.
   // GitHub accounts' Switch… and Sign in are Environments' commands, which its account cards draw too (GH-113).
   commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.review', 'acc.cloud.routine'],
   home: {

@@ -362,6 +362,19 @@ export function whatThisMeans(id: string, text: string, folded: readonly string[
   return d;
 }
 
+/** Where the tab remembers one of Settings' folds as opened (T-139): a long list's rest, or a part's notes. */
+export const moreKey = (id: string): string => `settings-more:${id}`;
+
+/** A fold closed until opened, its summary a few words with a count, remembered by the tab as an explanation's is (T-139). */
+export function more(id: string, summary: Child[], ...content: Child[]): HTMLElement {
+  const key = moreKey(id);
+  const d = el('details', 'settings-more', el('summary', 'muted small', el('span', 'tool-chev', icon('chevron-right')), ...summary), ...content) as HTMLDetailsElement;
+  d.dataset.more = id;
+  d.open = memory().opened.includes(key);
+  d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])].slice(-200) : x.opened.filter((y) => y !== key); }));
+  return d;
+}
+
 export function clippedSpan(text: string): HTMLElement {
   const s = el('span', 'mono clip-inline', text);
   s.title = text;

@@ -50,13 +50,15 @@ interface Memory {
   palette?: string[];
   /** Each board's person filter choice (T-79), by the board's key: Everyone when it has none. */
   filters?: Record<string, string>;
+  /** The section Settings shows (T-139), by its id: the first until one is picked. */
+  settings?: string;
   /** The Tasks tab's first steps were dismissed (T-96): they aren't shown again. */
   firstStepsSeen?: boolean;
 }
 interface SavedScroll { y: number; boards: { x: number; lanes: number[] }[] }
 export function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], folded: s.folded ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [], filters: s.filters ?? {}, firstStepsSeen: s.firstStepsSeen, tabs: s.tabs ?? {}, jumps: s.jumps ?? {} };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], folded: s.folded ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [], filters: s.filters ?? {}, firstStepsSeen: s.firstStepsSeen, settings: s.settings, tabs: s.tabs ?? {}, jumps: s.jumps ?? {} };
 }
 export function remember(change: (m: Memory) => void): void {
   const m = memory();
@@ -133,6 +135,8 @@ export function go(s: HomeSection, part?: string): void {
 export function jumpTo(part: string): boolean {
   const heading = document.querySelector<HTMLElement>(`[data-part="${CSS.escape(part)}"]`);
   if (!heading) return false;
+  // A part in a section not on show, such as one of Settings' (T-139), asks its section to show first.
+  heading.closest<HTMLElement>('[hidden]')?.dispatchEvent(new Event('reveal'));
   // Under 820 px the rail is a strip stuck over the top of the page: the heading stops below it, not under it.
   const rail = document.querySelector<HTMLElement>('.rail');
   const strip = rail && getComputedStyle(rail).position === 'sticky' ? rail.getBoundingClientRect().height : 0;

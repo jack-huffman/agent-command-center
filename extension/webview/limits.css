@@ -1,6 +1,5 @@
 /* Settings' Limits and checks (GH-111): the two caps side by side, what a change means, and the rows. */
 .limit-heading { margin: 14px 0 8px; padding-top: 10px; border-top: 1px solid var(--line); }
-.settings-summary + .limit-heading { border-top: 0; padding-top: 0; margin-top: 4px; }
 /* A heading's rule is the row's: one line between them, not two. */
 .limit-heading + .limit-row { border-top: 0; padding-top: 0; }
 /* Side by side while there's room; one above the other in a narrow tab. */
@@ -16,16 +15,13 @@
 /* A state's words wrap in a narrow card, its icon kept on the first line. */
 .cap-state .status, .limit-value .status, .limit-billing .status { white-space: normal; align-items: flex-start; }
 .cap-state .status .codicon, .limit-value .status .codicon, .limit-billing .status .codicon { margin-top: 2px; flex: none; }
-.cap-from { margin: 0; }
 .cap-card .actions { margin-top: auto; }
-.limit-meaning { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-width: 76ch; }
+.limit-meaning { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-width: 76ch; }
 .limit-meaning li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; }
 .limit-meaning li .codicon { margin-top: 2px; color: var(--vscode-descriptionForeground); }
 .limit-billing { margin-top: 8px; }
 .settings-row.limit-row { grid-template-columns: 150px minmax(0, 1fr) auto; }
 .limit-value { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding-top: 4px; }
-.limit-why { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0 0; }
-.limit-why .codicon { margin-top: 2px; flex: none; }
 .limit-change { padding-top: 2px; }
 @media (max-width: 620px) {
   .settings-row.limit-row { grid-template-columns: minmax(0, 1fr) auto; }

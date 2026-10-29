@@ -233,7 +233,7 @@ const FIXED: { rule: string; node: { selector: string; text: string; colour?: st
   { rule: 'label-content-name-mismatch', node: { selector: 'ol[data-overview-group="detail:needs-you"] > .openable[role="link"]:nth-child(2)', text: 'Asks a question ACME-12' } },
   { rule: 'label-content-name-mismatch', node: { selector: 'li:nth-child(2)', text: 'Asks permission ACME-14' } },
   { rule: 'label-content-name-mismatch', node: { selector: '.tone-row-blue:nth-child(3)', text: 'Ready ACME-37 Tidy the Case page layout dev Dispatch' } },
-  { rule: 'label-content-name-mismatch', node: { selector: '.settings-tracker-head > .settings-tracker-actions.actions > .btn:nth-child(3)', text: 'Change place…' } },
+  { rule: 'label-content-name-mismatch', node: { selector: '.settings-tracker-head > .settings-tracker-actions.actions > .btn:nth-child(3)', text: 'Change tracker…' } },
   { rule: 'label-content-name-mismatch', node: { selector: 'div[data-about="plugin"] > .primary.btn', text: 'Update the plugin' } },
   { rule: 'list', node: { selector: 'ol[aria-label="In progress"]', text: 'Waiting on you ACME-44' } },
   { rule: 'aria-progressbar-name', node: { selector: '.progress', text: '' } },
