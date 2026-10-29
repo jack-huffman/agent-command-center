@@ -430,7 +430,8 @@ test('each cloud step\'s guide names the modal, its step and its buttons as the 
   let checked = 0;
   for (const s of CLOUD_STEPS) {
     const text = guide(s.id);
-    assert.ok(text.includes(`Do it opens ${CLOUD_SETUP.title}, at ${CLOUD_SETUP_STEPS[CLOUD_STEP_OF[s.id]!]}:`), `${s.id} names its step`);
+    assert.ok(text.includes(`Do it opens ${CLOUD_SETUP.title}; in ${CLOUD_SETUP_STEPS[CLOUD_STEP_OF[s.id]!]}:`), `${s.id} names its step`);
+    assert.doesNotMatch(text, /opens [^.;:]*, at /, `${s.id}: claims no step it opens at, as the modal opens on the first not done`);
     for (const b of buttons[s.id]!) { assert.ok(text.includes(b), `${s.id} names ${b}`); checked++; }
     assert.doesNotMatch(text, /Turn cloud builders on"|See the cloud builders' setup|Keep the routine's token/, `${s.id}: no button that's gone`);
     assert.equal(s.fix?.vscode, CLOUD_SETUP.command, `${s.id}: Do it opens the modal`);

@@ -38,8 +38,11 @@ export const CLOUD_STEP_OF: Record<string, CloudSetupStep> = {
   'B15.cloud-github-app': 'github', 'B15.cloud-routine': 'task', 'B15.cloud-token': 'token', 'B15.cloud-login': 'signin', 'B15.cloud-guard': 'guard',
 };
 
-/** A guide's line: where in Set up cloud builders this is done, then what to do there. */
-const inModal = (step: CloudSetupStep, what: string): string => `Do it opens ${CLOUD_SETUP.title}, at ${CLOUD_SETUP_STEPS[step]}: ${what}`;
+/**
+ * A guide's line: Do it opens Set up cloud builders, which opens on its first step not done (not on this one),
+ * then which step this is done in, and what to do there.
+ */
+const inModal = (step: CloudSetupStep, what: string): string => `Do it opens ${CLOUD_SETUP.title}; in ${CLOUD_SETUP_STEPS[step]}: ${what}`;
 
 function optedIn(ctx: CheckContext): CheckResult | null {
   if (!ctx.paths) return skip('Not inside a repo.');

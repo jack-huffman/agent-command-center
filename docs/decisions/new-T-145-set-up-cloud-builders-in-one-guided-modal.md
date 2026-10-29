@@ -14,7 +14,9 @@ builds on T-140's stepped modal (D-224) and the calm style of D-217, D-218 and D
   it: Settings' Cloud builders part (Set up…, in place of Turn on…; the other actions stay), each B15 step's Do it
   in Setup (`fix.vscode`), VS Code's command palette (`acc.cloud.setup`) and the Command Center's own. It opens on
   the first step not done (`firstNotDone`), so a person can stop and come back; before its checks are read, a step
-  still loading isn't taken as undone, and the first read moves it there unless the person has moved.
+  still loading isn't taken as undone, and the first read moves it there unless the person has moved. Setup's Do it
+  opens it on that step too, not on the B15 step clicked, so each guide says "Do it opens Set up cloud builders; in
+  <step>: …" (`inModal`), naming the step the work is done in, never one it opens at.
 - **Seven steps, one thing each** (`CLOUD_SETUP_STEPS`, named in core so the guides use the same words): Turn on,
   GitHub access, The scheduled task, The token, Sign in, The push guard, Ready. Each is one line of what to do, its
   live check as an icon and a label (blue for done, orange for needs you), its own buttons, and its detail folded
