@@ -227,6 +227,8 @@ test('a verdict for a commit that is no longer the branch\'s head is kept but mo
     ['no verdict field', { summary: 'x' }, /"verdict" is missing, not "pass" or "changes"/],
     ['a list', [1, 2], /isn't an object/],
     ['no summary', { verdict: 'pass' }, /has no "summary"/],
+    // Its words to a person fail the wording check (T-149): the cloud reviewer can't be asked again.
+    ['words that fail the wording check', { verdict: 'changes', summary: 'It passes; ship it.', findings: [{ message: 'Kick off the import.', must: true }] }, /words fail the Simplified Technical English check \(Summary, Finding 1\): review it on this Mac/],
   ] as const) {
     const again = reviewInCloud(paths, config, 'T-1', deps, {});
     pushVerdict(cloudClone(origin, branch), branch, body, again.branch);

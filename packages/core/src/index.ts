@@ -58,6 +58,7 @@ export * from './machine.ts';
 export * from './manifest.ts';
 export * from './merge.ts';
 export * from './names.ts';
+export * from './note-wording.ts';
 export * from './outside-changes.ts';
 export * from './outside-kinds.ts';
 export * from './overlap.ts';

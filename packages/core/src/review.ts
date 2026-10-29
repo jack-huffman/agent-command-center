@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { codeNames } from './agent-notes.ts';
+import { codeNames, NOTE_STE_RULE } from './agent-notes.ts';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
 import { AccError, type RunResult, type Runner } from './exec.ts';
 import { type Actor, applyMove, checkMove, mutate, noGateHooks, noteMarkdown, readLedger, type Task } from './ledger.ts';
@@ -11,6 +11,7 @@ import { type Receipt, receiptHooks, receiptsAt } from './receipts.ts';
 import { agentArgs } from './agents.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import { sessionName } from './names.ts';
+import { findingLine, NOTE_FIX_TRIES, noteFixPrompt, noteWording, verdictLines } from './note-wording.ts';
 import { outsideOf } from './outside-changes.ts';
 import { notesSection } from './packet.ts';
 import { recordReviewSection } from './records.ts';
@@ -294,6 +295,8 @@ export function reviewPrompt(i: ReviewInput): { system: string; prompt: string }
     'Give "changes" only for problems that must be fixed before this merges, each as a finding with must: true. Lesser points are findings with must: false, and they don\'t block.',
     'Be specific: the file, the line, what is wrong, and what to do instead.',
     'Keep it short for the person who reads it: the summary opens with one sentence that says the verdict, and each finding is one thing, never a paragraph of several. Put API names in backticks: a custom field or object, a developer name, a path, a branch, a command.',
+    // How each line reads (T-149): acc checks the summary, the client's sentence and each finding before it keeps them.
+    NOTE_STE_RULE,
     'Give each finding a kind: a few words naming the kind of problem. Reuse one of the kinds you are given when it fits, so a finding that keeps coming back is seen.',
   ].join('\n');
   const prompt = [
@@ -536,22 +539,35 @@ export function review(paths: RepoPaths, config: Config, id: string, deps: Revie
   deps.onStart?.(sessionId, sha, name);
   // The reviewer is a child of this acc, so the Mac stays awake while acc lives (D-067).
   const awake = holdAwake(process.pid, deps.awake);
-  let out: RunResult;
-  try {
+  const ask = (args: string[], input: string): ReturnType<typeof parseReview> => {
     // Read-only by construction: only the read tools are allowed, and dontAsk refuses everything else.
-    out = run('claude', [
-      '-p', '--session-id', sessionId, '--name', name, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+    const out: RunResult = run('claude', [
+      '-p', ...args, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
       '--output-format', 'json', '--json-schema', JSON.stringify(VERDICT_SCHEMA), '--append-system-prompt', system,
       '--allowedTools', 'Read', 'Grep', 'Glob',
       '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',
-    ], { cwd: worktree, input: prompt, env: { ...deps.env, ACC_ROLE: 'reviewer', ACC_TASK: id }, timeoutMs: 45 * 60_000 });
+    ], { cwd: worktree, input, env: { ...deps.env, ACC_ROLE: 'reviewer', ACC_TASK: id }, timeoutMs: 45 * 60_000 });
+    if (out.timedOut) throw new AccError('review', `The review didn't finish within 45 minutes, so acc stopped it.`);
+    if (out.code === 127 && !out.stdout) throw new AccError('review', `Claude Code didn't start: ${out.stderr.trim().split('\n')[0] ?? 'claude not found'}`);
+    return parseReview(out.stdout);
+  };
+  let parsed: ReturnType<typeof parseReview>;
+  try {
+    parsed = ask(['--session-id', sessionId, '--name', name], prompt);
+    // The review's words to a person pass the wording check (T-149): the reviewer writes them again, in the same
+    // session, with each finding's fix. One that still fails after NOTE_FIX_TRIES is refused, and no verdict is kept.
+    for (let tries = 0, wording = noteWording(verdictLines(parsed.verdict)); wording.length; tries++, wording = noteWording(verdictLines(parsed.verdict))) {
+      if (tries === NOTE_FIX_TRIES) {
+        throw new AccError('review', [`The review's wording still fails the Simplified Technical English check after ${NOTE_FIX_TRIES} fixes, so acc kept no verdict. Review it again:`, ...wording.map(findingLine)].join('\n'));
+      }
+      const fixed = ask(['--resume', parsed.sessionId ?? sessionId], noteFixPrompt(wording));
+      const cost = parsed.costUsd === null && fixed.costUsd === null ? null : (parsed.costUsd ?? 0) + (fixed.costUsd ?? 0);
+      parsed = { verdict: fixed.verdict, sessionId: fixed.sessionId ?? parsed.sessionId, costUsd: cost };
+    }
   } finally {
     awake?.release();
     rmSync(marker, { force: true });
   }
-  if (out.timedOut) throw new AccError('review', `The review didn't finish within 45 minutes, so acc stopped it.`);
-  if (out.code === 127 && !out.stdout) throw new AccError('review', `Claude Code didn't start: ${out.stderr.trim().split('\n')[0] ?? 'claude not found'}`);
-  const parsed = parseReview(out.stdout);
   const finished = now();
   const verdict: Verdict = {
     v: 1, task: id, sha, env: env.branch, ...parsed.verdict, sessionId: parsed.sessionId ?? sessionId, name,

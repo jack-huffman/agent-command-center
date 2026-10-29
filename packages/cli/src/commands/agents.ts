@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, BLOCK_SHAPE, composeNote, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, BLOCK_SHAPE, composeNote, doneLines, noteLines, noteWording, noteWordingWords, refuseNoteWording, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, BUILDER_PLACE_LOOK, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { refuseUnrecorded } from './changes.ts';
@@ -397,7 +397,10 @@ export const area: CommandArea = {
     done: (o, rest) => {
       // A record change acc noted and nobody recorded holds it (T-100).
       refuseUnrecorded(taskIdFrom(rest[0]));
-      return cmdSet(o, taskIdFrom(rest[0]), 'review', noteFrom(o));
+      const note = noteFrom(o);
+      // An agent's finish note passes the wording check before acc records it (T-149); a person's isn't checked.
+      if (actorFrom(o).actor !== 'human') refuseNoteWording(doneLines(note));
+      return cmdSet(o, taskIdFrom(rest[0]), 'review', note);
     },
     block: (o, rest) => {
       const [first, ...more] = rest;
@@ -415,7 +418,9 @@ export const area: CommandArea = {
       if (actorFrom(o).actor !== 'human') {
         // The agent's own words are checked: a client's question without the prefix acc adds to the reason.
         const problems = shapeProblems(said ? reason : asked);
-        if (problems.length) throw new AccError('refused', problems.join(' '));
+        // Each line passes the wording check too (T-149): the note, the client's question and the finish lines.
+        const wording = noteWording([...(said ? noteLines(reason) : []), ...(asked ? noteLines(asked, 'The question for the client') : []), ...doneLines(noteFrom(o))]);
+        if (problems.length || wording.length) throw new AccError('refused', [...(problems.length ? [problems.join(' ')] : []), ...(wording.length ? [noteWordingWords(wording)] : [])].join('\n\n'));
       }
       return cmdSet({ ...o, reason, ...(asked ? { client: asked } : {}) }, id, 'blocked', noteFrom(o));
     },
