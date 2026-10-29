@@ -127,8 +127,8 @@ export function codeNames(text: string | null): string | null {
 
 // ---------------------------------------------------------------- a note's shape
 
-/** A markdown bullet: "- ", "* ", "• ", or "1. " / "1) ", at the start of a line. */
-const BULLET = /^\s{0,3}(?:[-*•]|\d{1,2}[.)])\s+/;
+/** A markdown bullet: "- ", "* ", "• ", or "1. " / "1) ", at the start of a line. The wording check reads a note's things by it too (T-149). */
+export const BULLET = /^\s{0,3}(?:[-*•]|\d{1,2}[.)])\s+/;
 
 /** An option on a line of its own: "a) ", "(a) ", "a. ", or a sub-bullet "- a) ". */
 const OPTION_LINE = /^\s*(?:[-*•]\s+)?\(?([a-z])[.)]\s+/;

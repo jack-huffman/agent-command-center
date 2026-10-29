@@ -9,7 +9,7 @@
  * Pure: the CLI and the review call it, and node:test.
  */
 
-import { codeNames } from './agent-notes.ts';
+import { BULLET, codeNames } from './agent-notes.ts';
 import { AccError } from './exec.ts';
 import { NOTE_LABELS, type NoteInput } from './ledger.ts';
 import type { Answered } from './review.ts';
@@ -23,9 +23,6 @@ export interface NoteWordingFinding extends NoteLine { rule: SteRule; match: str
 
 /** How often acc gives a reviewer its wording findings to write its review again, before it stops. */
 export const NOTE_FIX_TRIES = 2;
-
-/** A markdown bullet at the start of a line, nested or not: "- ", "* ", "• ", "1. ". */
-const BULLET = /^\s*(?:[-*•]|\d{1,2}[.)])\s+/;
 
 /**
  * A note's lines as a person reads them: the lines before its bullets are its headline, and each bullet is a
@@ -60,7 +57,7 @@ export function noteWording(lines: readonly NoteLine[]): NoteWordingFinding[] {
   return lines.flatMap(({ where, text }) => {
     const coded = codeNames(text);
     // A line that isn't a bullet is checked as one too: each line of a note stands alone.
-    const item = BULLET.test(coded) ? coded.trim() : `- ${coded.trim()}`;
+    const item = BULLET.test(coded.trim()) ? coded.trim() : `- ${coded.trim()}`;
     return steLint(item).findings.filter((f) => f.level === 'hard').map((f) => ({ where, text, rule: f.rule, match: f.match, message: f.message }));
   });
 }

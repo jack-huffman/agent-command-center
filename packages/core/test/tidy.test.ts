@@ -11,7 +11,7 @@ import { emptyLedger, type Ledger, mutate, readLedger, type Task, upsertTasks } 
 import { repoPaths } from '../src/paths.ts';
 import { steLine, steLint } from '../src/ste.ts';
 import { sync } from '../src/sync.ts';
-import { addTidy, branchInEnvironment, draftTidy, readTidy, rememberInEnvironment, skipTidy, TIDY_LABEL, tidyDue, tidyFile, type TidyRecord, tidyScope, tidyStatus } from '../src/tidy.ts';
+import { addTidy, branchInEnvironment, draftTidy, readTidy, inEnvironmentKey, skipTidy, TIDY_LABEL, tidyDue, tidyFile, type TidyRecord, tidyScope, tidyStatus } from '../src/tidy.ts';
 import { fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 
 const now = () => new Date('2026-10-08T12:00:00Z');
@@ -128,15 +128,11 @@ test('a task merged in git whose local branch was deleted counts through origin\
   assert.equal(inEnv(reviewed('T-8')), false, 'without its reviews to read, it does not count');
 });
 
-test('rememberInEnvironment asks git once for each branch, and for each environment of one (edge case: asked again)', () => {
-  const asked: string[] = [];
-  const known = new Map<string, boolean>();
-  const ask = rememberInEnvironment((t) => (asked.push(`${t.run?.branch}>${t.environment}`), t.run?.branch === 'task/T-1'), known);
+test('inEnvironmentKey keys an answer by task, branch and environment, so a new branch or environment is asked again (edge case: no branch)', () => {
   const t = (branch: string | null, environment = 'main'): Task => merged('T-9', 9, { environment, run: branch ? { branch, worktree: '/gone' } : null });
-  assert.deepEqual([ask(t('task/T-1')), ask(t('task/T-1')), ask(t('task/T-2')), ask(t('task/T-2')), ask(t('task/T-1', 'prod'))], [true, true, false, false, true]);
-  assert.deepEqual(asked, ['task/T-1>main', 'task/T-2>main', 'task/T-1>prod']);
-  const fresh = rememberInEnvironment(ask, new Map());
-  assert.equal(fresh(t('task/T-1')), true, 'a new set of answers (a ledger read again) asks again');
+  assert.equal(inEnvironmentKey(t('task/T-1')), inEnvironmentKey(t('task/T-1')));
+  const keys = new Set([t('task/T-1'), t('task/T-2'), t('task/T-1', 'prod'), t(null)].map(inEnvironmentKey));
+  assert.equal(keys.size, 4, 'each branch, environment and a task with no branch has its own key');
 });
 
 // ---------------------------------------------------------------- the files they touched

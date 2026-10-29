@@ -8,13 +8,11 @@
  */
 
 import type { Task } from '../../../packages/core/src/ledger.ts';
-import { type InEnvironment, inEnvironmentAsks } from '../../../packages/core/src/tidy.ts';
+import { type InEnvironment, inEnvironmentAsks, inEnvironmentKey as keyOf } from '../../../packages/core/src/tidy.ts';
 
 /** Runs git with these arguments in a folder, without holding up the extension: its exit code is the answer. */
 export type AskGit = (args: string[], cwd: string) => Promise<{ code: number }>;
 
-/** A task's answer is kept by its id, its branch and its environment, as rememberInEnvironment keeps it. */
-const keyOf = (t: Pick<Task, 'id' | 'environment' | 'run'>): string => `${t.id}\0${t.run?.branch}\0${t.environment}`;
 
 /** One repo's answers, and the asks still to make. */
 export class InEnvironmentAsks {

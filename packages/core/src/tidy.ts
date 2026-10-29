@@ -93,15 +93,8 @@ export function inEnvironmentAsks(t: Pick<Task, 'id' | 'environment' | 'run'>, r
   return tips.flatMap((tip): [string, string][] => [[tip, `refs/remotes/origin/${t.environment}`], [tip, `refs/heads/${t.environment}`]]);
 }
 
-/** An InEnvironment that asks git once for each branch and environment, and keeps the answers in `known` (the caller drops them when the ledger is read again). */
-export function rememberInEnvironment(ask: InEnvironment, known: Map<string, boolean>): InEnvironment {
-  return (t) => {
-    const key = `${t.id}\0${t.run?.branch}\0${t.environment}`;
-    let merged = known.get(key);
-    if (merged === undefined) known.set(key, (merged = ask(t)));
-    return merged;
-  };
-}
+/** What an answer of branchInEnvironment is kept by: the task's id, its branch and its environment. The Command Center keeps git's answers by it (T-147). */
+export const inEnvironmentKey = (t: Pick<Task, 'id' | 'environment' | 'run'>): string => `${t.id}\0${t.run?.branch}\0${t.environment}`;
 
 function mergedTask(t: Task, inEnvironment: InEnvironment): MergedTask | null {
   if (t.state !== 'done' || t.labels.includes(TIDY_LABEL)) return null;

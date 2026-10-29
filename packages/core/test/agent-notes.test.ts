@@ -2,7 +2,7 @@
 // notes here are made up, real-shaped: the fields, people and paths are invented.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BLOCK_SHAPE, codeNames, composeNote, isApiName, NOTE_HEADLINE_MAX, NOTE_OPTIONS_MAX, NOTE_SHAPE_WORDS, noteHeadline, noteShape, shapeProblems } from '../src/agent-notes.ts';
+import { BLOCK_SHAPE, BULLET, codeNames, composeNote, isApiName, NOTE_HEADLINE_MAX, NOTE_OPTIONS_MAX, NOTE_SHAPE_WORDS, noteHeadline, noteShape, shapeProblems } from '../src/agent-notes.ts';
 import { NOTE_LIMITS } from '../src/ledger.ts';
 
 /** The note the person's screenshot showed, in shape: a headline, three numbered problems inline, each with a/b options. */
@@ -135,4 +135,9 @@ test('codeNames leaves ordinary words, links, dates, and/or, and text already in
   assert.equal(isApiName('Region__c'), true);
   assert.equal(isApiName('region'), false);
   assert.equal(isApiName(''), false);
+});
+
+test('BULLET takes each markdown bullet a note may use, and no option or plain line (edge case: indented four)', () => {
+  for (const l of ['- a thing', '* a thing', '• a thing', '1. a thing', '12) a thing', '   - nested']) assert.ok(BULLET.test(l), l);
+  for (const l of ['a) an option', 'plain words', '-no space', '    - indented four', '123. too many digits']) assert.ok(!BULLET.test(l), l);
 });
