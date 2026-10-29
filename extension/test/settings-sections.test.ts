@@ -4,6 +4,7 @@
 // page in a browser, at each width and theme, is the screenshot run's, and its jump the behaviour run's.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { cloudTokenUnavailable } from '../../packages/core/src/cloud.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import { sectionOfPart, SETTINGS_SECTIONS, type SettingsModel, settingsSections } from '../src/model/settings.ts';
 import { pageDom, type PageElement } from './page-dom.ts';
@@ -153,8 +154,14 @@ const BEFORE = [
   'SELECT Opens on',
 ];
 
-/** What T-139 renamed: a tracker's Change place… is Change tracker…, where changing a tracker starts (T-140). */
-const renamed = (name: string): string => name.replace(/^BUTTON Change place: where /, 'BUTTON Change tracker: where ');
+/**
+ * What T-139 renamed: a tracker's Change place… is Change tracker…, where changing a tracker starts (T-140). BEFORE
+ * was read on a Mac; where there's no keychain, as on Windows, the routine's Token… is drawn off, with why (D-209).
+ */
+const renamed = (name: string): string => {
+  const now = name.replace(/^BUTTON Change place: where /, 'BUTTON Change tracker: where ');
+  return now.startsWith('BUTTON Token: keep the routine\'s token') && cloudTokenUnavailable() && !now.endsWith(' [off]') ? `${now} [off]` : now;
+};
 
 test('every control Settings drew before its sections is still drawn, by name, and off where it was off', () => {
   const after = new Set(KINDS.flatMap((k) => controls(draw(model(k))).map(controlName)));

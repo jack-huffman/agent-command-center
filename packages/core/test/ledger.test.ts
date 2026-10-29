@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
@@ -426,9 +426,10 @@ test('every run a task\'s builder had is read from the events, from the first by
   writeFileSync(file, ev('GH-7', { run: { sessionId: 's7' } }));
   assert.deepEqual(readRuns(file, next)!.runs, [{ task: 'GH-7', sessionId: 's7' }], 'shrank');
   const before = readRuns(file)!;
-  rmSync(file);
-  writeFileSync(join(dir, 'other'), 'x');
-  writeFileSync(file, ev('GH-7', { run: { sessionId: 's7' } }) + ev('GH-8', { run: { bgId: 'bg8' } }));
+  // Written beside it and renamed over it, as acc replaces a file, so the new file can't reuse the old one's
+  // inode: removed first, Linux can hand the same inode straight back.
+  writeFileSync(`${file}.new`, ev('GH-7', { run: { sessionId: 's7' } }) + ev('GH-8', { run: { bgId: 'bg8' } }));
+  renameSync(`${file}.new`, file);
   assert.notEqual(statSync(file).ino, before.ino);
   assert.deepEqual(readRuns(file, { ...before, runs: [{ task: 'OLD' }] })!.runs.map((r) => r.task), ['GH-7', 'GH-8'], 'a new file');
 });
