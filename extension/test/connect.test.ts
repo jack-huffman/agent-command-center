@@ -87,6 +87,8 @@ function harness(o: { trackers?: Record<string, unknown>[]; fetch?: typeof fetch
     },
   };
   const deps: ConnectDeps = {
+    // No wait after a choice (T-140): the debounce has its own tests in connect-modal.test.ts.
+    wait: 0,
     projects: () => [project],
     trackers: () => h.raw.map(full),
     title: (t) => `${t.kind} · ${t.project ?? t.repo}`,

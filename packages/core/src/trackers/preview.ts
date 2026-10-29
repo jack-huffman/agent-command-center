@@ -45,8 +45,8 @@ export function dependentKeys(pickers: PickerSpec[], key: string): string[] {
   return out;
 }
 
-/** How many cards a preview column shows before "and N more" (T-106). */
-export const PREVIEW_CARDS = 3;
+/** How many cards a preview column shows before "and N more" (T-106); six now its columns stand side by side under the dropdowns (T-140). */
+export const PREVIEW_CARDS = 6;
 
 /** How many ticket titles a card for the place (an epic, labels, an area path, a group) shows under its count (T-106). */
 export const CARD_TITLES = 2;

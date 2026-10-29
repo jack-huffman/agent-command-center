@@ -51,7 +51,7 @@ import { sampleConversationQuestions, sampleConversationReady, sampleConversatio
 import { conversationModel } from '../src/model/conversation.ts';
 import { sampleReport } from './fixtures/report.ts';
 import { issueBody } from '../webview/report-text.ts';
-import { sampleChoosing } from './fixtures/connect.ts';
+import { sampleChoosing, sampleConnect } from './fixtures/connect.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
 import { taskSheetOff } from '../src/model/task-sheet.ts';
@@ -155,12 +155,12 @@ export interface BehaviourData {
  * The Connect page before it's signed in (T-45): Save's label, and the reason its model gives for it being off.
  * `none` is the same page with no project chosen, where Test connection is off too: its model, and the reason it gives.
  */
-  connect: { save: string; why: string; none: { model: ConnectModel; testWhy: string } };
+  connect: { site: ConnectModel; why: string; testing: { model: ConnectModel; why: string } };
   /**
    * Choosing a board by seeing it (T-106): the Jira page with its preview still being read, drawn for ACME-31,
    * and with ACME-30 chosen; each preview's line, Use this board's label and why it's off while it reads.
    */
-  choose: { reading: ConnectModel; shown: ConnectModel; epic: ConnectModel; line: string; epicLine: string; use: string; wait: string };
+  choose: { reading: ConnectModel; shown: ConnectModel; epic: ConnectModel; save: ConnectModel; line: string; epicLine: string; use: string; wait: string };
   /**
    * The command palette (T-52), on the Tasks board: the sections an empty query shows, in order; the task
    * "16" finds first, with the message that opens it in the modal; the query whose second result Down and
@@ -1476,14 +1476,18 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'connect: a button that is off gives its reason in its title and, for Save, in a status line beside it',
+    name: 'connect: Next that is off gives its reason in its title and in a status line beside it',
     page: 'connect-start',
     async run(t) {
       const want = t.data.connect;
-      const save = t.all<HTMLButtonElement>('.connect-foot button').find((b) => b.textContent?.trim() === want.save);
-      if (!save) throw new Error(`not found: the ${want.save} button`);
-      t.check('Save is off', save.disabled);
-      t.check('its title is the reason', save.title === want.why, save.title);
+      const home = structuredClone(t.model) as HomeModel;
+      home.connect = want.site;
+      await t.post({ type: 'state', model: home });
+      t.check('it is a modal', t.find<HTMLDialogElement>('dialog.connect-modal').open);
+      const next = t.all<HTMLButtonElement>('.connect-foot button').find((b) => b.textContent?.trim() === 'Next');
+      if (!next) throw new Error('not found: the Next button');
+      t.check('Next is off', next.disabled);
+      t.check('its title is the reason', next.title === want.why, next.title);
       const line = t.find('.connect-foot .status');
       t.check('a status line beside it says the same', line.textContent?.trim() === want.why, line.textContent);
       t.check('with an icon, never colour alone', !!line.querySelector('.codicon, svg, [class*="codicon"]'), line.innerHTML.slice(0, 120));
@@ -1494,24 +1498,24 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'connect: with no project chosen, Test connection is off and gives its reason in its title and in a status line beside it',
+    name: 'connect: while it signs in, Test connection is off and gives its reason in its title and in a status line beside it',
     page: 'connect-start',
     async run(t) {
-      const none = t.data.connect.none;
+      const testing = t.data.connect.testing;
       const home = structuredClone(t.model) as HomeModel;
-      home.connect = none.model;
+      home.connect = testing.model;
       await t.post({ type: 'state', model: home });
       const test = t.all<HTMLButtonElement>('.connect-test button').find((b) => b.textContent?.trim() === 'Test connection');
       if (!test) throw new Error('not found: the Test connection button');
       t.check('Test connection is off', test.disabled);
-      t.check('its title is the reason', test.title === none.testWhy, test.title);
+      t.check('its title is the reason', test.title === testing.why, test.title);
       const line = t.find('.connect-test .status');
-      t.check('a status line beside it says the same', line.textContent?.trim() === none.testWhy, line.textContent);
+      t.check('a status line beside it says the same', line.textContent?.trim() === testing.why, line.textContent);
       t.check('with an icon, never colour alone', !!line.querySelector('.codicon, svg, [class*="codicon"]'), line.innerHTML.slice(0, 120));
     },
   },
   {
-    name: 'connect: choosing a board shows its preview, ticking another epic changes it, and Use this board saves only from it',
+    name: 'connect: the board under the dropdowns follows each choice, and nothing is saved until Save',
     page: 'connect-start',
     async run(t) {
       const want = t.data.choose;
@@ -1520,48 +1524,99 @@ export const CASES: Case[] = [
         home.connect = connect;
         await t.post({ type: 'state', model: home });
       };
-      const use = () => {
-        const b = t.all<HTMLButtonElement>('.connect-preview .connect-foot button').find((x) => x.textContent?.trim() === want.use);
-        if (!b) throw new Error(`not found: the ${want.use} button in the preview`);
+      const foot = (label: string) => {
+        const b = t.all<HTMLButtonElement>('.connect-foot button').find((x) => x.textContent?.trim() === label);
+        if (!b) throw new Error(`not found: the ${label} button`);
         return b;
       };
-      const card = (value: string, within: string) => t.find<HTMLLabelElement>(`#connect-${within} .ccard[data-value="${CSS.escape(value)}"]`);
-      // The board is chosen, its preview still being read: Use this board is off, and says why.
+      const option = (value: string, list: string) => t.find<HTMLButtonElement>(`#connect-${list} ~ .cdrop-pop .cdrop-option[data-value="${CSS.escape(value)}"]`);
+      const line = () => t.find('.connect-preview .cpreview-line .status').textContent?.trim();
+      // The board chosen, its board still being read: Next is off and says why, under a quiet skeleton.
       await show(want.reading);
-      t.check('while the board is read, Use this board is off', use().disabled, use().title);
-      t.check('and its title says why', use().title === want.wait, use().title);
-      t.check('the preview draws a skeleton while it reads', t.all('.connect-preview .ccard-skeleton').length > 0);
-      // A board's card sends its choice.
-      await t.click(card('9', 'board'));
+      t.check('while the board is read, Next is off', foot('Next').disabled, foot('Next').title);
+      t.check('and its title says why', foot('Next').title === want.wait, foot('Next').title);
+      t.check('the board draws a skeleton while it reads', t.all('.connect-preview .ccard-skeleton').length > 0);
+      t.check('and says it is reading', t.find('.connect-preview').getAttribute('aria-busy') === 'true');
+      // A board picked in its dropdown is sent.
+      await t.click(t.find<HTMLButtonElement>('#connect-board'));
+      t.check('the board\'s dropdown opens its list', t.find('#connect-board').getAttribute('aria-expanded') === 'true');
+      await t.click(option('9', 'board'));
       const picked = t.sent('connect-pick').at(-1);
-      t.check('a board\'s card sends its choice', picked?.key === 'board' && picked.value === '9', picked);
-      // Its preview drawn: the line, its columns, and the Tasks tab's cards.
+      t.check('a board picked in its dropdown is sent', picked?.key === 'board' && picked.value === '9', picked);
+      t.check('one choice closes the list', t.find('#connect-board').getAttribute('aria-expanded') === 'false');
+      // Its board drawn: the line, its columns, and the Tasks tab's cards.
       await show(want.shown);
-      t.check('the preview says how many tickets, in how many columns', t.find('.connect-preview > .status').textContent?.trim() === want.line, t.find('.connect-preview > .status').textContent);
+      t.check('the board says how many tickets, in how many columns', line() === want.line, line());
       t.check('it draws the board\'s columns', t.all('.connect-preview .cpreview-col').length === want.shown.preview.board!.columns.length, t.all('.cpreview-col').length);
       t.check('with the Tasks tab\'s cards', t.all('.connect-preview .tcard').length > 0);
-      t.check('ACME-31\'s card is ticked', card('ACME-31', 'epics').classList.contains('on'));
-      // The search hides the epics it doesn't match.
-      const search = t.find<HTMLInputElement>('input.ccards-search');
-      // Edge: a search that matches no epic says so, and hides every epic but the whole project.
-      await t.type(search, 'no such epic');
-      t.check('a search that matches none says so', !t.find('#connect-epics ~ .ccards-none').hidden);
-      search.value = '';
-      await t.type(search, 'partner');
-      t.check('a search that matches one hides the line again', t.find('#connect-epics ~ .ccards-none').hidden === true);
-      const shown = t.all<HTMLElement>('#connect-epics .ccard').filter((c) => !c.hidden && c.dataset.value).map((c) => c.dataset.value);
+      t.check('the epics\' dropdown names ACME-31', t.find('#connect-epics').textContent?.trim() === 'ACME-31', t.find('#connect-epics').textContent);
+      // A long list has a box to find a choice in.
+      await t.click(t.find<HTMLButtonElement>('#connect-epics'));
+      const find = t.find<HTMLInputElement>('#connect-epics ~ .cdrop-pop input.cdrop-find');
+      // Edge: a search that matches no epic says so.
+      await t.type(find, 'no such epic');
+      t.check('a search that matches none says so', t.all('#connect-epics ~ .cdrop-pop .cdrop-none').length === 1);
+      await t.type(find, 'partner');
+      const shown = t.all<HTMLElement>('#connect-epics ~ .cdrop-pop .cdrop-option').map((c) => c.dataset.value).filter(Boolean);
       t.check('the search shows only the epics it matches', shown.length === 1 && shown[0] === 'ACME-30', shown);
-      // Ticking another epic (T-107) keeps the first: both are sent, and the preview follows them.
-      await t.click(card('ACME-30', 'epics'));
+      // Ticking another epic keeps the first: both are sent, and the board follows them.
+      await t.click(option('ACME-30', 'epics'));
       const epic = t.sent('connect-pick').at(-1);
       const ticked = Array.isArray(epic?.value) ? (epic.value as string[]).join(' ') : '';
-      t.check('ticking an epic\'s card sends every epic ticked, the one hidden by the search too', epic?.key === 'epics' && ticked === 'ACME-31 ACME-30', epic);
+      t.check('ticking an epic sends every epic ticked, the one the search hides too', epic?.key === 'epics' && ticked === 'ACME-31 ACME-30', epic);
       await show(want.epic);
-      t.check('the preview changes with the epics ticked', t.find('.connect-preview > .status').textContent?.trim() === want.epicLine && want.epicLine !== want.line, t.find('.connect-preview > .status').textContent);
-      t.check('and both epics are ticked now', card('ACME-30', 'epics').classList.contains('on') && card('ACME-31', 'epics').classList.contains('on'));
-      t.check('Use this board is on', !use().disabled);
-      await t.click(use());
-      t.check('Use this board saves the place', t.sent('connect-save').length === 1, t.sent('connect-save'));
+      t.check('the board is drawn again with the epics ticked', line() === want.epicLine && want.epicLine !== want.line, line());
+      t.check('a list that ticks several stays open while it\'s ticked', t.find('#connect-epics').getAttribute('aria-expanded') === 'true');
+      await t.type(t.find<HTMLInputElement>('#connect-epics ~ .cdrop-pop input.cdrop-find'), '');
+      t.check('the box kept what was typed through the redraw, and clearing it shows every epic again', t.all('#connect-epics ~ .cdrop-pop .cdrop-option').length > 2);
+      t.check('and both epics are ticked now', option('ACME-30', 'epics').getAttribute('aria-selected') === 'true' && option('ACME-31', 'epics').getAttribute('aria-selected') === 'true');
+      t.check('picking saved nothing', t.sent('connect-save').length === 0, t.sent('connect-save'));
+      // Save, on its own step, is the one thing that writes.
+      await show(want.save);
+      t.check('Save shows what it keeps', t.all('.csave-list dt').length > 0);
+      t.check('Save is on', !foot(want.use).disabled);
+      t.check('still nothing saved before the click', t.sent('connect-save').length === 0);
+      await t.click(foot(want.use));
+      t.check('Save saves the board, once', t.sent('connect-save').length === 1, t.sent('connect-save'));
+    },
+  },
+  {
+    name: 'connect: Back and Next move between steps, and Cancel, Escape and the backdrop change nothing',
+    page: 'connect-start',
+    async run(t) {
+      const want = t.data.choose;
+      const home = structuredClone(t.model) as HomeModel;
+      home.connect = want.shown;
+      await t.post({ type: 'state', model: home });
+      const dialog = t.find<HTMLDialogElement>('dialog.connect-modal');
+      const foot = (label: string) => {
+        const b = t.all<HTMLButtonElement>('.connect-foot button').find((x) => x.textContent?.trim() === label);
+        if (!b) throw new Error(`not found: the ${label} button`);
+        return b;
+      };
+      t.check('the step bar marks the board step as here', t.find('.cstep[aria-current="step"]').textContent?.includes('Choose a board'));
+      await t.click(foot('Next'));
+      t.check('Next asks for Save\'s step', t.sent('connect-step').at(-1)?.step === 'save', t.sent('connect-step').at(-1));
+      await t.click(foot('Back'));
+      t.check('Back asks for the sign-in step', t.sent('connect-step').at(-1)?.step === 'site', t.sent('connect-step').at(-1));
+      // Edge: a step that can't be gone to yet is off on the step bar.
+      const reading = structuredClone(t.model) as HomeModel;
+      reading.connect = want.reading;
+      await t.post({ type: 'state', model: reading });
+      const saveStep = t.all<HTMLButtonElement>('.cstep').find((b) => b.textContent?.includes('Save'));
+      t.check('Save\'s step is off while the board is read', !!saveStep?.disabled, saveStep?.title);
+      await t.click(foot('Cancel'));
+      t.check('Cancel asks to close, keeping nothing', t.sent('connect-cancel').length === 1);
+      await t.escape(dialog);
+      t.check('Escape does the same', t.sent('connect-cancel').length === 2);
+      t.check('and the modal waits for the extension to close it', dialog.open);
+      await t.backdrop(dialog);
+      t.check('so does a click on the backdrop', t.sent('connect-cancel').length === 3);
+      t.check('nothing was saved', t.sent('connect-save').length === 0);
+      const closed = structuredClone(t.model) as HomeModel;
+      closed.connect = null;
+      await t.post({ type: 'state', model: closed });
+      t.check('the model without it closes the modal', !dialog.open);
     },
   },
   {
@@ -2495,14 +2550,19 @@ export const MUTANTS: Mutant[] = [
   { name: 'a guide link goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { e.preventDefault(); jumpTo(g.part); });", replace: "a.addEventListener('click', (e) => { e.preventDefault(); });", kills: [caseNamed('settings: a link for each part')] },
   { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: a link for each part')] },
   { name: 'an opened explanation closes on a redraw', file: 'dom.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('settings: a link for each part')] },
-  { name: 'the Connect page draws no status line beside Save', file: 'connect.ts', find: '(m.save.look ?? m.save.why) ? status((m.save.look ?? m.save.why)!) : null', replace: 'm.save.look ? status(m.save.look) : null', kills: [caseNamed('connect: a button that is off')] },
-  { name: 'the Connect page leaves Save\'s title empty', file: 'connect.ts', find: 'if (m.save.why) save.title = m.save.why.label;', replace: '', kills: [caseNamed('connect: a button that is off')] },
-  { name: 'Use this board saves without a preview', file: 'connect.ts', find: 'save.disabled = !m.save.can;', replace: 'save.disabled = false;', kills: [caseNamed('connect: choosing a board')] },
-  { name: 'the preview draws no board', file: 'choose-board.ts', find: 'const board = p.board ? el(', replace: 'const board = p.board && false ? el(', kills: [caseNamed('connect: choosing a board')] },
-  { name: 'a card sends no choice', file: 'choose-board.ts', find: "input.addEventListener('change', () => pick(input));", replace: '', kills: [caseNamed('connect: choosing a board')] },
-  { name: 'the search hides nothing', file: 'choose-board.ts', find: '      card.hidden = hide;\n', replace: '', kills: [caseNamed('connect: choosing a board')] },
-  { name: 'the Connect page draws no status line beside Test connection', file: 'connect.ts', find: 'm.signIn.why ? status(m.signIn.why) : null', replace: 'null', kills: [caseNamed('connect: with no project chosen')] },
-  { name: 'the Connect page leaves Test connection\'s title empty', file: 'connect.ts', find: 'if (m.signIn.why) testButton.title = m.signIn.why.label;', replace: '', kills: [caseNamed('connect: with no project chosen')] },
+  { name: 'the Connect modal draws no status line beside Next', file: 'connect.ts', find: "el('div', 'connect-foot-why', why ? status(why) : null)", replace: "el('div', 'connect-foot-why', null)", kills: [caseNamed('connect: Next that is off')] },
+  { name: 'the Connect modal leaves Next\'s title empty', file: 'connect.ts', find: 'if (go.disabled && why) go.title = why.label;', replace: '', kills: [caseNamed('connect: Next that is off'), caseNamed('connect: the board under the dropdowns')] },
+  { name: 'Next goes on before the board is read', file: 'connect.ts', find: 'go.disabled = m.next ? !m.next.can : !m.save.can;', replace: 'go.disabled = m.next ? false : !m.save.can;', kills: [caseNamed('connect: Next that is off'), caseNamed('connect: the board under the dropdowns')] },
+  { name: 'the preview draws no board', file: 'choose-board.ts', find: 'const board = p.board ? el(', replace: 'const board = p.board && false ? el(', kills: [caseNamed('connect: the board under the dropdowns')] },
+  { name: 'the preview doesn\'t follow the dropdown: one choice is never sent', file: 'dropdown.ts', find: "connectSend(m, { type: 'connect-pick', key: p.key, value: value || null });", replace: '{}', kills: [caseNamed('connect: the board under the dropdowns')] },
+  { name: 'the preview doesn\'t follow the dropdown: ticks are never sent', file: 'dropdown.ts', find: "connectSend(m, { type: 'connect-pick', key: p.key, value: next });", replace: '', kills: [caseNamed('connect: the board under the dropdowns')] },
+  { name: 'picking writes the settings before Save', file: 'dropdown.ts', find: "connectSend(m, { type: 'connect-pick', key: p.key, value: next });", replace: "connectSend(m, { type: 'connect-pick', key: p.key, value: next }); connectSend(m, { type: 'connect-save' });", kills: [caseNamed('connect: the board under the dropdowns')] },
+  { name: 'a dropdown\'s search hides nothing', file: 'dropdown.ts', find: "return all.filter((o) => !q || !o.value || `${o.label} ${o.detail ?? ''}`.toLowerCase().includes(q));", replace: 'return all;', kills: [caseNamed('connect: the board under the dropdowns')] },
+  { name: 'Cancel saves', file: 'connect.ts', find: "const cancel = button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost');", replace: "const cancel = button('Cancel', 'close', () => connectSend(m, { type: 'connect-save' }), 'ghost');", kills: [caseNamed('connect: Back and Next move')] },
+  { name: 'Back goes nowhere', file: 'connect.ts', find: "const back = i > 0 ? button('Back', 'arrow-left', () => connectSend(m, { type: 'connect-step', step: m.steps[i - 1]!.id }), 'ghost') : null;", replace: "const back = i > 0 ? button('Back', 'arrow-left', () => {}, 'ghost') : null;", kills: [caseNamed('connect: Back and Next move')] },
+  { name: 'Escape leaves the modal without a word', file: 'connect.ts', find: "  if (drawn) connectSend(drawn, { type: 'connect-cancel' });", replace: '', kills: [caseNamed('connect: Back and Next move')] },
+  { name: 'the Connect modal draws no status line beside Test connection', file: 'connect.ts', find: 'm.signIn.why ? status(m.signIn.why) : null', replace: 'null', kills: [caseNamed('connect: while it signs in')] },
+  { name: 'the Connect modal leaves Test connection\'s title empty', file: 'connect.ts', find: 'if (m.signIn.why) testButton.title = m.signIn.why.label;', replace: '', kills: [caseNamed('connect: while it signs in')] },
   { name: 'Stop sits with the other header buttons', file: 'agent-page.ts', find: '.filter((a) => a !== stop)', replace: '.filter(() => true)', kills: [caseNamed('agent page: Stop stands apart')] },
   { name: 'every question card on the agent page repeats In Claude Code', file: 'agent-page.ts', find: "const claudeInHeader = m.actions.some((a) => a.command === 'acc.agent.openInClaude');", replace: 'const claudeInHeader = false;', kills: [caseNamed('agent page: Stop stands apart')] },
   { name: 'no question card on the agent page offers In Claude Code', file: 'agent-page.ts', find: "const claudeInHeader = m.actions.some((a) => a.command === 'acc.agent.openInClaude');", replace: 'const claudeInHeader = true;', kills: [caseNamed('agent page: Stop stands apart')] },
@@ -2595,18 +2655,23 @@ export const occurrences = (source: string, find: string): number => (find ? sou
 // ---------------------------------------------------------------- what Node expects, and the page
 
 /** What the Connect case expects (T-45): the reason Save is off, from the model the page is drawn from. */
-function connectData(model: Model): BehaviourData['connect'] {
-  if (model.kind !== 'home' || !model.connect?.save.why) throw new Error('The Connect case needs a home model whose Save is off with a reason.');
-  const none = connectModel(blankConnect(JIRA, { id: 'c-none', root: null, projectName: '', ownRepo: null, ghAccount: null, from: 'tasks' }));
-  if (!none.signIn.why) throw new Error('The Connect case needs a page with no project whose Test connection is off with a reason.');
-  return { save: model.connect.save.label, why: model.connect.save.why.label, none: { model: none, testWhy: none.signIn.why.label } };
+function connectData(): BehaviourData['connect'] {
+  const site = sampleConnect('shared');
+  if (site.step !== 'site' || !site.next?.why) throw new Error('The Connect case needs the sign-in step, its Next off with a reason.');
+  const s = blankConnect(JIRA, { id: 'c-testing', root: '/Users/me/code/acme-service', projectName: 'Acme Service', ownRepo: null, ghAccount: null, from: 'tasks' });
+  s.step = 'site';
+  s.host = 'acme.atlassian.net';
+  s.signIn = { state: 'testing', who: null, error: null, again: false };
+  const testing = connectModel(s);
+  if (!testing.signIn.why) throw new Error('The Connect case needs a page signing in, its Test connection off with a reason.');
+  return { site, why: site.next.why.label, testing: { model: testing, why: testing.signIn.why.label } };
 }
 
 /** What the case for choosing a board expects (T-106): its three moments, from the fixtures the shots draw. */
 function chooseData(): BehaviourData['choose'] {
-  const [reading, shown, epic] = [sampleChoosing('reading'), sampleChoosing('shown'), sampleChoosing('epic')];
-  if (reading.preview.state !== 'loading' || !reading.save.why || shown.preview.state !== 'ready' || epic.preview.state !== 'ready') throw new Error('The case for choosing a board needs a preview being read, then two drawn.');
-  return { reading, shown, epic, line: shown.preview.look.label, epicLine: epic.preview.look.label, use: shown.save.label, wait: reading.save.why.label };
+  const [reading, shown, epic, save] = [sampleChoosing('reading'), sampleChoosing('shown'), sampleChoosing('epic'), sampleConnect('jira-save')];
+  if (reading.preview.state !== 'loading' || !reading.next?.why || shown.preview.state !== 'ready' || epic.preview.state !== 'ready' || save.step !== 'save') throw new Error('The case for choosing a board needs a preview being read, then two drawn, then Save.');
+  return { reading, shown, epic, save, line: shown.preview.look.label, epicLine: epic.preview.look.label, use: save.save.label, wait: reading.next.why.label };
 }
 
 /** What Settings' case expects (T-40): from the model, each part's heading and each explanation, folded or kept. */
@@ -2647,7 +2712,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     history: historyData(models.pages, now),
     project: ROOT,
     settings: settingsData(models.settings),
-    connect: connectData(models.connect),
+    connect: connectData(),
     choose: chooseData(),
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
     palette: paletteData(models.tasks, now),

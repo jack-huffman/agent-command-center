@@ -42,8 +42,7 @@ export const UNDRAWN: readonly { name: string; reason: string }[] = [
   { name: 'board-none', reason: 'The board list\'s "No board\'s name has … in it." shows only once a person types what finds no board; the ten-board shot types a site, to show the list grouped. board-switch.test.ts types "zzz" and checks the line (T-127).' },
   { name: 'dock-fold-rows', reason: 'A folded row\'s own rows show only after a person opens it, which a shot can\'t do; run-rows.test.ts checks what folds, and the done shots draw the folded row.' },
   { name: 'state-stopped', reason: 'A step shows Didn\'t finish only once its run of acc was stopped mid-step, which no sample run is; run-steps.test.ts checks shownSteps gives it that look (T-65).' },
-  { name: 'ccards-none', reason: 'A list\'s "No epic matches." shows only once a person types a search that matches no card, which a shot can\'t do; the behaviour case "connect: choosing a board" types one in the epics\' search and checks the line shows (T-106).' },
-  { name: 'ccard-input', reason: 'A card\'s radio or checkbox is kept 1 px and see-through on purpose: it carries the choice for the keyboard and screen readers, and the tick icon beside it is what\'s drawn. The behaviour case "connect: choosing a board" clicks cards through it (T-106).' },
+  { name: 'cdrop-none', reason: 'A dropdown\'s "None of the epics has … in it." shows only once a person types a search that matches no choice; the shot connect-dropdown types one that matches. The behaviour case "connect: the board under the dropdowns" types one that matches none and checks the line shows (T-140).' },
   { name: 'ds-name', reason: 'Dispatch\'s sheet shows the model name box only after a person picks Another model…, which a shot can\'t do; the behaviour case "dispatch sheet: Another model…" opens it and types in it (D-168).' },
 ];
 

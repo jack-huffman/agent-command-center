@@ -565,7 +565,8 @@ test('the page draws each tracker under its project, its buttons named for whose
   assert.ok(page.includes("{ label: 'Reading its trackers', icon: 'sync~spin', tone: 'blue' }") && page.includes("{ label: 'No tracker yet', icon: 'circle-outline', tone: 'neutral' }"));
   assert.doesNotMatch(page, /writeFile|config\.json'|fs\./, 'the page writes no file');
   // Opened from Settings, the Connect page's Back and Save come back to this part.
-  assert.ok(pageSource('connect.ts').includes('m.back.part ? go(m.back.section, m.back.part)'));
+  // The Connect modal opens over the section that opened it, Settings here, so closing it leaves Trackers and sign-ins in view (T-140).
+  assert.ok(pageSource('connect.ts').includes("show(model.kind === 'home' ? (model as HomeModel).connect ?? null : null)"));
   assert.ok(source('src', 'extension.ts').includes("if (settings) panels.show('settings', settingsKey('trackers'));"));
 });
 

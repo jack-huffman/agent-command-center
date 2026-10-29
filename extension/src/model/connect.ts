@@ -94,7 +94,17 @@ export interface ConnectState {
   boards: Record<string, PlaceRead>;
   saving: boolean;
   saveError: string | null;
+  /** The modal's step on show (T-140): the tracker, its site and sign-in, the board, then Save. */
+  step: ConnectStep;
+  /** The list last changed (T-140): a board that can't be read for it says why beside that dropdown. */
+  lastPicked: string | null;
+  /** An existing board's values when the modal opened (T-140), so Save can say what changes. Null for a new one. */
+  was: Values | null;
 }
+
+/** The modal's steps, in order (T-140): which tracker, its site and sign-in, what to follow with its board below, then Save. */
+export const CONNECT_STEPS = ['tracker', 'site', 'board', 'save'] as const;
+export type ConnectStep = (typeof CONNECT_STEPS)[number];
 
 export interface ConnectField {
   key: string;
@@ -139,6 +149,8 @@ export interface ConnectPicker {
   selected: string[];
   /** Loading, or why the list couldn't be read, beside it. Null when there's nothing to say. */
   look: Look | null;
+  /** The board couldn't be read with the choice made last here (T-140): why, beside this dropdown. */
+  error: Look | null;
   /** A choice another repo here uses already, with an icon and words under the list (GH-81). */
   used: Look | null;
   disabled: boolean;
@@ -185,12 +197,22 @@ export interface ConnectModel {
   countMost: number;
   /** why: the reason the button is off, in words, beside it; null when it's on (T-43). */
   save: { can: boolean; label: string; look: Look | null; why: Look | null };
+  /** Cancel (T-140): off while Save runs, as the board is being written and finishes; why then, in words. */
+  cancel: { can: boolean; why: string | null };
   /** Where a ticket's changes are kept (T-105), once the place is chosen; left out before. */
   changesField?: ChangesFieldRow | null;
   /** The board's name (T-127): as typed, the tracker's own name for it when it's left empty, and what it's for. */
   boardName: { field: string; max: number; value: string; placeholder: string; hint: string };
   /** Remove an existing board (T-127): the command and its tracker, which asks first. Null for a new one. */
   remove: { command: 'acc.trackers.remove'; arg: string; label: string } | null;
+  /** The step on show (T-140), and each step: its title, where it stands, and whether it can be gone to now. */
+  step: ConnectStep;
+  steps: { id: ConnectStep; title: string; state: 'current' | 'done' | 'todo'; can: boolean }[];
+  /** Next (T-140), with why it's off in words beside it; null on Save, the last step. */
+  next: { can: boolean; why: Look | null } | null;
+  /** What Save keeps (T-140): the site and each choice in words, marked where it changes; and, for an existing board, its tickets before and after. */
+  kept: { label: string; value: string; changed: boolean }[];
+  change: { before: string; after: string } | null;
 }
 
 /**
@@ -271,13 +293,17 @@ export function blankConnect(d: TrackerDescription, i: {
     const v = was[p.key];
     return [p.key, { options: [], selected: Array.isArray(v) ? v : typeof v === 'string' && v ? [v] : [], state: 'waiting', error: null } satisfies ConnectPickerState];
   }));
-  return {
+  const s: ConnectState = {
     id: i.id, rev: 0, root: i.root, projects: i.projects ?? [], projectName: i.projectName, ownRepo: i.ownRepo, ghAccount: i.ghAccount, kind: d.kind,
     existing: i.existing ? { index: i.existing.index, title: i.existing.title, ...(i.existing.given ? { given: i.existing.given } : {}) } : null, start: !!i.start && !i.existing, from: i.from,
     add: !!i.add && !i.existing && !i.start, name: i.existing?.name ?? '',
     host: i.existing?.host ?? (d.host.prefill === 'github-repo' ? i.ownRepo ?? '' : ''), hostError: null,
     method: method.id, fields, fieldErrors: {}, signIn: { state: 'none', who: null, error: null, again: false }, share: true, shareTouched: false, pickers, boards: {}, saving: false, saveError: null,
+    // An existing board opens on its board (T-140): its tracker and site are kept, and shown a step back.
+    step: i.existing ? 'board' : 'tracker', lastPicked: null, was: null,
   };
+  if (i.existing) s.was = connectValues(s, d);
+  return s;
 }
 
 /** The values chosen so far, as a description's lists and toConfig read them. */
@@ -341,7 +367,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     // A choice another repo here uses already says so under the list, with an icon and words (GH-81).
     const used = options.filter((o) => o.usedBy && ps.selected.includes(o.value));
     return {
-      key: p.key, label: p.label, multi: !!p.multi, whole, wholeCount: whole ? count('') : null, options, search: options.length > SEARCH_FROM, selected: ps.selected, look: pickerLook,
+      key: p.key, label: p.label, multi: !!p.multi, whole, wholeCount: whole ? count('') : null, options, search: options.length > SEARCH_FROM, selected: ps.selected, look: pickerLook, error: null,
       used: used.length ? LOOK(`${used.map((o) => `${o.label}: ${o.usedBy}`).join('; ')}, so two repos would show ${used.every((o) => o.usedBy!.startsWith('overlaps')) ? 'some of ' : ''}the same tickets.`, 'warning', 'orange') : null,
       // One whose list failed needn't hold Save when the tracker does without it (Jira's first board).
       disabled: !fixed && (!ok || ps.state === 'waiting' || ps.state === 'loading'), fixed, required: !off && (place || (!p.whole && !p.multi && !(p.fallback && ps.state === 'failed'))),
@@ -366,8 +392,11 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const noChoice = pickers.filter((p) => !p.fixed && p.required && !p.selected.length).map((p) => `${/^[aeiou]/i.test(p.label) ? 'an' : 'a'} ${p.label.toLowerCase()}`);
   // The board those choices make (T-106): drawn once they make a place, and what to change when it's empty.
   const chosen = pickers.filter((p) => !p.fixed && !p.hidden && p.selected.length).map((p) => p.label.toLowerCase());
-  const wider = pickers.find((p) => p.whole && !p.fixed && p.selected.length)?.whole ?? null;
-  const change = chosen.length ? `Choose another ${orList(chosen)}${wider ? `, or ${wider.replace(/^./, (c) => c.toLowerCase())}` : ''}.` : `${name} has none here yet.`;
+  // The choice to widen when the board is empty (T-140): the last list chosen that has a wider choice, named.
+  const narrow = [...pickers].reverse().find((p) => p.whole && !p.fixed && !p.hidden && p.selected.length);
+  const lower = (t: string) => t.replace(/^./, (c) => c.toLowerCase());
+  const change = narrow ? `Widen the ${narrow.label.toLowerCase()}: choose ${lower(narrow.whole!)}${narrow.multi ? ', or tick more' : ''}.`
+    : chosen.length ? `Choose another ${orList(chosen)}.` : `${name} has none here yet.`;
   const placeMade = !!s.root && ok && ready && !todo.length;
   const todoWords = taskNames(todo).replace(/^./, (c) => c.toUpperCase());
   const preview = connectPreview(s, values, placeMade, todo.length ? `${todoWords}, and the board shows here.` : 'The board shows here once its lists load.', change);
@@ -376,6 +405,21 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     : !ready ? whyOff(loadingNow ? 'Wait for its lists to load first.' : `Choose ${taskNames(noChoice)} first.`)
       : preview.state === 'failed' ? whyOff('The board couldn\'t be read: change a choice, or read it again.')
         : !seen ? whyOff('Wait for the board to show first.') : null;
+  // A board that couldn't be read says why beside the list chosen last (T-140), or the last one chosen.
+  if (preview.state === 'failed') {
+    const from = pickers.find((p) => p.key === s.lastPicked && !p.hidden) ?? [...pickers].reverse().find((p) => !p.fixed && !p.hidden && p.selected.length);
+    const read = s.boards[placeKey(values)];
+    if (from) from.error = LOOK(`Couldn't read the board with this choice: ${read?.error ?? 'no answer'}`, 'warning', 'orange');
+  }
+  const steps = connectSteps(s, { site: !!s.root, board: !!s.root && ok, save: placeMade && seen && !s.saving }, d.listsTitle ?? LISTS_TITLE);
+  const at = steps.find((x) => x.state === 'current')!.id;
+  const after = steps[CONNECT_STEPS.indexOf(at) + 1];
+  const nextWhy = !after || after.can ? null : after.id === 'site' ? whyOff('Choose a project first.') : after.id === 'board' ? whyOff(testing ? 'Signing in now.' : 'Sign in first.') : saveWhy;
+  // What Save keeps, in words (T-140): the site, then each list's choice, marked where it changes.
+  const text = (p: ConnectPicker) => (p.selected.length ? p.selected.map((v) => p.options.find((o) => o.value === v)?.label ?? v).join(', ') : p.whole ?? 'None');
+  const before = s.was ? Object.fromEntries(d.pickers.map((p) => { const v = s.was![p.key]; return [p.key, (Array.isArray(v) ? v : v ? [v] : []).join('\n')]; })) : null;
+  const kept = [{ label: d.host.label, value: s.host, changed: false },
+    ...pickers.filter((p) => !p.hidden).map((p) => ({ label: p.label, value: text(p), changed: !!before && before[p.key] !== p.selected.join('\n') }))];
   return {
     id: s.id, rev: s.rev,
     title: s.start ? `Start ${s.projectName} from ${placeName} in ${name}` : s.existing ? `Change ${s.name || s.existing.given || s.existing.title}` : s.add ? `Add a board to ${s.projectName}` : 'Connect a tracker',
@@ -410,7 +454,31 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
       why: saveWhy,
       look: s.saving ? LOOK(s.start ? 'Starting the project' : 'Saving', 'sync~spin', 'blue') : s.saveError ? LOOK(s.saveError, 'warning', 'orange') : null,
     },
+    cancel: { can: !s.saving, why: s.saving ? 'Saving now: the board is being written, and the page closes when it\'s done.' : null },
+    step: at, steps, next: after ? { can: after.can, why: nextWhy } : null, kept,
+    // Before and after (T-140): the board as it was opened, and as these choices make it, each counted.
+    change: s.was ? { before: cardCount(s.boards[placeKey(s.was)]).label, after: cardCount(seen ? s.boards[placeKey(values)] : undefined).label } : null,
   };
+}
+
+/** Each step's title in the modal (T-140); the board's is its tracker's (Choose a board, or Slack's Its channel). */
+const STEP_TITLE: Record<Exclude<ConnectStep, 'board'>, string> = { tracker: 'Tracker', site: 'Sign in', save: 'Save' };
+
+/**
+ * The modal's steps (T-140): each can be gone to once every step before it is done. The step on show is the
+ * one kept, moved back to the last it can be: to Sign in when its sign-in needs the person again, or to the
+ * board while what Save needs isn't there. While it signs in, or saves, it stays where it is.
+ */
+export function connectSteps(s: ConnectState, reach: Record<Exclude<ConnectStep, 'tracker'>, boolean>, boardTitle: string): ConnectModel['steps'] {
+  const can = (id: ConnectStep): boolean => CONNECT_STEPS.slice(1, CONNECT_STEPS.indexOf(id) + 1).every((k) => reach[k as Exclude<ConnectStep, 'tracker'>]);
+  const signing = s.signIn.state === 'testing' || (s.signIn.state === 'none' && !s.signIn.again && !!s.existing);
+  let at = CONNECT_STEPS.indexOf(s.step);
+  if (at >= 1 && !s.root) at = 0;
+  else if (at >= 2 && (s.signIn.state === 'failed' || s.signIn.again || (!reach.board && !signing))) at = 1;
+  else if (at === 3 && !reach.save && !s.saving) at = 2;
+  return CONNECT_STEPS.map((id, i) => ({
+    id, title: id === 'board' ? boardTitle : STEP_TITLE[id], state: i < at ? 'done' : i === at ? 'current' : 'todo', can: i === 0 || can(id) || (i <= at && signing),
+  }));
 }
 
 export type ConnectMessage = Extract<Message, { session: string }>;
@@ -440,6 +508,8 @@ export type Message =
   | { type: 'connect-count'; session: string; key: string; values: string[] }
   /** Read the preview's board again, after it failed (T-106). */
   | { type: 'connect-preview'; session: string }
+  /** Back, Next or a step's dot (T-140): the extension goes there only when it can be gone to. */
+  | { type: 'connect-step'; session: string; step: ConnectStep }
   | { type: 'connect-save'; session: string }
   | { type: 'connect-cancel'; session: string };
 
@@ -461,6 +531,7 @@ export const area: ModelArea = {
     'connect-count': (x) => session(x) && CONNECT.pickers.has(x.key as string) && Array.isArray(x.values) && x.values.length <= COUNT_MOST && x.values.every((v) => typeof v === 'string' && v.length <= 500),
     'connect-preview': session,
     'connect-again': session,
+    'connect-step': (x) => session(x) && (CONNECT_STEPS as readonly unknown[]).includes(x.step),
     'connect-save': session,
     'connect-cancel': session,
   },

@@ -14,7 +14,7 @@ import { type PageElement, pageDom } from './page-dom.ts';
 const page = pageDom();
 let kept: Record<string, unknown> = {};
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: Record<string, unknown>) => { kept = s; } });
-const { addAnother, boardChoice, boardCounts, boardOpen, boardSwitch, FILTER_FROM, SEGMENTED_MOST, switchGroups, tellShown, toggleBoard } = await import('../webview/board-switch.ts');
+const { addAnother, boardChoice, boardCounts, boardEdits, boardOpen, boardSwitch, FILTER_FROM, SEGMENTED_MOST, switchGroups, tellShown, toggleBoard } = await import('../webview/board-switch.ts');
 const { renderTasks } = await import('../webview/tasks.ts');
 const { state } = await import('../webview/state.ts');
 let draws = 0;
@@ -219,4 +219,19 @@ test('boardSwitch draws either form from the boards alone, any kind; tellShown t
   assert.equal(boardOpen('/q', 'x'), true);
   toggleBoard('/q', 'x');
   assert.equal(boardOpen('/q', 'x'), false, 'a second click folds it again');
+});
+
+test('the list ends with Change the board on show and Add a board, each opening the Connect modal, and none while a search is typed (T-140)', () => {
+  const edits = boardEdits(ROOT, { index: 2, name: 'Renewals' }) as unknown as PageElement[];
+  assert.deepEqual(edits.map((b) => b.textContent), ['Change Renewals…', 'Add a board…']);
+  page.sent.length = 0;
+  for (const b of edits) b.click();
+  assert.deepEqual(page.sent, [
+    { type: 'toolbar', command: 'acc.trackers.add', arg: JSON.stringify({ root: ROOT, index: 2 }) },
+    { type: 'toolbar', command: 'acc.trackers.add', arg: addAnother(ROOT) },
+  ]);
+  // Edge: with My work or All boards on show there's no board to change, only one to add.
+  assert.deepEqual((boardEdits(ROOT, undefined) as unknown as PageElement[]).map((b) => b.textContent), ['Add a board…']);
+  const list = drawn(4).all('board-menu')[0]!;
+  assert.deepEqual(list.all('board-edit').map((b) => b.textContent), [`Change ${model(4).projects[0]!.boards[0]!.name}…`, 'Add a board…'], 'drawn at the end of the list');
 });

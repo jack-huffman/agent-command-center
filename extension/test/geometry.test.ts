@@ -105,7 +105,7 @@ test('the page never scrolls sideways, and only the elements meant to do (GH-105
   assert.deepEqual(found(fine({ scrollers: [{ what: 'div.board', scroll: 1800, client: 900, allowed: true }] })), []);
   assert.deepEqual(found(fine({ scrollers: [{ what: 'div.notice', scroll: 960, client: 900, allowed: false }, { what: 'div.fits', scroll: 900, client: 900, allowed: false }] })), ['sideways: div.notice: scrolls sideways by 60 px']);
   assert.deepEqual(judge(fine({ scrollers: [{ what: 'div.board', scroll: 1, client: 1, allowed: true }] }), true, []).examined.sideways, 2, 'the page and each scroller');
-  assert.deepEqual(SIDEWAYS, ['.board', '.table-wrap', '.rail', '.doc pre', '.table-scroll']);
+  assert.deepEqual(SIDEWAYS, ['.board', '.table-wrap', '.rail', '.doc pre', '.table-scroll', '.cpreview-cols'], 'the Connect modal\'s board scrolls sideways as the Tasks tab\'s does (T-140)');
 });
 
 test('a drawing that examined no controls or no text fails: an empty page can\'t pass (GH-105)', () => {

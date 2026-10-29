@@ -1,12 +1,12 @@
 {
   "tests": {
-    "floor": 3028
+    "floor": 3044
   },
   "screenshots.clipped": {
-    "floor": 148676
+    "floor": 166321
   },
   "screenshots.sideways": {
-    "floor": 6151
+    "floor": 7577
   },
   "screenshots.overview": {
     "floor": 996
@@ -18,18 +18,24 @@
     "floor": 1736
   },
   "screenshots.raw": {
-    "floor": 570
+    "floor": 599
   },
   "screenshots.a11y": {
-    "floor": 619898
+    "floor": 615704,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "Connect is now a true modal, so the page under it is inert and axe skips it on the 27 Connect shots; nothing failed. Approved by the person 2026-10-28.",
+      "at": "2026-10-29T02:25:26.781Z",
+      "was": 619898
+    }
   },
   "screenshots.actions": {
     "floor": 1823
   },
   "screenshots.disabled": {
-    "floor": 1259
+    "floor": 1389
   },
   "screenshots.sizes": {
-    "floor": 5357
+    "floor": 6490
   }
 }
