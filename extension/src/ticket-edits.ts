@@ -46,7 +46,7 @@ export class TicketEdits {
     if (!w.edits) return { edits: false, kind: w.kind, ticket: null, error: null };
     try {
       const client = await this.trackers.client(w.p, w.index);
-      return { edits: true, kind: w.kind, fields: client.fields, ticket: await client.ticket(key), error: null };
+      return { edits: true, kind: w.kind, fields: client.fields, ticket: await this.trackers.ticket(w.p, w.index, key), error: null };
     } catch (e) {
       return { edits: true, kind: w.kind, ticket: null, error: inProcessWords((e as Error).message) };
     }
@@ -70,18 +70,18 @@ export class TicketEdits {
       return { ok: false, error: inProcessWords((e as Error).message) };
     }
     const r = await saveTicketText({
-      read: () => client.ticket(key),
+      read: () => this.trackers.ticket(w.p, w.index, key),
       write: (text) => client.setText(key, text).catch((e: unknown) => { throw new Error(inProcessWords((e as Error).message)); }),
-      refresh: () => this.refresh(w.p, client, key),
+      refresh: () => this.refresh(w.p, w.index, key),
     }, base, written);
     if (r.ok && r.wrote) void this.trackers.loadBoards(root);
     return r;
   }
 
   /** The task read again from its ticket, as Track does, with the dependencies it has now. */
-  private async refresh(p: Project, client: TrackerClient, key: string): Promise<void> {
+  private async refresh(p: Project, index: number, key: string): Promise<void> {
     const deps = this.hub.ledger(p.root)?.tasks.find((t) => t.id === key.toUpperCase())?.deps ?? [];
-    const input = trackInput(await client.ticket(key)).map((x) => ({ ...x, deps }));
+    const input = trackInput(await this.trackers.ticket(p, index, key)).map((x) => ({ ...x, deps }));
     const why = accRefusal(await accImport(this.acc, p.root, input));
     if (why !== null) throw new Error(why);
     await this.hub.loadTasks(true);
@@ -95,9 +95,9 @@ export class TicketEdits {
     if (refused) return { ok: false, error: inProcessWords(refused) };
     try {
       const client = await this.trackers.client(w.p, w.index);
-      const ticket = await client.ticket(key);
+      const ticket = await this.trackers.ticket(w.p, w.index, key);
       const changed = await pickField(client, key, ticket, field);
-      const now = changed ? await client.ticket(key) : ticket;
+      const now = changed ? await this.trackers.ticket(w.p, w.index, key) : ticket;
       if (changed) void this.trackers.loadBoards(root);
       return { ok: true, changed, rows: sheetRows(now, client.fields) };
     } catch (e) {
