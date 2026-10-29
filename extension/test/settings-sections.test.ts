@@ -15,6 +15,7 @@ let saved: Record<string, unknown> | undefined;
 const mem = (): Record<string, unknown> => saved ?? {};
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => saved, setState: (s: Record<string, unknown>) => { saved = s; } });
 const { renderSettings, shownSection, LONG_LIST } = await import('../webview/settings.ts');
+const { scrollToHeading } = await import('../webview/state.ts');
 const { moreKey } = await import('../webview/dom.ts');
 const { sampleModel } = await import('../scripts/screenshot.ts');
 
@@ -195,6 +196,8 @@ test('the jump list has a link and the picker an option for each section, in ord
   assert.deepEqual(links.filter((a) => a.getAttribute('aria-current') === 'true').map((a) => a.dataset.section), ['limits'], 'its link is the current one');
   assert.equal(pickerOf(nodes).value, 'limits', 'and the picker says so');
   assert.equal((page.document.activeElement as unknown as { id: string }).id, 'settings-section-limits', 'its heading takes focus');
+  const heading = under(nodes).find((e) => (e as unknown as { id: string }).id === 'settings-section-limits')!;
+  assert.deepEqual(heading.scrolled, [{ block: 'start' }], 'and the page scrolls to it, since the sticky list can be clicked scrolled down');
 });
 
 test('the tab remembers the section shown, and the next draw shows it; the picker picks as the list does', () => {
@@ -264,4 +267,14 @@ test('where a setting is set is its hint, not words beside it; a tracker\'s edit
   assert.equal(change.length, model('settings-trackers').trackers.projects.flatMap((p) => p.trackers).length, 'one per tracker');
   change[0]!.click();
   assert.equal((page.sent.at(-1) as { command: string }).command, 'acc.trackers.add', 'it opens the tracker where it is changed today');
+});
+
+test('edge case: scrollToHeading with no rail on the page leaves the heading no margin, scrolls it to the top and focuses it', () => {
+  const h = page.document.createElement('h2');
+  const style = h.style as unknown as { scrollMarginTop: string };
+  style.scrollMarginTop = '40px';
+  scrollToHeading(h as unknown as HTMLElement);
+  assert.equal(style.scrollMarginTop, '');
+  assert.deepEqual(h.scrolled, [{ block: 'start' }]);
+  assert.equal(page.document.activeElement, h);
 });

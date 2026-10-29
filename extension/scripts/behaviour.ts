@@ -1465,8 +1465,15 @@ export const CASES: Case[] = [
       t.check('opened at a part, its section alone shows', JSON.stringify(shown()) === JSON.stringify([want.opened]), shown());
       const to = links().find((a) => a.dataset.section === 'limits');
       if (!to) throw new Error('not found: the link to Checks and limits');
+      // Edge: the side list is sticky, so a jump can be made scrolled deep into a long section.
+      // Above 820 px the page's main column is what scrolls, under the rail.
+      const scroller = t.find('.home-main');
+      scroller.scrollTop = scroller.scrollHeight;
+      t.check('scrolled down before the jump', scroller.scrollTop > 0, scroller.scrollTop);
       await t.click(to);
       t.check('a jump shows its section alone', JSON.stringify(shown()) === JSON.stringify(['limits']), shown());
+      const top = t.find('#settings-section-limits').getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      t.check('a jump made scrolled down brings its section\'s heading into view', top >= 0 && top < scroller.clientHeight, { top, scrollTop: scroller.scrollTop, height: scroller.clientHeight });
       t.check('its link is the current one', links().filter((a) => a.getAttribute('aria-current') === 'true').map((a) => a.dataset.section).join() === 'limits');
       t.check('the jump focuses its section\'s heading', document.activeElement === t.find('#settings-section-limits'), document.activeElement?.outerHTML.slice(0, 80));
       t.check('the picker says the same', t.find<HTMLSelectElement>('select.settings-picker').value === 'limits');
@@ -2562,6 +2569,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'the result card\'s button sends nothing', file: 'run-view.ts', find: "if (n.kind === 'rerun') { api.postMessage({ type: 'run-control', run: run.id, action: 'rerun' }); return; }", replace: "if (n.kind === 'rerun') return;", kills: [caseNamed('output panel: a run shows as rows')] },
   { name: 'Show output does nothing', file: 'dock.ts', find: 'x.opened = lines ? x.opened.filter((y) => y !== k) : [...x.opened, k];', replace: '', kills: [caseNamed('output panel: a review')] },
   { name: 'a section\'s jump goes nowhere', file: 'settings.ts', find: "a.addEventListener('click', (e) => { (e as Event).preventDefault(); jump(s.id); });", replace: "a.addEventListener('click', (e) => { (e as Event).preventDefault(); });", kills: [caseNamed('settings: the jump list')] },
+  { name: 'a jump never scrolls to its section', file: 'settings.ts', find: 'if (heading) scrollToHeading(heading);', replace: 'heading?.focus({ preventScroll: true });', kills: [caseNamed('settings: the jump list')] },
   { name: 'the section shown is forgotten on a redraw', file: 'settings.ts', find: 'sections.find((s) => s.id === memory().settings) ?? sections[0]', replace: 'sections[0]', kills: [caseNamed('settings: the jump list')] },
   { name: 'a deep link leaves its part\'s section hidden', file: 'state.ts', find: "heading.closest<HTMLElement>('[hidden]')?.dispatchEvent(new Event('reveal'));", replace: '', kills: [caseNamed('settings: the jump list')] },
   { name: 'every explanation stays in view', file: 'dom.ts', find: 'if (!folded.includes(id)) return', replace: 'if (text) return', kills: [caseNamed('settings: the jump list')] },

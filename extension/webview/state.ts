@@ -137,11 +137,16 @@ export function jumpTo(part: string): boolean {
   if (!heading) return false;
   // A part in a section not on show, such as one of Settings' (T-139), asks its section to show first.
   heading.closest<HTMLElement>('[hidden]')?.dispatchEvent(new Event('reveal'));
+  scrollToHeading(heading);
+  return true;
+}
+
+/** Scrolls a heading to the top of the page and focuses it, so a screen reader starts there too. */
+export function scrollToHeading(heading: HTMLElement): void {
   // Under 820 px the rail is a strip stuck over the top of the page: the heading stops below it, not under it.
   const rail = document.querySelector<HTMLElement>('.rail');
   const strip = rail && getComputedStyle(rail).position === 'sticky' ? rail.getBoundingClientRect().height : 0;
   heading.style.scrollMarginTop = strip ? `${Math.ceil(strip) + 12}px` : '';
   heading.scrollIntoView({ block: 'start' });
   heading.focus({ preventScroll: true });
-  return true;
 }

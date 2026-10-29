@@ -44,6 +44,9 @@ export class PageElement {
   /** Runs its listeners for a click, as a person's click does: a button's stops it going further. */
   click(): void { if (!this.disabled) for (const f of this.listeners.get('click') ?? []) f({ type: 'click', stopPropagation: () => undefined }); }
   focus(): void { this.doc.activeElement = this; }
+  /** How each scrollIntoView asked to sit, in order: the page scrolls a heading to the top of the view so (T-139). */
+  readonly scrolled: unknown[] = [];
+  scrollIntoView(how?: unknown): void { this.scrolled.push(how); }
   get textContent(): string { return this.children.map((c) => (typeof c === 'string' ? c : c.textContent)).join(''); }
   /** Setting it replaces its children with the words, as a browser's does: a select's option is named so (T-139). */
   set textContent(text: string) { this.children.splice(0, this.children.length, text); }

@@ -8,7 +8,7 @@ import { renderAbout } from './about.ts';
 import { changesFieldValue } from './changes-field.ts';
 import { renderLimits } from './limits.ts';
 import { slackCardView } from './slack.ts';
-import { api, go, memory, remember, type PageArea } from './state.ts';
+import { api, go, memory, remember, scrollToHeading, type PageArea } from './state.ts';
 
 /** A list longer than this shows its first few, and folds the rest under a count (T-139). */
 export const LONG_LIST = 3;
@@ -269,10 +269,11 @@ export function renderSettings(m: SettingsModel): Node[] {
     }
     picker.value = id;
   };
-  /** A jump: its section shows, and its heading takes focus, so a screen reader starts there too. */
+  /** A jump: its section shows, and the page scrolls to its heading, which takes focus; the side list is sticky, so a jump made scrolled down would otherwise open the section part way down. */
   const jump = (id: string): void => {
     show(id);
-    panels.find((p) => p.dataset.section === id)?.querySelector<HTMLElement>('.settings-section-name')?.focus({ preventScroll: true });
+    const heading = panels.find((p) => p.dataset.section === id)?.querySelector<HTMLElement>('.settings-section-name');
+    if (heading) scrollToHeading(heading);
   };
   for (const s of m.sections) {
     const a = el('a', 'settings-jump-link', icon(s.icon), el('span', '', s.title));
