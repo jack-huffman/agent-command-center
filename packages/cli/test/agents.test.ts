@@ -10,6 +10,10 @@ import { builderSettings, guardAnalyst, guardBash, mutate, parseConfig, register
 import { GENERIC_CONFIG, gh41Lines, makeRepo, tempDir } from '../../core/test/support.ts';
 import { cli, LIMITS_CONFIG, repoWithConfig } from './support.ts';
 import { nodeStandIn, standIn } from '../../core/test/stand-in.ts';
+import { thisMachine } from '../../core/src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE = thisMachine();
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 
@@ -92,7 +96,7 @@ test('acc dispatch --again with a claude that is not found (exit 127) is refused
   chmodSync(join(bin, 'claude'), 0o755);
   const r = acc(dir, ['dispatch', 'T-1', '--again'], undefined, { PATH: `${bin}${delimiter}${process.env.PATH}` });
   assert.equal(r.code, 1, r.out);
-  assert.match(r.err, /Claude Code isn't on this Mac's path, so the Command Center can't see this builder/);
+  assert.match(r.err, new RegExp(String.raw`Claude Code isn't on ${HERE}'s path, so the Command Center can't see this builder`));
   assert.ok(!(existsSync(record) ? readFileSync(record, 'utf8') : '').includes('stop'), 'nothing is stopped');
   const after = JSON.parse(readFileSync(file, 'utf8')).tasks[0];
   assert.deepEqual([after.state, after.run.bgId], ['running', 'bg9']);

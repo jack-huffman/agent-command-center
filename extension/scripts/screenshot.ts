@@ -524,6 +524,8 @@ export const afterModel = (kind: Page, now = Date.now()): Record<string, unknown
   : kind === 'dispatch-sheet' ? [{ type: 'dispatch-sheet', sheet: sampleSheet(now, 'analysed') }] : kind === 'ticket-dispatch' ? [{ type: 'dispatch-sheet', sheet: sampleSheet(now, 'rework') }]
   // Dispatch anyway's sheet, with the tasks and files ACME-35 shares above the choices (D-093).
   : kind === 'dispatch-sheet-anyway' ? [{ type: 'dispatch-sheet', sheet: sampleSheet(now, 'anyway') }]
+  // The same sheet as the Command Center draws it on Windows (T-150): its place here is This PC.
+  : kind === 'dispatch-sheet-windows' ? [{ type: 'dispatch-sheet', sheet: sampleSheet(now, 'windows') }]
   // The task sheet (T-74): a new task and a manual task's edit over the Tasks board, and ACME-19's edit, a Jira task in rework, over its tab.
   : kind === 'task-sheet-new' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'new') }] : kind === 'task-sheet-manual' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'manual') }]
   : kind === 'task-sheet-wording' ? [{ type: 'task-sheet', sheet: sampleTaskSheet(now, 'wording') }]

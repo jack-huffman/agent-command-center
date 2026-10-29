@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, briefAdviceLines, codeNames, type CriterionFinding, refuseBriefWording, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftChangesField, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, recordChanges, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, briefAdviceLines, codeNames, type CriterionFinding, refuseBriefWording, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, builderPlaceLook, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftChangesField, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, recordChanges, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -195,7 +195,7 @@ function cmdShow(o: Opts, id: string): number {
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t, { stopped, quiet: !!waiting, unseen: !!unseen }, config))}  ${t.title}`,
     `Environment: ${t.environment}   Source: ${t.source.kind}${t.source.url ? ` ${t.source.url}` : ''}`,
-    t.run?.name ? `Agent: ${t.run.name}${t.run.where ? ` · runs on ${BUILDER_PLACE_LOOK[t.run.where].label}` : ''}` : '',
+    t.run?.name ? `Agent: ${t.run.name}${t.run.where ? ` · runs on ${builderPlaceLook()[t.run.where].label}` : ''}` : '',
     cloud ? `Cloud session: ${cloud.url}${t.state === 'running' ? ` (branch last moved ${cloud.lastPushAt}${cloud.finished ? ', finished' : ''})` : ''}` : '',
     waiting ? tone(`! ${waiting.charAt(0).toUpperCase()}${waiting.slice(1)}. Open the session, or: acc collect ${t.id}`, 'orange') : '',
     t.deps.length ? `Depends on: ${t.deps.join(', ')}` : '',

@@ -93,6 +93,8 @@ test('every section of the page, and a ticket, has sample data built by the real
       const sheet = after?.sheet as DispatchSheet | undefined;
       if (kind === 'dispatch-sheet') assert.deepEqual([m.kind, (m as HomeModel).section, after?.type, sheet?.title, !!sheet?.size, sheet?.places.find((p) => p.value === 'cloud')?.disabled], ['home', 'tasks', 'dispatch-sheet', 'Build ACME-16', true, undefined]);
       else if (kind === 'dispatch-sheet-anyway') assert.deepEqual([m.kind, (m as HomeModel).section, sheet?.go, sheet?.shares?.lines.map((l) => l.task)], ['home', 'tasks', 'Build it anyway', ['ACME-12', 'ACME-13']]);
+      // The same sheet as Windows draws it (T-150): this machine is This PC, and nothing on it says Mac.
+      else if (kind === 'dispatch-sheet-windows') assert.deepEqual([m.kind, (m as HomeModel).section, sheet?.title, sheet?.places.map((p) => p.label), /\bMac\b/.test(JSON.stringify(sheet))], ['home', 'tasks', 'Build ACME-16', ['This PC', 'Cloud'], false]);
       else assert.deepEqual([m.kind, (m as HomeModel).section, startState(kind)], ['home', 'tasks', { modes: { [ROOT]: 'agents' }, openMenu: `card:${ROOT}#ACME-16` }]);
     } else if (kind.startsWith('task-sheet') || kind.startsWith('ticket-edit')) {
       // The task sheet (T-74): a new task and a manual task's edit over the Tasks board, and a Jira task's edit over its tab, read-only where its ticket owns it;

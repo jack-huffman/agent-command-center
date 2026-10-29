@@ -2,7 +2,7 @@
 // the cloud off; and acc dispatch's arguments for what a person chose in it.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BUILDER_PLACE_LOOK } from '../../packages/core/src/cloud.ts';
+import { builderPlaceLook } from '../../packages/core/src/cloud.ts';
 import { effortDroppedWords } from '../../packages/core/src/efforts.ts';
 import { dispatchModelItems } from '../src/logic/agents.ts';
 import { dispatchEffortItems } from '../src/logic/efforts.ts';
@@ -10,6 +10,7 @@ import type { TaskRow } from '../src/logic/shared.ts';
 import { sizeLine } from '../src/logic/tasks.ts';
 import { cloudDisabled } from '../src/model/cards.ts';
 import { area, defaultPlace, dispatchChoiceArgs, dispatchSheet, effortSegments, SHEET_COMMANDS, type SheetInput } from '../src/model/dispatch-sheet.ts';
+import { sampleSheet } from '../scripts/fixtures/dispatch-sheet.ts';
 import { pageDom } from './page-dom.ts';
 import { pageSource, row } from './support.ts';
 
@@ -22,7 +23,7 @@ const input = (r: Partial<TaskRow> = {}, more: Partial<SheetInput> = {}): SheetI
   project: '/r', row: { ...row('AV-9', 'todo', 'ready'), deps: [], ...r } as TaskRow, builder: builder(), config: ON, ...more,
 });
 
-test('the sheet for a task to do: its title, the builder\'s model chosen first with its source, its efforts lowest first, This Mac, and the size', () => {
+test('the sheet for a task to do: its title, the builder\'s model chosen first with its source, its efforts lowest first, this machine, and the size', () => {
   const i = input({ analysis });
   const s = dispatchSheet(i);
   assert.equal(s.title, 'Build AV-9');
@@ -34,7 +35,7 @@ test('the sheet for a task to do: its title, the builder\'s model chosen first w
   assert.equal(first.efforts[first.effort]!.label, 'medium', 'the level it runs with anyway is chosen: Opus 5.5\'s default');
   assert.equal(first.efforts[first.effort]!.value, null, 'none named, so Claude Code\'s default applies');
   assert.equal(first.none, null);
-  assert.deepEqual(s.places.map((p) => [p.value, p.label, p.icon, p.disabled]), [['local', BUILDER_PLACE_LOOK.local.label, 'device-desktop', undefined], ['cloud', BUILDER_PLACE_LOOK.cloud.label, 'cloud', undefined]]);
+  assert.deepEqual(s.places.map((p) => [p.value, p.label, p.icon, p.disabled]), [['local', builderPlaceLook().local.label, 'device-desktop', undefined], ['cloud', builderPlaceLook().cloud.label, 'cloud', undefined]]);
   assert.equal(s.place, 'local', 'the project\'s default');
   assert.equal(s.size, sizeLine(i.row));
   assert.equal(dispatchSheet(input()).size, null, 'no analysis: no size line');
@@ -67,7 +68,7 @@ test('a model that takes no effort hides the levels, and says so, with the pick 
   assert.equal(another.efforts[another.effort]!.label, 'xhigh', 'the level picked for the task, which it takes');
 });
 
-test('the cloud is off with its reason where cloudDisabled gives one, and This Mac is chosen though the project\'s default is the cloud', () => {
+test('the cloud is off with its reason where cloudDisabled gives one, and this machine is chosen though the project\'s default is the cloud', () => {
   for (const config of [OFF, { github: null, agents: { cloud: CLOUD } }, { github: { repo: 'o/r' }, agents: { cloud: { ...CLOUD, routine: null } } }, null]) {
     const s = dispatchSheet(input({}, { config }));
     assert.equal(s.places[1]!.disabled, cloudDisabled(config), JSON.stringify(config));
@@ -79,6 +80,23 @@ test('the cloud is off with its reason where cloudDisabled gives one, and This M
   assert.equal(dispatchSheet(input({}, { config: { ...cloudFirst, github: null } })).place, 'local', 'the default is the cloud, but it is off');
   assert.equal(dispatchSheet(input({}, { where: 'cloud' })).place, 'cloud', 'Dispatch to the cloud asks for it');
   assert.equal(dispatchSheet(input({}, { where: 'cloud', config: OFF })).place, 'local', 'asked for, but off');
+});
+
+test('on Windows the sheet names this machine This PC, in its place and in the cloud\'s note, and never Mac; on a Mac, This Mac as before (T-150)', () => {
+  const on = (platform: string) => dispatchSheet(input({ analysis }, { platform }));
+  const pc = on('win32');
+  assert.deepEqual(pc.places.map((p) => [p.value, p.label, p.icon]), [['local', 'This PC', 'device-desktop'], ['cloud', 'Cloud', 'cloud']]);
+  assert.match(pc.cloudNote, /kept for a later build on this PC\.$/);
+  assert.doesNotMatch(JSON.stringify(pc), /\bMac\b/);
+  const mac = on('darwin');
+  assert.equal(mac.places[0]!.label, 'This Mac');
+  assert.match(mac.cloudNote, /kept for a later build on this Mac\.$/);
+  // The screenshot run's Windows page draws this sheet.
+  assert.equal(sampleSheet(Date.parse('2026-10-29T12:00:00Z'), 'windows').places[0]!.label, 'This PC');
+});
+
+test('edge case: with no system given, the sheet names the one the Command Center runs on', () => {
+  assert.equal(dispatchSheet(input({ analysis })).places[0]!.label, builderPlaceLook(process.platform).local.label);
 });
 
 test('Dispatch anyway opens the sheet with Dispatch anyway as its button, and the tasks and files it shares (D-093)', () => {

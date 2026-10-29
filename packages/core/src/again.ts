@@ -1,5 +1,6 @@
 import { type DispatchDeps, type DispatchOptions, type DispatchOutcome, dispatch } from './dispatch.ts';
 import { AccError } from './exec.ts';
+import { thisMachine } from './this-machine.ts';
 import { type Config } from './config.ts';
 import { moveTask, noGateHooks, readLedger } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
@@ -33,7 +34,7 @@ export function dispatchAgain(paths: RepoPaths, config: Config, id: string, deps
     return dispatch(paths, config, id, deps, { ...base, where: n.where, ...(n.model ? { model: n.model } : {}), ...(n.effort ? { effort: n.effort } : {}) });
   }
   if (task.state !== 'running') throw new AccError('refused', `${id} is ${task.state}, and its builder didn't fail to start: dispatch it as usual.`);
-  if (task.run?.where === 'cloud') throw new AccError('refused', `${id}'s builder runs in the cloud: its branch says whether it's quiet, and ${DISPATCH_AGAIN} is for a builder on this Mac.`);
+  if (task.run?.where === 'cloud') throw new AccError('refused', `${id}'s builder runs in the cloud: its branch says whether it's quiet, and ${DISPATCH_AGAIN} is for a builder on ${thisMachine()}.`);
   if (!opts.unseen) throw new AccError('refused', againRefusal(id));
   if (task.run?.bgId) deps.run('claude', ['stop', task.run.bgId], { cwd: task.run.worktree ?? paths.root, timeoutMs: 20_000 });
   endResume(paths, id);

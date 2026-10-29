@@ -12,6 +12,11 @@ import { dispatchSheet } from '../src/model/dispatch-sheet.ts';
 import { cloudSetting } from '../src/model/settings.ts';
 import { deriveRows } from '../src/task-rows.ts';
 import { row } from './support.ts';
+import { thisMachine, thisMachineLabel } from '../../packages/core/src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE = thisMachine();
+const HERE_LABEL = thisMachineLabel();
 
 const CLOUD = { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', default: 'local' as const, quietMinutes: 120, max: 3, review: 'local' as const };
 const config = (github: boolean, cloud: typeof CLOUD | { routine: null } | null) => ({ github: github ? { repo: 'o/r', account: 'me' } : null, agents: { cloud: cloud ? { ...CLOUD, ...cloud } : null } });
@@ -45,7 +50,7 @@ test('a running cloud task offers Watch, Send a message and Collect, and Open in
   assert.deepEqual([find(actions, 'Send a message')?.command, find(actions, 'Send a message')?.disabled], ['acc.task.message', undefined]);
   assert.deepEqual([find(actions, 'Collect')?.command, find(actions, 'Collect')?.disabled, !!find(actions, 'Collect')?.primary], ['acc.task.collect', undefined, false]);
   const open = find(actions, 'Open in Claude Code')!;
-  assert.equal(open.disabled, 'Its conversation runs on claude.ai, not on this Mac: Watch opens it there.');
+  assert.equal(open.disabled, `Its conversation runs on claude.ai, not on ${HERE}: Watch opens it there.`);
   assert.equal(find(actions, 'Resume'), undefined, 'nothing on this Mac to resume');
   assert.equal(find(actions, 'Abandon (its session stays on claude.ai)')?.command, 'acc.task.abandon');
   assert.equal(find(actions, 'Abandon'), undefined);
@@ -65,27 +70,27 @@ test('a running cloud task offers Watch, Send a message and Collect, and Open in
 
 const CLOUD_REVIEW = { url: 'https://claude.ai/code/session_01R', firedAt: '2026-10-09T12:00:00Z', wait: null, failed: false };
 const inCloud = (over: Partial<TaskRow> = {}): TaskRow => ({ ...row('AV-6', 'review', 'review'), run: { worktree: '/w6', branch: 'task/AV-6' }, review: null, reviewing: { sessionId: 'session_01R', name: 'acme · AV-6 · review', where: 'cloud', url: CLOUD_REVIEW.url }, cloudReview: CLOUD_REVIEW, ...over } as TaskRow);
-const QUIET = 'no verdict from its cloud reviewer for 150 minutes: review it on this Mac';
+const QUIET = `no verdict from its cloud reviewer for 150 minutes: review it on ${HERE}`;
 
 test('a task reviewed in the cloud says so on its card, with an icon and a label; quiet for too long or with a verdict acc couldn\'t read it needs you, with why, and Review on this Mac is its next step (T-86)', () => {
   assert.deepEqual(cloudReviewLook(inCloud()), { label: 'Reviewing in the cloud', icon: 'cloud', tone: 'blue' });
   assert.deepEqual(accLook(inCloud()), { label: 'Reviewing in the cloud', icon: 'cloud', tone: 'blue' }, 'the card\'s state is the review\'s');
   const live = cardActions(inCloud(), {});
   assert.deepEqual([find(live, 'Watch the review')?.command, !!find(live, 'Watch the review')?.primary], ['acc.task.watchReview', true], 'Watch leads, and opens its page on claude.ai');
-  assert.ok(!find(live, 'Review on this Mac'), 'while it reads, nothing asks for a review here');
+  assert.ok(!find(live, `Review on ${HERE}`), 'while it reads, nothing asks for a review here');
   assert.ok(!find(live, 'Review'), 'nor a plain Review, which the project\'s setting might send to the cloud again');
   // Quiet: needs you, with the reason, and the way on is a review here, whatever the setting says.
   const quiet = inCloud({ display: 'needs-you', cloudReview: { ...CLOUD_REVIEW, wait: QUIET } });
   assert.deepEqual(cloudReviewLook(quiet), { label: `Needs you: ${QUIET}`, icon: 'bell', tone: 'orange' });
   assert.deepEqual(accLook(quiet), { label: `Needs you: ${QUIET}`, icon: 'bell', tone: 'orange' });
   const acts = cardActions(quiet, {});
-  const local = find(acts, 'Review on this Mac')!;
+  const local = find(acts, `Review on ${HERE}`)!;
   assert.deepEqual([local.command, local.icon, !!local.primary], ['acc.task.reviewLocal', 'checklist', true]);
   assert.deepEqual([find(acts, 'Watch the review')?.command, !!find(acts, 'Watch the review')?.primary], ['acc.task.watchReview', false], 'Watch stays, second');
   // Failed: no reviewer to watch any more; the reason, and Review on this Mac.
   const failed = inCloud({ display: 'needs-you', reviewing: null, cloudReview: { ...CLOUD_REVIEW, wait: 'its cloud reviewer pushed acc/review/AV-6-abc without review.json: review it on this Mac', failed: true } });
   assert.match(cloudReviewLook(failed)!.label, /^Needs you: its cloud reviewer pushed/);
-  assert.deepEqual(labels(cardActions(failed, {})).filter((l) => /Review/.test(l)), ['Review on this Mac']);
+  assert.deepEqual(labels(cardActions(failed, {})).filter((l) => /Review/.test(l)), [`Review on ${HERE}`]);
   assert.equal(cloudReviewLook({ cloudReview: null }), null, 'edge case: no cloud review');
   assert.equal(cloudReviewLook({ cloudReview: { ...CLOUD_REVIEW, failed: true } }), null, 'edge case: a failed review whose reason is gone shows nothing of itself');
   // A review here, as before: Watch, no cloud words.
@@ -128,7 +133,7 @@ test('deriveRows reads a task\'s cloud review from the ledger: its reviewer to w
 test('Settings shows where reviews run beside where a plain dispatch goes, with a button to change it; off with why until the project opts in to cloud builders (T-86)', () => {
   const p = (github: boolean, cloud: (Omit<typeof CLOUD, 'review'> & { review: 'local' | 'cloud' }) | null) => ({ name: 'P', root: '/p', branch: null, worktrees: [], config: { github: github ? { repo: 'o/r', account: 'a' } : null, environments: [], profile: 'generic', agents: { cloud } } });
   const on = cloudSetting(p(true, CLOUD) as never)!;
-  assert.deepEqual(on.reviewPlace, { label: 'This Mac', icon: 'device-desktop', tone: 'neutral' });
+  assert.deepEqual(on.reviewPlace, { label: HERE_LABEL, icon: 'device-desktop', tone: 'neutral' });
   assert.deepEqual(cloudSetting(p(true, { ...CLOUD, review: 'cloud' }) as never)!.reviewPlace, { label: 'Cloud', icon: 'cloud', tone: 'neutral' });
   const reviews = on.actions.find((a) => a.label === 'Reviews…')!;
   assert.deepEqual([reviews.command, reviews.icon, reviews.disabled, reviews.arg], ['acc.cloud.review', 'checklist', null, '/p']);

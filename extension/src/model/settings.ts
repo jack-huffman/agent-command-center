@@ -7,9 +7,10 @@
 
 import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
 import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
-import { BUILDER_PLACE_LOOK, type CloudNeed, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
+import { builderPlaceLook, type CloudNeed, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
 import { CLOUD_SETUP } from '../../../packages/core/src/onboarding/cloud-steps.ts';
 import type { Protection } from '../../../packages/core/src/protection.ts';
+import { thisMachine } from '../../../packages/core/src/this-machine.ts';
 import { describe } from '../../../packages/core/src/trackers/connect.ts';
 import type { TextField, TrackerKind } from '../../../packages/core/src/trackers/types.ts';
 import { type ChangesFieldRow, changesFieldRow } from './changes-field.ts';
@@ -212,7 +213,7 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
   const look: Look = !on ? { label: 'off', icon: 'circle-slash', tone: 'neutral' } : reason ? { label: 'on, not ready', icon: 'warning', tone: 'orange' } : { label: 'on', icon: 'cloud', tone: 'blue' };
   const meaning = !on
     ? github ? 'A local builder is the default everywhere. Set it up to offer the cloud in each task\'s Build it sheet: a Claude Code cloud session the project\'s scheduled task starts, followed through its branch on GitHub.' : 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back.'
-    : `Each task can go to the cloud, picked in its Build it sheet, or stay on this machine. ${reason ? `${reason}.` : 'Set up… checks the token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on this Mac when the Command Center collects the branch; where GitHub enforces no protection on a branch, a push past the guard would be caught then, after the fact.`;
+    : `Each task can go to the cloud, picked in its Build it sheet, or stay on this machine. ${reason ? `${reason}.` : 'Set up… checks the token, the claude.ai sign-in and the push guard.'} Checks that need an org login run on ${thisMachine()} when the Command Center collects the branch; where GitHub enforces no protection on a branch, a push past the guard would be caught then, after the fact.`;
   const action = (command: string, label: string, icon: string, name: string, primary = false, disabled: string | null = null): SettingsAction => ({ command, label, icon, arg: p.root, name, primary, disabled });
   // Set up… (T-145) opens the stepped modal, on its first step not done: the way in, on or off.
   const setUp = action(CLOUD_SETUP.command, 'Set up…', 'cloud', `Set up cloud builders for ${p.name}`, !on || !!reason, github ? null : 'Cloud builders need the repo on GitHub');
@@ -232,8 +233,8 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
   if (!on) actions.push(action('acc.cloud.review', 'Reviews…', 'checklist', `Reviews: choose where ${p.name}'s reviews run`, false, reason ?? 'Cloud builders are off for this project'));
   return {
     key: 'agents.cloud.routine', look, from: PROJECT, meaning, needs: needs.map((n) => ({ label: n.label, ok: n.ok, fix: n.fix })),
-    defaultPlace: cloud ? { ...BUILDER_PLACE_LOOK[cloud.default], tone: 'neutral' } : null,
-    reviewPlace: cloud ? { ...BUILDER_PLACE_LOOK[cloud.review ?? 'local'], tone: 'neutral' } : null,
+    defaultPlace: cloud ? { ...builderPlaceLook()[cloud.default], tone: 'neutral' } : null,
+    reviewPlace: cloud ? { ...builderPlaceLook()[cloud.review ?? 'local'], tone: 'neutral' } : null,
     protection: on ? (protection ?? []).map((x) => ({ branch: x.branch, look: protectionLook(x), why: x.why })) : [],
     actions,
   };

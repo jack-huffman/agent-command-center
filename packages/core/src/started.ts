@@ -6,6 +6,7 @@ import { runStartedAt, STOPPED_GRACE_MS, type Task } from './ledger.ts';
 import { sleep } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
 import { transcriptDir, transcriptFile } from './transcript.ts';
+import { thisMachine } from './this-machine.ts';
 
 // Whether a local builder started, and what acc says when it can't see one at all (T-92, D-186). acc never
 // shows a builder as working when nothing runs: "can't tell" is a state of its own, never "fine".
@@ -117,7 +118,7 @@ export const UNSEEN_WORDS: Record<Unseen, { label: string; line: string; wayOn: 
   },
   missing: {
     label: 'Needs you: Claude Code isn\'t found',
-    line: 'Claude Code isn\'t on this Mac\'s path, so the Command Center can\'t see this builder',
+    line: `Claude Code isn't on ${thisMachine()}'s path, so the Command Center can't see this builder`,
     wayOn: 'Install Claude Code, or start VS Code from a terminal where Claude Code runs, then reload the window.',
   },
 };

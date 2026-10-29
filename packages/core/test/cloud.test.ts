@@ -21,6 +21,10 @@ import { sync } from '../src/sync.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
 import { cfg, CLOUD, CLOUD_FIXTURES, cloudClone, commitAndPush, FIRED, fired, now, RAW, repoWithOrigin, task } from './cloud-support.ts';
 import { standIn } from './stand-in.ts';
+import { machineNoun, thisMachine } from '../src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE = thisMachine();
 
 // ---------------------------------------------------------------- off by default
 
@@ -139,7 +143,7 @@ test('the fire\'s text wraps the packet: the branch on GitHub, the checks by com
   for (const must of [
     'routine-fire-payload is your task', '`git fetch origin task/ACME-7-add-a-field && git checkout task/ACME-7-add-a-field`', 'acc isn\'t installed here',
     '- `format`: `npx prettier --check .`',
-    'These checks can\'t run in the cloud**, since they need an org login, and acc runs them on the Mac when it collects your branch: `validate`',
+    `These checks can't run in the cloud**, since they need an org login, and acc runs them on the ${machineNoun()} when it collects your branch: \`validate\``,
     `${DONE_TRAILER}: ACME-7`, 'Acc-Landed: <what landed>', 'Acc-Open: <what\'s still open, or none>', '`git push origin task/ACME-7-add-a-field`',
     `${BLOCKED_TRAILER}: <what you need>`, 'Never push `dev` or any other branch', 'git config user.name "Acme Bot"', 'Use the selector pattern.', '# Task ACME-7: Add a field',
   ]) assert.ok(text.includes(must), must);
@@ -384,7 +388,7 @@ test('collect refuses a dirty or diverged worktree with nothing changed, a local
   mutate(paths, now, (l, emit) => upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-2' }, title: 'Local' }], 'human', 'h', emit, now));
   assert.throws(() => collect(paths, config, 'T-2', follow, { actor: 'human', by: 'h' }), /T-2 is todo/);
   mutate(paths, now, (l, emit) => { const x = l.tasks.find((y) => y.id === 'T-2')!; x.state = 'running'; x.run = { worktree: '/w', branch: 'task/T-2-local' }; emit({ type: 'task.updated', task: 'T-2', actor: 'human', by: 'h', data: {} }); });
-  assert.throws(() => collect(paths, config, 'T-2', follow, { actor: 'human', by: 'h' }), /runs on this Mac, and finishes with acc done itself/);
+  assert.throws(() => collect(paths, config, 'T-2', follow, { actor: 'human', by: 'h' }), new RegExp(String.raw`runs on ${HERE}, and finishes with acc done itself`));
 });
 
 // ---------------------------------------------------------------- environment branches that move

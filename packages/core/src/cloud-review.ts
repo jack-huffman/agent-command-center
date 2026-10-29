@@ -21,6 +21,7 @@ import type { RepoPaths } from './paths.ts';
 import { checkVerdict, prepareReview, recordVerdict, reviewPath, reviewPrompt, type Verdict, VERDICT_SCHEMA } from './review.ts';
 import { FETCH_TIMEOUT_MS, fetchBranches } from './fetch.ts';
 import type { Team } from './team.ts';
+import { thisMachine } from './this-machine.ts';
 
 /** The one file a cloud reviewer commits, and the branch it goes to. */
 export const VERDICT_FILE = 'review.json';
@@ -51,7 +52,7 @@ export function cloudReviewWait(task: Pick<Task, 'state' | 'cloudReview'>, confi
   const c = task.cloudReview;
   if (task.state !== 'review' || !c) return null;
   if (c.failed) return c.failed.reason;
-  if (cloudReviewQuiet(task, config, now)) return `no verdict from its cloud reviewer for ${Math.round((now.getTime() - Date.parse(c.firedAt)) / 60_000)} minutes: review it on this Mac`;
+  if (cloudReviewQuiet(task, config, now)) return `no verdict from its cloud reviewer for ${Math.round((now.getTime() - Date.parse(c.firedAt)) / 60_000)} minutes: review it on ${thisMachine()}`;
   return null;
 }
 
@@ -264,32 +265,32 @@ export function followCloudReviews(paths: RepoPaths, config: Config, deps: { run
     // The file's size first (T-86): a verdict too large isn't read, and is said to be that, not missing.
     const size = run('git', ['cat-file', '-s', `${head}:${VERDICT_FILE}`], { cwd: paths.root });
     if (size.code !== 0) {
-      fail(`its cloud reviewer pushed ${c.branch} without ${VERDICT_FILE}: review it on this Mac`);
+      fail(`its cloud reviewer pushed ${c.branch} without ${VERDICT_FILE}: review it on ${thisMachine()}`);
       continue;
     }
     const bytes = Number(size.stdout.trim());
     if (!Number.isFinite(bytes) || bytes > VERDICT_MAX_BYTES) {
-      fail(`its cloud reviewer's ${VERDICT_FILE} is ${Number.isFinite(bytes) ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : 'of a size git couldn\'t say'}, more than a verdict can be (${VERDICT_MAX_BYTES / 1024 / 1024} MB at most): review it on this Mac`);
+      fail(`its cloud reviewer's ${VERDICT_FILE} is ${Number.isFinite(bytes) ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : 'of a size git couldn\'t say'}, more than a verdict can be (${VERDICT_MAX_BYTES / 1024 / 1024} MB at most): review it on ${thisMachine()}`);
       continue;
     }
     const shown = run('git', ['show', `${head}:${VERDICT_FILE}`], { cwd: paths.root });
     if (shown.code !== 0) {
       // Read-fails after the size passed: more than git show could hand over (ENOBUFS), else what git said, and never that the file was missing.
       const why = /ENOBUFS/.test(shown.stderr) ? 'too large to read' : (shown.stderr || shown.stdout).trim().split('\n')[0] || `git exited ${shown.code}`;
-      fail(`its cloud reviewer's ${VERDICT_FILE} couldn't be read from ${c.branch} (${why}): review it on this Mac`);
+      fail(`its cloud reviewer's ${VERDICT_FILE} couldn't be read from ${c.branch} (${why}): review it on ${thisMachine()}`);
       continue;
     }
     let answered: ReturnType<typeof checkVerdict>;
     try {
       answered = checkVerdict(JSON.parse(shown.stdout));
     } catch (e) {
-      fail(`its cloud reviewer's ${VERDICT_FILE} isn't a verdict acc can read (${e instanceof SyntaxError ? 'not JSON' : (e as Error).message.replace(/\.$/, '')}): review it on this Mac`);
+      fail(`its cloud reviewer's ${VERDICT_FILE} isn't a verdict acc can read (${e instanceof SyntaxError ? 'not JSON' : (e as Error).message.replace(/\.$/, '')}): review it on ${thisMachine()}`);
       continue;
     }
     // Its words to a person fail the wording check (T-149): a cloud reviewer can't be asked again, so nothing is kept.
     const wording = noteWording(verdictLines(answered));
     if (wording.length) {
-      fail(`its cloud reviewer's words fail the Simplified Technical English check (${[...new Set(wording.map((f) => f.where))].join(', ')}): review it on this Mac`);
+      fail(`its cloud reviewer's words fail the Simplified Technical English check (${[...new Set(wording.map((f) => f.where))].join(', ')}): review it on ${thisMachine()}`);
       continue;
     }
     const verdict: Verdict = {
@@ -305,7 +306,7 @@ export function followCloudReviews(paths: RepoPaths, config: Config, deps: { run
     if (existsSync(reviewPath(paths, t.id, c.sha))) {
       // A verdict for the commit is here already: a person reviewed it on this Mac meanwhile, and that one stands.
       end({});
-      out.push({ task: t.id, branch: c.branch, outcome: 'taken', moved: null, note: `a verdict for ${c.sha.slice(0, 7)} was already on this Mac, and it stands${deleted()}` });
+      out.push({ task: t.id, branch: c.branch, outcome: 'taken', moved: null, note: `a verdict for ${c.sha.slice(0, 7)} was already on ${thisMachine()}, and it stands${deleted()}` });
     } else if (current !== c.sha) {
       // Stale (T-86): kept for its commit, as a local review of an older commit is, and the task stays where it is.
       keepVerdict(paths, verdict);

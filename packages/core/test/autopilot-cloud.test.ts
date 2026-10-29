@@ -14,6 +14,10 @@ import { type LedgerEvent, moveTask, mutate, noGateHooks, readLedger, upsertTask
 import { checkVerdict, readVerdict, recordVerdict } from '../src/review.ts';
 import { bad, fakeRunner, gitIn, ok } from './support.ts';
 import { CLOUD, CLOUD_FIXTURES, now, RAW, reviewed, task } from './cloud-support.ts';
+import { thisMachine } from '../src/this-machine.ts';
+
+/** This machine as acc names it on the system the tests run on (T-150): the Windows CI job reads This PC. */
+const HERE = thisMachine();
 
 /** The project opted in to cloud reviews: agents.cloud.review is cloud, and autopilot is on. */
 const CLOUD_REVIEW = { ...RAW, agents: { max: 2, cloud: { ...CLOUD, review: 'cloud' } }, autonomy: 'review' };
@@ -72,13 +76,13 @@ test('autopilot waits on a cloud review under way, as on a review here, by its s
   // Its verdict couldn't be read: a person reviews it here, and autopilot doesn't try the same commit.
   mutate(paths, now, (l, emit) => {
     const x = l.tasks[0]!;
-    x.cloudReview = { ...x.cloudReview!, failed: { at: now().toISOString(), reason: 'its cloud reviewer\'s review.json isn\'t a verdict acc can read (not JSON): review it on this Mac' } };
+    x.cloudReview = { ...x.cloudReview!, failed: { at: now().toISOString(), reason: `its cloud reviewer's review.json isn't a verdict acc can read (not JSON): review it on ${HERE}` } };
     emit({ type: 'task.updated', task: 'T-1', actor: 'sync', by: 'reviewer:T-1 (cloud)', data: { cloudReview: x.cloudReview } });
   });
   const failed = look();
   assert.equal(failed.facts.reviewing, null, 'a failed cloud review isn\'t a review running');
   assert.deepEqual([failed.decision.step, failed.decision.outcome], [null, 'waiting']);
-  assert.match(failed.decision.reason, /^Its cloud review gave no verdict acc could take: its cloud reviewer's review\.json isn't a verdict acc can read \(not JSON\): review it on this Mac\. A person reviews it on this Mac\.$/);
+  assert.match(failed.decision.reason, new RegExp(String.raw`^Its cloud review gave no verdict acc could take: its cloud reviewer's review\.json isn't a verdict acc can read \(not JSON\): review it on ${HERE}\. A person reviews it on ${HERE}\.$`));
   // Cleared by a verdict kept here for the head, as a review on this Mac keeps one (T-88): the cloud review
   // is over, the commit has its verdict, and autopilot no longer waits on a review.
   const head = gitIn(paths.root, 'rev-parse', readLedger(paths.ledger).tasks[0]!.run!.branch!);

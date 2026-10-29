@@ -3,12 +3,13 @@
  * Plain data, posted to the webview and rendered there with text only. No vscode import, so it's testable.
  */
 
-import { BUILDER_PLACE_LOOK, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
+import { builderPlaceLook, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
 import type { BuilderPlace, CloudAgents } from '../../../packages/core/src/config.ts';
 import { editRefusal } from '../../../packages/core/src/edit.ts';
 import { againRefusal } from '../../../packages/core/src/again.ts';
 import { DISPATCH_AGAIN, MISSING_WORDS, UNSEEN_WORDS } from '../../../packages/core/src/started.ts';
 import type { State } from '../../../packages/core/src/ledger.ts';
+import { thisMachine } from '../../../packages/core/src/this-machine.ts';
 import { analysisReady, analysisWait, filesUnknown, sharesLine, waitLine } from '../logic/tasks.ts';
 import { questionsWord, saidLine, taskNames, type TaskRow } from '../logic/shared.ts';
 import { choicesWord, forYou } from '../logic/plan.ts';
@@ -58,7 +59,7 @@ export function closedPrLook(t: Pick<TaskRow, 'state' | 'pr'>): Look | null {
 export function placeLook(t: Pick<TaskRow, 'state' | 'run'>): Look | null {
   if (!t.run || t.state === 'todo') return null;
   const where: BuilderPlace = t.run.where === 'cloud' ? 'cloud' : 'local';
-  return { ...BUILDER_PLACE_LOOK[where], tone: 'neutral' };
+  return { ...builderPlaceLook()[where], tone: 'neutral' };
 }
 
 /**
@@ -168,9 +169,9 @@ function offered(t: TaskRow, ref: Ref): Action[] {
   if (t.state === 'review') {
     const open = t.pr?.state === 'open';
     // A cloud review that needs you (T-86): the way on is a review on this Mac, whatever the project's setting.
-    if (t.cloudReview?.wait) a.push({ command: 'acc.task.reviewLocal', label: 'Review on this Mac', icon: 'checklist', ref, primary: true });
+    if (t.cloudReview?.wait) a.push({ command: 'acc.task.reviewLocal', label: `Review on ${thisMachine()}`, icon: 'checklist', ref, primary: true });
     if (t.reviewing) a.push({ command: 'acc.task.watchReview', label: 'Watch the review', icon: 'pulse', ref, primary: !a.some((x) => x.primary) });
-    else if (t.cloudReview?.wait) { /* a quiet or failed cloud review: Review on this Mac leads, above */ }
+    else if (t.cloudReview?.wait) { /* a quiet or failed cloud review: Review on this machine leads, above */ }
     else if (open) a.push({ command: 'acc.task.openPr', label: `Pull request #${t.pr!.number}`, icon: 'git-pull-request', ref, primary: true });
     else if (t.review?.current && t.review.verdict === 'pass') a.push({ command: 'acc.task.land', label: WORDS.openPullRequest, icon: 'git-pull-request-create', ref, primary: true });
     else a.push({ command: 'acc.task.review', label: t.review?.current ? 'Review again' : 'Review', icon: 'checklist', ref, primary: true });
@@ -185,7 +186,7 @@ function offered(t: TaskRow, ref: Ref): Action[] {
     a.push({ command: 'acc.task.watch', label: 'Watch', icon: 'pulse', ref, primary: !dispatchable && t.state === 'running' && !t.cloud?.wait });
     if (t.state === 'running') a.push({ command: 'acc.task.message', label: 'Send a message', icon: 'comment', ref });
     if (t.state === 'running') a.push({ command: 'acc.task.collect', label: 'Collect', icon: 'cloud-download', ref, primary: !!t.cloud?.wait || !!t.cloud?.finished });
-    if (t.state === 'running') a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, disabled: 'Its conversation runs on claude.ai, not on this Mac: Watch opens it there.' });
+    if (t.state === 'running') a.push({ command: 'acc.task.openInClaude', label: 'Open in Claude Code', icon: 'comment-discussion', ref, disabled: `Its conversation runs on claude.ai, not on ${thisMachine()}: Watch opens it there.` });
   }
   // Its agent waits on a question in the Command Center (D-030): Answer opens it in Needs you, as the Agents
   // tab's does, and Watch goes behind ⋯ (T-39).

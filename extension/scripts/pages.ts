@@ -151,6 +151,8 @@ export const PAGES = [
   // Sheets over the Tasks board: Build it, and the task sheet
   'dispatch-sheet',
   'dispatch-sheet-anyway',
+  // Build it on Windows (T-150): this machine is This PC
+  'dispatch-sheet-windows',
   'task-sheet-new',
   'task-sheet-manual',
   // The task sheet's wording check (T-148): a fix and a piece of advice beside the acceptance criteria

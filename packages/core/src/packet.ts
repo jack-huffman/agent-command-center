@@ -12,6 +12,7 @@ import { type ChecksReport, checksSection, type QueueReport, queueSection } from
 import type { Verdict } from './review.ts';
 import { shapeSection } from './shape-split.ts';
 import { type Team, teamSection } from './team.ts';
+import { machineNoun } from './this-machine.ts';
 
 // ---------------------------------------------------------------- the packet (DESIGN.md section 8)
 
@@ -194,7 +195,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
     '',
     // A cloud builder's workspace is its session's clone (GH-69): the worktree is where acc collects its branch.
     // The Mac's paths stay out of the cloud's instructions: they name the home folder, and mean nothing there.
-    ...(p.cloud ? ['- **Workspace:** this cloud session\'s clone of the repo. acc collects your branch into the task\'s worktree on the Mac.'] : [`- **Worktree:** \`${p.worktree}\`. This is your only workspace.`]),
+    ...(p.cloud ? [`- **Workspace:** this cloud session's clone of the repo. acc collects your branch into the task's worktree on the ${machineNoun()}.`] : [`- **Worktree:** \`${p.worktree}\`. This is your only workspace.`]),
     `- **Branch:** \`${p.branch}\`, started from \`${env.branch}\`, the ${env.name} environment's branch.${p.cloud ? ' It\'s on GitHub already: check it out, and push only it.' : ''}`,
   );
   if (sf && env.org) lines.push(`- **Org:** \`${env.org}\` (${env.name}). It's already this worktree's default org.`);
