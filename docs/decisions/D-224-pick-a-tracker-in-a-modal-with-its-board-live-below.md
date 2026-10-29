@@ -1,4 +1,4 @@
-## D-T-140 Pick or change a tracker in a stepped modal, with its board live below the dropdowns (2026-10-28)
+## D-224 Pick or change a tracker in a stepped modal, with its board live below the dropdowns (2026-10-28)
 
 T-140. The person asked for adding and changing a tracker's settings to be a modal stepped through, with a proper
 preview of the board: dropdowns across the top, the board below them, redrawn as each changes, so the tickets show.

@@ -1703,7 +1703,7 @@ this machine, or through gh for GitHub. Each state has an icon and words, blue
 or orange. Each tracker has **Sign in again** and **Change place…**, which open
 the Connect modal at it, and **Sign out**, which asks every project or this one
 for a site's sign-in; GitHub has only Change place…. **Connect a tracker…**
-starts a new one. The Connect modal (D-T-140) opens over this part and steps
+starts a new one. The Connect modal (D-224) opens over this part and steps
 through the tracker, its sign-in, its board (its lists as dropdowns across the
 top, the board they make below) and Save; Save comes back to this part. Save asks `acc trackers set` to write the tracker, so the
 Command Center writes no config itself (D-064).
