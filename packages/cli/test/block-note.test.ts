@@ -74,7 +74,9 @@ test('--item with no headline is refused with the shape to use, and --client tak
 
 test('a client\'s question is held to the headline limit by its own length, not with the prefix acc adds', () => {
   const { dir, builder } = running();
-  const question = `Which queue should Gold cases go to ${'when they arrive '.repeat(20)}`.slice(0, NOTE_HEADLINE_MAX - 5).trim() + '?';
+  // Short sentences, so it passes the wording check (T-149) and only its length is in question.
+  const question = `${'Gold cases arrive each day. '.repeat(6)}Which queue takes them?`;
+  assert.ok(question.length <= NOTE_HEADLINE_MAX);
   assert.ok(question.length + 'Waiting on the client: '.length > NOTE_HEADLINE_MAX, 'with the prefix it would be past the limit');
   const fits = acc(dir, ['block', '--client', question, '--json'], undefined, builder);
   assert.equal(fits.code, 0, fits.err);
