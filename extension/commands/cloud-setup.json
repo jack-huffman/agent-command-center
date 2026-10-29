@@ -1,0 +1,8 @@
+[
+  {
+    "command": "acc.cloud.setup",
+    "title": "Set up cloud builders…",
+    "category": "Agent Command Center",
+    "icon": "$(cloud)"
+  }
+]

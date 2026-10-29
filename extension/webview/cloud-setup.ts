@@ -127,7 +127,7 @@ function foot(m: CloudSetupModel): HTMLElement {
   const cancel = button('Cancel', 'close', () => send(m, { type: 'cloud-setup-cancel' }), 'ghost');
   cancel.disabled = !m.cancel.can;
   if (m.cancel.why) cancel.title = m.cancel.why;
-  const go = m.next ? button('Next', 'arrow-right', () => send(m, { type: 'cloud-setup-step', step: m.steps[i + 1]!.id }), 'primary')
+  const go = m.next ? button('Next', 'arrow-right', () => { if (m.next?.can) send(m, { type: 'cloud-setup-step', step: m.steps[i + 1]!.id }); }, 'primary')
     : button('Done', 'check', () => send(m, { type: 'cloud-setup-cancel' }), 'primary');
   go.disabled = m.next ? !m.next.can : !m.cancel.can;
   const why = m.next?.why ?? null;

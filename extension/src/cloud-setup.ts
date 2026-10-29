@@ -10,7 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { CLOUD_TOKEN, CLOUD_TOKEN_ENV, cloudTokenHome, ROUTINES_URL } from '../../packages/core/src/cloud.ts';
 import type { GuardPlace } from '../../packages/core/src/cloud-guard-place.ts';
 import { ROUTINE_ID } from '../../packages/core/src/config.ts';
-import { CLAUDE_SIGN_IN, CLOUD_SETUP, GITHUB_APP, ROUTINE_PROMPT } from '../../packages/core/src/onboarding/cloud-steps.ts';
+import { CLAUDE_SIGN_IN, GITHUB_APP, ROUTINE_PROMPT } from '../../packages/core/src/onboarding/cloud-steps.ts';
 import type { ExtensionArea } from './area.ts';
 import { area as page, canReach, type CloudAction, type CloudCheck, type CloudSetupMessage, cloudSetupModel, type CloudSetupModel, type CloudSetupState, type CloudSetupStep, firstNotDone, TOKEN_PROBLEM, TRIGGER_PROBLEM } from './model/cloud-setup.ts';
 import type { RunResult } from './run.ts';
@@ -313,7 +313,7 @@ export class CloudSetupSession {
       case 'signin':
         this.deps.terminal(CLAUDE_SIGN_IN, s.root, () => void this.read());
         return;
-      case 'commit': return run('commit', () => accOrSay(['cloud', 'guard', 'commit']));
+      case 'commit': return run('commit', () => accOrSay(['cloud', 'guard', '--commit']));
       case 'push': {
         const place = s.place;
         if (!place) return;
@@ -321,7 +321,7 @@ export class CloudSetupSession {
         const n = place.ahead;
         const go = await this.deps.ask(`Push ${place.base} to GitHub?`, `The cloud clones ${place.base}, so the push guard must be there. This sends ${n ? `${n} commit${n === 1 ? '' : 's'} on ${place.base}` : place.base}, the guard among them, and nothing else.`, 'Push');
         if (!go || this.s !== s) return;
-        return run('push', () => accOrSay(['cloud', 'guard', 'push']));
+        return run('push', () => accOrSay(['cloud', 'guard', '--push']));
       }
     }
   }
@@ -350,7 +350,7 @@ export const area: ExtensionArea = {
     // Every message the modal sends, for the modal that's open.
     for (const type of Object.keys(page.messages ?? {}) as CloudSetupMessage['type'][]) receive(type, (m) => cloudSetup.receive(m));
     // From Settings' Set up… (a root), the palettes (a project node, or nothing) and Setup's B15 Do it (nothing).
-    reg(CLOUD_SETUP.command, (arg?: unknown) => {
+    reg('acc.cloud.setup', (arg?: unknown) => {
       const root = typeof arg === 'string' ? arg : (arg as { project?: { root?: string }; root?: string } | undefined)?.project?.root ?? (arg as { root?: string } | undefined)?.root;
       void vscode.commands.executeCommand('acc.open.home').then(() => cloudSetup.open(root));
     });

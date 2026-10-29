@@ -96,22 +96,23 @@ function cmdToken(o: Opts): number {
  * The push guard on the branch the cloud clones (T-145): where it stands, committing it there (the three files
  * only), or pushing that branch. A person's, never an agent's: Set up cloud builders asks before a push.
  */
-function cmdGuard(o: Opts, sub: string | undefined): number {
+function cmdGuard(o: Opts): number {
   const { paths, config } = project(process.cwd());
   const main = firstBranch(config);
-  if (sub === 'commit') {
+  // One at a time, so a push is always asked for on its own.
+  if (o.commit === true && o.push === true) throw new AccError('usage', 'acc cloud guard --commit, then acc cloud guard --push: one at a time.');
+  if (o.commit === true) {
     noAgent(o, 'commit the push guard');
     const r = commitGuard(run, paths.root, main);
     out(o, () => (r.committed ? `Committed the push guard on ${r.base}. Push ${r.base} so the cloud clones it.` : `The push guard is already committed on ${r.base}.`), r);
     return 0;
   }
-  if (sub === 'push') {
+  if (o.push === true) {
     noAgent(o, 'push the branch the cloud clones');
     const r = pushGuard(run, paths.root, main, process.env);
     out(o, () => (r.pushed ? `Pushed ${r.base} to GitHub, with the push guard.` : `GitHub's ${r.base} has the push guard already.`), r);
     return 0;
   }
-  if (sub !== undefined) throw new AccError('usage', 'acc cloud guard [commit|push]');
   const place = guardPlace(run, paths.root, main);
   out(o, () => [
     `The cloud clones ${place.base}.`,
@@ -152,8 +153,8 @@ export const area: CommandArea = {
   acc cloud token [--forget]            Keep the scheduled task's API token in this Mac's keychain, read from stdin,
                                         never from the command line; --forget takes it out. On Windows the Command
                                         Center keeps it, and hands it to acc when it builds or reviews
-  acc cloud guard [commit|push]         Whether the push guard is committed on the branch the cloud clones, and on
-                                        GitHub; commit commits its three files there; push pushes that branch
+  acc cloud guard [--commit|--push]     Whether the push guard is committed on the branch the cloud clones, and on
+                                        GitHub; --commit commits its three files there; --push pushes that branch
   acc collect <id>                      Bring a cloud builder's branch into its worktree, run the required checks
                                         here, and move the task to review: what acc sync does on its own once the
                                         builder's last commit carries Acc-Done: <id>`,
@@ -165,6 +166,7 @@ export const area: CommandArea = {
     'quiet-minutes': { type: 'string' },
     review: { type: 'string' },
     forget: { type: 'boolean', default: false },
+    commit: { type: 'boolean', default: false },
     'from-env': { type: 'boolean', default: false },
   },
   subcommands: { cloud: ['status', 'enable', 'disable', 'token', 'guard'] },
@@ -175,7 +177,7 @@ export const area: CommandArea = {
       if (sub === 'enable') return cmdEnable(o);
       if (sub === 'disable') return cmdDisable(o);
       if (sub === 'token') return cmdToken(o);
-      if (sub === 'guard') return cmdGuard(o, rest[1]);
+      if (sub === 'guard') return cmdGuard(o);
       throw new AccError('usage', 'acc cloud [status|enable|disable|token|guard]');
     },
     collect: (o, rest) => cmdCollect(o, rest[0]),

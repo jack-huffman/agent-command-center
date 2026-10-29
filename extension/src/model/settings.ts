@@ -220,7 +220,7 @@ export function cloudSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS, prote
     ? [setUp]
     : [
       setUp,
-      action('acc.cloud.routine', 'Copy the prompt', 'clippy', `Copy the scheduled task's prompt for ${p.name}`),
+      action('acc.cloud.routine', 'Copy the prompt', 'clippy', `Copy the prompt: the scheduled task's, for ${p.name}`),
       action('acc.cloud.enable', 'Trigger id…', 'edit', `Trigger id: give the Command Center ${p.name}'s scheduled task`),
       // On every system (T-145): a Mac keeps the token in its keychain, Windows in VS Code.
       action('acc.cloud.token', 'Token…', 'key', `Token: keep the scheduled task's token for ${p.name}`),

@@ -138,6 +138,12 @@
         "icon": "$(note)"
       },
       {
+        "command": "acc.cloud.setup",
+        "title": "Set up cloud builders…",
+        "category": "Agent Command Center",
+        "icon": "$(cloud)"
+      },
+      {
         "command": "acc.task.message",
         "title": "Send its cloud builder a message…",
         "category": "Agent Command Center",
@@ -151,7 +157,7 @@
       },
       {
         "command": "acc.cloud.enable",
-        "title": "Turn cloud builders on for a project…",
+        "title": "Give cloud builders a project's trigger id…",
         "category": "Agent Command Center",
         "icon": "$(cloud)"
       },
@@ -163,7 +169,7 @@
       },
       {
         "command": "acc.cloud.token",
-        "title": "Keep the routine's token for cloud builders…",
+        "title": "Keep the scheduled task's token for cloud builders…",
         "category": "Agent Command Center",
         "icon": "$(key)"
       },
@@ -181,7 +187,7 @@
       },
       {
         "command": "acc.cloud.routine",
-        "title": "Copy the routine prompt for cloud builders",
+        "title": "Copy the scheduled task's prompt for cloud builders",
         "category": "Agent Command Center",
         "icon": "$(clippy)"
       },

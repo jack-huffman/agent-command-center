@@ -743,7 +743,7 @@ and so does the command palette. It opens on the first step not done.
   what's committed reaches the cloud, and a dispatch refuses `--cloud` until
   the branch the cloud clones and the task branch both carry it. The modal's
   **The push guard** step commits the guard's files alone with **Do it** (`acc
-  cloud guard commit`), and **Push…** asks before it pushes that branch. Where GitHub
+  cloud guard --commit`), and **Push…** asks before it pushes that branch. Where GitHub
   enforces no protection on an environment branch, `acc cloud` and the
   dispatch warn, without refusing: a private repo on the free plan has none.
 

@@ -69,12 +69,12 @@ function harness(start: World, o: { platform?: NodeJS.Platform; ask?: boolean; s
       if (a.startsWith('doctor')) return reply(0, [{ id: 'B15.cloud-github-app', status: w.on ? w.github : 'skip', detail: w.github === 'pass' ? 'The Claude GitHub App is installed on acme/tool.' : 'gh couldn\'t list the apps installed for you.' }]);
       if (a === 'cloud enable --json') { w.on = true; return reply(0, {}); }
       if (a.startsWith('cloud enable --routine')) { w.routine = args[3]!; return reply(0, {}); }
-      if (a === 'cloud guard commit --json') {
+      if (a === 'cloud guard --commit --json') {
         if (w.checkedOut !== 'main') return reply(1, { message: '✗ The cloud clones main, and this folder has feature checked out.' });
         w.local = true;
         return reply(0, {});
       }
-      if (a === 'cloud guard push --json') { w.pushed = true; return reply(0, {}); }
+      if (a === 'cloud guard --push --json') { w.pushed = true; return reply(0, {}); }
       return reply(1, { message: `no stand-in for ${a}` });
     },
     tokens, platform,
@@ -338,7 +338,7 @@ test('the push guard: Do it commits it; Push… asks first, naming the branch, a
   assert.equal(h.m().step, 'guard');
   assert.deepEqual(h.m().view.buttons.map((b) => b.label), ['Do it', 'Check again']);
   await h.act('commit');
-  assert.ok(h.calls.some((c) => c.join(' ') === 'cloud guard commit --json'));
+  assert.ok(h.calls.some((c) => c.join(' ') === 'cloud guard --commit --json'));
   assert.equal(h.m().view.look.label, 'Committed here, not on GitHub\'s main yet');
   assert.deepEqual(h.m().view.buttons.map((b) => b.label), ['Push…', 'Check again']);
   await h.act('push');
@@ -346,7 +346,7 @@ test('the push guard: Do it commits it; Push… asks first, naming the branch, a
   assert.equal(h.asked[0]!.message, 'Push main to GitHub?');
   assert.match(h.asked[0]!.detail, /This sends 2 commits on main, the guard among them, and nothing else\./);
   assert.equal(h.asked[0]!.go, 'Push');
-  assert.ok(!h.calls.some((c) => c.join(' ') === 'cloud guard push --json'), 'a no pushes nothing');
+  assert.ok(!h.calls.some((c) => c.join(' ') === 'cloud guard --push --json'), 'a no pushes nothing');
   assert.equal(h.m().next!.can, false);
 });
 
@@ -354,7 +354,7 @@ test('the push guard: a yes pushes, and Next goes on to Ready, which says how to
   const h = harness({ ...done, pushed: false }, { ask: true });
   await h.session.open(ROOT);
   await h.act('push');
-  assert.ok(h.calls.some((c) => c.join(' ') === 'cloud guard push --json'));
+  assert.ok(h.calls.some((c) => c.join(' ') === 'cloud guard --push --json'));
   assert.equal(h.m().next!.can, true);
   h.go('ready');
   assert.equal(h.m().view.line, 'To send a task to the cloud: Build it, then pick Cloud.');

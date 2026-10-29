@@ -32,7 +32,7 @@ builds on T-140's stepped modal (D-224) and the calm style of D-217, D-218 and D
   and keep only that; while a button's work runs, Cancel is off with why. A trigger id or token that doesn't fit
   is refused before anything is written, in the page as it's typed and again in the extension.
 - **The push guard on the branch the cloud clones** (`packages/core/src/cloud-guard-place.ts`, `acc cloud guard
-  [commit|push]`). The cloud clones origin's default branch (as `cloudGuard` reads it), so that's where the guard
+  [--commit|--push]`). The cloud clones origin's default branch (as `cloudGuard` reads it), so that's where the guard
   must be. Do it commits the guard's three files alone, never anything else staged, and only with that branch
   checked out; otherwise it's off and says to switch. Push… asks first, in a modal that names the branch and how
   many commits go with it, and a no pushes nothing. `acc cloud --json` now says where the guard stands

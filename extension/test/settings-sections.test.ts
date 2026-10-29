@@ -160,7 +160,7 @@ const BEFORE = [
  */
 const T145: Record<string, string> = {
   'BUTTON Change routine: give the Command Center Acme Service\'s routine': 'BUTTON Trigger id: give the Command Center Acme Service\'s scheduled task',
-  'BUTTON Copy the routine prompt for Acme Service': 'BUTTON Copy the scheduled task\'s prompt for Acme Service',
+  'BUTTON Copy the routine prompt for Acme Service': 'BUTTON Copy the prompt: the scheduled task\'s, for Acme Service',
   'BUTTON Token: keep the routine\'s token for Acme Service': 'BUTTON Token: keep the scheduled task\'s token for Acme Service',
   'BUTTON Turn on cloud builders for Acme Portal': 'BUTTON Set up cloud builders for Acme Portal',
 };
