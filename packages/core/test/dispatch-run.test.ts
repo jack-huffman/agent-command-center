@@ -150,11 +150,12 @@ test('a builder finishes with a note that its next run, a task that depends on i
   const done = acc(wt, ['done', '--landed', 'CHANGELOG.md with one entry', '--moved', 'none', '--open', 'Link it from the README', '--open', 'Date the entry', '--json'], b);
   assert.equal(done.code, 0, done.err);
   const note = (tasksOf(repo)[0]!.run as unknown as { note: RunNote }).note;
-  assert.deepEqual({ ...note, at: '' }, { landed: ['CHANGELOG.md with one entry'], moved: [], open: ['Link it from the README', 'Date the entry'], at: '', by: 'builder:T-1', ended: 'review' });
+  // Its file's name is recorded as code (T-146): the builder wrote it bare, inside double quotes.
+  assert.deepEqual({ ...note, at: '' }, { landed: ['`CHANGELOG.md` with one entry'], moved: [], open: ['Link it from the README', 'Date the entry'], at: '', by: 'builder:T-1', ended: 'review' });
   const moved = readFileSync(join(repo, '.git', 'acc', 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((e) => e.type === 'task.moved' && e.data.to === 'review');
   assert.deepEqual(moved.at(-1).data.note, note, 'its event carries it');
   const shown = acc(repo, ['show', 'T-1']).out;
-  assert.match(shown, /Builder's note \(builder:T-1, to review .*\):\n {2}What landed:\n {4}- CHANGELOG.md with one entry\n {2}Numbers that moved:\n {4}none\n {2}Still open:\n {4}- Link it from the README\n {4}- Date the entry/);
+  assert.match(shown, /Builder's note \(builder:T-1, to review .*\):\n {2}What landed:\n {4}- `CHANGELOG\.md` with one entry\n {2}Numbers that moved:\n {4}none\n {2}Still open:\n {4}- Link it from the README\n {4}- Date the entry/);
   assert.deepEqual(acc(repo, ['show', 'T-1', '--json']).json().run.note, note);
 
   // A rework's next run is told what the last one left, and keeps it as run.before.

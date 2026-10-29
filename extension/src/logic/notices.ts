@@ -73,7 +73,8 @@ export function taskNotices(before: TaskRow[], after: TaskRow[]): TaskNotice[] {
     // Autopilot sent it back for its failing checks (D-076), or a review asked for changes.
     else if (moved && t.state === 'rework' && t.checks?.length) out.push({ kind: 'rework', task: t.id, text: `Checks failed on GitHub for ${t.id}: ${t.checks.join(', ')}. It went back to its builder.`, urgent: true, cause: 'checks' });
     else if (moved && t.state === 'rework') say('rework', `The review asked for changes on ${t.id}${t.review?.summary ? `: ${t.review.summary}` : '.'}`, true);
-    else if (moved && t.state === 'blocked') say('blocked', `${t.id} is blocked: ${t.title}`, true);
+    // A notice carries a blocked note's headline alone (T-146); its bullets are on the task's page.
+    else if (moved && t.state === 'blocked') say('blocked', `${t.id} is blocked: ${t.blocker?.headline || t.title}`, true);
     // Its builder stopped before acc done or acc block (D-067): what it last said, and Resume.
     // A notice about the agent names it (D-087).
     if (t.stopped && !p.stopped && t.state === 'running') out.push({ kind: 'stopped', task: t.id, text: stoppedNotice(builderName(t), t.stopped.said), urgent: true, actions: [['Resume', 'acc.task.resume']] });

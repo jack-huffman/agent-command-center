@@ -15,6 +15,7 @@ import { sampleRecordsTicket } from '../scripts/fixtures/record-changes.ts';
 import { sampleChangesTicket } from '../scripts/fixtures/changes.ts';
 import { sampleFieldTicket } from '../scripts/fixtures/changes-field.ts';
 import { sampleConversationTicket } from '../scripts/fixtures/conversation.ts';
+import { noteInWords } from '../src/logic/relayed.ts';
 
 // A tab that keeps its memory, as VS Code's does: the sections read what was collapsed on the next draw.
 pageDom();
@@ -79,7 +80,7 @@ test('a notice that needs the person stays on top, above the tabs; no section is
   saved = undefined;
   // ACME-21, with a plan, stopped with why.
   const base = sampleSectionsTicket(NOW);
-  const m: TicketModel = { ...base, acc: { ...base.acc!, blocker: 'Waiting on the client\'s answer about the renewal date.' } };
+  const m: TicketModel = { ...base, acc: { ...base.acc!, blocker: noteInWords('Waiting on the client\'s answer about the renewal date.') } };
   assert.ok(m.acc?.blocker && m.analysis, 'the fixture has a notice and a plan');
   const { top, main } = drawn(m);
   assert.ok(top && top.all('notice').length >= 1, 'the notice is in the top band');

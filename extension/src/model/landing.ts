@@ -7,6 +7,7 @@
  */
 
 import { DISPLAY, type DisplayState } from '../../../packages/core/src/ledger.ts';
+import type { AgentNote } from '../logic/relayed.ts';
 import type { Tone } from '../logic/shared.ts';
 import { ordinal } from '../../../packages/core/src/queue.ts';
 import { plural } from '../../../packages/core/src/text.ts';
@@ -74,6 +75,8 @@ export interface LandingRow {
   open: RowDo | null;
   /** What no longer shows on the line, on hover: the whole detail. */
   tip: string | null;
+  /** A blocked task's note (T-146), drawn under the line: its headline, and its bullets. */
+  note?: AgentNote;
   /** A job that ended in the last minute: its line fades from this many seconds in (D-092). */
   fading?: number;
 }
@@ -186,7 +189,7 @@ function attentionRow(a: AttentionItem, many: boolean): LandingRow {
   // The rest of a task's buttons in its ⋯ menu; an agent's and the tidy-up's say their own.
   const flags = Object.fromEntries(rest.filter((x) => x !== first && TASK_MENU[x.command]).map((x) => [TASK_MENU[x.command]!, true]));
   const menu: RowMenu | null = a.menu ?? (task && Object.keys(flags).length ? { section: 'task', ref: { project: task.project!, task: id! }, flags } : null);
-  return { key: a.key, look: a.look, id, title, facts: facts(said, many ? a.project : null), action, menu, open: modal, tip: [a.title, a.tip ?? a.detail].join('\n') };
+  return { key: a.key, look: a.look, id, title, facts: facts(said, many ? a.project : null), action, menu, open: modal, tip: [a.title, a.note?.headline ?? a.tip ?? a.detail].join('\n'), ...(a.note ? { note: a.note } : {}) };
 }
 
 /** Every update draft, as one line: Review opens them one at a time, each with its text, Post, Edit and Discard. */

@@ -10,6 +10,7 @@ import { shellQuote } from '../../../packages/core/src/onboarding/fix-lines.ts';
 import { isObj } from '../../../packages/core/src/text.ts';
 import type { AutopilotStepName, CloudRun, FileShare, QueuePhase } from '../../../packages/core/src/ledger.ts';
 import type { Unseen } from '../../../packages/core/src/started.ts';
+import type { AgentNote } from './relayed.ts';
 
 // ---------------------------------------------------------------- sidebar (views)
 
@@ -89,6 +90,8 @@ export interface TaskRow {
   checks?: string[] | null;
   /** Its builder stopped before acc done or acc block, and the last thing it said, if that could be read (D-067). */
   stopped?: { said: string | null } | null;
+  /** Why it's blocked (T-146): its note in a person's words, with its headline and shape. None while it isn't blocked. */
+  blocker?: AgentNote | null;
   /**
    * acc can't see its local builder (T-92): Claude Code's background sessions haven't answered for longer
    * than the grace, and, when quiet, its conversation hasn't been written for longer than the quiet limit.

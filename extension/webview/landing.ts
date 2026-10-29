@@ -5,6 +5,7 @@
 import type { Detail, LandingGroup, LandingRow, OverviewCard, RowButton, RowDo } from '../src/model/landing.ts';
 import { type Child, el, icon, menuButton, peekKey, withMenu } from './dom.ts';
 import { closeDetail, openDetail } from './detail.ts';
+import { drawNote } from './note.ts';
 import { api, go } from './state.ts';
 
 /** What a line's button, its click or Show all does. A task or a section opens in place of any detail open. */
@@ -49,7 +50,7 @@ export function landingRow(r: LandingRow, calm = false): HTMLElement {
   // A row with no menu keeps the caret's place, so every row's button starts and ends where the others do.
   const caret = r.menu ? menuButton(r.id ? `${r.id} ${r.title}` : r.title) : r.action ? Object.assign(el('span', 'lp-caret-slot'), { ariaHidden: 'true' }) : null;
   const title = el('span', 'lp-title', r.title);
-  const row = el('li', `lp-row tone-row-${r.look.tone}`, state, r.id ? el('span', 'tcard-key lp-key', r.id) : null, title, ...facts,
+  const row = el(r.note ? 'div' : 'li', `lp-row tone-row-${r.look.tone}`, state, r.id ? el('span', 'tcard-key lp-key', r.id) : null, title, ...facts,
     el('span', 'lp-do', r.action ? rowButton(r.action) : null, caret));
   row.dataset.overviewRow = '';
   row.title = [r.tip?.includes(r.title) ? r.tip : [r.id ? `${r.id} ${r.title}` : r.title, r.tip].filter(Boolean).join('\n'), ...(calm ? r.facts.map((f) => f.text) : [])].join('\n');
@@ -77,7 +78,9 @@ export function landingRow(r: LandingRow, calm = false): HTMLElement {
     row.addEventListener('click', go);
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(e); });
   }
-  return row;
+  // A blocked task's note under its line (T-146), which stays one line high: the note's headline, then its bullets,
+  // which fold under a count when calm. The line and its note are one item of the list.
+  return r.note ? el('li', 'lp-item', row, el('div', 'lp-note', drawNote(r.note, `needs:${r.key}`, { calm }))) : row;
 }
 
 /**

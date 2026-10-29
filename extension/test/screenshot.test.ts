@@ -141,7 +141,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     // The busy Overview as a landing page, and with a detail opened over it (GH-160): ten suggested rules, six
     // tasks building, each with a check, three questions, two update drafts and twelve things in History. The
     // same with Needs you's Show all, or a card's list, open in full (T-36).
-    else if (['overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-progress', 'overview-ready', 'overview-moment'].includes(kind)) {
+    else if (['overview-landing', 'overview-answer', 'overview-drafts', 'overview-history', 'overview-needs', 'overview-needs-wall', 'overview-progress', 'overview-ready', 'overview-moment'].includes(kind)) {
       const o = (m as HomeModel).overview;
       const list = OVERVIEW_LISTS[kind];
       if (list) assert.deepEqual(startState(kind), { detail: { kind: 'list', group: list } });
@@ -160,6 +160,11 @@ test('every section of the page, and a ticket, has sample data built by the real
     else if (kind === 'overview-clear') assert.deepEqual([(m as HomeModel).overview.landing[0]!.rows.length, (m as HomeModel).overview.landing[0]!.empty, (m as HomeModel).overview.cards.length], [0, 'No agent is waiting, nothing is blocked, and setup is done.', 3]);
     // The busy Overview with news held while away (D-164): Since you last looked, a line for each.
     else if (kind === 'overview-since') assert.deepEqual([(m as HomeModel).overview.since?.rows.map((r) => r.look.label), (m as HomeModel).overview.since?.part], [['Review passed', 'Merged', 'Ready for review', 'Analysis ready', 'Analysis back', 'Sprint changed'], 'overview:since']);
+    // The Overview with a blocked task first in Needs you (T-146): its note under its line, its points opened.
+    else if (kind === 'overview-blocked') {
+      const first = (m as HomeModel).overview.landing.find((g) => g.key === 'needs-you')!.rows.find((r) => r.note);
+      assert.deepEqual([first?.id, first?.note?.shape?.items.length, startState(kind)], ['ACME-18', 3, { opened: [`note-fold:needs:t:${ROOT}:ACME-18`] }]);
+    }
     // The loading screen (T-16) holds back the Overview's model, which the run never sends.
     else if (kind === 'loading') assert.deepEqual([m.kind, (m as HomeModel).section], ['home', 'overview']);
     else if (kind.startsWith('overview-')) assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).overview.inProgress.empty === null], ['home', 'overview', kind === 'overview-busy']);

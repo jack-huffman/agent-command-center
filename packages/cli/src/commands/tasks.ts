@@ -1,6 +1,6 @@
 // acc's Tasks commands: add, edit, import, intake, status, list, ready, show and set.
 
-import { AccError, autopilotFailure, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftChangesField, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, recordChanges, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
+import { AccError, autopilotFailure, codeNames, unseenNow, DISPATCH_AGAIN, UNSEEN_WORDS, editedWords, editTask, type TaskEdit, BUILDER_PLACE_LOOK, builderStopped, cardFailure, claudeProjectsDir, clipSaid, closedPr, cloudWait, type Config, DISPLAY, displayState, type DisplayState, draftChangesField, draftUpdate, failedChecks, filesOf, holdWords, inFlight, intakeGithub, intakeOutside, type IntakeResult, isReady, isSprintSeen, rememberSprint, lastSaid, listSessions, moveTask, mutate, NOTE_LABELS, type NoteInput, ordinal, phaseWords, plannedFiles, queuePlaces, readAnalysis, readLedger, receiptHooks, recordChanges, repoPaths, resuming, run, shownNote, type Task, sharesWords, startLook, type StartLook, type State, type TaskInput, trackerForKey, type UpsertResult, upsertTasks, waits, wordingMatch, wordingPlace, wordingWords } from '../../../core/src/index.ts';
 import { type Outside, TRACKER_KINDS, type TrackerKind, trackerName } from '../../../core/src/trackers/types.ts';
 import { stateLabel, table, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, now, type Opts, out, project, readFileArg, stepWords } from '../shared.ts';
@@ -248,14 +248,20 @@ function cmdEdit(o: Opts, id: string): number {
   return 0;
 }
 
+/** A note's lines with their API names as code (T-146). */
+const codedNote = (n: NoteInput): NoteInput => Object.fromEntries(Object.entries(n).map(([k, lines]) => [k, (lines as string[]).map((l) => codeNames(l))]));
+
 export function cmdSet(o: Opts, id: string, to: string, note: NoteInput | null = null): number {
   const client = typeof o.client === 'string' ? o.client.trim() : undefined;
   if (o.client !== undefined && to !== 'blocked') throw new AccError('usage', '--client goes with blocking: acc block --client "<question>".');
   if (o.client !== undefined && !client) throw new AccError('usage', 'acc block --client "<the question, for the client>"');
   const { paths, config } = project(process.cwd());
   const { actor, by } = actorFrom(o);
+  // An agent's API names are recorded as code (T-146), in its reason and its note; a person's words are kept as typed.
+  const coded = (s: string): string => (actor === 'human' ? s : codeNames(s));
+  const said = (o.reason as string | undefined) ?? (client ? `Waiting on the client: ${client}` : null);
   const { task, entry } = followingCards(paths, config, () => moveTask(paths, config, id.toUpperCase(), {
-    to: to as State, actor, by, reason: (o.reason as string | undefined) ?? (client ? `Waiting on the client: ${client}` : null), force: o.force === true, note,
+    to: to as State, actor, by, reason: said === null ? null : coded(said), force: o.force === true, note: note && actor !== 'human' ? codedNote(note) : note,
   }, receiptHooks(paths, config, run), now));
   // A person's merge: what its work changed is kept with it, for after its branch is gone (T-99).
   if (entry.to === 'done') recordChanges(paths, run, now, task.id, { actor, by });
