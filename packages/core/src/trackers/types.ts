@@ -142,6 +142,11 @@ export interface BoardCard {
   itemId?: string;
   /** The whole title, where `title` is cut short, as a Slack message's long first line is (T-85). */
   fullTitle?: string;
+  /**
+   * When the ticket last changed, as the tracker's card list gives it (T-141): what the saved tickets compare, so
+   * only a changed ticket is read again in full. Left out where the list gives none.
+   */
+  updated?: string;
 }
 
 export interface Board {

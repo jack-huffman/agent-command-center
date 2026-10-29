@@ -5,7 +5,7 @@
 import { ghEnv } from '../exec.ts';
 import { fromMarkdown } from './doc.ts';
 import { GITHUB_CHANGES, githubSection, withGithubSection } from './fields.ts';
-import { hexOf, typeKindOf } from './normal.ts';
+import { changedOf, hexOf, typeKindOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Exec, inBatches, type Label, orList, type Outside, outsideError, type Person, placeText, type Status, type StatusCategory,
   type TextField, type Ticket, type TicketText, type TrackerClient, TrackerError, type Transition,
@@ -143,7 +143,7 @@ const itemsQuery = (types: boolean): string => `query($id: ID!, $after: String) 
     pageInfo { hasNextPage endCursor }
     nodes { id
       fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { optionId name } }
-      content { __typename ... on Issue { number title url state${types ? ' issueType { name color }' : ''} repository { nameWithOwner }
+      content { __typename ... on Issue { number title url state updatedAt${types ? ' issueType { name color }' : ''} repository { nameWithOwner }
         assignees(first: 5) { nodes { login name } } labels(first: 50) { nodes { name color } } } } } } } }
 }`;
 
@@ -259,6 +259,7 @@ export class GithubClient implements TrackerClient {
     const cards = [...open, ...closed].map((i): BoardCard => ({
       key: `GH-${i.number}`, title: i.title, url: i.url, status: issueState(i.state, i.stateReason),
       type: i.issueType?.name ?? null, typeKind: typeKindOf(i.issueType?.name), typeColor: issueTypeColour(i.issueType), assignees: i.assignees.map(person), labels: i.labels.map(label), priority: null, priorityLevel: null,
+      ...changedOf(i.updatedAt),
     }));
     return {
       source: 'github-state', title: `Issues · ${this.o.repo}`, url: `https://github.com/${this.o.repo}/issues`,
@@ -278,9 +279,9 @@ export class GithubClient implements TrackerClient {
    * every label it's given, so an issue with any one of them takes a list per label, merged.
    */
   private async issues(state: 'open' | 'closed', limit: number) {
-    type Issue = { number: number; title: string; url: string; state: string; stateReason?: string | null; issueType?: { name: string; color?: string | null } | null; assignees: GhPerson[]; labels: { name: string; color: string }[] };
+    type Issue = { number: number; title: string; url: string; state: string; stateReason?: string | null; updatedAt?: string; issueType?: { name: string; color?: string | null } | null; assignees: GhPerson[]; labels: { name: string; color: string }[] };
     const runs = this.labelNames.length ? this.labelNames.map((l) => ['--label', l]) : [[]];
-    const lists = await Promise.all(runs.map(async (only) => JSON.parse(await this.issueJson(['issue', 'list', '-R', this.o.repo, '--state', state, '--limit', String(limit), ...only], 'number,title,url,state,assignees,labels,stateReason')) as Issue[]));
+    const lists = await Promise.all(runs.map(async (only) => JSON.parse(await this.issueJson(['issue', 'list', '-R', this.o.repo, '--state', state, '--limit', String(limit), ...only], 'number,title,url,state,assignees,labels,stateReason,updatedAt')) as Issue[]));
     if (lists.length === 1) return lists[0]!;
     const byNumber = new Map<number, Issue>();
     for (const i of lists.flat()) if (!byNumber.has(i.number)) byNumber.set(i.number, i);
@@ -288,7 +289,7 @@ export class GithubClient implements TrackerClient {
   }
 
   private async projectBoard(p: ProjectInfo): Promise<Board> {
-    type Item = { id: string; fieldValueByName: { optionId: string; name: string } | null; content: { __typename: string; number?: number; title?: string; url?: string; state?: string; issueType?: { name: string; color?: string | null } | null; repository?: { nameWithOwner: string }; assignees?: { nodes: GhPerson[] }; labels?: { nodes: { name: string; color: string }[] } } | null };
+    type Item = { id: string; fieldValueByName: { optionId: string; name: string } | null; content: { __typename: string; number?: number; title?: string; url?: string; state?: string; updatedAt?: string; issueType?: { name: string; color?: string | null } | null; repository?: { nameWithOwner: string }; assignees?: { nodes: GhPerson[] }; labels?: { nodes: { name: string; color: string }[] } } | null };
     type Page = { node: { items: { pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: Item[] } } };
     const items: Item[] = [];
     let after: string | null = null;
@@ -314,6 +315,7 @@ export class GithubClient implements TrackerClient {
           key: `GH-${c.number}`, title: c.title!, url: c.url!, itemId: i.id,
           status: v ? { id: v.optionId, name: v.name, category: categoryOf(v.name) } : { id: '', name: 'No status', category: 'todo' },
           type: c.issueType?.name ?? null, typeKind: typeKindOf(c.issueType?.name), typeColor: issueTypeColour(c.issueType), assignees: (c.assignees?.nodes ?? []).map(person), labels: (c.labels?.nodes ?? []).map(label), priority: null, priorityLevel: null,
+          ...changedOf(c.updatedAt),
         };
       });
     if (cards.some((c) => c.status.id === '')) columns.unshift({ id: '', name: 'No status', category: 'todo', statusIds: [''] });

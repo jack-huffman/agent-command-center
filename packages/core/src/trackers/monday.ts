@@ -8,6 +8,7 @@
  */
 import { type Doc, fromHtml, fromMarkdown, toHtml, toMarkdown } from './doc.ts';
 import { fieldMarkdown, fieldValue } from './fields.ts';
+import { changedOf } from './normal.ts';
 import {
   type Board, type BoardCard, type BoardColumn, type Comment, type Label, type Outside, outsideError, type Person, placeText, type Status,
   type TextField, textRefused, type Ticket, type TrackerClient, TrackerError, type Transition,
@@ -42,7 +43,7 @@ interface BoardMeta { id: string; name: string; columns: MondayColumn[]; groups:
 interface MondayPerson { id: string; name: string }
 interface MondayUpdate { id: string; body: string; created_at: string; creator: MondayPerson | null; replies?: MondayUpdate[] }
 interface ColumnValue { id: string; type?: string; text?: string | null; column?: { title: string }; index?: number | null; label?: string | null; is_done?: boolean | null; persons_and_teams?: { id: string | number; kind: string }[] | null }
-interface CardItem { id: string; name: string; group?: { id: string } | null; column_values: ColumnValue[] }
+interface CardItem { id: string; name: string; updated_at?: string; group?: { id: string } | null; column_values: ColumnValue[] }
 interface PlacedItem { id: string; board: { id: string; name: string } | null; group: { id: string; title: string } | null }
 interface FullItem extends PlacedItem {
   name: string; state?: string; url?: string | null; created_at: string; updated_at: string; creator: MondayPerson | null;
@@ -59,7 +60,7 @@ const NO_STATUS = 'none';
 const NO_LABELS = 'monday.com items have no labels.';
 
 /** What a card needs from each item: its group, its status, and its people. Constant text: what varies is a variable. */
-const CARD_FIELDS = 'id name group { id } column_values(ids: $cols) { id ... on StatusValue { index } ... on PeopleValue { persons_and_teams { id kind } } }';
+const CARD_FIELDS = 'id name updated_at group { id } column_values(ids: $cols) { id ... on StatusValue { index } ... on PeopleValue { persons_and_teams { id kind } } }';
 const PLACED_FIELDS = 'id board { id name } group { id title }';
 
 const RATE_CODES = /complexity|rate.?limit|concurrency|budget/i;
@@ -301,6 +302,7 @@ export class MondayClient implements TrackerClient {
         // A card on a label the column no longer names (its blank) has no status.
         status: statusOf(labels, index !== null && !labels.some((l) => l.id === index) ? null : index),
         type: null, typeKind: null, typeColor: null, assignees: personIds(value(it, people?.id)).map((id) => ({ id, name: names.get(id) ?? 'Someone' })), labels: [], priority: null, priorityLevel: null,
+        ...changedOf(it.updated_at),
       };
     });
     const on = new Set(cards.map((c) => c.status.id));

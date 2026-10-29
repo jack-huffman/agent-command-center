@@ -7,6 +7,17 @@ description: Bring tickets into acc's task ledger, from GitHub issues, Jira, Azu
 
 acc keeps its own ledger of tasks beside the tracker. Bringing a ticket in never changes the ticket.
 
+## Read the saved board and tickets first
+
+A session has no sign-in to the tracker: the Command Center keeps it. When the project is open in the Command Center, it saves each board and the whole ticket of each card in the repo's own state folder, and keeps them up to date. Read those first:
+
+- `acc board` lists the saved boards: their columns and cards, each card with when its ticket was saved, and whether the board's last load found a newer change that still waits to be read.
+- `acc ticket <key>` shows one saved ticket: its description, its changes field where the tracker has one, its comments and related tickets, when it was saved, and whether a newer change waits.
+
+Both take `--json`, read no tracker, and need no sign-in. `acc ticket <key> --json` gives the saved file's path as `file`: hand it to `acc analyze <id> --ticket <file>` or `acc draft criteria <id> --ticket <file>`. Neither reads a saved ticket without `--ticket`.
+
+When a ticket waits to be read again, say so, or ask the person to open it in the Command Center, which reads it at once. Use a connector (below) only when nothing is saved: both commands then say to open the project in the Command Center.
+
 ## GitHub issues
 
 Run `acc intake github` in the repo. It reads the open issues in the repo's place, as the repo's own GitHub account, and adds or refreshes a task for each (`GH-<number>`). The place is the GitHub tracker's `repo` in `.acc/config.json` (the project's own repo by default) and, when it names `labels`, only issues with one of them. Add `--label <label>` to take only some.

@@ -60,3 +60,11 @@ export function hexOf(c: unknown): string | null {
   const h = typeof c === 'string' ? c.trim().replace(/^#/, '') : '';
   return /^[0-9a-f]{6}$/i.test(h) ? h : null;
 }
+
+/**
+ * A card's last-changed time (T-141), as the tracker's card list gives it: `{ updated }`, or nothing where the
+ * tracker gives none, so a card never holds an empty string.
+ */
+export function changedOf(v: unknown): { updated?: string } {
+  return typeof v === 'string' && v.trim() ? { updated: v.trim() } : {};
+}

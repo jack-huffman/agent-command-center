@@ -235,3 +235,12 @@ test('a board and a thread read a person through one helper, and the mention loo
   assert.equal(src.split('<@([A-Z0-9]+)').length - 1, 1, 'one loop over the mentions');
   assert.equal(src.split('this.namesIn(').length - 1, 2, 'the board and the thread both use it');
 });
+
+test('edge case: a thread\'s card changes when a reply comes in: its newest reply, or else its own message (T-141)', async () => {
+  const { fetch: f } = fakeSlack(routes([
+    msg('1760000300.000300', 'Has replies', ['ticket'], { thread_ts: '1760000300.000300', latest_reply: '1760000900.000900' }),
+    msg('1760000200.000200', 'No replies', ['ticket']),
+  ]));
+  const b = await board(f).board();
+  assert.deepEqual(b.cards.map((c) => c.updated), [new Date(1760000900000).toISOString(), new Date(1760000200000).toISOString()]);
+});

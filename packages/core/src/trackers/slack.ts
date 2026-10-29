@@ -66,6 +66,8 @@ interface SlackMessage {
   subtype?: string;
   /** A reply's thread, which conversations.history gives for a reply sent to the channel too. */
   thread_ts?: string;
+  /** A thread's newest reply, which conversations.history gives on its first message (T-141). */
+  latest_reply?: string;
   reactions?: { name: string; count?: number }[];
 }
 interface SlackUser { id: string; name?: string; real_name?: string; deleted?: boolean; profile?: { display_name?: string; real_name?: string } }
@@ -376,6 +378,8 @@ export class SlackClient implements TrackerClient {
         key: slackKey(thread, this.prefix), title: clip(first, SLACK_CARD_MAX), ...(first.length > SLACK_CARD_MAX ? { fullTitle: first } : {}),
         url: link ?? `https://${this.workspace}.slack.com/archives/${this.channel}/p${m.ts.replace('.', '')}`,
         status: done && has(m, done) ? DONE : OPEN, type: null, typeKind: null, typeColor: null, assignees: [author], labels: [], priority: null, priorityLevel: null,
+        // A thread changes when a reply comes in: its newest message, as the thread's own read says it.
+        updated: isoOf(m.latest_reply ?? m.ts),
       };
     });
     const columns: BoardColumn[] = [

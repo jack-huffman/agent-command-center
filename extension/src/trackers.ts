@@ -6,6 +6,7 @@ import { deskQueues, type Tracker, trackerForKey } from '../../packages/core/src
 import { ghEnv, isGh } from '../../packages/core/src/exec.ts';
 import { startFile } from '../../packages/core/src/start.ts';
 import type { IntakeResult } from '../../packages/core/src/intake.ts';
+import { boardTrackers } from '../../packages/core/src/saved-tickets.ts';
 import { readSprints, sprintTracker } from '../../packages/core/src/sprints.ts';
 import { AzureClient } from '../../packages/core/src/trackers/azure.ts';
 import { AZURE_SCOPE, describe, type SignIn } from '../../packages/core/src/trackers/connect.ts';
@@ -22,7 +23,9 @@ import { inProcessWords } from './logic/processes.ts';
 import { credWho, signedInWho } from './logic/sign-in-name.ts';
 import { lookAtSprint, sprintLine } from './logic/sprint-change.ts';
 import { NO_PASTE, type PasteState, type SlackPlace, trackLink } from './logic/slack-link.ts';
-import { readBoardCache, writeBoardCache } from './logic/board-cache.ts';
+import { readBoardCache, trackerKey, writeBoardCache } from './logic/board-cache.ts';
+import { signedOutTrackers } from './logic/signed-out.ts';
+import { TicketSaver } from './logic/ticket-saver.ts';
 import { boardIds, outsideEvery, readInTurn, sourceGroups } from './logic/board-reads.ts';
 import { stateOf, ticketKey } from './logic/shared.ts';
 import { runFile } from './run.ts';
@@ -130,6 +133,9 @@ export class Trackers implements vscode.Disposable {
   private readonly sprintsTold = new Set<string>();
   /** The board each project's Tasks tab shows (T-127), by its id, as the page says: read first on every load. */
   private readonly shown = new Map<string, string>();
+  /** Each card's whole ticket, saved where a session reads it, and kept up to date in the background (T-141). */
+  private readonly saver: TicketSaver;
+  private readonly projectsWatch: vscode.Disposable;
 
   constructor(secrets: vscode.SecretStorage, hub: Hub, log: vscode.LogOutputChannel, acc: AccRun | null = null) {
     this.secrets = secrets;
@@ -143,9 +149,20 @@ export class Trackers implements vscode.Disposable {
       this.wrote.delete(e.key);
       if (site && !(at && Date.now() - at < 10_000)) void this.reload(null, site);
     });
+    this.saver = new TicketSaver({
+      read: (root, index, key) => this.readTicket(root, index, key),
+      changes: (root, index, key) => this.readChanges(root, index, key),
+      wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+      now: () => new Date(),
+      warn: (line) => this.log.warn(line),
+    });
+    // A project that closed stops its queue; what it saved stays for the next load.
+    this.projectsWatch = hub.onDidChange((part) => { if (part === 'projects') this.saver.keepOnly(hub.projects.map((p) => p.root)); });
   }
 
   dispose(): void {
+    this.saver.stopAll();
+    this.projectsWatch.dispose();
     this.watch.dispose();
     this.emitter.dispose();
     this.trackEmitter.dispose();
@@ -153,7 +170,7 @@ export class Trackers implements vscode.Disposable {
 
   /** A project's trackers. A GitHub tracker with no repo uses the project's own repo. */
   trackers(p: Project): Tracker[] {
-    return p.config.trackers.map((t) => (t.kind === 'github' && !t.repo && p.config.github ? { ...t, repo: p.config.github.repo } : t));
+    return boardTrackers(p.config);
   }
 
   title(t: Tracker): string {
@@ -238,6 +255,9 @@ export class Trackers implements vscode.Disposable {
   showBoard(root: string, id: string | null): void {
     if (id) this.shown.set(root, id);
     else this.shown.delete(root);
+    // Its tickets are saved before the other boards' (T-141).
+    const index = (this.boards.get(root) ?? []).findIndex((s) => s.id === id);
+    if (index >= 0) this.saver.first(root, index);
   }
 
   /** Which tracker a ticket key belongs to: GH-12 to GitHub, AB-123 to Azure, MON-123 to monday.com, MSP-7 to the Jira project MSP. */
@@ -338,7 +358,8 @@ export class Trackers implements vscode.Disposable {
   /** Loads every board, or just one project's. Boards load side by side; each shows its own error. */
   async loadBoards(root?: string): Promise<void> {
     const projects = this.hub.projects.filter((p) => !root || p.root === root);
-    await Promise.all(projects.map(async (p) => {
+    // While a project's boards load, its saved tickets wait (T-141): the board comes first.
+    await Promise.all(projects.map((p) => this.saver.person(async () => {
       const list = this.trackers(p);
       if (!list.length) {
         this.boards.delete(p.root);
@@ -412,7 +433,38 @@ export class Trackers implements vscode.Disposable {
       }
       this.forgetTracking();
       this.emitter.fire(p.root);
-    }));
+      // With the boards drawn, the tickets that changed are read in the background, once this load lets go.
+      this.followTickets(p, list, states);
+    })));
+  }
+
+  /** The saved tickets follow the boards that loaded, and the changed ones are queued (T-141). Nothing is read here. */
+  private followTickets(p: Project, list: Tracker[], states: Loaded[]): void {
+    try {
+      const shownAt = states.findIndex((s) => s.id === this.shown.get(p.root));
+      this.saver.follow(p.root, stateOf(p), list.map((t, index) => {
+        const s = states[index];
+        return { index, tracker: trackerKey(t), cards: s?.board && !s.error && !s.off ? s.board.cards : null };
+      }), shownAt >= 0 ? shownAt : null);
+    } catch (e) {
+      this.log.warn(`[tickets] couldn't follow the boards: ${(e as Error).message}`);
+    }
+  }
+
+  /** A ticket read in full for the saved tickets, through the tracker's own sign-in. */
+  private async readTicket(root: string, index: number, key: string): Promise<Ticket> {
+    const p = this.hub.project(root);
+    if (!p) throw new Error('That project isn\'t open any more.');
+    return (await this.client(p, index)).ticket(key);
+  }
+
+  /** A ticket's changes field (T-105), where its tracker names one, as Make a plan reads it. */
+  private async readChanges(root: string, index: number, key: string): Promise<{ name: string; markdown: string } | null> {
+    const p = this.hub.project(root);
+    const field = p ? this.trackers(p)[index]?.changesField : null;
+    if (!p || !field) return null;
+    const client = await this.client(p, index);
+    return client.readField ? { name: field.name, markdown: await client.readField(key, field) } : null;
   }
 
   /** A card no board shows any more leaves its last Track's reason behind. One still on its way finishes first. */
@@ -470,8 +522,13 @@ export class Trackers implements vscode.Disposable {
     }
   }
 
+  /**
+   * A ticket the person asked for, read now, ahead of the saved tickets' queue: a read for an out-of-date saved copy is
+   * saved (T-141).
+   */
   async ticket(p: Project, index: number, key: string): Promise<Ticket> {
-    return (await this.client(p, index)).ticket(key);
+    const t = this.trackers(p)[index];
+    return this.saver.open(p.root, stateOf(p), index, t ? trackerKey(t) : '', async () => (await this.client(p, index)).ticket(key));
   }
 
   /**
@@ -596,6 +653,7 @@ export class Trackers implements vscode.Disposable {
     if (!plan) return;
     const { choice } = plan;
     await this.apply(plan.writes);
+    await this.forgetSignedOut(t.kind, host);
     const msAccount = c.kind === 'azure' && c.method === 'microsoft' && choice !== 'this' ? ` Your Microsoft account (${c.account.label}) stays signed in to VSCode; manage it under Accounts.` : '';
     const site = was.site as Cred | null;
     void vscode.window.showInformationMessage(
@@ -605,6 +663,22 @@ export class Trackers implements vscode.Disposable {
             : `${p.name} is signed out of ${this.title(t)}.${msAccount}`,
     );
     await this.reload(p.root, { kind: t.kind, host });
+  }
+
+  /**
+   * After a sign-out, every open project's tracker on that site that has no sign-in now drops its saved tickets (T-141).
+   * One that still has one, its site's or its own (GH-79), keeps them.
+   */
+  private async forgetSignedOut(kind: string, host: string): Promise<void> {
+    for (const p of this.hub.projects) {
+      for (const t of await signedOutTrackers(this.trackers(p), kind, host, (x) => this.stored(p, x.kind, hostOf(x)))) {
+        try {
+          this.saver.forget(p.root, stateOf(p), trackerKey(t));
+        } catch (e) {
+          this.log.warn(`[tickets] couldn't remove ${this.title(t)}'s saved tickets: ${(e as Error).message}`);
+        }
+      }
+    }
   }
 
   // ------------------------------------------------------------ for the Connect page (GH-51)
