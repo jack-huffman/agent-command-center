@@ -38,8 +38,10 @@ test('two projects on one repo\'s ledger get one offer between them; two repos g
   assert.deepEqual(tidyItems(two((root) => `${root}/.git/acc/ledger.json`)).map((a) => a.project), ['Acme', 'Acme UAT']);
 });
 
-test('the hub asks git for a done task\'s branch, so a task merged in git with no pull request brings up the offer, and keeps the answers until the ledger is read again', () => {
+test('the hub asks git for a done task\'s branch, so a task merged in git with no pull request brings up the offer, in the background, and asks its noes again when the ledger is read again (T-147)', () => {
   const src = readFileSync(join(root, 'src/hub.ts'), 'utf8');
-  assert.match(src, /const inEnvironment = rememberInEnvironment\(branchInEnvironment\(runSync, p\.root, join\(dirname\(p\.ledgerPath\), 'reviews'\)\), this\.tasks\.get\(p\.root\)\?\.inEnvironment \?\? new Map\(\)\);\n\s+return \{ \.\.\.tidyDue\(ledger, p\.config, this\.repoTidy\.get\(p\.ledgerPath\) \?\? null, inEnvironment\)/);
-  assert.match(src, /this\.tasks\.set\(p\.root, \{ stamp, ledger, rows, inEnvironment: new Map\(\) \}\)/, 'a fresh read of the ledger drops the answers');
+  assert.match(src, /return \{ \.\.\.tidyDue\(ledger, p\.config, this\.repoTidy\.get\(p\.ledgerPath\) \?\? null, this\.inEnvironment\(p\)\.read\(\)\), ledger: p\.ledgerPath \};/);
+  assert.match(src, /new InEnvironmentAsks\(p\.root, join\(dirname\(p\.ledgerPath\), 'reviews'\)/, 'its reviews count, as branchInEnvironment\'s do');
+  assert.match(src, /this\.merged\.get\(p\.root\)\?\.forgetNos\(\);\n\s+this\.tasks\.set\(p\.root, \{ stamp, ledger, rows \}\)/, 'a fresh read of the ledger asks the noes again');
+  assert.doesNotMatch(src, /branchInEnvironment\(runSync/, 'a draw never waits on git (T-147): working.test.ts times it');
 });

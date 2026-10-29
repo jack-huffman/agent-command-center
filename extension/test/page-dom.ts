@@ -36,6 +36,8 @@ export class PageElement {
     this.doc = doc;
   }
   append(...nodes: (PageElement | string)[]): void { this.children.push(...nodes); }
+  /** Before its first child (T-147), as a card puts its ⋯ menu in its corner. */
+  prepend(...nodes: (PageElement | string)[]): void { this.children.unshift(...nodes); }
   replaceChildren(...nodes: (PageElement | string)[]): void { this.children.splice(0, this.children.length, ...nodes); }
   setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }

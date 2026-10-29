@@ -160,7 +160,8 @@ test('the board has a column for every status, left to right as a task goes, and
   const m = tasksModel(hub());
   const cols = m.projects[0]!.columns;
   assert.deepEqual(cols.map((c) => c.group), ['todo', 'ready', 'running', 'needs-you', 'review', 'rework', 'blocked', 'done'], 'left to right as a task goes: To do first (D-068)');
-  const card = (id: string) => cols.flatMap((c) => c.cards).find((c) => c.id === id)!;
+  const card = (id: string) => cols.flatMap((c) => [...c.cards, ...(c.cleaned ?? [])]).find((c) => c.id === id)!;
+  assert.deepEqual(cols.find((c) => c.group === 'done')!.cleaned!.map((c) => c.id), ['AV-4'], 'done with no worktree: under Done\'s Cleaned up fold (T-147)');
   assert.deepEqual(card('AV-2').actions.map((a) => a.label), ['Move', 'Block', 'Make a plan', 'Edit', 'Ticket', 'Details'], 'waiting on another task, it can still be analyzed, after Move and Block (D-168)');
   assert.deepEqual(card('AV-3').actions.map((a) => a.label), ['Move', 'Unblock', 'Edit', 'Details']);
   assert.deepEqual(card('AV-4').actions.map((a) => a.label), ['Move', 'Edit', 'Details'], 'done tasks can\'t be blocked');

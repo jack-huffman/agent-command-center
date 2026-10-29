@@ -369,8 +369,8 @@ export function more(id: string, summary: Child[], ...content: Child[]): HTMLEle
   return d;
 }
 
-/** A fold with the chevron before its summary, kept open across redraws by `key` in the tab's opened list: What this means's and more()'s. */
-function rememberedFold(cls: string, key: string, summary: Child[], ...content: Child[]): HTMLDetailsElement {
+/** A fold with the chevron before its summary, kept open across redraws by `key` in the tab's opened list: What this means's, more()'s and Done's Cleaned up (T-147). */
+export function rememberedFold(cls: string, key: string, summary: Child[], ...content: Child[]): HTMLDetailsElement {
   const d = el('details', cls, el('summary', 'muted small', el('span', 'tool-chev', icon('chevron-right')), ...summary), ...content) as HTMLDetailsElement;
   d.open = memory().opened.includes(key);
   d.addEventListener('toggle', () => remember((x) => { x.opened = d.open ? [...new Set([...x.opened, key])].slice(-200) : x.opened.filter((y) => y !== key); }));

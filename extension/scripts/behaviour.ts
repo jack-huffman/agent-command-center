@@ -2494,6 +2494,82 @@ export const CASES: Case[] = [
       t.check('it sends the yes with the name typed', yes.length === 1 && yes[0]?.typed === 'Production' && yes[0]?.to === 'production', yes);
     },
   },
+  {
+    name: 'working: a card\'s Clean up says Cleaning up… at once, busy, not to be pressed again and keeping focus, until the extension answers; its question puts it back, a yes works again, a refusal says why on the card, and a cancel leaves it as it was (T-147)',
+    page: 'tasks',
+    async run(t) {
+      const model = t.model;
+      if (model.kind !== 'home') throw new Error('The working case needs a home model.');
+      const root = model.tasks.projects[0]!.root;
+      const card = model.tasks.projects[0]!.columns.find((c) => c.group === 'done')!.cards[0]!;
+      const clean = card.actions.find((a) => a.command === 'acc.task.cleanup' && a.primary);
+      if (!clean) throw new Error(`not found: ${card.id}'s Clean up, its next step`);
+      t.remember({ modes: { [root]: 'agents' } });
+      await t.post({ type: 'state', model });
+      const button = (): HTMLButtonElement => t.find<HTMLButtonElement>(`section.column article.card[data-task="${CSS.escape(card.id)}"] .ta-btn.primary`);
+      const looks = () => ({ text: button().textContent?.trim(), busy: button().getAttribute('aria-busy'), off: button().getAttribute('aria-disabled') === 'true', spin: !!button().querySelector('.codicon-modifier-spin') });
+      t.check(`${card.id}'s next step is Clean up`, JSON.stringify(looks()) === JSON.stringify({ text: 'Clean up', busy: null, off: false, spin: false }), looks());
+      await t.click(button());
+      t.check('a click sends Clean up once', JSON.stringify(t.sent('run')) === JSON.stringify([{ type: 'run', command: clean.command, ref: clean.ref }]), t.sent('run'));
+      t.check('at once, before any answer: it spins, says Cleaning up…, is busy and can\'t be pressed', JSON.stringify(looks()) === JSON.stringify({ text: 'Cleaning up…', busy: 'true', off: true, spin: true }), looks());
+      t.check('the same button keeps focus while it works, so what it opens can give focus back', document.activeElement === button(), document.activeElement?.className);
+      await t.click(button());
+      t.check('a second click sends nothing', t.sent('run').length === 1, t.sent('run').length);
+      // Edge: the extension's next poll redraws the board while it waits.
+      await t.post({ type: 'state', model });
+      t.check('a redraw while it waits keeps it working', looks().text === 'Cleaning up…' && looks().off, looks());
+      const ran = (phase: string, more: Record<string, unknown> = {}) => t.post({ type: 'ran', command: clean.command, ref: clean.ref, phase, ...more });
+      await ran('asked');
+      t.check('the question opened: the button is back', JSON.stringify(looks()) === JSON.stringify({ text: 'Clean up', busy: null, off: false, spin: false }), looks());
+      await ran('running');
+      t.check('a yes: it works again until the result', looks().text === 'Cleaning up…' && looks().spin, looks());
+      const why = 'Kept the worktree: The worktree has 2 uncommitted change(s).';
+      await ran('done', { ok: false, error: why });
+      const refused = t.find(`section.column article.card[data-task="${CSS.escape(card.id)}"] .run-refused`);
+      t.check('refused: back, and the card says why', looks().text === 'Clean up' && !looks().off && refused.textContent === why, refused.textContent);
+      t.check('and it stays in Done', !!t.find('section.column[data-group="done"]').querySelector(`:scope > article.card[data-task="${CSS.escape(card.id)}"]`));
+      await t.click(button());
+      t.check('tried again: the old reason goes at once', t.all('.run-refused').length === 0 && looks().text === 'Cleaning up…');
+      await ran('asked');
+      await ran('done', { ok: true });
+      t.check('cancelled: as it was, with nothing said', JSON.stringify(looks()) === JSON.stringify({ text: 'Clean up', busy: null, off: false, spin: false }) && t.all('.run-refused').length === 0, looks());
+    },
+  },
+  {
+    name: 'working: a task Clean up removed leaves Done at once, on the extension\'s answer alone, for the closed Cleaned up fold at the lane\'s foot, which opens to show it (T-147)',
+    page: 'tasks',
+    async run(t) {
+      const model = t.model;
+      if (model.kind !== 'home') throw new Error('The fold case needs a home model.');
+      const root = model.tasks.projects[0]!.root;
+      const done = model.tasks.projects[0]!.columns.find((c) => c.group === 'done')!;
+      const card = done.cards[0]!;
+      const clean = card.actions.find((a) => a.command === 'acc.task.cleanup')!;
+      const before = done.cleaned?.length ?? 0;
+      t.check('the sample has cleaned-up tasks to fold', before > 0, before);
+      t.remember({ modes: { [root]: 'agents' }, opened: [] });
+      await t.post({ type: 'state', model });
+      const lane = () => t.find('section.column[data-group="done"]');
+      const inLane = () => [...lane().querySelectorAll<HTMLElement>(':scope > article.card')].map((a) => a.dataset.task);
+      const fold = () => t.find<HTMLDetailsElement>('details.done-fold', lane());
+      t.check('Done holds the tasks still to clean up', JSON.stringify(inLane()) === JSON.stringify(done.cards.map((c) => c.id)), inLane());
+      t.check('under them, the fold, closed, counting the rest', !fold().open && fold().querySelector('summary')?.textContent?.trim() === `Cleaned up (${before})`, fold().querySelector('summary')?.textContent);
+      t.check('the lane counts what it shows', lane().querySelector('.count')?.textContent === String(done.cards.length));
+      await t.click(t.find(`article.card[data-task="${CSS.escape(card.id)}"] .ta-btn.primary`, lane()));
+      for (const phase of ['asked', 'running']) await t.post({ type: 'ran', command: clean.command, ref: clean.ref, phase });
+      await t.post({ type: 'ran', command: clean.command, ref: clean.ref, phase: 'done', ok: true, cleaned: true });
+      t.check('acc\'s answer alone takes it out of the lane', !inLane().includes(card.id), inLane());
+      t.check('into the fold, which still counts it and stays closed', !fold().open && fold().querySelector('summary')?.textContent?.trim() === `Cleaned up (${before + 1})`, fold().querySelector('summary')?.textContent);
+      t.check('the lane counts one fewer', lane().querySelector('.count')?.textContent === String(done.cards.length - 1), lane().querySelector('.count')?.textContent);
+      // Edge: the extension's next poll still holds the old model, read before acc changed the record.
+      await t.post({ type: 'state', model });
+      t.check('a model from before the cleanup doesn\'t bring it back', !inLane().includes(card.id), inLane());
+      await t.click(t.find('summary', fold()));
+      t.check('the fold opens', fold().open);
+      const folded = [...fold().querySelectorAll<HTMLElement>('.done-fold-cards > article.card')].map((a) => a.dataset.task);
+      t.check('and shows it first, then the rest', folded[0] === card.id && folded.length === before + 1, folded);
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -2508,6 +2584,8 @@ const caseNamed = (start: string): string => {
 };
 
 export const MUTANTS: Mutant[] = [
+  { name: 'the button shows nothing while it waits', file: 'working.ts', find: 'const on = !!working.what(was.key);', replace: 'const on = false;', kills: [caseNamed('working: a card\'s Clean up says Cleaning up…')] },
+  { name: 'a cleaned-up task stays in Done', file: 'working.ts', find: 'cleaned.add(cleanedKey(msg.ref.project, msg.ref.task));', replace: 'void 0;', kills: [caseNamed('working: a task Clean up removed leaves Done')] },
   { name: 'a failed check isn\'t named in the summary', file: 'agent-glance.ts', find: 'failed.length ? `${failed.length} failed: ${names(failed)}` : null,', replace: 'failed.length ? `${failed.length} failed` : null,', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'Details doesn\'t stay open once opened', file: 'agent-panel.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'a collapsed section doesn\'t stay collapsed', file: 'collapse.ts', find: 'show(memory().folded.includes(k));', replace: 'show(false);', kills: [caseNamed('task page: a Command Center section collapses')] },

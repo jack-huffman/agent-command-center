@@ -63,5 +63,8 @@ export function sampleTasks(now = Date.now()): TaskRow[] {
     task('ACME-18', 'Migrate the legacy territory triggers', 'blocked', 'blocked'),
     task('ACME-17', 'Dashboards for the escalation rules', 'todo', 'todo', { deps: ['ACME-12'] }),
     task('ACME-10', 'Add a CHANGELOG', 'done', 'done', { run: { bgId: 'bg10', sessionId: 's-acme-10', worktree: wt('ACME-10'), name: N10 } }),
+    // Finished and cleaned up (T-147): no worktree left, so they sit under Done's Cleaned up fold.
+    task('ACME-7', 'Rename the Support queue to Customer Care', 'done', 'done', { run: { branch: 'task/ACME-7-rename-support-queue' } }),
+    task('ACME-6', 'Retire the old web-to-lead form', 'done', 'done', { run: { branch: 'task/ACME-6-retire-web-to-lead' } }),
   ];
 }

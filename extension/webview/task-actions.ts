@@ -6,15 +6,16 @@
 
 import type { Action } from '../src/model/shared.ts';
 import { el, icon } from './dom.ts';
-import { api } from './state.ts';
 import { explains } from './plain-words.ts';
+import { dress, press, refusal } from './working.ts';
 
 /**
  * One action as a button of the shared size. A click runs its command on its ref, or does what `onClick`
  * says, as a card's Answer does; it doesn't reach the card under it.
  */
 export function actionTile(a: Action, primary: boolean, onClick?: () => void): HTMLButtonElement {
-  const b = el('button', `btn ta-btn${primary ? ' primary' : ''}${a.danger ? ' danger' : ''}`, icon(a.icon), el('span', 'ta-label', a.label)) as HTMLButtonElement;
+  const label = el('span', 'ta-label', a.label);
+  const b = el('button', `btn ta-btn${primary ? ' primary' : ''}${a.danger ? ' danger' : ''}`, icon(a.icon), label) as HTMLButtonElement;
   b.type = 'button';
   b.title = a.disabled ? `${a.label}: ${a.disabled}` : explains(a.command, a.label);
   if (a.disabled) {
@@ -24,9 +25,10 @@ export function actionTile(a: Action, primary: boolean, onClick?: () => void): H
   b.addEventListener('click', (e) => {
     e.stopPropagation();
     if (onClick) onClick();
-    else api.postMessage({ type: 'run', command: a.command, ref: a.ref });
+    else if (!b.disabled) press(a);
   });
-  return b;
+  // One the extension is still answering shows it's working (T-147).
+  return onClick ? b : dress(b, a, label);
 }
 
 /**
@@ -37,7 +39,8 @@ export function taskActions(actions: Action[]): HTMLElement | null {
   if (!actions.length) return null;
   const next = actions[0]!.primary ? actions[0]! : null;
   const rest = next ? actions.slice(1) : actions;
-  const set = el('div', 'task-actions', next ? actionTile(next, true) : null, rest.length ? el('div', 'ta-grid', ...rest.map((a) => actionTile(a, false))) : null);
+  // Under them, why the last one the extension refused didn't go (T-147), until it's tried again.
+  const set = el('div', 'task-actions', next ? actionTile(next, true) : null, rest.length ? el('div', 'ta-grid', ...rest.map((a) => actionTile(a, false))) : null, refusal(actions));
   set.dataset.actionSet = 'task';
   return set;
 }

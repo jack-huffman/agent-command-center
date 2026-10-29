@@ -17,6 +17,7 @@ import { newestVerdictText, readReviewRun } from './logic/dock-review.ts';
 import { type PlanTicketHost, planTicketFolder } from './logic/plan-ticket.ts';
 import { projectTracker, readProjectTicket } from './logic/project-ticket.ts';
 import { inProcessWords } from './logic/processes.ts';
+import type { RanAnswer } from './logic/ran.ts';
 import { shq } from './logic/shared.ts';
 import { reasonInWords } from './logic/relayed.ts';
 import { anywayQuestion, type HeldAsk, heldAskDue, heldAsked, heldAskKey, heldDue, landMessage, startedNotice, waitLine, waitQuestion, waitsForFiles } from './logic/tasks.ts';
@@ -447,10 +448,18 @@ export class TaskCommands extends Sidebar {
     if (pick === 'Watch') this.watchTask(n);
   }
 
-  private async cleanupTask(n: TaskNode): Promise<void> {
+  /**
+   * Asks first, then cleans up (T-147): nothing is read before the question, so it opens as the click
+   * arrives. The page hears that it asked, that it started after the yes, and acc's answer as soon as acc
+   * gives it, before the reload: a removed worktree takes the card out of Done at once, and a refusal
+   * says why on the card. A cancel ends with nothing done, so the button goes back.
+   */
+  private async cleanupTask(n: TaskNode): Promise<RanAnswer | undefined> {
     if (n?.kind !== 'task' || !n.task.run?.worktree) return;
+    n.say?.({ phase: 'asked' });
     const ok = await vscode.window.showWarningMessage(`Clean up ${n.task.id}'s worktree?`, { modal: true, detail: `${n.task.run.worktree}\n\nacc removes it only if nothing would be lost: no uncommitted changes, and every commit already merged.` }, 'Clean up');
     if (ok !== 'Clean up') return;
+    n.say?.({ phase: 'running' });
     const r = await this.acc(['cleanup', n.task.id, '--json'], n.project.root);
     let out: { removed?: boolean; reasons?: string[] } = {};
     try {
@@ -458,9 +467,13 @@ export class TaskCommands extends Sidebar {
     } catch {
       out = {};
     }
-    if (out.removed) void vscode.window.showInformationMessage(`Removed ${basename(n.task.run.worktree)}.`);
-    else void vscode.window.showWarningMessage(`Kept the worktree: ${inProcessWords((out.reasons ?? [(r.stderr || r.stdout).trim()]).join(' '))}`);
+    const why = out.removed ? null : inProcessWords((out.reasons ?? [(r.stderr || r.stdout).trim()]).join(' ') || 'the Command Center didn\'t say why.');
+    if (!why) void vscode.window.showInformationMessage(`Removed ${basename(n.task.run.worktree)}.`);
+    else void vscode.window.showWarningMessage(`Kept the worktree: ${why}`);
+    const answer: RanAnswer = why ? { phase: 'done', ok: false, error: `Kept the worktree: ${why}` } : { phase: 'done', ok: true, cleaned: true };
+    n.say?.(answer);
     await Promise.all([this.hub.loadTasks(true), this.hub.loadWorktrees()]);
+    return answer;
   }
 
   // ------------------------------------------------------------ review and land (D-032, D-033)
