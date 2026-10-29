@@ -47,7 +47,6 @@ export const OLDER: Record<string, string[]> = {
   'extension/src/panels.ts': ['isWebLink', 'TabTheme', 'Panels'],
   'extension/src/progress.ts': ['STEP_DOING', 'readRepoJobs', 'readSteps'],
   'extension/src/questions.ts': ['accShellCommand', 'sessionSettings'],
-  'extension/src/run.ts': ['accRunner'],
   'extension/src/setup.ts': ['extensionVersion'],
   'extension/src/sidebar.ts': ['Sidebar'],
   'extension/src/slack.ts': ['SLACK_STATE', 'SLACK_TIMEOUT_MS', 'SLACK_QUEUE_MAX', 'SLACK_CLAIM_DAYS', 'SLACK_TEST_TEXT', 'slackDir'],

@@ -1,0 +1,39 @@
+/* ---------------------------------------------------------------- Set up cloud builders (T-145) */
+
+/* The tracker modal's surface, step bar and foot (connect.css), narrower: each step is a line, a check and a
+   few buttons. Calm: one accent for where you are, icons and words for every state. */
+/* As tall as its step, up to the window's height: a short step leaves no empty box under it. */
+.connect-modal.cloud-modal { width: min(720px, calc(100vw - 48px)); height: fit-content; max-height: calc(100vh - 48px); }
+.cloud-step h2 { margin-bottom: 8px; }
+.cloud-line { margin: 0 0 8px; }
+.cloud-check { margin: 0 0 14px; }
+.cloud-check .status, .cloud-error .status, .cloud-facts .status { white-space: normal; }
+.cloud-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+.cloud-numbered { margin: 0 0 14px; padding-left: 22px; }
+.cloud-numbered li { margin: 2px 0; }
+
+/* A field: its label over a box and its button, and what's wrong with it under them as it's typed. */
+.cloud-field { display: flex; flex-direction: column; gap: 4px; margin: 0 0 14px; }
+.cloud-field-label { font-weight: 600; }
+.cloud-field-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cloud-field-row .text-input { flex: 1 1 220px; min-width: 0; }
+.cloud-field-check:empty { display: none; }
+
+/* Ready's summary: each step and where it stands. */
+.cloud-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 16px; margin: 0 0 14px; padding: 0; list-style: none; }
+.cloud-facts li { display: contents; }
+.cloud-fact-name { font-weight: 600; }
+
+.cloud-error { margin: 0 0 14px; }
+
+/* The detail, folded away under the step. */
+.cloud-fold { margin-top: 4px; }
+.cloud-fold-lines { margin: 6px 0 4px; padding-left: 20px; color: var(--vscode-descriptionForeground); }
+.cloud-fold-lines li { margin: 2px 0; }
+.cloud-links { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; }
+
+@media (max-width: 620px) {
+  .connect-modal.cloud-modal { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
+  .cloud-facts { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .cloud-fact-name { margin-top: 6px; }
+}

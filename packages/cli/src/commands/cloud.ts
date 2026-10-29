@@ -1,7 +1,7 @@
 // acc's Cloud commands (GH-69): opting a project in to cloud builders, the routine's token, what the cloud
 // still needs, and collecting a cloud builder's work. A person's, never an agent's.
 
-import { AccError, BUILDER_PLACE_LOOK, type BuilderPlace, cloudNeeds, cloudReason, cloudReviewWait, cloudWait, collect, deleteCloudToken, disableCloud, enableCloud, environmentProtection, guardCommitted, installGuard, loadConfig, readLedger, run, ROUTINES_URL, writeCloudToken } from '../../../core/src/index.ts';
+import { AccError, BUILDER_PLACE_LOOK, type BuilderPlace, cloudNeeds, cloudReason, cloudReviewWait, cloudWait, collect, commitGuard, type Config, deleteCloudToken, disableCloud, enableCloud, environmentProtection, guardCommitted, guardPlace, installGuard, loadConfig, pushGuard, readLedger, run, ROUTINES_URL, writeCloudToken } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, project, readFileArg } from '../shared.ts';
 
@@ -9,6 +9,9 @@ import { actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, o
 function needLines(needs: ReturnType<typeof cloudNeeds>): string[] {
   return needs.map((n) => (n.ok ? tone(`✓ ${n.label}`, 'blue') : [tone(`! ${n.label}`, 'orange'), tone(`    ${n.fix}`, 'dim')].join('\n')));
 }
+
+/** The branch acc takes as the one a cloud session clones when origin names no default (T-145). */
+const firstBranch = (config: Config): string => config.environments[0]?.branch ?? 'main';
 
 function cmdStatus(o: Opts): number {
   const { paths, config } = project(process.cwd());
@@ -22,6 +25,8 @@ function cmdStatus(o: Opts): number {
   // The guard as a cloud session would see it: in HEAD's tree, not the files on disk (GH-69).
   const guard = guardCommitted(run, paths.root, 'HEAD');
   // GitHub's rules behind the guard, per environment branch: a warning where it enforces none, never a refusal.
+  // The guard on the branch the cloud clones, here and on GitHub (T-145): Set up cloud builders' last step.
+  const place = guardPlace(run, paths.root, firstBranch(config));
   const protection = cloud && config.github ? environmentProtection(run, config.github.repo, config.github.account, config.environments.map((e) => e.branch), process.env) : [];
   out(o, () => [
     cloud
@@ -33,7 +38,7 @@ function cmdStatus(o: Opts): number {
     ...protection.map((p) => (p.state === 'enforced' ? tone(`  ✓ ${p.why}`, 'blue') : tone(`  ! ${p.why}${p.state === 'unknown' ? ' Whether a push the guard didn\'t catch would be prevented isn\'t known.' : ''}`, 'orange'))),
     ...running.map((t) => tone(`  ${t.id} runs in the cloud: ${t.run?.cloud?.url ?? ''}${cloudWait(t, config, now()) ? ` (${cloudWait(t, config, now())})` : ''}`, 'blue')),
     ...reviewing.map((t) => tone(`  ${t.id} is reviewed in the cloud: ${t.cloudReview?.url ?? ''}${cloudReviewWait(t, config, now()) ? ` (${cloudReviewWait(t, config, now())})` : ''}`, 'blue')),
-  ].filter(Boolean).join('\n'), { cloud, needs, reason, guard: guard.ok, guardWhy: guard.why, protection, running: running.map((t) => ({ id: t.id, url: t.run?.cloud?.url ?? null, wait: cloudWait(t, config, now()) })), reviewing: reviewing.map((t) => ({ id: t.id, url: t.cloudReview?.url ?? null, wait: cloudReviewWait(t, config, now()) })) });
+  ].filter(Boolean).join('\n'), { cloud, needs, reason, guard: guard.ok, guardWhy: guard.why, guardPlace: place, protection, running: running.map((t) => ({ id: t.id, url: t.run?.cloud?.url ?? null, wait: cloudWait(t, config, now()) })), reviewing: reviewing.map((t) => ({ id: t.id, url: t.cloudReview?.url ?? null, wait: cloudReviewWait(t, config, now()) })) });
   return 0;
 }
 
@@ -69,7 +74,7 @@ function cmdDisable(o: Opts): number {
   return 0;
 }
 
-/** The routine's token into the keychain, from stdin or the environment, never from the command line. */
+/** The scheduled task's token into a Mac's keychain, from stdin or the environment, never from the command line. */
 function cmdToken(o: Opts): number {
   noAgent(o, 'keep the routine\'s token');
   const { config } = project(process.cwd());
@@ -83,7 +88,36 @@ function cmdToken(o: Opts): number {
   const token = (o['from-env'] === true ? process.env.ACC_CLOUD_TOKEN_NEW ?? '' : readFileArg(0)).trim();
   if (!token) throw new AccError('usage', 'Paste the token on stdin: acc cloud token < token.txt, or echo "$TOKEN" | acc cloud token. It never goes on the command line.');
   writeCloudToken(run, repo, token, process.env);
-  out(o, () => `Kept the routine's token for ${repo} in this Mac's keychain (${repo}, service acc-cloud-routine). It's never written to .acc/config.json or git.`, { kept: true });
+  out(o, () => `Kept the scheduled task's token for ${repo} in this Mac's keychain (${repo}, service acc-cloud-routine). It's never written to .acc/config.json or git.`, { kept: true });
+  return 0;
+}
+
+/**
+ * The push guard on the branch the cloud clones (T-145): where it stands, committing it there (the three files
+ * only), or pushing that branch. A person's, never an agent's: Set up cloud builders asks before a push.
+ */
+function cmdGuard(o: Opts, sub: string | undefined): number {
+  const { paths, config } = project(process.cwd());
+  const main = firstBranch(config);
+  if (sub === 'commit') {
+    noAgent(o, 'commit the push guard');
+    const r = commitGuard(run, paths.root, main);
+    out(o, () => (r.committed ? `Committed the push guard on ${r.base}. Push ${r.base} so the cloud clones it.` : `The push guard is already committed on ${r.base}.`), r);
+    return 0;
+  }
+  if (sub === 'push') {
+    noAgent(o, 'push the branch the cloud clones');
+    const r = pushGuard(run, paths.root, main, process.env);
+    out(o, () => (r.pushed ? `Pushed ${r.base} to GitHub, with the push guard.` : `GitHub's ${r.base} has the push guard already.`), r);
+    return 0;
+  }
+  if (sub !== undefined) throw new AccError('usage', 'acc cloud guard [commit|push]');
+  const place = guardPlace(run, paths.root, main);
+  out(o, () => [
+    `The cloud clones ${place.base}.`,
+    place.local.ok ? tone(`  ✓ The push guard is committed on ${place.base} here.`, 'blue') : tone(`  ! ${place.local.why}`, 'orange'),
+    place.pushed.ok ? tone(`  ✓ GitHub's ${place.base} has it.`, 'blue') : tone(`  ! ${place.pushed.why}`, 'orange'),
+  ].join('\n'), place);
   return 0;
 }
 
@@ -111,12 +145,15 @@ export const area: CommandArea = {
   acc cloud enable [--routine <trig_id>] [--default-place local|cloud] [--max <n>] [--quiet-minutes <n>] [--review local|cloud]
                                         Opt the project in: "agents.cloud" in .acc/config.json, and the push guard
                                         in .claude/settings.json, both to commit. Needs the repo on GitHub, a
-                                        routine for it (claude.ai/code/routines), its token (acc cloud token), and
+                                        scheduled task for it (claude.ai/code/routines), its token (acc cloud token), and
                                         claude auth login. Local stays the default unless --default-place cloud;
                                         reviews stay on this Mac unless --review cloud
   acc cloud disable                     Turn cloud builders off for the project
-  acc cloud token [--forget]            Keep the routine's API token in this Mac's keychain, read from stdin, never
-                                        from the command line; --forget takes it out
+  acc cloud token [--forget]            Keep the scheduled task's API token in this Mac's keychain, read from stdin,
+                                        never from the command line; --forget takes it out. On Windows the Command
+                                        Center keeps it, and hands it to acc when it builds or reviews
+  acc cloud guard [commit|push]         Whether the push guard is committed on the branch the cloud clones, and on
+                                        GitHub; commit commits its three files there; push pushes that branch
   acc collect <id>                      Bring a cloud builder's branch into its worktree, run the required checks
                                         here, and move the task to review: what acc sync does on its own once the
                                         builder's last commit carries Acc-Done: <id>`,
@@ -130,7 +167,7 @@ export const area: CommandArea = {
     forget: { type: 'boolean', default: false },
     'from-env': { type: 'boolean', default: false },
   },
-  subcommands: { cloud: ['status', 'enable', 'disable', 'token'] },
+  subcommands: { cloud: ['status', 'enable', 'disable', 'token', 'guard'] },
   commands: {
     cloud: (o, rest) => {
       const sub = rest[0] ?? 'status';
@@ -138,7 +175,8 @@ export const area: CommandArea = {
       if (sub === 'enable') return cmdEnable(o);
       if (sub === 'disable') return cmdDisable(o);
       if (sub === 'token') return cmdToken(o);
-      throw new AccError('usage', 'acc cloud [status|enable|disable|token]');
+      if (sub === 'guard') return cmdGuard(o, rest[1]);
+      throw new AccError('usage', 'acc cloud [status|enable|disable|token|guard]');
     },
     collect: (o, rest) => cmdCollect(o, rest[0]),
   },

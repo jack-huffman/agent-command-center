@@ -22,7 +22,7 @@ test('the cloud is off with its reason where the repo isn\'t on GitHub or the pr
   const todo = { ...row('AV-2', 'todo', 'ready'), deps: [] } as TaskRow;
   assert.equal(cloudDisabled(config(false, null)), 'Cloud builders need the repo on GitHub');
   assert.equal(cloudDisabled(config(true, null)), 'Cloud builders are off for this project: opt in under Settings');
-  assert.equal(cloudDisabled(config(true, { routine: null })), 'Cloud builders need a routine for the repo: Setup says how');
+  assert.equal(cloudDisabled(config(true, { routine: null })), 'Cloud builders need a scheduled task for the repo: Setup says how');
   assert.equal(cloudDisabled(config(true, CLOUD)), null);
   assert.equal(cloudDisabled(null), 'Cloud builders need the repo on GitHub', 'no config at all: not on GitHub as far as the card knows');
   const builder = { model: 'claude-opus-5-5', effort: null, from: { model: 'acc', effort: 'default' } };

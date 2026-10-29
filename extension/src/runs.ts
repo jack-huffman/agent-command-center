@@ -14,6 +14,7 @@ import { applySteps, NO_RUN_STEPS, type RunSteps, runsAcc } from './logic/run-st
 import type { RunControl, RunInput } from './model/runs.ts';
 import { keptReview, type ReviewRun, type VerdictRead } from './model/dock-review.ts';
 import type { ExtensionArea } from './area.ts';
+import type { AccEnv } from './run.ts';
 
 interface Run extends RunInput {
   cwd: string;
@@ -112,6 +113,11 @@ export class Runs implements vscode.Disposable {
   copy: (text: string) => Thenable<void> = (text) => vscode.env.clipboard.writeText(text);
   private readonly accBin: string;
   private readonly store: vscode.Memento | null;
+  /**
+   * What a run of acc's environment gets for its folder (T-145): on Windows the scheduled task's token, so a
+   * dispatch, a review and autopilot find it. Nothing for any other command.
+   */
+  accEnv: AccEnv = () => ({});
   private pending: NodeJS.Timeout | undefined;
 
   /**
@@ -172,6 +178,7 @@ export class Runs implements vscode.Disposable {
     this.log.info(`Running: ${command} (in ${opts.cwd})`);
     // A run of acc reports its steps (T-65): to a file in a folder of its own, read as it grows, gone once it ends.
     const stepsEnv: Record<string, string> = {};
+    const accEnv = runsAcc(command) ? this.accEnv(opts.cwd) : {};
     if (runsAcc(command)) {
       try {
         run.stepsDir = mkdtempSync(join(tmpdir(), 'acc-steps-'));
@@ -189,7 +196,7 @@ export class Runs implements vscode.Disposable {
       // the same on Windows, where Setup's encoded PowerShell line (opts.spawn) runs from it as written. Its own
       // process group, so Stop ends all of it.
       const [sh, args] = inShell(opts.spawn ?? command);
-      const started = startChild(sh, args, { cwd: opts.cwd, env: sfEnv({ ...process.env, ...opts.env, ...stepsEnv, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+      const started = startChild(sh, args, { cwd: opts.cwd, env: sfEnv({ ...process.env, ...opts.env, ...accEnv, ...stepsEnv, PATH: `${this.accBin}${delimiter}${process.env.PATH ?? ''}`, FORCE_COLOR: '0', NO_COLOR: '1' }), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
       if ('problem' in started) throw new Error(started.problem);
       child = started;
     } catch (e) {

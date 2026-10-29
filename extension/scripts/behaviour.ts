@@ -52,6 +52,8 @@ import { conversationModel } from '../src/model/conversation.ts';
 import { sampleReport } from './fixtures/report.ts';
 import { issueBody } from '../webview/report-text.ts';
 import { sampleChoosing, sampleConnect } from './fixtures/connect.ts';
+import { sampleCloudSetup } from './fixtures/cloud-setup.ts';
+import type { CloudSetupModel } from '../src/model/cloud-setup.ts';
 import { sampleSheet, sampleSheetInput } from './fixtures/dispatch-sheet.ts';
 import { SAMPLE_THEIRS, sampleTaskSheet } from './fixtures/task-sheet.ts';
 import { taskSheetOff } from '../src/model/task-sheet.ts';
@@ -156,6 +158,11 @@ export interface BehaviourData {
  * `none` is the same page with no project chosen, where Test connection is off too: its model, and the reason it gives.
  */
   connect: { site: ConnectModel; why: string; testing: { model: ConnectModel; why: string } };
+  /**
+   * Set up cloud builders (T-145) at The token on Windows: not done, with why Next is off, and done, with the step
+   * Next goes to; and a token that fits its field.
+   */
+  cloud: { todo: CloudSetupModel; why: string; done: CloudSetupModel; next: string; token: string };
   /**
    * Choosing a board by seeing it (T-106): the Jira page with its preview still being read, drawn for ACME-31,
    * and with ACME-30 chosen; each preview's line, Use this board's label and why it's off while it reads.
@@ -1497,6 +1504,60 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'cloud setup: Next stays off until the step passes, says why in its title and beside it, and a click on it goes nowhere',
+    page: 'settings-agents',
+    async run(t) {
+      const want = t.data.cloud;
+      const show = async (m: CloudSetupModel) => { const home = structuredClone(t.model) as HomeModel; home.cloudSetup = m; await t.post({ type: 'state', model: home }); };
+      const next = () => {
+        const b = t.all<HTMLButtonElement>('.cloud-modal .connect-foot button').find((x) => x.textContent?.trim() === 'Next');
+        if (!b) throw new Error('not found: the Next button');
+        return b;
+      };
+      await show(want.todo);
+      t.check('it is a modal', t.find<HTMLDialogElement>('dialog.cloud-modal').open);
+      t.check('Next is off while the token isn\'t kept', next().disabled);
+      t.check('its title is the reason', next().title === want.why, next().title);
+      const line = t.find('.cloud-modal .connect-foot .status');
+      t.check('a status line beside it says the same, with an icon', line.textContent?.trim() === want.why && !!line.querySelector('.codicon'), line.textContent);
+      await t.click(next());
+      t.check('a click on it asks for no step', t.sent('cloud-setup-step').length === 0, t.sent('cloud-setup-step'));
+      await show(want.done);
+      t.check('once the step passes, Next is on', !next().disabled);
+      await t.click(next());
+      const asked = t.sent('cloud-setup-step');
+      t.check('and asks for the next step', asked.length === 1 && asked[0]?.step === want.next, asked);
+    },
+  },
+  {
+    name: 'cloud setup: the token is typed hidden, checked as it is typed, sent once, and kept nowhere in the page',
+    page: 'settings-agents',
+    async run(t) {
+      const want = t.data.cloud;
+      const home = structuredClone(t.model) as HomeModel;
+      home.cloudSetup = want.todo;
+      await t.post({ type: 'state', model: home });
+      const box = t.find<HTMLInputElement>('#cloud-token');
+      const keep = () => {
+        const b = t.all<HTMLButtonElement>('.cloud-field button').find((x) => x.textContent?.trim() === 'Keep the token');
+        if (!b) throw new Error('not found: Keep the token');
+        return b;
+      };
+      t.check('the box hides what is typed', box.type === 'password');
+      t.check('Keep the token is off before anything is typed, with why', keep().disabled && keep().title !== '', keep().title);
+      await t.type(box, 'tok_short');
+      t.check('a token that doesn\'t fit keeps it off, and says why beside it', keep().disabled && /A token is letters/.test(t.find('.cloud-field-check').textContent ?? ''), t.find('.cloud-field-check').textContent);
+      await t.type(box, want.token);
+      t.check('one that fits turns it on', !keep().disabled, keep().title);
+      await t.click(keep());
+      const sent = t.sent('cloud-setup-act');
+      t.check('it is sent once, with the token', sent.length === 1 && sent[0]?.action === 'keepToken' && sent[0]?.value === want.token, sent);
+      t.check('the tab\'s memory never holds it', !JSON.stringify(t.memory()).includes(want.token), t.memory());
+      await t.post({ type: 'state', model: home });
+      t.check('drawn again, the box is empty: it was forgotten once sent', t.find<HTMLInputElement>('#cloud-token').value === '', t.find<HTMLInputElement>('#cloud-token').value);
+    },
+  },
+  {
     name: 'connect: Next that is off gives its reason in its title and in a status line beside it',
     page: 'connect-start',
     async run(t) {
@@ -2508,6 +2569,10 @@ const caseNamed = (start: string): string => {
 };
 
 export const MUTANTS: Mutant[] = [
+  // Set up cloud builders (T-145): Next on before its step passes, the token kept in the page, and a field's button on before what's typed fits.
+  { name: 'cloud setup: Next goes on before the step passes', file: 'cloud-setup.ts', find: 'go.disabled = m.next ? !m.next.can : !m.cancel.can;', replace: 'go.disabled = false;', kills: [caseNamed('cloud setup: Next stays off')] },
+  { name: 'cloud setup: the token is written to the tab\'s memory', file: 'cloud-setup.ts', find: "  if (action === 'keepToken') cloudTyped.delete(`${m.id}:token`);", replace: "  if (action === 'keepToken') api.setState({ ...(api.getState() as object), token: value });", kills: [caseNamed('cloud setup: the token is typed hidden')] },
+  { name: 'cloud setup: Keep the token goes on before the token fits', file: 'cloud-setup.ts', find: "const off = f.keep.disabled ?? (fits ? null : v.trim() ? f.problem : `Paste the ${f.label.toLowerCase()} first`);", replace: 'const off = f.keep.disabled;', kills: [caseNamed('cloud setup: the token is typed hidden')] },
   { name: 'a failed check isn\'t named in the summary', file: 'agent-glance.ts', find: 'failed.length ? `${failed.length} failed: ${names(failed)}` : null,', replace: 'failed.length ? `${failed.length} failed` : null,', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'Details doesn\'t stay open once opened', file: 'agent-panel.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'a collapsed section doesn\'t stay collapsed', file: 'collapse.ts', find: 'show(memory().folded.includes(k));', replace: 'show(false);', kills: [caseNamed('task page: a Command Center section collapses')] },
@@ -2721,6 +2786,13 @@ function settingsData(model: Model): BehaviourData['settings'] {
 }
 
 /** The oracle: what each case should see, from the fixtures the pages are drawn from. */
+/** Set up cloud builders' token step (T-145), from the fixtures the screenshots draw. */
+function cloudData(): BehaviourData['cloud'] {
+  const todo = sampleCloudSetup('cloud-setup-token-win-todo')!;
+  const done = sampleCloudSetup('cloud-setup-token-win-done')!;
+  return { todo, why: todo.next!.why!.label, done, next: done.steps[done.steps.findIndex((s) => s.id === 'token') + 1]!.id, token: 'tok_0123456789abcdefghijKLMN' };
+}
+
 export function behaviourData(models: CaseModels, now: number): BehaviourData {
   const ticket = sampleTicket(now);
   const o = (models.overview as HomeModel).overview;
@@ -2748,6 +2820,7 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     project: ROOT,
     settings: settingsData(models.settings),
     connect: connectData(),
+    cloud: cloudData(),
     choose: chooseData(),
     wording: (sampleTicket(now, 'ACME-21').analysis?.wording?.findings ?? []).map((f) => ({ place: f.place, message: f.message, text: f.text })),
     palette: paletteData(models.tasks, now),

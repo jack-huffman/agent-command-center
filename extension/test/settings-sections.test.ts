@@ -4,7 +4,6 @@
 // page in a browser, at each width and theme, is the screenshot run's, and its jump the behaviour run's.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cloudTokenUnavailable } from '../../packages/core/src/cloud.ts';
 import type { HomeModel } from '../src/model/home.ts';
 import { sectionOfPart, SETTINGS_SECTIONS, type SettingsModel, settingsSections } from '../src/model/settings.ts';
 import { pageDom, type PageElement } from './page-dom.ts';
@@ -155,21 +154,25 @@ const BEFORE = [
 ];
 
 /**
- * What T-139 renamed: a tracker's Change place… is Change tracker…, where changing a tracker starts (T-140). BEFORE
- * was read on a Mac; where there's no keychain, as on Windows, the routine's Token… is drawn off, with why (D-209).
+ * What T-139 renamed: a tracker's Change place… is Change tracker…, where changing a tracker starts (T-140). What
+ * T-145 renamed: the routine is the scheduled task, as claude.ai calls it, and Turn on… is Set up…, which opens the
+ * stepped modal. Token… is on on every system now, Windows too (T-145), so nothing is drawn off by system.
  */
-const renamed = (name: string): string => {
-  const now = name.replace(/^BUTTON Change place: where /, 'BUTTON Change tracker: where ');
-  return now.startsWith('BUTTON Token: keep the routine\'s token') && cloudTokenUnavailable() && !now.endsWith(' [off]') ? `${now} [off]` : now;
+const T145: Record<string, string> = {
+  'BUTTON Change routine: give the Command Center Acme Service\'s routine': 'BUTTON Trigger id: give the Command Center Acme Service\'s scheduled task',
+  'BUTTON Copy the routine prompt for Acme Service': 'BUTTON Copy the scheduled task\'s prompt for Acme Service',
+  'BUTTON Token: keep the routine\'s token for Acme Service': 'BUTTON Token: keep the scheduled task\'s token for Acme Service',
+  'BUTTON Turn on cloud builders for Acme Portal': 'BUTTON Set up cloud builders for Acme Portal',
 };
+const renamed = (name: string): string => T145[name] ?? name.replace(/^BUTTON Change place: where /, 'BUTTON Change tracker: where ');
 
 test('every control Settings drew before its sections is still drawn, by name, and off where it was off', () => {
   const after = new Set(KINDS.flatMap((k) => controls(draw(model(k))).map(controlName)));
   assert.ok(BEFORE.length >= 90, `${BEFORE.length} controls pinned`);
   const lost = BEFORE.map(renamed).filter((name) => !after.has(name));
   assert.deepEqual(lost, [], 'none is lost');
-  // What it adds is the picker, the jump list's narrow form.
-  assert.deepEqual([...after].filter((name) => !BEFORE.map(renamed).includes(name)), ['SELECT Section of Settings']);
+  // What it adds is the picker, the jump list's narrow form, and Set up… on a project that's on (T-145).
+  assert.deepEqual([...after].filter((name) => !BEFORE.map(renamed).includes(name)).sort(), ['BUTTON Set up cloud builders for Acme Service', 'SELECT Section of Settings']);
 });
 
 test('every control that can be used still does something when used: it asks the extension, or changes the page', () => {

@@ -58,31 +58,35 @@ export function cloudOffered(config: CloudConfigLike): CloudNeed[] {
   const cloud = config.agents.cloud;
   return [
     { id: 'github', label: 'The repo is on GitHub', ok: !!config.github, fix: 'Cloud builders need the repo on GitHub: a cloud session clones it from there and pushes its branch back. Add the "github" section to .acc/config.json.' },
-    { id: 'opted-in', label: 'The project has opted in', ok: !!cloud, fix: 'Cloud builders are off until a person opts the project in: acc cloud enable, or Settings\' Cloud builders switch.' },
-    { id: 'routine', label: 'A routine for the repo', ok: !!cloud?.routine, fix: `Make a routine for the repo at ${ROUTINES_URL}, with an API trigger, and give acc its trigger id: acc cloud enable --routine trig_….` },
+    { id: 'opted-in', label: 'The project has opted in', ok: !!cloud, fix: 'Cloud builders are off until a person opts the project in: acc cloud enable, or Set up cloud builders in Settings.' },
+    { id: 'routine', label: 'A scheduled task for the repo', ok: !!cloud?.routine, fix: `Make a scheduled task (formerly a routine) for the repo at ${ROUTINES_URL}, with an API trigger, and give acc its trigger id: acc cloud enable --routine trig_….` },
   ];
 }
 
 /** Why cloud builders aren't offered, from the first unmet need, or null when they are. */
-export function cloudReason(needs: CloudNeed[]): string | null {
+export function cloudReason(needs: CloudNeed[], platform: NodeJS.Platform = process.platform): string | null {
   const first = needs.find((n) => !n.ok);
   if (!first) return null;
   if (first.id === 'github') return 'Cloud builders need the repo on GitHub';
   if (first.id === 'opted-in') return 'Cloud builders are off for this project: opt in under Settings';
-  if (first.id === 'routine') return 'Cloud builders need a routine for the repo: Setup says how';
-  if (first.id === 'token') return 'Cloud builders need the routine\'s token: Setup says how';
+  if (first.id === 'routine') return 'Cloud builders need a scheduled task for the repo: Setup says how';
+  // On Windows the Command Center keeps the token (T-145): a terminal has none to hand acc.
+  if (first.id === 'token') return cloudTokenHome(platform) === 'vscode' ? 'Cloud builders need the scheduled task\'s token, which the Command Center keeps on Windows: start it from the Command Center' : 'Cloud builders need the scheduled task\'s token: Setup says how';
   return 'Cloud builders need a claude.ai sign-in: claude auth login';
 }
 
 /**
- * Every need, the config's and the machine's (GH-69): the routine's token in this Mac's keychain, and the
- * Claude Code CLI signed in to a claude.ai account, which `claude -p --cloud` needs to send a message.
+ * Every need, the config's and the machine's (GH-69): the scheduled task's token, kept where this system
+ * keeps it (cloudTokenHome), and the Claude Code CLI signed in to a claude.ai account, which
+ * `claude -p --cloud` needs to send a message.
  */
-export function cloudNeeds(config: CloudConfigLike, run: Runner, env: NodeJS.ProcessEnv): CloudNeed[] {
+export function cloudNeeds(config: CloudConfigLike, run: Runner, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): CloudNeed[] {
   const needs = cloudOffered(config);
   const repo = config.github?.repo ?? '';
-  const token = repo ? readCloudToken(run, repo, env) : null;
-  needs.push({ id: 'token', label: 'The routine\'s token is in this Mac\'s keychain', ok: !!token, fix: 'Generate the API trigger\'s token on the routine\'s page, then keep it in the keychain: acc cloud token. It\'s never written to .acc/config.json or git.' });
+  const token = repo ? readCloudToken(run, repo, env, platform) : null;
+  needs.push(cloudTokenHome(platform) === 'vscode'
+    ? { id: 'token', label: 'The Command Center handed over the scheduled task\'s token', ok: !!token, fix: WINDOWS_TOKEN_FIX }
+    : { id: 'token', label: 'The scheduled task\'s token is in this Mac\'s keychain', ok: !!token, fix: 'Generate the API trigger\'s token on the scheduled task\'s page, then keep it in the keychain: acc cloud token, or Set up cloud builders in the Command Center. It\'s never written to .acc/config.json or git.' });
   const login = claudeLogin(run, env);
   needs.push({ id: 'login', label: 'Claude Code is signed in to claude.ai', ok: login.ok, fix: login.ok ? '' : `${login.why} Run: claude auth login` });
   return needs;
@@ -102,50 +106,55 @@ export function claudeLogin(run: Runner, env: NodeJS.ProcessEnv): { ok: boolean;
   }
 }
 
-// ---------------------------------------------------------------- the token, in the keychain
+// ---------------------------------------------------------------- the token: a Mac's keychain, or the Command Center
 
-/** The keychain item the routine's token is kept in, by repo: never in .acc/config.json or git (GH-69). */
+/** The keychain item a Mac keeps the scheduled task's token in, by repo: never in .acc/config.json or git (GH-69). */
 const CLOUD_TOKEN_SERVICE = 'acc-cloud-routine';
-/** For tests and CI: a token given in the environment stands in for the keychain's. */
+/**
+ * The token handed to acc in its environment: by the Command Center on Windows, which keeps it in VS Code's
+ * secret storage (T-145), and by tests and CI. acc never hands it on to a program it starts (childEnv).
+ */
 export const CLOUD_TOKEN_ENV = 'ACC_CLOUD_TOKEN';
-/** A routine's API token, as claude.ai shows it: a bearer token, letters, digits, dashes and underscores. */
+/** A scheduled task's API token, as claude.ai shows it: a bearer token, letters, digits, dashes and underscores. */
 export const CLOUD_TOKEN = /^[A-Za-z0-9_-]{20,}$/;
 
 /**
- * Why this machine can't keep the routine's token, or null where it can (D-209): it's kept in the macOS
- * keychain, by the security command, which Windows has no counterpart of that acc uses yet. Elsewhere than
- * Windows nothing changes: a Mac reads its keychain, and Linux (CI) as before. A token given in the
- * environment (CLOUD_TOKEN_ENV) still works everywhere.
+ * Where this system keeps the scheduled task's token (T-145). A Mac: its keychain, by the security command, so
+ * a dispatch typed in a terminal finds it. Windows, which has no counterpart acc uses: VS Code's secret
+ * storage, which only the Command Center reads, and it hands the token to acc in CLOUD_TOKEN_ENV whenever it
+ * dispatches or reviews. Linux (CI) as a Mac, with no keychain: a token given in the environment works there.
  */
-export const cloudTokenUnavailable = (platform: NodeJS.Platform = process.platform): string | null =>
-  platform === 'win32' ? 'Not available on Windows yet: the routine\'s token is kept in the macOS keychain' : null;
+export const cloudTokenHome = (platform: NodeJS.Platform = process.platform): 'keychain' | 'vscode' => (platform === 'win32' ? 'vscode' : 'keychain');
 
-/** The routine's token for a repo: the environment's, else the macOS keychain's. Null when there's none, or no keychain. */
+/** What a terminal on Windows is told when its environment has no token (T-145): the Command Center keeps it. */
+export const WINDOWS_TOKEN_FIX = 'On Windows the Command Center keeps the scheduled task\'s token, in VS Code, and hands it to acc whenever it builds or reviews. Start this from the Command Center: Build it, then Cloud.';
+
+/** The scheduled task's token for a repo: the environment's, else a Mac's keychain's. Null when there's none. */
 export function readCloudToken(run: Runner, repo: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): string | null {
   const given = env[CLOUD_TOKEN_ENV]?.trim();
   if (given) return given;
-  if (cloudTokenUnavailable(platform)) return null;
+  if (cloudTokenHome(platform) === 'vscode') return null;
   const r = run('security', ['find-generic-password', '-s', CLOUD_TOKEN_SERVICE, '-a', repo, '-w'], { env, timeoutMs: 20_000 });
   const token = r.code === 0 ? r.stdout.trim() : '';
   return token && CLOUD_TOKEN.test(token) ? token : null;
 }
 
 /**
- * Keeps the routine's token in the keychain, replacing any for the repo. `security` reads its command from
- * stdin in interactive mode, so the token never goes on a command line another process could read.
+ * Keeps the scheduled task's token in a Mac's keychain, replacing any for the repo. `security` reads its
+ * command from stdin in interactive mode, so the token never goes on a command line another process could
+ * read. On Windows it's refused, saying where the token is kept instead (T-145).
  */
 export function writeCloudToken(run: Runner, repo: string, token: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): void {
-  const unavailable = cloudTokenUnavailable(platform);
-  if (unavailable) throw new AccError('refused', `${unavailable}. Set ${CLOUD_TOKEN_ENV} to the token instead.`);
-  if (!CLOUD_TOKEN.test(token)) throw new AccError('usage', 'That doesn\'t look like a routine\'s API token: letters, digits, dashes and underscores, 20 or more.');
+  if (cloudTokenHome(platform) === 'vscode') throw new AccError('refused', 'On Windows the Command Center keeps the scheduled task\'s token, in VS Code: paste it in Set up cloud builders there, at The token.');
+  if (!CLOUD_TOKEN.test(token)) throw new AccError('usage', 'That doesn\'t look like a scheduled task\'s API token: letters, digits, dashes and underscores, 20 or more.');
   const quote = (s: string) => `"${s.replace(/(["\\])/g, '\\$1')}"`;
   const r = run('security', ['-i'], { env, input: `add-generic-password -U -s ${quote(CLOUD_TOKEN_SERVICE)} -a ${quote(repo)} -w ${quote(token)}\n`, timeoutMs: 20_000 });
   if (r.code !== 0) throw new AccError('cloud', `The keychain wouldn't keep the token: ${(r.stderr || r.stdout).trim().split('\n')[0] || `security exited ${r.code}`}`);
 }
 
-/** Takes the routine's token out of the keychain. True when there was one; never where there's no keychain. */
+/** Takes the token out of a Mac's keychain. True when there was one; never on Windows, where the Command Center keeps it. */
 export function deleteCloudToken(run: Runner, repo: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): boolean {
-  if (cloudTokenUnavailable(platform)) return false;
+  if (cloudTokenHome(platform) === 'vscode') return false;
   return run('security', ['delete-generic-password', '-s', CLOUD_TOKEN_SERVICE, '-a', repo], { env, timeoutMs: 20_000 }).code === 0;
 }
 
