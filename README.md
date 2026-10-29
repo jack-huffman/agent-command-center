@@ -1,455 +1,248 @@
 # Agent Command Center
 
-A VSCode command center for running Claude Code agents in parallel. It pulls
-tickets from your trackers, gives each one its own git worktree and agent, runs
-the project's checks, opens the pull request, and shows all of it in one panel.
+**Run Claude Code agents in parallel, from one page in VSCode.**
 
-It is built for Salesforce work first, but the core assumes nothing about
+Agent Command Center turns tickets into reviewed pull requests. It reads your
+trackers, gives each ticket its own git worktree and agent, runs the project's
+checks, has a second agent review the change, and opens the pull request. You
+see every step on one page. Nothing merges, deploys or posts on a ticket until
+you say so.
+
+It's built for Salesforce work first, but the core assumes nothing about
 Salesforce. Project types plug in as profiles.
+
+## How a ticket goes
+
+| Step | Who | What happens |
+| --- | --- | --- |
+| **Add to my work** | you | A ticket from Jira, Azure DevOps, GitHub, monday.com or Slack becomes a task |
+| **Make a plan** | an agent, then you | An agent reads the ticket and proposes a plan; you question it and approve it |
+| **Build it** | an agent | A background Claude Code session builds it in its own worktree |
+| **Checks** | the Command Center | The project's checks run on each commit: lint, tests, and for Salesforce a check-only deploy |
+| **Review** | an agent, then you | A read-only agent judges the change against its ticket |
+| **Land and deploy** | you | A pull request, then each environment in turn, each checked first and approved by you |
+
+## Highlights
+
+- **One page.** Overview, Tasks, Agents, Worktrees, Environments, Setup and
+  Settings, from the icon in the activity bar.
+- **Your trackers' own boards.** Columns as the tracker has them. Drag a card
+  to move the real ticket. Each repo signs in to its own trackers, so one
+  client's login never serves another's repo.
+- **No terminal hunting.** An agent's permission prompts and questions arrive
+  as cards to allow, deny or answer in place. **Watch** shows its work as it
+  happens.
+- **Several agents, gently.** Three builders per project by default, heavy
+  checks taking turns, and tasks that change the same files waiting for each
+  other.
+- **Ticket updates are yours to post.** When a pull request is ready, merges
+  or deploys, the Command Center drafts an update. You edit it and post it as
+  yourself.
+- **Mac and Windows**, natively, with no WSL.
 
 **Status:**
 
-- **M1 done:** the task ledger, the config, and onboarding checks (`acc doctor`).
-- **M2 done:** setup walkthroughs, and one Command Center page, with an
-  Overview, tasks, agents, worktrees, environments and setup. Click the icon in
-  the activity bar to open it.
-- **M3 done:** **Build it** hands a ready task to a background agent in its own
-  worktree. The first real run went from Ready to In review on its own.
-- **M4 done:** **Checks.** `acc gate run` runs a project's checks on the
-  current commit and records the results. Salesforce projects get `format`,
-  `lint`, `static`, `lwc-tests` and a check-only `validate`. `acc done` waits for
-  the required ones. `acc drift <environment>` shows what changed in an org
-  since its branch.
-- **Boards and tickets:** the Tasks tab shows each tracker's own board: a
-  Jira board's columns, an Azure DevOps team board's, or a GitHub Project's. Drag a card to move the real
-  ticket. Click one and its ticket page opens over the board: the description,
-  comments, status, assignee and labels, plus the Command Center's agent, checks and history.
-  **Open as tab** gives it a tab of its own. Status, assignee
-  and labels change from there only when the tracker says `"edits": true`. On
-  a GitHub tracker, `"edits"` also lets `acc sync` close a task's issue when its
-  work merges, with a comment naming the pull request; `acc sync --close-done`
-  closes the issues of tasks done before that.
-- **A GitHub Project's columns follow the task:** under `"edits": true`, as the Command Center
-  moves a task, its issue's card moves on the Project to the column of that
-  name: Todo for to do and ready, In Progress for running and rework, Testing
-  (or In Review) for review, Blocked, and Done. `statusFor` in the tracker's
-  record names other columns, such as `{ "review": "QA" }`. A Project without
-  the column is left alone, a card you drag stays put until the task moves
-  again, and a move that fails is named on the task without holding it up.
-- **Ticket updates are yours to post:** apart from that close and those card
-  moves, the Command Center never posts
-  on a ticket. When a pull request is ready for review, merges, or deploys, or
-  a builder needs the client's answer, the Command Center drafts an update in plain words. It
-  waits in Needs you and on the task's page, where you edit it and post it as
-  yourself, or discard it. `acc updates` lists them.
-- **Who you're working as:** the status bar shows the repo's GitHub account,
-  and you can switch it for your clone alone. git push follows the switch, and
-  boards and comments say who they act as.
-- **No terminal hunting:** agents' permission prompts and questions arrive as
-  cards on the Overview, to allow, deny or answer in place. **Watch** shows an
-  agent's work as it happens: what it said, each command and its result. Setup's
-  commands run in an output panel on the page, which answers their prompts.
-- **M5:** `acc review` has a read-only agent judge each commit's
-  change against its ticket. `acc land` pushes and opens the pull request, and
-  `acc sync` follows it to done. A person approves each step on the page.
-- **Promotion and deploys:** **Promote…** on an environment opens a pull
-  request to the next one. It's checked against that org first, leaves out
-  environment-specific files, and names anything it skips. **Deploy…** sends
-  what merged since the last deploy, and a protected org needs its name typed.
-- **Guided setup, all of it:** the baseline manifest, the environment branches,
-  the two lists and the README's environments table each have a **Do it** in
-  the walkthrough. No terminal needed.
-- **How agents run:** builders and reviewers each have a model, effort and
-  fallback, for this clone or the whole project, changed in the Command
-  Center's **Settings**, with each project's autonomy and auto-merge.
-- **A task's model and effort:** each builder runs with the clone's or the
-  project's model and effort unless a task picks its own:
-  `acc dispatch <id> --model <m> --effort <low|medium|high|xhigh|max>`, or
-  **Build it** (**Build it again** on a rework) in the Command Center, which
-  opens one sheet: the model, with where the current one is set; the levels
-  it takes, as a segmented control; and where it runs, This Mac or the
-  cloud, which is off with its reason when the project can't use it. What
-  the builder would use is already chosen, so Enter dispatches with it. A
-  re-dispatch and a resume keep the pick;
-  `--effort default`, or the builder's own level in the sheet, drops it, and
-  a model picked that doesn't take it drops it and says so. On every dispatch
-  and resume, a level the model doesn't take is refused before anything
-  starts, citing the Command Center's list of each model's levels, copied from Anthropic's
-  effort guide with the date it was read. The task page and Agents show an effort beside the model when it
-  isn't the model's default.
-- **History:** what agents asked and what you answered stays on the page: in
-  each agent's timeline, and in the Overview's History with the task moves and
-  commands.
-- **M5 done:** the first real ticket went all the way: issue #9, built by an
-  agent, checked, reviewed by another agent, and opened as pull request #10.
-- **M6 done: the plugin.** `claude --plugin-dir plugin` (or the marketplace in
-  this repo) adds the Command Center's skills, the reviewer agent and the hooks that keep
-  builders in their worktree and away from pushes, merges and deploys.
-- **M7: three agents at once.** Three builders ran together on issues #11 to
-  #13, each in its own worktree, with their checks taking turns on the
-  machine's heavy slot. A status bar item says what needs you, what's running
-  and what's in review. A notice says when a builder finishes, a review passes
-  or asks for changes, or a pull request's checks fail. **Intake** gathers the
-  ways work comes in, and **Instructions** opens a builder's packet.
-- **Builders survive the Mac sleeping:** on macOS the Command Center keeps the machine awake
-  (`caffeinate -i`) while an agent it started runs; the display still sleeps,
-  and closing the lid still sleeps the Mac. Other platforms aren't kept awake.
-  A builder that stops before `acc done` or `acc block`, as one did when the
-  Mac slept anyway, shows as needs you with the last thing it said, and
-  **Resume** (`acc resume <id>`) carries its session on in its worktree.
-  Autopilot resumes one once by itself.
-- **Notices in Slack:** away from VSCode, what needs you can come to a Slack
-  channel or your own DM, by an incoming webhook kept in VSCode's secret
-  storage on this machine. Set it up in the Settings section's **Notices in
-  Slack**. It's off until you turn it on, sends each moment once
-  however many windows are open, and sends only the task's id and title, what
-  happened and a link.
-- **Tasks that change the same files take turns, where they can:** before a
-  task starts, the Command Center compares the files its analysis plans to change with the
-  work in flight. When it shares some, and another Ready task shares none, it
-  waits, and its card says "Waits for GH-70's files: …". It starts on its own
-  once those files are free, or once nothing else is ready. Files every task
-  edits never count: `autopilot.appendOnly`, and `dispatch.shared` in
-  `.acc/config.json`. `acc dispatch <id> --anyway` starts it now,
-  `acc dispatch --held` starts whatever may go, and `--stop-waiting` ends a
-  wait.
+- **Done:** M1 to M7: the ledger and CLI, setup walkthroughs, dispatch,
+  checks, review and land, the Claude Code plugin, and the extension's views.
 - **Next:** M8, the pilots. [ROADMAP.md](docs/ROADMAP.md) says what's done,
   what's under way and what waits on a person, each with its date and evidence.
 
 ## Install and first run
 
-Agent Command Center is a VSCode extension, the `acc` command that comes with
-it, and a Claude Code plugin. This takes a new machine from nothing to its first
-project.
-
-For developers: `acc` is the command-line engine behind the Command Center. The
-extension runs it for every action, and a person never needs to type it. In the
-Command Center a person adds a ticket to **My work**, an agent **makes a plan**,
-they **build it**, and they review and merge it. [ONBOARDING.md](docs/ONBOARDING.md) has every step in detail.
+The Command Center is a VSCode extension, the `acc` command that comes with
+it, and a Claude Code plugin. `acc` is the engine behind every action, and a
+person never needs to type it. [ONBOARDING.md](docs/ONBOARDING.md) has every
+step in detail.
 
 ### What you need
 
-- **macOS** (Apple Silicon or Intel) or **Windows**, with no WSL. On a Mac,
-  **Homebrew** installs what's missing (Setup checks it's there, and offers its
-  installer); on Windows, **winget** does. The walkthrough gives the line for
-  your system. (Linux isn't a supported
-  platform, but its lines are given.)
-- **VSCode.**
-- **Claude Code**, the terminal CLI, signed in to your Claude account. On a Mac:
-  `brew install --cask claude-code`. On Windows, in PowerShell:
-  `irm https://claude.ai/install.ps1 | iex`.
-- **A GitHub account**, and the GitHub CLI. On a Mac: `brew install gh`. On
-  Windows: `winget install --id GitHub.cli -e`.
-- **git 2.40 or later.** On a Mac: `brew install git`. On Windows: `winget
-  install --id Git.Git -e`. **Git for Windows is required on Windows**: the
-  Command Center runs its shell commands with the `sh` it ships.
-- **On Windows, restart VSCode after installing a tool.** A tool installed
-  while VSCode is open isn't on its PATH until VSCode restarts.
-- **For Salesforce projects:** Node 20 or later (`brew install node` on a Mac,
-  `winget install --id OpenJS.NodeJS.LTS -e` on Windows), the Salesforce CLI and
-  its Code Analyzer plugin.
+| | macOS | Windows |
+| --- | --- | --- |
+| Installs what's missing | Homebrew | winget |
+| Claude Code CLI, signed in | `brew install --cask claude-code` | `irm https://claude.ai/install.ps1 \| iex` |
+| GitHub CLI | `brew install gh` | `winget install --id GitHub.cli -e` |
+| git 2.40 or later | `brew install git` | `winget install --id Git.Git -e` |
+| Node 20 or later (Salesforce only) | `brew install node` | `winget install --id OpenJS.NodeJS.LTS -e` |
 
-The Command Center itself needs no Node: with no node 20 or later on PATH, it runs on VSCode's
-own runtime, which the extension records each time it starts. Salesforce
-projects need Node for the Salesforce CLI.
+You also need VSCode and a GitHub account. A Salesforce project also needs the
+Salesforce CLI and its Code Analyzer plugin. The Command Center itself needs no
+Node: it runs on VSCode's own runtime.
+
+On Windows, Git for Windows is required, since its `sh` runs the Command
+Center's shell commands. Restart VSCode after installing a tool, or VSCode
+won't find it. Linux isn't supported.
 
 ### Getting access
 
-This repo is private, and so are its releases and the plugin's marketplace,
-which is this repo.
+The repo, its releases and the plugin's marketplace (this repo) are private.
 
-1. Ask for an invitation to the repo, and accept it with the GitHub account
-   you'll use for it.
+1. Accept the invitation to the repo with the GitHub account you'll use.
 2. Sign gh in as that account: `gh auth login`.
-3. Check that git can read the repo with your own credentials. Claude Code
-   clones the plugin's marketplace this way:
+3. Check that git can read the repo. Claude Code clones the plugin's
+   marketplace this way:
 
    ```bash
    git ls-remote https://github.com/jack-huffman/agent-command-center
    ```
 
-   If it asks for a password or says the repository isn't found, run
-   `gh auth setup-git`. That changes your global git config: every repo on the
-   machine then gets its github.com credentials from gh's active account,
-   except a repo with its own credential helper (ONBOARDING.md, B2).
+   If it asks for a password or can't find the repository, run
+   `gh auth setup-git`. This changes your global git config: every repo then
+   takes its github.com credentials from gh's active account, except one with
+   its own credential helper
+   ([ONBOARDING.md, B2](docs/ONBOARDING.md#b2-clone-the-repo-and-pin-its-github-account)).
 
 ### Installing the extension
-
-Each [release](https://github.com/jack-huffman/agent-command-center/releases)
-has the extension as a `.vsix` file. Download the latest, as the account that
-accepted the invitation, and install it:
 
 ```bash
 gh release download -R github.com/jack-huffman/agent-command-center -p '*.vsix'
 code --install-extension agent-command-center-*.vsix
 ```
 
-A fresh VSCode doesn't put `code` on your PATH: run **Shell Command: Install
-'code' command in PATH** from its Command Palette first, or, in VSCode:
-Extensions view → **⋯** → **Install from VSIX…**, and pick the file. Then
-reload the window (**Developer: Reload Window**).
+If `code` isn't on your PATH, run **Shell Command: Install 'code' command in
+PATH** from the Command Palette. Or use Extensions → **⋯** → **Install from
+VSIX…**. Then run **Developer: Reload Window**.
 
-After that, the extension finds a newer release by itself (a minute after
-VSCode starts, then every six hours, unless the setting
-`agentCommandCenter.updates.check` is off) and offers it in a notification. **Install and reload** (also in Settings' **About**) downloads
-the release's `.vsix` as gh's signed-in account, checks it against the
-release's `.sha256`, installs it, reloads the window and opens the Command
-Center on the new version. A newer release also installs by hand, the same
-way as the first, over the old one.
+After that, the extension finds new releases by itself. **Install and reload**
+downloads the new `.vsix`, checks it against the release's `.sha256` and
+installs it.
 
 ### The first run
 
-1. **This machine.** After the reload, nothing opens by itself. Click the
-   Command Center's icon in the activity bar: the first time in a folder that
-   isn't set up, it opens on **Setup**, at **This machine** while any of its
-   steps are left. Its **Machine walkthrough** button, or **Agent Command
-   Center: Set up this machine** in the Command Palette, opens the same steps
-   as VSCode's walkthrough. Each step has
-   **Check** and, for most, **Do it**, which runs the fix in a terminal or an
-   output panel you can watch. A step ticks itself when its check passes. It
-   covers the tools, GitHub, agents' billing, and the Command Center's Claude Code plugin in
-   Code (A4).
-2. **The plugin.** A4's **Do it** installs it from this repo's marketplace, for
-   every Claude Code session. Start a new Claude Code session afterwards:
-   running ones don't load it. By hand:
+1. **This machine.** Click the Command Center's icon in the activity bar. In
+   a folder that isn't set up, it opens on **Setup**, at **This machine**.
+   Each step has **Check**, and most have **Do it**. A step ticks itself when
+   its check passes.
+2. **The plugin.** Step A4's **Do it** installs it from this repo's
+   marketplace. Start a new Claude Code session afterwards. To install it by
+   hand:
 
    ```bash
    claude plugin marketplace add https://github.com/jack-huffman/agent-command-center
    claude plugin install acc@agent-command-center --scope user
    ```
 
-   A private marketplace updates itself only when `GITHUB_TOKEN` is set, so
-   after each release, update it by hand:
+   A private marketplace doesn't update itself, so after each release run
    `claude plugin marketplace update agent-command-center`, then
-   `claude plugin update acc@agent-command-center --scope user`. Until you
-   do, A4 fails on a plugin older than the extension, and its **Do it** runs
-   both.
-3. **A project.** Open the project's repo folder, and open the Command Center.
-   The first time in a folder with no `.acc/config.json`, of any kind, it opens
-   on **Setup** at **What kind of project is this?**. **Choose…** asks
-   whether it's a Salesforce project, another kind, one from a team template
-   or one from a Jira epic, and writes `.acc/config.json`: review it and
-   commit it. After that first time, the Command Center opens where you left
-   it. Setup's other steps set up the repo's GitHub account, branches, orgs
-   and ticket source; its **Project walkthrough** button, or **Agent Command
-   Center: Onboard this project**, opens them as VSCode's walkthrough.
-4. **The Command Center.** Click its icon in the activity bar. **Setup** shows
-   every step and what's left, and `acc doctor` in a VSCode terminal opened
-   after the extension started runs the same checks.
+   `claude plugin update acc@agent-command-center --scope user`. A4's
+   **Do it** runs both.
+3. **A project.** Open its repo folder, then the Command Center. **Setup** asks
+   what kind of project it is and writes `.acc/config.json`, for you to review
+   and commit. Its other steps set up the repo's GitHub account, branches,
+   orgs and tracker.
+4. **Any time.** **Setup** shows what's left. `acc doctor` in a VSCode
+   terminal runs the same checks.
 
-### What the Command Center changes on your machine
+<details>
+<summary><b>What the Command Center changes on your machine</b></summary>
 
-- **VSCode:** every terminal gets `acc` on its PATH, from the extension's own
-  copy. Tracker sign-ins and the Slack webhook, if you add them, are kept in
-  VSCode's secret storage.
-- **`~/.acc/`:** `runtime`, the path of VSCode's runtime for the launcher;
-  `questions/`, agents' questions waiting for the Command Center; `heavy/`, the
-  slot heavy checks take turns on; `machine.json`, this machine's heavy-check
-  slots; `repos.json`, the repos the Command Center knows on this machine; and `slack/sent/`,
-  which notices went to Slack.
-- **Claude Code:** the Command Center's Claude Code plugin, at user scope, with its marketplace's clone
-  under `~/.claude/plugins/`. Its hooks run in every Claude Code session, and
-  do nothing in a repo without `.acc/config.json`. Each project's main checkout
-  is trusted once (B12).
+- **VSCode:** `acc` on every terminal's PATH. Tracker sign-ins and the Slack
+  webhook go in VSCode's secret storage.
+- **`~/.acc/`:** the runtime path for the launcher (`runtime`), agents' waiting
+  questions (`questions/`), the slots heavy checks take turns on (`heavy/`,
+  `machine.json`), the repos it knows (`repos.json`), and notices sent to
+  Slack (`slack/sent/`).
+- **Claude Code:** the plugin at user scope, its marketplace cloned under
+  `~/.claude/plugins/`. Its hooks run in every session, and do nothing in a
+  repo without `.acc/config.json`. Each project's main checkout is trusted
+  once (B12).
 - **gh:** a login for each account you sign in with through **Do it**. gh's
   active account is put back as it was.
-- **The Mac:** while an agent the Command Center started runs, `caffeinate -i` keeps the Mac
-  from sleeping; the display still sleeps.
-- **In each project's repo:** `.acc/config.json`, which you commit; the Command Center's
-  ledger in the git directory (`.git/acc/`), never in a commit; task worktrees
-  in `.claude/worktrees/`; `node_modules` in the repo's `info/exclude`; the
-  repo's own commit identity and credential helper in its git config (B2); and
-  what each setup step's **Do it** writes when you run it, such as `.gitignore`
-  lines, the environment branches and the README's environments table.
+- **The Mac:** `caffeinate -i` keeps it awake while an agent runs. The display
+  still sleeps.
+- **Each project's repo:** `.acc/config.json`, which you commit. The ledger
+  lives in the git directory (`.git/acc/`), never in a commit. Worktrees go in
+  `.claude/worktrees/`, and `node_modules` goes in `info/exclude`. The repo's
+  git config gets its own commit identity and credential helper (B2). Each
+  setup step's **Do it** writes what that step needs.
 
-## Principles
-
-- **Self-contained.** The project ships its own skills, hooks and agents as one
-  Claude Code plugin, and works with no other skills installed. It borrows ideas
-  from other tools, not dependencies.
-- **Claude Code is the engine.** Agents run as Claude Code background sessions
-  (`claude --bg`), and status comes from `claude agents --json` and hooks. This
-  project does not write an agent runtime.
-- **One ledger per repo, one writer.** Task state lives in a JSON file in the
-  repo. Only the CLI changes it, with atomic writes. The extension and the skills
-  read it.
-- **Profiles, not special cases.** Checks such as lint, tests and deploy
-  validation are declared per project type. `generic` and `salesforce` come
-  first.
-- **Humans keep the gates.** Nothing merges, deploys, closes a ticket or changes
-  a ticket's status unless you ask. You can, from the board and the ticket
-  pages. The Command Center never does it on its own, with one opt-in: a repo can turn on
-  auto-merge (`acc agents auto-merge on`), and autopilot then merges a reviewed
-  pull request whose checks passed, with nothing waiting on you, into an
-  environment that isn't protected. It's off by default, and a Salesforce
-  project can't turn it on.
-- **One merge at a time.** With auto-merge on, passing pull requests line up in
-  a merge queue, shown on the Overview. At its turn, each has its base merged
-  in, runs the full check once, and merges; one that conflicts or fails goes
-  back to its builder. Builders can then run lighter checks (`gates.builder`),
-  such as the tests near what they changed.
-- **Light on the machine.** A cap on concurrent builders for each project,
-  default 3, and, if you set one, a total for this machine across every repo,
-  since usage limits are your Claude account's. Heavy checks take turns in this
-  machine's slots. **Settings → Limits and checks** raises or lowers each, and
-  says what a change means in this machine's own numbers.
-- **Readable without colour.** Every state has an icon and a label. Where colour
-  helps, it is orange against blue, never red against green. Tests check both,
-  and that every colour comes from the theme.
-
-## Layout
-
-```text
-packages/core   ledger, config and state rules, shared by everything below
-packages/cli    the acc CLI: its launcher (bin/acc) and the bundle it runs, built into dist/,
-                and into plugin/bin/ for a release
-plugin/         Claude Code plugin: skills, hooks, reviewer agent, bin/acc and bin/acc.mjs
-extension/      VSCode extension: the Command Center page
-docs/           design, roadmap, decisions, research
-```
-
-## Trackers
-
-Each repo lists its own trackers in `.acc/config.json`, and signs in to them on
-its own. One machine can work across clients with different Jira sites, Azure
-DevOps organizations, GitHub repos and pipelines, and no client's login serves
-another's repo. GitHub Issues, Jira Cloud, Azure DevOps, monday.com and Slack. Set
-one up on the Command Center's **Connect page**: Connect
-Jira on the Tasks tab, Add a tracker on the Overview, or **Add a tracker…** from
-the Command Palette. It signs in, tests the connection, and lists the projects,
-places and boards to pick from, and the Command Center writes the tracker to `.acc/config.json`
-for you to commit. The Command Center's **Settings** lists every open project's
-trackers under **Trackers and sign-ins**, with who each signs in as, and signs
-each in again, signs it out, or changes its place. See [ONBOARDING.md, B14](docs/ONBOARDING.md#b14-connect-the-ticket-source).
-
-Each tracker names its place: the project, repo, monday.com board or Slack
-channel, and when
-set, a Jira epic, GitHub labels, an Azure DevOps area path or a monday.com
-group. Boards, ticket pages and intake see only tickets in that place, so
-another project's or client's never show up.
+</details>
 
 ## Settings
 
-The extension has five settings, under **Agent Command Center** in VSCode's
-Settings.
+Five VSCode settings, under **Agent Command Center**:
 
-- `agentCommandCenter.openFromActivityBar` (on by default): clicking the Command Center's icon
-  in the activity bar opens its page and tucks the sidebar away. Off, the
-  sidebar keeps a short list of sections instead.
-- `agentCommandCenter.notifications` (on by default): say when a task changes in a way that
-  needs you or is news, such as a builder finishing, a review's verdict, or a
-  pull request's checks failing or its merge. It's quiet while the Command
-  Center shows that board. When one refresh finds more than three changes,
-  such as after you were away, they show as one notification that counts
-  them, for example "Since you last looked: 2 need you, 3 merged", with Show
-  to open the Overview. When every change is to one task, it keeps that
-  task's own buttons instead. When VS Code has had no focus for ten minutes,
-  news waits for you instead: on your return one notification counts it,
-  "While you were away: 1 review passed, 2 merged", and its Show opens the
-  Overview at **Since you last looked**, a line for each change, until you
-  Clear it or are away again. Changes that need you still show at once. The
-  list lives in the window: reloading VS Code starts it empty. Notices to
-  Slack have their own switch, in the Settings section's **Notices in Slack**,
-  and still get each change.
-- `agentCommandCenter.updates.check` (on by default): look for a newer
-  release by itself, a minute after the window starts and then every six
-  hours, as gh's signed-in account. A newer version shows one notification,
-  "Agent Command Center <version> is out", with **Install and reload**,
-  **Release notes** and **Skip this version**. A skipped version isn't offered
-  again; a later one is. Off, nothing is looked for by itself, and **Check
-  now** in Settings' **About** still looks.
-- `agentCommandCenter.theme`: how the Command Center's pages look: `vscode`
-  (Match VSCode, the default), `light` or `dark`. It changes only the Command Center's own
-  pages; VSCode keeps its theme. It's kept on this machine, and set from
-  **Appearance** in the Command Center's Settings section.
-- `agentCommandCenter.refreshPace`: how often the Command Center refreshes
-  while it's on screen: `normal` (the default), `relaxed` (each interval twice
-  as long) or `slow` (four times). While it's hidden it refreshes as it always
-  does, and agents' questions and autopilot aren't slowed. It's kept on this
-  machine, and set from **The Command Center** in the Settings section.
-
-Two more choices there are this window's own, kept by VSCode for the window:
-the section the Command Center opens on (where you left it, or one you name),
-and whether Agents' Where column shows each session's folder or its full path.
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `agentCommandCenter.openFromActivityBar` | on | The activity bar icon opens the page and tucks the sidebar away. Off, the sidebar lists the sections instead |
+| `agentCommandCenter.notifications` | on | Says when a task needs you or has news. Several changes come as one counted notice, and news that arrives while you're away waits for one summary |
+| `agentCommandCenter.updates.check` | on | Looks for a newer release a minute after VSCode starts, then every six hours. **Check now** in Settings → About works either way |
+| `agentCommandCenter.theme` | `vscode` | How the Command Center's own pages look: `vscode`, `light` or `dark` |
+| `agentCommandCenter.refreshPace` | `normal` | How often it refreshes while on screen: `normal`, `relaxed` (half as often) or `slow` (a quarter as often) |
 
 Each project's own settings are in its `.acc/config.json`.
-[DESIGN.md section 4](docs/DESIGN.md#4-config) says what each key does, and
-The Command Center warns about a key it doesn't know.
+[DESIGN.md section 4](docs/DESIGN.md#4-config) says what each key does.
+
+## Principles
+
+- **Self-contained.** It ships its own skills, hooks and agents as one Claude
+  Code plugin, and needs no other skills.
+- **Claude Code is the engine.** Agents are Claude Code background sessions.
+  This project doesn't write an agent runtime.
+- **One ledger per repo, one writer.** Task state is a JSON file, and only
+  `acc` changes it.
+- **Profiles, not special cases.** Each project type declares its own checks.
+  `generic` and `salesforce` come first.
+- **Humans keep the gates.** Nothing merges, deploys or changes a ticket unless
+  you ask. There's one opt-in: auto-merge, through a merge queue, of a reviewed
+  pull request whose checks passed, into an environment that isn't protected.
+  It's off by default, and a Salesforce project can't turn it on.
+- **Readable without colour.** Every state has an icon and a label. Where
+  colour helps, it's orange against blue, never red against green.
+
+## Docs
+
+| | |
+| --- | --- |
+| [ONBOARDING.md](docs/ONBOARDING.md) | Every setup step, for a machine and for a project |
+| [DESIGN.md](docs/DESIGN.md) | How it's built, and every config key |
+| [ROADMAP.md](docs/ROADMAP.md) | Where each piece stands, with its date and evidence |
+| [DECISIONS.md](docs/DECISIONS.md) | Why things are the way they are |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
+| [RULES.md](docs/RULES.md) · [TEMPLATES.md](docs/TEMPLATES.md) | Shared rules and team templates |
+| [FIRST-RUN.md](docs/FIRST-RUN.md) | The checklist for a first install on a fresh machine |
 
 ## Development
 
 Development needs Node 23.6 or later, which runs the TypeScript directly. The
-built `acc` doesn't: it runs on node 20 or later, or on VSCode's runtime.
+built `acc` runs on Node 20 or later, or on VSCode's runtime.
+
+```text
+packages/core   ledger, config and state rules, shared by everything below
+packages/cli    the acc CLI: its launcher (bin/acc) and the bundle it runs
+plugin/         Claude Code plugin: skills, hooks, reviewer agent, bin/acc and bin/acc.mjs
+extension/      VSCode extension: the Command Center page
+docs/           design, roadmap, decisions
+```
 
 ```bash
-npm install              # dev dependencies: typescript, esbuild, @types/node
+npm install              # dev dependencies
 npm run check            # type-check, build, run the tests
 npm run acc -- doctor    # run the CLI from source
 ./dist/acc doctor        # run the bundle the last build made
 npm run validate-plugin  # claude plugin validate --strict, on the plugin and the marketplace
-npm run browser          # get the pinned headless shell the screenshot run draws with, its SHA-256 checked
-npm run screenshot       # render the editor tabs with sample data, into dist/screenshots/, and check their geometry
-npm run set-version -- 0.36.0  # the one way to change the version, everywhere it's written
-npm run package          # check, package the extension into dist/, scan it for personal data, refresh plugin/bin/
-npm run release          # on main, in a terminal: a GitHub Release with the .vsix and its CHANGELOG entry
+npm run browser          # get the pinned headless shell the screenshots use
+npm run screenshot       # draw every tab into dist/screenshots/ and check its layout
+npm run set-version -- 0.36.0  # the one way to change the version
+npm run package          # check, package into dist/, scan for personal data, refresh plugin/bin/
+npm run release          # on main, in a terminal: a GitHub Release with the .vsix
 ```
 
-To try a change in your own VSCode, `npm run package && npm run install-extension`,
-then reload the window. Packaging also refreshes `plugin/bin/`; on a branch,
-leave that out of your commits. To work on the plugin, load it in place for one
-session from the repo root: `claude --plugin-dir plugin`. If the plugin is also
-installed from the marketplace (A4), that session may run both copies' hooks;
-`claude plugin disable acc@agent-command-center` turns the installed one off
-until you `enable` it again.
-
-`npm run build` bundles the CLI into `dist/acc.mjs`, which git ignores, puts the
-launcher `dist/acc` beside it, and gives the extension its own copy of both.
-The launcher is a small sh script that runs `acc.mjs` with `$ACC_NODE` if set,
-else node 20 or later on PATH, else the VSCode runtime named in
-`~/.acc/runtime`. With none, `acc hook …` exits 0 silently, so the plugin's
-hooks never break a session, and anything else says what to do in one line.
-
-`plugin/bin/` is committed, because a plugin installed from git has no build
-step, but only `npm run package` refreshes it, copying the launcher and
-`acc.mjs` together once the package has passed its checks. A branch's checks
-never change it, so pull requests don't conflict over a generated file (D-042).
-
-`acc`, the extension and the plugin share one version, the root package.json's,
-and `CHANGELOG.md` says what changed in each. `npm run package` refuses a
-version with no CHANGELOG entry, and a package holding the packager's personal
-data: a home path, their email or GitHub account, or a tracker they've signed
-in to. Each find is listed by file and line. A release goes: set the version
-and write its entry on a branch; after the merge, `npm run package` on main,
-commit plugin/bin and push; then `npm run release` (D-079).
-
-`npm run screenshot` renders each tab with Google's headless shell
-(`chrome-headless-shell`), in dark and light themes, at 1000, 620 and 500 pixels wide, with one row shown hovered. Chrome
-lays out no narrower than 500, so a narrower `--width` is refused. Name tabs to
-shoot only those (`npm run screenshot -- agents worktrees`), or pass `--width`,
-`--theme`, `--height` and `--out`. It renders the built webview, so run
-`npm run build` after a change. It draws three pages at once, each in its own
-browser under `nice`; `--jobs N` changes how many, and `--jobs 1` draws one at
-a time. The log and the shots are the same either way.
-
-The shell is a binary with no app bundle, so a run never takes over your own
-Chrome. `extension/scripts/browser.json` pins its version and each platform's
-zip SHA-256 (mac-arm64, mac-x64, linux64); `npm run browser` downloads the zip
-from Chrome for Testing into `~/Library/Caches/acc/chrome-headless-shell/` (on
-Linux `~/.cache/acc/…`), refuses and deletes one whose hash differs, unpacks
-it, and does nothing when that version is already there. The run uses `CHROME`
-if set, else the pinned shell, and only then the Chrome app, saying in one line
-that it may take the app over. Each shot's note in `dist/screenshots/shots.json`
-records the browser that drew it and its version, and the screenshots gate fails
-on any shot the pinned shell didn't draw. When the run ends, however it ends,
-it stops every browser it started.
-
-Each shot also measures itself, and the run exits 1, naming the page, theme,
-width and element, when two controls overlap, a label is cut off, the selected
-tab is out of the rail's view, a sticky cell covers another cell's text, the
-output panel shows a block of raw output, something scrolls sideways that shouldn't, or axe-core finds a WCAG 2.1 AA
-violation that `A11Y_EXCEPTIONS` (`extension/scripts/a11y.ts`) doesn't excuse.
-It prints how many elements each check examined, and axe's incomplete results by
-rule; a page with none examined fails. The shots
-are written either way, and still need reading.
+- **Try a change** with `npm run package && npm run install-extension`, then
+  reload the window. Load the plugin in place with `claude --plugin-dir plugin`.
+  If the plugin is also installed, that session may run both copies' hooks:
+  `claude plugin disable acc@agent-command-center` turns the installed one off
+  until you `enable` it again.
+- **`plugin/bin/` is committed**, because a plugin installed from git has no
+  build step. Only `npm run package` refreshes it, so on a branch, leave it
+  out of your commits (D-042).
+- **One version** for `acc`, the extension and the plugin. A release goes: set
+  the version and write its `CHANGELOG.md` entry on a branch. After the merge,
+  run `npm run package` on main, commit `plugin/bin` and push. Then run
+  `npm run release` (D-079).
+- **Screenshots** are drawn by the pinned `chrome-headless-shell`, in dark and
+  light, at 1000, 620 and 500 px. The run fails on overlapping controls,
+  cut-off labels, sideways scrolling or a WCAG 2.1 AA violation. Run
+  `npm run build` first, and read the shots: the run can't judge how a page
+  reads.
 
 Run builds and tests one at a time, under `nice -n 15`.
