@@ -23,10 +23,10 @@ function todo(step: CloudSetupStep, sys: CloudSystem): Partial<CloudSetupState> 
     case 'task': return { routine: null };
     case 'token': return { token: { status: 'fail', detail: 'No token kept yet' } };
     case 'signin': return { signin: { status: 'fail', detail: sys === 'win' ? 'The Claude Code CLI (claude) isn\'t on PATH.' : 'Claude Code isn\'t signed in.' } };
-    // On the Mac shot not committed yet (Do it); on the Windows one committed, not pushed (Push…).
+    // On the Mac shot not committed yet (Do it); on the Windows one committed, not pushed (Push…), its last push refused.
     case 'guard': return sys === 'mac'
       ? { guard: { status: 'fail', detail: 'Not committed on main' }, place: { base: 'main', checkedOut: 'main', local: { ok: false, why: 'main doesn\'t carry the guard' }, pushed: { ok: false, why: 'not on GitHub' }, ahead: 0 } }
-      : { guard: { status: 'fail', detail: 'Committed here, not on GitHub\'s main yet' }, place: { base: 'main', checkedOut: 'main', local: { ok: true, why: null }, pushed: { ok: false, why: 'not on GitHub' }, ahead: 1 } };
+      : { guard: { status: 'fail', detail: 'Committed here, not on GitHub\'s main yet' }, place: { base: 'main', checkedOut: 'main', local: { ok: true, why: null }, pushed: { ok: false, why: 'not on GitHub' }, ahead: 1 }, error: { step: 'guard', text: 'git couldn\'t push main: GitHub has commits this folder doesn\'t. Pull main, then click Push… again.' } };
     // Ready before every step is: the sign-in ran out since.
     case 'ready': return { signin: { status: 'fail', detail: 'Claude Code isn\'t signed in.' } };
   }
