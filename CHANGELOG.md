@@ -22,6 +22,28 @@ as the notes.
 - Buttons side by side are one size (D-221). Open conversation beside Make a
   plan, Other next steps beside Deploy, and an agent's Answer beside Watch now
   match. The screenshot run fails any row that mixes button sizes.
+- Settings in sections (D-226): Trackers and boards, Agents, Checks and
+  limits, Accounts and notices, Look and behaviour, and About. One shows at a
+  time, picked from a jump list at the side (a picker when the panel is
+  narrow), and the one you picked is remembered. Each section says what it's
+  for in one line. Where a value is set is its hint on hover, and notes,
+  branch protection and refresh times fold with a count. Every control is
+  still there, and the palette and status bar still land on their part.
+  Change place… is now Change tracker….
+- Pick or change a tracker in one stepped modal (D-224): Tracker, Sign in,
+  the board, then Save. Each list the tracker has is a dropdown across the
+  top, with its ticket counts and a box to find one in a long list. The board
+  is drawn below as the Tasks tab draws it, and read again a moment after the
+  last change. A choice that finds nothing says which list to widen. Every
+  way in opens it: Connect a tracker… and Change tracker… in Settings, and
+  Add a board and Change on the Tasks tab.
+- An agent in a terminal session reads a project's tickets as the Command
+  Center last saved them, with no sign-in of its own (D-225). After a board
+  draws, the Command Center saves each ticket that changed, one at a time, in
+  the repo's own state folder: never committed, and holding no token.
+  `acc board` lists the saved boards and `acc ticket <key>` shows one, with
+  when it was saved and whether a newer change waits. A ticket that leaves
+  the board, or whose sign-in is removed, is deleted.
 
 ## 0.51.0
 

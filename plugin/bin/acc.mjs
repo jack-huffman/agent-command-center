@@ -17670,23 +17670,119 @@ function acceptSuggestion(paths, config, id, edits, actor, by, now2) {
   });
 }
 
-// packages/core/src/sprints.ts
-import { mkdirSync as mkdirSync40, readFileSync as readFileSync45 } from "node:fs";
+// packages/core/src/saved-tickets.ts
+import { mkdirSync as mkdirSync40, readdirSync as readdirSync13, readFileSync as readFileSync45, rmSync as rmSync24 } from "node:fs";
 import { join as join47 } from "node:path";
-var sprintsFile = (paths) => join47(paths.stateDir, "sprints.json");
+var boardCacheFile = (paths) => join47(paths.stateDir, "boards.json");
+var trackerKey = (t) => JSON.stringify(t);
+var boardTrackers = (config) => config.trackers.map((t) => t.kind === "github" && !t.repo && config.github ? { ...t, repo: config.github.repo } : t);
+function isBoard(x2) {
+  return isObj(x2) && typeof x2.place === "string" && typeof x2.title === "string" && typeof x2.source === "string" && Array.isArray(x2.columns) && Array.isArray(x2.cards);
+}
+function isCached(x2) {
+  return isObj(x2) && typeof x2.tracker === "string" && typeof x2.at === "string" && isBoard(x2.board) && (x2.me === null || isObj(x2.me) && typeof x2.me.id === "string" && typeof x2.me.name === "string");
+}
+function readCachedBoards(paths) {
+  try {
+    const r = JSON.parse(readFileSync45(boardCacheFile(paths), "utf8"));
+    return isObj(r) && Array.isArray(r.boards) ? r.boards.filter(isCached) : [];
+  } catch {
+    return [];
+  }
+}
+var ticketsDir = (paths) => join47(paths.stateDir, "tickets");
+var savedTicketFile = (paths, key) => join47(ticketsDir(paths), `${fileId(key.toUpperCase())}.json`);
+function isSaved(x2) {
+  return isObj(x2) && x2.v === 1 && typeof x2.key === "string" && typeof x2.tracker === "string" && typeof x2.saved === "string" && typeof x2.title === "string" && typeof x2.markdown === "string" && Array.isArray(x2.comments) && Array.isArray(x2.related);
+}
+function readSavedTicket(paths, key) {
+  try {
+    const x2 = JSON.parse(readFileSync45(savedTicketFile(paths, key), "utf8"));
+    return isSaved(x2) ? x2 : null;
+  } catch {
+    return null;
+  }
+}
+function readSavedTickets(paths) {
+  let names3;
+  try {
+    names3 = readdirSync13(ticketsDir(paths)).filter((n) => n.endsWith(".json"));
+  } catch {
+    return [];
+  }
+  return names3.map((n) => readSavedTicket(paths, n.slice(0, -".json".length))).filter((t) => !!t).sort((a2, b) => a2.key.localeCompare(b.key));
+}
+var UNTIMED_MAX_MS = 24 * 60 * 60 * 1e3;
+var time2 = (s) => Date.parse(s);
+function changedSince(card, saved) {
+  if (!saved) return true;
+  const a2 = time2(card);
+  const b = time2(saved);
+  return Number.isNaN(a2) || Number.isNaN(b) ? card !== saved : a2 > b;
+}
+function needsRead(card, saved, now2) {
+  if (!saved) return true;
+  if (card.updated) return changedSince(card.updated, saved.changed);
+  return now2.getTime() - time2(saved.saved) > UNTIMED_MAX_MS;
+}
+function savedWords(saved, now2) {
+  const ms = now2.getTime() - time2(saved);
+  if (Number.isNaN(ms) || ms < 6e4) return "saved just now";
+  const m = Math.floor(ms / 6e4);
+  if (m < 60) return `saved ${plural(m, "minute")} ago`;
+  const h2 = Math.floor(m / 60);
+  return h2 < 48 ? `saved ${plural(h2, "hour")} ago` : `saved ${plural(Math.floor(h2 / 24), "day")} ago`;
+}
+var NOTHING_SAVED = "Nothing is saved for this project yet. Open the project in the Command Center: it saves its boards and their tickets as they load.";
+function savedBoards(paths, trackers, now2) {
+  const keys = new Set(trackers.map(trackerKey));
+  const tickets = new Map(readSavedTickets(paths).map((t) => [t.key.toUpperCase(), t]));
+  return readCachedBoards(paths).filter((c) => keys.has(c.tracker)).map((c) => ({
+    title: c.board.title,
+    place: c.board.place,
+    at: c.at,
+    columns: c.board.columns.map((col) => ({
+      name: col.name,
+      cards: c.board.cards.filter((card) => col.statusIds.includes(card.status.id)).map((card) => {
+        const t = tickets.get(card.key.toUpperCase()) ?? null;
+        return {
+          key: card.key,
+          title: card.fullTitle ?? card.title,
+          column: col.name,
+          type: card.type,
+          assignees: card.assignees.map((a2) => a2.name),
+          priority: card.priority,
+          updated: card.updated ?? null,
+          saved: t?.saved ?? null,
+          waiting: needsRead(card, t, now2),
+          failed: t?.failed?.why ?? null
+        };
+      })
+    }))
+  }));
+}
+function ticketWaiting(paths, t, now2) {
+  const card = readCachedBoards(paths).filter((c) => c.tracker === t.tracker).flatMap((c) => c.board.cards).find((c) => c.key.toUpperCase() === t.key.toUpperCase());
+  return card ? needsRead(card, t, now2) : false;
+}
+
+// packages/core/src/sprints.ts
+import { mkdirSync as mkdirSync41, readFileSync as readFileSync46 } from "node:fs";
+import { join as join48 } from "node:path";
+var sprintsFile = (paths) => join48(paths.stateDir, "sprints.json");
 function isSprintSeen(x2) {
   return isObj(x2) && typeof x2.at === "string" && Array.isArray(x2.open) && x2.open.every((k2) => typeof k2 === "string") && Array.isArray(x2.sprints) && x2.sprints.every((s) => isObj(s) && Number.isSafeInteger(s.id) && typeof s.name === "string");
 }
 function readSprints(paths) {
   try {
-    const r = JSON.parse(readFileSync45(sprintsFile(paths), "utf8"));
+    const r = JSON.parse(readFileSync46(sprintsFile(paths), "utf8"));
     return isObj(r) ? Object.fromEntries(Object.entries(r).filter(([, v]) => isSprintSeen(v))) : {};
   } catch {
     return {};
   }
 }
 function rememberSprint(paths, tracker, seen) {
-  mkdirSync40(paths.stateDir, { recursive: true });
+  mkdirSync41(paths.stateDir, { recursive: true });
   writeAtomic(sprintsFile(paths), `${JSON.stringify({ ...readSprints(paths), [tracker]: seen }, null, 2)}
 `);
 }
@@ -17735,9 +17831,9 @@ function takeInNow(paths, config, id, deps, opts) {
 }
 
 // packages/core/src/task-deploy.ts
-import { mkdirSync as mkdirSync41, mkdtempSync as mkdtempSync7, readFileSync as readFileSync46, rmSync as rmSync24, writeFileSync as writeFileSync35 } from "node:fs";
+import { mkdirSync as mkdirSync42, mkdtempSync as mkdtempSync7, readFileSync as readFileSync47, rmSync as rmSync25, writeFileSync as writeFileSync35 } from "node:fs";
 import { tmpdir as tmpdir7 } from "node:os";
-import { join as join48 } from "node:path";
+import { join as join49 } from "node:path";
 function ticketPlace(config, t) {
   const reached = [{ env: t.environment, at: "" }];
   for (const p of t.promotions ?? []) if (p.state === "merged") reached.push({ env: p.to, at: p.mergedAt ?? p.at });
@@ -17790,10 +17886,10 @@ function ticketCommits(run2, root, t) {
   return list2.map((sha) => ({ sha }));
 }
 var NOTHING_TO_CHECK = "none-";
-var keptCheckPath = (paths, task) => join48(paths.stateDir, "task-deploys", `${fileId(task)}.json`);
+var keptCheckPath = (paths, task) => join49(paths.stateDir, "task-deploys", `${fileId(task)}.json`);
 function readKeptCheck(paths, task) {
   try {
-    const k2 = JSON.parse(readFileSync46(keptCheckPath(paths, task), "utf8"));
+    const k2 = JSON.parse(readFileSync47(keptCheckPath(paths, task), "utf8"));
     return k2.v === 1 && k2.task === task ? k2 : null;
   } catch {
     return null;
@@ -17848,8 +17944,8 @@ function withBuilt(paths, config, id, toName, deps, opts, fn2) {
   const base = must(git7(run2, paths.root, "rev-parse", `origin/${to.branch}`), `No origin/${to.branch}`).trim();
   const stamp = deps.now().toISOString().replace(/[-:]/g, "").slice(0, 13).replace("T", "-");
   const branch = `deploy/${fileId(id)}-to-${to.branch}-${stamp}`;
-  const dir = mkdtempSync7(join48(tmpdir7(), "acc-task-deploy-"));
-  const wt2 = join48(dir, "wt");
+  const dir = mkdtempSync7(join49(tmpdir7(), "acc-task-deploy-"));
+  const wt2 = join49(dir, "wt");
   try {
     const raw = steps2.step("build", `Put ${id}'s commits on ${to.branch}`, () => {
       must(git7(run2, paths.root, "worktree", "add", "--quiet", "-b", branch, wt2, base), "Couldn't make the deploy's worktree");
@@ -17898,11 +17994,11 @@ function withBuilt(paths, config, id, toName, deps, opts, fn2) {
       }
       return { files: [...files].sort(), gitOnly, leftOut, deletions };
     });
-    const out3 = join48(dir, "out");
+    const out3 = join49(dir, "out");
     const pkg = sorted.files.length ? steps2.step("manifest", "Map the components with Salesforce's CLI", () => generateManifest(run2, wt2, sorted.files, sourceApiVersion(wt2), out3)) : "";
-    const manifest = join48(out3, "package.xml");
+    const manifest = join49(out3, "package.xml");
     if (pkg) {
-      mkdirSync41(out3, { recursive: true });
+      mkdirSync42(out3, { recursive: true });
       writeFileSync35(manifest, pkg);
     }
     const blobs = {};
@@ -17933,7 +18029,7 @@ function withBuilt(paths, config, id, toName, deps, opts, fn2) {
     git7(run2, paths.root, "worktree", "remove", "--force", wt2);
     git7(run2, paths.root, "branch", "-D", branch);
     git7(run2, paths.root, "worktree", "prune");
-    rmSync24(dir, { recursive: true, force: true });
+    rmSync25(dir, { recursive: true, force: true });
   }
 }
 var listLinesAt = (run2, root, ref, file) => {
@@ -17956,7 +18052,7 @@ function readResult(r, what, org, total) {
   const problems = deployProblems(res);
   return { passed: false, id, summary: problems.length ? `${plural(problems.length, "problem")} in ${org}${id ? ` (job ${id})` : ""}: ${problems.slice(0, 3).join("; ")}` : j2.message?.trim() || `It ${res?.status ?? "failed"} in ${org}.`, problems };
 }
-var orgTurn = (deps, config, b, what, fn2) => withSlot(fn2, { dir: deps.orgLocks ? join48(deps.orgLocks, b.username.replace(/[^\w.-]+/g, "_")) : orgLockDir(b.username), slots: 1, owner: { what, task: b.plan.task, env: b.plan.to.branch, project: config.project }, onWait: deps.onWait });
+var orgTurn = (deps, config, b, what, fn2) => withSlot(fn2, { dir: deps.orgLocks ? join49(deps.orgLocks, b.username.replace(/[^\w.-]+/g, "_")) : orgLockDir(b.username), slots: 1, owner: { what, task: b.plan.task, env: b.plan.to.branch, project: config.project }, onWait: deps.onWait });
 function checkOnly(deps, config, b) {
   const args = taskCheckArgs(b.plan.org, b.manifest, b.plan.testLevel);
   assertCheckOnly("sf", args);
@@ -17977,7 +18073,7 @@ function planTaskDeploy(paths, config, id, to, deps, opts) {
     }
     if (b.plan.check.id) {
       const kept = { v: 1, task: id, env: b.plan.to.branch, org: b.plan.org, id: b.plan.check.id, passed: b.plan.check.passed, commits: b.plan.commits, blobs: b.blobs, testLevel: b.plan.testLevel, at: deps.now().toISOString(), by: opts.by };
-      mkdirSync41(join48(paths.stateDir, "task-deploys"), { recursive: true });
+      mkdirSync42(join49(paths.stateDir, "task-deploys"), { recursive: true });
       writeAtomic(keptCheckPath(paths, id), JSON.stringify(kept, null, 2) + "\n");
     }
     return b.plan;
@@ -18031,7 +18127,7 @@ function deployTaskNow(paths, config, id, to, deps, opts) {
       steps2.step("push", "Push the deploy's branch", () => must(run2("git", ["push", "--quiet", "--set-upstream", "origin", `${b.branch}:${b.branch}`], { cwd: b.wt, env: deps.env, timeoutMs: 5 * 6e4 }), `git push refused ${b.branch}. Nothing was deployed`));
       pushed = true;
       opened = steps2.step("open", `Open the pull request into ${plan.to.branch}`, () => {
-        const bodyFile = join48(b.wt, "..", "body.md");
+        const bodyFile = join49(b.wt, "..", "body.md");
         writeFileSync35(bodyFile, taskDeployBody(plan));
         const create = run2("gh", ["pr", "create", "-R", gh.repo, "--base", plan.to.branch, "--head", b.branch, "--title", `${plan.key}: deploy to ${plan.to.name}`, "--body-file", bodyFile], { cwd: paths.root, env: ghEnv3, timeoutMs: 2 * 6e4 });
         const url = create.stdout.trim().split("\n").find((l3) => /\/pull\/\d+/.test(l3))?.trim();
@@ -18086,7 +18182,7 @@ function deployTaskNow(paths, config, id, to, deps, opts) {
           t.updatedAt = at2;
           emit({ type: "task.updated", task: t.id, actor: "human", by: opts.by, data: { ...record2 ? { deploy: record2 } : {}, promotion } });
         });
-        rmSync24(keptCheckPath(paths, id), { force: true });
+        rmSync25(keptCheckPath(paths, id), { force: true });
       } catch (e) {
         problems.push(`The deploy wasn't recorded on ${id}: ${e.message}`);
       }
@@ -18151,13 +18247,13 @@ function taskDeployBody(plan) {
 }
 
 // packages/core/src/tidy.ts
-import { mkdirSync as mkdirSync42, readFileSync as readFileSync47 } from "node:fs";
-import { join as join49 } from "node:path";
+import { mkdirSync as mkdirSync43, readFileSync as readFileSync48 } from "node:fs";
+import { join as join50 } from "node:path";
 var TIDY_LABEL = "tidy-up";
-var tidyFile = (paths) => join49(paths.stateDir, "tidy.json");
+var tidyFile = (paths) => join50(paths.stateDir, "tidy.json");
 function readTidy(paths) {
   try {
-    const r = JSON.parse(readFileSync47(tidyFile(paths), "utf8"));
+    const r = JSON.parse(readFileSync48(tidyFile(paths), "utf8"));
     return r?.v === 1 && typeof r.at === "string" && (r.outcome === "added" || r.outcome === "skipped") && Array.isArray(r.covered) ? r : null;
   } catch {
     return null;
@@ -18270,7 +18366,7 @@ function draftTidy(status, scope) {
   return { title: `Tidy up after ${plural(n, "merge")}`, brief, labels: [TIDY_LABEL], covered: ids, files: scope.files, unknown: scope.unknown };
 }
 function writeRecord(paths, r) {
-  mkdirSync42(paths.stateDir, { recursive: true });
+  mkdirSync43(paths.stateDir, { recursive: true });
   writeAtomic(tidyFile(paths), JSON.stringify(r, null, 2) + "\n");
 }
 function addTidy(paths, config, draft, who) {
@@ -18326,8 +18422,8 @@ function runWrittenAt(task, env) {
 
 // packages/core/src/verify.ts
 import { randomUUID as randomUUID6 } from "node:crypto";
-import { existsSync as existsSync31, mkdirSync as mkdirSync43, readdirSync as readdirSync13, readFileSync as readFileSync48, rmSync as rmSync25, writeFileSync as writeFileSync36 } from "node:fs";
-import { dirname as dirname15, join as join50 } from "node:path";
+import { existsSync as existsSync31, mkdirSync as mkdirSync44, readdirSync as readdirSync14, readFileSync as readFileSync49, rmSync as rmSync26, writeFileSync as writeFileSync36 } from "node:fs";
+import { dirname as dirname15, join as join51 } from "node:path";
 var DIRTY_GATE = "receipts";
 var DIRTY_SUMMARY = "The worktree's setup left files in it, so no check wrote a receipt for this commit.";
 var OWN_WORK = "acc reviews its own builders' work";
@@ -18335,15 +18431,15 @@ var VERIFY_TIMEOUT_MS = 45 * 6e4;
 var DIFF_MAX2 = 15e4;
 var PR_LIST_MAX = 200;
 var PR_FIELDS = "number,url,title,headRefName,baseRefName,headRefOid";
-var verificationsDir = (paths) => join50(paths.stateDir, "verifications");
-var verificationPath = (paths, task, sha) => join50(verificationsDir(paths), `${fileId(task)}-${sha}.json`);
-var runningPath4 = (paths, task) => join50(verificationsDir(paths), `${fileId(task)}.running.json`);
-var choicePath = (paths, task) => join50(verificationsDir(paths), `${fileId(task)}.found.json`);
-var verifyWorktree = (config, main2, task) => join50(worktreeRoot(config, main2), `verify-${fileId(task)}`);
+var verificationsDir = (paths) => join51(paths.stateDir, "verifications");
+var verificationPath = (paths, task, sha) => join51(verificationsDir(paths), `${fileId(task)}-${sha}.json`);
+var runningPath4 = (paths, task) => join51(verificationsDir(paths), `${fileId(task)}.running.json`);
+var choicePath = (paths, task) => join51(verificationsDir(paths), `${fileId(task)}.found.json`);
+var verifyWorktree = (config, main2, task) => join51(worktreeRoot(config, main2), `verify-${fileId(task)}`);
 var isVerification = (v, task) => !!v && v.v === 1 && v.task === task && typeof v.sha === "string" && typeof v.at === "string" && !!v.pr && Array.isArray(v.checks) && Array.isArray(v.findings);
 function readVerification(paths, task, sha) {
   try {
-    const v = JSON.parse(readFileSync48(verificationPath(paths, task, sha), "utf8"));
+    const v = JSON.parse(readFileSync49(verificationPath(paths, task, sha), "utf8"));
     return isVerification(v, task) ? v : null;
   } catch {
     return null;
@@ -18352,7 +18448,7 @@ function readVerification(paths, task, sha) {
 function readVerifications(paths, task) {
   let names3;
   try {
-    names3 = readdirSync13(verificationsDir(paths));
+    names3 = readdirSync14(verificationsDir(paths));
   } catch {
     return [];
   }
@@ -18368,7 +18464,7 @@ function readVerifications(paths, task) {
 var latestVerification = (paths, task) => readVerifications(paths, task).at(-1) ?? null;
 function readPrChoice(paths, task) {
   try {
-    const c = JSON.parse(readFileSync48(choicePath(paths, task), "utf8"));
+    const c = JSON.parse(readFileSync49(choicePath(paths, task), "utf8"));
     return c.v === 1 && c.task === task && Array.isArray(c.found) ? c : null;
   } catch {
     return null;
@@ -18376,7 +18472,7 @@ function readPrChoice(paths, task) {
 }
 function verifying(paths, task) {
   try {
-    const r = JSON.parse(readFileSync48(runningPath4(paths, task), "utf8"));
+    const r = JSON.parse(readFileSync49(runningPath4(paths, task), "utf8"));
     return alive(r.pid) ? r : null;
   } catch {
     return null;
@@ -18448,7 +18544,7 @@ function checkoutHead(run2, main2, wt2, pr, env) {
     const gone = git14(main2, "worktree", "remove", "--force", wt2);
     if (gone.code !== 0) throw new AccError("verify", `git couldn't replace the worktree at ${wt2}: ${lastLine(gone.stderr)}`);
   }
-  mkdirSync43(dirname15(wt2), { recursive: true });
+  mkdirSync44(dirname15(wt2), { recursive: true });
   const r = git14(main2, "worktree", "add", "--detach", wt2, pr.sha);
   if (r.code !== 0) throw new AccError("verify", `git couldn't add the worktree: ${lastLine(r.stderr)}`);
   return false;
@@ -18546,7 +18642,7 @@ function verify(paths, config, id, deps, opts) {
   const key = task.source.key;
   const sessionId = (deps.uuid ?? randomUUID6)();
   const name = sessionName({ project: config.project, key: id, title: task.title, role: "verify" });
-  mkdirSync43(verificationsDir(paths), { recursive: true });
+  mkdirSync44(verificationsDir(paths), { recursive: true });
   const marker = runningPath4(paths, id);
   const startedAt = now2();
   writeFileSync36(marker, JSON.stringify({ sessionId, name, startedAt: startedAt.toISOString(), pid: process.pid }));
@@ -18564,7 +18660,7 @@ function verify(paths, config, id, deps, opts) {
       if (!found2.length) throw new AccError("no-pr", `No open pull request on ${gh.repo} names ${key} in its title or its branch. Name it: acc verify ${id} --pr <number>.`);
       throw new AccError("several-prs", `${found2.length} open pull requests on ${gh.repo} name ${key}: ${found2.map(prWords).join("; ")}. Name one: acc verify ${id} --pr <number>.`);
     });
-    rmSync25(choicePath(paths, id), { force: true });
+    rmSync26(choicePath(paths, id), { force: true });
     const main2 = mainCheckout(run2, paths.root);
     const wt2 = verifyWorktree(config, main2, id);
     const env = baseEnvironment(config, task, pr.base);
@@ -18661,7 +18757,7 @@ function verify(paths, config, id, deps, opts) {
   } finally {
     if (added && !kept) run2("git", ["worktree", "remove", "--force", added.wt], { cwd: added.main });
     awake?.release();
-    rmSync25(marker, { force: true });
+    rmSync26(marker, { force: true });
   }
 }
 function clearVerification(paths, config, id, run2) {
@@ -18675,21 +18771,21 @@ function clearVerification(paths, config, id, run2) {
     worktree = wt2;
   }
   const stored = readVerifications(paths, id);
-  for (const v of stored) rmSync25(verificationPath(paths, id, v.sha), { force: true });
-  rmSync25(choicePath(paths, id), { force: true });
+  for (const v of stored) rmSync26(verificationPath(paths, id, v.sha), { force: true });
+  rmSync26(choicePath(paths, id), { force: true });
   return { worktree, removed: stored.length };
 }
 function pruneVerifications(paths, config, run2) {
   let names3 = [];
   try {
-    names3 = readdirSync13(verificationsDir(paths));
+    names3 = readdirSync14(verificationsDir(paths));
   } catch {
   }
   const tasks = new Set(readLedger(paths.ledger).tasks.map((t) => t.id));
   const stored = new Set(names3.filter((n) => n.endsWith(".json") && !n.endsWith(".running.json")).map((n) => /^(.+?)(?:-[0-9a-f]{7,64}|\.found)\.json$/.exec(n)?.[1]).filter((t) => !!t));
   let folders = [];
   try {
-    folders = readdirSync13(worktreeRoot(config, mainCheckout(run2, paths.root)));
+    folders = readdirSync14(worktreeRoot(config, mainCheckout(run2, paths.root)));
   } catch {
   }
   for (const f of folders) {
@@ -18705,9 +18801,9 @@ function pruneVerifications(paths, config, run2) {
 }
 
 // packages/core/src/onboarding/steps.ts
-import { existsSync as existsSync33, opendirSync, readFileSync as readFileSync50 } from "node:fs";
+import { existsSync as existsSync33, opendirSync, readFileSync as readFileSync51 } from "node:fs";
 import { homedir as homedir9, tmpdir as tmpdir8 } from "node:os";
-import { dirname as dirname16, join as join51, sep as sep4 } from "node:path";
+import { dirname as dirname16, join as join52, sep as sep4 } from "node:path";
 
 // packages/core/src/onboarding/fix-lines.ts
 var shellQuote = (s) => /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
@@ -18957,21 +19053,21 @@ function fileOn(need, system) {
 }
 
 // packages/core/src/onboarding/path-fix.ts
-import { readdirSync as readdirSync14, readFileSync as readFileSync49, existsSync as existsSync32 } from "node:fs";
+import { readdirSync as readdirSync15, readFileSync as readFileSync50, existsSync as existsSync32 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
 import { posix as posix3, win32 as win323 } from "node:path";
 var REAL_FILES = {
   exists: existsSync32,
   list: (dir) => {
     try {
-      return readdirSync14(dir);
+      return readdirSync15(dir);
     } catch {
       return [];
     }
   },
   read: (file) => {
     try {
-      return readFileSync49(file, "utf8");
+      return readFileSync50(file, "utf8");
     } catch {
       return null;
     }
@@ -19270,11 +19366,11 @@ function needsProject(ctx) {
 }
 var NEARBY_LIMIT = 200;
 function nearbyRepo(cwd) {
-  const isRepo = (d) => existsSync33(join51(d, ".git"));
+  const isRepo = (d) => existsSync33(join52(d, ".git"));
   const parent = dirname16(cwd);
   if (samePath(parent, tmpdir8())) return null;
   const candidates = [...nearbyFolders(parent).filter((d) => d !== cwd), parent].filter(isRepo);
-  return candidates.find((d) => existsSync33(join51(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync33(join51(d, "sfdx-project.json"))) ?? null;
+  return candidates.find((d) => existsSync33(join52(d, ".acc", "config.json"))) ?? candidates.find((d) => existsSync33(join52(d, "sfdx-project.json"))) ?? null;
 }
 function nearbyFolders(parent) {
   const folders = [];
@@ -19284,7 +19380,7 @@ function nearbyFolders(parent) {
     for (let read2 = 0; read2 < NEARBY_LIMIT; read2++) {
       const e = dir.readSync();
       if (!e) break;
-      if (e.isDirectory() && !e.name.startsWith(".")) folders.push(join51(parent, e.name));
+      if (e.isDirectory() && !e.name.startsWith(".")) folders.push(join52(parent, e.name));
     }
   } catch {
     return [];
@@ -19323,7 +19419,7 @@ function billingVars(vars) {
 function claudeSettingsFiles(ctx) {
   const home = ctx.env.HOME || homedir9();
   const tilde = (f) => f.startsWith(home + sep4) ? `~${f.slice(home.length)}` : f;
-  const user = ctx.env.CLAUDE_CONFIG_DIR ? join51(ctx.env.CLAUDE_CONFIG_DIR, "settings.json") : join51(home, ".claude", "settings.json");
+  const user = ctx.env.CLAUDE_CONFIG_DIR ? join52(ctx.env.CLAUDE_CONFIG_DIR, "settings.json") : join52(home, ".claude", "settings.json");
   const files = [{ file: user, label: tilde(user) }];
   if (!ctx.paths) return files;
   let main2 = ctx.paths.root;
@@ -19333,7 +19429,7 @@ function claudeSettingsFiles(ctx) {
   }
   for (const root of /* @__PURE__ */ new Set([ctx.paths.root, main2])) {
     for (const rel of [".claude/settings.json", ".claude/settings.local.json"]) {
-      files.push({ file: join51(root, rel), label: root === ctx.paths.root ? rel : tilde(join51(root, rel)) });
+      files.push({ file: join52(root, rel), label: root === ctx.paths.root ? rel : tilde(join52(root, rel)) });
     }
   }
   return files;
@@ -19341,7 +19437,7 @@ function claudeSettingsFiles(ctx) {
 function billingSettings(file) {
   let text3;
   try {
-    text3 = readFileSync50(file, "utf8");
+    text3 = readFileSync51(file, "utf8");
   } catch {
     return [];
   }
@@ -19590,7 +19686,7 @@ var STEPS = [
       if (ctx.paths) return pass(`Repo at ${ctx.paths.root}`);
       const near = nearbyRepo(ctx.cwd);
       if (near) return { status: "fail", detail: `This folder isn't a git repo. The project's repo looks like ${near}. Open that folder instead.`, open: near };
-      const sfdx = existsSync33(join51(ctx.cwd, "sfdx-project.json"));
+      const sfdx = existsSync33(join52(ctx.cwd, "sfdx-project.json"));
       return fail(sfdx ? "This Salesforce folder isn't a git repo yet. Onboarding starts with the client's repo (guide steps B1 and B2)." : "This folder isn't a git repo. Open the project's repo folder.");
     }
   },
@@ -19995,7 +20091,7 @@ var STEPS = [
         const lines = text3.replace(/\n$/, "").split("\n");
         if (lines.some((l3) => l3.trim() === "")) problems.push(`${rel} has a blank line. As a grep pattern, that matches everything.`);
         const paths = lines.filter((l3) => l3.trim() && !l3.startsWith("#"));
-        const here = paths.filter((p) => !existsSync33(join51(ctx.paths.root, p)));
+        const here = paths.filter((p) => !existsSync33(join52(ctx.paths.root, p)));
         const elsewhere = here.length ? filesOnEnvironmentBranches(ctx) : /* @__PURE__ */ new Set();
         const gone = here.filter((p) => !elsewhere.has(p));
         if (gone.length) problems.push(`${rel} lists files that don't exist: ${gone.slice(0, 3).join(", ")}${gone.length > 3 ? " \u2026" : ""}.`);
@@ -20133,7 +20229,7 @@ var STEPS = [
       } catch {
       }
       const TOOLS = { format: "prettier", lint: "eslint", "lwc-tests": "sfdx-lwc-jest" };
-      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync33(join51(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
+      const absent = config.profile !== "salesforce" ? [] : required.filter((n) => TOOLS[n] && !config.gates.commands[n] && !existsSync33(join52(main2, "node_modules", ".bin", TOOLS[n]))).map((n) => TOOLS[n]);
       if (absent.length) return fail(`Not installed in ${main2}: ${absent.join(", ")}.`, chain(fixShell(ctx), `cd ${quoteArg(fixShell(ctx))(main2)}`, "npm install"));
       return pass(`Ready: ${required.join(", ")}.`);
     }
@@ -20179,7 +20275,7 @@ var STEPS = [
       const cmd = `acc drift ${env.branch}`;
       let report = null;
       try {
-        report = JSON.parse(readFileSync50(driftReportPath(ctx.paths, env.branch), "utf8"));
+        report = JSON.parse(readFileSync51(driftReportPath(ctx.paths, env.branch), "utf8"));
       } catch {
         report = null;
       }
@@ -20251,7 +20347,7 @@ function gateLabel(s) {
 }
 
 // packages/cli/src/shared.ts
-import { readFileSync as readFileSync51, realpathSync as realpathSync6 } from "node:fs";
+import { readFileSync as readFileSync52, realpathSync as realpathSync6 } from "node:fs";
 import { dirname as dirname17 } from "node:path";
 
 // package.json
@@ -20276,7 +20372,7 @@ var READ_ERRORS = {
 };
 function readFileArg(file) {
   try {
-    return readFileSync51(file, "utf8");
+    return readFileSync52(file, "utf8");
   } catch (e) {
     const code2 = e.code ?? "";
     const why = READ_ERRORS[code2] ?? e.message;
@@ -21131,7 +21227,7 @@ var area3 = {
 
 // packages/cli/src/commands/checks.ts
 import { existsSync as existsSync34, realpathSync as realpathSync7 } from "node:fs";
-import { join as join52 } from "node:path";
+import { join as join53 } from "node:path";
 function currentBranch(root) {
   const r = run("git", ["branch", "--show-current"], { cwd: root });
   return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
@@ -21233,7 +21329,7 @@ function cmdGateRelax(o, names3) {
   if (!where || !existsSync34(where)) throw new AccError("usage", `${task.id} has no worktree on disk, so there's no floors file to relax.`);
   const record2 = mutate(paths, now, (l3, emit) => {
     pruneRelaxed(paths.relaxed, l3);
-    const r = relaxFloor(paths.relaxed, join52(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: o.reason ?? "", by, now, task: task.id });
+    const r = relaxFloor(paths.relaxed, join53(where, FLOORS_FILE), where, config, { ratchet: name, to, reason: o.reason ?? "", by, now, task: task.id });
     const t = l3.tasks.find((x2) => x2.id === task.id);
     if (t) {
       t.updatedAt = now().toISOString();
@@ -21242,7 +21338,7 @@ function cmdGateRelax(o, names3) {
     return r;
   });
   out(o, () => [
-    `Relaxed ${name}'s ${record2.limit} for ${task.id}, from ${record2.was === null ? "nothing" : num(record2.was)} to ${num(record2.to)}, in ${join52(where, FLOORS_FILE)}: ${record2.reason}`,
+    `Relaxed ${name}'s ${record2.limit} for ${task.id}, from ${record2.was === null ? "nothing" : num(record2.was)} to ${num(record2.to)}, in ${join53(where, FLOORS_FILE)}: ${record2.reason}`,
     // As DESIGN §9 has it: for this task alone, a worse floor passes at the number relaxed to or a better one, from the floor relaxed.
     tone(`Commit that file with ${task.id}'s change. The relax is for ${task.id} alone: ${record2.was === null ? `where its branch began with no ${record2.limit}, it passes at ${num(record2.to)} or a better number` : `where its branch began at ${record2.limit} ${num(record2.was)}, it passes with its ${record2.limit} at ${num(record2.to)} or a better one`}, on that branch and in the merge queue's merge of it, until ${task.id} is done. Another task's branch isn't backed by it, even one that began at the same ${record2.limit}.`, "dim")
   ].join("\n"), record2);
@@ -21979,8 +22075,8 @@ var area10 = {
 };
 
 // packages/cli/src/commands/merging.ts
-import { existsSync as existsSync35, readFileSync as readFileSync52 } from "node:fs";
-import { join as join53 } from "node:path";
+import { existsSync as existsSync35, readFileSync as readFileSync53 } from "node:fs";
+import { join as join54 } from "node:path";
 function cmdFloorsMerge(files) {
   if (files.length !== 3) throw new AccError("usage", "acc floors merge <common> <ours> <theirs>: git runs it, with %O %A %B.");
   const [common, ours, theirs] = files;
@@ -22002,8 +22098,8 @@ function cmdIndex(o, check2) {
   const { root } = repoPaths(process.cwd(), run);
   const want = decisionsIndexFor(root);
   if (want === null) throw new AccError("refused", "This repo keeps no docs/decisions/ folder, so there is no index to make.");
-  const file = join53(root, DECISIONS_INDEX);
-  const stale = !existsSync35(file) || readFileSync52(file, "utf8") !== want;
+  const file = join54(root, DECISIONS_INDEX);
+  const stale = !existsSync35(file) || readFileSync53(file, "utf8") !== want;
   if (check2) {
     out(o, () => stale ? tone(`${DECISIONS_INDEX} is stale: acc decisions index writes it again.`, "orange") : `${DECISIONS_INDEX} is as docs/decisions/ makes it.`, { file: DECISIONS_INDEX, stale });
     return stale ? 1 : 0;
@@ -22046,9 +22142,9 @@ var area11 = {
 };
 
 // packages/cli/src/commands/updates.ts
-import { mkdtempSync as mkdtempSync8, rmSync as rmSync26, writeFileSync as writeFileSync37 } from "node:fs";
+import { mkdtempSync as mkdtempSync8, rmSync as rmSync27, writeFileSync as writeFileSync37 } from "node:fs";
 import { tmpdir as tmpdir9 } from "node:os";
-import { join as join54 } from "node:path";
+import { join as join55 } from "node:path";
 function personOnlyUpdate(o, what) {
   if (process.env.ACC_ROLE === "analyst") throw new AccError("refused", `An analyst can't ${what}. A person does that.`);
   return personOnly(o, what);
@@ -22106,9 +22202,9 @@ function cmdUpdatePost(o, id) {
     throw new AccError("refused", `${u.key} is in ${lives} now, not this repo's ${repo}, so ${u.id} isn't posted. Discard it if it no longer applies: acc update discard ${u.id}`);
   }
   claimUpdate(paths, u.id, by, now, { again: o.again === true });
-  const dir = mkdtempSync8(join54(tmpdir9(), "acc-update-"));
+  const dir = mkdtempSync8(join55(tmpdir9(), "acc-update-"));
   try {
-    const file = join54(dir, "body.md");
+    const file = join55(dir, "body.md");
     writeFileSync37(file, text3 + "\n");
     const r = run("gh", ["issue", "comment", issue.number, "-R", issue.repo, "--body-file", file], { cwd: paths.root, env, timeoutMs: GH_TIMEOUT_MS });
     if (r.code !== 0) {
@@ -22122,7 +22218,7 @@ function cmdUpdatePost(o, id) {
     out(o, () => tone(`\u2713 Posted ${u.id} on ${u.key} as ${gh.account}${url ? `: ${url}` : "."}`, "blue"), posted);
     return 0;
   } finally {
-    rmSync26(dir, { recursive: true, force: true });
+    rmSync27(dir, { recursive: true, force: true });
   }
 }
 function cmdUpdateStep(o, step, id) {
@@ -22909,9 +23005,81 @@ var area15 = {
   }
 };
 
+// packages/cli/src/commands/saved.ts
+function cardState2(c, at2) {
+  if (!c.saved) return "not saved yet";
+  return [savedWords(c.saved, at2), ...c.waiting ? ["changed since, waiting to be read again"] : [], ...c.failed ? [`last read failed: ${c.failed}`] : []].join("; ");
+}
+function boardLines(boards, at2) {
+  return boards.map((b) => [
+    `${b.title} \xB7 ${b.place}`,
+    tone(`Loaded ${savedWords(b.at, at2).replace(/^saved /, "")}.`, "dim"),
+    ...b.columns.flatMap((col) => [
+      "",
+      `${col.name} (${col.cards.length})`,
+      ...col.cards.map((c) => `  ${c.key}  ${c.title}${c.assignees.length ? ` \xB7 ${c.assignees.join(", ")}` : ""}${c.priority ? ` \xB7 ${c.priority}` : ""}  ${tone(`(${cardState2(c, at2)})`, c.waiting ? "orange" : "dim")}`)
+    ])
+  ].join("\n")).join("\n\n");
+}
+function cmdBoard(o) {
+  const { paths, config } = project(process.cwd());
+  const at2 = now();
+  const boards = savedBoards(paths, boardTrackers(config), at2);
+  if (!boards.length) throw new AccError("nothing-saved", NOTHING_SAVED);
+  out(o, () => boardLines(boards, at2), { boards });
+  return 0;
+}
+function cmdTicket(o, raw) {
+  const { paths } = project(process.cwd());
+  const key = raw.toUpperCase();
+  const t = readSavedTicket(paths, key);
+  if (!t) {
+    throw new AccError("nothing-saved", readCachedBoards(paths).length ? `${key} isn't saved: no saved board shows it, or the Command Center hasn't read it yet. acc board lists what is saved.` : NOTHING_SAVED);
+  }
+  const at2 = now();
+  const waiting = ticketWaiting(paths, t, at2);
+  const said2 = savedWords(t.saved, at2);
+  out(o, () => [
+    `${t.key}  ${t.title}${t.url ? `
+${t.url}` : ""}`,
+    tone(`${said2[0].toUpperCase()}${said2.slice(1)}${t.changed ? `, as it was at ${t.changed}` : ""}.${waiting ? " The board's last load found it changed since: a newer read waits." : ""}`, waiting ? "orange" : "dim"),
+    ...t.failed ? [tone(`Its last read failed (${t.failed.at}): ${t.failed.why} This is the last good copy.`, "orange")] : [],
+    "",
+    t.markdown.trim() || "_No description._",
+    ...t.changes ? ["", `## ${t.changes.name}`, "", t.changes.markdown.trim()] : [],
+    "",
+    `## Comments (${t.comments.length}${t.omitted ? `, ${t.omitted} oldest left out` : ""})`,
+    ...t.comments.flatMap((c) => ["", `### ${c.author}${c.created ? `, ${c.created.slice(0, 10)}` : ""}`, "", c.markdown.trim()]),
+    ...t.related.length ? ["", "## Related", ...t.related.map((r) => `- ${r.relation}: ${r.key} ${r.title}${r.state ? ` (${r.state})` : ""}`)] : [],
+    "",
+    tone(`Saved in ${savedTicketFile(paths, key)}: acc analyze and acc draft criteria take it with --ticket.`, "dim")
+  ].join("\n"), { ...t, file: savedTicketFile(paths, key), waiting });
+  return 0;
+}
+var area16 = {
+  help: {
+    section: "Tasks",
+    order: 25,
+    lines: `  acc board                             The boards the Command Center saved: columns and cards, each with when
+                                        its ticket was saved and whether a newer change waits. Reads no tracker
+  acc ticket <key>                      One saved ticket: its description, changes field, comments and related
+                                        tickets, when it was saved, and whether a newer change waits`
+  },
+  commands: {
+    board: (o, rest) => {
+      if (rest.length) throw new AccError("usage", "acc board");
+      return cmdBoard(o);
+    },
+    ticket: (o, rest) => {
+      if (rest.length !== 1) throw new AccError("usage", "acc ticket <key>");
+      return cmdTicket(o, rest[0]);
+    }
+  }
+};
+
 // packages/cli/src/commands/setup.ts
 import { existsSync as existsSync36 } from "node:fs";
-import { join as join55 } from "node:path";
+import { join as join56 } from "node:path";
 
 // packages/core/src/onboarding/machine-check.ts
 function checkMachine(ctx, profile) {
@@ -23044,7 +23212,7 @@ function cmdInit(o) {
     tracker
   });
   const rules = plan.rules.map((source) => ({ source, name: rulesName(source) }));
-  const here = rules.filter((r) => existsSync36(join55(paths.root, RULES_DIR, `${r.name}.md`)));
+  const here = rules.filter((r) => existsSync36(join56(paths.root, RULES_DIR, `${r.name}.md`)));
   const fresh = rules.filter((r) => !here.includes(r)).map((r) => r.source);
   const copies = o["dry-run"] ? [] : prepareImports(run, paths.root, fresh, { account: plan.readAs, base: process.cwd(), now });
   const kept = o["dry-run"] ? [] : here.map((r) => ({ name: r.name, file: `${RULES_DIR}/${r.name}.md` }));
@@ -23189,7 +23357,7 @@ Commit it on every environment's branch, so each is retrieved with the same list
   }
   throw new AccError("usage", "acc setup baseline | branches [--push] | lists | readme | production --org <alias>");
 }
-var area16 = {
+var area17 = {
   help: {
     section: "Setup",
     order: 10,
@@ -23265,7 +23433,7 @@ function cmdCheck(o, files) {
   ].join("\n"), { findings, count: findings.length, hard, words: words5 });
   return hard ? 1 : 0;
 }
-var area17 = {
+var area18 = {
   help: {
     section: "Checks",
     order: 71,
@@ -23311,7 +23479,7 @@ function cmdRefresh(o, rest) {
   out(o, () => tone(`${r.sha ? failed ? "!" : "\u2713" : "\xB7"} ${r.reason}`, failed ? "orange" : r.sha ? "blue" : "dim"), r);
   return failed ? 1 : 0;
 }
-var area18 = {
+var area19 = {
   help: {
     section: "Agents",
     order: 44,
@@ -23371,7 +23539,7 @@ function cmdSkip(o) {
   out(o, () => `Skipped the tidy-up of ${r.covered.length} merge${r.covered.length === 1 ? "" : "s"}. The next is offered once ${tidyEvery(config)} more tasks merge.`, r);
   return 0;
 }
-var area19 = {
+var area20 = {
   help: {
     section: "Tasks",
     order: 21,
@@ -23393,7 +23561,7 @@ var area19 = {
 };
 
 // packages/cli/src/commands/trackers.ts
-import { readFileSync as readFileSync53 } from "node:fs";
+import { readFileSync as readFileSync54 } from "node:fs";
 function cmdSet2(o) {
   const file = o.file;
   if (!file) throw new AccError("usage", "acc trackers set --file <tracker.json> [--index <n>]");
@@ -23402,7 +23570,7 @@ function cmdSet2(o) {
   if (index !== null && !(Number.isInteger(index) && index >= 0 && /^\d+$/.test(String(o.index)))) throw new AccError("usage", "--index is the tracker's place in the list, from 0.");
   let record2;
   try {
-    record2 = JSON.parse(readFileSync53(file, "utf8"));
+    record2 = JSON.parse(readFileSync54(file, "utf8"));
   } catch (e) {
     throw new AccError("usage", `Couldn't read the tracker from ${file}: ${e.message}`);
   }
@@ -23433,7 +23601,7 @@ function cmdRemove(o) {
   out(o, () => `Removed ${trackerName(removed.kind)} from .acc/config.json. Its tasks stay on My work. Commit it to share it.`, { index, removed, warnings });
   return 0;
 }
-var area20 = {
+var area21 = {
   help: {
     section: "Setup",
     order: 16,
@@ -23480,7 +23648,7 @@ function cmdTracking(o, value) {
   out(o, () => `${trackingLines(config)} Set in .acc/config.json: commit it to share it.`, data(config));
   return 0;
 }
-var area21 = {
+var area22 = {
   help: {
     section: "Setup",
     order: 12,
@@ -23559,7 +23727,7 @@ function cmdClear(o, raw) {
   out(o, () => r.worktree || r.removed ? `Cleared ${id}'s verification: ${[r.worktree ? "its worktree" : "", r.removed ? `${r.removed} stored result${r.removed === 1 ? "" : "s"}` : ""].filter(Boolean).join(" and ")}. Its QA comment's draft stays, to post or discard.` : `${id} has no verification to clear.`, r);
   return 0;
 }
-var area22 = {
+var area23 = {
   help: {
     section: "Ticket updates (acc drafts them; only a person posts)",
     order: 63,
@@ -23586,7 +23754,7 @@ var area22 = {
 };
 
 // packages/cli/src/commands/index.ts
-var AREAS = [area3, area, area4, area5, area6, area7, area8, area9, area10, area11, area14, area13, area15, area16, area17, area2, area18, area19, area20, area21, area12, area22];
+var AREAS = [area3, area, area4, area5, area6, area7, area8, area9, area10, area11, area14, area13, area15, area16, area17, area18, area2, area19, area20, area21, area22, area12, area23];
 
 // packages/cli/src/main.ts
 var GLOBAL = {

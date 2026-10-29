@@ -179,6 +179,9 @@ where each one's done-when is written out.
 - **A concise Agent panel, a board that opens on my tasks, and buttons in a
   row that share one size**: done. Checked 2026-10-28. Evidence: D-221,
   D-222, D-223, release 0.52.0.
+- **Settings in sections, a stepped modal for a tracker, and saved tickets a
+  session reads**: done. Checked 2026-10-28. Evidence: D-224, D-225, D-226,
+  release 0.52.0.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
