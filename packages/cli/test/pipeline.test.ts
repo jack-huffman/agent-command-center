@@ -327,7 +327,7 @@ test('acc review --cloud is refused where the project hasn\'t opted in, naming e
   const set = cloudRepo({ ...CLOUD_RAW, agents: { max: 2, cloud: { routine: 'trig_01ABCDEFGHJKLMNOPQRSTUVW', review: 'cloud' } } });
   const local = acc(set.dir, ['review', 'T-1'], undefined, { PATH: set.env.PATH, ACC_CLOUD_TOKEN: '' });
   assert.equal(local.code, 0, local.err);
-  assert.match(local.err, /Reviews are set to the cloud, but Cloud builders need the routine's token: Setup says how: reviewing T-1 on this Mac\./);
+  assert.match(local.err, /Reviews are set to the cloud, but Cloud builders need the scheduled task's token: Setup says how: reviewing T-1 on this Mac\./);
   assert.match(local.out, /Review passed: Fine\./);
   assert.equal(JSON.parse(readFileSync(set.ledger, 'utf8')).tasks[0].cloudReview, undefined);
   // Set to the cloud and ready: a plain review goes there; --local keeps it here.

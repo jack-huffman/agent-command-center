@@ -101,7 +101,7 @@ test('acc review --cloud is refused, firing nothing, where the project hasn\'t o
   const fires = () => calls.filter((c) => c.startsWith('curl')).length;
   const off = cfg({ ...RAW, agents: { max: 2 } });
   assert.throws(() => reviewInCloud(paths, off, 'T-1', { run: fakeRunner(CLOUD_FIXTURES, calls), now, env }, {}), /Can't review T-1 in the cloud:\n- The project has opted in: Cloud builders are off/);
-  assert.throws(() => reviewInCloud(paths, config, 'T-1', { run: fakeRunner({ ...CLOUD_FIXTURES, 'security find-generic-password': bad() }, calls), now, env }, {}), /The routine's token is in this Mac's keychain/);
+  assert.throws(() => reviewInCloud(paths, config, 'T-1', { run: fakeRunner({ ...CLOUD_FIXTURES, 'security find-generic-password': bad() }, calls), now, env }, {}), /The scheduled task's token is in this Mac's keychain/);
   // The cap: a cloud builder running on another task fills a cap of 1.
   mutate(paths, now, (l, emit) => {
     upsertTasks(l, config, [{ source: { kind: 'manual', key: 'T-2' }, title: 'Another' }], 'human', 'h', emit, now);

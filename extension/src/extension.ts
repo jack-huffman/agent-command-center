@@ -29,7 +29,10 @@ import { postClaimed } from './logic/post-update.ts';
 import { saveClaimed } from './logic/changes-field.ts';
 import { fieldName } from './model/changes-field.ts';
 import { writtenFor } from '../../packages/core/src/field-drafts.ts';
-import { accRunner, runFile } from './run.ts';
+import { type AccEnv, accRunner, runFile } from './run.ts';
+import { handsTokenToAcc } from '../../packages/core/src/start.ts';
+import { CloudSetupSession, CloudTokens } from './cloud-setup.ts';
+import { CLOUD_STEPS } from '../../packages/core/src/onboarding/cloud-steps.ts';
 import { claudeProjectsDir, savedFolder } from './transcript.ts';
 import { Setup } from './setup.ts';
 import { About } from './about.ts';
@@ -62,6 +65,12 @@ export function activate(context: vscode.ExtensionContext): void {
   // The extension runs the bundle itself, on its own runtime (D-012). Terminals and builders get the
   // launcher beside it, `acc`, on PATH.
   const accScript = context.asAbsolutePath(join('dist', 'bin', 'acc.mjs'));
+  // The scheduled task's token (T-145): a Mac keeps it in its keychain, through acc; Windows in VS Code's
+  // secret storage, and this window hands it to acc, and only acc, whenever it runs acc for that repo.
+  handsTokenToAcc();
+  const cloudTokens = new CloudTokens(context.secrets, process.platform, (root, token) => runFile(process.execPath, [accScript, 'cloud', 'token', '--from-env', '--json'], root, { ...process.env, ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1', ACC_CLOUD_TOKEN_NEW: token }));
+  const accEnv: AccEnv = (cwd) => cloudTokens.env(hub.projectFor(cwd)?.config.github?.repo);
+  setup.accEnv = accEnv;
   // acc follows tickets that left a board's place (D-072).
   const trackers = new Trackers(context.secrets, hub, setup.log, accRunner(accScript));
   context.subscriptions.push(setup, hub, trackers);
@@ -94,6 +103,7 @@ export function activate(context: vscode.ExtensionContext): void {
     t.sendText(command, true);
   };
   const runs = new Runs(setup.log, inTerminal, dirname(accScript), context.workspaceState);
+  runs.accEnv = accEnv;
   setup.useRuns(runs);
   context.subscriptions.push(runs);
   const identity = new RepoIdentity(hub, accRunner(accScript), () => setup.githubSignIn(null), () => {
@@ -336,7 +346,7 @@ export function activate(context: vscode.ExtensionContext): void {
   };
   const pages = new AgentPages(context, hub, resolve, answer, reply);
   context.subscriptions.push(pages);
-  const sidebar = new Sidebar(hub, accRunner(accScript), setup.log, (root, key, part) => tickets.show(root, undefined, key, part), {
+  const sidebar = new Sidebar(hub, accRunner(accScript, accEnv), setup.log, (root, key, part) => tickets.show(root, undefined, key, part), {
     run: (command, cwd, label, onExit, ok, review) => void runs.start(command, { cwd, label, onExit, ok, review }),
     // A dispatch or a land in the output panel, with its steps (T-65); its answer is what --json printed.
     runAccShown: (args, cwd, label, onSteps) => new Promise((resolve) => {
@@ -390,6 +400,43 @@ export function activate(context: vscode.ExtensionContext): void {
     log: (line) => setup.log.warn(line),
     exec,
   });
+  // Set up cloud builders (T-145): one stepped modal over the page, from Settings, Setup and the palettes.
+  const cloudSetup = new CloudSetupSession({
+    project: (root) => {
+      const p = hub.project(root);
+      return p ? { root: p.root, name: p.name, repo: p.config.github?.repo ?? null, on: !!p.config.agents.cloud, routine: p.config.agents.cloud?.routine ?? null } : null;
+    },
+    pick: async () => {
+      if (hub.projects.length <= 1) return hub.projects[0]?.root ?? null;
+      const p = setup.root() ? hub.projectFor(setup.root()!) : undefined;
+      if (p) return p.root;
+      return (await vscode.window.showQuickPick(hub.projects.map((x) => ({ label: x.name, description: x.root, root: x.root })), { title: 'Set up cloud builders for which project?' }))?.root ?? null;
+    },
+    acc: accRunner(accScript, accEnv),
+    tokens: cloudTokens,
+    platform: process.platform,
+    confirmed: () => setup.allConfirmed().has('B15.cloud-github-app'),
+    confirm: () => setup.confirm('B15.cloud-github-app'),
+    copy: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
+    open: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
+    terminal: (command, cwd, ended) => {
+      const t = vscode.window.createTerminal({ name: 'Sign in to claude.ai', cwd, iconPath: new vscode.ThemeIcon('account'), ...terminalShell() });
+      const subs = [
+        vscode.window.onDidEndTerminalShellExecution((e) => { if (e.terminal === t) ended(); }),
+        vscode.window.onDidCloseTerminal((x) => { if (x === t) { ended(); for (const s of subs) s.dispose(); } }),
+      ];
+      context.subscriptions.push(...subs);
+      t.show();
+      t.sendText(command, true);
+    },
+    ask: async (message, detail, go) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, go)) === go,
+    reload: async () => {
+      await hub.loadProjects();
+      for (const s of CLOUD_STEPS) void setup.recheck(s.id);
+    },
+    changed: () => panels.post(),
+    log: (line) => setup.log.warn(line),
+  });
   // Whether the extension looks for a newer release by itself (T-62); About's Check now works either way.
   const updatesCheck = () => vscode.workspace.getConfiguration('agentCommandCenter').get<boolean>('updates.check', true) !== false;
   // Settings' About (GH-114): the versions, read fresh, and the latest release, read as gh's active account.
@@ -415,6 +462,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const panels = new Panels(context, hub, setup, resolve, (visible) => pagePolls(visible), {
     about,
     connect: { model: () => connect.model(), close: () => connect.close() },
+    cloudSetup: { model: () => cloudSetup.model(), close: () => cloudSetup.close() },
     boards: (root) => trackers.boardStates(root),
     identity: (root) => identity.card(root),
     edited: (root, id, replaces) => tickets.edited(root, id, replaces),
@@ -507,13 +555,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Each area registers its commands, and takes the page's messages that are its own (D-099).
   const parts: Parts = {
-    vscode, hub, setup, runs, panels, tickets, ticketEdits, pages, trackers, identity, connect, slack, autopilot, sidebar, about, selfUpdate, accScript,
+    vscode, hub, setup, runs, panels, tickets, ticketEdits, pages, trackers, identity, connect, cloudSetup, cloudTokens, accEnv, slack, autopilot, sidebar, about, selfUpdate, accScript,
     reg, subscribe: (d) => context.subscriptions.push(d), regNode, resolve, accSays, answer, answerAnalysis, updates, showRun,
     receive: (type, fn) => panels.take(type, fn),
   };
   for (const a of AREAS) a.register?.(parts);
 
   hub.onDidChange((part) => {
+    // Windows's tokens, from VS Code's secret storage, for the repos that opted in to cloud builders (T-145).
+    if (part === 'projects') void cloudTokens.load(hub.projects.flatMap((p) => (p.config.agents.cloud && p.config.github ? [p.config.github.repo] : [])));
     if (part === 'projects') { void trackers.loadBoards(); void setup.recheck('B14.tickets'); void identity.refresh(); }
     if (part === 'projects' || part === 'worktrees') autopilot.reconcile();
     if (part === 'projects' || part === 'worktrees') questions?.rootsChanged();

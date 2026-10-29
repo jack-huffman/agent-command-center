@@ -32,7 +32,7 @@ test('off by default: a project with no agents.cloud offers no cloud, says why, 
   const noGithub = cfg(GENERIC_CONFIG);
   assert.equal(cloudReason(cloudOffered(noGithub)), 'Cloud builders need the repo on GitHub');
   const noRoutine = cfg({ ...RAW, agents: { cloud: { routine: null } } });
-  assert.equal(cloudReason(cloudOffered(noRoutine)), 'Cloud builders need a routine for the repo: Setup says how');
+  assert.equal(cloudReason(cloudOffered(noRoutine)), 'Cloud builders need a scheduled task for the repo: Setup says how');
   assert.equal(cloudReason(cloudOffered(cfg())), null);
   // The config's choice applies when no flag does, and a flag wins over it; local is never the cloud's default.
   assert.equal(builderPlace(cfg()), 'local');
@@ -67,14 +67,14 @@ test('the needs: the token comes from the environment or the keychain, and the s
   const w = fakeRunner({ 'security -i': (o) => { wrote.push(o?.input ?? ''); return ok(); } });
   writeCloudToken(w, 'acme/tool', 'tok_0123456789abcdefghij', {});
   assert.equal(wrote[0], 'add-generic-password -U -s "acc-cloud-routine" -a "acme/tool" -w "tok_0123456789abcdefghij"\n');
-  assert.throws(() => writeCloudToken(w, 'acme/tool', 'short', {}), /doesn't look like a routine's API token/);
+  assert.throws(() => writeCloudToken(w, 'acme/tool', 'short', {}), /doesn't look like a scheduled task's API token/);
   const needs = cloudNeeds(cfg(), r, env);
   assert.deepEqual(needs.map((n) => [n.id, n.ok]), [['github', true], ['opted-in', true], ['routine', true], ['token', true], ['login', true]]);
   const apiKey = fakeRunner({ ...CLOUD_FIXTURES, 'claude auth status': ok(JSON.stringify({ loggedIn: true, authMethod: 'console' })) });
   const login = cloudNeeds(cfg(), apiKey, env).find((n) => n.id === 'login')!;
   assert.equal(login.ok, false);
   assert.match(login.fix, /cloud sessions need a claude\.ai account.*claude auth login/);
-  assert.equal(cloudReason(cloudNeeds(cfg(), fakeRunner({ ...CLOUD_FIXTURES, 'security find-generic-password': bad() }), {})), 'Cloud builders need the routine\'s token: Setup says how');
+  assert.equal(cloudReason(cloudNeeds(cfg(), fakeRunner({ ...CLOUD_FIXTURES, 'security find-generic-password': bad() }), {})), 'Cloud builders need the scheduled task\'s token: Setup says how');
 });
 
 test('the fire: curl posts the text with the beta headers from a file only this user can read, and the reply names the session', () => {
@@ -196,7 +196,7 @@ test('acc dispatch --cloud pushes the task branch, fires the routine with the pa
   assert.throws(() => dispatch(paths, off, 'T-2', deps, { actor: 'human', by: 'h', where: 'cloud' }), /Can't dispatch T-2 to the cloud:\n- The project has opted in: Cloud builders are off/);
   assert.ok(!calls.slice(before).some((c) => c.startsWith('git push') || c.startsWith('curl')));
   // A missing token or sign-in is refused the same way, naming it.
-  assert.throws(() => dispatch(paths, config, 'T-2', { ...deps, run: fakeRunner({ ...CLOUD_FIXTURES, 'security find-generic-password': bad() }) }, { actor: 'human', by: 'h', where: 'cloud' }), /The routine's token is in this Mac's keychain: Generate the API trigger's token/);
+  assert.throws(() => dispatch(paths, config, 'T-2', { ...deps, run: fakeRunner({ ...CLOUD_FIXTURES, 'security find-generic-password': bad() }) }, { actor: 'human', by: 'h', where: 'cloud' }), /The scheduled task's token is in this Mac's keychain: Generate the API trigger's token/);
   // GitHub's rules behind the guard: gh couldn't say here (no fixture signs it in), so the dispatch warned, and went on.
   assert.ok(out.warnings?.some((w) => /gh couldn't read main's protection: gh isn't logged in as acme-bot/.test(w) && /isn't known/.test(w)), `warned, didn't refuse: ${JSON.stringify(out.warnings)}`);
 });

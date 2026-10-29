@@ -46,6 +46,7 @@ import { sampleAgent } from './fixtures/agent-page.ts';
 import { everyoneKept, sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSeveralBoards, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
 import { sampleAzureBoards, sampleAzureLoading, sampleAzureRefreshing, sampleTrackerTicket, type TrackerTicketSample } from './fixtures/tracker-tickets.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
+import { cloudSetupState, sampleCloudSetup } from './fixtures/cloud-setup.ts';
 import { sampleIdentities, sampleIdentity } from './fixtures/environments.ts';
 import { sampleHub } from './fixtures/hub.ts';
 import { sampleLimitsOther } from './fixtures/limits.ts';
@@ -331,8 +332,10 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // A service desk's queues as cards (T-128), ticked or refused to a sign-in that isn't an agent's.
   const connect = kind === 'connect-jira-queues' || kind === 'connect-jira-queues-refused' ? sampleQueueConnect(kind.endsWith('refused')) : kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);
+  // Set up cloud builders (T-145), over Settings, where its Set up… is.
+  const cloudSetup = sampleCloudSetup(kind);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') || kind.startsWith('tasks-boards') || kind.startsWith('tasks-done') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') || kind.startsWith('tasks-boards') || kind.startsWith('tasks-done') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') || cloudSetup ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : kind === 'tasks-azure' ? sampleAzureBoards : kind === 'tasks-azure-loading' ? sampleAzureLoading : kind === 'tasks-azure-refreshing' ? sampleAzureRefreshing : kind === 'tasks-sprint' ? sampleSprintBoards
     // Two Jira Service Management queue boards on one project (T-128), on the Tasks tab and in Settings.
@@ -349,7 +352,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   const prefs = kind === 'settings-page' ? { pace: 'relaxed' as const, opensOn: 'tasks' as const } : {};
   return homeModel({
     hub, section, boards: (root) => boards(root), identity: kind === 'settings-github' ? sampleIdentities : () => sampleIdentity(), setup: perToken ? samplePerTokenSetup() : sampleSetup(),
-    runs: sampleRuns(now), edited: sampleEdited, connect, slack, whereView: kind === 'agents-path' || kind === 'settings-page' ? 'path' : 'folder', theme, ...prefs,
+    runs: sampleRuns(now), edited: sampleEdited, connect, cloudSetup, slack, whereView: kind === 'agents-path' || kind === 'settings-page' ? 'path' : 'folder', theme, ...prefs,
     // About (GH-114): up to date, or behind with a newer release and an older plugin, or a look that failed.
     about: kind === 'settings-about' ? sampleAboutBehind(now) : kind === 'settings-about-failed' ? sampleAboutFailed(now) : sampleAbout(now), now,
   });
@@ -418,6 +421,8 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'tasks-agents' ? { modes: { [ROOT]: 'agents' } }
   // The Connect modal's epics list open, with "port" typed in its box (T-140).
   : kind === 'connect-dropdown' ? { openDrop: 'c-jira-board:epics', dropQuery: 'port' }
+  // Set up cloud builders' detail opened under its step (T-145).
+  : cloudSetupState(kind) ? cloudSetupState(kind)
   // A card's actions on the agent board (D-168): its next step full width, and the rest in its ⋯ menu, opened.
   : kind === 'tasks-card-menu' ? { modes: { [ROOT]: 'agents' }, openMenu: `card:${ROOT}#ACME-16` }
   // The palette with nothing typed (T-52) shows what was run last, newest first: a task, a part of Settings, an action and a section.

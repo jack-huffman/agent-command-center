@@ -654,7 +654,7 @@ function planTicketHost(hub: Hub, trackers: Trackers): PlanTicketHost {
 }
 
 export const area: ExtensionArea = {
-  register({ sidebar, regNode, hub, setup, accScript, accSays, resolve, receive, panels, tickets, ticketEdits: edits, trackers }) {
+  register({ sidebar, regNode, hub, setup, accScript, accEnv, accSays, resolve, receive, panels, tickets, ticketEdits: edits, trackers }) {
     const read = (root: string, key: string) => edits.sheetTicket(root, key);
     const tasks = new TaskCommands(sidebar, (root, id, ask) => openSheet(hub, panels, root, id, ask), (root, id) => openTaskSheet(hub, (m) => void panels.tell(m), root, id, undefined, read, sheetDress(root, id)), edits, planTicketHost(hub, trackers));
     tasks.register(regNode);
@@ -698,7 +698,7 @@ export const area: ExtensionArea = {
         // acc couldn't say: as if it kept them all waiting.
         heldAsks.set(p.root, heldAsked(last, key, Date.now(), due, due));
         try {
-          const r = await accRunner(accScript)(['dispatch', '--held', '--json'], p.root);
+          const r = await accRunner(accScript, accEnv)(['dispatch', '--held', '--json'], p.root);
           if (r.code !== 0) { setup.log.warn(`acc dispatch --held in ${p.name}: ${accSays(r)}`); continue; }
           const out = JSON.parse(r.stdout) as { started: { task: string; waitedFor: string[]; shares: { task: string; files: string[] }[] }[]; failed: { task: string; reason: string }[]; waiting: { task: string }[] };
           heldAsks.set(p.root, heldAsked(last, key, Date.now(), due, out.waiting.map((w) => w.task)));

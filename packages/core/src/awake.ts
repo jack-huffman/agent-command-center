@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { alive } from './lock.ts';
 import type { RepoPaths } from './paths.ts';
+import { childEnv } from './start.ts';
 
 /**
  * Keeping the Mac awake while acc's agents run (D-067). On 2026-10-05 GH-41's builder stopped when the
@@ -28,7 +29,7 @@ export interface Awake {
 }
 
 const detached: Spawner = (cmd, args) => {
-  const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+  const child = spawn(cmd, args, { detached: true, stdio: 'ignore', env: childEnv() });
   // No caffeinate on PATH is only a Mac that may sleep, as on any other platform.
   child.on('error', () => undefined);
   return child;

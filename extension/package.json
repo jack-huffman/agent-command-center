@@ -138,6 +138,12 @@
         "icon": "$(note)"
       },
       {
+        "command": "acc.cloud.setup",
+        "title": "Set up cloud builders…",
+        "category": "Agent Command Center",
+        "icon": "$(cloud)"
+      },
+      {
         "command": "acc.task.message",
         "title": "Send its cloud builder a message…",
         "category": "Agent Command Center",
@@ -151,7 +157,7 @@
       },
       {
         "command": "acc.cloud.enable",
-        "title": "Turn cloud builders on for a project…",
+        "title": "Give cloud builders a project's trigger id…",
         "category": "Agent Command Center",
         "icon": "$(cloud)"
       },
@@ -163,7 +169,7 @@
       },
       {
         "command": "acc.cloud.token",
-        "title": "Keep the routine's token for cloud builders…",
+        "title": "Keep the scheduled task's token for cloud builders…",
         "category": "Agent Command Center",
         "icon": "$(key)"
       },
@@ -181,7 +187,7 @@
       },
       {
         "command": "acc.cloud.routine",
-        "title": "Copy the routine prompt for cloud builders",
+        "title": "Copy the scheduled task's prompt for cloud builders",
         "category": "Agent Command Center",
         "icon": "$(clippy)"
       },
@@ -1583,7 +1589,7 @@
           {
             "id": "B15.cloud-github-app",
             "title": "Claude can clone the repo from the cloud",
-            "description": "A cloud session clones the repo from GitHub and pushes its branch back, through the GitHub access connected to your claude.ai account: the Claude GitHub App on the repo, or /web-setup in a terminal (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-github-app%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-github-app%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-github-app%22%5D)",
+            "description": "A cloud session clones the repo from GitHub and pushes its branch back, through the GitHub access connected to your claude.ai account: the Claude GitHub App on the repo, or /web-setup in a terminal (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-github-app%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-github-app%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-github-app%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-github-app%22%5D)",
             "media": {
               "markdown": "media/steps/B15.cloud-github-app.md"
             },
@@ -1593,8 +1599,8 @@
           },
           {
             "id": "B15.cloud-routine",
-            "title": "A routine for the repo",
-            "description": "A script starts a cloud session only by firing a routine's API trigger (GH-69). The routine holds the repo, the model and the environment; the Command Center sends each task in the fire's text.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-routine%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-routine%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-routine%22%5D)",
+            "title": "A scheduled task for the repo",
+            "description": "A script starts a cloud session only by firing a scheduled task's API trigger (formerly a routine, GH-69). The scheduled task holds the repo, the model and the environment; the Command Center sends each task in the fire's text.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-routine%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-routine%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-routine%22%5D)",
             "media": {
               "markdown": "media/steps/B15.cloud-routine.md"
             },
@@ -1604,8 +1610,8 @@
           },
           {
             "id": "B15.cloud-token",
-            "title": "The routine's token is in the keychain",
-            "description": "The Command Center fires the routine with its bearer token, kept in this Mac's keychain and never in the project's settings or git (GH-69). The token is shown once, on the routine's page.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-token%22%5D)\n[I've done this](command:acc.step.confirm?%5B%22B15.cloud-token%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-token%22%5D)",
+            "title": "The scheduled task's token is kept",
+            "description": "The Command Center fires the scheduled task with its bearer token, never kept in the project's settings or git (GH-69): a Mac keeps it in its keychain, and Windows in VS Code, which hands it to the Command Center when the Command Center builds or reviews (T-145). The token is shown once, on the scheduled task's page.\n\n[Check](command:acc.step.check?%5B%22B15.cloud-token%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-token%22%5D)\n[Read the guide](command:acc.openGuide?%5B%22B15.cloud-token%22%5D)",
             "media": {
               "markdown": "media/steps/B15.cloud-token.md"
             },
@@ -1616,7 +1622,7 @@
           {
             "id": "B15.cloud-login",
             "title": "Claude Code is signed in to claude.ai",
-            "description": "Sending a cloud builder a message (claude -p --cloud) needs the CLI signed in to the claude.ai account the routine belongs to (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-login%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-login%22%5D)",
+            "description": "Sending a cloud builder a message (claude -p --cloud) needs the CLI signed in to the claude.ai account the scheduled task belongs to (GH-69).\n\n[Check](command:acc.step.check?%5B%22B15.cloud-login%22%5D)\n[Do it](command:acc.step.fix?%5B%22B15.cloud-login%22%5D)",
             "media": {
               "markdown": "media/steps/B15.cloud-login.md"
             },

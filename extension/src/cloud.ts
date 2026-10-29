@@ -4,6 +4,7 @@
 import * as vscode from 'vscode';
 import { BUILDER_PLACES, type BuilderPlace, ROUTINE_ID } from '../../packages/core/src/config.ts';
 import { CLOUD_TOKEN, ROUTINES_URL } from '../../packages/core/src/cloud.ts';
+import type { CloudTokens } from './cloud-setup.ts';
 import { ROUTINE_PROMPT } from '../../packages/core/src/onboarding/cloud-steps.ts';
 import type { Protection } from '../../packages/core/src/protection.ts';
 import type { ExtensionArea } from './area.ts';
@@ -16,8 +17,11 @@ import { Sidebar } from './sidebar.ts';
 
 /** The cloud commands: each goes through acc, and says in plain words what acc refused. */
 class CloudCommands extends Sidebar {
-  constructor(from: Sidebar) {
+  private readonly tokens: CloudTokens;
+
+  constructor(from: Sidebar, tokens: CloudTokens) {
     super(from.hub, from.acc, from.log, from.openTicket, from.helpers, from.terminals);
+    this.tokens = tokens;
   }
 
   register(regNode: (id: string, fn: (...args: any[]) => unknown) => void, reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
@@ -75,7 +79,7 @@ class CloudCommands extends Sidebar {
     if (!project) return;
     if (!project.config.github) return void vscode.window.showWarningMessage(`Cloud builders need the repo on GitHub: ${project.name}'s settings name no GitHub repo.`);
     const current = project.config.agents.cloud?.routine ?? '';
-    const routine = await vscode.window.showInputBox({ title: `Cloud builders for ${project.name}: the routine's trigger id`, prompt: `From the routine's API trigger at ${ROUTINES_URL} (trig_…). Leave empty to opt in now and add it later.`, value: current, validateInput: (v) => (!v.trim() || ROUTINE_ID.test(v.trim()) ? undefined : 'A trigger id looks like trig_01ABC…') });
+    const routine = await vscode.window.showInputBox({ title: `Cloud builders for ${project.name}: the scheduled task's trigger id`, prompt: `From the scheduled task's API trigger at ${ROUTINES_URL} (trig_…). Leave empty to opt in now and add it later.`, value: current, validateInput: (v) => (!v.trim() || ROUTINE_ID.test(v.trim()) ? undefined : 'A trigger id looks like trig_01ABC…') });
     if (routine === undefined) return;
     await this.runAcc(project, ['cloud', 'enable', ...(routine.trim() ? ['--routine', routine.trim()] : [])], (o) => `Cloud builders are on for ${project.name}. ${o?.guard?.length ? `Commit ${o.guard.join(' and ')} with the project's settings.` : ''} A local builder stays the default.`);
     await this.hub.loadProjects();
@@ -84,21 +88,30 @@ class CloudCommands extends Sidebar {
   private async disable(root?: string): Promise<void> {
     const project = await this.projectOf(root);
     if (!project) return;
-    const ok = await vscode.window.showWarningMessage(`Turn cloud builders off for ${project.name}?`, { modal: true, detail: 'Every dispatch goes to this Mac. A cloud builder already running finishes on its own; the Command Center still collects it. The routine\'s token stays in the keychain.' }, 'Turn off');
+    const ok = await vscode.window.showWarningMessage(`Turn cloud builders off for ${project.name}?`, { modal: true, detail: 'Every dispatch stays on this machine. A cloud builder already running finishes on its own; the Command Center still collects it. The scheduled task\'s token stays where it\'s kept.' }, 'Turn off');
     if (!ok) return;
     await this.runAcc(project, ['cloud', 'disable'], () => `Cloud builders are off for ${project.name}.`);
     await this.hub.loadProjects();
   }
 
-  /** The routine's token (GH-69): typed hidden, handed to acc in its environment, kept in the keychain. */
+  /**
+   * The scheduled task's token (GH-69): typed hidden, and kept where this system keeps it (T-145): a Mac's
+   * keychain, through acc, or VS Code's secret storage on Windows. Never a file.
+   */
   private async token(root?: string): Promise<void> {
     const project = await this.projectOf(root);
     if (!project) return;
-    const token = await vscode.window.showInputBox({ title: `The routine's API token for ${project.name}`, prompt: 'Generated once on the routine\'s page. It goes to this Mac\'s keychain, never to a file.', password: true, validateInput: (v) => (CLOUD_TOKEN.test(v.trim()) ? undefined : 'A token is letters, digits, dashes and underscores, 20 or more.') });
+    const repo = project.config.github?.repo;
+    if (!repo) return void vscode.window.showWarningMessage(`Cloud builders need the repo on GitHub: ${project.name}'s settings name no GitHub repo.`);
+    const where = this.tokens.inVsCode ? 'VS Code on this machine' : 'this Mac\'s keychain';
+    const token = await vscode.window.showInputBox({ title: `The scheduled task's API token for ${project.name}`, prompt: `Generated once on the scheduled task's page. It goes to ${where}, never to a file.`, password: true, validateInput: (v) => (CLOUD_TOKEN.test(v.trim()) ? undefined : 'A token is letters, digits, dashes and underscores, 20 or more.') });
     if (!token) return;
-    const r = await runFile(process.execPath, [this.helpers.accScript ?? '', 'cloud', 'token', '--from-env', '--json'], project.root, { ...process.env, ELECTRON_RUN_AS_NODE: '1', NO_COLOR: '1', ACC_CLOUD_TOKEN_NEW: token.trim() });
-    if (r.code !== 0) return void vscode.window.showWarningMessage(`Couldn't keep the token: ${(r.stderr || r.stdout).trim().split('\n')[0]}`);
-    void vscode.window.showInformationMessage(`Kept the routine's token for ${project.config.github?.repo ?? project.name} in the keychain.`);
+    try {
+      await this.tokens.keep(project.root, repo, token);
+    } catch (e) {
+      return void vscode.window.showWarningMessage(`Couldn't keep the token: ${(e as Error).message}`);
+    }
+    void vscode.window.showInformationMessage(`Kept the scheduled task's token for ${repo} in ${where}.`);
     await this.hub.loadProjects();
   }
 
@@ -124,12 +137,12 @@ class CloudCommands extends Sidebar {
     await this.hub.loadProjects();
   }
 
-  /** The routine's prompt, for a person to paste when they make the routine on claude.ai. */
+  /** The scheduled task's prompt, for a person to paste when they make it on claude.ai. */
   private async routine(root?: string): Promise<void> {
     const project = await this.projectOf(root);
     if (!project) return;
     await vscode.env.clipboard.writeText(ROUTINE_PROMPT);
-    const pick = await vscode.window.showInformationMessage('Copied the routine\'s prompt. Paste it as the routine\'s instructions on claude.ai, pick the repo and the model, add an API trigger, then give the Command Center the trigger id and the token.', 'Open claude.ai/code/routines');
+    const pick = await vscode.window.showInformationMessage('Copied the scheduled task\'s prompt. Paste it as a new scheduled task\'s instructions on claude.ai, pick the repo and a model, add an API trigger, then give the Command Center the trigger id and the token.', 'Open claude.ai');
     if (pick) await vscode.env.openExternal(vscode.Uri.parse(ROUTINES_URL));
   }
 }
@@ -178,8 +191,8 @@ class CloudProtection {
 }
 
 export const area: ExtensionArea = {
-  register({ sidebar, regNode, reg, hub }) {
-    new CloudCommands(sidebar).register(regNode, reg);
+  register({ sidebar, regNode, reg, hub, cloudTokens }) {
+    new CloudCommands(sidebar, cloudTokens).register(regNode, reg);
     const protection = new CloudProtection(sidebar);
     hub.onDidChange((part) => { if (part === 'projects') void protection.refresh(); });
     void protection.refresh();
