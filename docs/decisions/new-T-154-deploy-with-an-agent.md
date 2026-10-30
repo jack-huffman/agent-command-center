@@ -23,7 +23,7 @@ the quick deploy of the checked job, the pull request, the records.
   UserPromptSubmit hooks itself, so the guard and the yes don't depend on the plugin being on. The first review
   found the guide could drop its role (`unset ACC_ROLE`, `env -u`), type the name through acc's inner flag
   (`--confirm-name`), or plant a yes by running the hook through `sh -c`; each is now refused twice, by the
-  settings and by the guard, and tested.
+  settings and by the guard, and tested; the second review's forms by the allowlist below.
 - **The skill** (`plugin/skills/deploy/SKILL.md`): read the ticket, its outside-git changes and the check; look
   for what a deploy never carries (permission sets to assign, flows to activate, scheduled jobs, settings and
   custom metadata records, data, Setup changes); show one runbook in four parts (before, the deploy, after, check
@@ -38,26 +38,28 @@ the quick deploy of the checked job, the pull request, the records.
   for every destination (`guided`): a "yes" said to approve the runbook or a step never counts. The guide is
   refused `--confirm-production`, and the CLI refuses the inner `--confirm-name` and `--deploy-check` when typed,
   so the guide never types the name itself.
-- **What the guide may do** (`guardDeployer`, PreToolUse): no edit to any file; no git command that moves a
-  branch or the checkout; no deploy by hand (`deploysByHand`); no word of `.git/acc`, the kept yes or the hook
-  that keeps it; no `ACC_ROLE`, `ACC_TASK` or `ACC_DEPLOY_TO` set on a command; no command run through another
-  (a shell, `eval`, `env`, `unset`, `export`, `xargs`, `time`, `sudo`, a `$` word), read as written before
-  wrappers are stripped; acc only as the command itself, and of its commands only show, list, deploy (its own
-  ticket, by id, `--task=` or `$ACC_TASK`), change list and change step (its own ticket), ticket, board, ste and
-  doctor. A builder may no longer run `acc hook` by hand either (`PERSON_ONLY_ACC`). The CLI agrees: anything a
-  person does is refused it with "The deploy guide can't …" (`personOnly`), and `personOrGuide` lets it deploy,
-  and mark the steps of, its own ticket alone. A deploy it makes is recorded by `deployer:<id>`.
-- **Not covered:** a guard that reads commands can't follow every program (a `node -e` that writes the yes's
-  file from pieces); Claude Code asking the person before each command is what stands behind it, with the yes's
-  freshness and one use. MCP tools aren't guarded: a Salesforce MCP server's deploy tool in that chat would be
+- **What the guide may run: an allowlist** (`guideCommands`, `guardDeployer`, PreToolUse; after the second
+  review). The first guard refused bad forms, and each review found more (a shell named by its path, a wrapper
+  it didn't know, the role dropped by `printf -v` or `read`, a flag built from a variable or braces), so it now
+  refuses anything it can't read in full. A line is plain words, 'single quotes', and "double quotes" with no
+  `$`, backtick or backslash, its commands joined only by `&&` or `;`: no pipe, redirect, glob, brace,
+  background, sub-shell, assignment or variable, but `$ACC_TASK` and `$ACC_DEPLOY_TO` as written. Each command is
+  `acc`, `sf` or `git`, named as itself. acc: show, list, deploy of its own ticket (by id, `--task=` or
+  `$ACC_TASK`) with no name typed, change list and change step of its own ticket, ticket, board, ste and doctor.
+  sf: anything but a hand deploy, `sf project`, its plugins, aliases and settings, or `--output-dir`/`--output-file`.
+  git: log, show, diff, status, rev-parse, ls-files, blame, describe, shortlog. No word names acc's state, its
+  hook or `ACC_ROLE`. A builder may no longer run `acc hook` by hand either (`PERSON_ONLY_ACC`).
+- **Not covered:** the allowlist trusts `sf` itself: a step it runs (`sf apex run`, `sf data update`) changes
+  the org, which is why Claude Code asks the person before each command. A PreToolUse hook of the person's own
+  that answers "allow" would skip that prompt, and the person can change the chat's mode with Shift+Tab. MCP tools aren't guarded: a Salesforce MCP server's deploy tool in that chat would be
   asked about by Claude Code alone. The kept yes doesn't name its chat, so two guide chats for one ticket share
   it. The terminal stays after the chat ends, with the guide's variables set. The deploy's event is recorded as
   a person's (`actor: 'human'`), with `by: deployer:<id>`. The launch's own first message passes through the
   hook too, and is never a name. The guide's words in the chat aren't held to the note shape or wording check.
 - **Checked by** `packages/core/test/deploy-guide.test.ts` (8: the yes kept and used once, the latest message
   only, its age and the check's, its own task, the hook in and out of a guide, the guard, the hook's guard),
-  `packages/core/test/task-deploy.test.ts` (3 more: a guided yes to a sandbox is the word, to production the
-  name, and the launch), `packages/core/test/deploy-guide.test.ts`'s four more after review (each way round the
+  `packages/core/test/task-deploy.test.ts` (3 more: a guided yes is the destination's name, to a sandbox as to
+  production, and the launch), `packages/core/test/deploy-guide.test.ts`'s four more after review (each way round the
   review found, each acc command the skill names, the settings, a builder's `acc hook`),
   `packages/cli/test/deploy-guide.test.ts` (6: the typed yes needed and used up, its own ticket only, no name
   typed, the inner flags refused, no second guide, its steps, `personOrGuide`), `extension/test/deploy-guide.test.ts`

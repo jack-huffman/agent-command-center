@@ -56,6 +56,6 @@ When every step is done or skipped, show the runbook again with each step's resu
 - Deploy any other way: no `sf project deploy`, no deploy by hand, no `--confirm-production`.
 - Edit a file, commit, push or merge.
 - Read or write `.git/acc`, where acc keeps the person's yes, or run `acc hook`.
-- Run a command through another: no `sh -c`, `eval`, `env`, `unset` or `export`. Run each command on its own.
+- Run anything but plain `acc`, `sf` and `git` commands. Each is one line, joined only by `&&` or `;`, with no pipe, redirect, `$( )`, backtick or variable but `$ACC_TASK` and `$ACC_DEPLOY_TO`. acc refuses anything else before it runs. Read what a command prints instead of piping it.
 - Run a command that changes the org without the person's yes for that exact command.
 - Deploy a ticket other than your own.

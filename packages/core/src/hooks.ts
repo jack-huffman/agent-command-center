@@ -215,40 +215,97 @@ export function guardAnalyst(line: string): string | null {
 
 // ---------------------------------------------------------------- PreToolUse: a deploy guide
 
-/** The git commands that change the checkout or the remote: a deploy guide changes neither, acc deploy does (T-154). */
-const GIT_WRITES = new Set(['commit', 'push', 'merge', 'rebase', 'reset', 'checkout', 'switch', 'cherry-pick', 'tag', 'am', 'revert', 'stash', 'clean', 'restore', 'rm', 'mv', 'worktree', 'pull', 'branch']);
 /** The acc commands a deploy guide runs: it reads, deploys its own ticket and marks the steps it walks through. */
 export const DEPLOYER_ACC = ['show', 'list', 'deploy', 'change', 'ticket', 'board', 'ste', 'doctor'] as const;
-/** Words that run what follows as a command of its own, or change the environment it runs in: the guard can't read past them. */
-const SHELL_WAYS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell', 'eval', 'exec', 'xargs', 'source', '.', 'env', 'unset', 'export', 'declare', 'typeset', 'command', 'builtin', 'nohup', 'time', 'sudo']);
-
-/** The task a word names, where it's the guide's own: the id, or $ACC_TASK as the skill writes it. */
-const namesTask = (word: string | undefined, task: string): boolean => !!word && [task, '$ACC_TASK', '${ACC_TASK}'].includes(/^\$/.test(word) ? word : word.toUpperCase());
+/** The git commands a deploy guide runs: each only reads. */
+export const DEPLOYER_GIT = ['log', 'show', 'diff', 'status', 'rev-parse', 'ls-files', 'blame', 'describe', 'shortlog'] as const;
+/** sf's commands a deploy guide doesn't run: its project's files and deploys are acc's, and its plugins, aliases and settings are the person's. */
+const SF_REFUSED = new Set(['project', 'deploy', 'plugins', 'alias', 'config', 'update', 'autocomplete']);
+/** The only variables a guide's command may name, as they stand: what its chat was opened with. */
+const GUIDE_VARS = ['${ACC_DEPLOY_TO}', '$ACC_DEPLOY_TO', '${ACC_TASK}', '$ACC_TASK'];
+/** A character a guide's command may hold outside quotes. */
+const PLAIN = /[A-Za-z0-9_\-.\/:=,@%+]/;
 
 /**
- * Why a deploy guide's command is refused, or null (T-154). It deploys only through acc deploy, for its own
- * ticket, with the person's yes from the chat: never by hand, never with a name it types itself. It changes
- * no branch, never touches acc's own state, where the person's yes is kept, nor runs acc's hooks, which keep
- * it, and never starts a shell or changes its environment, where this guard can't follow. The guide's
- * settings deny the same in Claude Code itself (DEPLOYER_DENIES), and ask the person before each command.
+ * A deploy guide's command line read strictly (T-154): its commands and their words, or why it can't be read.
+ * Only plain words, 'single quotes', and "double quotes" with no $, backtick or backslash; commands joined by
+ * && or ; and nothing else. GUIDE_VARS stand as they are. Anything a shell would expand, redirect, glob, pipe or
+ * run in the background is refused, rather than read past: an allowlist, as a guard that reads the shell can
+ * always be gone round (the review's finding).
+ */
+export function guideCommands(line: string): { commands: string[][] } | { why: string } {
+  const commands: string[][] = [];
+  let words: string[] = [];
+  let word: string | null = null;
+  const endWord = () => { if (word !== null) words.push(word); word = null; };
+  const endCommand = () => { endWord(); if (words.length) commands.push(words); words = []; };
+  for (let i = 0; i < line.length;) {
+    const v = GUIDE_VARS.find((x) => line.startsWith(x, i));
+    if (v) { word = (word ?? '') + v; i += v.length; continue; }
+    const c = line[i]!;
+    if (c === ' ' || c === '\t') { endWord(); i++; continue; }
+    if (c === ';') { endCommand(); i++; continue; }
+    if (c === '&' && line[i + 1] === '&') { endCommand(); i += 2; continue; }
+    if (c === "'") {
+      const close = line.indexOf("'", i + 1);
+      if (close < 0) return { why: 'a quote that doesn\'t close' };
+      word = (word ?? '') + line.slice(i + 1, close);
+      i = close + 1;
+      continue;
+    }
+    if (c === '"') {
+      let j = i + 1;
+      let text = '';
+      while (j < line.length && line[j] !== '"') {
+        const u = GUIDE_VARS.find((x) => line.startsWith(x, j));
+        if (u) { text += u; j += u.length; continue; }
+        if ('$`\\'.includes(line[j]!)) return { why: `${line[j]} inside double quotes` };
+        text += line[j];
+        j++;
+      }
+      if (j >= line.length) return { why: 'a quote that doesn\'t close' };
+      word = (word ?? '') + text;
+      i = j + 1;
+      continue;
+    }
+    if (!PLAIN.test(c)) return { why: c === '\n' ? 'more than one line' : `"${c}" outside quotes` };
+    word = (word ?? '') + c;
+    i++;
+  }
+  endCommand();
+  return { commands };
+}
+
+/** The task a word names, where it's the guide's own: the id, or $ACC_TASK as the skill writes it. */
+const namesTask = (word: string | undefined, task: string): boolean => !!word && (['$ACC_TASK', '${ACC_TASK}'].includes(word) || word.toUpperCase() === task);
+
+/**
+ * Why a deploy guide's command is refused, or null (T-154). An allowlist: each command is acc, sf or git, named
+ * as itself, in a line guideCommands reads. acc: show, list, deploy of its own ticket with no name typed, change
+ * list and change step of its own ticket, ticket, board, ste and doctor. sf: anything but a deploy, its project's
+ * files, plugins, aliases and settings, or a file written. git: what reads. Nothing touches acc's own state or
+ * hooks, where the person's yes is kept. The guide's settings deny the same in Claude Code itself
+ * (DEPLOYER_DENIES), and ask the person before each command.
  */
 export function guardDeployer(task: string, line: string): string | null {
-  if (/deploy-yes|user-prompt-submit|\.git[\\/]+acc\b/.test(line)) return 'acc\'s own state and hooks, the person\'s yes among them, are acc\'s: the deploy guide never reads, writes or runs them.';
-  if (/\bACC_(ROLE|TASK|DEPLOY_TO)\s*=/.test(line)) return 'The deploy guide runs as itself: it never sets ACC_ROLE, ACC_TASK or ACC_DEPLOY_TO.';
-  // Each command as written, before env, time or sudo are read past: the word that runs it.
-  for (const raw of [...rawCommandsOf(line), ...commandsOf(line)]) {
-    const first = raw.find((x) => !/^[A-Za-z_]\w*=/.test(x)) ?? '';
-    if (SHELL_WAYS.has(first) || /^[$`(]/.test(first)) return `The deploy guide runs each command as itself: ${first} would run another, or change its environment, past this guard. Run the command on its own.`;
-  }
-  for (const w of commandsOf(line)) {
-    const first = w[0] ?? '';
-    const hand = deploysByHand(w);
-    if (hand) return `The deploy guide never deploys by hand (${hand}): acc deploy --task ${task} does, with the person's yes from the chat.`;
-    if (first === 'git' && w.slice(1).some((x) => GIT_WRITES.has(x))) return `The deploy guide changes no branch: git ${w.slice(1).find((x) => GIT_WRITES.has(x))} is acc deploy's, or a person's. Tell the person what you need.`;
-    const at = w.findIndex(isAcc);
-    if (at < 0) continue;
-    if (at > 0) return `The deploy guide runs acc as the command itself, not through ${w.slice(0, at).join(' ')}.`;
-    const sub = w[1] ?? '';
+  const read = guideCommands(line);
+  if ('why' in read) return `The deploy guide runs plain commands only, each acc, sf or git, joined by && or ;. This line has ${read.why}. Run each command on its own, with nothing for the shell to expand.`;
+  for (const w of read.commands) {
+    if (w.some((x) => /deploy-yes|user-prompt-submit|\.git[\\/]+acc\b|ACC_ROLE/.test(x))) return 'acc\'s own state and hooks, the person\'s yes among them, are acc\'s: the deploy guide never reads, writes or runs them.';
+    const [first, sub = ''] = w;
+    if (first === 'sf' || first === 'sfdx') {
+      const hand = deploysByHand(w);
+      if (hand) return `The deploy guide never deploys by hand (${hand}): acc deploy --task ${task} does, with the person's yes from the chat.`;
+      if (first === 'sfdx' || SF_REFUSED.has(sub.split(':')[0]!)) return `The deploy guide doesn't run ${first} ${sub}: deploys and the project's files are acc deploy's, and sf's plugins, aliases and settings are the person's.`;
+      if (w.some((x) => /^--output-(dir|file)\b/.test(x))) return 'The deploy guide writes no file: run it without --output-dir or --output-file, and read what it prints.';
+      continue;
+    }
+    if (first === 'git') {
+      if (!(DEPLOYER_GIT as readonly string[]).includes(sub)) return `The deploy guide's git only reads: ${DEPLOYER_GIT.map((g) => `git ${g}`).join(', ')}.`;
+      if (w.some((x) => /^--(output|ext-diff|textconv|exec)\b/.test(x))) return 'The deploy guide\'s git only reads, and writes no file.';
+      continue;
+    }
+    if (first !== 'acc') return `The deploy guide runs acc, sf and git only, each named as itself: ${first} isn't one. Tell the person what you need.`;
     if (!(DEPLOYER_ACC as readonly string[]).includes(sub)) return `The deploy guide runs ${DEPLOYER_ACC.map((c) => `acc ${c}`).join(', ')}. acc ${sub} is a person's: tell them what you need.`;
     if (sub === 'change' && !['list', 'step'].includes(w[2] ?? '')) return 'The deploy guide lists a ticket\'s changes outside git and marks their steps: acc change list, or acc change step. It records none.';
     if (sub === 'change' && w[2] === 'step' && !namesTask(w[3], task)) return `The deploy guide marks ${task}'s steps alone.`;

@@ -6,7 +6,7 @@ import { dirname } from 'node:path';
 import { test } from 'node:test';
 import { ASK_AGAIN, DEPLOY_TO_VAR, DEPLOYER, DEPLOYER_DENIES, deployerSettings, deployerTask, deployGuidePrompt, keepTypedYes, takeTypedYes, typedYesPath, YES_MAX, YES_TTL_MS } from '../src/deploy-guide.ts';
 import { run } from '../src/exec.ts';
-import { DEPLOYER_ACC, guardBash, guardDeployer, preToolUseHook, userPromptSubmitHook } from '../src/hooks.ts';
+import { DEPLOYER_ACC, DEPLOYER_GIT, guardBash, guardDeployer, guideCommands, preToolUseHook, userPromptSubmitHook } from '../src/hooks.ts';
 import { HAND_DEPLOY_DENIES } from '../src/deploy-commands.ts';
 import { repoPaths } from '../src/paths.ts';
 import { makeRepo, tempDir } from './support.ts';
@@ -91,16 +91,26 @@ test('the guide deploys only its own ticket through acc deploy, and never types 
   assert.match(guardDeployer('ACME-1', 'acc deploy production --task ACME-1 --yes 0AfX --confirm-production Production')!, /never types the org's name/);
   assert.match(guardDeployer('ACME-1', 'acc deploy --task ACME-1 --confirm-production=Production')!, /never types the org's name/);
   assert.match(guardDeployer('ACME-1', 'sf project deploy start -x manifest/package.xml -o Prod')!, /never deploys by hand/);
-  assert.match(guardDeployer('ACME-1', 'git push origin production')!, /changes no branch: git push/);
+  assert.match(guardDeployer('ACME-1', 'git push origin production')!, /git only reads/);
   assert.match(guardDeployer('ACME-1', 'acc set ACME-1 done')!, /acc set is a person's/);
+  assert.match(guardDeployer('ACME-1', 'cat README.md')!, /cat isn't one/);
   assert.match(guardDeployer('ACME-1', 'cat .git/acc/deploy-yes/ACME-1.json')!, /never reads, writes or runs them/);
-  assert.match(guardDeployer('ACME-1', 'echo \'{"typed":"Production"}\' > "$(git rev-parse --git-common-dir)/acc/deploy-yes/x"')!, /never reads, writes or runs them/);
-  assert.match(guardDeployer('ACME-1', 'ACC_ROLE=human acc deploy --task ACME-1 --yes 0AfX')!, /never sets ACC_ROLE/);
+  assert.match(guardDeployer('ACME-1', 'git show HEAD:.git/acc/deploy-yes/ACME-1.json')!, /never reads, writes or runs them/);
+  assert.match(guardDeployer('ACME-1', 'echo \'{"typed":"Production"}\' > "$(git rev-parse --git-common-dir)/acc/deploy-yes/x"')!, /plain commands only/);
+  assert.match(guardDeployer('ACME-1', 'ACC_ROLE=human acc deploy --task ACME-1 --yes 0AfX')!, /never reads, writes or runs them/);
+  assert.match(guardDeployer('ACME-1', 'sf project retrieve start -m ApexClass:X')!, /doesn't run sf project/);
+  assert.match(guardDeployer('ACME-1', 'sf data export tree -q "SELECT Id FROM Account" --output-dir out')!, /writes no file/);
+  assert.match(guardDeployer('ACME-1', 'sf plugins install evil')!, /doesn't run sf plugins/);
+  assert.equal(guardDeployer('ACME-1', 'sf data query -q "SELECT Id FROM Case WHERE Status != \'Closed\'" -o Prod --json'), null, 'edge case: a quote inside a quote, and !=');
+  assert.deepEqual(guideCommands('acc show ACME-1 && git log -1; sf org display -o "Acme Prod"'), { commands: [['acc', 'show', 'ACME-1'], ['git', 'log', '-1'], ['sf', 'org', 'display', '-o', 'Acme Prod']] });
   assert.deepEqual([...DEPLOYER_ACC].sort(), ['board', 'change', 'deploy', 'doctor', 'list', 'show', 'ste', 'ticket']);
+  for (const g of DEPLOYER_GIT) assert.equal(guardDeployer('ACME-1', `git ${g}`), null, `git ${g} reads`);
+  assert.ok(!(DEPLOYER_GIT as readonly string[]).some((g) => ['push', 'commit', 'merge', 'checkout', 'reset'].includes(g)));
 });
 
 test('the guide can\'t drop its role, type the name, plant a yes or hide a command in another (the review\'s ways round)', () => {
   const refused = [
+    // The first review's.
     'unset ACC_ROLE; acc deploy production --task ACME-1 --yes 0AfX --confirm-name=Production',
     'env -u ACC_ROLE acc deploy production --task ACME-1 --yes 0AfX --confirm-production Production',
     'env -u ACC_ROLE sf project deploy start -o Prod',
@@ -117,6 +127,29 @@ test('the guide can\'t drop its role, type the name, plant a yes or hide a comma
     'nice -n 5 sh -c true',
     'acc change record ACME-1 --object Account --match Name=x --why y',
     'acc change step ACME-2 c1 --env production --done',
+    // The second review's: a shell by its path or after a wrapper, acc by its script, the role dropped without ACC_ROLE=, a flag built.
+    "/bin/sh -c 'unset ACC_ROLE; acc deploy production --task ACME-1 --yes 0AfX --confirm-production Production'",
+    'printf \'{"prompt":"Production"}\' | /bin/sh -c \'acc hook user-prompt-sub""mit\'',
+    "timeout 60 bash -c 'acc deploy production --task ACME-1 --yes 0AfX'",
+    'caffeinate -i acc deploy production --task ACME-1 --yes 0AfX',
+    '/usr/bin/env -i node /opt/acc/acc.mjs deploy production --task ACME-1 --yes 0AfX --confirm-production Production',
+    'printf -v ACC_ROLE human; F=--confirm-production; acc deploy production --task ACME-1 --yes 0AfX $F Production',
+    'read ACC_ROLE <<< human',
+    'for ACC_ROLE in human; do :; done',
+    'acc deploy production --task ACME-1 --yes 0AfX --confirm-{production,production} Production',
+    'acc deploy uat --task ACME-1 --yes 0AfX > /dev/null &',
+    "printf '{}' > .git/a''cc/deploy-y''es/ACME-1.json",
+    "node -e 'require(\"fs\")'",
+    "python3 -c 'print(1)'",
+    "git -c alias.x='!sh' x",
+    'find . -exec sh {} ;',
+    "awk 'BEGIN{system(\"id\")}'",
+    'acc deploy production --task ACME-1 --yes 0AfX\nacc deploy uat --task ACME-1',
+    'acc show ACME-1 | tee out',
+    'acc show `id`',
+    'acc show "$(id)"',
+    'acc show ACME-1 || true',
+    './dist/acc show ACME-1',
   ];
   for (const line of refused) assert.ok(guardDeployer('ACME-1', line), `refused: ${line}`);
   assert.equal(guardDeployer('ACME-1', 'acc deploy production --task=ACME-1 --yes 0AfX'), null, '--task= names it too');
@@ -154,7 +187,7 @@ test('in a deploy guide\'s session, an edit is refused and a command is guarded;
   const ctx = { cwd: '/x', env: { ACC_ROLE: DEPLOYER, ACC_TASK: 'ACME-1' }, run, now: at(T0) };
   const reason = (r: Record<string, unknown> | null) => String((r as { hookSpecificOutput?: { permissionDecisionReason?: string } } | null)?.hookSpecificOutput?.permissionDecisionReason);
   assert.match(reason(preToolUseHook({ tool_name: 'Edit', tool_input: { file_path: '/x/force-app/a.cls' } }, ctx)), /changes no file/);
-  assert.match(reason(preToolUseHook({ tool_name: 'Bash', tool_input: { command: 'git commit -am x' } }, ctx)), /changes no branch/);
+  assert.match(reason(preToolUseHook({ tool_name: 'Bash', tool_input: { command: 'git commit -am x' } }, ctx)), /git only reads/);
   assert.equal(preToolUseHook({ tool_name: 'Bash', tool_input: { command: 'acc deploy --task ACME-1 --plan' } }, ctx), null);
   assert.equal(preToolUseHook({ tool_name: 'Read', tool_input: { file_path: '/x/a' } }, ctx), null, 'it reads freely');
 });
