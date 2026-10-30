@@ -121,6 +121,8 @@ export * from './trusted-settings.ts';
 export * from './unseen.ts';
 export * from './updates.ts';
 export * from './verify.ts';
+export * from './where-kept.ts';
+export * from './where.ts';
 export * from './onboarding/types.ts';
 // The setup steps' helpers that the CLI and the extension use too.
 export { makeContext, parseOrgUrl, SECRET_PATTERN, versionAtLeast } from './onboarding/helpers.ts';
