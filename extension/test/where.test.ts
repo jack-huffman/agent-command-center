@@ -1,12 +1,10 @@
 // Where a ticket's work is, on its page (T-155): the path line takes in what the orgs were found to hold, each
 // stop carries its reading and when it was read, and the readings are read behind the page, never waited on.
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Config, Environment } from '../../packages/core/src/config.ts';
 import type { Task } from '../../packages/core/src/ledger.ts';
+import { tempDir } from '../../packages/core/test/support.ts';
 import { type EnvWhere, keepWhere, type TicketWhere, WHERE_MAX_AGE_MS } from '../../packages/core/src/where-kept.ts';
 import { WhereReads } from '../src/logic/where.ts';
 import { deployOff, foundAt, ticketDeploy, ticketPath, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
@@ -69,7 +67,7 @@ function host(start = new Date(AT)) {
 }
 
 test('a page draw reads the kept readings and never waits: a due one is read behind it, once at a time', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'acc-where-x-'));
+  const stateDir = tempDir('acc-where-x-');
   const x = host();
   const r = new WhereReads(x.h);
   assert.equal(r.kept('/p', stateDir, config, task()), null, 'none yet: the draw goes on with nothing');
@@ -85,7 +83,7 @@ test('a page draw reads the kept readings and never waits: a due one is read beh
 });
 
 test('a fresh reading isn\'t read again, a draw doesn\'t retry a read within the hour, and a deploy since reads it again', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'acc-where-y-'));
+  const stateDir = tempDir('acc-where-y-');
   keepWhere({ stateDir }, 'ACME-7', ['dev', 'qa', 'uat', 'production'].map((e) => read(e, 'deployed')));
   const x = host();
   const r = new WhereReads(x.h);
@@ -103,7 +101,7 @@ test('a fresh reading isn\'t read again, a draw doesn\'t retry a read within the
 });
 
 test('a ticket that can\'t be read starts no read, and a read that fails still draws the page again', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'acc-where-z-'));
+  const stateDir = tempDir('acc-where-z-');
   const x = host();
   const r = new WhereReads(x.h);
   assert.equal(r.kept('/p', stateDir, config, task({ pr: null, run: null })), null);
