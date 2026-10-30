@@ -3,16 +3,10 @@
     "floor": 3243
   },
   "screenshots.clipped": {
-    "floor": 172887,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "T-153 makes Setup one step on each screen, so the run draws less text and fewer button rows than the old wall of step cards. 1% below the clean run's count (no findings, 178 of 178 mutants caught). Approved by the person, 2026-10-30.",
-      "at": "2026-10-30T17:53:28.679Z",
-      "was": 176625
-    }
+    "floor": 172941
   },
   "screenshots.sideways": {
-    "floor": 8579
+    "floor": 8648
   },
   "screenshots.overview": {
     "floor": 1199
@@ -24,25 +18,19 @@
     "floor": 1736
   },
   "screenshots.raw": {
-    "floor": 807
+    "floor": 837
   },
   "screenshots.a11y": {
-    "floor": 652057
+    "floor": 660898
   },
   "screenshots.actions": {
     "floor": 1906
   },
   "screenshots.disabled": {
-    "floor": 1550
+    "floor": 1568
   },
   "screenshots.sizes": {
-    "floor": 6044,
-    "relaxed": {
-      "by": "human:jackhuffman",
-      "reason": "T-153 makes Setup one step on each screen, so the run draws less text and fewer button rows than the old wall of step cards. 1% below the clean run's count (no findings, 178 of 178 mutants caught). Approved by the person, 2026-10-30.",
-      "at": "2026-10-30T17:53:28.836Z",
-      "was": 7048
-    }
+    "floor": 6098
   },
   "screenshots.ci.a11y": {
     "floor": 622973
