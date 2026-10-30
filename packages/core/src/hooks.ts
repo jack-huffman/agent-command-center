@@ -9,6 +9,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { commandsOf, expands, rawCommandsOf, stripLeading } from './command-words.ts';
 import { builderGatesFor, fullGates, loadConfig, requiredGates } from './config.ts';
 import { deploysByHand, isSalesforceCli } from './deploy-commands.ts';
+import { deployerTask, keepTypedYes } from './deploy-guide.ts';
 import type { Runner } from './exec.ts';
 import { readList } from './gates.ts';
 import { NOTE_RULE } from './agent-notes.ts';
@@ -212,6 +213,37 @@ export function guardAnalyst(line: string): string | null {
   return null;
 }
 
+// ---------------------------------------------------------------- PreToolUse: a deploy guide
+
+/** The git commands that change the checkout or the remote: a deploy guide changes neither, acc deploy does (T-154). */
+const GIT_WRITES = new Set(['commit', 'push', 'merge', 'rebase', 'reset', 'checkout', 'switch', 'cherry-pick', 'tag', 'am', 'revert', 'stash', 'clean', 'restore', 'rm', 'mv', 'worktree', 'pull', 'branch']);
+/** The acc commands a deploy guide runs: it reads, deploys its own ticket and marks the steps it walks through. */
+export const DEPLOYER_ACC = ['show', 'list', 'deploy', 'change', 'ticket', 'board', 'ste', 'doctor'] as const;
+
+/**
+ * Why a deploy guide's command is refused, or null (T-154). It deploys only through acc deploy, for its own
+ * ticket, with the person's yes from the chat: never by hand, never with a name it types itself. It changes
+ * no branch, and never touches acc's own state, where the person's yes is kept.
+ */
+export function guardDeployer(task: string, line: string): string | null {
+  if (/deploy-yes|\.git[\\/]+acc\b/.test(line)) return 'acc\'s own state, the person\'s yes among it, is acc\'s: the deploy guide never reads or writes it.';
+  if (/\bACC_(ROLE|TASK|DEPLOY_TO)\s*=/.test(line)) return 'The deploy guide runs as itself: it never sets ACC_ROLE, ACC_TASK or ACC_DEPLOY_TO.';
+  for (const w of commandsOf(line)) {
+    const hand = deploysByHand(w);
+    if (hand) return `The deploy guide never deploys by hand (${hand}): acc deploy --task ${task} does, with the person's yes from the chat.`;
+    if (w[0] === 'git' && w.slice(1).some((x) => GIT_WRITES.has(x))) return `The deploy guide changes no branch: git ${w.slice(1).find((x) => GIT_WRITES.has(x))} is acc deploy's, or a person's. Tell the person what you need.`;
+    if (!isAcc(w[0])) continue;
+    const sub = w[1] ?? '';
+    if (!(DEPLOYER_ACC as readonly string[]).includes(sub)) return `The deploy guide runs ${DEPLOYER_ACC.map((c) => `acc ${c}`).join(', ')}. acc ${sub} is a person's: tell them what you need.`;
+    if (sub === 'deploy') {
+      const at = w.indexOf('--task');
+      if (at < 0 || w[at + 1]?.toUpperCase() !== task) return `The deploy guide deploys ${task} alone: acc deploy --task ${task}.`;
+      if (w.some((x) => x === '--confirm-production' || x.startsWith('--confirm-production='))) return 'The deploy guide never types the org\'s name: the person types it in the chat, and acc deploy reads it from there.';
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------- the events
 
 export interface EventInput {
@@ -222,12 +254,24 @@ export interface EventInput {
   tool_name?: string;
   tool_input?: Record<string, unknown>;
   stop_hook_active?: boolean;
+  /** UserPromptSubmit: what the person typed. */
+  prompt?: string;
 }
 
 const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } });
 
 /** PreToolUse: a builder's edit or command that breaks a rule is refused, with what to do instead. */
 export function preToolUseHook(input: EventInput, ctx: HookContext): Record<string, unknown> | null {
+  const guide = deployerTask(ctx.env);
+  if (guide) {
+    const tool = input.tool_name ?? '';
+    if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return deny('The deploy guide changes no file: a change to the code is a task of its own. Tell the person what you found.');
+    if (tool === 'Bash') {
+      const reason = guardDeployer(guide.toUpperCase(), String(input.tool_input?.command ?? ''));
+      return reason ? deny(reason) : null;
+    }
+    return null;
+  }
   if (ctx.env.ACC_ROLE === 'analyst') {
     const tool = input.tool_name ?? '';
     if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(tool)) return deny('The analyst changes nothing. Put what you would change in the approach.');
@@ -357,6 +401,18 @@ export function stopHook(input: EventInput, ctx: HookContext): Record<string, un
     decision: 'block',
     reason: `${b.task.id} is still running. If the work is done: commit everything, run exactly \`acc gate run\`, then finish with your note, all on one line: \`${DONE_COMMAND}\`. If you can't finish it, run \`acc block "<what you need>"\` and stop. If you are still working, carry on.`,
   };
+}
+
+/**
+ * UserPromptSubmit: in a deploy guide's chat, each message the person sends is kept as their latest, for acc
+ * deploy to read as their yes (T-154). It fires only on what the person types, never on the agent's words.
+ */
+export function userPromptSubmitHook(input: EventInput, ctx: HookContext): Record<string, unknown> | null {
+  const task = deployerTask(ctx.env);
+  const root = task ? findAccRoot(ctx.cwd) : null;
+  if (!task || !root) return null;
+  keepTypedYes(repoPaths(root, ctx.run), task.toUpperCase(), input.prompt ?? '', input.session_id ?? null, ctx.now);
+  return null;
 }
 
 /** Reads the hook's input, for tests and the CLI alike. */

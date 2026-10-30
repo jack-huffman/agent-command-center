@@ -16,6 +16,7 @@ import type { RecordChange } from '../src/records.ts';
 import { sfComponent } from '../src/sf-metadata.ts';
 import * as real from '../src/task-deploy.ts';
 import { confirmsOrg, deployTask, keptCheckPath, NOTHING_TO_CHECK, planTaskDeploy, readKeptCheck, TASK_DEPLOY_COMMAND, taskCheckArgs, taskDeployArgs, taskDeployBody, taskDeployEnabled, taskDeployRoute, ticketCommits, ticketPlace, yesProblem } from '../src/task-deploy.ts';
+import { deployGuideLaunch, deployGuidePrompt } from '../src/deploy-guide.ts';
 import { listUpdates } from '../src/updates.ts';
 import { gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
@@ -483,4 +484,37 @@ test('a mutant that deploys without the person\'s yes is caught', async () => {
 test('a mutant that deploys another ticket\'s component is caught', async () => {
   const m = await mutant('\'-z\', base, \'HEAD\')', '\'-z\', base, `origin/${task.environment}`)');
   assert.notDeepEqual(onlyItsComponents(m), [], 'the mutant sent ACME-2\'s Other.cls, and the check saw it');
+});
+
+test('a deploy guide\'s yes for an org that isn\'t protected is the word yes, as the person typed it in the chat (T-154)', () => {
+  const { origin, paths, c } = repo();
+  const calls: string[] = [];
+  const d = deps(origin, calls);
+  planTaskDeploy(paths, c, 'ACME-1', 'uat', d, { by });
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', confirm: 'sure', guided: true }), /The person typed "sure", not yes\. Ask them to type yes in the chat/);
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', guided: true }), /typed "", not yes/, 'edge case: nothing typed');
+  assert.deepEqual(realDeploys(calls), []);
+  assert.equal(deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', confirm: ' Yes ', guided: true }).deployed, true, 'its case and spaces don\'t matter');
+});
+
+test('a deploy guide\'s yes for production is its name, as at the terminal', () => {
+  const { origin, paths, c } = repo();
+  const calls: string[] = [];
+  const d = deps(origin, calls, { prodUrl: true });
+  planTaskDeploy(paths, c, 'ACME-1', 'production', d, { by });
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', confirm: 'yes', guided: true }), /Type its name, Production/, 'yes is not the name');
+  assert.deepEqual(realDeploys(calls), []);
+  assert.equal(deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', confirm: 'Production', guided: true }).deployed, true);
+});
+
+test('Deploy with an agent opens the guide\'s chat in the main checkout, as the deployer of its ticket, for where it goes next (T-154)', () => {
+  const { paths, c } = repo();
+  const l = deployGuideLaunch(paths, c, 'ACME-1', undefined, () => 'sess-1');
+  assert.equal(l.cwd, paths.root);
+  assert.deepEqual(l.env, { ACC_ROLE: 'deployer', ACC_TASK: 'ACME-1', ACC_DEPLOY_TO: 'uat' });
+  assert.deepEqual(l.args, [deployGuidePrompt('ACME-1', 'Dev', 'UAT'), '--session-id', 'sess-1', '--name', l.name], 'its first message first, and no tool allowed ahead: Claude Code asks the person for each command');
+  assert.match(l.name, /ACME-1 Task 1 · deploy$/);
+  assert.equal(deployGuideLaunch(paths, c, 'ACME-1', 'production').env.ACC_DEPLOY_TO, 'production', 'another next step, named');
+  assert.throws(() => deployGuideLaunch(paths, c, 'ACME-1', 'dev'), /ACME-1 is in Dev already/, 'only a next step on its path');
+  assert.throws(() => deployGuideLaunch(paths, c, 'ACME-9', undefined), /No task ACME-9/);
 });

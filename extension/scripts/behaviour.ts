@@ -2533,6 +2533,19 @@ export const CASES: Case[] = [
     },
   },
   {
+    name: 'changes tab: Deploy with an agent sits beside Deploy, asks for the guide\'s chat for the same step, and deploys nothing itself (T-154)',
+    page: 'ticket-deploy-deployed',
+    async run(t) {
+      const guide = t.find<HTMLButtonElement>('.dp-guide');
+      t.check('it is beside Deploy, on, and not a second primary button', guide.parentElement === t.find('.dp-go').parentElement && !guide.disabled && !guide.classList.contains('primary') && guide.textContent === 'Deploy with an agent', guide.className);
+      t.check('its tooltip says the person types the yes', /deploys on the yes you type/.test(guide.title), guide.title);
+      await t.click(guide);
+      const sent = t.sent('deploy-guide');
+      t.check('it asks for the guide\'s chat once, for the same step as Deploy', sent.length === 1 && sent[0]?.to === 'uat' && sent[0]?.task === (t.model as unknown as { deploy: { task: string } }).deploy.task, sent);
+      t.check('nothing is checked or deployed from here', t.sent('deploy-check').length === 0 && t.sent('deploy-go').length === 0);
+    },
+  },
+  {
     name: 'changes tab: Deploy sits above the list, and is off with why while its checks fail or it conflicts with dev; off, it sends nothing (T-138)',
     page: 'ticket-deploy-work',
     async run(t) {
@@ -2548,6 +2561,10 @@ export const CASES: Case[] = [
       const m = t.model as unknown as { deploy: { deploy: { disabled: string | null } } };
       await t.post({ type: 'state', model: { ...m, deploy: { ...m.deploy, deploy: { ...m.deploy.deploy, disabled: t.data.deployConflict } } } });
       t.check('a conflict says to take in dev first, in the model\'s own words', /^It conflicts with dev: take in dev first\.$/.test(t.data.deployConflict) && t.find('.dp-why').textContent === t.data.deployConflict && t.find<HTMLButtonElement>('.dp-go').disabled, t.data.deployConflict);
+      const guide = t.find<HTMLButtonElement>('.dp-guide');
+      t.check('Deploy with an agent is off for the same reason', guide.disabled && guide.title.endsWith(t.data.deployConflict), guide.title);
+      await t.click(guide);
+      t.check('off, the guide is not asked for', t.sent('deploy-guide').length === 0);
     },
   },
   {
@@ -2877,6 +2894,8 @@ export const MUTANTS: Mutant[] = [
   { name: 'a failed check shows its Deploy', file: 'deploy-sheet.ts', find: "parts.go.hidden = s.phase !== 'passed';", replace: "parts.go.hidden = s.phase !== 'passed' && s.phase !== 'failed';", kills: [caseNamed('deploy sheet: a failed check')] },
   { name: 'Production deploys without its name typed', file: 'deploy-sheet.ts', find: '  if (s.confirm && name.trim() !== s.confirm && name.trim() !== s.org) return `Type ${s.confirm} to deploy to it`;\n', replace: '', kills: [caseNamed('deploy sheet: Production asks')] },
   { name: 'Deploy off doesn\'t say why beside it', file: 'changes.ts', find: "    if (d.deploy.disabled) sec.append(el('p', 'muted small dp-why', icon('info'), el('span', '', d.deploy.disabled)));\n", replace: '', kills: [caseNamed('changes tab: Deploy sits above the list')] },
+  { name: 'Deploy with an agent asks for nothing', file: 'changes.ts', find: "if (!x.disabled) api.postMessage({ type: 'deploy-guide', project: m.project, task: d.task, to: b.to });", replace: 'void b;', kills: [caseNamed('changes tab: Deploy with an agent')] },
+  { name: 'Deploy with an agent stays on when Deploy is off', file: 'changes.ts', find: "    x.title = `Deploy with an agent: ${b.disabled}`;", replace: "    x.title = `Deploy with an agent: ${b.disabled}`;\n    x.disabled = false;", kills: [caseNamed('changes tab: Deploy sits above the list')] },
   { name: 'Deploy on the tab deploys at once', file: 'changes.ts', find: "api.postMessage({ type: 'deploy-check', project: m.project, task: d.task, to: b.to });", replace: "api.postMessage({ type: 'deploy-go', project: m.project, task: d.task, to: b.to, checkId: 'none' });", kills: [caseNamed('changes tab: Deploy to UAT')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];

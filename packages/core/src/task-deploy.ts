@@ -464,7 +464,8 @@ export function yesProblem(kept: KeptCheck | null, plan: Pick<TaskDeployPlan, 't
 export const confirmsOrg = (plan: Pick<TaskDeployPlan, 'confirm' | 'to'>, typed: string | undefined): boolean =>
   !plan.confirm || (!!typed && [plan.to.name, plan.to.org].includes(typed.trim()));
 
-type DeployTaskOpts = TaskDeployOpts & { checkId?: string; confirm?: string };
+/** A deploy's yes: the check it's for, and what the person typed. `guided`: a deploy guide runs it, with what the person typed in its chat (T-154). */
+type DeployTaskOpts = TaskDeployOpts & { checkId?: string; confirm?: string; guided?: boolean };
 
 /** A ticket's deploy, with a marker saying it's under way while it runs, so every window shows it (D-092). */
 export function deployTask(paths: RepoPaths, config: Config, id: string, to: string | undefined, deps: TaskDeployDeps, opts: DeployTaskOpts): TaskDeployResult {
@@ -488,6 +489,8 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
       const why = yesProblem(kept, plan, b.blobs, opts.checkId);
       if (why) throw new AccError('refused', why);
       if (!confirmsOrg(plan, opts.confirm)) throw new AccError('refused', `${plan.to.name} is ${plan.to.type === 'production' ? 'production' : 'protected'}. Type its name, ${plan.confirmName}, to deploy to it.`);
+      // In a deploy guide's chat, a yes for an org that isn't protected is the word itself (T-154).
+      if (opts.guided && !plan.confirm && opts.confirm?.trim().toLowerCase() !== 'yes') throw new AccError('refused', `The person typed "${opts.confirm ?? ''}", not yes. Ask them to type yes in the chat to deploy ${id} to ${plan.to.name}.`);
     });
     // A ticket with nothing for the org still moves on: its pull request merges, and nothing is sent to the org.
     const nothing = !plan.files.length;

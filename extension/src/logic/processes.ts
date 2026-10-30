@@ -134,6 +134,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['promote'], name: 'Promote', named: 'Promote {arg}', command: 'acc.env.promote' },
   { acc: ['deploy'], name: 'Deploy', named: 'Deploy to {arg}', command: 'acc.env.deploy' },
   { acc: ['hook', 'hook session-start', 'hook pre-tool-use', 'hook post-tool-use', 'hook stop'], name: 'Keep builders on their task' },
+  { acc: ['hook user-prompt-submit'], name: 'Keep what you type to a deploy guide' },
   { acc: ['hook permission'], name: 'Ask you before an agent runs a command' },
   // GitHub
   { acc: ['github', 'github status'], name: 'Check the GitHub account' },
