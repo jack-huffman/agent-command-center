@@ -52,6 +52,6 @@ requirements and `noteWording` (D-230) for a line a person reads. It adds no thi
   checked), `packages/cli/test/plan-draft-wording.test.ts` (2: `acc plan approve` refused, then approved once
   clean; `acc update ask` refused with nothing drafted, and a person's edit posted), and
   `extension/test/plan-tab.test.ts` (1: each fix beside its own line, its section open, and a finding on the
-  goal). The behaviour case on ACME-21's page reads each fix under its own line, drawn on screen, with three
+  goal). The behaviour case on ACME-21's page reads each fix under its own line, in an open section, with three
   mutants of its own (no findings drawn, a finding under every line of its part, a section with a finding
   left closed).

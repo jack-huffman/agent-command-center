@@ -861,7 +861,7 @@ export const CASES: Case[] = [
         const line = fixes[i]?.closest('li');
         const text = fixes[i]?.textContent ?? '';
         t.check(`finding ${i + 1} shows its fix under its own line`, text.startsWith(f.message) && !!line && line.textContent!.startsWith(f.text), { fix: text, line: line?.textContent });
-        t.check(`finding ${i + 1} is drawn on screen`, !!fixes[i] && fixes[i]!.getBoundingClientRect().height > 0);
+        t.check(`finding ${i + 1} is in an open section`, fixes[i]?.closest('details')?.open === true);
       }
     },
   },
@@ -1027,7 +1027,9 @@ export const CASES: Case[] = [
       const chosen = (id: string): number => (group(id).textContent?.match(/Chosen/g) ?? []).length;
       t.check('Choices opens by itself, as a choice in it waits on the person', part('choices').open);
       t.check('so do Questions', part('questions').open);
-      t.check('the other sections start closed', ['approach', 'criteria', 'risks', 'more'].every((id) => !part(id).open), ['approach', 'criteria', 'risks', 'more'].map((id) => [id, part(id).open]));
+      t.check('the other sections start closed', ['approach', 'risks'].every((id) => !part(id).open), ['approach', 'risks'].map((id) => [id, part(id).open]));
+      // Acceptance criteria and More hold a wording finding in this plan, so they open as well (T-151).
+      t.check('a section with a wording finding opens', ['criteria', 'more'].every((id) => part(id).open), ['criteria', 'more'].map((id) => [id, part(id).open]));
       t.check('the choice still to make shows its cards side by side', cards(d.open) === d.openOptions, cards(d.open));
       t.check('the made choice is one line, with no cards', cards(d.made) === 0 && !!group(d.made).querySelector('.pd-line'), cards(d.made));
       t.check('its line names the option chosen, and says Chosen once', group(d.made).textContent?.includes(d.chosen) === true && chosen(d.made) === 1, group(d.made).textContent);
