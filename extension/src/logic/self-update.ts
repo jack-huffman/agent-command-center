@@ -6,6 +6,7 @@
 
 import { vsixName } from '../../../packages/core/src/onboarding/steps.ts';
 import { RELEASE_EVERY_MS, RELEASES_REPO, releaseNewer } from '../model/about.ts';
+import { type PluginOutcome, pluginWords, savedPlugin } from './plugin-update.ts';
 
 /** How long after activation the first look waits, so a window's start isn't slowed by it. */
 export const FIRST_LOOK_MS = 60_000;
@@ -65,18 +66,25 @@ export function checksumCheck(actual: string, asset: string | null, file: string
 }
 
 /** What an install saves before it reloads the window. */
-export interface AfterUpdate { version: string; at: number }
+export interface AfterUpdate { version: string; at: number; plugin?: PluginOutcome }
+
+/** The first activation after an install, as afterUpdate reads it. */
+export interface After { kind: 'opened' | 'missed'; version: string; plugin?: PluginOutcome }
 
 /**
  * The first activation after an install: the saved version is running, so the Command Center opens on it,
- * or another version is, so the install didn't take. Nothing saved, or something that isn't a save, is null.
+ * or another version is, so the install didn't take. With what the plugin step did, when it did anything
+ * (T-152). Nothing saved, or something that isn't a save, is null.
  */
-export function afterUpdate(saved: unknown, running: string): { kind: 'opened' | 'missed'; version: string } | null {
+export function afterUpdate(saved: unknown, running: string): After | null {
   const s = saved as Partial<AfterUpdate> | null | undefined;
   if (!s || typeof s !== 'object' || typeof s.version !== 'string' || !s.version) return null;
-  return { kind: s.version === running ? 'opened' : 'missed', version: s.version };
+  const plugin = savedPlugin(s.plugin);
+  return { kind: s.version === running ? 'opened' : 'missed', version: s.version, ...(plugin ? { plugin } : {}) };
 }
 
-/** What the person is told after the reload. */
-export const afterText = (r: { kind: 'opened' | 'missed'; version: string }, running: string): string =>
-  r.kind === 'opened' ? `Updated to ${r.version}` : `The update to ${r.version} didn't take: this is still ${running}. Install it again from Settings' About.`;
+/** What the person is told after the reload, with what the plugin step did. */
+export function afterText(r: After, running: string): string {
+  const plugin = r.plugin ? ` ${pluginWords(r.plugin)}` : '';
+  return r.kind === 'opened' ? `Updated to ${r.version}${plugin && `.${plugin}`}` : `The update to ${r.version} didn't take: this is still ${running}. Install it again from Settings' About.${plugin}`;
+}

@@ -2,7 +2,7 @@
 // time Settings is arrived at, and the latest GitHub Release, looked for when Settings shows or by itself
 // (T-62), at most every six hours, or at Check now. One look serves both: what the look by itself finds,
 // About shows, and the update's offer hears of each look About makes. Everything here reads: the page
-// writes nothing (D-064), the plugin's update is Setup's own A4 fix, and the extension's is self-update.ts's. VS Code's API comes from the parts activate()
+// writes nothing (D-064), the plugin's update is Setup's own A4 fix, and the extension's is self-update.ts's, which runs the same fix for an older plugin (T-152). VS Code's API comes from the parts activate()
 // hands every area, so a test can drive it with stand-ins (D-099).
 
 import { parsePluginList, PLUGIN_LIST_ARGS, userPlugin } from '../../packages/core/src/onboarding/steps.ts';
