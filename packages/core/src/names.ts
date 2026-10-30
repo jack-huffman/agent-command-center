@@ -6,7 +6,7 @@
  */
 
 /** What the agent is: a task's builder, its reviewer, its analyst, its criteria's drafter, or the verifier of a developer's pull request (T-84). */
-export type NameRole = 'builder' | 'review' | 'analysis' | 'criteria' | 'verify' | 'plan';
+export type NameRole = 'builder' | 'review' | 'analysis' | 'criteria' | 'verify' | 'plan' | 'deploy';
 
 /** The longest a title or a project's name gets in an agent's name, its `…` included. */
 export const NAME_PART_MAX = 40;

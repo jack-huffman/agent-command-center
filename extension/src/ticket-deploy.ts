@@ -1,10 +1,14 @@
 // A ticket's deploy from its Changes tab (T-138): Deploy to <environment> opens the sheet and asks acc for the
 // plan, whose check changes nothing; only the sheet's own Deploy, after a check that passed, deploys. The
-// command acc.task.deploy (D-219's spec) opens the ticket's Changes tab and starts that check.
+// command acc.task.deploy (D-219's spec) opens the ticket's Changes tab and starts that check. Deploy with an
+// agent (T-154) opens a Claude Code chat as the deploy guide instead, where the person types the yes.
 import * as vscode from 'vscode';
+import { TASK_DEPLOY_GUIDE_COMMAND } from '../../packages/core/src/deploy-guide.ts';
 import { jobsUnderWay } from '../../packages/core/src/jobs.ts';
+import { terminalShell } from '../../packages/core/src/shell.ts';
 import { TASK_DEPLOY_COMMAND, ticketPlace } from '../../packages/core/src/task-deploy.ts';
 import type { ExtensionArea } from './area.ts';
+import { guideLaunch, guideLine } from './logic/deploy-guide.ts';
 import { stateOf } from './logic/shared.ts';
 import { TicketDeploys } from './logic/ticket-deploy.ts';
 import type { DeployRun, Message } from './model/ticket-deploy.ts';
@@ -29,6 +33,15 @@ export const area: ExtensionArea = {
       // In the output panel, where its steps show (T-65), and the sheet says the step it's on.
       acc: (args, cwd, label, onSteps) => (sidebar.helpers.runAccShown ? sidebar.helpers.runAccShown(args, cwd, label, onSteps) : acc(args, cwd)),
     }, (root) => tickets.refresh(root));
+    // The deploy guide's chat, in a terminal in the project's main checkout, as acc says to open it.
+    const guide = async (root: string, id: string, to: string | undefined): Promise<void> => {
+      const r = await acc(['deploy', ...(to ? [to] : []), '--task', id, '--guide', '--json'], root);
+      const g = guideLaunch(r.code, r.stdout, r.stderr);
+      if (!g.ok) return void vscode.window.showWarningMessage(`Couldn't open the deploy guide for ${id}: ${g.error}`);
+      const t = vscode.window.createTerminal({ name: `Deploy ${id} with an agent`, cwd: g.launch.cwd, env: g.launch.env, iconPath: new vscode.ThemeIcon('hubot'), ...terminalShell() });
+      t.show();
+      t.sendText(guideLine(g.launch), true);
+    };
     tickets.deploys = {
       run: (root, id) => d.run(root, id),
       running: (root, id) => {
@@ -41,6 +54,7 @@ export const area: ExtensionArea = {
       },
       async act(m) {
         if (m.type === 'deploy-close') { d.close(m.project, m.task); return; }
+        if (m.type === 'deploy-guide') { await guide(m.project, m.task, m.to); return; }
         const r = m.type === 'deploy-check' ? await d.check(m.project, m.task, m.to) : await d.deploy(m.project, m.task, m.to, m.checkId, m.typed);
         if (!r.ok) void vscode.window.showWarningMessage(r.error);
         tickets.refresh(m.project);
@@ -56,6 +70,16 @@ export const area: ExtensionArea = {
       tickets.show(p.root, undefined, task.id, 'changes');
       const next = to ?? ticketPlace(p.config, task)?.next[0]?.branch;
       if (next) await tickets.deploys?.act({ type: 'deploy-check', project: p.root, task: task.id, to: next });
+    });
+    // Deploy a ticket with an agent (T-154): the guide's chat opens, and it checks before anything deploys.
+    // TASK_DEPLOY_GUIDE_COMMAND.id, named here as areas.test reads registrations.
+    reg('acc.task.deployGuide', async (root?: string, id?: string, to?: string) => {
+      const p = root ? hub.project(root) : hub.projects[0];
+      const task = id ? hub.ledger(p?.root ?? '')?.tasks.find((t) => t.id === id.toUpperCase()) : undefined;
+      if (!p || !task) return void vscode.window.showWarningMessage('Say which task to deploy, from its page\'s Changes tab.');
+      const can = TASK_DEPLOY_GUIDE_COMMAND.enabled({ config: p.config, task });
+      if (!can.ok) return void vscode.window.showWarningMessage(can.why);
+      await guide(p.root, task.id, to);
     });
   },
 };

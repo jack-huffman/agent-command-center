@@ -85,6 +85,19 @@ function deployButton(m: TicketModel, d: TicketDeploy, b: DeployButton, primary:
   return x;
 }
 
+/** Deploy with an agent (T-154): the deploy guide's chat, for the same step as Deploy, off for the same reason. */
+function guideButton(m: TicketModel, d: TicketDeploy, b: DeployButton): HTMLButtonElement {
+  const x = button('Deploy with an agent', 'hubot', () => {
+    if (!x.disabled) api.postMessage({ type: 'deploy-guide', project: m.project, task: d.task, to: b.to });
+  }, 'ghost dp-guide');
+  if (b.disabled) {
+    x.disabled = true;
+    x.title = `Deploy with an agent: ${b.disabled}`;
+    x.setAttribute('aria-description', b.disabled);
+  } else x.title = 'Deploy with an agent: it gathers every step, by-hand ones too, into a runbook for you to approve, and deploys on the yes you type';
+  return x;
+}
+
 /** Where it is: its path in one line, each environment with an icon and words, and when it got there. */
 function renderPath(d: TicketDeploy): HTMLElement {
   const line = el('p', 'dp-path');
@@ -104,7 +117,7 @@ export function renderDeploy(m: TicketModel, d: TicketDeploy): HTMLElement {
     sec.append(el('p', 'dp-status', status({ ...d.status.look, label: d.status.words }), d.status.pr ? linkTo(d.status.pr.url, `Pull request #${d.status.pr.number}`) : null));
   }
   if (d.deploy) {
-    const row = el('div', 'actions dp-actions', deployButton(m, d, d.deploy, true));
+    const row = el('div', 'actions dp-actions', deployButton(m, d, d.deploy, true), guideButton(m, d, d.deploy));
     if (d.others.length) {
       const key = openKey('others', m);
       row.append(foldButton('Other next steps', key, 'dp-more', true));

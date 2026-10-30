@@ -596,7 +596,7 @@ export class TicketPanels implements vscode.Disposable {
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.records?.act(m, (msg) => o.view.say(msg));
         return;
       // Deploy to its next environment (T-138): this page's own task only.
-      case 'deploy-check': case 'deploy-go': case 'deploy-close':
+      case 'deploy-check': case 'deploy-go': case 'deploy-close': case 'deploy-guide':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.deploys?.act(m);
         return;
       // Manifest for this ticket (T-101): this page's own task only.

@@ -9,6 +9,9 @@
     "PostToolUse": [
       { "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash", "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/acc\" hook post-tool-use", "timeout": 30 }] }
     ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/acc\" hook user-prompt-submit", "timeout": 30 }] }
+    ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/acc\" hook stop", "timeout": 30 }] }
     ]
