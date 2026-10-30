@@ -109,17 +109,19 @@ test('every action a page draws has a name that holds its label: every sample pa
   assert.ok(all.length > 50, `${all.length} actions`);
 });
 
-test('Setup\'s progress bar is named, and no done card, lane or step is faded with opacity, which would take its text below 4.5:1 (T-59)', () => {
+test('Setup\'s place in its walkthrough is said in words, and no done card, lane or step is faded with opacity, which would take its text below 4.5:1 (T-59, T-153)', () => {
+  // The progress bar went with T-153: a step's screen says "3 of 8" beside its dots, and is named by its title.
   const setup = pageSource('setup.ts');
-  assert.ok(setup.includes("bar.setAttribute('aria-label', 'Setup steps done');") && setup.includes("bar.setAttribute('aria-valuetext', `${m.done} of ${m.total}`);"));
+  assert.ok(setup.includes('stepProgress(`${sc.index + 1} of ${sc.list.length}`') && setup.includes("screen.setAttribute('aria-labelledby', title.id);"));
+  assert.ok(!setup.includes("'progressbar'"), 'no progress bar left to name');
   const done = (file: string, selector: RegExp) => cssRules(styleFile(file)).filter((r) => selector.test(r.selector));
   const boards = done('boards.css', /\.card\.done|\.done-col/);
-  const steps = done('setup.css', /\.step\.done/);
+  const steps = done('setup.css', /\.walk-row\.done/);
   assert.ok(boards.length && steps.length, 'their rules are there');
   // Edge case: opacity 1 shows Check again on hover, and fades nothing.
   assert.deepEqual([...boards, ...steps].filter((r) => r.declarations.some((d) => d.name === 'opacity' && Number(d.value) < 1)).map((r) => r.selector), []);
   assert.ok(steps.some((r) => r.declarations.some((d) => d.name === 'opacity' && d.value === '1')), 'and it is still there');
   // A done card sits flat in its lane; a done step's title is the theme's muted colour.
   assert.ok(boards.some((r) => r.selector.includes('.card.done') && r.declarations.some((d) => d.name === 'background' && d.value === 'transparent')));
-  assert.ok(steps.some((r) => r.selector === '.step.done .strong' && r.declarations.some((d) => d.name === 'color' && d.value === 'var(--vscode-descriptionForeground)')));
+  assert.ok(steps.some((r) => r.selector.includes('.walk-row.done .walk-row-name') && r.declarations.some((d) => d.name === 'color' && d.value === 'var(--vscode-descriptionForeground)')));
 });
