@@ -1170,7 +1170,7 @@ update when:
 
 Each draft is written for the client, with no word of agents, worktrees, acc,
 builders, reviewers or rework. The lines of a draft that an agent wrote pass the
-wording check before acc writes it (T-151, D-T-151): the reviewer's sentence
+wording check before acc writes it (T-151, D-233): the reviewer's sentence
 for the client in a pull request's draft, and the planning agent's question
 that `acc update ask` sends. A draft that fails isn't written, and acc gives
 each finding and its fix. acc's own text around them, a field's text and a

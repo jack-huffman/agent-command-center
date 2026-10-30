@@ -1,4 +1,4 @@
-## D-T-151 A plan and an agent's words in a draft update pass the wording check (2026-10-29)
+## D-233 A plan and an agent's words in a draft update pass the wording check (2026-10-29)
 
 T-151. The person asked for the tool to write requirements and technical text in Simplified Technical English
 (T-12, `packages/core/src/ste.ts`). Drafted acceptance criteria and the QA comment pass it (D-179), a task's
