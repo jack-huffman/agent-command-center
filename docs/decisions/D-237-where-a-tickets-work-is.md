@@ -1,4 +1,4 @@
-## D-T-155 A ticket knows where its work is, read from git and from each org (2026-10-30)
+## D-237 A ticket knows where its work is, read from git and from each org (2026-10-30)
 
 T-155. The person sent a screenshot of a ticket's Changes tab whose path line said "Sandbox, next" and wrote:
 "The ticket should also know if things have been deployed to the sandbox versus not." Until now `ticketPlace`
