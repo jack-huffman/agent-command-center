@@ -43,10 +43,14 @@ the quick deploy of the checked job, the pull request, the records.
   it didn't know, the role dropped by `printf -v` or `read`, a flag built from a variable or braces), so it now
   refuses anything it can't read in full. A line is plain words, 'single quotes', and "double quotes" with no
   `$`, backtick or backslash, its commands joined only by `&&` or `;`: no pipe, redirect, glob, brace,
-  background, sub-shell, assignment or variable, but `$ACC_TASK` and `$ACC_DEPLOY_TO` as written. Each command is
+  background, sub-shell, assignment or variable, but `$ACC_TASK` and `$ACC_DEPLOY_TO`, each a whole word (a third
+  review found `$ACC_TASKZ--output=…` read as one word and run as another). Each command is
   `acc`, `sf` or `git`, named as itself. acc: show, list, deploy of its own ticket (by id, `--task=` or
   `$ACC_TASK`) with no name typed, change list and change step of its own ticket, ticket, board, ste and doctor.
-  sf: anything but a hand deploy, `sf project`, its plugins, aliases and settings, or `--output-dir`/`--output-file`.
+  sf: an allowlist too (`DEPLOYER_SF`, after the third review found `sf api request` could quick-deploy the
+  checked job): the analyst's reads but a retrieve, and the runbook's own steps, `sf org assign permset` and
+  `permsetlicense` and `sf data create|update|delete record`, never through the Tooling API, never writing a file
+  or reading flags from one. Anonymous Apex and anything else of sf is a step by hand.
   git: log, show, diff, status, rev-parse, ls-files, blame, describe, shortlog. No word names acc's state, its
   hook or `ACC_ROLE`. A builder may no longer run `acc hook` by hand either (`PERSON_ONLY_ACC`).
 - **Not covered:** the allowlist trusts `sf` itself: a step it runs (`sf apex run`, `sf data update`) changes

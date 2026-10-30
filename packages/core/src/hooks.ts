@@ -219,9 +219,16 @@ export function guardAnalyst(line: string): string | null {
 export const DEPLOYER_ACC = ['show', 'list', 'deploy', 'change', 'ticket', 'board', 'ste', 'doctor'] as const;
 /** The git commands a deploy guide runs: each only reads. */
 export const DEPLOYER_GIT = ['log', 'show', 'diff', 'status', 'rev-parse', 'ls-files', 'blame', 'describe', 'shortlog'] as const;
-/** sf's commands a deploy guide doesn't run: its project's files and deploys are acc's, and its plugins, aliases and settings are the person's. */
-const SF_REFUSED = new Set(['project', 'deploy', 'plugins', 'alias', 'config', 'update', 'autocomplete']);
-/** The only variables a guide's command may name, as they stand: what its chat was opened with. */
+/**
+ * sf's commands a deploy guide runs: the analyst's reads but a retrieve, which writes the project's files, and
+ * the runbook's own steps in the org, a permission set assigned and a record made, changed or deleted. Anything
+ * else of sf is refused, as `sf api request` can deploy and `sf org` can delete or repoint an org (third review).
+ */
+export const DEPLOYER_SF = [
+  ...ANALYST_COMMANDS.salesforce.filter((c) => c !== 'sf project retrieve start'),
+  'sf org assign permset', 'sf org assign permsetlicense', 'sf data create record', 'sf data update record', 'sf data delete record',
+] as const;
+/** The only variables a guide's command may name, each as a whole word: what its chat was opened with. */
 const GUIDE_VARS = ['${ACC_DEPLOY_TO}', '$ACC_DEPLOY_TO', '${ACC_TASK}', '$ACC_TASK'];
 /** A character a guide's command may hold outside quotes. */
 const PLAIN = /[A-Za-z0-9_\-.\/:=,@%+]/;
@@ -239,9 +246,11 @@ export function guideCommands(line: string): { commands: string[][] } | { why: s
   let word: string | null = null;
   const endWord = () => { if (word !== null) words.push(word); word = null; };
   const endCommand = () => { endWord(); if (words.length) commands.push(words); words = []; };
+  // A variable stands only as a whole word: $ACC_TASKZ is another, unset, variable, and zsh's $ACC_TASK:s@…@…@ rewrites it.
+  const wholeVar = (at: number, ends: string): string | undefined => GUIDE_VARS.find((x) => line.startsWith(x, at) && ends.includes(line[at + x.length] ?? ' '));
   for (let i = 0; i < line.length;) {
-    const v = GUIDE_VARS.find((x) => line.startsWith(x, i));
-    if (v) { word = (word ?? '') + v; i += v.length; continue; }
+    const v: string | undefined = word === null ? wholeVar(i, ' \t;&') : undefined;
+    if (v) { word = v; i += v.length; continue; }
     const c = line[i]!;
     if (c === ' ' || c === '\t') { endWord(); i++; continue; }
     if (c === ';') { endCommand(); i++; continue; }
@@ -256,9 +265,10 @@ export function guideCommands(line: string): { commands: string[][] } | { why: s
     if (c === '"') {
       let j = i + 1;
       let text = '';
+      // A variable in double quotes is the quote's whole text, and the quote a whole word: "$ACC_TASK".
+      const u: string | undefined = word === null ? wholeVar(j, '"') : undefined;
+      if (u && ' \t;&'.includes(line[j + u.length + 1] ?? ' ')) { word = u; i = j + u.length + 1; continue; }
       while (j < line.length && line[j] !== '"') {
-        const u = GUIDE_VARS.find((x) => line.startsWith(x, j));
-        if (u) { text += u; j += u.length; continue; }
         if ('$`\\'.includes(line[j]!)) return { why: `${line[j]} inside double quotes` };
         text += line[j];
         j++;
@@ -296,8 +306,10 @@ export function guardDeployer(task: string, line: string): string | null {
     if (first === 'sf' || first === 'sfdx') {
       const hand = deploysByHand(w);
       if (hand) return `The deploy guide never deploys by hand (${hand}): acc deploy --task ${task} does, with the person's yes from the chat.`;
-      if (first === 'sfdx' || SF_REFUSED.has(sub.split(':')[0]!)) return `The deploy guide doesn't run ${first} ${sub}: deploys and the project's files are acc deploy's, and sf's plugins, aliases and settings are the person's.`;
-      if (w.some((x) => /^--output-(dir|file)\b/.test(x))) return 'The deploy guide writes no file: run it without --output-dir or --output-file, and read what it prints.';
+      const known = DEPLOYER_SF.find((c) => c.split(' ').every((x, k) => w[k] === x));
+      if (!known) return `The deploy guide runs these of sf: ${DEPLOYER_SF.join(', ')}. ${w.slice(0, 3).join(' ')} isn't one: make it a step by hand, and say exactly how.`;
+      if (w.some((x) => /^--(output-dir|output-file|flags-dir)\b/.test(x))) return 'The deploy guide writes no file and reads no flags from one: run it without --output-dir, --output-file or --flags-dir.';
+      if (known.startsWith('sf data ') && known.endsWith(' record') && w.some((x) => /^(--use-tooling-api|-t)$/.test(x))) return 'The deploy guide changes records, never metadata through the Tooling API: that is a deploy, and acc deploy\'s.';
       continue;
     }
     if (first === 'git') {

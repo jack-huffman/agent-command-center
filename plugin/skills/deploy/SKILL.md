@@ -35,7 +35,7 @@ Mark each step **you** (the agent runs it, with the person's yes for each comman
 
 One step at a time. Say the step, do it or tell the person how, check it, say it's done, then the next.
 
-- **Steps you run:** read-only commands, such as `sf data query`, `sf org display` or `sf org list metadata`. Run a command that changes the org (`sf org assign permset`, `sf data update record`, `sf apex run`) only after you have shown the person the exact command and they said yes. Claude Code asks them too.
+- **Steps you run:** read-only commands, such as `sf data query`, `sf org display` or `sf org list metadata`. Of the commands that change the org, you run only `sf org assign permset`, `sf org assign permsetlicense` and `sf data create|update|delete record`, and only after you have shown the person the exact command and they said yes. Claude Code asks them too. Anything else, anonymous Apex among it, is a step by hand.
 - **Steps by hand:** say where it is in Setup or the app, what to change, and to what. Wait until they say it's done. Then check it where you can, read-only.
 - **A deletion or record change:** once made, mark it: `acc change step $ACC_TASK <change> --env $ACC_DEPLOY_TO --done`, or `--skip "<why>"` when the person says to skip it.
 

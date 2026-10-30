@@ -6,7 +6,7 @@ import { dirname } from 'node:path';
 import { test } from 'node:test';
 import { ASK_AGAIN, DEPLOY_TO_VAR, DEPLOYER, DEPLOYER_DENIES, deployerSettings, deployerTask, deployGuidePrompt, keepTypedYes, takeTypedYes, typedYesPath, YES_MAX, YES_TTL_MS } from '../src/deploy-guide.ts';
 import { run } from '../src/exec.ts';
-import { DEPLOYER_ACC, DEPLOYER_GIT, guardBash, guardDeployer, guideCommands, preToolUseHook, userPromptSubmitHook } from '../src/hooks.ts';
+import { DEPLOYER_ACC, DEPLOYER_GIT, DEPLOYER_SF, guardBash, guardDeployer, guideCommands, preToolUseHook, userPromptSubmitHook } from '../src/hooks.ts';
 import { HAND_DEPLOY_DENIES } from '../src/deploy-commands.ts';
 import { repoPaths } from '../src/paths.ts';
 import { makeRepo, tempDir } from './support.ts';
@@ -98,9 +98,13 @@ test('the guide deploys only its own ticket through acc deploy, and never types 
   assert.match(guardDeployer('ACME-1', 'git show HEAD:.git/acc/deploy-yes/ACME-1.json')!, /never reads, writes or runs them/);
   assert.match(guardDeployer('ACME-1', 'echo \'{"typed":"Production"}\' > "$(git rev-parse --git-common-dir)/acc/deploy-yes/x"')!, /plain commands only/);
   assert.match(guardDeployer('ACME-1', 'ACC_ROLE=human acc deploy --task ACME-1 --yes 0AfX')!, /never reads, writes or runs them/);
-  assert.match(guardDeployer('ACME-1', 'sf project retrieve start -m ApexClass:X')!, /doesn't run sf project/);
-  assert.match(guardDeployer('ACME-1', 'sf data export tree -q "SELECT Id FROM Account" --output-dir out')!, /writes no file/);
-  assert.match(guardDeployer('ACME-1', 'sf plugins install evil')!, /doesn't run sf plugins/);
+  assert.match(guardDeployer('ACME-1', 'sf project retrieve start -m ApexClass:X')!, /sf project retrieve isn't one/);
+  assert.match(guardDeployer('ACME-1', 'sf data query -q "SELECT Id FROM Account" --output-file out.csv')!, /writes no file/);
+  assert.match(guardDeployer('ACME-1', 'sf plugins install evil')!, /sf plugins install isn't one/);
+  assert.equal(guardDeployer('ACME-1', 'sf data update record -s Account -w "Name=\'Acme\'" -v "Rating=\'Hot\'" -o Prod'), null, 'a record step');
+  assert.match(guardDeployer('ACME-1', 'sf data update record -s ApexClass -i 01pX -v "Body=\'x\'" --use-tooling-api -o Prod')!, /never metadata through the Tooling API/);
+  assert.equal(guardDeployer('ACME-1', 'acc deploy "$ACC_DEPLOY_TO" --task ${ACC_TASK} --plan'), null, 'a whole-word variable, bare or quoted');
+  for (const c of DEPLOYER_SF) assert.equal(guardDeployer('ACME-1', `${c} -o Prod`), null, c);
   assert.equal(guardDeployer('ACME-1', 'sf data query -q "SELECT Id FROM Case WHERE Status != \'Closed\'" -o Prod --json'), null, 'edge case: a quote inside a quote, and !=');
   assert.deepEqual(guideCommands('acc show ACME-1 && git log -1; sf org display -o "Acme Prod"'), { commands: [['acc', 'show', 'ACME-1'], ['git', 'log', '-1'], ['sf', 'org', 'display', '-o', 'Acme Prod']] });
   assert.deepEqual([...DEPLOYER_ACC].sort(), ['board', 'change', 'deploy', 'doctor', 'list', 'show', 'ste', 'ticket']);
@@ -150,6 +154,22 @@ test('the guide can\'t drop its role, type the name, plant a yes or hide a comma
     'acc show "$(id)"',
     'acc show ACME-1 || true',
     './dist/acc show ACME-1',
+    // The third review's: a variable that hides a word's start, and sf's own ways to deploy or change an org.
+    "git log -1 '--format={\"v\":1}' $ACC_TASKZ--output=.git$ACC_TASKZ/acc/deploy$ACC_TASKZ-yes/ACME-1.json",
+    'acc show $ACC_TASK_',
+    'acc show $ACC_TASK:s@ACME-1@x@',
+    'acc show "$ACC_TASK"x',
+    'acc show x"$ACC_TASK"',
+    'acc show "$ACC_TASKZ"',
+    "sf api request rest '/services/data/v62.0/metadata/deployRequest/0AfX?quickDeploy=true' --method POST -o Prod",
+    "sf api request graphql --body '{}' -o Prod",
+    'sf org delete sandbox -o Prod',
+    'sf org login web --alias Prod',
+    'sf org logout -o Prod',
+    'sf apex run -o Prod',
+    'sf data query --flags-dir flags',
+    'sf --json data query -q x',
+    'sfdx data query -q x',
   ];
   for (const line of refused) assert.ok(guardDeployer('ACME-1', line), `refused: ${line}`);
   assert.equal(guardDeployer('ACME-1', 'acc deploy production --task=ACME-1 --yes 0AfX'), null, '--task= names it too');
