@@ -42,7 +42,7 @@ import { type HomeModel, homeModel, type Model } from '../src/model/home.ts';
 import { type GroupKey, landing, overviewCards } from '../src/model/landing.ts';
 import { REPORT_TITLE } from '../src/model/report.ts';
 import { FinishedJobs } from '../src/progress.ts';
-import { sampleAgent } from './fixtures/agent-page.ts';
+import { sampleAgent, sampleAgentChat } from './fixtures/agent-page.ts';
 import { everyoneKept, sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSeveralBoards, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
 import { sampleAzureBoards, sampleAzureLoading, sampleAzureRefreshing, sampleTrackerTicket, type TrackerTicketSample } from './fixtures/tracker-tickets.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
@@ -277,7 +277,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'conversation-talk') return sampleConversationTalk(now);
   // The agent's questions one at a time, part-way through and at the review (T-130), and a long Talk it through folded (T-113).
   if (kind === 'conversation-questions' || kind === 'conversation-questions-review') return sampleConversationQuestions(now);
-  if (kind === 'conversation-long') return sampleConversationLong(now);
+  if (kind === 'conversation-long' || kind === 'conversation-scrolled') return sampleConversationLong(now);
   // The planning agent's progress (T-131): mid-plan, stalled, and on ACME-21's page.
   if (kind === 'conversation-progress' || kind === 'conversation-stalled') return sampleProgressPanel(now, kind === 'conversation-stalled');
   if (kind === 'ticket-progress') return sampleProgressTicket(now);
@@ -286,6 +286,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // A ticket's page from each tracker past Jira and Slack (T-91): a GitHub issue, an Azure DevOps backlog item and a monday.com item.
   if (kind === 'ticket-github' || kind === 'ticket-azure' || kind === 'ticket-monday') return sampleTrackerTicket(now, kind.slice('ticket-'.length) as TrackerTicketSample);
   if (kind === 'agent') return sampleAgent(now);
+  if (kind === 'agent-chat') return sampleAgentChat(now);
   if (kind === 'queue' || kind === 'queue-off' || kind === 'queue-held') {
     // Held, the head says why in the wait's own words, which can be long.
     const hub = kind === 'queue-held' ? sampleQueueHub(now, 'held', 'GitHub is still working out whether pull request #141 can merge.') : sampleQueueHub(now);
@@ -483,6 +484,9 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'conversation-questions-review' ? REVIEW_STATE
   // The long conversation's question put aside, as one line with Answer the questions (T-113).
   : kind === 'conversation-long' ? LONG_STATE(sampleConversationLong(Date.now()).talk!.questions!.turn)
+  // The long conversation as a chat (T-160): its last reply opened with Show more, and its question asked under it,
+  // so the latest exchange runs past the window and the person's message stays pinned at the top.
+  : kind === 'conversation-scrolled' ? { opened: [`talk:${ROOT}#ACME-21:more:${sampleConversationLong(Date.now()).talk!.questions!.turn}`] }
   // What's typed in Report a problem's draft (T-118), the same after Post.
   : kind === 'report-filled' || kind === 'report-no-access' || kind === 'report-posted' ? { drafts: REPORT_TYPED }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }

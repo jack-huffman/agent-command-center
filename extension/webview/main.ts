@@ -71,7 +71,7 @@ function saveScroll(pageKey: string): void {
 export function render(model: Model): void {
   state.last = model;
   if (model.kind === 'home') state.runs = model.runs;
-  const scroller = document.querySelector('.home-main') ?? document.querySelector('.timeline') ?? document.scrollingElement;
+  const scroller = document.querySelector('.home-main') ?? document.querySelector('.chat-log') ?? document.scrollingElement;
   // Each board, and each of its lanes, keeps where it was scrolled to. A page just rebuilt (its tab was
   // hidden) starts from where it was saved instead.
   const pageKey = model.kind === 'home' ? (model.connect ? 'home:connect' : `home:${model.section}`) : model.kind;
@@ -80,8 +80,8 @@ export function render(model: Model): void {
   const saved = fresh ? memory().scroll?.[pageKey] : undefined;
   const boards = saved?.boards ?? [...document.querySelectorAll<HTMLElement>('.board')].map((b) => ({ x: b.scrollLeft, lanes: [...b.querySelectorAll<HTMLElement>('.column')].map((c) => c.scrollTop) }));
   const scroll = { y: saved?.y ?? scroller?.scrollTop ?? 0 };
-  // An agent's page follows its newest step, unless you've scrolled up to read.
-  const following = model.kind === 'agent' && !!scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+  // A chat (T-160), an agent's page or a plan's conversation, opens at its newest message and follows it, unless you've scrolled up to read.
+  const following = (model.kind === 'agent' || model.kind === 'conversation') && !!scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
   const dockBox = document.querySelector<HTMLElement>('.dock-body');
   const dockAtBottom = !dockBox || dockBox.scrollHeight - dockBox.scrollTop - dockBox.clientHeight < 24;
   const dockTop = dockBox?.scrollTop ?? 0;
@@ -104,7 +104,7 @@ export function render(model: Model): void {
   });
   document.querySelector('.home-main')?.addEventListener('scroll', () => saveScroll(pageKey), { passive: true });
   const main = document.querySelector('.home-main');
-  const timeline = document.querySelector<HTMLElement>('.timeline');
+  const timeline = document.querySelector<HTMLElement>('.chat-log');
   if (main && !state.scrolledTo) main.scrollTop = scroll.y;
   else if (timeline) timeline.scrollTop = following ? timeline.scrollHeight : scroll.y;
   else if (!main) window.scrollTo(0, scroll.y);

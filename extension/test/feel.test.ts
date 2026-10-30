@@ -184,7 +184,6 @@ const PRIMARY_MARK = /'primary\b|'btn primary\b|\? ' primary'|(?:toolbarButton|a
  * the button that sends what the person typed in the box beside it. Anything else is outlined.
  */
 const PRIMARY: { file: string; at: RegExp; why: string }[] = [
-  { file: 'agent-page.ts', at: /'primary small'/, why: 'Send: the message the person typed, to an agent that waits on it.' },
   { file: 'agents.ts', at: /b\('Answer'/, why: 'Answer: an agent waits on the person\'s answer to its question.' },
   { file: 'verify.ts', at: /\(first \? 'primary' : ''\);$/, why: 'Verify the developer\'s work (T-84): Verify before there is a verification, then Open the QA comment, the comment the person edits and posts.' },
   { file: 'manifest.ts', at: /s\.built \? '' : 'primary'\),$/, why: 'Manifest for this ticket (T-101): Build the manifest, before there is one.' },
@@ -196,7 +195,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'plan.ts', at: /button\('Choose', 'check'/, why: 'Choose: the person\'s own option, typed in the box beside it (T-97).' },
   { file: 'plan.ts', at: /'Approve this plan'/, why: 'Approve this plan, once it can be: the build waits on the person\'s approval (T-97).' },
   { file: 'plan.ts', at: /button\(a\.label, a\.icon/, why: 'Build it, primary only when the model says it can be built and no approval is asked for (T-97).' },
-  { file: 'talk.ts', at: /button\(busy \? 'Sending…' : 'Send'/, why: 'Send (T-98): the message the person typed to the planning agent, which waits on it.' },
+  { file: 'chat.ts', at: /'primary '\}icon-only chat-send/, why: 'Send in the message card (T-98, T-160): the message the person typed, to the planning agent or to an agent that waits on it. The plan conversation outlines it while Draft the plan is the step to take.' },
   { file: 'talk.ts', at: /button\('Draft the plan'/, why: 'Draft the plan (T-111): the step the opening conversation leads to, primary once something is said; Send is outlined then, so only one is primary.' },
   { file: 'talk.ts', at: /button\('Change it'/, why: 'Change it, in the dialog Use this opens on an approved plan (T-98): the change the person asked for, which waits on their yes. Keep the approval beside it has focus.' },
   { file: 'plan.ts', at: /button\('Change it'/, why: 'Change it, in the dialog a change to an approved plan\'s choice opens (T-97): the change the person asked for, which waits on their yes. Keep the approval beside it has focus.' },
