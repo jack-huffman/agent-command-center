@@ -5,6 +5,7 @@ export * from './again.ts';
 export * from './agent-notes.ts';
 export * from './agents.ts';
 export * from './analyze.ts';
+export * from './apex-coverage.ts';
 export * from './atomic.ts';
 export * from './autopilot-log.ts';
 // autopilot-rules.ts shares its wording helpers with autopilot.ts; these are its own.
