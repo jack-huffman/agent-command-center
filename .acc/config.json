@@ -115,7 +115,10 @@
     "paths": [
       "."
     ],
-    "exclude": []
+    "exclude": [
+      "extension/test/scrub.test.ts",
+      "packages/core/test/names.test.ts"
+    ]
   },
   "tools": [
     {
