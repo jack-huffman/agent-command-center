@@ -86,6 +86,6 @@ export function setupWalkState(kind: string): { setupWalk: WalkPlace; opened?: s
   if (kind === 'setup-walk-how') return { setupWalk: { at: 'A4.plugin', walk, skipped: [] }, opened: ['setup-how:A4.plugin'] };
   if (kind === 'setup-walk-modal') return { setupWalk: { at: 'B14.tickets', walk, skipped: [] } };
   if (kind === 'setup-walk-end') return { setupWalk: { at: 'end', walk, skipped: walk } };
-  if (kind === 'setup-walk-chapters') return { setupWalk: { at: 'start', walk, skipped: ['B0.template'] }, sections: Object.fromEntries(chapters.map((c) => [c.key, true])) };
+  if (kind === 'setup-walk-chapters') return { setupWalk: { at: 'start', walk, skipped: ['A1.python'] }, sections: Object.fromEntries(chapters.map((c) => [c.key, true])) };
   return null;
 }

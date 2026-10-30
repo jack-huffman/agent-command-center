@@ -209,6 +209,9 @@ test('the screenshot run draws the start screen, its chapters opened, a step, a 
   const open = setupWalkState('setup-walk-chapters')?.sections ?? {};
   assert.deepEqual(Object.keys(open), sample().chapters.map((c) => c.key), 'every chapter opened, to show its steps');
   assert.ok(Object.values(open).every(Boolean));
+  // Edge: its skipped step is in the first chapter, at the top of the shot, so Skipped for now is drawn on screen.
+  const skipped = setupWalkState('setup-walk-chapters')?.setupWalk.skipped ?? [];
+  assert.ok(skipped.length > 0 && skipped.every((id) => sample().chapters[0]!.steps.some((s) => s.id === id && !s.done)), JSON.stringify(skipped));
   assert.deepEqual(setupWalkState('setup-walk-how')?.opened, ['setup-how:A4.plugin']);
   assert.equal(setupWalkState('setup'), null);
 });
