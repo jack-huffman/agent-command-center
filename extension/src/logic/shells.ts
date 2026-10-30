@@ -5,6 +5,7 @@
 
 import { type InstallSystem, type Shell, shellOf, SYSTEM } from '../../../packages/core/src/onboarding/install-lines.ts';
 import { powerShellQuote, quoteArg } from '../../../packages/core/src/onboarding/fix-lines.ts';
+import { inShell } from '../../../packages/core/src/shell.ts';
 
 /** Quotes one word for PowerShell 5.1: the one quoting packages/core/src/onboarding/fix-lines.ts gives the lines core builds. */
 export const psq = powerShellQuote;
@@ -19,8 +20,20 @@ export const fenceFor = (shell: Shell): 'bash' | 'powershell' => (shell === 'pow
  * A PowerShell line as the runner starts it: -EncodedCommand takes the line as base64 of UTF-16LE, so no shell that
  * launches powershell.exe (cmd, or the runner's own) needs any escaping of it. The page still shows the readable line.
  */
-export const encodedPowerShell = (line: string): string =>
-  `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${Buffer.from(line, 'utf16le').toString('base64')}`;
+export const encodedPowerShell = (line: string): string => [POWERSHELL, ...powerShellArgs(line)].join(' ');
+
+const POWERSHELL = 'powershell.exe';
+const powerShellArgs = (line: string): string[] => ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(line, 'utf16le').toString('base64')];
+
+/**
+ * A fix line as a program and its arguments, for a run with no terminal, such as Install and reload's plugin
+ * update (T-152): acc's own sh -c (inShell) on a Mac and Linux, the encoded PowerShell on Windows.
+ */
+export function shellRun(line: string, system: InstallSystem = SYSTEM): { cmd: string; args: string[] } {
+  if (shellOf(system) === 'powershell') return { cmd: POWERSHELL, args: powerShellArgs(line) };
+  const [cmd, args] = inShell(line);
+  return { cmd, args };
+}
 
 /** The line the runner gets for a fix line: the encoded PowerShell on Windows, the line as it is elsewhere. */
 export const runnerLine = (line: string, system: InstallSystem = SYSTEM): string => (shellOf(system) === 'powershell' ? encodedPowerShell(line) : line);

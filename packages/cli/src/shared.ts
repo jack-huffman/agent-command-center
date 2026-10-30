@@ -4,7 +4,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ParseArgsOptionsConfig } from 'node:util';
-import { AccError, accLine, type Actor, ACTORS, type AutopilotStepName, cardWords, closesIssues, type Config, followCards, loadConfig, NO_STEPS, readLedger, type RepoPaths, repoPaths, run, type Steps, stepsFrom, STEPS_VAR, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
+import { AccError, accLine, type Actor, ACTORS, DEPLOYER, deployerTask, type AutopilotStepName, cardWords, closesIssues, type Config, followCards, loadConfig, NO_STEPS, readLedger, type RepoPaths, repoPaths, run, type Steps, stepsFrom, STEPS_VAR, withCloneAccount, withCloneAgents } from '../../core/src/index.ts';
 import { tone } from './format.ts';
 import pkg from '../../../package.json' with { type: 'json' };
 
@@ -164,9 +164,21 @@ export const stepWords = (step: AutopilotStepName, sha: string): string => {
 export function personOnly(o: Opts, what: string): string {
   const role = process.env.ACC_ROLE;
   if (role === 'builder' || role === 'reviewer') throw new AccError('refused', `A ${role} can't ${what}. A person does that.`);
+  if (role === DEPLOYER) throw new AccError('refused', `The deploy guide can't ${what}. A person does that: tell them what you need.`);
   const { actor, by } = actorFrom(o);
   if (actor !== 'human') throw new AccError('refused', `Only a person can ${what}.`);
   return by;
+}
+
+/**
+ * A person, or the deploy guide for its own ticket (T-154), which acts in the person's chat on what they say
+ * there. Any other agent is refused, as personOnly refuses it.
+ */
+export function personOrGuide(o: Opts, what: string, task: string): string {
+  const guide = deployerTask(process.env);
+  if (!guide) return personOnly(o, what);
+  if (guide.toUpperCase() !== task.toUpperCase()) throw new AccError('refused', `The deploy guide for ${guide.toUpperCase()} can't ${what} for ${task.toUpperCase()}.`);
+  return `deployer:${guide.toUpperCase()}`;
 }
 
 /**

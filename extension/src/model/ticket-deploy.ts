@@ -242,7 +242,9 @@ export type Message =
   /** The sheet's Deploy: the person's yes, with the check's id and, for a protected org, its name typed. */
   | { type: 'deploy-go'; project: string; task: string; to: string; checkId: string; typed?: string }
   /** The sheet's Cancel or Close: what it kept goes. */
-  | { type: 'deploy-close'; project: string; task: string };
+  | { type: 'deploy-close'; project: string; task: string }
+  /** Deploy with an agent (T-154): a Claude Code chat as the deploy guide, for the ticket and where it goes. */
+  | { type: 'deploy-guide'; project: string; task: string; to: string };
 
 const ticket = (x: Record<string, unknown>): boolean => short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string);
 
@@ -251,5 +253,6 @@ export const area: ModelArea = {
     'deploy-check': (x) => ticket(x) && short(x.to, 100),
     'deploy-go': (x) => ticket(x) && short(x.to, 100) && short(x.checkId, 200) && (x.typed === undefined || short(x.typed, 200)),
     'deploy-close': (x) => ticket(x),
+    'deploy-guide': (x) => ticket(x) && short(x.to, 100),
   },
 };

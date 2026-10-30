@@ -16,6 +16,7 @@ import type { RecordChange } from '../src/records.ts';
 import { sfComponent } from '../src/sf-metadata.ts';
 import * as real from '../src/task-deploy.ts';
 import { confirmsOrg, deployTask, keptCheckPath, NOTHING_TO_CHECK, planTaskDeploy, readKeptCheck, TASK_DEPLOY_COMMAND, taskCheckArgs, taskDeployArgs, taskDeployBody, taskDeployEnabled, taskDeployRoute, ticketCommits, ticketPlace, yesProblem } from '../src/task-deploy.ts';
+import { deployerSettings, deployGuideLaunch, deployGuidePrompt } from '../src/deploy-guide.ts';
 import { listUpdates } from '../src/updates.ts';
 import { gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
@@ -483,4 +484,40 @@ test('a mutant that deploys without the person\'s yes is caught', async () => {
 test('a mutant that deploys another ticket\'s component is caught', async () => {
   const m = await mutant('\'-z\', base, \'HEAD\')', '\'-z\', base, `origin/${task.environment}`)');
   assert.notDeepEqual(onlyItsComponents(m), [], 'the mutant sent ACME-2\'s Other.cls, and the check saw it');
+});
+
+test('a deploy guide\'s yes is the destination\'s name, even for a sandbox: a yes said to the runbook never counts (T-154)', () => {
+  const { origin, paths, c } = repo();
+  const calls: string[] = [];
+  const d = deps(origin, calls);
+  planTaskDeploy(paths, c, 'ACME-1', 'uat', d, { by });
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', confirm: 'yes', guided: true }), /The person typed "yes", not UAT\. Ask them to type UAT in the chat/);
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', guided: true }), /typed "", not UAT/, 'edge case: nothing typed');
+  assert.deepEqual(realDeploys(calls), []);
+  assert.equal(deployTask(paths, c, 'ACME-1', 'uat', d, { by, checkId: '0AfCHECK', confirm: 'Acme UAT', guided: true }).deployed, true, 'its org\'s alias does too');
+});
+
+test('a deploy guide\'s yes for production is its name, as at the terminal', () => {
+  const { origin, paths, c } = repo();
+  const calls: string[] = [];
+  const d = deps(origin, calls, { prodUrl: true });
+  planTaskDeploy(paths, c, 'ACME-1', 'production', d, { by });
+  assert.throws(() => deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', confirm: 'yes', guided: true }), /Type its name, Production/, 'yes is not the name');
+  assert.deepEqual(realDeploys(calls), []);
+  assert.equal(deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', confirm: 'Production', guided: true }).deployed, true);
+});
+
+test('Deploy with an agent opens the guide\'s chat in the main checkout, as the deployer of its ticket, for where it goes next (T-154)', () => {
+  const { paths, c } = repo();
+  const l = deployGuideLaunch(paths, c, 'ACME-1', undefined, () => 'sess-1');
+  assert.equal(l.cwd, paths.root);
+  assert.deepEqual(l.env, { ACC_ROLE: 'deployer', ACC_TASK: 'ACME-1', ACC_DEPLOY_TO: 'uat' });
+  assert.deepEqual(l.args.slice(0, 7), [deployGuidePrompt('ACME-1', 'Dev', 'UAT'), '--session-id', 'sess-1', '--name', l.name, '--permission-mode', 'default'], 'its first message first, and the person\'s own mode set aside');
+  assert.deepEqual(JSON.parse(l.args[8]!), deployerSettings(), 'its settings: ask before each command, and the denies');
+  assert.equal(l.args[7], '--settings');
+  assert.equal(JSON.parse(deployGuideLaunch(paths, c, 'ACME-1', undefined, () => 's', '/opt/acc').args[8]!).hooks.UserPromptSubmit[0].hooks[0].command, '/opt/acc hook user-prompt-submit');
+  assert.match(l.name, /ACME-1 Task 1 · deploy$/);
+  assert.equal(deployGuideLaunch(paths, c, 'ACME-1', 'production').env.ACC_DEPLOY_TO, 'production', 'another next step, named');
+  assert.throws(() => deployGuideLaunch(paths, c, 'ACME-1', 'dev'), /ACME-1 is in Dev already/, 'only a next step on its path');
+  assert.throws(() => deployGuideLaunch(paths, c, 'ACME-9', undefined), /No task ACME-9/);
 });

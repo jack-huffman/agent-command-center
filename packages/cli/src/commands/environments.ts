@@ -1,9 +1,9 @@
 // acc's Environments commands: promote and deploy.
 
 import { createInterface } from 'node:readline/promises';
-import { AccError, deploy, deployTask, lastDeploy, planDeploy, planPromotion, planTaskDeploy, promote, run, skipWarning, type TaskDeployPlan } from '../../../core/src/index.ts';
+import { AccError, deploy, deployerTask, deployGuideLaunch, deployTask, lastDeploy, planDeploy, planPromotion, planTaskDeploy, promote, readKeptCheck, run, skipWarning, takeTypedYes, type TaskDeployPlan } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
-import { type CommandArea, now, type Opts, out, personOnly, project, steps } from '../shared.ts';
+import { accCommand, type CommandArea, now, type Opts, out, personOnly, personOrGuide, project, steps } from '../shared.ts';
 
 function cmdPromote(o: Opts, from: string): number {
   const by = personOnly(o, 'promote');
@@ -94,10 +94,17 @@ async function askYes(p: TaskDeployPlan): Promise<string | null> {
 
 /** acc deploy [<env>] --task <id>: one ticket to its next environment, a check first, then the person's yes (T-137). */
 async function cmdDeployTask(o: Opts, envName: string | undefined): Promise<number> {
-  const by = personOnly(o, 'deploy a ticket');
-  const { paths, config } = project(process.cwd());
   const id = String(o.task).trim().toUpperCase();
   if (!id) throw new AccError('usage', 'Say which task: --task <id>.');
+  if (o.guide) return cmdDeployGuide(o, id, envName);
+  // The deploy guide deploys its own ticket, with the yes the person typed in its chat (T-154).
+  const guided = !!deployerTask(process.env);
+  const by = personOrGuide(o, 'deploy a ticket', id);
+  if (guided && o['confirm-name'] !== undefined) throw new AccError('refused', 'The deploy guide never types the org\'s name: the person types it in the chat, and acc deploy reads it from there.');
+  const { paths, config } = project(process.cwd());
+  const yesLine = (p: TaskDeployPlan) => guided
+    ? `To deploy it, ask the person to type ${p.confirmName} in the chat, then run: acc deploy ${p.to.branch} --task ${id} --yes ${p.check!.id}`
+    : `To deploy it: acc deploy ${p.to.branch} --task ${id} --yes ${p.check!.id}${p.confirm ? ` --confirm-production ${p.confirmName}` : ''}`;
   const deps = { run, now, env: process.env, steps: steps(), onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another deploy to this org to finish…\n', 'dim')); } };
   const noTests = o['no-tests'] === true;
   let checkId = o['deploy-check'] as string | undefined;
@@ -105,21 +112,23 @@ async function cmdDeployTask(o: Opts, envName: string | undefined): Promise<numb
   if (o.plan || !checkId) {
     const p = planTaskDeploy(paths, config, id, envName, deps, { noTests, by });
     if (o.plan || o.json || !p.check?.passed) {
-      out(o, () => [...taskPlanLines(p), p.check?.passed ? tone(`Nothing has changed. To deploy it: acc deploy ${p.to.branch} --task ${id} --yes ${p.check.id}${p.confirm ? ` --confirm-production ${p.confirmName}` : ''}`, 'dim') : ''].filter(Boolean).join('\n'), p);
+      out(o, () => [...taskPlanLines(p), p.check?.passed ? tone(`Nothing has changed. ${yesLine(p)}`, 'dim') : ''].filter(Boolean).join('\n'), p);
       steps().result(!p.check || p.check.passed, p.check?.summary ?? 'Nothing of it deploys.');
       return !p.check || p.check.passed ? 0 : 1;
     }
     process.stdout.write(taskPlanLines(p).join('\n') + '\n');
-    const yes = await askYes(p);
+    const yes = guided ? null : await askYes(p);
     if (!yes) {
-      process.stdout.write(`Nothing was deployed. To deploy it: acc deploy ${p.to.branch} --task ${id} --yes ${p.check.id}${p.confirm ? ` --confirm-production ${p.confirmName}` : ''}\n`);
+      process.stdout.write(`Nothing was deployed. ${yesLine(p)}\n`);
       return 0;
     }
     checkId = p.check.id!;
     if (p.confirm) typed = yes;
     envName = p.to.branch;
   }
-  const r = deployTask(paths, config, id, envName, deps, { noTests, by, checkId, confirm: typed });
+  // The guide's yes is the person's latest message in its chat, used once, and newer than the check.
+  if (guided) typed = takeTypedYes(paths, id, readKeptCheck(paths, id), now);
+  const r = deployTask(paths, config, id, envName, deps, { noTests, by, checkId, confirm: typed, guided });
   out(o, () => [
     r.deployed ? tone(`✓ ${r.summary}`, 'blue') : r.summary,
     r.warning ? tone(`! ${r.warning}`, 'orange') : '',
@@ -131,12 +140,25 @@ async function cmdDeployTask(o: Opts, envName: string | undefined): Promise<numb
   return r.deployed || !r.plan.files.length ? 0 : 1;
 }
 
+/** acc deploy --task <id> --guide: how to open the deploy guide's chat in Claude Code, for a person (T-154). */
+function cmdDeployGuide(o: Opts, id: string, envName: string | undefined): number {
+  personOnly(o, 'open a deploy guide');
+  const { paths, config } = project(process.cwd());
+  const launch = deployGuideLaunch(paths, config, id, envName, undefined, accCommand());
+  const env = Object.entries(launch.env).map(([k, v]) => `${k}=${v}`).join(' ');
+  out(o, () => `Run this in ${launch.cwd}, with ${env}:\nclaude ${launch.args.map((a) => JSON.stringify(a)).join(' ')}`, launch);
+  return 0;
+}
+
 /**
  * For a ticket's deploy, its two flags that take a value here are given another name before they're parsed:
  * --yes and --confirm-production are on/off flags elsewhere.
  */
 export function taskDeployArgv(argv: string[]): string[] {
   if (!argv.some((x) => x === '--task' || x.startsWith('--task='))) return argv;
+  // Their inner names are this function's alone: typed, they would pass a name past the deploy guide's guard (T-154).
+  const inner = argv.find((x) => /^--(deploy-check|confirm-name)(=|$)/.test(x));
+  if (inner) throw new AccError('usage', `${inner.split('=')[0]} isn't one of acc deploy's flags: use --yes <check-id>, and --confirm-production <name>.`);
   const out: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const x = argv[i]!;
@@ -158,7 +180,10 @@ export const area: CommandArea = {
                                         Deploy what changed on <env>'s branch since its last deploy to its org
   acc deploy [<env>] --task <id> [--plan] [--yes <check-id>] [--confirm-production <name>] [--no-tests]
                                         Deploy one ticket to its next environment: a check first, then your
-                                        yes; its commits reach <env>'s branch by a pull request acc merges`,
+                                        yes; its commits reach <env>'s branch by a pull request acc merges
+  acc deploy [<env>] --task <id> --guide
+                                        How to open a deploy guide in Claude Code: an agent that gathers every
+                                        step into a runbook and works through it with you. You type the yes`,
   },
   options: {
     to: { type: 'string' },
@@ -171,6 +196,7 @@ export const area: CommandArea = {
     task: { type: 'string' },
     'deploy-check': { type: 'string' },
     'confirm-name': { type: 'string' },
+    guide: { type: 'boolean', default: false },
   },
   argv: { deploy: taskDeployArgv },
   commands: {

@@ -103,8 +103,8 @@ PATH** from the Command Palette. Or use Extensions → **⋯** → **Install fro
 VSIX…**. Then run **Developer: Reload Window**.
 
 After that, the extension finds new releases by itself. **Install and reload**
-downloads the new `.vsix`, checks it against the release's `.sha256` and
-installs it.
+downloads the new `.vsix`, checks it against the release's `.sha256`, updates
+an older Claude Code plugin, and installs the `.vsix`.
 
 ### The first run
 
@@ -121,7 +121,8 @@ installs it.
    claude plugin install acc@agent-command-center --scope user
    ```
 
-   A private marketplace doesn't update itself, so after each release run
+   A private marketplace doesn't update itself. The extension's **Install and
+   reload** updates an older plugin with it. Otherwise, after each release run
    `claude plugin marketplace update agent-command-center`, then
    `claude plugin update acc@agent-command-center --scope user`. A4's
    **Do it** runs both.

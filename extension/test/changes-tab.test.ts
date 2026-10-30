@@ -43,7 +43,7 @@ test('the path line says each environment in words with an icon, and Deploy open
   const page = setup();
   const { renderDeploy } = await import('../webview/changes.ts');
   const drawn = renderDeploy(model(), deploy()) as unknown as PageElement;
-  assert.match(drawn.textContent, /^Dev, merged·QA, deployed.*·UAT, nextDeploy to UAT$/);
+  assert.match(drawn.textContent, /^Dev, merged·QA, deployed.*·UAT, nextDeploy to UATDeploy with an agent$/);
   assert.equal(drawn.all('dp-stop').filter((s) => s.querySelector('.codicon')).length, 3, 'each stop has its icon');
   const go = buttons([drawn]).find((b) => b.textContent === 'Deploy to UAT')!;
   assert.ok(go.classList.contains('primary'), 'the tab\'s one primary button');

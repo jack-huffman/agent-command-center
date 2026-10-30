@@ -6,7 +6,7 @@ import {
   AccError, draftChangesField, markStep, outsideOf, plannedRecordKeys, readAnalysis, readLedger, RECORD_KIND, type RecordChange, recordNone, recordOutside, recordPair, recordWords, run, stepsOf, unmade, unrecordedProblems,
 } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
-import { actorFrom, type CommandArea, now, type Opts, out, personOnly, project, taskIdFrom } from '../shared.ts';
+import { actorFrom, type CommandArea, now, type Opts, out, personOnly, personOrGuide, project, taskIdFrom } from '../shared.ts';
 
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : typeof v === 'string' ? [v] : []);
 const looksLikeId = (s: string | undefined): s is string => !!s && /^[A-Z][A-Z0-9_]*-\d+$/i.test(s);
@@ -77,8 +77,9 @@ function cmdList(o: Opts, rest: string[]): number {
 }
 
 function cmdStep(o: Opts, rest: string[]): number {
-  const by = personOnly(o, 'mark a promotion\'s step');
   const [raw, change] = rest;
+  // The deploy guide marks its own ticket's steps as it walks the person through them (T-154).
+  const by = raw ? personOrGuide(o, 'mark a promotion\'s step', raw) : personOnly(o, 'mark a promotion\'s step');
   const env = typeof o.env === 'string' ? o.env.trim() : '';
   const skip = typeof o.skip === 'string' ? o.skip : undefined;
   if (!raw || !change || !env || (o.done !== true) === (skip === undefined)) throw new AccError('usage', 'acc change step <id> <change> --env <branch> --done | --skip "<why>"');
