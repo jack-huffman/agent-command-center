@@ -13,9 +13,10 @@ export type Message =
   /**
    * A card on the Tasks board was clicked: its task opens in the modal. tracker is the tracker board's, or
    * null for a task acc alone keeps; left out, as from the agent board, the key decides, as acc.task.show does.
-   * part: the part of its page to open on (T-134), as a Needs you line names it.
+   * part: the part of its page to open on (T-134), as a Needs you line names it. title: the task's title as
+   * the click's line or card showed it, which the modal shows while it loads (T-162); the extension reads its own.
    */
-  | { type: 'task-modal-open'; project: string; tracker?: number | null; key: string; part?: string }
+  | { type: 'task-modal-open'; project: string; tracker?: number | null; key: string; part?: string; title?: string }
   /** The modal closed: Close, Escape, the backdrop, or Open as tab. */
   | { type: 'task-modal-close'; project: string; key: string };
 
@@ -47,7 +48,7 @@ export function modalTakes(o: ModalTask, m: FromWebview, commands: ReadonlySet<s
 
 export const area: ModelArea = {
   messages: {
-    'task-modal-open': (x) => short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && (x.tracker === undefined || x.tracker === null || Number.isInteger(x.tracker)) && (x.part === undefined || (typeof x.part === 'string' && TASK_PART.test(x.part))),
+    'task-modal-open': (x) => short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string) && (x.tracker === undefined || x.tracker === null || Number.isInteger(x.tracker)) && (x.part === undefined || (typeof x.part === 'string' && TASK_PART.test(x.part))) && (x.title === undefined || short(x.title, 1000)),
     'task-modal-close': (x) => short(x.project, 4096) && short(x.key, 100) && KEY.test(x.key as string),
   },
 };

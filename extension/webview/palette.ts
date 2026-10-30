@@ -156,7 +156,7 @@ function run(item: PaletteItem): void {
   shut();
   const d = item.does;
   if (d.kind === 'go') go(d.section, d.part);
-  else if (d.kind === 'task') api.postMessage({ type: 'task-modal-open', project: d.project, key: d.key });
+  else if (d.kind === 'task') api.postMessage({ type: 'task-modal-open', project: d.project, key: d.key, title: item.title });
   else if (d.kind === 'run') api.postMessage({ type: 'run', command: d.command, ref: d.ref });
   else if (d.kind === 'toolbar') api.postMessage({ type: 'toolbar', command: d.command, project: d.project });
   else if (d.kind === 'answer') { go('overview'); answerHere(d.question); } else refreshPage();

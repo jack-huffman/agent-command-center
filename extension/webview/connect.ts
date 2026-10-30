@@ -1,16 +1,17 @@
 // Adding or changing a board (T-140): one modal over the section that opened it, stepped through: the
 // tracker, its site and sign-in, the board with its lists as dropdowns across the top and the board they make
 // under them, then Save. Back and Next keep every choice, which the extension holds; Cancel, Escape and the
-// backdrop change nothing.
+// backdrop change nothing. Connect a tracker opens it at the click, loading, until a model holds the page (T-162).
 
 import type { Look } from '../src/model/shared.ts';
 import type { HomeModel, Model } from '../src/model/home.ts';
 import type { ConnectField, ConnectModel, ConnectPicker, ConnectStep } from '../src/model/connect.ts';
 import { button, type Child, el, icon, keepFocus, keptInput, segmented, status } from './dom.ts';
-import { api, type PageArea } from './state.ts';
+import { api, onSent, type PageArea } from './state.ts';
 import { changesFieldConnect } from './changes-field.ts';
 import { connectSend, previewPanel } from './choose-board.ts';
 import { pickerDropdown } from './dropdown.ts';
+import { LOAD_LIMIT_MS, Opening } from './loading.ts';
 import { makeModal } from './modal.ts';
 
 // ---------------------------------------------------------------- connecting a tracker (GH-51)
@@ -222,13 +223,42 @@ function make(): HTMLDialogElement {
   return m.dialog;
 }
 
+/** The modal's wait, from the click until a model holds the page (T-162). */
+const waiting = new Opening();
+/** Closed while it loaded: until when the page that comes after is cancelled, not shown. */
+let dropUntil = 0;
+
+/** Connect a tracker was clicked: the modal opens now, loading, until a model holds the page. */
+function waitFor(msg: Record<string, unknown>): void {
+  dialog ??= make();
+  dropUntil = 0;
+  title!.replaceChildren(icon('plug'), el('span', '', 'Connect a tracker'));
+  dialog.setAttribute('aria-label', 'Connect a tracker');
+  footBox!.replaceChildren();
+  waiting.start('connect', body!, 'Opening Connect a tracker…', 'Connect a tracker', [], () => api.postMessage(msg));
+  if (!dialog.open) dialog.showModal();
+  body!.focus({ preventScroll: true });
+}
+
 /** Cancel, Escape or the backdrop (T-140): the extension forgets the choices and writes nothing, and the model it sends then closes the modal. */
 function shut(): void {
-  if (drawn) connectSend(drawn, { type: 'connect-cancel' });
+  if (drawn) return connectSend(drawn, { type: 'connect-cancel' });
+  // Still loading: it closes now, and the page the extension opens for it is cancelled as it comes.
+  if (!waiting.key) return;
+  waiting.end();
+  dropUntil = Date.now() + LOAD_LIMIT_MS;
+  if (dialog?.open) dialog.close();
 }
 
 /** Draws the modal for the model, opening it, or closes it when no board is being added or changed. */
 function show(m: ConnectModel | null): void {
+  // Loading: a model with no page yet leaves it loading.
+  if (!m && waiting.key) return;
+  if (m && !drawn && Date.now() < dropUntil) {
+    dropUntil = 0;
+    return connectSend(m, { type: 'connect-cancel' });
+  }
+  waiting.end();
   if (!m) {
     drawn = null;
     connectShown = null;
@@ -253,6 +283,8 @@ function show(m: ConnectModel | null): void {
   if (same) keep();
   else body!.querySelector<HTMLElement>('.connect-step h2')?.focus({ preventScroll: true });
 }
+
+onSent((m) => { if (m.type === 'toolbar' && m.command === 'acc.trackers.add') waitFor(m); });
 
 export const area: PageArea = {
   // The modal follows the model (T-140): open while a board is added or changed, closed when it isn't.
