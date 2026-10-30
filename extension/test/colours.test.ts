@@ -152,8 +152,8 @@ test('the scan finds a hex, rgb(), hsl() and a named colour, with file and line,
 
 test('theme.css holds every colour of both palettes, and nothing else does (GH-109, GH-105)', () => {
   const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?)\(/g;
-  // 50 a palette, and eight of each for the label and avatar tints (T-91, T-94).
-  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 116);
+  // 49 a palette, and eight of each for the label and avatar tints (T-91, T-94). Setup's progress bar went (T-153), and its colour.
+  assert.equal((styleFile('theme.css').replace(/\/\*[\s\S]*?\*\//g, '').match(literal) ?? []).length, 114);
 });
 
 /** The function of a module a line sits in: the nearest function declared above it. */
