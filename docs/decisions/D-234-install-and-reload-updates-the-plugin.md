@@ -1,4 +1,4 @@
-## D-T-152 Install and reload updates the Claude Code plugin too (2026-10-30)
+## D-234 Install and reload updates the Claude Code plugin too (2026-10-30)
 
 T-152. The extension's Install and reload (T-62) changed the extension and the acc it carries, but not the
 Claude Code plugin. Builders run the plugin's own acc and its hooks, and a private marketplace doesn't update

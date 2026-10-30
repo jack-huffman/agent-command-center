@@ -1816,7 +1816,7 @@ notes**, **Skip this version** (kept in global state as `acc.update.skipped`).
 Install and reload runs `gh release download` as gh's active account into a
 new temporary folder, takes the one `.vsix` named for the version, checks it
 against the release's `<vsix>.sha256` (a release with none, or a mismatch, is refused, D-173), then
-updates the Claude Code plugin (T-152, D-T-152): when `claude plugin list --json` lists it for every
+updates the Claude Code plugin (T-152, D-234): when `claude plugin list --json` lists it for every
 session (`userPlugin`) and older than the new version (`pluginBehind`), it runs A4's own fix line
 (`pluginUpdate`, built for sh or for PowerShell), as gh's active account, and the progress notification
 shows "Updating the Claude Code plugin". A plugin that isn't there is left for Setup. A failed plugin
