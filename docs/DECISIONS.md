@@ -242,3 +242,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-232](decisions/D-232-this-machine-by-its-platform.md) | The Command Center names this machine by its platform: This Mac, This PC or This computer | 2026-10-29 |
 | [D-233](decisions/D-233-plans-and-drafts-pass-the-wording-check.md) | A plan and an agent's words in a draft update pass the wording check | 2026-10-29 |
 | [D-234](decisions/D-234-install-and-reload-updates-the-plugin.md) | Install and reload updates the Claude Code plugin too | 2026-10-30 |
+| [D-235](decisions/D-235-deploy-with-an-agent.md) | Deploy with an agent: a guide gathers every step into a runbook, and deploys on the yes the person types | 2026-10-30 |
