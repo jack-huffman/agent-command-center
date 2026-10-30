@@ -2,8 +2,8 @@
  * The modals' behaviour in a browser (GH-170). The task modal over the Tasks board (D-129) and the
  * Overview's detail modal (D-131) were checked by hand: Escape and the backdrop closing them, focus going
  * back to what opened them, a redraw under them leaving them as they were, a fold redrawing them, Show all
- * and the suggested rules' Previous and Next. One case reads a task page as drawn: ACME-21's wording list
- * (T-12, T-13), a line for each finding; another, ACME-19's review (T-53), its findings in order and the
+ * and the suggested rules' Previous and Next. One case reads a task page as drawn: ACME-21's wording findings
+ * (T-12, T-151), each under its own line; another, ACME-19's review (T-53), its findings in order and the
  * message a click on a file and line sends. One reads Settings as drawn (T-40): a guide link for each part, and
  * a closed What this means for each long explanation, which stays open once opened. Each case here opens the built page from its fixture in
  * headless Chrome, posts what the extension would post and dispatches what a person's keys and clicks
@@ -121,7 +121,7 @@ export interface BehaviourData {
   questionOpens: string;
   /** A list with more than its page shows: its key, its heading, how many it shows and how many it holds. */
   list: { key: string; title: string; shown: number; total: number };
-  /** The wording findings ACME-21's page lists (T-12), in its order: where each is, why, and its line. */
+  /** The wording findings ACME-21's page shows (T-12), in its order: where each is, its fix, and its line (T-151). */
   wording: { place: string; message: string; text: string }[];
   /**
    * ACME-19's review (T-53), from its model: each finding's state and message, in the page's order, and what
@@ -852,16 +852,16 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'task page: an analysis with wording findings shows its wording list, a line for each finding with its place and why',
+    name: 'task page: an analysis with wording findings shows each finding beside its own line, with its fix, in a section that opens (T-151)',
     page: 'ticket-questions',
     async run(t) {
-      const box = t.find('.an-wording');
-      t.check('the list has its heading, with its count', t.find('.an-part-name', box).textContent === `How the requirements read${t.data.wording.length}`, t.find('.an-part-name', box).textContent);
-      const items = t.all('li', box);
-      t.check('a line for each finding', items.length === t.data.wording.length && items.length > 0, { shown: items.length, expected: t.data.wording.length });
+      const fixes = t.all('.an-fix');
+      t.check('a fix for each finding', fixes.length === t.data.wording.length && fixes.length > 0, { shown: fixes.length, expected: t.data.wording.length });
       for (const [i, f] of t.data.wording.entries()) {
-        const text = items[i]?.textContent ?? '';
-        t.check(`finding ${i + 1} shows its place, why, and its line`, text.startsWith(`${f.place}: ${f.message}`) && text.includes(f.text), text);
+        const line = fixes[i]?.closest('li');
+        const text = fixes[i]?.textContent ?? '';
+        t.check(`finding ${i + 1} shows its fix under its own line`, text.startsWith(f.message) && !!line && line.textContent!.startsWith(f.text), { fix: text, line: line?.textContent });
+        t.check(`finding ${i + 1} is in an open section`, fixes[i]?.closest('details')?.open === true);
       }
     },
   },
@@ -1027,7 +1027,9 @@ export const CASES: Case[] = [
       const chosen = (id: string): number => (group(id).textContent?.match(/Chosen/g) ?? []).length;
       t.check('Choices opens by itself, as a choice in it waits on the person', part('choices').open);
       t.check('so do Questions', part('questions').open);
-      t.check('the other sections start closed', ['approach', 'criteria', 'risks', 'more'].every((id) => !part(id).open), ['approach', 'criteria', 'risks', 'more'].map((id) => [id, part(id).open]));
+      t.check('the other sections start closed', ['approach', 'risks'].every((id) => !part(id).open), ['approach', 'risks'].map((id) => [id, part(id).open]));
+      // Acceptance criteria and More hold a wording finding in this plan, so they open as well (T-151).
+      t.check('a section with a wording finding opens', ['criteria', 'more'].every((id) => part(id).open), ['criteria', 'more'].map((id) => [id, part(id).open]));
       t.check('the choice still to make shows its cards side by side', cards(d.open) === d.openOptions, cards(d.open));
       t.check('the made choice is one line, with no cards', cards(d.made) === 0 && !!group(d.made).querySelector('.pd-line'), cards(d.made));
       t.check('its line names the option chosen, and says Chosen once', group(d.made).textContent?.includes(d.chosen) === true && chosen(d.made) === 1, group(d.made).textContent);
@@ -2753,8 +2755,9 @@ export const MUTANTS: Mutant[] = [
   { name: 'Confirm leaves out the check it asks for', file: 'rules.ts', find: 'title: now.title.trim(), check: now.check,', replace: 'title: now.title.trim(),', kills: [caseNamed('detail modal: Accept')] },
   { name: 'a rule acc accepted stays until a model without it comes', file: 'rules.ts', find: '    settled.add(ruleKey(c));\n', replace: '', kills: [caseNamed('detail modal: a rule acc accepted leaves')] },
   { name: 'a model that still holds an accepted rule brings it back', file: 'rules.ts', find: 'for (const k of [...settled]) if (!live.has(k)) settled.delete(k);', replace: 'settled.clear();', kills: [caseNamed('detail modal: a rule acc accepted leaves')] },
-  { name: 'the task page shows no wording list', file: 'analysis.ts', find: 'if (a.wording) {', replace: 'if (a.wording && !a.wording) {', kills: [caseNamed('task page: an analysis with wording findings')] },
-  { name: 'the wording list leaves out where each finding is', file: 'analysis.ts', find: "el('strong', '', `${f.place}: `)", replace: "el('strong', '', '')", kills: [caseNamed('task page: an analysis with wording findings')] },
+  { name: 'the task page shows no wording findings', file: 'analysis.ts', find: 'const found = a.wording?.findings ?? [];', replace: 'const found: never[] = [];', kills: [caseNamed('task page: an analysis with wording findings')] },
+  { name: 'a wording finding shows under each line of its part, not its own', file: 'analysis.ts', find: 'f.part === part && f.index === i', replace: 'f.part === part', kills: [caseNamed('task page: an analysis with wording findings')] },
+  { name: 'a section with a wording finding stays closed', file: 'analysis.ts', find: "a.criteria.length, held('criteria')", replace: 'a.criteria.length, false', kills: [caseNamed('task page: an analysis with wording findings')] },
   { name: 'the review lists its findings in the reviewer\'s order', file: 'review.ts', find: 'r.findings.map(finding)', replace: '[...r.findings].reverse().map(finding)', kills: [caseNamed('task page: a review lists its findings')] },
   { name: 'a finding\'s file and line sends nothing', file: 'review.ts', find: "b.addEventListener('click', () => api.postMessage({ type: 'review-file', ...opens }));", replace: "b.addEventListener('click', () => void opens);", kills: [caseNamed('task page: a review lists its findings'), caseNamed('output panel: a review')] },
   { name: 'the output panel drops the verdict and shows only the lines', file: 'dock.ts', find: 'const body = open && review ? renderDockReview(run.id, review, redrawDock) : null;', replace: 'const body = null;', kills: [caseNamed('output panel: a review')] },

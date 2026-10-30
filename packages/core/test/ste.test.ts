@@ -257,7 +257,8 @@ test('a wording finding never holds a dispatch: it is advice for a person', () =
 test('the analyst\'s prompt holds the STE Strict rules in full, so no skill needs installing', () => {
   const { system } = analysisPrompt({ task: { id: 'T-1', title: 't', brief: '', source: { kind: 'manual' } } as unknown as Task, config, env: config.environments[0]!, root: '/r', checkedOut: null, orgs: [], rules: null, previous: null });
   for (const line of STE_STRICT) assert.ok(system.includes(line), line);
-  assert.match(system, /the goal, each acceptance criterion, each assumption and each out-of-scope item in Simplified Technical English \(ASD-STE100\), Strict mode/);
+  assert.match(system, /the goal, each acceptance criterion, each assumption, each out-of-scope item and each question in Simplified Technical English \(ASD-STE100\), Strict mode/);
+  assert.match(system, /acc checks the wording of each line before it records the plan, and sends you each finding and its fix/, 'the analyst knows its plan is checked (T-151)');
   for (const rule of ['active voice', 'semicolon', 'present perfect', 'phrasal verbs', 'one word for one thing', 'marketing adjectives', '3 nouns', '"and" or "or"', 'no more than 20 words']) assert.ok(system.includes(rule), rule);
   assert.doesNotMatch(system, /ste100|SKILL\.md|ste-lint/, 'it names no skill to load');
 });

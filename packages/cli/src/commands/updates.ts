@@ -3,7 +3,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AccError, claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, readAnalysis, readLedger, readUpdate, releaseUpdate, run, stalePosting, type Update, UPDATE_TEXT_MAX, updateText } from '../../../core/src/index.ts';
+import { AccError, claimUpdate, discardUpdate, draftUpdate, EVENT_WORDS, GH_TIMEOUT_MS, ghToken, githubIssue, isOpenUpdate, listUpdates, markPosted, questionPlace, readAnalysis, readLedger, readUpdate, releaseUpdate, run, stalePosting, type Update, UPDATE_TEXT_MAX, updateText } from '../../../core/src/index.ts';
 import { issueRepo } from '../../../core/src/trackers/github.ts';
 import { trackerName } from '../../../core/src/trackers/types.ts';
 import { tone } from '../format.ts';
@@ -138,7 +138,8 @@ function cmdUpdateAsk(o: Opts, id: string, q: string): number {
   if (!a) throw new AccError('no-analysis', `${taskId} hasn't been analyzed yet: acc analyze ${taskId}.`);
   const question = a.questions.find((x) => x.id === q.toLowerCase() || x.id === `q${q}`);
   if (!question) throw new AccError('usage', `${taskId}'s analysis has no question ${q}. It has: ${a.questions.map((x) => x.id).join(', ') || 'none'}.`);
-  const u = draftUpdate(paths, task, { event: 'question', question: question.id, text: updateText('question', { question: question.question }) }, by, now);
+  // The question is the planning agent's words, which pass the wording check before the draft is written (T-151).
+  const u = draftUpdate(paths, task, { event: 'question', question: question.id, text: updateText('question', { question: question.question }), agent: [{ where: questionPlace(question.id), text: question.question }] }, by, now);
   if (!u) throw new AccError('refused', `${taskId} has no ticket to post a question on: it's a task acc alone keeps.`);
   out(o, () => `Drafted ${question.id} for ${u.key} (${u.id}). Read and edit it before you post it.\n${u.text.split('\n').map((l) => `    ${l}`).join('\n')}`, u);
   return 0;
