@@ -244,6 +244,8 @@ function landNow(paths: RepoPaths, config: Config, id: string, deps: LandDeps, o
     const update = draftUpdate(paths, task, {
       event: opened ? 'pr-opened' : 'pr-updated', pr: { number: pr.number, url: pr.url },
       context: { summary: verdict.client?.trim() || task.title },
+      // The reviewer's sentence for the client is an agent's words, which pass the wording check (T-151); the title isn't.
+      agent: verdict.client?.trim() ? [{ where: 'The sentence for the client', text: verdict.client }] : [],
     }, opts.by ?? 'acc land', now);
     steps.done('update', update ? undefined : 'It has no ticket');
     return { task: updated, sha, pr, opened, update: update ? { id: update.id, key: update.key } : null };

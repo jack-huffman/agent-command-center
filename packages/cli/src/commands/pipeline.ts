@@ -70,7 +70,7 @@ function analysisLines(a: Analysis): string[] {
     ...(planLines(a).length ? ['', ...planLines(a)] : []),
     ...(a.questions.length ? ['', 'Questions', ...a.questions.map((q) => `  ${q.id}. ${q.question} ${tone(`(${askedOf(q)})`, 'dim')}${q.answer ? tone(`  → ${q.answer.text}`, 'blue') : tone(`  (suggested: ${q.suggested})`, 'dim')}`)] : []),
     ...list('Acceptance criteria', a.requirements.criteria),
-    // The wording check on its requirements (T-12): advice, never a hold.
+    // The wording check on its requirements (T-12), which holds its approval (T-151).
     ...(a.wording?.length ? ['', tone(`! ${wordingWords(a.wording.length)}`, 'orange'), ...a.wording.map((f) => `  - ${wordingPlace(f)}: ${f.message} [${f.match}]`)] : []),
     ...list('What is there now', a.findings.map((f) => `${f.area}: ${f.detail}${f.source ? tone(`  ${f.source}`, 'dim') : ''}`)),
     ...list('Approach', a.approach.plan),

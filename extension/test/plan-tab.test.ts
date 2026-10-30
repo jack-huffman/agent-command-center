@@ -97,11 +97,11 @@ test('the whole plan is named sections with their counts, nothing lost: each cho
   const e = draw(m);
   assert.deepEqual(sections(e).map((s) => [s.id, s.name, s.count]), [
     ['choices', 'Choices', 2], ['questions', 'Questions', 1], ['approach', 'The approach', 3], ['criteria', 'Acceptance criteria', 3], ['risks', 'Risks and tests', 4],
-    ['more', 'More', a.assumptions.length + a.outOfScope.length + a.findings.length + a.wording!.findings.length + a.planState!.earlier.length + a.refactors.length + a.decided.length],
+    ['more', 'More', a.assumptions.length + a.outOfScope.length + a.findings.length + a.planState!.earlier.length + a.refactors.length + a.decided.length],
   ]);
   assert.equal(e.all('an-whole').length, 0, 'no The whole plan');
   const more = e.all('an-sec').find((s) => s.dataset.part === 'more')!;
-  assert.deepEqual(more.all('an-part-name').map((n) => n.textContent.replace(/\d+$/, '')), ['Assumptions', 'Out of scope', 'What\'s there now', 'How the requirements read', 'Earlier versions', 'Refactors first', 'Decided']);
+  assert.deepEqual(more.all('an-part-name').map((n) => n.textContent.replace(/\d+$/, '')), ['Assumptions', 'Out of scope', 'What\'s there now', 'Earlier versions', 'Refactors first', 'Decided'], 'its goal has no finding, so no How the goal reads');
   assert.equal(more.all('status').length, 1, 'the wording\'s state beside More\'s count');
   // Everything the plan holds is still drawn somewhere.
   for (const [cls, n] of [['plan-decision', 2], ['aq', 1], ['plan-version', 2], ['an-discussable', 0]] as const) assert.ok(e.all(cls).length >= n, cls);
@@ -115,7 +115,8 @@ test('Choices and Questions open by themselves while something in them waits on 
   kept = undefined;
   const open = (m: TicketModel) => Object.fromEntries(sections(draw(m)).map((s) => [s.id, s.open]));
   const first = sampleTicket(NOW, 'ACME-21');
-  assert.deepEqual(open(first), { choices: true, questions: true, approach: false, criteria: false, risks: false, more: false });
+  // Its criterion and its assumption with a wording finding open their sections too (T-151).
+  assert.deepEqual(open(first), { choices: true, questions: true, approach: false, criteria: true, risks: false, more: true });
   // Approved, both choices made: Choices starts closed; the question for the author not yet asked still waits.
   const approved = sampleTicket(NOW, 'ACME-21', false, null, null, 'approved');
   assert.deepEqual([open(approved).choices, open(approved).questions], [false, true]);
@@ -125,9 +126,9 @@ test('Choices and Questions open by themselves while something in them waits on 
   assert.equal(questionWaits({ canAsk: false, open: [] }), false, 'edge case: none open');
   // Closed by the person, a waiting section stays closed; opened, a closed one stays open.
   const key = `an:${first.project}#ACME-21:sec:`;
-  kept = { opened: [`${key}choices:shut`, `${key}more`] };
-  assert.deepEqual([open(first).choices, open(first).more], [false, true]);
-  // The toggle remembers it: closing Choices marks it shut, opening More remembers it open.
+  kept = { opened: [`${key}choices:shut`, `${key}risks`] };
+  assert.deepEqual([open(first).choices, open(first).risks], [false, true]);
+  // The toggle remembers it: closing Choices marks it shut, opening Risks and tests remembers it open.
   kept = undefined;
   const e = draw(first);
   const fire = (id: string, to: boolean) => {
@@ -136,8 +137,8 @@ test('Choices and Questions open by themselves while something in them waits on 
     for (const f of s.listeners.get('toggle') ?? []) f({});
   };
   fire('choices', false);
-  fire('more', true);
-  assert.deepEqual((kept as { opened: string[] }).opened.filter((k) => k.startsWith(key)).sort(), [`${key}choices:shut`, `${key}more`]);
+  fire('risks', true);
+  assert.deepEqual((kept as { opened: string[] }).opened.filter((k) => k.startsWith(key)).sort(), [`${key}choices:shut`, `${key}risks`]);
   assert.ok(compareKey(chooseKey(first.project, 'ACME-21', 'd1')).endsWith(':d1:compare'));
 });
 
@@ -188,4 +189,29 @@ test('with a conversation, the row holds Open conversation and no Talk it throug
   const fresh = sampleTalkTicket(NOW, true);
   const none = labels({ ...fresh, talk: { ...fresh.talk!, line: null } });
   assert.deepEqual([none.includes('Talk it through'), none.includes('Open conversation')], [true, false], none.join(', '));
+});
+
+test('each wording finding shows beside its line, its section opens, and a finding on the goal lists the goal with it (T-151)', () => {
+  kept = undefined;
+  const m = sampleTicket(NOW, 'ACME-21');
+  const a = m.analysis!;
+  const found = a.wording!.findings;
+  assert.deepEqual(found.map((f) => [f.part, f.index]), [['criteria', 1], ['assumptions', 0]], 'the sample has a finding on a criterion and on an assumption');
+  const e = draw(m);
+  const sec = (id: string) => e.all('an-sec').find((s) => s.dataset.part === id)!;
+  // Each line with a finding has its fix under it, and no other line has one.
+  const items = sec('criteria').all().filter((x) => x.tagName === 'LI');
+  assert.deepEqual(items.map((li) => li.all('an-fix').length), [0, 1, 0]);
+  assert.match(items[1]!.all('an-fix')[0]!.textContent, new RegExp(`^${found[0]!.message.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.ok(items[1]!.all('codicon-warning').length === 1, 'an orange warning icon');
+  assert.equal(sec('more').all('an-fix').length, 1, 'the assumption\'s finding, under it');
+  assert.ok(sections(e).filter((s) => ['criteria', 'more'].includes(s.id!)).every((s) => s.open), 'a section with a finding opens');
+  // An edge case: a finding on the goal, which isn't a line of its own, lists the goal with its fix; with none, nothing.
+  const goal = { place: 'Goal', part: 'goal' as const, index: 0, text: 'Kick off the sync.', message: 'Soft phrasal verb.', match: 'Kick off' };
+  const withGoal = draw({ ...m, analysis: { ...a, wording: { ...a.wording!, findings: [goal] } } });
+  const part = withGoal.all('an-wording')[0]!;
+  assert.match(part.textContent, /^How the goal reads1Kick off the sync\.Soft phrasal verb\. Kick off$/);
+  const none = draw({ ...m, analysis: { ...a, wording: null } });
+  assert.deepEqual([none.all('an-fix').length, none.all('an-wording').length], [0, 0]);
+  assert.ok(!sections(none).find((s) => s.id === 'criteria')!.open, 'with no finding, Acceptance criteria starts closed');
 });

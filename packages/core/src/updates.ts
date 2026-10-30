@@ -1,10 +1,12 @@
 import { sentence } from './text.ts';
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { refuseDraftWording } from './draft-wording.ts';
 import { AccError } from './exec.ts';
 import { writeAtomic } from './atomic.ts';
 import { type Task } from './ledger.ts';
 import { withLock } from './lock.ts';
+import type { NoteLine } from './note-wording.ts';
 import type { RepoPaths } from './paths.ts';
 import { isTrackerKind, type TextField, type TrackerKind } from './trackers/types.ts';
 
@@ -223,6 +225,11 @@ export interface DraftInput {
   /** What it says. Without it, the event's own wording from what's given. */
   text?: string;
   context?: UpdateContext;
+  /**
+   * The lines of it an agent wrote (T-151): the reviewer's sentence for the client, or a planning agent's
+   * question. They pass the wording check before the draft is written. acc's own text around them isn't given.
+   */
+  agent?: NoteLine[];
 }
 
 /**
@@ -237,6 +244,8 @@ export function draftUpdate(paths: UpdatePaths, task: Pick<Task, 'id' | 'source'
   const ticket = ticketOf(task);
   if (!ticket) return null;
   if (ticket.tracker === 'slack' && !SLACK_UPDATE_EVENTS.includes(input.event)) return null;
+  // An agent's words in it pass the wording check before anything is written (T-151).
+  refuseDraftWording(input.agent ?? []);
   return locked(paths, () => {
     const all = listUpdates(paths);
     const mine = all.filter((u) => u.task === task.id);

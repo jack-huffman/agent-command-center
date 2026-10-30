@@ -68,11 +68,11 @@ function analyzed(requirements: { goal: string; criteria: string[]; assumptions:
   return dir;
 }
 
-test('show and analysis list each wording finding with the requirement it came from, as advice in orange words', () => {
+test('show and analysis list each wording finding with the requirement it came from, in orange words, and say they hold the approval', () => {
   const dir = analyzed({ goal: 'Kick off the sync.', criteria: ['The sync runs; it logs.'], assumptions: [], outOfScope: [] });
   const show = acc(dir, ['show', 'T-1']);
   assert.equal(show.code, 0, show.err);
-  assert.match(show.out, /! Wording: 2 findings in its analysis's requirements\. They're advice: they never hold a dispatch\.\n {2}Goal: Soft phrasal verb\.[^\n]*\[Kick off\]\n {4}Kick off the sync\.\n {2}Criterion 1: STE bans the semicolon[^\n]*\[;\]\n {4}The sync runs; it logs\./);
+  assert.match(show.out, /! Wording: 2 findings in its analysis's requirements\. The plan can't be approved: make a new plan with acc analyze T-1\.\n {2}Goal: Soft phrasal verb\.[^\n]*\[Kick off\]\n {4}Kick off the sync\.\n {2}Criterion 1: STE bans the semicolon[^\n]*\[;\]\n {4}The sync runs; it logs\./);
   assert.deepEqual((acc(dir, ['show', 'T-1', '--json']).json().wording as { part: string; rule: string }[]).map((f) => `${f.part} ${f.rule}`), ['goal phrasal-verb', 'criteria semicolon']);
   const analysis = acc(dir, ['analysis', 'T-1']);
   assert.match(analysis.out, /! Wording: 2 findings\n {2}- Goal: Soft phrasal verb[^\n]*\n {2}- Criterion 1: STE bans the semicolon/);

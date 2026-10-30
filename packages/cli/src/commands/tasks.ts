@@ -190,7 +190,7 @@ function cmdShow(o: Opts, id: string): number {
   // A cloud builder (GH-69): where it runs, its page on claude.ai, and why it needs you, if it does.
   const cloud = t.run?.where === 'cloud' ? t.run.cloud ?? null : null;
   const waiting = cloudWait(t, config, now());
-  // The wording check on its analysis's requirements (T-12): advice for a person, never a hold.
+  // The wording check on its analysis's requirements (T-12): they hold the plan's approval (T-151).
   const wording = readAnalysis(paths, t.id)?.wording ?? [];
   out(o, () => [
     `${t.id}  ${stateLabel(displayState(ledger, t, { stopped, quiet: !!waiting, unseen: !!unseen }, config))}  ${t.title}`,
@@ -209,7 +209,7 @@ function cmdShow(o: Opts, id: string): number {
     t.notStarted && t.state !== 'running' ? tone(`! ${t.notStarted.reason}. ${DISPATCH_AGAIN}: acc dispatch ${t.id} --again`, 'orange') : '',
     stopped ? tone(`! Its agent stopped: ${quote ?? 'its turn ended before acc done or acc block.'}${quote && !/[.!?…]$/.test(quote) ? '.' : ''} Resume it with acc resume ${t.id}.`, 'orange') : '',
     ...files.lines,
-    ...(wording.length ? [tone(`! ${wordingWords(wording.length)} in its analysis's requirements. They're advice: they never hold a dispatch.`, 'orange'), ...wording.flatMap((f) => [`  ${wordingPlace(f)}: ${f.message}${wordingMatch(f) ? ` [${f.match}]` : ''}`, tone(`    ${f.text}`, 'dim')])] : []),
+    ...(wording.length ? [tone(`! ${wordingWords(wording.length)} in its analysis's requirements. The plan can't be approved: make a new plan with acc analyze ${t.id}.`, 'orange'), ...wording.flatMap((f) => [`  ${wordingPlace(f)}: ${f.message}${wordingMatch(f) ? ` [${f.match}]` : ''}`, tone(`    ${f.text}`, 'dim')])] : []),
     shared.length ? tone(`${sharesWords(shared)}.`, 'dim') : '',
     t.brief ? `\n${t.brief}\n` : '',
     t.notes ? `Notes for the builder:\n${t.notes}\n` : '',

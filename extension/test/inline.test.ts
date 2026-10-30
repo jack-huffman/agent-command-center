@@ -56,6 +56,9 @@ test('the analysis and the builder\'s note draw their lines with those marks', a
   const { readFileSync } = await import('node:fs');
   const analysis = readFileSync(new URL('../webview/analysis.ts', import.meta.url), 'utf8');
   const page = readFileSync(new URL('../webview/task-page.ts', import.meta.url), 'utf8');
-  for (const field of ['a.criteria', 'a.assumptions', 'a.outOfScope', 'a.plan', 'a.risks', 'a.tests']) assert.match(analysis, new RegExp(`${field.replace('.', '\\.')}\\.map\\(md\\)`), field);
+  for (const field of ['a.plan', 'a.risks', 'a.tests']) assert.match(analysis, new RegExp(`${field.replace('.', '\\.')}\\.map\\(md\\)`), field);
+  // The requirement lines draw through lined, which puts each wording finding under its line (T-151).
+  for (const part of ['criteria', 'assumptions', 'outOfScope']) assert.match(analysis, new RegExp(`a\\.${part}\\.map\\(lined\\('${part}'\\)\\)`), part);
+  assert.match(analysis, /const lined = \(part: string\) => \(x: string, i: number\): Child => el\('span', '', md\(x\)/);
   assert.match(page, /el\('span', 'note-line', md\(l\)\)/);
 });

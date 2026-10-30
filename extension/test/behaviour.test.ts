@@ -111,14 +111,14 @@ test('what the cases expect comes from the same fixtures the pages draw: ten rul
 test('the task page case opens ACME-21\'s page, whose analysis has wording findings, and expects each one: the edge case of a list the page could drop', () => {
   const d = behaviourData(models(), now);
   assert.deepEqual(d.wording.map((f) => f.place), ['Criterion 2', 'Assumption 1'], 'two findings, from the sample analysis');
-  assert.ok(d.wording.every((f) => f.message && f.text), 'each has why and its line');
+  assert.ok(d.wording.every((f) => f.message && f.text), 'each has its fix and its line');
   const c = CASES.find((x) => x.page === 'ticket-questions' && x.name.startsWith('task page:'));
   assert.ok(c, 'a case opens the task page');
   const m = caseModel(c, models()) as { kind: string; key: string };
   assert.deepEqual([m.kind, m.key], ['ticket', 'ACME-21']);
   assert.match(behaviourPage(c, m as never, d, FONTS), /<body class="vscode-light" data-view="ticket"/, 'the page takes the ticket model it is sent');
   assert.match(behaviourPage(CASES[0]!, models().tasks, d, FONTS), /data-view="home"/);
-  assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 2, 'a mutant hides the list, another drops each place');
+  assert.equal(MUTANTS.filter((x) => x.kills.includes(c.name)).length, 3, 'a mutant hides the findings, one draws each under every line of its part, one keeps its section closed (T-151)');
 });
 
 test('the plan case opens ACME-21\'s approved plan and expects acc\'s words and a Change it the extension takes (T-97); edge case: the two options it clicks are neither the one chosen', () => {

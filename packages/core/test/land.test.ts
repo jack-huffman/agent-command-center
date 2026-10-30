@@ -157,6 +157,27 @@ test('a task acc alone keeps has no ticket, so a land drafts nothing', () => {
   assert.deepEqual(listUpdates(s.paths), []);
 });
 
+test('an edge case: a reviewer\'s sentence for the client that fails the wording check drafts nothing, and the pull request is still recorded (T-151)', () => {
+  const s = setup();
+  waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+  writeFileSync(reviewPath(s.paths, s.id, s.sha), JSON.stringify({ ...passReview(s.paths, s.id, s.sha, s.base), client: 'We reach out to the team; totals add up.' }));
+  const r = land(s.paths, s.config, s.id, { run: gh([]), now, env: {} });
+  assert.equal(r.update, null);
+  assert.match(r.updateError!, /so acc wrote no draft\. Write each line again with its fix:\n- The sentence for the client: /);
+  assert.deepEqual(listUpdates(s.paths), [], 'no draft is written');
+  assert.equal(readLedger(s.paths.ledger).tasks[0]!.pr?.number, 42, 'the pull request is recorded');
+  // With no sentence for the client, the ticket's title stands in, and isn't checked: it isn't an agent's words.
+  const t = setup();
+  mutate(t.paths, now, (l, emit) => {
+    l.tasks[0]!.title = 'Set it up; then add the sum';
+    emit({ type: 'task.updated', task: t.id, actor: 'human', by: 'human:test', data: { title: l.tasks[0]!.title } });
+  });
+  waiveGates(t.paths, t.config, { sha: t.sha, env: t.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });
+  passReview(t.paths, t.id, t.sha, t.base);
+  const titled = land(t.paths, t.config, t.id, { run: gh([]), now, env: {} });
+  assert.match(readUpdate(t.paths, titled.update!.id)!.text, /\nSet it up; then add the sum\.$/);
+});
+
 test('landing again updates the open pull request rather than opening another', () => {
   const s = setup({ kind: 'github', key: '#12', url: 'https://github.com/acme/tool/issues/12' });
   waiveGates(s.paths, s.config, { sha: s.sha, env: s.config.environments[0]!, gates: ['test'], reason: 'r', by: 'human:t', now });

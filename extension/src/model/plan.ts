@@ -8,6 +8,8 @@ import type { Analysis, PlanOption } from '../../../packages/core/src/analyze.ts
 import type { SharedShape, SplitTask } from '../../../packages/core/src/shape-first.ts';
 import { CHANGE_APPROVED, CHOICE_TEXT_MAX } from '../../../packages/core/src/plan-choices.ts';
 import { choiceName, lapsedWords, planVersion, questionsForYou, unchosen } from '../../../packages/core/src/plan.ts';
+import { requirementWording } from '../../../packages/core/src/ste.ts';
+import { plural } from '../../../packages/core/src/text.ts';
 import { buildOff } from '../logic/plan.ts';
 import type { TaskRow } from '../logic/shared.ts';
 import { type Action, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
@@ -93,13 +95,18 @@ export interface TicketPlan {
 /** Who did it, as the page names them: the person, without acc's "human:". */
 export const byName = (by: string): string => by.replace(/^human:/, '');
 
-/** Why Approve this plan is off, or null: questions for you, or choices, still open, or a split. */
+/**
+ * Why Approve this plan is off, or null: questions for you, or choices, still open, or a split, or a hard
+ * wording finding in its requirements (T-151), which the page shows beside its line.
+ */
 export function approveOff(a: Analysis): string | null {
   if (a.verdict === 'split') return 'Its plan says it\'s too big for one task: split it rather than approve it.';
   const asks = questionsForYou(a).length;
   const choices = unchosen(a).length;
   const parts = [asks ? `answer ${asks === 1 ? 'the question' : `the ${asks} questions`} for you` : '', choices ? `make ${choices === 1 ? 'the choice' : `the ${choices} choices`}` : ''].filter(Boolean);
-  return parts.length ? `First ${parts.join(' and ')}.` : null;
+  if (parts.length) return `First ${parts.join(' and ')}.`;
+  const wording = requirementWording(a.requirements).length;
+  return wording ? `Its requirements fail the wording check (${plural(wording, 'finding')}, shown beside each line): make a new plan.` : null;
 }
 
 /** The shapes a plan names that other tasks build on, and its shape-first split (T-104); null when it names neither. */
