@@ -7,6 +7,8 @@
 .walk-lead:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 .walk-hero .detail { margin: 0; }
 .walk-hero .actions { margin: 0; }
+/* What this machine still needs before a project starts (T-133): full width, so each row's Go to it lines up. */
+.walk-hero .walk-rows { align-self: stretch; }
 
 /* The chapters, by part, each closed with its state, opened for its steps. */
 .walk-chapters { margin: 0 0 var(--space-5); }
