@@ -12,6 +12,7 @@ import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
 import type { InstallSystem } from '../../packages/core/src/onboarding/install-lines.ts';
 import { PLUGIN_LIST_ARGS, pluginUpdate, vsixName } from '../../packages/core/src/onboarding/steps.ts';
 import { PLUGIN_FIX, PLUGIN_STEP } from '../src/logic/plugin-update.ts';
+import { inShell } from '../../packages/core/src/shell.ts';
 import { AFTER_STATE, afterText, afterUpdate, checksumCheck, downloadArgs, FIRST_LOOK_MS, nextLookIn, OFFER_BUTTONS, offerText, pickVsix, shouldOffer, SKIPPED_STATE } from '../src/logic/self-update.ts';
 import type { AboutFacts, Release } from '../src/model/about.ts';
 import { RELEASE_EVERY_MS, RELEASES_REPO } from '../src/model/about.ts';
@@ -173,7 +174,7 @@ test('Install and reload downloads as gh\'s active account, checks the file, upd
     'step: Checking the download',
     `claude ${PLUGIN_LIST_ARGS.join(' ')}`,
     `step: ${PLUGIN_STEP}`,
-    `sh -c ${pluginUpdate('sh')}`,
+    `${inShell('')[0]} -c ${pluginUpdate('sh')}`,
     'step: Installing',
     `install: file://${file} (${VSIX})`,
     `saved: ${AFTER_STATE} {"version":"0.41.0","at":1234,"plugin":{"kind":"updated"}}`,
@@ -181,7 +182,7 @@ test('Install and reload downloads as gh\'s active account, checks the file, upd
   ]);
   assert.deepEqual(s.ghCalls[0]!.args, downloadArgs('v0.41.0', dir));
   assert.equal(s.ghCalls[0]!.env.GH_TOKEN, undefined, 'as gh\'s active account, not a project\'s');
-  assert.deepEqual(s.pluginCalls.map((c) => [c.cmd, c.args]), [['sh', ['-c', pluginUpdate('sh')]]], 'A4\'s own update line');
+  assert.deepEqual(s.pluginCalls.map((c) => [c.cmd, c.args]), [inShell(pluginUpdate('sh'))], 'A4\'s own update line');
   assert.equal(s.pluginCalls[0]!.env.GH_TOKEN, undefined, 'the plugin\'s git runs as gh\'s active account, not a project\'s');
   assert.ok(dir.startsWith(s.tmp));
   assert.deepEqual(readdirSync(s.tmp), [], 'the temporary folder is gone');

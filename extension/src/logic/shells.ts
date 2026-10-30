@@ -5,6 +5,7 @@
 
 import { type InstallSystem, type Shell, shellOf, SYSTEM } from '../../../packages/core/src/onboarding/install-lines.ts';
 import { powerShellQuote, quoteArg } from '../../../packages/core/src/onboarding/fix-lines.ts';
+import { inShell } from '../../../packages/core/src/shell.ts';
 
 /** Quotes one word for PowerShell 5.1: the one quoting packages/core/src/onboarding/fix-lines.ts gives the lines core builds. */
 export const psq = powerShellQuote;
@@ -26,10 +27,13 @@ const powerShellArgs = (line: string): string[] => ['-NoProfile', '-ExecutionPol
 
 /**
  * A fix line as a program and its arguments, for a run with no terminal, such as Install and reload's plugin
- * update (T-152): sh -c on a Mac and Linux, the encoded PowerShell on Windows.
+ * update (T-152): acc's own sh -c (inShell) on a Mac and Linux, the encoded PowerShell on Windows.
  */
-export const shellRun = (line: string, system: InstallSystem = SYSTEM): { cmd: string; args: string[] } =>
-  (shellOf(system) === 'powershell' ? { cmd: POWERSHELL, args: powerShellArgs(line) } : { cmd: 'sh', args: ['-c', line] });
+export function shellRun(line: string, system: InstallSystem = SYSTEM): { cmd: string; args: string[] } {
+  if (shellOf(system) === 'powershell') return { cmd: POWERSHELL, args: powerShellArgs(line) };
+  const [cmd, args] = inShell(line);
+  return { cmd, args };
+}
 
 /** The line the runner gets for a fix line: the encoded PowerShell on Windows, the line as it is elsewhere. */
 export const runnerLine = (line: string, system: InstallSystem = SYSTEM): string => (shellOf(system) === 'powershell' ? encodedPowerShell(line) : line);

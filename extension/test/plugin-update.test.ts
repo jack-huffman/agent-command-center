@@ -8,10 +8,13 @@ import { settingsModel } from '../src/model/settings.ts';
 import { PLUGIN_FIX, PLUGIN_STEP, pluginPlan, pluginRunOutcome, pluginUpdateRun, pluginWords, savedPlugin } from '../src/logic/plugin-update.ts';
 import { COMMANDS } from '../src/logic/setup.ts';
 import { encodedPowerShell, shellRun } from '../src/logic/shells.ts';
+import { inShell } from '../../packages/core/src/shell.ts';
 import { afterText, afterUpdate } from '../src/logic/self-update.ts';
 import type { RunResult } from '../src/run.ts';
 
 const listed = (plugins: Record<string, unknown>[]): RunResult => ({ code: 0, stdout: JSON.stringify(plugins), stderr: '' });
+/** The sh acc runs a line with on this machine (inShell). */
+const SH = inShell('')[0];
 const acc = (version: unknown, scope = 'user', enabled = true) => ({ id: 'acc@agent-command-center', scope, version, enabled });
 
 test('only a plugin for every session and older than the new version is updated; the edge cases of none, another scope, an unknown version and a failed list', () => {
@@ -40,12 +43,12 @@ test('the update runs A4\'s own fix line, through sh on a Mac and Linux and Powe
   const a4 = STEPS.find((s) => s.id === 'A4.plugin')!;
   assert.equal(pluginUpdate('sh'), 'claude plugin marketplace update agent-command-center && claude plugin update acc@agent-command-center --scope user');
   assert.equal(pluginUpdate('powershell'), 'claude plugin marketplace update agent-command-center; if ($?) { claude plugin update acc@agent-command-center --scope user }');
-  assert.deepEqual(pluginUpdateRun('mac'), { cmd: 'sh', args: ['-c', pluginUpdate('sh')] });
-  assert.deepEqual(pluginUpdateRun('linux'), { cmd: 'sh', args: ['-c', pluginUpdate('sh')] });
+  assert.deepEqual(pluginUpdateRun('mac'), { cmd: SH, args: ['-c', pluginUpdate('sh')] });
+  assert.deepEqual(pluginUpdateRun('linux'), { cmd: SH, args: ['-c', pluginUpdate('sh')] });
   const win = pluginUpdateRun('windows');
   assert.equal(win.cmd, 'powershell.exe');
   assert.equal([win.cmd, ...win.args].join(' '), encodedPowerShell(pluginUpdate('powershell')), 'the encoded line Do it runs on Windows');
-  assert.deepEqual(shellRun('echo hi', 'mac'), { cmd: 'sh', args: ['-c', 'echo hi'] });
+  assert.deepEqual(shellRun('echo hi', 'mac'), { cmd: SH, args: ['-c', 'echo hi'] });
   assert.ok(a4, 'A4 is the step whose fix this is');
   assert.deepEqual(PLUGIN_FIX, { label: 'Update the plugin', command: COMMANDS.fix, step: 'A4.plugin' });
   assert.equal(PLUGIN_STEP, 'Updating the Claude Code plugin');

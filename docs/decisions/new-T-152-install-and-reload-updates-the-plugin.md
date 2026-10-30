@@ -13,7 +13,7 @@ be a manual step hidden in setup after installing a new version."
   still updated, because the update doesn't turn it on. A plugin that isn't there, one for one project only,
   or no claude at all is left alone: Setup installs it.
 - **It runs A4's own fix line.** `pluginUpdate` in core is now exported, and `pluginUpdateRun` runs it with
-  `shellRun` (`extension/src/logic/shells.ts`): `sh -c` on a Mac and Linux, and the encoded PowerShell that
+  `shellRun` (`extension/src/logic/shells.ts`): acc's own `sh -c` (`inShell`) on a Mac and Linux, and the encoded PowerShell that
   Do it runs on Windows (D-209, T-124). It runs as gh's active account: a token in the environment is left
   out (`activeAccountEnv`, D-088), so the marketplace's git uses the person's own credentials.
 - **The progress notification shows the step** as "Updating the Claude Code plugin", only when it runs.
