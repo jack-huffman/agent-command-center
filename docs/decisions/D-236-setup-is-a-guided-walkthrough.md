@@ -46,5 +46,5 @@ D-224 and D-228, the shared stepper (`extension/webview/stepper.ts`) and the cal
   open's test (a kept place comes back in a new tab, and one that doesn't fit is refused), the looks table for a
   chapter, and three behaviour cases with four mutants: Next on before the check passes, a step that's done shown,
   Do it that asks for nothing, and a walk that forgets where it was. The screenshot run draws the start screen
-  (`setup`), a step (`setup-walk-step`), the plugin's step with Show how open (`setup-walk-how`), the tracker's
+  (`setup`), a chapter opened (`setup-walk-chapters`), a step (`setup-walk-step`), the plugin's step with Show how open (`setup-walk-how`), the tracker's
   step (`setup-walk-modal`) and the end (`setup-walk-end`).
