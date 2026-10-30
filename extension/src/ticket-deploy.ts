@@ -71,13 +71,14 @@ export const area: ExtensionArea = {
       const next = to ?? ticketPlace(p.config, task)?.next[0]?.branch;
       if (next) await tickets.deploys?.act({ type: 'deploy-check', project: p.root, task: task.id, to: next });
     });
-    // Deploy a ticket with an agent (T-154): the guide's chat opens, and it checks before anything deploys.
-    // TASK_DEPLOY_GUIDE_COMMAND.id, named here as areas.test reads registrations.
+    // Deploy a ticket with an agent (T-154): the guide's chat opens for the environment picked, any on the
+    // ticket's path after where it is (T-156), and it checks before anything deploys. Off with why for a pick
+    // that isn't. TASK_DEPLOY_GUIDE_COMMAND.id, named here as areas.test reads registrations.
     reg('acc.task.deployGuide', async (root?: string, id?: string, to?: string) => {
       const p = root ? hub.project(root) : hub.projects[0];
       const task = id ? hub.ledger(p?.root ?? '')?.tasks.find((t) => t.id === id.toUpperCase()) : undefined;
       if (!p || !task) return void vscode.window.showWarningMessage('Say which task to deploy, from its page\'s Changes tab.');
-      const can = TASK_DEPLOY_GUIDE_COMMAND.enabled({ config: p.config, task });
+      const can = TASK_DEPLOY_GUIDE_COMMAND.enabled({ config: p.config, task, to });
       if (!can.ok) return void vscode.window.showWarningMessage(can.why);
       await guide(p.root, task.id, to);
     });
