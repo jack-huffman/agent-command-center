@@ -1,4 +1,4 @@
-## D-T-153 Setup is a guided walkthrough: one thing on each screen, in chapters (2026-10-30)
+## D-236 Setup is a guided walkthrough: one thing on each screen, in chapters (2026-10-30)
 
 T-153. The person, on the Setup page: "I need it to feel more like a proper, guided experience rather than a
 wall of things to do. It needs to be a walkthrough", "super minimalistic, with nearly one type of interaction
