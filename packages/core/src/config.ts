@@ -206,11 +206,13 @@ export interface Config {
    * receipts count what ran and which need a person when none did (GH-100), besides those acc knows.
    * ratchets: checks whose command prints a number that may only get better, kept against a floor or a
    * ceiling in `.acc/floors.json` (GH-99). nearIndexes: files that gather every code file in their folder,
-   * for the tests near a change, where the folder's index would otherwise be guessed (D-155).
+   * for the tests near a change, where the folder's index would otherwise be guessed (D-155). apexCoverage:
+   * in Salesforce, the coverage each Apex class or trigger a ticket changes must reach in the org, 75 to 100
+   * (T-159). Left out, 75: Salesforce's own floor, which a project may raise, never lower.
    */
   gates: {
     required: string[]; commands: Record<string, string>; heavy: string[]; severity: number; builder?: string[]; tests?: string[];
-    ratchets?: Record<string, RatchetSpec>; nearIndexes?: string[];
+    ratchets?: Record<string, RatchetSpec>; nearIndexes?: string[]; apexCoverage?: number;
   };
   secretScan: { paths: string[]; exclude: string[] };
   /**
@@ -249,6 +251,9 @@ export interface Config {
 
 /** A tool the project's checks need: its name, why, a command that exits 0 when it's there, and one that sets it up. */
 export interface ProjectTool { title: string; why: string; check: string; fix: string }
+
+/** Salesforce's own coverage floor for a deploy to Production (T-159). A project may raise it, never lower it. */
+export const COVERAGE_FLOOR = 75;
 
 /** Which way a ratchet's number may go (GH-99): a floor's only up, a ceiling's only down. */
 export const RATCHET_LIMITS = ['floor', 'ceiling'] as const;
@@ -306,7 +311,7 @@ export const CONFIG_KEYS = [
   'agents.reviewer.model', 'agents.reviewer.effort', 'agents.reviewer.fallbackModel',
   'agents.cloud.routine', 'agents.cloud.default', 'agents.cloud.quietMinutes', 'agents.cloud.max', 'agents.cloud.review', 'autonomy',
   'worktrees.root', 'worktrees.setup', 'gates.required', 'gates.commands', 'gates.heavy', 'gates.severity', 'gates.builder', 'gates.tests',
-  'gates.ratchets', 'gates.nearIndexes',
+  'gates.ratchets', 'gates.nearIndexes', 'gates.apexCoverage',
   'secretScan.paths', 'secretScan.exclude', 'strayFiles.required', 'strayFiles.allow', 'strayFiles.data', 'analysis.required', 'sourceTracking', 'autopilot.appendOnly', 'autopilot.autoMerge',
   'dispatch.shared', 'tidy.every', 'template.name', 'template.source', 'template.digest',
   'tools[].title', 'tools[].why', 'tools[].check', 'tools[].fix',
@@ -720,6 +725,10 @@ export function parseConfig(raw: unknown): ParseResult {
   if (g.severity !== undefined && !(Number.isInteger(g.severity) && (g.severity as number) >= 1 && (g.severity as number) <= 5)) {
     errors.push('"gates.severity" must be a whole number from 1 (only the worst problems fail) to 5 (everything fails).');
   }
+  // The coverage floor (T-159): a project raises Salesforce's own 75, never lowers it.
+  if (g.apexCoverage !== undefined && !(Number.isInteger(g.apexCoverage) && (g.apexCoverage as number) >= COVERAGE_FLOOR && (g.apexCoverage as number) <= 100)) {
+    errors.push(`"gates.apexCoverage" must be a whole number from ${COVERAGE_FLOOR} to 100: the coverage each changed Apex class must reach in the org. ${COVERAGE_FLOOR} is Salesforce's own floor for Production, so it can't be lower.`);
+  }
   // Ratchets (GH-99): each is a gate of its own, so its name can't be another gate's.
   const ratchets: Record<string, RatchetSpec> = {};
   if (g.ratchets !== undefined) {
@@ -839,6 +848,7 @@ export function parseConfig(raw: unknown): ParseResult {
         ...(g.ratchets !== undefined ? { ratchets } : {}),
         ...(strList(g.tests) ? { tests: g.tests } : {}),
         ...(strList(g.nearIndexes) ? { nearIndexes: g.nearIndexes } : {}),
+        ...(typeof g.apexCoverage === 'number' ? { apexCoverage: g.apexCoverage } : {}),
       },
       secretScan: {
         paths: strList(s.paths) ? s.paths : defaultScan,
