@@ -70,19 +70,22 @@ export function sampleFirstSetup(machineReady: boolean): { items: DoctorItem[]; 
 }
 
 /** The pages that draw Setup's walkthrough past its start screen (T-153). */
-export const SETUP_WALK_PAGES = ['setup-walk-step', 'setup-walk-how', 'setup-walk-modal', 'setup-walk-end'] as const;
+export const SETUP_WALK_PAGES = ['setup-walk-step', 'setup-walk-how', 'setup-walk-modal', 'setup-walk-end', 'setup-walk-chapters'] as const;
 
 /**
  * Setup's walkthrough as the tab remembers it (T-153), over sampleSetup's steps: at a step with two skipped
  * before it; at the plugin's step with Show how open on its command line; at the tracker's step, whose Do it opens
- * Connect a tracker; and at the end with every step skipped. Null for any other page.
+ * Connect a tracker; at the end with every step skipped; and back at the start screen with a walk under way, one
+ * step skipped, and every chapter opened to its steps. Null for any other page.
  */
-export function setupWalkState(kind: string): { setupWalk: WalkPlace; opened?: string[] } | null {
+export function setupWalkState(kind: string): { setupWalk: WalkPlace; opened?: string[]; sections?: Record<string, boolean> } | null {
   const s = sampleSetup();
-  const walk = setupModel(s.items, s.confirmed).chapters.flatMap((c) => c.steps).filter((x) => !x.done).map((x) => x.id);
+  const chapters = setupModel(s.items, s.confirmed).chapters;
+  const walk = chapters.flatMap((c) => c.steps).filter((x) => !x.done).map((x) => x.id);
   if (kind === 'setup-walk-step') return { setupWalk: { at: 'B6.org-match', walk, skipped: ['A1.python', 'B0.template'] } };
   if (kind === 'setup-walk-how') return { setupWalk: { at: 'A4.plugin', walk, skipped: [] }, opened: ['setup-how:A4.plugin'] };
   if (kind === 'setup-walk-modal') return { setupWalk: { at: 'B14.tickets', walk, skipped: [] } };
   if (kind === 'setup-walk-end') return { setupWalk: { at: 'end', walk, skipped: walk } };
+  if (kind === 'setup-walk-chapters') return { setupWalk: { at: 'start', walk, skipped: ['B0.template'] }, sections: Object.fromEntries(chapters.map((c) => [c.key, true])) };
   return null;
 }

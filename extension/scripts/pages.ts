@@ -28,7 +28,7 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * Last, Setup as the Command Center first opens on it in a folder that isn't set up: at what kind of project
  * it is, and, on a machine with steps still to do, at the machine's part (GH-138). Setup itself is its
  * walkthrough's start screen (T-153); then a step's screen, one with Show how open, one whose Do it opens a modal,
- * and the end screen.
+ * the end screen, and the start screen with a walk under way and every chapter open.
  * Last, the Tasks board with a task opened over it in the modal, as a card's click opens it (GH-158).
  * Last, the Overview as a landing page when everything is busy at once (GH-160): ten suggested rules, six
  * tasks building with their checks, three questions, two update drafts and twelve things in History; then
@@ -309,11 +309,12 @@ export const PAGES = [
   'setup-first-machine',
   // A project being started, with this machine checked first: one tool missing, one not on PATH (T-133)
   'setup-machine-first',
-  // Setup's walkthrough (T-153): a step with two skipped before it, the plugin's step with Show how open, the tracker's step, whose Do it opens a modal, and the end with every step skipped
+  // Setup's walkthrough (T-153): a step with two skipped before it, the plugin's step with Show how open, the tracker's step, whose Do it opens a modal, the end with every step skipped, and the start screen with every chapter open
   'setup-walk-step',
   'setup-walk-how',
   'setup-walk-modal',
   'setup-walk-end',
+  'setup-walk-chapters',
   // Set up cloud builders (T-145): every step, on a Mac and on Windows, not done and done, and two with the detail opened
   'cloud-setup-on-mac-todo',
   'cloud-setup-on-mac-done',

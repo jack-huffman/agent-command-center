@@ -211,7 +211,7 @@ test('every section of the page, and a ticket, has sample data built by the real
     }
     // Setup's walkthrough past its start screen (T-153): Setup, with the tab remembering the screen on show.
     else if ((SETUP_WALK_PAGES as readonly string[]).includes(kind)) {
-      const at = { 'setup-walk-step': 'B6.org-match', 'setup-walk-how': 'A4.plugin', 'setup-walk-modal': 'B14.tickets', 'setup-walk-end': 'end' }[kind as typeof SETUP_WALK_PAGES[number]];
+      const at = { 'setup-walk-step': 'B6.org-match', 'setup-walk-how': 'A4.plugin', 'setup-walk-modal': 'B14.tickets', 'setup-walk-end': 'end', 'setup-walk-chapters': 'start' }[kind as typeof SETUP_WALK_PAGES[number]];
       assert.deepEqual([m.kind, (m as HomeModel).section, (startState(kind) as { setupWalk: { at: string } }).setupWalk.at], ['home', 'setup', at]);
     }
     // Environments on a machine not logged in to Production (T-125): its Open org and Deploy… off.

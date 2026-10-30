@@ -202,10 +202,13 @@ test('the folder keeps a place that fits, and refuses one that doesn\'t, as the 
   assert.deepEqual(setupModel([], new Set(), true, null, place).walk, place);
 });
 
-test('the screenshot run draws the start screen, a step, a step with its fold open, a step that opens a modal, and the end', () => {
+test('the screenshot run draws the start screen, its chapters opened, a step, a step with its fold open, a step that opens a modal, and the end', () => {
   assert.ok(PAGES.includes('setup'));
   for (const kind of SETUP_WALK_PAGES) assert.ok((PAGES as readonly string[]).includes(kind), kind);
-  assert.deepEqual(SETUP_WALK_PAGES.map((k) => setupWalkState(k)?.setupWalk.at), ['B6.org-match', 'A4.plugin', 'B14.tickets', 'end']);
+  assert.deepEqual(SETUP_WALK_PAGES.map((k) => setupWalkState(k)?.setupWalk.at), ['B6.org-match', 'A4.plugin', 'B14.tickets', 'end', 'start']);
+  const open = setupWalkState('setup-walk-chapters')?.sections ?? {};
+  assert.deepEqual(Object.keys(open), sample().chapters.map((c) => c.key), 'every chapter opened, to show its steps');
+  assert.ok(Object.values(open).every(Boolean));
   assert.deepEqual(setupWalkState('setup-walk-how')?.opened, ['setup-how:A4.plugin']);
   assert.equal(setupWalkState('setup'), null);
 });
