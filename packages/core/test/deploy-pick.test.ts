@@ -3,7 +3,7 @@
 // security review's three refusals: a deploy where the person didn't pick, a guide that writes its own pick, and
 // an expired pick.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { test } from 'node:test';
 import type { Environment } from '../src/config.ts';
@@ -75,7 +75,10 @@ test('production and a protected org keep the typed yes: the pick alone deploys 
   assert.match(said(() => takeGuidedYes(p, 'ACME-1', production, null, at(T0))), /^The person typed "yes", not Production\. Ask them to type Production in the chat/);
   keepTypedYes(p, 'ACME-1', 'Production', null, at(T0));
   assert.equal(takeGuidedYes(p, 'ACME-1', production, { at: T0 }, at(T0)), 'typed');
-  assert.equal(readPick(p, 'ACME-1')!.used, undefined, 'still not used: the typed name was the yes');
+  assert.equal(readPick(p, 'ACME-1')!.used, at(T0)().toISOString(), 'marked used once the typed name deployed, so it fixes no later deploy');
+  keepTypedYes(p, 'ACME-1', 'Production', null, at(T0));
+  assert.throws(() => takeGuidedYes(p, 'ACME-1', production, { at: T0 }, at(T0)), /pick of Production for ACME-1 was used by a deploy already\. A person opens its deploy guide again/, 'an old pick from a closed chat sends nothing to production (review)');
+  rmSync(typedYesPath(p, 'ACME-1'), { force: true });
   // A protected sandbox is production's case too: confirm is the plan's, by the settings or by what Salesforce says.
   keepPick(p, 'ACME-1', 'uat', by, at(T0));
   assert.throws(() => takeGuidedYes(p, 'ACME-1', { ...sandbox, confirm: true }, null, at(T0)), /hasn't typed a yes/);

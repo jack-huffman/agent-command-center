@@ -83,10 +83,17 @@ export function takeGuidedYes(paths: Pick<RepoPaths, 'stateDir'>, id: string, pl
     if (!confirmsOrg({ confirm: true, to: plan.to }, typed)) throw new AccError('refused', `${lead}The person typed "${typed}", not ${plan.confirmName}. Ask them to type ${plan.confirmName} in the chat to deploy ${id} to it.`);
     return 'typed';
   };
-  // Production and a protected org keep the typed yes: the pick only fixes where (D-235).
-  if (plan.confirm) return typedName('');
+  const markUsed = (): void => writeAtomic(deployPickPath(paths, id), JSON.stringify({ ...pick, used: now().toISOString() }, null, 2) + '\n');
+  // Production and a protected org keep the typed yes: the pick only fixes where (D-235), and once used it
+  // fixes nothing more, so an old pick from a closed chat never sends a later deploy there.
+  if (plan.confirm) {
+    if (pick.used) throw new AccError('refused', `The person's pick of ${plan.to.name} for ${id} was used by a deploy already. A person opens its deploy guide again to pick it.`);
+    const yes = typedName('');
+    markUsed();
+    return yes;
+  }
   const stale = pickStale(pick, now);
   if (stale) return typedName(`${stale} `);
-  writeAtomic(deployPickPath(paths, id), JSON.stringify({ ...pick, used: now().toISOString() }, null, 2) + '\n');
+  markUsed();
   return 'pick';
 }

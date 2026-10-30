@@ -569,7 +569,7 @@ test('a deploy guide\'s yes for production, or a protected org, is the name the 
   assert.deepEqual(realDeploys(calls), []);
   keepTypedYes(paths, 'ACME-1', 'Production', null, now);
   assert.equal(deployTask(paths, c, 'ACME-1', 'production', d, { by, checkId: '0AfCHECK', guided: true }).deployed, true);
-  assert.equal(readPick(paths, 'ACME-1')!.used, undefined, 'the pick only fixed where');
+  assert.equal(typeof readPick(paths, 'ACME-1')!.used, 'string', 'the pick fixed where, and is used up with the deploy');
   // A protected sandbox, by the settings: the same.
   const guarded = repo();
   const gc = config({ environments: [{ name: 'Production', type: 'production', org: 'Acme Production' }, { name: 'UAT', type: 'full', org: 'Acme UAT', protected: true, promotesTo: ['production'] }, { name: 'Dev', type: 'developer', org: 'Acme Dev', default: true, promotesTo: ['uat', 'production'] }] });

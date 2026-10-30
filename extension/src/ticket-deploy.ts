@@ -1,7 +1,8 @@
 // A ticket's deploy from its Changes tab (T-138): Deploy to <environment> opens the sheet and asks acc for the
 // plan, whose check changes nothing; only the sheet's own Deploy, after a check that passed, deploys. The
 // command acc.task.deploy (D-219's spec) opens the ticket's Changes tab and starts that check. Deploy with an
-// agent (T-154) opens a Claude Code chat as the deploy guide instead, where the person types the yes.
+// agent (T-154) opens a Claude Code chat as the deploy guide instead. The person's pick of where is the yes for a
+// sandbox (T-156); for Production or a protected org the yes is the environment's name they type in the chat.
 import * as vscode from 'vscode';
 import { TASK_DEPLOY_GUIDE_COMMAND } from '../../packages/core/src/deploy-guide.ts';
 import { jobsUnderWay } from '../../packages/core/src/jobs.ts';
