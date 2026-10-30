@@ -13,7 +13,7 @@ import { type FromWebview, isFromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
 import { type CheckIn, type ReviewIn, ticketActionRefusal, ticketCheck, ticketModel, type TicketModel, ticketReview } from './model/task-page.ts';
 import { htmlFor, isWebLink, type Panels, TabTheme } from './panels.ts';
-import { modalTakes, taskOf } from './model/task-modal.ts';
+import { MODAL_FAILED, modalTakes, taskOf } from './model/task-modal.ts';
 import type { ThemeChoice } from './model/settings.ts';
 import { runFile } from './run.ts';
 import { showFileAt } from './runs.ts';
@@ -33,7 +33,8 @@ import { type ChangesIn, ticketChanges, ticketPaths } from './model/changes.ts';
 import { withFieldKept } from './model/changes-field.ts';
 import { writtenFor } from '../../packages/core/src/field-drafts.ts';
 import type { FieldActions } from './changes-field.ts';
-import { run as runSync, type Runner } from '../../packages/core/src/exec.ts';
+import { run as runSync } from '../../packages/core/src/exec.ts';
+import { teamKey } from './logic/team-key.ts';
 import { branchFiles, IN_FLIGHT_STATES, plannedFiles } from '../../packages/core/src/overlap.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { type Team, teamOf } from '../../packages/core/src/team.ts';
@@ -109,8 +110,6 @@ interface Open {
   part: { part: string; at: number } | null;
 }
 
-/** What a modal over the Command Center hears when its task couldn't open (T-162), so it says why with Try again. */
-export const MODAL_FAILED = 'task-modal-failed';
 
 /** Commands a ticket page may run: the ones its task's card offers, and Dispatch with… and Dispatch to the cloud, kept for one release to open the sheet (D-168). */
 const ALLOWED = new Set(['acc.task.edit', 'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.dispatchAgain', 'acc.task.attach', 'acc.task.openInClaude', 'acc.task.watch', 'acc.task.resume', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.trackers.signIn']);
@@ -866,13 +865,3 @@ export const area: ExtensionArea = {
 /** Lets what was posted go before the slower reads start (T-162): git run synchronously would hold it back. */
 const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
 
-/**
- * What a task's team was read from (T-162): every branch's head, and each task in flight with its state and
- * branch. Null when git can't list the branches, and the team is read afresh.
- */
-export function teamKey(run: Runner, root: string, tasks: readonly Pick<Task, 'id' | 'state' | 'run'>[]): string | null {
-  const heads = run('git', ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads', 'refs/remotes'], { cwd: root });
-  if (heads.code !== 0) return null;
-  const flying = tasks.filter((t) => IN_FLIGHT_STATES.includes(t.state)).map((t) => `${t.id}:${t.state}:${t.run?.branch ?? ''}`);
-  return `${heads.stdout}\n${flying.join(',')}`;
-}

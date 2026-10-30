@@ -220,6 +220,8 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
   // A builder in the cloud, quiet for too long (GH-69).
   if (kind === 'ticket-cloud') return sampleTicket(now, 'ACME-44');
+  // The first draw of ACME-12's page (T-162), its slower parts still being read.
+  if (kind === 'ticket-filling') return { ...sampleTicket(now), filling: true };
   if (kind === 'ticket-nofields') return sampleTicket(now, 'ACME-50');
   // Claude Code isn't found on this Mac's path (T-94): acc can't see the builder, and Dispatch again is off, with why.
   if (kind === 'ticket-missing') return sampleTicket(now, 'ACME-48');
@@ -335,7 +337,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // Set up cloud builders (T-145), over Settings, where its Set up… is.
   const cloudSetup = sampleCloudSetup(kind);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('setup-walk') || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') || kind.startsWith('tasks-boards') || kind.startsWith('tasks-done') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') || cloudSetup ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('setup-walk') || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind.startsWith('tasks-modal') || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') || kind.startsWith('tasks-boards') || kind.startsWith('tasks-done') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') || cloudSetup ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : kind === 'tasks-azure' ? sampleAzureBoards : kind === 'tasks-azure-loading' ? sampleAzureLoading : kind === 'tasks-azure-refreshing' ? sampleAzureRefreshing : kind === 'tasks-sprint' ? sampleSprintBoards
     // Two Jira Service Management queue boards on one project (T-128), on the Tasks tab and in Settings.
@@ -409,6 +411,9 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : OUTPUT_RUNS[kind] ? { dock: { open: true, run: RUN_SAMPLE_ID[OUTPUT_RUNS[kind]!] } }
   // A run of acc's steps (T-65); the failed promotion with its failed check open to its rows.
   : OUTPUT_STEPS[kind] ? stepsState(OUTPUT_STEPS[kind]!)
+  // ACME-12's modal as a card's click opens it (T-162): loading, and once its load failed.
+  : kind === 'tasks-modal-loading' ? { opening: { project: ROOT, key: 'ACME-12', title: sampleTicket(Date.now()).title } }
+  : kind === 'tasks-modal-failed' ? { opening: { project: ROOT, key: 'ACME-12', title: sampleTicket(Date.now()).title, failed: 'Its project isn\'t open in the Command Center any more.' } }
   : kind === 'rules' ? { detail: { kind: 'rules' } }
   : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'], detail: { kind: 'rules' } }
   : kind === 'overview-answer' ? { detail: { kind: 'question', id: 'm1-aaaa0002' } }

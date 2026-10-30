@@ -2,10 +2,7 @@
 // on the Command Center's tab and handles what it sends, as it does for a task's own tab; this wires them.
 
 import type { ExtensionArea } from './area.ts';
-import { MODAL_FAILED } from './ticket.ts';
-
-/** Why a task's modal didn't open when its project isn't open here (T-162). */
-export const NO_PROJECT = 'Its project isn\'t open in the Command Center any more.';
+import { MODAL_FAILED, NO_PROJECT } from './model/task-modal.ts';
 
 export const area: ExtensionArea = {
   register({ hub, panels, tickets, receive }) {

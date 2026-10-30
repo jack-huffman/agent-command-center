@@ -19,7 +19,7 @@ import { row } from './support.ts';
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 
 type Tab = ReturnType<typeof fakeVscode>['panels'][number];
-type Msg = { type?: string; sheet?: DispatchSheet; model?: { kind: string; key?: string; loading?: boolean }; [k: string]: unknown };
+type Msg = { type?: string; sheet?: DispatchSheet; model?: { kind: string; key?: string; loading?: boolean; filling?: boolean }; [k: string]: unknown };
 
 const s = {} as { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof activate>; repo: string; root: string; tab: Tab; id: string; restore: () => void };
 
@@ -86,7 +86,7 @@ test('from a task\'s own tab, Dispatch opens the sheet over that tab, and runs n
   await runFrom(s.tab, 'acc.task.show');
   const page = panels.length > n ? panels.at(-1)! : panels.find((x) => x.html.includes('data-view="ticket"'))!;
   page.receive!({ type: 'ready' });
-  await until(() => (page.posted as Msg[]).some((m) => m.type === 'state' && m.model?.key === s.id && !m.model.loading));
+  await until(() => (page.posted as Msg[]).some((m) => m.type === 'state' && m.model?.key === s.id && !m.model.loading && !m.model.filling));
   const ran = calls.executed.length;
   const pageFrom = page.posted.length;
   const tabFrom = s.tab.posted.length;
@@ -99,7 +99,7 @@ test('from a task\'s own tab, Dispatch opens the sheet over that tab, and runs n
   // The modal over the board: its run is the modal's, and the sheet comes to the Command Center's page, over it.
   const peekFrom = s.tab.posted.length;
   s.tab.receive!({ type: 'task-modal-open', project: s.root, key: s.id });
-  await until(() => since(s.tab, peekFrom).some((m) => m.type === 'task-modal' && m.model?.key === s.id && !m.model.loading));
+  await until(() => since(s.tab, peekFrom).some((m) => m.type === 'task-modal' && m.model?.key === s.id && !m.model.loading && !m.model.filling));
   const modalFrom = s.tab.posted.length;
   const ranModal = calls.executed.length;
   s.tab.receive!({ type: 'run', command: 'acc.task.dispatch', ref: { project: s.root, task: s.id } });

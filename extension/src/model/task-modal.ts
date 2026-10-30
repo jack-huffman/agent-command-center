@@ -20,6 +20,12 @@ export type Message =
   /** The modal closed: Close, Escape, the backdrop, or Open as tab. */
   | { type: 'task-modal-close'; project: string; key: string };
 
+/** What the page hears when the task it asked for couldn't open (T-162), so its modal says why, with Try again. */
+export const MODAL_FAILED = 'task-modal-failed';
+
+/** Why a task's modal didn't open when its project isn't open here (T-162). */
+export const NO_PROJECT = 'Its project isn\'t open in the Command Center any more.';
+
 /** The task the modal shows. */
 export interface ModalTask { project: string; key: string }
 

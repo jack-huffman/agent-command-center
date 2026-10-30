@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import type { FromWebview } from '../src/model/messages.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { modalTakes } from '../src/model/task-modal.ts';
+import { MODAL_FAILED, modalTakes, NO_PROJECT } from '../src/model/task-modal.ts';
+import { teamKey } from '../src/logic/team-key.ts';
 import { makeRepo } from '../../packages/core/test/support.ts';
 import { activate, fakeVscode, sandboxEnv, until } from './vscode.ts';
 
@@ -48,11 +49,12 @@ test('the modal takes what only a task\'s page sends, and its own task\'s messag
   assert.ok(cases.filter(([, want]) => want).length >= 8 && cases.filter(([, want]) => !want).length >= 8);
   assert.ok(isFromWebview({ type: 'task-modal-open', project: '/r', key: 'T-1' }) && isFromWebview({ type: 'task-modal-open', project: '/r', tracker: 0, key: 'ACME-1' }) && isFromWebview({ type: 'task-modal-open', project: '/r', tracker: null, key: 'T-1' }));
   assert.ok(!isFromWebview({ type: 'task-modal-open', project: '/r', tracker: 'x', key: 'T-1' }) && !isFromWebview({ type: 'task-modal-open', project: '/r', key: 'not a key' }));
+  assert.ok(isFromWebview({ type: 'task-modal-open', project: '/r', key: 'T-1', title: 'Fix the export' }) && !isFromWebview({ type: 'task-modal-open', project: '/r', key: 'T-1', title: 7 }), 'a title the modal shows while it loads (T-162)');
   assert.ok(isFromWebview({ type: 'task-modal-close', project: '/r', key: 'T-1' }) && !isFromWebview({ type: 'task-modal-close' }));
 });
 
 type Tab = ReturnType<typeof fakeVscode>['panels'][number];
-type Msg = { type?: string; action?: string; ok?: boolean; error?: string; id?: string; model?: { kind: string; key: string; title: string; loading?: boolean; acc?: { look: { label: string } } | null; overview?: { attention: Row[] } }; tab?: Record<string, unknown>; [k: string]: unknown };
+type Msg = { type?: string; action?: string; ok?: boolean; error?: string; id?: string; model?: { kind: string; key: string; title: string; loading?: boolean; filling?: boolean; acc?: { look: { label: string } } | null; overview?: { attention: Row[] } }; tab?: Record<string, unknown>; [k: string]: unknown };
 type Row = { look: { label: string }; update?: { id: string; edited: string | null } };
 
 /** The built extension in a repo of its own, in a sandbox, as first-open.test.ts runs it, with two tasks and the Command Center open at Tasks. */
@@ -99,8 +101,9 @@ after(() => {
 /** Waits for what's named, and says which when it never comes. */
 const wait = (what: string, fn: () => boolean): Promise<void> => until(fn).catch(() => { throw new Error(`Timed out waiting for ${what}.`); });
 const since = (tab: Tab, from: number): Msg[] => tab.posted.slice(from) as Msg[];
-const modalFor = (msgs: Msg[], key: string): Msg | undefined => msgs.filter((m) => m.type === 'task-modal' && m.model?.key === key && !m.model.loading).at(-1);
-const stateFor = (msgs: Msg[], key: string): Msg | undefined => msgs.filter((m) => m.type === 'state' && m.model?.key === key && !m.model.loading).at(-1);
+/** The full model: loaded, and no longer filling in its slower parts (T-162). */
+const modalFor = (msgs: Msg[], key: string): Msg | undefined => msgs.filter((m) => m.type === 'task-modal' && m.model?.key === key && !m.model.loading && !m.model.filling).at(-1);
+const stateFor = (msgs: Msg[], key: string): Msg | undefined => msgs.filter((m) => m.type === 'state' && m.model?.key === key && !m.model.loading && !m.model.filling).at(-1);
 const doneIn = (msgs: Msg[], action: string): Msg | undefined => msgs.find((m) => m.type === 'done' && m.action === action);
 
 /** A card's click on the Tasks board, as the page sends it, and the model the extension sends back. */
@@ -149,11 +152,44 @@ test('a card\'s click from the Tasks board gives the Command Center\'s tab the t
   assert.equal(s.fake.panels.length, later, 'no new tab');
   assert.deepEqual(t.tab, { type: 'ticket', project: s.root, tracker: null, key: two });
   shut(two);
-  // A project that isn't open here opens nothing.
+  // A project that isn't open here opens nothing, and says why, so the modal that opened at the click isn't left loading (T-162).
   const from = s.tab.posted.length;
-  s.tab.receive!({ type: 'task-modal-open', project: '/nowhere', key: one });
-  await new Promise((r) => setTimeout(r, 200));
+  s.tab.receive!({ type: 'task-modal-open', project: '/nowhere', key: one.toLowerCase() });
+  await until(() => since(s.tab, from).some((x) => x.type === MODAL_FAILED));
   assert.equal(since(s.tab, from).filter((x) => x.type === 'task-modal').length, 0);
+  assert.deepEqual(since(s.tab, from).filter((x) => x.type === MODAL_FAILED), [{ type: MODAL_FAILED, project: '/nowhere', key: one, why: NO_PROJECT }]);
+});
+
+test('the first model comes before the slow parts, from the task\'s record alone, and the next fills them (T-162)', async () => {
+  const [one] = s.ids;
+  const from = s.tab.posted.length;
+  s.tab.receive!({ type: 'task-modal-open', project: s.root, key: one, title: 'Write the report' });
+  await until(() => !!modalFor(since(s.tab, from), one));
+  const models = since(s.tab, from).filter((m) => m.type === 'task-modal');
+  const full = modalFor(models, one)!;
+  const first = models[0]!.model!;
+  assert.deepEqual([first.key, first.title, first.filling, first.acc?.look.label], [one, 'Write the report', true, full.model!.acc?.look.label], 'the first holds the record');
+  assert.ok(models.indexOf(full) > 0, 'the full model comes after it');
+  assert.equal(full.model!.filling, undefined, 'and no longer says it\'s filling');
+  shut(one);
+});
+
+test('a team is read again only when a branch or a task in flight moved, and never kept when the branches can\'t be listed (T-162)', () => {
+  const calls: string[][] = [];
+  let heads = 'refs/heads/main 1\n';
+  const run = (cmd: string, args: string[]) => { calls.push([cmd, ...args]); return { code: heads ? 0 : 1, stdout: heads, stderr: '' }; };
+  const tasks = [{ id: 'T-1', state: 'running', run: { branch: 'task/T-1' } }, { id: 'T-2', state: 'done', run: { branch: 'task/T-2' } }] as never[];
+  const a = teamKey(run, '/r', tasks);
+  assert.ok(a);
+  assert.equal(teamKey(run, '/r', tasks), a, 'nothing moved: the same key');
+  assert.deepEqual(calls[0]!.slice(0, 2), ['git', 'for-each-ref']);
+  heads = 'refs/heads/main 2\n';
+  assert.notEqual(teamKey(run, '/r', tasks), a, 'a branch moved');
+  heads = 'refs/heads/main 1\n';
+  assert.notEqual(teamKey(run, '/r', [{ id: 'T-1', state: 'review', run: { branch: 'task/T-1' } }, tasks[1]!] as never[]), a, 'a task in flight changed');
+  assert.equal(teamKey(run, '/r', [...tasks, { id: 'T-3', state: 'done', run: null }] as never[]), a, 'a task not in flight doesn\'t count');
+  heads = '';
+  assert.equal(teamKey(run, '/r', tasks), null, 'the branches can\'t be listed: no key, so nothing is kept');
 });
 
 test('Open as tab opens the ticket tab as a card\'s click did, and the closed modal is drawn no more (GH-158)', async () => {
@@ -268,7 +304,7 @@ test('ticket-action from the modal reaches the tab\'s handler: Make a task draft
   page.close!();
   shut(one);
   // Refresh: the modal is drawn again, as the tab is.
-  const again = await fromBoth(one, { type: 'ticket-action', action: 'refresh' }, (msgs) => msgs.some((x) => (x.type === 'task-modal' || x.type === 'state') && x.model?.key === one && !x.model.loading));
+  const again = await fromBoth(one, { type: 'ticket-action', action: 'refresh' }, (msgs) => msgs.some((x) => (x.type === 'task-modal' || x.type === 'state') && x.model?.key === one && !x.model.loading && !x.model.filling));
   assert.ok(modalFor(again.modal, one) && stateFor(again.tab, one));
 });
 

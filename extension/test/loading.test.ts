@@ -1,87 +1,235 @@
-// The loading screen a tab shows while it opens (T-16): one pure function makes it, the tab's HTML holds it
-// for each kind of tab, and the page's styles keep it still for a person who asks for reduced motion.
+// T-162 on the page: a modal opens the moment it's asked for, with what the page knows and a loading state, and
+// fills when what it waits for arrives. The shared part (webview/loading.ts) is tested here, then each modal that
+// opens after a wait, driven by the message its click sends: the task modal, the dispatch and deploy sheets, and the
+// tracker and cloud-setup modals. A dialog here is a stand-in that opens and closes; the behaviour run
+// (scripts/behaviour.ts) drives the real ones in a browser.
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
-import { test } from 'node:test';
-import { OPENING_WORDS_ID, loadingScreen, OPENING, type TabKind } from '../src/logic/loading.ts';
-import { pageFor, PAGES, sampleModel, STILL } from '../scripts/screenshot.ts';
-import { cssRules, pageStyles } from '../scripts/styles.ts';
-import { cssClasses } from '../scripts/looked.ts';
-import { judge } from '../scripts/geometry.ts';
+import { mock, test } from 'node:test';
+import { SHEET_COMMANDS } from '../src/model/dispatch-sheet.ts';
+import { CLOUD_SETUP } from '../../packages/core/src/onboarding/cloud-steps.ts';
+import { sampleTicket } from '../scripts/fixtures/task-page.ts';
+import { sampleSheet } from '../scripts/fixtures/dispatch-sheet.ts';
+import { type PageElement, pageDom } from './page-dom.ts';
 
-/** panels.ts imports vscode, which only VSCode has: this test hands it a stand-in with the one call htmlFor makes. */
-const STUB = `data:text/javascript,${encodeURIComponent('export const Uri = { joinPath: (u, ...p) => ({ toString: () => [u.toString(), ...p].join("/") }) }; export default {};')}`;
-registerHooks({ resolve: (spec, ctx, next) => (spec === 'vscode' ? { url: STUB, format: 'module', shortCircuit: true } : next(spec, ctx)) });
-const { htmlFor } = await import('../src/panels.ts');
-const webview = { cspSource: 'vscode-resource:', asWebviewUri: (u: unknown) => u as never };
-const base = { toString: () => 'file:///ext/dist/webview' } as never;
-const KINDS = Object.keys(OPENING) as TabKind[];
+const page = pageDom();
+const g = globalThis as Record<string, unknown>;
+g.CSS ??= { escape: (s: string) => s };
+// A dialog that opens and closes, as the page's modals ask of one; the browser's own keys are the behaviour run's.
+type Dialog = PageElement & { open: boolean; showModal(): void; close(): void; offsetLeft: number; offsetTop: number; getBoundingClientRect(): DOMRect; contains(e: unknown): boolean };
+const proto = (await import('./page-dom.ts')).PageElement.prototype as unknown as Dialog;
+proto.showModal = function (this: Dialog) { this.open = true; };
+proto.close = function (this: Dialog) { this.open = false; };
+proto.getBoundingClientRect = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 }) as DOMRect;
+// The sheet asks what part focus is in as it draws: here, none.
+(proto as unknown as { closest(): null }).closest = () => null;
+proto.contains = function (this: Dialog, e: unknown) { return e === this || this.all().includes(e as PageElement); };
 
-test('a tab of each kind opens on the loading screen, with that kind\'s line as its name', () => {
-  assert.deepEqual(KINDS, ['home', 'ticket', 'agent', 'conversation', 'report']);
-  for (const kind of KINDS) {
-    const html = htmlFor(webview, base, kind, 'n0nce');
-    const app = /<main id="app">([\s\S]*?)<\/main>/.exec(html)?.[1] ?? '';
-    assert.match(app, /^<div class="opening" role="status" aria-live="polite" aria-labelledby="opening-words">/, kind);
-    assert.ok(app.includes(`<p class="opening-words" id="${OPENING_WORDS_ID}">${OPENING[kind]}</p>`), kind);
-    assert.ok(app.includes('src="file:///ext/dist/webview/acc-dark.svg"') && app.includes('src="file:///ext/dist/webview/acc-light.svg"'), `${kind}: both marks, from the webview's folder`);
-    assert.ok(!app.includes('Loading…'), `${kind}: the old corner text is gone`);
-    assert.ok(!/\sstyle=/.test(html), `${kind}: no inline style, which the page's CSP forbids`);
+const { FILLING, LOAD_LIMIT_MS, NO_ANSWER, Opening, failedState, loadingLine, loadingState } = await import('../webview/loading.ts');
+const { api, onSent } = await import('../webview/state.ts');
+const { onRan, heard } = await import('../webview/working.ts');
+const taskModal = await import('../webview/task-modal.ts');
+const dispatch = await import('../webview/dispatch-sheet.ts');
+const deploy = await import('../webview/deploy-sheet.ts');
+const connect = await import('../webview/connect.ts');
+const cloud = await import('../webview/cloud-setup.ts');
+
+const ROOT = '/Users/me/code/acme-service';
+const dialogs = (cls: string): Dialog[] => page.document.body.children.filter((c): c is Dialog => typeof c !== 'string' && c.classList.contains(cls)) as Dialog[];
+const dialogOf = (cls: string): Dialog => {
+  const d = dialogs(cls)[0];
+  assert.ok(d, `a ${cls} dialog is on the page`);
+  return d;
+};
+/** The task modal's dialog: the one with no other modal's class. */
+const taskDialog = (): Dialog => page.document.body.children.find((c): c is Dialog => typeof c !== 'string' && c.className === 'task-modal') as Dialog;
+const bodyOf = (d: Dialog): PageElement => d.all('task-modal-body')[0]!;
+/** Escape on a modal, as the browser sends it: the cancel event its makeModal handles. */
+const escape = (d: Dialog): void => { for (const f of d.listeners.get('cancel') ?? []) f({ preventDefault() {} }); };
+const loading = (d: Dialog): { busy: string | null; words: string; status: string | null } => {
+  const s = bodyOf(d).all('loading-state')[0];
+  return { busy: bodyOf(d).getAttribute('aria-busy'), words: s?.textContent ?? '', status: s?.getAttribute('role') ?? null };
+};
+const failure = (d: Dialog): { text: string; retry: PageElement | undefined } => {
+  const f = bodyOf(d).all('loading-failed')[0];
+  return { text: f?.textContent ?? '', retry: f?.all('loading-retry')[0] };
+};
+const sentOf = (type: string, from: number): Record<string, unknown>[] => (page.sent.slice(from) as Record<string, unknown>[]).filter((m) => m.type === type);
+const home = (more: Record<string, unknown> = {}) => ({ kind: 'home', palette: [], ...more }) as never;
+
+test('the loading state has a spinner and words, read out once as a status, and its line says what is still filling', () => {
+  const s = loadingState('Opening GH-69…') as unknown as PageElement;
+  assert.equal(s.getAttribute('role'), 'status');
+  assert.equal(s.textContent, 'Opening GH-69…');
+  assert.equal(s.all('loading-ring')[0]?.getAttribute('aria-hidden'), 'true', 'the ring is drawn, not read');
+  const line = loadingLine(FILLING) as unknown as PageElement;
+  assert.deepEqual([line.getAttribute('role'), line.textContent], ['status', FILLING]);
+});
+
+test('a load that failed says what and why, as an alert, and Try again runs again', () => {
+  let again = 0;
+  const f = failedState('GH-69', 'The tracker refused it.', () => { again++; }) as unknown as PageElement;
+  assert.equal(f.getAttribute('role'), 'alert');
+  assert.match(f.textContent, /GH-69 didn't open\. The tracker refused it\./);
+  f.all('loading-retry')[0]!.click();
+  assert.equal(again, 1);
+});
+
+test('a wait nothing answers fails after the limit, with why and Try again, and never leaves the spinner', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const body = page.document.createElement('div');
+    const o = new Opening();
+    let retried = 0;
+    o.start('k', body as never, 'Opening T-1…', 'T-1', ['lead'], () => { retried++; });
+    assert.deepEqual([o.busy, o.waits('k'), o.waits('other'), body.getAttribute('aria-busy')], [true, true, false, 'true']);
+    assert.equal(body.children[0], 'lead', 'what the page knows comes first');
+    mock.timers.tick(LOAD_LIMIT_MS - 1);
+    assert.equal(o.busy, true, 'still waiting just before the limit');
+    mock.timers.tick(1);
+    assert.deepEqual([o.busy, o.waits('k'), body.getAttribute('aria-busy'), body.all('loading-state').length], [false, true, null, 0], 'the spinner is gone');
+    assert.match(body.textContent, new RegExp(NO_ANSWER.replace(/[.?]/g, '\\$&')));
+    body.all('loading-retry')[0]!.click();
+    assert.equal(retried, 1);
+    o.end();
+    assert.deepEqual([o.key, o.waits('k')], [null, false]);
+    o.fail('late');
+    assert.equal(body.textContent.includes('late'), false, 'a wait that ended says nothing more');
+  } finally {
+    mock.timers.reset();
   }
-  assert.deepEqual(KINDS.map((k) => OPENING[k]), ['Opening the Command Center', 'Opening the task', 'Opening the agent', 'Opening the conversation', 'Opening the report']);
 });
 
-test('the loading screen draws both marks, the dark one first, and escapes a mark\'s URL that holds a quote (edge case)', () => {
-  const html = loadingScreen('agent', { dark: 'a"b&c.svg', light: 'l.svg' });
-  assert.ok(html.includes('<img class="opening-mark logo-dark" src="a&quot;b&amp;c.svg" alt="">'));
-  assert.ok(html.indexOf('logo-dark') < html.indexOf('logo-light'));
-  assert.equal((html.match(/alt=""/g) ?? []).length, 2, 'the marks are decoration: the line names the screen');
-  assert.ok(html.endsWith('<p class="opening-words" id="opening-words">Opening the agent</p></div>'));
+test('onSent hears every message the page sends, and onRan every answer the extension gives, none missed', () => {
+  const heardSent: unknown[] = [];
+  onSent((m) => heardSent.push(m));
+  api.postMessage({ type: 'refresh' });
+  assert.deepEqual(heardSent, [{ type: 'refresh' }]);
+  const ran: unknown[] = [];
+  onRan((m) => ran.push(m));
+  const msg = { type: 'ran', command: 'acc.task.block', ref: { project: ROOT, task: 'T-9' }, phase: 'done', ok: true } as const;
+  heard(msg);
+  assert.deepEqual(ran, [msg]);
 });
 
-test('the page\'s styles centre the screen, turn the ring, fade it in late, and hold still under reduced motion', () => {
-  const css = pageStyles();
-  const rule = (sel: string) => cssRules(css).find((r) => r.selector === sel)?.declarations ?? [];
-  const value = (sel: string, name: string) => rule(sel).find((d) => d.name === name)?.value;
-  assert.deepEqual([value('.opening', 'position'), value('.opening', 'inset'), value('.opening', 'align-items'), value('.opening', 'justify-content')], ['fixed', '0', 'center', 'center']);
-  assert.match(value('.opening', 'animation') ?? '', /^opening-in \d+ms ease-out 150ms both$/, 'it fades in after 150 ms');
-  assert.deepEqual([value('.opening-ring', 'width'), value('.opening-ring', 'height'), value('.opening-mark', 'width')], ['76px', '76px', '48px']);
-  assert.match(value('.opening-ring', 'border') ?? '', /var\(--line\)/);
-  assert.match(value('.opening-ring::after', 'border-top-color') ?? '', /var\(--accent\)/);
-  assert.match(value('.opening-ring::after', 'animation') ?? '', /^opening-turn 1\.1s cubic-bezier\([^)]*\) infinite$/, 'one turn in 1.1 s, eased');
-  const reduced = /@media \(prefers-reduced-motion: reduce\) \{\s*([^{}]*)\{([^{}]*)\}/.exec(css);
-  assert.ok(reduced, 'a reduced-motion rule');
-  assert.deepEqual(reduced[1]!.split(',').map((s) => s.trim()), ['.opening', '.opening-ring::after']);
-  assert.match(reduced[2]!, /animation: none/);
+test('a task\'s modal opens at the click, before any model, with its key, its title and a loading state', () => {
+  const from = page.sent.length;
+  api.postMessage({ type: 'task-modal-open', project: ROOT, key: 'acme-12', title: 'Fix the export' });
+  const d = taskDialog();
+  assert.ok(d?.open, 'open before the extension answered');
+  assert.equal(d.getAttribute('aria-label'), 'ACME-12: Fix the export');
+  assert.deepEqual(loading(d), { busy: 'true', words: 'Opening ACME-12…', status: 'status' });
+  assert.equal(bodyOf(d).all('tcard-key')[0]?.textContent, 'ACME-12');
+  assert.equal(bodyOf(d).all('loading-title')[0]?.textContent, 'Fix the export');
+  const tab = d.all('task-modal-tab')[0]!;
+  assert.equal(tab.disabled, true, 'Open as tab waits for the model, which says what it sends');
+  assert.equal(sentOf('task-modal-open', from).length, 1, 'it asked once');
+  // The model fills it, and the wait is over.
+  taskModal.area.receive!['task-modal']!({ model: sampleTicket(Date.now()), tab: { type: 'ticket', project: ROOT, tracker: 0, key: 'ACME-12' } } as never);
+  assert.deepEqual([d.open, bodyOf(d).getAttribute('aria-busy'), bodyOf(d).all('loading-state').length, tab.disabled], [true, null, 0, false]);
+  escape(d);
+  assert.equal(d.open, false);
 });
 
-test('the screenshot run draws the loading page with no model sent, so the screen stays', () => {
-  assert.ok(PAGES.includes('loading') && STILL.includes('loading'));
-  const page = pageFor('loading', 'dark', sampleModel('loading'), 'light', false, true);
-  assert.ok(page.includes(`<main id="app">${loadingScreen('home', { dark: 'webview/acc-dark.svg', light: 'webview/acc-light.svg' })}</main>`));
-  assert.ok(!page.includes("type: 'state'"), 'no model is posted');
-  assert.ok(page.includes('collectGeometry'), 'it is measured all the same');
-  const drawn = pageFor('overview', 'dark', sampleModel('overview'), 'light', false, true);
-  assert.ok(drawn.includes("type: 'state'") && drawn.includes('<main id="app"></main>'), 'every other page still gets its model, on an empty page');
+test('Escape closes the modal while it loads, and a model that comes after it closed doesn\'t open it again', () => {
+  const from = page.sent.length;
+  api.postMessage({ type: 'task-modal-open', project: ROOT, key: 'ACME-12', title: 'Fix the export' });
+  const d = taskDialog();
+  assert.equal(d.open, true);
+  escape(d);
+  assert.equal(d.open, false, 'closed while it loaded');
+  assert.deepEqual(sentOf('task-modal-close', from), [{ type: 'task-modal-close', project: ROOT, key: 'ACME-12' }], 'the extension hears it closed');
+  taskModal.area.receive!['task-modal']!({ model: sampleTicket(Date.now()), tab: {} } as never);
+  assert.equal(d.open, false, 'the late model opens nothing');
 });
 
-test('a still page with no controls passes the geometry check, while any other page with none fails (edge case)', () => {
-  const s = { controls: [], texts: [{ what: 'p.opening-words', text: 'Opening the Command Center', over: 0, ellipsis: false, titled: false, folded: false }], scrollers: [], doc: { scroll: 500, view: 500 }, said: [{ what: 'p.opening-words', text: 'Opening the Command Center', work: null }], a11y: { violations: [], examined: 5, incomplete: [] } } as never;
-  assert.deepEqual(judge(s, false, [], false).violations, []);
-  assert.deepEqual(judge(s, false, []).violations.map((v) => v.detail), ['examined no controls']);
+test('a model for another task than the one loading is late, and doesn\'t replace it', () => {
+  api.postMessage({ type: 'task-modal-open', project: ROOT, key: 'ACME-19', title: 'Second' });
+  const d = taskDialog();
+  taskModal.area.receive!['task-modal']!({ model: sampleTicket(Date.now()), tab: {} } as never);
+  assert.deepEqual([d.open, loading(d).words, d.getAttribute('aria-label')], [true, 'Opening ACME-19…', 'ACME-19: Second']);
+  escape(d);
 });
 
-test('each class the loading screen adds is one the page\'s styles hold', () => {
-  const classes = cssClasses(pageStyles());
-  const used = [...loadingScreen('home', { dark: 'd', light: 'l' }).matchAll(/class="([^"]+)"/g)].flatMap((m) => m[1]!.split(' '));
-  assert.deepEqual([...new Set(used)].filter((c) => !classes.has(c)), []);
-  assert.ok(used.length >= 5);
+test('a load that failed shows why in the modal, with Try again, which asks again', () => {
+  api.postMessage({ type: 'task-modal-open', project: ROOT, key: 'ACME-12', title: 'Fix the export' });
+  const d = taskDialog();
+  taskModal.area.receive!['task-modal-failed']!({ project: ROOT, key: 'ACME-12', why: 'Its project isn\'t open.' } as never);
+  const f = failure(d);
+  assert.match(f.text, /ACME-12 didn't open\. Its project isn't open\./);
+  assert.equal(bodyOf(d).getAttribute('aria-busy'), null, 'no longer busy');
+  // A failure for another task changes nothing.
+  taskModal.area.receive!['task-modal-failed']!({ project: ROOT, key: 'ACME-99', why: 'x' } as never);
+  const from = page.sent.length;
+  f.retry!.click();
+  assert.deepEqual(sentOf('task-modal-open', from), [{ type: 'task-modal-open', project: ROOT, key: 'ACME-12', title: 'Fix the export' }]);
+  assert.equal(loading(d).words, 'Opening ACME-12…', 'loading again');
+  escape(d);
 });
 
-test('the loading page is measured with its fade ended, since a screen still at opacity 0 reads as unseen (edge case)', () => {
-  const page = pageFor('loading', 'light', sampleModel('loading'), 'dark', false, true);
-  const script = /<script>\n([\s\S]*?)<\/script>/.exec(page)![1]!;
-  assert.doesNotThrow(() => new Function(script), 'the page\'s script is valid');
-  assert.ok(page.includes('setTimeout(() => { document.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).forEach((a) => a.finish()); document.fonts.ready.then('), 'the fade ends, and the turning ring keeps turning');
-  assert.ok(!pageFor('overview', 'light', sampleModel('overview'), 'dark', false, true).includes('getAnimations'), 'other pages are measured as before');
+test('Build it opens its sheet loading at the click; a refusal says why in it; a sheet after it closed opens nothing', () => {
+  assert.deepEqual(dispatch.OPENS_SHEET, SHEET_COMMANDS, 'a copy of the extension\'s list');
+  const sheet = sampleSheet(Date.now(), 'analysed');
+  api.postMessage({ type: 'run', command: 'acc.task.dispatch', ref: { project: sheet.project, task: sheet.task } });
+  const d = dialogOf('dispatch-sheet');
+  assert.equal(d.open, true);
+  assert.equal(loading(d).words, `Opening the choices for ${sheet.task}…`);
+  assert.equal(d.all('ds-go')[0]!.disabled, true, 'Build it waits for the choices');
+  heard({ type: 'ran', command: 'acc.task.dispatch', ref: { project: sheet.project, task: sheet.task }, phase: 'done', ok: false, error: 'It has no plan yet.' });
+  assert.match(failure(d).text, /It has no plan yet\./);
+  escape(d);
+  assert.equal(d.open, false);
+  dispatch.area.receive!['dispatch-sheet']!({ sheet } as never);
+  assert.equal(d.open, false, 'the sheet that came after the close opens nothing');
+  // Asked again, the sheet fills it.
+  api.postMessage({ type: 'run', command: 'acc.task.dispatch', ref: { project: sheet.project, task: sheet.task } });
+  dispatch.area.receive!['dispatch-sheet']!({ sheet } as never);
+  assert.deepEqual([d.open, bodyOf(d).all('loading-state').length, bodyOf(d).getAttribute('aria-busy')], [true, 0, null]);
+  escape(d);
+});
+
+test('Build it done with no sheet yet waits the grace, then closes rather than spin', () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    api.postMessage({ type: 'run', command: 'acc.task.dispatchAnyway', ref: { project: ROOT, task: 'ACME-35' } });
+    const d = dialogOf('dispatch-sheet');
+    heard({ type: 'ran', command: 'acc.task.dispatchAnyway', ref: { project: ROOT, task: 'ACME-35' }, phase: 'done', ok: true });
+    mock.timers.tick(dispatch.SHEET_GRACE_MS - 1);
+    assert.equal(d.open, true);
+    mock.timers.tick(1);
+    assert.equal(d.open, false);
+  } finally {
+    mock.timers.reset();
+  }
+});
+
+test('Deploy opens its sheet loading at the click, and a model with no sheet yet leaves it loading', () => {
+  const from = page.sent.length;
+  api.postMessage({ type: 'deploy-check', project: ROOT, task: 'ACME-12', to: 'qa' });
+  const d = dialogOf('deploy-sheet');
+  assert.deepEqual([d.open, loading(d).words, d.getAttribute('aria-label')], [true, 'Starting the check for ACME-12…', 'Deploy ACME-12 to qa']);
+  deploy.area.after!({ ...sampleTicket(Date.now()), deploy: null } as never);
+  assert.equal(d.open, true, 'still loading');
+  escape(d);
+  assert.equal(d.open, false);
+  assert.deepEqual(sentOf('deploy-close', from), [{ type: 'deploy-close', project: ROOT, task: 'ACME-12' }]);
+});
+
+test('Connect a tracker and Set up cloud builders open loading at the click; closed before their page comes, it is cancelled, not shown', () => {
+  for (const [send, cls, words, model, cancel] of [
+    [{ type: 'toolbar', command: 'acc.trackers.add', arg: null }, 'connect-modal', 'Opening Connect a tracker…', (m: unknown) => home({ connect: m }), 'connect-cancel'],
+    [{ type: 'toolbar', command: CLOUD_SETUP.command, project: ROOT }, 'cloud-modal', 'Opening Set up cloud builders…', (m: unknown) => home({ cloudSetup: m }), 'cloud-setup-cancel'],
+  ] as const) {
+    const area = cls === 'connect-modal' ? connect.area : cloud.area;
+    api.postMessage(send);
+    const d = dialogs(cls).at(-1)!;
+    assert.deepEqual([d.open, loading(d).words], [true, words], cls);
+    area.after!(home());
+    assert.equal(d.open, true, `${cls}: a model with none yet leaves it loading`);
+    escape(d);
+    assert.equal(d.open, false);
+    const from = page.sent.length;
+    area.after!(model({ id: 's-1', step: 'start', title: 'x', steps: [] }));
+    assert.deepEqual([d.open, sentOf(cancel, from)], [false, [{ type: cancel, session: 's-1' }]], `${cls}: the page that came after the close is cancelled`);
+  }
+  assert.equal(cloud.CLOUD_SETUP_COMMAND, CLOUD_SETUP.command, 'a copy of core\'s command');
 });
