@@ -729,7 +729,6 @@ export function parseConfig(raw: unknown): ParseResult {
   if (g.apexCoverage !== undefined && !(Number.isInteger(g.apexCoverage) && (g.apexCoverage as number) >= COVERAGE_FLOOR && (g.apexCoverage as number) <= 100)) {
     errors.push(`"gates.apexCoverage" must be a whole number from ${COVERAGE_FLOOR} to 100: the coverage each changed Apex class must reach in the org. ${COVERAGE_FLOOR} is Salesforce's own floor for Production, so it can't be lower.`);
   }
-  if (profile !== 'salesforce' && g.apexCoverage !== undefined) warnings.push('"gates.apexCoverage" applies only to a Salesforce project, so it\'s ignored.');
   // Ratchets (GH-99): each is a gate of its own, so its name can't be another gate's.
   const ratchets: Record<string, RatchetSpec> = {};
   if (g.ratchets !== undefined) {
@@ -849,7 +848,7 @@ export function parseConfig(raw: unknown): ParseResult {
         ...(g.ratchets !== undefined ? { ratchets } : {}),
         ...(strList(g.tests) ? { tests: g.tests } : {}),
         ...(strList(g.nearIndexes) ? { nearIndexes: g.nearIndexes } : {}),
-        ...(profile === 'salesforce' && typeof g.apexCoverage === 'number' ? { apexCoverage: g.apexCoverage } : {}),
+        ...(typeof g.apexCoverage === 'number' ? { apexCoverage: g.apexCoverage } : {}),
       },
       secretScan: {
         paths: strList(s.paths) ? s.paths : defaultScan,

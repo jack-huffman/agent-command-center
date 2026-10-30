@@ -302,10 +302,6 @@ test('the project\'s settings raise the floor, never the worktree\'s copy, and a
     assert.match(parseConfig({ ...RAW, gates: { apexCoverage: bad } }).errors.join('\n'), /"gates\.apexCoverage" must be a whole number from 75 to 100.*75 is Salesforce's own floor for Production, so it can't be lower\./, String(bad));
   }
   assert.equal(config({ ...RAW, gates: { apexCoverage: 100 } }).gates.apexCoverage, 100);
-  // A project that isn't Salesforce has no Apex: the key is said to be ignored, and isn't kept.
-  const generic = parseConfig({ ...GENERIC_CONFIG, gates: { apexCoverage: 90 } });
-  assert.match(generic.warnings.join('\n'), /"gates\.apexCoverage" applies only to a Salesforce project/);
-  assert.equal(generic.config!.gates.apexCoverage, undefined);
 });
 
 // ---------------------------------------------------------------- never where it mustn't
