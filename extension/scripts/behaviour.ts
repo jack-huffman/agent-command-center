@@ -289,6 +289,8 @@ export interface BehaviourData {
   };
   /** Ten boards on three Jira sites (T-127): the Tasks tab's model, what's typed to find a site's boards, what it finds, and the board Enter then shows. */
   boards: { model: Model; typed: string; found: string[]; picked: string; id: string };
+  /** Setup's walkthrough (T-153): its steps still to do in order, each one's instruction, why Next is off on the first, and the step whose Do it opens Connect a tracker, with that modal's model. */
+  walk: { todo: string[]; titles: string[]; why: string; modalStep: string; connect: ConnectModel };
   /** What the person filter's cases expect (T-79): the Jira board's key, one person with cards in two columns, the arrows through them, a card hidden by it, and the header's words. */
   people: { board: string; person: string; choice: string; first: string; down: string; right: string; hidden: string; labels: string[]; header: string; mine: string; everyone: string };
 }
@@ -299,17 +301,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-passed' | 'ticket-deploy-failed' | 'ticket-deploy-typed' | 'ticket-agent-failed' | 'ticket-blocked-wall';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-passed' | 'ticket-deploy-failed' | 'ticket-deploy-typed' | 'ticket-agent-failed' | 'ticket-blocked-wall' | 'setup';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
 /** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab deployed once, and its deploy sheet passed, failed and asking Production's name (T-138); and ACME-12 blocked with a note recorded as one paragraph (T-146). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; passed: Model; failed: Model; typed: Model; work: Model; agentFailed: Model; wall: Model }
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; passed: Model; failed: Model; typed: Model; work: Model; agentFailed: Model; wall: Model; setup: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-passed' ? models.passed : c.page === 'ticket-deploy-failed' ? models.failed : c.page === 'ticket-deploy-typed' ? models.typed : c.page === 'ticket-agent-failed' ? models.agentFailed : c.page === 'ticket-blocked-wall' ? models.wall : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-passed' ? models.passed : c.page === 'ticket-deploy-failed' ? models.failed : c.page === 'ticket-deploy-typed' ? models.typed : c.page === 'ticket-agent-failed' ? models.agentFailed : c.page === 'ticket-blocked-wall' ? models.wall : c.page === 'setup' ? models.setup : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -380,7 +382,32 @@ function boardCard(t: Probe, id: string): { card: HTMLElement; focus: HTMLElemen
   return { card, focus: card.matches('[data-peek]') ? card : t.find('[data-peek]', card), board, live };
 }
 
-export const HELPERS = [openTask, openRules, shownRule, page, press, openPalette, boardCard];
+/** Setup's model with these steps passed, as a check that passed would send it (T-153): done, Done, Next on, no action. */
+function walkPassed(t: Probe, ids: string[]): Model {
+  const home = structuredClone(t.model) as HomeModel;
+  for (const s of home.setup.chapters.flatMap((c) => c.steps)) {
+    if (!ids.includes(s.id)) continue;
+    Object.assign(s, { done: true, next: null, main: null, look: { label: 'Done', icon: 'pass', tone: 'blue' } });
+  }
+  return home;
+}
+
+/** The step on show in Setup's walkthrough: its id, its title, its place, and its Next. */
+function walkShown(t: Probe): { id: string; title: string; place: string; next: HTMLButtonElement } {
+  const screen = t.find('section.walk-step');
+  const next = t.all<HTMLButtonElement>('.walk-foot button', screen).find((b) => b.textContent?.trim() === 'Next');
+  if (!next) throw new Error('not found: the step\'s Next');
+  return { id: screen.dataset.step ?? '', title: t.find('.walk-title', screen).textContent ?? '', place: t.find('.rp-place', screen).textContent ?? '', next };
+}
+
+/** A button on the walkthrough by its words. */
+function walkButton(t: Probe, words: string, within?: ParentNode): HTMLButtonElement {
+  const b = t.all<HTMLButtonElement>('button', within).find((x) => x.textContent?.trim() === words && !x.closest('[hidden]'));
+  if (!b) throw new Error(`not found: the button ${words}`);
+  return b;
+}
+
+export const HELPERS = [openTask, openRules, shownRule, page, press, openPalette, boardCard, walkPassed, walkShown, walkButton];
 
 // ---------------------------------------------------------------- the cases
 
@@ -2706,6 +2733,96 @@ export const CASES: Case[] = [
       t.check('and shows it first, then the rest', folded[0] === card.id && folded.length === before + 1, folded);
     },
   },
+  {
+    name: 'setup walkthrough: Start opens the first step, Next stays off with why until its check passes, then the walk moves on by itself',
+    page: 'setup',
+    async run(t) {
+      const w = t.data.walk;
+      const start = t.find('section.walk-start');
+      t.check('Setup opens on its start screen', !start.hidden && t.all('section.walk-step').length === 0);
+      t.check('with one primary button', t.all('.btn.primary', start).length === 1, t.all('.btn.primary', start).map((b) => b.textContent));
+      t.check('and every chapter closed, each with its state in words', t.all<HTMLDetailsElement>('details.chapter', start).every((d) => !d.open && !!d.querySelector('summary .status')?.textContent?.trim()), t.all('details.chapter').length);
+      await t.click(walkButton(t, 'Start', start));
+      let s = walkShown(t);
+      t.check('Start opens the first step still to do', s.id === w.todo[0] && s.title === w.titles[0], s);
+      t.check('with its place in the walk', s.place === `1 of ${w.todo.length}`, s.place);
+      t.check('and focus on its title, where a screen reader starts', document.activeElement?.classList.contains('walk-title') === true, document.activeElement?.className);
+      t.check('the start screen is hidden under it', t.find('section.walk-start').hidden === true);
+      const kept = t.sent('setup-walk').at(-1)?.place as { at?: string; walk?: string[] } | undefined;
+      t.check('the folder is told where the walk is', kept?.at === w.todo[0] && kept?.walk?.length === w.todo.length, kept);
+      t.check('one primary action on the screen', t.all('section.walk-step .btn.primary').length === 1, t.all('section.walk-step .btn.primary').map((b) => b.textContent));
+      t.check('its fold starts closed', !t.find<HTMLDetailsElement>('section.walk-step details.walk-how').open);
+      t.check('no command line outside the fold', t.all('section.walk-step pre').every((p) => !!p.closest('details.walk-how')));
+      t.check('Next is off while the check hasn\'t passed', s.next.disabled);
+      t.check('its title says why', s.next.title === w.why, s.next.title);
+      t.check('and a line beside it says the same', t.find('section.walk-step .walk-foot-why .status').textContent?.trim() === w.why);
+      await t.click(s.next);
+      t.check('a click on Next that is off goes nowhere', walkShown(t).id === w.todo[0]);
+      // The check passes: the step stays a moment with its Done and Next on, then the walk moves on by itself.
+      await t.post({ type: 'state', model: walkPassed(t, [w.todo[0]!]) });
+      s = walkShown(t);
+      t.check('a step that passes while on show stays, with Next on', s.id === w.todo[0] && !s.next.disabled, s.id);
+      await new Promise((r) => setTimeout(r, 1600));
+      s = walkShown(t);
+      t.check('then moves on to the next step by itself', s.id === w.todo[1], s.id);
+      t.check('whose place counts the one done', s.place === `2 of ${w.todo.length}`, s.place);
+      // Back leaves out the step that's done, so it goes to the start screen, which now says Continue.
+      await t.click(walkButton(t, 'Back', t.find('section.walk-step')));
+      t.check('Back leaves out the step that is done', t.all('section.walk-step').length === 0 && !t.find('section.walk-start').hidden);
+      t.check('and the start screen offers Continue', !!walkButton(t, 'Continue', t.find('section.walk-start')));
+    },
+  },
+  {
+    name: 'setup walkthrough: a step that is done is never shown, Skip for now keeps each step for the end, and the end screen opens each one',
+    page: 'setup',
+    async run(t) {
+      const w = t.data.walk;
+      // Remembered at the first step, which has passed since the tab last drew.
+      t.remember({ setupWalk: { at: w.todo[0], walk: w.todo, skipped: [] } });
+      await t.post({ type: 'state', model: walkPassed(t, [w.todo[0]!]) });
+      let s = walkShown(t);
+      t.check('a step that is done isn\'t shown: the walk is at the next one', s.id === w.todo[1], s.id);
+      const dot = t.all<HTMLButtonElement>('section.walk-step .rp-dot')[0];
+      t.check('its dot is done, and off', !!dot?.classList.contains('done') && dot.disabled, dot?.className);
+      // A chapter lists the step that's done, with no way to its screen.
+      const rows = () => t.all('section.walk-start li.walk-row');
+      t.check('its chapter lists it as done, with no Go to it', rows().some((r) => r.dataset.step === w.todo[0] && r.classList.contains('done') && !r.textContent?.includes('Go to it')));
+      for (let i = 1; i < w.todo.length; i++) {
+        s = walkShown(t);
+        t.check(`step ${i + 1} is the next one still to do`, s.id === w.todo[i], s.id);
+        await t.click(walkButton(t, 'Skip for now', t.find('section.walk-step')));
+      }
+      const end = t.find('section.walk-end');
+      t.check('the end screen counts what was skipped', t.find('.walk-title', end).textContent?.trim() === `${w.todo.length - 1} skipped`, t.find('.walk-title', end).textContent);
+      const left = t.all('li.walk-row', end).map((r) => r.dataset.step);
+      t.check('and lists each skipped step, in order', JSON.stringify(left) === JSON.stringify(w.todo.slice(1)), left);
+      const kept = t.sent('setup-walk').at(-1)?.place as { skipped?: string[] } | undefined;
+      t.check('the folder keeps them as skipped', JSON.stringify(kept?.skipped) === JSON.stringify(w.todo.slice(1)), kept);
+      await t.click(walkButton(t, 'Go to it', t.all('li.walk-row', end)[1]));
+      t.check('a skipped step is one click away', walkShown(t).id === w.todo[2], walkShown(t).id);
+    },
+  },
+  {
+    name: 'setup walkthrough: a step with its own modal opens it, and the walk is still at that step when it closes',
+    page: 'setup',
+    async run(t) {
+      const w = t.data.walk;
+      t.remember({ setupWalk: { at: w.modalStep, walk: w.todo, skipped: [] } });
+      await t.post({ type: 'state', model: t.model });
+      t.check('the walk is at the step', walkShown(t).id === w.modalStep, walkShown(t).id);
+      t.check('it says Do it opens a modal and comes back', /^Opens .+, then comes back here\.$/.test(t.find('section.walk-step .walk-opens').textContent ?? ''));
+      await t.click(walkButton(t, 'Do it', t.find('section.walk-step .walk-do')));
+      const ran = t.sent('run').at(-1) as { command?: string; ref?: { step?: string } } | undefined;
+      t.check('Do it asks the extension for the step\'s fix', ran?.command === 'acc.step.fix' && ran.ref?.step === w.modalStep, ran);
+      const over = structuredClone(t.model) as HomeModel;
+      over.connect = w.connect;
+      await t.post({ type: 'state', model: over });
+      t.check('its modal opens over the walk', t.all<HTMLDialogElement>('dialog').some((d) => d.open), t.all('dialog').length);
+      await t.post({ type: 'state', model: t.model });
+      t.check('the modal closed', !t.all<HTMLDialogElement>('dialog').some((d) => d.open && d.querySelector('.connect')));
+      t.check('and the walk is back at that step', walkShown(t).id === w.modalStep, walkShown(t).id);
+    },
+  },
 ];
 
 // ---------------------------------------------------------------- mutants: the page with one behaviour broken
@@ -2727,6 +2844,12 @@ export const MUTANTS: Mutant[] = [
   { name: 'cloud setup: Next goes on before the step passes', file: 'cloud-setup.ts', find: 'go.disabled = m.next ? !m.next.can : !m.cancel.can;', replace: 'go.disabled = false;', kills: [caseNamed('cloud setup: Next stays off')] },
   { name: 'cloud setup: the token is written to the tab\'s memory', file: 'cloud-setup.ts', find: "  if (action === 'keepToken') cloudTyped.delete(`${m.id}:token`);", replace: "  if (action === 'keepToken') api.setState({ ...(api.getState() as object), token: value });", kills: [caseNamed('cloud setup: the token is typed hidden')] },
   { name: 'cloud setup: Keep the token goes on before the token fits', file: 'cloud-setup.ts', find: "const off = f.keep.disabled ?? (fits ? null : v.trim() ? f.problem : `Paste the ${f.label.toLowerCase()} first`);", replace: 'const off = f.keep.disabled;', kills: [caseNamed('cloud setup: the token is typed hidden')] },
+  // Setup's walkthrough (T-153): Next on before the step's check passes, and a step that's done shown.
+  { name: 'setup walkthrough: Next goes on before the check passes', file: 'setup.ts', find: 'nextB.disabled = !!s.next;', replace: 'nextB.disabled = false;', kills: [caseNamed('setup walkthrough: Start opens the first step')] },
+  { name: 'setup walkthrough: a step that is done is shown', file: 'walk.ts', find: 'const shows = at && (!at.step.done || at.step.id === holding) ? at : undefined;', replace: 'const shows = at;', kills: [caseNamed('setup walkthrough: a step that is done is never shown')] },
+  // A step's Do it that asks for nothing, and a walk that forgets where it was on the next draw, as after a modal closes.
+  { name: 'setup walkthrough: Do it does nothing', file: 'setup.ts', find: "main && !s.done ? el('div', 'walk-do', actionButton(main),", replace: "main && !s.done ? el('div', 'walk-do', button(main.label, main.icon, () => {}),", kills: [caseNamed('setup walkthrough: a step with its own modal')] },
+  { name: 'setup walkthrough: the walk forgets where it was', file: 'setup.ts', find: 'const placeOf = (m: SetupModel): WalkPlace | null => memory().setupWalk ?? m.walk;', replace: 'const placeOf = (m: SetupModel): WalkPlace | null => m.walk;', kills: [caseNamed('setup walkthrough: a step that is done is never shown'), caseNamed('setup walkthrough: a step with its own modal')] },
   { name: 'a failed check isn\'t named in the summary', file: 'agent-glance.ts', find: 'failed.length ? `${failed.length} failed: ${names(failed)}` : null,', replace: 'failed.length ? `${failed.length} failed` : null,', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'Details doesn\'t stay open once opened', file: 'agent-panel.ts', find: 'd.open = memory().opened.includes(key);', replace: 'd.open = false;', kills: [caseNamed('task page: the Agent panel says its checks')] },
   { name: 'a collapsed section doesn\'t stay collapsed', file: 'collapse.ts', find: 'show(memory().folded.includes(k));', replace: 'show(false);', kills: [caseNamed('task page: a Command Center section collapses')] },
@@ -3003,7 +3126,17 @@ export function behaviourData(models: CaseModels, now: number): BehaviourData {
     questions: questionsData(now),
     planReview: planReviewData(models.ticket),
     choices: choicesData(models.ticket),
+    walk: walkData(models.setup, models.connect),
   };
+}
+
+/** What Setup's walkthrough cases expect (T-153), from the model the page draws: the oracle. */
+function walkData(setup: Model, connect: Model): BehaviourData['walk'] {
+  const steps = (setup as HomeModel).setup.chapters.flatMap((c) => c.steps).filter((s) => !s.done);
+  const modal = steps.find((s) => s.opens);
+  const c = (connect as HomeModel).connect;
+  if (steps.length < 3 || !steps[0]!.next || !modal || !c) throw new Error('The walkthrough cases need three steps to do, Next off on the first, a step that opens a modal, and the Connect modal.');
+  return { todo: steps.map((s) => s.id), titles: steps.map((s) => s.title), why: steps[0]!.next, modalStep: modal.id, connect: c };
 }
 
 /** What Report a problem's case expects (T-118), from the draft's fixture and the body the page's own module builds: the oracle. */

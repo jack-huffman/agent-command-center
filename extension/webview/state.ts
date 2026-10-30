@@ -7,6 +7,7 @@ import type { RunCard } from '../src/model/runs.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { Detail } from '../src/model/landing.ts';
 import type { EditBase } from './pending.ts';
+import type { WalkPlace } from '../src/model/setup-walk.ts';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
 export const api = acquireVsCodeApi();
@@ -37,8 +38,10 @@ interface Memory {
   jumps?: Record<string, number>;
   /** Which kind of history the Overview shows. */
   history?: 'all' | 'answer' | 'move' | 'run';
-  /** Setup sections opened or closed by hand; the rest open while they have something to do. */
+  /** Setup's chapters opened by hand (T-153), by part and group; the rest stay closed. */
   sections?: Record<string, boolean>;
+  /** Where Setup's walkthrough is (T-153): the screen on show, its steps, and those skipped for now. */
+  setupWalk?: WalkPlace;
   /**
    * Where each page was scrolled to, its boards sideways included. A hidden tab's page is rebuilt when it
    * comes back (VSCode doesn't keep it), so this is how it returns to where you were.
@@ -58,7 +61,7 @@ interface Memory {
 interface SavedScroll { y: number; boards: { x: number; lanes: number[] }[] }
 export function memory(): Memory {
   const s = (api.getState() as Partial<Memory> | undefined) ?? {};
-  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], folded: s.folded ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [], filters: s.filters ?? {}, firstStepsSeen: s.firstStepsSeen, settings: s.settings, tabs: s.tabs ?? {}, jumps: s.jumps ?? {} };
+  return { modes: s.modes ?? {}, drafts: s.drafts ?? {}, bases: s.bases ?? {}, section: s.section, answers: s.answers ?? {}, dock: s.dock ?? { open: false, run: null }, opened: s.opened ?? [], folded: s.folded ?? [], history: s.history, sections: s.sections ?? {}, scroll: s.scroll ?? {}, detail: s.detail, palette: s.palette ?? [], filters: s.filters ?? {}, firstStepsSeen: s.firstStepsSeen, settings: s.settings, tabs: s.tabs ?? {}, jumps: s.jumps ?? {}, setupWalk: s.setupWalk };
 }
 export function remember(change: (m: Memory) => void): void {
   const m = memory();

@@ -27,6 +27,7 @@ import { queueLook } from '../src/model/overview.ts';
 import { RULE_LOOK } from '../src/model/rules.ts';
 import { SINCE_LOOK } from '../src/model/since.ts';
 import { STATUS } from '../src/model/setup.ts';
+import { chapterLook } from '../src/model/setup-walk.ts';
 import { displayLook } from '../src/model/shared.ts';
 import { CHECK_LOOK, checkLook, REVIEW_LOOK, ticketReview, wordingLook } from '../src/model/task-page.ts';
 import { CRITERION_LOOK, dockReview, REVIEW_RUN_LOOK } from '../src/model/dock-review.ts';
@@ -162,6 +163,7 @@ export const TABLES: Table[] = [
     ],
   },
   { name: 'a setup step', sources: ['extension/src/model/setup.ts#STATUS'], states: () => Object.entries(STATUS) },
+  { name: 'a chapter of Setup\'s walkthrough', sources: ['extension/src/model/setup-walk.ts#chapterLook'], states: () => [['done', chapterLook(0)], ['to do', chapterLook(3)]] },
   // The state chip (T-91), in every place it's drawn, from the screenshot run's fixtures: each tracker's ticket
   // page, its related rows, every board's columns, and acc's state on a tracker's cards.
   { name: 'the state chip, wherever it\'s drawn', sources: [], states: () => chipStates() },

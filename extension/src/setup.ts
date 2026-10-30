@@ -13,6 +13,7 @@ import { quoteFor, runnerLine, terminalShell } from './logic/shells.ts';
 import { SYSTEM, shellOf } from '../../packages/core/src/onboarding/install-lines.ts';
 import { CHECK_MACHINE, inProcessWords, processLine } from './logic/processes.ts';
 import { MACHINE_FIRST_PART, type SetupStarting } from './model/setup.ts';
+import { isWalkPlace, WALK_STATE, type WalkPlace } from './model/setup-walk.ts';
 import { startInOrder } from './logic/start-order.ts';
 import { parseOrgUrl } from '../../packages/core/src/onboarding/helpers.ts';
 import { asksProduction, domainItem, productionChoices, productionNext } from './logic/no-production.ts';
@@ -573,6 +574,17 @@ export class Setup implements vscode.Disposable {
     return this.starting ? { profile: this.starting.profile, ids: this.starting.ids } : null;
   }
 
+  /** Where Setup's walkthrough was left in this folder (T-153), for a tab that doesn't remember it: null before it starts. */
+  walkPlace(): WalkPlace | null {
+    const p = this.ctx.workspaceState.get<unknown>(WALK_STATE);
+    return isWalkPlace(p) ? p : null;
+  }
+
+  /** Keeps where the walkthrough is, as the page moves (T-153). It draws nothing: the page has it already. */
+  keepWalk(place: WalkPlace): Thenable<void> {
+    return this.ctx.workspaceState.update(WALK_STATE, place);
+  }
+
   /**
    * Check this machine for a project about to start (T-133). With nothing to do, the project starts; otherwise
    * Setup shows what's left first, each with its Do it, and nothing is written until Go on anyway or Start the
@@ -864,7 +876,8 @@ export function openWalkthrough(id: string): Thenable<unknown> {
 const STEP_IDS = STEPS.map((s) => s.id);
 
 export const area: ExtensionArea = {
-  register({ reg, setup }) {
+  register({ reg, setup, receive }) {
+    receive('setup-walk', (m) => void setup.keepWalk(m.place));
     /** A step command on a step that isn't there says so in one line, and does nothing. */
     const onStep = (f: (id: string) => Promise<unknown>) => (a: unknown) => {
       const id = stepIdOf(a, STEP_IDS);

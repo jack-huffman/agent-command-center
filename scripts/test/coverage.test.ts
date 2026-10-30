@@ -38,7 +38,6 @@ export const OLDER: Record<string, string[]> = {
   'extension/src/model/questions.ts': ['alwaysWhat'],
   'extension/src/model/rules.ts': ['ruleTitle', 'ruleAsk'],
   'extension/src/model/settings.ts': ['opensOnWords'],
-  'extension/src/model/setup.ts': ['setupStart'],
   'extension/src/model/shared.ts': ['sessionKey', 'nameOf'],
   'extension/src/model/slack.ts': ['SLACK_ACTIONS'],
   'extension/src/model/task-modal.ts': ['taskOf'],

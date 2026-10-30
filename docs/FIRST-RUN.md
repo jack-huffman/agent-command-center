@@ -136,9 +136,9 @@ was on your PATH. A fresh VSCode doesn't put it there: note whether you used
 
 After the reload, nothing opens by itself. Click the Command Center's icon in
 the activity bar: with no project set up, it opens on Setup at **This
-machine**. Open the walkthrough **Agent Command Center: set up this machine**
-with the **Machine walkthrough** button or from the Command Palette. Note
-whether you found it easily. Do the steps with no project folder open.
+machine**. Setup is a walkthrough, one step on each screen: press **Start**.
+The VS Code walkthrough **Agent Command Center: set up this machine** is in the
+Command Palette. Note whether you found your way easily. Do the steps with no project folder open.
 
 With no project open, the machine walkthrough also lists the Salesforce tools:
 A1.node, A1.sf and A1.code-analyzer (D-077). **Did those rows confuse you,
@@ -312,9 +312,9 @@ named once it passed: it should be the release you installed.
 ## A generic project, to a dispatched task
 
 Open the throwaway repo's folder. The project walkthrough doesn't open by
-itself in any folder: use Setup's **Project walkthrough** button or **Agent
-Command Center: Onboard this project** from the Command Palette, and note
-whether that was easy to find.
+itself in any folder: use Setup's walkthrough, or **Agent Command Center:
+Onboard this project** from the Command Palette, and note whether that was easy
+to find.
 
 **At B0.config, check one thing on the Setup page** (the Command Center's
 Setup section). Before **Do it**, note whether This machine lists **Node 20 or

@@ -1,50 +1,63 @@
-/* Setup */
-.progress { height: 6px; border-radius: 3px; background: var(--vscode-progressBar-background, var(--line)); opacity: 0.9; margin: -4px 0 20px; overflow: hidden; }
-.progress-fill { height: 100%; background: var(--blue); }
-.steps { list-style: none; margin: 0; padding: 0; }
-.step { padding: 9px 10px; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 6px; background: var(--card); }
-.step.attention { border-left: 3px solid var(--orange); }
-.step-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.step .detail { margin: 4px 0 0; }
-.step .step-does { display: flex; align-items: center; gap: 6px; margin: 6px 0 0; }
-.step .why { margin: 4px 0 0; color: var(--vscode-descriptionForeground); font-size: 0.93em; }
-.step .fix { margin: 6px 0 0; padding: 6px 8px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.9em; white-space: pre-wrap; word-break: break-all; }
-.step .actions { margin-top: 8px; }
-/* Sections, in the order things are set up (D-047). Done steps read as finished: one muted line. */
-.setup-section { margin: 0 0 1px; }
-.setup-section > summary { display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 4px; cursor: pointer; list-style: none; }
-.setup-section > summary::-webkit-details-marker { display: none; }
-.setup-section > summary:hover { background: var(--vscode-list-hoverBackground); }
-.setup-section[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
-.setup-section-title { font-weight: 600; }
-.setup-section.all-done > summary .setup-section-title { font-weight: 500; color: var(--vscode-descriptionForeground); }
-.setup-section > summary .done-count { background: none; color: var(--vscode-descriptionForeground); display: inline-flex; align-items: center; gap: 3px; }
-.setup-section > summary .count.tone-orange { background: none; color: var(--orange); border: 1px solid var(--orange); }
-.setup-section > .steps { padding: 2px 0 4px 22px; }
-/* A done step reads as done by its icon and label, in the theme's muted colour, not faded below its contrast (T-59). */
-.step.done { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-color: transparent; background: none; margin-bottom: 0; }
-.step.done .status, .step.done .strong { flex: none; font-weight: 400; }
-.step.done .strong { color: var(--vscode-descriptionForeground); }
-.step.done:hover .strong, .step.done:focus-within .strong { color: var(--vscode-foreground); }
-.step.done .status { color: var(--vscode-descriptionForeground); }
-.step.done .status .codicon { color: inherit; }
-.step.done .step-line { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.step.done .step-run { flex-basis: 100%; }
+/* Setup as a guided walkthrough (T-153): one thing on each screen, calm as D-217, D-218 and D-226 are. No boxes
+   but the screen's own; space and one line divide its parts. */
+.walk-start, .walk-step, .walk-end { max-width: 640px; }
+.walk-hero { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3); margin: var(--space-2) 0 var(--space-6); }
+.walk-lead { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: 1.3em; font-weight: 600; color: var(--vscode-foreground); }
+.walk-lead:focus { outline: none; }
+.walk-lead:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.walk-hero .detail { margin: 0; }
+.walk-hero .actions { margin: 0; }
+/* What this machine still needs before a project starts (T-133): full width, so each row's Go to it lines up. */
+.walk-hero .walk-rows { align-self: stretch; }
+
+/* The chapters, by part, each closed with its state, opened for its steps. */
+.walk-chapters { margin: 0 0 var(--space-5); }
+.walk-part { display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-2); font-size: 0.85em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground); }
+.chapter { border-top: 1px solid var(--line); }
+.chapter:last-child { border-bottom: 1px solid var(--line); }
+.chapter > summary { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-1); cursor: pointer; list-style: none; }
+.chapter > summary::-webkit-details-marker { display: none; }
+.chapter > summary:hover { background: var(--vscode-list-hoverBackground); }
+.chapter > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.chapter[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
+.chapter-title { flex: 1; min-width: 0; font-weight: 600; }
+.chapter > .walk-rows { padding: 0 0 var(--space-2) 22px; }
+
+/* A step in a list: its state, its name, and Go to it while it's still to do. */
+.walk-rows { list-style: none; margin: 0; padding: 0; }
+.walk-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); padding: var(--space-1) 0; }
+.walk-row-name { flex: 1 1 200px; min-width: 0; }
+.walk-row.done .walk-row-name, .walk-row.done .status { color: var(--vscode-descriptionForeground); }
+.walk-row.done .status .codicon { color: inherit; }
+.walk-skipped { font-size: 0.85em; color: var(--vscode-descriptionForeground); display: inline-flex; align-items: center; gap: 3px; }
+.walk-skipped .codicon { color: var(--orange); }
 .icon-btn { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--vscode-icon-foreground, var(--vscode-foreground)); cursor: pointer; opacity: 0; }
-.step.done:hover .icon-btn, .step.done:focus-within .icon-btn { opacity: 1; }
+.walk-row.done:hover .icon-btn, .walk-row.done:focus-within .icon-btn { opacity: 1; }
 .icon-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
 .icon-btn:focus-visible { outline: 1px solid var(--vscode-focusBorder); opacity: 1; }
 
-/* A step's command line, folded away until asked for (GH-168). */
-.step .fix-line { margin: 6px 0 0; }
-.step .fix-line summary { cursor: pointer; }
-/* A setup step's fix while it runs. */
-.step-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 0 2px; padding: 5px 8px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
-.step-run-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* One step's screen: its place, the one thing to do and why, the live check, its one action, and the foot. */
+.walk-step, .walk-end { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-2) 0 var(--space-5); }
+.walk-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.walk-top .rp-progress { margin: 0; }
+.walk-chapter { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 0.92em; color: var(--vscode-descriptionForeground); }
+.walk-title { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-2) 0 0; font-size: 1.4em; font-weight: 600; line-height: 1.3; color: var(--vscode-foreground); }
+.walk-title:focus { outline: none; }
+.walk-title:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.walk-why { margin: 0; color: var(--vscode-descriptionForeground); line-height: 1.5; }
+.walk-check { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.walk-do { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-top: var(--space-1); }
+.walk-how > summary { cursor: pointer; width: fit-content; }
+.walk-how > summary:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
+.walk-how[open] { display: flex; flex-direction: column; gap: var(--space-2); }
+.walk-how .detail { margin: var(--space-2) 0 0; }
+.walk-how .actions { margin: 0; }
+.step-does { display: flex; align-items: center; gap: 6px; margin: 0; }
+.walk-how .fix { margin: 0; padding: 6px 8px; border-radius: 3px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.9em; white-space: pre-wrap; word-break: break-all; }
+.walk-foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2) var(--space-3); margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--line); }
+.walk-foot-why { flex: 1 1 160px; min-width: 0; }
+.walk-foot-why .status { white-space: normal; }
 
-/* A folder that isn't set up (GH-138): what kind of project it is, asked first in This project. */
-.setup-start { padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--orange); border-radius: var(--radius); margin: 0 0 10px; background: var(--card); }
-.setup-start .start-question { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 1.05em; color: var(--vscode-foreground); }
-.setup-start .start-question .codicon { color: var(--orange); }
-.setup-start .detail { margin: 4px 0 0; }
-.setup-start .actions { margin-top: 8px; }
+/* A step's fix while it runs. */
+.step-run { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 5px 8px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); }
+.step-run-cmd { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
