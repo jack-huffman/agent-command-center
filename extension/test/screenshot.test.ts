@@ -11,6 +11,7 @@ import type { TaskSheet } from '../src/model/task-sheet.ts';
 import { afterModel, APP_WARNING, COLOUR_PAGES, COLOUR_PROPERTIES, colourDiffs, type Colours, dumpedColours, findChrome, FONTS, NO_BROWSER, noBrowser, OUTPUT_REVIEWS, OUTPUT_RUNS, OUTPUT_STEPS, OVERVIEW_LISTS, pageFor, PAGES, sampleModel, shotState, startState } from '../scripts/screenshot.ts';
 import { ROOT } from '../scripts/fixtures/shared.ts';
 import { everyoneKept } from '../scripts/fixtures/boards.ts';
+import { SETUP_WALK_PAGES } from '../scripts/fixtures/setup.ts';
 import { PIN } from '../scripts/browser.ts';
 import { cssRules, pageStyles, palettes, readsVars, styleFile, styleFiles, vscodeDefaults } from '../scripts/styles.ts';
 
@@ -207,6 +208,11 @@ test('every section of the page, and a ticket, has sample data built by the real
       // T-143: a new person's shot keeps no choice, so its board opens on its default; every other Tasks shot keeps Everyone.
       const kept = everyoneKept(ROOT);
       assert.deepEqual([m.kind, (m as HomeModel).section, shotState(kind), shotState('tasks'), shotState('tasks-agents')], ['home', 'tasks', {}, { firstStepsSeen: true, filters: kept }, { modes: { [ROOT]: 'agents' }, firstStepsSeen: true, filters: kept }]);
+    }
+    // Setup's walkthrough past its start screen (T-153): Setup, with the tab remembering the screen on show.
+    else if ((SETUP_WALK_PAGES as readonly string[]).includes(kind)) {
+      const at = { 'setup-walk-step': 'B6.org-match', 'setup-walk-how': 'A4.plugin', 'setup-walk-modal': 'B14.tickets', 'setup-walk-end': 'end' }[kind as typeof SETUP_WALK_PAGES[number]];
+      assert.deepEqual([m.kind, (m as HomeModel).section, (startState(kind) as { setupWalk: { at: string } }).setupWalk.at], ['home', 'setup', at]);
     }
     // Environments on a machine not logged in to Production (T-125): its Open org and Deploy… off.
     else if (kind === 'environments-away') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).environments.projects[0]!.envs.find((e) => e.type === 'production')!.actions.filter((a) => a.disabled).length], ['home', 'environments', 2]);

@@ -10,6 +10,7 @@ import { KIND_QUESTION, SETUP_PARTS } from '../logic/first-open.ts';
 import { inProcessWords, processLine, toolLineDoes } from '../logic/processes.ts';
 import { type DoctorItem, hasRunnableFix } from '../logic/setup.ts';
 import { REPORT_COMMAND } from './report.ts';
+import { type Chapter, setupChapters, type WalkPlace } from './setup-walk.ts';
 import { type Action, type Look, LOOK, type ModelArea, type Ref } from './shared.ts';
 
 // ---------------------------------------------------------------- setup
@@ -77,6 +78,10 @@ export interface SetupModel {
   machineFirst: MachineFirst | null;
   /** jump: the data-part its heading carries, for a jump such as the first open's (GH-138). */
   parts: { part: 'machine' | 'project'; jump: string; label: string; todo: number; steps: SetupRow[]; sections: SetupSection[] }[];
+  /** The walkthrough's chapters (T-153): the sections, each step as its screen shows it. */
+  chapters: Chapter[];
+  /** Where the walkthrough was left in this folder, for a tab that doesn't remember it (T-153); null before it starts. */
+  walk: WalkPlace | null;
 }
 
 /**
@@ -151,9 +156,9 @@ const upperFirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1)
 
 /**
  * setUp: whether the folder has a .acc/config.json, null with no folder open. Only false asks what kind of project it is.
- * starting: a project being started (T-133), whose machine steps show first.
+ * starting: a project being started (T-133), whose machine steps show first. walk: where the walkthrough was left (T-153).
  */
-export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: boolean | null = true, starting: SetupStarting | null = null): SetupModel {
+export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: boolean | null = true, starting: SetupStarting | null = null, walk: WalkPlace | null = null): SetupModel {
   const start = setUp === false ? setupStart() : null;
   const visible = [...items].sort((a, b) => stepOrder(a.id) - stepOrder(b.id));
   const rows = (part: 'machine' | 'project') => visible.filter((i) => i.part === part).map((i): SetupRow => {
@@ -200,7 +205,7 @@ export function setupModel(items: DoctorItem[], confirmed: Set<string>, setUp: b
   }).filter((p) => p.steps.length || (p.part === 'project' && start));
   const all = parts.flatMap((p) => p.steps);
   const first = starting ? machineFirst(starting, parts.find((p) => p.part === 'machine')?.steps ?? []) : null;
-  return { kind: 'setup', done: all.filter((s) => s.done).length, total: all.length, start, machineFirst: first, parts };
+  return { kind: 'setup', done: all.filter((s) => s.done).length, total: all.length, start, machineFirst: first, parts, chapters: setupChapters({ parts, start, machineFirst: first }), walk };
 }
 
 /** Steps still to do, and those failing. */

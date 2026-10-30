@@ -8,7 +8,8 @@ import type { RunCard } from '../src/model/runs.ts';
 import type { RunResult, ShownRow } from '../src/model/run-view.ts';
 import { el, icon, linkTo, plural, status, work } from './dom.ts';
 import { renderRunSteps } from './run-steps.ts';
-import { api, go, memory, remember, state } from './state.ts';
+import { api, memory, remember, state } from './state.ts';
+import { showSetupStep } from './setup.ts';
 
 /** A path's chip: a button that opens it, in the folder the run ran in, or a quiet label that says why it doesn't. */
 function chip(run: string, p: Extract<RowPart, { path: string }>): HTMLElement {
@@ -89,8 +90,7 @@ function next(run: RunCard, n: NonNullable<RunResult['next']>): HTMLElement {
   b.setAttribute('aria-label', n.label);
   b.addEventListener('click', () => {
     if (n.kind === 'rerun') { api.postMessage({ type: 'run-control', run: run.id, action: 'rerun' }); return; }
-    go('setup');
-    document.querySelector<HTMLElement>(`[data-step="${CSS.escape(n.step)}"]`)?.scrollIntoView({ block: 'center' });
+    showSetupStep(n.step);
   });
   return b;
 }

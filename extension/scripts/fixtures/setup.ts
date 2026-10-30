@@ -3,7 +3,8 @@ import { installCommand } from '../../../packages/core/src/onboarding/install-li
 import { STEPS } from '../../../packages/core/src/onboarding/steps.ts';
 import { brewShellenv } from '../../../packages/core/src/onboarding/path-fix.ts';
 import type { DoctorItem } from '../../src/logic/setup.ts';
-import type { SetupStarting } from '../../src/model/setup.ts';
+import { setupModel, type SetupStarting } from '../../src/model/setup.ts';
+import type { WalkPlace } from '../../src/model/setup-walk.ts';
 
 /** A Mac tool in Homebrew's folder but not on VSCode's PATH, as A1's steps say it (T-133). */
 const NOT_ON_PATH = (name: string): Partial<DoctorItem> => ({
@@ -66,4 +67,22 @@ export function sampleFirstSetup(machineReady: boolean): { items: DoctorItem[]; 
   };
   const items = STEPS.filter((s) => s.part === 'machine').map((s): DoctorItem => ({ id: s.id, part: s.part, title: s.title, status: 'pass', detail: 'Looks right.', ...todo[s.id] }));
   return { items, confirmed: new Set(), setUp: false };
+}
+
+/** The pages that draw Setup's walkthrough past its start screen (T-153). */
+export const SETUP_WALK_PAGES = ['setup-walk-step', 'setup-walk-how', 'setup-walk-modal', 'setup-walk-end'] as const;
+
+/**
+ * Setup's walkthrough as the tab remembers it (T-153), over sampleSetup's steps: at a step with two skipped
+ * before it; at the plugin's step with Show how open on its command line; at the tracker's step, whose Do it opens
+ * Connect a tracker; and at the end with every step skipped. Null for any other page.
+ */
+export function setupWalkState(kind: string): { setupWalk: WalkPlace; opened?: string[] } | null {
+  const s = sampleSetup();
+  const walk = setupModel(s.items, s.confirmed).chapters.flatMap((c) => c.steps).filter((x) => !x.done).map((x) => x.id);
+  if (kind === 'setup-walk-step') return { setupWalk: { at: 'B6.org-match', walk, skipped: ['A1.python', 'B0.template'] } };
+  if (kind === 'setup-walk-how') return { setupWalk: { at: 'A4.plugin', walk, skipped: [] }, opened: ['setup-how:A4.plugin'] };
+  if (kind === 'setup-walk-modal') return { setupWalk: { at: 'B14.tickets', walk, skipped: [] } };
+  if (kind === 'setup-walk-end') return { setupWalk: { at: 'end', walk, skipped: walk } };
+  return null;
 }

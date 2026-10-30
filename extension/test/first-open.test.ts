@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { FIRST_OPEN_STATE, FIRST_OPEN_WAIT_MS, firstOpen, type FirstOpenInput, KIND_QUESTION, machineDone, SETUP_PARTS, waitsForMachine } from '../src/logic/first-open.ts';
 import { COMMANDS, type DoctorItem, EXTENSION_ID, WALKTHROUGHS } from '../src/logic/setup.ts';
 import { setupModel } from '../src/model/setup.ts';
+import { WALK_STATE } from '../src/model/setup-walk.ts';
 import { makeRepo } from '../../packages/core/test/support.ts';
 import { activate, fakeVscode, sandboxEnv, until } from './vscode.ts';
 
@@ -62,7 +63,7 @@ test('Setup asks what kind of project it is only in a folder that isn\'t set up,
   assert.deepEqual(setupModel(machineOnly, new Set(), true).parts.map((p) => p.part), ['machine'], 'and no empty This project');
 });
 
-type Posted = { type?: string; jump?: boolean; open?: string; model?: { section: string; setup: { start: { question: string } | null } } };
+type Posted = { type?: string; jump?: boolean; open?: string; model?: { section: string; setup: { start: { question: string } | null; walk: unknown } } };
 type Started = { fake: ReturnType<typeof fakeVscode>; started: ReturnType<typeof activate> };
 
 type WaitTimer = { requested: number; fire: () => void };
@@ -161,7 +162,7 @@ const walkthroughs = (fake: Started['fake']) => fake.calls.executed.filter(([id]
 const lastState = (tab: { posted: unknown[] }) => (tab.posted as Posted[]).filter((x) => x.model).at(-1)!;
 
 test('a Salesforce folder that isn\'t set up opens nothing, and the Command Center\'s first open there lands on Setup, once', IN_FOLDER, async () => {
-  await inFolder({ 'sfdx-project.json': '{"packageDirectories":[{"path":"force-app","default":true}]}\n' }, 'pass', 'none', async ({ fake, started, settle }) => {
+  await inFolder({ 'sfdx-project.json': '{"packageDirectories":[{"path":"force-app","default":true}]}\n' }, 'pass', 'none', async ({ fake, started, settle, wait }) => {
     const { calls, panels } = fake;
     const { ctx } = started;
     // Opening the folder: no walkthrough tab, no Command Center, no notification.
@@ -203,6 +204,14 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
     await settle('the project walkthrough to open', calls.commands.get(COMMANDS.project)!() as Promise<void>);
     assert.deepEqual(walkthroughs(fake).map(([, args]) => args), [[`${EXTENSION_ID}#${WALKTHROUGHS.machine.id}`, false], [`${EXTENSION_ID}#${WALKTHROUGHS.project.id}`, false]]);
 
+    // Where Setup's walkthrough was left is kept for the folder (T-153): a tab opened later comes back to it.
+    assert.equal(landed.model!.setup.walk, null, 'no walk before one starts');
+    const place = { at: 'A1.gh', walk: ['A1.gh', 'A4.plugin'], skipped: ['A4.plugin'] };
+    first.receive!({ type: 'setup-walk', place });
+    first.receive!({ type: 'setup-walk', place: { at: '', walk: [], skipped: [] } });
+    await wait('the walkthrough\'s place to be kept', () => ctx.workspaceState.get(WALK_STATE) !== undefined);
+    assert.deepEqual(ctx.workspaceState.get(WALK_STATE), place, 'kept, and a place that doesn\'t fit is refused');
+
     // Left at Agents, the next open is where it was left, not Setup.
     first.receive!({ type: 'nav', section: 'agents' });
     first.close!();
@@ -212,6 +221,7 @@ test('a Salesforce folder that isn\'t set up opens nothing, and the Command Cent
     const again = lastState(second);
     assert.equal(again.model!.section, 'agents');
     assert.equal(again.open, undefined);
+    assert.deepEqual(again.model!.setup.walk, place, 'the new tab has the walk where it was left');
     assert.equal(panels.length, 4);
   });
 });

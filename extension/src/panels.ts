@@ -373,7 +373,7 @@ export class Panels implements vscode.Disposable {
   model() {
     return homeModel({
       hub: this.hub, section: this.section, boards: (r) => this.deps.boards(r), identity: (r) => this.deps.identity(r),
-      setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed(), setUp: this.setup.setUp(), root: this.setup.root(), starting: this.setup.startingModel() }, runs: this.deps.runs(),
+      setup: { items: this.setup.results(), confirmed: this.setup.allConfirmed(), setUp: this.setup.setUp(), root: this.setup.root(), starting: this.setup.startingModel(), walk: this.setup.walkPlace() }, runs: this.deps.runs(),
       edited: (root, id, replaces) => this.deps.edited(root, id, replaces), connect: this.deps.connect.model(), cloudSetup: this.deps.cloudSetup?.model() ?? null, slack: this.deps.slack?.card() ?? null,
       whereView: this.whereView, theme: this.tab?.theme ?? currentTheme(), pace: currentPace(), opensOn: this.opens,
       finished: this.finished, autopilot: (root) => this.deps.autopilot?.(root) ?? null, now: Date.now(), about: this.deps.about?.facts() ?? null, since: this.deps.since?.() ?? [],
