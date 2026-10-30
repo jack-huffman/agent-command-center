@@ -278,10 +278,22 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Enviro
         return error(`Deployed to ${org} (job ${res.id}), but the test run gave no result: ${lastLine(t.stderr || t.stdout) || `sf exited with ${t.code}`}.`);
       }
       // Each class and trigger the ticket changes, as the org covers it now: the deploy cleared what it had before.
-      const apex = ran.tests.outcome === 'pass' ? changedApex(input.root, source, tests) : [];
+      const apex = ran.tests.outcome === 'pass' ? changedApex(input.root, source) : [];
       if (apex.length) {
-        const q = exec('sf', coverageQueryArgs(org, apex.map((a) => a.name)));
-        const classes = readCoverage(q, apex.map((a) => a.name));
+        const names = apex.map((a) => a.name);
+        let q = exec('sf', coverageQueryArgs(org, names));
+        let classes = readCoverage(q, names);
+        // The Tooling API may refuse Coverage on several rows at once: ask for one class at a time instead.
+        if (!classes && names.length > 1) {
+          const each: ClassCoverage[] = [];
+          for (const name of names) {
+            q = exec('sf', coverageQueryArgs(org, [name]));
+            const one = readCoverage(q, [name]);
+            if (!one) { each.length = 0; break; }
+            each.push(...one);
+          }
+          if (each.length === names.length) classes = each;
+        }
         if (!classes) {
           record(ran.tests);
           return withCountsOf(ran, error(`Deployed to ${org} (job ${res.id}) and the tests passed, but the org gave no coverage for ${listOf(apex.map((a) => a.name))}: ${lastLine(q.stderr || q.stdout) || `sf exited with ${q.code}`}.`));

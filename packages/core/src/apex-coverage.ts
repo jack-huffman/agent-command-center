@@ -48,17 +48,17 @@ const uncommented = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, 
 
 /**
  * The Apex classes and triggers the floor applies to, from the source a ticket changes: never a test class (one
- * the builder named for the run, or one whose source says @isTest), an interface or an enum. A file the
- * worktree can't read counts, so a changed class never slips out unchecked.
+ * whose source says @isTest), an interface or an enum. A class the builder names for the run still counts unless
+ * its source says @isTest, so naming a class as a test never takes it off the floor. A file the worktree can't
+ * read counts, so a changed class never slips out unchecked.
  */
-export function changedApex(root: string, source: string[], tests: { name: string }[]): ChangedApex[] {
-  const named = new Set(tests.map((t) => t.name.toLowerCase()));
+export function changedApex(root: string, source: string[]): ChangedApex[] {
   const out: ChangedApex[] = [];
   for (const path of source) {
     const m = SOURCE.exec(path);
     if (!m) continue;
     const name = basename(path).replace(SOURCE, '');
-    if (!APEX_NAME.test(name) || named.has(name.toLowerCase())) continue;
+    if (!APEX_NAME.test(name)) continue;
     let text = '';
     try {
       text = uncommented(readFileSync(join(root, path), 'utf8'));

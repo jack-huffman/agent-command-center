@@ -27,10 +27,10 @@ test('the floor is Salesforce\'s 75 unless the project\'s settings raise it', ()
   assert.match(parseConfig({ ...SF_CONFIG, gates: { apexCoverage: 74 } }).errors.join('\n'), /"gates\.apexCoverage" must be a whole number from 75 to 100/);
 });
 
-test('the classes and triggers that count: never a named test class, an @isTest one, an interface or an enum, nor a meta file; a commented @isTest still counts', () => {
+test('the classes and triggers that count: never an @isTest one, an interface or an enum, nor a meta file; a commented @isTest still counts', () => {
   const root = tree({
     [`${CLASSES}/OrderService.cls`]: 'public with sharing class OrderService {\n  public interface Inner {}\n}\n',
-    [`${CLASSES}/OrderServiceTest.cls`]: 'public class OrderServiceTest {}\n',
+    [`${CLASSES}/OrderServiceTest.cls`]: '@IsTest\npublic class OrderServiceTest {}\n',
     [`${CLASSES}/Helper_Test.cls`]: '@isTest\nprivate class Helper_Test {}\n',
     [`${CLASSES}/Pricing.cls`]: 'global interface Pricing extends Base { Decimal price(); }\n',
     [`${CLASSES}/Stage.cls`]: 'public enum Stage { OPEN, CLOSED }\n',
@@ -42,7 +42,7 @@ test('the classes and triggers that count: never a named test class, an @isTest 
     `${CLASSES}/Pricing.cls`, `${CLASSES}/Stage.cls`, `${CLASSES}/Noted.cls`, 'force-app/main/default/triggers/OrderTrigger.trigger',
     'force-app/main/default/objects/Order/fields/Total__c.field-meta.xml',
   ];
-  assert.deepEqual(changedApex(root, source, [{ name: 'orderservicetest' }]), [
+  assert.deepEqual(changedApex(root, source), [
     { name: 'OrderService', kind: 'class', path: `${CLASSES}/OrderService.cls` },
     { name: 'Noted', kind: 'class', path: `${CLASSES}/Noted.cls` },
     { name: 'OrderTrigger', kind: 'trigger', path: 'force-app/main/default/triggers/OrderTrigger.trigger' },
@@ -50,8 +50,8 @@ test('the classes and triggers that count: never a named test class, an @isTest 
 });
 
 test('edge case: a changed class the worktree can\'t read still counts, and an empty change has none', () => {
-  assert.deepEqual(changedApex(tree({}), [`${CLASSES}/Gone.cls`], []), [{ name: 'Gone', kind: 'class', path: `${CLASSES}/Gone.cls` }]);
-  assert.deepEqual(changedApex(tree({}), [], []), []);
+  assert.deepEqual(changedApex(tree({}), [`${CLASSES}/Gone.cls`]), [{ name: 'Gone', kind: 'class', path: `${CLASSES}/Gone.cls` }]);
+  assert.deepEqual(changedApex(tree({}), []), []);
 });
 
 test('the org is asked by the Tooling API, by name, and a name that isn\'t Apex never reaches the query', () => {
@@ -105,4 +105,9 @@ test('a figure is said as the ticket says it, and the failure names each class u
   assert.equal(linesWords(cov('A', 0, 23, many)), 'lines 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 and 3 more');
   assert.deepEqual(underFloor([cov('OrderService', 60, 40, [12, 13]), cov('Account', 10, 0), cov('Bare', 1, 3)], 75), ['OrderService 60%, 40 lines not covered (lines 12, 13)', 'Bare 25%, 3 lines not covered']);
   assert.deepEqual(underFloor([], 75), []);
+});
+
+test('a class named for the run without @isTest in its source still counts, so naming it as a test never skips its floor', () => {
+  const root = tree({ [`${CLASSES}/OrderService.cls`]: 'public class OrderService {}\n' });
+  assert.deepEqual(changedApex(root, [`${CLASSES}/OrderService.cls`]), [{ name: 'OrderService', kind: 'class', path: `${CLASSES}/OrderService.cls` }]);
 });

@@ -947,3 +947,20 @@ test('edge case: a builder deploys only to its own task\'s environment, never on
   assert.match(deployEnvProblem(task, { name: 'UAT', branch: 'uat' }) ?? '', /ACME-7 builds on dev, so it deploys only to that environment's org, never to UAT\. Nothing was deployed\./);
   assert.equal(deployEnvProblem(null, { name: 'UAT', branch: 'uat' }), null, 'no task: not a builder\'s own run, which skips anyway');
 });
+
+test('edge case: when the org refuses Coverage on several rows, the gate asks for one class at a time', () => {
+  const f = fixture();
+  write(f.dir, 'force-app/main/default/classes/OrderService.cls', 'public with sharing class OrderService { }\n');
+  commitAll(f.dir, 'order service');
+  f.passed('validate');
+  const calls: string[] = [];
+  let asked = 0;
+  const rows = sf(aggregate([['Account', 10, 0], ['OrderService', 44, 6]]));
+  const r = deployRun(f, fakeSf(calls, {
+    'nice -n 15 sf org list metadata --metadata-type ApexClass': sf(['Account', 'OrderService'].map((fullName) => ({ fullName, type: 'ApexClass' }))),
+    [COVERAGE_QUERY]: () => (asked++ === 0 ? { code: 1, stdout: '', stderr: 'MALFORMED_QUERY' } : rows),
+  }));
+  assert.equal(r.status, 'pass', r.summary);
+  assert.deepEqual(calls.filter((l) => l.startsWith(COVERAGE_QUERY)).map((l) => l.replace(/^.* IN /, '')), ["('Account', 'OrderService')", "('Account')", "('OrderService')"]);
+  assert.match(r.summary, /Account 100%; OrderService 88%, 6 lines not covered\.$/);
+});
