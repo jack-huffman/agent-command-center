@@ -50,7 +50,10 @@ the quick deploy of the checked job, the pull request, the records.
   sf: an allowlist too (`DEPLOYER_SF`, after the third review found `sf api request` could quick-deploy the
   checked job): the analyst's reads but a retrieve, and the runbook's own steps, `sf org assign permset` and
   `permsetlicense` and `sf data create|update|delete record`, never through the Tooling API, never writing a file
-  or reading flags from one. Anonymous Apex and anything else of sf is a step by hand.
+  or reading flags from one (`--output-dir`, `--output-file`, `--flags-dir`, and `-d`/`-f` where they write), never
+  a setup object (permission sets, field and object permissions, static resources, Apex, users and the like),
+  and `sf org display` without `--verbose`, so no token reaches the chat. Anonymous Apex and anything else of sf
+  is a step by hand. A fourth review found no way left to a deploy or a planted yes.
   git: log, show, diff, status, rev-parse, ls-files, blame, describe, shortlog. No word names acc's state, its
   hook or `ACC_ROLE`. A builder may no longer run `acc hook` by hand either (`PERSON_ONLY_ACC`).
 - **Not covered:** the allowlist trusts `sf` itself: a step it runs (`sf apex run`, `sf data update`) changes

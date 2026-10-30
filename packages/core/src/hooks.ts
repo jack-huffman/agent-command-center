@@ -228,6 +228,10 @@ export const DEPLOYER_SF = [
   ...ANALYST_COMMANDS.salesforce.filter((c) => c !== 'sf project retrieve start'),
   'sf org assign permset', 'sf org assign permsetlicense', 'sf data create record', 'sf data update record', 'sf data delete record',
 ] as const;
+/** The one-letter flags of DEPLOYER_SF's commands that write a file (fourth review): -d is --output-dir, -f is --output-file there. */
+const SF_WRITES: Record<string, string[]> = { 'sf apex get log': ['-d'], 'sf org list metadata': ['-f'], 'sf org list metadata-types': ['-f'] };
+/** Setup objects a record write would change as a small deploy would: metadata and access, which are acc deploy's. */
+const SETUP_OBJECTS = /^(StaticResource|PermissionSet|PermissionSetGroup|PermissionSetAssignment|ObjectPermissions|FieldPermissions|SetupEntityAccess|Profile|ApexClass|ApexTrigger|ApexPage|ApexComponent|AuraDefinition|LightningComponentResource|CustomPermission|Group|GroupMember|Organization|User)$/i;
 /** The only variables a guide's command may name, each as a whole word: what its chat was opened with. */
 const GUIDE_VARS = ['${ACC_DEPLOY_TO}', '$ACC_DEPLOY_TO', '${ACC_TASK}', '$ACC_TASK'];
 /** A character a guide's command may hold outside quotes. */
@@ -292,8 +296,8 @@ const namesTask = (word: string | undefined, task: string): boolean => !!word &&
 /**
  * Why a deploy guide's command is refused, or null (T-154). An allowlist: each command is acc, sf or git, named
  * as itself, in a line guideCommands reads. acc: show, list, deploy of its own ticket with no name typed, change
- * list and change step of its own ticket, ticket, board, ste and doctor. sf: anything but a deploy, its project's
- * files, plugins, aliases and settings, or a file written. git: what reads. Nothing touches acc's own state or
+ * list and change step of its own ticket, ticket, board, ste and doctor. sf: DEPLOYER_SF alone, writing no file,
+ * showing no token and changing no setup object. git: what reads. Nothing touches acc's own state or
  * hooks, where the person's yes is kept. The guide's settings deny the same in Claude Code itself
  * (DEPLOYER_DENIES), and ask the person before each command.
  */
@@ -308,7 +312,10 @@ export function guardDeployer(task: string, line: string): string | null {
       if (hand) return `The deploy guide never deploys by hand (${hand}): acc deploy --task ${task} does, with the person's yes from the chat.`;
       const known = DEPLOYER_SF.find((c) => c.split(' ').every((x, k) => w[k] === x));
       if (!known) return `The deploy guide runs these of sf: ${DEPLOYER_SF.join(', ')}. ${w.slice(0, 3).join(' ')} isn't one: make it a step by hand, and say exactly how.`;
-      if (w.some((x) => /^--(output-dir|output-file|flags-dir)\b/.test(x))) return 'The deploy guide writes no file and reads no flags from one: run it without --output-dir, --output-file or --flags-dir.';
+      if (w.some((x) => /^--(output-dir|output-file|flags-dir)\b/.test(x) || (SF_WRITES[known] ?? []).some((f) => x === f || x.startsWith(f)))) return 'The deploy guide writes no file and reads no flags from one: run it without --output-dir, --output-file or --flags-dir, or their one-letter forms.';
+      if (known === 'sf org display' && w.includes('--verbose')) return 'The deploy guide never shows the org\'s access token: run sf org display without --verbose.';
+      const object = w[w.findIndex((x) => x === '--sobject' || x === '-s') + 1];
+      if (known.startsWith('sf data ') && known.endsWith(' record') && (w.some((x) => x.startsWith('--sobject=')) || (object && SETUP_OBJECTS.test(object)))) return `The deploy guide changes data records, never setup (${object ?? 'its object'}): that is metadata or access, acc deploy's or a step by hand. Name the object with --sobject <name>.`;
       if (known.startsWith('sf data ') && known.endsWith(' record') && w.some((x) => /^(--use-tooling-api|-t)$/.test(x))) return 'The deploy guide changes records, never metadata through the Tooling API: that is a deploy, and acc deploy\'s.';
       continue;
     }

@@ -102,9 +102,10 @@ test('the guide deploys only its own ticket through acc deploy, and never types 
   assert.match(guardDeployer('ACME-1', 'sf data query -q "SELECT Id FROM Account" --output-file out.csv')!, /writes no file/);
   assert.match(guardDeployer('ACME-1', 'sf plugins install evil')!, /sf plugins install isn't one/);
   assert.equal(guardDeployer('ACME-1', 'sf data update record -s Account -w "Name=\'Acme\'" -v "Rating=\'Hot\'" -o Prod'), null, 'a record step');
-  assert.match(guardDeployer('ACME-1', 'sf data update record -s ApexClass -i 01pX -v "Body=\'x\'" --use-tooling-api -o Prod')!, /never metadata through the Tooling API/);
+  assert.match(guardDeployer('ACME-1', 'sf data update record -s Account -i 001X -v "Name=\'x\'" --use-tooling-api -o Prod')!, /never metadata through the Tooling API/);
   assert.equal(guardDeployer('ACME-1', 'acc deploy "$ACC_DEPLOY_TO" --task ${ACC_TASK} --plan'), null, 'a whole-word variable, bare or quoted');
   for (const c of DEPLOYER_SF) assert.equal(guardDeployer('ACME-1', `${c} -o Prod`), null, c);
+  assert.equal(guardDeployer('ACME-1', 'sf data query -q "SELECT Id FROM Account" -f q.soql -o Prod'), null, 'edge case: -f on a query reads its file');
   assert.equal(guardDeployer('ACME-1', 'sf data query -q "SELECT Id FROM Case WHERE Status != \'Closed\'" -o Prod --json'), null, 'edge case: a quote inside a quote, and !=');
   assert.deepEqual(guideCommands('acc show ACME-1 && git log -1; sf org display -o "Acme Prod"'), { commands: [['acc', 'show', 'ACME-1'], ['git', 'log', '-1'], ['sf', 'org', 'display', '-o', 'Acme Prod']] });
   assert.deepEqual([...DEPLOYER_ACC].sort(), ['board', 'change', 'deploy', 'doctor', 'list', 'show', 'ste', 'ticket']);
@@ -170,6 +171,14 @@ test('the guide can\'t drop its role, type the name, plant a yes or hide a comma
     'sf data query --flags-dir flags',
     'sf --json data query -q x',
     'sfdx data query -q x',
+    // The fourth review's: sf's one-letter output flags, the token, and setup objects through record writes.
+    'sf apex get log -d /tmp/x -o Prod',
+    'sf org list metadata -m ApexClass -f force-app/main/default/classes/X.cls -o Prod',
+    'sf org list metadata-types -f .acc/config.json -o Prod',
+    'sf org display --verbose -o Prod',
+    'sf data update record -s PermissionSet -i 0PSX -v "Label=x" -o Prod',
+    'sf data create record --sobject FieldPermissions -v "Field=x" -o Prod',
+    'sf data update record --sobject=PermissionSet -i 0PSX -o Prod',
   ];
   for (const line of refused) assert.ok(guardDeployer('ACME-1', line), `refused: ${line}`);
   assert.equal(guardDeployer('ACME-1', 'acc deploy production --task=ACME-1 --yes 0AfX'), null, '--task= names it too');
