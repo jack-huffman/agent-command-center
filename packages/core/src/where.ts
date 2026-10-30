@@ -12,7 +12,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
-import { listMetadataArgs, orgDisplayArgs, orgLockDir, readListed, readOrgDisplay } from './deploy-gate.ts';
+import { askOrgFor, orgDisplayArgs, orgLockDir, readOrgDisplay } from './deploy-gate.ts';
 import { environmentNamed } from './drift.ts';
 import { AccError, parseJsonOutput, type Runner, sfEnv } from './exec.ts';
 import { lastLine, listed, packageDirs, under } from './gates.ts';
@@ -48,7 +48,8 @@ export function ticketWork(run: Runner, root: string, t: Pick<Task, 'id' | 'envi
   const tip = commits.at(-1)!.sha;
   let from = `${tip}^1`;
   if (t.pr?.state !== 'merged') {
-    const base = [`origin/${t.environment}`, t.environment].find((b) => git(run, root, 'rev-parse', '--verify', '--quiet', `${b}^{commit}`).code === 0)!;
+    const base = [`origin/${t.environment}`, t.environment].find((b) => git(run, root, 'rev-parse', '--verify', '--quiet', `${b}^{commit}`).code === 0);
+    if (!base) throw new AccError('where', `Neither origin/${t.environment} nor ${t.environment} is in this clone, so acc can't tell what ${t.id} changes.`);
     from = must(git(run, root, 'merge-base', base, tip), `Couldn't find where ${t.id}'s branch left ${t.environment}`).trim();
   }
   const parts = nulPaths(must(git(run, root, 'diff', '--name-status', '--no-renames', '-z', from, tip), `Couldn't read what ${t.id} changes`));
@@ -186,17 +187,13 @@ export function readOrg(deps: WhereDeps, paths: Pick<RepoPaths, 'root'>, config:
           found.push({ path: f.path, same: f.blob === null ? !existsSync(file) : existsSync(file) && sameText(readFileSync(file, 'utf8'), want[f.path]!) });
         }
       }
-      const unchecked: string[] = [];
-      const lists = new Map<string, string[] | null>();
-      for (const d of gone) {
-        const c = sfComponent(d.path);
-        if (!c) { unchecked.push(d.path); continue; }
-        const args = listMetadataArgs(env.org!, c);
-        const key = args.join(' ');
-        if (!lists.has(key)) lists.set(key, readListed(run('sf', args, { cwd: wt, env: sfEnv(), timeoutMs: 5 * 60_000 })));
-        const names = lists.get(key)!;
-        if (names === null) unchecked.push(componentWords(d.path));
-        else found.push({ path: d.path, same: !names.includes(c.name) });
+      // A component the ticket deletes is there when the org no longer lists it: askOrgFor's missing.
+      const asked = askOrgFor((cmd, args) => run(cmd, args, { cwd: wt, env: sfEnv(), timeoutMs: 5 * 60_000 }), env.org!, gone.map((d) => d.path));
+      const unchecked = asked.unchecked;
+      for (const c of asked.known) {
+        const label = `${c.label}: ${c.name}`;
+        if (unchecked.includes(label)) continue;
+        for (const path of c.paths) found.push({ path, same: asked.missing.includes(label) });
       }
       if (!found.length) return { reading: cannot(`${env.org} couldn't be asked for ${unchecked.join(', ')}.`, at()), unchecked };
       return { reading: readingOf(found, at()), unchecked };

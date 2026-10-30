@@ -411,7 +411,7 @@ export class TicketPanels implements vscode.Disposable {
     if (!env) return `${to} isn't an environment in the project's settings.`;
     const row = this.hub.taskRows(root).find((r) => r.id === task.id);
     return deployOff({
-      config: p.config, task, tasks, running: this.deploys?.running(root, task.id) ?? false, run: null, where: this.deploys?.where(root, task) ?? null,
+      config: p.config, task, tasks, running: this.deploys?.running(root, task.id) ?? false, run: null, where: this.deploys?.kept(root, task.id) ?? null,
       failing: deployBlockers(await this.checks(p, task.run?.branch ?? null, task.environment)), conflicts: row && conflictLine(row, true) ? task.environment : null,
     }, env);
   }

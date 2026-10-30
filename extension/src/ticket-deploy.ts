@@ -26,6 +26,8 @@ export interface DeployActions {
   act(m: Message): Promise<void>;
   /** Where its work was last read to be (T-155), kept beside the ledger; a due reading is read again behind the page. */
   where(root: string, task: Task): TicketWhere | null;
+  /** The kept readings alone, for a check that mustn't start a read. */
+  kept(root: string, id: string): TicketWhere | null;
   /** The person's Refresh: read where its work is again, whatever the readings' age. */
   reread(root: string, id: string): void;
 }
@@ -56,6 +58,10 @@ export const area: ExtensionArea = {
       where: (root, task) => {
         const p = hub.project(root);
         return p ? reads.kept(root, stateOf(p).stateDir, p.config, task) : null;
+      },
+      kept: (root, id) => {
+        const p = hub.project(root);
+        return p ? readWhere(stateOf(p), id.toUpperCase()) : null;
       },
       reread: (root, id) => void reads.read(root, id),
       running: (root, id) => {
