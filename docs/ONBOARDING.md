@@ -108,8 +108,10 @@ purpose, mark the step done.
      so every repo on the machine gets github.com credentials from gh's active
      account, except repos with their own helper (B2).
 
-  **Updates are by hand.** Claude Code updates a private marketplace in the
-  background only when `GITHUB_TOKEN` is set, so after each release:
+  **Updates come with the extension's.** Claude Code updates a private marketplace in the
+  background only when `GITHUB_TOKEN` is set. The extension's **Install and reload** runs
+  these two lines for an older plugin before it reloads. If that fails, or the extension was
+  installed another way, run them by hand after each release:
 
   ```bash
   claude plugin marketplace update agent-command-center

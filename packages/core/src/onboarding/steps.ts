@@ -176,8 +176,11 @@ const PLUGIN_ID = `${PLUGIN.name}@${PLUGIN.marketplace}`;
 export const vsixName = (version: string): string => `${PLUGIN.marketplace}-${version}.vsix`;
 const MARKETPLACE_ADD = `claude plugin marketplace add ${PLUGIN.repo}`;
 const PLUGIN_INSTALL = `claude plugin install ${PLUGIN_ID} --scope user`;
-/** A private marketplace doesn't update itself (D-081), so the plugin is updated by hand after a release. */
-const pluginUpdate = (shell: Shell): string => chain(shell, `claude plugin marketplace update ${PLUGIN.marketplace}`, `claude plugin update ${PLUGIN_ID} --scope user`);
+/**
+ * A private marketplace doesn't update itself (D-081), so the plugin is updated after a release: by A4's fix,
+ * and by the extension's Install and reload (T-152).
+ */
+export const pluginUpdate = (shell: Shell): string => chain(shell, `claude plugin marketplace update ${PLUGIN.marketplace}`, `claude plugin update ${PLUGIN_ID} --scope user`);
 /** Adds the marketplace, then installs the plugin; the line is built for the shell Do it runs it in (T-124). */
 const pluginAddAndInstall = (shell: Shell): string => chain(shell, MARKETPLACE_ADD, PLUGIN_INSTALL);
 /** The shell a check's fix lines are written for: the system it runs for (a test sets one), else the one acc runs on. */

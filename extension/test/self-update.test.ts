@@ -9,7 +9,10 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { makeRepo, tempDir } from '../../packages/core/test/support.ts';
-import { vsixName } from '../../packages/core/src/onboarding/steps.ts';
+import type { InstallSystem } from '../../packages/core/src/onboarding/install-lines.ts';
+import { PLUGIN_LIST_ARGS, pluginUpdate, vsixName } from '../../packages/core/src/onboarding/steps.ts';
+import { PLUGIN_FIX, PLUGIN_STEP } from '../src/logic/plugin-update.ts';
+import { inShell } from '../../packages/core/src/shell.ts';
 import { AFTER_STATE, afterText, afterUpdate, checksumCheck, downloadArgs, FIRST_LOOK_MS, nextLookIn, OFFER_BUTTONS, offerText, pickVsix, shouldOffer, SKIPPED_STATE } from '../src/logic/self-update.ts';
 import type { AboutFacts, Release } from '../src/model/about.ts';
 import { RELEASE_EVERY_MS, RELEASES_REPO } from '../src/model/about.ts';
@@ -88,8 +91,14 @@ const released = (over: Record<string, string | null> = {}): Record<string, stri
   return Object.fromEntries(Object.entries(files).filter((e): e is [string, string] => e[1] !== null));
 };
 
-/** The update with stand-ins: the vscode stand-in, a fake gh, a temp folder, and each step in order. */
-function updater(assets: Assets, o: { auto?: boolean; pick?: string; release?: Release | null; running?: string; installThrows?: boolean } = {}) {
+/** `claude plugin list --json` with the acc plugin at a version, for every session (user scope). */
+const pluginList = (version: string, scope = 'user'): RunResult => ({ code: 0, stdout: JSON.stringify([{ id: 'acc@agent-command-center', scope, version, enabled: true }]), stderr: '' });
+
+/** What the fake claude and the plugin's update line answer: by default an older plugin, which updates. */
+interface PluginFakes { list?: RunResult | 'throws'; update?: RunResult; system?: InstallSystem }
+
+/** The update with stand-ins: the vscode stand-in, a fake gh, claude and shell, a temp folder, and each step in order. */
+function updater(assets: Assets, o: { auto?: boolean; pick?: string; warnPick?: string; release?: Release | null; running?: string; installThrows?: boolean } & PluginFakes = {}) {
   const fake = fakeVscode(tempDir());
   const tmp = tempDir('acc-update-parent-');
   const steps: string[] = [];
@@ -102,7 +111,7 @@ function updater(assets: Assets, o: { auto?: boolean; pick?: string; release?: R
     window: {
       withProgress: (opts: { title: string }, task: (p: { report(m: { message?: string }): void }) => Promise<unknown>) => { steps.push(`progress: ${opts.title}`); return task({ report: (m) => steps.push(`step: ${m.message}`) }); },
       showInformationMessage: async (text: string, ...buttons: string[]) => { shown.push({ text, buttons }); return o.pick; },
-      showWarningMessage: async (text: string, ...buttons: string[]) => { shown.push({ text, buttons }); steps.push(`warn: ${text}`); return buttons.includes(OFFER_BUTTONS.notes) ? OFFER_BUTTONS.notes : undefined; },
+      showWarningMessage: async (text: string, ...buttons: string[]) => { shown.push({ text, buttons }); steps.push(`warn: ${text}`); return buttons.includes(OFFER_BUTTONS.notes) ? OFFER_BUTTONS.notes : o.warnPick; },
     },
     commands: {
       executeCommand: async (id: string, ...args: unknown[]) => {
@@ -116,6 +125,7 @@ function updater(assets: Assets, o: { auto?: boolean; pick?: string; release?: R
     },
   };
   const ghCalls: { args: string[]; env: NodeJS.ProcessEnv }[] = [];
+  const pluginCalls: { cmd: string; args: string[]; env: NodeJS.ProcessEnv }[] = [];
   const d: SelfUpdateDeps = {
     vscode: vscode as unknown as SelfUpdateDeps['vscode'],
     state: { get: (k) => state.get(k), update: async (k, v) => { steps.push(`saved: ${k} ${JSON.stringify(v)}`); await state.update(k, v); } },
@@ -128,22 +138,31 @@ function updater(assets: Assets, o: { auto?: boolean; pick?: string; release?: R
       onLooked: (fn) => looked.push(fn),
     },
     run: async (cmd, args, env): Promise<RunResult> => {
-      ghCalls.push({ args, env });
       steps.push(`${cmd} ${args.slice(0, 3).join(' ')}`);
+      if (cmd === 'claude') {
+        if (o.list === 'throws') throw new Error('spawn claude EACCES');
+        return o.list ?? pluginList('0.40.0');
+      }
+      if (cmd !== 'gh') {
+        pluginCalls.push({ cmd, args, env });
+        return o.update ?? { code: 0, stdout: '', stderr: '' };
+      }
+      ghCalls.push({ args, env });
       if (assets === 'fails') return { code: 1, stdout: '', stderr: 'HTTP 404: Not Found\nmore' };
       const dir = args[args.indexOf('--dir') + 1]!;
       for (const [name, text] of Object.entries(assets)) writeFileSync(join(dir, name), text);
       return { code: 0, stdout: '', stderr: '' };
     },
     env: { PATH: '/bin', GH_TOKEN: 'a project\'s' },
+    system: o.system ?? 'mac',
     now: () => 1234,
     tmp,
     log: (line) => steps.push(`log: ${line}`),
   };
-  return { u: new SelfUpdate(d), steps, state, fake, tmp, shown, ghCalls, hear: (r: NonNullable<AboutFacts['release']>) => looked.forEach((fn) => fn(r)) };
+  return { u: new SelfUpdate(d), steps, state, fake, tmp, shown, ghCalls, pluginCalls, hear: (r: NonNullable<AboutFacts['release']>) => looked.forEach((fn) => fn(r)) };
 }
 
-test('Install and reload downloads as gh\'s active account, checks the file, installs it by its URI, saves the version, then reloads, in that order', async () => {
+test('Install and reload downloads as gh\'s active account, checks the file, updates the older plugin, installs the file by its URI, saves the version, then reloads, in that order', async () => {
   const s = updater(released());
   assert.equal(await s.u.install('0.41.0'), true);
   const dir = s.ghCalls[0]!.args[s.ghCalls[0]!.args.indexOf('--dir') + 1]!;
@@ -153,15 +172,92 @@ test('Install and reload downloads as gh\'s active account, checks the file, ins
     'step: Downloading the release',
     'gh release download v0.41.0',
     'step: Checking the download',
+    `claude ${PLUGIN_LIST_ARGS.join(' ')}`,
+    `step: ${PLUGIN_STEP}`,
+    `${inShell('')[0]} -c ${pluginUpdate('sh')}`,
     'step: Installing',
     `install: file://${file} (${VSIX})`,
-    `saved: ${AFTER_STATE} {"version":"0.41.0","at":1234}`,
+    `saved: ${AFTER_STATE} {"version":"0.41.0","at":1234,"plugin":{"kind":"updated"}}`,
     'command: workbench.action.reloadWindow',
   ]);
   assert.deepEqual(s.ghCalls[0]!.args, downloadArgs('v0.41.0', dir));
   assert.equal(s.ghCalls[0]!.env.GH_TOKEN, undefined, 'as gh\'s active account, not a project\'s');
+  assert.deepEqual(s.pluginCalls.map((c) => [c.cmd, c.args]), [inShell(pluginUpdate('sh'))], 'A4\'s own update line');
+  assert.equal(s.pluginCalls[0]!.env.GH_TOKEN, undefined, 'the plugin\'s git runs as gh\'s active account, not a project\'s');
   assert.ok(dir.startsWith(s.tmp));
   assert.deepEqual(readdirSync(s.tmp), [], 'the temporary folder is gone');
+});
+
+test('on Windows the plugin updates through PowerShell, with A4\'s line built for PowerShell', async () => {
+  const s = updater(released(), { system: 'windows' });
+  assert.equal(await s.u.install('0.41.0'), true);
+  assert.equal(s.pluginCalls.length, 1);
+  const { cmd, args } = s.pluginCalls[0]!;
+  assert.equal(cmd, 'powershell.exe');
+  assert.equal(Buffer.from(args.at(-1)!, 'base64').toString('utf16le'), pluginUpdate('powershell'));
+  assert.ok(!pluginUpdate('powershell').includes('&&'), 'Windows PowerShell 5.1 has no &&');
+});
+
+test('the plugin step leaves alone a plugin that is current, newer, not there, there for one project only, or with no claude, and installs nothing (edge cases)', async () => {
+  const cases: [string, RunResult][] = [
+    ['current', pluginList('0.41.0')],
+    ['newer', pluginList('0.42.0')],
+    ['not there', { code: 0, stdout: '[]', stderr: '' }],
+    ['for one project only', pluginList('0.40.0', 'project')],
+    ['no claude', { code: 127, stdout: '', stderr: '' }],
+  ];
+  let ran = 0;
+  for (const [name, list] of cases) {
+    const s = updater(released(), { list });
+    assert.equal(await s.u.install('0.41.0'), true, name);
+    assert.deepEqual(s.pluginCalls, [], `${name}: nothing updated or installed`);
+    assert.ok(!s.steps.includes(`step: ${PLUGIN_STEP}`), `${name}: no plugin step shows`);
+    assert.ok(s.steps.includes(`saved: ${AFTER_STATE} {"version":"0.41.0","at":1234}`), `${name}: no plugin outcome saved`);
+    assert.ok(s.steps.includes('command: workbench.action.reloadWindow'), name);
+    ran++;
+  }
+  assert.equal(ran, cases.length);
+});
+
+test('a failed plugin update, an unreadable plugin list or a claude that throws still installs the extension and reloads, logs why, and saves why (the edge cases of a failure)', async () => {
+  const cases: [string, PluginFakes, string][] = [
+    ['a failed update', { update: { code: 1, stdout: '', stderr: 'Failed to update marketplace: repository not found.\nmore' } }, 'Failed to update marketplace: repository not found'],
+    ['a list that isn\'t read', { list: { code: 0, stdout: 'not json', stderr: '' } }, 'couldn\'t read Claude Code\'s plugins: claude plugin list printed something other than a list'],
+    ['a claude that throws', { list: 'throws' }, 'spawn claude EACCES'],
+  ];
+  let ran = 0;
+  for (const [name, fakes, why] of cases) {
+    const s = updater(released(), fakes);
+    assert.equal(await s.u.install('0.41.0'), true, `${name}: the extension still updates`);
+    assert.ok(s.steps.some((x) => x.startsWith('install: ')), `${name}: installed`);
+    assert.equal(s.steps.at(-1), 'command: workbench.action.reloadWindow', `${name}: reloaded`);
+    assert.ok(s.steps.includes(`log: The Claude Code plugin didn't update to 0.41.0: ${why}`), `${name}: logged`);
+    assert.deepEqual(s.state.get(AFTER_STATE), { version: '0.41.0', at: 1234, plugin: { kind: 'failed', why } }, `${name}: saved for after the reload`);
+    ran++;
+  }
+  assert.equal(ran, cases.length);
+});
+
+test('after the reload a failed plugin step warns with why, and its button runs Setup\'s A4 Do it; a good one says open sessions keep the old plugin', async () => {
+  const failed = updater(released(), { running: '0.41.0', warnPick: PLUGIN_FIX.label });
+  await failed.state.update(AFTER_STATE, { version: '0.41.0', at: 1, plugin: { kind: 'failed', why: 'repository not found' } });
+  await failed.u.afterActivation();
+  const fixes = () => failed.fake.calls.executed.filter(([id]) => id === 'acc.step.fix');
+  await until(() => fixes().length === 1, 2000, 'the A4 fix to run');
+  assert.deepEqual(failed.shown, [{ text: 'Updated to 0.41.0. The Claude Code plugin didn\'t update: repository not found.', buttons: ['Update the plugin'] }]);
+  assert.deepEqual(fixes(), [['acc.step.fix', ['A4.plugin']]], 'Setup\'s Do it, for A4');
+  assert.ok(failed.steps.includes('open'), 'the Command Center still opens');
+  // Closed with no button: nothing runs.
+  const closed = updater(released(), { running: '0.41.0' });
+  await closed.state.update(AFTER_STATE, { version: '0.41.0', at: 1, plugin: { kind: 'failed', why: 'repository not found' } });
+  await closed.u.afterActivation();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(closed.fake.calls.executed.filter(([id]) => id === 'acc.step.fix'), []);
+
+  const good = updater(released(), { running: '0.41.0' });
+  await good.state.update(AFTER_STATE, { version: '0.41.0', at: 1, plugin: { kind: 'updated' } });
+  await good.u.afterActivation();
+  assert.deepEqual(good.shown, [{ text: 'Updated to 0.41.0. The Claude Code plugin updated too. Claude Code sessions that are open keep the old plugin until they start again.', buttons: [] }]);
 });
 
 test('a mismatched checksum, a release with no checksum file, a failed download, a wrong file and a failed install each install nothing, say what failed, offer the notes, and leave no folder (the edge cases of a failure)', async () => {

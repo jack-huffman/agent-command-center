@@ -727,7 +727,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
     {
       id: 'about', title: 'About', icon: 'info', summary: 'The versions of the Command Center\'s engine, the extension and its Claude Code plugin, read fresh each time Settings shows, and whether a newer release is out.',
       built: true, today: null,
-      details: ['A newer release installs with Install and reload, here or in the notification that offers it: the extension downloads it as gh\'s active account, checks it, installs it and reloads the window. The plugin updates as Setup\'s A4 does.'],
+      details: ['A newer release installs with Install and reload, here or in the notification that offers it: the extension downloads it as gh\'s active account and checks it. When the Claude Code plugin is installed for every session and is older, the extension updates it as Setup\'s A4 does. Then it installs the new version and reloads the window. Claude Code sessions that are open keep the old plugin until they start again. If the plugin doesn\'t update, the extension still updates, and the message after the reload says why.'],
       links: [],
     },
   ];

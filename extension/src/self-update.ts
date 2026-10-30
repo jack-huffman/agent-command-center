@@ -1,15 +1,19 @@
 // The extension's own update (T-62): a look for a newer release by itself, a minute after activation and
 // then every six hours, shared with Settings' About; one notification for each newer version; and Install
-// and reload, which downloads the release's VSIX as gh's active account, checks it, installs it and reloads
-// the window, to open the Command Center on the new version. VS Code's API comes in as a part, so a test
-// drives it with a stand-in (D-099). The decisions are logic/self-update.ts's.
+// and reload, which downloads the release's VSIX as gh's active account, checks it, updates an older Claude
+// Code plugin (T-152), installs the VSIX and reloads the window, to open the Command Center on the new
+// version. VS Code's API comes in as a part, so a test drives it with a stand-in (D-099). The decisions are
+// logic/self-update.ts's and logic/plugin-update.ts's.
 
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type * as vscode from 'vscode';
+import type { InstallSystem } from '../../packages/core/src/onboarding/install-lines.ts';
+import { PLUGIN_LIST_ARGS } from '../../packages/core/src/onboarding/steps.ts';
 import { activeAccountEnv, type About } from './about.ts';
 import type { ExtensionArea } from './area.ts';
+import { PLUGIN_FIX, PLUGIN_STEP, type PluginOutcome, pluginPlan, pluginRunOutcome, pluginUpdateRun } from './logic/plugin-update.ts';
 import { AFTER_STATE, afterText, afterUpdate, checksumCheck, downloadArgs, FIRST_LOOK_MS, nextLookIn, OFFER_BUTTONS, offerText, pickVsix, shouldOffer, SKIPPED_STATE } from './logic/self-update.ts';
 import { RELEASE_EVERY_MS, type Release } from './model/about.ts';
 import type { RunResult } from './run.ts';
@@ -26,9 +30,11 @@ export interface SelfUpdateDeps {
   /** Opens the Command Center. */
   open(): unknown;
   about: Pick<About, 'facts' | 'lookIfDue' | 'onLooked'>;
-  /** A program on PATH: gh. */
+  /** A program on PATH: gh, claude, and the shell that runs the plugin's update. */
   run(cmd: string, args: string[], env: NodeJS.ProcessEnv): Promise<RunResult>;
   env: NodeJS.ProcessEnv;
+  /** The system the plugin's update line is built for: the one the extension runs on, unless a test sets one. */
+  system?: InstallSystem;
   now(): number;
   /** The folder each download's own temporary folder is made in. */
   tmp: string;
@@ -100,6 +106,7 @@ export class SelfUpdate {
       if (pick === OFFER_BUTTONS.notes) await env.openExternal(Uri.parse(release.url));
       return false;
     };
+    let plugin: PluginOutcome | undefined;
     const why = await window.withProgress({ location: ProgressLocation.Notification, title: `Updating Agent Command Center to ${release.version}` }, async (progress) => {
       const dir = mkdtempSync(join(this.d.tmp, 'acc-update-'));
       try {
@@ -113,6 +120,7 @@ export class SelfUpdate {
         const sum = `${file}.sha256`;
         const checked = checksumCheck(createHash('sha256').update(readFileSync(file)).digest('hex'), existsSync(sum) ? readFileSync(sum, 'utf8') : null, picked.file);
         if (!checked.ok) return checked.error;
+        plugin = await this.updatePlugin(release.version, (message) => progress.report({ message }));
         progress.report({ message: 'Installing' });
         await commands.executeCommand(INSTALL, Uri.file(file));
         return null;
@@ -124,23 +132,50 @@ export class SelfUpdate {
       }
     });
     if (why !== null) return failed(why);
-    await this.d.state.update(AFTER_STATE, { version: release.version, at: this.d.now() });
+    await this.d.state.update(AFTER_STATE, { version: release.version, at: this.d.now(), ...(plugin ? { plugin } : {}) });
     await commands.executeCommand(RELOAD);
     return true;
   }
 
-  /** The first activation after an install: open the Command Center on the new version, or say it didn't take. */
+  /**
+   * The plugin step (T-152): A4's own update line, as gh's active account for the git it runs, for a plugin
+   * installed for every session and older than the version being installed. A plugin that isn't there is left
+   * for Setup. What it did is the outcome; a failure never stops the extension's update, and its reason is
+   * logged and said after the reload. Nothing to do is no outcome.
+   */
+  private async updatePlugin(version: string, report: (message: string) => void): Promise<PluginOutcome | undefined> {
+    let outcome: PluginOutcome | undefined;
+    try {
+      const plan = pluginPlan(await this.d.run('claude', PLUGIN_LIST_ARGS, this.d.env), version);
+      if (plan.kind === 'leave') return undefined;
+      if (plan.kind === 'failed') outcome = plan;
+      else {
+        report(PLUGIN_STEP);
+        const { cmd, args } = pluginUpdateRun(this.d.system);
+        outcome = pluginRunOutcome(await this.d.run(cmd, args, activeAccountEnv(this.d.env)));
+      }
+    } catch (e) {
+      outcome = { kind: 'failed', why: (e as Error).message };
+    }
+    if (outcome.kind === 'failed') this.d.log(`The Claude Code plugin didn't update to ${version}: ${outcome.why}`);
+    return outcome;
+  }
+
+  /**
+   * The first activation after an install: open the Command Center on the new version, or say it didn't take,
+   * with what the plugin step did. A failed plugin step warns, and its button runs Setup's A4 Do it.
+   */
   async afterActivation(): Promise<void> {
     const r = afterUpdate(this.d.state.get(AFTER_STATE), this.d.running());
     if (!r) return;
     await this.d.state.update(AFTER_STATE, undefined);
     const words = afterText(r, this.d.running());
-    if (r.kind === 'missed') {
-      void this.d.vscode.window.showWarningMessage(words);
-      return;
-    }
-    await this.d.open();
-    void this.d.vscode.window.showInformationMessage(words);
+    if (r.kind === 'opened') await this.d.open();
+    const { window, commands } = this.d.vscode;
+    if (r.plugin?.kind === 'failed') {
+      void window.showWarningMessage(words, PLUGIN_FIX.label).then((pick) => pick === PLUGIN_FIX.label && commands.executeCommand(PLUGIN_FIX.command, PLUGIN_FIX.step));
+    } else if (r.kind === 'missed') void window.showWarningMessage(words);
+    else void window.showInformationMessage(words);
   }
 }
 

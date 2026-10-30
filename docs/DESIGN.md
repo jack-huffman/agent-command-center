@@ -1543,8 +1543,8 @@ downloads the `.vsix` from its release (`gh release download -R
 github.com/jack-huffman/agent-command-center -p '*.vsix'`) and installs it in
 VSCode. The machine walkthrough then installs the plugin (A4). A private
 marketplace doesn't update itself without `GITHUB_TOKEN`, so after each
-release the plugin is updated by hand, as the README's Install and first run
-says.
+release the extension's Install and reload updates an older plugin (T-152), and A4's
+Do it, or the README's two lines, update it by hand.
 
 ## 14. VSCode extension
 
@@ -1815,13 +1815,20 @@ skipped and not yet offered in the session gets one notification: **Install and 
 notes**, **Skip this version** (kept in global state as `acc.update.skipped`).
 Install and reload runs `gh release download` as gh's active account into a
 new temporary folder, takes the one `.vsix` named for the version, checks it
-against the release's `<vsix>.sha256` (a release with none, or a mismatch, is refused, D-173), installs it with
+against the release's `<vsix>.sha256` (a release with none, or a mismatch, is refused, D-173), then
+updates the Claude Code plugin (T-152, D-T-152): when `claude plugin list --json` lists it for every
+session (`userPlugin`) and older than the new version (`pluginBehind`), it runs A4's own fix line
+(`pluginUpdate`, built for sh or for PowerShell), as gh's active account, and the progress notification
+shows "Updating the Claude Code plugin". A plugin that isn't there is left for Setup. A failed plugin
+update is logged and doesn't stop the extension's. Then it installs the VSIX with
 `workbench.extensions.installExtension`, removes the folder, saves
-`acc.update.after` with the version, and reloads the window. The next
+`acc.update.after` with the version and what the plugin step did, and reloads the window. The next
 activation that finds the save clears it, then opens the Command Center with
 "Updated to <version>", or says the update didn't take when another version
-runs. A failure says which step failed and offers the release's notes. The
-decisions are `logic/self-update.ts`'s. `npm run release` uploads the
+runs, each with whether the plugin updated: a good update says open Claude Code sessions keep the old
+plugin until they start again, and a failed one says why, with **Update the plugin**, Setup's A4 Do it.
+A failure of the extension's own steps says which step failed and offers the release's notes. The
+decisions are `logic/self-update.ts`'s and `logic/plugin-update.ts`'s. `npm run release` uploads the
 `.sha256` beside the `.vsix`.
 
 | VSCode setting | Default | What it does |
