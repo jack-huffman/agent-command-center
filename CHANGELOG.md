@@ -5,6 +5,36 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.54.0
+
+- Deploy with an agent (D-235). Beside Deploy on a ticket's Changes tab, it
+  opens a Claude Code chat as the deploy guide. The guide reads the ticket,
+  its notes, its changes outside git and a check that changes nothing, and
+  looks for what a deploy never carries: permission sets to assign, flows to
+  turn on, data, settings. It shows one runbook, before, the deploy, after and
+  how to tell it worked, each step marked as its own or yours by hand, and
+  changes it until you approve it. Then it works through it with you, one
+  step at a time. Claude Code asks you before each command, and the deploy
+  itself waits until you type the environment's name in the chat. The guide
+  runs only plain acc, sf and git commands from a short list.
+- Install and reload updates the Claude Code plugin too (D-234), before the
+  window reloads, so builders run the same acc as the extension. A failed
+  plugin update doesn't stop the extension's, and the message after the
+  reload says whether it worked, with a button that runs Setup's step for it.
+- Plans and draft client updates pass the plain technical English check
+  (D-233). An agent can't record a plan whose requirements fail it, a person
+  can't approve one, and the page shows each finding beside its line. A
+  draft update that carries an agent's words is checked before it's written.
+  Your own words are never checked.
+- Setup is a guided walkthrough (D-236): one thing on each screen, in
+  chapters. A start screen says how much is left, with one button to start or
+  carry on, and the chapters (This computer, then This project) with where
+  each stands. Each step is its own screen: what to do, why, its live check,
+  and one action, with the command behind a closed Show how. Next waits for
+  the check, Skip for now moves on, and the end screen lists what you
+  skipped. A tracker or cloud builders open their own walkthrough and come
+  back. It remembers where you stopped.
+
 ## 0.53.0
 
 - Set up cloud builders in one guided walkthrough, on a Mac or on Windows

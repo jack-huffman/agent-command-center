@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-29**. Version 0.52.0 is
-the latest release (2026-10-29). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.53.0 is prepared and waits on a person
+Where each piece of the build stands, as of **2026-10-30**. Version 0.53.0 is
+the latest release (2026-10-30). 0.41.0 (2026-10-16) was the first with a
+`.sha256` beside its `.vsix`. Version 0.54.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -189,6 +189,11 @@ where each one's done-when is written out.
 - **Short notes in plain technical English, a card that shows it's working,
   and This PC on Windows**: done. Checked 2026-10-29. Evidence: D-227, D-229,
   D-230, D-231, D-232, release 0.53.0.
+- **Deploy with an agent, the plugin updated with the extension, plans and
+  client drafts in plain technical English, and Setup as a walkthrough**: done.
+  Checked 2026-10-30. Evidence: D-233, D-234, D-235, D-236, release 0.54.0.
+  The deploy guide is tried against stand-in Salesforce and GitHub answers;
+  not yet on a real production org.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).
