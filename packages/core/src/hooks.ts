@@ -106,7 +106,7 @@ const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0
  * acc rules list is, but not copying rules in (GH-108), and acc github status is, but not switching the account a
  * clone pushes as (GH-113).
  */
-export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'collect', 'cloud', 'gate waive', 'gate relax', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss', 'github use', 'change step']);
+export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'collect', 'cloud', 'gate waive', 'gate relax', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss', 'github use', 'change step', 'hook']);
 
 /** Whether a command word is acc: by its name, or its path, as the packet says to use when acc isn't found. */
 const isAcc = (cmd: string | undefined): boolean => !!cmd && cmd.split('/').pop() === 'acc';
@@ -219,26 +219,45 @@ export function guardAnalyst(line: string): string | null {
 const GIT_WRITES = new Set(['commit', 'push', 'merge', 'rebase', 'reset', 'checkout', 'switch', 'cherry-pick', 'tag', 'am', 'revert', 'stash', 'clean', 'restore', 'rm', 'mv', 'worktree', 'pull', 'branch']);
 /** The acc commands a deploy guide runs: it reads, deploys its own ticket and marks the steps it walks through. */
 export const DEPLOYER_ACC = ['show', 'list', 'deploy', 'change', 'ticket', 'board', 'ste', 'doctor'] as const;
+/** Words that run what follows as a command of its own, or change the environment it runs in: the guard can't read past them. */
+const SHELL_WAYS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'pwsh', 'powershell', 'eval', 'exec', 'xargs', 'source', '.', 'env', 'unset', 'export', 'declare', 'typeset', 'command', 'builtin', 'nohup', 'time', 'sudo']);
+
+/** The task a word names, where it's the guide's own: the id, or $ACC_TASK as the skill writes it. */
+const namesTask = (word: string | undefined, task: string): boolean => !!word && [task, '$ACC_TASK', '${ACC_TASK}'].includes(/^\$/.test(word) ? word : word.toUpperCase());
 
 /**
  * Why a deploy guide's command is refused, or null (T-154). It deploys only through acc deploy, for its own
  * ticket, with the person's yes from the chat: never by hand, never with a name it types itself. It changes
- * no branch, and never touches acc's own state, where the person's yes is kept.
+ * no branch, never touches acc's own state, where the person's yes is kept, nor runs acc's hooks, which keep
+ * it, and never starts a shell or changes its environment, where this guard can't follow. The guide's
+ * settings deny the same in Claude Code itself (DEPLOYER_DENIES), and ask the person before each command.
  */
 export function guardDeployer(task: string, line: string): string | null {
-  if (/deploy-yes|\.git[\\/]+acc\b/.test(line)) return 'acc\'s own state, the person\'s yes among it, is acc\'s: the deploy guide never reads or writes it.';
+  if (/deploy-yes|user-prompt-submit|\.git[\\/]+acc\b/.test(line)) return 'acc\'s own state and hooks, the person\'s yes among them, are acc\'s: the deploy guide never reads, writes or runs them.';
   if (/\bACC_(ROLE|TASK|DEPLOY_TO)\s*=/.test(line)) return 'The deploy guide runs as itself: it never sets ACC_ROLE, ACC_TASK or ACC_DEPLOY_TO.';
+  // Each command as written, before env, time or sudo are read past: the word that runs it.
+  for (const raw of [...rawCommandsOf(line), ...commandsOf(line)]) {
+    const first = raw.find((x) => !/^[A-Za-z_]\w*=/.test(x)) ?? '';
+    if (SHELL_WAYS.has(first) || /^[$`(]/.test(first)) return `The deploy guide runs each command as itself: ${first} would run another, or change its environment, past this guard. Run the command on its own.`;
+  }
   for (const w of commandsOf(line)) {
+    const first = w[0] ?? '';
     const hand = deploysByHand(w);
     if (hand) return `The deploy guide never deploys by hand (${hand}): acc deploy --task ${task} does, with the person's yes from the chat.`;
-    if (w[0] === 'git' && w.slice(1).some((x) => GIT_WRITES.has(x))) return `The deploy guide changes no branch: git ${w.slice(1).find((x) => GIT_WRITES.has(x))} is acc deploy's, or a person's. Tell the person what you need.`;
-    if (!isAcc(w[0])) continue;
+    if (first === 'git' && w.slice(1).some((x) => GIT_WRITES.has(x))) return `The deploy guide changes no branch: git ${w.slice(1).find((x) => GIT_WRITES.has(x))} is acc deploy's, or a person's. Tell the person what you need.`;
+    const at = w.findIndex(isAcc);
+    if (at < 0) continue;
+    if (at > 0) return `The deploy guide runs acc as the command itself, not through ${w.slice(0, at).join(' ')}.`;
     const sub = w[1] ?? '';
     if (!(DEPLOYER_ACC as readonly string[]).includes(sub)) return `The deploy guide runs ${DEPLOYER_ACC.map((c) => `acc ${c}`).join(', ')}. acc ${sub} is a person's: tell them what you need.`;
+    if (sub === 'change' && !['list', 'step'].includes(w[2] ?? '')) return 'The deploy guide lists a ticket\'s changes outside git and marks their steps: acc change list, or acc change step. It records none.';
+    if (sub === 'change' && w[2] === 'step' && !namesTask(w[3], task)) return `The deploy guide marks ${task}'s steps alone.`;
     if (sub === 'deploy') {
-      const at = w.indexOf('--task');
-      if (at < 0 || w[at + 1]?.toUpperCase() !== task) return `The deploy guide deploys ${task} alone: acc deploy --task ${task}.`;
-      if (w.some((x) => x === '--confirm-production' || x.startsWith('--confirm-production='))) return 'The deploy guide never types the org\'s name: the person types it in the chat, and acc deploy reads it from there.';
+      const i = w.findIndex((x) => x === '--task' || x.startsWith('--task='));
+      const flag = i < 0 ? '' : w[i]!;
+      const id = i < 0 ? undefined : flag.startsWith('--task=') ? flag.slice('--task='.length) : w[i + 1];
+      if (!namesTask(id, task)) return `The deploy guide deploys ${task} alone: acc deploy --task ${task}.`;
+      if (w.some((x) => /^--(confirm-production|confirm-name|deploy-check)(=|$)/.test(x))) return 'The deploy guide never types the org\'s name: the person types it in the chat, and acc deploy reads it from there.';
     }
   }
   return null;

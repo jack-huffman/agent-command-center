@@ -21,7 +21,7 @@ test('the guide\'s deploy needs the person\'s typed yes, and uses it up; with on
   assert.equal(none.code, 1);
   assert.match(none.err, /The person hasn't typed a yes for T-1 in this chat\. Ask the person to type it in the chat/);
   const paths = repoPaths(dir, run);
-  keepTypedYes(paths, 'T-1', 'yes', null, () => new Date());
+  keepTypedYes(paths, 'T-1', 'main', null, () => new Date());
   const typed = acc(dir, ['deploy', '--task', 'T-1', '--yes', '0Af1'], undefined, guide);
   assert.equal(typed.code, 1);
   assert.match(typed.err, /isn't a Salesforce project/, 'past the yes, the deploy refuses a project that isn\'t Salesforce');
@@ -70,5 +70,14 @@ test('personOrGuide: a person as before, the guide for its own ticket alone (edg
     assert.throws(() => personOrGuide({ json: false }, 'deploy a ticket', 'T-1'), /A builder can't deploy a ticket/);
   } finally {
     for (const [k, v] of [['ACC_ROLE', was.role], ['ACC_TASK', was.task]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+});
+
+test('acc deploy\'s inner flag names are refused as typed, so a name never gets past the guide\'s guard by them', () => {
+  const dir = repoWithConfig();
+  for (const flag of ['--confirm-name=Production', '--deploy-check=0Af1']) {
+    const r = acc(dir, ['deploy', 'production', '--task', 'T-1', flag], undefined, guide);
+    assert.equal(r.code, 2, r.err);
+    assert.match(r.err, /isn't one of acc deploy's flags: use --yes <check-id>, and --confirm-production <name>/);
   }
 });

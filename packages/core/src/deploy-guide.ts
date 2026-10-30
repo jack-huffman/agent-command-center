@@ -5,15 +5,17 @@
  * task and where it goes). The acc:deploy skill has it gather every step into one runbook, which the person
  * approves, then work through it with them.
  *
- * The deploy itself waits for the person's yes, typed in the chat: the plugin's UserPromptSubmit hook keeps each
- * short message the person sends (keepTypedYes), and acc deploy, run by the guide, takes the latest one
- * (takeTypedYes). It must be newer than the check it deploys, at most YES_TTL_MS old, and is used once. A hook
- * never fires on the agent's own words, so the agent can't give the yes itself.
+ * The deploy itself waits for the person's yes, typed in the chat: the UserPromptSubmit hook keeps each short
+ * message the person sends (keepTypedYes), and acc deploy, run by the guide, takes the latest one
+ * (takeTypedYes). It must be the destination's name, newer than the check it deploys, at most YES_TTL_MS old,
+ * and is used once. The hook fires on what is sent into the chat, never on the agent's words; and the guide's
+ * settings (deployerSettings) make Claude Code ask the person before each command it runs.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileId } from './analyze.ts';
+import { HAND_DEPLOY_DENIES } from './deploy-commands.ts';
 import type { Config } from './config.ts';
 import { AccError } from './exec.ts';
 import { readLedger } from './ledger.ts';
@@ -92,6 +94,32 @@ export const TASK_DEPLOY_GUIDE_COMMAND: TaskCommand<Parameters<typeof TASK_DEPLO
   enabled: (x) => TASK_DEPLOY_COMMAND.enabled(x),
 };
 
+/**
+ * What Claude Code itself never lets the guide run, whatever the person's own settings allow (deny beats allow):
+ * a hand deploy, acc's hooks run by hand, a way to drop its role or start another shell, and any edit, commit,
+ * push or merge. Its PreToolUse guard reads commands as written; these hold where a command hides what it does.
+ */
+export const DEPLOYER_DENIES = [
+  ...HAND_DEPLOY_DENIES,
+  'Bash(acc hook*)', 'Bash(unset *)', 'Bash(export *)', 'Bash(declare *)', 'Bash(typeset *)', 'Bash(env *)',
+  'Bash(sh *)', 'Bash(bash *)', 'Bash(zsh *)', 'Bash(dash *)', 'Bash(eval *)', 'Bash(exec *)', 'Bash(xargs *)', 'Bash(source *)',
+  'Bash(git commit*)', 'Bash(git push*)', 'Bash(git merge*)', 'Bash(git reset*)', 'Bash(git checkout*)', 'Bash(git switch*)',
+  'Edit', 'Write', 'MultiEdit', 'NotebookEdit',
+];
+
+/**
+ * The guide's session settings: Claude Code asks the person before every command it runs (ask beats allow, so
+ * an allow the person's settings hold doesn't skip it), DEPLOYER_DENIES are refused, and acc's two hooks run
+ * even where the plugin isn't on: the guard, and the one that keeps what the person types.
+ */
+export function deployerSettings(accCommand?: string): Record<string, unknown> {
+  const hook = (event: string) => [{ type: 'command', command: `${accCommand} hook ${event}`, timeout: 30 }];
+  return {
+    permissions: { ask: ['Bash'], deny: DEPLOYER_DENIES },
+    ...(accCommand ? { hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit|Bash', hooks: hook('pre-tool-use') }], UserPromptSubmit: [{ hooks: hook('user-prompt-submit') }] } } : {}),
+  };
+}
+
 /** The first message of a deploy guide's chat. */
 export function deployGuidePrompt(id: string, from: string, to: string): string {
   return `Guide the deploy of ${id} from ${from} to ${to}, as the acc:deploy skill says. Start by reading the ticket and checking the deploy, then show me the runbook.`;
@@ -101,7 +129,7 @@ export function deployGuidePrompt(id: string, from: string, to: string): string 
  * How to open a deploy guide's chat for a task: in the project's main checkout, as a deployer, for where the
  * ticket goes next (or `to`). Refused where the ticket can't be deployed, with why.
  */
-export function deployGuideLaunch(paths: RepoPaths, config: Config, id: string, to: string | undefined, uuid: () => string = randomUUID): ClaudeLaunch {
+export function deployGuideLaunch(paths: RepoPaths, config: Config, id: string, to: string | undefined, uuid: () => string = randomUUID, accCommand?: string): ClaudeLaunch {
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) throw new AccError('not-found', `No task ${id}.`);
   const can = taskDeployEnabled(config, task);
@@ -111,7 +139,8 @@ export function deployGuideLaunch(paths: RepoPaths, config: Config, id: string, 
   const name = sessionName({ project: config.project, key: id, title: task.title, role: 'deploy' });
   return {
     cwd: paths.root, sessionId, name, brief: '',
-    args: [deployGuidePrompt(id, route.from.name, route.to.name), '--session-id', sessionId, '--name', name],
+    // The person's own permission mode is set aside: whatever it is, the guide asks before each command.
+    args: [deployGuidePrompt(id, route.from.name, route.to.name), '--session-id', sessionId, '--name', name, '--permission-mode', 'default', '--settings', JSON.stringify(deployerSettings(accCommand))],
     env: { ACC_ROLE: DEPLOYER, ACC_TASK: id, [DEPLOY_TO_VAR]: route.to.branch },
   };
 }

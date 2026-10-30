@@ -14,8 +14,16 @@ the quick deploy of the checked job, the pull request, the records.
   `acc.task.deployGuide`, on exactly when Deploy is). Beside Deploy on the Changes tab, off for the same reason.
   It opens a terminal in the project's main checkout running Claude Code, with the first message "Guide the
   deploy of <id> from <here> to <there>, as the acc:deploy skill says" and `ACC_ROLE=deployer`, `ACC_TASK`,
-  `ACC_DEPLOY_TO` (`packages/core/src/deploy-guide.ts`, `extension/src/logic/deploy-guide.ts`). The chat runs in
-  the person's own permission mode, so Claude Code asks them before each command it hasn't been allowed.
+  `ACC_DEPLOY_TO` (`packages/core/src/deploy-guide.ts`, `extension/src/logic/deploy-guide.ts`).
+- **Claude Code holds the line, not acc's parser** (`deployerSettings`, after review). The launch sets
+  `--permission-mode default`, whatever the person's own default, and `--settings` with `ask: ["Bash"]`, so Claude
+  Code asks the person before every command the guide runs (ask beats allow, so an allow in their settings doesn't
+  skip it), and `DEPLOYER_DENIES`: every hand deploy, `acc hook`, `unset`, `export`, `env`, the shells, `eval`,
+  `exec`, `xargs`, `source`, commit, push, merge, reset, checkout, and every edit. It runs acc's PreToolUse and
+  UserPromptSubmit hooks itself, so the guard and the yes don't depend on the plugin being on. The first review
+  found the guide could drop its role (`unset ACC_ROLE`, `env -u`), type the name through acc's inner flag
+  (`--confirm-name`), or plant a yes by running the hook through `sh -c`; each is now refused twice, by the
+  settings and by the guard, and tested.
 - **The skill** (`plugin/skills/deploy/SKILL.md`): read the ticket, its outside-git changes and the check; look
   for what a deploy never carries (permission sets to assign, flows to activate, scheduled jobs, settings and
   custom metadata records, data, Setup changes); show one runbook in four parts (before, the deploy, after, check
@@ -26,23 +34,33 @@ the quick deploy of the checked job, the pull request, the records.
   and clears it on any longer one (`keepTypedYes`). Claude Code runs that hook on the person's messages alone,
   never on the agent's words. `acc deploy --task <id> --yes <check>` run by the guide takes it (`takeTypedYes`):
   used up as it's read, refused when there's none, when it is more than 15 minutes old, or when it is older than
-  the latest check, which the person may not have seen. It must be the destination's name or alias for a
-  protected or production org (`confirmsOrg`, as at the terminal), and the word yes for any other (`guided`).
-  The guide is refused `--confirm-production`, so it never types the name itself.
+  the latest check, which the person may not have seen. It must be the destination's name or its org's alias,
+  for every destination (`guided`): a "yes" said to approve the runbook or a step never counts. The guide is
+  refused `--confirm-production`, and the CLI refuses the inner `--confirm-name` and `--deploy-check` when typed,
+  so the guide never types the name itself.
 - **What the guide may do** (`guardDeployer`, PreToolUse): no edit to any file; no git command that moves a
-  branch or the checkout; no deploy by hand (`deploysByHand`); no word of `.git/acc` or the kept yes; no
-  `ACC_ROLE`, `ACC_TASK` or `ACC_DEPLOY_TO` set on a command; of acc's commands only show, list, deploy (its own
-  ticket), change (list, and step for its own ticket), ticket, board, ste and doctor. The CLI agrees: anything a
+  branch or the checkout; no deploy by hand (`deploysByHand`); no word of `.git/acc`, the kept yes or the hook
+  that keeps it; no `ACC_ROLE`, `ACC_TASK` or `ACC_DEPLOY_TO` set on a command; no command run through another
+  (a shell, `eval`, `env`, `unset`, `export`, `xargs`, `time`, `sudo`, a `$` word), read as written before
+  wrappers are stripped; acc only as the command itself, and of its commands only show, list, deploy (its own
+  ticket, by id, `--task=` or `$ACC_TASK`), change list and change step (its own ticket), ticket, board, ste and
+  doctor. A builder may no longer run `acc hook` by hand either (`PERSON_ONLY_ACC`). The CLI agrees: anything a
   person does is refused it with "The deploy guide can't …" (`personOnly`), and `personOrGuide` lets it deploy,
   and mark the steps of, its own ticket alone. A deploy it makes is recorded by `deployer:<id>`.
-- **Not covered:** the guard reads the command as written. A command that builds the kept yes's path from
-  pieces would get past it; the yes's freshness and one use, and Claude Code's own prompt for each command, are
-  what stand behind it. The guide's own words in the chat are not held to the note shape or the wording check.
+- **Not covered:** a guard that reads commands can't follow every program (a `node -e` that writes the yes's
+  file from pieces); Claude Code asking the person before each command is what stands behind it, with the yes's
+  freshness and one use. MCP tools aren't guarded: a Salesforce MCP server's deploy tool in that chat would be
+  asked about by Claude Code alone. The kept yes doesn't name its chat, so two guide chats for one ticket share
+  it. The terminal stays after the chat ends, with the guide's variables set. The deploy's event is recorded as
+  a person's (`actor: 'human'`), with `by: deployer:<id>`. The launch's own first message passes through the
+  hook too, and is never a name. The guide's words in the chat aren't held to the note shape or wording check.
 - **Checked by** `packages/core/test/deploy-guide.test.ts` (8: the yes kept and used once, the latest message
   only, its age and the check's, its own task, the hook in and out of a guide, the guard, the hook's guard),
   `packages/core/test/task-deploy.test.ts` (3 more: a guided yes to a sandbox is the word, to production the
-  name, and the launch), `packages/cli/test/deploy-guide.test.ts` (5: the typed yes needed and used up, its own
-  ticket only, no name typed, no second guide, its steps, `personOrGuide`), `extension/test/deploy-guide.test.ts`
+  name, and the launch), `packages/core/test/deploy-guide.test.ts`'s four more after review (each way round the
+  review found, each acc command the skill names, the settings, a builder's `acc hook`),
+  `packages/cli/test/deploy-guide.test.ts` (6: the typed yes needed and used up, its own ticket only, no name
+  typed, the inner flags refused, no second guide, its steps, `personOrGuide`), `extension/test/deploy-guide.test.ts`
   (3) and a behaviour case with two mutants (the button sends nothing; it stays on when Deploy is off). Two
   mutants were run by hand and caught: the CLI deploying without reading the typed yes, and the guided yes check
   removed.

@@ -489,8 +489,8 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
       const why = yesProblem(kept, plan, b.blobs, opts.checkId);
       if (why) throw new AccError('refused', why);
       if (!confirmsOrg(plan, opts.confirm)) throw new AccError('refused', `${plan.to.name} is ${plan.to.type === 'production' ? 'production' : 'protected'}. Type its name, ${plan.confirmName}, to deploy to it.`);
-      // In a deploy guide's chat, a yes for an org that isn't protected is the word itself (T-154).
-      if (opts.guided && !plan.confirm && opts.confirm?.trim().toLowerCase() !== 'yes') throw new AccError('refused', `The person typed "${opts.confirm ?? ''}", not yes. Ask them to type yes in the chat to deploy ${id} to ${plan.to.name}.`);
+      // In a deploy guide's chat the yes is always the destination's name, so a yes said to the runbook or a step never counts (T-154).
+      if (opts.guided && !confirmsOrg({ confirm: true, to: plan.to }, opts.confirm)) throw new AccError('refused', `The person typed "${opts.confirm ?? ''}", not ${plan.confirmName}. Ask them to type ${plan.confirmName} in the chat to deploy ${id} to it.`);
     });
     // A ticket with nothing for the org still moves on: its pull request merges, and nothing is sent to the org.
     const nothing = !plan.files.length;

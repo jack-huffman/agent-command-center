@@ -3,7 +3,7 @@
 import { createInterface } from 'node:readline/promises';
 import { AccError, deploy, deployerTask, deployGuideLaunch, deployTask, lastDeploy, planDeploy, planPromotion, planTaskDeploy, promote, readKeptCheck, run, skipWarning, takeTypedYes, type TaskDeployPlan } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
-import { type CommandArea, now, type Opts, out, personOnly, personOrGuide, project, steps } from '../shared.ts';
+import { accCommand, type CommandArea, now, type Opts, out, personOnly, personOrGuide, project, steps } from '../shared.ts';
 
 function cmdPromote(o: Opts, from: string): number {
   const by = personOnly(o, 'promote');
@@ -103,7 +103,7 @@ async function cmdDeployTask(o: Opts, envName: string | undefined): Promise<numb
   if (guided && o['confirm-name'] !== undefined) throw new AccError('refused', 'The deploy guide never types the org\'s name: the person types it in the chat, and acc deploy reads it from there.');
   const { paths, config } = project(process.cwd());
   const yesLine = (p: TaskDeployPlan) => guided
-    ? `To deploy it, ask the person to type ${p.confirm ? p.confirmName : 'yes'} in the chat, then run: acc deploy ${p.to.branch} --task ${id} --yes ${p.check!.id}`
+    ? `To deploy it, ask the person to type ${p.confirmName} in the chat, then run: acc deploy ${p.to.branch} --task ${id} --yes ${p.check!.id}`
     : `To deploy it: acc deploy ${p.to.branch} --task ${id} --yes ${p.check!.id}${p.confirm ? ` --confirm-production ${p.confirmName}` : ''}`;
   const deps = { run, now, env: process.env, steps: steps(), onWait: () => { if (!o.json) process.stderr.write(tone('Waiting for another deploy to this org to finish…\n', 'dim')); } };
   const noTests = o['no-tests'] === true;
@@ -144,7 +144,7 @@ async function cmdDeployTask(o: Opts, envName: string | undefined): Promise<numb
 function cmdDeployGuide(o: Opts, id: string, envName: string | undefined): number {
   personOnly(o, 'open a deploy guide');
   const { paths, config } = project(process.cwd());
-  const launch = deployGuideLaunch(paths, config, id, envName);
+  const launch = deployGuideLaunch(paths, config, id, envName, undefined, accCommand());
   const env = Object.entries(launch.env).map(([k, v]) => `${k}=${v}`).join(' ');
   out(o, () => `Run this in ${launch.cwd}, with ${env}:\nclaude ${launch.args.map((a) => JSON.stringify(a)).join(' ')}`, launch);
   return 0;
@@ -156,6 +156,9 @@ function cmdDeployGuide(o: Opts, id: string, envName: string | undefined): numbe
  */
 export function taskDeployArgv(argv: string[]): string[] {
   if (!argv.some((x) => x === '--task' || x.startsWith('--task='))) return argv;
+  // Their inner names are this function's alone: typed, they would pass a name past the deploy guide's guard (T-154).
+  const inner = argv.find((x) => /^--(deploy-check|confirm-name)(=|$)/.test(x));
+  if (inner) throw new AccError('usage', `${inner.split('=')[0]} isn't one of acc deploy's flags: use --yes <check-id>, and --confirm-production <name>.`);
   const out: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const x = argv[i]!;

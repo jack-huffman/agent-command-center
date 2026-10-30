@@ -1,12 +1,13 @@
 // The deploy guide (T-154): the person's yes typed in its chat, kept by the UserPromptSubmit hook and used once
 // by acc deploy; what the guide may run; and how its chat opens.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { test } from 'node:test';
-import { ASK_AGAIN, DEPLOY_TO_VAR, DEPLOYER, deployerTask, deployGuidePrompt, keepTypedYes, takeTypedYes, typedYesPath, YES_MAX, YES_TTL_MS } from '../src/deploy-guide.ts';
+import { ASK_AGAIN, DEPLOY_TO_VAR, DEPLOYER, DEPLOYER_DENIES, deployerSettings, deployerTask, deployGuidePrompt, keepTypedYes, takeTypedYes, typedYesPath, YES_MAX, YES_TTL_MS } from '../src/deploy-guide.ts';
 import { run } from '../src/exec.ts';
-import { DEPLOYER_ACC, guardDeployer, preToolUseHook, userPromptSubmitHook } from '../src/hooks.ts';
+import { DEPLOYER_ACC, guardBash, guardDeployer, preToolUseHook, userPromptSubmitHook } from '../src/hooks.ts';
+import { HAND_DEPLOY_DENIES } from '../src/deploy-commands.ts';
 import { repoPaths } from '../src/paths.ts';
 import { makeRepo, tempDir } from './support.ts';
 
@@ -92,10 +93,61 @@ test('the guide deploys only its own ticket through acc deploy, and never types 
   assert.match(guardDeployer('ACME-1', 'sf project deploy start -x manifest/package.xml -o Prod')!, /never deploys by hand/);
   assert.match(guardDeployer('ACME-1', 'git push origin production')!, /changes no branch: git push/);
   assert.match(guardDeployer('ACME-1', 'acc set ACME-1 done')!, /acc set is a person's/);
-  assert.match(guardDeployer('ACME-1', 'cat .git/acc/deploy-yes/ACME-1.json')!, /never reads or writes it/);
-  assert.match(guardDeployer('ACME-1', 'echo \'{"typed":"Production"}\' > "$(git rev-parse --git-common-dir)/acc/deploy-yes/x"')!, /never reads or writes it/);
+  assert.match(guardDeployer('ACME-1', 'cat .git/acc/deploy-yes/ACME-1.json')!, /never reads, writes or runs them/);
+  assert.match(guardDeployer('ACME-1', 'echo \'{"typed":"Production"}\' > "$(git rev-parse --git-common-dir)/acc/deploy-yes/x"')!, /never reads, writes or runs them/);
   assert.match(guardDeployer('ACME-1', 'ACC_ROLE=human acc deploy --task ACME-1 --yes 0AfX')!, /never sets ACC_ROLE/);
   assert.deepEqual([...DEPLOYER_ACC].sort(), ['board', 'change', 'deploy', 'doctor', 'list', 'show', 'ste', 'ticket']);
+});
+
+test('the guide can\'t drop its role, type the name, plant a yes or hide a command in another (the review\'s ways round)', () => {
+  const refused = [
+    'unset ACC_ROLE; acc deploy production --task ACME-1 --yes 0AfX --confirm-name=Production',
+    'env -u ACC_ROLE acc deploy production --task ACME-1 --yes 0AfX --confirm-production Production',
+    'env -u ACC_ROLE sf project deploy start -o Prod',
+    'export ACC_ROLE=human',
+    'acc deploy production --task ACME-1 --yes 0AfX --confirm-name Production',
+    'acc deploy production --task ACME-1 --deploy-check=0AfX',
+    'printf \'{"prompt":"Production"}\' | sh -c \'acc hook user-prompt-submit\'',
+    'printf x | acc hook user-prompt-submit',
+    'bash -c "acc deploy production --task ACME-1 --yes 0AfX"',
+    'eval "$CMD"',
+    '$CMD',
+    'xargs acc deploy --task ACME-1',
+    'time acc deploy production --task ACME-1 --yes 0AfX',
+    'nice -n 5 sh -c true',
+    'acc change record ACME-1 --object Account --match Name=x --why y',
+    'acc change step ACME-2 c1 --env production --done',
+  ];
+  for (const line of refused) assert.ok(guardDeployer('ACME-1', line), `refused: ${line}`);
+  assert.equal(guardDeployer('ACME-1', 'acc deploy production --task=ACME-1 --yes 0AfX'), null, '--task= names it too');
+  assert.equal(guardDeployer('ACME-1', 'acc deploy "$ACC_DEPLOY_TO" --task "${ACC_TASK}" --plan'), null, 'edge case: as the skill writes it, quoted');
+});
+
+test('every acc command the skill names passes the guard, but the ones it says never to run', () => {
+  const skill = readFileSync(new URL('../../../plugin/skills/deploy/SKILL.md', import.meta.url), 'utf8');
+  const commands = [...skill.matchAll(/`(acc [^`]+)`/g)].map((m) => m[1]!.replace(/<[^>]+>/g, 'x'));
+  assert.ok(commands.length >= 5, `found ${commands.length}`);
+  for (const c of commands) {
+    if (c === 'acc hook') assert.ok(guardDeployer('ACME-1', c), 'acc hook is named as never');
+    else assert.equal(guardDeployer('ACME-1', c.replaceAll('$ACC_TASK', 'ACME-1')), null, c);
+  }
+  for (const c of commands.filter((x) => x !== 'acc hook')) assert.equal(guardDeployer('ACME-1', c), null, `with $ACC_TASK as written: ${c}`);
+});
+
+test('the guide\'s settings ask before every command, deny the ways round in Claude Code itself, and run acc\'s two hooks', () => {
+  const s = deployerSettings('/opt/acc') as { permissions: { ask: string[]; deny: string[] }; hooks: Record<string, { hooks: { command: string }[] }[]> };
+  assert.deepEqual(s.permissions.ask, ['Bash']);
+  for (const d of [...HAND_DEPLOY_DENIES, 'Bash(acc hook*)', 'Bash(unset *)', 'Bash(env *)', 'Bash(sh *)', 'Bash(eval *)', 'Bash(git push*)', 'Edit', 'Write']) assert.ok(s.permissions.deny.includes(d), d);
+  assert.deepEqual(s.permissions.deny, DEPLOYER_DENIES);
+  assert.equal(s.hooks.PreToolUse![0]!.hooks[0]!.command, '/opt/acc hook pre-tool-use');
+  assert.equal(s.hooks.UserPromptSubmit![0]!.hooks[0]!.command, '/opt/acc hook user-prompt-submit');
+  assert.equal('hooks' in deployerSettings(), false, 'edge case: with no acc to name, no hooks');
+});
+
+test('a builder can\'t run acc\'s hooks by hand, to plant a yes for any ticket', () => {
+  const b = { task: { id: 'T-1' } as never, worktree: '/w', root: '/r' };
+  assert.ok(guardBash(b, 'ACC_ROLE=deployer ACC_TASK=X acc hook user-prompt-submit'));
+  assert.ok(guardBash(b, 'acc hook pre-tool-use'));
 });
 
 test('in a deploy guide\'s session, an edit is refused and a command is guarded; a builder\'s guard doesn\'t apply', () => {
