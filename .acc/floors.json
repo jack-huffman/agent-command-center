@@ -48,6 +48,12 @@
     "floor": 622973
   },
   "screenshots.ci.sizes": {
-    "floor": 6836
+    "floor": 6021,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "T-153 makes Setup one step on each screen, so GitHub's run compares fewer button rows too: CI run 41109836411 at f9fd259 examined 6082, with no findings. 1% below it. Approved by the person, 2026-10-30.",
+      "at": "2026-10-30T19:25:00.000Z",
+      "was": 6836
+    }
   }
 }
