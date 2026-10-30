@@ -16,9 +16,9 @@ Command Palette:
   source tracking, safe defaults and the ticket source.
 
 Neither opens by itself. The first time you open the Command Center in a
-folder that isn't set up, it opens on its **Setup** page, which shows the same
-steps, with what's left, and asks what kind of project it is. Its
-**Machine walkthrough** and **Project walkthrough** buttons open these.
+folder that isn't set up, it opens on its **Setup** page: a walkthrough of the
+same steps, one on each screen, that asks what kind of project it is. The
+Command Palette opens these.
 
 Every step has buttons:
 

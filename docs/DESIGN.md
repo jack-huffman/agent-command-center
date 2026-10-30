@@ -1652,7 +1652,7 @@ count; under 820 px wide, it becomes a tab strip along the top.
 | **Agents** | Sessions by repo, then by task (GH-119): this window's projects, then every other repo on the machine by name, saying when another window has one open, then Other folders. Under each task, a line per agent: its role, its state, the model it runs with (D-086), how long it has run, and a menu (D-023), with Answer, Watch and Open in Claude Code while it needs you. Where shows only when an agent isn't in its task's own worktree. Finished sessions fold into one Finished (N) under each repo, with Stop finished, the header's own command and name, for that repo (D-095, T-39). The header holds Stop finished, Start a background agent (outlined), Refresh, and **Settings** last, which opens Settings at **How agents run** (GH-110). The State and Model cells wrap where there's no room, so the table fits and the sticky actions never cover Running (T-39). Per-token billing shows above the sessions, since it costs money while nobody looks (D-036, D-089) |
 | **Worktrees** | Every checkout, with a menu on each row |
 | **Environments** | The GitHub identity card (D-028), promotion paths, and one card per environment. Open org and Switch account are outlined (T-39). Under **This machine**, a line saying Notices in Slack moved to Settings, with a button to it (GH-113) |
-| **Setup** | The checklist, with Do it on each step |
+| **Setup** | A guided walkthrough, one thing on each screen (T-153). A start screen says how many things are left, with one button (Start, Continue or Check again), and lists the chapters in order, each closed with its state. Each step still to do has a screen: its chapter and place with dots, the one thing to do and why, its live check, one action, how to do it by hand in a closed **Show how**, and Back, Skip for now and Next, off with why until the check passes. An end screen lists what was skipped. The head has Refresh alone |
 | **Settings** | Last in the rail, with a gear (GH-109). Its parts, **Appearance**, **How agents run** (GH-110), **Limits and checks** (GH-111), **Trackers and sign-ins** (GH-112), **Notices in Slack**, **GitHub accounts** and **The Command Center** (GH-113), and **About** (GH-114), are grouped into six sections (T-139): **Trackers and boards**, **Agents**, **Checks and limits**, **Accounts and notices**, **Look and behaviour** and **About**. One section shows at a time, each opening with one line; a jump list at the side picks it, a picker above it under 760 px, and the tab remembers the one picked. Each part is a group another page can open Settings at, which shows its section. Orange in the rail while Slack is paused |
 
 **The command palette (T-52).** Under the rail's brand, **Search or run a
@@ -1957,9 +1957,9 @@ activity bar, the status bar's menu or **Open Command Center**, it opens on
 
 - on a machine whose checks haven't all passed, at **This machine**, in place
   of the machine walkthrough tab that used to open;
-- otherwise at **What kind of project is this?**, at the top of **This
-  project**. Its **Choose…** is B0.config's **Do it**: a Salesforce project,
-  another kind, a team template or a Jira epic, then `acc init`.
+- otherwise at **This project**, whose first step, in **The repo**, is **What
+  kind of project is this?**. Its **Choose…** is B0.config's **Do it**: a
+  Salesforce project, another kind, a team template or a Jira epic, then `acc init`.
 
 That first open is kept in the folder's workspaceState (`acc.home.firstOpened`),
 so it happens once. After it, the Command Center opens where it was left, or on
@@ -1968,10 +1968,9 @@ it, and the Command Center sent somewhere, such as Connect a tracker's Tasks or
 a run's output, goes there. Opened before the window's first checks have
 finished, as in the first window after an upgrade, that first open waits a few
 seconds for them (GH-149); still unfinished, it lands at the question rather
-than at a machine it couldn't check. `logic/first-open.ts` decides it. The walkthroughs
-open only when asked for: Setup's **Machine walkthrough** and **Project
-walkthrough** buttons, the Command Palette, and VSCode's Get Started page, which
-lists them as before.
+than at a machine it couldn't check. `logic/first-open.ts` decides it. VSCode's walkthroughs
+open only when asked for: from the Command Palette, and VSCode's Get Started
+page, which lists them as before. Setup is its own walkthrough (T-153).
 
 **One list of steps drives everything (D-017).** Steps are data in `core`. Each
 one has:
