@@ -6,11 +6,14 @@ import * as vscode from 'vscode';
 import { TASK_DEPLOY_GUIDE_COMMAND } from '../../packages/core/src/deploy-guide.ts';
 import { jobsUnderWay } from '../../packages/core/src/jobs.ts';
 import { terminalShell } from '../../packages/core/src/shell.ts';
+import type { Task } from '../../packages/core/src/ledger.ts';
 import { TASK_DEPLOY_COMMAND, ticketPlace } from '../../packages/core/src/task-deploy.ts';
+import { readWhere, type TicketWhere } from '../../packages/core/src/where-kept.ts';
 import type { ExtensionArea } from './area.ts';
 import { guideLaunch, guideLine } from './logic/deploy-guide.ts';
 import { stateOf } from './logic/shared.ts';
 import { TicketDeploys } from './logic/ticket-deploy.ts';
+import { WhereReads } from './logic/where.ts';
 import type { DeployRun, Message } from './model/ticket-deploy.ts';
 import { accRunner } from './run.ts';
 
@@ -21,6 +24,10 @@ export interface DeployActions {
   running(root: string, id: string): boolean;
   /** The sheet's buttons: the page draws how they went from the next model, which this window refreshes. */
   act(m: Message): Promise<void>;
+  /** Where its work was last read to be (T-155), kept beside the ledger; a due reading is read again behind the page. */
+  where(root: string, task: Task): TicketWhere | null;
+  /** The person's Refresh: read where its work is again, whatever the readings' age. */
+  reread(root: string, id: string): void;
 }
 
 export const area: ExtensionArea = {
@@ -42,8 +49,15 @@ export const area: ExtensionArea = {
       t.show();
       t.sendText(guideLine(g.launch), true);
     };
+    // Where its work is (T-155): read behind the page with acc where, which the page draws once it's back.
+    const reads = new WhereReads({ acc: (args, cwd) => acc(args, cwd), done: (root) => tickets.refresh(root), now: () => new Date() });
     tickets.deploys = {
       run: (root, id) => d.run(root, id),
+      where: (root, task) => {
+        const p = hub.project(root);
+        return p ? reads.kept(root, stateOf(p).stateDir, p.config, task) : null;
+      },
+      reread: (root, id) => void reads.read(root, id),
       running: (root, id) => {
         const p = hub.project(root);
         try {
@@ -57,6 +71,8 @@ export const area: ExtensionArea = {
         if (m.type === 'deploy-guide') { await guide(m.project, m.task, m.to); return; }
         const r = m.type === 'deploy-check' ? await d.check(m.project, m.task, m.to) : await d.deploy(m.project, m.task, m.to, m.checkId, m.typed);
         if (!r.ok) void vscode.window.showWarningMessage(r.error);
+        // After a deploy, where its work is gets read again (T-155).
+        if (m.type === 'deploy-go') void reads.read(m.project, m.task);
         tickets.refresh(m.project);
       },
     };
@@ -68,7 +84,7 @@ export const area: ExtensionArea = {
       const can = TASK_DEPLOY_COMMAND.enabled({ config: p.config, task });
       if (!can.ok) return void vscode.window.showWarningMessage(can.why);
       tickets.show(p.root, undefined, task.id, 'changes');
-      const next = to ?? ticketPlace(p.config, task)?.next[0]?.branch;
+      const next = to ?? ticketPlace(p.config, task, readWhere(stateOf(p), task.id))?.next[0]?.branch;
       if (next) await tickets.deploys?.act({ type: 'deploy-check', project: p.root, task: task.id, to: next });
     });
     // Deploy a ticket with an agent (T-154): the guide's chat opens, and it checks before anything deploys.

@@ -36,6 +36,7 @@ import { plural } from './text.ts';
 import { draftUpdate } from './updates.ts';
 import { DELETION_KIND } from './deletion-kind.ts';
 import { outsideOf } from './outside-changes.ts';
+import { furthestRead, readWhere, type TicketWhere } from './where-kept.ts';
 
 /** A command, as every action is one: its id, what it takes, and whether it can run now, with why not. */
 export interface TaskCommand<S> {
@@ -52,16 +53,18 @@ export interface TicketPlace {
 
 /**
  * Where a ticket's change is now: the last place it reached, by time. Its own environment, then each
- * environment a person deployed it to, or a promotion took it to and merged. Null when its environment isn't
- * in the settings.
+ * environment a person deployed it to, or a promotion took it to and merged. Then, with the orgs' readings
+ * (T-155), the furthest environment after that one an org was found to hold it in, however it got there.
+ * Null when its environment isn't in the settings.
  */
-export function ticketPlace(config: Pick<Config, 'environments'>, t: Pick<Task, 'environment' | 'promotions' | 'deploys'>): TicketPlace | null {
+export function ticketPlace(config: Pick<Config, 'environments'>, t: Pick<Task, 'environment' | 'promotions' | 'deploys'>, where?: Pick<TicketWhere, 'envs'> | null): TicketPlace | null {
   const reached: { env: string; at: string }[] = [{ env: t.environment, at: '' }];
   for (const p of t.promotions ?? []) if (p.state === 'merged') reached.push({ env: p.to, at: p.mergedAt ?? p.at });
   for (const d of t.deploys ?? []) if (d.checkId) reached.push({ env: d.env, at: d.at });
   const last = reached.reduce((a, b) => (b.at >= a.at && environmentByBranch(config, b.env) ? b : a));
-  const at = environmentByBranch(config, last.env);
-  if (!at) return null;
+  const recorded = environmentByBranch(config, last.env);
+  if (!recorded) return null;
+  const at = furthestRead(config, recorded, where);
   return { at, next: at.promotesTo.map((b) => environmentByBranch(config, b)).filter((e): e is Environment => !!e) };
 }
 
@@ -69,8 +72,8 @@ export function ticketPlace(config: Pick<Config, 'environments'>, t: Pick<Task, 
  * Where this deploy may go: `to`, or the usual next step when none is named. Only a next step from where the
  * change is now; anything else is refused, with why.
  */
-export function taskDeployRoute(config: Pick<Config, 'environments'>, t: Pick<Task, 'id' | 'environment' | 'promotions' | 'deploys'>, to?: string): { from: Environment; to: Environment } {
-  const place = ticketPlace(config, t);
+export function taskDeployRoute(config: Pick<Config, 'environments'>, t: Pick<Task, 'id' | 'environment' | 'promotions' | 'deploys'>, to?: string, where?: Pick<TicketWhere, 'envs'> | null): { from: Environment; to: Environment } {
+  const place = ticketPlace(config, t, where);
   if (!place) throw new AccError('refused', `${t.id}'s environment, ${t.environment}, isn't in the project's settings.`);
   const next = place.next.map((e) => e.name).join(', ');
   if (!to) {
@@ -86,13 +89,13 @@ export function taskDeployRoute(config: Pick<Config, 'environments'>, t: Pick<Ta
 }
 
 /** Why this task can't be deployed from its ticket now, or that it can. */
-export function taskDeployEnabled(config: Pick<Config, 'profile' | 'environments' | 'github'>, t: Pick<Task, 'id' | 'state' | 'environment' | 'promotions' | 'deploys' | 'pr' | 'run'> | undefined): { ok: true } | { ok: false; why: string } {
+export function taskDeployEnabled(config: Pick<Config, 'profile' | 'environments' | 'github'>, t: Pick<Task, 'id' | 'state' | 'environment' | 'promotions' | 'deploys' | 'pr' | 'run'> | undefined, where?: Pick<TicketWhere, 'envs'> | null): { ok: true } | { ok: false; why: string } {
   if (config.profile !== 'salesforce') return { ok: false, why: 'Deploying a ticket sends Salesforce components to an org, and this isn\'t a Salesforce project.' };
   if (!t) return { ok: false, why: 'There\'s no such task.' };
   if (!config.github) return { ok: false, why: 'Deploying a ticket keeps its environment\'s branch in step through a pull request, and this project isn\'t on GitHub.' };
   if (t.state === 'running') return { ok: false, why: `${t.id}'s builder is working on it now. Wait for it to finish.` };
   if (t.pr?.state !== 'merged' && !t.run?.branch) return { ok: false, why: `${t.id} has no work yet: build it first.` };
-  const place = ticketPlace(config, t);
+  const place = ticketPlace(config, t, where);
   if (!place) return { ok: false, why: `${t.id}'s environment, ${t.environment}, isn't in the project's settings.` };
   if (!place.next.length) return { ok: false, why: `${t.id} is in ${place.at.name}, the end of its path.` };
   return { ok: true };
@@ -280,9 +283,11 @@ function withBuilt<T>(paths: RepoPaths, config: Config, id: string, toName: stri
   const { task, from, to, shown } = steps.step('route', 'Check where it can go', () => {
     const tasks = readLedger(paths.ledger).tasks;
     const task = tasks.find((t) => t.id === id);
-    const can = taskDeployEnabled(config, task);
+    // Where the orgs were last read to hold it counts too (T-155): work that got there another way moves it on.
+    const where = readWhere(paths, id);
+    const can = taskDeployEnabled(config, task, where);
     if (!can.ok) throw new AccError('refused', can.why);
-    const { from, to } = taskDeployRoute(config, task!, toName);
+    const { from, to } = taskDeployRoute(config, task!, toName, where);
     if (!to.org) throw new AccError('refused', `${to.name} has no org in the project's settings.`);
     const waiting = missingDeps(tasks, task!, to);
     if (waiting.length) throw new AccError('refused', `${id} depends on ${taskList(waiting)}, which ${waiting.length === 1 ? 'isn\'t' : 'aren\'t'} in ${to.name} yet. Deploy ${taskList(waiting)} to ${to.name} first.`);
@@ -374,7 +379,7 @@ function withBuilt<T>(paths: RepoPaths, config: Config, id: string, toName: stri
 }
 
 /** An environment-specific list as a commit holds it. */
-const listLinesAt = (run: Runner, root: string, ref: string, file: string): string[] => {
+export const listLinesAt = (run: Runner, root: string, ref: string, file: string): string[] => {
   const r = git(run, root, 'show', `${ref}:${file}`);
   return r.code === 0 ? listLines(r.stdout) : [];
 };

@@ -411,7 +411,7 @@ export class TicketPanels implements vscode.Disposable {
     if (!env) return `${to} isn't an environment in the project's settings.`;
     const row = this.hub.taskRows(root).find((r) => r.id === task.id);
     return deployOff({
-      config: p.config, task, tasks, running: this.deploys?.running(root, task.id) ?? false, run: null,
+      config: p.config, task, tasks, running: this.deploys?.running(root, task.id) ?? false, run: null, where: this.deploys?.where(root, task) ?? null,
       failing: deployBlockers(await this.checks(p, task.run?.branch ?? null, task.environment)), conflicts: row && conflictLine(row, true) ? task.environment : null,
     }, env);
   }
@@ -472,6 +472,7 @@ export class TicketPanels implements vscode.Disposable {
       deploy: this.deploys ? ticketDeploy({
         config: p.config, task, tasks: this.hub.ledger(p.root)?.tasks ?? [], running: this.deploys.running(p.root, task.id), run: this.deploys.run(p.root, task.id),
         failing: deployBlockers(model.acc?.checks ?? []), conflicts: model.acc?.conflicts ? task.environment : null, stepsLeft: openSteps(task).length,
+        where: this.deploys.where(p.root, task),
       }) : null,
       talk,
       field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, ticketPaths(changes), updates, manifest?.manifest ?? null) ?? null : null,
@@ -547,7 +548,10 @@ export class TicketPanels implements vscode.Disposable {
     if (!p) return;
     switch (m.type) {
       case 'ready': o.tab?.theme.ready(); return this.post(o);
-      case 'refresh': return this.load(o);
+      case 'refresh':
+        // The person's Refresh reads where its work is again too (T-155); the page draws it once it's back.
+        if (o.key) this.deploys?.reread(p.root, o.key);
+        return this.load(o);
       case 'open': if (isWebLink(m.url)) void vscode.env.openExternal(vscode.Uri.parse(m.url)); return;
       case 'ticket': return this.show(m.project, m.tracker, m.key);
       case 'run':
