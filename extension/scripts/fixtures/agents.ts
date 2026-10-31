@@ -4,6 +4,8 @@
  * in another window, with a task whose builder and reviewer are both listed (GH-119).
  */
 import type { RepoAgents, State } from '../../../packages/core/src/ledger.ts';
+import type { ToolStep } from '../../src/logic/doing.ts';
+import type { LastStep } from '../../src/transcript.ts';
 import type { AgentSession, TaskRow } from '../../src/logic/shared.ts';
 import { sampleAnalyses } from './analysis.ts';
 import { A24, CLIENTS, MIN, N10, N12, N12a, N13, N14, N28, N29, N38, N42, R20, R42, ROOT, T42, wt } from './shared.ts';
@@ -29,6 +31,8 @@ export function sampleAgents(now = Date.now()): AgentSession[] {
     // ACME-24's analyst, reading the ticket and the code in the main checkout before the build (GH-119).
     { cwd: root, kind: 'interactive', startedAt: now - 3 * MIN, sessionId: 'an-acme-24', name: A24, status: 'busy', pid: 4110 },
     { cwd: '/Users/me/code/side-project', kind: 'interactive', startedAt: now - 30 * 60 * MIN, sessionId: '7c1d-side', name: 'side-project', status: 'idle', pid: 4200 },
+    // A background session at work in a repo elsewhere, tied to no task, editing a file (T-164).
+    { cwd: '/Users/me/code/side-project', kind: 'background', startedAt: now - 16 * MIN, id: 'bg-side', sessionId: 'c2d8-side-build', name: 'side-build', state: 'working', pid: 4202 },
     { cwd: '/Users/me/Documents/a folder with a long name/docs-site', kind: 'background', startedAt: now - 7 * 24 * 60 * MIN, id: 'bg3', name: 'docs-site', state: 'done' },
     // Elsewhere, each kind of folder (GH-83): two repos of one name, a builder's worktree of one, a folder
     // inside a repo, home, and a folder in no repo. None is working or needs you, so the counts hold.
@@ -75,3 +79,18 @@ export const REPOS = new Set([ROOT, CLIENTS, '/Users/me/personal/Acme Service', 
 
 /** What sessions no task ran last answered with, or were started with (D-086). */
 export const SESSION_MODELS: Record<string, string> = { '0e02-main': 'claude-opus-5-5', '7c1d-side': 'claude-haiku-4-5-20251001', 'an-acme-24': 'claude-opus-5-5', 's-acme-42': 'claude-opus-5-5', 'rv-acme-42': 'claude-sonnet-5-5' };
+
+/**
+ * Each busy session's latest steps, newest first (T-164), so the Agents page shows what each is doing: ACME-13's
+ * builder deploys to its own org, the interactive session in the main checkout runs the checks after a step the
+ * table doesn't know, and the background session in side-project edits a class. ACME-24's analyst plans and
+ * ACME-42's reviewer reviews, by their roles. ACME-12's and ACME-14's builders need you, which comes first.
+ */
+export const SAMPLE_STEPS: Record<string, { recent: ToolStep[] }> = {
+  's-acme-13': { recent: [{ tool: 'Bash', command: 'acc gate run deploy' }, { tool: 'Edit', path: 'force-app/main/default/classes/LeadDedupe.cls' }] },
+  '0e02-main': { recent: [{ tool: 'TodoWrite' }, { tool: 'Bash', command: 'cd force-app && acc gate run' }] },
+  'c2d8-side-build': { recent: [{ tool: 'Edit', path: 'force-app/main/default/classes/CaseTriggerHandler.cls' }, { tool: 'Read', path: 'force-app/main/default/classes/CaseTriggerHandler.cls' }] },
+};
+
+/** A session's latest steps, as the hub hands them on (T-164). */
+export const sampleStepOf = (sessionId: string): LastStep | null => (SAMPLE_STEPS[sessionId] ? { step: null, model: null, ...SAMPLE_STEPS[sessionId] } : null);

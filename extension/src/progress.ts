@@ -331,7 +331,9 @@ export function inProgress(i: ProgressInput): ProgressModel {
         : r.stopped ? LOOK('Stopped', 'debug-disconnect', 'orange')
         : r.asking ? LOOK('Waiting on you', 'bell', 'orange')
           : r.agent?.tone === 'orange' ? (r.agent.label === 'Failed' ? LOOK('Failed', 'warning', 'orange') : LOOK('Waiting on you', 'bell', 'orange'))
-            : r.agent?.label === 'Working' || r.agent?.label === 'Resumed: working' ? LOOK('Working', 'sync~spin', 'blue')
+            : r.agent?.label === 'Resumed: working' ? LOOK('Working', 'sync~spin', 'blue')
+              // At work, what it's doing (T-164): Building, Testing, Deploying, or Working where its steps say nothing more.
+              : (r.agent?.busy || r.agent?.label === 'Working') && r.agent.icon !== 'cloud' ? { label: r.agent.label, icon: r.agent.icon, tone: 'blue' as const, ...(r.agent.tip ? { tip: r.agent.tip } : {}) }
               : r.agent?.label === 'Stopped' ? LOOK('Stopped', 'debug-stop', 'neutral')
                 : r.agent ? LOOK('Idle', 'circle-outline', 'neutral') : LOOK('Starting', 'loading~spin', 'blue');
       const setting = p.agents?.builder.model;
@@ -568,24 +570,31 @@ export function readRepoJobs(p: Pick<Project, 'ledgerPath' | 'config'>, ledger: 
   };
 }
 
-/** Each running builder's latest step, from its transcript's tail, read again only when the file changed. */
-export function readSteps(hub: Pick<Hub, 'projects' | 'taskRows'>, builderSteps: Map<string, { file: string; stamp: string; step: LastStep | null }>, stampOf: (file: string) => string | null): void {
+/**
+ * Each running builder's latest steps, and every other session's at work (T-164), from its transcript's tail,
+ * read again only when the file changed.
+ */
+export function readSteps(hub: Pick<Hub, 'projects' | 'taskRows' | 'agents'>, builderSteps: Map<string, { file: string; stamp: string; step: LastStep | null }>, stampOf: (file: string) => string | null): void {
   const live = new Set<string>();
+  const read = (id: string, likely: (string | null | undefined)[]) => {
+    if (live.has(id)) return;
+    live.add(id);
+    let cached = builderSteps.get(id);
+    const file = cached && existsSync(cached.file) ? cached.file : transcriptFile(claudeProjectsDir(process.env), id, likely);
+    const stamp = file ? stampOf(file) : null;
+    if (!file || !stamp) return;
+    if (cached?.file !== file || cached.stamp !== stamp) {
+      cached = { file, stamp, step: lastStepIn(file) };
+      builderSteps.set(id, cached);
+    }
+  };
   for (const p of hub.projects) {
     for (const t of hub.taskRows(p.root)) {
       const id = t.state === 'running' ? t.run?.sessionId : undefined;
-      if (!id || live.has(id)) continue;
-      live.add(id);
-      let cached = builderSteps.get(id);
-      const file = cached && existsSync(cached.file) ? cached.file : transcriptFile(claudeProjectsDir(process.env), id, [t.run?.worktree, p.root]);
-      const stamp = file ? stampOf(file) : null;
-      if (!file || !stamp) continue;
-      if (cached?.file !== file || cached.stamp !== stamp) {
-        cached = { file, stamp, step: lastStepIn(file) };
-        builderSteps.set(id, cached);
-      }
+      if (id) read(id, [t.run?.worktree, p.root]);
     }
   }
+  for (const s of hub.agents) if (s.sessionId && (s.state === 'working' || s.status === 'busy')) read(s.sessionId, [s.cwd]);
   for (const k of [...builderSteps.keys()]) if (!live.has(k)) builderSteps.delete(k);
 }
 

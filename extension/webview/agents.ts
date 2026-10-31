@@ -1,7 +1,7 @@
-// The Agents section: sessions by repo, then by task (GH-119), and what they bill. How agents run is in Settings (GH-110).
+// The Agents section: sessions by repo, each agent a card that says what it's doing (T-164), and what they bill. How agents run is in Settings (GH-110).
 
 import type { AgentLine, AgentsModel, RepoGroup, TaskGroup, WhereView } from '../src/model/agents.ts';
-import { argButton, button, el, empty, icon, menuButton, openable, pageHeader, plural, refreshButton, segmented, since, span, status, titled, toolbarButton, withMenu, wrap } from './dom.ts';
+import { argButton, button, el, empty, icon, menuButton, openable, pageHeader, plural, refreshButton, segmented, since, status, titled, toolbarButton, withMenu } from './dom.ts';
 import { answerHere } from './progress.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 
@@ -41,9 +41,6 @@ const WHERE_WORDS: Record<WhereView, { label: string; icon: string }> = {
   folder: { label: 'Folder', icon: 'folder' },
   path: { label: 'Full path', icon: 'list-tree' },
 };
-/** Agent, State, Model, Running, and the actions. */
-const COLUMNS = 5;
-
 export function renderAgents(m: AgentsModel): Node[] {
   const c = m.counts;
   // How agents run is in Settings now (GH-110): Settings goes to it there.
@@ -62,35 +59,32 @@ export function renderAgents(m: AgentsModel): Node[] {
     out.push(empty('No Claude Code sessions are running. Background agents keep working when the terminal closes, and edit in their own worktree.'));
     return out;
   }
-  // One table, a heading row for each repo, so the columns line up all the way down.
-  const table = el('table', 'grid agents-grid');
-  table.append(el('thead', '', el('tr', '', ...[['Agent', 'wide'], ['State', ''], ['Model', 'model'], ['Running', 'ran'], ['', '']].map(([h, cls]) => el('th', cls!, h!)))));
-  for (const r of m.repos) table.append(repoBody(r, m.whereView));
   // Where shows only for some agents (GH-119): the toggle only when one does.
   const wheres = m.repos.some((r) => [...r.tasks.flatMap((t) => t.agents), ...r.finished].some((a) => a.where !== null));
-  out.push(...(wheres ? [whereBar(m.whereView)] : []), wrap(table));
+  out.push(...(wheres ? [whereBar(m.whereView)] : []), ...m.repos.map((r) => repoSection(r, m.whereView)));
   return out;
 }
 
-/** A repo: its heading, its tasks with their agents, its other sessions, and its finished ones, folded. */
-function repoBody(r: RepoGroup, view: WhereView): HTMLElement {
-  const body = el('tbody', 'repo');
+/**
+ * A repo (T-164): its name and count, a quiet heading on the page's own background, then a card for each
+ * agent, its other sessions, and its finished ones, folded.
+ */
+function repoSection(r: RepoGroup, view: WhereView): HTMLElement {
   const name = titled(el('span', 'repo-name', r.label), r.path);
   if (!r.sessions) {
     // A repo with no agents is one quiet line.
-    body.append(el('tr', 'group quiet', span(el('th', '', icon('repo'), name, el('span', 'muted', ' · no agents right now')), COLUMNS)));
-    return body;
+    return el('section', 'agent-repo quiet', el('h2', 'agent-repo-head', icon('repo'), name, el('span', 'muted', ' · no agents right now')));
   }
   const count = el('span', 'count', String(r.sessions));
   count.setAttribute('aria-label', plural(r.sessions, 'session'));
   const elsewhere = r.window === 'other' ? titled(el('span', 'chip window', icon('multiple-windows'), 'another window'), 'Open in another VSCode window') : null;
-  body.append(el('tr', 'group', span(el('th', '', icon(r.key === null ? 'folder-library' : 'repo'), name, count, elsewhere), COLUMNS)));
-  // Other sessions get a line of their own only beside tasks; alone, the repo's heading says enough.
-  const tasks = r.tasks.some((t) => t.key !== null);
-  for (const t of r.tasks) {
-    if (t.key !== null) body.append(taskRow(t, t.key));
-    else if (tasks) body.append(el('tr', 'task others', span(el('td', 'muted', 'Other sessions'), COLUMNS)));
-    for (const a of t.agents) body.append(agentRow(a, view));
+  const section = el('section', 'agent-repo', el('h2', 'agent-repo-head', icon(r.key === null ? 'folder-library' : 'repo'), name, count, elsewhere));
+  const mine = r.tasks.filter((t) => t.key !== null);
+  if (mine.length) section.append(cards(mine.flatMap((t) => t.agents.map((a) => agentCard(a, view, t)))));
+  for (const t of r.tasks.filter((x) => x.key === null)) {
+    // Other sessions get a heading of their own only beside tasks; alone, the repo's heading says enough.
+    if (mine.length) section.append(el('h3', 'agent-others', 'Other sessions'));
+    section.append(cards(t.agents.map((a) => agentCard(a, view, null))));
   }
   if (r.finished.length) {
     const key = `agents-finished:${r.key}`;
@@ -104,27 +98,23 @@ function repoBody(r: RepoGroup, view: WhereView): HTMLElement {
     toggle.insertBefore(icon('check'), toggle.lastChild);
     // This repo's finished background sessions, through the same command as the header's, by the same name (D-095, T-39).
     const stopAll = r.stopFinished && r.key ? titled(argButton('acc.agents.stopFinished', 'Stop finished', 'debug-stop', r.key), `Stop ${plural(r.stopFinished, 'finished background session')} here. Transcripts and worktrees are kept.`) : null;
-    body.append(el('tr', 'fold', span(el('td', '', el('div', 'fold-line', toggle, stopAll)), COLUMNS)));
-    if (open) for (const a of r.finished) body.append(agentRow(a, view));
+    section.append(el('div', 'fold-line', toggle, stopAll));
+    if (open) section.append(cards(r.finished.map((a) => agentCard(a, view, null))));
   }
-  return body;
+  return section;
 }
 
-/** A task's line: its key and title, opening its page where it has one here. */
-function taskRow(t: TaskGroup, key: string): HTMLElement {
-  const k = el('span', 'tcard-key', key);
-  const line = el('div', 'task-line', k, t.title ? titled(el('span', 'task-title', t.title), t.title) : null);
-  const cell = el('td', '', line);
-  if (t.project) openable(line, { type: 'run', command: 'acc.task.show', ref: { project: t.project, task: key } }).title = `Open ${key}'s page`;
-  return el('tr', 'task', span(cell, COLUMNS));
-}
+/** Cards in a list, with space between them. */
+const cards = (items: HTMLElement[]): HTMLElement => el('ul', 'agent-cards', ...items);
 
 /**
- * An agent's line: its role, or an untied session's name; interactive or background as an icon; where it
- * runs when that isn't its task's own worktree; its state; its model; how long it has run; and its menu,
- * with Answer, Watch and Open in Claude Code beside it while it needs you.
+ * An agent's card (T-164). Its first line is its task's key and title, opening the task's page where it has one
+ * here; a session tied to no task goes by its own name. Its second line says what it's doing (Building, Testing),
+ * then its role with interactive or background as an icon, its model and how long it has run. Its menu sits on
+ * the right, with Answer, Watch and Open in Claude Code while it needs you. Where it runs goes under them, when
+ * that isn't its task's own worktree. A finished agent's fold says Finished, so its card says no state.
  */
-function agentRow(a: AgentLine, view: WhereView): HTMLElement {
+function agentCard(a: AgentLine, view: WhereView, t: TaskGroup | null): HTMLElement {
   const kind = icon(a.background ? 'server-process' : 'terminal');
   const word = a.background ? 'Background session' : 'Interactive session';
   kind.removeAttribute('aria-hidden');
@@ -132,28 +122,31 @@ function agentRow(a: AgentLine, view: WhereView): HTMLElement {
   kind.setAttribute('aria-label', word);
   kind.title = word;
   kind.classList.add('kind');
-  // A finished agent has no task line above it, so its line names its task (D-095).
-  const said = a.finished && a.task
-    ? el('span', 'agent-label', el('span', 'tcard-key', a.task.key), a.task.title ? el('span', 'task-title', a.task.title) : null, el('span', 'role', `· ${a.label}`))
-    : el('span', 'agent-label', a.task ? el('span', 'role', a.label) : el('span', 'session-name', ...slashBreaks(a.label)));
-  // Its whole name on hover, its model where a narrow tab has no room for that column, and its whole folder.
-  said.title = [a.name, a.model && a.effort ? `${a.model}, ${a.effort} effort` : a.model, a.path].filter(Boolean).join('\n');
-  openable(said, { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } });
-  // Where, only when it isn't its task's own worktree: its folder, or its full path, with the full path on hover (D-090).
-  const where = a.where === null ? null : view === 'path'
-    ? el('span', 'where mono', icon('folder'), el('span', 'where-text', ...slashBreaks(a.path)))
-    : el('span', 'where', icon('folder'), el('span', 'where-text', ...slashBreaks(a.where)));
-  if (where) where.title = a.path;
-  // Its icon stays beside its name; Where wraps below them when there's no room beside.
-  const who = el('td', 'agent', el('div', 'agent-cell', el('span', 'who', kind, said), where));
-  // A finished agent's state is its fold's heading: its name takes the State column too.
-  const cells = a.finished ? [span(who, 2)] : [who, el('td', 'state', status(a.look))];
-  const row = el('tr', `agent${a.needsYou ? ' attention' : ''}${a.finished ? ' finished' : ''}`, ...cells,
+  // A finished agent has no task heading its fold, so its card names its task from its line (D-095).
+  const task = t?.key ? { key: t.key, title: t.title } : a.task;
+  // Its whole name on hover, its model and effort, and its whole folder.
+  const tip = [a.name, a.model && a.effort ? `${a.model}, ${a.effort} effort` : a.model, a.path].filter(Boolean).join('\n');
+  const head = task
+    ? el('div', 'agent-task', el('span', 'tcard-key', task.key), task.title ? titled(el('span', 'task-title', task.title), task.title) : null)
+    : el('div', 'agent-task', kind, el('span', 'session-name', ...slashBreaks(a.label)));
+  if (task && t?.project) openable(head, { type: 'run', command: 'acc.task.show', ref: { project: t.project, task: task.key } }).title = `Open ${task.key}'s page`;
+  // Its role, or for a session tied to no task its kind, opens its page, step by step (D-030).
+  const who = titled(el('span', 'role', task ? a.label : word.toLowerCase()), tip);
+  openable(who, { type: 'run', command: 'acc.agent.watch', ref: { session: a.key } });
+  const facts = el('div', 'agent-facts',
+    a.finished ? null : el('span', 'agent-doing', status(a.look)),
+    el('span', 'who', task ? kind : null, who),
     // The model it runs with (D-086), short, with its full name on hover; a dash until it's known. A builder's
     // effort beside it when it isn't the model's default (D-128).
-    Object.assign(el('td', 'mono muted model', el('span', 'unbroken', a.model ? shortModel(a.model) : '—'), a.model && a.effort ? ' ' : null, a.model && a.effort ? el('span', 'unbroken', `· ${a.effort}`) : null), { title: a.model ? `${a.model}${a.effort ? `, ${a.effort} effort` : ''}` : 'Not known until it first answers' }),
-    Object.assign(el('td', 'nowrap muted ran', ran(a.startedAt)), { title: `Started ${since(a.startedAt)}` }),
-    el('td', 'actions', ...(a.needsYou ? needsYouButtons(a) : []), menuButton(a.name)));
+    Object.assign(el('span', 'mono muted model', el('span', 'unbroken', a.model ? shortModel(a.model) : '—'), a.model && a.effort ? ' ' : null, a.model && a.effort ? el('span', 'unbroken', `· ${a.effort}`) : null), { title: a.model ? `${a.model}${a.effort ? `, ${a.effort} effort` : ''}` : 'Not known until it first answers' }),
+    Object.assign(el('span', 'nowrap muted ran', ran(a.startedAt)), { title: `Started ${since(a.startedAt)}` }));
+  // Where, only when it isn't its task's own worktree: its folder, or its full path, with the full path on hover (D-090).
+  const where = a.where === null ? null : view === 'path'
+    ? el('div', 'where mono', icon('folder'), el('span', 'where-text', ...slashBreaks(a.path)))
+    : el('div', 'where', icon('folder'), el('span', 'where-text', ...slashBreaks(a.where)));
+  if (where) where.title = a.path;
+  const actions = el('div', 'agent-actions', ...(a.needsYou ? needsYouButtons(a) : []), menuButton(a.name));
+  const row = el('li', `agent-card${a.needsYou ? ' attention' : ''}${a.finished ? ' finished' : ''}`, el('div', 'agent-main', head, facts, where), actions);
   return withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background });
 }
 
@@ -178,9 +171,8 @@ function needsYouButtons(a: AgentLine): HTMLElement[] {
 }
 
 /**
- * What an agent's Where shows, Folder or Full path (GH-83), above the table, on the right: in a heading it
- * would widen a column, so a narrow tab would scroll it out of view. The page switches at once, and the
- * extension remembers the choice for the window.
+ * What an agent's Where shows, Folder or Full path (GH-83), above the cards, on the right. The page switches
+ * at once, and the extension remembers the choice for the window.
  */
 function whereBar(view: WhereView): HTMLElement {
   const pick = segmented('Where shows', (Object.keys(WHERE_WORDS) as WhereView[]).map((w) => ({ key: w, ...WHERE_WORDS[w], on: view === w })), (key) => {

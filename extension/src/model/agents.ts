@@ -6,6 +6,7 @@
 import { sessionsOf, type SessionTie } from '../../../packages/core/src/ledger.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import { agentLook, finishedSession, ownsSession, stopFinishedPlan } from '../logic/agents.ts';
+import { sessionDoing } from '../logic/doing.ts';
 import { effortShown } from '../logic/efforts.ts';
 import { type AgentSession, isUnder, tildePath } from '../logic/shared.ts';
 import type { DoctorItem } from '../logic/setup.ts';
@@ -225,7 +226,6 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereVi
   const folders = sessionFolders(hub);
   const lineFor = (s: AgentSession) => {
     const tie = tieOf(s);
-    const look = agentLook(s, askingOf(s), tie);
     const f = folders.get(s.cwd)!;
     const p = hub.projectFor(s.cwd);
     const rows = p ? hub.taskRows(p.root) : [];
@@ -235,6 +235,8 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereVi
     const name = nameOf(hub, s);
     const sid = s.sessionId;
     const role = tie?.role ?? (sid && row?.reviewing?.sessionId === sid ? 'review' : sid && row?.analyzing?.sessionId === sid ? 'analysis' : 'builder');
+    // At work, what it's doing (T-164): its role's, or its latest steps'.
+    const look = agentLook(s, askingOf(s), tie, sessionDoing(s, role, hub.stepOf?.bind(hub)));
     const label = task ? roleWords(role, tie?.n, name) : name;
     // In its task's own worktree, Where would only say the task again: it shows the folder inside it, if any.
     const ownTree = !!task && f.worktree?.name.toUpperCase() === task.toUpperCase();
@@ -246,7 +248,7 @@ export function agentsModel(hub: HubLike, setupItems: DoctorItem[] = [], whereVi
     const effort = role === 'builder' && row && sessionsOf(row, [s]).length ? effortShown(model, row.run?.effort) : null;
     const line: AgentLine = {
       key: sessionKey(s), background: !!s.id, kind: s.kind, name, label, task: task ? { key: task, title } : null,
-      look: { label: look.label, icon: look.icon, tone: look.tone }, needsYou: look.needsYou, finished: finishedSession(s, tie, askingOf(s)), working: !!look.working,
+      look: { label: look.label, icon: look.icon, tone: look.tone, ...(look.tip ? { tip: look.tip } : {}) }, needsYou: look.needsYou, finished: finishedSession(s, tie, askingOf(s)), working: !!look.working,
       // A session named for its folder, as Claude Code names some, doesn't say it twice.
       where: place === label || place === `worktree ${label}` ? null : place,
       path: f.full, startedAt: s.startedAt, model, effort,

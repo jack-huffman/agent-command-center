@@ -431,5 +431,5 @@ test('a row of mixed button sizes fails the run, and a whole run that compared n
 test('the rows the sizes check found are fixed in the styles (T-144): the plan actions\' Open conversation and the agent line\'s buttons (the deploy row\'s fold went with T-158)', () => {
   const css = (f: string) => readFileSync(join(root, 'webview', f), 'utf8');
   assert.match(css('analysis.css'), /\.plan-actions > \.convo-line > \.btn, \.an-actions > \.convo-line > \.btn \{ padding: 3px 9px; font-size: calc\(1em \/ var\(--convo-scale\)\)/);
-  assert.match(css('agents.css'), /\.line-btn \{ min-height: 22px/);
+  assert.match(css('agents.css'), /\.line-btn \{ padding: 1px 6px; min-height: 22px/);
 });

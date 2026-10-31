@@ -15,7 +15,13 @@
     "floor": 700
   },
   "screenshots.covered": {
-    "floor": 1867
+    "floor": 219,
+    "relaxed": {
+      "by": "human:jackhuffman",
+      "reason": "The Agents page is cards now, not a table with a sticky actions column, so the covered check measures far fewer sticky cells: 222 at 6a9a3fb after merging main. 1% below it. Approved by the person, 2026-10-31.",
+      "at": "2026-10-31T02:03:23.915Z",
+      "was": 1867
+    }
   },
   "screenshots.raw": {
     "floor": 855

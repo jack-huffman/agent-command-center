@@ -307,8 +307,8 @@ test('a running card, its task page and its Agents row name the model its agent 
   const rows = agentsModel(h).repos.flatMap((r) => r.tasks.flatMap((t) => t.agents));
   assert.deepEqual(rows.map((r) => [r.name, r.model]), [['av-2', 'claude-sonnet-5-5'], ['other', null]]);
   const main = pageSource();
-  assert.match(main, /\['Model', 'model'\]/, 'a Model column');
-  assert.match(main, /el\('td', 'mono muted model', el\('span', 'unbroken', a\.model \? shortModel\(a\.model\) : '—'\), a\.model && a\.effort \? ' ' : null, a\.model && a\.effort \? el\('span', 'unbroken', `· \$\{a\.effort\}`\) : null\), \{ title: a\.model \?/, 'a dash until it\'s known, in neutral mono text, its full name on hover, and an effort beside it (D-128)');
+  // On an agent's card (T-164), beside what it's doing and its role.
+  assert.match(main, /el\('span', 'mono muted model', el\('span', 'unbroken', a\.model \? shortModel\(a\.model\) : '—'\), a\.model && a\.effort \? ' ' : null, a\.model && a\.effort \? el\('span', 'unbroken', `· \$\{a\.effort\}`\) : null\), \{ title: a\.model \?/, 'a dash until it\'s known, in neutral mono text, its full name on hover, and an effort beside it (D-128)');
   assert.match(main, /card\.agent && card\.model \? el\('div', 'card-where card-model'/);
   assert.match(pageSource('agent-panel.ts'), /field\('Model and effort', el\('span', '', el\('span', 'mono', a\.model\), a\.effort \? el\('span', 'muted', ` · \$\{a\.effort\} effort`\) : null\)\)/);
 });
