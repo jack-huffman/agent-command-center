@@ -115,6 +115,7 @@ export const PROCESSES: readonly Process[] = [
   // Builders as a team (T-103)
   { acc: ['team'], name: 'See the team', named: 'See {arg}\'s team' },
   { acc: ['refresh'], name: 'Take in the latest merges', named: 'Take the latest merges into {arg}' },
+  { acc: ['check-together'], name: 'Check together', named: 'Check {arg} together', command: 'acc.task.checkTogether' },
   { acc: ['review'], name: 'Review with an agent', named: 'Review {arg} with an agent', command: 'acc.task.review' },
   { acc: ['land'], name: 'Open pull request', named: 'Open {arg}\'s pull request', command: 'acc.task.land' },
   { acc: ['autopilot'], name: 'Run autopilot', command: 'acc.autopilot.toggle' },

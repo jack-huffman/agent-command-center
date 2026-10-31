@@ -55,11 +55,11 @@ fails, to find which task touched the files behind it.
   go to, with n the tasks ready, off with the command's own reason. It asks the person first, then runs acc
   in the output panel, where its steps show, and says what came of it. While a group runs, the lane shows
   "Checking … together for <environment>: running the full check". Each card shows its latest step, and the
-  task page's Agent panel shows it under the state, with every step under Details ("Checked together").
+  task page's Agent panel lists every step under Details ("Checked together").
 - **Mac and Windows.** It runs through acc's runner and git alone: no shell of its own.
 - This amends D-096: the queue's "Not chosen: checking several pull requests together" is now a person's
   choice, outside the queue. It amends D-158: one check can now cover several tasks' merges.
 - Not built here: autopilot starting a group check on its own where the project lets it merge, and a group
   check through GitHub's own merge of each pull request.
 - Checked by `packages/core/test/group-check.test.ts` (24 tests, 7 with real git) and
-  `extension/test/group-check.test.ts` (7 tests).
+  `extension/test/group-check.test.ts` (7 tests) and `extension/test/group-check-page.test.ts` (3 tests).

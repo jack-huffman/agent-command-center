@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { readQueueReport } from '../src/checks.ts';
 import { type Config, parseConfig } from '../src/config.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
-import { failureOf, type GroupFailure, importsOf, matchFailure, reachOf, loggedPath, resolveImport } from '../src/group-blame.ts';
+import { failureOf, type GroupFailure, importsOf, LOG_LINES, matchFailure, reachOf, loggedPath, resolveImport } from '../src/group-blame.ts';
 import { checkedWords, checkTogether, GROUP_CHECK_COMMAND, GROUP_MIN, groupEnabled, groupEnvironment, groupLockDir, groupReady, groupRunning, groupSummary, halves, listWords, markTasks, MOVED_AGAIN, GROUP_MARKS, notReady, sentBackWords, settleGroup, type GroupCheckResult } from '../src/group-check.ts';
 import { groupSection } from '../src/group-report.ts';
 import { AUTOPILOT_BY, GROUP_OUTCOMES, mutate, readLedger, reworkCause, type Task, upsertTasks } from '../src/ledger.ts';
@@ -39,6 +39,9 @@ test('a failure names the failing test, the files in its stack and a geometry pa
 });
 
 test('an empty log names nothing: no file, test or page', () => {
+  // A long log keeps only LOG_LINES of its lines for the builder.
+  const many = Array.from({ length: LOG_LINES + 5 }, (_, i) => `  at f (a.ts:${i}:1)`).join('\n');
+  assert.equal(failureOf(['test'], many, new Set(['a.ts'])).lines.length, LOG_LINES);
   assert.deepEqual(failureOf(['test'], '', new Set(['a.ts'])), { checks: ['test'], tests: [], files: [], pages: [], lines: [] });
 });
 

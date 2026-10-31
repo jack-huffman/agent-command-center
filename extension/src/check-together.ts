@@ -2,7 +2,7 @@
 // the output panel, where its steps show, and says what came of it.
 import * as vscode from 'vscode';
 import type { Environment } from '../../packages/core/src/config.ts';
-import { GROUP_CHECK_COMMAND, listWords } from '../../packages/core/src/group-check.ts';
+import { listWords } from '../../packages/core/src/group-check.ts';
 import type { ExtensionArea } from './area.ts';
 import type { Project } from './hub.ts';
 import { inProcessWords } from './logic/processes.ts';
@@ -15,7 +15,7 @@ class CheckTogether extends Sidebar {
   }
 
   register(reg: (id: string, fn: (...args: any[]) => unknown) => void): void {
-    reg(GROUP_CHECK_COMMAND.id, (n?: { project?: Project; env?: Environment }) => this.check(n));
+    reg('acc.task.checkTogether', (n?: { project?: Project; env?: Environment }) => this.check(n));
   }
 
   /** The group for one environment: off with the command's own reason, else the person's yes, then acc. */

@@ -12,11 +12,7 @@ export function togetherBar(t: Together): HTMLElement {
   return bar;
 }
 
-/** A task's group checks on its page (T-165): the latest at a glance, every step under Details. */
-export function latestGroup(groups: Look[]): HTMLElement | null {
-  return groups[0] ? el('p', 'agent-group', status(groups[0])) : null;
-}
-
+/** A task's group checks on its page (T-165): every step under Details, newest first. */
 export function groupRows(groups: Look[]): HTMLElement | null {
   return groups.length ? el('div', 'group-rows', el('h3', '', 'Checked together'), ...groups.map((g) => el('div', 'group-row', status(g)))) : null;
 }
