@@ -191,7 +191,7 @@ test('the Changes tab draws Try it on the development environment\'s row alone, 
   const m = { project: '/r', key: 'ACME-7', tryIt: shown() } as unknown as TicketModel;
   const tab = renderDeploy(m, { task: 'ACME-7', rows: [row('Dev'), row('QA')], pick: null, status: null, needs: null }) as unknown as PageElement;
   assert.deepEqual(tab.all('dp-row').map((r) => r.all('try').length), [1, 0]);
-  const acc = { look: { label: 'In review', icon: 'eye', tone: 'blue' }, state: 'review', checks: [], actions: [], waitingOn: [], blocker: null } as unknown as TicketAcc;
+  const acc = { look: { label: 'In review', icon: 'eye', tone: 'blue' }, state: 'review', checks: [], actions: [], waitingOn: [], blocker: null, groups: [] } as unknown as TicketAcc;
   const panel = renderAgentPanel(m, acc, () => {}) as unknown as PageElement;
   assert.equal(panel.all('try').length, 1);
   assert.equal(panel.all('try-comps').length, 0, 'the components are on the Changes tab');
