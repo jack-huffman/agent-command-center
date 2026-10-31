@@ -134,10 +134,12 @@ test('a blocked note\'s question with options shows each as a choice and the per
   const b = byId(drawn({ ...m, acc: { ...m.acc!, blocker: four } }), 'blocked');
   const group = b.all('banner-choice')[0]!;
   assert.equal(group.tagName, 'FIELDSET');
-  assert.equal(group.all('banner-legend')[0]!.textContent, 'Which one?', 'the group is named by its question');
+  assert.equal(group.getAttribute('aria-label'), 'Which one?', 'the group is named by its question');
+  assert.equal(b.all('banner-question')[0]!.textContent, 'Which one?', 'and the question heads it, on screen');
   assert.deepEqual(radios(group).map((r) => r.value), ['a', 'b', 'c', OWN]);
   assert.equal(CHOICE_MAX, OPTIONS_MAX);
-  assert.ok(radios(group).every((r) => r.attributes.get('name') === undefined && (r as unknown as { name: string }).name === radios(group)[0]!.name), 'one group: the arrow keys move between them');
+  const nameOf = (r: unknown): string => (r as { name: string }).name;
+  assert.ok(radios(group).every((r) => nameOf(r) === nameOf(radios(group)[0])), 'one group: the arrow keys move between them');
   // Each radio sits in its label, so a screen reader says its words.
   assert.ok(group.all('banner-option').every((l) => l.tagName === 'LABEL' && radios(l).length === 1));
   // A thing with no options is a bullet, with no choice.

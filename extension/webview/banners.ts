@@ -168,7 +168,8 @@ function choice(m: TicketModel, n: AgentNote, item: NoteItem, i: number): HTMLEl
   const mem = memory().drafts;
   let pick = mem[pickKey(m, i)] ?? '';
   const group = el('fieldset', 'banner-choice');
-  group.append(el('legend', 'banner-legend', item.text ? md(item.text) : 'Your answer'));
+  // The question heads the bullet, so its marker sits beside it; the group takes its name from it, for a screen reader.
+  group.setAttribute('aria-label', (item.text || 'Your answer').replace(/`/g, ''));
   const radios: HTMLInputElement[] = [];
   const radio = (value: string, ...label: Child[]): HTMLElement => {
     const r = document.createElement('input');
@@ -185,7 +186,7 @@ function choice(m: TicketModel, n: AgentNote, item: NoteItem, i: number): HTMLEl
   for (const o of options) {
     group.append(radio(o.label, el('span', 'note-letter', `${o.label})`), el('span', 'banner-option-text', md(optionWords(o)), o.recommended ? el('span', 'note-rec', icon('star-full', 'blue'), 'Recommended') : null)));
   }
-  const words = keptInput(wordsKey(m, i), mem[wordsKey(m, i)] ?? '', 'Or say it in your own words', (v) => {
+  const words = keptInput(wordsKey(m, i), mem[wordsKey(m, i)] ?? '', 'Write your answer', (v) => {
     remember((x) => { x.drafts[wordsKey(m, i)] = v; });
     if (v.trim() && pick !== OWN) { const own = radios.find((r) => r.value === OWN); if (own) own.checked = true; choose(OWN); } else ready();
   }, () => go());
@@ -218,7 +219,7 @@ function choice(m: TicketModel, n: AgentNote, item: NoteItem, i: number): HTMLEl
   const foot = el('div', 'banner-send', sendBtn,
     !reply.can ? el('span', 'muted small', icon('info'), reply.why) : null,
     error ? el('span', 'banner-error', icon('warning', 'orange'), `It wasn't sent: ${error}`) : null);
-  return el('div', 'banner-answer', group, foot);
+  return el('div', 'banner-answer', item.text ? el('div', 'banner-question', md(item.text)) : null, group, foot);
 }
 
 /** A blocked note's detail: each thing a bullet, and a question with options its choice. A note with no shape is its words in full. */

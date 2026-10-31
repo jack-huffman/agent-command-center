@@ -97,6 +97,7 @@ function marks(): Record<string, Record<string, number>> {
  */
 const MARKS: Record<string, Record<string, number>> = {
   'agent-page.ts': { transcript: 4, output: 1, 'agent-text': 1 },
+  'banners.ts': { files: 2 },
   'boards.ts': { branch: 1 },
   // A ticket's changes section (T-99): its planned and changed paths, which are the project's own; and on an environment's row (T-158), the components that differ there.
   'changes.ts': { files: 3 },
@@ -129,7 +130,7 @@ const MARKS: Record<string, Record<string, number>> = {
   'run-steps.ts': { output: 1 },
   'run-view.ts': { output: 1 },
   'setup.ts': { output: 1 },
-  'task-page.ts': { files: 2, transcript: 1 },
+  'task-page.ts': { transcript: 1 },
   // The Agent panel's Details (T-142): the branch and the worktree, and each check's own words.
   'agent-panel.ts': { branch: 2, output: 1 },
   // Verify the developer's work (T-84): the pull request's branches and commit, each check's own words, what the verifier wrote, and a finding's file.

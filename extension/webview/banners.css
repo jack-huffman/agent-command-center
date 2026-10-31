@@ -22,8 +22,8 @@
 /* A question's choice: its options, then the person's own words, then Send. No box of its own. */
 .banner-answer { display: grid; gap: 6px; margin: 2px 0 4px; }
 .banner-choice { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: 4px; }
-.banner-legend { padding: 0; margin-bottom: 2px; }
-.banner-option { display: grid; grid-template-columns: auto 1.8em minmax(0, 1fr); align-items: baseline; gap: 2px 4px; cursor: pointer; }
+.banner-question { margin-bottom: 2px; }
+.banner-option { display: grid; grid-template-columns: auto 1.5em minmax(0, 1fr); align-items: baseline; gap: 2px 4px; cursor: pointer; }
 .banner-option.own { grid-template-columns: auto minmax(0, 1fr); }
 .banner-option input { margin: 0 4px 0 0; accent-color: var(--accent); }
 .banner-option-text { min-width: 0; }
