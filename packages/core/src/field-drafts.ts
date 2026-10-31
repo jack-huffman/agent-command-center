@@ -33,7 +33,7 @@ export const writtenFor = (updates: Update[], task: string): string[] =>
  * What a task changed, as its Changes section lists it: in flight, its branch's paths, else what acc kept
  * at its land; once done, what acc kept.
  */
-function pathsOf(paths: RepoPaths, run: Runner, task: Task): string[] {
+export function changedPathsOf(paths: RepoPaths, run: Runner, task: Task): string[] {
   const live = task.state !== 'done' && task.run?.branch ? branchFiles(run, paths.root, task.environment, task.run.branch) : [];
   return live.length ? live : task.changes?.paths ?? [];
 }
@@ -49,7 +49,7 @@ export function draftChangesField(paths: RepoPaths, run: Runner, config: Pick<Co
     const field = task ? changesFieldOf(config, task) : null;
     if (!task || !field) return null;
     const text = changesDraft({
-      profile: config.profile, paths: pathsOf(paths, run, task), outside: outsideOf(task).changes,
+      profile: config.profile, paths: changedPathsOf(paths, run, task), outside: outsideOf(task).changes,
       manifest: config.profile === 'salesforce' ? readManifest(paths, task.id) : null, at: now(),
     });
     if (!text) return null;
