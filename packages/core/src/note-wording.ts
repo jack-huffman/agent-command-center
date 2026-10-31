@@ -11,7 +11,7 @@
 
 import { BULLET, codeNames } from './agent-notes.ts';
 import { AccError } from './exec.ts';
-import { NOTE_LABELS, type NoteInput } from './ledger.ts';
+import { NOTE_ALL, NOTE_LABELS, type NoteInput } from './ledger.ts';
 import type { Answered } from './review.ts';
 import { type SteRule, steLint, wordingMatch } from './ste.ts';
 
@@ -38,9 +38,9 @@ export function noteLines(text: string, of?: string): NoteLine[] {
   });
 }
 
-/** A finish note's lines, by its part: "What landed 1", "Still open 2". */
+/** A finish note's lines, by its part: "What landed 1", "Still open 2", "How to test it 1" (T-161). */
 export const doneLines = (note: NoteInput | null): NoteLine[] =>
-  (['landed', 'moved', 'open'] as const).flatMap((k) => (note?.[k] ?? []).map((text, i) => ({ where: `${NOTE_LABELS[k]} ${i + 1}`, text })));
+  NOTE_ALL.flatMap((k) => (note?.[k] ?? []).map((text, i) => ({ where: `${NOTE_LABELS[k]} ${i + 1}`, text })));
 
 /** A review's words to a person: its summary, its sentence for the client, and each finding. */
 export const verdictLines = (v: Pick<Answered, 'summary' | 'client' | 'findings'>): NoteLine[] => [

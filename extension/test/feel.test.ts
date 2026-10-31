@@ -204,6 +204,7 @@ const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'task-sheet.ts', at: /'primary ts-go'/, why: 'The task sheet\'s Add task or Save: what the person wrote in it, sent; the sheet opened only to take it (T-74).' },
   { file: 'task-sheet.ts', at: /button\('Keep mine'/, why: 'Keep mine: the Save the person asked for, which stopped because the ticket changed meanwhile, and waits on their pick (T-80).' },
   { file: 'changes.ts', at: /'primary dp-go'/, why: 'Deploy…: the Changes tab\'s one next step (T-158); it asks where, and the pick starts the deploy guide\'s agent there, which deploys nothing without the person (T-156).' },
+  { file: 'testing.ts', at: /'primary test-open'/, why: 'Open <environment>: the Testing tab\'s one button (T-161), which opens the development org where the person tries the builder\'s work.' },
   { file: 'dispatch-sheet.ts', at: /'primary ds-go'/, why: 'The sheet\'s Dispatch: what the person chose in it, sent; the sheet opened only to take it (D-168).' },
   { file: 'review-plan.ts', at: /'primary rp-go'/, why: 'Review plan\'s Confirm (T-109): the step\'s pick, sent; Enter does the same, as Claude Code\'s prompts do.' },
   { file: 'talk-questions.ts', at: /'primary rp-go'/, why: 'The question card\'s way on (T-113, T-130): Next question, or Review answers on the last, which Enter does too; on the review, Send answers to the planning agent, the only control that sends them.' },

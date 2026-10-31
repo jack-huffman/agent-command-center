@@ -1,4 +1,4 @@
-// A task page's tabs (T-134, T-135): Ticket, Plan, Changes, Review and Verify, each shown only with something in it, with a
+// A task page's tabs (T-134, T-135): Ticket, Plan, Changes, Testing (T-161), Review and Verify, each shown only with something in it, with a
 // count where it helps and, where something in it needs the person, the words that say so. Which tab a page
 // opens on is decided here too, apart from the drawing (task-tabs.ts). The page imports only types from outside
 // its folder (D-121), so these rules live here; what a link may name is the model's (src/model/task-tabs.ts).
@@ -7,16 +7,17 @@ import type { Look } from '../src/model/shared.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
 import { plural } from './dom.ts';
 
-export type TabId = 'ticket' | 'plan' | 'changes' | 'review' | 'verify';
+export type TabId = 'ticket' | 'plan' | 'changes' | 'testing' | 'review' | 'verify';
 
 /** The tabs in the order the page draws them. */
-export const TAB_ORDER: readonly TabId[] = ['ticket', 'plan', 'changes', 'review', 'verify'];
+export const TAB_ORDER: readonly TabId[] = ['ticket', 'plan', 'changes', 'testing', 'review', 'verify'];
 
 /** Each tab's name and icon. */
 export const TAB_LOOK: Record<TabId, { name: string; icon: string }> = {
   ticket: { name: 'Ticket', icon: 'issues' },
   plan: { name: 'Plan', icon: 'checklist' },
   changes: { name: 'Changes', icon: 'diff' },
+  testing: { name: 'Testing', icon: 'beaker' },
   review: { name: 'Review', icon: 'eye' },
   verify: { name: 'Verify', icon: 'verified' },
 };
@@ -45,7 +46,8 @@ export const changesNeeds = (m: TicketModel): string | null => m.deploy?.needs ?
 
 /**
  * The tabs a ticket's page shows, in order. Ticket always: it holds the description. Plan, Changes, Review and
- * Verify only with something in them, so a tab is never shown empty.
+ * Verify only with something in them, so a tab is never shown empty. Testing for every Salesforce task whose
+ * environment the settings name: before its builder's deploy, it says what it will hold (T-161).
  */
 export function taskTabs(m: TicketModel): TaskTab[] {
   const tab = (id: TabId, count: string | null, needs: string | null): TaskTab => ({ id, ...TAB_LOOK[id], count, needs });
@@ -62,6 +64,9 @@ export function taskTabs(m: TicketModel): TaskTab[] {
     const n = m.changes?.list.count ?? 0;
     out.push(tab('changes', n ? String(n) : null, changesNeeds(m)));
   }
+  // Testing (T-161): a Salesforce task's, before its builder's deploy too, when it says what it will hold. It never
+  // needs the person: testing is their choice. Its count is its steps, once there are any.
+  if (m.testing) out.push(tab('testing', m.testing.ready?.steps.length ? String(m.testing.ready.steps.length) : null, null));
   // Its review (T-135): the findings counted where there are any, and orange where the review's state waits on the person.
   if (m.review) out.push(tab('review', m.review.findings.length ? String(m.review.findings.length) : null, orange(m.review.look)));
   if (m.verify) out.push(tab('verify', null, orange(m.verify.look)));
@@ -84,9 +89,9 @@ export function partTab(part: string | null | undefined): TabId | null {
 /**
  * Which tab that needs the person a page opens on, first to last: a plan holds up the build, a review that
  * sent work back holds up its rework (T-135: it comes before the developer's verification, which comes after
- * it), a verification the developer's work, the changes the release; an update to post waits on no one else.
+ * it), a verification the developer's work, the changes the release; an update to post waits on no one else. Testing never needs the person (T-161): it comes last.
  */
-export const NEEDS_FIRST: readonly TabId[] = ['plan', 'review', 'verify', 'changes', 'ticket'];
+export const NEEDS_FIRST: readonly TabId[] = ['plan', 'review', 'verify', 'changes', 'ticket', 'testing'];
 
 /**
  * The tab a page opens on: the one a link asked for, where it's shown; else one that needs the person, in

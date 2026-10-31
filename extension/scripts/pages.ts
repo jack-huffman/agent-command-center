@@ -234,6 +234,10 @@ export const PAGES = [
   'ticket-deploy-off',
   'ticket-deploy-checking',
   'ticket-deploy-busy',
+  // Its Testing tab (T-161): before its builder's deploy to Dev; then built, with Open Dev and the numbered steps; then Open off, with no steps
+  'ticket-testing-before',
+  'ticket-testing',
+  'ticket-testing-off',
   'ticket-plan-approved',
   'ticket-plan-changed',
   'ticket-plan-short',

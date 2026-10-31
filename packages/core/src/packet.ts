@@ -15,6 +15,16 @@ import { shapeSection } from './shape-split.ts';
 import { type Team, teamSection } from './team.ts';
 import { machineNoun } from './this-machine.ts';
 
+/** How many steps a Salesforce builder's How to test it asks for (T-161): enough to try the change, few enough to follow. */
+export const TEST_STEPS = { min: 3, max: 7 } as const;
+
+/**
+ * A Salesforce builder's How to test it (T-161): its note ends with numbered steps for the person who comes back to
+ * the ticket and opens its development org from its Testing tab. A step that names one component by its API name
+ * gets a link to that component's page there, so each step names at most one.
+ */
+export const SF_TEST_NOTE = `Salesforce: end the note with How to test it, ${TEST_STEPS.min} to ${TEST_STEPS.max} numbered steps a person follows in the development org, one \`--test "<step>"\` a step, in order: where to go, what to do there, and what they see when it works. Each step names at most one component, by its API name, so the ticket can link to that component's page. For example \`--test "Open the Account object's Order_Total__c field and check its help text."\` and \`--test "Open an Account and click New Order. The Order page shows the discount."\` The ticket's Testing tab numbers the steps beside the button that opens the org, and the wording check reads each step as it reads the other lines.`;
+
 // ---------------------------------------------------------------- the packet (DESIGN.md section 8)
 
 export interface PacketInput {
@@ -243,6 +253,7 @@ export function renderPacket(p: PacketInput & { enterWorktree?: boolean; cloud?:
   lines.push(
     `3. **Finish** with a note, by running \`acc done\` as its own command, all on one line: \`${DONE_COMMAND}\`. It is already on your PATH and pre-approved. Don't run it through npm scripts, \`npx\`, or other wrappers, and don't chain it with other commands, or it will stop for permission.`,
     `   The note is for whoever comes next: the reviewer, the next builder and the pull request read it, and it's posted on the pull request on GitHub, so keep secrets and client data out of it. \`--landed\` says what the change does now; \`--moved\` which numbers moved (tests added, checks passed, ratchets raised); \`--open\` what's left undone or worth a follow-up, each line something a person could make a task of. Give a flag again for each further line, up to ${NOTE_LIMITS.lines} a part and ${NOTE_LIMITS.chars} characters a line. \`--moved none\` and \`--open none\` say there was nothing. Use double quotes, with no backticks or \`$\` inside them. \`acc done\` refuses without a note.`,
+    ...(sf ? [`   ${SF_TEST_NOTE}`] : []),
     '   If you\'re stuck, run exactly `acc block "<what you need>"` instead, and stop. If part of the work landed, add the same `--landed`, `--moved` and `--open` to it.',
     `   ${NOTE_RULE}`,
     '   If only the client can answer what you need (a business rule, access you don\'t have, or a choice that\'s theirs to make), run exactly `acc block --client "<your question>"` instead, and stop. Write the question for the client, in plain words with no code, file or tool names: a person reads it before it goes on the ticket.',

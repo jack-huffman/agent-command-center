@@ -10,6 +10,7 @@ import { noteHeadline } from './note.ts';
 import { WORDS } from './plain-words.ts';
 import { memory, remember } from './state.ts';
 import { taskActions } from './task-actions.ts';
+import { testingLink } from './testing.ts';
 import { groupRows } from './group-check.ts';
 
 /** A row of a list of fields: its name, with an icon before it where one is given, then its value. */
@@ -86,7 +87,7 @@ function holdLine(a: TicketAcc): HTMLElement | null {
 const shortLabel = (a: Action): Action => (a.label === 'Open in Claude Code' ? { ...a, label: 'Claude Code' } : a);
 
 /** The panel's body: the glance, the actions, More actions and Details. The caller makes it fold to its header line. */
-export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key'>, a: TicketAcc, onWaive: (gate: string) => void): HTMLElement {
+export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key' | 'testing'>, a: TicketAcc, onWaive: (gate: string) => void): HTMLElement {
   const g = stateGlance(a);
   const sum = checkSummary(a.checks);
   const { shown, more } = splitActions(a.actions, a.state);
@@ -100,6 +101,8 @@ export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key'>, a: Tic
     glance,
     // Its actions in one size and place (D-168): the next step full width, the two that fit its state under it.
     taskActions(shown),
+    // Its build is done and in its development org (T-161): one link, How to test it, to the Testing tab.
+    m.testing?.built && m.testing.ready ? testingLink() : null,
     moreSet ? fold(`agent-more:${m.project}#${m.key}`, 'More actions', 'agent-more', moreSet) : null,
     fold(detailsKey(m.project, m.key), 'Details', 'agent-details', facts(a), checkRows(a, onWaive), groupRows(a.groups)));
 }

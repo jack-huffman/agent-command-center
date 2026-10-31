@@ -696,6 +696,13 @@ acc done --landed "<what landed>" --moved "<tests, checks, ratchets that moved>"
   line, up to 10 a part and 300 characters a line. `--moved none` and `--open
   none` say there was nothing, so nothing is an explicit statement, not an
   omission. Something must have landed.
+- **How to test it (T-161).** A fourth part, `--test`, never required, to the
+  same limits and the same wording check: the steps a person follows to test
+  the change in its org, one `--test` a step. A Salesforce builder's packet asks
+  for 3 to 7 steps, each naming at most one component by its API name. The
+  ticket's Testing tab numbers them beside Open <environment> once the builder's
+  deploy to the development org passed, and a step that names one component it
+  deployed links to that component's page there.
 - **Required of a builder's `acc done`.** Without it, or with a part left out,
   acc refuses and gives that exact command. A person's move to review needs
   none. `acc block` takes the same flags if it has something to say; its reason
@@ -1597,8 +1604,16 @@ The extension handles every workspace folder that has `.acc/config.json`.
   from there. Tasks with no tracker get the same page
   from their brief and history.
 - **Its content is in tabs** (T-134, T-135): Ticket (the description, related tickets
-  and activity, together), Plan, Changes, Review and Verify, each shown only with
-  something in it. A tab that needs the person says "needs you" with an orange
+  and activity, together), Plan, Changes, Testing, Review and Verify, each shown
+  only with something in it. Testing (T-161) is the exception: a Salesforce task
+  has it from the start, and before its builder's deploy to the development org
+  passed, it says what it will hold. Then it has one line of where the work is
+  ("Deployed to Dev 2 h ago, tests passed, 88% coverage"), Open <environment>,
+  and the builder's steps to test it, numbered, a step that names one component
+  linking to that component's page. Testing is for trying the builder's work in
+  its development org; Verify is for checking a developer's pull request. It
+  never needs the person. The Agent panel, once the build is done, links to it
+  with How to test it. A tab that needs the person says "needs you" with an orange
   bell. The notices that need the person stay above the tabs, and Details and
   the Agent panel beside them. A page opens on a link's tab, else one that
   needs the person, else the tab last on show for that ticket, else Ticket.

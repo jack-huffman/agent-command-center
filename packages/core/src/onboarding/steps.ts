@@ -14,6 +14,7 @@ import { DATA_EXT } from '../stray-files.ts';
 import { parseSource } from '../source.ts';
 import { NO_TRACKING_REASON, usesSourceTracking } from '../source-tracking.ts';
 import { PRODUCTION_NOT_HERE, productionIsAway } from '../sf-discovery.ts';
+import { SETUP_HOME } from '../sf-org-pages.ts';
 import { previewCommand, type ReadTemplate, readTemplate, templateDifferences } from '../template.ts';
 import { orList } from '../trackers/types.ts';
 import {
@@ -744,7 +745,7 @@ export const STEPS: Step[] = [
     why: 'A Developer sandbox is tracked only if tracking was on when it was created, or switched on inside it afterwards.',
     fix: {
       text: 'Log in to the sandbox: Setup → Sandbox Settings → Enable Source Tracking in This Sandbox.',
-      setupPath: '/lightning/setup/SetupOneHome/home',
+      setupPath: SETUP_HOME,
       docs: 'https://developer.salesforce.com/docs/platform/sfdx-dev/guide/sfdx-setup-enable-source-tracking-sandboxes.html',
     },
     check(ctx) {

@@ -48,20 +48,22 @@ function fresh(memory?: Record<string, unknown>): void {
 
 // ---------------------------------------------------------------- which tabs show
 
-test('a ticket with every part shows Ticket, Plan, Changes, Review and Verify, in that order, each with its icon and name', () => {
+test('a ticket with every part shows Ticket, Plan, Changes, Testing, Review and Verify, in that order, each with its icon and name', () => {
   const tabs = taskTabs(sampleTabsTicket(NOW));
   assert.deepEqual(tabs.map((t) => t.id), [...TAB_ORDER]);
   for (const t of tabs) assert.deepEqual([t.name, t.icon], [TAB_LOOK[t.id].name, TAB_LOOK[t.id].icon]);
-  assert.deepEqual(tabs.map((t) => t.name), ['Ticket', 'Plan', 'Changes', 'Review', 'Verify']);
+  assert.deepEqual(tabs.map((t) => t.name), ['Ticket', 'Plan', 'Changes', 'Testing', 'Review', 'Verify']);
 });
 
 test('edge case: a tab with nothing in it is hidden, never drawn empty; Ticket always shows', () => {
   const all = sampleTabsTicket(NOW);
   // Without each part, its tab goes; Plan stays while anything of it stays.
-  assert.deepEqual(ids({ ...all, verify: null }), ['ticket', 'plan', 'changes', 'review']);
-  assert.deepEqual(ids({ ...all, changes: null }), ['ticket', 'plan', 'review', 'verify']);
-  assert.deepEqual(ids({ ...all, analysis: null }), ['ticket', 'plan', 'changes', 'review', 'verify'], 'the criteria keep Plan');
-  assert.deepEqual(ids({ ...all, analysis: null, criteria: null, talk: null, acc: { ...all.acc!, notes: null, note: null, noteMissing: null } }), ['ticket', 'changes', 'review', 'verify']);
+  assert.deepEqual(ids({ ...all, verify: null }), ['ticket', 'plan', 'changes', 'testing', 'review']);
+  assert.deepEqual(ids({ ...all, changes: null }), ['ticket', 'plan', 'testing', 'review', 'verify']);
+  assert.deepEqual(ids({ ...all, analysis: null }), ['ticket', 'plan', 'changes', 'testing', 'review', 'verify'], 'the criteria keep Plan');
+  assert.deepEqual(ids({ ...all, analysis: null, criteria: null, talk: null, acc: { ...all.acc!, notes: null, note: null, noteMissing: null } }), ['ticket', 'changes', 'testing', 'review', 'verify']);
+  // Outside Salesforce there's no Testing tab (T-161).
+  assert.ok(!ids({ ...all, testing: null }).includes('testing'));
   // Each Changes part alone keeps Changes.
   const bare: TicketModel = { ...all, changes: null, team: null, field: null, records: null, manifest: null, deploy: null };
   assert.ok(!ids(bare).includes('changes'));
@@ -191,7 +193,7 @@ test('the tab row is an ARIA tablist: each tab aria-selected, controlling its pa
   const d = drawn(m);
   assert.equal(d.list.getAttribute('role'), 'tablist');
   assert.equal(d.list.getAttribute('aria-label'), `${m.key}'s page`);
-  assert.equal(d.tabs.length, 5);
+  assert.equal(d.tabs.length, 6);
   for (const [i, t] of d.tabs.entries()) {
     const p = d.panels[i]!;
     assert.equal(t.tagName, 'BUTTON');
@@ -300,7 +302,7 @@ test('renderTabs draws what it\'s given into each tab\'s panel', () => {
   fresh();
   const m = quiet(sampleTicket(NOW, 'ACME-31'));
   const tabs = taskTabs(m);
-  const out = renderTabs(m, tabs, 'ticket', { ticket: [], plan: [], changes: [], review: [], verify: [] }) as unknown as PageElement;
+  const out = renderTabs(m, tabs, 'ticket', { ticket: [], plan: [], changes: [], testing: [], review: [], verify: [] }) as unknown as PageElement;
   assert.deepEqual(out.all('task-panel').map((p) => p.dataset.tab), ['ticket']);
 });
 
@@ -349,7 +351,7 @@ test('edge case: a ticket with no description still has Ticket, its description 
 test('the Review tab shows only with a review, between Changes and Verify, and counts its findings', () => {
   const m = sampleTabsTicket(NOW);
   const tab = (x: TicketModel): TaskTab | undefined => taskTabs(x).find((t) => t.id === 'review');
-  assert.deepEqual(ids(m).slice(2, 5), ['changes', 'review', 'verify']);
+  assert.deepEqual(ids(m).slice(2, 6), ['changes', 'testing', 'review', 'verify']);
   assert.equal(tab(m)!.count, String(m.review!.findings.length));
   assert.equal(tabName(tab(m)!), `Review, ${m.review!.findings.length}: ${NEEDS_YOU}`);
   // Edge: a review that passed with no findings counts nothing; a task with no review has no tab.
@@ -375,7 +377,7 @@ test('the Review tab says it needs you where the review waits on the person, and
 });
 
 test('a review that needs you opens the page on Review, after a plan that needs you and before a verification', () => {
-  assert.deepEqual([...NEEDS_FIRST], ['plan', 'review', 'verify', 'changes', 'ticket']);
+  assert.deepEqual([...NEEDS_FIRST], ['plan', 'review', 'verify', 'changes', 'ticket', 'testing']);
   const tabs = taskTabs(sampleTabsTicket(NOW)).map((t) => ({ ...t, needs: t.id === 'review' || t.id === 'verify' ? 'x' : null }));
   assert.equal(openingTab(tabs, null, null), 'review');
   fresh();

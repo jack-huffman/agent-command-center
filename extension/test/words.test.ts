@@ -100,6 +100,8 @@ const MARKS: Record<string, Record<string, number>> = {
   'boards.ts': { branch: 1 },
   // A ticket's changes section (T-99): its planned and changed paths, which are the project's own; and on an environment's row (T-158), the components that differ there.
   'changes.ts': { files: 3 },
+  // The Testing tab (T-161): each step to test it, its builder's own words.
+  'testing.ts': { transcript: 1 },
   // Dispatch anyway's sheet: the files the task shares with work in flight (D-168).
   'dispatch-sheet.ts': { files: 1 },
   'dock-review.ts': { transcript: 6 },

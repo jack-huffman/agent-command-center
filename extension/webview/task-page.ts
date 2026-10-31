@@ -8,6 +8,7 @@ import { field, renderAgentPanel } from './agent-panel.ts';
 import { renderAnalysis } from './analysis.ts';
 import { renderCriteria } from './criteria.ts';
 import { renderVerify } from './verify.ts';
+import { renderTesting } from './testing.ts';
 import { renderChangesTab } from './changes.ts';
 import { renderTeam } from './team.ts';
 import { renderRecords } from './record-changes.ts';
@@ -151,7 +152,7 @@ export function renderTicket(m: TicketModel): Node[] {
   if (m.outside) out.push(el('div', `notice${m.acc ? ' attention' : ''}`, icon(m.acc ? 'warning' : 'filter', m.acc ? 'orange' : undefined), el('span', '', m.outside)));
 
   // What needs the person first: why it's stuck, in one line (D-052), above everything else. Then the page's
-  // content in tabs (T-134): Ticket, Plan, Changes and Verify. On a narrow page the notices still come first (T-41).
+  // content in tabs (T-134): Ticket, Plan, Changes, Testing, Review and Verify. On a narrow page the notices still come first (T-41).
   const top = el('div', 'ticket-top');
   if (m.acc?.blocker) top.append(blockedNotice(`blocker:${m.project}#${m.key}`, m.acc.blocker));
   if (m.acc?.conflicts) {
@@ -188,6 +189,7 @@ export function renderTicket(m: TicketModel): Node[] {
   // The Command Center's sections, each folding to its header line (T-132), in the tab that holds them.
   const plan: HTMLElement[] = [];
   const changes: HTMLElement[] = [];
+  const testing: HTMLElement[] = [];
   const review: HTMLElement[] = [];
   const verify: HTMLElement[] = [];
   const add = (into: HTMLElement[], sec: HTMLElement | null, id: string, summary: string | null = null): void => { if (sec) into.push(collapsible(sec, id, m, summary)); };
@@ -210,11 +212,13 @@ export function renderTicket(m: TicketModel): Node[] {
     m.team ? renderTeam(m.team) : null,
   ].filter((x): x is HTMLElement => !!x);
   changes.push(...renderChangesTab(m, more));
+  // Testing (T-161): where the builder's work is in its development org, Open, and the steps to test it.
+  if (m.testing) testing.push(renderTesting(m, m.testing));
   // Its review's findings (T-53), in a tab of their own (T-135).
   if (m.review) review.push(renderReview(m.review));
   // Verify the developer's work (T-84).
   if (m.verify) add(verify, renderVerify(m, m.verify), 'verify', oneLine(m.verify.summary) ?? oneLine(m.verify.note));
-  const main = el('div', 'ticket-main', renderTabs(m, tabs, chosen, { ticket, plan, changes, review, verify }));
+  const main = el('div', 'ticket-main', renderTabs(m, tabs, chosen, { ticket, plan, changes, testing, review, verify }));
 
   // The side column: the ticket's fields, then acc's side of it. Details lists only the rows its tracker has
   // something for (T-91); a row with nothing in it stays only to hold its Change or Add.

@@ -135,6 +135,11 @@ export interface RunNote {
   landed: string[];
   moved: string[];
   open: string[];
+  /**
+   * How a person tries the change in its org (T-161): where to go, what to do, and what they see when it works.
+   * A Salesforce builder gives it with --test; left out by a note from before it, or one that gave none.
+   */
+  test?: string[];
   at: string;
   by: string;
   /** Where the run ended: in review, by acc done, or blocked. */
@@ -142,7 +147,7 @@ export interface RunNote {
 }
 
 /** A note as given: a part left out is undefined, where "none" is an empty list. */
-export type NoteInput = Partial<Pick<RunNote, 'landed' | 'moved' | 'open'>>;
+export type NoteInput = Partial<Pick<RunNote, 'landed' | 'moved' | 'open' | 'test'>>;
 
 /** Another task, and the files two tasks share (D-093). */
 export interface FileShare {
@@ -568,12 +573,16 @@ export const DONE_COMMAND = 'acc done --landed "<what landed>" --moved "<tests, 
 /** The most a note's part holds, and the longest a line may be. */
 export const NOTE_LIMITS = { lines: 10, chars: 300 } as const;
 
+/** The parts every builder's note gives. */
 const NOTE_PARTS = ['landed', 'moved', 'open'] as const;
 
+/** Every part a note can give: the three, then How to test it (T-161), which a Salesforce builder gives. */
+export const NOTE_ALL = [...NOTE_PARTS, 'test'] as const;
+
 /** A note's lines as given, one line each, whitespace collapsed and blanks dropped; "none" says there's nothing. */
-export function noteInput(parts: { landed?: string[]; moved?: string[]; open?: string[] }): NoteInput {
+export function noteInput(parts: { landed?: string[]; moved?: string[]; open?: string[]; test?: string[] }): NoteInput {
   const out: NoteInput = {};
-  for (const k of NOTE_PARTS) {
+  for (const k of NOTE_ALL) {
     const given = parts[k];
     if (given === undefined) continue;
     out[k] = given.map((l) => l.replace(/\s+/g, ' ').trim()).filter((l) => l && l.toLowerCase() !== 'none');
@@ -582,11 +591,12 @@ export function noteInput(parts: { landed?: string[]; moved?: string[]; open?: s
 }
 
 /** What each part of a note is called, wherever it's shown. */
-export const NOTE_LABELS = { landed: 'What landed', moved: 'Numbers that moved', open: 'Still open' } as const;
+export const NOTE_LABELS = { landed: 'What landed', moved: 'Numbers that moved', open: 'Still open', test: 'How to test it' } as const;
 
-/** A note as markdown: each part's label, then its lines, or "none" for a part with nothing. */
-export function noteMarkdown(n: Pick<RunNote, 'landed' | 'moved' | 'open'>): string[] {
-  return NOTE_PARTS.flatMap((k, i) => [...(i ? [''] : []), `**${NOTE_LABELS[k]}**`, '', ...(n[k].length ? n[k].map((l) => `- ${l}`) : ['- none'])]);
+/** A note as markdown: each part's label, then its lines, or "none" for a part with nothing. How to test it shows only where it was given. */
+export function noteMarkdown(n: Pick<RunNote, 'landed' | 'moved' | 'open' | 'test'>): string[] {
+  const parts = NOTE_ALL.filter((k) => k !== 'test' || n.test?.length);
+  return parts.flatMap((k, i) => [...(i ? [''] : []), `**${NOTE_LABELS[k]}**`, '', ...(n[k]?.length ? n[k]!.map((l) => `- ${l}`) : ['- none'])]);
 }
 
 /**
@@ -602,12 +612,12 @@ export function shownNote(task: Pick<Task, 'state' | 'run'>): { note: RunNote | 
 }
 
 /** Whether a note says anything at all. */
-export const noteGiven = (n: NoteInput | null | undefined): n is NoteInput => !!n && NOTE_PARTS.some((k) => n[k] !== undefined);
+export const noteGiven = (n: NoteInput | null | undefined): n is NoteInput => !!n && NOTE_ALL.some((k) => n[k] !== undefined);
 
 /** What's wrong with a note: a part over the limits, or, where one is required, a part left out. */
 export function noteProblems(n: NoteInput | null | undefined, required: boolean): string[] {
   const p: string[] = [];
-  for (const k of NOTE_PARTS) {
+  for (const k of NOTE_ALL) {
     const lines = n?.[k] ?? [];
     if (lines.length > NOTE_LIMITS.lines) p.push(`The note's --${k} has ${lines.length} lines. It takes at most ${NOTE_LIMITS.lines}.`);
     const long = lines.filter((l) => l.length > NOTE_LIMITS.chars).length;
@@ -779,7 +789,7 @@ export function applyMove(task: Task, req: MoveRequest, emit: Emit, now: () => D
   if (task.cloudReview) task.cloudReview = null;
   // The builder's note stays with the run it ended (D-106), and its event carries it too.
   const note: RunNote | null = noteGiven(req.note) && task.run && (req.to === 'review' || req.to === 'blocked')
-    ? { landed: req.note.landed ?? [], moved: req.note.moved ?? [], open: req.note.open ?? [], at, by: req.by, ended: req.to }
+    ? { landed: req.note.landed ?? [], moved: req.note.moved ?? [], open: req.note.open ?? [], ...(req.note.test?.length ? { test: req.note.test } : {}), at, by: req.by, ended: req.to }
     : null;
   if (note) task.run!.note = note;
   task.state = req.to;

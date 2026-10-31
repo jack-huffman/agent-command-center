@@ -45,6 +45,8 @@ import type { ManifestActions } from './manifest.ts';
 import { ticketManifest } from './model/manifest.ts';
 import { wordingReply } from './model/sheet-wording.ts';
 import type { DeployActions } from './ticket-deploy.ts';
+import type { OrgActions } from './org-open.ts';
+import { testing } from './model/testing.ts';
 import { openSteps } from '../../packages/core/src/change-steps.ts';
 import { deployBlockers, ticketDeploy } from './model/ticket-deploy.ts';
 import { deletedPaths } from './logic/ticket-deploy.ts';
@@ -168,6 +170,8 @@ export class TicketPanels implements vscode.Disposable {
   manifest: ManifestActions | null = null;
   /** A ticket's deploy (T-138), set by its area: a deploy under way, where its work is, and Deploy…'s pick. */
   deploys: DeployActions | null = null;
+  /** Its development org (T-161), set by its area: whether this machine is logged in to it, and Open. */
+  orgs: OrgActions | null = null;
   /** Talk it through (T-98), set by its area: the conversation's state, and its buttons. */
   talk: TalkActions | null = null;
   /** The conversation's own panel (T-111), set by its area: opened beside a page, and redrawn with it. */
@@ -484,6 +488,8 @@ export class TicketPanels implements vscode.Disposable {
         failing: deployBlockers(model.acc?.checks ?? []), conflicts: model.acc?.conflicts ? task.environment : null, stepsLeft: openSteps(task).length,
         where: this.deploys.where(p.root, task), reading: (env) => this.deploys!.reading(p.root, task.id, env),
       }) : null,
+      // Its Testing tab (T-161): its development org, and once its builder's deploy there passed, Open and the steps.
+      testing: testing(p.config, task, (branch) => this.orgs?.notHere(p.root, branch) ?? false),
       talk,
       field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, ticketPaths(changes), updates, manifest?.manifest ?? null) ?? null : null,
       updates: this.fields ? withFieldKept(model.updates, this.fields.read(p, task.id), writtenFor(updates, task.id)) : model.updates,
@@ -621,6 +627,10 @@ export class TicketPanels implements vscode.Disposable {
       // Deploy…'s pick, which starts the deploy guide's agent (T-158), and Check again: this page's own task only.
       case 'deploy-guide': case 'where-check':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.deploys?.act(m);
+        return;
+      // Open <environment>, or a component a step names (T-161): this page's own task only.
+      case 'org-open':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.orgs?.open(m.project, m.task, m.path);
         return;
       // Manifest for this ticket (T-101): this page's own task only.
       case 'manifest-build': case 'manifest-retrieve': case 'manifest-commit': case 'manifest-file': case 'manifest-diff':
