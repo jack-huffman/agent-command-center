@@ -6,26 +6,65 @@ import { existsSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { keepTypedYes, typedYesPath } from '../../core/src/deploy-guide.ts';
+import { readPick } from '../../core/src/deploy-pick.ts';
 import { run } from '../../core/src/exec.ts';
+import { mutate } from '../../core/src/ledger.ts';
 import { repoPaths } from '../../core/src/paths.ts';
+import { SF_CONFIG } from '../../core/test/support.ts';
 import { personOrGuide } from '../src/shared.ts';
 import { cli, repoWithConfig } from './support.ts';
 
 const acc = cli(fileURLToPath(new URL('../src/main.ts', import.meta.url)));
 const guide = { ACC_ROLE: 'deployer', ACC_TASK: 'T-1' };
 
-test('the guide\'s deploy needs the person\'s typed yes, and uses it up; with one, it goes on to the deploy\'s own checks', () => {
+test('the guide\'s deploy passes no yes of its own: the deploy reads the person\'s pick or typed name at its own yes step, after its checks (T-156)', () => {
   const dir = repoWithConfig();
   assert.equal(acc(dir, ['add', 'A thing']).code, 0);
-  const none = acc(dir, ['deploy', '--task', 'T-1', '--yes', '0Af1'], undefined, guide);
-  assert.equal(none.code, 1);
-  assert.match(none.err, /The person hasn't typed a yes for T-1 in this chat\. Ask the person to type it in the chat/);
   const paths = repoPaths(dir, run);
   keepTypedYes(paths, 'T-1', 'main', null, () => new Date());
-  const typed = acc(dir, ['deploy', '--task', 'T-1', '--yes', '0Af1'], undefined, guide);
-  assert.equal(typed.code, 1);
-  assert.match(typed.err, /isn't a Salesforce project/, 'past the yes, the deploy refuses a project that isn\'t Salesforce');
-  assert.equal(existsSync(typedYesPath(paths, 'T-1')), false, 'the yes is used up');
+  const r = acc(dir, ['deploy', '--task', 'T-1', '--yes', '0Af1'], undefined, guide);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /isn't a Salesforce project/, 'the deploy\'s own checks come first');
+  assert.equal(existsSync(typedYesPath(paths, 'T-1')), true, 'the typed yes is read only at the yes step, which this deploy never reached');
+});
+
+/** A Salesforce project with T-1 built and merged, so its deploy guide can open. */
+function deployable(): { dir: string; paths: ReturnType<typeof repoPaths> } {
+  const dir = repoWithConfig(SF_CONFIG);
+  assert.equal(acc(dir, ['add', 'A thing']).code, 0);
+  const paths = repoPaths(dir, run);
+  mutate(paths, () => new Date(), (l, emit) => {
+    const t = l.tasks.find((x) => x.id === 'T-1')!;
+    t.state = 'done';
+    t.pr = { number: 1, url: 'https://github.com/acme-co/acme-salesforce/pull/1', state: 'merged', mergeSha: 'abc' };
+    // The ledger is written only for an event.
+    emit({ type: 'task.updated', task: t.id, actor: 'human', by: 'human:test', data: {} });
+  });
+  return { dir, paths };
+}
+
+test('acc deploy <env> --task <id> --guide keeps the person\'s pick of any environment ahead on the path, and refuses any other (T-156)', () => {
+  const { dir, paths } = deployable();
+  assert.equal(readPick(paths, 'T-1'), null);
+  const prod = acc(dir, ['deploy', 'production', '--task', 'T-1', '--guide', '--json']);
+  assert.equal(prod.code, 0, prod.err + prod.out);
+  assert.equal(prod.json().env.ACC_DEPLOY_TO, 'production');
+  assert.equal(prod.json().pick.env, 'production', 'two steps on from Dev, picked');
+  const kept = readPick(paths, 'T-1')!;
+  assert.equal(kept.env, 'production');
+  assert.match(kept.by, /^human:/);
+  const uat = acc(dir, ['deploy', '--task', 'T-1', '--guide']);
+  assert.equal(uat.code, 0, uat.err);
+  assert.match(uat.out, /You picked uat for T-1/, 'with none named, its next step');
+  assert.equal(readPick(paths, 'T-1')!.env, 'uat', 'the new pick replaces the old');
+  const dev = acc(dir, ['deploy', 'dev', '--task', 'T-1', '--guide']);
+  assert.equal(dev.code, 1);
+  assert.match(dev.err, /T-1 is in Dev already\. It can go to UAT, Production/);
+  assert.equal(readPick(paths, 'T-1')!.env, 'uat', 'edge case: a refused pick changes nothing');
+  const other = acc(dir, ['deploy', 'production', '--task', 'T-1', '--guide'], undefined, guide);
+  assert.equal(other.code, 1);
+  assert.match(other.err, /The deploy guide can't open a deploy guide/, 'security review: the guide can\'t write its own pick');
+  assert.equal(readPick(paths, 'T-1')!.env, 'uat');
 });
 
 test('the guide deploys its own ticket only, never types the org\'s name, and can\'t open another guide', () => {

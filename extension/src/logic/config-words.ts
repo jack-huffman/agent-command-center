@@ -91,6 +91,7 @@ export const CONFIG_WORDS: Record<ConfigKey, string> = {
   'gates.tests': 'its tests check',
   'gates.ratchets': 'its floors',
   'gates.nearIndexes': 'the files that gather a folder for its nearby tests',
+  'gates.apexCoverage': 'the code coverage each changed Apex class needs',
   'secretScan.paths': 'where the secret scan looks',
   'secretScan.exclude': 'what the secret scan skips',
   'strayFiles.required': 'whether stray files are checked',
