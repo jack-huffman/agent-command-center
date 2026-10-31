@@ -11,7 +11,7 @@ import { runFile } from './run.ts';
 import type { AgentNode } from './nodes.ts';
 import type { ExtensionArea } from './area.ts';
 import { Sidebar } from './sidebar.ts';
-import { agentArgs } from '../../packages/core/src/agents.ts';
+import { agentArgs, AGENTS_MODEL_COMMAND } from '../../packages/core/src/agents.ts';
 
 /** What each role is called in the questions Change… asks. */
 const ROLE_ASKED = { builder: 'Builders', planner: 'The planning agent', reviewer: 'Reviewers' } as const;
@@ -78,6 +78,8 @@ class AgentCommands extends Sidebar {
     const [role, root] = typeof arg === 'string' ? arg.split('|') : [];
     const project = root ? this.hub.project(root) : await this.pickProject();
     if (!project || !(role === 'builder' || role === 'planner' || role === 'reviewer')) return;
+    const can = AGENTS_MODEL_COMMAND.enabled({ agentRole: process.env.ACC_ROLE });
+    if (!can.ok) { void vscode.window.showWarningMessage(can.why); return; }
     const now = project.agents[role];
     const label = ROLE_ASKED[role];
     const dflt = ROLE_DEFAULTS[role];

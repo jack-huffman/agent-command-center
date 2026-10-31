@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, BLOCK_SHAPE, composeNote, doneLines, noteLines, noteWording, noteWordingWords, refuseNoteWording, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builderPlaceLook, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, thisMachine, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, AGENTS_MODEL_COMMAND, BLOCK_SHAPE, composeNote, doneLines, noteLines, noteWording, noteWordingWords, refuseNoteWording, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builderPlaceLook, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, thisMachine, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { refuseUnrecorded } from './changes.ts';
@@ -128,6 +128,8 @@ function cmdAgentsModel(o: Opts, paths: { root: string; config: string }, roleAr
     out(o, () => words(v), v);
     return 0;
   }
+  const can = AGENTS_MODEL_COMMAND.enabled({ agentRole: process.env.ACC_ROLE });
+  if (!can.ok) throw new AccError('refused', can.why);
   noAgent(o, 'change what agents run with');
   const change: ProfileChange = {};
   if (model !== undefined) change.model = model === 'default' ? null : model;

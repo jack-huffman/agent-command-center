@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { agentArgs, cloneProfile, modelOf, profileView, roleArgs, setProfile, withCloneAgents, withRoleDefaults } from '../src/agents.ts';
+import { agentArgs, AGENTS_MODEL_COMMAND, cloneProfile, modelOf, profileView, roleArgs, setProfile, withCloneAgents, withRoleDefaults } from '../src/agents.ts';
 import { DEFAULT_MODEL, loadConfig, parseConfig, ROLE_DEFAULTS, writeConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { GENERIC_CONFIG, makeRepo, tempDir } from './support.ts';
@@ -150,4 +150,13 @@ test('a clone\'s own planning settings win over the project\'s, which win over a
   setProfile(run, dir, file, 'planner', { model: 'claude-haiku-5-5', effort: 'low' }, 'clone');
   assert.deepEqual(roleArgs(withCloneAgents(config, dir, run), 'planner'), ['--model', 'claude-haiku-5-5', '--effort', 'low']);
   assert.deepEqual(roleArgs(withCloneAgents(config, dir, run), 'reviewer'), ['--model', 'claude-opus-5-5', '--effort', 'medium'], 'the reviewer is not the planner\'s');
+});
+
+test('AGENTS_MODEL_COMMAND has an id and params, is enabled for a person, and refuses a builder, reviewer or analyst with the reason (T-163)', () => {
+  assert.equal(AGENTS_MODEL_COMMAND.id, 'acc.agents.model');
+  assert.match(AGENTS_MODEL_COMMAND.params, /planner/);
+  assert.deepEqual(AGENTS_MODEL_COMMAND.enabled({}), { ok: true });
+  for (const [role, article] of [['builder', 'A'], ['reviewer', 'A'], ['analyst', 'An']] as const) {
+    assert.deepEqual(AGENTS_MODEL_COMMAND.enabled({ agentRole: role }), { ok: false, why: `${article} ${role} can't change what agents run with. A person does that.` });
+  }
 });

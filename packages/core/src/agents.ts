@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { AccError, type Runner } from './exec.ts';
 import { type AgentProfile, type AgentRole, type Config, DEFAULT_MODEL, type Effort, isEffort, MODEL_NAME, noProfile, ROLE_DEFAULTS } from './config.ts';
 import { checkEffortName } from './efforts.ts';
+import type { TaskCommand } from './task-deploy.ts';
 import { writeAtomic } from './atomic.ts';
 
 /**
@@ -216,6 +217,20 @@ export function setAutoMerge(configFile: string, on: boolean): void {
   if (!was) tries.push(text.replace(/(\S)(\s*)\}\s*$/, (_m, last: string, gap: string) => `${last},\n${indent}"autopilot": {\n${indent}${indent}"autoMerge": ${on}\n${indent}}${gap}}\n`));
   writeAtomic(configFile, tries.find(fits) ?? JSON.stringify(wanted, null, 2) + '\n');
 }
+
+/** Why a role's model and effort can't be changed by this caller, or that they can: a builder, reviewer or analyst can't (as D-083's switch). */
+export function agentsModelEnabled(s: { agentRole?: string }): { ok: true } | { ok: false; why: string } {
+  const r = s.agentRole;
+  if (r === 'builder' || r === 'reviewer' || r === 'analyst') return { ok: false, why: `${r === 'analyst' ? 'An' : 'A'} ${r} can't change what agents run with. A person does that.` };
+  return { ok: true };
+}
+
+/** Change a role's model and effort for the project: the CLI's `acc agents model` and Settings' Change… (T-163). */
+export const AGENTS_MODEL_COMMAND: TaskCommand<{ agentRole?: string }> = {
+  id: 'acc.agents.model',
+  params: 'The role (builder, planner or reviewer), its model (or default, which takes the setting out) and its effort. With neither, it shows the role.',
+  enabled: agentsModelEnabled,
+};
 
 export const describeProfile = (p: AgentProfile): string =>
   [`model ${p.model ?? `${DEFAULT_MODEL} (acc's default)`}`, `effort ${p.effort ?? 'default'}`, ...(p.fallbackModel ? [`falls back to ${p.fallbackModel}`] : [])].join(', ');
