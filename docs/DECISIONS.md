@@ -256,3 +256,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-246](decisions/D-246-agents-as-cards.md) | The Agents page shows each agent as a card, and says what it's doing | 2026-10-30 |
 | [D-247](decisions/D-247-a-built-ticket-has-a-testing-tab.md) | A built ticket has a Testing tab: it opens the development org and gives the steps to test it | 2026-10-30 |
 | [D-248](decisions/D-248-the-changes-tab-shows-where-a-ticket-was-deployed-from-its-record.md) | The Changes tab shows where a ticket was deployed from acc's record, and reads an org only when you ask | 2026-10-31 |
+| [D-249](decisions/D-249-discuss-a-ticket.md) | Discuss a ticket: one conversation about the whole ticket, with everything acc knows about it | 2026-10-31 |

@@ -1,4 +1,4 @@
-## D-T-169 Discuss a ticket: one conversation about the whole ticket, with everything acc knows about it (2026-10-31)
+## D-249 Discuss a ticket: one conversation about the whole ticket, with everything acc knows about it (2026-10-31)
 
 T-169. The person wrote: "We should also be able to just open a chat to discuss the ticket in general, and the chat
 will have context for the state of the ticket, metadata involved... everything about it so far." Until now the plan

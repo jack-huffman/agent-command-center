@@ -60,4 +60,4 @@ proposal in the panel and approves on the page, checking each place shows it. Th
 task page" clicks Make a plan on the page; the panel is a document of its own, so that case ends at what the page asks
 of the extension, and the panel's own case is renamed "the panel opens at its question".
 
-Note (2026-10-31, T-169): the panel is now titled "Discuss <key>", and it is the ticket's one conversation at any state, opened by Discuss in the ticket's header too. See D-T-169.
+Note (2026-10-31, T-169): the panel is now titled "Discuss <key>", and it is the ticket's one conversation at any state, opened by Discuss in the ticket's header too. See D-249.
