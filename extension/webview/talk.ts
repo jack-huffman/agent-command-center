@@ -1,13 +1,16 @@
 // A plan's conversation with its planning agent (T-98, T-111). It is drawn in its own panel, beside the task's
-// page: each turn with who and when, what a message is about quoted, each change a reply proposes with Use
+// page: each turn, what a message is about quoted, each change a reply proposes with Use
 // this, and what a Claude Code session recorded; before there is a plan, its question first, and Draft the plan
 // or Skip to the plan. The agent's questions are asked one at a time under its reply (T-113, talk-questions.ts),
 // and less shows at once: a long reply folds with Show more, the turns before the latest exchange fold under
 // "Earlier in this conversation", and a proposal is one line whose Why opens its reasons. The task's page shows
 // one line of it, with Open conversation; Discuss on any part of the plan opens the panel with that part quoted.
-// Each button asks the extension, and shows it's on its way until the extension says how it went.
+// Each button asks the extension, and shows it's on its way until the extension says how it went. It is laid out
+// as Claude Code's chat (T-160, chat.ts): the person's message boxed and kept on top, replies full width, and the
+// message box as a card under the chat.
 
 import type { TicketProposal, TicketTalk, TicketTurn } from '../src/model/talk.ts';
+import { chatCard, chatExchange, chatFoot, chatLog, chatReply, chatStatus, chatYou, sendButton } from './chat.ts';
 import { actionButton, button, el, icon, md, peekKey, status, when, work } from './dom.ts';
 import { Pending } from './pending.ts';
 import { planProgressBlock } from './plan-progress.ts';
@@ -185,40 +188,66 @@ function words(project: string, s: TicketTalk, t: TicketTurn): HTMLElement[] {
   return [t.who === 'agent' ? work(text, 'agent-text') : text, more];
 }
 
-/** One turn: who and when, what it's about, the words, and what it proposed or recorded. */
+/**
+ * One turn (T-160): the person's words in a box with no heading, what they're about as a chip over them; the
+ * planning agent's across the full width, then what it proposed; Claude Code's session and a new version of the
+ * plan with who and when on a line, then what they recorded.
+ */
 function turn(project: string, s: TicketTalk, t: TicketTurn): HTMLElement {
-  const li = el('li', `talk-turn who-${t.who}`,
-    el('div', 'talk-who', icon(t.icon), el('strong', '', t.name), t.by && t.who !== 'you' ? el('span', 'muted', `opened by ${t.by}`) : null, when(t.at), el('span', 'chip talk-v', t.before ? 'Before the plan' : `v${t.version}`),
-      t.open ? status({ label: 'Open now', icon: 'circle-filled', tone: 'blue' }) : null),
-    t.about ? quote(t.about.kind, t.about.ref, t.about.text) : null,
-    ...words(project, s, t));
-  li.setAttribute('aria-label', `${t.name}${t.by && t.who === 'you' ? ` (${t.by})` : ''}`);
-  if (t.failed) li.append(el('div', 'aq-error', icon('warning'), el('span', '', `No reply: ${t.failed}`)));
-  if (t.proposals.length) li.append(el('div', 'talk-proposals', ...t.proposals.map((p) => proposal(project, s, t, p))));
+  const version = el('span', 'chip talk-v', t.before ? 'Before the plan' : `v${t.version}`);
+  if (t.who === 'you') {
+    const failed = t.failed ? el('div', 'aq-error', icon('warning'), el('span', '', `No reply: ${t.failed}`)) : null;
+    const you = chatYou(`${t.name}${t.by ? ` (${t.by})` : ''}`, t.about ? quote(t.about.kind, t.about.ref, t.about.text) : null, ...words(project, s, t), failed);
+    you.classList.add('talk-turn', 'who-you');
+    return you;
+  }
+  const reply = chatReply(`talk-turn who-${t.who}`);
+  reply.setAttribute('role', 'group');
+  reply.setAttribute('aria-label', t.name);
+  if (t.who === 'agent') reply.append(t.about ? quote(t.about.kind, t.about.ref, t.about.text) : '', ...words(project, s, t), el('div', 'chat-meta', when(t.at), version));
+  else {
+    reply.append(el('div', 'talk-who', icon(t.icon), el('strong', '', t.name), t.by ? el('span', 'muted', `opened by ${t.by}`) : null, when(t.at), version,
+      t.open ? status({ label: 'Open now', icon: 'circle-filled', tone: 'blue' }) : null), ...(t.text ? words(project, s, t) : []));
+  }
+  if (t.proposals.length) reply.append(el('div', 'talk-proposals', ...t.proposals.map((p) => proposal(project, s, t, p))));
   if (t.who === 'claude-code') {
-    li.append(t.recorded.length
+    reply.append(t.recorded.length
       ? el('div', 'talk-recorded', el('div', 'strong small', 'It recorded'), el('ul', 'an-list', ...t.recorded.map((r) => el('li', '', md(r)))))
       : el('div', 'muted small', t.open ? 'Nothing recorded yet.' : 'It recorded nothing.'));
   } else if (t.who === 'plan' && t.recorded.length) {
-    li.append(el('div', 'talk-recorded', el('div', 'strong small', 'What changed'), el('ul', 'an-list', ...t.recorded.map((r) => el('li', '', md(r))))));
+    reply.append(el('div', 'talk-recorded', el('div', 'strong small', 'What changed'), el('ul', 'an-list', ...t.recorded.map((r) => el('li', '', md(r))))));
   }
-  return li;
+  return reply;
 }
 
-/** The message box: what it's about, with a way to take that off, the words, and Send. */
-function composer(project: string, s: TicketTalk): HTMLElement {
+/** The turns as exchanges (T-160): each of the person's messages starts one, and what came after it follows. */
+function exchanges(project: string, s: TicketTalk, turns: TicketTurn[]): HTMLElement[] {
+  const out: { you: HTMLElement | null; rest: HTMLElement[] }[] = [];
+  for (const t of turns) {
+    if (t.who === 'you' || !out.length) out.push({ you: null, rest: [] });
+    const x = out[out.length - 1]!;
+    if (t.who === 'you') x.you = turn(project, s, t); else x.rest.push(turn(project, s, t));
+  }
+  return out.map((x) => chatExchange(x.you, ...x.rest));
+}
+
+/**
+ * The message box as a card (T-160): what it's about as a chip, with a way to take that off, the words, then the
+ * row: the conversation's own buttons on the left, and Send.
+ */
+function composer(project: string, s: TicketTalk, left: HTMLElement[]): HTMLElement {
   const key = sendKey(project, s.task);
   const about = aboutOf(project, s.task);
   const busy = !!talkPending.what(key);
-  const draft = memory().drafts[key] ?? '';
   const box = document.createElement('textarea');
   box.className = 'text-input talk-box';
-  box.rows = 3;
+  box.rows = 2;
   box.maxLength = TALK_MAX;
-  box.value = draft;
+  box.value = memory().drafts[key] ?? '';
   box.dataset.keep = key;
   box.placeholder = s.stage === 'opening' ? 'What you want to do, and what you\'re thinking' : 'Ask why, push back, or suggest another way';
   box.setAttribute('aria-label', 'Your message to the planning agent');
+  box.addEventListener('input', () => { remember((x) => { x.drafts[key] = box.value; }); });
   const why = s.send?.disabled ?? (busy ? 'Wait for your message to go' : null);
   const go = () => {
     const text = box.value.trim();
@@ -226,36 +255,36 @@ function composer(project: string, s: TicketTalk): HTMLElement {
     api.postMessage({ type: 'talk-send', project, task: s.task, text, ...(about ? { about: about.ref } : {}) });
     redraw();
   };
-  const send = button(busy ? 'Sending…' : 'Send', busy ? 'loading~spin' : 'send', go, s.draft?.disabled === null ? '' : 'primary');
-  const EMPTY = 'Type a message first';
-  send.disabled = !draft.trim() || !!why;
-  if (why) { send.title = why; send.setAttribute('aria-description', why); } else if (send.disabled) send.title = EMPTY;
-  box.addEventListener('input', () => { remember((x) => { x.drafts[key] = box.value; }); send.disabled = !box.value.trim() || !!why; if (!why) send.title = send.disabled ? EMPTY : ''; });
-  // Ctrl or Cmd with Enter sends; Enter alone starts a new line.
-  box.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); } });
+  // Send is outlined while Draft the plan is the step to take, so only one is primary.
+  const send = sendButton(box, { why, busy, primary: s.draft?.disabled !== null, go });
   if (focusBox) { focusBox = false; queueMicrotask(() => box.focus()); }
   const off = about ? button('', 'close', () => { remember((x) => { delete x.drafts[aboutKey(project, s.task)]; }); redraw(); }, 'ghost small icon-only') : null;
   if (off) { off.setAttribute('aria-label', 'Not about this any more'); off.title = 'Not about this any more'; }
   const error = talkPending.error(key);
-  return el('div', 'talk-compose',
-    about ? el('div', 'talk-about', el('span', 'muted small', 'About'), quote(kindOf(about.ref), about.ref, about.text), off) : null,
+  return el('div', 'talk-compose', chatCard({
+    about: about ? el('div', 'talk-about', quote(kindOf(about.ref), about.ref, about.text), off) : null,
     box,
-    error ? el('div', 'aq-error', icon('warning'), el('span', '', `Your message didn't go: ${error}`)) : null,
-    el('div', 'actions talk-actions', send, why && s.send?.disabled ? el('span', 'muted small', why) : null));
+    left,
+    send,
+    after: [
+      error ? el('div', 'aq-error', icon('warning'), el('span', '', `Your message didn't go: ${error}`)) : null,
+      why && s.send?.disabled ? el('div', 'muted small talk-why', why) : null,
+    ],
+  }));
 }
 
 /** Draft the plan and Skip to the plan (T-111), before there is one: each off with why while it can't go. */
 function planButtons(project: string, s: TicketTalk): HTMLElement[] {
   const out: HTMLElement[] = [];
   if (s.draft) {
-    const b = button('Draft the plan', 'lightbulb', () => api.postMessage({ type: 'conversation-draft', project, task: s.task }), s.draft.disabled ? '' : 'primary');
+    const b = button('Draft the plan', 'lightbulb', () => api.postMessage({ type: 'conversation-draft', project, task: s.task }), s.draft.disabled ? 'small' : 'primary small');
     b.disabled = !!s.draft.disabled;
     b.title = s.draft.disabled ?? 'The planning agent investigates and drafts the plan, from the ticket and this conversation';
     if (s.draft.disabled) b.setAttribute('aria-description', s.draft.disabled);
     out.push(b);
   }
   if (s.skip) {
-    const b = button('Skip to the plan', 'debug-step-over', () => api.postMessage({ type: 'conversation-draft', project, task: s.task, skip: true }));
+    const b = button('Skip to the plan', 'debug-step-over', () => api.postMessage({ type: 'conversation-draft', project, task: s.task, skip: true }), 'small');
     b.disabled = !!s.skip.disabled;
     b.title = s.skip.disabled ?? 'Make the plan from the ticket alone, without this conversation';
     if (s.skip.disabled) b.setAttribute('aria-description', s.skip.disabled);
@@ -265,27 +294,32 @@ function planButtons(project: string, s: TicketTalk): HTMLElement[] {
 }
 
 /**
- * The conversation, in its panel (T-111): what it does, or before the plan its question; each turn; the agent
- * working, or the plan being made; the message box; then Draft the plan and Skip to the plan, or Make a new
- * plan and Open in Claude Code.
+ * The conversation, in its panel (T-111), as Claude Code's chat (T-160). The chat scrolls: what it does, or
+ * before the plan its question; each exchange; the agent's questions under its reply; what it is doing. Under
+ * the chat: a status line while the agent works or a plan is made, then the message card, whose row holds Draft
+ * the plan and Skip to the plan, or Make a new plan and Open in Claude Code, and Send.
  */
 export function renderConversation(project: string, s: TicketTalk): HTMLElement {
   const sec = el('section', `talk tone-edge-${s.look.tone}`);
   sec.id = 'talk';
   sec.setAttribute('aria-label', `${s.stage === 'opening' ? 'Before the plan' : 'Talk it through'}: ${s.look.label}`);
+  const log = chatLog('The conversation');
   // No icon of its own: the panel's title carries the conversation's (T-129).
-  if (s.ask) sec.append(el('h2', 'talk-ask', el('span', '', s.ask)));
-  sec.append(el('p', 'muted an-note', s.note));
+  if (s.ask) log.append(el('h2', 'talk-ask', el('span', '', s.ask)));
+  log.append(el('p', 'muted an-note', s.note));
   // The turns before the latest exchange fold under one line (T-113), until the person opens them.
   const ek = earlierKey(project, s.task);
   const all = !s.earlier || isOpen(ek);
   if (s.earlier) {
     const fold = button(`Earlier in this conversation (${s.earlier} message${s.earlier === 1 ? '' : 's'})`, all ? 'chevron-down' : 'chevron-right', () => flip(ek), 'ghost small talk-earlier');
     fold.setAttribute('aria-expanded', String(all));
-    sec.append(fold);
+    log.append(fold);
   }
   const shown = all ? s.turns : s.turns.slice(s.earlier);
-  if (shown.length) sec.append(el('ol', 'talk-turns', ...shown.map((t) => turn(project, s, t))));
+  const groups = exchanges(project, s, shown);
+  if (groups.length) log.append(el('div', 'talk-turns', ...groups));
+  // The agent's questions and what it is doing go under its latest reply, inside the last exchange.
+  const latest = groups[groups.length - 1] ?? log;
   const key = sendKey(project, s.task);
   const card = questionCard(project, s, {
     busy: !!talkPending.what(key), error: talkPending.error(key) ?? null,
@@ -294,34 +328,37 @@ export function renderConversation(project: string, s: TicketTalk): HTMLElement 
       api.postMessage({ type: 'talk-answers', project, task: s.task, turn: turnId, answers });
     },
   });
-  if (card) sec.append(card);
-  // What the planning agent is doing (T-131), once the Command Center has read it; before that, one line.
+  if (card) latest.append(card);
+  // What the planning agent is doing (T-131), once the Command Center has read it.
   const progress = planProgressBlock(project, s.task, s.progress);
-  if (progress) sec.append(progress);
-  else if (s.running) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.stage === 'opening' ? 'The planning agent is reading the ticket to reply. Its steps show in the output panel.' : 'The planning agent is reading the code to reply. Its steps show in the output panel.'));
-  else if (s.making) sec.append(el('div', 'talk-waiting muted', icon('sync~spin'), s.making.words));
-  if (s.send) sec.append(composer(project, s));
+  if (progress) latest.append(progress);
+  // The status line, while a reply or a plan is on its way.
+  const working = s.running ? (s.stage === 'opening' ? 'The planning agent is reading the ticket to reply. Its steps show in the output panel.' : 'The planning agent is reading the code to reply. Its steps show in the output panel.')
+    : s.making ? s.making.words : null;
   const ck = claudeKey(project, s.task);
   const buttons: HTMLElement[] = planButtons(project, s);
-  if (s.newPlan) buttons.push(actionButton(s.newPlan));
+  if (s.newPlan) { const b = actionButton(s.newPlan); b.classList.add('small'); buttons.push(b); }
   if (s.claude) {
     const busy = !!talkPending.what(ck);
     const b = button(busy ? 'Opening…' : 'Open in Claude Code', busy ? 'loading~spin' : 'terminal', () => {
       if (!talkPending.start(ck, 'claude')) return;
       api.postMessage({ type: 'talk-claude', project, task: s.task });
       redraw();
-    });
+    }, 'small');
     const why = s.claude.disabled ?? (busy ? 'Wait for it to open' : null);
     b.disabled = !!why;
     b.title = why ?? 'A longer session in Claude Code, in plan mode: it reads, and records to the plan only what you agree to';
     if (why) b.setAttribute('aria-description', why);
     buttons.push(b);
   }
-  if (buttons.length) sec.append(el('div', 'actions an-actions talk-more', ...buttons));
   const why = s.draft?.disabled && !s.making && !s.running ? s.draft.disabled : null;
-  if (why) sec.append(el('div', 'plan-why muted small', icon('info'), el('span', '', `Draft the plan is off: ${why}`)));
   const error = talkPending.error(ck);
-  if (error) sec.append(el('div', 'aq-error', icon('warning'), el('span', '', `Claude Code didn't open: ${error}`)));
+  const foot = chatFoot(
+    working ? chatStatus('sync~spin', undefined, 'talk-waiting', working) : null,
+    s.send ? composer(project, s, buttons) : buttons.length ? el('div', 'actions an-actions talk-more', ...buttons) : null,
+    why ? el('div', 'plan-why muted small', icon('info'), el('span', '', `Draft the plan is off: ${why}`)) : null,
+    error ? el('div', 'aq-error', icon('warning'), el('span', '', `Claude Code didn't open: ${error}`)) : null);
+  sec.append(log, foot);
   return sec;
 }
 

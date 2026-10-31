@@ -307,7 +307,7 @@ export interface Case {
   run: (t: Probe) => Promise<void>;
 }
 
-/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab deployed once, and its deploy sheet passed, failed and asking Production's name (T-138); and ACME-12 blocked with a note recorded as one paragraph (T-146). */
+/** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab in review, deployed once, and with an agent deploying to UAT (T-158); and ACME-12 blocked with a note recorded as one paragraph (T-146). */
 export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; busy: Model; work: Model; agentFailed: Model; wall: Model; setup: Model }
 
 /** The model a case's page is drawn from. */
@@ -438,6 +438,71 @@ export const CASES: Case[] = [
       // Edge: Escape with it already closed does nothing more.
       await t.escape(dialog);
       t.check('a second Escape sends no second close', t.sent('task-modal-close').length === 1, t.sent('task-modal-close').length);
+    },
+  },
+  {
+    name: 'task modal loading: a card\'s click opens it at once, loading, and Escape closes it before the model comes',
+    page: 'tasks',
+    async run(t) {
+      const card = t.find(`[data-peek="${CSS.escape(t.data.task.peek)}"]`);
+      await t.click(card);
+      const dialog = t.find<HTMLDialogElement>('dialog.task-modal:not(.detail-modal):not(.palette-modal)');
+      const body = t.find('.task-modal-body', dialog);
+      // T-162: no model has come yet, so all it shows is what the card knew.
+      t.check('it opens at the click, before the extension answers', dialog.open);
+      t.check('its body is busy', body.getAttribute('aria-busy') === 'true', body.getAttribute('aria-busy'));
+      const status = t.find('.loading-state', body);
+      t.check('a status says what is opening, read out once', status.getAttribute('role') === 'status' && status.textContent === `Opening ${t.data.task.key}…`, status.textContent);
+      t.check('a spinner turns beside the words', t.all('.loading-ring', status).length === 1);
+      t.check('it shows the task\'s key', t.find('.loading-lead .tcard-key', body).textContent === t.data.task.key);
+      const title = t.find('.loading-title', body).textContent ?? '';
+      t.check('and the title the card showed', !!title && (card.textContent ?? '').includes(title), title);
+      t.check('Open as tab waits for the model', t.find<HTMLButtonElement>('.task-modal-tab', dialog).disabled);
+      await t.escape(dialog);
+      t.check('Escape closes it while it loads', !dialog.open);
+      t.check('the extension hears it closed', t.sent('task-modal-close').length === 1, t.sent('task-modal-close'));
+      // Edge: the model comes after it closed.
+      await t.post(t.data.task.message);
+      t.check('a model that comes after it closed doesn\'t open it again', !dialog.open);
+      // Opened again, the model fills it.
+      await t.click(card);
+      t.check('a second click opens it again, loading', dialog.open && t.all('.loading-state', body).length === 1);
+      await t.post(t.data.task.message);
+      t.check('the model fills it: the ticket, and no spinner', t.all('.ticket-title', body).length === 1 && t.all('.loading-state', body).length === 0, body.className);
+      t.check('it is no longer busy', !body.hasAttribute('aria-busy'));
+      t.check('Open as tab is on once it has come', !t.find<HTMLButtonElement>('.task-modal-tab', dialog).disabled);
+    },
+  },
+  {
+    name: 'task modal loading: a load that fails says why with Try again, and never leaves the spinner',
+    page: 'tasks',
+    async run(t) {
+      await t.click(t.find(`[data-peek="${CSS.escape(t.data.task.peek)}"]`));
+      const dialog = t.find<HTMLDialogElement>('dialog.task-modal:not(.detail-modal):not(.palette-modal)');
+      const body = t.find('.task-modal-body', dialog);
+      await t.post({ type: 'task-modal-failed', project: t.data.task.project, key: t.data.task.key, why: 'Its project isn\'t open in the Command Center any more.' });
+      const failed = t.find('.loading-failed', body);
+      t.check('it says why, as an alert', failed.getAttribute('role') === 'alert' && (failed.textContent ?? '').includes('Its project isn\'t open'), failed.textContent);
+      t.check('no spinner is left turning', t.all('.loading-ring', body).length === 0 && !body.hasAttribute('aria-busy'));
+      t.check('it stays open', dialog.open);
+      await t.click(t.find('.loading-retry', body));
+      t.check('Try again asks again', t.sent('task-modal-open').length === 2, t.sent('task-modal-open'));
+      t.check('and it loads again', t.all('.loading-state', body).length === 1);
+    },
+  },
+  {
+    name: 'task modal loading: a line on the Overview opens it at once, with the line\'s title',
+    page: 'overview-since',
+    async run(t) {
+      const link = t.all('[data-overview-group="since"] .lp-title[data-peek]')[0];
+      t.check('the Overview has a line that opens a task', !!link);
+      if (!link) return;
+      await t.click(link);
+      const dialog = t.find<HTMLDialogElement>('dialog.task-modal:not(.detail-modal):not(.palette-modal)');
+      const asked = t.sent('task-modal-open').at(-1);
+      t.check('it asked for the task, with the line\'s title', asked?.title === link.textContent, asked);
+      t.check('it opened at the click', dialog.open);
+      t.check('with the line\'s title over the loading state', t.find('.loading-title', dialog).textContent === link.textContent && t.all('.loading-state', dialog).length === 1);
     },
   },
   {
@@ -737,6 +802,8 @@ export const CASES: Case[] = [
       await t.click(t.find('.lp-title', lines[0]));
       const asked = t.sent('task-modal-open').at(-1);
       t.check('a click on a line opens its task', JSON.stringify(asked) === JSON.stringify(t.data.since.open), asked);
+      // It opened at the click, loading (T-162): closed, the page is under focus again.
+      await t.escape(t.find<HTMLDialogElement>('dialog.task-modal:not(.detail-modal):not(.palette-modal)'));
       const clear = t.all<HTMLButtonElement>('button', group).find((b) => b.textContent?.trim() === 'Clear');
       if (!clear) throw new Error('not found: Clear on Since you last looked');
       await t.click(clear);
@@ -2051,8 +2118,10 @@ export const CASES: Case[] = [
       await t.click(button);
       const ran = t.sent('run').at(-1);
       t.check('a click asks the extension for the sheet, and dispatches nothing', JSON.stringify(ran) === JSON.stringify(d.run) && t.sent('dispatch-sheet-go').length === 0, ran);
-      t.check('nothing opens before the extension answers', t.all('dialog.dispatch-sheet[open]').length === 0);
+      // T-162: it opens at the click, loading, and the extension's sheet fills it.
+      t.check('it opens at the click, loading, before the extension answers', t.all('dialog.dispatch-sheet[open] .loading-state').length === 1);
       await t.post(d.message);
+      t.check('the sheet fills it, with no spinner left', t.all('dialog.dispatch-sheet .loading-state').length === 0);
       const dialog = t.find<HTMLDialogElement>('dialog.dispatch-sheet');
       t.check('the sheet opens', dialog.open);
       t.check('focus is on the model chosen', document.activeElement === t.find('[data-part="model"] [aria-checked="true"]', dialog), document.activeElement?.className);
@@ -2826,6 +2895,9 @@ export const MUTANTS: Mutant[] = [
   { name: 'Escape does nothing', file: 'modal.ts', find: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); shut(); });", replace: "dialog.addEventListener('cancel', (e) => { e.preventDefault(); });", kills: [caseNamed('task modal: Escape'), caseNamed('detail modal: Escape'), caseNamed('palette: Escape')] },
   { name: 'a backdrop click does nothing', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (downOnBackdrop && onBackdrop(dialog, e)) { /* stub */ }', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
   { name: 'a drag out of it closes it', file: 'modal.ts', find: 'if (downOnBackdrop && onBackdrop(dialog, e)) shut();', replace: 'if (onBackdrop(dialog, e)) shut();', kills: [caseNamed('task modal: a click on the backdrop'), caseNamed('detail modal: a click on the backdrop')] },
+  // T-162: the modal that waits for the model before it opens, and a model after it closed that opens it again.
+  { name: 'the task modal waits for the model before it opens', file: 'task-modal.ts', find: '  if (!dialog.open) {\n    dialog.showModal();\n    aim(dialog, a);\n  }\n', replace: '', kills: [caseNamed('task modal loading: a card\'s click'), caseNamed('task modal loading: a load that fails'), caseNamed('task modal loading: a line on the Overview')] },
+  { name: 'a model after the modal closed opens it again', file: 'task-modal.ts', find: '  if (!asked && !dialog?.open && lastShut === k) return;\n', replace: '', kills: [caseNamed('task modal loading: a card\'s click')] },
   { name: 'the task modal leaves focus where it falls', file: 'task-modal.ts', find: 'cardOf(m)?.focus();', replace: '', kills: [caseNamed('task modal: Close sends focus back')] },
   { name: 'the task modal has no origin to grow from', file: 'task-modal.ts', find: "d.style.setProperty('--origin',", replace: "void ('--origin',", kills: [caseNamed('task modal: it opens from its card')] },
   { name: 'the detail leaves focus where it falls', file: 'detail.ts', find: '(openers.find((e) => e.tagName === openedBy) ?? openers[0])?.focus();', replace: '', kills: [caseNamed('detail modal: a new model under it')] },
@@ -2889,7 +2961,7 @@ export const MUTANTS: Mutant[] = [
   { name: 'a dropdown\'s search hides nothing', file: 'dropdown.ts', find: "return all.filter((o) => !q || !o.value || `${o.label} ${o.detail ?? ''}`.toLowerCase().includes(q));", replace: 'return all;', kills: [caseNamed('connect: the board under the dropdowns')] },
   { name: 'Cancel saves', file: 'connect.ts', find: "const cancel = button('Cancel', 'close', () => connectSend(m, { type: 'connect-cancel' }), 'ghost');", replace: "const cancel = button('Cancel', 'close', () => connectSend(m, { type: 'connect-save' }), 'ghost');", kills: [caseNamed('connect: Back and Next move')] },
   { name: 'Back goes nowhere', file: 'connect.ts', find: "const back = i > 0 ? button('Back', 'arrow-left', () => connectSend(m, { type: 'connect-step', step: m.steps[i - 1]!.id }), 'ghost') : null;", replace: "const back = i > 0 ? button('Back', 'arrow-left', () => {}, 'ghost') : null;", kills: [caseNamed('connect: Back and Next move')] },
-  { name: 'Escape leaves the modal without a word', file: 'connect.ts', find: "  if (drawn) connectSend(drawn, { type: 'connect-cancel' });", replace: '', kills: [caseNamed('connect: Back and Next move')] },
+  { name: 'Escape leaves the modal without a word', file: 'connect.ts', find: "  if (drawn) return connectSend(drawn, { type: 'connect-cancel' });", replace: '', kills: [caseNamed('connect: Back and Next move')] },
   { name: 'the Connect modal draws no status line beside Test connection', file: 'connect.ts', find: 'm.signIn.why ? status(m.signIn.why) : null', replace: 'null', kills: [caseNamed('connect: while it signs in')] },
   { name: 'the Connect modal leaves Test connection\'s title empty', file: 'connect.ts', find: 'if (m.signIn.why) testButton.title = m.signIn.why.label;', replace: '', kills: [caseNamed('connect: while it signs in')] },
   { name: 'Stop sits with the other header buttons', file: 'agent-page.ts', find: '.filter((a) => a !== stop)', replace: '.filter(() => true)', kills: [caseNamed('agent page: Stop stands apart')] },
@@ -2961,14 +3033,14 @@ export const MUTANTS: Mutant[] = [
   { name: 'Escape in Use this\'s question does nothing', file: 'talk.ts', find: "if (e.key !== 'Escape') return; e.preventDefault(); e.stopPropagation(); keep();", replace: "if (e.key !== 'Escape') return;", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Keeping the approval leaves focus where it falls', file: 'talk.ts', find: '); focusUse = key; redraw(); };', replace: '); redraw(); };', kills: [caseNamed('talk: on an approved plan')] },
   { name: 'Change it in Use this\'s question sends no yes', file: 'talk.ts', find: 'use(project, s, t, p, true); };', replace: 'use(project, s, t, p); };', kills: [caseNamed('talk: on an approved plan')] },
-  { name: 'Ctrl+Enter in the message box sends nothing', file: 'talk.ts', find: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); go(); }", replace: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); }", kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'Ctrl+Enter in the message box sends nothing', file: 'chat.ts', find: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); if (!b.disabled) o.go(); }", replace: "(e.metaKey || e.ctrlKey)) { e.preventDefault(); }", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'The task page draws the conversation\'s turns', file: 'talk.ts', find: "const line = el('div', 'convo-line', icon('comment-discussion'),", replace: "const line = el('div', 'convo-line', ...s.turns.map((x) => turn(project, s, x)), icon('comment-discussion'),", kills: [caseNamed('conversation: the task page shows')] },
   { name: 'Make a plan on the task page asks for another command', file: 'dom.ts', find: "api.postMessage({ type: 'run', command: a.command, ref: a.ref })", replace: "api.postMessage({ type: 'run', command: a.command === 'acc.task.analyze' ? 'acc.task.show' : a.command, ref: a.ref })", kills: [caseNamed('conversation: Make a plan on the task page')] },
   { name: 'Draft the plan ignores the opening conversation', file: 'talk.ts', find: "api.postMessage({ type: 'conversation-draft', project, task: s.task }), s.draft.disabled", replace: "api.postMessage({ type: 'conversation-draft', project, task: s.task, skip: true }), s.draft.disabled", kills: [caseNamed('conversation: the panel opens at its question')] },
   { name: 'Post sends what was attached before the person changed it', file: 'report.ts', find: 'body: issueBody(t.fields) });', replace: 'body: issueBody({ ...t.fields, attached: m.attached }) });', kills: [caseNamed('report:')] },
   { name: 'the draft is sent as it is typed', file: 'report.ts', find: 'keep(s.id, b.value); update(); });', replace: "keep(s.id, b.value); update(); api.postMessage({ type: 'report-post', title: t.title, body: issueBody(t.fields) }); });", kills: [caseNamed('report:')] },
   { name: 'the plan section keeps Make a new plan beside a conversation', file: 'analysis.ts', find: 'const actions = m.talk?.newPlan ? a.actions.filter((x) => x.command !== m.talk!.newPlan!.command) : a.actions;', replace: 'const actions = a.actions;', kills: [caseNamed('ticket talk: beside a conversation the plan section')] },
-  { name: 'Enter alone sends the message', file: 'talk.ts', find: "if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))", replace: "if (e.key === 'Enter')", kills: [caseNamed('talk: on an approved plan')] },
+  { name: 'Enter alone sends the message', file: 'chat.ts', find: "if (e.key === 'Enter' && (e.metaKey || e.ctrlKey))", replace: "if (e.key === 'Enter')", kills: [caseNamed('talk: on an approved plan')] },
   { name: 'a made choice still draws every card', file: 'plan.ts', find: 'const full = !d.choice || compared', replace: 'const full = true || compared', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'a choice waiting on the person is folded away', file: 'analysis.ts', find: '!!p && p.decisions.some((d) => choiceWaits(m, a.task, p, d))', replace: 'false', kills: [caseNamed('plan tab: a made choice is one line')] },
   { name: 'a section the person closed opens again on the next draw', file: 'analysis.ts', find: '(waits && !opened.includes(shut))', replace: 'waits', kills: [caseNamed('plan tab: a made choice is one line')] },
@@ -3233,7 +3305,7 @@ function sinceData(model: Model): BehaviourData['since'] {
   const g = model.kind === 'home' ? model.overview.since : null;
   const first = g?.rows[0]?.open;
   if (!g || first?.kind !== 'task') throw new Error('The Since you last looked case needs an Overview with news held, whose first line opens its task.');
-  return { part: g.part, title: g.title, tasks: g.rows.map((r) => r.id), open: { type: 'task-modal-open', project: first.project, key: first.key } };
+  return { part: g.part, title: g.title, tasks: g.rows.map((r) => r.id), open: { type: 'task-modal-open', project: first.project, key: first.key, title: g.rows[0]!.title } };
 }
 
 /** What the Dispatch sheet's cases expect (D-168): ACME-16's sheet, whose builder's model takes no effort, Another model…, and ACME-19's rework sheet with the cloud off. */

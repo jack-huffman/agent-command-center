@@ -22,7 +22,7 @@ import { activate, fakeVscode, sandboxEnv, until } from './vscode.ts';
 const dist = fileURLToPath(new URL('../dist/extension.js', import.meta.url));
 
 type Tab = ReturnType<typeof fakeVscode>['panels'][number];
-type Msg = { type?: string; model?: { kind: string; key: string; title: string; loading?: boolean; talk?: { stage: string; ask: string | null; send: unknown } | null }; [k: string]: unknown };
+type Msg = { type?: string; model?: { kind: string; key: string; title: string; loading?: boolean; filling?: boolean; talk?: { stage: string; ask: string | null; send: unknown } | null }; [k: string]: unknown };
 
 /** What the stand-in for Claude Code answers a message with, as its schema asks. */
 const TALK_ANSWER = { type: 'result', subtype: 'success', is_error: false, session_id: 'sess-open', total_cost_usd: 0.1, structured_output: { reply: 'Two years, as you said.', proposals: [] } };
@@ -61,7 +61,7 @@ after(() => {
   s.restore();
 });
 
-const stateFor = (msgs: Msg[], key: string, kind: string): Msg | undefined => msgs.filter((m) => m.type === 'state' && m.model?.kind === kind && m.model.key === key && !m.model.loading).at(-1);
+const stateFor = (msgs: Msg[], key: string, kind: string): Msg | undefined => msgs.filter((m) => m.type === 'state' && m.model?.kind === kind && m.model.key === key && !m.model.loading && !m.model.filling).at(-1);
 
 /** The task's own page, as acc.task.show opens it, ready, and how wide it says it is. */
 async function pageFor(key: string, width: number): Promise<Tab> {
@@ -154,7 +154,7 @@ test('Make a plan from the board\'s modal opens the ticket\'s page first and the
   const n = panels.length;
   const from = s.tab.posted.length;
   s.tab.receive!({ type: 'task-modal-open', project: s.root, key: s.id });
-  await until(() => (s.tab.posted.slice(from) as Msg[]).some((m) => m.type === 'task-modal' && m.model?.key === s.id && !m.model.loading));
+  await until(() => (s.tab.posted.slice(from) as Msg[]).some((m) => m.type === 'task-modal' && m.model?.key === s.id && !m.model.loading && !m.model.filling));
   await makePlanFrom(s.tab, s.id);
   await until(() => panels.length >= n + 2);
   const [page, panel] = [panels[n]!, panels[n + 1]!];

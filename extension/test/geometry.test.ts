@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { BOARD_TOP, COLLECT_GEOMETRY, drawnIn, dumpedGeometries, dumpedGeometry, MEASURE_TABS, mergedVerdict, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeDisabled, judgeSizes, SAME_ROW, SEED_FLOORS, type GeoSized, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
+import { BOARD_TOP, COLLECT_GEOMETRY, drawnIn, dumpedGeometries, dumpedGeometry, MEASURE_TABS, mergedVerdict, type GeoControl, type GeoSnapshot, type GeoText, GEOMETRY_EXCEPTIONS, judge, judgeActions, judgeButtons, judgeCards, judgeChat, judgeDisabled, judgeSizes, PIN_MAX_SHARE, SAME_ROW, SEED_FLOORS, type GeoSized, DISABLED_LOOK, REASON_BESIDE, OVERVIEW_LINES, RAW_OUTPUT, type Render, floorName, FLOORS_PATH, pageFloors, PER_DRAWING, raisedFloors, runFloor, runFailures, SIDEWAYS, storedFloor, FLOOR_MARGIN_PERCENT, ciFloorName, CI_FLOORS_ENV, isCiRun } from '../scripts/geometry.ts';
 import { root } from './support.ts';
 import { expectedButtons, pageFor, PAGES, sampleModel, STILL, viewOf } from '../scripts/screenshot.ts';
 
@@ -337,6 +337,22 @@ test('a sticky cell that covers another cell\'s text, whole or part, fails; one 
   assert.ok(runFailures([{ page: 'agents', theme: 'dark', width: 620, verdict: judged([]) }], true).some((f) => f.includes('for covered')), 'a whole run that examined none fails');
   assert.ok(runFloor().covered > 0, 'the floor is set');
   assert.ok(COLLECT_GEOMETRY.includes("position === 'sticky'") && COLLECT_GEOMETRY.includes('cells'), 'the page reports its cells at the first scroll position');
+});
+
+test('a chat scrolls under its pinned message and stops above its card: a see-through or too tall pin, or a card over the chat, fails (T-160; edge cases: a page with no chat, a pin exactly at the limit)', () => {
+  const log = { x: 0, y: 100, w: 800, h: 600 };
+  const pin = (o: Partial<{ h: number; opaque: boolean }> = {}) => ({ what: 'div.chat-pin', kind: 'pin' as const, box: { x: 0, y: 100, w: 800, h: o.h ?? 80 }, opaque: o.opaque ?? true });
+  const foot = (y: number) => ({ what: 'div.chat-foot', kind: 'foot' as const, box: { x: 0, y, w: 800, h: 150 } });
+  const chat = (...layers: ({ what: string; kind: 'pin' | 'foot'; box: { x: number; y: number; w: number; h: number }; opaque?: boolean })[]) => ({ log, layers: layers.map((l) => ({ opaque: true, ...l })) });
+  assert.deepEqual(found(fine({ chat: chat(pin(), foot(700)) })), [], 'an opaque pin, and the card under the chat');
+  assert.equal(judge(fine({ chat: chat(pin(), foot(700)) }), true, []).examined.covered, 2, 'each pin and foot is examined');
+  assert.deepEqual(found(fine({ chat: chat(pin({ opaque: false })) })), ['covered: div.chat-pin: the pinned message lets the chat show through it']);
+  assert.deepEqual(found(fine({ chat: chat(pin({ h: log.h * PIN_MAX_SHARE })) })), [], 'a pin exactly at the limit passes');
+  assert.equal(found(fine({ chat: chat(pin({ h: log.h * PIN_MAX_SHARE + 1 })) })).length, 1, 'a pin past it fails');
+  assert.deepEqual(found(fine({ chat: chat(foot(600)) })), ['covered: div.chat-foot: the message card lies over the chat']);
+  assert.deepEqual(judgeChat(null), [], 'a page with no chat');
+  assert.equal(judge(fine(), true, []).examined.covered, 0, 'and it examines none');
+  assert.ok(COLLECT_GEOMETRY.includes('.chat-pin, .chat-foot') && COLLECT_GEOMETRY.includes('opaque'), 'the page reports its chat');
 });
 
 test('a task\'s actions are equal in height, the grid\'s equal in width, and the next step spans the grid, with each edge case (D-168)', () => {

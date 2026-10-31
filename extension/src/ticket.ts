@@ -13,7 +13,7 @@ import { type FromWebview, isFromWebview } from './model/messages.ts';
 import type { Ref } from './model/shared.ts';
 import { type CheckIn, type ReviewIn, ticketActionRefusal, ticketCheck, ticketModel, type TicketModel, ticketReview } from './model/task-page.ts';
 import { htmlFor, isWebLink, type Panels, TabTheme } from './panels.ts';
-import { modalTakes, taskOf } from './model/task-modal.ts';
+import { MODAL_FAILED, modalTakes, taskOf } from './model/task-modal.ts';
 import type { ThemeChoice } from './model/settings.ts';
 import { runFile } from './run.ts';
 import { showFileAt } from './runs.ts';
@@ -34,6 +34,7 @@ import { withFieldKept } from './model/changes-field.ts';
 import { writtenFor } from '../../packages/core/src/field-drafts.ts';
 import type { FieldActions } from './changes-field.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
+import { teamKey } from './logic/team-key.ts';
 import { branchFiles, IN_FLIGHT_STATES, plannedFiles } from '../../packages/core/src/overlap.ts';
 import { repoPaths } from '../../packages/core/src/paths.ts';
 import { type Team, teamOf } from '../../packages/core/src/team.ts';
@@ -109,6 +110,7 @@ interface Open {
   part: { part: string; at: number } | null;
 }
 
+
 /** Commands a ticket page may run: the ones its task's card offers, and Dispatch with… and Dispatch to the cloud, kept for one release to open the sheet (D-168). */
 const ALLOWED = new Set(['acc.task.edit', 'acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.dispatchAnyway', 'acc.task.stopWaiting', 'acc.task.dispatchAgain', 'acc.task.attach', 'acc.task.openInClaude', 'acc.task.watch', 'acc.task.resume', 'acc.task.review', 'acc.task.watchReview', 'acc.task.land', 'acc.task.openPr', 'acc.task.openWorktree', 'acc.task.abandon', 'acc.task.cleanup', 'acc.task.move', 'acc.task.block', 'acc.task.unblock', 'acc.task.analyze', 'acc.task.watchAnalysis', 'acc.trackers.signIn']);
 
@@ -119,6 +121,11 @@ const ALLOWED = new Set(['acc.task.edit', 'acc.task.dispatch', 'acc.task.dispatc
  */
 export class TicketPanels implements vscode.Disposable {
   private readonly open = new Map<string, Open & { tab: Tab }>();
+  /**
+   * Each task's team as last read (T-162), by `<root>#<id>`, with the heads of the branches and the tasks in flight
+   * it was read for: read again only when one moved, so the modal opened again, or its tab, doesn't wait for it.
+   */
+  private readonly teams = new Map<string, { key: string; value: Team | null }>();
   /** The task in the modal over the Command Center's Tasks board, if any (GH-158). */
   private modal: Open | null = null;
   private readonly ctx: vscode.ExtensionContext;
@@ -270,7 +277,8 @@ export class TicketPanels implements vscode.Disposable {
     const o = this.fresh(view, root, index, key);
     if (part) o.part = { part, at: Date.now() };
     this.modal = o;
-    void this.load(o);
+    // A load that throws says so in the modal, which would otherwise wait (T-162).
+    this.load(o).catch((e: unknown) => { if (this.modal === o) host.reply({ type: MODAL_FAILED, project: root, key: o.key, why: inProcessWords((e as Error)?.message ?? String(e)) }); });
   }
 
   /**
@@ -366,16 +374,36 @@ export class TicketPanels implements vscode.Disposable {
     return this.hub.project(o.project);
   }
 
+  /**
+   * Reads the task and draws its page. The first draw comes as soon as its record is read, with the slower
+   * parts still to come (T-162): its checks, its branch's changes, its review, its team and the org. The page
+   * then draws again with them, and once more with the tracker's ticket where it has one.
+   */
   private async load(o: Open): Promise<void> {
     const p = this.project(o);
     if (!p || o.tracker === null) {
       o.loading = false;
+      await this.post(o, true);
+      await settle();
       return this.post(o);
     }
     o.loading = true;
+    await this.post(o, true);
+    await settle();
+    // The tracker is asked while git is: the ticket comes on the draw after, whichever is slower.
+    const reading = this.readTicket(o, p, o.tracker);
     await this.post(o);
+    await reading;
+    // Its changes field (T-105) is read with the ticket, and the page redraws once it's read.
+    if (o.ticket) this.fields?.load(p, o.tracker, o.key);
+    o.view.name(o.ticket ? `${o.key} ${o.ticket.title}`.slice(0, 60) : o.key);
+    await this.post(o);
+  }
+
+  /** Reads the task's ticket from its tracker, or why it can't be shown, into the page's state. */
+  private async readTicket(o: Open, p: Project, tracker: number): Promise<void> {
     try {
-      o.ticket = await this.trackers.ticket(p, o.tracker, o.key);
+      o.ticket = await this.trackers.ticket(p, tracker, o.key);
       o.error = null;
       o.outside = null;
       o.connect = null;
@@ -385,16 +413,12 @@ export class TicketPanels implements vscode.Disposable {
       if (outside) o.ticket = null;
       o.outside = outside ? inProcessWords((e as Error).message) : null;
       o.error = outside ? null : inProcessWords((e as Error).message);
-      const t = this.trackers.trackers(p)[o.tracker];
+      const t = this.trackers.trackers(p)[tracker];
       o.connect = (e as { kind?: string }).kind === 'auth' && t && t.kind !== 'github'
-        ? { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index: o.tracker }) } : null;
+        ? { command: 'acc.trackers.signIn', label: signInLabel(t.kind), arg: JSON.stringify({ root: p.root, index: tracker }) } : null;
     } finally {
       o.loading = false;
     }
-    // Its changes field (T-105) is read with the ticket, and the page redraws once it's read.
-    if (o.ticket) this.fields?.load(p, o.tracker, o.key);
-    o.view.name(o.ticket ? `${o.key} ${o.ticket.title}`.slice(0, 60) : o.key);
-    await this.post(o);
   }
 
   /**
@@ -416,31 +440,36 @@ export class TicketPanels implements vscode.Disposable {
     return gates.map((gate) => ticketCheck(gate, receipts[gate] ?? null, unrun(gate), scope(gate), ratchet(gate)));
   }
 
-  private async post(o: Open): Promise<void> {
+  /**
+   * Draws the page from what's known now. `first` draws only what the ledger and acc's own records hold, with
+   * no git, tracker or org asked (T-162): the model says it's still filling, and the next draw fills it.
+   */
+  private async post(o: Open, first = false): Promise<void> {
     const p = this.project(o);
     if (!p || !o.view.visible) return;
     const row = this.hub.taskRows(p.root).find((r) => r.id === o.key) ?? null;
     const task = this.hub.ledger(p.root)?.tasks.find((t) => t.id === o.key) ?? null;
     const tracker = o.tracker !== null ? this.trackers.trackers(p)[o.tracker] : undefined;
     // The page's own load made this client, so it's cached; a client that failed to start says nothing of its fields, which is all three.
-    const client = o.tracker !== null ? await this.trackers.client(p, o.tracker).catch(() => null) : null;
-    const changes = task ? this.changes(p, task) : null;
-    const manifest = task && this.manifest && p.config.profile === 'salesforce' ? this.manifest.state(p.root, task.id) : null;
+    const client = o.tracker !== null && !first ? await this.trackers.client(p, o.tracker).catch(() => null) : null;
+    const changes = task && !first ? this.changes(p, task) : null;
+    const manifest = task && !first && this.manifest && p.config.profile === 'salesforce' ? this.manifest.state(p.root, task.id) : null;
     const updates = this.hub.updates(p.root);
     const model = ticketModel({
       project: p.root, tracker: o.tracker, trackerTitle: tracker ? this.trackers.title(tracker) : null, trackerKind: tracker?.kind ?? null, key: o.key,
-      ticket: o.ticket, loading: o.loading, error: o.error, outside: o.outside, connect: o.connect, row, task, checks: task ? await this.checks(p, task.run?.branch ?? null, task.environment) : [],
-      signedInAs: o.tracker !== null ? await this.trackers.signedInAs(p, o.tracker) : null,
+      ticket: o.ticket, loading: o.loading, error: o.error, outside: o.outside, connect: o.connect, row, task, checks: task && !first ? await this.checks(p, task.run?.branch ?? null, task.environment) : [],
+      signedInAs: o.tracker !== null && !first ? await this.trackers.signedInAs(p, o.tracker) : null,
       analysis: task ? this.hub.analysis(p.root, task.id) : null,
       trackerEdits: this.edits(o, p), trackerFields: client?.fields, updates, boards: this.trackers.boardStates(p.root), github: p.config.github?.account ?? null,
       tracking: this.trackers.trackState(p.root, o.key).busy,
-      review: task ? await this.review(o, p, task) : null,
+      review: task && !first ? await this.review(o, p, task) : null,
       ...(task && this.criteria ? this.criteria.state(p.root, task.id) : {}),
       manifest: task && manifest ? ticketManifest({ task, profile: p.config.profile, org: p.config.environments.find((e) => e.branch === task.environment || e.name === task.environment)?.org ?? null, ...manifest }) : null,
       verify: task && this.verify ? ticketVerify({ task, github: p.config.github?.repo ?? null, ...this.verify.state(p.root, task.id), updates: this.hub.updates(p.root).filter((u) => u.task === task.id) }) : null,
       changes: changes ? ticketChanges(changes) : null,
-      team: task ? ticketTeam(task, this.team(p, task)) : null,
+      team: task && !first ? ticketTeam(task, this.team(p, task)) : null,
     });
+    if (first) return o.view.draw({ ...model, open: o.part, filling: true });
     // Its record changes (T-100), Talk it through (T-98) and its tracker's changes field (T-105), each a section of
     // its own: the field once read, with its draft update keeping each line a person wrote there.
     const analysis = task ? this.hub.analysis(p.root, task.id) : null;
@@ -476,14 +505,23 @@ export class TicketPanels implements vscode.Disposable {
    * and the merges its branch doesn't hold yet, as this clone last fetched them. Null when git can't say.
    */
   private team(p: Project, task: Task): Team | null {
-    if (!IN_FLIGHT_STATES.includes(task.state)) return null;
+    // A task out of flight has no team: its kept read goes too, so the map holds only tasks in flight.
+    if (!IN_FLIGHT_STATES.includes(task.state)) { this.teams.delete(`${p.root}#${task.id}`); return null; }
     const ledger = this.hub.ledger(p.root);
     if (!ledger) return null;
+    // Read again only when a branch moved or a task in flight changed: a task many merges behind takes git seconds (T-162).
+    const key = teamKey(runSync, p.root, ledger.tasks);
+    const at = `${p.root}#${task.id}`;
+    const kept = this.teams.get(at);
+    if (key !== null && kept?.key === key) return kept.value;
+    let value: Team | null;
     try {
-      return teamOf(repoPaths(p.root, runSync), p.config, ledger, runSync, task.id);
+      value = teamOf(repoPaths(p.root, runSync), p.config, ledger, runSync, task.id);
     } catch {
-      return null;
+      value = null;
     }
+    if (key !== null) this.teams.set(at, { key, value });
+    return value;
   }
 
   /**
@@ -809,3 +847,7 @@ export const area: ExtensionArea = {
     for (const type of ['update-post', 'update-discard', 'update-ask'] as const) receive(type, update);
   },
 };
+
+/** Lets what was posted go before the slower reads start (T-162): git run synchronously would hold it back. */
+const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
+

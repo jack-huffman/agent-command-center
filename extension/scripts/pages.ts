@@ -65,8 +65,8 @@ import { HOME_SECTIONS } from '../src/model/shared.ts';
  * Then a project's several boards on the Tasks tab (T-127): two, on the first and switched to the second; four, with
  * the list of boards open and switched to the third; and ten across three Jira sites, the list open and filtered by
  * site, All boards with each folded but one, and switched to a board whose site's sign-in has run out.
- * Then ACME-12's Changes tab with its deploy (T-138): before work, its work in review, deployed once to QA, and in UAT with
- * steps left to do by hand; then the deploy sheet over it checking against UAT, passed, failed, Production's, which asks for its name, and deployed with its result.
+ * Then ACME-12's Changes tab with its deploy (T-158): a row for each environment in each state, before work, in review,
+ * in QA with UAT's row open on what differs, in UAT with steps left; Deploy… open on where, and off; a deploy under way.
  * Then a project with two Jira Service Management queue boards (T-128), on the Tasks tab and in Settings' Trackers and
  * sign-ins, and the Connect page with a service desk's queues as cards: two ticked, and a sign-in that isn't an agent's.
  */
@@ -109,6 +109,9 @@ export const PAGES = [
   'tasks-slack-empty',
   'tasks-slack-scope',
   'tasks-modal',
+  // A task's modal as it opens at the click (T-162): loading, and a load that failed, with Try again
+  'tasks-modal-loading',
+  'tasks-modal-failed',
   'tasks-agents',
   'palette',
   'palette-empty',
@@ -180,6 +183,8 @@ export const PAGES = [
   'ticket-note',
   'ticket-review',
   'ticket-cloud',
+  // A task's page drawn from its record first, its checks, branch and team still coming (T-162)
+  'ticket-filling',
   'ticket-nofields',
   'ticket-dispatch',
   'ticket-edit',
@@ -243,6 +248,8 @@ export const PAGES = [
   'conversation-questions',
   'conversation-questions-review',
   'conversation-long',
+  // Messaging an agent as a chat (T-160): the plan conversation and an agent's page, each scrolled to its newest message, the person's last one pinned on top
+  'conversation-scrolled',
   // The planning agent's progress (T-131): the panel mid-plan with its steps, stalled, and the task page's plan section
   'conversation-progress',
   'conversation-stalled',
@@ -258,6 +265,7 @@ export const PAGES = [
   // Agents, and an agent's own page
   'agents-path',
   'agent',
+  'agent-chat',
   'agents-billing',
   'agents-finished',
   // The Connect page at each step, and choosing a board
@@ -357,4 +365,4 @@ export const STILL: readonly Page[] = ['loading'];
 export const WIDTHS = [1000, 620, 500] as const;
 
 /** The kind of tab a page is drawn in: a ticket's, a plan's conversation (T-111), a report's (T-118), an agent's, or the Command Center's own. */
-export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind.startsWith('conversation') ? 'conversation' : kind.startsWith('report') ? 'report' : kind === 'agent' ? kind : 'home');
+export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind.startsWith('conversation') ? 'conversation' : kind.startsWith('report') ? 'report' : kind === 'agent' || kind === 'agent-chat' ? 'agent' : 'home');

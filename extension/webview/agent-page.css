@@ -1,38 +1,25 @@
-/* An agent's page: its timeline, newest at the bottom, like a chat. */
-/* The agent's page fits the window: its heading stays, and the timeline scrolls in its own box. */
-body[data-view="agent"] { padding: 14px 24px 0; height: 100vh; overflow: hidden; }
-body[data-view="agent"] #app { display: flex; flex-direction: column; height: 100%; min-height: 0; max-width: 1100px; margin: 0 auto; }
-body[data-view="agent"] #app > * { flex: none; }
-body[data-view="agent"] #app > .timeline { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 24px 0; }
+/* An agent's page: its timeline, newest at the bottom, as a chat (T-160, chat.css): its heading stays, and the chat scrolls in its own box. */
 body[data-view="agent"] .agent-head { margin-bottom: 10px; padding-bottom: 10px; }
 body[data-view="agent"] .agent-head .ticket-title { font-size: 1.35em; margin-bottom: 4px; }
-body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .entry.earlier { margin: 4px 0; }
 .steps-details > summary { list-style: none; cursor: pointer; }
 .steps-details > summary::-webkit-details-marker { display: none; }
 .steps-details > summary:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
 .steps-details[open] > summary .tool-chev .codicon { transform: rotate(90deg); }
-.steps-list { list-style: none; margin: 0; padding: 0 0 0 12px; }
 .agent-head .ticket-bar { flex-wrap: wrap; row-gap: 8px; margin-top: 10px; }
 .agent-facts { display: flex; align-items: center; flex-wrap: wrap; margin-top: 4px; }
 .agent-facts .sep { margin: 0 6px; }
-.agent-asks { margin-bottom: 14px; }
-.notice.recap { border-left: 3px solid var(--blue); color: var(--vscode-foreground); }
+/* The agent's questions, under its latest reply. */
+.agent-asks { margin: 8px 0 14px; }
+.notice.recap { border-left: 3px solid var(--blue); color: var(--vscode-foreground); margin-bottom: 8px; }
 /* A task that waits for other tasks' files (D-093): blue, as waiting is. */
 .notice.waits { border-left: 3px solid var(--blue); color: var(--vscode-foreground); }
-.timeline { list-style: none; margin: 0; padding: 0; }
-.entry { margin: 0; }
-.entry.say, .entry.prompt { margin: 14px 0 8px; }
-.entry.say .doc, .entry.prompt .doc { margin-left: 22px; }
 .entry.say .doc > :last-child, .entry.prompt .doc > :last-child { margin-bottom: 0; }
-.entry-who { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.entry-who time { font-size: 0.88em; }
-.entry.prompt > .entry-who .codicon, .entry.prompt summary .codicon { color: var(--blue); }
-.prompt-details { border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); padding: 6px 10px; }
+.chat-you .doc > :first-child { margin-top: 0; }
 .prompt-details > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; }
+.prompt-details > summary .codicon { color: var(--blue); }
 .prompt-details[open] > summary { margin-bottom: 8px; }
-.entry.tool { margin: 2px 0 2px 8px; }
-.tool-line { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 3px 8px; border-radius: 4px; color: var(--vscode-descriptionForeground); }
+.tool-line { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 2px 6px; border-radius: 4px; color: var(--vscode-descriptionForeground); }
 .tool-details > summary { list-style: none; cursor: pointer; }
 .tool-chev { width: 14px; flex: none; display: inline-flex; }
 .tool-chev .codicon { font-size: 13px; transition: transform 0.12s; }
@@ -40,25 +27,23 @@ body[data-view="agent"] .agent-asks { max-height: 50vh; overflow-y: auto; }
 .tool-details > summary::-webkit-details-marker { display: none; }
 .tool-details > summary:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-foreground); }
 .tool-details[open] > summary { color: var(--vscode-foreground); }
-.tool-title { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-title { flex: 0 1 auto; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--vscode-editor-font-family); font-size: 0.88em; padding: 0 5px; }
 .tool.failed .tool-line { color: var(--vscode-foreground); }
-.tool-pre { margin: 4px 0 6px 50px; padding: 8px 10px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.88em; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+.tool-pre { margin: 4px 0 6px 26px; padding: 8px 10px; border-radius: 4px; background: var(--vscode-textCodeBlock-background); font-family: var(--vscode-editor-font-family); font-size: 0.88em; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
 .tool-pre.result.failed { border-left: 3px solid var(--orange); }
-.tool-details > .muted.small { margin: 0 0 6px 50px; }
-.entry.live { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; padding: 8px 10px; border-top: 1px solid var(--line); }
+.tool-details > .muted.small { margin: 0 0 6px 26px; }
+/* The person's answer to its question, as a step: what it asked on the line, and what was said under it. */
+.decision-details .tool-title { flex: 1 1 auto; max-width: none; }
+.decision-body { margin: 4px 0 6px 26px; display: flex; flex-direction: column; gap: 4px; }
+.decision-body .q-code { margin: 0; width: 100%; }
 @media (max-width: 620px) {
-  body[data-view="agent"] { padding: 14px 14px 32px; }
-  .entry.tool, .entry.say .doc, .entry.prompt .doc { margin-left: 0; }
-  .tool-pre { margin-left: 0; }
+  .tool-pre, .tool-details > .muted.small, .decision-body { margin-left: 0; }
   .tool-title { max-width: none; flex: 1; }
   .tool-code { display: none; }
 }
 
-/* Writing to an agent from its page (D-060): under the timeline, always in view. */
-.agent-reply { flex: none; margin-top: 10px; }
-.agent-reply .reply-box { min-height: 56px; }
-.agent-reply .reply-box:disabled { opacity: 0.6; cursor: not-allowed; }
+/* Writing to an agent from its page (D-060): the message card under the chat. */
 .agent-reply .reply-why { display: inline-flex; align-items: center; gap: 4px; }
 
 /* Stop (T-47): ends the agent's work, so it sits at the far end of the bar, set off by a rule, apart from the buttons that open things. */

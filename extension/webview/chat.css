@@ -1,0 +1,41 @@
+/* Messaging an agent, as Claude Code's chat (T-160): the page fits the window, its head stays, the chat scrolls
+   in its own box, and the status line and message card sit under it with space below. Nothing lies over the chat. */
+body[data-view="agent"], body[data-view="conversation"] { padding: 14px 24px 0; height: 100vh; overflow: hidden; }
+body[data-view="agent"] #app, body[data-view="conversation"] #app { display: flex; flex-direction: column; height: 100%; min-height: 0; max-width: 860px; margin: 0 auto; }
+body[data-view="agent"] #app > *, body[data-view="conversation"] #app > * { flex: none; }
+body[data-view] #app > .chat-log, .chat-log { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 16px 0; }
+.chat-log:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+/* An exchange holds its pin: the person's message sticks at the top only while its own exchange is in view. */
+.chat-exchange { position: relative; padding-bottom: 6px; }
+/* The pin is the page's own colour, so the reply goes under it, never shows through it. */
+.chat-pin { position: sticky; top: 0; z-index: 2; padding: 8px 0 10px; background: var(--vscode-editor-background); }
+.chat-you { padding: 8px 12px; border: 1px solid var(--edge); border-radius: var(--radius-l); background: color-mix(in srgb, var(--vscode-editor-background) 93%, var(--vscode-foreground) 7%); max-height: 9.5em; overflow-y: auto; overflow-wrap: anywhere; }
+.chat-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+/* What came back: the full width, plain. */
+.chat-reply { margin: 4px 0 10px; overflow-wrap: anywhere; }
+.chat-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; font-size: 0.88em; color: var(--vscode-descriptionForeground); }
+/* A reply's steps hang on a thin line, a dot each: blue while one runs, orange where one failed. */
+.chat-steps { list-style: none; margin: 6px 0 8px 5px; padding: 0 0 0 14px; border-left: 1px solid color-mix(in srgb, var(--vscode-foreground) 25%, transparent); }
+.chat-step { position: relative; margin: 1px 0; }
+.chat-step::before { content: ""; position: absolute; left: -18px; top: 0.75em; width: 7px; height: 7px; border-radius: 50%; background: var(--vscode-descriptionForeground); }
+.chat-step.dot-running::before { background: var(--blue); }
+.chat-step.dot-failed::before { background: var(--orange); }
+/* Under the chat: the status line, then the card, with space under it. */
+.chat-foot { flex: none; padding: 6px 0 16px; }
+.chat-status { display: flex; align-items: center; gap: 6px; margin: 0 4px 6px; color: var(--vscode-descriptionForeground); overflow-wrap: anywhere; }
+.chat-status > .codicon { flex: none; color: var(--accent); }
+.chat-status > .codicon.tone-orange { color: var(--orange); }
+.chat-status-words { min-width: 0; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
+.chat-card { padding: 8px 8px 6px 12px; border: 1px solid var(--edge); border-radius: var(--radius-l); background: var(--raised); box-shadow: var(--lift); }
+.chat-card:focus-within { border-color: var(--vscode-focusBorder); }
+.chat-card .chat-input, .chat-card .chat-input:focus { display: block; width: 100%; min-height: 44px; max-height: 30vh; padding: 2px 0; resize: none; border: 0; outline: none; box-shadow: none; background: transparent; color: var(--vscode-foreground); font: inherit; }
+.chat-input:disabled { opacity: 0.6; cursor: not-allowed; }
+.chat-card-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 4px; min-height: 26px; }
+.chat-card-row > .spacer { flex: 1 1 0; }
+/* Send: a small filled square with an arrow. */
+.btn.icon-only.chat-send { width: 26px; height: 26px; flex: none; border-radius: var(--radius-s); border: 1px solid var(--edge); background: var(--raised); }
+.btn.icon-only.chat-send.primary { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border-color: transparent; }
+.btn.icon-only.chat-send.primary .codicon { color: inherit; }
+@media (max-width: 620px) {
+  body[data-view="agent"], body[data-view="conversation"] { padding: 12px 14px 0; }
+}

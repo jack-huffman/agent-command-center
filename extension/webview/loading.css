@@ -1,0 +1,13 @@
+/* A modal's loading state (T-162): a small turning ring and its words, centred in the body; a load that failed says why in orange, with Try again. */
+.loading-state { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 16px; }
+.loading-ring { position: relative; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); }
+.loading-ring::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: opening-turn 1.1s cubic-bezier(0.55, 0.15, 0.45, 0.85) infinite; }
+.loading-words { margin: 0; text-align: center; color: var(--vscode-descriptionForeground); }
+.loading-failed { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 16px 0; padding: 10px 12px; border-left: 3px solid var(--orange); }
+.loading-why { display: flex; gap: 6px; align-items: flex-start; margin: 0; overflow-wrap: anywhere; }
+/* What the page already knows, over the loading state: the task's key and its title. */
+.loading-lead { margin: 0 0 4px; }
+.loading-lead .loading-title { margin: 4px 0 0; font-size: 1.4em; overflow-wrap: anywhere; }
+.loading-ring.small { width: 12px; height: 12px; flex: none; }
+.loading-line { display: flex; gap: 8px; align-items: center; margin: 4px 0 8px; color: var(--vscode-descriptionForeground); }
+@media (prefers-reduced-motion: reduce) { .loading-ring::after { animation: none; } }
