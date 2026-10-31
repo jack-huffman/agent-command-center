@@ -1,4 +1,4 @@
-## D-T-157 Salesforce work merges into the development environment on its own, set in a Pipeline section of Settings (2026-10-30)
+## D-244 Salesforce work merges into the development environment on its own, set in a Pipeline section of Settings (2026-10-30)
 
 T-157. The person: "The agents should also auto commit and push to their git branches and deploy and merge
 automatically (except to prod)", and "we default to building and deploying automatically to the development
