@@ -138,8 +138,8 @@ test('a blocked note\'s question with options shows each as a choice and the per
   assert.equal(b.all('banner-question')[0]!.textContent, 'Which one?', 'and the question heads it, on screen');
   assert.deepEqual(radios(group).map((r) => r.value), ['a', 'b', 'c', OWN]);
   assert.equal(CHOICE_MAX, OPTIONS_MAX);
-  const nameOf = (r: unknown): string => (r as { name: string }).name;
-  assert.ok(radios(group).every((r) => nameOf(r) === nameOf(radios(group)[0])), 'one group: the arrow keys move between them');
+  const groupName = (r: unknown): string => (r as { name: string }).name;
+  assert.ok(radios(group).every((r) => groupName(r) === groupName(radios(group)[0])), 'one group: the arrow keys move between them');
   // Each radio sits in its label, so a screen reader says its words.
   assert.ok(group.all('banner-option').every((l) => l.tagName === 'LABEL' && radios(l).length === 1));
   // A thing with no options is a bullet, with no choice.
@@ -274,4 +274,10 @@ test('drawBanner names the banner by its id and draws one level of border: no bo
   assert.equal(b.dataset.banner, 'blocked');
   assert.ok(b.classList.contains('banner-orange'));
   assert.equal(b.all('notice').length + b.all('block').length, 0);
+});
+
+test('optionWords: an option\'s words without the "(recommended)" its mark says; edge case: one not recommended keeps its words whole', async () => {
+  const { optionWords } = await import('../webview/note.ts');
+  assert.equal(optionWords({ label: 'a', text: 'Account (recommended)', recommended: true }), 'Account');
+  assert.equal(optionWords({ label: 'b', text: 'Opportunity (recommended)', recommended: false }), 'Opportunity (recommended)');
 });
