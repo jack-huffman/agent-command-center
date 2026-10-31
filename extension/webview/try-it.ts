@@ -35,7 +35,7 @@ function componentRow(m: Pick<TicketModel, 'project'>, t: TryIt, c: TryComponent
     go.disabled = true;
     go.title = `Open ${c.name}: ${t.open.disabled}`;
   } else go.title = `Open ${c.name} in ${c.where}`;
-  return el('li', 'try-comp', el('span', 'muted small try-type', c.label), work(el('span', 'mono try-name', c.name), 'files'), go);
+  return el('li', '', el('span', 'muted small try-type', c.label), work(el('span', 'mono try-name', c.name), 'files'), go);
 }
 
 /** The whole of it, on the development environment's row: Open, why it's off, how to test it, then each component. */

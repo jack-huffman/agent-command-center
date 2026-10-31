@@ -10,8 +10,8 @@
 .try-steps > li { padding: 1px 0; overflow-wrap: anywhere; }
 .try-none { margin: 0; }
 .try-comps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: auto minmax(0, max-content) auto; align-items: center; gap: 4px 10px; justify-content: start; }
-/* Each component's type, name and Open sit in the list's three columns, so the Opens line up. */
-.try-comp { display: contents; }
+/* Each component's item has no box: its type, name and Open sit in the list's three columns, so the Opens line up. */
+.try-comps > li { display: contents; }
 .try-name { min-width: 0; overflow-wrap: anywhere; }
 .try-type { white-space: nowrap; }
 /* In the Agent panel, the same block sits under the actions without a rule of its own. */
