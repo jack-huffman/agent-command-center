@@ -103,7 +103,7 @@ test('the page the run writes holds axe\'s script before the harness\'s own, and
   assert.ok(!/<\/script/i.test(axeScript()), 'nothing in it can close its element');
   assert.ok(!pageFor('tasks', 'dark', model).includes(axeScript()), 'a page drawn for the colour check doesn\'t load axe');
   assert.match(page, /<title>Command Center<\/title>/, 'and the page has a title, as the tab does');
-  assert.deepEqual(TAB_TITLES, { home: 'Command Center', ticket: 'Ticket', agent: 'Agent', conversation: 'ACME-21 · Plan conversation', report: 'Report a problem' }, 'the titles htmlFor in panels.ts gives, and the conversation\'s and report\'s panels pass it');
+  assert.deepEqual(TAB_TITLES, { home: 'Command Center', ticket: 'Ticket', agent: 'Agent', conversation: 'Discuss ACME-21', report: 'Report a problem' }, 'the titles htmlFor in panels.ts gives, and the conversation\'s and report\'s panels pass it');
   assert.ok(readFileSync(join(root, 'src', 'panels.ts'), 'utf8').includes("title = kind === 'ticket' ? 'Ticket' : kind === 'agent' ? 'Agent' : 'Command Center'"), 'which is where they come from');
   assert.match(pageFor('ticket', 'dark', sampleModel('ticket'), 'light', false, true), /<title>Ticket<\/title>/);
   assert.match(pageFor('report', 'dark', sampleModel('report'), 'light', false, true), /<title>Report a problem<\/title>/);
