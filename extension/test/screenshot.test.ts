@@ -140,6 +140,8 @@ test('every section of the page, and a ticket, has sample data built by the real
     // The Agents tab with agents that would bill per token (D-089), and Settings at How agents run (GH-110).
     else if (kind === 'agents-billing') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).agents.billing?.tone], ['home', 'agents', 'orange']);
     else if (kind === 'settings-agents') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.agents.projects.length], ['home', 'settings', 2]);
+    // Settings' Pipeline (T-157): both projects, the Salesforce one first, with its development environment.
+    else if (kind === 'settings-pipeline') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.pipeline.map((p) => [p.project, p.development])], ['home', 'settings', [['Acme Service', 'Dev'], ['Acme Portal', 'Staging']]]);
     // Settings at Trackers and sign-ins, with each project's trackers (GH-112).
     else if (kind === 'settings-trackers') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).settings.trackers.projects.map((p) => p.trackers.length)], ['home', 'settings', [2, 4]]);
     // Two Jira Service Management queue boards on one project (T-128), each its own tracker, on the Tasks tab and in Settings.
