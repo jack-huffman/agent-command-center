@@ -15,11 +15,15 @@ import { shapeSection } from './shape-split.ts';
 import { type Team, teamSection } from './team.ts';
 import { machineNoun } from './this-machine.ts';
 
+/** How many steps a Salesforce builder's How to test it asks for (T-161): enough to try the change, few enough to follow. */
+export const TEST_STEPS = { min: 3, max: 7 } as const;
+
 /**
- * A Salesforce builder's How to test it (T-161): its note ends with a short list for the person who comes back to
- * the ticket and opens its development org from there. The ticket shows the list beside Open <environment>.
+ * A Salesforce builder's How to test it (T-161): its note ends with numbered steps for the person who comes back to
+ * the ticket and opens its development org from its Testing tab. A step that names one component by its API name
+ * gets a link to that component's page there, so each step names at most one.
  */
-export const SF_TEST_NOTE = `Salesforce: end the note with a short How to test it list, \`--test "<line>"\` once a line, a few lines and at most ${NOTE_LIMITS.lines}: where to go in the org, what to do there, and what the person sees when it works. For example \`--test "Open an Account and click New Order."\` and \`--test "The Order page shows the discount."\` The ticket shows the list beside the button that opens the org, and the wording check reads it as it reads the other lines.`;
+export const SF_TEST_NOTE = `Salesforce: end the note with How to test it, ${TEST_STEPS.min} to ${TEST_STEPS.max} numbered steps a person follows in the development org, one \`--test "<step>"\` a step, in order: where to go, what to do there, and what they see when it works. Each step names at most one component, by its API name, so the ticket can link to that component's page. For example \`--test "Open the Account object's Order_Total__c field and check its help text."\` and \`--test "Open an Account and click New Order. The Order page shows the discount."\` The ticket's Testing tab numbers the steps beside the button that opens the org, and the wording check reads each step as it reads the other lines.`;
 
 // ---------------------------------------------------------------- the packet (DESIGN.md section 8)
 

@@ -9,7 +9,7 @@ import type { Task } from '../../../packages/core/src/ledger.ts';
 import { PRODUCTION_NOT_HERE } from '../../../packages/core/src/sf-discovery.ts';
 import { sfComponent } from '../../../packages/core/src/sf-metadata.ts';
 import { idFrom, idQueryArgs, lookedUp, orgOpen, orgOpenArgs, SETUP_HOME } from '../../../packages/core/src/sf-org-pages.ts';
-import { tryIt } from '../model/try-it.ts';
+import { passedDeploy, testComponents, testing } from '../model/testing.ts';
 import type { DoctorItem } from './setup.ts';
 
 /**
@@ -34,11 +34,11 @@ export type OpenPlan =
  * passed, the org is there, and a component's path is one that deploy made. No path opens the org's home.
  */
 export function openPlan(config: Pick<Config, 'profile' | 'environments'>, t: Task, path: string | undefined, notHere: (branch: string) => boolean): OpenPlan {
-  const x = tryIt(config, t, notHere);
-  if (!x) return { ok: false, why: `${t.id} has no deploy by its builder to its environment that passed.` };
-  if (x.open.disabled || !x.org) return { ok: false, why: x.open.disabled ?? `${x.name} has no org in the project's settings.` };
-  if (path === undefined) return { ok: true, org: x.org, title: x.open.label, open: null };
-  const c = x.components.find((y) => y.path === path);
+  const x = testing(config, t, notHere);
+  if (!x?.ready) return { ok: false, why: `${t.id} has no deploy by its builder to its environment that passed.` };
+  if (x.ready.open.disabled || !x.org) return { ok: false, why: x.ready.open.disabled ?? `${x.name} has no org in the project's settings.` };
+  if (path === undefined) return { ok: true, org: x.org, title: x.ready.open.label, open: null };
+  const c = testComponents(passedDeploy(t)!.paths).find((y) => y.path === path);
   if (!c) return { ok: false, why: `${path} isn't one of the components ${t.id}'s builder deployed.` };
   const sf = sfComponent(path);
   return { ok: true, org: x.org, title: `Open ${c.name} in ${x.name}`, open: sf ? orgOpen(sf) : { kind: 'page', page: SETUP_HOME, where: 'Setup' } };

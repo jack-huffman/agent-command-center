@@ -372,8 +372,8 @@ export const area: CommandArea = {
                                         whoever comes next: what landed, which numbers moved (tests, checks,
                                         ratchets), and what's still open. A builder must give all three. A
                                         flag again adds a line; --moved none or --open none says there was
-                                        nothing. --test: how a person tests it in its org, which the
-                                        ticket shows beside Open <environment>
+                                        nothing. --test: a step to test it in its org, once a step, which
+                                        the ticket's Testing tab numbers beside Open <environment>
   acc block [<id>] "<headline>" [--item "<thing>"]... [--landed …] [--moved …] [--open …]
                                         A builder's way out when stuck, with a note if it has one: a short
                                         headline, then a bullet for each thing (--item, or markdown bullets),
@@ -432,7 +432,7 @@ export const area: CommandArea = {
     landed: { type: 'string', multiple: true },
     moved: { type: 'string', multiple: true },
     open: { type: 'string', multiple: true },
-    // How to test it (T-161): a Salesforce builder's lines for the person who tries the change in its org.
+    // How to test it (T-161): a Salesforce builder's steps for the person who tries the change in its org.
     test: { type: 'string', multiple: true },
   },
   // --project names the project for acc init, and is a plain switch for acc agents set: give the switch a

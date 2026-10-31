@@ -1,0 +1,12 @@
+/* The ticket's Testing tab (T-161): one line of where the work is, Open, then the builder's steps, numbered. A step's
+   link to its one component sits after its words and wraps with them on a narrow page. */
+.test-where { margin: 4px 0 8px; overflow-wrap: anywhere; }
+.test-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.test-why, .test-empty { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; }
+.test-why .codicon, .test-empty .codicon { margin-top: 2px; }
+.test-sub { margin: 12px 0 4px; font-size: 1em; }
+.test-steps { margin: 0; padding-left: 22px; }
+.test-steps > li { padding: 2px 0; overflow-wrap: anywhere; }
+.test-none { margin: 0; }
+/* In the Agent panel, the one link to the Testing tab, under the actions. */
+.test-go-line { margin-top: 6px; }

@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { applyMove, checkMove, emptyLedger, type Ledger, noGateHooks, NOTE_ALL, NOTE_LABELS, noteGiven, noteInput, noteMarkdown, noteProblems, upsertTasks } from '../src/ledger.ts';
 import { doneLines, noteWording } from '../src/note-wording.ts';
-import { renderPacket, SF_TEST_NOTE } from '../src/packet.ts';
+import { renderPacket, SF_TEST_NOTE, TEST_STEPS } from '../src/packet.ts';
 import { rulesText } from '../src/rules.ts';
 import { GENERIC_CONFIG, makeRepo, SF_CONFIG } from './support.ts';
 
@@ -69,6 +69,11 @@ test('a Salesforce builder\'s packet says to end the note with How to test it; a
   const sf = packet(SF_CONFIG);
   assert.ok(sf.includes(SF_TEST_NOTE));
   assert.ok(sf.indexOf(SF_TEST_NOTE) > sf.indexOf('## The finish line'), 'in the finish line, beside the note');
-  assert.match(SF_TEST_NOTE, /--test "<line>"/);
+  assert.match(SF_TEST_NOTE, /--test "<step>"/);
+  // The steps the Testing tab draws: 3 to 7, numbered, each naming at most one component so the tab can link it.
+  assert.deepEqual(TEST_STEPS, { min: 3, max: 7 });
+  assert.ok(SF_TEST_NOTE.includes('3 to 7 numbered steps'), SF_TEST_NOTE);
+  assert.ok(SF_TEST_NOTE.includes('Each step names at most one component, by its API name'));
+  assert.ok(/where to go, what to do there, and what they see when it works/.test(SF_TEST_NOTE));
   assert.ok(!packet(GENERIC_CONFIG).includes('How to test it'), 'edge case: no org, no list');
 });

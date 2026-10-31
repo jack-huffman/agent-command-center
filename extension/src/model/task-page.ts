@@ -41,7 +41,7 @@ import type { TicketRecords } from './record-changes.ts';
 import type { TicketTeam } from './team.ts';
 import type { TicketField } from './changes-field.ts';
 import type { TicketDeploy } from './ticket-deploy.ts';
-import type { TryIt } from './try-it.ts';
+import type { Testing } from './testing.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
 
@@ -227,8 +227,8 @@ export interface TicketModel {
   records?: TicketRecords | null;
   /** Its deploy (T-158): a row for each environment on its path, and Deploy…, which starts an agent. Null outside Salesforce. */
   deploy?: TicketDeploy | null;
-  /** Its development org once its builder's deploy there passed (T-161): Open, each component at its page, how to test it. Null before. */
-  tryIt?: TryIt | null;
+  /** Its Testing tab (T-161): its development org, and once its builder's deploy there passed, Open and the steps to test it. Null outside Salesforce. */
+  testing?: Testing | null;
   /** What the ticket's changes field says (T-105), and the Command Center's draft where it differs. */
   field?: TicketField | null;
   /** Manifest for this ticket (T-101): a Salesforce task's package.xml and what its org said. Null with no task, or outside Salesforce. */

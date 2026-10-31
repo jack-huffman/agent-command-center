@@ -141,7 +141,10 @@ export const OUTPUT_RUNS: Partial<Record<Page, RunSample>> = { 'output-running':
 export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-running': 'steps-running', 'output-steps-failed': 'steps-failed', 'output-steps-done': 'steps-done' };
 
 /** The Changes tab's deploy shots (T-138), each named for the sample it draws. */
-const DEPLOY_SHOTS = ['ticket-deploy-before', 'ticket-deploy-work', 'ticket-deploy-deployed', 'ticket-deploy-not', 'ticket-deploy-unknown', 'ticket-deploy-steps', 'ticket-deploy-pick', 'ticket-deploy-pick-off', 'ticket-deploy-off', 'ticket-deploy-checking', 'ticket-deploy-busy', 'ticket-deploy-built', 'ticket-deploy-built-off'] as const;
+const DEPLOY_SHOTS = ['ticket-deploy-before', 'ticket-deploy-work', 'ticket-deploy-deployed', 'ticket-deploy-not', 'ticket-deploy-unknown', 'ticket-deploy-steps', 'ticket-deploy-pick', 'ticket-deploy-pick-off', 'ticket-deploy-off', 'ticket-deploy-checking', 'ticket-deploy-busy'] as const;
+
+/** The Testing tab's shots (T-161), by the deploy sample each draws: before its builder's deploy, built, and built with Open off. */
+const TESTING_SHOTS: Partial<Record<Page, DeploySample>> = { 'ticket-testing-before': 'work', 'ticket-testing': 'built', 'ticket-testing-off': 'built-off' };
 
 /**
  * The shots of a part that moved under the Changes tab's More (T-138), with More open, by the ticket each draws.
@@ -155,11 +158,12 @@ const MORE_OPEN: Partial<Record<Page, string>> = {
  * Each task page's shot opens on the tab that shows what it was made to show (T-134), as a link naming it would:
  * the rest open by the page's own rules.
  */
-export const SHOT_TAB: Partial<Record<Page, 'ticket' | 'plan' | 'changes' | 'review' | 'verify'>> = {
+export const SHOT_TAB: Partial<Record<Page, 'ticket' | 'plan' | 'changes' | 'testing' | 'review' | 'verify'>> = {
   ...Object.fromEntries((['ticket-plan-approved', 'ticket-plan-shapes', 'ticket-plan-short', 'ticket-plan-choices', 'ticket-review-choice', 'ticket-review-question', 'ticket-review-answered', 'ticket-review-summary', 'ticket-talk', 'ticket-conversation', 'ticket-progress', 'ticket-note', 'ticket-sections', 'ticket-sections-collapsed', 'ticket-criteria-sheet', 'ticket-tab-plan'] as Page[]).map((k) => [k, 'plan'])),
   ...Object.fromEntries((['ticket-planned', 'ticket-changes', 'ticket-kept', 'ticket-records', 'ticket-records-form', 'ticket-records-promoted', 'ticket-manifest', 'ticket-changes-field', 'ticket-team', 'ticket-team-alone', 'ticket-tab-changes', ...DEPLOY_SHOTS] as Page[]).map((k) => [k, 'changes'])),
   ...Object.fromEntries((['ticket-verify-pass', 'ticket-verify-changes', 'ticket-verify-choice', 'ticket-tab-verify'] as Page[]).map((k) => [k, 'verify'])),
   ...Object.fromEntries((['ticket-tab-review', 'ticket-tab-review-findings', 'ticket-tab-review-passed'] as Page[]).map((k) => [k, 'review'])),
+  ...Object.fromEntries(Object.keys(TESTING_SHOTS).map((k) => [k, 'testing'])),
   'ticket-tab-ticket': 'ticket',
 };
 
@@ -258,6 +262,9 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // ACME-20's record changes (T-100): planned and recorded, the form for a change made by hand, and promoted to UAT with a step to run.
   // ACME-12's Changes tab with its deploy, and the sheet over it (T-138).
   if ((DEPLOY_SHOTS as readonly Page[]).includes(kind)) return sampleDeployTicket(now, kind.slice('ticket-deploy-'.length) as DeploySample);
+  // ACME-12's Testing tab (T-161): before its builder's deploy to Dev, and after, with Open on and off.
+  const testingSample = TESTING_SHOTS[kind];
+  if (testingSample) return sampleDeployTicket(now, testingSample);
   if (kind === 'ticket-records') return sampleRecordsTicket(now, 'kept');
   if (kind === 'ticket-records-form') return sampleRecordsTicket(now, 'form');
   if (kind === 'ticket-records-promoted') return sampleRecordsTicket(now, 'promoted');

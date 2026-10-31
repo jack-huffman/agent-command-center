@@ -1,5 +1,5 @@
-// Try it in the org (T-161): a ticket whose builder's deploy to its development org passed opens that org, and each
-// component it deployed at its own page there, with sf in the person's browser. Whether this machine is logged in
+// The Testing tab's org (T-161): a ticket whose builder's deploy to its development org passed opens that org, and a
+// component a step names at its own page there, with sf in the person's browser. Whether this machine is logged in
 // to the org is the last Setup check's word; where it isn't, or the settings name no org, Open is off with why.
 import * as vscode from 'vscode';
 import type { ExtensionArea } from './area.ts';

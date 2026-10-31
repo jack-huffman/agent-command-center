@@ -5,8 +5,9 @@
  * open on what's missing, every row can't tell with its reason, deployed to UAT with steps left to do by hand
  * and Production not deployed, Deploy… open on its three environments, Deploy… open with Hotfix off for want of
  * an org, Deploy… off as a dependency is in none of them, QA's Check again under way, and an agent deploying to UAT.
- * Built (T-161): in review, its builder's deploy to Dev passed, so Dev's row opens Dev, says how to test it and opens
- * each component; built-off: this machine isn't logged in to acme-dev, and its builder gave no steps.
+ * Its Testing tab (T-161): before its builder's deploy to Dev (work); built, in review with that deploy passed, so the
+ * tab opens Dev and numbers its builder's steps, three of them with a link to the one component each names; built-off:
+ * this machine isn't logged in to acme-dev, and its builder gave no steps.
  */
 import { openSteps } from '../../../packages/core/src/change-steps.ts';
 import type { Environment } from '../../../packages/core/src/config.ts';
@@ -18,7 +19,7 @@ import { ticketChanges } from '../../src/model/changes.ts';
 import { ticketRecords } from '../../src/model/record-changes.ts';
 import type { TicketModel } from '../../src/model/task-page.ts';
 import { deployBlockers, ticketDeploy } from '../../src/model/ticket-deploy.ts';
-import { tryIt } from '../../src/model/try-it.ts';
+import { testing } from '../../src/model/testing.ts';
 import { MIN, ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
@@ -33,7 +34,12 @@ const PLAN = [`${D}/classes/CaseRouting.cls`, `${D}/classes/CaseRoutingTest.cls`
 const MADE = [`${D}/classes/CaseRouting.cls`, `${D}/classes/CaseRouting.cls-meta.xml`, `${D}/classes/CaseRoutingTest.cls`, `${D}/flows/Case_Escalation.flow-meta.xml`,
   `${D}/objects/Case/fields/Tier__c.field-meta.xml`, `${D}/permissionsets/Support_Agent.permissionset-meta.xml`, `${D}/classes/LegacyRouting.cls`];
 /** How to test it, as ACME-12's builder wrote it in its note (T-161). */
-const BUILT_STEPS = ['Open a Case with the Premium tier.', 'Click Escalate.', 'The Case goes to the Premium queue, and the Tier field shows Premium.'];
+const BUILT_STEPS = [
+  'Open the Tier__c field on Case, and check that its values include Premium.',
+  'Open a Case with the Premium tier and click Escalate.',
+  'The Case goes to the Premium queue. Open Case_Escalation to see the path it took.',
+  'Give a user the Support_Agent permission set, and check that they see the Tier field.',
+];
 const tier: RecordChange = { object: 'Routing_Tier__c', action: 'create', match: [{ field: 'Name', value: 'Premium' }], fields: [{ field: 'Hours__c', from: null, to: '4' }] };
 
 /** One environment's reading, as acc where keeps it. */
@@ -107,7 +113,7 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   const acc = m.acc && deployedOnce ? { ...m.acc, conflicts: null, checks: m.acc.checks.filter((c) => !deployBlockers([c]).length) } : m.acc;
   return {
     ...m, acc, project: ROOT, changes, records,
-    tryIt: tryIt(config, task, (b) => which === 'built-off' && b === 'dev'),
+    testing: testing(config, task, (b) => which === 'built-off' && b === 'dev'),
     deploy: ticketDeploy({
       config, task: which === 'off' ? { ...task, deps: ['ACME-3'] } : task, tasks: which === 'off' ? [task, dep] : [task], deploying: which === 'busy' ? 'uat' : null,
       failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null, stepsLeft: openSteps(task).length, where, reading: (b) => which === 'checking' && b === 'qa',
