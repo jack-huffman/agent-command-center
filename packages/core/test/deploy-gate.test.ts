@@ -711,8 +711,12 @@ test('land takes a refreshed Salesforce task on its deploy before the merge comm
   // A person's land, the builder's scope, takes it the same way.
   const again = land(f.paths, f.c, 'T-1', { run: fakeRunner({ 'gh auth token -u work-account': ok('gho_token\n'), 'gh pr list': ok('[{"number":7,"url":"https://github.com/acme-co/acme-salesforce/pull/7"}]'), 'gh pr edit': ok('') }, calls), now, env: {} });
   assert.deepEqual([again.opened, again.pr.number], [false, 7]);
-  // The merge queue's own merge: refused for every Salesforce project, before its checks are looked at.
-  assert.throws(() => mergePr(f.paths, f.c, 'T-1', { run: gh, now, env: {} }, { actor: 'orchestrator', by: 'autopilot' }), /A Salesforce project never auto-merges: a person merges every pull request there/);
+  // The merge queue's own merge (T-157): under autonomy manual, refused before its checks are looked at; under
+  // review, it asks for the builder's deploy on the very commit the review read, here the merge commit, where
+  // only a skip was recorded: refused, where land took the deploy before. The builder deploys again after a
+  // refresh (acc done asks for it on its last commit), so a reviewed commit is a deployed one.
+  assert.throws(() => mergePr(f.paths, f.c, 'T-1', { run: gh, now, env: {} }, { actor: 'orchestrator', by: 'autopilot' }), /Autonomy is manual, so autopilot doesn't run and nothing merges on its own/);
+  assert.throws(() => mergePr(f.paths, { ...f.c, autonomy: 'review' }, 'T-1', { run: gh, now, env: {} }, { actor: 'orchestrator', by: 'autopilot' }), (e: Error & { code?: string }) => e.code === 'merge' && new RegExp(`^T-1's own deploy to Dev hasn't passed on ${merge.slice(0, 7)}, the commit its review read: it merges only on the deploy its builder made there\\.$`).test(e.message));
   // A refresh with no deploy of the task's own: land refuses, naming the gate.
   const g = fixture();
   for (const x of ['format', 'stray-files']) g.passed(x);

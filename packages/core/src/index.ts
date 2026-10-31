@@ -69,6 +69,8 @@ export * from './outside-kinds.ts';
 export * from './overlap.ts';
 export * from './packet.ts';
 export * from './paths.ts';
+export * from './pipeline-settings.ts';
+export * from './pipeline.ts';
 export * from './plan-choices.ts';
 export * from './plan-opening.ts';
 export * from './plan-talk.ts';

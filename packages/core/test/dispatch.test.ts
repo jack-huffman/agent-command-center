@@ -180,11 +180,12 @@ test('where the merge queue runs the full check, the packet and the short one na
   assert.deepEqual(merges(parseConfig({ ...raw, autonomy: 'manual' }).config!), [], 'manual autonomy merges nothing on its own');
   const kept = parseConfig({ ...raw, environments: [...GENERIC_CONFIG.environments, { name: 'release', protected: true }] }).config!;
   assert.deepEqual(merges(kept, { ...task, environment: 'release' }), [], 'a protected environment never auto-merges');
-  // The config refuses auto-merge in a Salesforce project; set on one anyway, it still isn't allowed.
-  const sfParsed = parseConfig({ ...JSON.parse(JSON.stringify(SF_CONFIG)), autonomy: 'review' }).config!;
-  const sf = { ...sfParsed, autopilot: { appendOnly: [], autoMerge: true as const } };
-  const sfEnv = sf.environments.find((e) => !e.protected)!;
-  assert.deepEqual(merges(sf, { ...task, environment: sfEnv.branch }), [], 'never in a Salesforce project');
+  // A Salesforce project's queue runs for the development environment alone (T-157): a builder there may bring
+  // dev in, and one on uat, not protected but not the development environment, may not.
+  const sf = parseConfig({ ...JSON.parse(JSON.stringify(SF_CONFIG)), autonomy: 'review' }).config!;
+  assert.deepEqual(merges(sf, { ...task, environment: 'dev' }), ['Bash(git merge origin/dev)', 'Bash(git merge origin/dev *)'], 'the development environment, by default');
+  assert.deepEqual(merges(sf, { ...task, environment: 'uat' }), [], 'never a further environment');
+  assert.deepEqual(merges(parseConfig({ ...JSON.parse(JSON.stringify(SF_CONFIG)), autonomy: 'review', autopilot: { autoMerge: false } }).config!, { ...task, environment: 'dev' }), [], 'the switch off');
 });
 
 test('builder settings: identity, acc on PATH, and the dangerous commands denied even if the user allows them', () => {

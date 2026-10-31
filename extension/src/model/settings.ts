@@ -7,6 +7,7 @@
 
 import { autopilotDoes } from '../../../packages/core/src/autopilot.ts';
 import { autoMergeOn, type ConfigPath, keyShown, UNREAD_KEYS } from '../../../packages/core/src/config.ts';
+import { developmentEnvironment, notMergingWhy } from '../../../packages/core/src/pipeline.ts';
 import { builderPlaceLook, type CloudNeed, cloudOffered, cloudReason } from '../../../packages/core/src/cloud.ts';
 import { CLOUD_SETUP } from '../../../packages/core/src/onboarding/cloud-steps.ts';
 import type { Protection } from '../../../packages/core/src/protection.ts';
@@ -24,6 +25,7 @@ import { type BoardInput, boardName } from './boards.ts';
 import type { IdentityCard } from './environments.ts';
 import type { AboutModel } from './about.ts';
 import type { LimitsModel } from './limits.ts';
+import { type PipelineProject, pipelineProjects } from './pipeline.ts';
 import { HOME_SECTIONS, type HomeSection, type Look, LOOK, type ModelArea, type ProjectLike, VIEW_TITLES } from './shared.ts';
 
 // ---------------------------------------------------------------- the theme
@@ -194,7 +196,13 @@ export function autoMergeSetting(p: ProjectLike, unread: Unread = UNREAD_KEYS): 
   if (!p.config.autonomy || !keyShown('autopilot.autoMerge', unread)) return null;
   const key = 'autopilot.autoMerge';
   const off: Look = { label: 'off', icon: 'circle-slash', tone: 'neutral' };
-  if (p.config.profile === 'salesforce') return { key, look: off, from: PROJECT, meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false };
+  // A Salesforce project merges into its development environment on its own by default (T-157): the Pipeline section says where.
+  if (p.config.profile === 'salesforce') {
+    const dev = developmentEnvironment(p.config);
+    const why = notMergingWhy({ ...p.config, autonomy: p.config.autonomy ?? 'manual' });
+    if (!autoMergeOn(p.config)) return { key, look: off, from: PROJECT, meaning: 'A person merges every pull request. On, reviewed work merges into the development environment on its own: see Pipeline.', settable: true };
+    return { key, look: { label: 'on', icon: 'git-merge', tone: 'neutral' }, from: PROJECT, meaning: `Reviewed work whose own deploy to ${dev?.org ?? 'the development org'} passed merges into ${dev?.name ?? 'the development environment'} on its own, and never further: see Pipeline.${why ? ` ${why}` : ''}`, settable: true };
+  }
   if (!autoMergeOn(p.config)) return { key, look: off, from: PROJECT, meaning: 'Autopilot never merges a pull request: a person merges each one.', settable: true };
   const kept = p.config.environments.filter((e) => e.protected).map((e) => e.name);
   const meaning = [
@@ -542,7 +550,7 @@ export function pagePreferences(i: { opensOn: OpensOn; whereView: WhereView; pac
  * preferences (GH-113), and About (GH-114), built here. Each has a heading another page can open Settings at, with
  * show('settings', settingsKey(part)).
  */
-export const SETTINGS_PARTS = ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about'] as const;
+export const SETTINGS_PARTS = ['appearance', 'agents', 'pipeline', 'limits', 'trackers', 'slack', 'github', 'page', 'about'] as const;
 export type SettingsPart = (typeof SETTINGS_PARTS)[number];
 
 /** What opens Settings at a part, from another page: its heading's key. */
@@ -578,6 +586,8 @@ export interface SettingsModel {
   agents: HowAgentsRun;
   /** Trackers and sign-ins (GH-112). */
   trackers: TrackersAndSignIns;
+  /** The pipeline (T-157): each project's environments in path order, the development one, and the switch. */
+  pipeline: PipelineProject[];
   parts: SettingsPartModel[];
   /** Limits and checks (GH-111): the caps, what a change means, the heavy-check slots and each project's checks. Null until read. */
   limits: LimitsModel | null;
@@ -610,7 +620,7 @@ export const meaningKey = (id: string): string => `settings-meaning:${id}`;
  * Settings' sections (T-139): a few named groups of its parts, each opening with one line that says what it's
  * for. The page shows one at a time, picked from its jump list, and the tab remembers the one on show.
  */
-export const SETTINGS_SECTIONS = ['trackers', 'agents', 'limits', 'accounts', 'look', 'about'] as const;
+export const SETTINGS_SECTIONS = ['trackers', 'agents', 'pipeline', 'limits', 'accounts', 'look', 'about'] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number];
 
 /** A section of Settings: its title and icon, its one line, and the parts it holds, in the page's order. */
@@ -627,6 +637,7 @@ export interface SettingsSectionModel {
 const SETTINGS_SECTION_WORDS: Record<SettingsSectionId, Omit<SettingsSectionModel, 'id'>> = {
   trackers: { title: 'Trackers and boards', icon: 'issues', line: 'Where each project\'s tickets come from, and how it signs in.', parts: ['trackers'], headed: false },
   agents: { title: 'Agents', icon: 'hubot', line: 'What builders, the planning agent and reviewers run with, in each project.', parts: ['agents'], headed: false },
+  pipeline: { title: 'Pipeline', icon: 'git-merge', line: 'The environments in order, where reviewed work merges on its own, and where it goes next.', parts: ['pipeline'], headed: false },
   limits: { title: 'Checks and limits', icon: 'dashboard', line: 'How many builders run at once, and the checks a task must pass.', parts: ['limits'], headed: false },
   accounts: { title: 'Accounts and notices', icon: 'account', line: 'The GitHub account each repo pushes as, and notices in Slack.', parts: ['github', 'slack'], headed: true },
   look: { title: 'Look and behaviour', icon: 'window', line: 'How the Command Center looks, where it opens and how often it refreshes.', parts: ['appearance', 'page'], headed: false },
@@ -644,7 +655,7 @@ export const sectionOfPart = (part: SettingsPart): SettingsSectionId => SETTINGS
  * project's autonomy, auto-merge and cloud builders, Billing, each preference, and each version in About.
  * An empty one isn't drawn.
  */
-export function settingsMeanings(m: Pick<SettingsModel, 'theme' | 'themes' | 'agents' | 'page' | 'about'>): { id: string; text: string }[] {
+export function settingsMeanings(m: Pick<SettingsModel, 'theme' | 'themes' | 'agents' | 'pipeline' | 'page' | 'about'>): { id: string; text: string }[] {
   const theme = m.themes.find((t) => t.key === m.theme) ?? m.themes[0];
   const out = [
     { id: 'theme', text: theme?.meaning ?? '' },
@@ -653,6 +664,8 @@ export function settingsMeanings(m: Pick<SettingsModel, 'theme' | 'themes' | 'ag
       { id: `auto-merge:${s.root}`, text: s.autoMerge?.meaning ?? '' },
       { id: `cloud:${s.root}`, text: s.cloud?.meaning ?? '' },
     ]),
+    // The pipeline's switch (T-157), under its own id: the Agents row above says the same of auto-merge.
+    ...m.pipeline.map((p) => ({ id: `pipeline:${p.root}`, text: p.merge.meaning })),
     { id: 'billing', text: m.agents.billing.meaning },
     ...m.page.preferences.map((p) => ({ id: `page:${p.id}`, text: p.meaning })),
     ...(m.about?.rows ?? []).map((r) => ({ id: `about:${r.key}`, text: r.meaning ?? '' })),
@@ -687,6 +700,7 @@ export interface SettingsInput {
 export function settingsModel(i: SettingsInput): SettingsModel {
   const agents = howAgentsRun(i.projects, i.setup, UNREAD_KEYS, i.cloudProtection ?? (() => null));
   const trackers = trackersAndSignIns(i.projects, i.boards ?? (() => []));
+  const pipeline = pipelineProjects(i.projects);
   const github = githubAccounts(i.projects, i.identity ?? (() => null));
   const page = pagePreferences({ opensOn: i.opensOn ?? 'left', whereView: i.whereView ?? 'folder', pace: i.pace ?? 'normal' });
   const later = (id: SettingsPart, title: string, icon: string, summary: string, today: string, links: SettingsLink[] = [], details: string[] = []): SettingsPartModel => ({ id, title, icon, summary, built: false, today, details, links });
@@ -699,6 +713,14 @@ export function settingsModel(i: SettingsInput): SettingsModel {
         ? ['Change… writes the project\'s settings, for you to commit and share. A choice for this clone only is kept in its git config, where nobody else sees it.']
         : ['No project in this workspace is onboarded yet. Once Setup onboards one, its builders, planning agent and reviewers show here.'],
       links: agents.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
+    },
+    {
+      id: 'pipeline', title: 'Pipeline', icon: 'git-merge', summary: 'Each project\'s environments in path order, which is the development environment, whether reviewed work merges into it on its own, and where each environment goes next.',
+      built: true, today: null,
+      details: pipeline.length
+        ? ['The development environment, the switch and the next steps are kept in the project\'s settings: each change asks the Command Center to write them, for you to commit. In a Salesforce project reviewed work merges into the development environment on its own unless you turn it off; a deploy past the development org is always yours to pick, run by an agent.']
+        : ['No project in this workspace is onboarded yet. Once Setup onboards one, its environments show here.'],
+      links: pipeline.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },
     { id: 'limits', title: 'Limits and checks', icon: 'dashboard', summary: 'How many builders run at once, this project\'s cap and this machine\'s total, what a change means, the heavy checks this machine runs at once, and the checks a task must pass. Each change goes through the Command Center.', built: true, today: null, details: [], links: [] },
     {
@@ -734,7 +756,7 @@ export function settingsModel(i: SettingsInput): SettingsModel {
       links: [],
     },
   ];
-  const drawn = { theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, page, about: i.about ?? null };
+  const drawn = { theme: i.theme, themes: THEME_CHOICES.map((key) => ({ key, ...THEMES[key] })), agents, pipeline, page, about: i.about ?? null };
   const folded = settingsMeanings(drawn).filter((x) => foldsMeaning(x.text)).map((x) => x.id);
   return { kind: 'settings', ...drawn, trackers, parts, limits: i.limits ?? null, slack: i.slack ?? null, github, sections: settingsSections(), folded };
 }
@@ -743,14 +765,15 @@ export const area: ModelArea = {
   // How agents run's Change… buttons run the Agents area's commands, which this section draws now (GH-110).
   // A tracker's Sign out is drawn only here (GH-112); its Sign in and Change tracker… are the boards' too.
   // GitHub accounts' Switch… and Sign in are Environments' commands, which its account cards draw too (GH-113).
-  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.review', 'acc.cloud.routine'],
+  // The Pipeline section's buttons (T-157): the development environment and an environment's next steps.
+  commands: ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.pipeline.development', 'acc.pipeline.next', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.review', 'acc.cloud.routine'],
   home: {
     // Last in the rail, after every other area's.
     order: 90,
     // Slack paused because it refused a message needs you (GH-58): its badge came with it (GH-113).
     nav: ({ i }) => ({
       section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: i.slack?.state === 'paused',
-      hint: i.slack?.state === 'paused' ? 'Notices to Slack are paused' : 'Appearance, agents, limits, trackers, Slack, GitHub accounts, the Command Center\'s own preferences and the versions',
+      hint: i.slack?.state === 'paused' ? 'Notices to Slack are paused' : 'Appearance, agents, the pipeline, limits, trackers, Slack, GitHub accounts, the Command Center\'s own preferences and the versions',
     }),
   },
 };

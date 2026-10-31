@@ -1,7 +1,7 @@
 // acc's Agents commands for builders and how they run: dispatch, done, block, resume, cleanup, agents
 // and machine.
 
-import { AccError, AGENT_ROLES, AGENTS_MODEL_COMMAND, BLOCK_SHAPE, composeNote, doneLines, noteLines, noteWording, noteWordingWords, refuseNoteWording, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builderPlaceLook, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, thisMachine, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles } from '../../../core/src/index.ts';
+import { AccError, AGENT_ROLES, AGENTS_MODEL_COMMAND, BLOCK_SHAPE, composeNote, doneLines, noteLines, noteWording, noteWordingWords, refuseNoteWording, shapeProblems, type AgentRole, agentsMaxSet, autoMergeOn, autopilotDoes, builderPlaceLook, type BuilderPlace, builders, cleanup, clipSaid, type Config, DEFAULT_AGENTS, dispatch, dispatchAgain, DISPATCH_AGAIN, UNSEEN_WORDS, type DispatchOutcome, effortDroppedWords, type EffortPick, filesOf, fullGates, heavySlots, loadConfig, machineAgents, machineJson, machineRepos, thisMachine, noteGiven, noteInput, type NoteInput, type ProfileChange, profileView, readLedger, resume, run, setAgentsMax, setAutoMerge, setAutonomy, setHeavySlots, setMachineAgents, setProfile, sharesWords, startedWords, startHeld, type StartHeldResult, stopWaiting, taskList, unseenOf, withStrayFiles, autoMergeFor, developmentEnvironment, notMergingWhy } from '../../../core/src/index.ts';
 import { stateLabel, tone } from '../format.ts';
 import { accBinDir, accCommand, actorFrom, type CommandArea, followingCards, noAgent, now, type Opts, out, personOnly, project, steps, taskIdFrom } from '../shared.ts';
 import { refuseUnrecorded } from './changes.ts';
@@ -167,8 +167,19 @@ function cmdAutonomy(o: Opts, configFile: string, value: string | undefined): nu
 function autoMergeLines(config: Config): string {
   if (!autoMergeOn(config)) {
     return config.profile === 'salesforce'
-      ? 'auto-merge off (project): a Salesforce project never auto-merges. A person merges every pull request.'
+      ? 'auto-merge off (project): a person merges every pull request. On, a reviewed task merges into the development environment once its own deploy there passed (T-157).'
       : 'auto-merge off (project): autopilot never merges a pull request. A person merges each one.';
+  }
+  // A Salesforce project merges into its development environment alone (T-157), on the builder's own deploy there.
+  if (config.profile === 'salesforce') {
+    const dev = developmentEnvironment(config);
+    const why = notMergingWhy(config);
+    const others = config.environments.filter((e) => e.branch !== dev?.branch).map((e) => e.branch);
+    return [
+      dev ? `auto-merge on (project): a task into ${dev.branch} whose review passed, whose own deploy to ${dev.org ?? dev.name} passed on the commit the review read, with nothing waiting on a person and nothing changed under .acc/, joins the repo's merge queue, and they merge in turn: at its turn its base is merged in, the full check runs once, and it merges once GitHub says it can.` : 'auto-merge on (project), but nothing merges on its own.',
+      others.length ? `Never into ${others.join(', ')}: only the development environment, and never a deploy past its org.` : '',
+      why ?? 'It merges while autopilot is on.',
+    ].filter(Boolean).join(' ');
   }
   const covered = config.environments.filter((e) => !e.protected).map((e) => e.branch);
   const kept = config.environments.filter((e) => e.protected).map((e) => e.branch);
@@ -182,7 +193,8 @@ function autoMergeLines(config: Config): string {
 
 /** Whether autopilot merges a reviewed, green pull request (GH-67): shown, or set in .acc/config.json by a person. */
 function cmdAutoMerge(o: Opts, configFile: string, value: string | undefined): number {
-  const data = (config: Config) => ({ autoMerge: autoMergeOn(config), environments: config.environments.filter((e) => autoMergeOn(config) && !e.protected).map((e) => e.branch), autonomy: config.autonomy });
+  // The environments it would merge into under autonomy review: a Salesforce project's development environment alone (T-157).
+  const data = (config: Config) => ({ autoMerge: autoMergeOn(config), environments: config.environments.filter((e) => autoMergeFor({ ...config, autonomy: 'review' }, e.branch)).map((e) => e.branch), autonomy: config.autonomy });
   if (value === undefined) {
     const { config } = loadConfig(configFile);
     out(o, () => autoMergeLines(config), data(config));
@@ -383,7 +395,9 @@ export const area: CommandArea = {
                                         Change them for this clone, or with --project in .acc/config.json
   acc agents autonomy [manual|review]   What autopilot may do on its own, or change it in .acc/config.json
   acc agents auto-merge [on|off]        Whether autopilot merges a reviewed pull request whose checks passed, into
-                                        an environment that isn't protected, or change it in .acc/config.json
+                                        an environment that isn't protected, or change it in .acc/config.json.
+                                        On by default in a Salesforce project, into the development environment
+                                        alone, on the builder's own deploy there (acc environments shows it)
   acc agents max [<n>]                  How many builders this project runs at once, and how many run now; with
                                         <n>, set it (1 to 16) in .acc/config.json, for everyone on the repo
   acc machine heavy-slots [<n>]         How many heavy checks (builds, tests, validations) this machine runs at once,

@@ -186,6 +186,14 @@ test('gates.builder: a list of gate names, kept as written, for builders only wh
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.builder, ['typecheck'], 'written back as it was');
 });
 
+test('gates.builder in a Salesforce project gets deploy beside validate, as gates.required does (D-206, T-157): a builder on the lighter list still deploys before it is done, so a branch never merges with changes the org never held', () => {
+  const sf = parseConfig({ ...clone(SF_CONFIG), autonomy: 'review', gates: { required: ['format', 'validate'], builder: ['validate'] } }).config!;
+  assert.deepEqual(sf.gates.builder, ['validate', 'deploy'], 'the mutant that leaves deploy out of the lighter list is caught here');
+  assert.deepEqual(requiredGates(sf, 'dev', 'builder'), ['validate', 'deploy', 'stray-files'], 'what a builder runs on the development environment');
+  assert.deepEqual(parseConfig({ ...clone(SF_CONFIG), gates: { required: ['format', 'validate'], builder: ['deploy', 'validate'] } }).config!.gates.builder, ['deploy', 'validate'], 'a list that names deploy keeps its order');
+  assert.deepEqual(parseConfig({ ...clone(SF_CONFIG), gates: { required: ['format', 'validate'], builder: ['format'] } }).config!.gates.builder, ['format'], 'no validate, no deploy');
+});
+
 test('gates.ratchets: a command, which way its number may go, and a short label; a name of its own, and written back as it was (GH-99)', () => {
   const tests = { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' };
   const raw = { ...clone(GENERIC_CONFIG), gates: { required: ['tests'], commands: { check: 'npm run check' }, ratchets: { tests, violations: { command: 'sf code-analyzer run', limit: 'ceiling', label: ' violations ' } } } };
@@ -302,15 +310,25 @@ test('code reads the required checks through fullGates and requiredGates, never 
   assert.deepEqual(Object.fromEntries(files.map((f) => [f, reads(f)]).filter(([, n]) => n)), EXCEPTIONS);
 });
 
-test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesforce project, and never into a protected environment (GH-67)', () => {
+test('autopilot.autoMerge: off unless it\'s true, a boolean, on in a Salesforce project unless it\'s false, and never into a protected environment (GH-67, T-157)', () => {
   const on = parseConfig({ ...clone(GENERIC_CONFIG), autonomy: 'review', autopilot: { autoMerge: true } });
   assert.deepEqual([on.errors, on.warnings, on.config!.autopilot], [[], [], { appendOnly: [], autoMerge: true }]);
   assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), autopilot: { autoMerge: false } }).config!.autopilot, { appendOnly: [] }, 'false is the same as left out');
   assert.match(errorsOf({ ...clone(GENERIC_CONFIG), autopilot: { autoMerge: 'yes' } }), /"autopilot\.autoMerge" must be true or false/);
+  // A Salesforce project merges on its own by default (T-157): true says the default, so it's kept out; false is the switch off, kept.
   const sf = parseConfig({ ...clone(SF_CONFIG), autopilot: { autoMerge: true } });
-  assert.equal(sf.config, null);
-  assert.deepEqual(sf.errors, ['"autopilot.autoMerge" can\'t be on in a Salesforce project: a person merges every pull request there.']);
-  assert.deepEqual(parseConfig({ ...clone(SF_CONFIG), autopilot: { autoMerge: false } }).errors, [], 'off is fine');
+  assert.deepEqual([sf.errors, sf.config!.autopilot], [[], { appendOnly: [] }]);
+  const sfOff = parseConfig({ ...clone(SF_CONFIG), autopilot: { autoMerge: false } });
+  assert.deepEqual([sfOff.errors, sfOff.config!.autopilot], [[], { appendOnly: [], autoMerge: false }], 'off is kept');
+  const sfPlain = parseConfig({ ...clone(SF_CONFIG), autonomy: 'review' }).config!;
+  assert.equal(autoMergeOn(sfPlain), true, 'a Salesforce config with no word on it is on');
+  assert.equal(autoMergeOn(sfOff.config!), false);
+  // An autopilot block with no autoMerge key, such as one that names appendOnly alone, keeps the profile's default
+  // (T-157 rework): the mutant that reads a missing key as false, and so wrote the switch off, is caught here.
+  const sfAppend = parseConfig({ ...clone(SF_CONFIG), autonomy: 'review', autopilot: { appendOnly: ['docs/DECISIONS.md'] } });
+  assert.deepEqual([sfAppend.errors, sfAppend.config!.autopilot], [[], { appendOnly: ['docs/DECISIONS.md'] }], 'no switch written');
+  assert.equal(autoMergeOn(sfAppend.config!), true, 'still on');
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), autopilot: { appendOnly: ['docs/DECISIONS.md'] } }).config!.autopilot, { appendOnly: ['docs/DECISIONS.md'] }, 'elsewhere the default is off, and nothing is written either');
 
   // A protected environment, and one that isn't listed, are never covered; nor is any under manual.
   const envs = { environments: [{ name: 'main', default: true }, { name: 'release', protected: true }] };
@@ -318,8 +336,11 @@ test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesfor
   assert.deepEqual([autoMergeOn(config), autoMergeFor(config, 'main'), autoMergeFor(config, 'release'), autoMergeFor(config, 'nowhere')], [true, true, false, false]);
   assert.equal(autoMergeFor({ ...config, autonomy: 'manual' }, 'main'), false);
   assert.equal(autoMergeFor({ ...config, autopilot: { appendOnly: [] } }, 'main'), false);
-  // A config the parser refused can't get past either: Salesforce is off whatever it says.
-  assert.equal(autoMergeOn({ profile: 'salesforce', autopilot: { autoMerge: true } }), false);
+  // In a Salesforce project, the development environment's branch alone (T-157): dev is the default; uat
+  // isn't protected but isn't the default, and production is both protected and not the default.
+  assert.deepEqual([autoMergeFor(sfPlain, 'dev'), autoMergeFor(sfPlain, 'uat'), autoMergeFor(sfPlain, 'production')], [true, false, false]);
+  assert.equal(autoMergeFor({ ...sfPlain, autonomy: 'manual' }, 'dev'), false, 'D-083 still asks for autonomy review');
+  assert.equal(autoMergeFor(parseConfig({ ...clone(SF_CONFIG), autonomy: 'review', autopilot: { autoMerge: false } }).config!, 'dev'), false, 'the switch off');
 
   const dir = tempDir();
   writeConfig(join(dir, 'config.json'), on.config!);

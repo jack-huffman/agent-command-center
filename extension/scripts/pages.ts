@@ -308,6 +308,7 @@ export const PAGES = [
   'slack-off',
   'slack-paused',
   'settings-agents',
+  'settings-pipeline',
   'settings-trackers',
   'settings-queues',
   'settings-limits',

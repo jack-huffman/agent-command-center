@@ -334,6 +334,18 @@
         "icon": "$(search)"
       },
       {
+        "command": "acc.pipeline.development",
+        "title": "Change the development environment…",
+        "category": "Agent Command Center",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "acc.pipeline.next",
+        "title": "Change where an environment goes next…",
+        "category": "Agent Command Center",
+        "icon": "$(arrow-right)"
+      },
+      {
         "command": "acc.job.stop",
         "title": "Stop a job in progress",
         "category": "Agent Command Center",

@@ -100,6 +100,18 @@
 .settings-fold > .settings-meaning { margin: 2px 0 0 16px; }
 /* A long list's rest, a part's notes, and what a cloud builder needs fold the same way, with a count (T-139). */
 .settings-more { margin-top: var(--space-2); }
+
+/* The Pipeline section (T-157): a project's environments as stacked rows under its switch, in path order. */
+.pipeline-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; }
+.pipeline-env { padding: 8px 0 8px 10px; border-top: 1px solid var(--line); border-left: 3px solid transparent; }
+.pipeline-env.role-development { border-left-color: var(--blue); }
+.pipeline-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.pipeline-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.pipeline-branch { overflow-wrap: anywhere; }
+.pipeline-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; }
+.pipeline-fact { display: inline-flex; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.pipeline-next { display: inline; }
+.pipeline-actions { margin-top: 6px; }
 .settings-more > summary { display: inline-flex; align-items: center; gap: 2px; padding: 1px 4px 1px 0; border-radius: 4px; cursor: pointer; list-style: none; }
 .settings-more > summary::-webkit-details-marker { display: none; }
 .settings-more > summary:hover { color: var(--vscode-foreground); }

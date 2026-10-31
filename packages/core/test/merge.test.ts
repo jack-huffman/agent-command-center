@@ -11,6 +11,8 @@ import { waiveGates } from '../src/gates.ts';
 import { displayState, type LedgerEvent, mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { mergeMethod, mergePr } from '../src/merge.ts';
 import { repoPaths } from '../src/paths.ts';
+import { DEPLOY_GATE } from '../src/deploy-commands.ts';
+import { ownDeployAt, ownRunBefore, writeReceipt } from '../src/receipts.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
 import { listUpdates } from '../src/updates.ts';
 import { bad, fakeRunner, GENERIC_CONFIG, gitIn, makeRepo, ok, tempDir } from './support.ts';
@@ -255,14 +257,110 @@ test('a base that moved on waits for its refresh, and a change to .acc/ waits fo
   held(acc, github(acc.sha), 'merge', /^It changes \.acc\/, which a person merges: \.acc\/config\.json\.$/);
 });
 
-test('a protected environment, a Salesforce project, autonomy manual or auto-merge off never merge (GH-67)', () => {
+test('a protected environment, a Salesforce environment that isn\'t the development one, autonomy manual or auto-merge off never merge (GH-67, T-157)', () => {
   const s = setup();
   // Marked protected after its task was built.
   const guarded: Config = { ...s.config, environments: s.config.environments.map((e) => ({ ...e, protected: true })) };
   held(s, github(s.sha), 'refused', /^"main" is protected: a person merges into it\.$/, guarded);
-  held(s, github(s.sha), 'refused', /^A Salesforce project never auto-merges/, { ...s.config, profile: 'salesforce' });
+  // A Salesforce project merges into its development environment alone (T-157): with release the default,
+  // main isn't it. The mutant that merges into any unprotected environment is caught here.
+  const salesforce: Config = { ...s.config, profile: 'salesforce', environments: s.config.environments.map((e) => ({ ...e, default: e.branch === 'release', protected: false })) };
+  held(s, github(s.sha), 'refused', /^"main" isn't the development environment: autopilot merges only into release in a Salesforce project\.$/, salesforce);
+  // Marked Production after its task was built: protected first, whatever else is said of it.
+  held(s, github(s.sha), 'refused', /^"main" is protected: a person merges into it\.$/, { ...salesforce, environments: salesforce.environments.map((e) => (e.branch === 'main' ? { ...e, type: 'production', protected: true } : e)) });
+  held(s, github(s.sha), 'refused', /^Merging on its own is off for this project: a person merges each pull request\.$/, { ...s.config, profile: 'salesforce', autopilot: { appendOnly: [], autoMerge: false } });
+  // A Salesforce task on the development environment with no deploy of its own on the reviewed commit: the
+  // checks say nothing is missing (the only one is waived), and the merge still refuses. The mutant that merges
+  // before the builder's deploy to the development org passed is caught here.
+  held(s, github(s.sha), 'merge', /^T-1's own deploy to main hasn't passed on [0-9a-f]{7}, the commit its review read: it merges only on the deploy its builder made there\.$/, { ...s.config, profile: 'salesforce' });
   held(s, github(s.sha), 'refused', /^autonomy is "manual": autopilot merges only under review\.$/, { ...s.config, autonomy: 'manual' });
   held(s, github(s.sha), 'refused', /^Auto-merge is off for this project/, { ...s.config, autopilot: { appendOnly: [] } });
+});
+
+/** The task's own deploy to `env`, recorded on the task, with its passing receipt on `sha`. */
+function deployed(s: ReturnType<typeof setup>, sha: string, env = 'main'): void {
+  writeReceipt(s.paths, { gate: DEPLOY_GATE, sha, env, status: 'pass', startedAt: LONG_AGO, finishedAt: LONG_AGO, durationMs: 1, summary: 'Deployed.', command: null, log: null });
+  mutate(s.paths, now, (l, emit) => {
+    const t = l.tasks[0]!;
+    t.deploys = [...(t.deploys ?? []), { env, org: 'Acme Dev', sha, at: LONG_AGO, jobId: '0Af1', paths: ['force-app/main/default/classes/Sum.cls'], components: ['Apex Class: Sum'], verified: 1, tests: null }];
+    emit({ type: 'task.updated', task: 'T-1', actor: 'builder', by: 'builder:T-1', data: { deployed: sha } });
+  });
+}
+
+test('a Salesforce task whose own deploy to the development org passed on the reviewed head merges into the development environment\'s branch, with no click (T-157)', () => {
+  const s = setup();
+  const salesforce: Config = { ...s.config, profile: 'salesforce' };
+  deployed(s, s.sha);
+  assert.ok(ownDeployAt(s.paths, first(s.paths), s.sha), 'the deploy is the task\'s own, on this commit, and passed');
+  const calls: string[] = [];
+  const r = mergePr(s.paths, salesforce, 'T-1', deps(calls, github(s.sha)), by);
+  assert.equal(merges(calls).length, 1, 'merged');
+  assert.deepEqual([r.sha, r.pr.number], [s.sha, 42]);
+  assert.match(r.reason, /^Merged pull request #42 into main at [0-9a-f]{7}\. acc sync moves T-1 to done\.$/);
+  assert.equal(first(s.paths).autopilot?.merged?.sha, s.sha, 'the merge is on the task');
+});
+
+test('a Salesforce task deployed on an earlier commit than the one its review read is refused: a deploy on commit A with the head at B never merges, whatever an ancestor says (T-157)', () => {
+  const s = setup();
+  const salesforce: Config = { ...s.config, profile: 'salesforce' };
+  // The deploy on A, the branch's first commit.
+  const a = s.sha;
+  deployed(s, a);
+  // Then B: one more commit on the branch, never deployed, reviewed there, its checks waived there, the pull request landed there.
+  gitIn(s.dir, 'checkout', '-q', BRANCH);
+  writeFileSync(join(s.dir, 'sum.js'), 'export const sum = (a, b) => a + b + 0;\n');
+  gitIn(s.dir, 'add', '-A');
+  gitIn(s.dir, 'commit', '-q', '-m', 'T-1: sum, again');
+  gitIn(s.dir, 'checkout', '-q', 'main');
+  gitIn(s.dir, 'push', '-q', 'origin', `${BRANCH}:${BRANCH}`);
+  const b = gitIn(s.dir, 'rev-parse', BRANCH);
+  assert.notEqual(a, b);
+  waiveGates(s.paths, s.config, { sha: b, env: s.config.environments[0]!, gates: ['test'], reason: 'covered', by: 'human:test', now });
+  const v: Verdict = { v: 1, task: 'T-1', sha: b, env: 'main', verdict: 'pass', summary: 'Adds sum.', criteria: [], findings: [], sessionId: 's', at: now().toISOString(), durationMs: 1, costUsd: null };
+  writeFileSync(reviewPath(s.paths, 'T-1', b), JSON.stringify(v));
+  mutate(s.paths, now, (l, emit) => {
+    l.tasks[0]!.pr!.sha = b;
+    emit({ type: 'task.updated', task: 'T-1', actor: 'human', by: 'human:test', data: { landed: b } });
+  });
+  assert.ok(ownRunBefore(s.paths, run, first(s.paths), b, DEPLOY_GATE), 'an ancestor of B was deployed: land would take it');
+  assert.ok(!ownDeployAt(s.paths, first(s.paths), b), 'B itself wasn\'t');
+  // The mutant that takes a deploy on any ancestor is caught here: B holds a change the org never held.
+  held(s, github(b), 'merge', new RegExp(`^T-1's own deploy to main hasn't passed on ${b.slice(0, 7)}, the commit its review read: it merges only on the deploy its builder made there\\.$`), salesforce);
+  // Deployed on B too, it merges.
+  deployed(s, b);
+  const calls: string[] = [];
+  mergePr(s.paths, salesforce, 'T-1', deps(calls, github(b)), by);
+  assert.equal(merges(calls).length, 1);
+});
+
+test('the merge queue\'s merge commit carries its review from the reviewed commit, and the deploy must be on that commit, not on the merge commit or an older one (T-157)', () => {
+  const s = setup();
+  const salesforce: Config = { ...s.config, profile: 'salesforce' };
+  // Someone else's work on main, and the queue's merge commit on the branch, carrying the review from s.sha.
+  writeFileSync(join(s.dir, 'other.js'), 'x\n');
+  gitIn(s.dir, 'add', '-A');
+  gitIn(s.dir, 'commit', '-q', '-m', 'Another task');
+  gitIn(s.dir, 'push', '-q', 'origin', 'main');
+  gitIn(s.dir, 'checkout', '-q', BRANCH);
+  gitIn(s.dir, 'merge', '-q', '--no-edit', 'main');
+  const to = gitIn(s.dir, 'rev-parse', 'HEAD');
+  gitIn(s.dir, 'checkout', '-q', 'main');
+  gitIn(s.dir, 'push', '-q', 'origin', `${BRANCH}:${BRANCH}`);
+  waiveGates(s.paths, s.config, { sha: to, env: s.config.environments[0]!, gates: ['test'], reason: 'covered', by: 'human:test', now });
+  mutate(s.paths, now, (l, emit) => {
+    const t = l.tasks[0]!;
+    t.pr!.sha = to;
+    t.autopilot = { failed: null, carried: { from: s.sha, to, base: gitIn(s.dir, 'rev-parse', 'main'), resolved: [], at: LONG_AGO } };
+    emit({ type: 'task.updated', task: 'T-1', actor: 'orchestrator', by: 'orchestrator:autopilot', data: { carried: to } });
+  });
+  held(s, github(to), 'merge', new RegExp(`^T-1's own deploy to main hasn't passed on ${s.sha.slice(0, 7)}, the commit its review read`), salesforce);
+  // A deploy skipped elsewhere on the merge commit says nothing; the builder's own on the reviewed commit does.
+  writeReceipt(s.paths, { gate: DEPLOY_GATE, sha: to, env: 'main', status: 'skip', elsewhere: 'merge', startedAt: LONG_AGO, finishedAt: LONG_AGO, durationMs: 1, summary: 'Skipped.', command: null, log: null });
+  held(s, github(to), 'merge', /the commit its review read/, salesforce);
+  deployed(s, s.sha);
+  const calls: string[] = [];
+  const r = mergePr(s.paths, salesforce, 'T-1', deps(calls, github(to)), by);
+  assert.deepEqual([merges(calls).length, r.sha], [1, to], 'merged at the merge commit, on the deploy its reviewed commit made');
 });
 
 // ---------------------------------------------------------------- when gh says no

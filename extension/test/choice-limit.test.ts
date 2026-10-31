@@ -11,6 +11,7 @@ import { ANALYSIS_SCHEMA, type Analysis } from '../../packages/core/src/analyze.
 import { OPENING_SCHEMA } from '../../packages/core/src/plan-opening.ts';
 import { TALK_SCHEMA } from '../../packages/core/src/plan-talk.ts';
 import { OPTIONS_MAX, QUESTIONS_SCHEMA } from '../../packages/core/src/talk-questions.ts';
+import { developmentChoices, nextStepChoices } from '../src/model/pipeline.ts';
 import { MULTI_OPTIONS_MAX, questionsOf } from '../src/model/questions.ts';
 import { reviewSteps } from '../src/model/review-plan.ts';
 import { ticketTalk } from '../src/model/talk.ts';
@@ -55,6 +56,29 @@ test('every schema that asks an agent for options caps them at three', () => {
   assert.ok(lists.length >= 3, 'the plan\'s choices and the conversation\'s questions were found');
   for (const l of lists) assert.ok(typeof l.max === 'number' && l.max <= 3, `${l.path} says maxItems ${String(l.max)}`);
   assert.equal(OPTIONS_MAX, 3);
+});
+
+test('VS Code\'s pick of the development environment (T-157, extension/src/pipeline.ts) is a single choice: developmentChoices offers at most three sandboxes, and the pick\'s last item is the person\'s own words, an environment named by typing', () => {
+  const sandbox = (i: number) => ({ branch: `sb${i}`, type: 'developer' as const, protected: false, promotesTo: i < 7 ? [`sb${i + 1}`] : [] });
+  const envs = Array.from({ length: 7 }, (_, i) => sandbox(i + 1));
+  const { offered, more } = developmentChoices({ environments: envs }, null);
+  assert.ok(envs.length > OPTIONS_MAX, 'more sandboxes than a single choice shows');
+  assert.equal(offered.length, OPTIONS_MAX);
+  assert.equal(more, envs.length - OPTIONS_MAX, 'the rest are typed by name');
+  // The command itself: the pick's items are the offered ones and one more for own words, then an input box.
+  const command = readFileSync(join(import.meta.dirname, '..', 'src', 'pipeline.ts'), 'utf8');
+  assert.ok(command.includes('developmentChoices(project.config') && command.includes('showInputBox'), 'the command picks through developmentChoices and takes a typed name');
+});
+
+test('VS Code\'s pick of which environment\'s next steps to change (T-157, extension/src/pipeline.ts) is a single choice: nextStepChoices offers three in path order, and the rest are typed by name', () => {
+  const env = (i: number) => ({ branch: `e${i}`, promotesTo: i < 6 ? [`e${i + 1}`] : [] });
+  const envs = Array.from({ length: 6 }, (_, i) => env(i + 1));
+  const { offered, more } = nextStepChoices({ environments: envs });
+  assert.equal(offered.length, OPTIONS_MAX);
+  assert.equal(more, envs.length - OPTIONS_MAX);
+  assert.deepEqual(nextStepChoices({ environments: envs.slice(0, 2) }).offered.length, 2, 'edge case: two stay two');
+  const command = readFileSync(join(import.meta.dirname, '..', 'src', 'pipeline.ts'), 'utf8');
+  assert.ok(command.includes('nextStepChoices(project.config)'), 'the command picks through nextStepChoices');
 });
 
 const ask = (n: number, multiSelect = false) => ({ questions: [{ question: 'Which?', header: 'h', multiSelect, options: Array.from({ length: n }, (_, i) => ({ label: `o${i}`, description: '' })) }] });

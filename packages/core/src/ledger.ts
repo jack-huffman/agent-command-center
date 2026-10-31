@@ -638,7 +638,8 @@ export interface Hooks {
   /**
    * Required checks that have no passing receipt on the task's current commit: a builder's, unless it says
    * the merge's (GH-73). `own` asks for the task's own run on that very commit where a gate runs elsewhere
-   * (D-206), as a builder's acc done does; land, merge and review take its run on a commit before.
+   * (D-206), as a builder's acc done does; land, the merge queue's check and review take its run on a commit
+   * before. Autopilot's merge asks on its own for the deploy on the commit the review read (T-157, merge.ts).
    */
   missingGates(task: Task, scope?: GateScope, opts?: { own?: boolean }): string[];
 }

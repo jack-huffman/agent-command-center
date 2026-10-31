@@ -110,11 +110,15 @@ test('acc, sf or git behind a PATH, SF_*, GIT_* or NODE_OPTIONS assignment is re
     ['GIT_DIR=/elsewhere git commit -m x', 'git', 'GIT_DIR'],
     ['env GIT_SSH_COMMAND=sh git fetch origin', 'git', 'GIT_SSH_COMMAND'],
     ['npm test && SF_ORG=prod sf org display', 'sf', 'SF_ORG'],
+    // ACC_ROLE is what acc's role checks read (T-157): set by hand, a builder would pass as a person.
+    ['ACC_ROLE=person acc environments development Dev', 'acc', 'ACC_ROLE'],
+    ['ACC_ROLE= /opt/acc/bin/acc agents auto-merge off', 'acc', 'ACC_ROLE'],
   ] as const) {
-    assert.match(guardBash(b, line)!, new RegExp(`^Run ${program} plainly, without ${name}= before it: an assignment of PATH, SF_\\*, GIT_\\* or NODE_OPTIONS changes which program runs`), line);
+    assert.match(guardBash(b, line)!, new RegExp(`^Run ${program} plainly, without ${name}= before it: an assignment of PATH, SF_\\*, GIT_\\* or NODE_OPTIONS changes which program runs, or where it goes, and ACC_ROLE who acc takes you for`), line);
   }
   // Set alone, or exported, and used by a later command on the line.
   assert.match(guardBash(b, 'PATH=/tmp/bin; acc gate run deploy')!, /^Don't set PATH on a line that runs acc:/);
+  assert.match(guardBash(b, 'export ACC_ROLE=person; acc environments next Dev UAT')!, /^Don't set ACC_ROLE on a line that runs acc:/);
   assert.match(guardBash(b, 'export SF_TARGET_ORG=prod && sf project retrieve start')!, /^Don't set SF_TARGET_ORG on a line that runs sf:/);
   assert.match(guardBash(b, 'export GIT_DIR=/x NODE_OPTIONS=y\ngit status; acc team')!, /^Don't set GIT_DIR on a line that runs git, acc:/);
   // An assignment that steers nothing, one before a program these rules don't guard, and a set with no such command after it.
@@ -161,4 +165,15 @@ test('a builder can list suggested rules, but accepting or dismissing one is a p
   assert.equal(guardBash(b, 'acc rules suggested --all'), null, 'listing only reads');
   const s = builderSettings({ id: 'T-1' } as never, parseConfig(JSON.parse(JSON.stringify(GENERIC_CONFIG))).config!, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } };
   for (const d of ['Bash(acc rules accept*)', 'Bash(acc rules dismiss*)']) assert.ok(s.permissions.deny.includes(d), d);
+});
+
+test('a builder can list the pipeline, but moving the development environment or where one goes next is a person\'s, by name and by acc\'s full path, in the guard and the deny list (T-157)', () => {
+  const b = { task: { id: 'T-1', run: { branch: 'task/T-1-a' } } } as never;
+  const lines = ['acc environments development Dev', 'acc environments next Dev UAT Production', '/opt/acc/bin/acc environments development UAT', '/Users/me/acc/dist/acc environments next UAT', 'nice -n 15 acc environments development dev --json'];
+  assert.ok(lines.length > 0);
+  for (const line of lines) assert.match(guardBash(b, line) ?? '', /^acc environments (development|next) is a person's\. A builder finishes with acc done/, line);
+  assert.equal(guardBash(b, 'acc environments'), null, 'listing only reads');
+  assert.equal(guardBash(b, '/opt/acc/bin/acc environments --json'), null);
+  const s = builderSettings({ id: 'T-1' } as never, parseConfig(JSON.parse(JSON.stringify(GENERIC_CONFIG))).config!, '/acc/bin', '/usr/bin') as { permissions: { deny: string[] } };
+  for (const d of ['Bash(acc environments development*)', 'Bash(acc environments next*)']) assert.ok(s.permissions.deny.includes(d), d);
 });

@@ -267,13 +267,19 @@ test('a change to .acc/ that only raises floors joins the queue; one that relaxe
 
 // ---------------------------------------------------------------- the head's turn
 
-test('a Salesforce task never joins the merge queue, auto-merge or not: a person merges every pull request there, so no merge commit of the queue\'s is a Salesforce task\'s and its deploy skip is never landed by the queue (D-206)', () => {
+test('a Salesforce task joins the merge queue into the development environment by default, under autonomy review; never into another environment, and not with the switch off or under manual (D-206, T-157)', () => {
   const queued = (environment: string): Task => ({ id: 'T-1', state: 'review', environment, autopilot: { failed: null, queued: { at: NOW, sha: 'a'.repeat(40) } } } as unknown as Task);
+  // Autonomy manual, the default: nothing joins (D-014).
   const sf = parseConfig(SF_CONFIG).config!;
   assert.deepEqual(queueOrder({ tasks: [queued('dev')] }, sf), []);
-  // Even with auto-merge written on, under autonomy review: the profile alone keeps it out.
-  const on = { ...sf, autonomy: 'review', autopilot: { ...sf.autopilot, autoMerge: true } } as unknown as typeof sf;
-  assert.deepEqual([queueOrder({ tasks: [queued('dev')] }, on), queuePlaces({ tasks: [queued('dev')] }, on)], [[], []]);
+  // Under review, with no word on auto-merge: dev, the development environment, joins; uat (not protected, not the default) and production never.
+  const review = parseConfig({ ...SF_CONFIG, autonomy: 'review' }).config!;
+  assert.deepEqual(queueOrder({ tasks: [queued('dev')] }, review).map((t) => t.id), ['T-1']);
+  assert.deepEqual(queuePlaces({ tasks: [queued('dev')] }, review).map((p) => p.id), ['T-1']);
+  assert.deepEqual([queueOrder({ tasks: [queued('uat')] }, review), queueOrder({ tasks: [queued('production')] }, review)], [[], []], 'never further than the development environment');
+  // The switch off keeps it out, whatever autopilot last wrote.
+  const off = parseConfig({ ...SF_CONFIG, autonomy: 'review', autopilot: { autoMerge: false } }).config!;
+  assert.deepEqual([queueOrder({ tasks: [queued('dev')] }, off), queuePlaces({ tasks: [queued('dev')] }, off)], [[], []]);
   const generic = parseConfig({ ...GENERIC_CONFIG, autonomy: 'review', autopilot: { autoMerge: true } }).config!;
   assert.deepEqual(queueOrder({ tasks: [queued('main')] }, generic).map((t) => t.id), ['T-1'], 'the same task on a generic project joins');
 });

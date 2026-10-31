@@ -2,6 +2,7 @@ import { firstSaid } from './text.ts';
 import { accChangesFor } from './acc-changes.ts';
 import { autoMergeFor, type Config, environmentByBranch } from './config.ts';
 import { keepChanges, mergedPaths } from './changes.ts';
+import { developmentEnvironment, isDevelopmentBranch, notMergingWhy } from './pipeline.ts';
 import { type CheckRead, quotedChecks, readChecks } from './checks.ts';
 import { draftChangesField } from './field-drafts.ts';
 import { AccError, parseJsonOutput, type Runner } from './exec.ts';
@@ -9,7 +10,7 @@ import { GH_TIMEOUT_MS, ghToken } from './land.ts';
 import { type Actor, type AutopilotMerge, type MergeMethod, mutate, readLedger } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
 import { askingUnder, pendingQuestions, questionsDir } from './questions.ts';
-import { receiptHooks } from './receipts.ts';
+import { ownDeployAt, receiptHooks } from './receipts.ts';
 import { reviewedAt } from './review.ts';
 import { fetchBranches } from './sync.ts';
 
@@ -18,8 +19,9 @@ import { fetchBranches } from './sync.ts';
  * review passed and its full checks settled on the branch's latest commit, GitHub's checks passed there, GitHub
  * says it can merge, and nothing waits on a person. It merges as the repo's account (D-007), with the
  * method the repo allows, and only the commit it looked at (`--match-head-commit`). It never merges into
- * a protected environment, in a Salesforce project, or a pull request that changes `.acc/`. acc sync then
- * moves the task to done, as for any merge.
+ * a protected environment or a pull request that changes `.acc/`. In a Salesforce project it merges only
+ * into the development environment, on the deploy the task's own builder made there, on the very commit its
+ * review read (T-157). acc sync then moves the task to done, as for any merge.
  *
  * Whatever moved since autopilot looked, or isn't settled yet, stops it with code merge-waits, and it looks
  * again next pass. Anything else is a failure, recorded on that commit, and the task needs you.
@@ -97,9 +99,12 @@ export function mergeMethod(run: Runner, repo: string, env: NodeJS.ProcessEnv): 
 }
 
 /** Why auto-merge doesn't cover this task's environment, in words. */
-function notCovered(config: Config, env: { name: string; protected: boolean }): string {
-  if (config.profile === 'salesforce') return 'A Salesforce project never auto-merges: a person merges every pull request there.';
+function notCovered(config: Config, env: { name: string; branch: string; protected: boolean }): string {
   if (env.protected) return `"${env.name}" is protected: a person merges into it.`;
+  // A Salesforce project merges into its development environment alone (T-157).
+  if (config.profile === 'salesforce' && !isDevelopmentBranch(config, env.branch)) return `"${env.name}" isn't the development environment: autopilot merges only into ${developmentEnvironment(config)?.name ?? 'the development environment'} in a Salesforce project.`;
+  const sf = notMergingWhy(config);
+  if (sf) return sf;
   if (config.autonomy !== 'review') return `autonomy is "${config.autonomy}": autopilot merges only under review.`;
   return 'Auto-merge is off for this project: a person merges its pull requests.';
 }
@@ -124,10 +129,17 @@ export function mergePr(paths: RepoPaths, config: Config, id: string, deps: Merg
   if (task.autopilot?.merged?.sha === head) throw wait(`Autopilot already merged pull request #${pr.number}: acc sync moves ${id} to done.`);
   if (pr.sha !== head) throw wait(`Pull request #${pr.number} was landed at ${short(pr.sha ?? '')}, not ${short(head)}: a land comes first.`);
   // Its own review, or the one the merge queue's merge commit carries (GH-73).
-  if (!reviewedAt(paths, task, head)) throw wait(`${id}'s review hasn't passed on ${short(head)}.`);
+  const reviewed = reviewedAt(paths, task, head);
+  if (!reviewed) throw wait(`${id}'s review hasn't passed on ${short(head)}.`);
   // The full check, whatever a builder ran (GH-73).
   const missing = receiptHooks(paths, config, run).missingGates(task, 'merge');
   if (missing.length) throw new AccError('merge', `Its checks aren't settled on ${short(head)}: ${missing.join(', ')}.`);
+  // A Salesforce task merges on the deploy its own builder made to the development org (D-206, T-157): a
+  // passing deploy of the task's own, to its environment, on the very commit the review read: the head, or
+  // the commit the merge queue's merge commit carries its review from. Never a commit before it: a commit
+  // after the last deploy would merge changes the org never held. The full check's deploy skips in the queue
+  // (elsewhere), so this is asked outright, whatever the receipts say.
+  if (config.profile === 'salesforce' && !ownDeployAt(paths, task, reviewed.sha)) throw new AccError('merge', `${id}'s own deploy to ${env.name} hasn't passed on ${short(reviewed.sha)}, the commit its review read: it merges only on the deploy its builder made there.`);
   // An agent in its worktree asking a person something: the person comes first.
   const wt = task.run?.worktree;
   if (wt && askingUnder(pendingQuestions(questionsDir(deps.env)), wt)) throw wait(`An agent in ${id}'s worktree is waiting for your answer.`);

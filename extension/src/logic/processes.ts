@@ -84,6 +84,10 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['agents model'], name: 'Change an agent\'s model and effort', command: 'acc.agents.configure' },
   { acc: ['agents autonomy'], name: 'Change what autopilot may do', command: 'acc.agents.autonomy' },
   { acc: ['agents auto-merge'], name: 'Change whether autopilot merges', command: 'acc.agents.autoMerge' },
+  // The pipeline (T-157): the environments in order, the development environment and where each goes next.
+  { acc: ['environments'], name: 'Show the pipeline' },
+  { acc: ['environments development'], name: 'Change the development environment', command: 'acc.pipeline.development' },
+  { acc: ['environments next'], name: 'Change where an environment goes next', command: 'acc.pipeline.next' },
   { acc: ['agents max'], name: 'Change how many builders run at once', command: 'acc.settings.agentsMax' },
   { acc: ['machine'], name: 'See this machine\'s limits' },
   { acc: ['machine heavy-slots'], name: 'Change how many heavy checks run at once', command: 'acc.settings.heavySlots' },
