@@ -60,7 +60,7 @@ function agentProject(s: AgentRunProject, folded: readonly string[]): HTMLElemen
     // A model acc no longer offers says so on a line of its own, under its value (D-128).
     const parts = el('div', 'settings-parts', ...r.parts.flatMap((p) => [el('span', 'muted', p.name), kept(el('span', 'mono strong settings-setting', p.value), p.from),
       ...(p.older ? [el('span', 'settings-older muted small', icon('history'), el('span', '', p.older))] : [])]));
-    box.append(row(r.label, r.icon, parts, argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`), `${r.label.toLowerCase()}' model, effort or fallback, in ${s.project}`));
+    box.append(row(r.label, r.icon, parts, argButton('acc.agents.configure', 'Change…', 'edit', `${r.role}|${s.root}`), `${r.role === 'planner' ? 'the planning agent\'s' : `${r.label.toLowerCase()}'`} model and effort, in ${s.project}`));
   }
   if (s.autonomy) {
     const value = el('div', '', el('div', 'settings-now', kept(status(s.autonomy.look), s.autonomy.from)), whatThisMeans(`autonomy:${s.root}`, s.autonomy.meaning, folded));

@@ -81,6 +81,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['cleanup'], name: 'Clean up its worktree', named: 'Clean up {arg}\'s worktree', command: 'acc.task.cleanup' },
   { acc: ['agents', 'agents show'], name: 'See what agents run with' },
   { acc: ['agents set'], name: 'Change what agents run with', command: 'acc.agents.configure' },
+  { acc: ['agents model'], name: 'Change an agent\'s model and effort', command: 'acc.agents.configure' },
   { acc: ['agents autonomy'], name: 'Change what autopilot may do', command: 'acc.agents.autonomy' },
   { acc: ['agents auto-merge'], name: 'Change whether autopilot merges', command: 'acc.agents.autoMerge' },
   { acc: ['agents max'], name: 'Change how many builders run at once', command: 'acc.settings.agentsMax' },

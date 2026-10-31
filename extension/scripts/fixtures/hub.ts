@@ -26,6 +26,7 @@ export function sampleHub(now = Date.now()): HubLike {
     agents: {
       // Nobody chose the builder's model, so it's acc's default (D-086).
       builder: { model: 'claude-opus-5-5', effort: 'high', fallbackModel: 'claude-sonnet-5-5', from: { model: 'acc', effort: 'project', fallbackModel: 'project' } },
+      planner: { model: 'claude-opus-5-5', effort: 'medium', fallbackModel: null, from: { model: 'acc', effort: 'acc', fallbackModel: 'default' } },
       reviewer: { model: 'claude-sonnet-5-5', effort: null, fallbackModel: null, from: { model: 'clone', effort: 'default', fallbackModel: 'default' } },
     },
     // Autopilot may review, land, re-dispatch a rework once (D-055), resume a stopped builder once (D-067) and

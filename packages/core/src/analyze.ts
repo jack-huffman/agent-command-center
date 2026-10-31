@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { agentArgs } from './agents.ts';
+import { roleArgs } from './agents.ts';
 import { recordPlanTime } from './plan-times.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
 import { sessionName } from './names.ts';
@@ -654,7 +654,7 @@ export function analyze(paths: RepoPaths, config: Config, id: string, deps: Anal
   const awake = holdAwake(process.pid, deps.awake);
   const ask = (args: string[], input: string): RunResult => {
     const out = run('claude', [
-      '-p', ...args, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+      '-p', ...args, '--permission-mode', 'dontAsk', ...roleArgs(config, 'planner'),
       '--output-format', 'json', '--json-schema', JSON.stringify(ANALYSIS_SCHEMA), '--append-system-prompt', system,
       ...analystFlags(paths, config, cwd, deps.accCommand),
     ], { cwd, input, env: analystEnv(config, deps.env, id), timeoutMs: 45 * 60_000 });

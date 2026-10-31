@@ -212,3 +212,18 @@ test('each plan\'s duration is recorded as it ends, and a plan that fails record
   assert.throws(() => analyze(paths, config, id, { run: fakeRunner({ claude: { code: 127, stdout: '', stderr: 'spawnSync claude ENOENT' } }), now: clock, env: {} }));
   assert.equal(planTimes(paths).length, 1, 'a failed plan adds nothing');
 });
+
+test('edge case: with a planner and a reviewer on different models, the analysis runs on the planning agent\'s model and effort, not the reviewer\'s (T-163)', () => {
+  const raw = { ...GENERIC_CONFIG, agents: { planner: { model: 'sonnet', effort: 'medium' }, reviewer: { model: 'haiku', effort: 'high' } } };
+  const { paths, config, id } = setup(raw);
+  const calls: string[][] = [];
+  const runner = (cmd: string, args: string[], opts?: RunOptions) => {
+    if (cmd === 'claude') { calls.push(args); return result(ANSWER); }
+    return fakeRunner({})(cmd, args, opts);
+  };
+  analyze(paths, config, id, { run: runner, now, env: {} });
+  assert.equal(calls.length, 1);
+  const args = calls[0]!;
+  assert.deepEqual(args.slice(args.indexOf('--model'), args.indexOf('--model') + 4), ['--model', 'sonnet', '--effort', 'medium']);
+  assert.ok(!args.includes('haiku'), 'the reviewer\'s model is not used');
+});

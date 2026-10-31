@@ -54,8 +54,8 @@ export interface Project {
   ledgerPath: string;
   branch: string | null;
   worktrees: WorktreeInfo[];
-  /** What builders and reviewers run with in this clone, and where each part is set (D-036). */
-  agents: { builder: ProfileView; reviewer: ProfileView };
+  /** What builders, the planning agent and reviewers run with in this clone, and where each part is set (D-036). */
+  agents: { builder: ProfileView; planner: ProfileView; reviewer: ProfileView };
 }
 
 export type HubPart = 'projects' | 'tasks' | 'agents' | 'worktrees' | 'jobs';
@@ -220,7 +220,7 @@ export class Hub implements vscode.Disposable {
       const chosen = !!config.github && /^[A-Za-z0-9-]+$/.test(mine) && mine !== config.github.account;
       if (chosen) config = { ...config, github: { ...config.github!, account: mine } };
       const old = this.projects.find((p) => p.root === root);
-      const agents = { builder: profileView(config, runSync, root, 'builder'), reviewer: profileView(config, runSync, root, 'reviewer') };
+      const agents = { builder: profileView(config, runSync, root, 'builder'), planner: profileView(config, runSync, root, 'planner'), reviewer: profileView(config, runSync, root, 'reviewer') };
       found.push({ name: config.project, root, config, githubFrom: config.github ? (chosen ? 'clone' : 'config') : null, ledgerPath: join(common.stdout.trim(), 'acc', 'ledger.json'), branch: old?.branch ?? null, worktrees: old?.worktrees ?? [], agents });
     }
     this.projects = found;

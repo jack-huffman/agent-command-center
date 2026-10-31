@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { agentArgs } from './agents.ts';
+import { roleArgs } from './agents.ts';
 import { fileId, STE_STRICT } from './analyze.ts';
 import { writeAtomic } from './atomic.ts';
 import { CRITERIA_TITLE } from './brief-wording.ts';
@@ -274,7 +274,7 @@ export function criteriaRefusal(task: Pick<Task, 'id' | 'source'> | undefined, i
 
 /**
  * Drafts the task's acceptance criteria, test steps and edge cases (T-81), and keeps the draft with the
- * task. The agent reads and changes nothing, with the reviewer's model and effort. A draft that fails the
+ * task. The agent reads and changes nothing, with the planning agent's model and effort. A draft that fails the
  * wording check goes back to the drafter once, with the findings; what still fails is kept with the draft.
  * Nothing is written to the tracker, and no update is drafted.
  */
@@ -301,7 +301,7 @@ export function draftCriteria(paths: RepoPaths, config: Config, id: string, tick
   const tools = ['--allowedTools', 'Read', 'Grep', 'Glob', '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch'];
   const ask = (args: string[], input: string): RunResult => {
     const out = run('claude', [
-      '-p', ...args, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+      '-p', ...args, '--permission-mode', 'dontAsk', ...roleArgs(config, 'planner'),
       '--output-format', 'json', '--json-schema', JSON.stringify(CRITERIA_SCHEMA), '--append-system-prompt', system, ...tools,
     ], { cwd: paths.root, input, env: { ...deps.env, ACC_ROLE: 'reviewer', ACC_TASK: id }, timeoutMs: CRITERIA_TIMEOUT_MS });
     if (out.timedOut) throw new AccError('criteria', `The draft didn't finish within ${CRITERIA_TIMEOUT_MS / 60_000} minutes, so acc stopped it.`);

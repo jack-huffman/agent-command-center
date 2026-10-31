@@ -62,9 +62,9 @@ export const settingFrom = (from: string): SettingFrom => ({ label: FROM_WORDS[f
 /** Autonomy and auto-merge are the project's alone, in its .acc/config.json: no clone sets them. */
 const PROJECT: SettingFrom = { label: 'project', icon: 'repo' };
 
-/** What builders or reviewers run with (D-036, D-086): each part, and where it's set. */
+/** What builders, the planning agent or reviewers run with (D-036, D-086, T-163): each part, and where it's set. */
 export interface AgentSetting {
-  role: 'builder' | 'reviewer';
+  role: 'builder' | 'planner' | 'reviewer';
   label: string;
   icon: string;
   /**
@@ -156,19 +156,22 @@ export interface HowAgentsRun {
 /** Keys nothing reads yet, which How agents run shows no row for (GH-107): UNREAD_KEYS, or a test's own. */
 type Unread = Partial<Record<ConfigPath, string>>;
 
-/** Builders' and reviewers' model, effort and fallback (D-036), each part tagged with its key, and none whose key nothing reads (GH-107). */
+const ROLE_LABEL = { builder: 'Builders', planner: 'Planning agent', reviewer: 'Reviewers' } as const;
+const ROLE_ICON = { builder: 'tools', planner: 'lightbulb', reviewer: 'checklist' } as const;
+
+/** Builders', the planning agent's and reviewers' model, effort and fallback (D-036), each part tagged with its key, and none whose key nothing reads (GH-107). */
 export function agentSettings(p: ProjectLike, unread: Unread = UNREAD_KEYS): AgentSetting[] {
   if (!p.agents) return [];
-  const role = (r: 'builder' | 'reviewer'): AgentSetting | null => {
+  const role = (r: 'builder' | 'planner' | 'reviewer'): AgentSetting | null => {
     const v = p.agents![r];
     const parts = [
       { key: `agents.${r}.model` as const, name: 'Model', value: v.model ?? 'default', from: settingFrom(v.from.model), older: olderModelWords(v.model) },
       { key: `agents.${r}.effort` as const, name: 'Effort', value: v.effort ?? 'default', from: settingFrom(v.from.effort) },
       ...(v.fallbackModel ? [{ key: `agents.${r}.fallbackModel` as const, name: 'Falls back to', value: v.fallbackModel, from: settingFrom(v.from.fallbackModel), older: olderModelWords(v.fallbackModel) }] : []),
     ].map(({ older, ...x }) => (older ? { ...x, older } : x)).filter((x) => keyShown(x.key, unread));
-    return parts.length ? { role: r, label: r === 'builder' ? 'Builders' : 'Reviewers', icon: r === 'builder' ? 'tools' : 'checklist', parts } : null;
+    return parts.length ? { role: r, label: ROLE_LABEL[r], icon: ROLE_ICON[r], parts } : null;
   };
-  return [role('builder'), role('reviewer')].filter((x) => x !== null);
+  return [role('builder'), role('planner'), role('reviewer')].filter((x) => x !== null);
 }
 
 /** The project's autonomy, set in .acc/config.json and changed through acc (D-064). Review says whether autopilot merges (GH-67). */
@@ -623,7 +626,7 @@ export interface SettingsSectionModel {
 
 const SETTINGS_SECTION_WORDS: Record<SettingsSectionId, Omit<SettingsSectionModel, 'id'>> = {
   trackers: { title: 'Trackers and boards', icon: 'issues', line: 'Where each project\'s tickets come from, and how it signs in.', parts: ['trackers'], headed: false },
-  agents: { title: 'Agents', icon: 'hubot', line: 'What builders and reviewers run with, in each project.', parts: ['agents'], headed: false },
+  agents: { title: 'Agents', icon: 'hubot', line: 'What builders, the planning agent and reviewers run with, in each project.', parts: ['agents'], headed: false },
   limits: { title: 'Checks and limits', icon: 'dashboard', line: 'How many builders run at once, and the checks a task must pass.', parts: ['limits'], headed: false },
   accounts: { title: 'Accounts and notices', icon: 'account', line: 'The GitHub account each repo pushes as, and notices in Slack.', parts: ['github', 'slack'], headed: true },
   look: { title: 'Look and behaviour', icon: 'window', line: 'How the Command Center looks, where it opens and how often it refreshes.', parts: ['appearance', 'page'], headed: false },
@@ -690,11 +693,11 @@ export function settingsModel(i: SettingsInput): SettingsModel {
   const parts: SettingsPartModel[] = [
     { id: 'appearance', title: 'Appearance', icon: 'color-mode', summary: 'How the Command Center\'s pages look. Kept on this machine, for every window.', built: true, today: null, details: [], links: [] },
     {
-      id: 'agents', title: 'How agents run', icon: 'hubot', summary: 'What builders and reviewers run with in each project: model, effort and fallback, and what autopilot may do on its own. Each Change… asks the Command Center to make the change.',
+      id: 'agents', title: 'How agents run', icon: 'hubot', summary: 'What builders, the planning agent and reviewers run with in each project: model and effort, and what autopilot may do on its own. A model nobody set is the Command Center\'s default for that role. Each Change… asks the Command Center to make the change.',
       built: true, today: null,
       details: agents.projects.length
-        ? ['This clone\'s choice is kept in its git config, where nobody else sees it. A project\'s is kept in the project\'s settings, for you to commit and share.']
-        : ['No project in this workspace is onboarded yet. Once Setup onboards one, its builders and reviewers show here.'],
+        ? ['Change… writes the project\'s settings, for you to commit and share. A choice for this clone only is kept in its git config, where nobody else sees it.']
+        : ['No project in this workspace is onboarded yet. Once Setup onboards one, its builders, planning agent and reviewers show here.'],
       links: agents.projects.length ? [] : [{ label: 'Open Setup', icon: 'checklist', section: 'setup' }],
     },
     { id: 'limits', title: 'Limits and checks', icon: 'dashboard', summary: 'How many builders run at once, this project\'s cap and this machine\'s total, what a change means, the heavy checks this machine runs at once, and the checks a task must pass. Each change goes through the Command Center.', built: true, today: null, details: [], links: [] },

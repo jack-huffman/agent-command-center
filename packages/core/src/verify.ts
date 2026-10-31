@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { agentArgs } from './agents.ts';
+import { roleArgs } from './agents.ts';
 import { fileId, STE_STRICT } from './analyze.ts';
 import { writeAtomic } from './atomic.ts';
 import { type AwakeDeps, holdAwake } from './awake.ts';
@@ -501,7 +501,7 @@ export function verify(paths: RepoPaths, config: Config, id: string, deps: Verif
     const ask = (args: string[], input: string): ReturnType<typeof parseReview> => {
       // Read-only by construction, as the reviewer is: only the read tools, and dontAsk refuses everything else.
       const out = run('claude', [
-        '-p', ...args, '--permission-mode', 'dontAsk', ...agentArgs(config.agents.reviewer),
+        '-p', ...args, '--permission-mode', 'dontAsk', ...roleArgs(config, 'reviewer'),
         '--output-format', 'json', '--json-schema', JSON.stringify(VERDICT_SCHEMA), '--append-system-prompt', system,
         '--allowedTools', 'Read', 'Grep', 'Glob',
         '--disallowedTools', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch',

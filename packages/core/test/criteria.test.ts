@@ -15,7 +15,7 @@ import { fakeAwake, makeRepo } from './support.ts';
 
 const now = () => new Date('2026-10-20T12:00:00Z');
 
-const CONFIG = { schema: 1, project: 'Acme', profile: 'generic', environments: [{ name: 'main', default: true }], agents: { reviewer: { model: 'sonnet', effort: 'medium' } } };
+const CONFIG = { schema: 1, project: 'Acme', profile: 'generic', environments: [{ name: 'main', default: true }], agents: { planner: { model: 'sonnet', effort: 'medium' }, reviewer: { model: 'haiku', effort: 'high' } } };
 
 /** A repo with a Jira task and a task acc keeps itself. */
 function setup() {
@@ -117,7 +117,7 @@ test('the draft goes below the current description under its own heading, or alo
   assert.equal(withCriteria('  ', '### A'), `## ${CRITERIA_HEADING}\n\n### A`);
 });
 
-test('a draft runs one read-only agent with the reviewer\'s model and effort, is kept with the task, and nothing reaches the tracker', () => {
+test('a draft runs one read-only agent with the planning agent\'s model and effort, not the reviewer\'s (T-163), is kept with the task, and nothing reaches the tracker', () => {
   const { paths, config, id } = setup();
   const fake = agent([result(ANSWER)]);
   let marked: string | undefined;

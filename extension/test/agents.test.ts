@@ -397,19 +397,20 @@ test('How agents run, in Settings, shows no row for a config key nothing reads y
   const p = h.projects[0]!;
   p.agents = {
     builder: { model: 'opus', effort: 'high', fallbackModel: 'sonnet', from: { model: 'project', effort: 'project', fallbackModel: 'project' } },
+    planner: { model: 'claude-opus-5-5', effort: 'medium', fallbackModel: null, from: { model: 'acc', effort: 'acc', fallbackModel: 'default' } },
     reviewer: { model: 'opus', effort: null, fallbackModel: null, from: { model: 'project', effort: 'default', fallbackModel: 'default' } },
   };
   p.config = { ...p.config, profile: 'generic', autonomy: 'review' };
   const keys = (s: ReturnType<typeof howAgentsRun>['projects'][number]) => [...s.roles.flatMap((r) => r.parts.map((x) => x.key)), s.autonomy?.key, s.autoMerge?.key];
   const all = howAgentsRun(h.projects, []).projects[0]!;
-  assert.deepEqual(keys(all), ['agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel', 'agents.reviewer.model', 'agents.reviewer.effort', 'autonomy', 'autopilot.autoMerge']);
+  assert.deepEqual(keys(all), ['agents.builder.model', 'agents.builder.effort', 'agents.builder.fallbackModel', 'agents.planner.model', 'agents.planner.effort', 'agents.reviewer.model', 'agents.reviewer.effort', 'autonomy', 'autopilot.autoMerge']);
   assert.deepEqual(howAgentsRun(h.projects, [], {}).projects[0], all, 'the real list is empty today, so nothing is hidden');
   const why = 'GH-1 will read it.';
   const some = howAgentsRun(h.projects, [], { 'agents.builder.fallbackModel': why, 'autopilot.autoMerge': why }).projects[0]!;
-  assert.deepEqual(keys(some), ['agents.builder.model', 'agents.builder.effort', 'agents.reviewer.model', 'agents.reviewer.effort', 'autonomy', undefined]);
+  assert.deepEqual(keys(some), ['agents.builder.model', 'agents.builder.effort', 'agents.planner.model', 'agents.planner.effort', 'agents.reviewer.model', 'agents.reviewer.effort', 'autonomy', undefined]);
   // A role with every part hidden has no row, and nor does autonomy.
   const fewer = howAgentsRun(h.projects, [], { 'agents.reviewer.model': why, 'agents.reviewer.effort': why, autonomy: why }).projects[0]!;
-  assert.deepEqual([fewer.roles.map((r) => r.role), fewer.autonomy], [['builder'], null]);
+  assert.deepEqual([fewer.roles.map((r) => r.role), fewer.autonomy], [['builder', 'planner'], null]);
 });
 
 /**

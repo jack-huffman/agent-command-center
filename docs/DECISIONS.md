@@ -250,3 +250,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-240](decisions/D-240-modals-open-at-the-click.md) | A modal opens the moment you click, loading, and a task's page draws from its record first | 2026-10-30 |
 | [D-241](decisions/D-241-messaging-an-agent-is-a-chat.md) | Messaging an agent looks like Claude Code's chat: your message boxed and pinned, replies full width, the message box a card | 2026-10-30 |
 | [D-242](decisions/D-242-the-changes-tab-shows-each-environment-as-a-row.md) | The Changes tab shows each environment as a row, and one Deploy… picks where an agent deploys | 2026-10-30 |
+| [D-243](decisions/D-243-each-role-has-its-own-model.md) | Each role has its own model and effort, with acc's default for it, and the planning agent is a role | 2026-10-30 |
