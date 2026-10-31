@@ -126,7 +126,7 @@ test('a button kind with no :active style fails, and a press style on a child do
  */
 const PX_FONTS: { selector: RegExp; why: string }[] = [
   { selector: /\.codicon(?:-[\w-]+)?$/, why: 'A codicon: the font is drawn on a 16 px grid, and a whole px size keeps it sharp.' },
-  { selector: /^\.agent-cell \.kind$/, why: 'An agent\'s kind is a codicon set as an image, so it keeps a px size as every icon does.' },
+  { selector: /^\.agent-card \.kind$/, why: 'An agent\'s kind is a codicon set as an image, so it keeps a px size as every icon does.' },
 ];
 
 /** Each font-size in px in a stylesheet, by its selector. */

@@ -1,80 +1,70 @@
-/* The Agents tab: repos, their tasks, each agent a line under its task (GH-119), and what agents bill. */
+/* The Agents tab (T-164): each repo a quiet heading on the page's own background, each agent a card of its own
+   under it, with space and a thin border between cards, and what agents bill. One level of borders: the cards'. */
 
-/* A repo's heading: its name, its count, and whether another window has it open. */
-.agents-grid tr.group th { white-space: normal; }
-/* Each repo starts a section: its heading a band, as the table's column headings are (D-127). */
-.agents-grid tr.group > th { background: var(--well); border-top: 1px solid var(--edge); }
-.agents-grid tr.group .chip.window { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; vertical-align: middle; }
-.agents-grid tr.group .chip.window .codicon { margin: 0; font-size: 13px; }
+.agent-repo { margin: 0 0 var(--space-5); }
+/* A repo's heading: its name, its count, and whether another window has it open. It wraps on a narrow tab. */
+.agent-repo-head { flex-wrap: wrap; margin: 0 0 var(--space-2); }
+.agent-repo-head .codicon { color: var(--vscode-descriptionForeground); }
+.agent-repo-head .chip.window { display: inline-flex; align-items: center; gap: 4px; margin-left: 4px; }
+.agent-repo-head .chip.window .codicon { margin: 0; font-size: 13px; }
 /* A repo with no agents is one quiet line. */
-.agents-grid tr.group.quiet th { font-weight: 400; color: var(--vscode-descriptionForeground); }
-.agents-grid tr.group.quiet .repo-name { color: var(--vscode-foreground); }
-.agents-grid tr.group:hover th, .agents-grid tr.task:hover td, .agents-grid tr.fold:hover td { background: none; }
+.agent-repo.quiet { margin-bottom: var(--space-3); }
+.agent-repo.quiet .agent-repo-head { font-weight: 400; color: var(--vscode-descriptionForeground); }
+.agent-repo.quiet .repo-name { color: var(--vscode-foreground); }
+/* A repo's other sessions, under its tasks' cards. */
+.agent-others { margin: var(--space-3) 0 var(--space-2); font-weight: 400; }
 
-/* A task's line: its key, then its title, two lines at most, with the whole title on hover. */
-.agents-grid tr.task td { padding: 10px 8px 3px; border-bottom: 0; }
-.agents-grid tr.task.others td { font-size: 0.9em; }
-.task-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.task-line .tcard-key { flex: none; white-space: nowrap; }
+/* The cards: a list, with even space between them. */
+.agent-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.agent-card { display: flex; align-items: flex-start; gap: var(--space-3); min-width: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--edge); border-radius: var(--radius); }
+/* While an agent needs you, its card says so on its left edge too, beside its orange bell and words. */
+.agent-card.attention { border-left: 3px solid var(--orange); }
+.agent-main { flex: 1 1 auto; min-width: 0; display: grid; gap: 4px; }
+
+/* Its first line: its task's key, then its title, two lines at most, with the whole title on hover. */
+.agent-task { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.agent-task .tcard-key { flex: none; white-space: nowrap; }
 .task-title { font-weight: 600; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
-
-/* An agent's line, set in under its task. */
-.agents-grid td.agent { padding-left: 26px; }
-.agent-cell { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; min-width: 0; }
-.agent-cell .who { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
-/* An agent's kind is a codicon, as an image: it keeps a px size, as every icon does. */
-.agent-cell .kind { flex: none; color: var(--vscode-descriptionForeground); font-size: 14px; align-self: center; }
-.agent-label { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; font-weight: 600; }
-.agent-label .role { white-space: nowrap; }
-/* A finished agent's line names its task: its title gives way, one line, its whole name on hover. */
-/* Clamped, not kept to one line by nowrap: a nowrap title would be the cell's least width, and widen the table. */
-.agents-grid tr.finished .agent-label { font-weight: 400; }
-.agents-grid tr.finished .task-title { font-weight: 400; -webkit-line-clamp: 1; }
-.agents-grid tr.finished .agent-label .tcard-key { flex: none; }
 /* A session tied to no task goes by its own name, which can be long: it breaks between words, never inside
    one, two lines at most, all of it on hover. */
-.agent-label .session-name { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-/* Where, when it isn't the task's own worktree (GH-119): muted, after the role, two lines at most. It breaks
+.agent-task .session-name { font-weight: 600; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+
+/* Its second line: what it's doing, its role, its model and how long it has run. It wraps on a narrow tab. */
+.agent-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 12px; min-width: 0; }
+.agent-doing .status { white-space: normal; }
+.agent-facts .who { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.agent-facts .role { white-space: nowrap; }
+/* An agent's kind is a codicon, as an image: it keeps a px size, as every icon does. */
+.agent-card .kind { flex: none; color: var(--vscode-descriptionForeground); font-size: 14px; align-self: center; }
+
+/* A finished agent's card is quieter: its task's title gives way, one line, its whole name on hover. */
+/* Clamped, not kept to one line by nowrap: a nowrap title would be the card's least width, and widen the page. */
+.agent-card.finished { color: var(--vscode-descriptionForeground); }
+.agent-card.finished .task-title { font-weight: 400; -webkit-line-clamp: 1; }
+
+/* Where, when it isn't the task's own worktree (GH-119): muted, under the facts, two lines at most. It breaks
    between words and after a slash, never inside a name (GH-83). */
-.where { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; color: var(--vscode-descriptionForeground); font-weight: 400; }
+.where { display: flex; align-items: baseline; gap: 4px; min-width: 0; color: var(--vscode-descriptionForeground); font-weight: 400; }
 .where .codicon { flex: none; font-size: 13px; align-self: center; }
 .where-text { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .unbroken { white-space: nowrap; }
-/* The State and Model cells wrap when there's no room, so the table fits its frame at every width. A table
-   wider than its frame scrolls under the sticky actions, and those then cover the Running column (T-39). */
-.agents-grid td.state .status { white-space: normal; min-width: 10em; }
-.agents-grid td.state .status .codicon { align-self: flex-start; margin-top: 2px; }
-.agents-grid th.ran, .agents-grid td.ran { text-align: right; }
 
-/* While an agent needs you: Answer, Watch and Open in Claude Code on its line. A tab too narrow for their
-   words shows their icons, each named on hover and to a screen reader. */
-.agents-grid td.actions .line-btn { padding: 1px 6px; vertical-align: middle; }
-/* Answer shows its words where Watch shows only its icon, and the two are as high as each other (T-144). */
-.agents-grid td.actions .line-btn { min-height: 22px; box-sizing: border-box; justify-content: center; }
-.agents-grid td.actions .line-btn + .menu-caret { margin-left: 4px; }
-@media (max-width: 1279px) { .agents-grid .line-btn.ghost .btn-text { display: none; } }
-@media (max-width: 659px) { .agents-grid .line-btn .btn-text { display: none; } }
+/* Its actions on the right: Answer, Watch and Open in Claude Code while it needs you, then its menu. A card too
+   narrow for their words shows their icons, each named on hover and to a screen reader. */
+.agent-actions { flex: none; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.agent-actions .line-btn { padding: 1px 6px; min-height: 22px; box-sizing: border-box; justify-content: center; }
+@media (max-width: 1279px) { .agent-actions .line-btn.ghost .btn-text { display: none; } }
+@media (max-width: 659px) { .agent-actions .line-btn .btn-text { display: none; } }
 
 /* A repo's finished sessions, folded into one line, with Stop finished (D-095, T-39). */
-.agents-grid tr.fold td { padding: 4px 8px 4px 20px; }
-.fold-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
-.agents-grid .btn.fold-toggle { color: var(--vscode-descriptionForeground); }
+.fold-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: var(--space-2) 0 var(--space-2); }
+.agent-repo .btn.fold-toggle { color: var(--vscode-descriptionForeground); }
 .fold-toggle .codicon-check { font-size: 14px; }
-.agents-grid tr.finished td { color: var(--vscode-descriptionForeground); }
 
-/* What Where shows, Folder or Full path (GH-83): above the table, outside it, so it never widens a column or
-   scrolls sideways with it. */
+/* What Where shows, Folder or Full path (GH-83): above the cards, on the right. */
 .where-bar { display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
 .where-label { font-size: 0.9em; font-weight: 600; color: var(--vscode-descriptionForeground); }
 .segmented.where-view .seg { font-size: 0.88em; padding: 2px 8px; white-space: nowrap; }
-/* A narrow tab: the agent's name takes no more than its share, and below 560px the Model column goes, its
-   model shown on the agent's hover instead (D-086). */
-@media (max-width: 660px) {
-  .agents-grid th.wide { width: auto; }
-  .agents-grid td.agent { padding-left: 16px; }
-  .agents-grid td.state .status { min-width: 8em; }
-}
-@media (max-width: 560px) { .agents-grid .model { display: none; } .agents-grid td, .agents-grid th { padding-left: 6px; padding-right: 6px; } }
 
 /* Per-token billing (D-036): above the sessions, as well as in Settings' How agents run (GH-110). */
 .setting-billing { margin: 0 0 12px; }

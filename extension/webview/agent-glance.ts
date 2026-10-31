@@ -35,8 +35,10 @@ export function checkSummary(checks: CheckRow[]): Look | null {
 /** The key the tab remembers a fold of the panel open by, per ticket, as the page's other folds are. */
 export const detailsKey = (project: string, key: string): string => `agent-details:${project}#${key}`;
 
-/** That a session's look says it's busy at work: Working, Working in the cloud, Resumed: working. */
-const working = (agent: Look): boolean => /^(working|resumed: working)/i.test(agent.label);
+/** That a session's look says it's busy at work and no more: Working, Working in the cloud, Resumed: working. */
+const justWorking = (agent: Look): boolean => /^(working|resumed: working)/i.test(agent.label);
+/** That a session is busy at work: one of those, or what it's doing, such as Building or Testing (T-164). */
+const working = (agent: Look): boolean => !!agent.busy || justWorking(agent);
 
 /** The states a builder's session shouldn't still be working in: its task isn't running. */
 const NOT_RUNNING = ['blocked', 'review', 'rework'];
@@ -48,12 +50,15 @@ export interface Glance {
   session: Look | null;
 }
 
-/** The state and its session, said once. Blocked while its builder still works says so, not two chips that contradict. */
+/**
+ * The state and its session, said once. Blocked while its builder still works says so, not two chips that
+ * contradict. Running beside what its builder is doing (T-164) shows both: Building adds to Running, Working doesn't.
+ */
 export function stateGlance(a: Pick<TicketAcc, 'look' | 'state' | 'agent'>): Glance {
   if (!a.agent) return { disagree: null, session: null };
   if (NOT_RUNNING.includes(a.state) && working(a.agent)) return { disagree: `${a.look.label}: its builder is still working`, session: null };
   // Running and working say the same thing: one chip.
-  if (a.agent.label === a.look.label || (a.state === 'running' && working(a.agent))) return { disagree: null, session: null };
+  if (a.agent.label === a.look.label || (a.state === 'running' && justWorking(a.agent))) return { disagree: null, session: null };
   return { disagree: null, session: a.agent };
 }
 

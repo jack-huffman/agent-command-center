@@ -49,7 +49,7 @@ export interface TaskRow {
    */
   cloud?: { url: string; wait: string | null; finished: boolean } | null;
   /** The live state of the task's agent session, when one is known. */
-  agent?: { label: string; icon: string; tone: Tone } | null;
+  agent?: { label: string; icon: string; tone: Tone; tip?: string; busy?: boolean } | null;
   /** The model its agent runs with (D-086): what its transcript last answered with, else what acc started it with. */
   model?: string | null;
   /** Its builder's effort, shown beside its model only when one was named and isn't the model's default (D-128). */

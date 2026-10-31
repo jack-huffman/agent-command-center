@@ -6,6 +6,7 @@
 
 import { dirname, join, resolve } from 'node:path';
 import { sessionsOf, type SessionTie } from '../../../packages/core/src/ledger.ts';
+import type { Activity } from './doing.ts';
 import type { AgentSession, TaskRow, Tone } from './shared.ts';
 
 // ---------------------------------------------------------------- models (D-086)
@@ -111,6 +112,8 @@ export interface AgentLook {
   needsYou: boolean;
   /** At work now: the Agents page's header counts these (GH-119). */
   working?: boolean;
+  /** At work, the step behind what it's doing, in process words (T-164). */
+  tip?: string;
 }
 
 /** What an agent's waiting question asks for, in a few words, from the tool it's about (D-030). */
@@ -129,14 +132,15 @@ export function finishedSession(s: AgentSession, tie: SessionTie | null | undefi
 /**
  * `asking` is what a question waiting in the Command Center asks for; the session reads as busy meanwhile.
  * `tie` is the task acc tied it to: a finished session reads as Finished, never as Needs you (D-095).
- * Without one, it reads as Claude Code says.
+ * Without one, it reads as Claude Code says. At work, it says what it's doing (T-164), from `doing`; without
+ * that, Working.
  */
-export function agentLook(s: AgentSession, asking?: string | null, tie?: SessionTie | null): AgentLook {
+export function agentLook(s: AgentSession, asking?: string | null, tie?: SessionTie | null, doing?: Activity | null): AgentLook {
   if (asking) return { label: `Needs you: ${asking}`, icon: 'bell', tone: 'orange', needsYou: true };
   if (finishedSession(s, tie)) return { label: 'Finished', icon: 'check', tone: 'neutral', needsYou: false };
   if (s.state === 'blocked' || s.status === 'waiting') return { label: s.waitingFor ? `Needs you: ${s.waitingFor}` : 'Needs you', icon: 'bell', tone: 'orange', needsYou: true };
   if (s.state === 'failed') return { label: 'Failed', icon: 'warning', tone: 'orange', needsYou: true };
-  if (s.state === 'working' || s.status === 'busy') return { label: 'Working', icon: 'sync~spin', tone: 'blue', needsYou: false, working: true };
+  if (s.state === 'working' || s.status === 'busy') return { label: doing?.label ?? 'Working', icon: doing?.icon ?? 'sync~spin', tone: 'blue', needsYou: false, working: true, ...(doing?.detail ? { tip: doing.detail } : {}) };
   if (s.state === 'done') return { label: 'Done', icon: 'check', tone: 'neutral', needsYou: false };
   if (s.state === 'stopped') return { label: 'Stopped', icon: 'debug-stop', tone: 'neutral', needsYou: false };
   return { label: s.pid ? 'Idle' : 'Idle (exited)', icon: 'circle-outline', tone: 'neutral', needsYou: false };

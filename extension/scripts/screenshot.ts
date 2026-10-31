@@ -62,6 +62,7 @@ import { sampleStepRun, STEP_SAMPLE_ID, STEP_SAMPLE_OPEN, type StepSample } from
 import { BLOCKED_WALL, CLIENTS, ROOT } from './fixtures/shared.ts';
 import { noteInWords } from '../src/logic/relayed.ts';
 import { samplePerTokenSetup, sampleSettingsHub, sampleTrackerBoards } from './fixtures/settings.ts';
+import { sampleStepOf } from './fixtures/agents.ts';
 import { sampleQueueBoards, sampleQueueConnect } from './fixtures/queues.ts';
 import { sampleFirstSetup, sampleSetup, sampleStartingSetup, setupWalkState } from './fixtures/setup.ts';
 import { sampleSetupWithoutProduction } from './fixtures/no-production.ts';
@@ -328,11 +329,13 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   }
   // Settings at How agents run, and Agents, with two projects and agents that would bill per token (GH-110).
   const perToken = kind === 'settings-agents' || kind === 'agents-billing';
-  // Agents, on a busy machine: this window's two projects, one with no agents, and repos elsewhere (GH-119).
+  // Agents, on a busy machine: this window's two projects, one with no agents, and repos elsewhere (GH-119), each
+  // busy agent saying what it's doing (T-164).
   const agents = kind === 'agents' || kind === 'agents-path' || kind === 'agents-finished';
   // Settings' Limits and checks in their other states (GH-111): no total, slots from the environment, two projects.
   // Settings' Pipeline (T-157) shows both projects: the Salesforce one's development environment, and the generic one's.
-  const hub = kind === 'settings-limits' ? { ...sampleHub(now), limits: () => sampleLimitsOther() } : perToken || agents || kind === 'settings-trackers' || kind === 'settings-github' || kind === 'settings-pipeline' ? sampleSettingsHub(now) : sampleHub(now);
+  const hub = kind === 'settings-limits' ? { ...sampleHub(now), limits: () => sampleLimitsOther() } : agents || kind === 'agents-billing' ? { ...sampleSettingsHub(now), stepOf: sampleStepOf }
+    : perToken || kind === 'settings-trackers' || kind === 'settings-github' || kind === 'settings-pipeline' ? sampleSettingsHub(now) : sampleHub(now);
   // A service desk's queues as cards (T-128), ticked or refused to a sign-in that isn't an agent's.
   const connect = kind === 'connect-jira-queues' || kind === 'connect-jira-queues-refused' ? sampleQueueConnect(kind.endsWith('refused')) : kind.startsWith('connect-') ? sampleConnect(kind.slice('connect-'.length) as ConnectSample) : null;
   const slack = sampleSlack(kind.startsWith('slack-') ? kind.slice('slack-'.length) as SlackSample : 'on', now);

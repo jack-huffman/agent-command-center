@@ -4,7 +4,7 @@
 
 import type { Action } from '../src/model/shared.ts';
 import type { TicketAcc, TicketModel, TicketRatchet } from '../src/model/task-page.ts';
-import { button, type Child, clippedSpan, el, icon, linkTo, stateChip, status, work } from './dom.ts';
+import { button, type Child, clippedSpan, el, icon, linkTo, stateChip, status, withTip, work } from './dom.ts';
 import { checkSummary, detailsKey, splitActions, stateGlance } from './agent-glance.ts';
 import { noteHeadline } from './note.ts';
 import { WORDS } from './plain-words.ts';
@@ -93,7 +93,7 @@ export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key' | 'tryIt
   const { shown, more } = splitActions(a.actions, a.state);
   const glance = el('div', 'agent-glance',
     // Its state as the one state chip, its icon and its label, as every board and ticket draws one (T-94); beside it the session where it adds to it.
-    g.disagree ? el('p', 'agent-disagree', icon('warning', 'orange'), el('span', '', g.disagree)) : el('div', 'agent-state', stateChip(a.look), g.session ? Object.assign(stateChip(g.session), { title: 'Its builder\'s session' }) : null),
+    g.disagree ? el('p', 'agent-disagree', icon('warning', 'orange'), el('span', '', g.disagree)) : el('div', 'agent-state', stateChip(a.look), g.session ? withTip(stateChip(g.session), g.session.tip, 'Its builder\'s session') : null),
     sum ? el('p', `agent-checks tone-${sum.tone}`, status(sum)) : null,
     holdLine(a));
   const moreSet = taskActions(more.map(shortLabel));

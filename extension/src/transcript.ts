@@ -8,6 +8,7 @@
  */
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { basename, relative } from 'node:path';
+import { RECENT_STEPS, type ToolStep } from './logic/doing.ts';
 
 export type ToolStatus = 'running' | 'done' | 'error';
 
@@ -72,14 +73,17 @@ function resultText(content: unknown): string {
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 
+/** A path a tool call names, relative to the session's folder when it sits inside it; as written when it's outside; null when there's none. */
+function relPath(p: unknown, cwd: string | null): string | null {
+  const s = str(p);
+  if (!s) return null;
+  const rel = cwd && s.startsWith(cwd) ? relative(cwd, s) : s;
+  return rel && !rel.startsWith('..') ? rel : s;
+}
+
 /** A one-line account of a tool call, in words, with the command or path it acted on. */
 export function describeTool(name: string, input: Record<string, unknown>, cwd: string | null): { icon: string; title: string; code: string | null } {
-  const path = (p: unknown) => {
-    const s = str(p);
-    if (!s) return '';
-    const rel = cwd && s.startsWith(cwd) ? relative(cwd, s) : s;
-    return rel && !rel.startsWith('..') ? rel : s;
-  };
+  const path = (p: unknown) => relPath(p, cwd) ?? '';
   switch (name) {
     case 'Bash': return { icon: 'terminal', title: str(input.description) ?? 'Ran a command', code: str(input.command) };
     case 'Read': return { icon: 'file', title: `Read ${path(input.file_path) || 'a file'}`, code: null };
@@ -188,6 +192,13 @@ export interface LastStep {
   step: { icon: string; title: string; at: string | null } | null;
   /** The model its latest answer came from (D-036). */
   model: string | null;
+  /** Its latest tool calls, newest first, up to RECENT_STEPS: what it's doing is read from these (T-164). */
+  recent?: ToolStep[];
+}
+
+/** A tool call as what it's doing reads it: its command line, or its file relative to the session's folder. */
+function toolStep(name: string, input: Record<string, unknown>, cwd: string | null): ToolStep {
+  return { tool: name, command: name === 'Bash' ? str(input.command) : null, path: relPath(input.file_path ?? input.notebook_path, cwd) };
 }
 
 /** How much of a transcript's end is read for its latest step: most steps are near the end, so a small tail first. */
@@ -216,18 +227,19 @@ function tailOf(file: string, bytes: number): { text: string; whole: boolean } |
 }
 
 /**
- * The latest tool call in a transcript, in the agent page's words, and the model of its latest answer.
- * Only the file's end is read: 64 KB, then 256 KB when the step isn't in the first. A helper agent's
- * turns are skipped. Null when the file can't be read.
+ * The latest tool call in a transcript, in the agent page's words, the few before it, and the model of its
+ * latest answer. Only the file's end is read: 64 KB, then 256 KB when the step isn't in the first. A helper
+ * agent's turns are skipped. Null when the file can't be read.
  */
 export function lastStepIn(file: string): LastStep | null {
   let out: LastStep | null = null;
   for (const bytes of STEP_TAILS) {
     const tail = tailOf(file, bytes);
     if (!tail) return out;
-    out = { step: null, model: null };
+    const recent: ToolStep[] = [];
+    out = { step: null, model: null, recent };
     const lines = tail.text.split('\n');
-    for (let i = lines.length - 1; i >= 0 && (!out.step || !out.model); i--) {
+    for (let i = lines.length - 1; i >= 0 && (recent.length < RECENT_STEPS || !out.model); i--) {
       const line = lines[i]!;
       if (!line.includes('"assistant"')) continue;
       let r: Record<string, any>;
@@ -238,11 +250,15 @@ export function lastStepIn(file: string): LastStep | null {
       }
       if (r?.type !== 'assistant' || r.isSidechain || !Array.isArray(r.message?.content)) continue;
       if (!out.model && typeof r.message.model === 'string' && r.message.model !== '<synthetic>') out.model = r.message.model;
-      if (out.step) continue;
+      if (recent.length >= RECENT_STEPS) continue;
       const uses = (r.message.content as { type?: string; name?: unknown; input?: unknown }[]).filter((b) => b?.type === 'tool_use' && typeof b.name === 'string');
+      const cwd = typeof r.cwd === 'string' ? r.cwd : null;
+      const input = (b: { input?: unknown }) => (b.input && typeof b.input === 'object' ? b.input as Record<string, unknown> : {});
+      // A record's own calls, its last first: the newest step of all is the first one kept.
+      for (const b of [...uses].reverse()) if (recent.length < RECENT_STEPS) recent.push(toolStep(b.name as string, input(b), cwd));
       const b = uses.at(-1);
-      if (!b) continue;
-      const d = describeTool(b.name as string, b.input && typeof b.input === 'object' ? b.input as Record<string, unknown> : {}, typeof r.cwd === 'string' ? r.cwd : null);
+      if (!b || out.step) continue;
+      const d = describeTool(b.name as string, input(b), cwd);
       out.step = { icon: d.icon, title: d.title, at: typeof r.timestamp === 'string' ? r.timestamp : null };
     }
     if (out.step || tail.whole) return out;
