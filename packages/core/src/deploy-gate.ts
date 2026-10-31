@@ -1,6 +1,7 @@
 /**
  * The deploy gate (D-206): a Salesforce builder deploys its change to its environment's org, checks each
- * component is there, and runs the Apex tests it named in the org, before it hands back. It supersedes
+ * component is there, and runs the Apex tests it named in the org, before it hands back. Each Apex class and
+ * trigger the change adds or changes must then reach the coverage floor in the org (T-159). It supersedes
  * D-011 for an environment that isn't protected: a builder validates, then deploys, through this gate only.
  * Where it goes is read from the project's settings in the main checkout, or committed on the environment's
  * branch (origin's copy first), never from the task's worktree, and Salesforce is asked which org that is before anything goes: a
@@ -12,6 +13,7 @@
  * `acc deploy` after a merge.
  */
 import { join } from 'node:path';
+import { changedApex, type ClassCoverage, coverageFloor, coverageQueryArgs, coverageWords, readCoverage, underFloor } from './apex-coverage.ts';
 import type { Environment } from './config.ts';
 import { DEPLOY_GATE } from './deploy-commands.ts';
 import type { RunResult } from './exec.ts';
@@ -58,6 +60,12 @@ export interface DeployTests {
   failed: number;
   /** The run's coverage as sf reports it, such as "87%", or null when it didn't say. */
   coverage: string | null;
+  /**
+   * Each Apex class and trigger the ticket changes, with its coverage in the org after the run, and the floor
+   * each had to reach (T-159). Not kept by a deploy from before this was asked, nor when the tests failed.
+   */
+  classes?: ClassCoverage[];
+  floor?: number;
 }
 
 /** The deploy's sf arguments: a real deploy of the changed source, with the named tests, or none when no Apex changed. */
@@ -209,14 +217,17 @@ export function latestDeploys(deploys: TaskDeploy[] | null | undefined): TaskDep
   return [...latest.values()].sort((a, b) => b.at.localeCompare(a.at));
 }
 
-/** The words for a deploy's tests, as the receipt and the ticket say them: "2 tests passed in the org, 91% coverage". */
+/**
+ * The words for a deploy's tests, as the receipt and the ticket say them: "2 tests passed in the org, 91%
+ * coverage", then each changed class's figure: "; OrderService 88%, 4 lines not covered".
+ */
 export const testsWords = (t: DeployTests | null): string =>
-  t ? (t.outcome === 'pass' ? `${plural(t.ran, 'test')} passed in the org${t.coverage ? `, ${t.coverage} coverage` : ''}` : `${plural(t.failed, 'test')} of ${t.ran} failed in the org`) : 'no tests: no Apex changed';
+  t ? (t.outcome === 'pass' ? `${plural(t.ran, 'test')} passed in the org${t.coverage ? `, ${t.coverage} coverage` : ''}${t.classes?.length ? `; ${t.classes.map(coverageWords).join('; ')}` : ''}` : `${plural(t.failed, 'test')} of ${t.ran} failed in the org`) : 'no tests: no Apex changed';
 
 type DeployJson = { status?: number; message?: string; result?: Parameters<typeof deployProblems>[0] & { id?: string; success?: boolean; status?: string; numberComponentsTotal?: number } };
 
 /** What the gate runs, once it's allowed to: which org, the other tasks, the deploy, the check that it's there, and the tests, one org at a time. */
-function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Environment, source: string[], tests: ApexTest[]): Outcome {
+function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Environment, source: string[], tests: ApexTest[], floor: number): Outcome {
   const org = env.org!;
   const { pass, fail, error, listOf } = outcome;
   // Which org this really is: Salesforce says, whatever the settings say. Production is never a builder's.
@@ -266,17 +277,46 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Enviro
         record(null);
         return error(`Deployed to ${org} (job ${res.id}), but the test run gave no result: ${lastLine(t.stderr || t.stdout) || `sf exited with ${t.code}`}.`);
       }
+      // Each class and trigger the ticket changes, as the org covers it now: the deploy cleared what it had before.
+      const apex = ran.tests.outcome === 'pass' ? changedApex(input.root, source) : [];
+      if (apex.length) {
+        const names = apex.map((a) => a.name);
+        let q = exec('sf', coverageQueryArgs(org, names));
+        let classes = readCoverage(q, names);
+        // The Tooling API may refuse Coverage on several rows at once: ask for one class at a time instead.
+        if (!classes && names.length > 1) {
+          const each: ClassCoverage[] = [];
+          for (const name of names) {
+            q = exec('sf', coverageQueryArgs(org, [name]));
+            const one = readCoverage(q, [name]);
+            if (!one) { each.length = 0; break; }
+            each.push(...one);
+          }
+          if (each.length === names.length) classes = each;
+        }
+        if (!classes) {
+          record(ran.tests);
+          return withCountsOf(ran, error(`Deployed to ${org} (job ${res.id}) and the tests passed, but the org gave no coverage for ${listOf(apex.map((a) => a.name))}: ${lastLine(q.stderr || q.stdout) || `sf exited with ${q.code}`}.`));
+        }
+        ran.tests = { ...ran.tests, classes, floor };
+      }
       Object.assign(details, { testRun: { id: ran.runId, ...ran.tests, failures: ran.failures } });
     }
     record(ran?.tests ?? null);
-    const withCounts = (o: Outcome): Outcome => (ran ? { ...o, counts: ran.counts } : o);
+    const withCounts = (o: Outcome): Outcome => withCountsOf(ran, o);
     const n = res.numberComponentsTotal ?? known.length;
     if (missing.length) return withCounts(fail(`Deployed ${plural(n, 'component')} to ${org} (job ${res.id}), but the org doesn't list ${listOf(missing)}. Check the org, and the component's name in its source.`, details));
     if (ran && ran.tests.outcome !== 'pass') return withCounts(fail(`Deployed ${plural(n, 'component')} to ${org} (job ${res.id}), but ${plural(ran.tests.failed, 'test')} failed in the org: ${listOf(ran.failures, 2)}`, details));
+    // A changed class or trigger under the floor: name each, with its figure and its lines, so the builder can add tests.
+    const short = underFloor(ran?.tests.classes ?? [], floor);
+    if (short.length) return withCounts(fail(`Deployed ${plural(n, 'component')} to ${org} (job ${res.id}) and the tests passed, but ${short.length === 1 ? 'a changed class is' : `${short.length} changed classes are`} under the ${floor}% coverage floor: ${short.join('; ')}. Add tests that cover those lines, name them with --test, and run acc gate run deploy again.`, details));
     const checked = unchecked.length ? `, ${plural(unchecked.length, 'component')} acc couldn't ask the org for` : '';
     return withCounts(pass(`Deployed ${plural(n, 'component')} to ${org} (job ${res.id}): ${verified} listed in the org${checked}; ${testsWords(ran?.tests ?? null)}.`, details));
   }, lock);
 }
+
+/** An outcome with the test run's counts, when there was a run. */
+const withCountsOf = (ran: { counts: TestCounts } | null, o: Outcome): Outcome => (ran ? { ...o, counts: ran.counts } : o);
 
 /** What the org lists of a deploy's components, by asking it for each one's type: those it lists, those it doesn't, and those acc can't ask for. */
 export function askOrgFor(exec: (cmd: string, args: string[]) => RunResult, org: string, source: string[]): { known: DeployedComponent[]; components: string[]; verified: number; unchecked: string[]; missing: string[] } {
@@ -317,7 +357,7 @@ export const DEPLOY_ELSEWHERE = 'the task\'s own worktree, on its branch, with a
  * validate not passed on this commit.
  */
 export const deployGate: Gate = {
-  name: DEPLOY_GATE, heavy: true, changeBound: true, about: 'deploys changed source to the environment\'s org, checks it\'s there, and runs the named Apex tests in the org',
+  name: DEPLOY_GATE, heavy: true, changeBound: true, about: 'deploys changed source to the environment\'s org, checks it\'s there, runs the named Apex tests in the org, and holds each changed Apex class to the coverage floor',
   plan(input) {
     const { root, changes, tests, run } = input;
     const { fail, error, skip, listOf } = outcome;
@@ -348,6 +388,6 @@ export const deployGate: Gate = {
     }
     if (run.dirty) return { outcome: fail('There are uncommitted changes. What goes to the org must be what\'s committed: commit, then run acc gate run deploy again.') };
     if (!satisfies(readReceipt(run.paths, run.sha, 'validate'))) return { outcome: fail('validate hasn\'t passed on this commit. Run acc gate run validate first: a deploy follows a check-only one.') };
-    return { tests: tests.length > 0, steps: (exec) => deploySteps(input, run, exec, env, source, tests) };
+    return { tests: tests.length > 0, steps: (exec) => deploySteps(input, run, exec, env, source, tests, coverageFloor(trusted.config)) };
   },
 };
