@@ -18,7 +18,7 @@ import { cssRules, pageStyles, palettes, readsVars, styleFile, styleFiles, vscod
 test('every section of the page, and a ticket, has sample data built by the real model functions', () => {
   for (const kind of PAGES) {
     const m = sampleModel(kind);
-    if (kind.startsWith('ticket') || kind === 'agent') assert.equal(m.kind, kind.startsWith('ticket') ? 'ticket' : kind);
+    if (kind.startsWith('ticket') || kind === 'agent' || kind === 'agent-chat') assert.equal(m.kind, kind.startsWith('ticket') ? 'ticket' : 'agent');
     // A plan's conversation in its own panel (T-111).
     else if (kind.startsWith('conversation')) assert.deepEqual([m.kind, (m as { key: string }).key], ['conversation', 'ACME-21']);
     // Report a problem's draft in its own tab (T-118): one draft, the same in each of its states.

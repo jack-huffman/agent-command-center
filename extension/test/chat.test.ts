@@ -72,7 +72,7 @@ test('Send sits in the card\'s row, off with its reason until there are words, a
   type(b, 'Why?');
   assert.deepEqual([send.disabled, send.title, send.getAttribute('aria-description')], [false, '', null]);
   press(b, {});
-  assert.deepEqual(sent, [], 'Enter alone starts a new line');
+  assert.equal(sent.length, 0, 'Enter alone starts a new line');
   press(b, { ctrlKey: true });
   press(b, { metaKey: true });
   E(send).click();
