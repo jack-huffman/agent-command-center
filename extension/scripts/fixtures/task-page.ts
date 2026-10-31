@@ -90,6 +90,11 @@ export function sampleTicket(now = Date.now(), which: TicketSample = 'ACME-12', 
     // A person's edit (T-74), before its builder went back to work: the activity shows it apart from the moves.
     edits: [{ at: new Date(now - 20 * 60_000).toISOString(), actor: 'human', by: 'human:me', fields: ['notes'] }],
     notes: 'Keep the Low entry dev added; only High and Medium change.',
+    // Two group checks it was in (T-165): one failed, and the split sent it back for the test its change fails.
+    groupChecks: [
+      { group: 'dev@1', env: 'dev', with: ['ACME-21', 'ACME-30'], outcome: 'failed', words: 'Checked with ACME-21 and ACME-30: failed (validate)', at: new Date(now - 40 * 60_000).toISOString() },
+      { group: 'dev@1', env: 'dev', with: [], outcome: 'sent-back', words: 'Sent back: its change fails force-app/main/default/classes/EscalationRulesTest.cls, checked alone', at: new Date(now - 35 * 60_000).toISOString() },
+    ],
     createdAt: new Date(now - 4 * 86_400_000).toISOString(), updatedAt: new Date(now - 12 * 60_000).toISOString(),
   } as unknown as Task;
   return ticketModel({

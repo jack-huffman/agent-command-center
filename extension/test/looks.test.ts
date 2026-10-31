@@ -35,6 +35,7 @@ import { CRITERION_LOOK, dockReview, REVIEW_RUN_LOOK } from '../src/model/dock-r
 import { VERIFY_LOOK } from '../src/model/verify.ts';
 import { CHANGE_LOOK, DEPLOY_LOOK } from '../src/model/changes.ts';
 import { TEAM_LOOK } from '../src/model/team.ts';
+import { GROUP_LOOK } from '../src/model/group-check.ts';
 import { RECORD_LOOK } from '../src/model/record-changes.ts';
 import { FIELD_LOOK } from '../src/model/changes-field.ts';
 import { MANIFEST_LOOK, MANIFEST_ROW_LOOK } from '../src/model/manifest.ts';
@@ -199,6 +200,8 @@ export const TABLES: Table[] = [
   // The builder's own deploy to its org, under Changes (D-206): one state, blue, with the org's name after it.
   { name: 'a task\'s deploy to its org, under Changes (T-115)', sources: ['extension/src/model/changes.ts#DEPLOY_LOOK'], states: () => Object.entries(DEPLOY_LOOK) },
   { name: 'a task\'s team, on its page: up to date or behind, and sharing files (T-103)', sources: ['extension/src/model/team.ts#TEAM_LOOK'], states: () => Object.entries(TEAM_LOOK) },
+  // A group check's step on its task (T-165): checking, passed, merged, and what needs a builder or a person.
+  { name: 'a task\'s step in a group check', sources: ['extension/src/model/group-check.ts#GROUP_LOOK'], states: () => Object.entries(GROUP_LOOK) },
   // Record changes (T-100): each change made, planned or not, refused, and a promotion's step to do, done or skipped.
   { name: 'a ticket\'s record change and a promotion\'s step', sources: ['extension/src/model/record-changes.ts#RECORD_LOOK'], states: () => Object.entries(RECORD_LOOK) },
   // A tracker's changes field on a ticket's page (T-105): reading it, failed, empty, the same as found, differing, and the draft.
@@ -334,6 +337,8 @@ export const TABLES: Table[] = [
  */
 export const NOT_TABLES: Record<string, string> = {
   'extension/src/model/run-view.ts#lookOf': 'picks a row\'s look from ROW_LOOK, which is walked: an ended count of progress takes its success or its note',
+  'extension/src/model/group-check.ts#groupLook': 'a step\'s icon and tone from GROUP_LOOK, which is walked, with its own words for the label (T-165)',
+  'extension/src/model/group-check.ts#lastGroupLook': 'the latest step through groupLook, so through GROUP_LOOK, which is walked (T-165)',
   'extension/src/model/shared.ts#LOOK': 'builds a look from its three parts; the tables that call it are walked',
   'extension/src/progress.ts#doneLine': 'a finished job\'s line, Done with its kind\'s icon: each icon is a literal the icon scan checks',
   'extension/src/logic/shared.ts#TONE_COLOR': 'a tone\'s colour in the sidebar, which draws with VSCode\'s own theme colours, not a state',

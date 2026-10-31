@@ -423,7 +423,7 @@ test('a conflict it can\'t resolve:the branch is as it was, nothing is pushed, a
   assert.deepEqual(autopilotEvent(e), { seq: e.seq, at: e.at, task: 'T-1', step: 'queue', outcome: 'done', checks: [], conflicts: ['sum.js'], reason: 'The merge queue sent it back: merging main in conflicts in sum.js.' });
   // What its builder reads.
   const report = readQueueReport(s.paths, 'T-1', before)!;
-  assert.deepEqual([report.kind, report.conflicts, report.base, report.pr.number], ['conflict', ['sum.js'], 'main', 41]);
+  assert.deepEqual([report.kind, report.conflicts, report.base, report.pr?.number], ['conflict', ['sum.js'], 'main', 41]);
   const packet = renderPacket({ task: t, config: s.config, env: s.config.environments[0]!, worktree: s.wtOf('T-1'), branch: s.branchOf('T-1'), rules: null, environmentSpecific: [], queue: report });
   assert.match(packet, /## What the merge queue found\n\nThis is a rework\. Your change is pull request #41\. Its review passed, and the merge queue took it to merge into `main`, but `main` has moved on, and merging it into [0-9a-f]{7} conflicts in: `sum\.js`\./);
   assert.match(packet, /run `git merge origin\/main`, resolve each of those files/);

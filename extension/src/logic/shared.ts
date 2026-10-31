@@ -8,7 +8,7 @@ import type { Approach } from '../../../packages/core/src/analyze.ts';
 import type { BuilderPlace, Effort } from '../../../packages/core/src/config.ts';
 import { shellQuote } from '../../../packages/core/src/onboarding/fix-lines.ts';
 import { isObj } from '../../../packages/core/src/text.ts';
-import type { AutopilotStepName, CloudRun, FileShare, QueuePhase } from '../../../packages/core/src/ledger.ts';
+import type { AutopilotStepName, CloudRun, FileShare, GroupMark, QueuePhase } from '../../../packages/core/src/ledger.ts';
 import type { Unseen } from '../../../packages/core/src/started.ts';
 import type { AgentNote } from './relayed.ts';
 
@@ -41,6 +41,8 @@ export interface TaskRow {
    * effort, when one was named, and effortPicked likewise (D-128).
    */
   run?: { bgId?: string; sessionId?: string; worktree?: string; branch?: string; name?: string; model?: string; modelPicked?: true; effort?: Effort; effortPicked?: true; where?: BuilderPlace; cloud?: CloudRun } | null;
+  /** Each step of each group check it was in (T-165), oldest first. */
+  groupChecks?: GroupMark[];
   /**
    * Its cloud builder (GH-69), while its run is a cloud session: its page on claude.ai, and why it needs
    * you, if it does (quiet for too long, or its collect failed). Null for a builder on this Mac.

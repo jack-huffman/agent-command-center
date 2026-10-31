@@ -138,6 +138,12 @@
         "icon": "$(note)"
       },
       {
+        "command": "acc.task.checkTogether",
+        "title": "Check Tasks in Review Together…",
+        "category": "Agent Command Center",
+        "icon": "$(checklist)"
+      },
+      {
         "command": "acc.cloud.setup",
         "title": "Set up cloud builders…",
         "category": "Agent Command Center",

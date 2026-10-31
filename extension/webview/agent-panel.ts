@@ -10,6 +10,7 @@ import { noteHeadline } from './note.ts';
 import { WORDS } from './plain-words.ts';
 import { memory, remember } from './state.ts';
 import { taskActions } from './task-actions.ts';
+import { groupRows } from './group-check.ts';
 
 /** A row of a list of fields: its name, with an icon before it where one is given, then its value. */
 export function field(name: string | { icon: string; name: string }, ...value: Child[]): HTMLElement[] {
@@ -100,5 +101,5 @@ export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key'>, a: Tic
     // Its actions in one size and place (D-168): the next step full width, the two that fit its state under it.
     taskActions(shown),
     moreSet ? fold(`agent-more:${m.project}#${m.key}`, 'More actions', 'agent-more', moreSet) : null,
-    fold(detailsKey(m.project, m.key), 'Details', 'agent-details', facts(a), checkRows(a, onWaive)));
+    fold(detailsKey(m.project, m.key), 'Details', 'agent-details', facts(a), checkRows(a, onWaive), groupRows(a.groups)));
 }

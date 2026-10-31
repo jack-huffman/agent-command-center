@@ -9,6 +9,7 @@ import { type AutopilotLog, type AutopilotRecord, readAutopilotLog } from '../..
 import { type Config, parseConfig } from '../../packages/core/src/config.ts';
 import { run as runSync } from '../../packages/core/src/exec.ts';
 import { CLONE_ACCOUNT_KEY } from '../../packages/core/src/github.ts';
+import { groupRunning } from '../../packages/core/src/group-check.ts';
 import { type Ledger, readLedger, readRuns, type RepoAgents, type RunsLog, type SessionTie, tieSession } from '../../packages/core/src/ledger.ts';
 import type { RepoPaths } from '../../packages/core/src/paths.ts';
 import { type HistoryRecord, listeners, type Question, questionsDir } from '../../packages/core/src/questions.ts';
@@ -262,6 +263,12 @@ export class Hub implements vscode.Disposable {
   autopilotLog(root: string): AutopilotRecord[] {
     const p = this.project(root);
     return (p && this.steps.get(p.ledgerPath)?.records.map(stepInWords)) || [];
+  }
+
+  /** Whether a group check for `env` holds its lock in this project's repo now (T-165), as acc itself reads it. */
+  groupRunning(root: string, env: string): boolean {
+    const p = this.project(root);
+    return !!p && groupRunning(stateOf(p), env);
   }
 
   /** Every move every task made, for the Overview's activity. */

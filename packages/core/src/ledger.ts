@@ -295,6 +295,29 @@ export interface SentBack {
   conflicts?: string[];
 }
 
+/**
+ * What a step of a group check came to for a task (T-165). checking: its check runs now. passed or failed:
+ * a check of the tasks named. merged: the group passed and it merged. sent-back: the failure is its change's.
+ * left-out: it conflicts with the group. together: it passes alone but fails with the others. needs-you:
+ * anything else that stops it, such as autopilot's send-back limit.
+ */
+export const GROUP_OUTCOMES = ['checking', 'passed', 'failed', 'merged', 'sent-back', 'left-out', 'together', 'needs-you'] as const;
+export type GroupOutcome = (typeof GROUP_OUTCOMES)[number];
+
+/** One step of a group check, kept on each task it checked (T-165), so its ticket says what happened. */
+export interface GroupMark {
+  /** The group check's run: the same on every task in it. */
+  group: string;
+  /** The environment's branch it merges into. */
+  env: string;
+  /** The other tasks in this step's check. */
+  with: string[];
+  outcome: GroupOutcome;
+  /** What its ticket says: "Checked with T-155 and T-159: passed". */
+  words: string;
+  at: string;
+}
+
 /** A step autopilot took that failed: it isn't tried again on that commit, and the task needs you (D-055). */
 export interface AutopilotFailure {
   step: AutopilotStepName;
@@ -357,6 +380,8 @@ export interface Task {
   deploys?: TaskDeploy[];
   /** Its changes outside git, such as records (T-100): kept, noted commands, and the steps to make them at promotion. */
   outside?: OutsideState;
+  /** Each step of each group check it was in (T-165), oldest first. */
+  groupChecks?: GroupMark[];
   history: HistoryEntry[];
   createdAt: string;
   updatedAt: string;
