@@ -9,7 +9,7 @@ import { jobsUnderWay } from '../../packages/core/src/jobs.ts';
 import { terminalShell } from '../../packages/core/src/shell.ts';
 import type { Task } from '../../packages/core/src/ledger.ts';
 import { TASK_DEPLOY_COMMAND } from '../../packages/core/src/task-deploy.ts';
-import { readWhere, type TicketWhere } from '../../packages/core/src/where-kept.ts';
+import type { TicketWhere } from '../../packages/core/src/where-kept.ts';
 import type { ExtensionArea } from './area.ts';
 import { guideArgs, guideLaunch, guideLine } from './logic/deploy-guide.ts';
 import { stateOf } from './logic/shared.ts';
@@ -17,19 +17,15 @@ import { WhereReads } from './logic/where.ts';
 import type { Message } from './model/ticket-deploy.ts';
 import { accRunner } from './run.ts';
 
-/** What a task page asks of its deploy: where a deploy of it is under way, its readings, and Deploy…'s pick. */
+/** What a task page asks of its deploy: where a deploy of it is under way, its checks of an org, and Deploy…'s pick. */
 export interface DeployActions {
   /** The environment's branch a deploy of the task is under way to, from this window or another (D-092); null when there's none. */
   deploying(root: string, id: string): string | null;
-  /** Deploy…'s pick and Check again: the page draws how they went from the next model, which this window refreshes. */
+  /** Deploy…'s pick and Check this org: the page draws how they went from the next model, which this window refreshes. */
   act(m: Message): Promise<void>;
-  /** Where its work was last read to be (T-155), kept beside the ledger; a due reading is read again behind the page. */
-  where(root: string, task: Task): TicketWhere | null;
-  /** The kept readings alone, for a check that mustn't start a read. */
+  /** What each Check this org last found (T-167), kept beside the ledger. It only reads the file: a draw starts no read. */
   kept(root: string, id: string): TicketWhere | null;
-  /** The person's Refresh: read where its work is again, in every environment, whatever the readings' age. */
-  reread(root: string, id: string): void;
-  /** Whether a read of where its work is is under way: of every environment, or of the one whose branch is `env`. */
+  /** Whether a Check this org of the environment whose branch is `env` is under way. */
   reading(root: string, id: string, env: string): boolean;
 }
 
@@ -48,18 +44,13 @@ export const area: ExtensionArea = {
       t.show();
       t.sendText(guideLine(g.launch), true);
     };
-    // Where its work is (T-155): read behind the page with acc where, which the page draws once it's back.
-    const reads = new WhereReads({ acc: (args, cwd) => acc(args, cwd), done: (root) => tickets.refresh(root), now: () => new Date() });
+    // Check this org (T-167): a row's click reads its one environment with acc where; the page draws it once it's back.
+    const reads = new WhereReads({ acc: (args, cwd) => acc(args, cwd), done: (root) => tickets.refresh(root) });
     tickets.deploys = {
-      where: (root, task) => {
-        const p = hub.project(root);
-        return p ? reads.kept(root, stateOf(p).stateDir, p.config, task) : null;
-      },
       kept: (root, id) => {
         const p = hub.project(root);
-        return p ? readWhere(stateOf(p), id.toUpperCase()) : null;
+        return p ? reads.kept(stateOf(p).stateDir, id) : null;
       },
-      reread: (root, id) => void reads.read(root, id),
       reading: (root, id, env) => reads.reading(root, id, env),
       deploying: (root, id) => {
         const p = hub.project(root);
@@ -72,7 +63,7 @@ export const area: ExtensionArea = {
       },
       async act(m) {
         if (m.type === 'where-check') {
-          // A row's Check again reads its own environment alone (T-158).
+          // A row's Check this org reads its own environment alone (T-167).
           void reads.read(m.project, m.task, m.env);
           tickets.refresh(m.project);
           return;

@@ -1,5 +1,5 @@
-// A ticket's deploy on its Changes tab (T-158): a row for each environment on its path, in order, each with its
-// state and when it was read; one environment next at most; Deploy…, which offers at most three environments
+// A ticket's deploy on its Changes tab (T-158, T-167): a row for each environment on its path, in order, each with
+// its state by acc's record and what its last check found; one environment next at most; Deploy…, which offers at most three environments
 // ahead, each saying what happens next, off with why; and the page's messages, which hold no direct deploy. Two
 // mutants of the model, each caught: one that shows two environments as next, and one that lets a direct deploy in.
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ import { tempDir } from '../../packages/core/test/support.ts';
 import { deletedPaths } from '../src/logic/ticket-deploy.ts';
 import * as model from '../src/model/ticket-deploy.ts';
 
-const { area, BUSY_LOOK, choiceThen, deployBlockers, deployOff, deployPick, envRows, MERGE_LOOK, NEXT_LOOK, pickOff, stepsLeftWords, ticketDeploy, WHERE_LOOK } = model;
+const { area, BUSY_LOOK, choiceThen, deployBlockers, deployOff, deployPick, envRows, MERGE_LOOK, NEXT_LOOK, pickOff, RECORD_LOOK, stepsLeftWords, ticketDeploy } = model;
 type Mod = typeof model;
 
 const env = (name: string, more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo: [], ...more });
@@ -36,21 +36,17 @@ const read = (e: string, state: EnvWhere['state'], more: Partial<EnvWhere> = {})
 const where = (...envs: EnvWhere[]): TicketWhere => ({ v: 1, task: 'ACME-7', envs });
 const base = { config, tasks: [] as Task[], deploying: null };
 
-test('a row for each environment on the path, in order, each with its org, its state from the last reading, and when it was read (T-158)', () => {
-  const w = where(read('dev', 'deployed'), read('qa', 'deployed'), read('uat', 'partly', { differs: ['Apex Class: Helper', 'Flow: Route'] }), read('production', 'unknown', { why: 'This machine has no access to Production.' }));
-  const rows = envRows(config, inQa(), w);
-  assert.deepEqual(rows.map((r) => [r.name, r.org, r.look.label, r.readAt]), [['Dev', 'acme-dev', 'Deployed', AT], ['QA', 'acme-qa', 'Deployed', AT], ['UAT', 'acme-uat', 'Partly deployed', AT], ['Production', 'acme-production', 'Can\'t tell', AT]]);
-  assert.deepEqual([rows[2]!.detail, rows[2]!.differs], ['2 components differ', ['Apex Class: Helper', 'Flow: Route']], 'partly: how many differ, and which, for the row to open on');
-  assert.equal(rows[3]!.detail, 'This machine has no access to Production.', 'can\'t tell: why');
-  assert.equal(rows[1]!.at, AT, 'deployed: when, by acc\'s records');
-  const none = envRows(config, inQa(), where(read('uat', 'not-deployed', { differs: ['Apex Class: Helper'] })));
-  assert.deepEqual([none[2]!.look, none[2]!.at, none[2]!.differs], [WHERE_LOOK['not-deployed'], null, ['Apex Class: Helper']]);
-  assert.deepEqual(Object.values(WHERE_LOOK).map((l) => l.tone), ['blue', 'orange', 'orange', 'neutral'], 'orange against blue, each with words');
+test('a row for each environment on the path, in order, each with its org, and its state by acc\'s record with when (T-158, T-167)', () => {
+  const rows = envRows(config, inQa(), where(read('uat', 'partly', { differs: ['Apex Class: Helper', 'Flow: Route'] })));
+  assert.deepEqual(rows.map((r) => [r.name, r.org, r.look.label]), [['Dev', 'acme-dev', 'Merged'], ['QA', 'acme-qa', 'Merged'], ['UAT', 'acme-uat', 'Not deployed'], ['Production', 'acme-production', 'Not deployed']]);
+  assert.equal(rows[1]!.at, AT, 'merged: when, by acc\'s records');
+  assert.deepEqual([rows[2]!.check?.detail, rows[2]!.check?.differs], ['2 components differ', ['Apex Class: Helper', 'Flow: Route']], 'a check of UAT: how many differ, and which, for the note to open on');
+  assert.deepEqual(Object.values(RECORD_LOOK).map((l) => l.tone), ['blue', 'orange', 'blue', 'neutral'], 'orange against blue, each with words');
 });
 
-test('edge case: before the first reading, a row is deployed where acc recorded it there, and can\'t tell elsewhere, with no read time, so the row says it isn\'t read yet (T-158)', () => {
+test('edge case: before any check, no row carries a note, and an environment not in the settings has no rows (T-158)', () => {
   const rows = envRows(config, inQa());
-  assert.deepEqual(rows.map((r) => [r.look.label, r.detail, r.readAt]), [['Can\'t tell', null, null], ['Deployed', null, null], ['Can\'t tell', null, null], ['Can\'t tell', null, null]]);
+  assert.deepEqual(rows.map((r) => r.check), [null, null, null, null]);
   assert.equal(envRows(config, task({ environment: 'nowhere' })).length, 0, 'an environment not in the settings has no rows');
 });
 
@@ -71,12 +67,14 @@ test('an environment off the usual way has a row after the path while Deploy… 
   assert.deepEqual(rows(inUat), ['Dev', 'QA', 'UAT', 'Production'], 'edge case: from UAT, Hotfix is no choice, so no row');
   assert.deepEqual(envRows(config, inQa(), null, null, [ENVS[2]!]).map((r) => r.name), ['Dev', 'QA', 'UAT', 'Production'], 'one already on the path is not drawn twice');
   const hotfix = ticketDeploy({ ...base, task: inQa(), where: where(read('hotfix', 'not-deployed', { differs: ['Apex Class: Helper', 'Flow: Route'] })) })!.rows[4]!;
-  assert.deepEqual([hotfix.look, hotfix.detail, hotfix.differs.length, hotfix.next], [WHERE_LOOK['not-deployed'], '2 components not in Hotfix', 2, null], 'not deployed: how many are missing, for the row to open on');
+  assert.deepEqual([hotfix.look, hotfix.check?.detail, hotfix.check?.differs.length, hotfix.next], [RECORD_LOOK['not-deployed'], '2 components not in Hotfix', 2, null], 'a check of Hotfix: how many are missing, for the note to open on');
 });
 
 test('the development environment\'s row says whether the work is merged into its branch, and no other row does (T-158)', () => {
   const merged = (t: Task) => envRows(config, t).map((r) => r.merged && [r.merged.look, r.merged.words]);
-  assert.deepEqual(merged(task()), [[MERGE_LOOK.merged, 'Merged into dev'], null, null, null]);
+  const built = task({ deploys: [{ env: 'dev', org: 'acme-dev', sha: 's', at: AT, jobId: '0Af', paths: [], components: [], verified: 0, tests: null }] } as Partial<Task>);
+  assert.deepEqual(merged(built), [[MERGE_LOOK.merged, 'Merged into dev'], null, null, null]);
+  assert.deepEqual(merged(task()), [null, null, null, null], 'edge case: its state already says merged, so the line isn\'t said twice');
   assert.deepEqual(merged(task({ pr: { number: 3, url: 'u', state: 'open' } }))[0], [MERGE_LOOK.open, 'Not merged into dev yet']);
   assert.deepEqual(merged(task({ pr: null, state: 'running' }))[0], [MERGE_LOOK.building, 'Being built']);
   assert.deepEqual(merged(task({ pr: null, run: null, state: 'todo' }))[0], [MERGE_LOOK.none, 'No work to merge yet'], 'edge case: before there\'s work');
@@ -135,17 +133,17 @@ test('a deploy under way shows on its row and on the tab, and Deploy… waits; t
   const somewhere = ticketDeploy({ ...base, task: inQa(), deploying: '' })!;
   assert.deepEqual([somewhere.status?.words, somewhere.rows.some((r) => r.busy)], ['An agent is deploying ACME-7.', false]);
   assert.equal(ticketDeploy({ ...base, task: inQa() })!.status, null);
-  // A read of one environment under way waits on its row alone.
-  assert.deepEqual(ticketDeploy({ ...base, task: inQa(), reading: (b) => b === 'uat' })!.rows.map((r) => [r.branch, r.reading]), [['dev', false], ['qa', false], ['uat', true], ['production', false], ['hotfix', false]]);
+  // A check of one environment under way waits on its row alone.
+  assert.deepEqual(ticketDeploy({ ...base, task: inQa(), reading: (b) => b === 'uat' })!.rows.map((r) => [r.branch, r.checking]), [['dev', false], ['qa', false], ['uat', true], ['production', false], ['hotfix', false]]);
   assert.equal(stepsLeftWords(0), null);
 });
 
-test('the page\'s messages: Deploy…\'s pick and Check again, checked; no direct deploy is let in (T-158)', () => {
+test('the page\'s messages: Deploy…\'s pick and Check this org, checked; no direct deploy is let in (T-158, T-167)', () => {
   assert.deepEqual(Object.keys(area.messages!).sort(), ['deploy-guide', 'where-check']);
   assert.equal(area.messages!['deploy-guide']!({ project: '/r', task: 'ACME-7', to: 'uat' }), true);
   assert.equal(area.messages!['deploy-guide']!({ project: '/r', task: 'ACME-7' }), false, 'where to is needed');
   assert.equal(area.messages!['where-check']!({ project: '/r', task: 'ACME-7', env: 'uat' }), true);
-  assert.equal(area.messages!['where-check']!({ project: '/r', task: 'ACME-7' }), false, 'a row\'s Check again names its environment');
+  assert.equal(area.messages!['where-check']!({ project: '/r', task: 'ACME-7' }), false, 'a row\'s Check this org names its environment');
   assert.equal(area.messages!['where-check']!({ project: '/r', task: 'not a key', env: 'uat' }), false);
   const runner = (_c: string, args: string[]) => ({ code: 0, stdout: args.includes('src/a.ts') ? 'src/a.ts\0' : '', stderr: '' });
   assert.deepEqual(deletedPaths(runner as never, '/r', 'task/x', null, ['src/a.ts', 'src/old.ts']), ['src/old.ts']);
@@ -176,7 +174,7 @@ test('the checks pass on the model as it is', () => {
 });
 
 test('a mutant that shows two environments as next is caught', async () => {
-  const m = await mutant('next: e.branch === next ? NEXT_LOOK : null', 'next: ticketPlace(config, t, where)?.next.some((x) => x.branch === e.branch) ? NEXT_LOOK : null');
+  const m = await mutant('next: e.branch === next ? NEXT_LOOK : null', 'next: ticketPlace(config, t)?.next.some((x) => x.branch === e.branch) ? NEXT_LOOK : null');
   assert.deepEqual(nextOnes(m), ['Sandbox', 'Production'], 'the mutant showed both as next, and the check saw it');
 });
 

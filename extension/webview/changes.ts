@@ -1,4 +1,5 @@
-// A task's Changes tab (T-138): first where it is, one row for each environment on its path (T-158), and one
+// A task's Changes tab (T-138): first where it is, one row for each environment on its path (T-158), its state by
+// acc's record and a Check this org (T-167), and one
 // Deploy…, which asks where and starts the deploy guide's agent there, so a long list never pushes it out of
 // view. Nothing on the tab deploys by itself. Then what changed, one list by type with a count; planned before there's work, made once there is, with what
 // was planned and not made, or made and not planned, behind one quiet line. Deletions carry an icon and the
@@ -69,38 +70,54 @@ function renderRecordList(m: TicketModel): HTMLElement | null {
   return sec;
 }
 
-/** A row's Check again: quiet, it reads its own environment alone, and waits while a read of it is under way. */
-function checkAgain(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLButtonElement {
-  const x = button(r.reading ? 'Checking…' : 'Check again', r.reading ? 'sync~spin' : 'refresh', () => {
+/**
+ * A row's Check this org (T-167): quiet, it reads its own environment alone, for work deployed outside acc. It waits,
+ * spinning, while its check is under way, and is off with why where there's nothing to check.
+ */
+function checkButton(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLButtonElement {
+  const x = button('Check this org', r.checking ? 'sync~spin' : 'search', () => {
     if (!x.disabled) api.postMessage({ type: 'where-check', project: m.project, task: d.task, env: r.branch });
-  }, 'ghost small dp-again');
-  if (r.reading) {
+  }, 'ghost small dp-check-btn');
+  if (r.checking) {
     x.disabled = true;
-    x.title = `Check again: it is reading where the work is in ${r.name} now`;
-  } else x.title = `Check again: read where the work is in ${r.name}'s branch and org now`;
+    x.setAttribute('aria-busy', 'true');
+    x.title = `Check this org: it is reading ${r.org ?? r.name} now`;
+  } else if (r.checkOff) {
+    x.disabled = true;
+    x.title = `Check this org: ${r.checkOff}`;
+    x.setAttribute('aria-description', r.checkOff);
+  } else x.title = `Check this org: read whether ${r.org ?? r.name} holds this work now, for work deployed another way`;
   return x;
 }
 
+/** What a check found, under its row: matches, differs (a fold of which), or can't tell (why), with when it was read. A note: the row's state stays acc's record. */
+function renderCheck(m: TicketModel, r: EnvRow): HTMLElement[] {
+  const c = r.check;
+  if (!c) return [];
+  const out: HTMLElement[] = [el('p', 'small dp-check-found', el('span', 'muted', 'This org, checked '), when(c.at), status(c.look))];
+  if (c.differs.length) {
+    const key = openKey(`differs-${r.branch}`, m);
+    out.push(foldButton(c.detail ?? plural(c.differs.length, 'component'), key, 'dp-differs-btn'));
+    if (isOpen(key)) out.push(el('ul', 'chg-list dp-differs', ...c.differs.map((x) => el('li', 'chg-item', work(el('span', 'mono chg-name', x), 'files')))));
+  } else if (c.detail) out.push(el('p', 'muted small dp-check-why', c.detail));
+  for (const n of c.notes) out.push(el('p', 'muted small dp-note', n));
+  return out;
+}
+
 /**
- * One environment's row: its name and org, its state with an icon and a label (when it got there, how many
- * differ, or why it can't tell), the next step, a deploy under way, the development environment's merge, and
- * when it was read with Check again. A partly deployed row opens to show the components that differ.
+ * One environment's row: its name and org, its state by acc's record with an icon and a label (when it got there
+ * and who deployed it, or why its deploy failed), the next step, a deploy under way, the development environment's
+ * merge, then what its last Check this org found, and the button.
  */
 function renderRow(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLElement {
   const head = el('div', 'dp-row-head', el('strong', 'dp-env', r.name), r.org ? el('span', 'mono muted dp-org', r.org) : null,
-    el('span', 'dp-state', status(r.look), r.at ? when(r.at) : null), r.next ? status(r.next) : null);
+    el('span', 'dp-state', status(r.look), r.at ? when(r.at) : null, r.by ? el('span', 'muted dp-by', r.by) : null), r.next ? status(r.next) : null);
   const row = el('li', 'dp-row', head);
   row.dataset.env = r.branch;
-  if (r.detail && !r.differs.length) row.append(el('p', 'muted small dp-detail', r.detail));
-  if (r.differs.length) {
-    const key = openKey(`differs-${r.branch}`, m);
-    row.append(foldButton(r.detail ?? plural(r.differs.length, 'component'), key, 'dp-differs-btn'));
-    if (isOpen(key)) row.append(el('ul', 'chg-list dp-differs', ...r.differs.map((c) => el('li', 'chg-item', work(el('span', 'mono chg-name', c), 'files')))));
-  }
-  for (const n of r.notes) row.append(el('p', 'muted small dp-note', n));
+  if (r.detail) row.append(el('p', 'muted small dp-detail', r.detail));
   if (r.merged) row.append(el('p', 'small dp-merged', status({ ...r.merged.look, label: r.merged.words })));
   if (r.busy) row.append(el('p', 'small dp-busy', status(r.busy)));
-  row.append(el('p', 'muted small dp-read', ...(r.readAt ? ['Read ', when(r.readAt)] : ['Not read yet']), checkAgain(m, d, r)));
+  row.append(...renderCheck(m, r), el('div', 'dp-check', checkButton(m, d, r)));
   return row;
 }
 

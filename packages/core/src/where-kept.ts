@@ -1,15 +1,14 @@
 /**
- * Where a ticket's work is, as acc last read it (T-155): one reading per environment on its path, kept beside
- * the ledger in `where/<task>.json`. A page reads this file and never waits on an org; `acc where` writes it.
- * A reading is read again when it's older than WHERE_MAX_AGE_MS, or older than a deploy or promotion of its
- * environment acc recorded since.
+ * Where a ticket's work is, as acc last read it (T-155): one reading per environment, kept beside the ledger in
+ * `where/<task>.json`. `acc where` writes it, and only when asked: a row's Check this org reads its one
+ * environment (T-167). A page reads this file beside the row, as a note; it never moves the ticket, and no
+ * draw, refresh or time reads an org.
  */
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileId } from './analyze.ts';
 import { writeAtomic } from './atomic.ts';
-import { type Config, type Environment, environmentByBranch } from './config.ts';
-import type { Task } from './ledger.ts';
+import type { Config, Environment } from './config.ts';
 import type { RepoPaths } from './paths.ts';
 import { environmentsAhead } from './ticket-path.ts';
 
@@ -47,9 +46,6 @@ export interface TicketWhere {
   envs: EnvWhere[];
 }
 
-/** How old a reading may be before a page asks for it again: an hour. */
-export const WHERE_MAX_AGE_MS = 60 * 60_000;
-
 export const wherePath = (paths: Pick<RepoPaths, 'stateDir'>, task: string): string => join(paths.stateDir, 'where', `${fileId(task)}.json`);
 
 /** The ticket's kept readings, or null before the first, or when the file isn't one acc wrote. */
@@ -69,20 +65,6 @@ export function keepWhere(paths: Pick<RepoPaths, 'stateDir'>, task: string, envs
   mkdirSync(join(paths.stateDir, 'where'), { recursive: true });
   writeAtomic(wherePath(paths, task), JSON.stringify(w, null, 2) + '\n');
   return w;
-}
-
-/**
- * The environments on the ticket's path whose reading is due: none yet, older than WHERE_MAX_AGE_MS, or older
- * than a deploy or a promotion acc recorded to it since.
- */
-export function whereDue(w: TicketWhere | null, t: Pick<Task, 'promotions' | 'deploys'>, envs: string[], now: Date): string[] {
-  return envs.filter((env) => {
-    const r = w?.envs.find((e) => e.env === env);
-    if (!r) return true;
-    if (now.getTime() - Date.parse(r.at) > WHERE_MAX_AGE_MS) return true;
-    const since = [...(t.deploys ?? []).filter((d) => d.env === env).map((d) => d.at), ...(t.promotions ?? []).filter((p) => p.to === env).map((p) => p.mergedAt ?? p.at)];
-    return since.some((at) => at > r.at);
-  });
 }
 
 /** The environments from `start`, each one's usual next step, to the end of the path. */
@@ -105,32 +87,4 @@ export function ticketEnvironments(config: Pick<Config, 'environments'>, start: 
   const path = pathFrom(config.environments, start);
   const first = path[0];
   return first ? [...path, ...environmentsAhead(config, first).filter((e) => !path.includes(e))] : path;
-}
-
-/** Whether `to` is somewhere after `from`, along any of the steps the settings allow. */
-export function isAfter(config: Pick<Config, 'environments'>, from: Environment, to: string): boolean {
-  const seen = new Set<string>();
-  const todo = [...from.promotesTo];
-  while (todo.length) {
-    const b = todo.shift()!;
-    if (b === to) return true;
-    if (seen.has(b)) continue;
-    seen.add(b);
-    todo.push(...(environmentByBranch(config, b)?.promotesTo ?? []));
-  }
-  return false;
-}
-
-/**
- * Where the ticket is, taking in what the orgs hold: from `at`, the furthest environment after it that a
- * reading found the ticket deployed in. A reading never takes it back: a disagreement is said, not acted on.
- */
-export function furthestRead(config: Pick<Config, 'environments'>, at: Environment, w: Pick<TicketWhere, 'envs'> | null | undefined): Environment {
-  let here = at;
-  for (const r of w?.envs ?? []) {
-    if (r.state !== 'deployed') continue;
-    const e = environmentByBranch(config, r.env);
-    if (e && isAfter(config, here, e.branch)) here = e;
-  }
-  return here;
 }

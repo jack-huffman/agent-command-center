@@ -13,7 +13,7 @@ import { sfComponent } from '../src/sf-metadata.ts';
 import { listLinesAt, taskDeployRoute, ticketPlace } from '../src/task-deploy.ts';
 import * as real from '../src/where.ts';
 import { componentWords, readGit, readingOf, readOrg, recordedAt, sameText, ticketWork, WHERE_COMMAND, whereEnabled, whereIs, whereNotes, whereRetrieveArgs, whereWords } from '../src/where.ts';
-import { type EnvWhere, furthestRead, isAfter, keepWhere, pathFrom, readWhere, ticketEnvironments, WHERE_MAX_AGE_MS, WHERE_STATES, whereDue, wherePath } from '../src/where-kept.ts';
+import { type EnvWhere, keepWhere, pathFrom, readWhere, ticketEnvironments, WHERE_STATES, wherePath } from '../src/where-kept.ts';
 import { whereLines } from '../../cli/src/commands/where.ts';
 import { gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
@@ -207,17 +207,18 @@ test('environment-specific files are left out of both readings, and said', () =>
   assert.deepEqual(listLinesAt(run, paths.root, 'origin/uat', 'manifest/none.txt'), [], 'a list the branch lacks is empty');
 });
 
-test('work that reached an org outside acc moves where the ticket is now, and its next deploy', () => {
+test('work found in an org outside acc is a note: it never moves where the ticket is, or its next deploy (T-167)', () => {
   const { paths, c } = repo();
   const t = taskIn(paths);
   assert.equal(ticketPlace(c, t)!.at.name, 'Dev', 'acc\'s own records alone');
   const w = whereIs(paths, c, 'ACME-1', undefined, deps(ANSWER()));
-  assert.equal(ticketPlace(c, t, w)!.at.name, 'UAT');
-  assert.equal(taskDeployRoute(c, { ...t, id: 'ACME-1' }, undefined, w).to.name, 'Production');
+  assert.equal(envOf(w, 'uat').state, 'deployed', 'the org holds it');
+  assert.equal(ticketPlace(c, t)!.at.name, 'Dev', 'it stays where acc recorded it');
+  assert.equal(taskDeployRoute(c, { ...t, id: 'ACME-1' }).to.name, 'UAT', 'its next deploy is still UAT');
   assert.ok(envOf(w, 'uat').notes.some((n) => /no deploy of it on record/.test(n)));
 });
 
-test('a reading never takes the ticket back: acc\'s record still counts, and the disagreement is said', () => {
+test('a reading that disagrees with acc\'s record is said, and the record still counts', () => {
   const { paths, c } = repo();
   mutate(paths, now, (l, emit) => {
     l.tasks.find((t) => t.id === 'ACME-1')!.promotions = [{ from: 'dev', to: 'uat', pr: { number: 7, url: 'https://github.com/acme-co/acme-salesforce/pull/7' }, state: 'merged', at: '2026-10-28T09:00:00Z', mergedAt: '2026-10-28T09:00:00Z' }];
@@ -225,7 +226,7 @@ test('a reading never takes the ticket back: acc\'s record still counts, and the
   });
   const t = taskIn(paths);
   const w = whereIs(paths, c, 'ACME-1', 'uat', deps(ANSWER({ 'Acme UAT': { files: {}, listed: ['Old'] } })));
-  assert.equal(ticketPlace(c, t, w)!.at.name, 'UAT');
+  assert.equal(ticketPlace(c, t)!.at.name, 'UAT');
   assert.deepEqual(envOf(w, 'uat').notes.filter((n) => n.startsWith('Its deploy record')), ['Its deploy record says it reached UAT on 2026-10-28, but the org doesn\'t hold it now.']);
   assert.equal(recordedAt(t, 'uat'), '2026-10-28T09:00:00Z');
   assert.equal(recordedAt(t, 'production'), null);
@@ -264,17 +265,6 @@ test('the command\'s JSON is the readings, and its lines say each state', () => 
   assert.match(lines, /Read 2026-10-30 12:00/);
 });
 
-test('a reading is due before the first, when it\'s old, and after a deploy acc recorded since', () => {
-  const at = now().toISOString();
-  const r: EnvWhere = { env: 'uat', name: 'UAT', state: 'deployed', differs: [], why: null, at, git: readingOf([], at), org: readingOf([], at), leftOut: [], unchecked: [], notes: [] };
-  const w = { v: 1 as const, task: 'ACME-1', envs: [r] };
-  assert.deepEqual(whereDue(null, {}, ['uat'], now()), ['uat'], 'none yet');
-  assert.deepEqual(whereDue(w, {}, ['uat', 'production'], now()), ['production']);
-  assert.deepEqual(whereDue(w, {}, ['uat'], new Date(now().getTime() + WHERE_MAX_AGE_MS + 1)), ['uat'], 'too old');
-  const deployed = { deploys: [{ env: 'uat', at: '2026-10-30T12:30:00Z' }] } as unknown as Task;
-  assert.deepEqual(whereDue(w, deployed, ['uat'], new Date('2026-10-30T12:31:00Z')), ['uat'], 'a deploy since');
-});
-
 test('kept readings that are missing or not acc\'s read as none', () => {
   const stateDir = tempDir('state-');
   assert.equal(readWhere({ stateDir }, 'ACME-1'), null, 'before the first');
@@ -294,18 +284,10 @@ test('a reading with nothing to compare can\'t tell, and a component counts only
   assert.ok(!sameText('a', 'b'));
 });
 
-test('the path, what comes after, and the furthest reading', () => {
+test('the path: each usual next step from where it starts; edge case: none from an environment not in the settings', () => {
   const c = config();
   assert.deepEqual(pathFrom(c.environments, 'dev').map((e) => e.branch), ['dev', 'uat', 'production']);
   assert.deepEqual(pathFrom(c.environments, 'nowhere'), []);
-  const dev = c.environments.find((e) => e.branch === 'dev')!;
-  const uat = c.environments.find((e) => e.branch === 'uat')!;
-  assert.ok(isAfter(c, dev, 'production') && isAfter(c, uat, 'production'));
-  assert.ok(!isAfter(c, uat, 'dev'), 'never backwards');
-  const read = (env: string, state: EnvWhere['state']) => ({ env, state }) as EnvWhere;
-  assert.equal(furthestRead(c, dev, { envs: [read('production', 'deployed'), read('uat', 'deployed')] }).branch, 'production');
-  assert.equal(furthestRead(c, uat, { envs: [read('production', 'partly')] }).branch, 'uat', 'partly doesn\'t move it');
-  assert.equal(furthestRead(c, dev, null).branch, 'dev');
 });
 
 test('a ticket\'s environments are its path, then each off the usual way it can still reach; edge case: none for an environment not in the settings (T-158)', () => {

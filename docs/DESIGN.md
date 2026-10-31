@@ -1617,14 +1617,18 @@ The extension handles every workspace folder that has `.acc/config.json`.
   bell. The notices that need the person stay above the tabs, and Details and
   the Agent panel beside them. A page opens on a link's tab, else one that
   needs the person, else the tab last on show for that ticket, else Ticket.
-- **Changes leads with where it is and Deploy…** (T-138, T-158): on a
+- **Changes leads with where it is and Deploy…** (T-138, T-158, T-167): on a
   Salesforce task, one row for each environment on the ticket's path, in order,
   then one for each environment off the usual way that Deploy… offers (as
-  Hotfix off QA), each with its org, its state as an icon and a label
-  (deployed, partly deployed with how many differ and a fold that lists them,
-  not deployed with how many are missing behind the same fold, or can't tell
-  with why), when it was read and a quiet Check again, which reads that
-  environment alone. The
+  Hotfix off QA), each with its org and its state by acc's own record as an
+  icon and a label: deployed (when, and by the builder or the deploy guide),
+  deploy failed (when, and why on one line), merged into its branch, or not
+  deployed. Opening or refreshing the page reads no branch and no org. Each row
+  has a quiet Check this org, which reads that environment alone, for work
+  deployed outside acc; what it found shows under the row with when (matches,
+  differs with a fold that lists the components, or can't tell with why), and
+  never changes the row's state. A deploy off the usual path, as to Hotfix,
+  never moves where the ticket is (T-166). The
   development environment's row says whether the work is merged into its
   branch; only the usual next step says Next; a deploy under way shows on its
   row. Then one primary Deploy…, which asks where, from at most three

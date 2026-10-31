@@ -35,6 +35,7 @@ export * from './deploy-commands.ts';
 export * from './deploy-gate.ts';
 export * from './deploy-guide.ts';
 export * from './deploy-pick.ts';
+export * from './deploy-record.ts';
 export * from './deploy.ts';
 export * from './dispatch.ts';
 export * from './draft-wording.ts';
