@@ -1,8 +1,8 @@
 # Roadmap
 
-Where each piece of the build stands, as of **2026-10-30**. Version 0.53.0 is
+Where each piece of the build stands, as of **2026-10-30**. Version 0.54.0 is
 the latest release (2026-10-30). 0.41.0 (2026-10-16) was the first with a
-`.sha256` beside its `.vsix`. Version 0.54.0 is prepared and waits on a person
+`.sha256` beside its `.vsix`. Version 0.55.0 is prepared and waits on a person
 to release it.
 
 Every bullet below is one status line, in this form:
@@ -194,6 +194,13 @@ where each one's done-when is written out.
   Checked 2026-10-30. Evidence: D-233, D-234, D-235, D-236, release 0.54.0.
   The deploy guide is tried against stand-in Salesforce and GitHub answers;
   not yet on a real production org.
+- **Salesforce work merged and deployed to the development org on its own, every
+  later deploy an agent's to the org you pick, where a ticket's work is read
+  from git and each org, a coverage floor, a Testing tab, checking finished
+  tickets together, and the chat and Agents pages redrawn**: done. Checked
+  2026-10-30. Evidence: D-237 to D-247, release 0.55.0. Automatic merge and the
+  org readings are tried against stand-in Salesforce and GitHub answers; not
+  yet on the pilot.
 
 What version 1 leaves out on purpose is listed in
 [DESIGN.md section 19](DESIGN.md#19-left-out-of-v1).

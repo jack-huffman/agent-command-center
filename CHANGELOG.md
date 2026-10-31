@@ -5,6 +5,48 @@ extension, the plugin and acc share one version. Each release is a GitHub
 Release of this repo, with the extension's `.vsix` attached and its entry here
 as the notes.
 
+## 0.55.0
+
+- A Salesforce ticket's work goes to the development org on its own (D-244).
+  Once a builder is done and its review passes, autopilot pushes the branch,
+  opens its pull request and merges it into the development environment's
+  branch, with no click. It merges only when the builder's own deploy to the
+  development org passed on the commit the review read, and never into
+  Production or a protected environment. A new Pipeline section in Settings
+  shows the environments in order, which one is the development environment,
+  the switch (on by default) and where each goes next, and changes them.
+- A builder isn't done until each Apex class or trigger it changes has at least
+  75% coverage in the development org (D-238). The failure names each class
+  with its figure and the lines not covered. A project can raise the floor,
+  never lower it, and the ticket shows each class's figure.
+- A ticket has a Testing tab (D-247). Once its builder's deploy to the
+  development org passed, it says where the work is, opens that org with one
+  button, and lists the builder's steps to test it, each linked to the page it
+  names.
+- Every deploy past the development org is an agent's, to the org you pick
+  (D-239). The Changes tab shows one row for each environment, in path order,
+  with its state in words and when it was read (D-242). One Deploy… asks where:
+  a sandbox deploys on your pick, and Production or a protected org waits for
+  its name typed in the chat. The direct deploy button is gone.
+- A ticket knows where its work is (D-237). acc reads each environment's branch
+  and each org (a read-only retrieve of the ticket's components) and says
+  deployed, partly deployed (with which components differ), not deployed, or
+  can't tell and why.
+- Check a group of finished tickets together (D-245): one full check for the
+  group, then each merges in order. A failure goes back to the ticket whose
+  files caused it; when that isn't clear, acc splits the group to find it, and
+  never sends a ticket back on a guess.
+- Messaging an agent looks like Claude Code's chat (D-241): your message boxed
+  and kept at the top while its reply scrolls, replies across the full width,
+  and the message box as a card at the bottom with Send inside it.
+- The Agents page shows each agent as a card, and says what it's doing:
+  Planning, Researching, Building, Testing, Deploying, Committing or Reviewing
+  (D-246). The Agent panel and the status bar use the same words.
+- A task's modal opens the moment you click, with a loading state, and fills in
+  as it loads (D-240). A load that fails says why, with Try again.
+- Each project sets its planning agent's model as well as its reviewer's, with
+  a default for each role (D-243), in Settings or with a command.
+
 ## 0.54.0
 
 - Deploy with an agent (D-235). Beside Deploy on a ticket's Changes tab, it
