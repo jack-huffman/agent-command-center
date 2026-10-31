@@ -3,6 +3,7 @@ import { AccError, type Runner } from './exec.ts';
 import { type AgentProfile, type AgentRole, type Config, DEFAULT_MODEL, type Effort, isEffort, MODEL_NAME, noProfile } from './config.ts';
 import { checkEffortName } from './efforts.ts';
 import { writeAtomic } from './atomic.ts';
+import { autoMergeDefault } from './pipeline.ts';
 
 /**
  * The model and effort each kind of agent runs with (D-036). The project can set a default in
@@ -162,8 +163,9 @@ export function setAutonomy(configFile: string, value: string): void {
 
 /**
  * Turns auto-merge on or off in .acc/config.json (GH-67), changing only `autopilot.autoMerge`: the rest of
- * the file stays as it was, byte for byte. A Salesforce project can't turn it on: a person merges every
- * pull request there. Off with no key written changes nothing. Nobody else sees it until it's committed.
+ * the file stays as it was, byte for byte. The profile's default with no key written changes nothing: off
+ * in most projects, on in a Salesforce project, where off is written as false (T-157). Nobody else sees it
+ * until it's committed.
  */
 export function setAutoMerge(configFile: string, on: boolean): void {
   let text: string;
@@ -174,9 +176,8 @@ export function setAutoMerge(configFile: string, on: boolean): void {
   } catch (e) {
     throw new AccError('bad-config', `Couldn't read ${configFile}: ${(e as Error).message}`);
   }
-  if (on && raw.profile === 'salesforce') throw new AccError('refused', 'A Salesforce project never auto-merges: a person merges every pull request there.');
   const was = raw.autopilot && typeof raw.autopilot === 'object' && !Array.isArray(raw.autopilot) ? raw.autopilot : null;
-  if (!on && was?.autoMerge === undefined) return;
+  if (on === autoMergeDefault(String(raw.profile)) && was?.autoMerge === undefined) return;
   const wanted = { ...raw, autopilot: { ...(was ?? {}), autoMerge: on } };
   // The same values, whatever order the keys are in.
   const canon = (v: unknown): unknown => (v && typeof v === 'object' && !Array.isArray(v)

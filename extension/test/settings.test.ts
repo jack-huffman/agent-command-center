@@ -50,7 +50,7 @@ test('the theme is a VSCode setting kept on this machine, Match VSCode until cha
 test('Settings is a section like the others, last in the rail with a gear', () => {
   assert.deepEqual([VIEW_KINDS.at(-1), VIEW_TITLES.settings, HOME_SECTIONS.includes('settings')], ['settings', 'Settings', true]);
   const m = home();
-  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, agents, limits, trackers, Slack, GitHub accounts, the Command Center\'s own preferences and the versions' });
+  assert.deepEqual(m.nav.at(-1), { section: 'settings', label: 'Settings', icon: 'settings-gear', count: null, attention: false, hint: 'Appearance, agents, the pipeline, limits, trackers, Slack, GitHub accounts, the Command Center\'s own preferences and the versions' });
   assert.deepEqual(m.nav.map((n) => n.section), ['overview', 'tasks', 'agents', 'worktrees', 'environments', 'setup', 'settings']);
   const orders = AREAS.flatMap((a) => (a.home ? [a.home.order] : []));
   const own = settingsArea.home!.order;
@@ -59,7 +59,7 @@ test('Settings is a section like the others, last in the rail with a gear', () =
   // The page may ask for the theme, How agents run's Change… (GH-110) and a tracker's Sign out (GH-112), and
   // Limits and checks' changes, which the limits area asks for (GH-111), and the page's own preferences
   // (GH-113): its Refresh is the header's. GitHub accounts' Switch… and Sign in are Environments' to claim.
-  assert.deepEqual(settingsArea.commands, ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.review', 'acc.cloud.routine']);
+  assert.deepEqual(settingsArea.commands, ['acc.settings.theme', 'acc.agents.configure', 'acc.agents.autonomy', 'acc.agents.autoMerge', 'acc.pipeline.development', 'acc.pipeline.next', 'acc.trackers.signOut', 'acc.settings.opensOn', 'acc.settings.where', 'acc.settings.pace', 'acc.cloud.enable', 'acc.cloud.disable', 'acc.cloud.token', 'acc.cloud.default', 'acc.cloud.review', 'acc.cloud.routine']);
   assert.ok(settingsArea.commands!.every((c) => PAGE_COMMANDS.includes(c)));
   assert.ok(['acc.github.switch', 'acc.github.signIn'].every((c) => PAGE_COMMANDS.includes(c)));
   assert.ok(!PAGE_COMMANDS.includes('acc.settings.refresh'));
@@ -69,8 +69,8 @@ test('Settings is a section like the others, last in the rail with a gear', () =
 test('each part of Settings is built here or says where its settings live today, with a way there', () => {
   const m = home().settings;
   assert.deepEqual(m.parts.map((p) => p.id), [...SETTINGS_PARTS]);
-  assert.deepEqual(SETTINGS_PARTS, ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about']);
-  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance', 'agents', 'limits', 'trackers', 'slack', 'github', 'page', 'about'], 'every part is built (GH-113, GH-114)');
+  assert.deepEqual(SETTINGS_PARTS, ['appearance', 'agents', 'pipeline', 'limits', 'trackers', 'slack', 'github', 'page', 'about']);
+  assert.deepEqual(m.parts.filter((p) => p.built).map((p) => p.id), ['appearance', 'agents', 'pipeline', 'limits', 'trackers', 'slack', 'github', 'page', 'about'], 'every part is built (GH-113, GH-114, T-157)');
   for (const p of m.parts) {
     assert.ok(p.title && p.icon && p.summary, `${p.id} has a title, an icon and a summary`);
     assert.equal(!!p.today, !p.built, `${p.id}: ${p.built ? 'built, so nothing about today' : 'says where its settings live today'}`);
@@ -128,7 +128,9 @@ test('How agents run says a model acc no longer offers is an older one, which st
 test('How agents run shows the project\'s autonomy, with an icon, and orange for a level autopilot refuses (D-064)', () => {
   const review = autonomySetting(withAgents({ autonomy: 'review' }))!;
   assert.deepEqual([review.look, review.from], [{ label: 'review', icon: 'rocket', tone: 'neutral' }, { label: 'project', icon: 'repo' }]);
-  assert.equal(review.meaning, 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. It never merges a pull request.');
+  // The hub's project is Salesforce, which merges on its own by default (T-157): the row says auto-merge is on.
+  assert.equal(review.meaning, 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. Auto-merge is on: a pull request whose review and checks passed, with nothing waiting on a person, joins the repo\'s merge queue, and they merge in turn. At its turn its base is merged in, the full check runs once, and it merges once GitHub says it can, or goes back to its builder. It never merges into a protected environment.');
+  assert.equal(autonomySetting(withAgents({ autonomy: 'review', autopilot: { autoMerge: false } }))!.meaning, 'Autopilot reviews finished work, lands work whose review passed, re-dispatches a rework once, sends a pull request whose GitHub checks fail back to its builder once a commit, resumes a stopped builder once a run, merges the base into a pull request that conflicts with it, and starts a task a person dispatched once the files it waits for are free. It never merges a pull request.', 'the switch off');
   assert.deepEqual(autonomySetting(withAgents({ autonomy: 'manual' })), { key: 'autonomy', look: { label: 'manual', icon: 'debug-pause', tone: 'neutral' }, from: { label: 'project', icon: 'repo' }, meaning: 'Nothing happens on its own.' });
   for (const level of ['dispatch', 'full']) assert.deepEqual(autonomySetting(withAgents({ autonomy: level }))!.look, { label: level, icon: 'warning', tone: 'orange' }, level);
   assert.equal(autonomySetting(withAgents({ autonomy: 'toString' }))!.look.icon, 'question', 'a level acc doesn\'t know has no meaning of another\'s');
@@ -146,8 +148,14 @@ test('How agents run has an Auto-merge row: on or off with an icon, what it mean
   assert.match(autonomySetting(on)!.meaning, /Auto-merge is on: a pull request whose review and checks passed, .* joins the repo's merge queue, .* It never merges into a protected environment\.$/);
   assert.doesNotMatch(autonomySetting(on)!.meaning, /It never merges a pull request/);
   assert.match(autoMergeSetting(withAgents({ ...generic, autonomy: 'manual', autopilot: { autoMerge: true } }))!.meaning, /Autonomy is manual, so nothing merges on its own\.$/);
-  // A Salesforce project never auto-merges, so there's nothing to change.
-  assert.deepEqual(autoMergeSetting(withAgents({ autonomy: 'review' })), { key: 'autopilot.autoMerge', look: { label: 'off', icon: 'circle-slash', tone: 'neutral' }, from: { label: 'project', icon: 'repo' }, meaning: 'A Salesforce project never auto-merges: a person merges every pull request.', settable: false });
+  // A Salesforce project merges into its development environment on its own by default (T-157), and a person can turn it off.
+  const sf = autoMergeSetting(withAgents({ autonomy: 'review' }))!;
+  assert.deepEqual([sf.look, sf.settable], [{ label: 'on', icon: 'git-merge', tone: 'neutral' }, true]);
+  assert.match(sf.meaning, /^Reviewed work whose own deploy to A passed merges into Devbox on its own, and never further: see Pipeline\.$/, 'the test hub\'s development environment is Devbox, in org A');
+  assert.match(autoMergeSetting(withAgents({ autonomy: 'manual' }))!.meaning, /see Pipeline\. Autonomy is manual, so autopilot doesn't run and nothing merges on its own\.$/);
+  const sfOff = autoMergeSetting(withAgents({ autonomy: 'review', autopilot: { autoMerge: false } }))!;
+  assert.deepEqual([sfOff.look.label, sfOff.settable], ['off', true]);
+  assert.match(sfOff.meaning, /^A person merges every pull request\. On, reviewed work merges into the development environment on its own: see Pipeline\.$/);
 });
 
 test('How agents run names each project, and says once what this machine\'s agents bill, blue or orange, with a way to fix it (D-036)', () => {
@@ -224,7 +232,8 @@ test('the screenshots show How agents run with every state: two projects, each s
   assert.deepEqual(run.projects.map((p) => p.project), ['Acme Service', 'Acme Portal']);
   const froms = new Set(run.projects.flatMap((p) => p.roles.flatMap((r) => r.parts.map((x) => x.from.label))));
   for (const f of ['this clone', 'project default', 'the Command Center\'s default', 'Claude Code\'s default']) assert.ok(froms.has(f), f);
-  assert.deepEqual(run.projects.map((p) => [p.autonomy?.look.label, p.autoMerge?.look.label, p.autoMerge?.settable]), [['review', 'off', false], ['manual', 'on', true]]);
+  // The Salesforce project merges on its own by default (T-157), and a person can turn it off.
+  assert.deepEqual(run.projects.map((p) => [p.autonomy?.look.label, p.autoMerge?.look.label, p.autoMerge?.settable]), [['review', 'on', true], ['manual', 'on', true]]);
   assert.deepEqual([run.billing.look.tone, run.billing.link?.section], ['orange', 'setup']);
   assert.deepEqual([(sampleModel('settings') as HomeModel).settings.agents.billing.look.tone, (sampleModel('agents-billing') as HomeModel).agents.billing?.tone], ['blue', 'orange']);
 });

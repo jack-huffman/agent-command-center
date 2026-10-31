@@ -10,7 +10,7 @@ import { MIN } from './shared.ts';
 /**
  * A project where auto-merge is on, with three pull requests in its merge queue (GH-73): the head in
  * `phase`, or held saying `why`, two behind it, one waiting for review, and one the queue sent back to its
- * builder. A tools repo, since a Salesforce project never auto-merges.
+ * builder. A tools repo, where auto-merge is an opt-in rather than a Salesforce project's default (T-157).
  */
 export function sampleQueueHub(now = Date.now(), phase: NonNullable<TaskRow['queue']>['phase'] = 'checking', why: string | null = null): HubLike {
   const base = sampleHub(now);

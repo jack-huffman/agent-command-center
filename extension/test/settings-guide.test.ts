@@ -41,7 +41,7 @@ test('the page draws a jump list and a picker, and a jump shows its section with
 });
 
 test('deep links into Settings still open at their part, and every section is shot, opened at one of its parts (T-139)', () => {
-  for (const [page, part] of [['settings-agents', 'agents'], ['settings-trackers', 'trackers'], ['settings-limits', 'limits'], ['settings-github', 'github'], ['settings-page', 'page'], ['settings-about', 'about']] as const) {
+  for (const [page, part] of [['settings-agents', 'agents'], ['settings-pipeline', 'pipeline'], ['settings-trackers', 'trackers'], ['settings-limits', 'limits'], ['settings-github', 'github'], ['settings-page', 'page'], ['settings-about', 'about']] as const) {
     assert.ok((PAGES as readonly string[]).includes(page), `${page} is shot`);
     assert.equal(openAt(page), settingsKey(part));
   }

@@ -3049,7 +3049,7 @@ function chooseData(): BehaviourData['choose'] {
 }
 
 /** Where each explanation is drawn: the part whose rows hold it, by its id's first word. */
-const MEANING_PART = { theme: 'appearance', autonomy: 'agents', 'auto-merge': 'agents', cloud: 'agents', billing: 'agents', page: 'page', about: 'about' } as const;
+const MEANING_PART = { theme: 'appearance', autonomy: 'agents', 'auto-merge': 'agents', cloud: 'agents', billing: 'agents', pipeline: 'pipeline', page: 'page', about: 'about' } as const;
 
 /** What Settings' case expects (T-40, T-139): from the model, its sections, a deep link's, and each explanation, folded or kept. */
 function settingsData(model: Model): BehaviourData['settings'] {

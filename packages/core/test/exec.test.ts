@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { run } from '../src/exec.ts';
+import { run, sfEnv } from '../src/exec.ts';
 import { unpiped } from '../src/start.ts';
 import { fakeBin, tempDir } from './support.ts';
 import { skipOnWindows } from '../../../scripts/windows-tests.ts';
@@ -60,4 +60,11 @@ test('edge case: a program that exits without reading all its input gives its an
     const other = { ...ran, status: null, signal: 'SIGTERM' as const, error: Object.assign(new Error(`spawnSync claude ${code}`), { code }) };
     assert.equal(unpiped(other), other, `${code} stays: a program stopped at its timeout or for its output isn't an answer`);
   }
+});
+
+test('sfEnv gives sf an environment with no colour, no update notice and no telemetry, over the one given, and edge case: an empty one', () => {
+  const quiet = { NO_COLOR: '1', FORCE_COLOR: '0', SF_NO_UPDATE_NOTIFIER: 'true', SF_SKIP_NEW_VERSION_CHECK: 'true', SF_DISABLE_TELEMETRY: 'true' };
+  assert.deepEqual(sfEnv({ PATH: '/bin', FORCE_COLOR: '3' }), { PATH: '/bin', ...quiet }, 'what was given stays, but for colour, which is turned off');
+  assert.deepEqual(sfEnv({}), quiet);
+  assert.equal(sfEnv().PATH, process.env.PATH, 'this process\'s environment when none is given');
 });

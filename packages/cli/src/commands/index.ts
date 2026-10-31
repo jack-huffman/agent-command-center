@@ -5,6 +5,7 @@ import { area as changes } from './changes.ts';
 import { area as checks } from './checks.ts';
 import { area as cloud } from './cloud.ts';
 import { area as draft } from './draft.ts';
+import { area as environmentSettings } from './environment-settings.ts';
 import { area as environments } from './environments.ts';
 import { area as github } from './github.ts';
 import { area as hooks } from './hooks.ts';
@@ -24,4 +25,4 @@ import { area as tracking } from './tracking.ts';
 import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 
-export const AREAS = [agents, changes, checks, cloud, draft, environments, github, hooks, manifest, merging, pipeline, plan, rules, saved, setup, ste, tasks, team, tidy, trackers, tracking, updates, verify];
+export const AREAS = [agents, changes, checks, cloud, draft, environmentSettings, environments, github, hooks, manifest, merging, pipeline, plan, rules, saved, setup, ste, tasks, team, tidy, trackers, tracking, updates, verify];

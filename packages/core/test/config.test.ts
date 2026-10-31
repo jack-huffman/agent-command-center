@@ -302,15 +302,19 @@ test('code reads the required checks through fullGates and requiredGates, never 
   assert.deepEqual(Object.fromEntries(files.map((f) => [f, reads(f)]).filter(([, n]) => n)), EXCEPTIONS);
 });
 
-test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesforce project, and never into a protected environment (GH-67)', () => {
+test('autopilot.autoMerge: off unless it\'s true, a boolean, on in a Salesforce project unless it\'s false, and never into a protected environment (GH-67, T-157)', () => {
   const on = parseConfig({ ...clone(GENERIC_CONFIG), autonomy: 'review', autopilot: { autoMerge: true } });
   assert.deepEqual([on.errors, on.warnings, on.config!.autopilot], [[], [], { appendOnly: [], autoMerge: true }]);
   assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), autopilot: { autoMerge: false } }).config!.autopilot, { appendOnly: [] }, 'false is the same as left out');
   assert.match(errorsOf({ ...clone(GENERIC_CONFIG), autopilot: { autoMerge: 'yes' } }), /"autopilot\.autoMerge" must be true or false/);
+  // A Salesforce project merges on its own by default (T-157): true says the default, so it's kept out; false is the switch off, kept.
   const sf = parseConfig({ ...clone(SF_CONFIG), autopilot: { autoMerge: true } });
-  assert.equal(sf.config, null);
-  assert.deepEqual(sf.errors, ['"autopilot.autoMerge" can\'t be on in a Salesforce project: a person merges every pull request there.']);
-  assert.deepEqual(parseConfig({ ...clone(SF_CONFIG), autopilot: { autoMerge: false } }).errors, [], 'off is fine');
+  assert.deepEqual([sf.errors, sf.config!.autopilot], [[], { appendOnly: [] }]);
+  const sfOff = parseConfig({ ...clone(SF_CONFIG), autopilot: { autoMerge: false } });
+  assert.deepEqual([sfOff.errors, sfOff.config!.autopilot], [[], { appendOnly: [], autoMerge: false }], 'off is kept');
+  const sfPlain = parseConfig({ ...clone(SF_CONFIG), autonomy: 'review' }).config!;
+  assert.equal(autoMergeOn(sfPlain), true, 'a Salesforce config with no word on it is on');
+  assert.equal(autoMergeOn(sfOff.config!), false);
 
   // A protected environment, and one that isn't listed, are never covered; nor is any under manual.
   const envs = { environments: [{ name: 'main', default: true }, { name: 'release', protected: true }] };
@@ -318,8 +322,11 @@ test('autopilot.autoMerge: off unless it\'s true, a boolean, never in a Salesfor
   assert.deepEqual([autoMergeOn(config), autoMergeFor(config, 'main'), autoMergeFor(config, 'release'), autoMergeFor(config, 'nowhere')], [true, true, false, false]);
   assert.equal(autoMergeFor({ ...config, autonomy: 'manual' }, 'main'), false);
   assert.equal(autoMergeFor({ ...config, autopilot: { appendOnly: [] } }, 'main'), false);
-  // A config the parser refused can't get past either: Salesforce is off whatever it says.
-  assert.equal(autoMergeOn({ profile: 'salesforce', autopilot: { autoMerge: true } }), false);
+  // In a Salesforce project, the development environment's branch alone (T-157): dev is the default; uat
+  // isn't protected but isn't the default, and production is both protected and not the default.
+  assert.deepEqual([autoMergeFor(sfPlain, 'dev'), autoMergeFor(sfPlain, 'uat'), autoMergeFor(sfPlain, 'production')], [true, false, false]);
+  assert.equal(autoMergeFor({ ...sfPlain, autonomy: 'manual' }, 'dev'), false, 'D-083 still asks for autonomy review');
+  assert.equal(autoMergeFor(parseConfig({ ...clone(SF_CONFIG), autonomy: 'review', autopilot: { autoMerge: false } }).config!, 'dev'), false, 'the switch off');
 
   const dir = tempDir();
   writeConfig(join(dir, 'config.json'), on.config!);

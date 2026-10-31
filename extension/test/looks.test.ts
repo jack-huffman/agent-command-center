@@ -22,6 +22,7 @@ import { moveLook as branchMoveLook } from '../src/model/branches.ts';
 import { autopilotStepLook, OUTCOME_LOOK, outcomeLook } from '../src/model/history.ts';
 import { LANDING_LOOK, moveLook, updatesLook } from '../src/model/landing.ts';
 import { capLook } from '../src/model/limits.ts';
+import { PIPELINE_MERGE_LOOK, PIPELINE_ROLE_LOOK } from '../src/model/pipeline.ts';
 import type { UpdateCard } from '../src/model/updates.ts';
 import { queueLook } from '../src/model/overview.ts';
 import { RULE_LOOK } from '../src/model/rules.ts';
@@ -162,6 +163,9 @@ export const TABLES: Table[] = [
       ...product(GATE_STATUSES, [false, true]).flatMap(([status, waived]): [string, Shown][] => [[`${status}${waived ? ', waived' : ''}`, checkLook({ status, waived, summary: 'ok' })], [`${status}, not run`, checkLook({ status, waived, summary: 'Not run on this commit' })]]),
     ],
   },
+  // Settings' Pipeline (T-157): an environment's place in the pipeline, and whether reviewed work merges on its own.
+  { name: 'an environment\'s place in the pipeline', sources: ['extension/src/model/pipeline.ts#PIPELINE_ROLE_LOOK'], states: () => Object.entries(PIPELINE_ROLE_LOOK) },
+  { name: 'whether reviewed work merges on its own', sources: ['extension/src/model/pipeline.ts#PIPELINE_MERGE_LOOK'], states: () => Object.entries(PIPELINE_MERGE_LOOK) },
   { name: 'a setup step', sources: ['extension/src/model/setup.ts#STATUS'], states: () => Object.entries(STATUS) },
   { name: 'a chapter of Setup\'s walkthrough', sources: ['extension/src/model/setup-walk.ts#chapterLook'], states: () => [['done', chapterLook(0)], ['to do', chapterLook(3)]] },
   // The state chip (T-91), in every place it's drawn, from the screenshot run's fixtures: each tracker's ticket

@@ -255,12 +255,22 @@ test('a base that moved on waits for its refresh, and a change to .acc/ waits fo
   held(acc, github(acc.sha), 'merge', /^It changes \.acc\/, which a person merges: \.acc\/config\.json\.$/);
 });
 
-test('a protected environment, a Salesforce project, autonomy manual or auto-merge off never merge (GH-67)', () => {
+test('a protected environment, a Salesforce environment that isn\'t the development one, autonomy manual or auto-merge off never merge (GH-67, T-157)', () => {
   const s = setup();
   // Marked protected after its task was built.
   const guarded: Config = { ...s.config, environments: s.config.environments.map((e) => ({ ...e, protected: true })) };
   held(s, github(s.sha), 'refused', /^"main" is protected: a person merges into it\.$/, guarded);
-  held(s, github(s.sha), 'refused', /^A Salesforce project never auto-merges/, { ...s.config, profile: 'salesforce' });
+  // A Salesforce project merges into its development environment alone (T-157): with release the default,
+  // main isn't it. The mutant that merges into any unprotected environment is caught here.
+  const salesforce: Config = { ...s.config, profile: 'salesforce', environments: s.config.environments.map((e) => ({ ...e, default: e.branch === 'release', protected: false })) };
+  held(s, github(s.sha), 'refused', /^"main" isn't the development environment: autopilot merges only into release in a Salesforce project\.$/, salesforce);
+  // Marked Production after its task was built: protected first, whatever else is said of it.
+  held(s, github(s.sha), 'refused', /^"main" is protected: a person merges into it\.$/, { ...salesforce, environments: salesforce.environments.map((e) => (e.branch === 'main' ? { ...e, type: 'production', protected: true } : e)) });
+  held(s, github(s.sha), 'refused', /^Merging on its own is off for this project: a person merges each pull request\.$/, { ...s.config, profile: 'salesforce', autopilot: { appendOnly: [], autoMerge: false } });
+  // A Salesforce task on the development environment with no deploy of its own on an ancestor of its head: the
+  // checks say nothing is missing (the only one is waived), and the merge still refuses. The mutant that merges
+  // before the builder's deploy to the development org passed is caught here.
+  held(s, github(s.sha), 'merge', /^T-1's own deploy to main hasn't passed on [0-9a-f]{7} or a commit before it: it merges only on the deploy its builder made\.$/, { ...s.config, profile: 'salesforce' });
   held(s, github(s.sha), 'refused', /^autonomy is "manual": autopilot merges only under review\.$/, { ...s.config, autonomy: 'manual' });
   held(s, github(s.sha), 'refused', /^Auto-merge is off for this project/, { ...s.config, autopilot: { appendOnly: [] } });
 });
