@@ -188,7 +188,7 @@ Each project's own settings are in its `.acc/config.json`.
   of a reviewed pull request whose checks passed, into an environment that
   isn't protected, is an opt-in elsewhere and on by default in a Salesforce
   project, where it covers the development environment alone and needs the
-  builder's own deploy there (D-T-157). Settings' Pipeline section shows and
+  builder's own deploy there, on the reviewed commit (D-T-157). Settings' Pipeline section shows and
   changes it.
 - **Readable without colour.** Every state has an icon and a label. Where
   colour helps, it's orange against blue, never red against green.

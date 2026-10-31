@@ -148,7 +148,7 @@ function autoMergeLines(config: Config): string {
     const why = notMergingWhy(config);
     const others = config.environments.filter((e) => e.branch !== dev?.branch).map((e) => e.branch);
     return [
-      dev ? `auto-merge on (project): a task into ${dev.branch} whose review passed, whose own deploy to ${dev.org ?? dev.name} passed on its branch, with nothing waiting on a person and nothing changed under .acc/, joins the repo's merge queue, and they merge in turn: at its turn its base is merged in, the full check runs once, and it merges once GitHub says it can.` : 'auto-merge on (project), but nothing merges on its own.',
+      dev ? `auto-merge on (project): a task into ${dev.branch} whose review passed, whose own deploy to ${dev.org ?? dev.name} passed on the commit the review read, with nothing waiting on a person and nothing changed under .acc/, joins the repo's merge queue, and they merge in turn: at its turn its base is merged in, the full check runs once, and it merges once GitHub says it can.` : 'auto-merge on (project), but nothing merges on its own.',
       others.length ? `Never into ${others.join(', ')}: only the development environment, and never a deploy past its org.` : '',
       why ?? 'It merges while autopilot is on.',
     ].filter(Boolean).join(' ');

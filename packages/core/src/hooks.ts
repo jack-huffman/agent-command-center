@@ -104,9 +104,10 @@ const CLOSING = /\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\b[\s:]+(#\d+|[A-Z][A-Z0
  * acc's commands that are a person's, by name, or by name and subcommand where the rest of the command is a
  * builder's: acc gate run and list are, but not waiving a check or changing which checks run (GH-111), and
  * acc rules list is, but not copying rules in (GH-108), and acc github status is, but not switching the account a
- * clone pushes as (GH-113).
+ * clone pushes as (GH-113), and acc environments lists the pipeline, but not moving the development environment
+ * or where one goes next (T-157).
  */
-export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'collect', 'cloud', 'gate waive', 'gate relax', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss', 'github use', 'change step', 'hook']);
+export const PERSON_ONLY_ACC = new Set(['set', 'dispatch', 'land', 'review', 'autopilot', 'analyze', 'promote', 'deploy', 'init', 'cleanup', 'agents', 'setup', 'update', 'updates', 'resume', 'machine', 'collect', 'cloud', 'gate waive', 'gate relax', 'gate required', 'gate builder', 'rules import', 'trackers set', 'tidy add', 'tidy skip', 'rules accept', 'rules dismiss', 'github use', 'change step', 'hook', 'environments development', 'environments next']);
 
 /** Whether a command word is acc: by its name, or its path, as the packet says to use when acc isn't found. */
 const isAcc = (cmd: string | undefined): boolean => !!cmd && cmd.split('/').pop() === 'acc';
@@ -114,9 +115,10 @@ const isAcc = (cmd: string | undefined): boolean => !!cmd && cmd.split('/').pop(
 /**
  * An environment variable that changes which acc, sf or git runs, or where it goes (D-206): PATH picks
  * another program by the name; SF_* and SFDX_* point sf at another org or login; GIT_* points git at
- * another repository or runs a program for it; NODE_OPTIONS loads code into acc before it runs.
+ * another repository or runs a program for it; NODE_OPTIONS loads code into acc before it runs; ACC_ROLE
+ * is what acc's role checks read, so set by hand it would pass a builder off as a person (T-157).
  */
-const STEERING = /^(PATH|HOME|SF_\w*|SFDX_\w*|GIT_\w*|NODE_OPTIONS)$/;
+const STEERING = /^(PATH|HOME|SF_\w*|SFDX_\w*|GIT_\w*|NODE_OPTIONS|ACC_ROLE)$/;
 /** The programs an assignment steers: acc, by name or path; sf and sfdx; git. */
 const steered = (cmd: string | undefined): string | null => (isAcc(cmd) ? 'acc' : isSalesforceCli(cmd) ? cmd.split('/').pop()! : cmd === 'git' ? 'git' : null);
 /** The names the assignments among a command's own words set: `export PATH=/x`, or `PATH=/x` alone. */
@@ -124,7 +126,7 @@ const assignedIn = (args: string[]): string[] => args.map((a) => /^([A-Za-z_][A-
 
 /**
  * Why a builder may not run this line for what its environment assignments set, or null (D-206): acc,
- * sf or git behind a PATH, SF_*, SFDX_*, GIT_* or NODE_OPTIONS assignment, which the hook can't follow,
+ * sf or git behind a PATH, SF_*, SFDX_*, GIT_*, NODE_OPTIONS or ACC_ROLE assignment, which the hook can't follow,
  * and the same assigned, or exported, on its own for a later command on the line.
  */
 function guardAssignments(raw: string[][]): string | null {
@@ -136,12 +138,12 @@ function guardAssignments(raw: string[][]): string | null {
     const program = steered(cmd);
     const before = steers(assigned);
     if (program && before.length) {
-      return `Run ${program} plainly, without ${before[0]}= before it: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
+      return `Run ${program} plainly, without ${before[0]}= before it: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and ACC_ROLE who acc takes you for, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
     }
     // Set for the rest of the line: an assignment alone, or an export, with acc, sf or git after it.
     const kept = !cmd ? before : ['export', 'declare', 'typeset'].includes(cmd ?? '') ? steers(assignedIn(rest)) : [];
     if (kept.length && programs.length) {
-      return `Don't set ${kept[0]} on a line that runs ${programs.join(', ')}: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
+      return `Don't set ${kept[0]} on a line that runs ${programs.join(', ')}: an assignment of PATH, SF_*, GIT_* or NODE_OPTIONS changes which program runs, or where it goes, and ACC_ROLE who acc takes you for, and acc can't see that. Run the command on its own, as it's written in your instructions.`;
     }
   }
   return null;

@@ -186,6 +186,14 @@ test('gates.builder: a list of gate names, kept as written, for builders only wh
   assert.deepEqual(loadConfig(join(dir, 'config.json')).config.gates.builder, ['typecheck'], 'written back as it was');
 });
 
+test('gates.builder in a Salesforce project gets deploy beside validate, as gates.required does (D-206, T-157): a builder on the lighter list still deploys before it is done, so a branch never merges with changes the org never held', () => {
+  const sf = parseConfig({ ...clone(SF_CONFIG), autonomy: 'review', gates: { required: ['format', 'validate'], builder: ['validate'] } }).config!;
+  assert.deepEqual(sf.gates.builder, ['validate', 'deploy'], 'the mutant that leaves deploy out of the lighter list is caught here');
+  assert.deepEqual(requiredGates(sf, 'dev', 'builder'), ['validate', 'deploy', 'stray-files'], 'what a builder runs on the development environment');
+  assert.deepEqual(parseConfig({ ...clone(SF_CONFIG), gates: { required: ['format', 'validate'], builder: ['deploy', 'validate'] } }).config!.gates.builder, ['deploy', 'validate'], 'a list that names deploy keeps its order');
+  assert.deepEqual(parseConfig({ ...clone(SF_CONFIG), gates: { required: ['format', 'validate'], builder: ['format'] } }).config!.gates.builder, ['format'], 'no validate, no deploy');
+});
+
 test('gates.ratchets: a command, which way its number may go, and a short label; a name of its own, and written back as it was (GH-99)', () => {
   const tests = { command: 'node scripts/count-tests.mjs', limit: 'floor', label: 'tests' };
   const raw = { ...clone(GENERIC_CONFIG), gates: { required: ['tests'], commands: { check: 'npm run check' }, ratchets: { tests, violations: { command: 'sf code-analyzer run', limit: 'ceiling', label: ' violations ' } } } };
@@ -315,6 +323,12 @@ test('autopilot.autoMerge: off unless it\'s true, a boolean, on in a Salesforce 
   const sfPlain = parseConfig({ ...clone(SF_CONFIG), autonomy: 'review' }).config!;
   assert.equal(autoMergeOn(sfPlain), true, 'a Salesforce config with no word on it is on');
   assert.equal(autoMergeOn(sfOff.config!), false);
+  // An autopilot block with no autoMerge key, such as one that names appendOnly alone, keeps the profile's default
+  // (T-157 rework): the mutant that reads a missing key as false, and so wrote the switch off, is caught here.
+  const sfAppend = parseConfig({ ...clone(SF_CONFIG), autonomy: 'review', autopilot: { appendOnly: ['docs/DECISIONS.md'] } });
+  assert.deepEqual([sfAppend.errors, sfAppend.config!.autopilot], [[], { appendOnly: ['docs/DECISIONS.md'] }], 'no switch written');
+  assert.equal(autoMergeOn(sfAppend.config!), true, 'still on');
+  assert.deepEqual(parseConfig({ ...clone(GENERIC_CONFIG), autopilot: { appendOnly: ['docs/DECISIONS.md'] } }).config!.autopilot, { appendOnly: ['docs/DECISIONS.md'] }, 'elsewhere the default is off, and nothing is written either');
 
   // A protected environment, and one that isn't listed, are never covered; nor is any under manual.
   const envs = { environments: [{ name: 'main', default: true }, { name: 'release', protected: true }] };

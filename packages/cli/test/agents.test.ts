@@ -195,7 +195,7 @@ test('acc agents auto-merge: shows it, and a person turns it on or off in .acc/c
   const sfRaw = { ...GENERIC_CONFIG, profile: 'salesforce', autonomy: 'review', environments: [{ name: 'Dev', type: 'developer', org: 'Acme Dev', default: true, promotesTo: ['qa'] }, { name: 'QA', type: 'partial', org: 'Acme QA', promotesTo: ['production'] }, { name: 'Production', type: 'production', org: 'Acme Prod' }] };
   const sf = makeRepo({ '.acc/config.json': JSON.stringify(sfRaw) });
   const shown = acc(sf, ['agents', 'auto-merge']);
-  assert.match(shown.out, /^auto-merge on \(project\): a task into dev whose review passed, whose own deploy to Acme Dev passed on its branch, .* Never into qa, production: only the development environment, and never a deploy past its org\. It merges while autopilot is on\.$/m);
+  assert.match(shown.out, /^auto-merge on \(project\): a task into dev whose review passed, whose own deploy to Acme Dev passed on the commit the review read, .* Never into qa, production: only the development environment, and never a deploy past its org\. It merges while autopilot is on\.$/m);
   assert.deepEqual(JSON.parse(acc(sf, ['agents', 'auto-merge', '--json']).out), { autoMerge: true, environments: ['dev'], autonomy: 'review' });
   assert.equal(acc(sf, ['agents', 'auto-merge', 'on']).code, 0);
   assert.deepEqual(JSON.parse(readFileSync(join(sf, '.acc', 'config.json'), 'utf8')), sfRaw, 'on is the default: nothing to write');

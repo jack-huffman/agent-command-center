@@ -386,8 +386,10 @@ export const BUILT_IN_GATES: Record<Profile, string[]> = {
 };
 
 /**
- * A Salesforce project's required checks, with deploy beside validate (D-206): a builder validates, then
- * deploys to its build org, so wherever validate is required, deploy is too, right after it. A list that
+ * A Salesforce project's checks, with deploy beside validate (D-206): a builder validates, then deploys to
+ * its build org, so wherever validate is named, deploy is too, right after it. The required list and the
+ * builder's lighter list (`gates.builder`) both go through this, so a Salesforce builder whose project names
+ * the lighter list still deploys before it is done, and the merge finds that deploy (T-157). A list that
  * names deploy itself keeps its own order.
  */
 export function withDeploy(profile: Profile, gates: string[]): string[] {
@@ -776,7 +778,8 @@ export function parseConfig(raw: unknown): ParseResult {
     if (!isObj(ap)) errors.push('"autopilot" must be an object, such as { "appendOnly": ["docs/DECISIONS.md"] }.');
     else {
       const list = ap.appendOnly ?? [];
-      const autoMerge = ap.autoMerge ?? false;
+      // No word on the switch is the profile's default (T-157): on in a Salesforce project, off elsewhere.
+      const autoMerge = ap.autoMerge ?? autoMergeDefault(profile);
       if (!inRepo(list)) {
         errors.push('"autopilot.appendOnly" must be a list of paths inside the repo, such as ["docs/DECISIONS.md"].');
       } else if (typeof autoMerge !== 'boolean') {
@@ -848,7 +851,7 @@ export function parseConfig(raw: unknown): ParseResult {
         commands,
         heavy: strList(g.heavy) ? g.heavy : DEFAULT_HEAVY[profile],
         severity: (g.severity as number | undefined) ?? 2,
-        ...(strList(g.builder) ? { builder: g.builder } : {}),
+        ...(strList(g.builder) ? { builder: withDeploy(profile, g.builder) } : {}),
         ...(g.ratchets !== undefined ? { ratchets } : {}),
         ...(strList(g.tests) ? { tests: g.tests } : {}),
         ...(strList(g.nearIndexes) ? { nearIndexes: g.nearIndexes } : {}),
