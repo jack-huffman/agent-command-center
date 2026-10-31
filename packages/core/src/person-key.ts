@@ -26,6 +26,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, wri
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { AccError, type Runner } from './exec.ts';
+import { thisMachine } from './this-machine.ts';
 
 /** Tests and CI: a folder that stands in for the system's store. A person's own acc never sets it. */
 export const PERSON_STORE_ENV = 'ACC_PERSON_STORE';
@@ -76,7 +77,7 @@ export function folderStore(dir: string, kind: 'folder' | 'file' = 'folder'): Pe
 export function keychainStore(run: Runner, env: NodeJS.ProcessEnv, service: string = PERSON_KEY_SERVICE): PersonStore {
   const quote = (s: string) => `"${s.replace(/(["\\])/g, '\\$1')}"`;
   return {
-    kind: 'keychain', where: `this Mac's keychain, as ${service}`,
+    kind: 'keychain', where: `${thisMachine('darwin')}'s keychain, as ${service}`,
     read: (item) => {
       const r = run('security', ['find-generic-password', '-s', service, '-a', item, '-w'], { env, timeoutMs: 20_000 });
       return r.code === 0 && r.stdout.trim() ? r.stdout.trim() : null;
