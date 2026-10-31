@@ -305,7 +305,8 @@ export function guardDeployer(task: string, line: string): string | null {
   const read = guideCommands(line);
   if ('why' in read) return `The deploy guide runs plain commands only, each acc, sf or git, joined by && or ;. This line has ${read.why}. Run each command on its own, with nothing for the shell to expand.`;
   for (const w of read.commands) {
-    if (w.some((x) => /deploy-yes|user-prompt-submit|\.git[\\/]+acc\b|ACC_ROLE/.test(x))) return 'acc\'s own state and hooks, the person\'s yes among them, are acc\'s: the deploy guide never reads, writes or runs them.';
+    // deploy-pick: where the person picked (T-156), which the guide may no more write than their yes.
+    if (w.some((x) => /deploy-yes|deploy-pick|user-prompt-submit|\.git[\\/]+acc\b|ACC_ROLE/.test(x))) return 'acc\'s own state and hooks, the person\'s yes and their pick among them, are acc\'s: the deploy guide never reads, writes or runs them.';
     const [first, sub = ''] = w;
     if (first === 'sf' || first === 'sfdx') {
       const hand = deploysByHand(w);
@@ -334,6 +335,8 @@ export function guardDeployer(task: string, line: string): string | null {
       const id = i < 0 ? undefined : flag.startsWith('--task=') ? flag.slice('--task='.length) : w[i + 1];
       if (!namesTask(id, task)) return `The deploy guide deploys ${task} alone: acc deploy --task ${task}.`;
       if (w.some((x) => /^--(confirm-production|confirm-name|deploy-check)(=|$)/.test(x))) return 'The deploy guide never types the org\'s name: the person types it in the chat, and acc deploy reads it from there.';
+      // --guide keeps the person's pick of where the ticket goes (T-156): a person's, never the guide's.
+      if (w.some((x) => /^--guide(=|$)/.test(x))) return 'The deploy guide never picks where a ticket goes or opens a guide: a person does that, from the ticket\'s Changes tab.';
     }
   }
   return null;

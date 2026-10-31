@@ -8,6 +8,8 @@
 import type { Config, Environment } from '../../../packages/core/src/config.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { missingDeps, type TaskDeployPlan, type TaskDeployResult, taskDeployEnabled, ticketPlace } from '../../../packages/core/src/task-deploy.ts';
+import { whereWords } from '../../../packages/core/src/where.ts';
+import { pathFrom, type TicketWhere, type WhereState } from '../../../packages/core/src/where-kept.ts';
 import { taskList } from '../../../packages/core/src/overlap.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import { KEY, type Look, type ModelArea, short } from './shared.ts';
@@ -21,11 +23,32 @@ export const PATH_LOOK: Record<'merged' | 'deployed' | 'building' | 'next' | 'la
   later: { label: 'later', icon: 'circle-large-outline', tone: 'neutral' },
 };
 
+/** How what the org was found to hold shows (T-155): blue for all of it, orange for some or none, quiet when it can't tell. */
+export const WHERE_LOOK: Record<WhereState, Look> = {
+  deployed: { label: 'in the org', icon: 'pass', tone: 'blue' },
+  partly: { label: 'partly deployed', icon: 'warning', tone: 'orange' },
+  'not-deployed': { label: 'not deployed', icon: 'circle-slash', tone: 'orange' },
+  unknown: { label: 'can\'t tell', icon: 'question', tone: 'neutral' },
+};
+
+/** What the last reading of an environment found (T-155): its state, its words, git's state beside it, and when it was read. */
+export interface PathFound {
+  state: WhereState;
+  look: Look;
+  words: string;
+  /** Each component that differs, for partly and not deployed. */
+  differs: string[];
+  git: WhereState;
+  at: string;
+}
+
 /** One environment on the ticket's path: its name, its state, and when it got there, where it did. */
 export interface PathStop {
   name: string;
   look: Look;
   at: string | null;
+  /** What the org and git were last found to hold there; null or left out before the first reading. */
+  found?: PathFound | null;
 }
 
 /** Deploy to an environment: its label, the environment's branch, and why it's off, or null when it's on. */
@@ -123,42 +146,41 @@ export interface DeployIn {
   conflicts?: string | null;
   /** How many steps it has left to do by hand, in every environment (record changes and deletions). */
   stepsLeft?: number;
-}
-
-/** The environments from the task's own, each one's usual next step, to the end. */
-function pathOf(envs: Environment[], start: string): Environment[] {
-  const out: Environment[] = [];
-  let at = envs.find((e) => e.branch === start || e.name === start);
-  while (at && !out.includes(at)) {
-    out.push(at);
-    const next = at.promotesTo[0];
-    at = next ? envs.find((e) => e.branch === next) : undefined;
-  }
-  return out;
+  /** Where the orgs and branches were last read to hold its work (T-155), as kept beside the ledger; null before the first reading. */
+  where?: TicketWhere | null;
 }
 
 /**
  * The ticket's path, one stop each: its own environment merged or being built, each it reached deployed,
- * with when, the next step and those after it. The path's usual way, as promotesTo's first names it.
+ * with when, the next step and those after it. The path's usual way, as promotesTo's first names it. With the
+ * kept readings (T-155), an environment an org was found to hold it in counts as reached, and each stop
+ * carries what was found there and when.
  */
-export function ticketPath(config: Pick<Config, 'environments'>, t: Pick<Task, 'environment' | 'promotions' | 'deploys' | 'pr'>): PathStop[] {
-  const place = ticketPlace(config, t);
-  const path = pathOf(config.environments, t.environment);
+export function ticketPath(config: Pick<Config, 'environments'>, t: Pick<Task, 'environment' | 'promotions' | 'deploys' | 'pr'>, where: TicketWhere | null = null): PathStop[] {
+  const place = ticketPlace(config, t, where);
+  const path = pathFrom(config.environments, t.environment);
   const at = (env: string): string | null => {
     const times = [...(t.promotions ?? []).filter((p) => p.state === 'merged' && p.to === env).map((p) => p.mergedAt ?? p.at), ...(t.deploys ?? []).filter((d) => d.env === env).map((d) => d.at)];
     return times.sort().at(-1) ?? null;
   };
   const reached = place ? path.slice(0, path.indexOf(place.at) + 1) : [];
+  const stop = (e: Environment, look: Look, when: string | null): PathStop => ({ name: e.name, look, at: when, found: foundAt(where, e.branch) });
   return path.map((e, i) => {
     if (i === 0) {
       const when = at(e.branch);
-      if (when) return { name: e.name, look: PATH_LOOK.deployed, at: when };
-      return t.pr?.state === 'merged' ? { name: e.name, look: PATH_LOOK.merged, at: null } : { name: e.name, look: PATH_LOOK.building, at: null };
+      if (when) return stop(e, PATH_LOOK.deployed, when);
+      return t.pr?.state === 'merged' ? stop(e, PATH_LOOK.merged, null) : stop(e, PATH_LOOK.building, null);
     }
-    if (reached.includes(e)) return { name: e.name, look: PATH_LOOK.deployed, at: at(e.branch) };
-    if (place?.next.includes(e)) return { name: e.name, look: PATH_LOOK.next, at: null };
-    return { name: e.name, look: PATH_LOOK.later, at: null };
+    if (reached.includes(e)) return stop(e, PATH_LOOK.deployed, at(e.branch));
+    if (place?.next.includes(e)) return stop(e, PATH_LOOK.next, null);
+    return stop(e, PATH_LOOK.later, null);
   });
+}
+
+/** What the kept reading of one environment found, as its stop shows it; null before the first. */
+export function foundAt(where: TicketWhere | null, env: string): PathFound | null {
+  const r = where?.envs.find((e) => e.env === env);
+  return r ? { state: r.state, look: WHERE_LOOK[r.state], words: whereWords(r), differs: r.differs, git: r.git.state, at: r.at } : null;
 }
 
 /** Its checks that hold a deploy up: each that failed or errored and no one accepted anyway (D-031), by name. */
@@ -169,8 +191,8 @@ export const deployBlockers = (checks: readonly { gate: string; status: string; 
  * Why a deploy to `to` can't go now, or null: the command's own reason, its own checks failing, a conflict with
  * its environment, one under way, no org, or a dependency not there yet.
  */
-export function deployOff(i: Pick<DeployIn, 'config' | 'task' | 'tasks' | 'running' | 'run' | 'failing' | 'conflicts'>, to: Environment): string | null {
-  const can = taskDeployEnabled(i.config, i.task);
+export function deployOff(i: Pick<DeployIn, 'config' | 'task' | 'tasks' | 'running' | 'run' | 'failing' | 'conflicts' | 'where'>, to: Environment): string | null {
+  const can = taskDeployEnabled(i.config, i.task, i.where);
   if (!can.ok) return can.why;
   const failing = i.failing ?? [];
   if (failing.length) return `The ${taskList(failing)} check${failing.length === 1 ? '' : 's'} failed: fix ${failing.length === 1 ? 'it' : 'them'}, or accept ${failing.length === 1 ? 'it' : 'them'} anyway, first.`;
@@ -215,9 +237,9 @@ export function deploySheet(task: string, run: DeployRun): DeploySheet {
 /** The deploy part, for a Salesforce task whose environment is in the settings; null for any other. */
 export function ticketDeploy(i: DeployIn): TicketDeploy | null {
   if (i.config.profile !== 'salesforce') return null;
-  const path = ticketPath(i.config, i.task);
+  const path = ticketPath(i.config, i.task, i.where ?? null);
   if (!path.length) return null;
-  const place = ticketPlace(i.config, i.task);
+  const place = ticketPlace(i.config, i.task, i.where);
   const buttons = (place?.next ?? []).map((e): DeployButton => ({ label: `Deploy to ${e.name}`, to: e.branch, disabled: deployOff(i, e) }));
   const made = i.run ? deploySheet(i.task.id, i.run) : null;
   // A check that passed still waits for what holds the tab's Deploy up, in the same words.

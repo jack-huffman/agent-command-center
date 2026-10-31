@@ -79,7 +79,7 @@ export const OLDER: Record<string, string[]> = {
   'packages/core/src/cards.ts': ['cardState'],
   'packages/core/src/checks.ts': ['MAX_LOGS', 'NO_ACTIONS_LOG', 'tailText', 'readChecksReport', 'queueReportPath', 'sendBack'],
   'packages/core/src/closing.ts': ['GH_CALL_MS', 'editsTracker', 'firstLine', 'closeWords'],
-  'packages/core/src/config.ts': ['PROFILES', 'ENV_TYPES', 'AUTONOMY', 'PERMISSION_MODES', 'MODEL_NAME', 'AGENT_ROLES', 'RATCHET_LIMITS', 'RATCHET_NAME', 'TEMPLATE_DIGEST', 'DEFAULT_HEAVY', 'parseEnvironments', 'environmentByBranch', 'STRAY_FILES', 'withStrayFiles'],
+  'packages/core/src/config.ts': ['PROFILES', 'ENV_TYPES', 'AUTONOMY', 'PERMISSION_MODES', 'MODEL_NAME', 'AGENT_ROLES', 'RATCHET_LIMITS', 'RATCHET_NAME', 'TEMPLATE_DIGEST', 'DEFAULT_HEAVY', 'parseEnvironments', 'STRAY_FILES', 'withStrayFiles'],
   'packages/core/src/deploy.ts': ['deployRecordPath'],
   'packages/core/src/dispatch.ts': ['isClaudeWorktree', 'claudeStatePath', 'builderModel'],
   'packages/core/src/drift.ts': ['BASELINE_MANIFEST', 'environmentNamed'],

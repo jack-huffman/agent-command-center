@@ -60,6 +60,7 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['list'], name: 'List the tasks' },
   { acc: ['board'], name: 'Read the saved board' },
   { acc: ['ticket'], name: 'Read a saved ticket' },
+  { acc: ['where'], name: 'Find where a ticket\'s work is' },
   { acc: ['ready'], name: 'List the ready tasks' },
   { acc: ['show'], name: 'Show the task', named: 'Show {arg}', command: 'acc.task.show' },
   { acc: ['set'], name: 'Move the task', named: 'Move {arg}', command: 'acc.task.move' },
