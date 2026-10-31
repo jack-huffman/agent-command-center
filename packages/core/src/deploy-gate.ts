@@ -264,7 +264,9 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Enviro
       const problems = deployProblems(res);
       const why = problems.length ? `The deploy to ${org} failed (job ${res.id}), ${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (read.message?.trim() || `The deploy to ${org} ${res.status ?? 'failed'} (job ${res.id}).`);
       // Kept on the task (T-167), so its environment's row says the deploy failed, and why.
-      recordDeployFailure(run.paths, run.now, run.task, { env: env.branch, org, at: run.now().toISOString(), reason: why });
+      try {
+        recordDeployFailure(run.paths, run.now, run.task, { env: env.branch, org, at: run.now().toISOString(), reason: why });
+      } catch { /* The failure is said in the receipt; a ledger that can't be written now doesn't hide it. */ }
       return fail(why, { ...details, problems });
     }
     // It's in the org: each component the profile can name is asked for by type; one the org doesn't list is a failure.
