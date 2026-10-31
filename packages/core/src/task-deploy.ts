@@ -1,6 +1,7 @@
 /**
- * Deploying one ticket to its next environment (T-137, D-219), for the salesforce profile (D-003). A person
- * asks for one task and one environment on its path after where its change is now (D-018). acc cuts a branch
+ * Deploying one ticket along its path (T-137, D-219), for the salesforce profile (D-003). A person
+ * asks for one task and one environment on its path after where its change is now (D-018; any of them, not
+ * only the next step, T-156). acc cuts a branch
  * from that environment's branch with only the ticket's own commits, cherry-picked in order, and Salesforce's
  * CLI maps what they change to components, as the ticket's manifest is built (D-191). Environment-specific
  * files stay out (D-016); deletions and record changes become steps a person makes by hand (D-190). A
@@ -35,7 +36,9 @@ import { NO_STEPS, type Steps } from './steps.ts';
 import { plural } from './text.ts';
 import { draftUpdate } from './updates.ts';
 import { DELETION_KIND } from './deletion-kind.ts';
+import { takeGuidedYes } from './deploy-pick.ts';
 import { outsideOf } from './outside-changes.ts';
+import { aheadWords, environmentsAhead } from './ticket-path.ts';
 import { furthestRead, readWhere, type TicketWhere } from './where-kept.ts';
 
 /** A command, as every action is one: its id, what it takes, and whether it can run now, with why not. */
@@ -69,21 +72,22 @@ export function ticketPlace(config: Pick<Config, 'environments'>, t: Pick<Task, 
 }
 
 /**
- * Where this deploy may go: `to`, or the usual next step when none is named. Only a next step from where the
- * change is now; anything else is refused, with why.
+ * Where this deploy may go: `to`, or the usual next step when none is named. Any environment on the ticket's
+ * path after where its change is now (T-156, `environmentsAhead`): the person picks it. Where it is, its own
+ * development environment and anything off its path are refused, with where it is and where it can go.
  */
 export function taskDeployRoute(config: Pick<Config, 'environments'>, t: Pick<Task, 'id' | 'environment' | 'promotions' | 'deploys'>, to?: string, where?: Pick<TicketWhere, 'envs'> | null): { from: Environment; to: Environment } {
   const place = ticketPlace(config, t, where);
   if (!place) throw new AccError('refused', `${t.id}'s environment, ${t.environment}, isn't in the project's settings.`);
-  const next = place.next.map((e) => e.name).join(', ');
+  const ahead = environmentsAhead(config, place.at, [t.environment]);
   if (!to) {
     if (!place.next.length) throw new AccError('refused', `${t.id} is in ${place.at.name}, the end of its path: there's nowhere further to deploy it.`);
     return { from: place.at, to: place.next[0]! };
   }
   const want = environmentNamed(config, to);
-  if (want.branch === place.at.branch) throw new AccError('refused', `${t.id} is in ${want.name} already.${next ? ` Its next step is ${next}.` : ''}`);
-  if (!place.at.promotesTo.includes(want.branch)) {
-    throw new AccError('refused', `${want.name} isn't a next step for ${t.id}: its change is in ${place.at.name}, which goes on to ${next || 'nowhere'}. A ticket goes one step at a time along its path.`);
+  if (want.branch === place.at.branch) throw new AccError('refused', `${t.id} is in ${want.name} already.${ahead.length ? ` It can go to ${aheadWords(ahead)}.` : ''}`);
+  if (!ahead.some((e) => e.branch === want.branch)) {
+    throw new AccError('refused', `${want.name} isn't on ${t.id}'s path after ${place.at.name}, where its change is: from there it can go to ${aheadWords(ahead)}. Pick one of those.`);
   }
   return { from: place.at, to: want };
 }
@@ -165,6 +169,8 @@ export interface TaskDeployPlan {
   confirm: boolean;
   /** What the person types for a protected org: its environment's name, or its org's alias. */
   confirmName: string;
+  /** Salesforce says the org is a sandbox (its My Domain URL). Only then can a deploy guide's pick be the yes (T-156). */
+  sandbox?: boolean;
   commits: string[];
   /** The destination branch's commit the ticket's commits were put on. */
   base: string;
@@ -362,7 +368,7 @@ function withBuilt<T>(paths: RepoPaths, config: Config, id: string, toName: stri
     const testLevel = sorted.files.some((f) => APEX.test(f)) && !opts.noTests ? 'RunLocalTests' : 'NoTestRun';
     const production = to.type === 'production' || shown.kind === 'production';
     const plan: TaskDeployPlan = {
-      task: id, key: task.source.key ?? id, from, to, org: to.org!, confirm: production || to.protected, confirmName: to.name,
+      task: id, key: task.source.key ?? id, from, to, org: to.org!, confirm: production || to.protected, confirmName: to.name, sandbox: shown.kind === 'sandbox',
       commits: commits.map((c) => c.sha), base, ...sorted,
       records: stepsOf(stepping, to.branch).filter((s) => s.step.state === 'todo' && s.change.kind !== DELETION_KIND.kind).map((s) => s.words),
       types: pkg ? manifestTypes(pkg) : [], testLevel,
@@ -469,7 +475,11 @@ export function yesProblem(kept: KeptCheck | null, plan: Pick<TaskDeployPlan, 't
 export const confirmsOrg = (plan: Pick<TaskDeployPlan, 'confirm' | 'to'>, typed: string | undefined): boolean =>
   !plan.confirm || (!!typed && [plan.to.name, plan.to.org].includes(typed.trim()));
 
-/** A deploy's yes: the check it's for, and what the person typed. `guided`: a deploy guide runs it, with what the person typed in its chat (T-154). */
+/**
+ * A deploy's yes: the check it's for, and what the person typed. `guided`: a deploy guide runs it, and the yes
+ * is read from what acc kept of the person, their pick or what they typed in its chat, never from `confirm`
+ * (T-154, T-156).
+ */
 type DeployTaskOpts = TaskDeployOpts & { checkId?: string; confirm?: string; guided?: boolean };
 
 /** A ticket's deploy, with a marker saying it's under way while it runs, so every window shows it (D-092). */
@@ -493,9 +503,10 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
     steps.step('yes', 'Check the person said yes', () => {
       const why = yesProblem(kept, plan, b.blobs, opts.checkId);
       if (why) throw new AccError('refused', why);
+      // A deploy guide's yes is what acc kept of the person: their pick of this environment, or for production
+      // and a protected org the name they typed in the chat; never what the guide passes (T-154, T-156).
+      if (opts.guided) { takeGuidedYes(paths, id, plan, kept, now, (branch) => environmentByBranch(config, branch)?.name ?? branch); return; }
       if (!confirmsOrg(plan, opts.confirm)) throw new AccError('refused', `${plan.to.name} is ${plan.to.type === 'production' ? 'production' : 'protected'}. Type its name, ${plan.confirmName}, to deploy to it.`);
-      // In a deploy guide's chat the yes is always the destination's name, so a yes said to the runbook or a step never counts (T-154).
-      if (opts.guided && !confirmsOrg({ confirm: true, to: plan.to }, opts.confirm)) throw new AccError('refused', `The person typed "${opts.confirm ?? ''}", not ${plan.confirmName}. Ask them to type ${plan.confirmName} in the chat to deploy ${id} to it.`);
     });
     // A ticket with nothing for the org still moves on: its pull request merges, and nothing is sent to the org.
     const nothing = !plan.files.length;

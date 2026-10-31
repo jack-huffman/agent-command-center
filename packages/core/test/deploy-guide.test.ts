@@ -4,12 +4,13 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { test } from 'node:test';
-import { ASK_AGAIN, DEPLOY_TO_VAR, DEPLOYER, DEPLOYER_DENIES, deployerSettings, deployerTask, deployGuidePrompt, keepTypedYes, takeTypedYes, typedYesPath, YES_MAX, YES_TTL_MS } from '../src/deploy-guide.ts';
+import { parseConfig } from '../src/config.ts';
+import { ASK_AGAIN, DEPLOY_TO_VAR, DEPLOYER, DEPLOYER_DENIES, deployerSettings, deployerTask, deployGuidePrompt, keepTypedYes, TASK_DEPLOY_GUIDE_COMMAND, takeTypedYes, taskDeployGuideEnabled, typedYesPath, YES_MAX, YES_TTL_MS } from '../src/deploy-guide.ts';
 import { run } from '../src/exec.ts';
 import { DEPLOYER_ACC, DEPLOYER_GIT, DEPLOYER_SF, guardBash, guardDeployer, guideCommands, preToolUseHook, userPromptSubmitHook } from '../src/hooks.ts';
 import { HAND_DEPLOY_DENIES } from '../src/deploy-commands.ts';
 import { repoPaths } from '../src/paths.ts';
-import { makeRepo, tempDir } from './support.ts';
+import { makeRepo, SF_CONFIG, tempDir } from './support.ts';
 
 const at = (iso: string) => () => new Date(iso);
 const T0 = '2026-10-30T12:00:00Z';
@@ -179,6 +180,9 @@ test('the guide can\'t drop its role, type the name, plant a yes or hide a comma
     'sf data update record -s PermissionSet -i 0PSX -v "Label=x" -o Prod',
     'sf data create record --sobject FieldPermissions -v "Field=x" -o Prod',
     'sf data update record --sobject=PermissionSet -i 0PSX -o Prod',
+    // T-156's: the guide picks nowhere, and never names the pick.
+    'acc deploy uat --task ACME-1 --guide',
+    'cat .git/acc/deploy-picks/ACME-1.json',
   ];
   for (const line of refused) assert.ok(guardDeployer('ACME-1', line), `refused: ${line}`);
   assert.equal(guardDeployer('ACME-1', 'acc deploy production --task=ACME-1 --yes 0AfX'), null, '--task= names it too');
@@ -219,6 +223,37 @@ test('in a deploy guide\'s session, an edit is refused and a command is guarded;
   assert.match(reason(preToolUseHook({ tool_name: 'Bash', tool_input: { command: 'git commit -am x' } }, ctx)), /git only reads/);
   assert.equal(preToolUseHook({ tool_name: 'Bash', tool_input: { command: 'acc deploy --task ACME-1 --plan' } }, ctx), null);
   assert.equal(preToolUseHook({ tool_name: 'Read', tool_input: { file_path: '/x/a' } }, ctx), null, 'it reads freely');
+});
+
+test('Deploy with an agent is on for a pick on the ticket\'s path after where it is, and off with why for any other (T-156)', () => {
+  const config = parseConfig(SF_CONFIG).config!;
+  const task = { id: 'ACME-1', state: 'done', environment: 'dev', promotions: [], deploys: [], pr: { state: 'merged' }, run: null } as unknown as Parameters<typeof taskDeployGuideEnabled>[1];
+  assert.deepEqual(TASK_DEPLOY_GUIDE_COMMAND.enabled({ config, task }), { ok: true }, 'no pick yet: its next step');
+  assert.deepEqual(TASK_DEPLOY_GUIDE_COMMAND.enabled({ config, task, to: 'production' }), { ok: true }, 'two steps on is a choice');
+  assert.deepEqual(TASK_DEPLOY_GUIDE_COMMAND.enabled({ config, task, to: 'UAT' }), { ok: true }, 'by its name');
+  const off = (to?: string, t = task, c = config) => { const r = taskDeployGuideEnabled(c, t, to); return r.ok ? '' : r.why; };
+  assert.match(off('dev'), /ACME-1 is in Dev already\. It can go to UAT, Production/, 'the development environment is no choice');
+  assert.match(off('staging'), /No environment "staging"/);
+  const inProd = { ...task!, promotions: [{ from: 'uat', to: 'production', pr: { number: 1, url: 'u' }, state: 'merged', mergeSha: 'b', mergedAt: '2026-10-30T11:00:00Z', at: '2026-10-30T11:00:00Z' }] } as typeof task;
+  assert.match(off('uat', inProd), /is in Production, the end of its path/, 'edge case: behind where it is, said as the end of the path');
+  assert.match(off('uat', task, { ...config, profile: 'generic' }), /isn't a Salesforce project/, 'Deploy\'s own reasons come first');
+  const none = taskDeployGuideEnabled(config, undefined, 'uat');
+  assert.ok(!none.ok && /no such task/.test(none.why));
+  assert.match(TASK_DEPLOY_GUIDE_COMMAND.params, /any on the ticket's path after where it is/);
+});
+
+test('the skill holds the deploy on each step by hand before it, lists the steps after it, and deploys on the pick or on the typed name (T-156)', () => {
+  const skill = readFileSync(new URL('../../../plugin/skills/deploy/SKILL.md', import.meta.url), 'utf8');
+  for (const line of [
+    'Each step by hand here holds the deploy: it doesn\'t run until the person says, in this chat, that the step is done.',
+    'These are listed, and don\'t hold the deploy.',
+    'The deploy is held until every step before it is done',
+    'the person\'s pick of `ACC_DEPLOY_TO` is the yes',
+    'ask the person to type the environment\'s name **as its own message**',
+    'Deploy to any environment but `ACC_DEPLOY_TO`, the one the person picked, or pick one yourself: no `--guide`.',
+    'Run the deploy while a step by hand before it is still open.',
+  ]) assert.ok(skill.includes(line), `the skill says: ${line}`);
+  assert.ok(!/acc deploy --task \$ACC_TASK --plan/.test(skill), 'edge case: every deploy the skill names says where, as the person picked');
 });
 
 test('the guide\'s first message names the ticket, where it goes and the skill', () => {

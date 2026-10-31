@@ -5,11 +5,13 @@
  * task and where it goes). The acc:deploy skill has it gather every step into one runbook, which the person
  * approves, then work through it with them.
  *
- * The deploy itself waits for the person's yes, typed in the chat: the UserPromptSubmit hook keeps each short
- * message the person sends (keepTypedYes), and acc deploy, run by the guide, takes the latest one
- * (takeTypedYes). It must be the destination's name, newer than the check it deploys, at most YES_TTL_MS old,
- * and is used once. The hook fires on what is sent into the chat, never on the agent's words; and the guide's
- * settings (deployerSettings) make Claude Code ask the person before each command it runs.
+ * The deploy itself waits for the person's yes. For production or a protected org it is typed in the chat: the
+ * UserPromptSubmit hook keeps each short message the person sends (keepTypedYes), and acc deploy, run by the
+ * guide, takes the latest one (takeTypedYes). It must be the destination's name, newer than the check it
+ * deploys, at most YES_TTL_MS old, and is used once. For any other org the person's pick of the environment,
+ * kept when they opened the guide, is the yes (deploy-pick.ts, T-156). The hook fires on what is sent into the
+ * chat, never on the agent's words; and the guide's settings (deployerSettings) make Claude Code ask the person
+ * before each command it runs.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -87,11 +89,26 @@ export function takeTypedYes(paths: Pick<RepoPaths, 'stateDir'>, task: string, k
   return yes.typed;
 }
 
-/** Deploy with an agent: the CLI's and the extension's. On when the ticket can be deployed, with the same why. */
-export const TASK_DEPLOY_GUIDE_COMMAND: TaskCommand<Parameters<typeof TASK_DEPLOY_COMMAND.enabled>[0]> = {
+/**
+ * Whether a deploy guide can open for this task, to the environment picked (T-156): off for the same reasons
+ * Deploy is, and for a pick that isn't on the ticket's path after where it is, with where it can go.
+ */
+export function taskDeployGuideEnabled(config: Parameters<typeof taskDeployEnabled>[0], task: Parameters<typeof taskDeployEnabled>[1], to?: string): { ok: true } | { ok: false; why: string } {
+  const can = taskDeployEnabled(config, task);
+  if (!can.ok || !to) return can;
+  try {
+    taskDeployRoute(config, task!, to);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, why: (e as Error).message };
+  }
+}
+
+/** Deploy with an agent: the CLI's and the extension's. On when the ticket can be deployed to the pick, with why not. */
+export const TASK_DEPLOY_GUIDE_COMMAND: TaskCommand<Parameters<typeof TASK_DEPLOY_COMMAND.enabled>[0] & { to?: string }> = {
   id: 'acc.task.deployGuide',
-  params: 'The task\'s id, and the environment to deploy it to (its next step when left out). It opens a Claude Code chat as the deploy guide; the person types the yes there.',
-  enabled: (x) => TASK_DEPLOY_COMMAND.enabled(x),
+  params: 'The task\'s id, and the environment the person picks: any on the ticket\'s path after where it is (its next step when left out). It keeps the pick and opens a Claude Code chat as the deploy guide, which deploys there on the pick, or on the name the person types for production or a protected org.',
+  enabled: ({ config, task, to }) => taskDeployGuideEnabled(config, task, to),
 };
 
 /**

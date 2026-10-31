@@ -94,7 +94,7 @@ function guideButton(m: TicketModel, d: TicketDeploy, b: DeployButton): HTMLButt
     x.disabled = true;
     x.title = `Deploy with an agent: ${b.disabled}`;
     x.setAttribute('aria-description', b.disabled);
-  } else x.title = 'Deploy with an agent: it gathers every step, by-hand ones too, into a runbook for you to approve, and deploys on the yes you type';
+  } else x.title = 'Deploy with an agent: it gathers every step, by-hand ones too, into a runbook for you to approve, and deploys there once you approve it, or on the name you type for Production or a protected org';
   return x;
 }
 
