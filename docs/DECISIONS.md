@@ -253,3 +253,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-243](decisions/D-243-each-role-has-its-own-model.md) | Each role has its own model and effort, with acc's default for it, and the planning agent is a role | 2026-10-30 |
 | [D-244](decisions/D-244-salesforce-work-merges-into-the-development-environment-on-its-own.md) | Salesforce work merges into the development environment on its own, set in a Pipeline section of Settings | 2026-10-30 |
 | [D-245](decisions/D-245-check-a-group-of-tasks-together.md) | Check a group of finished tasks together: one full check, and a failure goes back to the task whose files caused it | 2026-10-30 |
+| [D-246](decisions/D-246-agents-as-cards.md) | The Agents page shows each agent as a card, and says what it's doing | 2026-10-30 |

@@ -1,4 +1,4 @@
-## D-T-164 The Agents page shows each agent as a card, and says what it's doing (2026-10-30)
+## D-246 The Agents page shows each agent as a card, and says what it's doing (2026-10-30)
 
 T-164. The person, with five builders running: the project was one grey block, the agents blended together, and
 every one said "Working". This amends GH-119's table of task lines and agent lines, and works in the calm style of
