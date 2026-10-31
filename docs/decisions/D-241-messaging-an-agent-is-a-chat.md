@@ -1,4 +1,4 @@
-## D-T-160 Messaging an agent looks like Claude Code's chat: your message boxed and pinned, replies full width, the message box a card (2026-10-30)
+## D-241 Messaging an agent looks like Claude Code's chat: your message boxed and pinned, replies full width, the message box a card (2026-10-30)
 
 T-160. The person sent screenshots of Claude Code's chat in VS Code and asked for the same experience where they
 message an agent here: "Do you see the message I send, how it's styled, how it stays on the top of the screen when I
