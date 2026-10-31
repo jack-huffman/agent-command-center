@@ -10,7 +10,20 @@ import type { EditBase } from './pending.ts';
 import type { WalkPlace } from '../src/model/setup-walk.ts';
 
 declare function acquireVsCodeApi(): { postMessage(m: unknown): void; getState(): unknown; setState(s: unknown): void };
-export const api = acquireVsCodeApi();
+const vscodeApi = acquireVsCodeApi();
+/** What hears each message the page sends (T-162), such as a modal that opens loading on the message that asks for it. */
+const hearing: ((m: Record<string, unknown>) => void)[] = [];
+/** The VS Code API, whose postMessage also tells what `onSent` registered, after the message has gone. */
+export const api: typeof vscodeApi = {
+  postMessage(m: unknown) {
+    vscodeApi.postMessage(m);
+    if (m && typeof m === 'object') for (const f of hearing) f(m as Record<string, unknown>);
+  },
+  getState: () => vscodeApi.getState(),
+  setState: (s: unknown) => vscodeApi.setState(s),
+};
+/** Hears every message the page sends from now on, whichever control sent it. */
+export const onSent = (f: (m: Record<string, unknown>) => void): void => { hearing.push(f); };
 export const app = document.getElementById('app')!;
 export const view = document.body.dataset.view as ViewKind | 'ticket' | 'home' | 'agent';
 

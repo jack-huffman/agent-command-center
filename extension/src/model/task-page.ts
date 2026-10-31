@@ -165,6 +165,11 @@ export interface TicketModel {
   sourceLabel: string;
   sourceKind: TrackerKind | 'acc';
   loading: boolean;
+  /**
+   * The first draw, from the ledger and acc's own records alone (T-162): its checks, its branch's changes, its
+   * review, its team and the org are still being read, and the next draw fills them. Absent once they're in.
+   */
+  filling?: boolean;
   error: string | null;
   /** Why the ticket isn't shown: it's outside the repo's place, and names it (D-072). */
   outside: string | null;

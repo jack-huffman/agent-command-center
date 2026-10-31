@@ -25,6 +25,7 @@ import { api, memory, type PageArea, remember, state } from './state.ts';
 import { KIND_ICON, KIND_NAME } from './tasks.ts';
 import { COMMENT_EMPTY, updateDraft } from './updates.ts';
 import { upper } from './upper.ts';
+import { FILLING, loadingLine } from './loading.ts';
 import { addToWorkTitle, WORDS } from './plain-words.ts';
 
 // ---------------------------------------------------------------- a ticket's page (D-026)
@@ -140,6 +141,8 @@ export function renderTicket(m: TicketModel): Node[] {
   const crumbs = el('div', 'crumbs', mark, el('span', 'crumb-source', m.sourceLabel), el('span', 'muted', '/'), m.url ? linkTo(m.url, m.key) : el('span', '', m.key));
   const facts = statusCtl || type || priority ? el('div', 'ticket-facts', statusCtl, type, priority) : null;
   const out: Node[] = [el('header', 'ticket-head', el('div', 'ticket-source', crumbs, el('span', 'spacer'), el('div', 'ticket-tools', ...tools)), el('h1', 'ticket-title', m.title), facts)];
+  // The first draw (T-162): what's slower to read is still coming, and the next draw fills it.
+  if (m.filling) out.push(loadingLine(FILLING));
   if (m.error) {
     const fix = m.connect ? argButton(m.connect.command, m.connect.label, 'plug', m.connect.arg, true) : null;
     out.push(el('div', 'notice attention', icon('warning', 'orange'), el('span', '', m.error), fix));

@@ -42,7 +42,7 @@ import { type HomeModel, homeModel, type Model } from '../src/model/home.ts';
 import { type GroupKey, landing, overviewCards } from '../src/model/landing.ts';
 import { REPORT_TITLE } from '../src/model/report.ts';
 import { FinishedJobs } from '../src/progress.ts';
-import { sampleAgent } from './fixtures/agent-page.ts';
+import { sampleAgent, sampleAgentChat } from './fixtures/agent-page.ts';
 import { everyoneKept, sampleBoards, sampleGithubBoards, sampleMondayBoards, type SlackBoardSample, sampleSeveralBoards, sampleSlackBoards, sampleSprintBoards } from './fixtures/boards.ts';
 import { sampleAzureBoards, sampleAzureLoading, sampleAzureRefreshing, sampleTrackerTicket, type TrackerTicketSample } from './fixtures/tracker-tickets.ts';
 import { type ConnectSample, sampleConnect } from './fixtures/connect.ts';
@@ -220,6 +220,8 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'ticket-stopped') return sampleTicket(now, 'ACME-29');
   // A builder in the cloud, quiet for too long (GH-69).
   if (kind === 'ticket-cloud') return sampleTicket(now, 'ACME-44');
+  // The first draw of ACME-12's page (T-162), its slower parts still being read.
+  if (kind === 'ticket-filling') return { ...sampleTicket(now), filling: true };
   if (kind === 'ticket-nofields') return sampleTicket(now, 'ACME-50');
   // Claude Code isn't found on this Mac's path (T-94): acc can't see the builder, and Dispatch again is off, with why.
   if (kind === 'ticket-missing') return sampleTicket(now, 'ACME-48');
@@ -277,7 +279,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   if (kind === 'conversation-talk') return sampleConversationTalk(now);
   // The agent's questions one at a time, part-way through and at the review (T-130), and a long Talk it through folded (T-113).
   if (kind === 'conversation-questions' || kind === 'conversation-questions-review') return sampleConversationQuestions(now);
-  if (kind === 'conversation-long') return sampleConversationLong(now);
+  if (kind === 'conversation-long' || kind === 'conversation-scrolled') return sampleConversationLong(now);
   // The planning agent's progress (T-131): mid-plan, stalled, and on ACME-21's page.
   if (kind === 'conversation-progress' || kind === 'conversation-stalled') return sampleProgressPanel(now, kind === 'conversation-stalled');
   if (kind === 'ticket-progress') return sampleProgressTicket(now);
@@ -286,6 +288,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // A ticket's page from each tracker past Jira and Slack (T-91): a GitHub issue, an Azure DevOps backlog item and a monday.com item.
   if (kind === 'ticket-github' || kind === 'ticket-azure' || kind === 'ticket-monday') return sampleTrackerTicket(now, kind.slice('ticket-'.length) as TrackerTicketSample);
   if (kind === 'agent') return sampleAgent(now);
+  if (kind === 'agent-chat') return sampleAgentChat(now);
   if (kind === 'queue' || kind === 'queue-off' || kind === 'queue-held') {
     // Held, the head says why in the wait's own words, which can be long.
     const hub = kind === 'queue-held' ? sampleQueueHub(now, 'held', 'GitHub is still working out whether pull request #141 can merge.') : sampleQueueHub(now);
@@ -335,7 +338,7 @@ function baseModel(kind: Page, now: number, theme: ThemeChoice): Model {
   // Set up cloud builders (T-145), over Settings, where its Set up… is.
   const cloudSetup = sampleCloudSetup(kind);
   // A project started from an epic opens the Connect page over Setup, where "From a Jira epic…" is (GH-81).
-  const section = (kind === 'output' || kind.startsWith('setup-walk') || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind === 'tasks-modal' || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') || kind.startsWith('tasks-boards') || kind.startsWith('tasks-done') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') || cloudSetup ? 'settings' : kind) as HomeSection;
+  const section = (kind === 'output' || kind.startsWith('setup-walk') || kind.startsWith('connect-epic') ? 'setup' : connect || kind === 'tasks-monday' || kind === 'tasks-github' || kind.startsWith('tasks-azure') || kind === 'tasks-sprint' || kind === 'tasks-queues' || kind.startsWith('tasks-slack') || kind.startsWith('tasks-modal') || kind === 'tasks-agents' || kind === 'tasks-first' || kind === 'tasks-moving' || kind.startsWith('palette') || kind.startsWith('dispatch-sheet') || kind.startsWith('task-sheet') || kind === 'tasks-card-menu' || kind.startsWith('tasks-person') || kind.startsWith('tasks-boards') || kind.startsWith('tasks-done') ? 'tasks' : kind.startsWith('slack-') ? 'settings' : kind === 'agents-billing' || kind === 'agents-path' || kind === 'agents-finished' ? 'agents' : kind.startsWith('settings-') || cloudSetup ? 'settings' : kind) as HomeSection;
   // Settings' trackers are each project's own (GH-112); every other page shows the sample board for each.
   const boards = kind === 'settings-trackers' ? sampleTrackerBoards : kind === 'tasks-monday' ? sampleMondayBoards : kind === 'tasks-github' ? sampleGithubBoards : kind === 'tasks-azure' ? sampleAzureBoards : kind === 'tasks-azure-loading' ? sampleAzureLoading : kind === 'tasks-azure-refreshing' ? sampleAzureRefreshing : kind === 'tasks-sprint' ? sampleSprintBoards
     // Two Jira Service Management queue boards on one project (T-128), on the Tasks tab and in Settings.
@@ -409,6 +412,9 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : OUTPUT_RUNS[kind] ? { dock: { open: true, run: RUN_SAMPLE_ID[OUTPUT_RUNS[kind]!] } }
   // A run of acc's steps (T-65); the failed promotion with its failed check open to its rows.
   : OUTPUT_STEPS[kind] ? stepsState(OUTPUT_STEPS[kind]!)
+  // ACME-12's modal as a card's click opens it (T-162): loading, and once its load failed.
+  : kind === 'tasks-modal-loading' ? { opening: { project: ROOT, key: 'ACME-12', title: sampleTicket(Date.now()).title } }
+  : kind === 'tasks-modal-failed' ? { opening: { project: ROOT, key: 'ACME-12', title: sampleTicket(Date.now()).title, failed: 'Its project isn\'t open in the Command Center any more.' } }
   : kind === 'rules' ? { detail: { kind: 'rules' } }
   : kind === 'rules-accept' ? { opened: ['rule:/Users/me/code/acme-service#r-4c0f1e:draft'], detail: { kind: 'rules' } }
   : kind === 'overview-answer' ? { detail: { kind: 'question', id: 'm1-aaaa0002' } }
@@ -483,6 +489,9 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : kind === 'conversation-questions-review' ? REVIEW_STATE
   // The long conversation's question put aside, as one line with Answer the questions (T-113).
   : kind === 'conversation-long' ? LONG_STATE(sampleConversationLong(Date.now()).talk!.questions!.turn)
+  // The long conversation as a chat (T-160): its last reply opened with Show more, and its question asked under it,
+  // so the latest exchange runs past the window and the person's message stays pinned at the top.
+  : kind === 'conversation-scrolled' ? { opened: [`talk:${ROOT}#ACME-21:more:${sampleConversationLong(Date.now()).talk!.questions!.turn}`] }
   // What's typed in Report a problem's draft (T-118), the same after Post.
   : kind === 'report-filled' || kind === 'report-no-access' || kind === 'report-posted' ? { drafts: REPORT_TYPED }
   : kind === 'ticket-split' ? { opened: ['files', 'findings'].map((f) => `an:/Users/me/code/acme-service#ACME-23:${f}`) }

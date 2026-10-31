@@ -2,6 +2,7 @@
 // on the Command Center's tab and handles what it sends, as it does for a task's own tab; this wires them.
 
 import type { ExtensionArea } from './area.ts';
+import { MODAL_FAILED, NO_PROJECT } from './model/task-modal.ts';
 
 export const area: ExtensionArea = {
   register({ hub, panels, tickets, receive }) {
@@ -10,7 +11,11 @@ export const area: ExtensionArea = {
       ready: () => tickets.modalReady(),
       close: () => tickets.closeModal(),
     });
-    receive('task-modal-open', (m) => { if (hub.project(m.project)) tickets.peek(panels, m.project, m.tracker, m.key, m.part); });
+    // A project that's gone answers too (T-162): the modal that opened at the click says why, with Try again.
+    receive('task-modal-open', (m) => {
+      if (hub.project(m.project)) tickets.peek(panels, m.project, m.tracker, m.key, m.part);
+      else panels.reply({ type: MODAL_FAILED, project: m.project, key: m.key.toUpperCase(), why: NO_PROJECT });
+    });
     receive('task-modal-close', (m) => tickets.closeModal(m.project, m.key));
   },
 };

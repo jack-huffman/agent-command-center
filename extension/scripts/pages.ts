@@ -109,6 +109,9 @@ export const PAGES = [
   'tasks-slack-empty',
   'tasks-slack-scope',
   'tasks-modal',
+  // A task's modal as it opens at the click (T-162): loading, and a load that failed, with Try again
+  'tasks-modal-loading',
+  'tasks-modal-failed',
   'tasks-agents',
   'palette',
   'palette-empty',
@@ -180,6 +183,8 @@ export const PAGES = [
   'ticket-note',
   'ticket-review',
   'ticket-cloud',
+  // A task's page drawn from its record first, its checks, branch and team still coming (T-162)
+  'ticket-filling',
   'ticket-nofields',
   'ticket-dispatch',
   'ticket-edit',
@@ -245,6 +250,8 @@ export const PAGES = [
   'conversation-questions',
   'conversation-questions-review',
   'conversation-long',
+  // Messaging an agent as a chat (T-160): the plan conversation and an agent's page, each scrolled to its newest message, the person's last one pinned on top
+  'conversation-scrolled',
   // The planning agent's progress (T-131): the panel mid-plan with its steps, stalled, and the task page's plan section
   'conversation-progress',
   'conversation-stalled',
@@ -260,6 +267,7 @@ export const PAGES = [
   // Agents, and an agent's own page
   'agents-path',
   'agent',
+  'agent-chat',
   'agents-billing',
   'agents-finished',
   // The Connect page at each step, and choosing a board
@@ -359,4 +367,4 @@ export const STILL: readonly Page[] = ['loading'];
 export const WIDTHS = [1000, 620, 500] as const;
 
 /** The kind of tab a page is drawn in: a ticket's, a plan's conversation (T-111), a report's (T-118), an agent's, or the Command Center's own. */
-export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind.startsWith('conversation') ? 'conversation' : kind.startsWith('report') ? 'report' : kind === 'agent' ? kind : 'home');
+export const viewOf = (kind: Page): string => (kind.startsWith('ticket') ? 'ticket' : kind.startsWith('conversation') ? 'conversation' : kind.startsWith('report') ? 'report' : kind === 'agent' || kind === 'agent-chat' ? 'agent' : 'home');

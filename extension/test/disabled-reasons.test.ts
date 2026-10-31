@@ -18,7 +18,8 @@ const { questionCard } = await import('../webview/questions.ts');
 const { ruleDetail, pending: rulePending } = await import('../webview/rules.ts');
 const { ruleKey } = await import('../webview/pending.ts');
 
-const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && x.textContent === label);
+// A button by its words, or by its name where it has only an icon, such as the message card's Send (T-160).
+const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && (x.textContent || x.getAttribute('aria-label')) === label);
 const type = (b: PageElement, text: string): void => { (b as unknown as { value: string }).value = text; for (const f of b.listeners.get('input') ?? []) f({}); };
 const NOW = Date.parse('2026-05-01T12:00:00Z');
 
@@ -146,13 +147,16 @@ test('the conversation Send keeps the reason it was given while typing, and does
   assert.deepEqual(sendState(send), [true, 'Wait for the planning agent to reply'], 'so does emptying the box');
 });
 
-test('the agent reply Send gives its hint as the reason when it cannot reply, and none when it can (edge case: an agent that is still answering)', () => {
+test('the agent reply Send gives its hint as the reason when it cannot reply, says to type first while the box is empty, and none once there are words (edge case: an agent that is still answering)', () => {
   kept = undefined;
   const agent = sampleAgent(NOW);
   const draw = (reply: { can: boolean; hint: string }): PageElement => under(renderAgent({ ...agent, reply }));
   const off = buttons(draw({ can: false, hint: 'It\'s answering. You can write again when it stops.' }), 'Send')[0]!;
   assert.deepEqual(sendState(off), [true, 'It\'s answering. You can write again when it stops.']);
-  const on = buttons(draw({ can: true, hint: 'Sent to its own session.' }), 'Send')[0]!;
+  const page = draw({ can: true, hint: 'Sent to its own session.' });
+  const on = buttons(page, 'Send')[0]!;
+  assert.deepEqual(sendState(on), [true, 'Type a message first'], 'off until there is text (T-160)');
+  type(page.all('reply-box')[0]!, 'Use the Premium Support hours.');
   assert.deepEqual(sendState(on), [false, '']);
 });
 

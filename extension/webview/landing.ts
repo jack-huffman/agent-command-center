@@ -8,8 +8,11 @@ import { closeDetail, openDetail } from './detail.ts';
 import { drawNote } from './note.ts';
 import { api, go } from './state.ts';
 
-/** What a line's button, its click or Show all does. A task or a section opens in place of any detail open. */
-export function runDo(d: RowDo): void {
+/**
+ * What a line's button, its click or Show all does. A task or a section opens in place of any detail open; a
+ * task's modal shows `title`, the line's, while it loads (T-162).
+ */
+export function runDo(d: RowDo, title?: string): void {
   switch (d.kind) {
     case 'run': return api.postMessage({ type: 'run', command: d.command, ref: d.ref });
     case 'toolbar': return api.postMessage({ type: 'toolbar', command: d.command, arg: d.arg });
@@ -20,7 +23,7 @@ export function runDo(d: RowDo): void {
       return go(d.section);
     case 'task':
       closeDetail();
-      return api.postMessage({ type: 'task-modal-open', project: d.project, key: d.key, ...(d.part ? { part: d.part } : {}) });
+      return api.postMessage({ type: 'task-modal-open', project: d.project, key: d.key, ...(d.part ? { part: d.part } : {}), ...(title ? { title } : {}) });
   }
 }
 
@@ -28,13 +31,13 @@ export function runDo(d: RowDo): void {
 export const opensKey = (d: Detail): string => JSON.stringify({ ...d, at: undefined, item: undefined });
 
 /** A line's button: its words cut short where there's no room, or its icon alone on a line under 600 px; all its words on hover and read out. */
-function rowButton(b: RowButton): HTMLElement {
+function rowButton(b: RowButton, title: string): HTMLElement {
   const btn = el('button', `btn lp-btn${b.primary ? ' primary' : ''}`, icon(b.icon), el('span', 'lp-btn-text', b.label)) as HTMLButtonElement;
   btn.type = 'button';
   btn.title = b.tip ?? b.label;
   btn.setAttribute('aria-label', b.label);
   if (b.do.kind === 'detail') btn.dataset.opens = opensKey(b.do.detail);
-  btn.addEventListener('click', (e) => { e.stopPropagation(); runDo(b.do); });
+  btn.addEventListener('click', (e) => { e.stopPropagation(); runDo(b.do, title); });
   return btn;
 }
 
@@ -51,7 +54,7 @@ export function landingRow(r: LandingRow, calm = false): HTMLElement {
   const caret = r.menu ? menuButton(r.id ? `${r.id} ${r.title}` : r.title) : r.action ? Object.assign(el('span', 'lp-caret-slot'), { ariaHidden: 'true' }) : null;
   const title = el('span', 'lp-title', r.title);
   const row = el(r.note ? 'div' : 'li', `lp-row tone-row-${r.look.tone}`, state, r.id ? el('span', 'tcard-key lp-key', r.id) : null, title, ...facts,
-    el('span', 'lp-do', r.action ? rowButton(r.action) : null, caret));
+    el('span', 'lp-do', r.action ? rowButton(r.action, r.title) : null, caret));
   row.dataset.overviewRow = '';
   row.title = [r.tip?.includes(r.title) ? r.tip : [r.id ? `${r.id} ${r.title}` : r.title, r.tip].filter(Boolean).join('\n'), ...(calm ? r.facts.map((f) => f.text) : [])].join('\n');
   if (r.menu) withMenu(row, r.menu.section, r.menu.ref, r.menu.flags);
@@ -73,7 +76,7 @@ export function landingRow(r: LandingRow, calm = false): HTMLElement {
     const go = (e: Event) => {
       if ((e.target as HTMLElement).closest('button, a.ext')) return;
       e.preventDefault();
-      runDo(open);
+      runDo(open, r.title);
     };
     row.addEventListener('click', go);
     title.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(e); });
