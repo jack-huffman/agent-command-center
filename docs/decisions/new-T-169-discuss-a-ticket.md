@@ -12,7 +12,7 @@ a session with the ticket and the plan alone.
   this.
 - **At any state.** A message is no longer refused once the ticket is being built, in review, blocked or done
   (`ticketToTalk`, `packages/core/src/plan-talk.ts`). Before the build with no plan, a message still starts the plan
-  (T-111, `acc plan start`), so that conversation is unchanged. A ticket built with no plan starts a session of its
+  (T-111, `acc plan start`), and each of its messages gives the agent the context pack. A ticket built with no plan starts a session of its
   own on its first message, and later messages resume it (`lastSession`).
 - **The context pack.** Each message gives the agent one pack, built by acc from what it holds
   (`ticketPack` and `readTicketPack`, `packages/core/src/ticket-context.ts`): the ticket and its comments (the
@@ -31,5 +31,3 @@ a session with the ticket and the plan alone.
 - **The empty state** says what the person can ask (`TALK_NOTE`). The screenshot run draws the conversation as the
   header's Discuss opens it on a ticket in review (`conversation-discuss`).
 
-Not done: the opening conversation before a plan still gives the agent the ticket on its first message only, not
-the whole pack, since there is nothing else yet to give.
