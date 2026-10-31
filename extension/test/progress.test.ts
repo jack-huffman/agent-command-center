@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import type { HeavyState } from '../../packages/core/src/semaphore.ts';
@@ -11,8 +11,9 @@ import type { HubLike, ProjectLike } from '../src/model/shared.ts';
 import { needsYouCount } from '../src/model/overview.ts';
 import type { RunInput } from '../src/model/runs.ts';
 import { ordinal } from '../../packages/core/src/queue.ts';
-import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, type ProgressGroup, type RepoJobs } from '../src/progress.ts';
-import { lastStepIn } from '../src/transcript.ts';
+import { elapsed, FinishedJobs, inProgress, type JobRow, loadWord, type ProgressGroup, readSteps, type RepoJobs } from '../src/progress.ts';
+import { type LastStep, lastStepIn } from '../src/transcript.ts';
+import { transcriptDir } from '../../packages/core/src/transcript.ts';
 import { manifest, root } from './support.ts';
 import { thisMachine } from '../../packages/core/src/this-machine.ts';
 
@@ -314,4 +315,30 @@ test('a builder\'s latest step and model come from its transcript\'s tail, skipp
     recent: [{ tool: 'Bash', command: 'npm test', path: null }, { tool: 'Edit', command: null, path: 'src/a.ts' }],
   });
   assert.equal(lastStepIn(join(dirname(file), 'none.jsonl')), null);
+});
+
+test('readSteps reads a busy session with no task, and not an idle one, and forgets a session no longer at work (T-164)', () => {
+  const config = tempDir('acc-steps-');
+  const cwd = '/w/acme';
+  const dir = transcriptDir(join(config, 'projects'), cwd);
+  mkdirSync(dir, { recursive: true });
+  const line = JSON.stringify({ type: 'assistant', cwd, timestamp: '2026-10-06T11:59:00Z', message: { model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: 't', name: 'Bash', input: { command: 'npm test' } }] } });
+  for (const id of ['busy', 'working', 'idle', 'gone']) writeFileSync(join(dir, `${id}.jsonl`), line);
+  const agents: AgentSession[] = [
+    { cwd, kind: 'interactive', startedAt: 1, sessionId: 'busy', status: 'busy' },
+    { cwd, kind: 'background', startedAt: 1, sessionId: 'working', state: 'working', id: 'b' },
+    { cwd, kind: 'interactive', startedAt: 1, sessionId: 'idle', status: 'idle' },
+    { cwd, kind: 'background', startedAt: 1, sessionId: 'done', state: 'done', id: 'c' },
+  ];
+  const steps = new Map<string, { file: string; stamp: string; step: LastStep | null }>([['gone', { file: join(dir, 'gone.jsonl'), stamp: '1', step: null }]]);
+  const was = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = config;
+  try {
+    readSteps({ projects: [], taskRows: () => [], agents }, steps, () => '1');
+  } finally {
+    if (was === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = was;
+  }
+  assert.deepEqual([...steps.keys()].sort(), ['busy', 'working'], 'the busy ones, with no task; not the idle or finished one; and the old one forgotten');
+  assert.deepEqual(steps.get('busy')!.step!.recent, [{ tool: 'Bash', command: 'npm test', path: null }]);
 });

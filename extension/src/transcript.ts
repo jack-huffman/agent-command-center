@@ -73,14 +73,17 @@ function resultText(content: unknown): string {
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
 
+/** A path a tool call names, relative to the session's folder when it sits inside it; as written when it's outside; null when there's none. */
+function relPath(p: unknown, cwd: string | null): string | null {
+  const s = str(p);
+  if (!s) return null;
+  const rel = cwd && s.startsWith(cwd) ? relative(cwd, s) : s;
+  return rel && !rel.startsWith('..') ? rel : s;
+}
+
 /** A one-line account of a tool call, in words, with the command or path it acted on. */
 export function describeTool(name: string, input: Record<string, unknown>, cwd: string | null): { icon: string; title: string; code: string | null } {
-  const path = (p: unknown) => {
-    const s = str(p);
-    if (!s) return '';
-    const rel = cwd && s.startsWith(cwd) ? relative(cwd, s) : s;
-    return rel && !rel.startsWith('..') ? rel : s;
-  };
+  const path = (p: unknown) => relPath(p, cwd) ?? '';
   switch (name) {
     case 'Bash': return { icon: 'terminal', title: str(input.description) ?? 'Ran a command', code: str(input.command) };
     case 'Read': return { icon: 'file', title: `Read ${path(input.file_path) || 'a file'}`, code: null };
@@ -195,9 +198,7 @@ export interface LastStep {
 
 /** A tool call as what it's doing reads it: its command line, or its file relative to the session's folder. */
 function toolStep(name: string, input: Record<string, unknown>, cwd: string | null): ToolStep {
-  const file = str(input.file_path) ?? str(input.notebook_path);
-  const rel = file && cwd && file.startsWith(`${cwd}/`) ? relative(cwd, file) : file;
-  return { tool: name, command: name === 'Bash' ? str(input.command) : null, path: rel };
+  return { tool: name, command: name === 'Bash' ? str(input.command) : null, path: relPath(input.file_path ?? input.notebook_path, cwd) };
 }
 
 /** How much of a transcript's end is read for its latest step: most steps are near the end, so a small tail first. */

@@ -20,6 +20,7 @@ pageDom();
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: () => {}, getState: () => undefined, setState: () => {} });
 const { renderAgents } = await import('../webview/agents.ts');
 const { stateGlance } = await import('../webview/agent-glance.ts');
+const { el, withTip } = await import('../webview/dom.ts');
 
 const bash = (command: string): ToolStep => ({ tool: 'Bash', command });
 const busy: AgentSession = { cwd: '/w/acme/.claude/worktrees/AC-1', kind: 'background', startedAt: 1, id: 'b1', sessionId: 's1', state: 'working', pid: 4 };
@@ -160,4 +161,14 @@ test('the status bar\'s tooltip says what each running task\'s agent is doing, a
   ], 0);
   assert.match(s.tooltip, /^Running: T-1 \(Testing\), T-2, T-3$/m);
   assert.equal(s.text, '$(sync) 3 running');
+});
+
+test('withTip gives a tip on hover and to a screen reader, and with no tip only the fallback on hover (T-164)', () => {
+  const tipped = withTip(el('span', 'status'), 'Running the checks', 'Its builder\'s session') as unknown as PageElement;
+  assert.deepEqual([tipped.title, tipped.attributes.get('aria-description')], ['Running the checks', 'Running the checks']);
+  const plain = withTip(el('span', 'status'), undefined, 'Its builder\'s session') as unknown as PageElement;
+  assert.deepEqual([plain.title, plain.attributes.get('aria-description')], ['Its builder\'s session', undefined]);
+  // Edge: no tip and no fallback leaves the element as it was.
+  const bare = withTip(el('span', 'status'), undefined) as unknown as PageElement;
+  assert.deepEqual([bare.title, bare.attributes.has('aria-description')], ['', false]);
 });

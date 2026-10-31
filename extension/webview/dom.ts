@@ -42,13 +42,19 @@ export function icon(name: string, tone?: string): HTMLElement {
 
 /** A status always has words; the icon and colour only add to them. */
 export function status(look: Look): HTMLElement {
-  const s = el('span', `status tone-${look.tone}`, icon(look.icon, look.tone), look.label);
-  // What its label stands for, such as the step behind an agent's Building (T-164): on hover, and to a screen reader.
-  if (look.tip) {
-    s.title = look.tip;
-    s.setAttribute('aria-description', look.tip);
-  }
-  return s;
+  return withTip(el('span', `status tone-${look.tone}`, icon(look.icon, look.tone), look.label), look.tip);
+}
+
+/**
+ * What a label stands for, such as the step behind an agent's Building (T-164): on hover, and to a screen
+ * reader. With no tip, the fallback is the hover alone, and nothing is said twice to a screen reader.
+ */
+export function withTip<T extends HTMLElement>(node: T, tip: string | undefined, fallback?: string): T {
+  if (tip) {
+    node.title = tip;
+    node.setAttribute('aria-description', tip);
+  } else if (fallback) node.title = fallback;
+  return node;
 }
 
 export function actionButton(a: Action): HTMLElement {
