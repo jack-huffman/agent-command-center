@@ -185,6 +185,7 @@ const PRIMARY_MARK = /'primary\b|'btn primary\b|\? ' primary'|(?:toolbarButton|a
  */
 const PRIMARY: { file: string; at: RegExp; why: string }[] = [
   { file: 'loading.ts', at: /button\('Try again'/, why: 'Try again (T-162): a modal whose load failed has nothing else to do, and it takes focus.' },
+  { file: 'banners.ts', at: /button\(on \? 'Sending…' : 'Send to its builder'/, why: 'Send to its builder (T-168): a blocked builder waits on the person\'s answer, and it is the one action in the open banner.' },
   { file: 'agents.ts', at: /b\('Answer'/, why: 'Answer: an agent waits on the person\'s answer to its question.' },
   { file: 'verify.ts', at: /\(first \? 'primary' : ''\);$/, why: 'Verify the developer\'s work (T-84): Verify before there is a verification, then Open the QA comment, the comment the person edits and posts.' },
   { file: 'manifest.ts', at: /s\.built \? '' : 'primary'\),$/, why: 'Manifest for this ticket (T-101): Build the manifest, before there is one.' },
