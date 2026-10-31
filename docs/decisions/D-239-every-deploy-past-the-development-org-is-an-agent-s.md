@@ -1,4 +1,4 @@
-## D-T-156 Every deploy past the development org is an agent's, to the org the person picks (2026-10-30)
+## D-239 Every deploy past the development org is an agent's, to the org the person picks (2026-10-30)
 
 T-156. The person: "deploying to any environment (sandbox or prod) should be handled by the agent", and
 "deploying (always handled by an agent) lets us choose one of the other orgs in the pipeline. We pick." Building
