@@ -333,7 +333,7 @@ test('edge case: a ticket built with no plan starts a session of its own for its
   assert.equal(lastSession(readTalk(paths, id)), 'sess-new');
   talkPlan(paths, config, id, 'And the review?', null, deps, 'human:me');
   assert.match(calls[1]!.args.join(' '), /^-p --resume sess-new /);
-  assert.equal(lastSession({ v: 1, task: id, turns: [] }), null, 'before the first reply, none');
+  assert.equal(lastSession({ turns: [] }), null, 'before the first reply, none');
   assert.deepEqual(readTalk(paths, id).turns.map((t) => [t.who, t.version]), [['you', 0], ['agent', 0], ['you', 0], ['agent', 0]]);
   // A reference names a part of a plan, so with none it is refused.
   assert.throws(() => talkPlan(paths, config, id, 'Why?', 'd1', deps, 'human:me'), /has no d1/);
