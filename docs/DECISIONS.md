@@ -247,3 +247,4 @@ changes can see what they are overturning. A task adds `decisions/new-<task>-<sl
 | [D-237](decisions/D-237-where-a-tickets-work-is.md) | A ticket knows where its work is, read from git and from each org | 2026-10-30 |
 | [D-238](decisions/D-238-coverage-floor-for-changed-apex.md) | A builder isn't done until each Apex class it changes reaches the coverage floor in the development org | 2026-10-30 |
 | [D-239](decisions/D-239-every-deploy-past-the-development-org-is-an-agent-s.md) | Every deploy past the development org is an agent's, to the org the person picks | 2026-10-30 |
+| [D-240](decisions/D-240-modals-open-at-the-click.md) | A modal opens the moment you click, loading, and a task's page draws from its record first | 2026-10-30 |
