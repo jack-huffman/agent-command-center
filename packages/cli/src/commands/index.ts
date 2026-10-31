@@ -2,6 +2,7 @@
 // npm run build writes it again, and scripts/test/areas.test.ts fails when it's stale.
 import { area as agents } from './agents.ts';
 import { area as changes } from './changes.ts';
+import { area as checkTogether } from './check-together.ts';
 import { area as checks } from './checks.ts';
 import { area as cloud } from './cloud.ts';
 import { area as draft } from './draft.ts';
@@ -25,4 +26,4 @@ import { area as updates } from './updates.ts';
 import { area as verify } from './verify.ts';
 import { area as where } from './where.ts';
 
-export const AREAS = [agents, changes, checks, cloud, draft, environments, github, hooks, manifest, merging, pipeline, plan, rules, saved, setup, ste, tasks, team, tidy, trackers, tracking, updates, verify, where];
+export const AREAS = [agents, changes, checkTogether, checks, cloud, draft, environments, github, hooks, manifest, merging, pipeline, plan, rules, saved, setup, ste, tasks, team, tidy, trackers, tracking, updates, verify, where];

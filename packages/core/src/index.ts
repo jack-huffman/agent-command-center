@@ -48,6 +48,9 @@ export * from './floors-driver.ts';
 export * from './gates.ts';
 export * from './git-must.ts';
 export * from './github.ts';
+export * from './group-blame.ts';
+export * from './group-check.ts';
+export * from './group-report.ts';
 export * from './held.ts';
 // holding.ts's claims are dispatch.ts's and held.ts's own; this is its one public name.
 export { STARTING_STALE_MS } from './holding.ts';
