@@ -1643,7 +1643,9 @@ The extension handles every workspace folder that has `.acc/config.json`.
   row. Then one primary Deploy…, which asks where, from at most three
   environments ahead, each saying what happens next ("An agent deploys it", or
   after you type Production's name); the pick starts the deploy guide's agent
-  there (D-235, T-156). Nothing on the tab deploys by itself. Deploy… is off,
+  there (D-235, T-156). acc signs the pick, and the name you type, with this
+  machine's person key, kept in the system's own secret store, and reads a
+  record without that signature as none (D-T-171). Nothing on the tab deploys by itself. Deploy… is off,
   with why, while the ticket's own checks fail, it conflicts with its
   environment or a deploy is under way. Then what changed: one list
   by type with a count, deletions marked in words, record changes in a short
