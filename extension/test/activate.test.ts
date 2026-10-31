@@ -279,24 +279,43 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     // .acc/config.json; the page writes neither.
     const answer = (...picks: ((items: Record<string, unknown>[]) => unknown)[]) => { let n = 0; calls.pick = (items) => picks[n++]?.(items as Record<string, unknown>[]); };
     const config = () => JSON.parse(readFileSync(join(repo, '.acc', 'config.json'), 'utf8'));
-    // Change… asks for a model (the default, two models and the person's own words, D-205) and an effort, and
-    // asks acc to write the project's settings, for the person to commit (T-163).
+    // Change… asks what to change (the model and effort, the fallback, or back to the default), then a model
+    // (the default, two models and the person's own words, D-205) and an effort, then for whom (T-163).
+    const what = (key: string) => (i: Record<string, unknown>[]) => i.find((x) => x.key === key);
+    const forWhom = (project: boolean) => (i: Record<string, unknown>[]) => i.find((x) => x.project === project);
     const models: string[][] = [];
-    answer((i) => { models.push(i.map((x) => String(x.label))); return i.find((x) => x.value === 'claude-sonnet-5-5'); }, (i) => i.find((x) => x.value === 'low'));
+    const changes: string[][] = [];
+    answer((i) => { changes.push(i.map((x) => String(x.key))); return what('model')(i); }, (i) => { models.push(i.map((x) => String(x.label))); return i.find((x) => x.value === 'claude-sonnet-5-5'); }, (i) => i.find((x) => x.value === 'low'), forWhom(true));
     await calls.commands.get('acc.agents.configure')!(`builder|${root}`);
     assert.deepEqual(config().agents.builder, { model: 'claude-sonnet-5-5', effort: 'low' }, 'the project\'s settings: its .acc/config.json');
     assert.equal(spawnSync('git', ['config', '--get', 'acc.builder.model'], { cwd: repo, encoding: 'utf8' }).stdout.trim(), '', 'and not this clone\'s own settings');
+    assert.deepEqual(changes[0], ['model', 'fallback', 'reset'], 'three things to change');
     assert.equal(models[0]!.length, 4, 'three models to pick and the person\'s own words');
     assert.ok(/default/i.test(models[0]![0]!) && models[0]!.some((l) => /another model/i.test(l)), 'the default first, and a way to type a model');
-    answer((i) => i.find((x) => x.value === null), (i) => i.find((x) => x.value === 'high'));
+    answer(what('model'), (i) => i.find((x) => x.value === null), (i) => i.find((x) => x.value === 'high'), forWhom(true));
     await calls.commands.get('acc.agents.configure')!(`reviewer|${root}`);
     assert.deepEqual(config().agents.reviewer, { effort: 'high' }, 'the default model takes the setting out; the effort is kept');
     // The planning agent has its own row's Change…, and the person's own words name another model.
     calls.input = 'claude-haiku-5-5';
-    answer((i) => i.find((x) => x.value === '?'), (i) => i.find((x) => x.value === null));
+    answer(what('model'), (i) => i.find((x) => x.value === '?'), (i) => i.find((x) => x.value === null), forWhom(true));
     await calls.commands.get('acc.agents.configure')!(`planner|${root}`);
     calls.input = undefined;
     assert.deepEqual(config().agents.planner, { model: 'claude-haiku-5-5' }, 'the planning agent\'s own model, with the default effort left out');
+    // Edge case: this clone only goes in its git config, and the project's settings are left as they were.
+    answer(what('model'), (i) => i.find((x) => x.value === 'claude-opus-5-5'), (i) => i.find((x) => x.value === 'high'), forWhom(false));
+    await calls.commands.get('acc.agents.configure')!(`planner|${root}`);
+    assert.equal(spawnSync('git', ['config', '--get', 'acc.planner.model'], { cwd: repo, encoding: 'utf8' }).stdout.trim(), 'claude-opus-5-5', 'this clone\'s own settings');
+    assert.deepEqual(config().agents.planner, { model: 'claude-haiku-5-5' }, 'and not the project\'s');
+    // A fallback model for the project, then back to the default takes it all out, for the clone and the project.
+    answer(what('fallback'), (i) => i.find((x) => x.value === 'claude-sonnet-5-5'), forWhom(true));
+    await calls.commands.get('acc.agents.configure')!(`planner|${root}`);
+    assert.deepEqual(config().agents.planner, { model: 'claude-haiku-5-5', fallbackModel: 'claude-sonnet-5-5' });
+    answer(what('reset'), forWhom(false));
+    await calls.commands.get('acc.agents.configure')!(`planner|${root}`);
+    assert.equal(spawnSync('git', ['config', '--get', 'acc.planner.model'], { cwd: repo, encoding: 'utf8' }).stdout.trim(), '', 'the clone\'s choice is gone');
+    answer(what('reset'), forWhom(true));
+    await calls.commands.get('acc.agents.configure')!(`planner|${root}`);
+    assert.equal(config().agents.planner, undefined, 'and the project\'s, so acc\'s default applies');
     answer((i) => i.find((x) => x.value === 'on'));
     await calls.commands.get('acc.agents.autoMerge')!(root);
     calls.pick = undefined;
@@ -315,7 +334,7 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(shown.project, 'Tool');
     assert.deepEqual(shown.roles.map((r) => r.parts.slice(0, 2).map((p) => `${p.name} ${p.value} · ${p.from.label}`)), [
       ['Model claude-sonnet-5-5 · project default', 'Effort low · project default'],
-      ['Model claude-haiku-5-5 · project default', 'Effort default · Claude Code\'s default'],
+      ['Model claude-opus-5-5 · the Command Center\'s default', 'Effort medium · the Command Center\'s default'],
       ['Model claude-opus-5-5 · the Command Center\'s default', 'Effort high · project default'],
     ]);
     assert.equal(shown.autoMerge.look.label, 'on');
@@ -575,8 +594,8 @@ test('activation registers the commands, adds acc to PATH, and ticks the steps t
     assert.equal(calls.prompts, promptsWere);
     assert.match(calls.info.at(-1) ?? '', /^Tool has no checks to choose from yet/);
     // The new key goes after its object's last, indented as the file is, and nothing else moved.
-    const agentsWas = '  "agents": {\n    "builder": {\n      "model": "claude-sonnet-5-5",\n      "effort": "low"\n    },\n    "reviewer": {\n      "effort": "high"\n    },\n    "planner": {\n      "model": "claude-haiku-5-5"\n    }\n  },\n';
-    assert.ok(configWas.includes(agentsWas), 'as acc agents model left it, above');
+    const agentsWas = '  "agents": {\n    "builder": {\n      "model": "claude-sonnet-5-5",\n      "effort": "low"\n    },\n    "reviewer": {\n      "effort": "high"\n    }\n  },\n';
+    assert.ok(configWas.includes(agentsWas), 'as Change… left it, above: the planning agent set back to the default');
     assert.equal(readFileSync(configFile, 'utf8'), configWas.replace(agentsWas, agentsWas.replace('    }\n  },\n', '    },\n    "max": 4\n  },\n')));
 
     // The Command Center's own preferences (GH-113), each through its command, and Slack's way to its card.
