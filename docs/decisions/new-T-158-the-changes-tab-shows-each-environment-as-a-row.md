@@ -1,7 +1,7 @@
 ## D-T-158 The Changes tab shows each environment as a row, and one Deploy… picks where an agent deploys (2026-10-30)
 
 T-158. The person sent a screenshot of a Salesforce ticket's Changes tab and wrote: "this is bad UI for a
-deployment to production." The tab said "Aleysian, deployed 3 days ago · Sandbox, next · Production, next" on
+deployment to production." The tab said "<the development org>, deployed 3 days ago · Sandbox, next · Production, next" on
 one line, two environments both "next", and the line didn't say whether the work was in each org. Under it were
 Deploy to Sandbox (D-220's direct deploy), Deploy with an agent (D-235, which didn't say where to) and Other next
 steps. T-155 (D-237) reads where the work is from git and each org; T-156 (D-239) makes every deploy past the
