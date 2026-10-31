@@ -109,6 +109,9 @@ export const PAGES = [
   'tasks-slack-empty',
   'tasks-slack-scope',
   'tasks-modal',
+  // A task's modal as it opens at the click (T-162): loading, and a load that failed, with Try again
+  'tasks-modal-loading',
+  'tasks-modal-failed',
   'tasks-agents',
   'palette',
   'palette-empty',
@@ -180,6 +183,8 @@ export const PAGES = [
   'ticket-note',
   'ticket-review',
   'ticket-cloud',
+  // A task's page drawn from its record first, its checks, branch and team still coming (T-162)
+  'ticket-filling',
   'ticket-nofields',
   'ticket-dispatch',
   'ticket-edit',

@@ -75,7 +75,7 @@ export function renderTasks(m: TasksModel): Node[] {
         const art = el('article', `card${c.group === 'done' ? ' done' : ''}`,
           el('div', 'card-id', card.id, el('span', 'chip', card.environment)),
           // A click opens it over the board; the modal's Open as tab opens its tab (GH-158).
-          peekable(el('div', 'card-title', card.title), p.root, card.id),
+          peekable(el('div', 'card-title', card.title), p.root, card.id, undefined, card.title),
           card.waitingOn.length ? el('div', 'card-note', icon('clock'), `Waiting on ${card.waitingOn.join(', ')}`) : null,
           // Its pull request won't merge into its base (D-049): an icon and the words, in orange.
           card.conflicts ? el('div', 'card-note conflict', icon('warning'), el('span', '', card.conflicts)) : null,
@@ -201,7 +201,7 @@ export function trackerCard(root: string, b: TrackerBoard, c: TrackerCard, still
     card.classList.add('dragging');
   });
   card.addEventListener('dragend', () => card.classList.remove('dragging'));
-  return peekable(card, root, c.key, b.index);
+  return peekable(card, root, c.key, b.index, c.title);
 }
 
 /**

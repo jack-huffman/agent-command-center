@@ -42,7 +42,11 @@ test('every section of the page, and a ticket, has sample data built by the real
     } else if (kind === 'tasks-azure') assert.deepEqual([m.kind, (m as HomeModel).section, (m as HomeModel).tasks.projects[0]!.boards[0]!.kind], ['home', 'tasks', 'azure']);
     // A repo's issues with no Project: GitHub board on the switch, the repo once, and no place line (the Tasks header's cleanup).
     // The Tasks board with a task opened over it in the modal (GH-158): the board's model, then the task's page's.
-    else if (kind === 'tasks-modal') {
+    // ACME-12's modal as a card's click opens it (T-162): the board's model, the task the tab's memory opens, loading or failed.
+    else if (kind === 'tasks-modal-loading' || kind === 'tasks-modal-failed') {
+      const o = (startState(kind) as { opening?: { key: string; failed?: string } }).opening;
+      assert.deepEqual([m.kind, (m as HomeModel).section, o?.key, !!o?.failed], ['home', 'tasks', 'ACME-12', kind === 'tasks-modal-failed']);
+    } else if (kind === 'tasks-modal') {
       const [after] = afterModel(kind);
       assert.deepEqual([m.kind, (m as HomeModel).section, after?.type, (after?.model as TicketModel).kind, (after?.tab as { type: string }).type], ['home', 'tasks', 'task-modal', 'ticket', 'ticket']);
     } else if (kind === 'palette' || kind === 'palette-empty') {

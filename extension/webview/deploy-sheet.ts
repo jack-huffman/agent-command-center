@@ -5,12 +5,14 @@
 // after a check that passed, and for production or a protected org only once the org's name is typed. Only
 // that click sends the person's yes. Cancel, Escape and the backdrop always close it. It's drawn from the
 // page's model on every draw, so it shows what the extension keeps: checking, deploying, and how it went.
+// Deploy opens it at the click, loading, until a model holds its sheet (T-162).
 
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { DeploySheet } from '../src/model/ticket-deploy.ts';
 import { button, el, icon, linkTo, plural, status, work } from './dom.ts';
+import { Opening } from './loading.ts';
 import { makeModal } from './modal.ts';
-import { api, type PageArea } from './state.ts';
+import { api, onSent, type PageArea } from './state.ts';
 
 let parts: { dialog: HTMLDialogElement; title: HTMLElement; body: HTMLElement; cancel: HTMLButtonElement; go: HTMLButtonElement } | null = null;
 /** The ticket and sheet on show, and the name typed for a protected org, kept across draws. */
@@ -20,6 +22,9 @@ let componentsOpen = false;
 /** The sheet the person closed, by task, environment and step: a draw before the extension lets go of it doesn't open it again. */
 let dismissed: string | null = null;
 const sheetKey = (s: DeploySheet): string => `${s.task}>${s.to}:${s.phase}`;
+/** The sheet's wait, from Deploy's click until a model holds its sheet (T-162), by `<task>>to`, and the project it's for. */
+const waiting = new Opening();
+let waitingFor: { project: string; task: string; to: string } | null = null;
 
 /** Why the sheet's Deploy is off, or null when it's on: a passed check, and the org's name typed where it's asked. */
 export function goOff(s: DeploySheet, name: string): string | null {
@@ -40,6 +45,15 @@ function go(): void {
 
 /** Cancel, Escape or the backdrop: the extension lets go of what it kept; a deploy under way goes on, and the tab says how. */
 function shut(): void {
+  if (waitingFor && !shown) {
+    // Closed while it loaded: the extension lets go, and the check's first sheet, if it comes, opens nothing.
+    api.postMessage({ type: 'deploy-close', project: waitingFor.project, task: waitingFor.task });
+    dismissed = `${waitingFor.task}>${waitingFor.to}:checking`;
+    waitingFor = null;
+    waiting.end();
+    if (parts?.dialog.open) parts.dialog.close();
+    return;
+  }
   if (!shown) return;
   api.postMessage({ type: 'deploy-close', project: shown.project, task: shown.sheet.task });
   dismissed = sheetKey(shown.sheet);
@@ -122,13 +136,35 @@ function make(): NonNullable<typeof parts> {
   const cancel = button('Cancel', 'close', () => shut(), 'ds-cancel');
   const goButton = button('Deploy', 'cloud-upload', () => go(), 'primary ds-go dsh-go');
   m.dialog.append(el('div', 'ds-foot', cancel, goButton));
-  m.dialog.addEventListener('close', () => { if (shown) shut(); });
+  m.dialog.addEventListener('close', () => { if (shown || waitingFor) shut(); });
   return { dialog: m.dialog, title, body: m.body, cancel, go: goButton };
+}
+
+/** Deploy was clicked: the sheet opens now, loading, until a model holds the sheet for that task and place. */
+function waitFor(project: string, task: string, to: string): void {
+  parts ??= make();
+  shown = null;
+  waitingFor = { project, task, to };
+  dismissed = null;
+  parts.title.textContent = `Deploy ${task} to ${to}`;
+  parts.dialog.setAttribute('aria-label', parts.title.textContent);
+  parts.cancel.replaceChildren(icon('close'), 'Cancel');
+  parts.go.hidden = true;
+  waiting.start(`${task}>${to}`, parts.body, `Starting the check for ${task}…`, 'The deploy check', [],
+    () => api.postMessage({ type: 'deploy-check', project, task, to }));
+  if (!parts.dialog.open) parts.dialog.showModal();
+  parts.cancel.focus();
 }
 
 /** After each draw of a task's page: the sheet shows what the model says, opening or closing with it. */
 function syncSheet(m: TicketModel): void {
   const s = m.deploy?.sheet ?? null;
+  // While it loads, a model with no sheet, or another's, leaves it loading; the sheet it waits for ends the wait.
+  if (waitingFor && (!s || !waiting.waits(`${s.task}>${s.to}`))) return;
+  if (s && waitingFor) {
+    waitingFor = null;
+    waiting.end();
+  }
   if (!s || sheetKey(s) === dismissed) {
     if (!s) dismissed = null;
     const was = shown;
@@ -147,6 +183,8 @@ function syncSheet(m: TicketModel): void {
     parts.cancel.focus();
   }
 }
+
+onSent((m) => { if (m.type === 'deploy-check' && typeof m.project === 'string' && typeof m.task === 'string' && typeof m.to === 'string') waitFor(m.project, m.task, m.to); });
 
 export const area: PageArea = {
   after: (m) => { if (m.kind === 'ticket') syncSheet(m); },

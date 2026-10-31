@@ -2,14 +2,16 @@
 // is (T-140): its step bar, the step on show, and a foot that stays in view with Back, why Next is off,
 // Cancel and Next. Each step is one line of what to do, its live check, its own buttons, and its detail
 // folded away. Only a step's own button writes anything, and the extension runs it; Cancel, Escape and the
-// backdrop close it, keeping only what those buttons saved.
+// backdrop close it, keeping only what those buttons saved. Set up opens it at the click, loading, until a
+// model holds it (T-162).
 
 import type { Look } from '../src/model/shared.ts';
 import type { HomeModel, Model } from '../src/model/home.ts';
 import type { CloudAction, CloudButton, CloudField, CloudSetupModel, CloudSetupStep } from '../src/model/cloud-setup.ts';
 import { button, el, icon, keepFocus, keptInput, status } from './dom.ts';
+import { LOAD_LIMIT_MS, Opening } from './loading.ts';
 import { makeModal } from './modal.ts';
-import { api, type PageArea } from './state.ts';
+import { api, onSent, type PageArea } from './state.ts';
 
 /** Each step's icon, beside its title. */
 const STEP_ICON: Record<CloudSetupStep, string> = { on: 'cloud', github: 'github', task: 'calendar', token: 'key', signin: 'account', guard: 'shield', ready: 'rocket' };
@@ -152,13 +154,44 @@ function make(): HTMLDialogElement {
   return m.dialog;
 }
 
+/** The modal's wait, from the click until a model holds it (T-162). */
+const waiting = new Opening();
+/** Closed while it loaded: until when the setup that comes after is cancelled, not shown. */
+let dropUntil = 0;
+/** The command that opens it: CLOUD_SETUP.command in core's onboarding/cloud-steps.ts, copied (D-121). */
+export const CLOUD_SETUP_COMMAND = 'acc.cloud.setup';
+
+/** Set up cloud builders was clicked: the modal opens now, loading, until a model holds it. */
+function waitFor(msg: Record<string, unknown>): void {
+  dialog ??= make();
+  dropUntil = 0;
+  title!.replaceChildren(icon('cloud'), el('span', '', 'Set up cloud builders'));
+  dialog.setAttribute('aria-label', 'Set up cloud builders');
+  footBox!.replaceChildren();
+  waiting.start('cloud', body!, 'Opening Set up cloud builders…', 'Set up cloud builders', [], () => api.postMessage(msg));
+  if (!dialog.open) dialog.showModal();
+  body!.focus({ preventScroll: true });
+}
+
 /** Cancel, Escape or the backdrop: the extension closes it, unless a step's work is under way. */
 function shut(): void {
-  if (drawn) send(drawn, { type: 'cloud-setup-cancel' });
+  if (drawn) return send(drawn, { type: 'cloud-setup-cancel' });
+  // Still loading: it closes now, and the setup the extension opens for it is cancelled as it comes.
+  if (!waiting.key) return;
+  waiting.end();
+  dropUntil = Date.now() + LOAD_LIMIT_MS;
+  if (dialog?.open) dialog.close();
 }
 
 /** Draws the modal for the model, opening it, or closes it when it isn't open. */
 function show(m: CloudSetupModel | null): void {
+  // Loading: a model with no setup yet leaves it loading.
+  if (!m && waiting.key) return;
+  if (m && !drawn && Date.now() < dropUntil) {
+    dropUntil = 0;
+    return send(m, { type: 'cloud-setup-cancel' });
+  }
+  waiting.end();
   if (!m) {
     drawn = null;
     cloudTyped.clear();
@@ -183,6 +216,8 @@ function show(m: CloudSetupModel | null): void {
   if (same) keep();
   else body!.querySelector<HTMLElement>('.cloud-step h2')?.focus({ preventScroll: true });
 }
+
+onSent((m) => { if ((m.type === 'toolbar' || m.type === 'run') && m.command === CLOUD_SETUP_COMMAND) waitFor(m); });
 
 export const area: PageArea = {
   // The modal follows the model: open while cloud builders are being set up, closed when they aren't.
