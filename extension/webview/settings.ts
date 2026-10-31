@@ -7,6 +7,7 @@ import { argButton, button, el, header, icon, more, plural, segmented, settingsB
 import { renderAbout } from './about.ts';
 import { changesFieldValue } from './changes-field.ts';
 import { renderLimits } from './limits.ts';
+import { renderPipeline } from './pipeline.ts';
 import { slackCardView } from './slack.ts';
 import { api, go, memory, remember, scrollToHeading, type PageArea } from './state.ts';
 
@@ -219,6 +220,7 @@ function today(p: SettingsPartModel): HTMLElement {
 function partBody(p: SettingsPartModel, m: SettingsModel): Node[] {
   if (p.id === 'appearance') return [appearance(m)];
   if (p.id === 'agents') return howAgentsRun(m);
+  if (p.id === 'pipeline') return renderPipeline(m);
   if (p.id === 'limits') return renderLimits(m.limits);
   if (p.id === 'trackers') return trackersPart(m);
   if (p.id === 'slack') return slackPart(m);

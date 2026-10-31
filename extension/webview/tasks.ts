@@ -13,6 +13,7 @@ import { fitLabels } from './fit-labels.ts';
 import { argButton, avatar, button, type Child, el, empty, header, icon, keptInput, labelChips, peekable, plural, stateChip, status, titled, toolbarButton, typeMark } from './dom.ts';
 import { api, go, memory, type PageArea, remember, state } from './state.ts';
 import { firstSteps } from './first-steps.ts';
+import { togetherBar } from './group-check.ts';
 import { addToWorkTitle, WORDS } from './plain-words.ts';
 
 export function renderTasks(m: TasksModel): Node[] {
@@ -69,6 +70,8 @@ export function renderTasks(m: TasksModel): Node[] {
       const col = el('section', `column tone-edge-${c.tone}`, el('h2', 'column-head', stateChip(c), el('span', 'count', String(cards.length))));
       col.setAttribute('aria-label', `${c.label}: ${plural(cards.length, 'task')}`);
       col.dataset.group = c.group;
+      // In review (T-165): Check together for each environment, off with why, and the group check under way.
+      for (const t of c.together ?? []) col.append(togetherBar(t));
       if (!cards.length) col.append(el('p', 'muted drop-hint', 'Nothing here'));
       const drawCard = (card: Card): HTMLElement => {
         // Drag a card to another lane to move it (D-041), so the cards need no Move button.
@@ -85,6 +88,8 @@ export function renderTasks(m: TasksModel): Node[] {
           card.autopilot ? el('div', 'card-agent', status(card.autopilot)) : null,
           // Its pull request was closed, and autopilot won't replace it (D-063): an icon and the words, in orange.
           card.closedPr ? el('div', 'card-agent', status(card.closedPr)) : null,
+          // Its latest step of a group check (T-165): checked with whom, and how it went, with its icon.
+          card.group ? el('div', 'card-agent card-group', status(card.group)) : null,
           // Its builder stopped before acc done or acc block, and what it last said (D-067): in orange, with its icon.
           card.stopped ? el('div', 'card-agent', status(card.stopped)) : null,
           // Its files beside other tasks' (D-093): it waits for them (a clock, in blue), its start failed (the

@@ -53,3 +53,13 @@ test('the short instructions after a resume or compaction name the three rules i
   assert.ok(line, 'a Rules line');
   for (const phrase of ['its own file', 'one line', 'acc block', 'don\'t edit its files', 'temp file', 'rename']) assert.ok(line.includes(phrase), phrase);
 });
+
+test('a Salesforce builder is told to block and not deploy when a step by hand in the development org must come first, and that reviewed work merges on its own (T-157)', () => {
+  const p = packetFor(SF_CONFIG);
+  const at = p.indexOf('- **A step by hand first:**');
+  assert.ok(at > 0, 'the rule is there');
+  const line = p.slice(at, p.indexOf('\n', at));
+  for (const phrase of ['don\'t deploy', 'acc block "Needs a step by hand in the org before the deploy: <what>"', 'one `--item` per step', 'Deploy only when the person says it\'s done', 'merges into the development environment on its own', 'a deploy past that org is always a person\'s pick']) assert.ok(line.includes(phrase), phrase);
+  assert.ok(at > p.indexOf('- **Tests:**'), 'after the Tests line of the Salesforce block');
+  assert.ok(!packetFor(GENERIC_CONFIG).includes('A step by hand first'), 'edge case: a generic builder has no org to do a step in');
+});

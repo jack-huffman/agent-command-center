@@ -197,7 +197,7 @@ export class AutopilotHost implements vscode.Disposable {
 
   /**
    * Whether autopilot merges pull requests in each repo (GH-67), whatever its autonomy: on only where
-   * the config turns auto-merge on, and never in a Salesforce project. `acts` is false while autonomy is
+   * the config turns auto-merge on, which a Salesforce project does by default (T-157). `acts` is false while autonomy is
    * manual, when nothing runs to merge.
    */
   mergeLooks(): { key: string; root: string; project: string; on: boolean; acts: boolean }[] {

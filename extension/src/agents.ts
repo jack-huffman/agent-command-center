@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import * as vscode from 'vscode';
 import { autoMergeOn, type Effort, EFFORTS, isEffort, ROLE_DEFAULTS } from '../../packages/core/src/config.ts';
+import { developmentEnvironment } from '../../packages/core/src/pipeline.ts';
 import { agentName, stopFinishedPlan } from './logic/agents.ts';
 import { agentsChangeArgs } from './logic/agents-change.ts';
 import { EFFORT_WORDS } from './logic/efforts.ts';
@@ -162,17 +163,22 @@ class AgentCommands extends Sidebar {
 
   /**
    * Whether autopilot merges a reviewed pull request whose checks passed (GH-67), changed through acc in
-   * .acc/config.json, for the person to commit. acc refuses it in a Salesforce project.
+   * .acc/config.json, for the person to commit. In a Salesforce project it's on by default and covers the
+   * development environment alone (T-157): the choice says which, and that it needs the builder's own deploy.
    */
   private async configureAutoMerge(arg: unknown): Promise<void> {
     const project = typeof arg === 'string' ? this.hub.project(arg) : await this.pickProject();
     if (!project) return;
-    if (project.config.profile === 'salesforce') return void vscode.window.showInformationMessage(`${project.name} is a Salesforce project, which never auto-merges: a person merges every pull request.`);
     const now = autoMergeOn(project.config) ? 'on' : 'off';
+    const sf = project.config.profile === 'salesforce';
+    const dev = sf ? developmentEnvironment(project.config) : null;
     const protectedEnvs = project.config.environments.filter((e) => e.protected).map((e) => e.name);
+    const onWords = sf
+      ? `A task whose review passed and whose own deploy to ${dev?.org ?? 'the development org'} passed merges into ${dev?.name ?? 'the development environment'} on its own, and never further`
+      : `Pull requests whose review and checks passed, with nothing waiting on you, merge in turn through a merge queue${protectedEnvs.length ? `; never into ${protectedEnvs.join(', ')}` : ''}`;
     const pick = await vscode.window.showQuickPick([
       { label: '$(circle-slash) off', description: 'A person merges every pull request', value: 'off' },
-      { label: '$(git-merge) on', description: `Pull requests whose review and checks passed, with nothing waiting on you, merge in turn through a merge queue${protectedEnvs.length ? `; never into ${protectedEnvs.join(', ')}` : ''}`, value: 'on' },
+      { label: '$(git-merge) on', description: onWords, value: 'on' },
     ].map((x) => ({ ...x, description: x.value === now ? `${x.description} · now` : x.description })), { title: `${project.name}: may autopilot merge pull requests?` });
     if (!pick || pick.value === now) return;
     const ok = await this.runAcc(project, ['agents', 'auto-merge', pick.value], () => undefined);

@@ -101,6 +101,16 @@ export function ownRunBefore(paths: RepoPaths, run: Runner, task: Pick<Task, 'en
   return false;
 }
 
+/**
+ * Whether the task's own deploy to its environment passed on `sha` itself (T-157): a deploy the task recorded
+ * there, with a passing receipt of its own, never a skip recorded elsewhere. Autopilot's merge asks this of the
+ * commit the review read, so a branch never merges with a commit after its last deploy: what the reviewer read
+ * is what the org holds. Land takes a deploy on an ancestor (`ownRunBefore`); the merge doesn't.
+ */
+export function ownDeployAt(paths: RepoPaths, task: Pick<Task, 'environment' | 'deploys'>, sha: string): boolean {
+  return !!sha && (task.deploys ?? []).some((d) => d.sha === sha && d.env === task.environment && countsForDone(readReceipt(paths, d.sha, DEPLOY_GATE)));
+}
+
 export function receiptPath(paths: RepoPaths, sha: string, gate: string): string {
   return join(paths.receipts, sha, `${gate}.json`);
 }

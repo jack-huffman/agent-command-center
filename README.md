@@ -183,10 +183,13 @@ Each project's own settings are in its `.acc/config.json`.
   `acc` changes it.
 - **Profiles, not special cases.** Each project type declares its own checks.
   `generic` and `salesforce` come first.
-- **Humans keep the gates.** Nothing merges, deploys or changes a ticket unless
-  you ask. There's one opt-in: auto-merge, through a merge queue, of a reviewed
-  pull request whose checks passed, into an environment that isn't protected.
-  It's off by default, and a Salesforce project can't turn it on.
+- **Humans keep the gates.** Nothing deploys past the development org or
+  changes a ticket unless you ask. Merging on its own, through a merge queue,
+  of a reviewed pull request whose checks passed, into an environment that
+  isn't protected, is an opt-in elsewhere and on by default in a Salesforce
+  project, where it covers the development environment alone and needs the
+  builder's own deploy there, on the reviewed commit (D-244). Settings' Pipeline section shows and
+  changes it.
 - **Readable without colour.** Every state has an icon and a label. Where
   colour helps, it's orange against blue, never red against green.
 

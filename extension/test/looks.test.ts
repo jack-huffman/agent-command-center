@@ -22,6 +22,7 @@ import { moveLook as branchMoveLook } from '../src/model/branches.ts';
 import { autopilotStepLook, OUTCOME_LOOK, outcomeLook } from '../src/model/history.ts';
 import { LANDING_LOOK, moveLook, updatesLook } from '../src/model/landing.ts';
 import { capLook } from '../src/model/limits.ts';
+import { PIPELINE_MERGE_LOOK, PIPELINE_ROLE_LOOK } from '../src/model/pipeline.ts';
 import type { UpdateCard } from '../src/model/updates.ts';
 import { queueLook } from '../src/model/overview.ts';
 import { RULE_LOOK } from '../src/model/rules.ts';
@@ -34,6 +35,7 @@ import { CRITERION_LOOK, dockReview, REVIEW_RUN_LOOK } from '../src/model/dock-r
 import { VERIFY_LOOK } from '../src/model/verify.ts';
 import { CHANGE_LOOK, DEPLOY_LOOK } from '../src/model/changes.ts';
 import { TEAM_LOOK } from '../src/model/team.ts';
+import { GROUP_LOOK } from '../src/model/group-check.ts';
 import { RECORD_LOOK } from '../src/model/record-changes.ts';
 import { FIELD_LOOK } from '../src/model/changes-field.ts';
 import { MANIFEST_LOOK, MANIFEST_ROW_LOOK } from '../src/model/manifest.ts';
@@ -162,6 +164,9 @@ export const TABLES: Table[] = [
       ...product(GATE_STATUSES, [false, true]).flatMap(([status, waived]): [string, Shown][] => [[`${status}${waived ? ', waived' : ''}`, checkLook({ status, waived, summary: 'ok' })], [`${status}, not run`, checkLook({ status, waived, summary: 'Not run on this commit' })]]),
     ],
   },
+  // Settings' Pipeline (T-157): an environment's place in the pipeline, and whether reviewed work merges on its own.
+  { name: 'an environment\'s place in the pipeline', sources: ['extension/src/model/pipeline.ts#PIPELINE_ROLE_LOOK'], states: () => Object.entries(PIPELINE_ROLE_LOOK) },
+  { name: 'whether reviewed work merges on its own', sources: ['extension/src/model/pipeline.ts#PIPELINE_MERGE_LOOK'], states: () => Object.entries(PIPELINE_MERGE_LOOK) },
   { name: 'a setup step', sources: ['extension/src/model/setup.ts#STATUS'], states: () => Object.entries(STATUS) },
   { name: 'a chapter of Setup\'s walkthrough', sources: ['extension/src/model/setup-walk.ts#chapterLook'], states: () => [['done', chapterLook(0)], ['to do', chapterLook(3)]] },
   // The state chip (T-91), in every place it's drawn, from the screenshot run's fixtures: each tracker's ticket
@@ -195,6 +200,8 @@ export const TABLES: Table[] = [
   // The builder's own deploy to its org, under Changes (D-206): one state, blue, with the org's name after it.
   { name: 'a task\'s deploy to its org, under Changes (T-115)', sources: ['extension/src/model/changes.ts#DEPLOY_LOOK'], states: () => Object.entries(DEPLOY_LOOK) },
   { name: 'a task\'s team, on its page: up to date or behind, and sharing files (T-103)', sources: ['extension/src/model/team.ts#TEAM_LOOK'], states: () => Object.entries(TEAM_LOOK) },
+  // A group check's step on its task (T-165): checking, passed, merged, and what needs a builder or a person.
+  { name: 'a task\'s step in a group check', sources: ['extension/src/model/group-check.ts#GROUP_LOOK'], states: () => Object.entries(GROUP_LOOK) },
   // Record changes (T-100): each change made, planned or not, refused, and a promotion's step to do, done or skipped.
   { name: 'a ticket\'s record change and a promotion\'s step', sources: ['extension/src/model/record-changes.ts#RECORD_LOOK'], states: () => Object.entries(RECORD_LOOK) },
   // A tracker's changes field on a ticket's page (T-105): reading it, failed, empty, the same as found, differing, and the draft.
@@ -330,6 +337,8 @@ export const TABLES: Table[] = [
  */
 export const NOT_TABLES: Record<string, string> = {
   'extension/src/model/run-view.ts#lookOf': 'picks a row\'s look from ROW_LOOK, which is walked: an ended count of progress takes its success or its note',
+  'extension/src/model/group-check.ts#groupLook': 'a step\'s icon and tone from GROUP_LOOK, which is walked, with its own words for the label (T-165)',
+  'extension/src/model/group-check.ts#lastGroupLook': 'the latest step through groupLook, so through GROUP_LOOK, which is walked (T-165)',
   'extension/src/model/shared.ts#LOOK': 'builds a look from its three parts; the tables that call it are walked',
   'extension/src/progress.ts#doneLine': 'a finished job\'s line, Done with its kind\'s icon: each icon is a literal the icon scan checks',
   'extension/src/logic/shared.ts#TONE_COLOR': 'a tone\'s colour in the sidebar, which draws with VSCode\'s own theme colours, not a state',

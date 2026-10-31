@@ -84,6 +84,10 @@ export const PROCESSES: readonly Process[] = [
   { acc: ['agents model'], name: 'Change an agent\'s model and effort', command: 'acc.agents.configure' },
   { acc: ['agents autonomy'], name: 'Change what autopilot may do', command: 'acc.agents.autonomy' },
   { acc: ['agents auto-merge'], name: 'Change whether autopilot merges', command: 'acc.agents.autoMerge' },
+  // The pipeline (T-157): the environments in order, the development environment and where each goes next.
+  { acc: ['environments'], name: 'Show the pipeline' },
+  { acc: ['environments development'], name: 'Change the development environment', command: 'acc.pipeline.development' },
+  { acc: ['environments next'], name: 'Change where an environment goes next', command: 'acc.pipeline.next' },
   { acc: ['agents max'], name: 'Change how many builders run at once', command: 'acc.settings.agentsMax' },
   { acc: ['machine'], name: 'See this machine\'s limits' },
   { acc: ['machine heavy-slots'], name: 'Change how many heavy checks run at once', command: 'acc.settings.heavySlots' },
@@ -116,6 +120,7 @@ export const PROCESSES: readonly Process[] = [
   // Builders as a team (T-103)
   { acc: ['team'], name: 'See the team', named: 'See {arg}\'s team' },
   { acc: ['refresh'], name: 'Take in the latest merges', named: 'Take the latest merges into {arg}' },
+  { acc: ['check-together'], name: 'Check together', named: 'Check {arg} together', command: 'acc.task.checkTogether' },
   { acc: ['review'], name: 'Review with an agent', named: 'Review {arg} with an agent', command: 'acc.task.review' },
   { acc: ['land'], name: 'Open pull request', named: 'Open {arg}\'s pull request', command: 'acc.task.land' },
   { acc: ['autopilot'], name: 'Run autopilot', command: 'acc.autopilot.toggle' },

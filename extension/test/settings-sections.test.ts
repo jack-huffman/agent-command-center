@@ -173,8 +173,25 @@ test('every control Settings drew before its sections is still drawn, by name, a
   assert.ok(BEFORE.length >= 90, `${BEFORE.length} controls pinned`);
   const lost = BEFORE.map(renamed).filter((name) => !after.has(name));
   assert.deepEqual(lost, [], 'none is lost');
-  // What it adds is the picker, the jump list's narrow form, and Set up… on a project that's on (T-145).
-  assert.deepEqual([...after].filter((name) => !BEFORE.map(renamed).includes(name)).sort(), ['BUTTON Set up cloud builders for Acme Service', 'SELECT Section of Settings']);
+  // What it adds is the picker, the jump list's narrow form, Set up… on a project that's on (T-145), and the
+  // Pipeline section's buttons (T-157): the switch's Change… for the Salesforce project (its Agents row's too, now
+  // that a Salesforce project can turn merging on its own off), Make it development and Next steps… for each environment.
+  assert.deepEqual([...after].filter((name) => !BEFORE.map(renamed).includes(name)).sort(), [
+    'BUTTON Change whether autopilot merges pull requests, in Acme Service',
+    'BUTTON Change whether reviewed work merges into the development environment on its own, in Acme Service',
+    'BUTTON Make it development: Dev, in Acme Service [off]',
+    'BUTTON Make it development: Production, in Acme Portal [off]',
+    'BUTTON Make it development: Production, in Acme Service [off]',
+    'BUTTON Make it development: QA, in Acme Service',
+    'BUTTON Make it development: Staging, in Acme Portal [off]',
+    'BUTTON Next steps for Dev, in Acme Service: where its work goes next',
+    'BUTTON Next steps for Production, in Acme Portal: where its work goes next',
+    'BUTTON Next steps for Production, in Acme Service: where its work goes next',
+    'BUTTON Next steps for QA, in Acme Service: where its work goes next',
+    'BUTTON Next steps for Staging, in Acme Portal: where its work goes next',
+    'BUTTON Set up cloud builders for Acme Service',
+    'SELECT Section of Settings',
+  ]);
 });
 
 test('every control that can be used still does something when used: it asks the extension, or changes the page', () => {

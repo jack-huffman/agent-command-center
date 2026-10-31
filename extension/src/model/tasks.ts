@@ -14,6 +14,7 @@ import { autoMergeOn } from '../../../packages/core/src/config.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import { analysisLook, autopilotLook, canDispatch, cardActions, closedPrLook, filesLook, placeLook, stoppedLook } from './cards.ts';
 import { splitDone } from './done-fold.ts';
+import { lastGroupLook, type Together, togetherFor } from './group-check.ts';
 
 // ---------------------------------------------------------------- tasks: the board
 
@@ -48,6 +49,8 @@ export interface Card {
   actions: Action[];
   /** The lanes it can be dropped in: the moves a person may make from where it is (D-041). */
   drops: string[];
+  /** Its latest step of a group check (T-165), in its own words, or null. */
+  group: Look | null;
   /** Who dispatched it, for the agent board's person filter (T-79): empty before a dispatch. */
   people: Who[];
 }
@@ -77,6 +80,8 @@ export interface Column extends Look {
   cards: Card[];
   /** Done only (T-147): the finished tasks with no worktree left, under the lane's closed Cleaned up fold. */
   cleaned?: Card[];
+  /** In review only (T-165): Check together for each environment its tasks go to, and the group check under way. */
+  together?: Together[];
 }
 
 export interface TasksModel {
@@ -107,10 +112,10 @@ export function tasksModel(hub: HubLike, boards: (root: string) => BoardInput[] 
             // A stopped builder's line says it all: its old session's own state would only repeat it.
             agent: t.stopped ? null : t.agent ?? null, model: t.stopped || !t.agent ? null : t.model ?? null, agentName: t.run?.name ?? null, worktree: t.run?.worktree ?? null, conflicts: conflictLine(t), failedChecks: failedChecksLine(t), analysis: analysisLook(t), autopilot: autopilotLook(t), closedPr: closedPrLook(t),
             stopped: t.autopilot ? null : stoppedLook(t), files: filesLook(t), place: placeLook(t),
-            actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t), people: dispatcher(t.dispatchedBy),
+            group: lastGroupLook(t), actions: cardActions(t, { project: p.root, task: t.id }), drops: dropLanes(t), people: dispatcher(t.dispatchedBy),
           }));
         // Done keeps what's still to clean up; the cleaned-up ones go under its fold (T-147).
-        return { group, label: d.label, icon: d.icon, tone: d.tone, ...(group === 'done' ? splitDone(cards) : { cards }) };
+        return { group, label: d.label, icon: d.icon, tone: d.tone, ...(group === 'done' ? splitDone(cards) : { cards }), ...(group === 'review' ? { together: togetherFor(p.root, p.config, rows, (env) => hub.groupRunning?.(p.root, env) ?? false) } : {}) };
       });
       return { name: p.name, root: p.root, github: !!p.config.github, columns, total: rows.length, boards: boards(p.root).map((b) => trackerBoard(b, rows, p.root)), me: dispatcherKey(user) };
     }),

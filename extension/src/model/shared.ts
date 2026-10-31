@@ -96,6 +96,8 @@ export interface HubLike {
   autopilotLog?(root: string): AutopilotRecord[];
   /** The updates acc drafted for a project's tickets, posted or not (D-066). */
   updates?(root: string): Update[];
+  /** Whether a group check for an environment's branch holds its lock now (T-165): the one source for "under way". */
+  groupRunning?(root: string, env: string): boolean;
   /** Whether a project's repo has a tidy-up due, and the ledger it's counted from, which projects of one repo share (GH-104). */
   tidy?(root: string): (Pick<TidyStatus, 'due' | 'count' | 'every'> & { ledger: string }) | null;
   /** The environment branches of a project's repo that moved by anything but acc's own merge, each until a person has seen it (GH-69). */

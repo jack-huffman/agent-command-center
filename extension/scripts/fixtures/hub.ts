@@ -56,6 +56,8 @@ export function sampleHub(now = Date.now()): HubLike {
     // What each session last answered with, or was started with; a dash for one not known yet (D-086).
     modelFor: (s) => tasks.find((t) => t.run?.bgId && t.run.bgId === s.id)?.model ?? SESSION_MODELS[s.sessionId ?? ''] ?? null,
     taskRows: () => tasks,
+    // A group check holds its lock for dev (T-165), so In review shows its step.
+    groupRunning: (_root: string, env: string) => env === 'dev',
     projectFor: (p: string) => (p === root || p.startsWith(`${root}/`) ? project : undefined),
     home: '/Users/me',
     repoFor: (p: string) => repoRoot(p, '/Users/me', (d) => REPOS.has(d)),

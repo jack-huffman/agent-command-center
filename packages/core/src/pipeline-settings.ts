@@ -1,0 +1,105 @@
+/**
+ * Settings' Pipeline section writes the project's environments (T-157): which is the development
+ * environment, and where each goes next. Each change edits the environments list where it stands in
+ * `.acc/config.json` and keeps every other character of the file as it was (editJsonKey, GH-111), checks
+ * the whole through the parser before anything is written, and writes the file whole (writeAtomic), for a
+ * person to commit. Builders, reviewers and analysts can't run these: the CLI refuses them by role, and the
+ * builder's settings deny the command.
+ */
+
+import { readFileSync } from 'node:fs';
+import { writeAtomic } from './atomic.ts';
+import { branchFor, type Config, parseConfig } from './config.ts';
+import { editJsonKey } from './config-edit.ts';
+import { AccError } from './exec.ts';
+import { canBeDevelopment, developmentEnvironment } from './pipeline.ts';
+
+/** The file's text, and the settings it holds. */
+function readRaw(configFile: string): { text: string; raw: Record<string, any> } {
+  let text: string;
+  let raw: Record<string, any>;
+  try {
+    text = readFileSync(configFile, 'utf8');
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new AccError('bad-config', `Couldn't read ${configFile}: ${(e as Error).message}`);
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new AccError('bad-config', `${configFile} isn't a settings object.`);
+  return { text, raw };
+}
+
+/** The environment in the raw list that `name` names, by name or branch, whatever the case. */
+function rawEnvironment(raw: Record<string, any>, name: string): Record<string, any> {
+  const envs: unknown[] = Array.isArray(raw.environments) ? raw.environments : [];
+  const want = branchFor(name);
+  const env = envs.find((e) => e && typeof e === 'object' && typeof (e as { name?: unknown }).name === 'string' && branchFor((e as { name: string }).name) === want);
+  if (!env) throw new AccError('refused', `No environment is called "${name}". The settings list ${envs.map((e) => (e as { name?: string })?.name).filter(Boolean).join(', ') || 'none'}.`);
+  return env as Record<string, any>;
+}
+
+/** The edited settings checked whole through the parser; a problem names what's wrong, and nothing is written. */
+function checked(raw: Record<string, any>): Config {
+  const r = parseConfig(raw);
+  if (!r.config) throw new AccError('refused', `That would leave the settings with problems:\n- ${r.errors.join('\n- ')}`);
+  return r.config;
+}
+
+/**
+ * The environments list written where it stands in the file, in the file's indentation, with every other
+ * character as it was; then the file whole. Only after every check passed: nothing here refuses.
+ */
+function writeEnvironments(configFile: string, text: string, raw: Record<string, any>): void {
+  writeAtomic(configFile, editJsonKey(text, ['environments'], raw.environments));
+}
+
+/**
+ * Makes `name` the development environment: the project's default, where work starts and, in a Salesforce
+ * project, where reviewed work merges on its own (T-157). Refused, with nothing written, for Production or a
+ * protected environment, for one the settings don't list, for one the parser's rules refuse as the default,
+ * and for one whose org type can't be a development environment (such as `none`, an environment with no
+ * org, as a generic project's are). The same environment again changes nothing.
+ */
+export function setDevelopmentEnvironment(configFile: string, name: string): { config: Config; changed: boolean } {
+  const { text, raw } = readRaw(configFile);
+  const env = rawEnvironment(raw, name);
+  if (env.default === true) return { config: parseChecked(raw), changed: false };
+  if (env.type === 'production' || env.protected === true) throw new AccError('refused', `${env.name} is ${env.type === 'production' ? 'Production' : 'protected'}: it can't be the development environment. Nothing merges into it on its own.`);
+  for (const e of raw.environments as Record<string, any>[]) {
+    if (e === env) e.default = true;
+    else delete e.default;
+  }
+  const config = checked(raw);
+  // The parser allows a default with no org type (`none`); the development environment is a sandbox with one.
+  const it = config.environments.find((e) => e.branch === branchFor(name))!;
+  if (!canBeDevelopment(it)) throw new AccError('refused', `${env.name} can't be the development environment: ${it.type === 'none' ? 'it has no org type' : `its type is ${it.type}`}. The development environment is a Developer, Developer Pro, Partial Copy or Full Copy sandbox that isn't protected.`);
+  writeEnvironments(configFile, text, raw);
+  return { config, changed: true };
+}
+
+/**
+ * Sets where `name` goes next: the environments its work is promoted to, usual step first (D-018). An
+ * empty list means it goes nowhere further. Each must be a listed environment, not itself, and the paths
+ * must not loop: the parser's rules, checked before anything is written.
+ */
+export function setNextSteps(configFile: string, name: string, next: string[]): { config: Config; changed: boolean } {
+  const { text, raw } = readRaw(configFile);
+  const env = rawEnvironment(raw, name);
+  const branches = next.map((n) => rawEnvironment(raw, n)).map((e) => branchFor(e.name as string));
+  const was: string[] = Array.isArray(env.promotesTo) ? env.promotesTo.map((b: unknown) => branchFor(String(b))) : [];
+  if (JSON.stringify(was) === JSON.stringify(branches)) return { config: parseChecked(raw), changed: false };
+  if (branches.length) env.promotesTo = branches;
+  else delete env.promotesTo;
+  const config = checked(raw);
+  writeEnvironments(configFile, text, raw);
+  return { config, changed: true };
+}
+
+/** The settings as they are, checked, when a change turns out to change nothing. */
+function parseChecked(raw: Record<string, any>): Config {
+  const r = parseConfig(raw);
+  if (!r.config) throw new AccError('bad-config', `The settings have problems:\n- ${r.errors.join('\n- ')}`);
+  return r.config;
+}
+
+/** The development environment's name, for a message, or what stands in its place. */
+export const developmentName = (config: Config): string => developmentEnvironment(config)?.name ?? 'no development environment';

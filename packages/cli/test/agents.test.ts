@@ -190,12 +190,19 @@ test('acc agents auto-merge: shows it, and a person turns it on or off in .acc/c
   assert.deepEqual(JSON.parse(readFileSync(join(bare, '.acc', 'config.json'), 'utf8')), { ...GENERIC_CONFIG, autopilot: { autoMerge: true } });
   assert.match(acc(bare, ['agents', 'auto-merge']).out, /autonomy is "manual", so autopilot doesn't run and nothing merges on its own\./);
 
-  // A Salesforce project never auto-merges.
-  const sf = makeRepo({ '.acc/config.json': JSON.stringify({ ...GENERIC_CONFIG, profile: 'salesforce', environments: [{ name: 'Dev', type: 'developer', org: 'Acme Dev', default: true }] }) });
-  const refused = acc(sf, ['agents', 'auto-merge', 'on']);
-  assert.equal(refused.code, 1);
-  assert.match(refused.err, /A Salesforce project never auto-merges: a person merges every pull request there\./);
-  assert.match(acc(sf, ['agents', 'auto-merge']).out, /^auto-merge off \(project\): a Salesforce project never auto-merges\./);
+  // A Salesforce project merges into its development environment on its own by default (T-157): on with
+  // nothing written changes nothing, off writes false, and the words name the development org and what's never merged into.
+  const sfRaw = { ...GENERIC_CONFIG, profile: 'salesforce', autonomy: 'review', environments: [{ name: 'Dev', type: 'developer', org: 'Acme Dev', default: true, promotesTo: ['qa'] }, { name: 'QA', type: 'partial', org: 'Acme QA', promotesTo: ['production'] }, { name: 'Production', type: 'production', org: 'Acme Prod' }] };
+  const sf = makeRepo({ '.acc/config.json': JSON.stringify(sfRaw) });
+  const shown = acc(sf, ['agents', 'auto-merge']);
+  assert.match(shown.out, /^auto-merge on \(project\): a task into dev whose review passed, whose own deploy to Acme Dev passed on the commit the review read, .* Never into qa, production: only the development environment, and never a deploy past its org\. It merges while autopilot is on\.$/m);
+  assert.deepEqual(JSON.parse(acc(sf, ['agents', 'auto-merge', '--json']).out), { autoMerge: true, environments: ['dev'], autonomy: 'review' });
+  assert.equal(acc(sf, ['agents', 'auto-merge', 'on']).code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(sf, '.acc', 'config.json'), 'utf8')), sfRaw, 'on is the default: nothing to write');
+  assert.equal(acc(sf, ['agents', 'auto-merge', 'off']).code, 0);
+  assert.deepEqual(JSON.parse(readFileSync(join(sf, '.acc', 'config.json'), 'utf8')), { ...sfRaw, autopilot: { autoMerge: false } }, 'off is written');
+  assert.match(acc(sf, ['agents', 'auto-merge']).out, /^auto-merge off \(project\): a person merges every pull request\. On, a reviewed task merges into the development environment/);
+  assert.deepEqual(JSON.parse(acc(sf, ['agents', 'auto-merge', '--json']).out).environments, []);
 });
 
 test('acc machine heavy-slots shows and sets how many heavy checks this machine runs; a builder can\'t change it (D-080)', () => {

@@ -18,10 +18,10 @@
     "floor": 1867
   },
   "screenshots.raw": {
-    "floor": 849
+    "floor": 855
   },
   "screenshots.a11y": {
-    "floor": 706400
+    "floor": 709637
   },
   "screenshots.actions": {
     "floor": 2114
@@ -30,7 +30,7 @@
     "floor": 1716
   },
   "screenshots.sizes": {
-    "floor": 6227
+    "floor": 6256
   },
   "screenshots.ci.a11y": {
     "floor": 622973
