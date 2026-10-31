@@ -1,4 +1,4 @@
-## D-T-165 Check a group of finished tasks together: one full check, and a failure goes back to the task whose files caused it (2026-10-30)
+## D-245 Check a group of finished tasks together: one full check, and a failure goes back to the task whose files caused it (2026-10-30)
 
 Each reviewed task merged on its own, and the full check ran once for each (D-096, D-158). A burst of five
 tasks cost five full checks. The person asked to check a group of finished tasks at once, and, when a test
