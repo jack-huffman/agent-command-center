@@ -3,12 +3,14 @@
 // each turn, are tested at the end.
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { test } from 'node:test';
 import { type Analysis, analysisPath, writeAnalysis } from '../src/analyze.ts';
 import { parseConfig, type Config } from '../src/config.ts';
 import type { TaskDeploy } from '../src/deploy-gate.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
+import { manifestPath } from '../src/manifest.ts';
 import { repoPaths } from '../src/paths.ts';
 import { lastSession, openInClaude, readTalk, talkPlan } from '../src/plan-talk.ts';
 import { changedPathsOf } from '../src/field-drafts.ts';
@@ -124,6 +126,15 @@ test('the metadata part lists what the work changed as the Changes tab does: eac
   assert.match(part(ticketPack({ ...FULL, changed: [] }), 'changed'), /Nothing changed yet\./);
   // Outside Salesforce, by folder.
   assert.match(part(ticketPack({ ...FULL, profile: 'generic', changed: ['src/app.ts'] }), 'changed'), /\*\*src\*\*\n\n- app\.ts/);
+});
+
+test('on Salesforce, the metadata part lists the manifest\'s members and deletions, as the Changes tab does', () => {
+  const manifest = { types: [{ name: 'ApexClass', members: ['StageHistory', 'StageHistoryTest'] }], deletions: [{ name: 'CustomField', members: ['Opportunity.Old_Stage__c'] }] };
+  const c = part(ticketPack({ ...FULL, manifest }), 'changed');
+  assert.match(c, /\*\*In its package\.xml\*\*\n\n- ApexClass: StageHistory, StageHistoryTest\n/);
+  assert.match(c, /\*\*Deleted, in its destructiveChangesPost\.xml\*\*\n\n- CustomField: Opportunity\.Old_Stage__c\n/);
+  // Edge case: with no manifest, or an empty one, the part lists the paths alone.
+  for (const m of [null, { types: [], deletions: [] }]) assert.doesNotMatch(part(ticketPack({ ...FULL, manifest: m }), 'changed'), /package\.xml/);
 });
 
 test('mutant: a pack that leaves the metadata changed out fails here (the talk\'s own test below checks its prompt holds it)', () => {
@@ -261,6 +272,36 @@ test('readTicketPack reads every part from what acc holds: the kept ticket, the 
   assert.match(part(pack, 'blocked'), /It is not blocked\. Its state is review\./);
   // Edge case: a task acc doesn't keep has no pack.
   assert.equal(readTicketPack(paths, config, 'NONE-1', run), null);
+});
+
+/** A kept manifest for `id`, as `acc manifest` writes it. */
+function keepManifest(paths: ReturnType<typeof repoPaths>, id: string): void {
+  mkdirSync(dirname(manifestPath(paths, id)), { recursive: true });
+  writeFileSync(manifestPath(paths, id), JSON.stringify({
+    v: 1, task: id, key: id, env: 'main', org: null, branch: 'task/ACME-7', sha: 'x', apiVersion: '62.0', paths: { changed: [], deleted: [], leftOut: [] },
+    package: '', types: [{ name: 'ApexClass', members: ['StageHistory'] }], destructive: null, deletions: [], created: [], findings: [], unchecked: null, check: null, at: '2026-10-30T10:00:00Z',
+  }));
+}
+
+test('readTicketPack on Salesforce reads the ticket\'s kept manifest into the metadata part, as the Changes tab does', () => {
+  const { paths, config, id } = repo();
+  assert.doesNotMatch(part(readTicketPack(paths, config, id, run)!, 'changed'), /package\.xml/, 'edge case: before a manifest is kept, none');
+  keepManifest(paths, id);
+  assert.match(part(readTicketPack(paths, config, id, run)!, 'changed'), /\*\*In its package\.xml\*\*\n\n- ApexClass: StageHistory\n/);
+});
+
+test('edge case: outside Salesforce, readTicketPack leaves a kept manifest out', () => {
+  const { paths, config, id } = repo(GENERIC_CONFIG);
+  keepManifest(paths, id);
+  assert.doesNotMatch(part(readTicketPack(paths, config, id, run)!, 'changed'), /package\.xml/);
+});
+
+test('readTicketPack builds the ticket part on a ticket the caller just read, when it gives one', () => {
+  const { paths, config, id } = repo();
+  const fresh = { ...TICKET, comments: [{ author: 'Jordan', created: '2026-10-31T09:00:00Z', markdown: 'Reopened deals too.' }] };
+  const t = part(readTicketPack(paths, config, id, run, fresh)!, 'ticket');
+  assert.match(t, /Reopened deals too\./);
+  assert.doesNotMatch(t, /Closed deals too, please\./, 'the kept one is not read');
 });
 
 test('past the build, a message gives the agent the whole pack read-only on the planner\'s model, and proposes nothing', () => {

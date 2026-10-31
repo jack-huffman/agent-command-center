@@ -14,6 +14,7 @@ import { latestDeploys, testsWords } from './deploy-gate.ts';
 import type { Runner } from './exec.ts';
 import { changedPathsOf } from './field-drafts.ts';
 import { noteMarkdown, readLedger, type RunNote, type Task } from './ledger.ts';
+import { readManifest, type TicketManifest } from './manifest.ts';
 import { outsideOf } from './outside-changes.ts';
 import type { RepoPaths } from './paths.ts';
 import { choiceName, planVersion, recommendedName } from './plan.ts';
@@ -56,6 +57,8 @@ export interface PackIn {
   profile: Profile;
   /** What the work changed, as the Changes tab lists it: its branch's paths while in flight, else what acc kept. */
   changed: string[];
+  /** On Salesforce, the ticket's manifest, whose types and deletions the Changes tab lists too; else null. */
+  manifest?: Pick<TicketManifest, 'types' | 'deletions'> | null;
   /** The checks on its latest commit, as acc recorded them. */
   checks: Receipt[];
   /** Its latest review, or null before one. */
@@ -118,7 +121,7 @@ function planPart(a: Analysis | null): string[] {
 
 /** What the work changed, grouped by type as the Changes tab lists it, with its changes outside git; nothing before there is work. */
 function changedPart(i: PackIn): string[] {
-  const text = changesDraft({ profile: i.profile, paths: i.changed, outside: outsideOf(i.task).changes, at: new Date(0) });
+  const text = changesDraft({ profile: i.profile, paths: i.changed, outside: outsideOf(i.task).changes, manifest: i.manifest ?? null, at: new Date(0) });
   if (!text) return ['Nothing changed yet.'];
   // The draft's last line is the day it was drafted, which says nothing here.
   return text.split('\n').slice(0, -1);
@@ -199,14 +202,17 @@ function headOf(run: Runner, root: string, t: Task, review: Verdict | null): str
   return review?.sha ?? null;
 }
 
-/** The pack for a task, read from what acc holds now; null for a task acc doesn't keep. */
-export function readTicketPack(paths: RepoPaths, config: Pick<Config, 'profile'>, id: string, run: Runner): string | null {
+/**
+ * The pack for a task, read from what acc holds now; null for a task acc doesn't keep. `ticket` is the ticket just
+ * read from its tracker, when the caller has it (the first message before a plan); else the one the plan read.
+ */
+export function readTicketPack(paths: RepoPaths, config: Pick<Config, 'profile'>, id: string, run: Runner, ticket: PlanTicket | null = null): string | null {
   const task = readLedger(paths.ledger).tasks.find((t) => t.id === id);
   if (!task) return null;
   const review = latestVerdict(paths, id);
   const head = headOf(run, paths.root, task, review);
   return ticketPack({
-    task, ticket: readPlanTicket(paths, id) ?? ticketWithout(task), analysis: readAnalysis(paths, id), profile: config.profile,
-    changed: changedPathsOf(paths, run, task), checks: head ? Object.values(receiptsAt(paths, head)) : [], review,
+    task, ticket: ticket ?? readPlanTicket(paths, id) ?? ticketWithout(task), analysis: readAnalysis(paths, id), profile: config.profile,
+    changed: changedPathsOf(paths, run, task), manifest: config.profile === 'salesforce' ? readManifest(paths, id) : null, checks: head ? Object.values(receiptsAt(paths, head)) : [], review,
   });
 }
