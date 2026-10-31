@@ -1,7 +1,7 @@
 // A modal that opens the moment it's asked for (T-162): it opens at the click with what the page already
 // knows, and a loading state in its body, a turning ring and words such as "Opening GH-69…", read out once.
 // What it waits for fills it when it arrives. A wait that fails, or that nothing answers in time, says why in
-// the modal with Try again, and never leaves the ring turning. The task modal, the dispatch and deploy sheets,
+// the modal with Try again, and never leaves the ring turning. The task modal, the dispatch sheet,
 // and the tracker and cloud-setup modals each keep one Opening.
 
 import { button, type Child, el, icon } from './dom.ts';

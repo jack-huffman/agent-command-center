@@ -8,7 +8,7 @@
  */
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { WHERE_COMMAND } from '../../../packages/core/src/where.ts';
-import { pathFrom, readWhere, type TicketWhere, WHERE_MAX_AGE_MS, whereDue } from '../../../packages/core/src/where-kept.ts';
+import { readWhere, ticketEnvironments, type TicketWhere, WHERE_MAX_AGE_MS, whereDue } from '../../../packages/core/src/where-kept.ts';
 import type { Config } from '../../../packages/core/src/config.ts';
 import { ticketKey } from './shared.ts';
 
@@ -38,7 +38,7 @@ export class WhereReads {
   kept(root: string, stateDir: string, config: Pick<Config, 'profile' | 'environments'>, task: Task): TicketWhere | null {
     if (!WHERE_COMMAND.enabled({ config, task }).ok) return null;
     const w = readWhere({ stateDir }, task.id);
-    const envs = pathFrom(config.environments, task.environment).map((e) => e.branch);
+    const envs = ticketEnvironments(config, task.environment).map((e) => e.branch);
     const key = ticketKey(root, task.id);
     const last = this.tried.get(key);
     const since = last === undefined ? '' : new Date(last).toISOString();
@@ -51,19 +51,25 @@ export class WhereReads {
     return w;
   }
 
-  /** Reads where the ticket's work is now, in every environment on its path: the person's Refresh, or a due reading. One at a time per ticket. */
-  read(root: string, id: string): Promise<void> {
-    const key = ticketKey(root, id);
-    if (this.busy.has(key)) return Promise.resolve();
+  /**
+   * Reads where the ticket's work is now: in every environment it can be in (the person's Refresh, or a due
+   * reading), or with `env`, in that one alone (a row's Check again, T-158). One read at a time of each; a read of
+   * every environment under way covers a row's.
+   */
+  read(root: string, id: string, env?: string): Promise<void> {
+    const all = ticketKey(root, id);
+    const key = env ? `${all}>${env}` : all;
+    if (this.busy.has(all) || this.busy.has(key)) return Promise.resolve();
     this.busy.add(key);
-    return this.host.acc(['where', id, '--json'], root).then(() => undefined, () => undefined).finally(() => {
+    return this.host.acc(['where', id, ...(env ? ['--env', env] : []), '--json'], root).then(() => undefined, () => undefined).finally(() => {
       this.busy.delete(key);
       this.host.done(root, id);
     });
   }
 
-  /** Whether a read of the ticket is under way. */
-  reading(root: string, id: string): boolean {
-    return this.busy.has(ticketKey(root, id));
+  /** Whether a read of the ticket is under way: of every environment, or with `env`, of every one or that one. */
+  reading(root: string, id: string, env?: string): boolean {
+    const all = ticketKey(root, id);
+    return this.busy.has(all) || (env !== undefined && this.busy.has(`${all}>${env}`));
   }
 }

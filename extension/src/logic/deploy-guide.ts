@@ -20,3 +20,6 @@ export function guideLaunch(code: number, stdout: string, stderr: string): { ok:
 
 /** What the terminal runs: claude with the launch's arguments, each quoted for the shell. */
 export const guideLine = (l: Pick<ClaudeLaunch, 'args'>): string => ['claude', ...l.args].map(shq).join(' ');
+
+/** acc's arguments that open the deploy guide's chat (T-156, T-158): always --guide, so a pick never deploys directly. */
+export const guideArgs = (id: string, to?: string): string[] => ['deploy', ...(to ? [to] : []), '--task', id, '--guide', '--json'];

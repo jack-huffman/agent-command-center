@@ -16,12 +16,29 @@
 .chg-apart-list { margin-top: 4px; }
 /* The builder's own deploy (D-206), under More: its state, when, and what the tests found, wrapping on a narrow page. */
 .chg-deploy { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
-/* Where it is: one line of its path, wrapping at a stop, never inside one. */
-.dp-path { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin: 0 0 10px; }
-.dp-stop { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+/* Where it is (T-158): a row for each environment, its name, org and state on one line that wraps between
+   them, never inside one; under it what differs, the merge, a deploy under way, and when it was read. A thin
+   rule between rows, not a box. */
+.dp-rows { list-style: none; margin: 0 0 10px; padding: 0; }
+.dp-row { padding: 6px 0; }
+.dp-row + .dp-row { border-top: 1px solid var(--line); }
+.dp-row-head { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 10px; min-width: 0; }
+.dp-org { min-width: 0; overflow-wrap: anywhere; }
+.dp-state { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dp-row > p { margin: 2px 0 0; }
+.dp-row > .dp-differs-btn { margin-top: 2px; }
+.dp-differs { margin-top: 2px; }
+.dp-read { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
+.dp-busy > .status, .dp-merged > .status { white-space: normal; }
 .dp-status { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 10px; }
 .dp-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.dp-menu { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+/* Deploy…'s pick: the question, then one button for each environment, its name and org over what happens next. */
+.dp-pick { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 8px 0 0; max-width: 420px; }
+.dp-pick-q { margin: 0; }
+.dp-choice { justify-content: flex-start; text-align: left; height: auto; padding: 6px 10px; white-space: normal; }
+.dp-choice-text { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.dp-choice-name { display: flex; flex-wrap: wrap; gap: 2px 8px; }
+.dp-then { overflow-wrap: anywhere; }
 .dp-why { display: flex; align-items: flex-start; gap: 6px; margin: 6px 0 0; }
 .dp-why .codicon { margin-top: 2px; }
 .dp-left-env + .dp-left-env { margin-top: 8px; }

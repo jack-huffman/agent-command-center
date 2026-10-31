@@ -1,6 +1,6 @@
 // T-162 on the page: a modal opens the moment it's asked for, with what the page knows and a loading state, and
 // fills when what it waits for arrives. The shared part (webview/loading.ts) is tested here, then each modal that
-// opens after a wait, driven by the message its click sends: the task modal, the dispatch and deploy sheets, and the
+// opens after a wait, driven by the message its click sends: the task modal, the dispatch sheet, and the
 // tracker and cloud-setup modals. A dialog here is a stand-in that opens and closes; the behaviour run
 // (scripts/behaviour.ts) drives the real ones in a browser.
 import assert from 'node:assert/strict';
@@ -29,7 +29,6 @@ const { api, onSent } = await import('../webview/state.ts');
 const { onRan, heard } = await import('../webview/working.ts');
 const taskModal = await import('../webview/task-modal.ts');
 const dispatch = await import('../webview/dispatch-sheet.ts');
-const deploy = await import('../webview/deploy-sheet.ts');
 const connect = await import('../webview/connect.ts');
 const cloud = await import('../webview/cloud-setup.ts');
 
@@ -200,18 +199,6 @@ test('Build it done with no sheet yet waits the grace, then closes rather than s
   } finally {
     mock.timers.reset();
   }
-});
-
-test('Deploy opens its sheet loading at the click, and a model with no sheet yet leaves it loading', () => {
-  const from = page.sent.length;
-  api.postMessage({ type: 'deploy-check', project: ROOT, task: 'ACME-12', to: 'qa' });
-  const d = dialogOf('deploy-sheet');
-  assert.deepEqual([d.open, loading(d).words, d.getAttribute('aria-label')], [true, 'Starting the check for ACME-12…', 'Deploy ACME-12 to qa']);
-  deploy.area.after!({ ...sampleTicket(Date.now()), deploy: null } as never);
-  assert.equal(d.open, true, 'still loading');
-  escape(d);
-  assert.equal(d.open, false);
-  assert.deepEqual(sentOf('deploy-close', from), [{ type: 'deploy-close', project: ROOT, task: 'ACME-12' }]);
 });
 
 test('Connect a tracker and Set up cloud builders open loading at the click; closed before their page comes, it is cancelled, not shown', () => {

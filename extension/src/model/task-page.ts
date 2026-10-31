@@ -221,7 +221,7 @@ export interface TicketModel {
   team?: TicketTeam | null;
   /** Its record changes (T-100), on a Salesforce task: planned, recorded and stepped at promotion. */
   records?: TicketRecords | null;
-  /** Its deploy (T-138): the path line, Deploy to its next environment, and the sheet. Null outside Salesforce. */
+  /** Its deploy (T-158): a row for each environment on its path, and Deploy…, which starts an agent. Null outside Salesforce. */
   deploy?: TicketDeploy | null;
   /** What the ticket's changes field says (T-105), and the Command Center's draft where it differs. */
   field?: TicketField | null;

@@ -11,6 +11,7 @@ import { writeAtomic } from './atomic.ts';
 import { type Config, type Environment, environmentByBranch } from './config.ts';
 import type { Task } from './ledger.ts';
 import type { RepoPaths } from './paths.ts';
+import { environmentsAhead } from './ticket-path.ts';
 
 /** One environment's state: all the ticket's work there, some of it, none, or acc can't tell. */
 export const WHERE_STATES = ['deployed', 'partly', 'not-deployed', 'unknown'] as const;
@@ -94,6 +95,16 @@ export function pathFrom(envs: Environment[], start: string): Environment[] {
     at = next ? envs.find((e) => e.branch === next) : undefined;
   }
   return out;
+}
+
+/**
+ * The environments a ticket's work can be in (T-158): its path, then each environment off the usual way that
+ * the ticket can still be deployed to, as Hotfix off QA, in the order environmentsAhead finds them.
+ */
+export function ticketEnvironments(config: Pick<Config, 'environments'>, start: string): Environment[] {
+  const path = pathFrom(config.environments, start);
+  const first = path[0];
+  return first ? [...path, ...environmentsAhead(config, first).filter((e) => !path.includes(e))] : path;
 }
 
 /** Whether `to` is somewhere after `from`, along any of the steps the settings allow. */

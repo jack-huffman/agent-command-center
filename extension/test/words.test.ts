@@ -98,8 +98,8 @@ function marks(): Record<string, Record<string, number>> {
 const MARKS: Record<string, Record<string, number>> = {
   'agent-page.ts': { transcript: 4, output: 1, 'agent-text': 1 },
   'boards.ts': { branch: 1 },
-  // A ticket's changes section (T-99): its planned and changed paths, which are the project's own.
-  'changes.ts': { files: 2 },
+  // A ticket's changes section (T-99): its planned and changed paths, which are the project's own; and on an environment's row (T-158), the components that differ there.
+  'changes.ts': { files: 3 },
   // Dispatch anyway's sheet: the files the task shares with work in flight (D-168).
   'dispatch-sheet.ts': { files: 1 },
   'dock-review.ts': { transcript: 6 },
@@ -118,7 +118,6 @@ const MARKS: Record<string, Record<string, number>> = {
   // The planning agent's progress (T-131): the path it reads, or the text it searches for, as it wrote them.
   'plan-progress.ts': { transcript: 1 },
   'record-changes.ts': { output: 1 },
-  'deploy-sheet.ts': { files: 2, output: 3 },
   // The ticket's changes field (T-105): its text lists changed components and files.
   'changes-field.ts': { files: 1 },
   // A task's team (T-103): each merge's commit, and the files another task shares.

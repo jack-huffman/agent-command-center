@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { parseConfig, type Config } from '../src/config.ts';
+import { parseConfig, type Config, type Environment } from '../src/config.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { manifestXml } from '../src/manifest.ts';
@@ -13,7 +13,7 @@ import { sfComponent } from '../src/sf-metadata.ts';
 import { listLinesAt, taskDeployRoute, ticketPlace } from '../src/task-deploy.ts';
 import * as real from '../src/where.ts';
 import { componentWords, readGit, readingOf, readOrg, recordedAt, sameText, ticketWork, WHERE_COMMAND, whereEnabled, whereIs, whereNotes, whereRetrieveArgs, whereWords } from '../src/where.ts';
-import { type EnvWhere, furthestRead, isAfter, keepWhere, pathFrom, readWhere, WHERE_MAX_AGE_MS, WHERE_STATES, whereDue, wherePath } from '../src/where-kept.ts';
+import { type EnvWhere, furthestRead, isAfter, keepWhere, pathFrom, readWhere, ticketEnvironments, WHERE_MAX_AGE_MS, WHERE_STATES, whereDue, wherePath } from '../src/where-kept.ts';
 import { whereLines } from '../../cli/src/commands/where.ts';
 import { gitIn, makeRepo, ok, SF_CONFIG, tempDir } from './support.ts';
 
@@ -306,6 +306,14 @@ test('the path, what comes after, and the furthest reading', () => {
   assert.equal(furthestRead(c, dev, { envs: [read('production', 'deployed'), read('uat', 'deployed')] }).branch, 'production');
   assert.equal(furthestRead(c, uat, { envs: [read('production', 'partly')] }).branch, 'uat', 'partly doesn\'t move it');
   assert.equal(furthestRead(c, dev, null).branch, 'dev');
+});
+
+test('a ticket\'s environments are its path, then each off the usual way it can still reach; edge case: none for an environment not in the settings (T-158)', () => {
+  const env = (branch: string, promotesTo: string[], more: Partial<Environment> = {}): Environment => ({ name: branch.toUpperCase(), branch, type: 'sandbox', org: branch, default: false, protected: false, promotesTo, ...more } as Environment);
+  const c = { environments: [env('dev', ['qa'], { default: true }), env('qa', ['uat', 'hotfix']), env('uat', ['production']), env('hotfix', []), env('production', [])] };
+  assert.deepEqual(ticketEnvironments(c, 'dev').map((e) => e.branch), ['dev', 'qa', 'uat', 'production', 'hotfix']);
+  assert.deepEqual(ticketEnvironments(c, 'uat').map((e) => e.branch), ['uat', 'production'], 'from UAT, Hotfix is behind it');
+  assert.deepEqual(ticketEnvironments(c, 'nowhere'), []);
 });
 
 test('readOrg and whereNotes, called alone', () => {

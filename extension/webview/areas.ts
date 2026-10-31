@@ -7,7 +7,6 @@ import { area as cloudSetup } from './cloud-setup.ts';
 import { area as connect } from './connect.ts';
 import { area as conversation } from './conversation.ts';
 import { area as criteria } from './criteria.ts';
-import { area as deploySheet } from './deploy-sheet.ts';
 import { area as detail } from './detail.ts';
 import { area as dispatchSheet } from './dispatch-sheet.ts';
 import { area as dock } from './dock.ts';
@@ -36,4 +35,4 @@ import { area as verify } from './verify.ts';
 import { area as working } from './working.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [agentPage, agents, boardNav, cloudSetup, connect, conversation, criteria, deploySheet, detail, dispatchSheet, dock, environments, history, manifest, overview, palette, planProgress, plan, questions, recordChanges, report, reviewPlan, rules, settings, setup, talk, taskModal, taskPage, taskSheet, tasks, theme, updates, verify, working, worktrees];
+export const AREAS = [agentPage, agents, boardNav, cloudSetup, connect, conversation, criteria, detail, dispatchSheet, dock, environments, history, manifest, overview, palette, planProgress, plan, questions, recordChanges, report, reviewPlan, rules, settings, setup, talk, taskModal, taskPage, taskSheet, tasks, theme, updates, verify, working, worktrees];

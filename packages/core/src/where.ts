@@ -25,7 +25,7 @@ import { type SlotOptions, withSlot } from './semaphore.ts';
 import { sfComponent } from './sf-metadata.ts';
 import { NO_STEPS, type Steps } from './steps.ts';
 import { listLinesAt, type TaskCommand, ticketCommits } from './task-deploy.ts';
-import { type EnvWhere, keepWhere, pathFrom, type Reading, type TicketWhere } from './where-kept.ts';
+import { type EnvWhere, keepWhere, type Reading, ticketEnvironments, type TicketWhere } from './where-kept.ts';
 
 /** A file the ticket changes: its path, and its content's git blob, or null for a file it deletes. */
 export interface TicketFile {
@@ -236,7 +236,7 @@ export function whereEnabled(config: Pick<Config, 'profile' | 'environments'>, t
 /** Read where a ticket's work is: the CLI's, the extension's and an agent's. */
 export const WHERE_COMMAND: TaskCommand<{ config: Pick<Config, 'profile' | 'environments'>; task: Parameters<typeof whereEnabled>[1] }> = {
   id: 'acc.task.where',
-  params: 'The task\'s id, and one environment on its path to read (every one on its path when left out).',
+  params: 'The task\'s id, and one environment to read: on its path, or off it where the ticket can still go (every one when left out).',
   enabled: ({ config, task }) => whereEnabled(config, task),
 };
 
@@ -251,7 +251,8 @@ export function whereIs(paths: RepoPaths, config: Config, id: string, envName: s
   const can = whereEnabled(config, t);
   if (!can.ok) throw new AccError('refused', can.why);
   const task = t!;
-  const path = pathFrom(config.environments, task.environment);
+  // Its path, and each environment off the usual way it can still go to (T-158), each with a row on its page.
+  const path = ticketEnvironments(config, task.environment);
   let envs = path;
   if (envName) {
     const want = environmentNamed(config, envName);

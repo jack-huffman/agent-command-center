@@ -1,19 +1,19 @@
-// A task's Changes tab (T-138): first where it is, one line of its path, and Deploy to <next environment>,
-// which opens the sheet (deploy-sheet.ts) and never deploys at once, so a long list never pushes it out of view.
-// Then what changed, one list by type with a count; planned before there's work, made once there is, with what
+// A task's Changes tab (T-138): first where it is, one row for each environment on its path (T-158), and one
+// Deploy…, which asks where and starts the deploy guide's agent there, so a long list never pushes it out of
+// view. Nothing on the tab deploys by itself. Then what changed, one list by type with a count; planned before there's work, made once there is, with what
 // was planned and not made, or made and not planned, behind one quiet line. Deletions carry an icon and the
 // word. Record changes are a short list after it, then the steps left to do by hand. Everything else (the
 // manifest, the tracker's field, record changes by hand, the team) waits under one closed More.
 
 import type { ChangeItem, ChangeList, ChangeSet, TicketChanges } from '../src/model/changes.ts';
 import type { TicketModel } from '../src/model/task-page.ts';
-import type { DeployButton, TicketDeploy } from '../src/model/ticket-deploy.ts';
-import { button, el, icon, linkTo, plural, status, when, work } from './dom.ts';
+import type { DeployChoice, DeployPick, EnvRow, TicketDeploy } from '../src/model/ticket-deploy.ts';
+import { button, el, icon, plural, status, when, work } from './dom.ts';
 import { api, memory, remember, state } from './state.ts';
 import { renderSteps } from './record-changes.ts';
 
-/** The key the tab remembers an open fold by, per ticket: the quiet line's list, and More. */
-export const openKey = (what: 'apart' | 'more' | 'others', m: Pick<TicketModel, 'project' | 'key'>): string => `chg-${what}:${m.project}#${m.key}`;
+/** The key the tab remembers an open fold by, per ticket: the quiet line's list, More, Deploy…'s pick, and a row's components that differ. */
+export const openKey = (what: 'apart' | 'more' | 'pick' | `differs-${string}`, m: Pick<TicketModel, 'project' | 'key'>): string => `chg-${what}:${m.project}#${m.key}`;
 
 const isOpen = (key: string): boolean => memory().opened.includes(key);
 const flip = (key: string): void => {
@@ -35,13 +35,10 @@ const sets = (list: ChangeSet[]): HTMLElement[] => list.map((s) => el('div', 'ch
   el('div', 'chg-head', work(el('strong', '', s.head), 'files'), el('span', 'count', String(s.items.length))),
   el('ul', 'chg-list', ...s.items.map(item))));
 
-/**
- * A fold's button: it says whether it's open, and flips it in the tab's memory. It is small, as it sits in a line
- * of text; in a row of buttons (inRow) it is the row's size (T-144).
- */
-function foldButton(label: string, key: string, cls: string, inRow = false): HTMLButtonElement {
+/** A fold's button: it says whether it's open, and flips it in the tab's memory. It is small, as it sits in a line of text. */
+function foldButton(label: string, key: string, cls: string): HTMLButtonElement {
   const on = isOpen(key);
-  const b = button(label, on ? 'chevron-down' : 'chevron-right', () => flip(key), `ghost${inRow ? '' : ' small'} ${cls}`);
+  const b = button(label, on ? 'chevron-down' : 'chevron-right', () => flip(key), `ghost small ${cls}`);
   b.setAttribute('aria-expanded', String(on));
   return b;
 }
@@ -72,60 +69,92 @@ function renderRecordList(m: TicketModel): HTMLElement | null {
   return sec;
 }
 
-/** Deploy to an environment: it opens the sheet, which checks first; off, it says why, beside it and in its title. */
-function deployButton(m: TicketModel, d: TicketDeploy, b: DeployButton, primary: boolean): HTMLButtonElement {
-  const x = button(b.label, 'cloud-upload', () => {
-    if (!x.disabled) api.postMessage({ type: 'deploy-check', project: m.project, task: d.task, to: b.to });
-  }, primary ? 'primary dp-go' : 'ghost dp-other');
-  if (b.disabled) {
+/** A row's Check again: quiet, it reads its own environment alone, and waits while a read of it is under way. */
+function checkAgain(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLButtonElement {
+  const x = button(r.reading ? 'Checking…' : 'Check again', r.reading ? 'sync~spin' : 'refresh', () => {
+    if (!x.disabled) api.postMessage({ type: 'where-check', project: m.project, task: d.task, env: r.branch });
+  }, 'ghost small dp-again');
+  if (r.reading) {
     x.disabled = true;
-    x.title = `${b.label}: ${b.disabled}`;
-    x.setAttribute('aria-description', b.disabled);
-  } else x.title = `${b.label}: check first, then deploy on your yes`;
+    x.title = `Check again: it is reading where the work is in ${r.name} now`;
+  } else x.title = `Check again: read where the work is in ${r.name}'s branch and org now`;
   return x;
 }
 
-/** Deploy with an agent (T-154): the deploy guide's chat, for the same step as Deploy, off for the same reason. */
-function guideButton(m: TicketModel, d: TicketDeploy, b: DeployButton): HTMLButtonElement {
-  const x = button('Deploy with an agent', 'hubot', () => {
-    if (!x.disabled) api.postMessage({ type: 'deploy-guide', project: m.project, task: d.task, to: b.to });
-  }, 'ghost dp-guide');
-  if (b.disabled) {
-    x.disabled = true;
-    x.title = `Deploy with an agent: ${b.disabled}`;
-    x.setAttribute('aria-description', b.disabled);
-  } else x.title = 'Deploy with an agent: it gathers every step, by-hand ones too, into a runbook for you to approve, and deploys there once you approve it, or on the name you type for Production or a protected org';
-  return x;
+/**
+ * One environment's row: its name and org, its state with an icon and a label (when it got there, how many
+ * differ, or why it can't tell), the next step, a deploy under way, the development environment's merge, and
+ * when it was read with Check again. A partly deployed row opens to show the components that differ.
+ */
+function renderRow(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLElement {
+  const head = el('div', 'dp-row-head', el('strong', 'dp-env', r.name), r.org ? el('span', 'mono muted dp-org', r.org) : null,
+    el('span', 'dp-state', status(r.look), r.at ? when(r.at) : null), r.next ? status(r.next) : null);
+  const row = el('li', 'dp-row', head);
+  row.dataset.env = r.branch;
+  if (r.detail && !r.differs.length) row.append(el('p', 'muted small dp-detail', r.detail));
+  if (r.differs.length) {
+    const key = openKey(`differs-${r.branch}`, m);
+    row.append(foldButton(r.detail ?? plural(r.differs.length, 'component'), key, 'dp-differs-btn'));
+    if (isOpen(key)) row.append(el('ul', 'chg-list dp-differs', ...r.differs.map((c) => el('li', 'chg-item', work(el('span', 'mono chg-name', c), 'files')))));
+  }
+  for (const n of r.notes) row.append(el('p', 'muted small dp-note', n));
+  if (r.merged) row.append(el('p', 'small dp-merged', status({ ...r.merged.look, label: r.merged.words })));
+  if (r.busy) row.append(el('p', 'small dp-busy', status(r.busy)));
+  row.append(el('p', 'muted small dp-read', ...(r.readAt ? ['Read ', when(r.readAt)] : ['Not read yet']), checkAgain(m, d, r)));
+  return row;
 }
 
-/** Where it is: its path in one line, each environment with an icon and words, and when it got there. */
-function renderPath(d: TicketDeploy): HTMLElement {
-  const line = el('p', 'dp-path');
-  line.setAttribute('aria-label', 'Its path');
-  d.path.forEach((s, i) => {
-    if (i) line.append(el('span', 'muted dp-sep', '·'));
-    line.append(el('span', 'dp-stop', status({ ...s.look, label: `${s.name}, ${s.look.label}` }), s.at ? when(s.at) : null));
+/** One environment Deploy… offers: a button that starts the agent there, saying what happens next; off, it says why. */
+function choiceButton(m: TicketModel, d: TicketDeploy, c: DeployChoice): HTMLButtonElement {
+  const x = el('button', 'btn ghost dp-choice', icon('hubot'), el('span', 'dp-choice-text',
+    el('span', 'dp-choice-name', el('strong', '', c.name), c.org ? el('span', 'mono muted', c.org) : null),
+    el('span', 'muted small dp-then', c.disabled ?? c.then))) as HTMLButtonElement;
+  x.type = 'button';
+  x.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (x.disabled) return;
+    api.postMessage({ type: 'deploy-guide', project: m.project, task: d.task, to: c.to });
+    remember((s) => { s.opened = s.opened.filter((y) => y !== openKey('pick', m)); });
+    if (state.last) state.draw(state.last);
   });
-  return line;
+  if (c.disabled) {
+    x.disabled = true;
+    x.title = `${c.name}: ${c.disabled}`;
+    x.setAttribute('aria-description', c.disabled);
+  } else x.title = `${c.name}: ${c.then}`;
+  return x;
 }
 
-/** The deploy part: the path, what's under way or how it went, the one Deploy and its menu, and why it's off. */
+/** Deploy…: the tab's one primary action. It opens the pick of where; off, it says why, beside it and in its title. */
+function renderPick(m: TicketModel, d: TicketDeploy, p: DeployPick): HTMLElement[] {
+  const key = openKey('pick', m);
+  const on = !p.disabled && isOpen(key);
+  const go = button(p.label, 'cloud-upload', () => { if (!go.disabled) flip(key); }, 'primary dp-go');
+  go.setAttribute('aria-expanded', String(on));
+  if (p.disabled) {
+    go.disabled = true;
+    go.title = `${p.label} ${p.disabled}`;
+    go.setAttribute('aria-description', p.disabled);
+  } else go.title = 'Deploy…: pick where, and an agent deploys it there';
+  const out: HTMLElement[] = [el('div', 'actions dp-actions', go)];
+  if (p.disabled) out.push(el('p', 'muted small dp-why', icon('info'), el('span', '', p.disabled)));
+  if (on) {
+    const pick = el('div', 'dp-pick', el('p', 'small dp-pick-q', 'Where should an agent deploy it?'), ...p.choices.map((c) => choiceButton(m, d, c)));
+    pick.setAttribute('role', 'group');
+    pick.setAttribute('aria-label', 'Where to deploy');
+    out.push(pick);
+  }
+  return out;
+}
+
+/** The deploy part: a row for each environment on the path, what the agent is on, and Deploy… with its pick. */
 export function renderDeploy(m: TicketModel, d: TicketDeploy): HTMLElement {
-  const sec = el('section', 'block dp', renderPath(d));
+  const rows = el('ul', 'dp-rows', ...d.rows.map((r) => renderRow(m, d, r)));
+  rows.setAttribute('aria-label', 'Where its work is');
+  const sec = el('section', 'block dp', rows);
   sec.setAttribute('aria-label', 'Deploy');
-  if (d.status) {
-    sec.append(el('p', 'dp-status', status({ ...d.status.look, label: d.status.words }), d.status.pr ? linkTo(d.status.pr.url, `Pull request #${d.status.pr.number}`) : null));
-  }
-  if (d.deploy) {
-    const row = el('div', 'actions dp-actions', deployButton(m, d, d.deploy, true), guideButton(m, d, d.deploy));
-    if (d.others.length) {
-      const key = openKey('others', m);
-      row.append(foldButton('Other next steps', key, 'dp-more', true));
-      if (isOpen(key)) row.append(el('div', 'dp-menu', ...d.others.map((o) => deployButton(m, d, o, false))));
-    }
-    sec.append(row);
-    if (d.deploy.disabled) sec.append(el('p', 'muted small dp-why', icon('info'), el('span', '', d.deploy.disabled)));
-  }
+  if (d.status) sec.append(el('p', 'dp-status', status({ ...d.status.look, label: d.status.words })));
+  if (d.pick) sec.append(...renderPick(m, d, d.pick));
   return sec;
 }
 

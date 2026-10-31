@@ -67,6 +67,17 @@ test('an agent-made question: a single choice lists three, one that ticks severa
   assert.equal(questionsOf(ask(2))[0]!.options.length, 2, 'two stay two');
 });
 
+test('edge case: Deploy… on the Changes tab (T-158) offers three environments of the five ahead, the usual next step first, as a list of buttons, not a radio group', async () => {
+  const { deployPick } = await import('../src/model/ticket-deploy.ts');
+  const names = ['Dev', 'QA', 'UAT', 'Staging', 'Training', 'Production'];
+  const environments = names.map((name, i) => ({ name, branch: name.toLowerCase(), type: name === 'Production' ? 'production' : 'sandbox', org: `acme-${name.toLowerCase()}`, default: i === 0, protected: false, promotesTo: names[i + 1] ? [names[i + 1]!.toLowerCase()] : [] })) as never;
+  const task = { id: 'ACME-7', state: 'done', environment: 'dev', deps: [], promotions: [], deploys: [], pr: { state: 'merged' }, run: null } as never;
+  const p = deployPick({ config: { profile: 'salesforce', environments, github: { repo: 'acme/app', account: 'jordan-kim' } }, task, tasks: [], deploying: null })!;
+  assert.deepEqual(p.choices.map((c) => c.name), ['QA', 'UAT', 'Staging'], 'three of five, in path order');
+  assert.equal(OPTIONS_MAX, 3);
+  assert.doesNotMatch(readFileSync(join(WEBVIEW, 'changes.ts'), 'utf8'), RADIO, 'drawn as buttons, so RADIO_MODULES needn\'t name it');
+});
+
 test('edge case: no fourth option in Review plan: a choice with four options (an older plan) offers three, the recommended first, keeping the one chosen now', () => {
   const a = samplePlan(Date.parse('2026-10-22T12:00:00Z'), 'changed') as Analysis;
   const d = a.decisions![0]!;
