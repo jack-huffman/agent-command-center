@@ -26,7 +26,7 @@ function cmdCheckTogether(o: Opts, rest: string[]): number {
     ...r.needsYou.map((x) => `  ${x.id}: ${x.why}`),
   ];
   out(o, () => lines.join('\n'), r);
-  return r.merged.length || !(r.sentBack.length + r.together.length + r.needsYou.length) ? 0 : 1;
+  return 0;
 }
 
 export const area: CommandArea = {

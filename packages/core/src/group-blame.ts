@@ -32,7 +32,7 @@ const FAILED_TEST = /^\s*(?:not ok \d+ - |✖ |# Subtest: |FAIL |test at )(\S+?\
 const GEOMETRY = /^(\S+) (?:dark|light) \d+px: \w+:/;
 
 /** A path as the repo names it: forward slashes, without the checkout's own folder in front. */
-export function repoPath(p: string, roots: string[]): string {
+export function loggedPath(p: string, roots: string[]): string {
   let s = p.replace(/\\/g, '/').replace(/^file:\/\//, '');
   for (const r of roots.map((x) => x.replace(/\\/g, '/').replace(/\/$/, ''))) if (r && s.startsWith(`${r}/`)) s = s.slice(r.length + 1);
   return s.replace(/^\.\//, '');
@@ -52,14 +52,14 @@ export function failureOf(checks: string[], log: string, tracked: ReadonlySet<st
     let named = false;
     const t = FAILED_TEST.exec(line);
     if (t) {
-      const p = repoPath(t[1]!, roots);
+      const p = loggedPath(t[1]!, roots);
       if (tracked.has(p)) {
         tests.add(p);
         named = true;
       }
     }
     for (const m of line.matchAll(PATH)) {
-      const p = repoPath(m[0], roots);
+      const p = loggedPath(m[0], roots);
       if (!tracked.has(p)) continue;
       files.add(p);
       named = true;

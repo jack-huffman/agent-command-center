@@ -25,6 +25,7 @@ import { conflictLine, failedChecksLine } from '../logic/tasks.ts';
 import { accLook, type BoardInput, chip, type PersonChip, priorityIcon, statusLook, typeIcon } from './boards.ts';
 import { type Action, displayLook, KEY, type Look, type ModelArea, type Ref, short } from './shared.ts';
 import { cardActions, filesLook, placeLook } from './cards.ts';
+import { groupLook } from './group-check.ts';
 import { hasTicket, type UpdateCard, updateCards, withClient } from './updates.ts';
 import { type CriteriaIn, type TicketCriteria, ticketCriteria } from './criteria.ts';
 import type { TicketVerify } from './verify.ts';
@@ -135,6 +136,8 @@ export interface TicketAcc {
   branch: string | null;
   /** acc's checks on its commit, each with how its result shows (GH-105) and whether a person can waive it. */
   checks: CheckRow[];
+  /** Each step of each group check it was in (T-165), newest first, in its own words. */
+  groups: Look[];
   /** Each move, with the state it reached as core's DISPLAY shows it (GH-105). */
   history: { at: string; from: string | null; to: string; by: string; reason: AgentNote | null; look: Look }[];
   /** Each edit a person made to its fields (T-74), newest first, with the fields in words. Apart from its moves. */
@@ -522,6 +525,7 @@ export function ticketModel(i: TicketInput): TicketModel {
   const acc: TicketAcc | null = i.row && i.task ? {
     look: accLook(i.row, true), state: i.row.state, environment: i.task.environment, notes: i.task.notes?.trim() ? fromMarkdown(i.task.notes) : null, waitingOn: i.row.deps, blocker: noteInWords(i.task.blocker), conflicts: conflictLine(i.row, true), failedChecks: failedChecksLine(i.row), cardFailed: reasonInWords(cardFailure(i.task)?.replace(/[.\s]+$/, '')), files: filesLook(i.row, true),
     agent: i.row.stopped ? null : i.row.agent ?? null, model: i.row.model ?? null, effort: i.row.effort ?? null, agentName: i.task.run?.name ?? null, place: placeLook(i.row), cloudUrl: i.row.cloud?.url ?? null, worktree: i.task.run?.worktree ?? null, branch: i.task.run?.branch ?? null, checks: checkRows(i.checks, i.task.run?.branch ?? null),
+    groups: (i.task.groupChecks ?? []).map(groupLook).reverse(),
     // Why it blocked or moved, whoever wrote it, in process words (GH-163).
     history: i.task.history.map((h) => ({ at: h.at, from: h.from, to: h.to, by: h.by, reason: noteInWords(h.reason), look: displayLook(h.to) })).reverse(),
     edits: (i.task.edits ?? []).map((e) => ({ at: e.at, by: e.by, fields: editedWords(e.fields) })).reverse(),

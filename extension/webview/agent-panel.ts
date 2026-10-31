@@ -10,6 +10,7 @@ import { noteHeadline } from './note.ts';
 import { WORDS } from './plain-words.ts';
 import { memory, remember } from './state.ts';
 import { taskActions } from './task-actions.ts';
+import { groupRows, latestGroup } from './group-check.ts';
 
 /** A row of a list of fields: its name, with an icon before it where one is given, then its value. */
 export function field(name: string | { icon: string; name: string }, ...value: Child[]): HTMLElement[] {
@@ -93,6 +94,8 @@ export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key'>, a: Tic
     // Its state as the one state chip, its icon and its label, as every board and ticket draws one (T-94); beside it the session where it adds to it.
     g.disagree ? el('p', 'agent-disagree', icon('warning', 'orange'), el('span', '', g.disagree)) : el('div', 'agent-state', stateChip(a.look), g.session ? Object.assign(stateChip(g.session), { title: 'Its builder\'s session' }) : null),
     sum ? el('p', `agent-checks tone-${sum.tone}`, status(sum)) : null,
+    // Its latest group check (T-165): checked with whom, and how it went.
+    latestGroup(a.groups),
     holdLine(a));
   const moreSet = taskActions(more.map(shortLabel));
   return el('section', `side-panel side-agent${a.look.tone === 'orange' ? ' attention' : ''}`, el('h2', '', icon('hubot'), 'Agent'),
@@ -100,5 +103,5 @@ export function renderAgentPanel(m: Pick<TicketModel, 'project' | 'key'>, a: Tic
     // Its actions in one size and place (D-168): the next step full width, the two that fit its state under it.
     taskActions(shown),
     moreSet ? fold(`agent-more:${m.project}#${m.key}`, 'More actions', 'agent-more', moreSet) : null,
-    fold(detailsKey(m.project, m.key), 'Details', 'agent-details', facts(a), checkRows(a, onWaive)));
+    fold(detailsKey(m.project, m.key), 'Details', 'agent-details', facts(a), checkRows(a, onWaive), groupRows(a.groups)));
 }

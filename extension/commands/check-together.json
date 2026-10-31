@@ -1,0 +1,8 @@
+[
+  {
+    "command": "acc.task.checkTogether",
+    "title": "Check Tasks in Review Together…",
+    "category": "Agent Command Center",
+    "icon": "$(checklist)"
+  }
+]

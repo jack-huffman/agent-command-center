@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { readQueueReport } from '../src/checks.ts';
 import { type Config, parseConfig } from '../src/config.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
-import { failureOf, type GroupFailure, importsOf, matchFailure, reachOf, repoPath, resolveImport } from '../src/group-blame.ts';
+import { failureOf, type GroupFailure, importsOf, matchFailure, reachOf, loggedPath, resolveImport } from '../src/group-blame.ts';
 import { checkedWords, checkTogether, GROUP_CHECK_COMMAND, GROUP_MIN, groupEnabled, groupEnvironment, groupLockDir, groupReady, groupRunning, groupSummary, halves, listWords, markTasks, MOVED_AGAIN, GROUP_MARKS, notReady, sentBackWords, settleGroup, type GroupCheckResult } from '../src/group-check.ts';
 import { groupSection } from '../src/group-report.ts';
 import { AUTOPILOT_BY, GROUP_OUTCOMES, mutate, readLedger, reworkCause, type Task, upsertTasks } from '../src/ledger.ts';
@@ -43,9 +43,9 @@ test('an empty log names nothing: no file, test or page', () => {
 });
 
 test('a path is the repo\'s: back slashes turned, the checkout\'s folder taken off', () => {
-  assert.equal(repoPath('C:\\wt\\src\\a.ts', ['C:\\wt']), 'src/a.ts');
-  assert.equal(repoPath('./src/a.ts', []), 'src/a.ts');
-  assert.equal(repoPath('file:///tmp/wt/src/a.ts', ['/tmp/wt']), 'src/a.ts');
+  assert.equal(loggedPath('C:\\wt\\src\\a.ts', ['C:\\wt']), 'src/a.ts');
+  assert.equal(loggedPath('./src/a.ts', []), 'src/a.ts');
+  assert.equal(loggedPath('file:///tmp/wt/src/a.ts', ['/tmp/wt']), 'src/a.ts');
 });
 
 test('imports resolve with an extension, an index file, or a .js written for a .ts', () => {
