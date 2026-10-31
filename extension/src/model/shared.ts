@@ -61,6 +61,8 @@ export interface Look {
   tip?: string;
   /** An agent at work, whatever its activity says (T-164). */
   busy?: boolean;
+  /** The state the look shows, for code that decides by it: a changed icon must not change what the page says (T-170). */
+  state?: 'shares' | 'loading';
 }
 
 /** What a kind of agent runs with, as Settings' How agents run shows it (D-036). */

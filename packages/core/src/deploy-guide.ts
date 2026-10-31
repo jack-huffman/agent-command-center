@@ -24,7 +24,8 @@ import { readLedger } from './ledger.ts';
 import { sessionName } from './names.ts';
 import type { RepoPaths } from './paths.ts';
 import type { ClaudeLaunch } from './plan-talk.ts';
-import { type KeptCheck, TASK_DEPLOY_COMMAND, type TaskCommand, taskDeployEnabled, taskDeployRoute } from './task-deploy.ts';
+import type { TaskCommand } from './task-command.ts';
+import { type KeptCheck, TASK_DEPLOY_COMMAND, taskDeployEnabled, taskDeployRoute } from './task-deploy.ts';
 
 /** The role a deploy guide's session runs as. */
 export const DEPLOYER = 'deployer';

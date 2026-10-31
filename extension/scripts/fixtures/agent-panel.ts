@@ -35,7 +35,7 @@ export function sampleAgentPanelTicket(now: number, which: AgentPanelSample): Ti
       conflicts: 'Conflicts with dev: force-app/main/default/classes/CaseTriggerHandler.cls, force-app/main/default/layouts/Case-Premium Case Layout.layout-meta.xml',
       failedChecks: 'Checks failed on GitHub: validate, apex-tests',
       cardFailed: 'GitHub said the board Acme Delivery has no Status field. Add the field on the board, then move the task again',
-      files: { label: `Shares files with ACME-13: ${shared.join(', ')}`, icon: 'files', tone: 'neutral' },
+      files: { label: `Shares files with ACME-13: ${shared.join(', ')}`, icon: 'files', tone: 'neutral', state: 'shares' },
       shares: [{ task: 'ACME-13', files: shared }],
       // Its builder's session is on this Mac, so the note's questions can be answered from the page.
       reply: { can: true, why: null },

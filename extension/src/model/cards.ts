@@ -117,7 +117,7 @@ export function filesLook(t: Pick<TaskRow, 'state' | 'display' | 'files' | 'anal
     if (f.capped) return { label: `Waits for an agent: as many are running as ${f.capped === 'machine' ? 'this machine\'s total allows, across every repo' : 'the project allows'}`, icon: 'clock', tone: 'blue' };
     return { label: f.shares.length ? `Starting: nothing else is ready, so it shares files with ${taskNames(f.shares.map((s) => s.task))}` : 'Starting: the files it waited for are free', icon: 'clock', tone: 'blue' };
   }
-  if (f.shares.length && t.state !== 'done') return { label: sharesLine(f.shares, full), icon: 'files', tone: 'neutral' };
+  if (f.shares.length && t.state !== 'done') return { label: sharesLine(f.shares, full), icon: 'files', tone: 'neutral', state: 'shares' };
   if (t.state === 'todo' && t.display === 'ready' && !f.known && !t.analyzing) return { label: filesUnknown(!!f.analyzed), icon: 'info', tone: 'neutral' };
   return null;
 }

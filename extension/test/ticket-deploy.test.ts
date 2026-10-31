@@ -14,7 +14,7 @@ import { tempDir } from '../../packages/core/test/support.ts';
 import { deletedPaths } from '../src/logic/ticket-deploy.ts';
 import * as model from '../src/model/ticket-deploy.ts';
 
-const { area, BUSY_LOOK, choiceThen, deployBlockers, deployOff, deployPick, envRows, MERGE_LOOK, NEXT_LOOK, pickOff, RECORD_LOOK, stepsLeftWords, ticketDeploy } = model;
+const { area, BUSY_LOOK, choiceThen, deployBlockers, deployOff, deployPick, envRows, MERGE_LOOK, NEXT_LOOK, pickOff, DEPLOY_STATE_LOOK, stepsLeftWords, ticketDeploy } = model;
 type Mod = typeof model;
 
 const env = (name: string, more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo: [], ...more });
@@ -41,7 +41,7 @@ test('a row for each environment on the path, in order, each with its org, and i
   assert.deepEqual(rows.map((r) => [r.name, r.org, r.look.label]), [['Dev', 'acme-dev', 'Merged'], ['QA', 'acme-qa', 'Merged'], ['UAT', 'acme-uat', 'Not deployed'], ['Production', 'acme-production', 'Not deployed']]);
   assert.equal(rows[1]!.at, AT, 'merged: when, by acc\'s records');
   assert.deepEqual([rows[2]!.check?.detail, rows[2]!.check?.differs], ['2 components differ', ['Apex Class: Helper', 'Flow: Route']], 'a check of UAT: how many differ, and which, for the note to open on');
-  assert.deepEqual(Object.values(RECORD_LOOK).map((l) => l.tone), ['blue', 'orange', 'blue', 'neutral'], 'orange against blue, each with words');
+  assert.deepEqual(Object.values(DEPLOY_STATE_LOOK).map((l) => l.tone), ['blue', 'orange', 'blue', 'neutral'], 'orange against blue, each with words');
 });
 
 test('edge case: before any check, no row carries a note, and an environment not in the settings has no rows (T-158)', () => {
@@ -67,7 +67,7 @@ test('an environment off the usual way has a row after the path while Deploy… 
   assert.deepEqual(rows(inUat), ['Dev', 'QA', 'UAT', 'Production'], 'edge case: from UAT, Hotfix is no choice, so no row');
   assert.deepEqual(envRows(config, inQa(), null, null, [ENVS[2]!]).map((r) => r.name), ['Dev', 'QA', 'UAT', 'Production'], 'one already on the path is not drawn twice');
   const hotfix = ticketDeploy({ ...base, task: inQa(), where: where(read('hotfix', 'not-deployed', { differs: ['Apex Class: Helper', 'Flow: Route'] })) })!.rows[4]!;
-  assert.deepEqual([hotfix.look, hotfix.check?.detail, hotfix.check?.differs.length, hotfix.next], [RECORD_LOOK['not-deployed'], '2 components not in Hotfix', 2, null], 'a check of Hotfix: how many are missing, for the note to open on');
+  assert.deepEqual([hotfix.look, hotfix.check?.detail, hotfix.check?.differs.length, hotfix.next], [DEPLOY_STATE_LOOK['not-deployed'], '2 components not in Hotfix', 2, null], 'a check of Hotfix: how many are missing, for the note to open on');
 });
 
 test('the development environment\'s row says whether the work is merged into its branch, and no other row does (T-158)', () => {

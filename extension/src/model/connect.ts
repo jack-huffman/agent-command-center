@@ -354,7 +354,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
     // Starting a project from its place, the place is required: the whole project is Other project's (GH-81).
     const place = s.start && p.key === d.place.key;
     const whole = p.whole && !place ? p.whole({ host: s.host, values, labels }) : null;
-    const pickerLook = fixed ? null : ps.state === 'loading' ? LOOK('Loading', 'sync~spin', 'blue')
+    const pickerLook = fixed ? null : ps.state === 'loading' ? { ...LOOK('Loading', 'sync~spin', 'blue'), state: 'loading' as const }
       : ps.state === 'failed' ? LOOK(`Couldn't list them: ${ps.error ?? 'no answer'}${whole ? ' You can take the whole project now, and narrow it later.' : p.fallback ? ` ${p.fallback}` : ''}`, 'warning', 'orange')
         : ps.state === 'ready' && !ps.options.length && !whole && !p.hideEmpty ? LOOK('None that this sign-in can see', 'warning', 'orange') : null;
     // A card's count is the board with its choice made (T-106): read once the page asks, as it draws the card.
@@ -376,7 +376,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
       hidden: off || (!!p.hideSingle && ps.state !== 'failed' && options.length <= 1) || (!!p.hideEmpty && ps.state !== 'failed' && !options.length), hint: place ? d.place.words : p.hint ?? null,
     };
   });
-  const ready = pickers.every((p) => p.fixed || !p.required || p.selected.length) && pickers.every((p) => p.look?.icon !== 'sync~spin');
+  const ready = pickers.every((p) => p.fixed || !p.required || p.selected.length) && pickers.every((p) => p.look?.state !== 'loading');
   const name = d.name;
   const placePicker = d.pickers.find((p) => p.key === d.place.key);
   const placeLabel = (placePicker?.label ?? 'place').toLowerCase();
@@ -388,7 +388,7 @@ export function connectModel(s: ConnectState, list: TrackerDescription[] = DESCR
   const choices = [...new Set([...(s.root ? [] : ['a project']), ...(ok ? open : open.slice(0, 1))])];
   const todo = [...(ok ? [] : ['sign in']), ...(choices.length ? [`choose ${taskNames(choices)}`] : [])];
   // A required list that is hidden has no choice and nothing loads for it: name it, don't say to wait (T-45).
-  const loadingNow = pickers.some((p) => p.look?.icon === 'sync~spin');
+  const loadingNow = pickers.some((p) => p.look?.state === 'loading');
   const noChoice = pickers.filter((p) => !p.fixed && p.required && !p.selected.length).map((p) => `${/^[aeiou]/i.test(p.label) ? 'an' : 'a'} ${p.label.toLowerCase()}`);
   // The board those choices make (T-106): drawn once they make a place, and what to change when it's empty.
   const chosen = pickers.filter((p) => !p.fixed && !p.hidden && p.selected.length).map((p) => p.label.toLowerCase());

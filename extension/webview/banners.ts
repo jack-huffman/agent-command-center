@@ -58,7 +58,7 @@ function filesBanner(a: Pick<TicketAcc, 'files' | 'shares'>): Banner | null {
   const base = { id: 'files' as const, icon: look.icon, tone: look.tone as Banner['tone'], note: null, text: null, files: true };
   const listed = shares.length > 1 ? shares.flatMap((s) => s.files.map((f) => `${s.task}: ${f}`)) : shares.flatMap((s) => s.files);
   // Sharing files with tasks in flight: "Shares 3 files with AB-20526".
-  if (look.icon === 'files' && shares.length) {
+  if (look.state === 'shares' && shares.length) {
     const count = shares.reduce((n, s) => n + s.files.length, 0);
     return { ...base, label: 'Shares', sep: ' ', summary: `${plural(count, 'file')} with ${names(shares.map((s) => s.task))}`, lines: listed };
   }

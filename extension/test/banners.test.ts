@@ -201,6 +201,21 @@ test('sending a choice gives the answer to the blocked builder, says it\'s on it
   assert.equal(sentAnswer({ project: ROOT, key: KEY }, 0, 'Another headline'), null);
 });
 
+test('edge case: an answer in own words longer than ANSWER_MAX is cut to it when the page sends it, and the extension takes what was sent (T-170)', () => {
+  fresh();
+  assert.equal(ANSWER_MAX, 4000, 'the limit the message check holds, which the page\'s own copy must match');
+  const b = byId(drawn(), 'blocked');
+  const words = b.all('text-input')[0]! as PageElement & { value: string };
+  words.value = 'y'.repeat(ANSWER_MAX * 3);
+  for (const f of words.listeners.get('input') ?? []) f({});
+  sendButton(b).click();
+  const msg = dom.sent.find((x) => (x as { type: string }).type === 'blocked-answer') as { text: string };
+  assert.ok(msg, 'the long answer was sent');
+  assert.equal(msg.text.length, ANSWER_MAX, 'cut to the limit, not one character more');
+  assert.ok(bannersArea.messages!['blocked-answer']!(msg as never), 'the extension takes the message the page sent');
+  assert.ok(!bannersArea.messages!['blocked-answer']!({ ...msg, text: `${msg.text}z` } as never), 'one character more is refused');
+});
+
 test('edge case: a refused answer says why under Send and can be sent again; a reply for nothing on its way is dropped', () => {
   fresh();
   const m = sample();
@@ -280,4 +295,18 @@ test('optionWords: an option\'s words without the "(recommended)" its mark says;
   const { optionWords } = await import('../webview/note.ts');
   assert.equal(optionWords({ label: 'a', text: 'Account (recommended)', recommended: true }), 'Account');
   assert.equal(optionWords({ label: 'b', text: 'Opportunity (recommended)', recommended: false }), 'Opportunity (recommended)');
+});
+
+test('edge case: the Shares banner is decided by the look\'s state, so a changed icon changes no words, and the files icon alone makes no Shares (T-170)', () => {
+  const acc = sample().acc!;
+  const shares = [{ task: 'ACME-13', files: ['a.cls', 'b.cls'] }];
+  const say = (b: { label: string; sep: string; summary: string }): string => `${b.label}${b.sep}${b.summary}`;
+  const base = bannersOf({ ...acc, blocker: null, shares }).at(-1)!;
+  assert.equal(say(base), 'Shares 2 files with ACME-13');
+  for (const icon of ['files', 'star', 'clock']) {
+    const changed = bannersOf({ ...acc, blocker: null, shares, files: { ...acc.files!, icon } }).at(-1)!;
+    assert.equal(say(changed), 'Shares 2 files with ACME-13', `icon ${icon}: the same words`);
+  }
+  const noState = bannersOf({ ...acc, blocker: null, shares, files: { label: acc.files!.label, icon: 'files', tone: 'neutral' } }).at(-1)!;
+  assert.notEqual(noState.label, 'Shares', 'a look that shows no sharing is not the Shares banner, whatever its icon');
 });

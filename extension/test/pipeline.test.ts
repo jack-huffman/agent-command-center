@@ -151,3 +151,8 @@ test('the page draws each project\'s switch and its environments as rows in path
   for (const s of under(nodes).filter((e) => e.classList.contains('status'))) assert.ok(s.querySelector('.codicon') && s.textContent.trim(), 'an icon and a label');
   assert.deepEqual(renderPipeline({ ...m, pipeline: [] }), [], 'edge case: no project draws nothing');
 });
+
+test('the Production label says an agent deploys there after the person types the org\'s name, as the deploy guide does (T-170)', () => {
+  assert.equal(PIPELINE_ROLE_LOOK.production.label, 'Production: an agent deploys after you type the org\'s name');
+  assert.ok(!/person deploys/.test(PIPELINE_ROLE_LOOK.production.label), 'edge case: the older words, from before an agent deployed there (D-239), are gone');
+});

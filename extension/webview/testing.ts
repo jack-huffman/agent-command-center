@@ -40,7 +40,8 @@ function stepItem(m: Pick<TicketModel, 'project'>, t: Testing, r: TestingReady, 
 
 /** The tab's content: before the deploy, what it will hold; after, where the work is, Open, and the steps. */
 export function renderTesting(m: Pick<TicketModel, 'project'>, t: Testing): HTMLElement {
-  const sec = el('section', 'block testing', el('h2', '', 'Testing'));
+  // No visible heading: the selected tab is already named Testing. The section keeps its name for a screen reader.
+  const sec = el('section', 'block testing');
   sec.setAttribute('aria-label', `Testing in ${t.name}`);
   const r = t.ready;
   if (!r) {
@@ -51,7 +52,7 @@ export function renderTesting(m: Pick<TicketModel, 'project'>, t: Testing): HTML
     el('p', 'test-where', `Deployed to ${t.name} `, when(r.at), `, ${r.tests}.`),
     el('div', 'actions test-actions', openButton(m, t, r)));
   if (r.open.disabled) sec.append(el('p', 'muted small test-why', icon('info'), el('span', '', r.open.disabled)));
-  sec.append(el('h3', 'test-sub', 'Steps to test it'));
+  sec.append(el('h2', 'test-sub', 'Steps to test it'));
   if (r.steps.length) sec.append(el('ol', 'test-steps', ...r.steps.map((s) => stepItem(m, t, r, s))));
   else sec.append(el('p', 'muted small test-none', 'Its builder gave no steps. Check its note.'));
   return sec;
