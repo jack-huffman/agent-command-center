@@ -6,3 +6,6 @@
 .agent-group { margin: 4px 0 0; overflow-wrap: anywhere; }
 .group-rows { margin-top: 10px; }
 .group-row { margin: 3px 0; overflow-wrap: anywhere; }
+/* A status never wraps by default: a group step's words are long, so they wrap here, inside the lane or the panel. */
+.column-together .status, .agent-group .status, .group-row .status, .card-group .status { white-space: normal; min-width: 0; overflow-wrap: anywhere; }
+.card-group { min-width: 0; }

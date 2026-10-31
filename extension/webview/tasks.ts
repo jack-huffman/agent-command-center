@@ -89,7 +89,7 @@ export function renderTasks(m: TasksModel): Node[] {
           // Its pull request was closed, and autopilot won't replace it (D-063): an icon and the words, in orange.
           card.closedPr ? el('div', 'card-agent', status(card.closedPr)) : null,
           // Its latest step of a group check (T-165): checked with whom, and how it went, with its icon.
-          card.group ? el('div', 'card-agent', status(card.group)) : null,
+          card.group ? el('div', 'card-agent card-group', status(card.group)) : null,
           // Its builder stopped before acc done or acc block, and what it last said (D-067): in orange, with its icon.
           card.stopped ? el('div', 'card-agent', status(card.stopped)) : null,
           // Its files beside other tasks' (D-093): it waits for them (a clock, in blue), its start failed (the
