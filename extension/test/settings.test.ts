@@ -198,7 +198,7 @@ test('each Change… asks acc through a command the page may ask for, named for 
     assert.ok(agents.includes(`reg('${id}', (arg?: unknown) => this.${fn}(arg))`), `${id} is registered`);
     assert.ok(manifest.contributes.commands.some((c: { command: string }) => c.command === id), `${id} is contributed`);
   }
-  assert.match(agents, /this\.runAcc\(project, \['agents', 'model', role, modelName \?\? 'default', '--effort', effortName \?\? 'default'\]/);
+  assert.match(agents, /this\.runAcc\(project, agentsChangeArgs\(role, what\.key, \{ model: modelName, effort: effortName, fallback \}, scope\.project\)/);
   assert.match(agents, /this\.runAcc\(project, \['agents', 'autonomy', pick\.value\]/);
   assert.match(agents, /this\.runAcc\(project, \['agents', 'auto-merge', pick\.value\]/);
   // Billing's way to Setup is a section to go to, as every part's link is.

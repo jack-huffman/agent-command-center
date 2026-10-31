@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import * as vscode from 'vscode';
 import { autoMergeOn, type Effort, EFFORTS, isEffort, ROLE_DEFAULTS } from '../../packages/core/src/config.ts';
 import { agentName, stopFinishedPlan } from './logic/agents.ts';
+import { agentsChangeArgs } from './logic/agents-change.ts';
 import { EFFORT_WORDS } from './logic/efforts.ts';
 import { nameOf, sessionKey } from './model/shared.ts';
 import { sessionFolders } from './model/agents.ts';
@@ -70,9 +71,10 @@ class AgentCommands extends Sidebar {
   // ------------------------------------------------------------ what agents run with (D-036)
 
   /**
-   * Change a role's model and effort for the whole project (T-163), through `acc agents model`: it writes the
-   * project's settings, for the person to commit. The model is a choice of three and the person's own words
-   * (D-205); the default is the one that takes the setting out, so later changes to acc's defaults reach it.
+   * Change a role's model and effort, its fallback model, or set it back to the default (T-163), for this
+   * clone only or for the whole project. The project's model and effort go through `acc agents model`; the
+   * rest through `acc agents set`, as before T-163. Each choice is three options at most and the person's
+   * own words (D-205); the default takes the setting out, so later changes to acc's defaults reach it.
    */
   private async configureAgents(arg: unknown): Promise<void> {
     const [role, root] = typeof arg === 'string' ? arg.split('|') : [];
@@ -83,37 +85,58 @@ class AgentCommands extends Sidebar {
     const now = project.agents[role];
     const label = ROLE_ASKED[role];
     const dflt = ROLE_DEFAULTS[role];
-    const named = (m: string, about: string) => ({ label: m, description: now.from.model !== 'acc' && now.model === m ? `${about} · now` : about, value: m as string | null });
-    const model = await vscode.window.showQuickPick([
-      { label: `The default (${dflt.model})`, description: now.from.model === 'acc' ? 'the Command Center\'s own · now' : 'the Command Center\'s own', value: null as string | null },
-      named('claude-opus-5-5', 'Claude Opus 5.5'),
-      named('claude-sonnet-5-5', 'Claude Sonnet 5.5: lighter on your plan'),
-      { label: 'Another model…', description: 'type an alias or a full model name', value: '?' },
-    ], { title: `${label}: which model?` });
-    if (!model) return;
-    let modelName = model.value;
-    if (modelName === '?') {
-      modelName = await this.askModelName(`${label}: model name`);
-      if (!modelName) return;
+    const what = await vscode.window.showQuickPick([
+      { label: '$(symbol-class) Model and effort', description: `${now.model}${now.from.model === 'acc' ? ' (default)' : ''}, effort ${now.effort ?? 'default'}`, key: 'model' as const },
+      { label: '$(debug-step-back) Fallback model', description: now.fallbackModel ?? 'none', detail: 'Used when the model is overloaded', key: 'fallback' as const },
+      { label: '$(discard) Back to the default', description: `${dflt.model}${dflt.effort ? `, effort ${dflt.effort}` : ''}, no fallback`, key: 'reset' as const },
+    ], { title: `${label}: what to change?` });
+    if (!what) return;
+    // The model choices: the default (none for a fallback), Opus 5.5, Sonnet 5.5, and the person's own words.
+    const models = async (current: string | null, none: { label: string; about: string }): Promise<string | null | undefined> => {
+      const named = (m: string, about: string) => ({ label: m, description: current === m ? `${about} · now` : about, value: m as string | null });
+      const pick = await vscode.window.showQuickPick([
+        { label: none.label, description: current === null ? `${none.about} · now` : none.about, value: null as string | null },
+        named('claude-opus-5-5', 'Claude Opus 5.5'),
+        named('claude-sonnet-5-5', 'Claude Sonnet 5.5: lighter on your plan'),
+        { label: 'Another model…', description: 'type an alias or a full model name', value: '?' },
+      ], { title: `${label}: which model?` });
+      if (!pick) return undefined;
+      return pick.value === '?' ? (await this.askModelName(`${label}: model name`)) || undefined : pick.value;
+    };
+    let modelName: string | null = null;
+    let effortName: string | null = null;
+    let fallback: string | null = null;
+    if (what.key === 'model') {
+      const m = await models(now.from.model === 'acc' ? null : now.model, { label: `The default (${dflt.model})`, about: 'the Command Center\'s own' });
+      if (m === undefined) return;
+      modelName = m;
+      const level = (e: Effort) => ({ label: e, description: now.from.effort !== 'acc' && now.effort === e ? `${EFFORT_WORDS[e]} · now` : EFFORT_WORDS[e], value: e as string | null });
+      const effort = await vscode.window.showQuickPick([
+        { label: 'The default', description: dflt.effort ? `${dflt.effort} for this role` : 'Claude Code\'s own', value: null as string | null },
+        level('low'),
+        level('high'),
+        { label: 'Another level…', description: 'medium, xhigh or max', value: '?' },
+      ], { title: `${label}: how much effort?` });
+      if (!effort) return;
+      effortName = effort.value;
+      if (effortName === '?') {
+        effortName = (await vscode.window.showInputBox({ title: `${label}: effort`, prompt: `One of ${EFFORTS.join(', ')}`, validateInput: (v) => (isEffort(v.trim()) ? undefined : `One of ${EFFORTS.join(', ')}`) }))?.trim() ?? null;
+        if (!effortName) return;
+      }
+    } else if (what.key === 'fallback') {
+      const m = await models(now.fallbackModel ?? null, { label: 'No fallback', about: 'the model alone' });
+      if (m === undefined) return;
+      fallback = m;
     }
-    const level = (e: Effort) => ({ label: e, description: now.from.effort === 'project' && now.effort === e ? `${EFFORT_WORDS[e]} · now` : EFFORT_WORDS[e], value: e as string | null });
-    const effort = await vscode.window.showQuickPick([
-      { label: 'The default', description: dflt.effort ? `${dflt.effort} for this role` : 'Claude Code\'s own', value: null as string | null },
-      level('low'),
-      level('high'),
-      { label: 'Another level…', description: 'medium, xhigh or max', value: '?' },
-    ], { title: `${label}: how much effort?` });
-    if (!effort) return;
-    let effortName = effort.value;
-    if (effortName === '?') {
-      effortName = await vscode.window.showInputBox({ title: `${label}: effort`, prompt: `One of ${EFFORTS.join(', ')}`, validateInput: (v) => (isEffort(v.trim()) ? undefined : `One of ${EFFORTS.join(', ')}`) }) ?? null;
-      if (!effortName) return;
-      effortName = effortName.trim();
-    }
-    const ok = await this.runAcc(project, ['agents', 'model', role, modelName ?? 'default', '--effort', effortName ?? 'default'], () => undefined);
+    const scope = await vscode.window.showQuickPick([
+      { label: '$(device-desktop) This clone only', description: 'git config: nobody else sees it', project: false },
+      { label: '$(repo) The project\'s settings', description: 'edits the project\'s settings, for you to commit and share', project: true },
+    ], { title: `${label}: for whom?` });
+    if (!scope) return;
+    const ok = await this.runAcc(project, agentsChangeArgs(role, what.key, { model: modelName, effort: effortName, fallback }, scope.project), () => undefined);
     if (ok) {
       await this.hub.loadProjects();
-      void vscode.window.showInformationMessage(`${label} changed in the project's settings: commit the change to share it. The next one started uses it.`);
+      void vscode.window.showInformationMessage(`${label} changed${scope.project ? ' in the project\'s settings: commit the change to share it' : ' for this clone'}. The next one started uses it.`);
     }
   }
 

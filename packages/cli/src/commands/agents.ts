@@ -130,7 +130,6 @@ function cmdAgentsModel(o: Opts, paths: { root: string; config: string }, roleAr
   }
   const can = AGENTS_MODEL_COMMAND.enabled({ agentRole: process.env.ACC_ROLE });
   if (!can.ok) throw new AccError('refused', can.why);
-  noAgent(o, 'change what agents run with');
   const change: ProfileChange = {};
   if (model !== undefined) change.model = model === 'default' ? null : model;
   if (effort !== undefined) change.effort = effort === 'default' ? null : effort as never;

@@ -24,11 +24,12 @@ default, which can change under it.
   so the table applies again. `acc agents set` takes `planner` too. Both are a person's: a builder, a reviewer and
   an analyst are refused, as for D-083's switch, and reading is open.
 - **Settings' Agents section** (D-226) has a row for each of the builder, the planning agent and the reviewer.
-  Change… asks for the model with three choices and the person's own words (D-205): the default, Opus 5.5, Sonnet
-  5.5, and another model typed. Then the effort: the default, low, high, and another level typed. It runs
-  `acc agents model` and writes the project's settings. It no longer asks "this clone or the project": a clone's own
-  choice is `acc agents set`, and it is not offered in Settings.
-- The fallback model of a role is read and kept, and `acc agents set --fallback-model` sets it. Settings' Change…
-  does not offer it.
-
-Open: Change… cannot set a clone-only choice or a fallback model. Both stay on the command line.
+  Change… asks first what to change: the model and effort, the fallback model, or back to the default. A model
+  is a choice of three and the person's own words (D-205): the default (or no fallback), Opus 5.5, Sonnet 5.5,
+  and another model typed. An effort is the default, low, high, and another level typed. Then it asks for whom,
+  as before T-163: this clone only, or the project's settings. The project's model and effort go through
+  `acc agents model`; the rest through `acc agents set`, with `--project` for the project's settings
+  (`agentsChangeArgs`, `extension/src/logic/agents-change.ts`).
+- **One check for who may change these:** `AGENTS_MODEL_COMMAND` (`acc.agents.model`) has an id, its params and
+  an `enabled` that refuses a builder, a reviewer and an analyst with the reason. `acc agents model` and Change…
+  both ask it.
