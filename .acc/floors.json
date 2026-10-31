@@ -3,10 +3,10 @@
     "floor": 3481
   },
   "screenshots.clipped": {
-    "floor": 183896
+    "floor": 185935
   },
   "screenshots.sideways": {
-    "floor": 9214
+    "floor": 9244
   },
   "screenshots.overview": {
     "floor": 1199
@@ -27,16 +27,16 @@
     "floor": 855
   },
   "screenshots.a11y": {
-    "floor": 720652
+    "floor": 729410
   },
   "screenshots.actions": {
-    "floor": 2114
+    "floor": 2156
   },
   "screenshots.disabled": {
     "floor": 1776
   },
   "screenshots.sizes": {
-    "floor": 6262
+    "floor": 6292
   },
   "screenshots.ci.a11y": {
     "floor": 622973
