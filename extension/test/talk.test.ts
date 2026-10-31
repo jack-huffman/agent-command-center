@@ -52,8 +52,9 @@ test('the conversation\'s model: who and when, the quote, each proposal in words
   assert.equal(model({ open: ['cc-acme-21'] })!.turns[2]!.open, true);
 });
 
-test('edge cases: no plan past the build with nothing said is no conversation; nothing said has no Make a new plan; a reply on its way, a plan being made, a stale proposal, or past the build turn things off', () => {
-  assert.equal(model({ analysis: null, task: { id: 'ACME-21', state: 'running' }, talk: { v: 1, task: 'ACME-21', turns: [] } }), null);
+test('edge cases: no plan past the build is still the ticket\'s conversation; nothing said has no Make a new plan; a reply on its way, a plan being made, a stale proposal, or past the build turn things off', () => {
+  const planless = model({ analysis: null, task: { id: 'ACME-21', state: 'running' }, talk: { v: 1, task: 'ACME-21', turns: [] } })!;
+  assert.deepEqual([planless.stage, planless.ask, planless.note, planless.send, planless.claude, planless.newPlan], ['plan', null, TALK_NOTE, { disabled: null }, { disabled: null }, null], 'it can be discussed (T-169)');
   assert.equal(model({ analysis: null })!.stage, 'opening', 'with no plan, the conversation before it (T-111)');
   const none = model({ talk: { v: 1, task: 'ACME-21', turns: [] } })!;
   assert.deepEqual([none.look, none.turns, none.newPlan], [TALK_LOOK.none, [], null]);
@@ -67,8 +68,9 @@ test('edge cases: no plan past the build with nothing said is no conversation; n
   assert.deepEqual([old[0]!.use?.disabled, old[0]!.from, old[1]!.from], [proposalStale(1, 3), 1, null]);
   // On that version, an option it no longer has is off with why.
   assert.equal(model({ analysis: changed, talk: atVersion(3) })!.turns[1]!.proposals[0]!.use?.disabled, 'Open deals only isn\'t an option in the plan any more.');
+  // Past the build (T-169): Send and Open in Claude Code stay, to discuss the ticket; the plan is settled, so no Make a new plan or Use this.
   const built = model({ task: { id: 'ACME-21', state: 'running' } })!;
-  assert.deepEqual([built.send, built.claude, built.newPlan, built.turns[1]!.proposals[0]!.use], [null, null, null, null]);
+  assert.deepEqual([built.send, built.claude, built.newPlan, built.turns[1]!.proposals[0]!.use], [{ disabled: null }, { disabled: null }, null, null]);
 });
 
 test('on an approved plan, using a proposal asks first in acc\'s words; picking what\'s chosen asks nothing', () => {
@@ -135,7 +137,7 @@ test('a message runs in the output panel, one at a time, and the page redraws as
   assert.deepEqual(await talks.send(dir, 'ACME-21', 'Again'), { ok: false, error: 'Wait for the planning agent\'s reply.' });
   finish({ code: 0, stdout: '{}', stderr: '' });
   assert.deepEqual(await going, { ok: true });
-  assert.deepEqual(asked, [{ args: talkArgs('ACME-21', 'Why?', 'd1.b'), label: 'Talk ACME-21\'s plan through' }]);
+  assert.deepEqual(asked, [{ args: talkArgs('ACME-21', 'Why?', 'd1.b'), label: 'Discuss ACME-21' }]);
   assert.deepEqual(redraws, ['ACME-21', 'ACME-21']);
   assert.equal(talks.state(dir, 'ACME-21').running, false);
   const refusing = new Talks({ paths: () => paths, acc: async () => ({ code: 1, stdout: JSON.stringify({ message: 'ACME-21 has no plan yet: acc analyze ACME-21.' }), stderr: '' }), launch: () => {} });
@@ -195,8 +197,9 @@ test('Open in Claude Code launches claude in plan mode in the main checkout, wit
   const brief = /Read ([^']+\.brief\.md) first/.exec(t.sent[0]!)![1]!;
   assert.ok(isAbsolute(brief), brief);
   const text = readFileSync(brief, 'utf8');
-  assert.match(text, /# ACME-21: Contact roles missing on converted leads/, 'the ticket');
-  assert.match(text, /### d2\. Which converted leads get roles/, 'the latest plan');
+  assert.match(text, /# Everything acc knows about ACME-21: Contact roles missing on converted leads/, 'the ticket, as its context pack (T-169)');
+  assert.match(text, /\*\*Choice d2\. Which converted leads get roles\*\*/, 'the latest plan');
+  assert.match(text, /## What the work changed\n/, 'and the rest of the pack');
   assert.match(text, /acc plan note ACME-21/, 'how to record to it');
   assert.equal(tickets.talk.state(dir, 'ACME-21').open[0], 'cc-test', 'open now');
   assert.equal(readTalk(paths, 'ACME-21').turns[0]!.who, 'claude-code');

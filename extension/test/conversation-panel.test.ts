@@ -97,10 +97,10 @@ test('ConversationPanels: Make a plan for a task with no plan opens its conversa
   const [, args] = s.fake.calls.executed.slice(from).find(([id]) => id === 'acc.task.analyze')!;
   await s.fake.calls.commands.get('acc.task.analyze')!(...args);
   const panel = await panelOpened(n);
-  assert.deepEqual([panel.viewType, panel.title, panel.column], ['acc.conversation', `${s.id} · Plan conversation`, s.fake.api.ViewColumn.Beside]);
+  assert.deepEqual([panel.viewType, panel.title, panel.column], ['acc.conversation', `Discuss ${s.id}`, s.fake.api.ViewColumn.Beside]);
   assert.match(panel.html, /data-view="conversation"/);
   const m = stateFor(panel.posted as Msg[], s.id, 'conversation')!.model!;
-  assert.deepEqual([m.title, m.talk?.stage, m.talk?.ask], [`${s.id} · Plan conversation`, 'opening', 'What do you want to do here, and what are you thinking?']);
+  assert.deepEqual([m.title, m.talk?.stage, m.talk?.ask], [`Discuss ${s.id}`, 'opening', 'What do you want to do here, and what are you thinking?']);
   // Again: the same panel comes forward, and no second one opens.
   page.receive!({ type: 'conversation-open', project: s.root, task: s.id, about: { ref: 'd1', text: 'Where the report lives' } });
   await until(() => panel.revealed > 0);

@@ -10,7 +10,8 @@ import type { TaskDeploy } from '../src/deploy-gate.ts';
 import { run, type RunOptions, type RunResult } from '../src/exec.ts';
 import { mutate, readLedger, type Task, upsertTasks } from '../src/ledger.ts';
 import { repoPaths } from '../src/paths.ts';
-import { openInClaude, readTalk, talkPlan } from '../src/plan-talk.ts';
+import { lastSession, openInClaude, readTalk, talkPlan } from '../src/plan-talk.ts';
+import { changedPathsOf } from '../src/field-drafts.ts';
 import { descriptionOnly, type PlanTicket, writePlanTicket } from '../src/plan-ticket.ts';
 import { type Receipt, writeReceipt } from '../src/receipts.ts';
 import { reviewPath, type Verdict } from '../src/review.ts';
@@ -250,6 +251,7 @@ function claudeSays(says: RunResult, calls: { args: string[]; opts?: RunOptions 
 test('readTicketPack reads every part from what acc holds: the kept ticket, the plan, the branch\'s changes, the deploy, the checks on its head and the review', () => {
   const { paths, config, id, sha } = repo();
   const pack = readTicketPack(paths, config, id, run)!;
+  assert.deepEqual(changedPathsOf(paths, run, readLedger(paths.ledger).tasks[0]!), ['force-app/main/default/classes/StageHistory.cls'], 'in flight, its branch\'s paths, as the Changes tab reads them');
   assert.match(part(pack, 'ticket'), /Closed deals too, please\./);
   assert.match(part(pack, 'plan'), /Version 2, approved by human:me/);
   assert.match(part(pack, 'changed'), /\*\*Apex Class\*\*\n\n- StageHistory/);
@@ -287,8 +289,10 @@ test('edge case: a ticket built with no plan starts a session of its own for its
   talkPlan(paths, config, id, 'What changed?', null, deps, 'human:me');
   assert.match(calls[0]!.args.join(' '), /^-p --session-id uuid-1 --name Tool · ACME-7 Track stage history · analysis --permission-mode dontAsk/);
   assert.match(String(calls[0]!.opts?.input), /There is no plan yet\./);
+  assert.equal(lastSession(readTalk(paths, id)), 'sess-new');
   talkPlan(paths, config, id, 'And the review?', null, deps, 'human:me');
   assert.match(calls[1]!.args.join(' '), /^-p --resume sess-new /);
+  assert.equal(lastSession({ v: 1, task: id, turns: [] }), null, 'before the first reply, none');
   assert.deepEqual(readTalk(paths, id).turns.map((t) => [t.who, t.version]), [['you', 0], ['agent', 0], ['you', 0], ['agent', 0]]);
   // A reference names a part of a plan, so with none it is refused.
   assert.throws(() => talkPlan(paths, config, id, 'Why?', 'd1', deps, 'human:me'), /has no d1/);

@@ -1,16 +1,17 @@
 /**
- * A plan's conversation in its own panel (T-111): a Command Center tab titled "<key> · Plan conversation", beside
- * the task's page. Before there is a plan, it opens with its question, and Draft the plan or Skip to the plan
- * makes one; with a plan, it is Talk it through (T-98). The task page shows one line of it, and Open
- * conversation. Plain data and the messages' checks: no vscode import.
+ * A ticket's conversation in its own panel (T-111, T-169): a Command Center tab titled "Discuss <key>", beside the
+ * task's page, opened by Discuss in the ticket's header. Before there is a plan, it opens with its question, and
+ * Draft the plan or Skip to the plan makes one; with a plan, or past the build, it is the ticket's conversation
+ * (T-98). The task page shows one line of it, and Open conversation. Plain data and the messages' checks: no
+ * vscode import.
  */
 
 import type { TicketTalk } from './talk.ts';
 import { TALK_REF } from './talk.ts';
 import { KEY, type ModelArea, short } from './shared.ts';
 
-/** The panel's title, as its tab and its heading say it. */
-export const conversationTitle = (key: string): string => `${key} · Plan conversation`;
+/** The panel's title, as its tab and its heading say it (T-169): one conversation about the whole ticket. */
+export const conversationTitle = (key: string): string => `Discuss ${key}`;
 
 /** A conversation's panel. */
 export interface ConversationModel {
@@ -20,7 +21,7 @@ export interface ConversationModel {
   title: string;
   /** The task's own title, under the panel's. */
   taskTitle: string;
-  /** The conversation, as the task page's line is drawn from: null once the task is past its build with nothing said. */
+  /** The conversation, as the task page's line is drawn from: null for a task acc doesn't keep. */
   talk: TicketTalk | null;
 }
 

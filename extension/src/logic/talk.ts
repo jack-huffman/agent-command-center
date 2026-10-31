@@ -6,6 +6,7 @@
  */
 import type { RepoPaths } from '../../../packages/core/src/paths.ts';
 import { readAnalysis } from '../../../packages/core/src/analyze.ts';
+import { readLedger } from '../../../packages/core/src/ledger.ts';
 import { openingSession } from '../../../packages/core/src/plan-opening.ts';
 import { type ClaudeLaunch, type PlanTalk, readTalk, talking } from '../../../packages/core/src/plan-talk.ts';
 import { answersText, type TalkAnswer, turnQuestions } from '../../../packages/core/src/talk-questions.ts';
@@ -39,6 +40,9 @@ export interface TalkState {
   running: boolean;
   open: string[];
 }
+
+/** Whether a task waits to be built (T-169), so a message with no plan starts one; past the build it discusses the ticket. */
+export const waitsToBuild = (paths: RepoPaths, id: string): boolean => readLedger(paths.ledger).tasks.find((t) => t.id === id)?.state === 'todo';
 
 /** acc's arguments for a person's message (D-012): the words with =, so words that start with - stay words. */
 export const talkArgs = (task: string, text: string, about?: string): string[] => ['plan', 'talk', task, `--message=${text}`, ...(about ? [`--about=${about}`] : []), '--json'];
@@ -100,7 +104,8 @@ export class Talks {
     let remove = () => {};
     try {
       const paths = this.host.paths(root);
-      if (!paths || readAnalysis(paths, id)) return (await this.ask(root, talkArgs(id, text, about), `Talk ${id}'s plan through`)).reply;
+      // With a plan, or past the build (T-169), the ticket's conversation; before the build with none, the plan's start.
+      if (!paths || readAnalysis(paths, id) || !waitsToBuild(paths, id)) return (await this.ask(root, talkArgs(id, text, about), `Discuss ${id}`)).reply;
       const first = !openingSession(readTalk(paths, id));
       const read = first && this.host.ticket ? await this.host.ticket(root, id) : null;
       if (read) remove = read.remove;

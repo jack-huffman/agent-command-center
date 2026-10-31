@@ -11,12 +11,13 @@ import { OPENING_ASK } from '../../packages/core/src/plan-opening.ts';
 import { addTurn } from '../../packages/core/src/plan-talk.ts';
 import { GENERIC_CONFIG, makeRepo } from '../../packages/core/test/support.ts';
 import { BESIDE_MIN, conversationPlace, PlansMaking, startArgs } from '../src/logic/conversation.ts';
-import { Talks } from '../src/logic/talk.ts';
+import { Talks, waitsToBuild } from '../src/logic/talk.ts';
 import { conversationModel, conversationTitle, QUOTE_MAX } from '../src/model/conversation.ts';
 import { isFromWebview } from '../src/model/messages.ts';
-import { conversationWords, MAKING_WORDS, OPENING_NOTE, ticketTalk } from '../src/model/talk.ts';
+import { conversationWords, MAKING_WORDS, OPENING_NOTE, TALK_NOTE, ticketTalk } from '../src/model/talk.ts';
 import { sampleAnalyses } from '../scripts/fixtures/analysis.ts';
-import { sampleConversation, sampleConversationDrafting, sampleConversationReady, sampleConversationStart, sampleConversationTicket, sampleOpening } from '../scripts/fixtures/conversation.ts';
+import { sampleConversation, sampleConversationDiscuss, sampleConversationDrafting, sampleConversationReady, sampleConversationStart, sampleConversationTicket, sampleOpening } from '../scripts/fixtures/conversation.ts';
+import { ROOT } from '../scripts/fixtures/shared.ts';
 import { sampleTalkTicket } from '../scripts/fixtures/talk.ts';
 import { type PageElement, pageDom } from './page-dom.ts';
 
@@ -36,7 +37,7 @@ test('the conversation opens beside a wide page, and as a tab of its own on a na
   assert.equal(conversationPlace(null), 'beside');
   assert.equal(conversationPlace(undefined), 'beside');
   assert.equal(conversationPlace(0), 'beside', 'a page not laid out yet says 0');
-  assert.equal(conversationTitle('ACME-21'), 'ACME-21 · Plan conversation');
+  assert.equal(conversationTitle('ACME-21'), 'Discuss ACME-21');
 });
 
 test('edge case: a second Make a plan while one is under way is ignored; the ticket is read, then the plan made, and each change redraws', () => {
@@ -79,16 +80,18 @@ test('before a plan, the conversation asks its question; Draft the plan is off u
   assert.deepEqual(said.line, { words: 'Conversation · 3 messages', at: sampleOpening(NOW).turns[2]!.at });
 });
 
-test('edge cases: a reply on its way or a plan being made turns Draft, Skip and Send off with why; the making says what is under way; past the build with nothing said there is none', () => {
+test('edge cases: a reply on its way or a plan being made turns Draft, Skip and Send off with why; the making says what is under way; past the build with no plan it is the ticket\'s conversation', () => {
   const busy = opening({ talk: sampleOpening(NOW), running: true });
   assert.deepEqual([busy.draft?.disabled, busy.skip?.disabled, busy.send?.disabled], Array(3).fill('Wait for the planning agent\'s reply.'));
   const reading = opening({ talk: sampleOpening(NOW), making: 'reading' });
   assert.deepEqual(reading.making, { phase: 'reading', words: MAKING_WORDS.reading });
   assert.equal(reading.draft?.disabled, 'Its plan is being made. Wait for it to finish.');
   assert.equal(opening({ analyzing: true }).making?.phase, 'planning', 'acc making it, from any window');
-  assert.equal(opening({ task: { id: 'ACME-21', state: 'running' } }), null);
+  // Past the build with no plan, it is the ticket's own conversation (T-169): no question first, and no plan to make.
+  const running = opening({ task: { id: 'ACME-21', state: 'running' } });
+  assert.deepEqual([running.stage, running.ask, running.note, running.send, running.claude], ['plan', null, TALK_NOTE, { disabled: null }, { disabled: null }]);
   const built = opening({ task: { id: 'ACME-21', state: 'done' }, talk: sampleOpening(NOW) });
-  assert.deepEqual([built.send, built.draft, built.skip], [null, null, null], 'what was said stays to read, with nothing to send');
+  assert.deepEqual([built.send, built.draft, built.skip], [{ disabled: null }, null, null], 'what was said stays, and the ticket can still be discussed');
   assert.equal(conversationWords(1), 'Conversation · 1 message');
   // With a plan: Talk it through, its line counts every message but the plan's own.
   const talked = sampleTalkTicket(NOW, true).talk!;
@@ -97,7 +100,7 @@ test('edge cases: a reply on its way or a plan being made turns Draft, Skip and 
 
 test('the panel\'s model: its title, the task\'s, and the conversation the task page draws its line from', () => {
   const m = conversationModel({ project: '/r', key: 'ACME-21', taskTitle: 'Contact roles', talk: opening() });
-  assert.deepEqual([m.kind, m.title, m.taskTitle, m.talk?.stage], ['conversation', 'ACME-21 · Plan conversation', 'Contact roles', 'opening']);
+  assert.deepEqual([m.kind, m.title, m.taskTitle, m.talk?.stage], ['conversation', 'Discuss ACME-21', 'Contact roles', 'opening']);
   assert.equal(sampleConversationTicket(NOW).talk?.line?.words, sampleConversationReady(NOW).talk?.line?.words, 'the page and the panel agree');
 });
 
@@ -153,6 +156,25 @@ test('before a plan, a message starts it: the first hands acc the whole ticket a
   assert.deepEqual(asked[2]!.args.slice(0, 2), ['plan', 'talk'], 'with a plan, Talk it through');
 });
 
+test('edge case: past the build with no plan, a message discusses the ticket and never starts a plan, nor reads its ticket again (T-169)', async () => {
+  const { dir, paths, id } = noPlanRepo();
+  assert.equal(waitsToBuild(paths, id), true, 'to do: a message starts its plan');
+  mutate(paths, () => new Date(NOW), (l, emit) => { l.tasks[0]!.state = 'running'; emit({ type: 'task.moved', task: id, actor: 'human', by: 'test', data: {} }); });
+  assert.equal(waitsToBuild(paths, id), false);
+  assert.equal(waitsToBuild(paths, 'NONE-1'), false, 'a task acc doesn\'t keep isn\'t waiting');
+  const asked: { args: string[]; label?: string }[] = [];
+  const read: string[] = [];
+  const talks = new Talks({
+    paths: () => paths,
+    acc: async (args, _cwd, label) => { asked.push({ args, label }); return { code: 0, stdout: '{}', stderr: '' }; },
+    launch: () => {},
+    ticket: async (_root, task) => { read.push(task); return { file: null, remove: () => {} }; },
+  });
+  assert.deepEqual(await talks.send(dir, id, 'What changed?'), { ok: true });
+  assert.deepEqual(asked, [{ args: ['plan', 'talk', id, '--message=What changed?', '--json'], label: `Discuss ${id}` }]);
+  assert.deepEqual(read, [], 'no ticket read for a plan');
+});
+
 test('edge case: a first message whose ticket file can\'t be written still goes, reading the description, and acc failing still removes what was read', async () => {
   const { dir, paths, id } = noPlanRepo();
   const asked: string[][] = [];
@@ -177,7 +199,7 @@ let kept: unknown = { opened: [], drafts: {} };
 (globalThis as Record<string, unknown>).acquireVsCodeApi = () => ({ postMessage: (m: unknown) => { page.sent.push(m); }, getState: () => kept, setState: (s: unknown) => { kept = s; } });
 const { renderConversationPage } = await import('../webview/conversation.ts');
 const { renderAnalysis } = await import('../webview/analysis.ts');
-const { conversationLine, focusTalk, renderConversation } = await import('../webview/talk.ts');
+const { conversationLine, focusTalk, headerDiscuss, renderConversation } = await import('../webview/talk.ts');
 const { renderTicket } = await import('../webview/task-page.ts');
 const { state } = await import('../webview/state.ts');
 
@@ -189,7 +211,7 @@ const drawn = () => new Promise<void>((r) => queueMicrotask(r));
 test('the panel opens with its title, the task\'s, the question, the box with the cursor in it, and Draft the plan off with why', async () => {
   state.draw = () => {};
   const p = drawPanel(sampleConversationStart(NOW));
-  assert.equal(p.all('convo-title')[0]!.textContent, 'ACME-21 · Plan conversation');
+  assert.equal(p.all('convo-title')[0]!.textContent, 'Discuss ACME-21');
   assert.match(p.all('convo-task')[0]!.textContent, /Contact roles/);
   assert.equal(p.all('talk-ask')[0]!.textContent, OPENING_ASK);
   assert.deepEqual([p.all('convo-title')[0]!.all('codicon').length, p.all('talk-ask')[0]!.all('codicon').length], [1, 0], 'one icon, on the title: the question has none of its own (T-129)');
@@ -249,6 +271,42 @@ test('the task page shows the conversation as one line with Open conversation, n
   const quiet = { ...sampleTalkTicket(NOW), talk: { ...sampleTalkTicket(NOW).talk!, line: null } };
   assert.equal((renderAnalysis(quiet, quiet.analysis!) as unknown as PageElement).all('convo-line').length, 0);
   assert.equal(conversationLine(quiet.project, quiet.talk), null);
+});
+
+test('Discuss in the ticket\'s header opens its one conversation, nothing quoted, before the plan, with one and past the build; edge case: a ticket the Command Center doesn\'t keep has none', () => {
+  const built = { ...sampleTalkTicket(NOW, true), talk: sampleConversationDiscuss(NOW).talk };
+  for (const m of [sampleConversationTicket(NOW), sampleTalkTicket(NOW, true), built]) {
+    const p = page.document.createElement('div');
+    p.append(...(renderTicket(m) as unknown as PageElement[]));
+    const head = (p as unknown as PageElement).all('ticket-head')[0]!;
+    const discuss = buttons(head, 'Discuss');
+    assert.equal(discuss.length, 1, 'one Discuss, in the header');
+    assert.equal(discuss[0]!.getAttribute('aria-label'), 'Discuss ACME-21');
+    page.sent.length = 0;
+    discuss[0]!.click();
+    assert.deepEqual(page.sent, [{ type: 'conversation-open', project: m.project, task: 'ACME-21' }], 'the same message Open conversation sends: one conversation per ticket');
+    assert.ok(page.sent.every(isFromWebview));
+  }
+  const p = page.document.createElement('div');
+  p.append(...(renderTicket({ ...built, talk: null }) as unknown as PageElement[]));
+  assert.equal(buttons((p as unknown as PageElement).all('ticket-head')[0]!, 'Discuss').length, 0);
+  assert.equal(headerDiscuss(ROOT, 'ACME-21', undefined), null, 'headerDiscuss draws nothing without a conversation');
+});
+
+test('the conversation Discuss opens past the build: titled Discuss <key>, it says what the person can ask, and offers Send and Open in Claude Code, but no plan to make', () => {
+  const p = drawPanel(sampleConversationDiscuss(NOW));
+  assert.equal(p.all('convo-title')[0]!.textContent, 'Discuss ACME-21');
+  assert.equal(p.all('talk-turn').length, 0, 'nothing said yet');
+  assert.match(p.textContent, /Ask anything about this ticket: what it asks, why the plan chose what it did, what the work changed, where it's deployed, what the checks and the review found, or why it's blocked\./);
+  assert.equal((p.all('talk-box')[0]! as unknown as { placeholder: string }).placeholder, 'Ask about the ticket, push back, or suggest another way');
+  assert.equal(buttons(p, 'Open in Claude Code')[0]!.disabled, false);
+  assert.equal(buttons(p, 'Make a new plan').length + buttons(p, 'Draft the plan').length, 0);
+  page.sent.length = 0;
+  const box = p.all('talk-box')[0]!;
+  (box as unknown as { value: string }).value = 'Where is it deployed?';
+  for (const f of box.listeners.get('input') ?? []) f({});
+  buttons(p, 'Send')[0]!.click();
+  assert.deepEqual(page.sent, [{ type: 'talk-send', project: ROOT, task: 'ACME-21', text: 'Where is it deployed?' }]);
 });
 
 test('edge case: a redraw of the panel leaves the cursor where the person put it, and focusTalk puts it back in the box', async () => {
