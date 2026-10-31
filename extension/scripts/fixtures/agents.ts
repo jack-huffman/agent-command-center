@@ -88,7 +88,7 @@ export const SESSION_MODELS: Record<string, string> = { '0e02-main': 'claude-opu
  */
 export const SAMPLE_STEPS: Record<string, { recent: ToolStep[] }> = {
   's-acme-13': { recent: [{ tool: 'Bash', command: 'acc gate run deploy' }, { tool: 'Edit', path: 'force-app/main/default/classes/LeadDedupe.cls' }] },
-  '0e02-main': { recent: [{ tool: 'TodoWrite' }, { tool: 'Bash', command: 'nice -n 15 acc gate run' }] },
+  '0e02-main': { recent: [{ tool: 'TodoWrite' }, { tool: 'Bash', command: 'cd force-app && acc gate run' }] },
   'c2d8-side-build': { recent: [{ tool: 'Edit', path: 'force-app/main/default/classes/CaseTriggerHandler.cls' }, { tool: 'Read', path: 'force-app/main/default/classes/CaseTriggerHandler.cls' }] },
 };
 

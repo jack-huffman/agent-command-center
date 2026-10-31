@@ -50,7 +50,7 @@ const EDITS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 /** A shell command that only reads. */
 const READ_LINE = /^(?:cat|head|tail|less|grep|rg|ls|find|sed -n|wc|tree|git (?:log|show|diff|status|grep|blame))\b/;
 
-/** One step of a command line, without what only sets it up: `nice -n 15`, `env X=1`, `npx`, a path to acc. */
+/** One step of a command line, without what only sets it up: a lower priority, `env X=1`, `npx`, a path to acc. */
 function bare(part: string): string {
   let s = part.trim();
   for (let was = ''; was !== s;) {

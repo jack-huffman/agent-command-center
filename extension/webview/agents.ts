@@ -146,8 +146,8 @@ function agentCard(a: AgentLine, view: WhereView, t: TaskGroup | null): HTMLElem
     : el('div', 'where', icon('folder'), el('span', 'where-text', ...slashBreaks(a.where)));
   if (where) where.title = a.path;
   const actions = el('div', 'agent-actions', ...(a.needsYou ? needsYouButtons(a) : []), menuButton(a.name));
-  const card = el('li', `agent-card${a.needsYou ? ' attention' : ''}${a.finished ? ' finished' : ''}`, el('div', 'agent-main', head, facts, where), actions);
-  return withMenu(card, 'agent', { session: a.key }, { agentBackground: a.background });
+  const row = el('li', `agent-card${a.needsYou ? ' attention' : ''}${a.finished ? ' finished' : ''}`, el('div', 'agent-main', head, facts, where), actions);
+  return withMenu(row, 'agent', { session: a.key }, { agentBackground: a.background });
 }
 
 /** What an agent that needs you offers on its line: Answer, Watch, and Open in Claude Code (or Attach). */

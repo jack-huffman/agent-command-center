@@ -75,7 +75,7 @@ export function deriveRows(hub: Hub, ledger: Ledger, p?: Project): TaskRow[] {
     const carrying = !!resumed && !session?.pid;
     // What its agent is doing (T-164), from its latest steps: a review or an analysis by its role.
     const tie = session ? hub.tieFor(session) : null;
-    const look: AgentLook | null = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue', needsYou: false, working: true } : session ? agentLook(session, asking, tie, sessionDoing(session, tie?.role ?? 'builder', (id) => hub.stepOf(id))) : null;
+    const look: AgentLook | null = carrying ? { label: 'Resumed: working', icon: 'sync~spin', tone: 'blue', needsYou: false, working: true } : session ? agentLook(session, asking, tie, sessionDoing(session, tie?.role ?? 'builder', (id) => hub.stepOf?.(id) ?? null)) : null;
     const info: SessionInfo | undefined = unseen ? { unseen: true } : stopped ? { stopped: true } : carrying ? { status: 'busy' } : session ? (asking ? { state: 'blocked', status: 'waiting' } : { state: session.state, status: session.status }) : undefined;
     const said = stopped && t.run?.sessionId ? hub.lastSaid(t.run.sessionId, [t.run.worktree, session?.cwd, p?.root]) : null;
     // The model its agent runs with (D-086): what it last answered with, else what acc started it with.

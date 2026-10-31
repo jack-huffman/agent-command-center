@@ -416,5 +416,5 @@ test('the rows the sizes check found are fixed in the styles (T-144): the plan a
   const css = (f: string) => readFileSync(join(root, 'webview', f), 'utf8');
   assert.match(css('analysis.css'), /\.plan-actions > \.convo-line > \.btn, \.an-actions > \.convo-line > \.btn \{ padding: 3px 9px; font-size: calc\(1em \/ var\(--convo-scale\)\)/);
   assert.match(readFileSync(join(root, 'webview', 'changes.ts'), 'utf8'), /foldButton\('Other next steps', key, 'dp-more', true\)/);
-  assert.match(css('agents.css'), /\.line-btn \{ min-height: 22px/);
+  assert.match(css('agents.css'), /\.line-btn \{ padding: 1px 6px; min-height: 22px/);
 });
