@@ -48,6 +48,11 @@ test('edge case: no Try it outside Salesforce, before a deploy, after one whose 
   assert.equal(tryIt(CONFIG, task({ deploys: undefined })), null);
   assert.equal(tryIt(CONFIG, task({ deploys: [deploy({ tests: { names: ['T'], outcome: 'fail', ran: 1, failed: 1, coverage: null } })] })), null);
   assert.equal(tryIt(CONFIG, task({ deploys: [deploy({ env: 'qa', org: 'acme-qa', by: 'human:jordan' })] })), null);
+  // A person's deploy to the development org itself isn't the builder's: no Try it from it (the !d.by guard).
+  assert.equal(passedDeploy(task({ deploys: [deploy({ by: 'human:jordan' })] })), null);
+  assert.equal(tryIt(CONFIG, task({ deploys: [deploy({ by: 'human:jordan' })] })), null);
+  // A task whose environment the settings don't name has nowhere to open.
+  assert.equal(tryIt(CONFIG, task({ environment: 'gone' })), null);
   // The latest of its builder's deploys counts: a later one that failed takes Try it away again.
   assert.equal(passedDeploy(task({ deploys: [deploy(), deploy({ at: '2026-10-30T12:00:00.000Z', tests: { names: [], outcome: 'fail', ran: 1, failed: 1, coverage: null } })] })), null);
   // A deploy with no tests to run (no Apex) passed.
