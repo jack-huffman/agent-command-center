@@ -1,4 +1,4 @@
-## D-T-168 A ticket's tabs are words, Plan is Plan & build, and its notices are banners closed by default (2026-10-31)
+## D-250 A ticket's tabs are words, Plan is Plan & build, and its notices are banners closed by default (2026-10-31)
 
 T-168. The person sent two screenshots of a pilot ticket on 0.55.0 and wrote: "Too many icons on the tabs." About
 the "Why it's blocked" and "Shares files with" notices above the tabs: "I'm not happy with their styling … I think
