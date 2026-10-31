@@ -1,12 +1,7 @@
 /* Talk it through (T-98) wears the plan's card, under it, with the gap the sections around it keep. */
 .talk { margin-top: 12px; }
-.talk-turns { list-style: none; margin: 4px 0 8px; padding: 0; }
-/* Each turn: who and when on a line, what it's about quoted, the words, then what it proposed or recorded. */
-.talk-turn { padding: 8px 0 8px 10px; border-top: 1px solid var(--line); border-left: 3px solid transparent; }
-.talk-turns > .talk-turn:first-child { border-top: 0; }
-.talk-turn.who-agent { border-left-color: var(--blue); }
-.talk-turn.who-you { border-left-color: var(--line); }
-.talk-turn.who-claude-code, .talk-turn.who-plan { border-left-color: var(--accent); }
+.talk-turns { margin: 4px 0 8px; }
+/* A Claude Code session or a new version of the plan: who and when on a line, then what it recorded. The person's words and the agent's are chat.css's. */
 .talk-who { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
 .talk-who > .codicon { flex: none; }
 .talk-v { font-size: 0.8em; white-space: nowrap; flex: none; }
@@ -30,12 +25,11 @@
 .tp-why, .tp-off { margin: 4px 0 0 22px; overflow-wrap: anywhere; }
 .talk-recorded { margin-top: 4px; }
 .talk-waiting { display: flex; align-items: center; gap: 6px; margin: 4px 0 8px; }
-/* The message box: what it's about over the words, then Send. */
-.talk-compose { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
-.talk-about { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-bottom: 4px; }
-.talk-about > .talk-quote { flex: 1 1 200px; min-width: 0; margin: 0; }
-.talk-box { display: block; width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; font: inherit; }
-.talk-actions { margin: 6px 0 2px; }
+/* The message card (T-160): what it's about as a chip over the words, a reason Send is off under it. */
+.talk-about { display: flex; align-items: center; gap: 4px 6px; margin-bottom: 4px; }
+.talk-about > .talk-quote { flex: 1 1 200px; min-width: 0; margin: 0; max-height: 4.5em; overflow-y: auto; }
+.chat-you .talk-quote { margin: 0; }
+.talk-why { margin: 4px 4px 0; }
 .talk-more { margin-top: 8px; }
 /* Discuss sits after what it's about: an option's buttons, a choice's head, a question, a step or a risk. */
 .talk-discuss { flex: none; }

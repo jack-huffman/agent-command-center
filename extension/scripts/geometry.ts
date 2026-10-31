@@ -96,6 +96,11 @@ export interface GeoSnapshot {
   disabled?: GeoDisabled[];
   /** Each text button drawn, with the container it sits in (T-144): the sizes check fails two side by side that differ in size. */
   sized?: GeoSized[];
+  /**
+   * The chat (T-160): its scrolling box, and each layer kept over it or under it, the person's pinned message and
+   * the foot with the message card, with whether its background hides what scrolls under it. Null with no chat.
+   */
+  chat?: GeoChat | null;
   /** The task page's tab whose panel was on show when it was measured (T-134), or null on a page with none. */
   panel?: string | null;
   /**
@@ -151,6 +156,27 @@ export const REASON_BESIDE: Record<string, string> = {};
 
 /** The most opacity a disabled button is drawn with, and the cursor it shows: the shared rule in styles.css (T-121). */
 export const DISABLED_LOOK = { maxOpacity: 0.7, cursor: 'not-allowed' } as const;
+
+/** A chat as drawn (T-160): the box that scrolls, and its pinned messages and foot. */
+export interface GeoChat { log: Box; layers: { what: string; kind: 'pin' | 'foot'; box: Box; opaque: boolean }[] }
+
+/** The most of the chat's height a pinned message may take (T-160), so the reply under it still has room to read. */
+export const PIN_MAX_SHARE = 0.5;
+
+/**
+ * The findings for a chat (T-160): the chat scrolls under its pinned message, never behind it, so a pin is opaque
+ * and takes at most PIN_MAX_SHARE of the chat; and it stops above its foot, so the message card lies over none of it.
+ */
+export function judgeChat(chat: GeoChat | null | undefined): { what: string; detail: string }[] {
+  const out: { what: string; detail: string }[] = [];
+  if (!chat) return out;
+  for (const l of chat.layers) {
+    if (l.kind === 'pin' && !l.opaque) out.push({ what: l.what, detail: 'the pinned message lets the chat show through it' });
+    if (l.kind === 'pin' && l.box.h > chat.log.h * PIN_MAX_SHARE) out.push({ what: l.what, detail: `the pinned message is ${l.box.h} px high, more than ${Math.round(PIN_MAX_SHARE * 100)}% of the chat's ${chat.log.h} px` });
+    if (l.kind === 'foot' && overlaps(l.box, chat.log)) out.push({ what: l.what, detail: 'the message card lies over the chat' });
+  }
+  return out;
+}
 
 /** The findings for the disabled buttons a page drew: each must be drawn dimmer than an enabled one, with the not-allowed cursor (T-121). */
 export function judgeDisabled(drawn: GeoDisabled[]): { what: string; detail: string }[] {
@@ -316,6 +342,9 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
     const over = cells.find((o) => o.sticky && o.row === c.row && overlaps(o.box, c.box));
     if (over) found.push({ check: 'covered', what: c.what, detail: `${quote(c.text).trim()} is covered by the sticky ${over.what}` });
   }
+  // The chat scrolls under its pinned message and stops above its card, never behind either (T-160).
+  const chatLayers = s.chat?.layers.length ?? 0;
+  for (const f of judgeChat(s.chat)) found.push({ check: 'covered', what: f.what, detail: f.detail });
   // The output panel shows a run as rows, never as a block of raw lines (T-64).
   const panels = s.panels ?? [];
   for (const p of panels) for (const r of p.raw) found.push({ check: 'raw', what: r, detail: 'the output panel shows a block of raw output, not rows' });
@@ -335,7 +364,7 @@ export function judge(s: GeoSnapshot, home: boolean, exceptions = GEOMETRY_EXCEP
   for (const f of said.findings) found.push({ check: 'words', what: f.what, detail: f.detail });
 
   const a11y = judgeA11y(s.a11y, a11yExceptions);
-  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: (s.scoped ? 0 : 1) + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length, raw: panels.length, a11y: a11y.examined, actions: actionSets.reduce((n, x) => n + x.next.length + x.rest.length, 0), disabled: disabled.length, sizes: sizes.compared };
+  const examined: Record<Check, number> = { overlap: cs.length, clipped: s.texts.length, tab: s.tab ? 1 : 0, sideways: (s.scoped ? 0 : 1) + s.scrollers.length, overview: lines.reduce((n, g) => n + g.rows.length, 0) + cards.length, buttons: buttons.length, words: said.examined, covered: plain.length + chatLayers, raw: panels.length, a11y: a11y.examined, actions: actionSets.reduce((n, x) => n + x.next.length + x.rest.length, 0), disabled: disabled.length, sizes: sizes.compared };
   const excused: Record<string, number> = Object.fromEntries(exceptions.map((e) => [e.name, 0]));
   const violations = found.filter((v) => {
     const e = exceptions.find((x) => x.check === v.check && x.what.test(v.what));
@@ -690,6 +719,10 @@ function collectGeometry(more, then, within) {
   const panels = [...scope.querySelectorAll('.dock')].map((d) => ({ what: what(d), raw: [...d.querySelectorAll(${JSON.stringify(RAW_OUTPUT)})].map(what) }));
   // Each set of a task's actions (D-168): the next step's box, and each of the rest's.
   const boxOf = (e) => { const r = e.getBoundingClientRect(); return box(r.left, r.top, r.right, r.bottom); };
+  // The chat (T-160): its scrolling box, its pinned messages and its foot, with whether each one's background hides what's under it.
+  const alpha = (c) => { if (c === 'transparent') return 0; const m = c.match(/\\/\\s*([\\d.]+)%?\\s*\\)$/) || c.match(/^rgba\\([^)]*,\\s*([\\d.]+)\\)$/); return m ? Number(m[1]) : 1; };
+  const logEl = within ? null : document.querySelector('.chat-log');
+  const chat = logEl && visible(logEl) ? { log: boxOf(logEl), layers: [...document.querySelectorAll('.chat-pin, .chat-foot')].filter(visible).map((e) => ({ what: what(e), kind: e.classList.contains('chat-pin') ? 'pin' : 'foot', box: boxOf(e), opaque: alpha(style(e).backgroundColor) >= 1 })) } : null;
   const actionSets = [...scope.querySelectorAll('[data-action-set]')].filter(visible).map((s) => ({ what: what(s), next: [...s.querySelectorAll(':scope > .ta-btn')].filter(visible).map(boxOf), rest: [...s.querySelectorAll(':scope > .ta-grid > .ta-btn')].filter(visible).map(boxOf) }));
   // Each disabled button, as drawn (T-121): a .btn that is disabled, or kept focusable with .is-disabled.
   const disabled = [...scope.querySelectorAll('.btn:disabled, .btn.is-disabled')].filter(visible).map((b) => ({ what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), opacity: Number(style(b).opacity), cursor: style(b).cursor, why: !!(b.getAttribute('title') || b.getAttribute('aria-description')) }));
@@ -701,7 +734,7 @@ function collectGeometry(more, then, within) {
     for (const x of [b.parentElement, up]) if (!parents.has(x)) parents.set(x, parents.size);
     return { what: what(b), text: words(b.getAttribute('aria-label') || b.textContent).slice(0, 60), parent: parents.get(b.parentElement), up: parents.get(up), box: box(r.left, r.top, r.right, r.bottom), font: Math.round(parseFloat(style(b).fontSize) * 10) / 10 };
   }).filter((b) => b.box.w >= 1 && b.box.h >= 1);
-  const measured = { sized, controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, fonts: window.accFontsFirst ?? 0, panel: document.querySelector('.task-tabs > [role="tab"][aria-selected="true"]')?.dataset.tab ?? null, scoped: !!within };
+  const measured = { sized, controls: controls.map(({ e, ...c }) => c), texts, tab, doc, scrollers, overview, buttons, said, drawn: [...drawn], boardTop, cells, panels, actionSets, disabled, chat, fonts: window.accFontsFirst ?? 0, panel: document.querySelector('.task-tabs > [role="tab"][aria-selected="true"]')?.dataset.tab ?? null, scoped: !!within };
   // The first measure is acc-geometry; a later one, of another tab's panel (T-134), is numbered after it. then, if given, runs once it's written.
   const write = (parts) => {
     const out = document.createElement('script');

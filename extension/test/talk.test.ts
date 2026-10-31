@@ -219,7 +219,8 @@ const { renderConversation, discussButton, earlierKey, openTalk, talkPending, se
 const { planDecisions } = await import('../webview/plan.ts');
 const { state } = await import('../webview/state.ts');
 
-const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && x.textContent === label);
+// A button by its words, or by its name where it has only an icon, such as the message card's Send (T-160).
+const buttons = (e: PageElement, label: string): PageElement[] => e.all().filter((x) => x.tagName === 'BUTTON' && (x.textContent || x.getAttribute('aria-label')) === label);
 const drawn = () => new Promise<void>((r) => queueMicrotask(r));
 const done = (msg: Record<string, unknown>) => (area.receive![TALK_DONE] as (m: unknown) => void)(msg);
 const draw = (m: TicketModel) => renderConversation(m.project, m.talk!) as unknown as PageElement;
@@ -278,7 +279,7 @@ test('Discuss on an option opens the conversation with it quoted and the cursor 
   page.sent.length = 0;
   send.click();
   assert.deepEqual(page.sent, [{ type: 'talk-send', project: m.project, task: 'ACME-21', text: 'Would leaving them out break the quarterly report?', about: 'd2.b' }]);
-  assert.match(buttons(draw(m), 'Sending…')[0]!.textContent, /Sending…/);
+  assert.equal(buttons(draw(m), 'Sending…').length, 1, 'Send says it is sending');
   done({ action: 'talk-send', project: m.project, task: 'ACME-21', ok: true });
   assert.equal(talkPending.what(sendKey(m.project, 'ACME-21')), undefined);
   const after = draw(m);

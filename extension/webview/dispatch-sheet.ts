@@ -2,11 +2,15 @@
 // the Command Center, in the page's modal (modal.ts). It asks for the model, the effort and where the
 // builder runs, with what the builder would use already chosen. Enter dispatches and Escape cancels; focus
 // goes back to what opened it. Dispatch sends the choice, and the extension works out acc's arguments.
+// A page's Build it opens it at the click, loading, and the extension's sheet fills it (T-162); a refusal
+// says why in it, with Try again.
 
 import type { DispatchSheet, EffortValue, SheetEffort, SheetModel } from '../src/model/dispatch-sheet.ts';
 import { button, el, focusedElement, icon, work } from './dom.ts';
+import { LOAD_LIMIT_MS, Opening } from './loading.ts';
 import { makeModal } from './modal.ts';
-import { api, type PageArea } from './state.ts';
+import { api, onSent, type PageArea } from './state.ts';
+import { onRan } from './working.ts';
 import { BUILD_IT_TITLE, WORDS } from './plain-words.ts';
 
 /** A model name as claude --model takes it: MODEL_NAME in the core's config, copied (D-121). */
@@ -25,6 +29,16 @@ let open: {
 let parts: { dialog: HTMLDialogElement; title: HTMLElement; body: HTMLElement; go: HTMLButtonElement } | null = null;
 /** What had focus when it opened, which gets it back when it closes. */
 let opener: HTMLElement | null = null;
+
+/** The commands that open the sheet: SHEET_COMMANDS in src/model/dispatch-sheet.ts, copied (D-121). */
+export const OPENS_SHEET: readonly string[] = ['acc.task.dispatch', 'acc.task.dispatchWith', 'acc.task.dispatchCloud', 'acc.task.dispatchAnyway'];
+/** How long after the extension said it's done the sheet still waits for its sheet, which can come just after. */
+export const SHEET_GRACE_MS = 2000;
+/** The sheet's wait, from a Build it click until its sheet comes (T-162), by `<project>#<task>`. */
+const waiting = new Opening();
+/** The task the sheet closed on while it loaded, and until when its sheet coming late is dropped. */
+let dropped: { key: string; until: number } | null = null;
+const sheetKey = (project: string, task: string): string => `${project}#${task}`;
 
 /** The model chosen, and its effort segment chosen: the one picked when the model takes it, else its own. */
 const chosen = (): { model: SheetModel; effort: SheetEffort | null } => {
@@ -179,8 +193,39 @@ function make(): NonNullable<typeof parts> {
   return { dialog: m.dialog, title, body: m.body, go };
 }
 
+/** Build it was clicked: the sheet opens now, loading, until the extension's sheet for the task comes. */
+function waitFor(command: string, project: string, task: string): void {
+  parts ??= make();
+  if (!parts.dialog.open) opener = focusedElement();
+  open = null;
+  dropped = null;
+  parts.title.textContent = `Build ${task}`;
+  parts.dialog.setAttribute('aria-label', parts.title.textContent);
+  parts.go.disabled = true;
+  parts.go.title = 'Build it is ready once the choices have loaded';
+  waiting.start(sheetKey(project, task), parts.body, `Opening the choices for ${task}…`, `The choices for ${task}`, [],
+    () => api.postMessage({ type: 'run', command, ref: { project, task } }));
+  if (!parts.dialog.open) parts.dialog.showModal();
+  parts.body.focus({ preventScroll: true });
+}
+
+/** The extension answered Build it: a refusal says why in the sheet; done with no sheet yet, the sheet waits a moment more, then closes. */
+function answered(msg: { command: string; ref?: { project?: string; task?: string }; phase: string; ok?: boolean; error?: string }): void {
+  if (!OPENS_SHEET.includes(msg.command) || msg.phase !== 'done' || !msg.ref?.project || !msg.ref.task) return;
+  const k = sheetKey(msg.ref.project, msg.ref.task);
+  if (!waiting.waits(k)) return;
+  if (msg.ok === false) return waiting.fail(msg.error?.trim() || 'The Command Center didn\'t say why.');
+  setTimeout(() => { if (waiting.waits(k) && waiting.busy) shut(); }, SHEET_GRACE_MS);
+}
+
 /** Opens the sheet for a task, with what its builder uses chosen; open already, it shows this one. */
 function openSheet(sheet: DispatchSheet): void {
+  const k = sheetKey(sheet.project, sheet.task);
+  // Closed while it loaded: the sheet that comes after opens nothing.
+  if (dropped?.key === k && Date.now() < dropped.until && !waiting.key) return;
+  // Another task's Build it is loading: this sheet is late.
+  if (waiting.key && !waiting.waits(k)) return;
+  waiting.end();
   parts ??= make();
   if (!parts.dialog.open) opener = focusedElement();
   open = { sheet, model: 0, effort: null, where: sheet.place, name: '' };
@@ -198,12 +243,20 @@ function shut(): void {
 
 /** It closed: focus goes back to what opened it, when that's still on the page. */
 function closed(): void {
+  if (waiting.key) dropped = { key: waiting.key, until: Date.now() + LOAD_LIMIT_MS };
+  waiting.end();
   open = null;
   parts?.body.replaceChildren();
   const o = opener;
   opener = null;
   if (o?.isConnected) o.focus({ preventScroll: true });
 }
+
+onSent((m) => {
+  const ref = m.ref as { project?: unknown; task?: unknown } | undefined;
+  if (m.type === 'run' && OPENS_SHEET.includes(m.command as string) && typeof ref?.project === 'string' && typeof ref.task === 'string') waitFor(m.command as string, ref.project, ref.task);
+});
+onRan(answered);
 
 export const area: PageArea = {
   receive: { 'dispatch-sheet': (msg: { sheet?: DispatchSheet }) => { if (msg.sheet?.models?.length) openSheet(msg.sheet); } },
