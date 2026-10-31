@@ -1,27 +1,41 @@
 /**
- * A ticket's deploy on its Changes tab (T-158): one row for each environment on the ticket's path, in order, each
- * with its org and its state as an icon and a label (deployed, partly deployed, not deployed, or can't tell, read
- * from git and the org by T-155), when it was read, and a quiet Check again. Then one primary Deploy…, which asks
- * where, from the environments ahead (T-156), and starts the deploy guide's agent there (D-235). Nothing on the tab
- * deploys by itself. Plain data and the messages' checks: no vscode import.
+ * A ticket's deploy on its Changes tab (T-158, T-167): one row for each environment on the ticket's path, in order,
+ * each with its org and its state by acc's own record (deployed, with when and by whom; deploy failed, with when
+ * and why; merged into its branch; or not deployed). Each row has one quiet Check this org, which reads that one
+ * environment and shows what it found under the row, as a note that never changes the row's state. Then one
+ * primary Deploy…, which asks where, from the environments ahead (T-156), and starts the deploy guide's agent there
+ * (D-235). Nothing on the tab deploys or reads an org by itself. Plain data and the messages' checks: no vscode import.
  */
 
 import type { Config, Environment } from '../../../packages/core/src/config.ts';
+import { type Deployer, envRecord, type RecordState } from '../../../packages/core/src/deploy-record.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import { missingDeps, taskDeployEnabled, ticketPlace } from '../../../packages/core/src/task-deploy.ts';
 import { OPTIONS_MAX } from '../../../packages/core/src/talk-questions.ts';
 import { environmentsAhead } from '../../../packages/core/src/ticket-path.ts';
+import { whereEnabled } from '../../../packages/core/src/where.ts';
 import { pathFrom, type TicketWhere, type WhereState } from '../../../packages/core/src/where-kept.ts';
 import { taskList } from '../../../packages/core/src/overlap.ts';
 import { plural } from '../../../packages/core/src/text.ts';
 import { reasonInWords } from '../logic/relayed.ts';
 import { KEY, type Look, type ModelArea, short } from './shared.ts';
 
-/** How an environment's state shows (T-155): blue for all of it, orange for some or none, quiet when it can't tell. */
-export const WHERE_LOOK: Record<WhereState, Look> = {
+/** An environment's state by acc's record (T-167): blue where it got there, orange where its deploy failed, quiet where it's not deployed. */
+export const RECORD_LOOK: Record<RecordState, Look> = {
   deployed: { label: 'Deployed', icon: 'pass', tone: 'blue' },
-  partly: { label: 'Partly deployed', icon: 'warning', tone: 'orange' },
-  'not-deployed': { label: 'Not deployed', icon: 'circle-slash', tone: 'orange' },
+  failed: { label: 'Deploy failed', icon: 'warning', tone: 'orange' },
+  merged: { label: 'Merged', icon: 'git-merge', tone: 'blue' },
+  'not-deployed': { label: 'Not deployed', icon: 'circle-large-outline', tone: 'neutral' },
+};
+
+/** Who deployed it, in words, after when. */
+export const DEPLOYER_WORDS: Record<Deployer, string> = { builder: 'by the builder', guide: 'by the deploy guide' };
+
+/** What a Check this org found (T-155's reading): blue where it matches, orange where it differs, quiet when it can't tell. */
+export const WHERE_LOOK: Record<WhereState, Look> = {
+  deployed: { label: 'Matches', icon: 'pass', tone: 'blue' },
+  partly: { label: 'Differs', icon: 'warning', tone: 'orange' },
+  'not-deployed': { label: 'Differs', icon: 'circle-slash', tone: 'orange' },
   unknown: { label: 'Can\'t tell', icon: 'question', tone: 'neutral' },
 };
 
@@ -40,31 +54,44 @@ export const MERGE_LOOK: Record<'merged' | 'open' | 'building' | 'none', Look> =
 export const NEXT_LOOK: Look = { label: 'Next', icon: 'arrow-right', tone: 'neutral' };
 export const BUSY_LOOK: Look = { label: 'An agent is deploying it', icon: 'sync~spin', tone: 'blue' };
 
+/** What a row's last Check this org found in its org, and when: a note under the row. */
+export interface EnvCheck {
+  look: Look;
+  /** When it was read. */
+  at: string;
+  /** Words after the label: how many differ, or why it can't tell; null when it matches. */
+  detail: string | null;
+  /** Each component that differs: the note opens to show them. */
+  differs: string[];
+  /** Where acc's record, the branch and the org disagree, in words (T-155); none when they agree. */
+  notes: string[];
+}
+
 /** One environment on the ticket's path, as its row shows it. */
 export interface EnvRow {
   name: string;
   branch: string;
   org: string | null;
-  /** Its state, an icon and a label. */
+  /** Its state by acc's record, an icon and a label. */
   look: Look;
-  /** When the work got there, by acc's records; null where it didn't, or acc has no record. */
+  /** When it got there, or its deploy failed, by acc's record; null where there's no time. */
   at: string | null;
-  /** Words after the label: how many differ, or why it can't tell; null for none. */
+  /** Who deployed it, or whose deploy failed, in words ("by the builder"); null for the rest. */
+  by: string | null;
+  /** Words under the label: why the deploy failed, on one line, or which branch it's merged into; null for none. */
   detail: string | null;
-  /** Each component that differs, for partly and not deployed: the row opens to show them. */
-  differs: string[];
-  /** Where acc's own record, git and the org disagree, in words (T-155); none when they agree. */
-  notes: string[];
-  /** When it was last read; null before the first reading. */
-  readAt: string | null;
-  /** The development environment's row only: whether the work is merged into its branch, in words with an icon. */
+  /** The development environment's row only, while its state doesn't say so: whether the work is merged into its branch. */
   merged: { look: Look; words: string } | null;
   /** The usual next step, its icon and label: on one row at most; null on the rest. */
   next: Look | null;
   /** A deploy to it under way, its icon and words; null when there's none. */
   busy: Look | null;
-  /** A read of it under way, so its Check again waits. */
-  reading: boolean;
+  /** What its last Check this org found; null before the first. */
+  check: EnvCheck | null;
+  /** Why Check this org can't run here, or null when it can. */
+  checkOff: string | null;
+  /** A check of it under way, so its Check this org waits. */
+  checking: boolean;
 }
 
 /** One environment Deploy… offers: its name, its org, what happens next, and why it can't be picked, or null. */
@@ -108,42 +135,44 @@ export interface DeployIn {
   conflicts?: string | null;
   /** How many steps it has left to do by hand, in every environment (record changes and deletions). */
   stepsLeft?: number;
-  /** Where the orgs and branches were last read to hold its work (T-155), as kept beside the ledger; null before the first reading. */
+  /** What each Check this org last found (T-167), kept beside the ledger; null before the first. A note: it never sets a row's state. */
   where?: TicketWhere | null;
-  /** Whether a read of where its work is in an environment, by its branch, is under way; none when left out. */
+  /** Whether a Check this org of an environment, by its branch, is under way; none when left out. */
   reading?: (branch: string) => boolean;
 }
 
-/** When acc recorded the work reaching `env`: a merged promotion or a deploy, the latest; null with none. */
-function reachedAt(t: Pick<Task, 'promotions' | 'deploys'>, env: string): string | null {
-  const times = [...(t.promotions ?? []).filter((p) => p.state === 'merged' && p.to === env).map((p) => p.mergedAt ?? p.at), ...(t.deploys ?? []).filter((d) => d.env === env).map((d) => d.at)];
-  return times.sort().at(-1) ?? null;
+/** What a check found, as its note shows it: matches, differs (how many, and which), or can't tell (why). */
+export function envCheck(r: TicketWhere['envs'][number], name: string): EnvCheck {
+  const n = r.differs.length;
+  const detail = r.state === 'partly' ? `${plural(n, 'component')} differ${n === 1 ? 's' : ''}`
+    : r.state === 'not-deployed' ? (n ? `${plural(n, 'component')} not in ${name}` : `Not in ${name}`)
+      : r.state === 'unknown' ? reasonInWords(r.why) : null;
+  return { look: WHERE_LOOK[r.state], at: r.at, detail, differs: r.state === 'partly' || r.state === 'not-deployed' ? r.differs : [], notes: r.notes.map((x) => reasonInWords(x)) };
 }
 
 /**
  * The rows, one for each environment on the ticket's path, in order, then each in `also` off the usual way (an
- * environment Deploy… offers, as Hotfix off QA). An environment's state is its last reading (T-155); before the
- * first, deployed where acc recorded it there, else can't tell, with no read time. Only the usual next step is
- * next; the development environment's row also says whether the work is merged into its branch.
+ * environment Deploy… offers, as Hotfix off QA). Each row's state is acc's record alone (T-167); what a Check this
+ * org found sits beside it as a note. Only the usual next step is next; the development environment's row also says
+ * whether the work is merged into its branch, unless its state says so.
  */
-export function envRows(config: Pick<Config, 'environments'>, t: Pick<Task, 'environment' | 'promotions' | 'deploys' | 'pr' | 'state' | 'run'>, where: TicketWhere | null = null, deploying: string | null = null, also: Environment[] = [], reading: (branch: string) => boolean = () => false): EnvRow[] {
-  const next = ticketPlace(config, t, where)?.next[0]?.branch ?? null;
+export function envRows(config: Pick<Config, 'environments' | 'profile'>, t: Pick<Task, 'id' | 'environment' | 'promotions' | 'deploys' | 'deployFailures' | 'pr' | 'state' | 'run'>, where: TicketWhere | null = null, deploying: string | null = null, also: Environment[] = [], reading: (branch: string) => boolean = () => false): EnvRow[] {
+  const next = ticketPlace(config, t)?.next[0]?.branch ?? null;
   const path = pathFrom(config.environments, t.environment);
+  const can = whereEnabled(config, t);
   return [...path, ...also.filter((e) => !path.includes(e))].map((e, i): EnvRow => {
+    const rec = envRecord(t, e.branch);
     const r = where?.envs.find((x) => x.env === e.branch);
-    const at = reachedAt(t, e.branch);
-    const state: WhereState = r ? r.state : at ? 'deployed' : 'unknown';
-    const detail = r?.state === 'partly' ? `${plural(r.differs.length, 'component')} differ${r.differs.length === 1 ? 's' : ''}`
-      : r?.state === 'not-deployed' && r.differs.length ? `${plural(r.differs.length, 'component')} not in ${e.name}`
-      : r?.state === 'unknown' ? reasonInWords(r.why) : null;
     const merge = t.pr?.state === 'merged' ? 'merged' : t.state === 'running' ? 'building' : t.pr || t.run?.branch ? 'open' : 'none';
     const words = { merged: `Merged into ${e.branch}`, open: `Not merged into ${e.branch} yet`, building: 'Being built', none: 'No work to merge yet' }[merge];
     return {
-      name: e.name, branch: e.branch, org: e.org, look: WHERE_LOOK[state], at: state === 'deployed' ? at : null, detail,
-      differs: r && (r.state === 'partly' || r.state === 'not-deployed') ? r.differs : [], notes: (r?.notes ?? []).map((n) => reasonInWords(n)), readAt: r?.at ?? null,
-      merged: i === 0 ? { look: MERGE_LOOK[merge], words } : null,
+      name: e.name, branch: e.branch, org: e.org, look: RECORD_LOOK[rec.state], at: rec.at, by: rec.by ? DEPLOYER_WORDS[rec.by] : null,
+      detail: rec.state === 'failed' ? reasonInWords(rec.reason) : rec.state === 'merged' ? `In the ${e.branch} branch, with no deploy on record` : null,
+      merged: i === 0 && rec.state !== 'merged' ? { look: MERGE_LOOK[merge], words } : null,
       next: e.branch === next ? NEXT_LOOK : null, busy: deploying === e.branch ? BUSY_LOOK : null,
-      reading: reading(e.branch),
+      check: r ? envCheck(r, e.name) : null,
+      checkOff: !can.ok ? can.why : !e.org ? `${e.name} has no org in the project's settings.` : null,
+      checking: reading(e.branch),
     };
   });
 }
@@ -153,8 +182,8 @@ export const deployBlockers = (checks: readonly { gate: string; status: string; 
   checks.filter((c) => (c.status === 'fail' || c.status === 'error') && !c.waived).map((c) => c.gate);
 
 /** Why nothing can go now, or null: the command's own reason, its own checks failing, a conflict with its environment, or a deploy under way. */
-export function pickOff(i: Pick<DeployIn, 'config' | 'task' | 'deploying' | 'failing' | 'conflicts' | 'where'>): string | null {
-  const can = taskDeployEnabled(i.config, i.task, i.where);
+export function pickOff(i: Pick<DeployIn, 'config' | 'task' | 'deploying' | 'failing' | 'conflicts'>): string | null {
+  const can = taskDeployEnabled(i.config, i.task);
   if (!can.ok) return can.why;
   const failing = i.failing ?? [];
   if (failing.length) return `The ${taskList(failing)} check${failing.length === 1 ? '' : 's'} failed: fix ${failing.length === 1 ? 'it' : 'them'}, or accept ${failing.length === 1 ? 'it' : 'them'} anyway, first.`;
@@ -164,7 +193,7 @@ export function pickOff(i: Pick<DeployIn, 'config' | 'task' | 'deploying' | 'fai
 }
 
 /** Why a deploy to `to` can't go now, or null: why nothing can, or no org, or a dependency not there yet. */
-export function deployOff(i: Pick<DeployIn, 'config' | 'task' | 'tasks' | 'deploying' | 'failing' | 'conflicts' | 'where'>, to: Environment): string | null {
+export function deployOff(i: Pick<DeployIn, 'config' | 'task' | 'tasks' | 'deploying' | 'failing' | 'conflicts'>, to: Environment): string | null {
   const off = pickOff(i);
   if (off) return off;
   if (!to.org) return `${to.name} has no org in the project's settings.`;
@@ -179,7 +208,7 @@ export const choiceThen = (e: Pick<Environment, 'name' | 'type' | 'protected'>):
 
 /** Deploy…: the environments ahead, at most three in path order, each with what happens next and why it can't be picked. */
 export function deployPick(i: DeployIn): DeployPick | null {
-  const place = ticketPlace(i.config, i.task, i.where);
+  const place = ticketPlace(i.config, i.task);
   if (!place) return null;
   const ahead = environmentsAhead(i.config, place.at, [i.task.environment]).slice(0, OPTIONS_MAX);
   if (!ahead.length) return null;
@@ -219,7 +248,7 @@ export const stepsLeftWords = (n: number): string | null => (n ? `${plural(n, 's
 export type Message =
   /** Deploy…'s pick (T-158): the deploy guide's agent, a Claude Code chat, for the ticket and the environment picked. */
   | { type: 'deploy-guide'; project: string; task: string; to: string }
-  /** A row's Check again: read where the ticket's work is in that row's environment, by its branch, again. */
+  /** A row's Check this org (T-167): read where the ticket's work is in that row's environment, by its branch, alone. */
   | { type: 'where-check'; project: string; task: string; env: string };
 
 const ticket = (x: Record<string, unknown>): boolean => short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string);

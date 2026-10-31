@@ -4,6 +4,7 @@ import { writeAtomic } from './atomic.ts';
 import { releaseAwake } from './awake.ts';
 import type { KeptChanges } from './changes.ts';
 import type { TaskDeploy } from './deploy-gate.ts';
+import type { TaskDeployFailure } from './deploy-record.ts';
 import { autoMergeFor, type BuilderPlace, type Config, defaultEnvironment, environmentByBranch, type Effort, type GateScope } from './config.ts';
 import type { EffortPick } from './efforts.ts';
 import { AccError } from './exec.ts';
@@ -383,6 +384,8 @@ export interface Task {
   changes?: KeptChanges | null;
   /** Each deploy its builder made to its environment's org (D-206), oldest first, so its page says "Deployed to <org>". */
   deploys?: TaskDeploy[];
+  /** Each deploy of it that failed (T-167), oldest first, so its environment's row says so: the builder's and the deploy guide's. */
+  deployFailures?: TaskDeployFailure[];
   /** Its changes outside git, such as records (T-100): kept, noted commands, and the steps to make them at promotion. */
   outside?: OutsideState;
   /** Each step of each group check it was in (T-165), oldest first. */

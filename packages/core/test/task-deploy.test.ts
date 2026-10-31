@@ -182,6 +182,11 @@ test('a ticket goes to any environment on its path after where it is now, the pe
   const inProd = { ...t, promotions: [{ from: 'uat', to: 'production', pr: { number: 1, url: 'u' }, state: 'merged' as const, mergeSha: 'b', mergedAt: '2026-10-28T11:00:00Z', at: '2026-10-28T11:00:00Z' }], deploys: inUat.deploys };
   assert.throws(() => taskDeployRoute(c, inProd), /ACME-1 is in Production, the end of its path/);
   assert.equal(ticketPlace(c, { ...t, environment: 'gone' }), null, 'edge case: an environment the settings don\'t have');
+  // T-166: a deploy off its usual path (Hotfix, off QA) never moves where it is.
+  const hot = config({ environments: [{ name: 'Production', type: 'production', org: 'Acme Production' }, { name: 'Hotfix', type: 'developer', org: 'Acme Hotfix' }, { name: 'UAT', type: 'full', org: 'Acme UAT', promotesTo: ['production', 'hotfix'] }, { name: 'Dev', type: 'developer', org: 'Acme Dev', default: true, promotesTo: ['uat'] }] });
+  const inHotfix = { ...t, deploys: [{ ...inUat.deploys[0]! }, { ...inUat.deploys[0]!, env: 'hotfix', at: '2026-10-28T12:00:00Z' }] };
+  assert.equal(ticketPlace(hot, inHotfix)!.at.branch, 'uat', 'edge case: a later deploy to Hotfix leaves it in UAT');
+  assert.deepEqual(ticketPlace(hot, inHotfix)!.next.map((e) => e.branch), ['production', 'hotfix']);
 });
 
 test('the command is off, with why, for a project that isn\'t Salesforce, has no GitHub, or a task with no work or a builder at work', () => {
@@ -364,7 +369,7 @@ test('the deploy quick-deploys the checked job, merges its pull request, records
   assert.deepEqual(later.deleted, [`${D}/classes/Old.cls`], 'its deletion stays a person\'s, there too');
 });
 
-test('a failed deploy closes its pull request and records nothing; a merge that fails leaves the deploy recorded and says so', () => {
+test('a failed deploy closes its pull request and records no deploy, only the failure with why (T-167); a merge that fails leaves the deploy recorded and says so', () => {
   const { origin, paths, c } = repo();
   const calls: string[] = [];
   const d = deps(origin, calls, { deploy: 'fail' });
@@ -375,6 +380,10 @@ test('a failed deploy closes its pull request and records nothing; a merge that 
   assert.ok(calls.some((x) => x.startsWith('gh pr close 40')));
   assert.ok(!calls.some((x) => x.startsWith('gh pr merge')));
   assert.equal(taskIn(paths, 'ACME-1').deploys, undefined);
+  const failed = taskIn(paths, 'ACME-1').deployFailures ?? [];
+  assert.deepEqual(failed.map((f) => [f.env, f.org, f.by, f.checkId]), [['uat', 'Acme UAT', by, '0AfCHECK']], 'the failure is kept, the deploy guide\'s');
+  assert.match(failed[0]!.reason, /Invoice: Invalid type: Foo/);
+  assert.equal(taskIn(paths, 'ACME-1').promotions?.length ?? 0, 0, 'no promotion: the failure moves it nowhere');
   assert.deepEqual(listUpdates(paths), []);
 
   const second = repo();

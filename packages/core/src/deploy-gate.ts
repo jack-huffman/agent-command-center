@@ -18,6 +18,7 @@ import type { Environment } from './config.ts';
 import { DEPLOY_GATE } from './deploy-commands.ts';
 import type { RunResult } from './exec.ts';
 import { APEX, type ApexTest, deployProblems, type Exec, type Gate, type GateInput, type GateRunInfo, lastLine, listed, listLines, type Outcome, outcome, packageDirs, parseDeployJson, under } from './gates.ts';
+import { recordDeployFailure } from './deploy-record.ts';
 import { mutate, readLedger } from './ledger.ts';
 import { parseOrgUrl } from './onboarding/helpers.ts';
 import { inFlightFilesStrict, overlaps, sharedFiles, sharesWords, taskList, waitWords } from './overlap.ts';
@@ -261,7 +262,10 @@ function deploySteps(input: GateInput, run: GateRunInfo, exec: Exec, env: Enviro
     const details: Record<string, unknown> = { jobId: res.id, ...orgDetails, testLevel: tests.length ? 'RunSpecifiedTests' : 'NoTestRun', tests };
     if (!res.success) {
       const problems = deployProblems(res);
-      return fail(problems.length ? `The deploy to ${org} failed (job ${res.id}), ${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (read.message?.trim() || `The deploy to ${org} ${res.status ?? 'failed'} (job ${res.id}).`), { ...details, problems });
+      const why = problems.length ? `The deploy to ${org} failed (job ${res.id}), ${plural(problems.length, 'problem')}: ${listOf(problems, 2)}` : (read.message?.trim() || `The deploy to ${org} ${res.status ?? 'failed'} (job ${res.id}).`);
+      // Kept on the task (T-167), so its environment's row says the deploy failed, and why.
+      recordDeployFailure(run.paths, run.now, run.task, { env: env.branch, org, at: run.now().toISOString(), reason: why });
+      return fail(why, { ...details, problems });
     }
     // It's in the org: each component the profile can name is asked for by type; one the org doesn't list is a failure.
     const { known, components, verified, unchecked, missing } = askOrgFor(exec, org, source);

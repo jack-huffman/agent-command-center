@@ -230,7 +230,7 @@ test('the Changes tab has no component list, and the Agent panel\'s done state h
   const { renderDeploy } = await import('../webview/changes.ts');
   const { renderAgentPanel } = await import('../webview/agent-panel.ts');
   const look = { label: 'Deployed', icon: 'pass', tone: 'blue' as const };
-  const row = (name: string) => ({ name, branch: name.toLowerCase(), org: `acme-${name.toLowerCase()}`, look, at: null, detail: null, differs: [], notes: [], readAt: null, merged: null, next: null, busy: null, reading: false });
+  const row = (name: string) => ({ name, branch: name.toLowerCase(), org: `acme-${name.toLowerCase()}`, look, at: null, by: null, detail: null, merged: null, next: null, busy: null, check: null, checkOff: null, checking: false });
   const m = { project: '/r', key: 'ACME-7', testing: shown() } as unknown as TicketModel;
   const tab = renderDeploy(m, { task: 'ACME-7', rows: [row('Dev'), row('QA')], pick: null, status: null, needs: null }) as unknown as PageElement;
   assert.ok(!buttons(tab).some((b) => /^Open /.test(b.textContent)), 'no Open on the Changes tab');

@@ -1,25 +1,27 @@
-// The Changes tab as the page draws it (T-138, T-158): a row for each environment with its state in words and
-// an icon, when it was read and Check again, a partly deployed row that opens on what differs; one Deploy…, which
+// The Changes tab as the page draws it (T-138, T-158, T-167): a row for each environment with its state by acc's
+// record in words and an icon, who deployed it and when, Check this org, and a check's result under its row that
+// opens on what differs; one Deploy…, which
 // asks where and starts the agent there, never a direct deploy, off with why; the steps left with Mark done and
 // Skip; More closed, holding what moved; and the tab's needs-you from the deploy, never the manifest.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TicketModel } from '../src/model/task-page.ts';
 import type { EnvRow, TicketDeploy } from '../src/model/ticket-deploy.ts';
-import { BUSY_LOOK, NEXT_LOOK, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
+import { BUSY_LOOK, RECORD_LOOK as STATE, NEXT_LOOK, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
 import { RECORD_LOOK, type TicketRecords } from '../src/model/record-changes.ts';
 import { pageDom, type PageElement } from './page-dom.ts';
 
 const AT = '2026-10-28T08:00:00.000Z';
 const row = (name: string, more: Partial<EnvRow> = {}): EnvRow => ({
-  name, branch: name.toLowerCase(), org: `acme-${name.toLowerCase()}`, look: WHERE_LOOK.deployed, at: AT, detail: null, differs: [], notes: [], readAt: AT, merged: null, next: null, busy: null, reading: false, ...more,
+  name, branch: name.toLowerCase(), org: `acme-${name.toLowerCase()}`, look: STATE.deployed, at: AT, by: 'by the deploy guide', detail: null, merged: null, next: null, busy: null, check: null, checkOff: null, checking: false, ...more,
 });
 const deploy = (more: Partial<TicketDeploy> = {}): TicketDeploy => ({
   task: 'ACME-7',
   rows: [
     row('Dev', { merged: { look: { label: 'Merged', icon: 'git-merge', tone: 'blue' }, words: 'Merged into dev' } }), row('QA'),
-    row('UAT', { look: WHERE_LOOK.partly, at: null, detail: '2 components differ', differs: ['Apex Class: Helper', 'Flow: Route'], next: NEXT_LOOK }),
-    row('Production', { look: WHERE_LOOK.unknown, at: null, detail: 'This machine has no access to Production.', readAt: null }),
+    row('UAT', { look: STATE.failed, detail: 'The deploy to acme-uat failed (job 0Af2), 1 problem: Helper.cls:3: Missing ;', next: NEXT_LOOK,
+      check: { look: WHERE_LOOK.partly, at: AT, detail: '2 components differ', differs: ['Apex Class: Helper', 'Flow: Route'], notes: [] } }),
+    row('Production', { look: STATE['not-deployed'], at: null, by: null, checkOff: 'Production has no org in the project\'s settings.' }),
   ],
   pick: { label: 'Deploy…', disabled: null, choices: [
     { to: 'uat', name: 'UAT', org: 'acme-uat', then: 'An agent deploys it', disabled: null },
@@ -52,46 +54,57 @@ function setup(): { sent: unknown[] } {
 const all = (e: PageElement): PageElement[] => [e, ...e.all()];
 const buttons = (es: PageElement[]): PageElement[] => es.flatMap(all).filter((x) => x.tagName === 'BUTTON');
 
-test('a row for each environment in path order, each with its state as an icon and a label, and when it was read; one is next (T-158)', async () => {
+test('a row for each environment in path order, each with its state by acc\'s record as an icon and a label, when and who; one is next (T-158, T-167)', async () => {
   setup();
   const { renderDeploy } = await import('../webview/changes.ts');
   const drawn = renderDeploy(model(), deploy()) as unknown as PageElement;
   const rows = drawn.all('dp-row');
   assert.deepEqual(rows.map((r) => r.dataset.env), ['dev', 'qa', 'uat', 'production']);
-  assert.deepEqual(rows.map((r) => r.all('dp-state')[0]!.textContent.replace(/\d.*$/, '')), ['Deployed', 'Deployed', 'Partly deployed', 'Can\'t tell']);
+  assert.deepEqual(rows.map((r) => r.all('dp-state')[0]!.textContent.replace(/\d.*$/, '')), ['Deployed', 'Deployed', 'Deploy failed', 'Not deployed']);
   assert.equal(rows.filter((r) => r.all('dp-state')[0]!.querySelector('.codicon')).length, 4, 'each state has its icon');
-  assert.deepEqual(rows.map((r) => r.all('dp-read')[0]!.textContent.replace(/Check again$/, '').replace(/^Read .*/, 'Read')), ['Read', 'Read', 'Read', 'Not read yet']);
+  assert.deepEqual(rows.map((r) => r.all('dp-by')[0]?.textContent ?? null), ['by the deploy guide', 'by the deploy guide', 'by the deploy guide', null], 'who deployed it');
   assert.deepEqual(rows.map((r) => /Next/.test(r.all('dp-row-head')[0]!.textContent)), [false, false, true, false], 'one environment is next');
   assert.equal(rows[0]!.all('dp-merged')[0]?.textContent, 'Merged into dev', 'the development environment says it is merged');
-  assert.equal(rows[3]!.all('dp-detail')[0]?.textContent, 'This machine has no access to Production.', 'can\'t tell, and why');
+  assert.match(rows[2]!.all('dp-detail')[0]!.textContent, /^The deploy to acme-uat failed/, 'failed, and why');
+  assert.ok(!/Not read yet|Checking…|Read /.test(drawn.textContent), 'no words about reads the page never starts');
 });
 
-test('a partly deployed row opens on the components that differ, and stays open as the page redraws (T-158)', async () => {
+test('a check\'s result shows under its row with its time, opens on the components that differ, and stays open as the page redraws; the row keeps its state (T-167)', async () => {
   setup();
   const { renderDeploy } = await import('../webview/changes.ts');
   const uat = (): PageElement => (renderDeploy(model(), deploy()) as unknown as PageElement).all('dp-row')[2]!;
+  assert.match(uat().all('dp-check-found')[0]!.textContent, /^This org, checked .*:Differs$/);
+  assert.match(uat().all('dp-state')[0]!.textContent, /^Deploy failed/, 'the row\'s state is still the record\'s');
   const fold = buttons([uat()]).find((b) => b.textContent === '2 components differ')!;
   assert.equal(fold.getAttribute('aria-expanded'), 'false');
   assert.equal(uat().all('dp-differs').length, 0, 'closed to start');
   fold.click();
   assert.deepEqual(uat().all('dp-differs')[0]!.all('chg-name').map((x) => x.textContent), ['Apex Class: Helper', 'Flow: Route']);
-  // Edge: a deployed row has nothing to open.
-  assert.equal(buttons([(renderDeploy(model(), deploy()) as unknown as PageElement).all('dp-row')[1]!]).filter((b) => b.classList.contains('dp-differs-btn')).length, 0);
+  // Edge: a row with no check has no note, and nothing to open.
+  const qa = (renderDeploy(model(), deploy()) as unknown as PageElement).all('dp-row')[1]!;
+  assert.deepEqual([qa.all('dp-check-found').length, buttons([qa]).filter((b) => b.classList.contains('dp-differs-btn')).length], [0, 0]);
+  // Can't tell says why.
+  const why = deploy({ rows: [row('QA', { check: { look: WHERE_LOOK.unknown, at: AT, detail: 'This machine isn\'t logged in to acme-qa.', differs: [], notes: ['A note.'] } })] });
+  const drawn = (renderDeploy(model(), why) as unknown as PageElement).all('dp-row')[0]!;
+  assert.deepEqual([drawn.all('dp-check-why')[0]?.textContent, drawn.all('dp-note')[0]?.textContent], ['This machine isn\'t logged in to acme-qa.', 'A note.']);
 });
 
-test('Check again reads its own row\'s environment alone; while that row reads, its button waits and sends nothing, and the others stay on (T-158)', async () => {
+test('Check this org reads its own row\'s environment alone; while it reads, its button waits and sends nothing; off, it says why (T-167)', async () => {
   const page = setup();
   const { renderDeploy } = await import('../webview/changes.ts');
-  const again = (d: TicketDeploy): PageElement[] => buttons([renderDeploy(model(), d) as unknown as PageElement]).filter((b) => b.classList.contains('dp-again'));
-  again(deploy())[1]!.click();
+  const check = (d: TicketDeploy): PageElement[] => buttons([renderDeploy(model(), d) as unknown as PageElement]).filter((b) => b.classList.contains('dp-check-btn'));
+  assert.deepEqual(check(deploy()).map((b) => [b.textContent, b.disabled]), [['Check this org', false], ['Check this org', false], ['Check this org', false], ['Check this org', true]], 'one on each row, off where there is no org');
+  assert.equal(check(deploy())[3]!.getAttribute('aria-description'), 'Production has no org in the project\'s settings.');
+  check(deploy())[1]!.click();
   assert.deepEqual(page.sent, [{ type: 'where-check', project: '/r', task: 'ACME-7', env: 'qa' }], 'QA\'s button reads QA');
   page.sent.length = 0;
-  const reading = deploy();
-  reading.rows[1] = { ...reading.rows[1]!, reading: true };
-  const busy = again(reading);
-  assert.deepEqual(busy.map((b) => [b.textContent, b.disabled]), [['Check again', false], ['Checking…', true], ['Check again', false], ['Check again', false]], 'edge case: a read of one row under way');
+  const checking = deploy();
+  checking.rows[1] = { ...checking.rows[1]!, checking: true };
+  const busy = check(checking);
+  assert.deepEqual(busy.map((b) => [b.disabled, b.getAttribute('aria-busy')]), [[false, null], [true, 'true'], [false, null], [true, null]], 'edge case: a check of one row under way');
   busy[1]!.click();
-  assert.deepEqual(page.sent, []);
+  check(deploy())[3]!.click();
+  assert.deepEqual(page.sent, [], 'a waiting or off button sends nothing');
 });
 
 test('Deploy… is the one primary button: it asks where, each choice says what happens next, and the pick starts the agent, never a direct deploy (T-158)', async () => {

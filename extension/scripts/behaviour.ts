@@ -2613,27 +2613,30 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'changes tab: a row for each environment in path order, each with its state, when it was read and Check again; one row is next, and UAT\'s opens on what differs (T-158)',
+    name: 'changes tab: a row for each environment in path order, each with its state by acc\'s record and Check this org; one row is next, UAT\'s failed deploy says why, and its check opens on what differs (T-158, T-167)',
     page: 'ticket-deploy-deployed',
     async run(t) {
       const rows = t.all('.dp-row');
       t.check('a row for each environment on the path, in order, then Hotfix, a choice off the usual way', JSON.stringify(rows.map((r) => r.dataset.env)) === JSON.stringify(['dev', 'qa', 'uat', 'production', 'hotfix']), rows.map((r) => r.dataset.env));
-      t.check('each row says its state with an icon and a label', rows.every((r) => /Deployed|Partly deployed|Not deployed|Can't tell/.test(t.find('.dp-state', r).textContent ?? '') && !!t.find('.dp-state .codicon', r)), rows.map((r) => t.find('.dp-state', r).textContent));
-      t.check('each row says when it was read', rows.every((r) => /^Read /.test(t.find('.dp-read', r).textContent ?? '')), rows.map((r) => t.find('.dp-read', r).textContent));
+      const states = rows.map((r) => (t.find('.dp-state', r).textContent ?? '').replace(/\d.*$/, '').trim());
+      t.check('each row says its state from the record, with an icon', JSON.stringify(states) === JSON.stringify(['Deployed', 'Deployed', 'Deploy failed', 'Not deployed', 'Not deployed']) && rows.every((r) => !!t.find('.dp-state .codicon', r)), states);
+      t.check('a deployed row says who deployed it', t.find('.dp-row[data-env="dev"] .dp-by').textContent === 'by the builder' && t.find('.dp-row[data-env="qa"] .dp-by').textContent === 'by the deploy guide');
+      t.check('UAT\'s failed deploy says why on one line', /^The deploy to acme-uat failed/.test(t.find('.dp-row[data-env="uat"] .dp-detail').textContent ?? ''));
+      t.check('no row talks of reads the page never starts', !rows.some((r) => /Not read yet|Checking…/.test(r.textContent ?? '')));
       const next = rows.filter((r) => /Next/.test(t.find('.dp-row-head', r).textContent ?? ''));
       t.check('only one environment is next, and it is UAT', next.length === 1 && next[0]!.dataset.env === 'uat', next.map((r) => r.dataset.env));
       t.check('Dev\'s row says the work is merged into its branch', /Merged into dev/.test(t.find('.dp-merged', rows[0]).textContent ?? ''));
-      const uat = rows[2]!;
+      t.check('QA\'s check matches, under its row with when', /^This org, checked .+:Matches$/.test(t.find('.dp-row[data-env="qa"] .dp-check-found').textContent ?? ''), t.find('.dp-row[data-env="qa"] .dp-check-found').textContent);
       const fold = (): HTMLButtonElement => t.find<HTMLButtonElement>('.dp-row[data-env="uat"] .dp-differs-btn');
       const differs = (): number => t.all('.dp-row[data-env="uat"] .dp-differs li').length;
-      t.check('UAT is partly deployed, saying how many differ, closed to start', /Partly deployed/.test(uat.textContent ?? '') && fold().textContent === '2 components differ' && fold().getAttribute('aria-expanded') === 'false' && differs() === 0, [fold().textContent, differs()]);
+      t.check('UAT\'s check differs, saying how many, closed to start; its row still says its deploy failed', /Differs/.test(t.find('.dp-row[data-env="uat"] .dp-check-found').textContent ?? '') && /^Deploy failed/.test(t.find('.dp-row[data-env="uat"] .dp-state').textContent ?? '') && fold().textContent === '2 components differ' && fold().getAttribute('aria-expanded') === 'false' && differs() === 0, [fold().textContent, differs()]);
       await t.click(fold());
       t.check('a click opens it on the two that differ', fold().getAttribute('aria-expanded') === 'true' && differs() === 2, differs());
       await t.click(fold());
       t.check('a second click closes it', fold().getAttribute('aria-expanded') === 'false' && differs() === 0);
-      t.check('Production can\'t tell, and says why', /Can't tell/.test(rows[3]!.textContent ?? '') && /no access to Production/.test(t.find('.dp-detail', rows[3]).textContent ?? ''));
-      await t.click(t.find<HTMLButtonElement>('.dp-row[data-env="qa"] .dp-again'));
-      t.check('QA\'s Check again asks the extension to read QA alone, once, and deploys nothing', t.sent('where-check').length === 1 && t.sent('where-check')[0]?.env === 'qa' && t.sent('deploy-guide').length === 0, t.sent('where-check'));
+      t.check('Production has no check yet, and no note', t.all('.dp-row[data-env="production"] .dp-check-found').length === 0);
+      await t.click(t.find<HTMLButtonElement>('.dp-row[data-env="qa"] .dp-check-btn'));
+      t.check('QA\'s Check this org asks the extension to read QA alone, once, and deploys nothing', t.sent('where-check').length === 1 && t.sent('where-check')[0]?.env === 'qa' && t.sent('deploy-guide').length === 0, t.sent('where-check'));
       const more = t.find<HTMLButtonElement>('.chg-more-btn');
       t.check('More is closed to start', more.getAttribute('aria-expanded') === 'false' && t.all('.chg-more-body').length === 0);
       await t.click(more);
@@ -2689,15 +2692,15 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'changes tab: Check again on QA\'s row waits while QA is read, and sends nothing; the other rows\' stay on (T-158)',
+    name: 'changes tab: Check this org on QA\'s row waits while QA is checked, and sends nothing; the other rows\' stay on (T-167)',
     page: 'ticket-deploy-checking',
     async run(t) {
-      const qa = t.find<HTMLButtonElement>('.dp-row[data-env="qa"] .dp-again');
-      t.check('QA\'s says it is checking, and is off', qa.disabled && qa.textContent === 'Checking…', [qa.disabled, qa.textContent]);
+      const qa = t.find<HTMLButtonElement>('.dp-row[data-env="qa"] .dp-check-btn');
+      t.check('QA\'s waits, busy and off', qa.disabled && qa.getAttribute('aria-busy') === 'true' && qa.textContent === 'Check this org', [qa.disabled, qa.textContent]);
       await t.click(qa);
       t.check('a click on it sends nothing', t.sent('where-check').length === 0);
-      const others = t.all<HTMLButtonElement>('.dp-row:not([data-env="qa"]) .dp-again');
-      t.check('every other row\'s Check again is on', others.length === 4 && others.every((b) => !b.disabled && b.textContent === 'Check again'), others.map((b) => b.textContent));
+      const others = t.all<HTMLButtonElement>('.dp-row:not([data-env="qa"]) .dp-check-btn');
+      t.check('every other row\'s Check this org is on', others.length === 4 && others.every((b) => !b.disabled && b.textContent === 'Check this org'), others.map((b) => b.textContent));
     },
   },
   {
@@ -3085,12 +3088,14 @@ export const MUTANTS: Mutant[] = [
   { name: 'Deploy…\'s pick deploys without the agent', file: 'changes.ts', find: "api.postMessage({ type: 'deploy-guide', project: m.project, task: d.task, to: c.to });", replace: "api.postMessage({ type: 'deploy-go', project: m.project, task: d.task, to: c.to, checkId: 'none' });", kills: [caseNamed('changes tab: Deploy… is the one primary action')] },
   { name: 'Deploy… off doesn\'t say why beside it', file: 'changes.ts', find: "  if (p.disabled) out.push(el('p', 'muted small dp-why', icon('info'), el('span', '', p.disabled)));\n", replace: '', kills: [caseNamed('changes tab: Deploy… sits above the list')] },
   { name: 'every environment shows as next', file: 'changes.ts', find: 'r.next ? status(r.next) : null', replace: "status(r.next ?? { label: 'Next', icon: 'arrow-right', tone: 'neutral' })", kills: [caseNamed('changes tab: a row for each environment')] },
-  { name: 'Check again asks for nothing', file: 'changes.ts', find: "if (!x.disabled) api.postMessage({ type: 'where-check', project: m.project, task: d.task, env: r.branch });", replace: 'void x;', kills: [caseNamed('changes tab: a row for each environment')] },
-  { name: 'Check again reads another row\'s environment', file: 'changes.ts', find: "task: d.task, env: r.branch });", replace: "task: d.task, env: d.rows[0]!.branch });", kills: [caseNamed('changes tab: a row for each environment')] },
+  { name: 'Check this org asks for nothing', file: 'changes.ts', find: "if (!x.disabled) api.postMessage({ type: 'where-check', project: m.project, task: d.task, env: r.branch });", replace: 'void x;', kills: [caseNamed('changes tab: a row for each environment')] },
+  { name: 'Check this org reads another row\'s environment', file: 'changes.ts', find: "task: d.task, env: r.branch });", replace: "task: d.task, env: d.rows[0]!.branch });", kills: [caseNamed('changes tab: a row for each environment')] },
   { name: 'Deploy… stays on when nothing can go', file: 'changes.ts', find: "  if (p.disabled) {\n    go.disabled = true;\n", replace: '  if (p.disabled) {\n', kills: [caseNamed('changes tab: Deploy… is off with each reason')] },
   { name: 'a choice that can\'t be picked is on', file: 'changes.ts', find: "  if (c.disabled) {\n    x.disabled = true;\n", replace: '  if (c.disabled) {\n', kills: [caseNamed('changes tab: Deploy… open with Hotfix off')] },
-  { name: 'a row\'s check under way still takes a click', file: 'changes.ts', find: "  if (r.reading) {\n    x.disabled = true;\n", replace: '  if (r.reading) {\n', kills: [caseNamed('changes tab: Check again on QA\'s row')] },
-  { name: 'a partly deployed row doesn\'t open on what differs', file: 'changes.ts', find: "if (isOpen(key)) row.append(el('ul', 'chg-list dp-differs'", replace: "if (!key) row.append(el('ul', 'chg-list dp-differs'", kills: [caseNamed('changes tab: a row for each environment')] },
+  { name: 'a row\'s check under way still takes a click', file: 'changes.ts', find: "  if (r.checking) {\n    x.disabled = true;\n", replace: '  if (r.checking) {\n', kills: [caseNamed('changes tab: Check this org on QA\'s row')] },
+  { name: 'a check that differs doesn\'t open on what differs', file: 'changes.ts', find: "if (isOpen(key)) out.push(el('ul', 'chg-list dp-differs'", replace: "if (!key) out.push(el('ul', 'chg-list dp-differs'", kills: [caseNamed('changes tab: a row for each environment')] },
+  { name: 'a failed deploy doesn\'t say why', file: 'changes.ts', find: "  if (r.detail) row.append(el('p', 'muted small dp-detail', r.detail));\n", replace: '', kills: [caseNamed('changes tab: a row for each environment')] },
+  { name: 'a check\'s result isn\'t drawn under its row', file: 'changes.ts', find: 'row.append(...renderCheck(m, r), ', replace: 'row.append(', kills: [caseNamed('changes tab: a row for each environment')] },
   { name: 'a deploy under way doesn\'t show on its row', file: 'changes.ts', find: "  if (r.busy) row.append(el('p', 'small dp-busy', status(r.busy)));\n", replace: '', kills: [caseNamed('changes tab: an agent deploying to UAT')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },
 ];

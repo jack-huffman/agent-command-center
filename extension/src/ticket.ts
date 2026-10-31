@@ -486,7 +486,7 @@ export class TicketPanels implements vscode.Disposable {
       deploy: this.deploys ? ticketDeploy({
         config: p.config, task, tasks: this.hub.ledger(p.root)?.tasks ?? [], deploying: this.deploys.deploying(p.root, task.id),
         failing: deployBlockers(model.acc?.checks ?? []), conflicts: model.acc?.conflicts ? task.environment : null, stepsLeft: openSteps(task).length,
-        where: this.deploys.where(p.root, task), reading: (env) => this.deploys!.reading(p.root, task.id, env),
+        where: this.deploys.kept(p.root, task.id), reading: (env) => this.deploys!.reading(p.root, task.id, env),
       }) : null,
       // Its Testing tab (T-161): its development org, and once its builder's deploy there passed, Open and the steps.
       testing: testing(p.config, task, (branch) => this.orgs?.notHere(p.root, branch) ?? false),
@@ -573,10 +573,8 @@ export class TicketPanels implements vscode.Disposable {
     if (!p) return;
     switch (m.type) {
       case 'ready': o.tab?.theme.ready(); return this.post(o);
-      case 'refresh':
-        // The person's Refresh reads where its work is again too (T-155); the page draws it once it's back.
-        if (o.key) this.deploys?.reread(p.root, o.key);
-        return this.load(o);
+      // Refresh draws again from the ledger: it reads no org (T-167).
+      case 'refresh': return this.load(o);
       case 'open': if (isWebLink(m.url)) void vscode.env.openExternal(vscode.Uri.parse(m.url)); return;
       case 'ticket': return this.show(m.project, m.tracker, m.key);
       case 'run':
@@ -624,7 +622,7 @@ export class TicketPanels implements vscode.Disposable {
       case 'record-add': case 'record-step':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.records?.act(m, (msg) => o.view.say(msg));
         return;
-      // Deploy…'s pick, which starts the deploy guide's agent (T-158), and Check again: this page's own task only.
+      // Deploy…'s pick, which starts the deploy guide's agent (T-158), and Check this org (T-167): this page's own task only.
       case 'deploy-guide': case 'where-check':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.deploys?.act(m);
         return;

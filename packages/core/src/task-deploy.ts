@@ -39,7 +39,8 @@ import { DELETION_KIND } from './deletion-kind.ts';
 import { takeGuidedYes } from './deploy-pick.ts';
 import { outsideOf } from './outside-changes.ts';
 import { aheadWords, environmentsAhead } from './ticket-path.ts';
-import { furthestRead, readWhere, type TicketWhere } from './where-kept.ts';
+import { recordDeployFailure } from './deploy-record.ts';
+import { pathFrom } from './where-kept.ts';
 
 /** A command, as every action is one: its id, what it takes, and whether it can run now, with why not. */
 export interface TaskCommand<S> {
@@ -55,19 +56,19 @@ export interface TicketPlace {
 }
 
 /**
- * Where a ticket's change is now: the last place it reached, by time. Its own environment, then each
- * environment a person deployed it to, or a promotion took it to and merged. Then, with the orgs' readings
- * (T-155), the furthest environment after that one an org was found to hold it in, however it got there.
- * Null when its environment isn't in the settings.
+ * Where a ticket's change is now, by acc's own record: the last place it reached, by time. Its own environment,
+ * then each environment a person deployed it to, or a promotion took it to and merged. Only an environment on
+ * its usual path (each first promotesTo from its own) counts: a deploy off it, as to Hotfix, never moves it
+ * (T-166). Null when its environment isn't in the settings.
  */
-export function ticketPlace(config: Pick<Config, 'environments'>, t: Pick<Task, 'environment' | 'promotions' | 'deploys'>, where?: Pick<TicketWhere, 'envs'> | null): TicketPlace | null {
+export function ticketPlace(config: Pick<Config, 'environments'>, t: Pick<Task, 'environment' | 'promotions' | 'deploys'>): TicketPlace | null {
+  const path = new Set(pathFrom(config.environments, t.environment).map((e) => e.branch));
   const reached: { env: string; at: string }[] = [{ env: t.environment, at: '' }];
   for (const p of t.promotions ?? []) if (p.state === 'merged') reached.push({ env: p.to, at: p.mergedAt ?? p.at });
   for (const d of t.deploys ?? []) if (d.checkId) reached.push({ env: d.env, at: d.at });
-  const last = reached.reduce((a, b) => (b.at >= a.at && environmentByBranch(config, b.env) ? b : a));
-  const recorded = environmentByBranch(config, last.env);
-  if (!recorded) return null;
-  const at = furthestRead(config, recorded, where);
+  const last = reached.reduce((a, b) => (b.at >= a.at && path.has(b.env) ? b : a));
+  const at = environmentByBranch(config, last.env);
+  if (!at) return null;
   return { at, next: at.promotesTo.map((b) => environmentByBranch(config, b)).filter((e): e is Environment => !!e) };
 }
 
@@ -76,8 +77,8 @@ export function ticketPlace(config: Pick<Config, 'environments'>, t: Pick<Task, 
  * path after where its change is now (T-156, `environmentsAhead`): the person picks it. Where it is, its own
  * development environment and anything off its path are refused, with where it is and where it can go.
  */
-export function taskDeployRoute(config: Pick<Config, 'environments'>, t: Pick<Task, 'id' | 'environment' | 'promotions' | 'deploys'>, to?: string, where?: Pick<TicketWhere, 'envs'> | null): { from: Environment; to: Environment } {
-  const place = ticketPlace(config, t, where);
+export function taskDeployRoute(config: Pick<Config, 'environments'>, t: Pick<Task, 'id' | 'environment' | 'promotions' | 'deploys'>, to?: string): { from: Environment; to: Environment } {
+  const place = ticketPlace(config, t);
   if (!place) throw new AccError('refused', `${t.id}'s environment, ${t.environment}, isn't in the project's settings.`);
   const ahead = environmentsAhead(config, place.at, [t.environment]);
   if (!to) {
@@ -93,13 +94,13 @@ export function taskDeployRoute(config: Pick<Config, 'environments'>, t: Pick<Ta
 }
 
 /** Why this task can't be deployed from its ticket now, or that it can. */
-export function taskDeployEnabled(config: Pick<Config, 'profile' | 'environments' | 'github'>, t: Pick<Task, 'id' | 'state' | 'environment' | 'promotions' | 'deploys' | 'pr' | 'run'> | undefined, where?: Pick<TicketWhere, 'envs'> | null): { ok: true } | { ok: false; why: string } {
+export function taskDeployEnabled(config: Pick<Config, 'profile' | 'environments' | 'github'>, t: Pick<Task, 'id' | 'state' | 'environment' | 'promotions' | 'deploys' | 'pr' | 'run'> | undefined): { ok: true } | { ok: false; why: string } {
   if (config.profile !== 'salesforce') return { ok: false, why: 'Deploying a ticket sends Salesforce components to an org, and this isn\'t a Salesforce project.' };
   if (!t) return { ok: false, why: 'There\'s no such task.' };
   if (!config.github) return { ok: false, why: 'Deploying a ticket keeps its environment\'s branch in step through a pull request, and this project isn\'t on GitHub.' };
   if (t.state === 'running') return { ok: false, why: `${t.id}'s builder is working on it now. Wait for it to finish.` };
   if (t.pr?.state !== 'merged' && !t.run?.branch) return { ok: false, why: `${t.id} has no work yet: build it first.` };
-  const place = ticketPlace(config, t, where);
+  const place = ticketPlace(config, t);
   if (!place) return { ok: false, why: `${t.id}'s environment, ${t.environment}, isn't in the project's settings.` };
   if (!place.next.length) return { ok: false, why: `${t.id} is in ${place.at.name}, the end of its path.` };
   return { ok: true };
@@ -289,11 +290,9 @@ function withBuilt<T>(paths: RepoPaths, config: Config, id: string, toName: stri
   const { task, from, to, shown } = steps.step('route', 'Check where it can go', () => {
     const tasks = readLedger(paths.ledger).tasks;
     const task = tasks.find((t) => t.id === id);
-    // Where the orgs were last read to hold it counts too (T-155): work that got there another way moves it on.
-    const where = readWhere(paths, id);
-    const can = taskDeployEnabled(config, task, where);
+    const can = taskDeployEnabled(config, task);
     if (!can.ok) throw new AccError('refused', can.why);
-    const { from, to } = taskDeployRoute(config, task!, toName, where);
+    const { from, to } = taskDeployRoute(config, task!, toName);
     if (!to.org) throw new AccError('refused', `${to.name} has no org in the project's settings.`);
     const waiting = missingDeps(tasks, task!, to);
     if (waiting.length) throw new AccError('refused', `${id} depends on ${taskList(waiting)}, which ${waiting.length === 1 ? 'isn\'t' : 'aren\'t'} in ${to.name} yet. Deploy ${taskList(waiting)} to ${to.name} first.`);
@@ -544,6 +543,10 @@ function deployTaskNow(paths: RepoPaths, config: Config, id: string, to: string 
         if (!result.passed) {
           steps.fail('deploy', result.summary);
           undo();
+          // Kept on the ticket (T-167), so its environment's row says this deploy failed, and why.
+          try {
+            recordDeployFailure(paths, now, id, { env: plan.to.branch, org: plan.org, at: now().toISOString(), reason: result.summary, by: opts.by, checkId: kept!.id }, 'human');
+          } catch { /* The failure is said in the summary; a ledger that can't be written now doesn't hide it. */ }
           return { plan, deployed: false, ...none, jobId: result.id, summary: `The deploy of ${id} to ${plan.to.name} failed: ${result.summary} Its pull request was closed.` };
         }
         steps.done('deploy', result.summary);

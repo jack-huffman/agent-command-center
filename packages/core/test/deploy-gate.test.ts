@@ -176,7 +176,7 @@ test('without Apex the deploy runs no tests (NoTestRun), and the record says so'
   assert.equal(ledgerTask(f.paths).deploys![0]!.tests, null);
 });
 
-test('a failed deploy fails with its problems, asks the org nothing, and records no deploy', () => {
+test('a failed deploy fails with its problems, asks the org nothing, records no deploy, and keeps the failure on the task (T-167)', () => {
   const f = fixture();
   const calls: string[] = [];
   const failed = sf({ id: '0Af2', success: false, details: { componentFailures: { fileName: CLASS, lineNumber: 3, problem: 'Missing ;' } } }, 1);
@@ -185,6 +185,7 @@ test('a failed deploy fails with its problems, asks the org nothing, and records
   assert.match(r.summary, /^The deploy to Acme Dev failed \(job 0Af2\), 1 problem: force-app\/main\/default\/classes\/Account\.cls:3: Missing ;$/);
   assert.ok(!calls.some((l) => l.includes('list metadata') || l.includes('apex run test')));
   assert.equal(ledgerTask(f.paths).deploys, undefined);
+  assert.deepEqual(ledgerTask(f.paths).deployFailures?.map((x) => [x.env, x.org, x.reason, x.checkId]), [['dev', 'Acme Dev', r.summary, undefined]], 'the builder\'s failure, with why');
   // sf that gives no result at all is an error, not a failure.
   assert.equal(deployRun(f, fakeSf([], { 'nice -n 15 sf project deploy start': { code: 1, stdout: '', stderr: 'Killed' } })).status, 'error');
 });

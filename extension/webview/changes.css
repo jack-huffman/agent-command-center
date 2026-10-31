@@ -16,9 +16,9 @@
 .chg-apart-list { margin-top: 4px; }
 /* The builder's own deploy (D-206), under More: its state, when, and what the tests found, wrapping on a narrow page. */
 .chg-deploy { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
-/* Where it is (T-158): a row for each environment, its name, org and state on one line that wraps between
-   them, never inside one; under it what differs, the merge, a deploy under way, and when it was read. A thin
-   rule between rows, not a box. */
+/* Where it is (T-158, T-167): a row for each environment, its name, org and state by acc's record on one line
+   that wraps between them, never inside one; under it why a deploy failed, the merge, a deploy under way, what
+   the last Check this org found, and the button. A thin rule between rows, not a box. */
 .dp-rows { list-style: none; margin: 0 0 10px; padding: 0; }
 .dp-row { padding: 6px 0; }
 .dp-row + .dp-row { border-top: 1px solid var(--line); }
@@ -28,7 +28,10 @@
 .dp-row > p { margin: 2px 0 0; }
 .dp-row > .dp-differs-btn { margin-top: 2px; }
 .dp-differs { margin-top: 2px; }
-.dp-read { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
+.dp-state .dp-by { white-space: normal; }
+.dp-check-found { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; }
+.dp-check-why { overflow-wrap: anywhere; }
+.dp-check { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; margin-top: 2px; }
 .dp-busy > .status, .dp-merged > .status { white-space: normal; }
 .dp-status { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 10px; }
 .dp-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

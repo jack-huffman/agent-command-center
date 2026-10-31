@@ -1,10 +1,12 @@
 /**
- * ACME-12's Changes tab with its deploy (T-158), on a path of Dev, QA, UAT and Production, with Hotfix a step off
- * QA: before there's work, with its work in review, merged and deployed to QA with each environment read (Dev
- * and QA deployed, UAT partly deployed, Production can't tell, Hotfix not deployed), the same with Hotfix's row
- * open on what's missing, every row can't tell with its reason, deployed to UAT with steps left to do by hand
- * and Production not deployed, Deploy… open on its three environments, Deploy… open with Hotfix off for want of
- * an org, Deploy… off as a dependency is in none of them, QA's Check again under way, and an agent deploying to UAT.
+ * ACME-12's Changes tab with its deploy (T-158, T-167), on a path of Dev, QA, UAT and Production, with Hotfix a step
+ * off QA. Each row's state is acc's record: before there's work (each not deployed, Check this org off), with its
+ * work in review, then merged with Dev deployed by its builder, QA by the deploy guide and UAT's deploy failed, with
+ * what Check this org found in QA (matches) and UAT (differs, open); the same with Hotfix's check open on what's
+ * missing; every check can't tell, with its reason; in UAT by a merged promotion alone, Dev merged with no deploy,
+ * Production's check open on what's missing; Deploy… open on its three environments, Deploy… open with Hotfix off
+ * for want of an org, Deploy… off as a dependency is in none of them, QA's Check this org under way, and an agent
+ * deploying to UAT.
  * Its Testing tab (T-161): before its builder's deploy to Dev (work); built, in review with that deploy passed, so the
  * tab opens Dev and numbers its builder's steps, three of them with a link to the one component each names; built-off:
  * this machine isn't logged in to acme-dev, and its builder gave no steps.
@@ -82,10 +84,15 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
     run: which === 'before' ? null : { branch: 'task/ACME-12-premium-escalation', ...(built ? { note: { landed: ['Cases route by tier.'], moved: [], open: [], at: at(30), by: 'builder:ACME-12', ended: 'review', ...(which === 'built' ? { test: BUILT_STEPS } : {}) } } : {}) },
     pr: deployedOnce ? { number: 58, url: 'u', state: 'merged' } : which === 'work' || built ? { number: 58, url: 'u', state: 'open' } : null,
     history: [], createdAt: at(600), updatedAt: at(20), promotions, outside,
-    deploys: deployedOnce ? [{ env: 'dev', org: 'acme-dev', sha: 'b4d2c0f', at: at(200), jobId: null, paths: [], components: [], verified: 0, tests: null }]
+    // The deploy guide's deploy to UAT failed (T-167), so its row says so, and why.
+    deployFailures: deployedOnce && !inUat ? [{ env: 'uat', org: 'acme-uat', at: at(50), reason: 'The deploy to acme-uat failed (job 0Af7), 1 problem: force-app/main/default/classes/CaseRouting.cls:12: Variable does not exist: Tier__c', by: 'human:jordan', checkId: '0AfU' }] : [],
+    deploys: deployedOnce ? [
+      ...(inUat ? [] : [{ env: 'dev', org: 'acme-dev', sha: 'b4d2c0f', at: at(200), jobId: null, paths: [], components: [], verified: 0, tests: null }]),
+      { env: 'qa', org: 'acme-qa', sha: 'b4d2c0f', at: at(178), jobId: '0Af9', paths: [], components: [], verified: 5, tests: null, by: 'human:jordan', checkId: '0AfQ', pr: { number: 61, url: 'https://github.com/acme/service/pull/61' } },
+    ]
       : built ? [{ env: 'dev', org: 'acme-dev', sha: 'b4d2c0f', at: at(35), jobId: '0Af1', paths: MADE.filter((p) => !p.includes('Legacy')), components: [], verified: 5, tests: { names: ['CaseRoutingTest'], outcome: 'pass', ran: 4, failed: 0, coverage: '92%' } }] : [],
   } as unknown as Task;
-  // What acc where last read: each state at least once across the shots, and none before there's work.
+  // What Check this org last found, a note beside each row it was asked for: none before there's work.
   const where: TicketWhere | null = !deployedOnce ? null : {
     v: 1, task: 'ACME-12', envs: which === 'unknown' ? [
       read('dev', 'unknown', at(12), { why: 'Salesforce didn\'t answer: the retrieve from acme-dev timed out.' }),
@@ -93,12 +100,13 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
       read('uat', 'unknown', at(12), { why: 'The branch uat couldn\'t be fetched from GitHub.' }),
       read('production', 'unknown', at(12), { why: 'This machine has no access to Production: acme-prod isn\'t logged in here.' }),
       read('hotfix', 'unknown', at(12), { why: 'This machine isn\'t logged in to acme-hotfix.' }),
+    ] : inUat ? [
+      read('uat', 'deployed', at(12)),
+      read('production', 'not-deployed', at(12), { differs: ['Apex Class: CaseRouting', 'Apex Class: CaseRoutingTest', 'Custom Field: Case.Tier__c', 'Flow: Case_Escalation'] }),
     ] : [
-      read('dev', 'deployed', at(12)), read('qa', 'deployed', at(12)),
-      inUat ? read('uat', 'deployed', at(12)) : read('uat', 'partly', at(12), { differs: ['Apex Class: CaseRouting', 'Flow: Case_Escalation'] }),
-      inUat ? read('production', 'not-deployed', at(12), { differs: ['Apex Class: CaseRouting', 'Apex Class: CaseRoutingTest', 'Custom Field: Case.Tier__c', 'Flow: Case_Escalation'] })
-        : read('production', 'unknown', at(12), { why: 'This machine has no access to Production: acme-prod isn\'t logged in here.' }),
-      read('hotfix', 'not-deployed', at(40), { differs: ['Apex Class: CaseRouting', 'Flow: Case_Escalation', 'Permission Set: Support_Agent'] }),
+      read('qa', 'deployed', at(12)),
+      read('uat', 'partly', at(12), { differs: ['Apex Class: CaseRouting', 'Flow: Case_Escalation'], notes: ['It\'s in UAT\'s org, with no deploy of it on record: it got there another way.'] }),
+      ...(which === 'not' ? [read('hotfix', 'not-deployed', at(40), { differs: ['Apex Class: CaseRouting', 'Flow: Case_Escalation', 'Permission Set: Support_Agent'] })] : []),
     ],
   };
   // Hotfix has no org in the settings, so its choice is off; ACME-3, which it depends on, is in no environment ahead.
