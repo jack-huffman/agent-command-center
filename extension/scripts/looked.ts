@@ -43,6 +43,7 @@ export const UNDRAWN: readonly { name: string; reason: string }[] = [
   { name: 'dock-fold-rows', reason: 'A folded row\'s own rows show only after a person opens it, which a shot can\'t do; run-rows.test.ts checks what folds, and the done shots draw the folded row.' },
   { name: 'state-stopped', reason: 'A step shows Didn\'t finish only once its run of acc was stopped mid-step, which no sample run is; run-steps.test.ts checks shownSteps gives it that look (T-65).' },
   { name: 'cdrop-none', reason: 'A dropdown\'s "None of the epics has … in it." shows only once a person types a search that matches no choice; the shot connect-dropdown types one that matches. The behaviour case "connect: the board under the dropdowns" types one that matches none and checks the line shows (T-140).' },
+  { name: 'banner-error', reason: 'A blocked banner\'s "It wasn\'t sent" shows only once the extension refused an answer a person sent, which a shot can\'t do; banners.test.ts sends one, refuses it and checks the line (T-168).' },
   { name: 'ds-name', reason: 'Dispatch\'s sheet shows the model name box only after a person picks Another model…, which a shot can\'t do; the behaviour case "dispatch sheet: Another model…" opens it and types in it (D-168).' },
 ];
 

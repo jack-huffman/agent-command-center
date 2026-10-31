@@ -18,8 +18,6 @@
 .note-fold[open] > summary .tool-chev { transform: rotate(90deg); }
 /* In the page's notice, the note fills the line beside its icon. */
 .notice.why > .note, .notice.why > .foldable { flex: 1; min-width: 0; }
-.notice.why-note { align-items: flex-start; }
-.notice.why-note > .codicon { margin-top: 2px; }
 /* Under a line on Needs you, its note: the line stays one line high, the note is indented under it. */
 .lp-item { display: grid; gap: 2px; min-width: 0; }
 .lp-note { min-width: 0; margin-left: 13px; padding: 4px 10px 6px; border-left: 2px solid var(--line); color: var(--vscode-descriptionForeground); }

@@ -1015,21 +1015,53 @@ export const CASES: Case[] = [
     },
   },
   {
-    name: 'task page: a blocked note recorded as one paragraph is drawn as a headline, a bullet per thing, each option on its own line, and code (T-146)',
+    name: 'task page: a blocked note recorded as one paragraph is drawn in its banner as a headline, a bullet per thing, each option on its own line, and code (T-146, T-168)',
     page: 'ticket-blocked-wall',
     async run(t) {
-      const notice = (): HTMLElement => t.find('.ticket-top .notice.why');
-      const items = (): HTMLElement[] => t.all('.note-item', notice());
-      t.check('its headline comes first, alone', t.find('.note-head', notice()).textContent === 'Why it\'s blocked: Plan v2 contradicts itself, so nothing can land without a person\'s choice.', notice().querySelector('.note-head')?.textContent);
-      t.check('a bullet per thing: its three', items().length === 3 && items().every((i) => i.getBoundingClientRect().height > 0), items().length);
-      const tops = t.all('.note-option', items()[0]).map((o) => Math.round(o.getBoundingClientRect().top));
+      const banner = (): HTMLDetailsElement => t.find<HTMLDetailsElement>('.ticket-top .banner[data-banner="blocked"]');
+      const items = (): HTMLElement[] => t.all('.banner-item', banner());
+      t.check('its banner\'s line is its label and headline, closed', t.find('.banner-line', banner()).textContent === 'Blocked: Plan v2 contradicts itself, so nothing can land without a person\'s choice.' && !banner().open, t.find('.banner-line', banner()).textContent);
+      await t.click(t.find('summary', banner()));
+      t.check('a click opens it: a bullet per thing, its three', banner().open && items().length === 3 && items().every((i) => i.getBoundingClientRect().height > 0), items().length);
+      const tops = t.all('.banner-option:not(.own)', items()[0]).map((o) => Math.round(o.getBoundingClientRect().top));
       t.check('each option on its own line', tops.length === 2 && tops[1]! > tops[0]!, tops);
-      t.check('the one recommended says so, in words with its icon', t.all('.note-rec', notice()).length === 2 && t.find('.note-rec', notice()).textContent === 'Recommended' && t.find('.note-rec .codicon-star-full', notice()) !== null);
-      const code = t.all('code', notice()).map((c) => c.textContent);
+      t.check('the one recommended says so, in words with its icon', t.all('.note-rec', banner()).length === 2 && t.find('.note-rec', banner()).textContent === 'Recommended' && t.find('.note-rec .codicon-star-full', banner()) !== null);
+      const code = t.all('code', banner()).map((c) => c.textContent);
       t.check('API names recorded bare are drawn as code', code.includes('Deal_Territory__c') && code.includes('Territory_Record_Page.flexipage-meta.xml'), code);
-      // Edge: drawn again from a new model, it is still a list.
+      // Edge: drawn again from a new model, it is still open, and still a list.
       await t.post({ type: 'state', model: t.model });
-      t.check('drawn again, still a list', items().length === 3);
+      t.check('drawn again, still open and still a list', banner().open && items().length === 3);
+    },
+  },
+  {
+    name: 'task page: its banners start closed, open by a click and stay open per task, and a blocked note\'s choice sends its answer to the builder and says so (T-168)',
+    page: 'ticket-banners',
+    async run(t) {
+      const banners = (): HTMLDetailsElement[] => t.all<HTMLDetailsElement>('.ticket-top .banner');
+      const banner = (id: string): HTMLDetailsElement => t.find<HTMLDetailsElement>(`.ticket-top .banner[data-banner="${id}"]`);
+      t.check('five banners, each closed, its detail out of view', banners().length === 5 && banners().every((b) => !b.open && !t.find('.banner-body', b).checkVisibility()), banners().map((b) => b.open));
+      t.check('each is one line high', banners().every((b) => t.find('summary', b).getBoundingClientRect().height < 40), banners().map((b) => t.find('summary', b).getBoundingClientRect().height));
+      const head = t.find<HTMLElement>('summary', banner('files'));
+      head.focus();
+      t.check('its line takes focus, so the keyboard can open it', document.activeElement === head);
+      await t.click(head);
+      t.check('a click opens it, and its files show', banner('files').open && t.all('.banner-lines li', banner('files')).length === 3);
+      t.check('the tab remembers it open', ((t.memory().opened ?? []) as string[]).some((k) => k.startsWith('banner:files:') && k.endsWith('#ACME-12')), t.memory().opened);
+      await t.post({ type: 'state', model: t.model });
+      t.check('drawn again, it stays open and the others closed', banner('files').open && !banner('blocked').open);
+      await t.click(t.find('summary', banner('blocked')));
+      const radio = (): HTMLInputElement => t.find<HTMLInputElement>('.banner-choice input[type="radio"]', banner('blocked'));
+      const send = (): HTMLButtonElement => t.find<HTMLButtonElement>('.banner-send .btn', banner('blocked'));
+      t.check('Send is off until there is an answer', send().disabled);
+      t.check('the choice is three options at most, then own words', t.all('.banner-choice', banner('blocked'))[0]!.querySelectorAll('input[type="radio"]').length <= 4);
+      await t.click(radio());
+      t.check('picked, Send is on', radio().checked && !send().disabled);
+      await t.click(send());
+      const asked = t.sent('blocked-answer').at(-1);
+      t.check('Send gives the answer to the builder, for its task and question', asked?.task === 'ACME-12' && asked?.item === 0 && /The answer: a\)/.test(String(asked?.text)), asked);
+      t.check('while it is on its way, Send says so', send().textContent?.includes('Sending') === true, send().textContent);
+      await t.post({ type: 'blocked-answered', project: asked?.project, task: 'ACME-12', item: 0, ok: true });
+      t.check('then the question says the answer was sent, and the banner\'s line says so', t.find('.banner-sent', banner('blocked')).textContent?.startsWith('Your answer was sent to its builder') === true && t.find('.banner-done', banner('blocked')).textContent === 'Answer sent');
     },
   },
   {
@@ -1044,7 +1076,7 @@ export const CASES: Case[] = [
       t.check('it opens on Plan, which needs the person', on() === 'plan' && visible().join() === 'plan', { on: on(), visible: visible() });
       const needs = t.find('.task-tab-needs', tab('plan'));
       t.check('Plan says it needs you in words, with an icon, in view', needs.textContent === 'needs you' && needs.querySelector('.codicon-bell') !== null && needs.getBoundingClientRect().width > 0, needs.outerHTML);
-      t.check('its name, its visible words, says so to a screen reader', !tab('plan').hasAttribute('aria-label') && /^Plan\s*needs you$/.test(tab('plan').innerText.trim()), tab('plan').innerText);
+      t.check('its name, its visible words, says so to a screen reader', !tab('plan').hasAttribute('aria-label') && /^Plan & build\s*needs you$/.test(tab('plan').innerText.trim()), tab('plan').innerText);
       t.check('each panel is named by its tab', t.all('[role="tabpanel"]').every((p) => document.getElementById(p.getAttribute('aria-labelledby') ?? '')?.getAttribute('aria-controls') === p.id));
       tab('plan').focus();
       await press(t, tab('plan'), 'ArrowRight');

@@ -46,6 +46,7 @@ import { ticketManifest } from './model/manifest.ts';
 import { wordingReply } from './model/sheet-wording.ts';
 import type { DeployActions } from './ticket-deploy.ts';
 import type { OrgActions } from './org-open.ts';
+import type { BlockedAnswered } from './model/banners.ts';
 import { testing } from './model/testing.ts';
 import { openSteps } from '../../packages/core/src/change-steps.ts';
 import { deployBlockers, ticketDeploy } from './model/ticket-deploy.ts';
@@ -172,6 +173,8 @@ export class TicketPanels implements vscode.Disposable {
   deploys: DeployActions | null = null;
   /** Its development org (T-161), set by its area: whether this machine is logged in to it, and Open. */
   orgs: OrgActions | null = null;
+  /** A blocked banner's answer to its builder (T-168), set by its area: null once it's on its way, else why not. */
+  answerBlocked: ((root: string, id: string, text: string) => Promise<string | null>) | null = null;
   /** Talk it through (T-98), set by its area: the conversation's state, and its buttons. */
   talk: TalkActions | null = null;
   /** The conversation's own panel (T-111), set by its area: opened beside a page, and redrawn with it. */
@@ -636,6 +639,10 @@ export class TicketPanels implements vscode.Disposable {
       case 'manifest-build': case 'manifest-retrieve': case 'manifest-commit': case 'manifest-file': case 'manifest-diff':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.manifest?.act(m, (msg) => o.view.say(msg));
         return;
+      // A blocked banner's answer (T-168): this page's own task only, and the page hears whether it went.
+      case 'blocked-answer':
+        if (m.project === o.project && m.task.toUpperCase() === o.key) await this.answerBlocked_(o, m);
+        return;
       case 'toolbar':
         if (ALLOWED.has(m.command)) await vscode.commands.executeCommand(m.command, m.arg);
         return;
@@ -645,6 +652,12 @@ export class TicketPanels implements vscode.Disposable {
       case 'rule-open-review': this.openReview?.(m); return;
       default: return;
     }
+  }
+
+  /** Gives a blocked banner's answer to its builder (T-168), and tells the page it went, or why it didn't. */
+  private async answerBlocked_(o: Open, m: Extract<FromWebview, { type: 'blocked-answer' }>): Promise<void> {
+    const why = this.answerBlocked ? await this.answerBlocked(m.project, m.task, m.text).catch((e: unknown) => (e as Error).message) : 'This page can\'t write to builders.';
+    o.view.say({ type: 'blocked-answered', project: m.project, task: m.task, item: m.item, ok: !why, ...(why ? { error: why } : {}) } satisfies BlockedAnswered);
   }
 
   /**

@@ -188,6 +188,15 @@ export class AgentPages implements vscode.Disposable {
     void page.panel.webview.postMessage({ type: 'state', model });
   }
 
+  /**
+   * Writes to a session as its page's reply does (D-060): a blocked banner's answer reaches its builder this way
+   * (T-168). Null once it's on its way, else why not.
+   */
+  send(s: AgentSession, text: string): Promise<string | null> {
+    if (!this.reply) return Promise.resolve('this window can\'t write to agents.');
+    return this.reply(s, text, () => void this.hub.loadAgents());
+  }
+
   private receive(page: Page, m: unknown): void {
     if (!isFromWebview(m)) return;
     if (m.type === 'ready') { page.theme.ready(); return this.post(page); }

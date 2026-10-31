@@ -63,34 +63,37 @@ test('a notice, in VS Code and in Slack, carries the headline alone; without a n
   assert.equal(taskEvent({ ...p, rows: [row('blocked')] }, n!, NOW)!.what, 'It\'s blocked.', 'no note: as before');
 });
 
-test('the task page\'s notice and its History draw a new note as a headline, a bullet per thing, options on their own lines, and code', () => {
+/** The page's blocked banner (T-168), and the options its choices draw: not own words. */
+const blockedBanner = (p: PageElement): PageElement => p.all('banner').find((b) => b.dataset.banner === 'blocked')!;
+const options = (b: PageElement): PageElement[] => b.all('banner-option').filter((o) => !o.classList.contains('own'));
+
+test('the task page\'s blocked banner and its History draw a new note as a headline, a bullet per thing, options on their own lines, and code', () => {
   const m = sampleAgentPanelTicket(NOW, 'note');
   const p = page(m);
-  const notice = p.all('why-note')[0]!;
-  assert.ok(notice.textContent.startsWith('Why it\'s blocked: The plan and the ticket disagree'));
-  assert.equal(notice.all('note-item').length, 3);
-  assert.deepEqual(notice.all('note-option').map((o) => o.all('note-letter')[0]!.textContent), ['a)', 'b)', 'a)', 'b)']);
-  assert.equal(notice.all('is-recommended').length, 1);
-  assert.match(notice.all('is-recommended')[0]!.textContent, /Territory__c on Account\s*Recommended$/, 'its mark says Recommended, and "(recommended)" isn\'t said twice');
-  assert.ok(codes(notice).includes('Territory_Record_Page') && codes(notice).includes('Deal_Territory__c'));
+  const banner = blockedBanner(p);
+  assert.ok(banner.all('banner-line')[0]!.textContent.startsWith('Blocked: The plan and the ticket disagree'), 'T-168: its label and headline, as one line');
+  assert.equal(banner.all('banner-item').length, 3);
+  assert.deepEqual(options(banner).map((o) => o.all('note-letter')[0]!.textContent), ['a)', 'b)', 'a)', 'b)']);
+  assert.equal(banner.all('note-rec').length, 1);
+  assert.match(options(banner).find((o) => o.all('note-rec').length)!.textContent, /Territory__c on Account\s*Recommended$/, 'its mark says Recommended, and "(recommended)" isn\'t said twice');
+  assert.ok(codes(banner).includes('Territory_Record_Page') && codes(banner).includes('Deal_Territory__c'));
   // The move to blocked in History draws the same list.
   const moved = p.all('act-reason').find((r) => r.all('note-items').length);
   assert.ok(moved, 'History draws the move\'s note as a list');
   assert.equal(moved!.all('note-item').length, 3);
 });
 
-test('an old note recorded as a paragraph is drawn as a list where its shape allows, and one with no shape keeps its paragraph under the fold', () => {
-  const wall = page(sampleAgentPanelTicket(NOW, 'wall')).all('why-note')[0]!;
-  assert.equal(wall.all('note-item').length, 3, 'its (1) (2) (3) are bullets');
-  assert.equal(wall.all('note-option').length, 6, 'its a) b) are options on their own lines');
-  assert.equal(wall.all('is-recommended').length, 2, 'the one marked (recommended), and the one "I recommend b" names');
+test('an old note recorded as a paragraph is drawn as a list where its shape allows, and one with no shape keeps its paragraph in its banner', () => {
+  const wall = blockedBanner(page(sampleAgentPanelTicket(NOW, 'wall')));
+  assert.equal(wall.all('banner-item').length, 3, 'its (1) (2) (3) are bullets');
+  assert.equal(options(wall).length, 6, 'its a) b) are options on their own lines');
+  assert.equal(wall.all('note-rec').length, 2, 'the one marked (recommended), and the one "I recommend b" names');
   assert.ok(codes(wall).includes('Territory_Record_Page.flexipage-meta.xml'), 'its API names are code, though recorded bare');
-  const plain = page(sampleAgentPanelTicket(NOW, 'blocked'));
-  assert.equal(plain.all('note-items').length, 0, 'no shape: no list');
-  assert.equal(plain.all('why-note').length, 0);
-  const why = plain.all('why-text')[0]!;
-  assert.ok(why.textContent.startsWith('Why it\'s blocked: The checks error on validate'));
-  assert.ok(why.classList.contains('clamped'), 'its paragraph is under the fold, as before');
+  const plain = blockedBanner(page(sampleAgentPanelTicket(NOW, 'blocked')));
+  assert.equal(plain.all('banner-items').length, 0, 'edge case: no shape, no list');
+  assert.ok(plain.all('banner-line')[0]!.textContent.startsWith('Blocked: The checks error on validate'));
+  assert.ok(plain.all('banner-detail-text')[0]!.textContent.startsWith('The checks error on validate'), 'opened, its paragraph in full');
+  assert.equal((plain as unknown as { open: boolean }).open, false, 'closed until opened');
 });
 
 test('the Agent panel\'s glance carries the headline alone; its bullets are the notice\'s, each fact once', () => {

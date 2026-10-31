@@ -13,7 +13,7 @@ import { sampleHub } from './hub.ts';
 import { BLOCKED_NOTE, BLOCKED_WALL, ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
-export type AgentPanelSample = 'blocked' | 'disagree' | 'waits' | 'failed' | 'queued' | 'note' | 'wall';
+export type AgentPanelSample = 'blocked' | 'disagree' | 'waits' | 'failed' | 'queued' | 'note' | 'wall' | 'banners';
 
 export function sampleAgentPanelTicket(now: number, which: AgentPanelSample): TicketModel {
   // ACME-35, waiting on two tasks and blocked by none: the glance says what it waits on.
@@ -25,6 +25,21 @@ export function sampleAgentPanelTicket(now: number, which: AgentPanelSample): Ti
   if (which === 'failed') {
     const r = sampleTicket(now, 'ACME-19');
     return { ...r, acc: { ...r.acc!, checks: [...r.acc!.checks, ...checkRows([{ gate: 'static', status: 'fail', summary: 'Static analysis found 1 severity-2 violation in WelcomeEmailService.cls.' }], r.acc!.branch)] } };
+  }
+  // Every banner above the tabs at once (T-168): blocked with a note that asks, conflicts, checks failed on GitHub, a
+  // card that didn't move, and three files shared with ACME-13.
+  if (which === 'banners') {
+    const n = sampleAgentPanelTicket(now, 'note');
+    const shared = ['force-app/main/default/classes/CaseTriggerHandler.cls', 'force-app/main/default/classes/CaseTriggerHandlerTest.cls', 'force-app/main/default/flows/Case_Escalation.flow-meta.xml'];
+    return { ...n, acc: { ...n.acc!,
+      conflicts: 'Conflicts with dev: force-app/main/default/classes/CaseTriggerHandler.cls, force-app/main/default/layouts/Case-Premium Case Layout.layout-meta.xml',
+      failedChecks: 'Checks failed on GitHub: validate, apex-tests',
+      cardFailed: 'GitHub said the board Acme Delivery has no Status field. Add the field on the board, then move the task again',
+      files: { label: `Shares files with ACME-13: ${shared.join(', ')}`, icon: 'files', tone: 'neutral' },
+      shares: [{ task: 'ACME-13', files: shared }],
+      // Its builder's session is on this Mac, so the note's questions can be answered from the page.
+      reply: { can: true, why: null },
+    } };
   }
   const m = sampleTicket(now);
   const row = { ...sampleHub(now).taskRows(ROOT).find((r) => r.id === 'ACME-12')!, state: 'blocked' as const, display: 'blocked' as const };

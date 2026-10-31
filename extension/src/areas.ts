@@ -3,6 +3,7 @@
 import { area as about } from './about.ts';
 import { area as agents } from './agents.ts';
 import { area as autopilot } from './autopilot.ts';
+import { area as blockedAnswer } from './blocked-answer.ts';
 import { area as branches } from './branches.ts';
 import { area as changesField } from './changes-field.ts';
 import { area as checkTogether } from './check-together.ts';
@@ -43,4 +44,4 @@ import { area as trackers } from './trackers.ts';
 import { area as verify } from './verify.ts';
 import { area as worktrees } from './worktrees.ts';
 
-export const AREAS = [about, agents, autopilot, branches, changesField, checkTogether, cloudSetup, cloud, connect, conversation, criteria, dockReview, environments, history, identity, limits, manifest, notices, orgOpen, palette, pipeline, planProgress, plan, progress, questions, recordChanges, reportPanel, rules, runs, selfUpdate, settings, setup, slack, talk, taskModal, tasks, ticketDeploy, ticket, tidy, trackers, verify, worktrees];
+export const AREAS = [about, agents, autopilot, blockedAnswer, branches, changesField, checkTogether, cloudSetup, cloud, connect, conversation, criteria, dockReview, environments, history, identity, limits, manifest, notices, orgOpen, palette, pipeline, planProgress, plan, progress, questions, recordChanges, reportPanel, rules, runs, selfUpdate, settings, setup, slack, talk, taskModal, tasks, ticketDeploy, ticket, tidy, trackers, verify, worktrees];
