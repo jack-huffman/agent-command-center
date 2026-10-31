@@ -6,7 +6,7 @@ import { parseConfig } from '../../packages/core/src/config.ts';
 import { TASK_DEPLOY_GUIDE_COMMAND } from '../../packages/core/src/deploy-guide.ts';
 import { TASK_DEPLOY_COMMAND } from '../../packages/core/src/task-deploy.ts';
 import { SF_CONFIG } from '../../packages/core/test/support.ts';
-import { guideLaunch, guideLine } from '../src/logic/deploy-guide.ts';
+import { guideArgs, guideLaunch, guideLine } from '../src/logic/deploy-guide.ts';
 import { area } from '../src/model/ticket-deploy.ts';
 
 const launch = { cwd: '/repo', sessionId: 's1', name: 'Acme · ACME-1 Regions · deploy', brief: '', args: ['Guide the deploy of ACME-1 from UAT to Production, as the acc:deploy skill says.', '--session-id', 's1'], env: { ACC_ROLE: 'deployer', ACC_TASK: 'ACME-1', ACC_DEPLOY_TO: 'production' } };
@@ -39,4 +39,10 @@ test('the page\'s message names its task and where it goes; the command takes th
   assert.deepEqual(TASK_DEPLOY_GUIDE_COMMAND.enabled({ config: sf, task, to: 'production' }), { ok: true });
   const dev = TASK_DEPLOY_GUIDE_COMMAND.enabled({ config: sf, task, to: 'dev' });
   assert.ok(!dev.ok && /ACME-1 is in Dev already/.test(dev.why), 'edge case: a pick of the development environment, with the reason');
+});
+
+test('the extension opens the deploy guide with --guide whatever the pick, so a pick never deploys directly (review of T-158)', () => {
+  assert.deepEqual(guideArgs('ACME-1', 'uat'), ['deploy', 'uat', '--task', 'ACME-1', '--guide', '--json']);
+  assert.deepEqual(guideArgs('ACME-1'), ['deploy', '--task', 'ACME-1', '--guide', '--json'], 'edge case: no pick, its next environment');
+  assert.ok(!guideArgs('ACME-1', 'production').some((a) => a === '--yes' || a.startsWith('--confirm')), 'no yes of its own: the guide asks the person');
 });

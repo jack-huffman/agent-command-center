@@ -11,7 +11,7 @@ import type { Task } from '../../packages/core/src/ledger.ts';
 import { TASK_DEPLOY_COMMAND } from '../../packages/core/src/task-deploy.ts';
 import { readWhere, type TicketWhere } from '../../packages/core/src/where-kept.ts';
 import type { ExtensionArea } from './area.ts';
-import { guideLaunch, guideLine } from './logic/deploy-guide.ts';
+import { guideArgs, guideLaunch, guideLine } from './logic/deploy-guide.ts';
 import { stateOf } from './logic/shared.ts';
 import { WhereReads } from './logic/where.ts';
 import type { Message } from './model/ticket-deploy.ts';
@@ -40,7 +40,7 @@ export const area: ExtensionArea = {
     // of it shows in the output panel.
     const guide = async (root: string, id: string, to: string | undefined): Promise<void> => {
       const name = to ? hub.project(root)?.config.environments.find((e) => e.branch === to)?.name ?? to : 'its next environment';
-      const args = ['deploy', ...(to ? [to] : []), '--task', id, '--guide', '--json'];
+      const args = guideArgs(id, to);
       const r = sidebar.helpers.runAccShown ? await sidebar.helpers.runAccShown(args, root, `Deploy ${id} to ${name} with an agent`) : await acc(args, root);
       const g = guideLaunch(r.code, r.stdout, r.stderr);
       if (!g.ok) return void vscode.window.showWarningMessage(`Couldn't open the deploy guide for ${id}: ${g.error}`);

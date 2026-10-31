@@ -56,10 +56,10 @@ and D-235 (Deploy with an agent is no longer a button of its own: Deploy… is t
   `extension/test/changes-tab.test.ts` (the rows, the fold, a row's Check again, Deploy… and its pick, off with
   why), `extension/test/where.test.ts` (the readings on the rows, and a row's read of its environment alone),
   `packages/core/test/where.test.ts` (`ticketEnvironments`), `extension/test/choice-limit.test.ts` (three of
-  five) and the screenshot run's behaviour cases (seven, with nine mutants, each caught: the pick deploys
+  five) and the screenshot run's behaviour cases (seven, with ten mutants, each caught: the pick deploys
   without the agent, Deploy… off says no why, every environment shows as next, Check again asks for nothing,
   Check again reads another row's environment, a choice that can't be picked is on, a row's check under way
-  still takes a click, a partly deployed row doesn't open, and a deploy under way doesn't show on its row).
+  still takes a click, a partly deployed row doesn't open, a deploy under way doesn't show on its row, and Deploy… stays on when nothing can go).
   The screenshot run draws the rows in each state and the pick at each width and theme: `ticket-deploy-before`,
   `-work` (Deploy… off with why), `-deployed` (UAT partly deployed, open), `-not` (Hotfix not deployed, open),
   `-unknown` (each row can't tell, with its reason), `-steps`, `-pick` (open on a sandbox and Production),
