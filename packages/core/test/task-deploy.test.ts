@@ -530,7 +530,7 @@ test('a mutant that lets the guide deploy without the person\'s pick is caught (
 
 test('a mutant that deploys to production on the pick alone, without the typed name, is caught (T-156)', async () => {
   assert.deepEqual(noGuidedProductionWithoutName(real), []);
-  const m = await mutant('confirm: production || to.protected, confirmName', 'confirm: false, confirmName');
+  const m = await mutant('confirm: production || to.protected, confirmName: to.name, sandbox: shown.kind === \'sandbox\'', 'confirm: false, confirmName: to.name, sandbox: true');
   assert.notDeepEqual(noGuidedProductionWithoutName(m), [], 'the mutant deployed, and the check saw it');
 });
 

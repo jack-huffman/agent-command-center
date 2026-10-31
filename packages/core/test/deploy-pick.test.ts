@@ -20,7 +20,7 @@ const env = (name: string, branch: string, over: Partial<Environment> = {}): Env
 const UAT = env('UAT', 'uat');
 const PROD = env('Production', 'production', { type: 'production' });
 /** A plan's yes-facing part: a sandbox that isn't protected, or production. */
-const sandbox = { confirm: false, confirmName: UAT.name, to: UAT };
+const sandbox = { confirm: false, confirmName: UAT.name, to: UAT, sandbox: true };
 const production = { confirm: true, confirmName: PROD.name, to: PROD };
 const by = 'human:jordan';
 
@@ -113,4 +113,16 @@ test('the guide can\'t write or name its own pick: the guard refuses the word, -
   assert.match(guardDeployer('ACME-1', 'cat .git/acc/deploy-picks/ACME-1.json')!, /the person's yes and their pick among them/);
   assert.equal(guardDeployer('ACME-1', 'acc deploy uat --task ACME-1 --yes 0AfX'), null, 'the deploy itself, on the pick, is allowed');
   for (const d of ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash(acc hook*)']) assert.ok(DEPLOYER_DENIES.includes(d), d);
+});
+
+test('an org Salesforce doesn\'t say is a sandbox keeps the typed yes, whatever the settings call it (security review)', () => {
+  const p = state();
+  keepPick(p, 'ACME-1', 'uat', by, at(T0));
+  // A legacy instance URL reads as unknown: it could be production, so the pick is no yes there.
+  const unknown = { ...sandbox, sandbox: false };
+  assert.throws(() => takeGuidedYes(p, 'ACME-1', unknown, null, at(T0)), /^.*hasn't typed a yes for ACME-1 in this chat/);
+  assert.equal(readPick(p, 'ACME-1')!.used, undefined, 'not used: it was never the yes');
+  assert.throws(() => takeGuidedYes(p, 'ACME-1', { confirm: false, confirmName: UAT.name, to: UAT }, null, at(T0)), /hasn't typed a yes/, 'a kept plan from before T-156 has no word on it: typed');
+  keepTypedYes(p, 'ACME-1', 'UAT', null, at(T0));
+  assert.equal(takeGuidedYes(p, 'ACME-1', unknown, { at: T0 }, at(T0)), 'typed');
 });

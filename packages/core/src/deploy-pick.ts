@@ -69,7 +69,7 @@ export type GuidedYes = 'pick' | 'typed';
  * the person typed in the chat, newer than the check and used once (D-235). For any other org a fresh, unused
  * pick is the yes, and is marked used; a stale one falls back to the typed name.
  */
-export function takeGuidedYes(paths: Pick<RepoPaths, 'stateDir'>, id: string, plan: Pick<TaskDeployPlan, 'confirm' | 'confirmName' | 'to'>, kept: Pick<KeptCheck, 'at'> | null, now: () => Date, envName: (branch: string) => string = (b) => b): GuidedYes {
+export function takeGuidedYes(paths: Pick<RepoPaths, 'stateDir'>, id: string, plan: Pick<TaskDeployPlan, 'confirm' | 'confirmName' | 'to' | 'sandbox'>, kept: Pick<KeptCheck, 'at'> | null, now: () => Date, envName: (branch: string) => string = (b) => b): GuidedYes {
   const pick = readPick(paths, id);
   if (!pick) throw new AccError('refused', `No one picked where ${id} goes. A person opens its deploy guide with acc deploy <environment> --task ${id} --guide, and that pick is where it deploys.`);
   if (pick.env !== plan.to.branch) throw new AccError('refused', `The person picked ${envName(pick.env)} for ${id}, not ${plan.to.name}. The deploy guide deploys only where the person picked: acc deploy ${pick.env} --task ${id}.`);
@@ -86,7 +86,9 @@ export function takeGuidedYes(paths: Pick<RepoPaths, 'stateDir'>, id: string, pl
   const markUsed = (): void => writeAtomic(deployPickPath(paths, id), JSON.stringify({ ...pick, used: now().toISOString() }, null, 2) + '\n');
   // Production and a protected org keep the typed yes: the pick only fixes where (D-235), and once used it
   // fixes nothing more, so an old pick from a closed chat never sends a later deploy there.
-  if (plan.confirm) {
+  // So does an org Salesforce doesn't say is a sandbox (an instance URL acc can't read as one): it could be
+  // production whatever the settings call it, so the pick is never its yes (security review).
+  if (plan.confirm || plan.sandbox !== true) {
     if (pick.used) throw new AccError('refused', `The person's pick of ${plan.to.name} for ${id} was used by a deploy already. A person opens its deploy guide again to pick it.`);
     const yes = typedName('');
     markUsed();

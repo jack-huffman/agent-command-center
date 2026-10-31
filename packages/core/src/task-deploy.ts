@@ -166,6 +166,8 @@ export interface TaskDeployPlan {
   confirm: boolean;
   /** What the person types for a protected org: its environment's name, or its org's alias. */
   confirmName: string;
+  /** Salesforce says the org is a sandbox (its My Domain URL). Only then can a deploy guide's pick be the yes (T-156). */
+  sandbox?: boolean;
   commits: string[];
   /** The destination branch's commit the ticket's commits were put on. */
   base: string;
@@ -361,7 +363,7 @@ function withBuilt<T>(paths: RepoPaths, config: Config, id: string, toName: stri
     const testLevel = sorted.files.some((f) => APEX.test(f)) && !opts.noTests ? 'RunLocalTests' : 'NoTestRun';
     const production = to.type === 'production' || shown.kind === 'production';
     const plan: TaskDeployPlan = {
-      task: id, key: task.source.key ?? id, from, to, org: to.org!, confirm: production || to.protected, confirmName: to.name,
+      task: id, key: task.source.key ?? id, from, to, org: to.org!, confirm: production || to.protected, confirmName: to.name, sandbox: shown.kind === 'sandbox',
       commits: commits.map((c) => c.sha), base, ...sorted,
       records: stepsOf(stepping, to.branch).filter((s) => s.step.state === 'todo' && s.change.kind !== DELETION_KIND.kind).map((s) => s.words),
       types: pkg ? manifestTypes(pkg) : [], testLevel,

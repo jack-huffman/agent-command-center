@@ -32,8 +32,10 @@ the quick deploy of the checked job, the pull request, the records, every guard 
   runbook doesn't strand the person: the skill says to ask for it. The guide passes nothing acc reads as the
   yes: `confirm` is ignored in a guided deploy, `--confirm-production` and the inner flags stay refused.
 - **Production and a protected org keep the typed yes** of D-235, by the settings (`type: production`,
-  `protected: true`) or by what Salesforce says about the org (`shown.kind`). There the pick fixes only where, is
-  never marked used, and the yes is the name typed in the chat, newer than the check, used once.
+  `protected: true`) or by what Salesforce says about the org (`shown.kind`). There the pick fixes only where and is
+  marked used once that deploy goes, and the yes is the name typed in the chat, newer than the check, used once.
+  So is an org Salesforce doesn't say is a sandbox (`shown.kind` other than `sandbox`, such as a legacy instance
+  URL): it could be production whatever the settings call it, so the pick is never its yes (security review).
 - **The guide can't write or change a pick.** Its settings deny every edit and `acc hook`; its guard refuses
   `--guide` on any `acc deploy` and any word naming `deploy-pick` (as `deploy-yes`); `acc deploy --guide` refuses
   the deployer (`personOnly`); and `ACC_DEPLOY_TO` stays fixed in its environment, with `export`, `unset`, `env`
