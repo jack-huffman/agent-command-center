@@ -63,6 +63,17 @@ test('only the usual next step is next, though its environment goes two ways, as
   assert.deepEqual(envRows(two, task({ environment: 'production' })).map((r) => r.next), [null]);
 });
 
+test('an environment off the usual way has a row after the path while Deploy… offers it, and none once it is no choice (T-158)', () => {
+  const rows = (t: Task, w: TicketWhere | null = null) => ticketDeploy({ ...base, task: t, where: w })!.rows.map((r) => r.name);
+  assert.deepEqual(rows(inQa()), ['Dev', 'QA', 'UAT', 'Production', 'Hotfix'], 'Hotfix, off QA, is a choice');
+  assert.deepEqual(rows(inQa(), where(read('hotfix', 'not-deployed', { differs: ['Apex Class: Helper'] }))).length, 5);
+  const inUat = task({ promotions: [{ from: 'qa', to: 'uat', pr: { number: 5, url: 'u' }, state: 'merged', at: AT, mergedAt: AT }] });
+  assert.deepEqual(rows(inUat), ['Dev', 'QA', 'UAT', 'Production'], 'edge case: from UAT, Hotfix is no choice, so no row');
+  assert.deepEqual(envRows(config, inQa(), null, null, [ENVS[2]!]).map((r) => r.name), ['Dev', 'QA', 'UAT', 'Production'], 'one already on the path is not drawn twice');
+  const hotfix = ticketDeploy({ ...base, task: inQa(), where: where(read('hotfix', 'not-deployed', { differs: ['Apex Class: Helper', 'Flow: Route'] })) })!.rows[4]!;
+  assert.deepEqual([hotfix.look, hotfix.detail, hotfix.differs.length, hotfix.next], [WHERE_LOOK['not-deployed'], '2 components not in Hotfix', 2, null], 'not deployed: how many are missing, for the row to open on');
+});
+
 test('the development environment\'s row says whether the work is merged into its branch, and no other row does (T-158)', () => {
   const merged = (t: Task) => envRows(config, t).map((r) => r.merged && [r.merged.look, r.merged.words]);
   assert.deepEqual(merged(task()), [[MERGE_LOOK.merged, 'Merged into dev'], null, null, null]);
@@ -101,7 +112,10 @@ test('Deploy… is off with its reason when nothing can go; a choice that can\'t
   // Edge: every choice off for its own reason, so nothing can go: Deploy… is off, saying each reason once.
   const dep = task({ id: 'ACME-3' });
   const all = deployPick({ ...base, config: two, task: { ...task(), deps: ['ACME-3'] }, tasks: [dep] })!;
-  assert.equal(all.disabled, 'It depends on ACME-3, which isn\'t in Sandbox yet. It depends on ACME-3, which isn\'t in Production yet.');
+  assert.equal(all.disabled, 'It depends on ACME-3, which isn\'t in Sandbox or Production yet.', 'the same dependency missing from each: one line');
+  // Edge: each off for a reason of its own: each reason once.
+  const mixed = { ...two, environments: TWO.map((e) => (e.branch === 'sandbox' ? { ...e, org: null } : e)) };
+  assert.equal(deployPick({ ...base, config: mixed, task: { ...task(), deps: ['ACME-3'] }, tasks: [dep] })!.disabled, 'Sandbox has no org in the project\'s settings. It depends on ACME-3, which isn\'t in Production yet.');
   assert.equal(deployOff({ ...base, task: inQa() }, ENVS[2]!), null);
   assert.deepEqual(deployBlockers([{ gate: 'validate', status: 'fail' }, { gate: 'static', status: 'fail', waived: true }, { gate: 'format', status: 'pass' }, { gate: 'lint', status: 'error' }]), ['validate', 'lint']);
 });
@@ -115,13 +129,14 @@ test('edge case: a dependency already deployed to the destination holds nothing 
 
 test('a deploy under way shows on its row and on the tab, and Deploy… waits; the tab needs the person for the steps left by hand (T-158)', () => {
   const d = ticketDeploy({ ...base, task: inQa(), deploying: 'uat', stepsLeft: 2 })!;
-  assert.deepEqual(d.rows.map((r) => r.busy), [null, null, BUSY_LOOK, null]);
+  assert.deepEqual(d.rows.map((r) => r.busy), [null, null, BUSY_LOOK, null, null]);
   assert.deepEqual([d.status?.words, d.pick?.disabled !== null, d.needs], ['An agent is deploying ACME-7 to UAT.', true, '2 steps to do by hand']);
   // Edge: acc didn't say where it deploys: the tab still says one is under way, on no row.
   const somewhere = ticketDeploy({ ...base, task: inQa(), deploying: '' })!;
   assert.deepEqual([somewhere.status?.words, somewhere.rows.some((r) => r.busy)], ['An agent is deploying ACME-7.', false]);
   assert.equal(ticketDeploy({ ...base, task: inQa() })!.status, null);
-  assert.equal(ticketDeploy({ ...base, task: inQa(), reading: true })!.reading, true);
+  // A read of one environment under way waits on its row alone.
+  assert.deepEqual(ticketDeploy({ ...base, task: inQa(), reading: (b) => b === 'uat' })!.rows.map((r) => [r.branch, r.reading]), [['dev', false], ['qa', false], ['uat', true], ['production', false], ['hotfix', false]]);
   assert.equal(stepsLeftWords(0), null);
 });
 
@@ -129,7 +144,9 @@ test('the page\'s messages: Deploy…\'s pick and Check again, checked; no direc
   assert.deepEqual(Object.keys(area.messages!).sort(), ['deploy-guide', 'where-check']);
   assert.equal(area.messages!['deploy-guide']!({ project: '/r', task: 'ACME-7', to: 'uat' }), true);
   assert.equal(area.messages!['deploy-guide']!({ project: '/r', task: 'ACME-7' }), false, 'where to is needed');
-  assert.equal(area.messages!['where-check']!({ project: '/r', task: 'not a key' }), false);
+  assert.equal(area.messages!['where-check']!({ project: '/r', task: 'ACME-7', env: 'uat' }), true);
+  assert.equal(area.messages!['where-check']!({ project: '/r', task: 'ACME-7' }), false, 'a row\'s Check again names its environment');
+  assert.equal(area.messages!['where-check']!({ project: '/r', task: 'not a key', env: 'uat' }), false);
   const runner = (_c: string, args: string[]) => ({ code: 0, stdout: args.includes('src/a.ts') ? 'src/a.ts\0' : '', stderr: '' });
   assert.deepEqual(deletedPaths(runner as never, '/r', 'task/x', null, ['src/a.ts', 'src/old.ts']), ['src/old.ts']);
   assert.deepEqual(deletedPaths((() => ({ code: 128, stdout: '', stderr: 'bad' })) as never, '/r', 'task/x', null, ['src/a.ts']), [], 'edge case: a branch it can\'t read deletes nothing');
@@ -164,6 +181,6 @@ test('a mutant that shows two environments as next is caught', async () => {
 });
 
 test('a mutant that lets the page deploy without the agent is caught', async () => {
-  const m = await mutant("    'where-check': (x) => ticket(x),\n", "    'where-check': (x) => ticket(x),\n    'deploy-go': (x) => ticket(x) && short(x.to, 100),\n");
+  const m = await mutant("    'where-check': (x) => ticket(x) && short(x.env, 100),\n", "    'where-check': (x) => ticket(x) && short(x.env, 100),\n    'deploy-go': (x) => ticket(x) && short(x.to, 100),\n");
   assert.deepEqual(directDeploys(m), ['deploy-go'], 'the mutant took a direct deploy, and the check saw it');
 });

@@ -98,6 +98,25 @@ test('a fresh reading isn\'t read again, a draw doesn\'t retry a read within the
   assert.equal(x.reads.length, 2, 'a deploy since reads it again');
 });
 
+test('edge case: a row\'s Check again reads its own environment alone, once at a time, and a read of every environment covers each row (T-158)', async () => {
+  const x = host();
+  const r = new WhereReads(x.h);
+  void r.read('/p', 'ACME-7', 'uat');
+  assert.deepEqual(x.reads, [['where', 'ACME-7', '--env', 'uat', '--json']]);
+  assert.deepEqual([r.reading('/p', 'ACME-7', 'uat'), r.reading('/p', 'ACME-7', 'qa'), r.reading('/p', 'ACME-7')], [true, false, false], 'only UAT\'s row waits');
+  void r.read('/p', 'ACME-7', 'uat');
+  assert.equal(x.reads.length, 1, 'one read of UAT at a time');
+  x.answer();
+  await new Promise((res) => setImmediate(res));
+  assert.deepEqual([r.reading('/p', 'ACME-7', 'uat'), x.done], [false, ['ACME-7']], 'back, and the page draws again');
+  void r.read('/p', 'ACME-7');
+  assert.ok(r.reading('/p', 'ACME-7', 'qa'), 'a read of every environment covers QA\'s row');
+  void r.read('/p', 'ACME-7', 'qa');
+  assert.equal(x.reads.length, 2, 'so QA isn\'t read again beside it');
+  x.answer();
+  await new Promise((res) => setImmediate(res));
+});
+
 test('a ticket that can\'t be read starts no read, and a read that fails still draws the page again', async () => {
   const stateDir = tempDir('acc-where-z-');
   const x = host();

@@ -63,6 +63,8 @@ export interface EnvRow {
   next: Look | null;
   /** A deploy to it under way, its icon and words; null when there's none. */
   busy: Look | null;
+  /** A read of it under way, so its Check again waits. */
+  reading: boolean;
 }
 
 /** One environment Deploy… offers: its name, its org, what happens next, and why it can't be picked, or null. */
@@ -90,8 +92,6 @@ export interface TicketDeploy {
   pick: DeployPick | null;
   /** What the agent's deploy is doing, on the tab as on its row; null when there's none. */
   status: { look: Look; words: string } | null;
-  /** Where its work is being read again now, so Check again waits. */
-  reading: boolean;
   /** What waits on the person here: the steps left to do by hand; null when nothing does. */
   needs: string | null;
 }
@@ -110,8 +110,8 @@ export interface DeployIn {
   stepsLeft?: number;
   /** Where the orgs and branches were last read to hold its work (T-155), as kept beside the ledger; null before the first reading. */
   where?: TicketWhere | null;
-  /** A read of where its work is under way. */
-  reading?: boolean;
+  /** Whether a read of where its work is in an environment, by its branch, is under way; none when left out. */
+  reading?: (branch: string) => boolean;
 }
 
 /** When acc recorded the work reaching `env`: a merged promotion or a deploy, the latest; null with none. */
@@ -121,17 +121,20 @@ function reachedAt(t: Pick<Task, 'promotions' | 'deploys'>, env: string): string
 }
 
 /**
- * The rows, one for each environment on the ticket's path, in order. An environment's state is its last reading
- * (T-155); before the first, deployed where acc recorded it there, else can't tell, with no read time. Only the usual next step is
+ * The rows, one for each environment on the ticket's path, in order, then each in `also` off the usual way (an
+ * environment Deploy… offers, as Hotfix off QA). An environment's state is its last reading (T-155); before the
+ * first, deployed where acc recorded it there, else can't tell, with no read time. Only the usual next step is
  * next; the development environment's row also says whether the work is merged into its branch.
  */
-export function envRows(config: Pick<Config, 'environments'>, t: Pick<Task, 'environment' | 'promotions' | 'deploys' | 'pr' | 'state' | 'run'>, where: TicketWhere | null = null, deploying: string | null = null): EnvRow[] {
+export function envRows(config: Pick<Config, 'environments'>, t: Pick<Task, 'environment' | 'promotions' | 'deploys' | 'pr' | 'state' | 'run'>, where: TicketWhere | null = null, deploying: string | null = null, also: Environment[] = [], reading: (branch: string) => boolean = () => false): EnvRow[] {
   const next = ticketPlace(config, t, where)?.next[0]?.branch ?? null;
-  return pathFrom(config.environments, t.environment).map((e, i): EnvRow => {
+  const path = pathFrom(config.environments, t.environment);
+  return [...path, ...also.filter((e) => !path.includes(e))].map((e, i): EnvRow => {
     const r = where?.envs.find((x) => x.env === e.branch);
     const at = reachedAt(t, e.branch);
     const state: WhereState = r ? r.state : at ? 'deployed' : 'unknown';
     const detail = r?.state === 'partly' ? `${plural(r.differs.length, 'component')} differ${r.differs.length === 1 ? 's' : ''}`
+      : r?.state === 'not-deployed' && r.differs.length ? `${plural(r.differs.length, 'component')} not in ${e.name}`
       : r?.state === 'unknown' ? reasonInWords(r.why) : null;
     const merge = t.pr?.state === 'merged' ? 'merged' : t.state === 'running' ? 'building' : t.pr || t.run?.branch ? 'open' : 'none';
     const words = { merged: `Merged into ${e.branch}`, open: `Not merged into ${e.branch} yet`, building: 'Being built', none: 'No work to merge yet' }[merge];
@@ -140,6 +143,7 @@ export function envRows(config: Pick<Config, 'environments'>, t: Pick<Task, 'env
       differs: r && (r.state === 'partly' || r.state === 'not-deployed') ? r.differs : [], notes: (r?.notes ?? []).map((n) => reasonInWords(n)), readAt: r?.at ?? null,
       merged: i === 0 ? { look: MERGE_LOOK[merge], words } : null,
       next: e.branch === next ? NEXT_LOOK : null, busy: deploying === e.branch ? BUSY_LOOK : null,
+      reading: reading(e.branch),
     };
   });
 }
@@ -181,21 +185,31 @@ export function deployPick(i: DeployIn): DeployPick | null {
   if (!ahead.length) return null;
   const off = pickOff(i);
   const choices = ahead.map((e): DeployChoice => ({ to: e.branch, name: e.name, org: e.org, then: choiceThen(e), disabled: off ?? deployOff(i, e) }));
-  // Every choice off for its own reason: nothing can go, so Deploy… is off, saying each reason once.
-  const none = !off && choices.every((c) => c.disabled) ? [...new Set(choices.map((c) => c.disabled!))].join(' ') : null;
+  // Every choice off for its own reason: nothing can go, so Deploy… is off, saying each reason once; the same
+  // dependency missing from each says so in one line, naming each environment.
+  const waits = ahead.map((e) => missingDeps(i.tasks, i.task, e).join(', '));
+  const oneWait = ahead.every((e, n) => e.org && waits[n] && waits[n] === waits[0]) ? waits[0]! : null;
+  const names = ahead.map((e) => e.name);
+  const where = names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0];
+  const none = off || !choices.every((c) => c.disabled) ? null
+    : oneWait ? `It depends on ${oneWait}, which ${oneWait.includes(',') ? 'aren\'t' : 'isn\'t'} in ${where} yet.`
+      : [...new Set(choices.map((c) => c.disabled!))].join(' ');
   return { label: 'Deploy…', disabled: off ?? none, choices };
 }
 
 /** The deploy part, for a Salesforce task whose environment is in the settings; null for any other. */
 export function ticketDeploy(i: DeployIn): TicketDeploy | null {
   if (i.config.profile !== 'salesforce') return null;
-  const rows = envRows(i.config, i.task, i.where ?? null, i.deploying);
+  // Each environment Deploy… offers has a row, though it is off the usual way.
+  const pick = deployPick(i);
+  const also = (pick?.choices ?? []).map((c) => i.config.environments.find((e) => e.branch === c.to)).filter((e): e is Environment => !!e);
+  const rows = envRows(i.config, i.task, i.where ?? null, i.deploying, also, i.reading);
   if (!rows.length) return null;
   const to = i.config.environments.find((e) => e.branch === i.deploying);
   return {
-    task: i.task.id, rows, pick: deployPick(i),
+    task: i.task.id, rows, pick,
     status: i.deploying != null ? { look: BUSY_LOOK, words: to ? `An agent is deploying ${i.task.id} to ${to.name}.` : `An agent is deploying ${i.task.id}.` } : null,
-    reading: !!i.reading, needs: stepsLeftWords(i.stepsLeft ?? 0),
+    needs: stepsLeftWords(i.stepsLeft ?? 0),
   };
 }
 
@@ -205,14 +219,14 @@ export const stepsLeftWords = (n: number): string | null => (n ? `${plural(n, 's
 export type Message =
   /** Deploy…'s pick (T-158): the deploy guide's agent, a Claude Code chat, for the ticket and the environment picked. */
   | { type: 'deploy-guide'; project: string; task: string; to: string }
-  /** A row's Check again: read where the ticket's work is again. */
-  | { type: 'where-check'; project: string; task: string };
+  /** A row's Check again: read where the ticket's work is in that row's environment, by its branch, again. */
+  | { type: 'where-check'; project: string; task: string; env: string };
 
 const ticket = (x: Record<string, unknown>): boolean => short(x.project, 4096) && short(x.task, 100) && KEY.test(x.task as string);
 
 export const area: ModelArea = {
   messages: {
     'deploy-guide': (x) => ticket(x) && short(x.to, 100),
-    'where-check': (x) => ticket(x),
+    'where-check': (x) => ticket(x) && short(x.env, 100),
   },
 };

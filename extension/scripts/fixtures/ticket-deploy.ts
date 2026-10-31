@@ -1,8 +1,10 @@
 /**
  * ACME-12's Changes tab with its deploy (T-158), on a path of Dev, QA, UAT and Production, with Hotfix a step off
  * QA: before there's work, with its work in review, merged and deployed to QA with each environment read (Dev
- * and QA deployed, UAT partly deployed, Production can't tell), deployed to UAT with steps left to do by hand
- * and Production not deployed, Deploy… open on its three environments, and an agent deploying to UAT.
+ * and QA deployed, UAT partly deployed, Production can't tell, Hotfix not deployed), the same with Hotfix's row
+ * open on what's missing, every row can't tell with its reason, deployed to UAT with steps left to do by hand
+ * and Production not deployed, Deploy… open on its three environments, Deploy… open with Hotfix off for want of
+ * an org, Deploy… off as a dependency is in none of them, QA's Check again under way, and an agent deploying to UAT.
  */
 import { openSteps } from '../../../packages/core/src/change-steps.ts';
 import type { Environment } from '../../../packages/core/src/config.ts';
@@ -17,7 +19,7 @@ import { deployBlockers, ticketDeploy } from '../../src/model/ticket-deploy.ts';
 import { MIN, ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
-export type DeploySample = 'before' | 'work' | 'deployed' | 'steps' | 'pick' | 'busy';
+export type DeploySample = 'before' | 'work' | 'deployed' | 'not' | 'unknown' | 'steps' | 'pick' | 'pick-off' | 'off' | 'checking' | 'busy';
 
 const D = 'force-app/main/default';
 const env = (name: string, promotesTo: string[], more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo, ...more });
@@ -71,13 +73,23 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   } as unknown as Task;
   // What acc where last read: each state at least once across the shots, and none before there's work.
   const where: TicketWhere | null = !deployedOnce ? null : {
-    v: 1, task: 'ACME-12', envs: [
+    v: 1, task: 'ACME-12', envs: which === 'unknown' ? [
+      read('dev', 'unknown', at(12), { why: 'Salesforce didn\'t answer: the retrieve from acme-dev timed out.' }),
+      read('qa', 'unknown', at(12), { why: 'This machine isn\'t logged in to acme-qa.' }),
+      read('uat', 'unknown', at(12), { why: 'The branch uat couldn\'t be fetched from GitHub.' }),
+      read('production', 'unknown', at(12), { why: 'This machine has no access to Production: acme-prod isn\'t logged in here.' }),
+      read('hotfix', 'unknown', at(12), { why: 'This machine isn\'t logged in to acme-hotfix.' }),
+    ] : [
       read('dev', 'deployed', at(12)), read('qa', 'deployed', at(12)),
       inUat ? read('uat', 'deployed', at(12)) : read('uat', 'partly', at(12), { differs: ['Apex Class: CaseRouting', 'Flow: Case_Escalation'] }),
       inUat ? read('production', 'not-deployed', at(12), { differs: ['Apex Class: CaseRouting', 'Apex Class: CaseRoutingTest', 'Custom Field: Case.Tier__c', 'Flow: Case_Escalation'] })
         : read('production', 'unknown', at(12), { why: 'This machine has no access to Production: acme-prod isn\'t logged in here.' }),
+      read('hotfix', 'not-deployed', at(40), { differs: ['Apex Class: CaseRouting', 'Flow: Case_Escalation', 'Permission Set: Support_Agent'] }),
     ],
   };
+  // Hotfix has no org in the settings, so its choice is off; ACME-3, which it depends on, is in no environment ahead.
+  const config = which === 'pick-off' ? { ...CONFIG, environments: ENVS.map((e) => (e.branch === 'hotfix' ? { ...e, org: null } : e)) } : CONFIG;
+  const dep = { ...task, id: 'ACME-3', deps: [], promotions: [], deploys: [] } as Task;
   const changes = which === 'before'
     ? ticketChanges({ task, profile: 'salesforce', planned: PLAN, live: null })
     : deployedOnce ? ticketChanges({ task: { ...task, changes: { at: at(178), paths: MADE } }, profile: 'salesforce', planned: PLAN, live: null })
@@ -87,6 +99,9 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
   const acc = m.acc && deployedOnce ? { ...m.acc, conflicts: null, checks: m.acc.checks.filter((c) => !deployBlockers([c]).length) } : m.acc;
   return {
     ...m, acc, project: ROOT, changes, records,
-    deploy: ticketDeploy({ config: CONFIG, task, tasks: [task], deploying: which === 'busy' ? 'uat' : null, failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null, stepsLeft: openSteps(task).length, where }),
+    deploy: ticketDeploy({
+      config, task: which === 'off' ? { ...task, deps: ['ACME-3'] } : task, tasks: which === 'off' ? [task, dep] : [task], deploying: which === 'busy' ? 'uat' : null,
+      failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null, stepsLeft: openSteps(task).length, where, reading: (b) => which === 'checking' && b === 'qa',
+    }),
   };
 }

@@ -27,10 +27,10 @@ export interface DeployActions {
   where(root: string, task: Task): TicketWhere | null;
   /** The kept readings alone, for a check that mustn't start a read. */
   kept(root: string, id: string): TicketWhere | null;
-  /** The person's Refresh or Check again: read where its work is again, whatever the readings' age. */
+  /** The person's Refresh: read where its work is again, in every environment, whatever the readings' age. */
   reread(root: string, id: string): void;
-  /** Whether a read of where its work is is under way. */
-  reading(root: string, id: string): boolean;
+  /** Whether a read of where its work is is under way: of every environment, or of the one whose branch is `env`. */
+  reading(root: string, id: string, env: string): boolean;
 }
 
 export const area: ExtensionArea = {
@@ -60,7 +60,7 @@ export const area: ExtensionArea = {
         return p ? readWhere(stateOf(p), id.toUpperCase()) : null;
       },
       reread: (root, id) => void reads.read(root, id),
-      reading: (root, id) => reads.reading(root, id),
+      reading: (root, id, env) => reads.reading(root, id, env),
       deploying: (root, id) => {
         const p = hub.project(root);
         try {
@@ -72,7 +72,8 @@ export const area: ExtensionArea = {
       },
       async act(m) {
         if (m.type === 'where-check') {
-          void reads.read(m.project, m.task);
+          // A row's Check again reads its own environment alone (T-158).
+          void reads.read(m.project, m.task, m.env);
           tickets.refresh(m.project);
           return;
         }

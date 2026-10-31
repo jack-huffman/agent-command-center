@@ -11,14 +11,20 @@ It amends D-220 (the Changes tab's path line, Deploy to <next environment>, its 
 and D-235 (Deploy with an agent is no longer a button of its own: Deploy… is the agent).
 
 - **One row for each environment on the path, in order** (`envRows`, `extension/src/model/ticket-deploy.ts`).
-  The path is `pathFrom`, the usual way along `promotesTo`. Each row has the environment's name, its org, and its
-  state as an icon and a label (`WHERE_LOOK`): Deployed, with when by acc's records; Partly deployed, with how
-  many components differ and a fold that lists them; Not deployed; or Can't tell, with why. The state is the
-  environment's last reading (D-237); before the first, a row is Deployed where acc recorded the work there, and
-  Can't tell elsewhere. Each row says when it was read ("Not read yet" before the first) and has a quiet Check
-  again, which reads every environment of the ticket again (`acc where`, through `WhereReads`), and waits while a
-  read is under way. Where acc's record, git and the org disagree, the row says so (`whereNotes`). acc's words
-  reach the person through `reasonInWords`.
+  The path is `pathFrom`, the usual way along `promotesTo`; after it, each environment off the usual way that
+  Deploy… offers has a row too, as Hotfix off QA, and none once it is no choice. Each row has the environment's
+  name, its org, and its state as an icon and a label (`WHERE_LOOK`): Deployed, with when by acc's records;
+  Partly deployed, with how many components differ and a fold that lists them; Not deployed, with how many are
+  missing behind the same fold; or Can't tell, with why. The state is the environment's last reading (D-237);
+  before the first, a row is Deployed where acc recorded the work there, and Can't tell elsewhere. Each row says
+  when it was read ("Not read yet" before the first) and has a quiet Check again, which reads that environment
+  alone (`acc where <id> --env <branch>`, through `WhereReads`) and waits while it is read; a read of every
+  environment (Refresh, or a due reading) covers each row. Where acc's record, git and the org disagree, the
+  row says so (`whereNotes`). acc's words reach the person through `reasonInWords`.
+- **acc where reads off the usual way too** (`ticketEnvironments`, `packages/core/src/where-kept.ts`). It reads,
+  and `--env` takes, the ticket's path and then each environment off it the ticket can still reach
+  (`environmentsAhead` from its own environment), so a Hotfix row has a reading to show. This amends D-237,
+  which read the path alone.
 - **One next step at most.** Only the usual next step (`ticketPlace`'s first) says Next, though its environment
   goes two ways, as the person's did (Dev to Sandbox or to Production). The development environment's row also
   says whether the work is merged into its branch (`MERGE_LOOK`). Orange against blue, never red against green.
@@ -37,19 +43,25 @@ and D-235 (Deploy with an agent is no longer a button of its own: Deploy… is t
 - **Off with why.** Deploy… is off, its reason beside it and in its title, for what `pickOff` says: the
   command's own reasons, the ticket's own checks failing unaccepted (`deployBlockers`), a conflict with its
   environment, or a deploy under way. A choice that can't be picked (no org, a dependency not there) says why in
-  it; when every choice is off, Deploy… is off with each reason once.
+  it; when every choice is off, Deploy… is off with each reason once, and the same dependency missing from each
+  in one line ("It depends on ACME-3, which isn't in UAT, Hotfix or Production yet.").
 - **What the agent is on.** A deploy of the ticket under way (a `deploy` job, D-092) shows on its environment's
   row, and the tab says "An agent is deploying ACME-12 to UAT." The Agent panel doesn't change.
-- **Not covered.** An environment off the usual way (Hotfix off QA) can be picked but has no row. The words
-  for a choice follow the settings: an org Salesforce doesn't say is a sandbox is asked for its typed name by
-  the guide (D-239), though its choice says "An agent deploys it". Check again reads every environment, not
-  only its row's.
-- **Checked by** `extension/test/ticket-deploy.test.ts` (rows, next, merge, the pick and its words, off with
-  why, a deploy under way, the messages, and two mutants of the model, each caught: one that shows two
-  environments as next, and one that lets a direct deploy message in), `extension/test/changes-tab.test.ts`
-  (the rows, the fold, Check again, Deploy… and its pick, off with why), `extension/test/where.test.ts` (the
-  readings on the rows), `extension/test/choice-limit.test.ts` (three of five) and the screenshot run's
-  behaviour cases (four, with six mutants, each caught: the pick deploys without the agent, Deploy… off says no
-  why, every environment shows as next, Check again asks for nothing, a partly deployed row doesn't open, and a
-  deploy under way doesn't show on its row). The screenshot run draws the rows in each state and the open pick
-  at each width and theme (`ticket-deploy-before`, `-work`, `-deployed`, `-steps`, `-pick`, `-busy`).
+- **Not covered.** The words for a choice follow the settings: an org Salesforce doesn't say is a sandbox is
+  asked for its typed name by the guide (D-239), though its choice says "An agent deploys it". A reading that
+  finds the work in Hotfix moves the ticket's place there (`furthestRead`, D-237), as a deploy to it would.
+- **Checked by** `extension/test/ticket-deploy.test.ts` (rows, Hotfix's row, next, merge, the pick and its
+  words, off with why, a deploy under way, a row's read, the messages, and two mutants of the model, each
+  caught: one that shows two environments as next, and one that lets a direct deploy message in),
+  `extension/test/changes-tab.test.ts` (the rows, the fold, a row's Check again, Deploy… and its pick, off with
+  why), `extension/test/where.test.ts` (the readings on the rows, and a row's read of its environment alone),
+  `packages/core/test/where.test.ts` (`ticketEnvironments`), `extension/test/choice-limit.test.ts` (three of
+  five) and the screenshot run's behaviour cases (seven, with nine mutants, each caught: the pick deploys
+  without the agent, Deploy… off says no why, every environment shows as next, Check again asks for nothing,
+  Check again reads another row's environment, a choice that can't be picked is on, a row's check under way
+  still takes a click, a partly deployed row doesn't open, and a deploy under way doesn't show on its row).
+  The screenshot run draws the rows in each state and the pick at each width and theme: `ticket-deploy-before`,
+  `-work` (Deploy… off with why), `-deployed` (UAT partly deployed, open), `-not` (Hotfix not deployed, open),
+  `-unknown` (each row can't tell, with its reason), `-steps`, `-pick` (open on a sandbox and Production),
+  `-pick-off` (a choice off with why), `-off` (Deploy… off, a dependency in none of them), `-checking` (QA's Check again
+  under way) and `-busy` (a deploy under way on its row).

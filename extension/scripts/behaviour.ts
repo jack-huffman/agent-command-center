@@ -301,17 +301,17 @@ export interface Exchange { asked: Record<string, unknown>; reply: Record<string
 /** One case: its name, the page it opens, and what it does there. */
 export interface Case {
   name: string;
-  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-busy' | 'ticket-agent-failed' | 'ticket-blocked-wall' | 'setup';
+  page: 'tasks' | 'overview-landing' | 'overview-since' | 'overview-pages' | 'ticket-questions' | 'ticket-review' | 'settings-agents' | 'connect-start' | 'agent' | 'output-changes' | 'output-failed' | 'conversation-start' | 'ticket-conversation' | 'ticket-talk' | 'ticket-plan-needs-you' | 'report' | 'ticket-deploy-work' | 'ticket-deploy-deployed' | 'ticket-deploy-busy' | 'ticket-deploy-checking' | 'ticket-deploy-pick-off' | 'ticket-deploy-off' | 'ticket-agent-failed' | 'ticket-blocked-wall' | 'setup';
   /** A tab rebuilt before its first model: its page holds the loading screen, and the tab remembers being scrolled this far down. */
   opening?: { scroll: number };
   run: (t: Probe) => Promise<void>;
 }
 
 /** The pages the cases open: the Tasks board, the Overview, and with Since you last looked, ACME-21's and ACME-19's task pages, Settings with two projects, the Connect page, an agent's page, and the Tasks board with a review, and with a failed run, in the output panel, the Overview with History of more than two pages, ACME-21's conversation as Make a plan opens it (T-111), and ACME-21's page before its plan, where Make a plan is clicked (T-112), and Report a problem's draft as it opens (T-118); ACME-12's Changes tab in review, deployed once, and with an agent deploying to UAT (T-158); and ACME-12 blocked with a note recorded as one paragraph (T-146). */
-export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; busy: Model; work: Model; agentFailed: Model; wall: Model; setup: Model }
+export interface CaseModels { tasks: Model; overview: Model; since: Model; ticket: Model; review: Model; settings: Model; connect: Model; agent: Model; dock: Model; run: Model; pages: Model; conversation: Model; beforePlan: Model; talked: Model; needsYou: Model; report: Model; deployed: Model; busy: Model; checking: Model; pickOff: Model; off: Model; work: Model; agentFailed: Model; wall: Model; setup: Model }
 
 /** The model a case's page is drawn from. */
-export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-busy' ? models.busy : c.page === 'ticket-agent-failed' ? models.agentFailed : c.page === 'ticket-blocked-wall' ? models.wall : c.page === 'setup' ? models.setup : models.overview);
+export const caseModel = (c: Case, models: CaseModels): Model => (c.page === 'tasks' ? models.tasks : c.page === 'ticket-questions' ? models.ticket : c.page === 'ticket-review' ? models.review : c.page === 'settings-agents' ? models.settings : c.page === 'connect-start' ? models.connect : c.page === 'agent' ? models.agent : c.page === 'overview-since' ? models.since : c.page === 'output-changes' ? models.dock : c.page === 'output-failed' ? models.run : c.page === 'overview-pages' ? models.pages : c.page === 'conversation-start' ? models.conversation : c.page === 'ticket-conversation' ? models.beforePlan : c.page === 'ticket-talk' ? models.talked : c.page === 'ticket-plan-needs-you' ? models.needsYou : c.page === 'report' ? models.report : c.page === 'ticket-deploy-work' ? models.work : c.page === 'ticket-deploy-deployed' ? models.deployed : c.page === 'ticket-deploy-busy' ? models.busy : c.page === 'ticket-deploy-checking' ? models.checking : c.page === 'ticket-deploy-pick-off' ? models.pickOff : c.page === 'ticket-deploy-off' ? models.off : c.page === 'ticket-agent-failed' ? models.agentFailed : c.page === 'ticket-blocked-wall' ? models.wall : c.page === 'setup' ? models.setup : models.overview);
 
 // ---------------------------------------------------------------- helpers, run in the page
 
@@ -2617,7 +2617,7 @@ export const CASES: Case[] = [
     page: 'ticket-deploy-deployed',
     async run(t) {
       const rows = t.all('.dp-row');
-      t.check('a row for each environment on the path, in order', JSON.stringify(rows.map((r) => r.dataset.env)) === JSON.stringify(['dev', 'qa', 'uat', 'production']), rows.map((r) => r.dataset.env));
+      t.check('a row for each environment on the path, in order, then Hotfix, a choice off the usual way', JSON.stringify(rows.map((r) => r.dataset.env)) === JSON.stringify(['dev', 'qa', 'uat', 'production', 'hotfix']), rows.map((r) => r.dataset.env));
       t.check('each row says its state with an icon and a label', rows.every((r) => /Deployed|Partly deployed|Not deployed|Can't tell/.test(t.find('.dp-state', r).textContent ?? '') && !!t.find('.dp-state .codicon', r)), rows.map((r) => t.find('.dp-state', r).textContent));
       t.check('each row says when it was read', rows.every((r) => /^Read /.test(t.find('.dp-read', r).textContent ?? '')), rows.map((r) => t.find('.dp-read', r).textContent));
       const next = rows.filter((r) => /Next/.test(t.find('.dp-row-head', r).textContent ?? ''));
@@ -2633,7 +2633,7 @@ export const CASES: Case[] = [
       t.check('a second click closes it', fold().getAttribute('aria-expanded') === 'false' && differs() === 0);
       t.check('Production can\'t tell, and says why', /Can't tell/.test(rows[3]!.textContent ?? '') && /no access to Production/.test(t.find('.dp-detail', rows[3]).textContent ?? ''));
       await t.click(t.find<HTMLButtonElement>('.dp-row[data-env="qa"] .dp-again'));
-      t.check('Check again asks the extension to read it again, once, and deploys nothing', t.sent('where-check').length === 1 && t.sent('deploy-guide').length === 0, t.sent('where-check'));
+      t.check('QA\'s Check again asks the extension to read QA alone, once, and deploys nothing', t.sent('where-check').length === 1 && t.sent('where-check')[0]?.env === 'qa' && t.sent('deploy-guide').length === 0, t.sent('where-check'));
       const more = t.find<HTMLButtonElement>('.chg-more-btn');
       t.check('More is closed to start', more.getAttribute('aria-expanded') === 'false' && t.all('.chg-more-body').length === 0);
       await t.click(more);
@@ -2686,6 +2686,42 @@ export const CASES: Case[] = [
       t.check('no other row says so', t.all('.dp-busy').length === 1);
       t.check('the tab says what the agent is on', t.find('.dp-status').textContent === 'An agent is deploying ACME-12 to UAT.', t.find('.dp-status').textContent);
       t.check('Deploy… is off until it finishes', t.find<HTMLButtonElement>('.dp-go').disabled && /under way/.test(t.find('.dp-why').textContent ?? ''));
+    },
+  },
+  {
+    name: 'changes tab: Check again on QA\'s row waits while QA is read, and sends nothing; the other rows\' stay on (T-158)',
+    page: 'ticket-deploy-checking',
+    async run(t) {
+      const qa = t.find<HTMLButtonElement>('.dp-row[data-env="qa"] .dp-again');
+      t.check('QA\'s says it is checking, and is off', qa.disabled && qa.textContent === 'Checking…', [qa.disabled, qa.textContent]);
+      await t.click(qa);
+      t.check('a click on it sends nothing', t.sent('where-check').length === 0);
+      const others = t.all<HTMLButtonElement>('.dp-row:not([data-env="qa"]) .dp-again');
+      t.check('every other row\'s Check again is on', others.length === 4 && others.every((b) => !b.disabled && b.textContent === 'Check again'), others.map((b) => b.textContent));
+    },
+  },
+  {
+    name: 'changes tab: Deploy… open with Hotfix off says why in its choice, and a click on it sends nothing; the others still start the agent (T-158)',
+    page: 'ticket-deploy-pick-off',
+    async run(t) {
+      await t.click(t.find<HTMLButtonElement>('.dp-go'));
+      const choices = t.all<HTMLButtonElement>('.dp-pick .dp-choice');
+      const hotfix = choices.find((c) => t.find('.dp-choice-name strong', c).textContent === 'Hotfix')!;
+      t.check('Hotfix is off, saying why in its choice', !!hotfix && hotfix.disabled && t.find('.dp-then', hotfix).textContent === 'Hotfix has no org in the project\'s settings.', hotfix?.textContent);
+      await t.click(hotfix);
+      t.check('a click on it starts nothing', t.sent('deploy-guide').length === 0);
+      t.check('UAT and Production are on', choices.filter((c) => !c.disabled).length === 2);
+    },
+  },
+  {
+    name: 'changes tab: Deploy… is off with each reason beside it when no environment ahead can take it (T-158)',
+    page: 'ticket-deploy-off',
+    async run(t) {
+      const go = t.find<HTMLButtonElement>('.dp-go');
+      const why = t.find('.dp-why').textContent ?? '';
+      t.check('Deploy… is off, saying ACME-3 is in none of them', go.disabled && why === 'It depends on ACME-3, which isn\'t in UAT, Hotfix or Production yet.' && go.title.endsWith(why), [go.disabled, why]);
+      await t.click(go);
+      t.check('off, it opens no pick', t.all('.dp-pick').length === 0 && t.sent('deploy-guide').length === 0);
     },
   },
   {
@@ -3049,7 +3085,11 @@ export const MUTANTS: Mutant[] = [
   { name: 'Deploy…\'s pick deploys without the agent', file: 'changes.ts', find: "api.postMessage({ type: 'deploy-guide', project: m.project, task: d.task, to: c.to });", replace: "api.postMessage({ type: 'deploy-go', project: m.project, task: d.task, to: c.to, checkId: 'none' });", kills: [caseNamed('changes tab: Deploy… is the one primary action')] },
   { name: 'Deploy… off doesn\'t say why beside it', file: 'changes.ts', find: "  if (p.disabled) out.push(el('p', 'muted small dp-why', icon('info'), el('span', '', p.disabled)));\n", replace: '', kills: [caseNamed('changes tab: Deploy… sits above the list')] },
   { name: 'every environment shows as next', file: 'changes.ts', find: 'r.next ? status(r.next) : null', replace: "status(r.next ?? { label: 'Next', icon: 'arrow-right', tone: 'neutral' })", kills: [caseNamed('changes tab: a row for each environment')] },
-  { name: 'Check again asks for nothing', file: 'changes.ts', find: "if (!x.disabled) api.postMessage({ type: 'where-check', project: m.project, task: d.task });", replace: 'void x;', kills: [caseNamed('changes tab: a row for each environment')] },
+  { name: 'Check again asks for nothing', file: 'changes.ts', find: "if (!x.disabled) api.postMessage({ type: 'where-check', project: m.project, task: d.task, env: r.branch });", replace: 'void x;', kills: [caseNamed('changes tab: a row for each environment')] },
+  { name: 'Check again reads another row\'s environment', file: 'changes.ts', find: "task: d.task, env: r.branch });", replace: "task: d.task, env: d.rows[0]!.branch });", kills: [caseNamed('changes tab: a row for each environment')] },
+  { name: 'Deploy… stays on when nothing can go', file: 'changes.ts', find: "  if (p.disabled) {\n    go.disabled = true;\n", replace: '  if (p.disabled) {\n', kills: [caseNamed('changes tab: Deploy… is off with each reason')] },
+  { name: 'a choice that can\'t be picked is on', file: 'changes.ts', find: "  if (c.disabled) {\n    x.disabled = true;\n", replace: '  if (c.disabled) {\n', kills: [caseNamed('changes tab: Deploy… open with Hotfix off')] },
+  { name: 'a row\'s check under way still takes a click', file: 'changes.ts', find: "  if (r.reading) {\n    x.disabled = true;\n", replace: '  if (r.reading) {\n', kills: [caseNamed('changes tab: Check again on QA\'s row')] },
   { name: 'a partly deployed row doesn\'t open on what differs', file: 'changes.ts', find: "if (isOpen(key)) row.append(el('ul', 'chg-list dp-differs'", replace: "if (!key) row.append(el('ul', 'chg-list dp-differs'", kills: [caseNamed('changes tab: a row for each environment')] },
   { name: 'a deploy under way doesn\'t show on its row', file: 'changes.ts', find: "  if (r.busy) row.append(el('p', 'small dp-busy', status(r.busy)));\n", replace: '', kills: [caseNamed('changes tab: an agent deploying to UAT')] },
   { name: 'Change it sends no yes', file: 'plan.ts', find: '...(option ? { option: option.id } : { text }), yes: true });', replace: '...(option ? { option: option.id } : { text }) });', kills: [caseNamed('plan: on an approved plan')] },

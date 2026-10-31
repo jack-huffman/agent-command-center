@@ -69,15 +69,15 @@ function renderRecordList(m: TicketModel): HTMLElement | null {
   return sec;
 }
 
-/** A row's Check again: quiet, and waiting while a read is under way. */
-function checkAgain(m: TicketModel, d: TicketDeploy): HTMLButtonElement {
-  const x = button(d.reading ? 'Checking…' : 'Check again', d.reading ? 'sync~spin' : 'refresh', () => {
-    if (!x.disabled) api.postMessage({ type: 'where-check', project: m.project, task: d.task });
+/** A row's Check again: quiet, it reads its own environment alone, and waits while a read of it is under way. */
+function checkAgain(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLButtonElement {
+  const x = button(r.reading ? 'Checking…' : 'Check again', r.reading ? 'sync~spin' : 'refresh', () => {
+    if (!x.disabled) api.postMessage({ type: 'where-check', project: m.project, task: d.task, env: r.branch });
   }, 'ghost small dp-again');
-  if (d.reading) {
+  if (r.reading) {
     x.disabled = true;
-    x.title = 'Check again: it is reading where the work is now';
-  } else x.title = 'Check again: read where the work is in each branch and org now';
+    x.title = `Check again: it is reading where the work is in ${r.name} now`;
+  } else x.title = `Check again: read where the work is in ${r.name}'s branch and org now`;
   return x;
 }
 
@@ -100,7 +100,7 @@ function renderRow(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLElement {
   for (const n of r.notes) row.append(el('p', 'muted small dp-note', n));
   if (r.merged) row.append(el('p', 'small dp-merged', status({ ...r.merged.look, label: r.merged.words })));
   if (r.busy) row.append(el('p', 'small dp-busy', status(r.busy)));
-  row.append(el('p', 'muted small dp-read', ...(r.readAt ? ['Read ', when(r.readAt)] : ['Not read yet']), checkAgain(m, d)));
+  row.append(el('p', 'muted small dp-read', ...(r.readAt ? ['Read ', when(r.readAt)] : ['Not read yet']), checkAgain(m, d, r)));
   return row;
 }
 

@@ -1603,9 +1603,12 @@ The extension handles every workspace folder that has `.acc/config.json`.
   needs the person, else the tab last on show for that ticket, else Ticket.
 - **Changes leads with where it is and Deploy…** (T-138, T-158): on a
   Salesforce task, one row for each environment on the ticket's path, in order,
-  each with its org, its state as an icon and a label (deployed, partly
-  deployed with how many differ and a fold that lists them, not deployed, or
-  can't tell with why), when it was read and a quiet Check again. The
+  then one for each environment off the usual way that Deploy… offers (as
+  Hotfix off QA), each with its org, its state as an icon and a label
+  (deployed, partly deployed with how many differ and a fold that lists them,
+  not deployed with how many are missing behind the same fold, or can't tell
+  with why), when it was read and a quiet Check again, which reads that
+  environment alone. The
   development environment's row says whether the work is merged into its
   branch; only the usual next step says Next; a deploy under way shows on its
   row. Then one primary Deploy…, which asks where, from at most three

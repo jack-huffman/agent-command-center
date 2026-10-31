@@ -12,7 +12,7 @@ import { pageDom, type PageElement } from './page-dom.ts';
 
 const AT = '2026-10-28T08:00:00.000Z';
 const row = (name: string, more: Partial<EnvRow> = {}): EnvRow => ({
-  name, branch: name.toLowerCase(), org: `acme-${name.toLowerCase()}`, look: WHERE_LOOK.deployed, at: AT, detail: null, differs: [], notes: [], readAt: AT, merged: null, next: null, busy: null, ...more,
+  name, branch: name.toLowerCase(), org: `acme-${name.toLowerCase()}`, look: WHERE_LOOK.deployed, at: AT, detail: null, differs: [], notes: [], readAt: AT, merged: null, next: null, busy: null, reading: false, ...more,
 });
 const deploy = (more: Partial<TicketDeploy> = {}): TicketDeploy => ({
   task: 'ACME-7',
@@ -25,7 +25,7 @@ const deploy = (more: Partial<TicketDeploy> = {}): TicketDeploy => ({
     { to: 'uat', name: 'UAT', org: 'acme-uat', then: 'An agent deploys it', disabled: null },
     { to: 'production', name: 'Production', org: 'acme-prod', then: 'An agent deploys it after you type Production\'s name', disabled: null },
   ] },
-  status: null, reading: false, needs: null, ...more,
+  status: null, needs: null, ...more,
 });
 const records = (todo: number): TicketRecords => ({
   task: 'ACME-7', look: RECORD_LOOK.kept, note: null, add: { label: 'Add a change made by hand', disabled: null },
@@ -79,15 +79,18 @@ test('a partly deployed row opens on the components that differ, and stays open 
   assert.equal(buttons([(renderDeploy(model(), deploy()) as unknown as PageElement).all('dp-row')[1]!]).filter((b) => b.classList.contains('dp-differs-btn')).length, 0);
 });
 
-test('Check again reads where the work is again; while it reads, it waits and sends nothing (T-158)', async () => {
+test('Check again reads its own row\'s environment alone; while that row reads, its button waits and sends nothing, and the others stay on (T-158)', async () => {
   const page = setup();
   const { renderDeploy } = await import('../webview/changes.ts');
-  buttons([renderDeploy(model(), deploy()) as unknown as PageElement]).find((b) => b.textContent === 'Check again')!.click();
-  assert.deepEqual(page.sent, [{ type: 'where-check', project: '/r', task: 'ACME-7' }]);
+  const again = (d: TicketDeploy): PageElement[] => buttons([renderDeploy(model(), d) as unknown as PageElement]).filter((b) => b.classList.contains('dp-again'));
+  again(deploy())[1]!.click();
+  assert.deepEqual(page.sent, [{ type: 'where-check', project: '/r', task: 'ACME-7', env: 'qa' }], 'QA\'s button reads QA');
   page.sent.length = 0;
-  const busy = buttons([renderDeploy(model(), deploy({ reading: true })) as unknown as PageElement]).filter((b) => b.classList.contains('dp-again'));
-  assert.ok(busy.length === 4 && busy.every((b) => b.disabled && b.textContent === 'Checking…'), 'edge case: a read under way');
-  busy[0]!.click();
+  const reading = deploy();
+  reading.rows[1] = { ...reading.rows[1]!, reading: true };
+  const busy = again(reading);
+  assert.deepEqual(busy.map((b) => [b.textContent, b.disabled]), [['Check again', false], ['Checking…', true], ['Check again', false], ['Check again', false]], 'edge case: a read of one row under way');
+  busy[1]!.click();
   assert.deepEqual(page.sent, []);
 });
 

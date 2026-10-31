@@ -482,7 +482,7 @@ export class TicketPanels implements vscode.Disposable {
       deploy: this.deploys ? ticketDeploy({
         config: p.config, task, tasks: this.hub.ledger(p.root)?.tasks ?? [], deploying: this.deploys.deploying(p.root, task.id),
         failing: deployBlockers(model.acc?.checks ?? []), conflicts: model.acc?.conflicts ? task.environment : null, stepsLeft: openSteps(task).length,
-        where: this.deploys.where(p.root, task), reading: this.deploys.reading(p.root, task.id),
+        where: this.deploys.where(p.root, task), reading: (env) => this.deploys!.reading(p.root, task.id, env),
       }) : null,
       talk,
       field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, ticketPaths(changes), updates, manifest?.manifest ?? null) ?? null : null,
