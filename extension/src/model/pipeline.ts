@@ -8,6 +8,7 @@
 
 import { autoMergeOn } from '../../../packages/core/src/config.ts';
 import { canBeDevelopment, developmentEnvironment, inPromotionOrder, notMergingWhy, SALESFORCE_MERGE_WORDS } from '../../../packages/core/src/pipeline.ts';
+import { OPTIONS_MAX } from '../../../packages/core/src/talk-questions.ts';
 import { ENV_ICON, envTypeWords } from '../logic/environments.ts';
 import type { SettingsAction } from './settings.ts';
 import type { Look, ProjectLike } from './shared.ts';
@@ -102,6 +103,16 @@ export function pipelineProject(p: ProjectLike): PipelineProject {
     };
   });
   return { root: p.root, project: p.name, salesforce: p.config.profile === 'salesforce', development: dev?.name ?? null, merge: pipelineMerge(p), envs };
+}
+
+/**
+ * The environments offered when a person picks the development environment with no row's button (D-205): a
+ * single choice shows at most OPTIONS_MAX, in path order, of those that can be it and aren't it now, and the
+ * person's own words always go, so `more` says how many the pick left for typing a name.
+ */
+export function developmentChoices<E extends Pick<ProjectLike['config']['environments'][number], 'branch' | 'type' | 'protected' | 'promotesTo'>>(config: { environments: E[] }, now: string | null): { offered: E[]; more: number } {
+  const can = inPromotionOrder(config.environments).filter((e) => canBeDevelopment(e) && e.branch !== now);
+  return { offered: can.slice(0, OPTIONS_MAX), more: Math.max(0, can.length - OPTIONS_MAX) };
 }
 
 /** Every onboarded project's pipeline, Salesforce projects first since the section is theirs above all. */

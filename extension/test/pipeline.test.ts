@@ -5,7 +5,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { HomeModel } from '../src/model/home.ts';
-import { PIPELINE_MERGE_LOOK, PIPELINE_ROLE_LOOK, pipelineMerge, pipelineProject, pipelineProjects, pipelineRole } from '../src/model/pipeline.ts';
+import { OPTIONS_MAX } from '../../packages/core/src/talk-questions.ts';
+import { developmentChoices, PIPELINE_MERGE_LOOK, PIPELINE_ROLE_LOOK, pipelineMerge, pipelineProject, pipelineProjects, pipelineRole } from '../src/model/pipeline.ts';
 import { sectionOfPart, SETTINGS_PARTS, settingsKey, settingsMeanings, type SettingsModel } from '../src/model/settings.ts';
 import type { ProjectLike } from '../src/model/shared.ts';
 import { PAGE_COMMANDS } from '../src/model/messages.ts';
@@ -83,6 +84,23 @@ test('edge case: a default that is Production, or no default, leaves no developm
   assert.equal(pipelineRole({ branch: 'main', type: 'none', protected: false }, 'main'), 'development');
   assert.deepEqual(pipelineProjects([]), [], 'no project: nothing');
   assert.deepEqual(pipelineProjects(projects()).map((p) => p.project), ['Acme Service', 'Acme Portal'], 'Salesforce projects first');
+});
+
+test('the development-environment pick with no row\'s button is a single choice (D-205): at most three sandboxes in path order, never the one it is now, and own words for the rest; edge case: none left to offer', () => {
+  const s = service();
+  const sandbox = (name: string, promotesTo: string[] = ['production']) => ({ name, branch: name.toLowerCase(), type: 'developer' as const, org: `Acme ${name}`, default: false, protected: false, promotesTo });
+  // Six sandboxes that could be it, plus Dev, which is it now, and Production.
+  const envs = [...s.config.environments.filter((e) => e.name !== 'QA'), sandbox('Alpha', ['beta']), sandbox('Beta', ['gamma']), sandbox('Gamma', ['delta']), sandbox('Delta', ['epsilon']), sandbox('Epsilon', ['zeta']), sandbox('Zeta')];
+  const { offered, more } = developmentChoices({ environments: envs }, 'dev');
+  assert.deepEqual(offered.map((e) => e.name), ['Alpha', 'Beta', 'Gamma'], 'three, in path order, and not Dev');
+  assert.equal(more, 3, 'the rest are reached by typing a name');
+  assert.ok(offered.length <= OPTIONS_MAX);
+  // Fewer than three: each, and nothing more.
+  assert.deepEqual([developmentChoices(s.config, 'dev').offered.map((e) => e.name), developmentChoices(s.config, 'dev').more], [['QA'], 0]);
+  // Edge case: nothing that can be it: Production and a protected sandbox leave none to offer.
+  const none = developmentChoices({ environments: s.config.environments.map((e) => (e.name === 'QA' ? { ...e, protected: true } : e)) }, 'dev');
+  assert.deepEqual([none.offered, none.more], [[], 0]);
+  assert.deepEqual(developmentChoices({ environments: [] }, null).offered, []);
 });
 
 test('Settings carries the pipeline as a part of its own section, the sample page opens at it, and its switch\'s words fold under What this means', () => {

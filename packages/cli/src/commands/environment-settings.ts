@@ -4,7 +4,7 @@
 
 import { AccError, autoMergeFor, autoMergeOn, type Config, developmentEnvironment, inPromotionOrder, loadConfig, notMergingWhy, setDevelopmentEnvironment, setNextSteps } from '../../../core/src/index.ts';
 import { tone } from '../format.ts';
-import { type CommandArea, type Opts, out, personOnly, project } from '../shared.ts';
+import { type CommandArea, noAgent, type Opts, out, project } from '../shared.ts';
 
 /** What the pipeline is now: each environment in path order, the development one, and whether it merges on its own. */
 function pipelineData(config: Config) {
@@ -34,15 +34,9 @@ function cmdShow(o: Opts): number {
   return 0;
 }
 
-/** Only a person changes the pipeline: a builder, reviewer or analyst is refused by its role, as for auto-merge. */
-function person(o: Opts, what: string): void {
-  const role = process.env.ACC_ROLE;
-  if (role === 'builder' || role === 'reviewer' || role === 'analyst') throw new AccError('refused', `${role === 'analyst' ? 'An' : 'A'} ${role} can't ${what}. A person does that.`);
-  personOnly(o, what);
-}
-
+// Only a person changes the pipeline (noAgent, as for auto-merge): a builder, reviewer or analyst is refused by its role.
 function cmdDevelopment(o: Opts, name: string): number {
-  person(o, 'change the development environment');
+  noAgent(o, 'change the development environment');
   const { paths } = project(process.cwd());
   const r = setDevelopmentEnvironment(paths.config, name);
   const { config } = loadConfig(paths.config);
@@ -51,7 +45,7 @@ function cmdDevelopment(o: Opts, name: string): number {
 }
 
 function cmdNext(o: Opts, name: string, next: string[]): number {
-  person(o, 'change where an environment goes next');
+  noAgent(o, 'change where an environment goes next');
   const { paths } = project(process.cwd());
   const r = setNextSteps(paths.config, name, next);
   const { config } = loadConfig(paths.config);

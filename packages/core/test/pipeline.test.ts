@@ -111,6 +111,48 @@ test('edge case: Production, a protected environment and an environment the sett
   assert.throws(() => setDevelopmentEnvironment(join(tempDir('none-'), 'config.json'), 'Dev'), (e: AccError) => e.code === 'bad-config');
 });
 
+test('edge case: an environment with no org type, as a generic project\'s are, can\'t be the development environment: refused after the parser allowed it as the default, and the file stays byte for byte', () => {
+  // The parser takes "release" as the default; canBeDevelopment refuses its type, none. Before T-157's rework the
+  // file was written, then the change refused: the mutant that writes first is caught here.
+  const file = configFile({ ...clone(GENERIC_CONFIG), environments: [{ name: 'main', default: true }, { name: 'release' }] });
+  const before = readFileSync(file, 'utf8');
+  assert.throws(() => setDevelopmentEnvironment(file, 'release'), (e: AccError) => e.code === 'refused' && /^release can't be the development environment: it has no org type\. The development environment is a Developer, Developer Pro, Partial Copy or Full Copy sandbox that isn't protected\.$/.test(e.message));
+  assert.equal(readFileSync(file, 'utf8'), before, 'byte for byte as it was: nothing written before the refusal');
+  assert.equal(rawOf(file).environments[0].default, true, 'main is still the default');
+});
+
+test('a change writes the environments list where it stands and keeps every other character of the settings file: a one-line section, a comment-like spacing and a 4-space indent stay as they were', () => {
+  // Hand-written settings, as a person keeps them: 4 spaces, a section on one line, and keys in their own order.
+  const text = [
+    '{',
+    '    "schema": 1,',
+    '    "project": "Acme",',
+    '    "profile": "salesforce",',
+    '    "github": { "repo": "acme-co/acme-salesforce", "account": "work-account" },',
+    '    "environments": [',
+    '        { "name": "Production", "type": "production", "org": "Acme Production" },',
+    '        { "name": "UAT", "type": "full", "org": "Acme UAT", "promotesTo": ["production"] },',
+    '        { "name": "Dev", "type": "developer", "org": "Acme Dev", "default": true, "promotesTo": ["uat"] }',
+    '    ],',
+    '    "agents": { "max": 2 },',
+    '    "gates": { "required": ["format", "validate"] },',
+    '    "autonomy": "review"',
+    '}',
+    '',
+  ].join('\n');
+  const dir = tempDir('pipeline-');
+  const file = join(dir, 'config.json');
+  writeFileSync(file, text);
+  assert.equal(setDevelopmentEnvironment(file, 'UAT').changed, true);
+  const after = readFileSync(file, 'utf8');
+  const outside = (s: string) => s.replace(/"environments": \[[\s\S]*?\n {4}\]/, '"environments": […]');
+  assert.equal(outside(after), outside(text), 'everything outside the environments list is as it was, the one-line github section among it');
+  assert.match(after, /\n {8}\{\n {12}"name": "UAT"/, 'the list is written in the file\'s own indentation, four spaces');
+  assert.deepEqual(rawOf(file).environments.map((e: { name: string; default?: boolean }) => [e.name, e.default ?? null]), [['Production', null], ['UAT', true], ['Dev', null]]);
+  assert.equal(setNextSteps(file, 'UAT', ['Production']).changed, false, 'the same next steps again change nothing, and write nothing');
+  assert.equal(readFileSync(file, 'utf8'), after);
+});
+
 test('a person changes where an environment goes next: by name or branch, none means nowhere further, and the parser\'s rules hold before anything is written', () => {
   const file = configFile();
   const r = setNextSteps(file, 'Dev', ['UAT']);

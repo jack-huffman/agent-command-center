@@ -2,10 +2,21 @@
 // next, each changed through acc in the project's settings, for the person to commit. The switch is the Agents
 // area's acc.agents.autoMerge, which the section's Change… runs too.
 import * as vscode from 'vscode';
-import { canBeDevelopment, developmentEnvironment } from '../../packages/core/src/pipeline.ts';
+import { developmentEnvironment } from '../../packages/core/src/pipeline.ts';
 import type { ExtensionArea } from './area.ts';
 import type { Project } from './hub.ts';
+import { developmentChoices } from './model/pipeline.ts';
 import { Sidebar } from './sidebar.ts';
+
+/** The pick's last item: the person's own words (D-205), an environment named by typing. */
+const OWN_WORDS = 'Another environment…';
+const OWN = '\0own';
+
+/** The environment a person typed, by name or branch, whatever the case; undefined when none has that name. */
+const environmentNamed = (project: Project, typed: string): Project['config']['environments'][number] | undefined => {
+  const want = typed.trim().toLowerCase();
+  return want ? project.config.environments.find((e) => e.name.toLowerCase() === want || e.branch === want) : undefined;
+};
 
 /** `<root>|<branch>` as the section's buttons send it, or a root alone. */
 function parseRef(arg: unknown): { root: string; branch: string | null } | null {
@@ -32,7 +43,9 @@ class PipelineCommands extends Sidebar {
 
   /**
    * Makes an environment the development environment: the one the button names, or one picked from those that
-   * can be (a sandbox that isn't protected). acc refuses Production and a protected environment.
+   * can be (a sandbox that isn't protected). The pick is a single choice (D-205): at most three, in path order,
+   * and the person's own words, the environment's name typed, which reaches any other. acc refuses Production
+   * and a protected environment.
    */
   private async changeDevelopment(arg: unknown): Promise<void> {
     const got = await this.projectOf(arg);
@@ -41,11 +54,21 @@ class PipelineCommands extends Sidebar {
     const now = developmentEnvironment(project.config);
     let branch = got.branch;
     if (!branch) {
-      const choices = project.config.environments.filter((e) => canBeDevelopment(e) && e.branch !== now?.branch);
-      if (!choices.length) return void vscode.window.showInformationMessage(`${project.name} has no other environment that can be the development environment: a sandbox that isn't protected.`);
-      const pick = await vscode.window.showQuickPick(choices.map((e) => ({ label: `$(beaker) ${e.name}`, description: e.org ?? 'no org', detail: `Reviewed work would merge into ${e.branch} on its own.`, value: e.branch })), { title: `${project.name}: which environment is the development environment?${now ? ` Now ${now.name}.` : ''}` });
+      const { offered, more } = developmentChoices(project.config, now?.branch ?? null);
+      if (!offered.length) return void vscode.window.showInformationMessage(`${project.name} has no other environment that can be the development environment: a sandbox that isn't protected.`);
+      const title = `${project.name}: which environment is the development environment?${now ? ` Now ${now.name}.` : ''}`;
+      const pick = await vscode.window.showQuickPick([
+        ...offered.map((e) => ({ label: `$(beaker) ${e.name}`, description: e.org ?? 'no org', detail: `Reviewed work would merge into ${e.branch} on its own.`, value: e.branch })),
+        { label: `$(edit) ${OWN_WORDS}`, description: more ? `${more} more can be it` : 'Type its name', detail: 'An environment by its name, as the project\'s settings list it.', value: OWN },
+      ], { title });
       if (!pick) return;
-      branch = pick.value;
+      if (pick.value === OWN) {
+        const typed = await vscode.window.showInputBox({ title, prompt: 'The environment\'s name, as the project\'s settings list it. Production and a protected environment are refused.', validateInput: (v) => (environmentNamed(project, v) ? undefined : 'No environment has that name.') });
+        if (!typed) return;
+        branch = environmentNamed(project, typed)?.branch ?? typed.trim().toLowerCase();
+      } else {
+        branch = pick.value;
+      }
     }
     const env = project.config.environments.find((e) => e.branch === branch);
     if (!env) return void vscode.window.showWarningMessage(`${project.name} has no environment on ${branch}.`);
