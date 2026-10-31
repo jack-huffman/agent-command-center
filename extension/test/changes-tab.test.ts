@@ -73,7 +73,7 @@ test('a check\'s result shows under its row with its time, opens on the componen
   setup();
   const { renderDeploy } = await import('../webview/changes.ts');
   const uat = (): PageElement => (renderDeploy(model(), deploy()) as unknown as PageElement).all('dp-row')[2]!;
-  assert.match(uat().all('dp-check-found')[0]!.textContent, /^This org, checked .*:Differs$/);
+  assert.match(uat().all('dp-check-found')[0]!.textContent, /^This org, checked .*Differs$/);
   assert.match(uat().all('dp-state')[0]!.textContent, /^Deploy failed/, 'the row\'s state is still the record\'s');
   const fold = buttons([uat()]).find((b) => b.textContent === '2 components differ')!;
   assert.equal(fold.getAttribute('aria-expanded'), 'false');

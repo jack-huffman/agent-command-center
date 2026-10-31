@@ -94,7 +94,7 @@ function checkButton(m: TicketModel, d: TicketDeploy, r: EnvRow): HTMLButtonElem
 function renderCheck(m: TicketModel, r: EnvRow): HTMLElement[] {
   const c = r.check;
   if (!c) return [];
-  const out: HTMLElement[] = [el('p', 'small dp-check-found', el('span', 'muted', 'This org, checked '), when(c.at), el('span', 'muted', ':'), status(c.look))];
+  const out: HTMLElement[] = [el('p', 'small dp-check-found', el('span', 'muted', 'This org, checked '), when(c.at), status(c.look))];
   if (c.differs.length) {
     const key = openKey(`differs-${r.branch}`, m);
     out.push(foldButton(c.detail ?? plural(c.differs.length, 'component'), key, 'dp-differs-btn'));

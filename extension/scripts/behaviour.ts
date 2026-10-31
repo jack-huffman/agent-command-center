@@ -2626,7 +2626,7 @@ export const CASES: Case[] = [
       const next = rows.filter((r) => /Next/.test(t.find('.dp-row-head', r).textContent ?? ''));
       t.check('only one environment is next, and it is UAT', next.length === 1 && next[0]!.dataset.env === 'uat', next.map((r) => r.dataset.env));
       t.check('Dev\'s row says the work is merged into its branch', /Merged into dev/.test(t.find('.dp-merged', rows[0]).textContent ?? ''));
-      t.check('QA\'s check matches, under its row with when', /^This org, checked .+:Matches$/.test(t.find('.dp-row[data-env="qa"] .dp-check-found').textContent ?? ''), t.find('.dp-row[data-env="qa"] .dp-check-found').textContent);
+      t.check('QA\'s check matches, under its row with when', /^This org, checked .+Matches$/.test(t.find('.dp-row[data-env="qa"] .dp-check-found').textContent ?? ''), t.find('.dp-row[data-env="qa"] .dp-check-found').textContent);
       const fold = (): HTMLButtonElement => t.find<HTMLButtonElement>('.dp-row[data-env="uat"] .dp-differs-btn');
       const differs = (): number => t.all('.dp-row[data-env="uat"] .dp-differs li').length;
       t.check('UAT\'s check differs, saying how many, closed to start; its row still says its deploy failed', /Differs/.test(t.find('.dp-row[data-env="uat"] .dp-check-found').textContent ?? '') && /^Deploy failed/.test(t.find('.dp-row[data-env="uat"] .dp-state').textContent ?? '') && fold().textContent === '2 components differ' && fold().getAttribute('aria-expanded') === 'false' && differs() === 0, [fold().textContent, differs()]);
