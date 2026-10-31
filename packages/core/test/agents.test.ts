@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { agentArgs, cloneProfile, modelOf, profileView, roleArgs, setProfile, withCloneAgents } from '../src/agents.ts';
+import { agentArgs, cloneProfile, modelOf, profileView, roleArgs, setProfile, withCloneAgents, withRoleDefaults } from '../src/agents.ts';
 import { DEFAULT_MODEL, loadConfig, parseConfig, ROLE_DEFAULTS, writeConfig } from '../src/config.ts';
 import { run } from '../src/exec.ts';
 import { GENERIC_CONFIG, makeRepo, tempDir } from './support.ts';
@@ -108,6 +108,10 @@ test('the defaults for each role sit in one table: Opus 5.5 for all three, mediu
     planner: { model: 'claude-opus-5-5', effort: 'medium' },
     reviewer: { model: 'claude-opus-5-5', effort: 'medium' },
   });
+  // The profile with acc's default in place: a profile of nothing, and none at all, take the row.
+  assert.deepEqual(withRoleDefaults('planner', undefined), { model: 'claude-opus-5-5', effort: 'medium', fallbackModel: null });
+  assert.deepEqual(withRoleDefaults('builder', { model: null, effort: null, fallbackModel: 'sonnet' }), { model: 'claude-opus-5-5', effort: null, fallbackModel: 'sonnet' });
+  assert.deepEqual(withRoleDefaults('reviewer', { model: 'sonnet', effort: null, fallbackModel: null }), { model: 'sonnet', effort: null, fallbackModel: null }, 'a model it chose takes no default effort');
   const none = parseConfig(GENERIC_CONFIG).config!;
   assert.deepEqual(roleArgs(none, 'builder'), ['--model', 'claude-opus-5-5'], 'a builder\'s effort stays Claude Code\'s');
   assert.deepEqual(roleArgs(none, 'planner'), ['--model', 'claude-opus-5-5', '--effort', 'medium'], 'never Claude Code\'s own model');
