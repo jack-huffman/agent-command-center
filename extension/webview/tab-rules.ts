@@ -1,4 +1,4 @@
-// A task page's tabs (T-134, T-135): Ticket, Plan, Changes, Testing (T-161), Review and Verify, each shown only with something in it, with a
+// A task page's tabs (T-134, T-135): Ticket, Plan & build (T-168), Changes, Testing (T-161), Review and Verify, each shown only with something in it, with a
 // count where it helps and, where something in it needs the person, the words that say so. Which tab a page
 // opens on is decided here too, apart from the drawing (task-tabs.ts). The page imports only types from outside
 // its folder (D-121), so these rules live here; what a link may name is the model's (src/model/task-tabs.ts).
@@ -12,14 +12,17 @@ export type TabId = 'ticket' | 'plan' | 'changes' | 'testing' | 'review' | 'veri
 /** The tabs in the order the page draws them. */
 export const TAB_ORDER: readonly TabId[] = ['ticket', 'plan', 'changes', 'testing', 'review', 'verify'];
 
-/** Each tab's name and icon. */
-export const TAB_LOOK: Record<TabId, { name: string; icon: string }> = {
-  ticket: { name: 'Ticket', icon: 'issues' },
-  plan: { name: 'Plan', icon: 'checklist' },
-  changes: { name: 'Changes', icon: 'diff' },
-  testing: { name: 'Testing', icon: 'beaker' },
-  review: { name: 'Review', icon: 'eye' },
-  verify: { name: 'Verify', icon: 'verified' },
+/**
+ * Each tab's name (T-168): words only, with no icon, so the row reads at a glance. Plan is "Plan & build", where
+ * the person makes the plan and starts the build; its id stays `plan`, so links that name the part still open it.
+ */
+export const TAB_LOOK: Record<TabId, { name: string }> = {
+  ticket: { name: 'Ticket' },
+  plan: { name: 'Plan & build' },
+  changes: { name: 'Changes' },
+  testing: { name: 'Testing' },
+  review: { name: 'Review' },
+  verify: { name: 'Verify' },
 };
 
 /** What a tab that needs the person shows after its name: an orange icon and these words, never colour alone. */
@@ -28,7 +31,6 @@ export const NEEDS_YOU = 'needs you';
 export interface TaskTab {
   id: TabId;
   name: string;
-  icon: string;
   /** How many things it holds, in words ("12 comments", "4"), or null where a count doesn't help. */
   count: string | null;
   /** What in it needs the person, in the words of the state that says so; null when nothing does. */
@@ -45,7 +47,7 @@ const orange = (look: Look | null | undefined): string | null => (look?.tone ===
 export const changesNeeds = (m: TicketModel): string | null => m.deploy?.needs ?? null;
 
 /**
- * The tabs a ticket's page shows, in order. Ticket always: it holds the description. Plan, Changes, Review and
+ * The tabs a ticket's page shows, in order. Ticket always: it holds the description. Plan & build, Changes, Review and
  * Verify only with something in them, so a tab is never shown empty. Testing for every Salesforce task whose
  * environment the settings name: before its builder's deploy, it says what it will hold (T-161).
  */
@@ -73,7 +75,7 @@ export function taskTabs(m: TicketModel): TaskTab[] {
   return out;
 }
 
-/** A tab's title on hover: "Ticket, 12 comments", or "Plan: needs you". Its accessible name is its visible words ("Plan needs you"), as label-in-name asks. */
+/** A tab's title on hover: "Ticket, 12 comments", or "Plan & build: needs you". Its accessible name is its visible words ("Plan & build needs you"), as label-in-name asks. */
 export const tabName = (t: TaskTab): string => `${t.name}${t.count ? `, ${t.count}` : ''}${t.needs ? `: ${NEEDS_YOU}` : ''}`;
 
 /**

@@ -48,11 +48,32 @@ function fresh(memory?: Record<string, unknown>): void {
 
 // ---------------------------------------------------------------- which tabs show
 
-test('a ticket with every part shows Ticket, Plan, Changes, Testing, Review and Verify, in that order, each with its icon and name', () => {
+test('a ticket with every part shows Ticket, Plan & build, Changes, Testing, Review and Verify, in that order, each with its name', () => {
   const tabs = taskTabs(sampleTabsTicket(NOW));
   assert.deepEqual(tabs.map((t) => t.id), [...TAB_ORDER]);
-  for (const t of tabs) assert.deepEqual([t.name, t.icon], [TAB_LOOK[t.id].name, TAB_LOOK[t.id].icon]);
-  assert.deepEqual(tabs.map((t) => t.name), ['Ticket', 'Plan', 'Changes', 'Testing', 'Review', 'Verify']);
+  for (const t of tabs) assert.equal(t.name, TAB_LOOK[t.id].name);
+  assert.deepEqual(tabs.map((t) => t.name), ['Ticket', 'Plan & build', 'Changes', 'Testing', 'Review', 'Verify']);
+  assert.equal(partTab('plan'), 'plan', 'T-168: the part\'s id stays plan, so a link that names it still opens Plan & build');
+});
+
+test('T-168: the tabs are words: no tab draws an icon, and each keeps its count and its needs-you mark (the one icon, beside its words)', () => {
+  fresh();
+  const m = sampleTabsTicket(NOW);
+  const d = drawn(m);
+  assert.equal(d.tabs.length, TAB_ORDER.length);
+  let checked = 0;
+  for (const t of d.tabs) {
+    // The only icon a tab may hold is the needs-you mark's bell, inside its words.
+    const icons = t.all('codicon');
+    const marks = t.all('task-tab-needs');
+    assert.equal(icons.length, marks.length ? 1 : 0, `${t.dataset.tab} draws no icon of its own`);
+    if (marks.length) assert.ok(marks[0]!.textContent.endsWith(NEEDS_YOU));
+    checked++;
+  }
+  assert.equal(checked, TAB_ORDER.length);
+  const ticket = d.tabs.find((t) => t.dataset.tab === 'ticket')!;
+  assert.equal(ticket.all('task-tab-count')[0]!.textContent, `${m.comments.length} comments`, 'the count stays');
+  assert.equal(d.tabs.find((t) => t.dataset.tab === 'plan')!.all('task-tab-name')[0]!.textContent, 'Plan & build');
 });
 
 test('edge case: a tab with nothing in it is hidden, never drawn empty; Ticket always shows', () => {
@@ -102,7 +123,7 @@ test('a tab that needs the person says so in words, with the state that needs th
   // ACME-21's plan has a choice to make and approval again: Plan needs you, with the plan's own words.
   const plan = taskTabs(samplePlanNeedsYouTicket(NOW)).find((t) => t.id === 'plan')!;
   assert.equal(plan.needs, samplePlanNeedsYouTicket(NOW).analysis!.look.label);
-  assert.equal(tabName(plan), `Plan: ${NEEDS_YOU}`);
+  assert.equal(tabName(plan), `Plan & build: ${NEEDS_YOU}`);
   // Verify choosing a pull request, an update to post on Ticket.
   const m = sampleTabsTicket(NOW);
   const verify = taskTabs({ ...m, verify: { ...m.verify!, look: { label: 'Choose its pull request', icon: 'git-pull-request', tone: 'orange' } } }).find((t) => t.id === 'verify')!;
@@ -122,8 +143,8 @@ test('drawn, a tab that needs the person shows an orange icon and the words, nev
   assert.ok(needs.all('tone-orange').length + needs.all('codicon-bell').filter((i) => i.className.includes('orange')).length >= 1, needs.all('codicon-bell')[0]!.className);
   // Its name is its visible words, so a screen reader says what's shown: Plan, then needs you.
   assert.equal(plan.getAttribute('aria-label'), null);
-  assert.ok(plan.textContent.startsWith('Plan') && plan.textContent.endsWith(NEEDS_YOU), plan.textContent);
-  assert.ok(plan.title.startsWith('Plan: needs you. '));
+  assert.ok(plan.textContent.startsWith('Plan & build') && plan.textContent.endsWith(NEEDS_YOU), plan.textContent);
+  assert.ok(plan.title.startsWith('Plan & build: needs you. '));
   // A quiet tab has no marker.
   fresh();
   assert.ok(drawn(quiet(sampleTabsTicket(NOW))).tabs.every((t) => t.all('task-tab-needs').length === 0));

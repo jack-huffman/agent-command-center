@@ -1,5 +1,5 @@
-// A task page's content in tabs (T-134): Ticket, Plan, Changes and Verify, as an ARIA tablist. Each tab has
-// its icon and name, a count where it helps, and an orange icon with "needs you" where something in it needs
+// A task page's content in tabs (T-134): Ticket, Plan & build, Changes and Verify, as an ARIA tablist. Each tab has
+// its name in words, with no icon (T-168), a count where it helps, and an orange icon with "needs you" where something in it needs
 // the person. The arrow keys move between tabs, Home and End go to the ends, and a tab switches in place, so
 // focus stays on it. The tab on show is remembered per ticket; which one a page opens on is openingTab's, in tab-rules.ts.
 
@@ -47,9 +47,9 @@ export function chooseTab(m: TicketModel, tabs: readonly TaskTab[]): TabId {
   return tab;
 }
 
-/** One tab's button: its icon and name, its count, and an orange icon and words where it needs the person. */
+/** One tab's button: its name, with no icon (T-168), its count, and an orange icon and words where it needs the person. */
 function tabButton(t: TaskTab, on: boolean): HTMLButtonElement {
-  const b = el('button', 'task-tab', icon(t.icon), el('span', 'task-tab-name', t.name),
+  const b = el('button', 'task-tab', el('span', 'task-tab-name', t.name),
     t.count ? el('span', 'task-tab-count', t.count) : null,
     t.needs ? el('span', 'task-tab-needs', icon('bell', 'orange'), NEEDS_YOU) : null) as HTMLButtonElement;
   b.type = 'button';
