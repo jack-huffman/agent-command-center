@@ -42,7 +42,7 @@ stand-in that fails at once, so these times leave out GitHub's own answer.
 - **A task's team is kept** until a branch head or a task in flight changes (`teamKey`,
   `extension/src/logic/team-key.ts`), so a second open, a tab, or a redraw doesn't read it again.
 
-Checked by `extension/test/loading.test.ts` (12 tests), three new tests in `extension/test/task-modal.test.ts`, and
+Checked by `extension/test/modal-loading.test.ts` (12 tests), three new tests in `extension/test/task-modal.test.ts`, and
 three behaviour cases in `extension/scripts/behaviour.ts` with two mutants: "the task modal waits for the model
 before it opens" (caught by all three) and "a model after the modal closed opens it again". The screenshot run
 adds `tasks-modal-loading`, `tasks-modal-failed` and `ticket-filling`.

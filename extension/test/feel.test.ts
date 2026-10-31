@@ -184,6 +184,7 @@ const PRIMARY_MARK = /'primary\b|'btn primary\b|\? ' primary'|(?:toolbarButton|a
  * the button that sends what the person typed in the box beside it. Anything else is outlined.
  */
 const PRIMARY: { file: string; at: RegExp; why: string }[] = [
+  { file: 'loading.ts', at: /button\('Try again'/, why: 'Try again (T-162): a modal whose load failed has nothing else to do, and it takes focus.' },
   { file: 'agent-page.ts', at: /'primary small'/, why: 'Send: the message the person typed, to an agent that waits on it.' },
   { file: 'agents.ts', at: /b\('Answer'/, why: 'Answer: an agent waits on the person\'s answer to its question.' },
   { file: 'verify.ts', at: /\(first \? 'primary' : ''\);$/, why: 'Verify the developer\'s work (T-84): Verify before there is a verification, then Open the QA comment, the comment the person edits and posts.' },
