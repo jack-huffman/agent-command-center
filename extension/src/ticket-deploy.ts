@@ -1,51 +1,47 @@
-// A ticket's deploy from its Changes tab (T-138): Deploy to <environment> opens the sheet and asks acc for the
-// plan, whose check changes nothing; only the sheet's own Deploy, after a check that passed, deploys. The
-// command acc.task.deploy (D-219's spec) opens the ticket's Changes tab and starts that check. Deploy with an
-// agent (T-154) opens a Claude Code chat as the deploy guide instead. The person's pick of where is the yes for a
-// sandbox (T-156); for Production or a protected org the yes is the environment's name they type in the chat.
+// A ticket's deploy from its Changes tab (T-158): every deploy past the development org is the deploy guide's
+// agent's (T-156). Deploy…'s pick opens a Claude Code chat as the deploy guide (T-154), for the environment
+// picked, in the output panel as it opens. The person's pick of where is the yes for a sandbox; for Production
+// or a protected org the yes is the environment's name they type in the chat. Nothing here deploys by itself.
+// The command acc.task.deploy opens the ticket's Changes tab, and with an environment named starts the guide there.
 import * as vscode from 'vscode';
 import { TASK_DEPLOY_GUIDE_COMMAND } from '../../packages/core/src/deploy-guide.ts';
 import { jobsUnderWay } from '../../packages/core/src/jobs.ts';
 import { terminalShell } from '../../packages/core/src/shell.ts';
 import type { Task } from '../../packages/core/src/ledger.ts';
-import { TASK_DEPLOY_COMMAND, ticketPlace } from '../../packages/core/src/task-deploy.ts';
+import { TASK_DEPLOY_COMMAND } from '../../packages/core/src/task-deploy.ts';
 import { readWhere, type TicketWhere } from '../../packages/core/src/where-kept.ts';
 import type { ExtensionArea } from './area.ts';
 import { guideLaunch, guideLine } from './logic/deploy-guide.ts';
 import { stateOf } from './logic/shared.ts';
-import { TicketDeploys } from './logic/ticket-deploy.ts';
 import { WhereReads } from './logic/where.ts';
-import type { DeployRun, Message } from './model/ticket-deploy.ts';
+import type { Message } from './model/ticket-deploy.ts';
 import { accRunner } from './run.ts';
 
-/** What a task page asks of its deploy: what's under way for a task, and the sheet's buttons. */
+/** What a task page asks of its deploy: where a deploy of it is under way, its readings, and Deploy…'s pick. */
 export interface DeployActions {
-  run(root: string, id: string): DeployRun | null;
-  /** A deploy of the task under way, from this window or another (D-092). */
-  running(root: string, id: string): boolean;
-  /** The sheet's buttons: the page draws how they went from the next model, which this window refreshes. */
+  /** The environment's branch a deploy of the task is under way to, from this window or another (D-092); null when there's none. */
+  deploying(root: string, id: string): string | null;
+  /** Deploy…'s pick and Check again: the page draws how they went from the next model, which this window refreshes. */
   act(m: Message): Promise<void>;
   /** Where its work was last read to be (T-155), kept beside the ledger; a due reading is read again behind the page. */
   where(root: string, task: Task): TicketWhere | null;
   /** The kept readings alone, for a check that mustn't start a read. */
   kept(root: string, id: string): TicketWhere | null;
-  /** The person's Refresh: read where its work is again, whatever the readings' age. */
+  /** The person's Refresh or Check again: read where its work is again, whatever the readings' age. */
   reread(root: string, id: string): void;
+  /** Whether a read of where its work is is under way. */
+  reading(root: string, id: string): boolean;
 }
 
 export const area: ExtensionArea = {
   register({ hub, tickets, sidebar, accScript, reg }) {
     const acc = accRunner(accScript);
-    const d = new TicketDeploys({
-      envName: (root, branch) => hub.project(root)?.config.environments.find((e) => e.branch === branch)?.name,
-      // The same reasons the tab's Deploy is off for, from what the page is drawn from.
-      off: (root, id, to) => tickets.deployOff(root, id, to),
-      // In the output panel, where its steps show (T-65), and the sheet says the step it's on.
-      acc: (args, cwd, label, onSteps) => (sidebar.helpers.runAccShown ? sidebar.helpers.runAccShown(args, cwd, label, onSteps) : acc(args, cwd)),
-    }, (root) => tickets.refresh(root));
-    // The deploy guide's chat, in a terminal in the project's main checkout, as acc says to open it.
+    // The deploy guide's chat, in a terminal in the project's main checkout, as acc says to open it; acc's opening
+    // of it shows in the output panel.
     const guide = async (root: string, id: string, to: string | undefined): Promise<void> => {
-      const r = await acc(['deploy', ...(to ? [to] : []), '--task', id, '--guide', '--json'], root);
+      const name = to ? hub.project(root)?.config.environments.find((e) => e.branch === to)?.name ?? to : 'its next environment';
+      const args = ['deploy', ...(to ? [to] : []), '--task', id, '--guide', '--json'];
+      const r = sidebar.helpers.runAccShown ? await sidebar.helpers.runAccShown(args, root, `Deploy ${id} to ${name} with an agent`) : await acc(args, root);
       const g = guideLaunch(r.code, r.stdout, r.stderr);
       if (!g.ok) return void vscode.window.showWarningMessage(`Couldn't open the deploy guide for ${id}: ${g.error}`);
       const t = vscode.window.createTerminal({ name: `Deploy ${id} with an agent`, cwd: g.launch.cwd, env: g.launch.env, iconPath: new vscode.ThemeIcon('hubot'), ...terminalShell() });
@@ -55,7 +51,6 @@ export const area: ExtensionArea = {
     // Where its work is (T-155): read behind the page with acc where, which the page draws once it's back.
     const reads = new WhereReads({ acc: (args, cwd) => acc(args, cwd), done: (root) => tickets.refresh(root), now: () => new Date() });
     tickets.deploys = {
-      run: (root, id) => d.run(root, id),
       where: (root, task) => {
         const p = hub.project(root);
         return p ? reads.kept(root, stateOf(p).stateDir, p.config, task) : null;
@@ -65,34 +60,36 @@ export const area: ExtensionArea = {
         return p ? readWhere(stateOf(p), id.toUpperCase()) : null;
       },
       reread: (root, id) => void reads.read(root, id),
-      running: (root, id) => {
+      reading: (root, id) => reads.reading(root, id),
+      deploying: (root, id) => {
         const p = hub.project(root);
         try {
-          return !!p && jobsUnderWay(stateOf(p)).some((j) => j.kind === 'deploy' && j.task === id.toUpperCase());
+          const job = p ? jobsUnderWay(stateOf(p)).find((j) => j.kind === 'deploy' && j.task === id.toUpperCase()) : undefined;
+          return job ? job.env ?? '' : null;
         } catch {
-          return false;
+          return null;
         }
       },
       async act(m) {
-        if (m.type === 'deploy-close') { d.close(m.project, m.task); return; }
-        if (m.type === 'deploy-guide') { await guide(m.project, m.task, m.to); return; }
-        const r = m.type === 'deploy-check' ? await d.check(m.project, m.task, m.to) : await d.deploy(m.project, m.task, m.to, m.checkId, m.typed);
-        if (!r.ok) void vscode.window.showWarningMessage(r.error);
-        // After a deploy, where its work is gets read again (T-155).
-        if (m.type === 'deploy-go') void reads.read(m.project, m.task);
+        if (m.type === 'where-check') {
+          void reads.read(m.project, m.task);
+          tickets.refresh(m.project);
+          return;
+        }
+        await guide(m.project, m.task, m.to);
         tickets.refresh(m.project);
       },
     };
-    // Deploy a ticket to its next environment: its page's Changes tab opens, and the sheet checks first (D-219).
+    // Deploy a ticket (D-219's spec): its page's Changes tab opens, where Deploy… asks where. With an environment
+    // named, the deploy guide's agent starts there, as Deploy…'s pick does (T-158); nothing deploys without it.
     reg('acc.task.deploy', async (root?: string, id?: string, to?: string) => {
       const p = root ? hub.project(root) : hub.projects[0];
       const task = id ? hub.ledger(p?.root ?? '')?.tasks.find((t) => t.id === id.toUpperCase()) : undefined;
       if (!p || !task) return void vscode.window.showWarningMessage('Say which task to deploy, from its page\'s Changes tab.');
-      const can = TASK_DEPLOY_COMMAND.enabled({ config: p.config, task });
+      const can = to ? TASK_DEPLOY_GUIDE_COMMAND.enabled({ config: p.config, task, to }) : TASK_DEPLOY_COMMAND.enabled({ config: p.config, task });
       if (!can.ok) return void vscode.window.showWarningMessage(can.why);
       tickets.show(p.root, undefined, task.id, 'changes');
-      const next = to ?? ticketPlace(p.config, task, readWhere(stateOf(p), task.id))?.next[0]?.branch;
-      if (next) await tickets.deploys?.act({ type: 'deploy-check', project: p.root, task: task.id, to: next });
+      if (to) await guide(p.root, task.id, to);
     });
     // Deploy a ticket with an agent (T-154): the guide's chat opens for the environment picked, any on the
     // ticket's path after where it is (T-156), and it checks before anything deploys. Off with why for a pick

@@ -1,18 +1,31 @@
-// The Changes tab as the page draws it (T-138): its path line in words, Deploy that opens the sheet and never
-// deploys, off with why; the steps left with Mark done and Skip; More closed, holding what moved; the tab's
-// needs-you from the deploy, never the manifest; and the sheet's Deploy, on only after a passed check.
+// The Changes tab as the page draws it (T-138, T-158): a row for each environment with its state in words and
+// an icon, when it was read and Check again, a partly deployed row that opens on what differs; one Deploy…, which
+// asks where and starts the agent there, never a direct deploy, off with why; the steps left with Mark done and
+// Skip; More closed, holding what moved; and the tab's needs-you from the deploy, never the manifest.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { TicketModel } from '../src/model/task-page.ts';
-import type { DeploySheet, TicketDeploy } from '../src/model/ticket-deploy.ts';
-import { PATH_LOOK, SHEET_LOOK } from '../src/model/ticket-deploy.ts';
+import type { EnvRow, TicketDeploy } from '../src/model/ticket-deploy.ts';
+import { BUSY_LOOK, NEXT_LOOK, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
 import { RECORD_LOOK, type TicketRecords } from '../src/model/record-changes.ts';
 import { pageDom, type PageElement } from './page-dom.ts';
 
+const AT = '2026-10-28T08:00:00.000Z';
+const row = (name: string, more: Partial<EnvRow> = {}): EnvRow => ({
+  name, branch: name.toLowerCase(), org: `acme-${name.toLowerCase()}`, look: WHERE_LOOK.deployed, at: AT, detail: null, differs: [], notes: [], readAt: AT, merged: null, next: null, busy: null, ...more,
+});
 const deploy = (more: Partial<TicketDeploy> = {}): TicketDeploy => ({
   task: 'ACME-7',
-  path: [{ name: 'Dev', look: PATH_LOOK.merged, at: null }, { name: 'QA', look: PATH_LOOK.deployed, at: '2026-10-28T08:00:00.000Z' }, { name: 'UAT', look: PATH_LOOK.next, at: null }],
-  deploy: { label: 'Deploy to UAT', to: 'uat', disabled: null }, others: [], sheet: null, status: null, needs: null, ...more,
+  rows: [
+    row('Dev', { merged: { look: { label: 'Merged', icon: 'git-merge', tone: 'blue' }, words: 'Merged into dev' } }), row('QA'),
+    row('UAT', { look: WHERE_LOOK.partly, at: null, detail: '2 components differ', differs: ['Apex Class: Helper', 'Flow: Route'], next: NEXT_LOOK }),
+    row('Production', { look: WHERE_LOOK.unknown, at: null, detail: 'This machine has no access to Production.', readAt: null }),
+  ],
+  pick: { label: 'Deploy…', disabled: null, choices: [
+    { to: 'uat', name: 'UAT', org: 'acme-uat', then: 'An agent deploys it', disabled: null },
+    { to: 'production', name: 'Production', org: 'acme-prod', then: 'An agent deploys it after you type Production\'s name', disabled: null },
+  ] },
+  status: null, reading: false, needs: null, ...more,
 });
 const records = (todo: number): TicketRecords => ({
   task: 'ACME-7', look: RECORD_LOOK.kept, note: null, add: { label: 'Add a change made by hand', disabled: null },
@@ -39,34 +52,85 @@ function setup(): { sent: unknown[] } {
 const all = (e: PageElement): PageElement[] => [e, ...e.all()];
 const buttons = (es: PageElement[]): PageElement[] => es.flatMap(all).filter((x) => x.tagName === 'BUTTON');
 
-test('the path line says each environment in words with an icon, and Deploy opens the check, never a deploy (T-138)', async () => {
-  const page = setup();
+test('a row for each environment in path order, each with its state as an icon and a label, and when it was read; one is next (T-158)', async () => {
+  setup();
   const { renderDeploy } = await import('../webview/changes.ts');
   const drawn = renderDeploy(model(), deploy()) as unknown as PageElement;
-  assert.match(drawn.textContent, /^Dev, merged·QA, deployed.*·UAT, nextDeploy to UATDeploy with an agent$/);
-  assert.equal(drawn.all('dp-stop').filter((s) => s.querySelector('.codicon')).length, 3, 'each stop has its icon');
-  const go = buttons([drawn]).find((b) => b.textContent === 'Deploy to UAT')!;
-  assert.ok(go.classList.contains('primary'), 'the tab\'s one primary button');
-  go.click();
-  assert.deepEqual(page.sent, [{ type: 'deploy-check', project: '/r', task: 'ACME-7', to: 'uat' }], 'it asks for the check; nothing deploys');
+  const rows = drawn.all('dp-row');
+  assert.deepEqual(rows.map((r) => r.dataset.env), ['dev', 'qa', 'uat', 'production']);
+  assert.deepEqual(rows.map((r) => r.all('dp-state')[0]!.textContent.replace(/\d.*$/, '')), ['Deployed', 'Deployed', 'Partly deployed', 'Can\'t tell']);
+  assert.equal(rows.filter((r) => r.all('dp-state')[0]!.querySelector('.codicon')).length, 4, 'each state has its icon');
+  assert.deepEqual(rows.map((r) => r.all('dp-read')[0]!.textContent.replace(/Check again$/, '').replace(/^Read .*/, 'Read')), ['Read', 'Read', 'Read', 'Not read yet']);
+  assert.deepEqual(rows.map((r) => /Next/.test(r.all('dp-row-head')[0]!.textContent)), [false, false, true, false], 'one environment is next');
+  assert.equal(rows[0]!.all('dp-merged')[0]?.textContent, 'Merged into dev', 'the development environment says it is merged');
+  assert.equal(rows[3]!.all('dp-detail')[0]?.textContent, 'This machine has no access to Production.', 'can\'t tell, and why');
 });
 
-test('edge case: Deploy off says why, beside it and in its title, and sends nothing; the other next steps wait in a closed menu (T-138)', async () => {
+test('a partly deployed row opens on the components that differ, and stays open as the page redraws (T-158)', async () => {
+  setup();
+  const { renderDeploy } = await import('../webview/changes.ts');
+  const uat = (): PageElement => (renderDeploy(model(), deploy()) as unknown as PageElement).all('dp-row')[2]!;
+  const fold = buttons([uat()]).find((b) => b.textContent === '2 components differ')!;
+  assert.equal(fold.getAttribute('aria-expanded'), 'false');
+  assert.equal(uat().all('dp-differs').length, 0, 'closed to start');
+  fold.click();
+  assert.deepEqual(uat().all('dp-differs')[0]!.all('chg-name').map((x) => x.textContent), ['Apex Class: Helper', 'Flow: Route']);
+  // Edge: a deployed row has nothing to open.
+  assert.equal(buttons([(renderDeploy(model(), deploy()) as unknown as PageElement).all('dp-row')[1]!]).filter((b) => b.classList.contains('dp-differs-btn')).length, 0);
+});
+
+test('Check again reads where the work is again; while it reads, it waits and sends nothing (T-158)', async () => {
   const page = setup();
   const { renderDeploy } = await import('../webview/changes.ts');
-  const why = 'It depends on ACME-3, which isn\'t in UAT yet.';
-  const drawn = renderDeploy(model(), deploy({ deploy: { label: 'Deploy to UAT', to: 'uat', disabled: why }, others: [{ label: 'Deploy to Hotfix', to: 'hotfix', disabled: null }] })) as unknown as PageElement;
-  const go = buttons([drawn]).find((b) => b.textContent === 'Deploy to UAT')!;
-  assert.deepEqual([go.disabled, go.title, go.getAttribute('aria-description')], [true, `Deploy to UAT: ${why}`, why]);
+  buttons([renderDeploy(model(), deploy()) as unknown as PageElement]).find((b) => b.textContent === 'Check again')!.click();
+  assert.deepEqual(page.sent, [{ type: 'where-check', project: '/r', task: 'ACME-7' }]);
+  page.sent.length = 0;
+  const busy = buttons([renderDeploy(model(), deploy({ reading: true })) as unknown as PageElement]).filter((b) => b.classList.contains('dp-again'));
+  assert.ok(busy.length === 4 && busy.every((b) => b.disabled && b.textContent === 'Checking…'), 'edge case: a read under way');
+  busy[0]!.click();
+  assert.deepEqual(page.sent, []);
+});
+
+test('Deploy… is the one primary button: it asks where, each choice says what happens next, and the pick starts the agent, never a direct deploy (T-158)', async () => {
+  const page = setup();
+  const { renderDeploy } = await import('../webview/changes.ts');
+  const draw = (): PageElement => renderDeploy(model(), deploy()) as unknown as PageElement;
+  const go = buttons([draw()]).find((b) => b.classList.contains('dp-go'))!;
+  assert.deepEqual([go.textContent, go.classList.contains('primary'), go.getAttribute('aria-expanded')], ['Deploy…', true, 'false']);
+  assert.equal(buttons([draw()]).filter((b) => b.classList.contains('primary')).length, 1, 'the one primary button');
+  assert.ok(!buttons([draw()]).some((b) => /^Deploy to |^Deploy with an agent$|^Other next steps$/.test(b.textContent)), 'no direct deploy, no second agent button, no other next steps');
+  go.click();
+  assert.deepEqual(page.sent, [], 'opening the pick sends nothing');
+  const open = draw();
+  const choices = open.all('dp-choice');
+  assert.deepEqual(choices.map((c) => c.all('dp-then')[0]!.textContent), ['An agent deploys it', 'An agent deploys it after you type Production\'s name']);
+  assert.equal(open.all('dp-pick')[0]!.getAttribute('aria-label'), 'Where to deploy');
+  choices[1]!.click();
+  assert.deepEqual(page.sent, [{ type: 'deploy-guide', project: '/r', task: 'ACME-7', to: 'production' }], 'the pick starts the agent there, and nothing else');
+  assert.equal(draw().all('dp-pick').length, 0, 'the pick closes');
+});
+
+test('edge case: Deploy… off says why, beside it and in its title, and opens nothing; a choice off says why in it and sends nothing (T-158)', async () => {
+  const page = setup();
+  const { renderDeploy } = await import('../webview/changes.ts');
+  const why = 'The validate check failed: fix it, or accept it anyway, first.';
+  const off = deploy({ pick: { ...deploy().pick!, disabled: why } });
+  const drawn = renderDeploy(model(), off) as unknown as PageElement;
+  const go = buttons([drawn]).find((b) => b.classList.contains('dp-go'))!;
+  assert.deepEqual([go.disabled, go.title.endsWith(why), go.getAttribute('aria-description')], [true, true, why]);
   assert.equal(drawn.querySelector('.dp-why')?.textContent, why);
   go.click();
+  assert.equal((renderDeploy(model(), off) as unknown as PageElement).all('dp-pick').length, 0);
+  // One choice off: the pick opens, and that choice says why in it.
+  const one = deploy({ pick: { ...deploy().pick!, choices: [{ to: 'uat', name: 'UAT', org: 'acme-uat', then: 'An agent deploys it', disabled: 'It depends on ACME-3, which isn\'t in UAT yet.' }] } });
+  buttons([renderDeploy(model(), one) as unknown as PageElement]).find((b) => b.classList.contains('dp-go'))!.click();
+  const choice = (renderDeploy(model(), one) as unknown as PageElement).all('dp-choice')[0]!;
+  assert.deepEqual([choice.disabled, choice.all('dp-then')[0]!.textContent], [true, 'It depends on ACME-3, which isn\'t in UAT yet.']);
+  choice.click();
   assert.deepEqual(page.sent, []);
-  const menu = buttons([drawn]).find((b) => b.textContent === 'Other next steps')!;
-  assert.equal(menu.getAttribute('aria-expanded'), 'false');
-  assert.equal(drawn.querySelector('.dp-other'), null, 'closed: its steps aren\'t drawn');
-  // Under way: the tab says what it's doing, with the pull request once there is one.
-  const busy = renderDeploy(model(), deploy({ status: { look: SHEET_LOOK.deployed, words: 'Deployed ACME-7 to UAT.', pr: { number: 9, url: 'u' } } })) as unknown as PageElement;
-  assert.match(busy.querySelector('.dp-status')!.textContent, /^Deployed ACME-7 to UAT\.Pull request #9$/);
+  // Under way: the row and the tab say what the agent is on.
+  const busy = renderDeploy(model(), deploy({ rows: [row('UAT', { busy: BUSY_LOOK })], status: { look: BUSY_LOOK, words: 'An agent is deploying ACME-7 to UAT.' } })) as unknown as PageElement;
+  assert.deepEqual([busy.querySelector('.dp-status')!.textContent, busy.querySelector('.dp-busy')!.textContent], ['An agent is deploying ACME-7 to UAT.', 'An agent is deploying it']);
 });
 
 test('the tab: the list, record changes in words, the deploy, the steps left with Mark done and Skip, and More closed holding what moved (T-138)', async () => {
@@ -88,32 +152,14 @@ test('the tab: the list, record changes in words, the deploy, the steps left wit
   assert.deepEqual((renderChangesTab(model({ deploy: null }), []) as unknown as PageElement[]).map((e) => e.className), []);
 });
 
-test('the tab needs the person for a passed check or steps left, never for the manifest\'s or the field\'s state (T-138)', async () => {
+test('the tab needs the person for the steps left, never for the manifest\'s or the field\'s state (T-138, T-158)', async () => {
   const { changesNeeds, taskTabs } = await import('../webview/tab-rules.ts');
   assert.equal(changesNeeds(model()), null);
-  assert.equal(changesNeeds(model({ deploy: deploy({ needs: 'Check passed: deploy to UAT' }) })), 'Check passed: deploy to UAT');
   assert.equal(changesNeeds(model({ records: records(2), deploy: deploy({ needs: '2 steps to do by hand' }) })), '2 steps to do by hand', 'the steps left, as the model counts them');
   assert.equal(changesNeeds(model({ records: records(2), deploy: null })), null, 'outside Salesforce there\'s no deploy to wait on');
   const orange = { label: 'The org differs', icon: 'diff', tone: 'orange' as const };
   const tabs = taskTabs({ ...model(), comments: [], updates: [], analysis: null, criteria: null, acc: null, review: null, verify: null, manifest: { look: orange }, field: { look: orange } } as unknown as TicketModel);
   assert.deepEqual(tabs.find((t) => t.id === 'changes')?.needs, null, 'the manifest\'s state waits under More');
-});
-
-test('the sheet\'s Deploy is on only after a passed check, and for a protected org only once its name is typed (T-138)', async () => {
-  setup();
-  const { goOff } = await import('../webview/deploy-sheet.ts');
-  const sheet = (more: Partial<DeploySheet> = {}): DeploySheet => ({
-    task: 'ACME-7', to: 'uat', toName: 'UAT', org: 'acme-uat', phase: 'passed', look: SHEET_LOOK.passed, progress: null, components: { count: 3, types: [] }, tests: null,
-    step: null, off: null, byHand: [], problems: [], summary: null, checkId: '0Af1', confirm: null, result: null, error: null, ...more,
-  });
-  assert.equal(goOff(sheet(), ''), null);
-  assert.equal(goOff(sheet({ phase: 'checking', checkId: null }), ''), 'Wait for the check to pass');
-  assert.equal(goOff(sheet({ phase: 'failed', checkId: null }), ''), 'The check failed: there\'s nothing to deploy');
-  assert.equal(goOff(sheet({ phase: 'failed' }), ''), 'The check failed: there\'s nothing to deploy', 'even with an id, a failed check offers nothing');
-  assert.equal(goOff(sheet({ confirm: 'Production' }), 'prod'), 'Type Production to deploy to it');
-  assert.equal(goOff(sheet({ confirm: 'Production' }), ' Production '), null);
-  assert.equal(goOff(sheet({ confirm: 'Production' }), 'acme-uat'), null, 'or its org\'s alias');
-  assert.equal(goOff(sheet({ phase: 'deployed' }), ''), 'Wait for the check to pass', 'once deployed, no second yes');
 });
 
 test('edge case: the steps left draw only the steps given, each still to do with its two buttons, and none when given none (T-138)', async () => {

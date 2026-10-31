@@ -215,16 +215,14 @@ export const PAGES = [
   'ticket-records-form',
   'ticket-records-promoted',
   'ticket-manifest',
-  // The Changes tab with its deploy (T-138): before work, with work, deployed once, steps left; the sheet checking, passed, failed, Production's typed name, and deployed
+  // The Changes tab with its deploy (T-158): a row for each environment before work, with work, in QA with UAT's
+  // row open on what differs, in UAT with steps left; Deploy… open on where; and an agent deploying to UAT
   'ticket-deploy-before',
   'ticket-deploy-work',
   'ticket-deploy-deployed',
   'ticket-deploy-steps',
-  'ticket-deploy-checking',
-  'ticket-deploy-passed',
-  'ticket-deploy-failed',
-  'ticket-deploy-typed',
-  'ticket-deploy-done',
+  'ticket-deploy-pick',
+  'ticket-deploy-busy',
   'ticket-plan-approved',
   'ticket-plan-changed',
   'ticket-plan-short',

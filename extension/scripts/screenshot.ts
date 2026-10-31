@@ -140,7 +140,7 @@ export const OUTPUT_RUNS: Partial<Record<Page, RunSample>> = { 'output-running':
 export const OUTPUT_STEPS: Partial<Record<Page, StepSample>> = { 'output-steps-running': 'steps-running', 'output-steps-failed': 'steps-failed', 'output-steps-done': 'steps-done' };
 
 /** The Changes tab's deploy shots (T-138), each named for the sample it draws. */
-const DEPLOY_SHOTS = ['ticket-deploy-before', 'ticket-deploy-work', 'ticket-deploy-deployed', 'ticket-deploy-steps', 'ticket-deploy-checking', 'ticket-deploy-passed', 'ticket-deploy-failed', 'ticket-deploy-typed', 'ticket-deploy-done'] as const;
+const DEPLOY_SHOTS = ['ticket-deploy-before', 'ticket-deploy-work', 'ticket-deploy-deployed', 'ticket-deploy-steps', 'ticket-deploy-pick', 'ticket-deploy-busy'] as const;
 
 /**
  * The shots of a part that moved under the Changes tab's More (T-138), with More open, by the ticket each draws.
@@ -441,9 +441,10 @@ export const startState = (kind: Page): unknown => (process.env.ACC_SHOT_STATE ?
   : BOARD_SHOTS[kind] ? BOARD_SHOTS[kind]
   // Add a change made by hand (T-100), opened and half-filled, and a step's Skip open, as the tab's memory keeps them.
   : kind === 'ticket-records-form' ? { ...RECORDS_FORM_STATE, opened: [`chg-more:${ROOT}#ACME-20`] }
-  // ACME-12's Changes tab (T-138): in review, what's apart from the plan opened; deployed once, its other next steps' menu open.
+  // ACME-12's Changes tab (T-138): in review, what's apart from the plan opened; in QA, UAT's row open on what differs (T-158), and Deploy… open on where.
   : kind === 'ticket-deploy-work' ? { opened: [`chg-apart:${ROOT}#ACME-12`] }
-  : kind === 'ticket-deploy-deployed' ? { opened: [`chg-others:${ROOT}#ACME-12`] }
+  : kind === 'ticket-deploy-deployed' ? { opened: [`chg-differs-uat:${ROOT}#ACME-12`] }
+  : kind === 'ticket-deploy-pick' ? { opened: [`chg-pick:${ROOT}#ACME-12`] }
   // A part that moved under the Changes tab's More (T-138), with More open.
   : MORE_OPEN[kind] ? { opened: [`chg-more:${ROOT}#${MORE_OPEN[kind]}`] }
   // ACME-21's plan, criteria and Verify collapsed to their header lines (T-132).
@@ -801,7 +802,7 @@ async function behaviourRun(chrome: string, jobs: number): Promise<number> {
   try {
     cpSync(join(extensionDir, 'dist', 'webview'), join(work, 'webview'), { recursive: true });
     const now = Date.now();
-    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), passed: sampleModel('ticket-deploy-passed', now, 'dark'), failed: sampleModel('ticket-deploy-failed', now, 'dark'), typed: sampleModel('ticket-deploy-typed', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark'), agentFailed: sampleModel('ticket-agent-failed', now, 'dark'), wall: sampleModel('ticket-blocked-wall', now, 'dark'), setup: sampleModel('setup', now, 'dark') };
+    const models = { tasks: sampleModel('tasks', now, 'dark'), overview: sampleModel('overview-landing', now, 'dark'), since: sampleModel('overview-since', now, 'dark'), ticket: sampleModel('ticket-questions', now, 'dark'), review: sampleModel('ticket-review', now, 'dark'), settings: sampleModel('settings-agents', now, 'dark'), connect: sampleModel('connect-start', now, 'dark'), agent: sampleModel('agent', now, 'dark'), dock: sampleModel('output-changes', now, 'dark'), run: sampleModel('output-failed', now, 'dark'), pages: sampleModel('overview-pages', now, 'dark'), conversation: sampleModel('conversation-start', now, 'dark'), beforePlan: sampleModel('ticket-conversation', now, 'dark'), talked: sampleModel('ticket-talk', now, 'dark'), needsYou: sampleModel('ticket-plan-needs-you', now, 'dark'), report: sampleModel('report', now, 'dark'), deployed: sampleModel('ticket-deploy-deployed', now, 'dark'), busy: sampleModel('ticket-deploy-busy', now, 'dark'), work: sampleModel('ticket-deploy-work', now, 'dark'), agentFailed: sampleModel('ticket-agent-failed', now, 'dark'), wall: sampleModel('ticket-blocked-wall', now, 'dark'), setup: sampleModel('setup', now, 'dark') };
     const failures = await behaviourCheck({ chrome, work, models, now, fonts: FONTS, jobs, run: (c, args, slot) => chromeAsync(c, [profileArg(work, slot), ...args]), log: (line) => console.log(line) });
     for (const f of failures) console.error(f);
     return failures.length ? fail(`${failures.length} behaviour finding${failures.length === 1 ? '' : 's'}: a modal doesn't do what its case checks, or a case doesn't catch its mutant (extension/scripts/behaviour.ts).`) : 0;

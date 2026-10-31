@@ -1,23 +1,23 @@
 /**
- * ACME-12's Changes tab with its deploy (T-138), on a path of Dev, QA, UAT and Production: before there's work,
- * with its work in review, merged and deployed once to QA, and deployed to UAT with steps left to do by hand
- * (a record change and a deletion). Then the sheet over it: checking against UAT, a check that passed, one that
- * failed, and Production's, which asks for its name typed.
+ * ACME-12's Changes tab with its deploy (T-158), on a path of Dev, QA, UAT and Production, with Hotfix a step off
+ * QA: before there's work, with its work in review, merged and deployed to QA with each environment read (Dev
+ * and QA deployed, UAT partly deployed, Production can't tell), deployed to UAT with steps left to do by hand
+ * and Production not deployed, Deploy… open on its three environments, and an agent deploying to UAT.
  */
 import { openSteps } from '../../../packages/core/src/change-steps.ts';
 import type { Environment } from '../../../packages/core/src/config.ts';
 import type { Task } from '../../../packages/core/src/ledger.ts';
 import type { OutsideState } from '../../../packages/core/src/outside-changes.ts';
 import type { RecordChange } from '../../../packages/core/src/records.ts';
-import type { TaskDeployPlan } from '../../../packages/core/src/task-deploy.ts';
+import type { EnvWhere, TicketWhere, WhereState } from '../../../packages/core/src/where-kept.ts';
 import { ticketChanges } from '../../src/model/changes.ts';
 import { ticketRecords } from '../../src/model/record-changes.ts';
 import type { TicketModel } from '../../src/model/task-page.ts';
-import { deployBlockers, type DeployRun, ticketDeploy } from '../../src/model/ticket-deploy.ts';
+import { deployBlockers, ticketDeploy } from '../../src/model/ticket-deploy.ts';
 import { MIN, ROOT } from './shared.ts';
 import { sampleTicket } from './task-page.ts';
 
-export type DeploySample = 'before' | 'work' | 'deployed' | 'steps' | 'checking' | 'passed' | 'failed' | 'typed' | 'done';
+export type DeploySample = 'before' | 'work' | 'deployed' | 'steps' | 'pick' | 'busy';
 
 const D = 'force-app/main/default';
 const env = (name: string, promotesTo: string[], more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo, ...more });
@@ -29,24 +29,17 @@ const MADE = [`${D}/classes/CaseRouting.cls`, `${D}/classes/CaseRouting.cls-meta
   `${D}/objects/Case/fields/Tier__c.field-meta.xml`, `${D}/permissionsets/Support_Agent.permissionset-meta.xml`, `${D}/classes/LegacyRouting.cls`];
 const tier: RecordChange = { object: 'Routing_Tier__c', action: 'create', match: [{ field: 'Name', value: 'Premium' }], fields: [{ field: 'Hours__c', from: null, to: '4' }] };
 
-/** The check's plan for UAT, or Production's, as acc gives it back. */
-function plan(to: Environment, passed: boolean): TaskDeployPlan {
-  return {
-    task: 'ACME-12', key: 'ACME-12', from: ENVS.find((e) => e.promotesTo.includes(to.branch))!, to, org: to.org!, confirm: to.protected, confirmName: to.name, commits: ['b4d2c0f'], base: 'a1b2c3d',
-    files: MADE.slice(0, 6), gitOnly: [], leftOut: [`${D}/settings/Org.settings-meta.xml`], deletions: [{ path: `${D}/classes/LegacyRouting.cls`, component: 'Apex Class: LegacyRouting' }],
-    records: ['Create a Routing_Tier__c record where Name is Premium, setting Hours__c to 4'],
-    types: [{ name: 'ApexClass', members: ['CaseRouting', 'CaseRoutingTest'] }, { name: 'CustomField', members: ['Case.Tier__c'] }, { name: 'Flow', members: ['Case_Escalation'] }, { name: 'PermissionSet', members: ['Support_Agent'] }],
-    testLevel: 'RunLocalTests', tests: 'The org\'s local tests, since Apex is in it',
-    check: passed ? { passed: true, id: '0AfKj000003Ck9pKAC', summary: `Checked 5 components in ${to.org}, 4 tests passed (job 0AfKj000003Ck9pKAC).`, problems: [] }
-      : { passed: false, id: '0AfKj000003Ck9qKAC', summary: `2 problems in ${to.org}`, problems: ['Apex Class CaseRouting: line 42: Variable does not exist: Tier__c', 'Flow Case_Escalation: The field Case.Tier__c isn\'t in this org'] },
-  };
+/** One environment's reading, as acc where keeps it. */
+function read(branch: string, state: WhereState, at: string, more: Partial<EnvWhere> = {}): EnvWhere {
+  const r = { state, differs: [] as string[], why: null as string | null, at, ...more };
+  return { env: branch, name: ENVS.find((e) => e.branch === branch)!.name, ...r, git: r, org: r, leftOut: [], unchecked: [], notes: [], ...more };
 }
 
 export function sampleDeployTicket(now: number, which: DeploySample): TicketModel {
   const at = (min: number) => new Date(now - min * MIN).toISOString();
   const m = sampleTicket(now);
   const deployedOnce = which !== 'before' && which !== 'work';
-  const inUat = which === 'steps' || which === 'typed' || which === 'done';
+  const inUat = which === 'steps';
   const promotions = [
     ...(deployedOnce ? [{ from: 'dev', to: 'qa', pr: { number: 61, url: 'https://github.com/acme/service/pull/61' }, state: 'merged' as const, at: at(180), mergedAt: at(178) }] : []),
     ...(inUat ? [{ from: 'qa', to: 'uat', pr: { number: 64, url: 'https://github.com/acme/service/pull/64' }, state: 'merged' as const, at: at(25), mergedAt: at(24) }] : []),
@@ -73,23 +66,27 @@ export function sampleDeployTicket(now: number, which: DeploySample): TicketMode
     id: 'ACME-12', title: m.title, brief: '', source: { kind: 'jira', key: 'ACME-12', url: null }, environment: 'dev', deps: [], labels: [],
     state: which === 'before' ? 'todo' : which === 'work' ? 'review' : 'done', blocker: null,
     run: which === 'before' ? null : { branch: 'task/ACME-12-premium-escalation' }, pr: deployedOnce ? { number: 58, url: 'u', state: 'merged' } : which === 'work' ? { number: 58, url: 'u', state: 'open' } : null,
-    history: [], createdAt: at(600), updatedAt: at(20), promotions, outside, deploys: [],
+    history: [], createdAt: at(600), updatedAt: at(20), promotions, outside,
+    deploys: deployedOnce ? [{ env: 'dev', org: 'acme-dev', sha: 'b4d2c0f', at: at(200), jobId: null, paths: [], components: [], verified: 0, tests: null }] : [],
   } as unknown as Task;
+  // What acc where last read: each state at least once across the shots, and none before there's work.
+  const where: TicketWhere | null = !deployedOnce ? null : {
+    v: 1, task: 'ACME-12', envs: [
+      read('dev', 'deployed', at(12)), read('qa', 'deployed', at(12)),
+      inUat ? read('uat', 'deployed', at(12)) : read('uat', 'partly', at(12), { differs: ['Apex Class: CaseRouting', 'Flow: Case_Escalation'] }),
+      inUat ? read('production', 'not-deployed', at(12), { differs: ['Apex Class: CaseRouting', 'Apex Class: CaseRoutingTest', 'Custom Field: Case.Tier__c', 'Flow: Case_Escalation'] })
+        : read('production', 'unknown', at(12), { why: 'This machine has no access to Production: acme-prod isn\'t logged in here.' }),
+    ],
+  };
   const changes = which === 'before'
     ? ticketChanges({ task, profile: 'salesforce', planned: PLAN, live: null })
     : deployedOnce ? ticketChanges({ task: { ...task, changes: { at: at(178), paths: MADE } }, profile: 'salesforce', planned: PLAN, live: null })
       : ticketChanges({ task, profile: 'salesforce', planned: PLAN, live: MADE, deleted: [`${D}/classes/LegacyRouting.cls`] });
-  const to = which === 'typed' ? ENVS[4]! : ENVS[2]!;
-  const run: DeployRun | null = which === 'checking' ? { to: to.branch, toName: to.name, phase: 'checking', progress: 'Check in acme-uat', plan: null, result: null, error: null }
-    : which === 'passed' || which === 'typed' ? { to: to.branch, toName: to.name, phase: 'passed', progress: null, plan: plan(to, true), result: null, error: null }
-      : which === 'failed' ? { to: to.branch, toName: to.name, phase: 'failed', progress: null, plan: plan(to, false), result: null, error: null }
-        : which === 'done' ? { to: 'uat', toName: 'UAT', phase: 'deployed', progress: null, plan: plan(ENVS[2]!, true), error: null, result: { plan: plan(ENVS[2]!, true), deployed: true, jobId: '0AfKj000003Ck9pKAC', pr: { number: 64, url: 'https://github.com/acme/service/pull/64' }, merged: true, summary: 'Deployed ACME-12 to UAT: Deployed 5 components in acme-uat, 4 tests passed. Pull request #64 merged into uat.', warning: null, update: null } }
-        : null;
   const records = ticketRecords({ task, analysis: null, profile: 'salesforce', environments: ENVS });
-  // In review, its validate fails and it conflicts with dev, so Deploy is off with why; merged, both are behind it.
+  // In review, its validate fails and it conflicts with dev, so Deploy… is off with why; merged, both are behind it.
   const acc = m.acc && deployedOnce ? { ...m.acc, conflicts: null, checks: m.acc.checks.filter((c) => !deployBlockers([c]).length) } : m.acc;
   return {
     ...m, acc, project: ROOT, changes, records,
-    deploy: ticketDeploy({ config: CONFIG, task, tasks: [task], running: false, run, failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null, stepsLeft: openSteps(task).length }),
+    deploy: ticketDeploy({ config: CONFIG, task, tasks: [task], deploying: which === 'busy' ? 'uat' : null, failing: deployBlockers(acc?.checks ?? []), conflicts: acc?.conflicts ? 'dev' : null, stepsLeft: openSteps(task).length, where }),
   };
 }

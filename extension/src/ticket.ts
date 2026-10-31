@@ -19,7 +19,7 @@ import { runFile } from './run.ts';
 import { showFileAt } from './runs.ts';
 import type { Trackers } from './trackers.ts';
 import type { ExtensionArea } from './area.ts';
-import { addTaskArgs, conflictLine, draftFromOpen } from './logic/tasks.ts';
+import { addTaskArgs, draftFromOpen } from './logic/tasks.ts';
 import { inProcessWords } from './logic/processes.ts';
 import { ticketKey } from './logic/shared.ts';
 import { type Excerpt, fileInCheckout, mergeBase, reviewExcerpts } from './logic/review-excerpts.ts';
@@ -45,7 +45,7 @@ import { ticketManifest } from './model/manifest.ts';
 import { wordingReply } from './model/sheet-wording.ts';
 import type { DeployActions } from './ticket-deploy.ts';
 import { openSteps } from '../../packages/core/src/change-steps.ts';
-import { deployBlockers, deployOff, ticketDeploy } from './model/ticket-deploy.ts';
+import { deployBlockers, ticketDeploy } from './model/ticket-deploy.ts';
 import { deletedPaths } from './logic/ticket-deploy.ts';
 import type { PlanProgressActions } from './plan-progress.ts';
 import type { TalkActions } from './talk.ts';
@@ -159,7 +159,7 @@ export class TicketPanels implements vscode.Disposable {
   fields: FieldActions | null = null;
   /** Manifest for this ticket (T-101), set by its area: the section's state, and its buttons. */
   manifest: ManifestActions | null = null;
-  /** A ticket's deploy (T-138), set by its area: what's under way, and the sheet's buttons. */
+  /** A ticket's deploy (T-138), set by its area: a deploy under way, where its work is, and Deploy…'s pick. */
   deploys: DeployActions | null = null;
   /** Talk it through (T-98), set by its area: the conversation's state, and its buttons. */
   talk: TalkActions | null = null;
@@ -398,25 +398,6 @@ export class TicketPanels implements vscode.Disposable {
   }
 
   /**
-   * Why a ticket's deploy to `to` can't go now (T-138), from what its page's Deploy is drawn from: its checks
-   * and its conflicts, its dependencies, a deploy under way in any window. Null when it can. Its own check or
-   * deploy in this window is the caller's to know.
-   */
-  async deployOff(root: string, id: string, to: string): Promise<string | null> {
-    const p = this.hub.project(root);
-    const tasks = this.hub.ledger(root)?.tasks ?? [];
-    const task = tasks.find((t) => t.id === id.toUpperCase());
-    if (!p || !task) return 'That task isn\'t in the project any more.';
-    const env = p.config.environments.find((e) => e.branch === to);
-    if (!env) return `${to} isn't an environment in the project's settings.`;
-    const row = this.hub.taskRows(root).find((r) => r.id === task.id);
-    return deployOff({
-      config: p.config, task, tasks, running: this.deploys?.running(root, task.id) ?? false, run: null, where: this.deploys?.kept(root, task.id) ?? null,
-      failing: deployBlockers(await this.checks(p, task.run?.branch ?? null, task.environment)), conflicts: row && conflictLine(row, true) ? task.environment : null,
-    }, env);
-  }
-
-  /**
    * Each required check and any other recorded on the task branch's latest commit. Where the merge queue
    * runs the full check, a builder's lighter ones come first, then the full one, each saying which it is (GH-73).
    */
@@ -470,9 +451,9 @@ export class TicketPanels implements vscode.Disposable {
       records: ticketRecords({ task, analysis, profile: p.config.profile, environments: p.config.environments }),
       // Its deploy (T-138) waits while its own checks fail, unaccepted, or it conflicts with its environment.
       deploy: this.deploys ? ticketDeploy({
-        config: p.config, task, tasks: this.hub.ledger(p.root)?.tasks ?? [], running: this.deploys.running(p.root, task.id), run: this.deploys.run(p.root, task.id),
+        config: p.config, task, tasks: this.hub.ledger(p.root)?.tasks ?? [], deploying: this.deploys.deploying(p.root, task.id),
         failing: deployBlockers(model.acc?.checks ?? []), conflicts: model.acc?.conflicts ? task.environment : null, stepsLeft: openSteps(task).length,
-        where: this.deploys.where(p.root, task),
+        where: this.deploys.where(p.root, task), reading: this.deploys.reading(p.root, task.id),
       }) : null,
       talk,
       field: changes && o.tracker !== null && o.ticket ? this.fields?.model(p, o.tracker, task, ticketPaths(changes), updates, manifest?.manifest ?? null) ?? null : null,
@@ -599,8 +580,8 @@ export class TicketPanels implements vscode.Disposable {
       case 'record-add': case 'record-step':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.records?.act(m, (msg) => o.view.say(msg));
         return;
-      // Deploy to its next environment (T-138): this page's own task only.
-      case 'deploy-check': case 'deploy-go': case 'deploy-close': case 'deploy-guide':
+      // Deploy…'s pick, which starts the deploy guide's agent (T-158), and Check again: this page's own task only.
+      case 'deploy-guide': case 'where-check':
         if (m.project === o.project && m.task.toUpperCase() === o.key) await this.deploys?.act(m);
         return;
       // Manifest for this ticket (T-101): this page's own task only.

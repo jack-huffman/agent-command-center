@@ -1,7 +1,7 @@
 [
   {
     "command": "acc.task.deploy",
-    "title": "Deploy a Ticket to Its Next Environment\u2026",
+    "title": "Deploy a Ticket\u2026",
     "category": "Agent Command Center",
     "icon": "$(cloud-upload)"
   },

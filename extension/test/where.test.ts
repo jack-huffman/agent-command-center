@@ -1,5 +1,5 @@
-// Where a ticket's work is, on its page (T-155): the path line takes in what the orgs were found to hold, each
-// stop carries its reading and when it was read, and the readings are read behind the page, never waited on.
+// Where a ticket's work is, on its page (T-155): the environment rows (T-158) take in what the orgs were found to
+// hold, each row carries its reading and when it was read, and the readings are read behind the page, never waited on.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Config, Environment } from '../../packages/core/src/config.ts';
@@ -7,7 +7,7 @@ import type { Task } from '../../packages/core/src/ledger.ts';
 import { tempDir } from '../../packages/core/test/support.ts';
 import { type EnvWhere, keepWhere, type TicketWhere, WHERE_MAX_AGE_MS } from '../../packages/core/src/where-kept.ts';
 import { WhereReads } from '../src/logic/where.ts';
-import { deployOff, foundAt, ticketDeploy, ticketPath, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
+import { deployOff, envRows, ticketDeploy, WHERE_LOOK } from '../src/model/ticket-deploy.ts';
 
 const env = (name: string, more: Partial<Environment> = {}): Environment => ({ name, branch: name.toLowerCase(), type: 'sandbox' as Environment['type'], org: `acme-${name.toLowerCase()}`, default: false, protected: false, promotesTo: [], ...more });
 const ENVS = [env('Dev', { default: true, promotesTo: ['qa'] }), env('QA', { promotesTo: ['uat'] }), env('UAT', { promotesTo: ['production'] }), env('Production', { type: 'production' as Environment['type'], protected: true })];
@@ -23,33 +23,31 @@ const read = (e: string, state: EnvWhere['state'], more: Partial<EnvWhere> = {})
 };
 const where = (...envs: EnvWhere[]): TicketWhere => ({ v: 1, task: 'ACME-7', envs });
 
-test('work found in an org outside acc moves the path line on, and each stop carries what was found and when', () => {
+test('work found in an org outside acc moves the rows on, and each row carries what was found, why, and when it was read (T-158)', () => {
   const w = where(read('dev', 'deployed'), read('qa', 'partly', { differs: ['Apex Class: Helper'] }), read('uat', 'deployed', { notes: ['It\'s in UAT\'s org, with no deploy of it on record: it got there another way.'] }), read('production', 'unknown', { why: 'This machine has no access to Production: acme-production isn\'t logged in here.' }));
-  const p = ticketPath(config, task(), w);
-  assert.deepEqual(p.map((s) => [s.name, s.look.label]), [['Dev', 'merged'], ['QA', 'deployed'], ['UAT', 'deployed'], ['Production', 'next']]);
-  assert.deepEqual(p.map((s) => s.found?.look.label), ['in the org', 'partly deployed', 'in the org', 'can\'t tell']);
-  assert.deepEqual(p[1]!.found?.differs, ['Apex Class: Helper']);
-  assert.match(p[1]!.found!.words, /QA: partly deployed\. Apex Class: Helper differs\./);
-  assert.match(p[3]!.found!.words, /can't tell\. This machine has no access to Production/);
-  assert.equal(p[2]!.found!.at, AT, 'when it was read');
-  const d = ticketDeploy({ config, task: task(), tasks: [task()], running: false, run: null, where: w })!;
-  assert.equal(d.deploy?.label, 'Deploy to Production', 'the next deploy goes on from where the org holds it');
-  assert.equal(deployOff({ config, task: task(), tasks: [task()], running: false, run: null, where: w }, ENVS[3]!), null);
+  const rows = envRows(config, task(), w);
+  assert.deepEqual(rows.map((r) => [r.name, r.look.label, r.next?.label ?? null]), [['Dev', 'Deployed', null], ['QA', 'Partly deployed', null], ['UAT', 'Deployed', null], ['Production', 'Can\'t tell', 'Next']]);
+  assert.deepEqual([rows[1]!.detail, rows[1]!.differs], ['1 component differs', ['Apex Class: Helper']]);
+  assert.match(rows[3]!.detail!, /^This machine has no access to Production/);
+  assert.deepEqual(rows[2]!.notes, ['It\'s in UAT\'s org, with no deploy of it on record: it got there another way.']);
+  assert.equal(rows[2]!.readAt, AT, 'when it was read');
+  const d = ticketDeploy({ config, task: task(), tasks: [task()], deploying: null, where: w })!;
+  assert.deepEqual(d.pick?.choices.map((c) => c.name), ['Production'], 'Deploy… goes on from where the org holds it');
+  assert.equal(deployOff({ config, task: task(), tasks: [task()], deploying: null, where: w }, ENVS[3]!), null);
 });
 
-test('before the first reading, the line is today\'s line and each stop has nothing found', () => {
-  const p = ticketPath(config, task());
-  assert.deepEqual(p.map((s) => [s.look.label, s.found]), [['merged', null], ['next', null], ['later', null], ['later', null]]);
-  assert.equal(foundAt(null, 'qa'), null);
-  assert.equal(foundAt(where(read('qa', 'deployed')), 'uat'), null, 'an environment not read yet');
+test('edge case: before the first reading, each row says it hasn\'t been read, and Check again is there to read it (T-158)', () => {
+  const rows = envRows(config, task());
+  assert.deepEqual(rows.map((r) => [r.look.label, r.readAt, r.notes]), [['Can\'t tell', null, []], ['Can\'t tell', null, []], ['Can\'t tell', null, []], ['Can\'t tell', null, []]]);
+  assert.deepEqual(envRows(config, task(), where(read('qa', 'deployed'))).map((r) => r.readAt), [null, AT, null, null], 'an environment not read yet');
   assert.deepEqual(Object.values(WHERE_LOOK).map((l) => l.tone), ['blue', 'orange', 'orange', 'neutral'], 'orange against blue, each with words');
 });
 
-test('a reading of not deployed never takes the line back from what acc recorded', () => {
+test('a reading of not deployed never takes the rows back from what acc recorded, and says where they disagree (T-158)', () => {
   const t = task({ promotions: [{ from: 'dev', to: 'qa', pr: { number: 4, url: 'u' }, state: 'merged', at: AT, mergedAt: AT }] });
-  const p = ticketPath(config, t, where(read('qa', 'not-deployed', { notes: ['Its deploy record says it reached QA on 2026-10-30, but the org doesn\'t hold it now.'] })));
-  assert.deepEqual(p.map((s) => s.look.label), ['merged', 'deployed', 'next', 'later']);
-  assert.match(p[1]!.found!.words, /not deployed\. Its deploy record says it reached QA/);
+  const rows = envRows(config, t, where(read('qa', 'not-deployed', { notes: ['Its deploy record says it reached QA on 2026-10-30, but the org doesn\'t hold it now.'] })));
+  assert.deepEqual(rows.map((r) => [r.look.label, !!r.next]), [['Can\'t tell', false], ['Not deployed', false], ['Can\'t tell', true], ['Can\'t tell', false]]);
+  assert.match(rows[1]!.notes[0]!, /Its deploy record says it reached QA/);
 });
 
 /** A host whose acc answers when told, and that counts each read and each draw. */

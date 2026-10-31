@@ -1601,11 +1601,19 @@ The extension handles every workspace folder that has `.acc/config.json`.
   bell. The notices that need the person stay above the tabs, and Details and
   the Agent panel beside them. A page opens on a link's tab, else one that
   needs the person, else the tab last on show for that ticket, else Ticket.
-- **Changes leads with where it is and Deploy** (T-138): the ticket's path in
-  one line, and on a Salesforce task, Deploy to its next environment, which opens
-  a sheet that checks first and deploys only on the person's own click (a
-  protected org's name typed first). It's off, with why, while the ticket's own
-  checks fail or it conflicts with its environment. Then what changed: one list
+- **Changes leads with where it is and Deploy…** (T-138, T-158): on a
+  Salesforce task, one row for each environment on the ticket's path, in order,
+  each with its org, its state as an icon and a label (deployed, partly
+  deployed with how many differ and a fold that lists them, not deployed, or
+  can't tell with why), when it was read and a quiet Check again. The
+  development environment's row says whether the work is merged into its
+  branch; only the usual next step says Next; a deploy under way shows on its
+  row. Then one primary Deploy…, which asks where, from at most three
+  environments ahead, each saying what happens next ("An agent deploys it", or
+  after you type Production's name); the pick starts the deploy guide's agent
+  there (D-235, T-156). Nothing on the tab deploys by itself. Deploy… is off,
+  with why, while the ticket's own checks fail, it conflicts with its
+  environment or a deploy is under way. Then what changed: one list
   by type with a count, deletions marked in words, record changes in a short
   list after it. The steps left to do
   by hand follow, with Mark done and Skip. The manifest, the tracker's changes

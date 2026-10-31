@@ -675,7 +675,7 @@
       },
       {
         "command": "acc.task.deploy",
-        "title": "Deploy a Ticket to Its Next Environment…",
+        "title": "Deploy a Ticket…",
         "category": "Agent Command Center",
         "icon": "$(cloud-upload)"
       },
